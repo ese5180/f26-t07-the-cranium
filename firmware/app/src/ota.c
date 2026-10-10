@@ -68,6 +68,10 @@ static struct {
 	struct ota_job job;
 	/* The cloud has accepted that this device is working on the job. */
 	bool started;
+	/* A job this device has just closed. Replies that were already on their way
+	 * may still list it; they must not bring it back.
+	 */
+	char closed_job_id[OTA_JOB_ID_MAX + 1];
 	uint8_t download_attempts;
 	int progress;
 
@@ -200,6 +204,13 @@ static void go_idle(void)
 	enter(OTA_IDLE);
 }
 
+/* Remember a job that this device has given a final answer to. */
+static void close_job(const char *job_id)
+{
+	strncpy(ota.closed_job_id, job_id, sizeof(ota.closed_job_id) - 1);
+	ota.closed_job_id[sizeof(ota.closed_job_id) - 1] = '\0';
+}
+
 /* Remove a downloaded image that will not be installed. */
 static void discard_download(void)
 {
@@ -217,6 +228,7 @@ static void fail_job(const char *reason, const char *detail)
 	(void)job_update(ota.job.id, "FAILED", TOKEN_NONE, NULL,
 			 "\"reason\":\"%s\",\"detail\":\"%s\",\"running\":\"%s\"", reason, detail,
 			 fw_version_running_string());
+	close_job(ota.job.id);
 	set_last("failed", reason);
 	go_idle();
 	(void)cloud_jobs_request_next();
@@ -232,6 +244,7 @@ static void refuse_job(const char *job_id, bool in_progress, const char *reason)
 	(void)job_update(job_id, in_progress ? "FAILED" : "REJECTED", TOKEN_NONE, NULL,
 			 "\"reason\":\"%s\",\"running\":\"%s\"", reason,
 			 fw_version_running_string());
+	close_job(job_id);
 	set_last("refused", reason);
 }
 
@@ -366,6 +379,16 @@ static int verify_download(const char **reason)
 	    header.h.v1.sem_ver.revision != ota.job.version.revision ||
 	    header.h.v1.sem_ver.build_num != ota.job.version.build ||
 	    header.h.v1.image_size > ota.job.size) {
+		*reason = "header_mismatch";
+		return -EBADMSG;
+	}
+
+	/*
+	 * Only this code asks the bootloader for a swap, and only for a trial. A file
+	 * long enough to bring a swap request of its own could make the update permanent
+	 * without one, so nothing may be pending yet.
+	 */
+	if (mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE) {
 		*reason = "header_mismatch";
 		return -EBADMSG;
 	}
@@ -520,6 +543,8 @@ static void on_job_withdrawn(void)
  */
 static void settle_interrupted_job(const struct ota_job *job)
 {
+	close_job(job->id);
+
 	if (fw_version_compare(&job->version, fw_version_running()) == 0) {
 		(void)job_update(job->id, "SUCCEEDED", TOKEN_NONE, NULL, "\"running\":\"%s\"",
 				 fw_version_running_string());
@@ -545,8 +570,11 @@ static void on_job(const struct ota_job *incoming)
 	bool same_job = strcmp(incoming->id, ota.job.id) == 0;
 	enum ota_job_result verdict;
 
-	/* The job whose outcome is about to be reported is not a new offer. */
-	if (ota.have_record && strcmp(incoming->id, ota.record.job_id) == 0) {
+	/* The job whose outcome is about to be reported is not a new offer, and neither
+	 * is one that was just answered.
+	 */
+	if ((ota.have_record && strcmp(incoming->id, ota.record.job_id) == 0) ||
+	    strcmp(incoming->id, ota.closed_job_id) == 0) {
 		return;
 	}
 
@@ -695,6 +723,11 @@ void ota_on_cloud_up(void)
 
 	send_final_report();
 
+	/* After a reconnect the cloud's list is the truth again: an answer that was lost
+	 * with the old connection gets given once more.
+	 */
+	ota.closed_job_id[0] = '\0';
+
 	if (ota.state == OTA_COMMITTING) {
 		/* The connection dropped while the answer was outstanding: ask again. */
 		ota.seconds_in_state = 0;
@@ -739,7 +772,8 @@ void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t
 		break;
 	default:
 		/* Identified but unusable: refuse it so that it does not block later jobs. */
-		if (ota.have_record && strcmp(incoming.id, ota.record.job_id) == 0) {
+		if ((ota.have_record && strcmp(incoming.id, ota.record.job_id) == 0) ||
+		    strcmp(incoming.id, ota.closed_job_id) == 0) {
 			break;
 		}
 		if (ota.state == OTA_IDLE || ota.state == OTA_AWAITING_USER ||
@@ -811,6 +845,7 @@ void ota_on_button(enum app_button button)
 		(void)job_update(ota.job.id, "REJECTED", TOKEN_NONE, NULL,
 				 "\"reason\":\"declined\",\"running\":\"%s\"",
 				 fw_version_running_string());
+		close_job(ota.job.id);
 		set_last("declined", "");
 		go_idle();
 	}
