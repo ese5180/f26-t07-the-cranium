@@ -16,7 +16,8 @@ files derived from it keep Nordic's copyright notice and licence identifier.
 
 1. Install nRF Connect SDK v3.4.0 and its toolchain (nRF Connect for VS Code or
    `nrfutil toolchain-manager`).
-2. Put the firmware signing key at `secrets/mcuboot_signing_key.pem`
+2. Create the firmware signing key with `python tools/keys.py generate`, or put the
+   team key at `~/.cranium/mcuboot_signing_key.pem`
    (see [`secrets/README.md`](../secrets/README.md)). The build stops with an
    explanation if it is missing.
 3. From an nRF Connect SDK terminal:

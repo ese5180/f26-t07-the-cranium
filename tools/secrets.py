@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Create and lock the local Wi-Fi secrets file.
 
-    python tools/secrets.py wifi      ask for the network and write secrets/wifi_secrets.h
+    python tools/secrets.py wifi      ask for the network and write ~/.cranium/wifi_secrets.h
     python tools/secrets.py status    show which local secrets exist and who can read them
+
+The file is kept outside the repository (see tools/local.py), so it cannot be committed
+and does not end up in a synchronised folder.
 
 `wifi` writes the file owned by root with mode 0600, so reading it afterwards needs an
 administrator password (the provisioning tool asks for it through sudo). The passphrase
@@ -17,9 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-SECRETS = REPO / "secrets"
-WIFI = SECRETS / "wifi_secrets.h"
+from local import LOCAL_DIR as SECRETS, WIFI_SECRETS as WIFI, ensure_local_dir
+
 SECURITIES = ("WPA2_PSK", "WPA2_PSK_SHA256", "WPA3_SAE")
 
 TEMPLATE = """/*
@@ -61,7 +63,7 @@ def wifi() -> None:
 
     content = TEMPLATE.format(ssid=c_string(ssid), passphrase=c_string(passphrase),
                               security=security)
-    SECRETS.mkdir(mode=0o700, exist_ok=True)
+    ensure_local_dir()
 
     print("Writing the file as root so that reading it needs an administrator password.")
     # tee runs as root and receives the content on stdin, so the passphrase is never
@@ -70,18 +72,19 @@ def wifi() -> None:
                     'umask 077 && cat > "$1" && chown root "$1" && chmod 600 "$1"',
                     "sh", str(WIFI)], input=content.encode(), check=True,
                    stdout=subprocess.DEVNULL)
-    print(f"Wrote {WIFI.relative_to(REPO)} (owner root, mode 600, ignored by git)")
+    print(f"Wrote {WIFI} (owner root, mode 600, outside the repository)")
 
 
 def status() -> None:
-    for path in sorted(SECRETS.iterdir()) if SECRETS.is_dir() else []:
-        if path.name == "README.md" or path.name.endswith(".example"):
-            continue
+    if not SECRETS.is_dir() or not any(SECRETS.iterdir()):
+        print(f"{SECRETS} holds nothing yet")
+        return
+    for path in sorted(SECRETS.iterdir()):
         info = path.stat()
         owner = "root" if info.st_uid == 0 else "you" if info.st_uid == os.getuid() else str(info.st_uid)
         mode = stat.filemode(info.st_mode)
         note = "" if not (info.st_mode & 0o077) else "  <- readable by others: chmod 600"
-        print(f"{mode}  owner {owner:<4}  {path.relative_to(REPO)}{note}")
+        print(f"{mode}  owner {owner:<4}  {path}{note}")
 
 
 def main() -> None:
