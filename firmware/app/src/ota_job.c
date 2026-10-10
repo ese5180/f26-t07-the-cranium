@@ -248,6 +248,32 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 	return result;
 }
 
+/*
+ * The MQTT interface embeds the job document as an object. Other AWS IoT interfaces
+ * deliver the same document as a string of JSON; accept that form too.
+ */
+static enum ota_job_result parse_execution_document(const cJSON *execution,
+						    const char *allowed_url_prefix,
+						    struct ota_job *job)
+{
+	const cJSON *document = cJSON_GetObjectItemCaseSensitive(execution, "jobDocument");
+	enum ota_job_result result;
+	cJSON *embedded;
+
+	if (!cJSON_IsString(document)) {
+		return parse_document(document, allowed_url_prefix, job);
+	}
+
+	if (!depth_within_limit(document->valuestring, strlen(document->valuestring))) {
+		return OTA_JOB_BAD_DOCUMENT;
+	}
+
+	embedded = cJSON_Parse(document->valuestring);
+	result = parse_document(embedded, allowed_url_prefix, job);
+	cJSON_Delete(embedded);
+	return result;
+}
+
 enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allowed_url_prefix,
 				  struct ota_job *job)
 {
@@ -287,8 +313,7 @@ enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allo
 	status = string_member(execution, "status");
 	job->in_progress = (status != NULL) && strcmp(status, "IN_PROGRESS") == 0;
 
-	result = parse_document(cJSON_GetObjectItemCaseSensitive(execution, "jobDocument"),
-				allowed_url_prefix, job);
+	result = parse_execution_document(execution, allowed_url_prefix, job);
 	cJSON_Delete(root);
 
 	if (result != OTA_JOB_OK) {
