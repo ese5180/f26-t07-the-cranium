@@ -68,8 +68,10 @@ static void update_ui(void)
 		ui_set_state(UI_UPDATE_OFFERED);
 		return;
 	case OTA_REFRESHING:
+	case OTA_STARTING:
 	case OTA_DOWNLOADING:
 	case OTA_VERIFYING:
+	case OTA_COMMITTING:
 	case OTA_REBOOTING:
 		ui_set_state(UI_UPDATE_IN_PROGRESS);
 		return;
@@ -208,7 +210,8 @@ static void handle(const struct app_event *event)
 		on_job_message();
 		break;
 	case APP_EVENT_JOB_ACK:
-		ota_on_report_ack(event->job_ack.accepted);
+		ota_on_job_ack(event->job_ack.kind, event->job_ack.sequence, event->job_ack.accepted,
+			       event->job_ack.permanent);
 		break;
 	case APP_EVENT_BUTTON:
 		on_button(event);

@@ -12,7 +12,9 @@
 #include <stddef.h>
 
 enum cloud_job_message {
-	/* AWS IoT announced which job execution is next (or that there is none). */
+	/* The list of pending job executions changed. Carries no payload: the document
+	 * is always fetched with cloud_jobs_request_next(), which also signs a fresh URL.
+	 */
 	CLOUD_JOB_NOTIFY_NEXT,
 	/* Reply to cloud_jobs_request_next(). */
 	CLOUD_JOB_GET_ACCEPTED,
@@ -32,7 +34,11 @@ int cloud_shadow_report(const char *reported_json);
 /* Ask for the next pending job execution, including a fresh job document. */
 int cloud_jobs_request_next(void);
 
-/* Update a job execution. body_json is the complete request body. */
+/*
+ * Update a job execution. body_json is the complete request body. If it carries a
+ * "clientToken" of one letter followed by a number, the reply arrives as
+ * APP_EVENT_JOB_ACK with that letter and number.
+ */
 int cloud_jobs_update(const char *job_id, const char *body_json);
 
 /*

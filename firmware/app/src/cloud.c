@@ -19,9 +19,6 @@ LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 #define CONNECT_STACK    4096
 #define CONNECT_PRIORITY K_PRIO_PREEMPT(10)
 
-/* Token that marks the final report of an update, so that its reply can be recognised. */
-#define REPORT_TOKEN_FIELD "\"clientToken\":\"report\""
-
 static char topic_notify_next[TOPIC_MAX];
 static char topic_get_accepted[TOPIC_MAX];
 static char topic_get_rejected[TOPIC_MAX];
@@ -53,17 +50,93 @@ static bool ends_with(const char *text, size_t text_len, const char *suffix)
 	       memcmp(text + text_len - suffix_len, suffix, suffix_len) == 0;
 }
 
-static bool contains(const char *text, size_t text_len, const char *needle)
+/*
+ * Copy the value of a string member out of a small JSON reply from AWS IoT. This is
+ * not a parser: it finds "name" followed by a colon and a quoted value without
+ * escapes, which is all that tokens and error codes are.
+ */
+static bool json_string(const char *json, size_t len, const char *name, char *out,
+			size_t out_size)
 {
-	size_t needle_len = strlen(needle);
+	size_t name_len = strlen(name);
 
-	for (size_t i = 0; i + needle_len <= text_len; i++) {
-		if (memcmp(text + i, needle, needle_len) == 0) {
-			return true;
+	for (size_t i = 1; i + name_len + 1 < len; i++) {
+		size_t at;
+		size_t used = 0;
+
+		if (json[i - 1] != '"' || (i >= 2 && json[i - 2] == '\\') ||
+		    memcmp(json + i, name, name_len) != 0 || json[i + name_len] != '"') {
+			continue;
 		}
+
+		at = i + name_len + 1;
+		while (at < len && (json[at] == ' ' || json[at] == '\t')) {
+			at++;
+		}
+		if (at >= len || json[at] != ':') {
+			continue;
+		}
+		at++;
+		while (at < len && (json[at] == ' ' || json[at] == '\t')) {
+			at++;
+		}
+		if (at >= len || json[at] != '"') {
+			return false;
+		}
+		at++;
+
+		while (at < len && json[at] != '"') {
+			if (json[at] == '\\' || used + 1 >= out_size) {
+				return false;
+			}
+			out[used++] = json[at++];
+		}
+		if (at >= len) {
+			return false;
+		}
+
+		out[used] = '\0';
+		return true;
 	}
 
 	return false;
+}
+
+/* The reply to a job status update: hand it over if the update logic waits for it. */
+static void on_update_reply(bool accepted, const char *payload, size_t len)
+{
+	struct app_event event = { .type = APP_EVENT_JOB_ACK, .job_ack.accepted = accepted };
+	char token[12];
+	char code[32];
+	unsigned int sequence = 0;
+
+	if (!accepted) {
+		LOG_WRN("Job update rejected: %.*s", (int)MIN(len, 160), payload);
+	}
+
+	if (!json_string(payload, len, "clientToken", token, sizeof(token)) || token[1] == '\0') {
+		return;
+	}
+
+	for (const char *digit = token + 1; *digit != '\0'; digit++) {
+		if (*digit < '0' || *digit > '9') {
+			return;
+		}
+		sequence = sequence * 10 + (unsigned int)(*digit - '0');
+	}
+
+	event.job_ack.kind = token[0];
+	event.job_ack.sequence = (uint16_t)sequence;
+
+	/* Everything except a busy or failing service is final: the execution was
+	 * cancelled, timed out or deleted, or the request itself is not acceptable.
+	 */
+	event.job_ack.permanent = !accepted &&
+		!(json_string(payload, len, "code", code, sizeof(code)) &&
+		  (strcmp(code, "RequestThrottled") == 0 || strcmp(code, "InternalError") == 0 ||
+		   strcmp(code, "ServiceUnavailable") == 0));
+
+	(void)app_event_post(&event);
 }
 
 static void queue_job_message(enum cloud_job_message kind, const char *payload, size_t len)
@@ -92,26 +165,16 @@ static void queue_job_message(enum cloud_job_message kind, const char *payload, 
 static void on_message(const char *topic, size_t topic_len, const char *payload, size_t len)
 {
 	if (ends_with(topic, topic_len, "/jobs/notify-next")) {
-		queue_job_message(CLOUD_JOB_NOTIFY_NEXT, payload, len);
+		/* Only a signal. Its copy of the document has no usable download URL. */
+		queue_job_message(CLOUD_JOB_NOTIFY_NEXT, "", 0);
 	} else if (ends_with(topic, topic_len, "/jobs/$next/get/accepted")) {
 		queue_job_message(CLOUD_JOB_GET_ACCEPTED, payload, len);
 	} else if (ends_with(topic, topic_len, "/jobs/$next/get/rejected")) {
 		queue_job_message(CLOUD_JOB_GET_REJECTED, payload, len);
-	} else if (ends_with(topic, topic_len, "/update/accepted") ||
-		   ends_with(topic, topic_len, "/update/rejected")) {
-		const struct app_event event = {
-			.type = APP_EVENT_JOB_ACK,
-			.job_ack.accepted = ends_with(topic, topic_len, "/update/accepted"),
-		};
-
-		if (!event.job_ack.accepted) {
-			LOG_WRN("Job update rejected: %.*s", (int)MIN(len, 160), payload);
-		}
-
-		/* Only the reply to the final report matters to the update logic. */
-		if (contains(payload, len, REPORT_TOKEN_FIELD)) {
-			(void)app_event_post(&event);
-		}
+	} else if (ends_with(topic, topic_len, "/update/accepted")) {
+		on_update_reply(true, payload, len);
+	} else if (ends_with(topic, topic_len, "/update/rejected")) {
+		on_update_reply(false, payload, len);
 	}
 }
 

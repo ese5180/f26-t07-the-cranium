@@ -19,7 +19,7 @@ enum app_event_type {
 	APP_EVENT_CLOUD_DOWN,
 	/* A jobs message (the next job, or the reply to a request for it) is waiting. */
 	APP_EVENT_JOB_MESSAGE,
-	/* AWS IoT accepted or rejected a job status update. */
+	/* AWS IoT answered a job status update that the update logic is waiting on. */
 	APP_EVENT_JOB_ACK,
 	APP_EVENT_BUTTON,
 	APP_EVENT_DOWNLOAD,
@@ -52,7 +52,12 @@ struct app_event {
 			int16_t value;
 		} download;
 		struct {
+			/* Which update this answers: the token it was sent with. */
+			char kind;
+			uint16_t sequence;
 			bool accepted;
+			/* Rejected for a reason that sending it again cannot change. */
+			bool permanent;
 		} job_ack;
 	};
 };

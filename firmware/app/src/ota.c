@@ -25,6 +25,7 @@ LOG_MODULE_REGISTER(ota, CONFIG_APP_LOG_LEVEL);
 #define SECONDARY_SLOT_SIZE PARTITION_SIZE(slot1_partition)
 
 #define REFRESH_TIMEOUT_SECONDS 20
+#define ACK_TIMEOUT_SECONDS     20
 #define REBOOT_DELAY_SECONDS    3
 #define REPORT_RETRY_SECONDS    30
 #define PROGRESS_STEP_PERCENT   10
@@ -53,14 +54,28 @@ enum final_report {
 	REPORT_FAILED,
 };
 
+/* First letter of the token on a job update whose reply is waited for. */
+#define TOKEN_NONE   '\0'
+#define TOKEN_START  's'
+#define TOKEN_COMMIT 'c'
+#define TOKEN_REPORT 'r'
+
 static struct {
 	enum ota_state state;
 	int seconds_in_state;
 
 	/* The job being offered, downloaded or installed. */
 	struct ota_job job;
+	/* The cloud has accepted that this device is working on the job. */
+	bool started;
 	uint8_t download_attempts;
 	int progress;
+
+	/* Number of the last job update that was sent with a token. */
+	uint16_t sequence;
+	uint16_t start_sequence;
+	uint16_t commit_sequence;
+	uint16_t report_sequence;
 
 	/* An update that was started before the last restart. */
 	struct ota_record record;
@@ -78,8 +93,10 @@ static const char *const state_names[] = {
 	[OTA_IDLE] = "idle",
 	[OTA_AWAITING_USER] = "awaiting_user",
 	[OTA_REFRESHING] = "downloading",
+	[OTA_STARTING] = "downloading",
 	[OTA_DOWNLOADING] = "downloading",
 	[OTA_VERIFYING] = "verifying",
+	[OTA_COMMITTING] = "verifying",
 	[OTA_REBOOTING] = "rebooting",
 	[OTA_TESTING] = "testing",
 };
@@ -102,9 +119,13 @@ static void set_last(const char *result, const char *error)
 
 /*
  * Send a job execution update. details is a comma-separated list of "key":"value"
- * pairs built only from values this firmware controls (step names, numbers, versions).
+ * pairs built only from values this firmware controls (step names, numbers, versions);
+ * the service accepts only non-empty strings as values.
+ *
+ * With a token the reply comes back through ota_on_job_ack(); *sequence then receives
+ * the number that reply will carry.
  */
-static int job_update(const char *job_id, const char *status, const char *client_token,
+static int job_update(const char *job_id, const char *status, char token, uint16_t *sequence,
 		      const char *details_format, ...)
 {
 	char details[160];
@@ -120,10 +141,14 @@ static int job_update(const char *job_id, const char *status, const char *client
 		return -ENOSPC;
 	}
 
-	if (client_token != NULL) {
+	if (token != TOKEN_NONE) {
+		if (++ota.sequence == 0) {
+			ota.sequence = 1;
+		}
+		*sequence = ota.sequence;
 		written = snprintk(body, sizeof(body),
-				   "{\"status\":\"%s\",\"statusDetails\":{%s},\"clientToken\":\"%s\"}",
-				   status, details, client_token);
+				   "{\"status\":\"%s\",\"statusDetails\":{%s},\"clientToken\":\"%c%u\"}",
+				   status, details, token, ota.sequence);
 	} else {
 		written = snprintk(body, sizeof(body), "{\"status\":\"%s\",\"statusDetails\":{%s}}",
 				   status, details);
@@ -154,10 +179,10 @@ static void send_final_report(void)
 	}
 
 	if (ota.report == REPORT_SUCCEEDED) {
-		err = job_update(ota.record.job_id, "SUCCEEDED", "report", "\"running\":\"%s\"",
-				 fw_version_running_string());
+		err = job_update(ota.record.job_id, "SUCCEEDED", TOKEN_REPORT, &ota.report_sequence,
+				 "\"running\":\"%s\"", fw_version_running_string());
 	} else {
-		err = job_update(ota.record.job_id, "FAILED", "report",
+		err = job_update(ota.record.job_id, "FAILED", TOKEN_REPORT, &ota.report_sequence,
 				 "\"reason\":\"%s\",\"running\":\"%s\"", ota.report_reason,
 				 fw_version_running_string());
 	}
@@ -168,26 +193,57 @@ static void send_final_report(void)
 	}
 }
 
-/* Give up on the current job and tell the cloud why. */
+/* Back to waiting for the next job. */
+static void go_idle(void)
+{
+	ota.started = false;
+	enter(OTA_IDLE);
+}
+
+/* Remove a downloaded image that will not be installed. */
+static void discard_download(void)
+{
+	int err = boot_erase_img_bank(SECONDARY_SLOT_ID);
+
+	if (err) {
+		LOG_WRN("The secondary slot could not be erased: %d", err);
+	}
+}
+
+/* Give up on the job this device had started and tell the cloud why. */
 static void fail_job(const char *reason, const char *detail)
 {
 	LOG_ERR("Update %s failed: %s (%s)", ota.job.id, reason, detail);
-	(void)job_update(ota.job.id, "FAILED", NULL, "\"reason\":\"%s\",\"detail\":\"%s\"", reason,
-			 detail);
+	(void)job_update(ota.job.id, "FAILED", TOKEN_NONE, NULL,
+			 "\"reason\":\"%s\",\"detail\":\"%s\",\"running\":\"%s\"", reason, detail,
+			 fw_version_running_string());
 	set_last("failed", reason);
-	enter(OTA_IDLE);
+	go_idle();
 	(void)cloud_jobs_request_next();
 }
 
-/* Refuse a job without attempting it. */
-static void reject_job(const char *job_id, enum ota_job_result why)
+/*
+ * Refuse a job without attempting it. The service only takes a rejection for an
+ * execution that is still queued; one that is already in progress has to fail.
+ */
+static void refuse_job(const char *job_id, bool in_progress, const char *reason)
 {
-	const char *reason = ota_job_result_reason(why);
-
 	LOG_WRN("Refusing update job %s: %s", job_id, reason);
-	(void)job_update(job_id, "REJECTED", NULL, "\"reason\":\"%s\",\"running\":\"%s\"", reason,
+	(void)job_update(job_id, in_progress ? "FAILED" : "REJECTED", TOKEN_NONE, NULL,
+			 "\"reason\":\"%s\",\"running\":\"%s\"", reason,
 			 fw_version_running_string());
 	set_last("refused", reason);
+}
+
+/* The job was cancelled, timed out or deleted while this device was working on it. */
+static void abandon_job(bool downloaded)
+{
+	LOG_INF("Update job %s was withdrawn", ota.job.id);
+	if (downloaded) {
+		discard_download();
+	}
+	set_last("cancelled", "");
+	go_idle();
 }
 
 static void download_callback(const struct fota_download_evt *download_event)
@@ -237,9 +293,6 @@ static void start_download(void)
 		ota.job.version.major, ota.job.version.minor, ota.job.version.revision,
 		ota.job.version.build, ota.download_attempts);
 
-	(void)job_update(ota.job.id, "IN_PROGRESS", NULL,
-			 "\"step\":\"downloading\",\"progress\":\"0\"");
-
 	/*
 	 * HTTPS only: the host string carries the scheme and a TLS security tag is always
 	 * given, so the server certificate is verified against the provisioned root CA.
@@ -257,6 +310,28 @@ static void refresh_document(void)
 	enter(OTA_REFRESHING);
 	if (cloud_jobs_request_next() != 0) {
 		LOG_WRN("Could not request the job document; will retry");
+	}
+}
+
+/*
+ * Tell the cloud that this device starts the update. The download begins only when
+ * the cloud accepts that: an update that was cancelled meanwhile is rejected here.
+ */
+static void announce_start(void)
+{
+	enter(OTA_STARTING);
+	if (job_update(ota.job.id, "IN_PROGRESS", TOKEN_START, &ota.start_sequence,
+		       "\"step\":\"downloading\"") != 0) {
+		LOG_WRN("Could not announce the start of the update; will retry");
+	}
+}
+
+/* Tell the cloud that the verified image is about to be installed. */
+static void announce_commit(void)
+{
+	if (job_update(ota.job.id, "IN_PROGRESS", TOKEN_COMMIT, &ota.commit_sequence,
+		       "\"step\":\"rebooting\"") != 0) {
+		LOG_WRN("Could not announce the installation; will retry");
 	}
 }
 
@@ -340,19 +415,28 @@ static int verify_download(const char **reason)
 	return 0;
 }
 
-static void install_download(void)
+/* The download is complete: check it, then ask the cloud whether to go on. */
+static void check_download(void)
 {
 	const char *reason;
-	int err;
 
 	enter(OTA_VERIFYING);
-	(void)job_update(ota.job.id, "IN_PROGRESS", NULL, "\"step\":\"verifying\"");
 
-	err = verify_download(&reason);
-	if (err) {
+	if (verify_download(&reason) != 0) {
+		discard_download();
 		fail_job(reason, "image in secondary slot rejected");
 		return;
 	}
+
+	LOG_INF("Image verified");
+	enter(OTA_COMMITTING);
+	announce_commit();
+}
+
+/* The cloud agreed: hand the image to the bootloader and restart. */
+static void install_download(void)
+{
+	int err;
 
 	/* Remember the job across the restart before anything irreversible happens. */
 	memset(&ota.record, 0, sizeof(ota.record));
@@ -363,6 +447,7 @@ static void install_download(void)
 
 	err = store_write(STORE_OTA_RECORD, &ota.record, sizeof(ota.record));
 	if (err) {
+		discard_download();
 		fail_job("flash_error", "could not record the update");
 		return;
 	}
@@ -372,19 +457,23 @@ static void install_download(void)
 	err = boot_request_upgrade_multi(0, BOOT_UPGRADE_TEST);
 	if (err) {
 		record_clear();
+		discard_download();
 		fail_job("flash_error", "could not request the swap");
 		return;
 	}
 
-	LOG_INF("Image verified. Restarting into the bootloader to install it");
-	(void)job_update(ota.job.id, "IN_PROGRESS", NULL, "\"step\":\"rebooting\"");
+	LOG_INF("Restarting into the bootloader to install the image");
 	enter(OTA_REBOOTING);
 }
 
-/* A job that passed every check: offer it or start it. */
+/*
+ * A job that passed every check: offer it. Nothing is sent to the cloud, so the
+ * execution stays queued and whoever created the job can still take it back.
+ */
 static void accept_job(const struct ota_job *job)
 {
 	ota.job = *job;
+	ota.started = false;
 	ota.download_attempts = 0;
 	ota.progress = 0;
 
@@ -393,13 +482,9 @@ static void accept_job(const struct ota_job *job)
 			"Button 2 to decline",
 			job->version.major, job->version.minor, job->version.revision,
 			job->version.build);
-		(void)job_update(job->id, "IN_PROGRESS", NULL,
-				 "\"step\":\"awaiting_user\",\"target\":\"%u.%u.%u+%u\"",
-				 job->version.major, job->version.minor, job->version.revision,
-				 job->version.build);
 		enter(OTA_AWAITING_USER);
 	} else {
-		start_download();
+		announce_start();
 	}
 }
 
@@ -409,20 +494,50 @@ static void on_job_withdrawn(void)
 	switch (ota.state) {
 	case OTA_AWAITING_USER:
 	case OTA_REFRESHING:
-		LOG_INF("Update job %s was withdrawn", ota.job.id);
-		set_last("cancelled", "");
-		enter(OTA_IDLE);
+	case OTA_STARTING:
+		abandon_job(false);
 		break;
 	case OTA_DOWNLOADING:
-		LOG_INF("Update job %s was withdrawn: stopping the download", ota.job.id);
+		/* The partial image stays where it is: without a swap request the
+		 * bootloader ignores it, and the next download overwrites it.
+		 */
 		(void)fota_download_cancel();
-		set_last("cancelled", "");
-		enter(OTA_IDLE);
+		abandon_job(false);
+		break;
+	case OTA_COMMITTING:
+		abandon_job(true);
 		break;
 	default:
-		/* Idle, or already past the point where stopping is safe. */
+		/* Idle, or already handed to the bootloader. */
 		break;
 	}
+}
+
+/*
+ * The cloud lists an execution as in progress that this device knows nothing about:
+ * it restarted in the middle of that update. Nothing was handed to the bootloader
+ * (that leaves a record), so close the execution with what is actually running.
+ */
+static void settle_interrupted_job(const struct ota_job *job)
+{
+	if (fw_version_compare(&job->version, fw_version_running()) == 0) {
+		(void)job_update(job->id, "SUCCEEDED", TOKEN_NONE, NULL, "\"running\":\"%s\"",
+				 fw_version_running_string());
+		return;
+	}
+
+	LOG_WRN("Update job %s was interrupted by a restart", job->id);
+	(void)job_update(job->id, "FAILED", TOKEN_NONE, NULL,
+			 "\"reason\":\"interrupted\",\"running\":\"%s\"",
+			 fw_version_running_string());
+	set_last("failed", "interrupted");
+}
+
+/* True if the document still describes the image the person at the device approved. */
+static bool same_image(const struct ota_job *a, const struct ota_job *b)
+{
+	return fw_version_compare(&a->version, &b->version) == 0 && a->size == b->size &&
+	       memcmp(a->sha256, b->sha256, sizeof(a->sha256)) == 0;
 }
 
 static void on_job(const struct ota_job *incoming)
@@ -440,29 +555,44 @@ static void on_job(const struct ota_job *incoming)
 		break;
 	case OTA_AWAITING_USER:
 		if (same_job) {
-			/* Keep the newest download URL while waiting. */
-			ota.job = *incoming;
 			return;
 		}
+		/* A different job is next now: the one on offer is gone. */
+		abandon_job(false);
 		break;
 	case OTA_REFRESHING:
 		if (same_job) {
+			if (!same_image(incoming, &ota.job)) {
+				refuse_job(incoming->id, incoming->in_progress, "bad_document");
+				go_idle();
+				return;
+			}
+
+			/* Take the fresh download URL. */
 			ota.job = *incoming;
-			start_download();
+			if (incoming->in_progress) {
+				ota.started = true;
+				start_download();
+			} else {
+				announce_start();
+			}
 			return;
 		}
+		abandon_job(false);
 		break;
 	default:
 		/* Busy with a download or an installation: look again afterwards. */
 		return;
 	}
 
+	if (incoming->in_progress) {
+		settle_interrupted_job(incoming);
+		return;
+	}
+
 	verdict = ota_job_check(incoming, fw_version_running(), SECONDARY_SLOT_SIZE);
 	if (verdict != OTA_JOB_OK) {
-		reject_job(incoming->id, verdict);
-		if (ota.state != OTA_IDLE) {
-			enter(OTA_IDLE);
-		}
+		refuse_job(incoming->id, false, ota_job_result_reason(verdict));
 		return;
 	}
 
@@ -556,7 +686,7 @@ void ota_on_cloud_up(void)
 		health_trial_passed();
 		LOG_INF("Firmware %s confirmed", fw_version_running_string());
 		set_last("succeeded", "");
-		enter(OTA_IDLE);
+		go_idle();
 
 		if (ota.have_record) {
 			ota.report = REPORT_SUCCEEDED;
@@ -564,6 +694,13 @@ void ota_on_cloud_up(void)
 	}
 
 	send_final_report();
+
+	if (ota.state == OTA_COMMITTING) {
+		/* The connection dropped while the answer was outstanding: ask again. */
+		ota.seconds_in_state = 0;
+		announce_commit();
+	}
+
 	(void)cloud_jobs_request_next();
 }
 
@@ -572,6 +709,12 @@ void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t
 	static struct ota_job incoming;
 	const struct identity_settings *config = identity_settings_get();
 	enum ota_job_result result;
+
+	if (kind == CLOUD_JOB_NOTIFY_NEXT) {
+		/* Something changed in the list of pending jobs: fetch the next one. */
+		(void)cloud_jobs_request_next();
+		return;
+	}
 
 	if (kind == CLOUD_JOB_GET_REJECTED) {
 		LOG_WRN("The cloud rejected the request for the next job");
@@ -596,29 +739,62 @@ void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t
 		break;
 	default:
 		/* Identified but unusable: refuse it so that it does not block later jobs. */
+		if (ota.have_record && strcmp(incoming.id, ota.record.job_id) == 0) {
+			break;
+		}
 		if (ota.state == OTA_IDLE || ota.state == OTA_AWAITING_USER ||
 		    ota.state == OTA_REFRESHING) {
-			reject_job(incoming.id, result);
+			refuse_job(incoming.id, incoming.in_progress, ota_job_result_reason(result));
 			if (ota.state != OTA_IDLE) {
-				enter(OTA_IDLE);
+				go_idle();
 			}
 		}
 		break;
 	}
 }
 
-void ota_on_report_ack(bool accepted)
+void ota_on_job_ack(char kind, uint16_t sequence, bool accepted, bool permanent)
 {
-	if (ota.report == REPORT_NONE) {
-		return;
+	switch (kind) {
+	case TOKEN_START:
+		if (ota.state != OTA_STARTING || sequence != ota.start_sequence) {
+			break;
+		}
+		if (accepted) {
+			ota.started = true;
+			start_download();
+		} else if (permanent) {
+			abandon_job(false);
+		}
+		/* Otherwise the service was busy: the tick asks again. */
+		break;
+	case TOKEN_COMMIT:
+		if (ota.state != OTA_COMMITTING || sequence != ota.commit_sequence) {
+			break;
+		}
+		if (accepted) {
+			install_download();
+		} else if (permanent) {
+			abandon_job(true);
+		}
+		break;
+	case TOKEN_REPORT:
+		if (ota.report == REPORT_NONE || sequence != ota.report_sequence) {
+			break;
+		}
+		if (accepted || permanent) {
+			/* Rejected for good means the job was cancelled, timed out or deleted
+			 * in the meantime: there is nobody left to tell.
+			 */
+			LOG_INF("Final update report %s by the cloud",
+				accepted ? "accepted" : "rejected");
+			record_clear();
+			ota.changed = true;
+		}
+		break;
+	default:
+		break;
 	}
-
-	/* Rejected means the cloud no longer accepts updates for that job (it timed out
-	 * or was cancelled). Either way there is nothing left to report.
-	 */
-	LOG_INF("Final update report %s by the cloud", accepted ? "accepted" : "rejected");
-	record_clear();
-	ota.changed = true;
 }
 
 void ota_on_button(enum app_button button)
@@ -632,9 +808,11 @@ void ota_on_button(enum app_button button)
 		refresh_document();
 	} else {
 		LOG_INF("Update declined on the device");
-		(void)job_update(ota.job.id, "REJECTED", NULL, "\"reason\":\"declined\"");
+		(void)job_update(ota.job.id, "REJECTED", TOKEN_NONE, NULL,
+				 "\"reason\":\"declined\",\"running\":\"%s\"",
+				 fw_version_running_string());
 		set_last("declined", "");
-		enter(OTA_IDLE);
+		go_idle();
 	}
 }
 
@@ -648,14 +826,13 @@ void ota_on_download(enum app_download_event what, int value)
 
 	switch (what) {
 	case APP_DOWNLOAD_PROGRESS:
+		/* Shown through the device shadow only; the job is told about milestones. */
 		ota.progress = value;
 		ota.changed = true;
-		(void)job_update(ota.job.id, "IN_PROGRESS", NULL,
-				 "\"step\":\"downloading\",\"progress\":\"%d\"", value);
 		break;
 	case APP_DOWNLOAD_FINISHED:
 		ota.progress = 100;
-		install_download();
+		check_download();
 		break;
 	case APP_DOWNLOAD_ERROR:
 		if (ota.download_attempts < CONFIG_APP_OTA_DOWNLOAD_ATTEMPTS) {
@@ -681,6 +858,22 @@ void ota_on_tick(void)
 		if (ota.seconds_in_state >= REFRESH_TIMEOUT_SECONDS) {
 			ota.seconds_in_state = 0;
 			(void)cloud_jobs_request_next();
+		}
+		break;
+	case OTA_STARTING:
+		/* No answer: fetch the document again, which shows whether the job still
+		 * exists and whether the cloud already counts it as started.
+		 */
+		if (ota.seconds_in_state >= ACK_TIMEOUT_SECONDS) {
+			refresh_document();
+		}
+		break;
+	case OTA_COMMITTING:
+		if (ota.seconds_in_state >= ACK_TIMEOUT_SECONDS) {
+			ota.seconds_in_state = 0;
+			if (cloud_is_connected()) {
+				announce_commit();
+			}
 		}
 		break;
 	case OTA_REBOOTING:
@@ -722,7 +915,7 @@ const char *ota_job_id(void)
 int ota_progress(void)
 {
 	return ota.state == OTA_DOWNLOADING || ota.state == OTA_VERIFYING ||
-	       ota.state == OTA_REBOOTING ? ota.progress : 0;
+	       ota.state == OTA_COMMITTING || ota.state == OTA_REBOOTING ? ota.progress : 0;
 }
 
 const char *ota_last_result(void)

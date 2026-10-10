@@ -36,7 +36,7 @@
 
 struct ota_job {
 	char id[OTA_JOB_ID_MAX + 1];
-	/* The cloud already lists this execution as in progress. */
+	/* The cloud lists this execution as in progress; otherwise it is still queued. */
 	bool in_progress;
 	struct fw_version version;
 	uint32_t size;
@@ -62,13 +62,14 @@ enum ota_job_result {
 };
 
 /*
- * Parse a jobs message (notify-next or the reply to a get request).
+ * Parse the reply to a request for the next job execution.
  *
  * allowed_url_prefix is the only place firmware may be downloaded from; it must start
  * with "https://" and contain the complete host name followed by a slash.
  *
  * On OTA_JOB_OK every field of job is valid. On OTA_JOB_BAD_DOCUMENT,
- * OTA_JOB_UNSUPPORTED and OTA_JOB_URL_NOT_ALLOWED only job->id is valid.
+ * OTA_JOB_UNSUPPORTED and OTA_JOB_URL_NOT_ALLOWED only job->id and job->in_progress
+ * are valid.
  */
 enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allowed_url_prefix,
 				  struct ota_job *job);

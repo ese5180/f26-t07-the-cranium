@@ -292,12 +292,14 @@ enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allo
 	cJSON_Delete(root);
 
 	if (result != OTA_JOB_OK) {
-		/* Leave only the job ID, so that the caller can refuse this job. */
+		/* Leave only what identifies the execution, so that the caller can refuse it. */
 		char id[OTA_JOB_ID_MAX + 1];
+		bool in_progress = job->in_progress;
 
 		memcpy(id, job->id, sizeof(id));
 		memset(job, 0, sizeof(*job));
 		memcpy(job->id, id, sizeof(id));
+		job->in_progress = in_progress;
 	}
 
 	return result;

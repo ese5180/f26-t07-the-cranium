@@ -8,7 +8,7 @@
 
 What it does, in order:
 
-1. Sends the network from secrets/wifi_secrets.h to the board, which stores it in
+1. Sends the network from ~/.cranium/wifi_secrets.h to the board, which stores it in
    TF-M. The file is read through sudo if it is locked.
 2. Asks the board to create its own key pair. The private key never leaves the board;
    the board prints a certificate signing request.
@@ -34,9 +34,9 @@ import time
 from pathlib import Path
 
 from board import BoardError, Console
+from local import WIFI_SECRETS
 
 REPO = Path(__file__).resolve().parent.parent
-WIFI_SECRETS = REPO / "secrets" / "wifi_secrets.h"
 OUTPUTS = REPO / "cloud" / ".deploy" / "outputs.json"
 ROOT_CA = REPO / "firmware" / "certs" / "AmazonRootCA1.pem"
 # SHA-256 of the DER form of Amazon Root CA 1, as published by Amazon Trust Services.
@@ -73,7 +73,7 @@ class Aws:
 
 def read_wifi_secrets() -> tuple[str, str, str]:
     if not WIFI_SECRETS.exists():
-        fail(f"{WIFI_SECRETS.relative_to(REPO)} does not exist: run `python tools/secrets.py wifi`")
+        fail(f"{WIFI_SECRETS} does not exist: run `python tools/secrets.py wifi`")
     try:
         text = WIFI_SECRETS.read_text()
     except PermissionError:
@@ -144,7 +144,9 @@ def register_in_aws(aws: Aws, outputs: dict, thing: str, csr: str) -> bytes:
 
     arn = created["certificateArn"]
     aws.call("iot", "attach-policy", "--policy-name", outputs["DevicePolicyName"], "--target", arn)
-    aws.call("iot", "attach-thing-principal", "--thing-name", thing, "--principal", arn)
+    # Exclusive: AWS IoT refuses to attach this certificate to any other thing.
+    aws.call("iot", "attach-thing-principal", "--thing-name", thing, "--principal", arn,
+             "--thing-principal-type", "EXCLUSIVE_THING")
 
     # A board has one identity: retire certificates from earlier provisioning runs.
     for old in previous:

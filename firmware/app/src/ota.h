@@ -2,11 +2,15 @@
  * Firmware update manager.
  *
  * An update is an AWS IoT job. The device refuses anything that is not strictly newer
- * than what it runs, waits for a button press, downloads the image over HTTPS into
- * the secondary slot in external flash, checks its SHA-256, and asks the bootloader
- * for a trial swap. The bootloader verifies the signature. The new image must reach
- * the cloud again before it is confirmed; otherwise the previous image comes back.
- * The job is only reported as succeeded after that confirmation.
+ * than what it runs and waits for a button press; until then the job stays queued in
+ * the cloud and can simply be withdrawn. After the press it tells the cloud that it
+ * starts, downloads the image over HTTPS into the secondary slot in external flash,
+ * checks its SHA-256, tells the cloud that it is about to install, and asks the
+ * bootloader for a trial swap. Both announcements have to be accepted before the
+ * device goes on, so a job that was cancelled in the meantime is never installed.
+ * The bootloader verifies the signature. The new image must reach the cloud again
+ * before it is confirmed; otherwise the previous image comes back. The job is only
+ * reported as succeeded after that confirmation.
  *
  * All functions run on the main loop.
  */
@@ -26,8 +30,12 @@ enum ota_state {
 	OTA_AWAITING_USER,
 	/* Asked the cloud for the job document again, to get a fresh download URL. */
 	OTA_REFRESHING,
+	/* Told the cloud that the update starts; waiting for it to agree. */
+	OTA_STARTING,
 	OTA_DOWNLOADING,
 	OTA_VERIFYING,
+	/* The image is good. Told the cloud that it gets installed; waiting for it to agree. */
+	OTA_COMMITTING,
 	/* Trial swap requested; the device restarts in a moment. */
 	OTA_REBOOTING,
 	/* A new image is running and has not been confirmed yet. */
@@ -39,7 +47,7 @@ int ota_init(void);
 
 void ota_on_cloud_up(void);
 void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t len);
-void ota_on_report_ack(bool accepted);
+void ota_on_job_ack(char kind, uint16_t sequence, bool accepted, bool permanent);
 void ota_on_button(enum app_button button);
 void ota_on_download(enum app_download_event what, int value);
 void ota_on_tick(void);
