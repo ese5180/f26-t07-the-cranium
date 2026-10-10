@@ -12,6 +12,18 @@ project(cranium_app)
 
 target_sources(app PRIVATE
   src/main.c
+  src/cloud.c
+  src/factory.c
+  src/health.c
+  src/identity.c
+  src/net.c
+  src/ota.c
+  src/ota_job.c
+  src/store.c
+  src/ui.c
+  src/version.c
 )
+
+target_sources_ifdef(CONFIG_APP_PROVISIONING_SHELL app PRIVATE src/provision.c)
 
 target_include_directories(app PRIVATE src)

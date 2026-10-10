@@ -7,6 +7,7 @@ never be pushed, pasted into chat, or attached to an issue.
 | File | What it is | How it gets here |
 | --- | --- | --- |
 | `mcuboot_signing_key.pem` | ECDSA P-256 private key that signs every firmware image. The boards only run images signed with it. | `python tools/keys.py generate`, or from the team's key custodian over a secure channel |
+| `wifi_secrets.h` | Wi-Fi network name and passphrase used when provisioning a board. Owned by root, mode 600: reading it needs an administrator password. | `python tools/secrets.py wifi` |
 
 The public half of the signing key is committed at `firmware/keys/fw_signing_pub.pem`.
 That is safe: a public key can only verify signatures, not create them.

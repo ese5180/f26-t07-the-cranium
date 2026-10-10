@@ -1,0 +1,59 @@
+/*
+ * Firmware update manager.
+ *
+ * An update is an AWS IoT job. The device refuses anything that is not strictly newer
+ * than what it runs, waits for a button press, downloads the image over HTTPS into
+ * the secondary slot in external flash, checks its SHA-256, and asks the bootloader
+ * for a trial swap. The bootloader verifies the signature. The new image must reach
+ * the cloud again before it is confirmed; otherwise the previous image comes back.
+ * The job is only reported as succeeded after that confirmation.
+ *
+ * All functions run on the main loop.
+ */
+
+#ifndef OTA_H_
+#define OTA_H_
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "app_events.h"
+#include "cloud.h"
+
+enum ota_state {
+	OTA_IDLE,
+	/* A valid update is on offer and waits for Button 1 (install) or 2 (decline). */
+	OTA_AWAITING_USER,
+	/* Asked the cloud for the job document again, to get a fresh download URL. */
+	OTA_REFRESHING,
+	OTA_DOWNLOADING,
+	OTA_VERIFYING,
+	/* Trial swap requested; the device restarts in a moment. */
+	OTA_REBOOTING,
+	/* A new image is running and has not been confirmed yet. */
+	OTA_TESTING,
+};
+
+/* Work out, right after boot, what happened to an update that was in flight. */
+int ota_init(void);
+
+void ota_on_cloud_up(void);
+void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t len);
+void ota_on_report_ack(bool accepted);
+void ota_on_button(enum app_button button);
+void ota_on_download(enum app_download_event what, int value);
+void ota_on_tick(void);
+
+enum ota_state ota_state(void);
+const char *ota_state_name(void);
+
+/* For the device shadow. */
+const char *ota_job_id(void);
+int ota_progress(void);
+const char *ota_last_result(void);
+const char *ota_last_error(void);
+
+/* True once after something the shadow reports has changed. */
+bool ota_take_changed(void);
+
+#endif /* OTA_H_ */
