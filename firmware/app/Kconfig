@@ -1,0 +1,40 @@
+#
+# Cranium application settings.
+#
+
+menu "Cranium application"
+
+config APP_THING_NAME_PREFIX
+	string "Prefix of the AWS IoT thing name"
+	default "cranium-"
+	help
+	  The thing name, which is also the MQTT client ID, is this prefix followed by
+	  the device's hardware identifier.
+
+config APP_SHADOW_INTERVAL_SECONDS
+	int "Seconds between periodic device shadow reports"
+	default 60
+	range 10 3600
+
+config APP_CLOUD_RETRY_SECONDS
+	int "Seconds to wait before retrying a failed cloud connection"
+	default 30
+	range 5 600
+
+config APP_WATCHDOG_TIMEOUT_SECONDS
+	int "Hardware watchdog timeout"
+	default 120
+	range 30 600
+	help
+	  The main event loop feeds the watchdog. If the loop stops, the device resets,
+	  and an update that has not been confirmed yet is reverted by the bootloader.
+
+module = APP
+module-str = Cranium application
+source "subsys/logging/Kconfig.template.log_config"
+
+endmenu
+
+menu "Zephyr Kernel"
+source "Kconfig.zephyr"
+endmenu
