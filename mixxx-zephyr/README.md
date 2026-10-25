@@ -3,7 +3,8 @@
 A two-deck DJ player for the Pioneer DDJ-FLX4 that runs on a microcontroller
 under Zephyr, ported from [Mixxx](https://github.com/mixxxdj/mixxx). It is a
 side project next to the main design, in which a Raspberry Pi runs Mixxx itself
-(`docs/raspberry-pi-ota.md` on the `feature/ota-console` branch).
+([`docs/raspberry-pi-ota.md`](https://github.com/ese5180/f26-t07-the-cranium/blob/feature/ota-console/docs/raspberry-pi-ota.md)
+on the `feature/ota-console` branch).
 
 **Status: builds and passes its host tests; not yet run on hardware.**
 
@@ -42,12 +43,12 @@ LOAD buttons. LEDs follow play, cue, hotcue, PFL and track-loaded states.
 
 The generated mapping covers 99 of the mapping's 281 inputs and 46 of its 112
 LED outputs. Left out, and listed at the top of the generated file: beat FX,
-sampler, stems, beatjump, sync, quantize, beatloops (no beat grid), slip mode
-and waveform zoom.
+sampler, stems, key shift, beatjump, sync, quantize, beatloops (no beat grid),
+the CUE/LOOP CALL buttons, loop adjust, slip mode and waveform zoom.
 
 Not in this port: keylock (pitch-independent tempo), beat detection and sync,
 effects other than EQ and filter, compressed formats (only uncompressed WAV is
-decoded: 8/16/24/32-bit integer or 32-bit float, mono or stereo, any rate),
+decoded: 8/16/24/32-bit integer or 32-bit float, mono or stereo, 8 to 192 kHz),
 waveform display, recording, the Mixxx library database and rekordbox USB
 import.
 
@@ -92,7 +93,7 @@ into slot 1 (over Wi-Fi from the AWS IoT console, as the course firmware does,
 or over a serial link) is not part of this directory yet.
 
 The build signs with MCUboot's public development key unless you pass your own:
-`-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"/path/to/key.pem\"`.
+`west build ... -- -DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"/path/to/key.pem\"`.
 
 ## Build and test
 
@@ -142,8 +143,8 @@ Cortex-M33 FPU has no double precision.
 
 Mixxx is GPL-2.0-or-later, and so is everything in this directory
 ([COPYING](COPYING)). Firmware built from it may only be distributed with its
-source code. The FLX4 mapping and the files in `tests/mixxx_reference/` are
-copied from Mixxx unchanged.
+source code. The FLX4 mapping and the Mixxx files in `tests/mixxx_reference/`
+(all but two small stand-in headers) are copied from Mixxx unchanged.
 
 ## Next steps
 

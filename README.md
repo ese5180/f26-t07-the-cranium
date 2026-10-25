@@ -11,14 +11,14 @@
 | Christian Durante  | cgd2@engineering.upenn.edu     |
 | Vihaan Ravishankar | vihaan1@engineering.upenn.edu  |
 
-**GitHub Repository URL: https://github.com/dbosket/iot-venture-cranium**
+**GitHub Repository URL: https://github.com/ese5180/f26-t07-the-cranium**
 
 ## Concept Development
 
 - **Create a device block diagram that details the power architecture, microcontroller, & peripherals**
   ![Block diagram](<./pics/Block Diagram.png>)
 - **Create a communication diagram**
-  ![Block diagram](<./pics/Communication Diagram.png>)
+  ![Communication diagram](<./pics/Communication Diagram.png>)
 
 ### Product Function
 
@@ -56,7 +56,7 @@ We are developing a mounted attachment to beginner DJ controllers in order to re
 
 | Code  | Name                    | Definition                                                                                                                                                                        |
 | ----- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| HW 01 | Microcontroller         | The device shall be controlled by an nRF7002 microcontroller to manage I/O peripherals and communication with wireless modules.                                                   |
+| HW 01 | Microcontroller         | The device shall be controlled by an nRF5340 microcontroller (nRF7002 DK) to manage I/O peripherals and communication with wireless modules.                                      |
 | HW 02 | Operable Without Laptop | All playback functions, mixing, library browsing, and setup shall be fully operable using only the controller and built-in screen. No external computer is required at any point. |
 | HW 03 | Deck Interface          | USB-C female port, 2 buttons, 2 USB-A female ports, and screen.                                                                                                                   |
 | HW 04 | Wired Audio Outputs     | Dual XLR output, RCA output, and 3.5mm headphone jack.                                                                                                                            |
@@ -75,6 +75,8 @@ We are developing a mounted attachment to beginner DJ controllers in order to re
 ## Secure Firmware Updates
 
 Firmware for the nRF7002 DK is in [`firmware/`](firmware/README.md).
+
+A side project, a port of the Mixxx engine to Zephyr for the same board, is in [`mixxx-zephyr/`](mixxx-zephyr/README.md).
 
 - **Draw and describe your bootloading process**
   ![Boot process](<./pics/Boot Process.png>)
@@ -107,7 +109,7 @@ Firmware for the nRF7002 DK is in [`firmware/`](firmware/README.md).
 | --- | --- |
 | Invalid signature, or signed with another key | MCUboot verifies every image with this project's public key before swapping and on every boot. An image that fails is never started; the board keeps running the current firmware and reports the update as failed. The server also refuses to accept such a file. |
 | Older firmware (rollback) | The application refuses a job that is not newer than what it runs, and MCUboot refuses to swap in a lower version. |
-| Corrupted or incomplete download | The application compares the SHA-256 of what is in the secondary slot with the digest in the job and checks that the signed header carries the announced version. On a mismatch the image is erased and nothing is installed. A failed download is retried with a fresh link, three times at most. |
+| Corrupted or incomplete download | The application compares the SHA-256 of what is in the secondary slot with the digest in the job and checks that the signed header carries the announced version. On a mismatch the image is erased and nothing is installed. A failed download is retried with a fresh link, up to three attempts in all. |
 | Faulty code with a valid signature | The new image runs on trial. It must join Wi-Fi and reach AWS IoT within 5 minutes to confirm itself; a watchdog covers a hang. Without the confirmation the next reset makes MCUboot swap the previous image back, and the board reports the rollback. |
 | Power loss during the swap | MCUboot's swap-using-move continues the swap on the next boot. |
 | Update cancelled after it was offered | The board asks AWS IoT before the download and again before installing; a cancelled job is dropped and the downloaded image erased. |
