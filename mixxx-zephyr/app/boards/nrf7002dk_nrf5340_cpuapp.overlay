@@ -1,0 +1,90 @@
+/*
+ * Mixxx Zephyr on the nRF7002 DK (nRF5340 application core).
+ *
+ * Everything is wired to the Arduino header:
+ *
+ *   D0  P1.00  MIDI in  (UART1 RX, 31250 baud, through a 6N138 opto-coupler)
+ *   D1  P1.01  MIDI out (UART1 TX, for the LEDs)
+ *   D4  P1.06  I2S bit clock   -> DAC BCK  (e.g. a PCM5102A board)
+ *   D5  P1.07  I2S word clock  -> DAC LRCK
+ *   D6  P1.08  I2S data        -> DAC DIN
+ *   D7  P1.09  I2S master clock (optional: the PCM5102A makes its own)
+ *   D10 P1.12  SD card CS      (SPI3)
+ *   D11 P1.13  SD card MOSI
+ *   D12 P1.14  SD card MISO
+ *   D13 P1.15  SD card SCK
+ *
+ * Flash: the board's partitions are kept. MCUboot has 64 KiB, the running
+ * image (slot 0) and the update (slot 1) 464 KiB each, and settings 32 KiB at
+ * the top; the 8 MiB external MX25R64 flash is free for later use.
+ */
+
+/ {
+	aliases {
+		mz-i2s = &i2s0;
+		mz-midi-uart = &uart1;
+	};
+};
+
+/* UART1 and these pins are handed to the network core by default. Nothing
+ * runs there in this build, so keep them for MIDI and the DAC.
+ */
+&gpio_fwd {
+	status = "disabled";
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <31250>;
+};
+
+&pinctrl {
+	i2s0_default: i2s0_default {
+		group1 {
+			psels = <NRF_PSEL(I2S_SCK_M, 1, 6)>,
+				<NRF_PSEL(I2S_LRCK_M, 1, 7)>,
+				<NRF_PSEL(I2S_SDOUT, 1, 8)>,
+				<NRF_PSEL(I2S_MCK, 1, 9)>;
+		};
+	};
+
+	i2s0_sleep: i2s0_sleep {
+		group1 {
+			psels = <NRF_PSEL(I2S_SCK_M, 1, 6)>,
+				<NRF_PSEL(I2S_LRCK_M, 1, 7)>,
+				<NRF_PSEL(I2S_SDOUT, 1, 8)>,
+				<NRF_PSEL(I2S_MCK, 1, 9)>;
+			low-power-enable;
+		};
+	};
+};
+
+/* The audio PLL at 256 x 48 kHz, so 48 kHz comes out exact. */
+&clock {
+	hfclkaudio-frequency = <12288000>;
+};
+
+&i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-1 = <&i2s0_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-source = "ACLK";
+};
+
+&arduino_spi {
+	status = "okay";
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <16000000>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};
