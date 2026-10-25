@@ -3,8 +3,10 @@
 The Raspberry Pi runs the DJ software, [Mixxx](https://github.com/mixxxdj/mixxx), and the
 screen; the nRF board handles the rest. This page lists the ways to run Linux on the Pi so
 that it can be updated over the air (OTA) as safely as the nRF board, checks each one
-against what Mixxx needs, and recommends one. **Status: recommended, not yet agreed by the
-team.** Boot time still has to be measured (see [Open questions](#open-questions)).
+against what Mixxx needs, and records the choice. **Status: decided.** The Pi runs
+Raspberry Pi OS and is updated with RAUC through the AWS IoT console that already updates
+the nRF board (option 7, see [Decision](#decision)). Nothing of it is built yet, and boot
+time still has to be measured (see [Open questions](#open-questions)).
 
 ## The problem
 
@@ -37,7 +39,7 @@ FOTA on the nRF board only; applying 3.5.6 to the Pi is our own choice.
 
 ## How an A/B update works
 
-Options 1 to 5 all follow the same pattern (Figure 1).
+Options 1 to 5 and 7 all follow the same pattern (Figure 1).
 
 ```
   SD card
@@ -55,6 +57,9 @@ Options 1 to 5 all follow the same pattern (Figure 1).
 ```
 
 *Figure 1: two copies of the system plus a data partition that updates never overwrite.*
+
+With the Pi's own A/B booting (option 7) each copy also has its own boot partition,
+because the kernel and `config.txt` live on the boot partition.
 
 Step 1 covers P5 and P7; steps 2 and 3 cover P6; the data partition covers P8. Step 1
 starts only after the user confirms the update and no deck is playing (P10). A system
@@ -278,7 +283,7 @@ Raspberry Pi example.
 - Covered in lecture L02, which makes it easy to justify in the report.
 
 **Cons**
-- Steepest learning curve of the six.
+- Steepest learning curve of the seven.
 - No maintained Mixxx recipe. The only Qt 6 one is in `kiki442002/mixxx-os`, a one-person
   layer (Mixxx 2.5.6, scarthgap, Pi 4 only, musl libc, no update support, last changed
   May 2026). It adds eight library recipes that no maintained layer has (portmidi,
@@ -384,7 +389,7 @@ Greengrass components or plain AWS IoT jobs.
 - Reuses the AWS stack directly; one console for both boards (P9).
 - Mixxx installs and runs as on any Pi (P1, P2).
 - An application-only update is small: the Mixxx package is about 15 MB to download.
-- Least new work of the six.
+- Least new work of the seven.
 
 **Cons**
 - Updates the application only; the OS and kernel cannot be updated safely or rolled
@@ -394,6 +399,35 @@ Greengrass components or plain AWS IoT jobs.
 - Standard Greengrass runs on Java: 96 MB RAM for Greengrass alone, 512 MB recommended
   for the device (AWS docs). The C-based Greengrass nucleus lite needs about 5 MB.
 - Weakest answer to the security part of the assignment.
+
+### 7. Raspberry Pi OS + RAUC, driven by AWS IoT jobs (chosen)
+
+Keep Raspberry Pi OS, lay the SD card out as in Figure 1, and let RAUC install signed
+bundles into the spare copy. The Pi's own bootloader switches between the copies: with
+`tryboot_a_b=1` in `autoboot.txt`, `reboot "0 tryboot"` starts the other copy once, and a
+normal reboot goes back unless the update is committed. The AWS IoT jobs, S3 bucket and
+console that update the nRF board deliver the bundles.
+
+**Pros**
+- Mixxx installs as on any Pi, as in option 1 (P1, P2).
+- One console and one way of identifying devices for both boards (P9).
+- RAUC refuses unsigned bundles (P5). Debian 13 packages it (`rauc` 1.13), so it installs
+  with `apt`.
+- Full-system A/B updates with rollback through the bootloader's trial boot (P6, P7).
+- No second server and no subscription.
+- The same signed-image approach as MCUboot on the nRF board, which is easy to explain in
+  the report.
+
+**Cons**
+- More of our own work than option 1: the partition layout, a RAUC bootloader backend
+  for the Pi's trial boot (or U-Boot instead), an update agent on the Pi, and changes to
+  the console (see [Decision](#decision)).
+- The console takes an image as base64 in the API request, up to 1.4 MB
+  (`UPLOAD_BODY_LIMIT` in `cloud/api/src/handlers/firmware.mjs`). A Pi bundle of hundreds
+  of megabytes has to go straight to S3 and be checked there.
+- Each update carries a whole system copy over Wi-Fi.
+- The Pi has nothing like the nRF board's TF-M storage, so its device key is a file.
+- A read-only system partition is possible but untested with Mixxx and the desktop (P4).
 
 ## Comparison
 
@@ -405,45 +439,84 @@ Greengrass components or plain AWS IoT jobs.
 | 4. balenaOS | `apt` in a container | No | Yes | No | Yes (host OS) | Low–medium |
 | 5. Ubuntu Core | Write our own snap | Store-signed | Yes | No | Yes | Medium–high |
 | 6. Pi OS + Greengrass/jobs | `apt` or own .deb | App only | No | Yes | No | Low |
+| **7. Pi OS + RAUC + AWS jobs** | `apt` or own .deb | Yes, required | Yes | Yes | Possible, untested | Medium |
 
 *Table 2: how each option meets the requirements above. The Mixxx work in
 [What Mixxx needs](#what-mixxx-needs) is the same for every option, so it has no column.*
 
-## Recommendation
+## Decision
 
-The first version of this page let one question decide: does the DJ software build under
-Yocto without much effort? For Mixxx it does not. No maintained recipe exists, and the
-only Qt 6 one is an untested one-person layer that adds eight library recipes. So:
+The team chose **option 7: Raspberry Pi OS, updated with RAUC through the AWS IoT console**
+that already updates the nRF board. Yocto (option 2) was the first candidate, but no
+maintained Mixxx recipe exists. Mender (option 1) would be quicker to set up, but needs a
+second server and console. Option 7 keeps one console for both boards, and RAUC requires
+signed bundles.
 
-- **Option 1 (Raspberry Pi OS + Mender)**, with artifact signing switched on. It meets P1
-  to P3 and P5 to P8, and P10 with the rule above. P4 rests on a clean shutdown, since the
-  system partition stays writable unless that is tested; P9 costs a second server.
-  - Build the image with `pi-gen` from files in the repository: 64-bit Raspberry Pi OS
-    Lite (trixie), a kiosk compositor, and Mixxx 2.5.6 (2.5.7 once released) built as a
-    .deb from its release tag.
-  - Convert it with `mender-convert` 5.2.1 or later, sign every artifact, and install the
-    public key on the Pi.
-  - Start on the hosted trial; self-host or pay $34/month later.
-- **Option 2 remains the better fit for the security requirements** (one console, signing
-  required, read-only system). A time-boxed trial settles it: build `kiki442002/mixxx-os`
-  on scarthgap for our Pi model and check that Mixxx runs with the FLX4. If that works
-  within a few days, choose option 2 instead.
-- Option 4 is a reasonable alternative to option 1 if the team is comfortable with
-  containers, but the screen needs balena's Weston display block and it does not meet P5
-  as written.
+### On the Pi
 
-Whatever the option, the Mixxx work in [What Mixxx needs](#what-mixxx-needs) stays:
-settings on the data partition, a clean quit before power-off, a health check that sees
-Mixxx's audio open, the P10 rule, ready-made settings, and a settings backup before a
+- **Image.** `pi-gen` builds it from files in the repository: 64-bit Raspberry Pi OS Lite
+  (trixie), a kiosk compositor, and Mixxx 2.5.6 (2.5.7 once released) built as a .deb from
+  its release tag. A final step lays out the card: boot A, system A, boot B, system B and
+  the data partition.
+- **Switching copies.** `autoboot.txt` with `tryboot_a_b=1`. RAUC installs into the spare
+  copy and reboots with `reboot "0 tryboot"`. If the health check passes, the update is
+  committed by making the new copy the default in `autoboot.txt` and running
+  `rauc status mark-good`; otherwise a normal reboot returns to the old copy. The Pi's
+  hardware watchdog (systemd `RuntimeWatchdogSec`) turns a hung trial boot into that
+  reboot. RAUC needs a small backend for this; U-Boot is the fallback if it proves awkward.
+- **Update agent.** A Python service using the AWS IoT Device SDK that follows the nRF
+  board's job flow (`firmware/app/src/ota_job.c`) with the same job states and shadow
+  fields ([aws-iot.md](aws-iot.md), "An update, message by message"):
+  1. The offer stays queued until the user confirms it on the screen and no deck is
+     playing (P10).
+  2. The agent downloads the bundle to the data partition and checks its SHA-256 before
+     anything is installed (P7).
+  3. It runs `rauc install`, which checks the signature (P5).
+  4. It announces each step and waits for AWS IoT to accept it, as the nRF board does.
+  5. It reboots into the trial copy, runs the health check (Mixxx has opened its audio,
+     the UART heartbeat answers), commits, and reports success. A copy that is not
+     committed reports `rolled_back` from the old copy.
+
+  The AWS IoT Device Client is not used: it runs a job's handler as soon as the job
+  arrives, so it cannot keep an offer waiting for the user.
+- **Keys.** A RAUC signing key and certificate of their own, kept off the server like the
+  MCUboot key. The Pi holds only the certificate it checks against.
+- **Identity.** One thing per Pi, with a key generated on the Pi and a certificate made
+  from its signing request, as `tools/provision_device.py` does for the nRF board. The
+  `cranium-device` policy works unchanged, because its topics are scoped to the thing name.
+
+### In `cloud/`
+
+- **Upload.** A signed upload link puts the bundle straight into S3. A Lambda function
+  then checks it there: its signature against our certificate, a compatible string such
+  as `cranium-pi`, and a version newer than the last release.
+- **Releases and fleets.** nRF and Pi releases are kept apart, and Pis get their own
+  thing group, so the console never offers one board's image to the other.
+- **Job document.** A `pi_update` document next to `buildJobDocument` in
+  `cloud/api/src/lib/jobs.mjs`.
+- **Timing.** A download link lasts 10 minutes (`URL_EXPIRES_SEC`). A download that has
+  started may run past that; if it breaks, the agent asks for the document again and gets
+  a fresh link, as the nRF board does. The job's in-progress timeout of 30 minutes
+  (`IN_PROGRESS_TIMEOUT_MIN`) may need raising for an image this size.
+
+Whatever the update mechanism, the Mixxx work in [What Mixxx needs](#what-mixxx-needs)
+stays: settings on the data partition, a clean quit before power-off, a health check that
+sees Mixxx's audio open, the P10 rule, ready-made settings, and a settings backup before a
 Mixxx version change.
+
+A separate experiment, a Zephyr port of the Mixxx engine for the nRF7002 DK, is on the
+`feature/mixxx-zephyr` branch. It does not change this design.
 
 ## Open questions
 
 - Which Mixxx version to ship: 2.5.6 now, or 2.5.7 when released (shutdown and rekordbox
   fixes). `[TBD: team]`
-- Which Pi model (4 or 5)? It no longer decides whether `mender-convert` is usable. The
-  Pi 5 is faster, but on a 3 A supply it gives USB devices only 600 mA in total, and the
-  FLX4 is powered over USB. `[TBD: team]`
+- Which Pi model (4 or 5)? The Pi 5 is faster, but on a 3 A supply it gives USB devices
+  only 600 mA in total, and the FLX4 is powered over USB. `[TBD: team]`
+- Is a RAUC backend for the Pi's trial boot enough, or is U-Boot needed?
+  `[TBD: prototype]`
+- How large a bundle is, and how long it takes to download over the Wi-Fi at a venue.
+  `[TBD: measure]`
 - Boot-to-ready time on the chosen image, measured against P3. The only figures found:
   37 s for a stock Pi 4 desktop boot, and about a minute for Decktano. `[TBD: measure]`
 - Native Wayland or XWayland: which gives smoother waveforms on the Pi. `[TBD: measure]`
@@ -452,7 +525,6 @@ Mixxx version change.
 - How long Mixxx takes to quit cleanly, to set the low-battery threshold. `[TBD: measure]`
 - Do the GPLv3 and LGPLv3 parts conflict with signed-only updates (P5)?
   `[TBD: legal check]`
-- Which Linux machine builds the images (option 2 or 3 only). `[TBD: team]`
 
 ## Test plan
 
@@ -478,6 +550,8 @@ And the cases Mixxx adds:
 9. Update offered while a deck is playing: nothing is installed until the user confirms
    and playback has stopped.
 10. Data partition missing at boot: Mixxx does not start with an empty profile.
+11. A trial boot that hangs: the watchdog reboots the Pi, and it returns to the previous
+    copy.
 
 ## Sources
 
@@ -521,6 +595,10 @@ Operating systems and updates:
   <https://github.com/mendersoftware/mender-convert/blob/5.3.0/CHANGELOG.md>
 - Mender artifact signing: <https://docs.mender.io/artifact-creation/sign-and-verify>
 - RAUC examples: <https://rauc.readthedocs.io/en/stable/examples.html>
+- RAUC bootloader integration: <https://rauc.readthedocs.io/en/stable/integration.html>
+- RAUC in Debian: <https://tracker.debian.org/pkg/rauc>
+- Raspberry Pi A/B booting (`autoboot.txt`, `tryboot`):
+  <https://www.raspberrypi.com/documentation/computers/config_txt.html#autoboot-txt>
 - RAUC Raspberry Pi layer: <https://github.com/rauc/meta-rauc-community>
 - Qt 6 for Yocto: <https://code.qt.io/cgit/yocto/meta-qt6.git>
 - balena pricing: <https://balena.io/pricing>

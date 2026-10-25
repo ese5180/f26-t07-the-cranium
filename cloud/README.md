@@ -5,6 +5,10 @@ web console, sees its version, deploys it to boards and watches each board updat
 console only verifies signatures: it holds the public half of the signing key and can
 never sign anything.
 
+Today it updates the nRF boards. Updating the Raspberry Pi through the same console is
+planned; [docs/raspberry-pi-ota.md](../docs/raspberry-pi-ota.md#decision) describes what
+that needs here.
+
 It is two CloudFormation stacks, deployed with the AWS CLI:
 
 - `cranium-ota-bootstrap` (`infra/bootstrap.yaml`): the bucket that the Lambda code is

@@ -164,6 +164,19 @@ managers* can upload, deploy, cancel and revoke.
 - **Activity.** Every upload, deployment, cancellation and revocation, with who did it
   and whether it was allowed.
 
+## The Raspberry Pi (planned)
+
+Only the nRF boards are updated today. The Raspberry Pi is to use the same thing
+registry, device policy, jobs and bucket. It needs three additions:
+
+- a job document of its own (`pi_update`);
+- its own thing group and release list, so that the console never offers one board's
+  image to the other;
+- an upload that goes straight to S3, because a Pi bundle is hundreds of megabytes and the
+  console's API takes at most 1.4 MB.
+
+The design is in [raspberry-pi-ota.md](raspberry-pi-ota.md#decision).
+
 ## Operating it
 
 ```sh

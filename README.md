@@ -78,6 +78,10 @@ Firmware for the nRF7002 DK is in [`firmware/`](firmware/README.md). The update 
 web console are in [`cloud/`](cloud/README.md), and [`docs/aws-iot.md`](docs/aws-iot.md) describes how
 the boards, AWS IoT and the console work together.
 
+The Raspberry Pi runs Mixxx on Raspberry Pi OS. [`docs/raspberry-pi-ota.md`](docs/raspberry-pi-ota.md)
+compares the ways to update it and describes the chosen one: RAUC, driven by the same
+AWS IoT console.
+
 - **Draw and describe your bootloading process**
   ![Boot process](<./pics/Boot Process.png>)
 
