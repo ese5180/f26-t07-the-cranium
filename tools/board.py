@@ -1,6 +1,6 @@
 """Talk to a board's serial console.
 
-Shared by the provisioning tools. Needs pyserial, which the nRF Connect SDK toolchain's
+Used by tools/provision_device.py. Needs pyserial, which the nRF Connect SDK toolchain's
 Python already has.
 """
 

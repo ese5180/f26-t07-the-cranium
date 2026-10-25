@@ -195,11 +195,11 @@ Releasing an update:
 
 1. Raise the version in `firmware/app/VERSION` and build. The build signs the image with
    the key in `~/.cranium/`.
-2. In the console, upload `firmware/app/build/app/zephyr/zephyr.signed.bin`.
+2. In the console, upload `build/app/zephyr/zephyr.signed.bin`.
 3. Deploy it, then press Button 1 on each board.
 
 `cloud/logs.sh api|web|access|iot` follows the logs. `cloud/teardown.sh` removes
-everything.
+everything except the budget stack and the log group `AWSIotLogsV2`.
 
 ## Security decisions
 

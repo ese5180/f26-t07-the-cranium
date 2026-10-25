@@ -38,10 +38,10 @@ deployment produces is written to `cloud/.deploy/`, which git ignores.
 cloud/deploy.sh
 ```
 
-It runs the tests, creates or updates both stacks, writes the stack outputs to
-`cloud/.deploy/outputs.json` (the board provisioning tool reads that file) and prints
-the address of the console. A first deployment takes a few minutes. Run it again after
-any change: it only changes what differs.
+It runs the tests in `api/` and `web/`, creates or updates both stacks, writes the
+stack outputs to `cloud/.deploy/outputs.json` (the board provisioning tool reads that
+file) and prints the address of the console. A first deployment takes a few minutes.
+Run it again after any change: it only changes what differs.
 
 - The user pool is created without deletion protection, so that a failed first
   deployment can clean up after itself. The same run switches the protection on once
@@ -153,8 +153,10 @@ aws iot cancel-job-execution --job-id <deployment id> --thing-name <board> --for
 
 Then revoke the release again; it completes. The role of the API function may not
 cancel a single board's part in a job, so the console cannot do this itself. What AWS
-did with the second cancellation is in the API log (`cloud/logs.sh api`): `cancel_refused`
-if it refused, `cancel_unconfirmed` if it accepted and the board was still at work.
+did with the second cancellation is in the API log (`cloud/logs.sh api`). For a
+cancellation it is `cancel_refused` if AWS refused and `cancel_unconfirmed` if it
+accepted and the board was still at work. For a revocation it is `cancel_unconfirmed`
+in both cases, and its field `accepted` says which.
 
 ## Tear down
 

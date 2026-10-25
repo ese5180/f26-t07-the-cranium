@@ -272,8 +272,8 @@ Raspberry Pi example.
 - RAUC refuses unsigned bundles; signing is not optional (P5).
 - A read-only system partition is one image feature (`read-only-rootfs`) (P4).
 - RAUC has no server of its own, so the existing AWS IoT stack can drive it (P9): an AWS
-  IoT job tells the Pi to fetch a signed bundle from S3, and a job handler in the AWS IoT
-  Device Client runs `rauc install`. One console updates both boards.
+  IoT job tells the Pi to fetch a signed bundle from S3, and an update agent on the Pi
+  runs `rauc install`. One console updates both boards.
 - Only what we include is on the device, so there is less to attack than on full Debian.
 - Qt 6 with every module Mixxx needs comes from `meta-qt6` (open-source branch 6.12, for
   the scarthgap and wrynose releases), and most of Mixxx's other libraries from `meta-oe`.
@@ -298,7 +298,7 @@ Raspberry Pi example.
   Build, 6.0 docs; the 5.0 docs ask for 90 GB and 8 GB). The laptop used for nRF builds had
   20 GB free on 2026-10-25, so this means a Linux PC or a cloud build machine. First build
   takes hours.
-- The console and the job handler on the Pi need new work (job document for the Pi,
+- The console and an update agent on the Pi need new work (job document for the Pi,
   device group, health check that calls `rauc status mark-good`).
 - Every change to the software means rebuilding the image: slow while the app is still
   changing.
@@ -427,7 +427,7 @@ console that update the nRF board deliver the bundles.
   of megabytes has to go straight to S3 and be checked there.
 - Each update carries a whole system copy over Wi-Fi.
 - The Pi has nothing like the nRF board's TF-M storage, so its device key is a file.
-- A read-only system partition is possible but untested with Mixxx and the desktop (P4).
+- A read-only system partition is possible but untested with Mixxx and the compositor (P4).
 
 ## Comparison
 
@@ -465,7 +465,7 @@ signed bundles.
   hardware watchdog (systemd `RuntimeWatchdogSec`) turns a hung trial boot into that
   reboot. RAUC needs a small backend for this; U-Boot is the fallback if it proves awkward.
 - **Update agent.** A Python service using the AWS IoT Device SDK that follows the nRF
-  board's job flow (`firmware/app/src/ota_job.c`) with the same job states and shadow
+  board's job flow (`firmware/app/src/ota.c`) with the same job states and shadow
   fields ([aws-iot.md](aws-iot.md), "An update, message by message"):
   1. The offer stays queued until the user confirms it on the screen and no deck is
      playing (P10).

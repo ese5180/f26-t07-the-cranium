@@ -20,7 +20,7 @@ What it does, in order:
 
 Needs the AWS CLI with a signed-in profile, and the cloud stack deployed
 (cloud/deploy.sh writes cloud/.deploy/outputs.json). Run from an nRF Connect SDK
-terminal so that pyserial and cryptography are available.
+terminal so that pyserial is available.
 """
 
 import argparse

@@ -154,8 +154,9 @@ static void print_pem(const struct shell *sh, const char *label, const uint8_t *
 
 /*
  * Create the device identity on the device. The key pair is generated inside TF-M
- * with its random number generator, the private half goes straight into protected
- * storage, and only a certificate signing request leaves the device.
+ * with its random number generator. The private half passes through this
+ * application's memory once, on its way into protected storage, and is wiped
+ * afterwards; only a certificate signing request leaves the device.
  */
 static int cmd_keygen(const struct shell *sh, size_t argc, char **argv)
 {

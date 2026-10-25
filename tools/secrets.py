@@ -66,7 +66,7 @@ def wifi() -> None:
     ensure_local_dir()
 
     print("Writing the file as root so that reading it needs an administrator password.")
-    # tee runs as root and receives the content on stdin, so the passphrase is never
+    # The root shell receives the content on stdin, so the passphrase is never
     # an argument that other processes could see.
     subprocess.run(["sudo", "sh", "-c",
                     'umask 077 && cat > "$1" && chown root "$1" && chmod 600 "$1"',

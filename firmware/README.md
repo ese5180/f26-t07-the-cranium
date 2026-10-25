@@ -7,7 +7,7 @@ Zephyr / nRF Connect SDK **v3.4.0** project for the nRF7002 DK
 | --- | --- | --- |
 | `mcuboot` | application core, secure | Bootloader. Verifies the ECDSA P-256 signature of the application image on every boot, installs updates from the secondary slot in external flash, and puts the previous image back if a new one is not confirmed. |
 | `app` | application core | Trusted Firmware-M in the secure domain plus the non-secure application. This is the security domain of the product. |
-| `netcore_blinky` | network core | Base-function domain: toggles LED2 once a second. No radio stack, no console, no keys. |
+| `netcore_blinky` | network core | Base-function domain: blinks LED2 once a second. No radio stack, no console, no keys. |
 
 `app/` started as a copy of Nordic's `samples/net/aws_iot` from nRF Connect SDK v3.4.0;
 files derived from it keep Nordic's copyright notice and licence identifier.
@@ -30,6 +30,12 @@ files derived from it keep Nordic's copyright notice and licence identifier.
    Use `west flash --recover` the first time a board is programmed with this project.
    It erases both cores, including anything stored by earlier firmware.
 
+   The signed application image, the file the console takes, is
+   `build/app/zephyr/zephyr.signed.bin`.
+4. Provision the board (Wi-Fi network, device identity, cloud settings) with
+   `python tools/provision_device.py`. [`docs/aws-iot.md`](../docs/aws-iot.md) lists
+   what it needs and what it does.
+
 Zephyr cannot build from a path that contains spaces. If your checkout is under such
 a path, build through a symbolic link that has none.
 
@@ -38,11 +44,17 @@ a path, build through a symbolic link that has none.
 ```
 app/                     application-core image and the sysbuild configuration
   boards/                Kconfig and devicetree for the nRF7002 DK
+  src/                   the application: Wi-Fi, AWS IoT, updates, provisioning commands
   sysbuild/mcuboot/      bootloader configuration
   VERSION                firmware version; also the version written into the signed image
 netcore/                 network-core image
+certs/AmazonRootCA1.pem  root CA that tools/provision_device.py loads onto each board
 keys/fw_signing_pub.pem  public half of the signing key
+tests/host/              host tests of the job parser and the version code
 ```
+
+The host tests need no board. Run them from an nRF Connect SDK terminal, which
+provides the cJSON source they use: `make -C firmware/tests/host`.
 
 ## Memory map
 
@@ -57,6 +69,20 @@ Internal flash (1 MiB) and the 8 MiB external SPI flash:
 
 ## What the LEDs show
 
-* **LED1** is driven by the application core.
+* **LED1** is driven by the application core and shows its state:
+  * a short flash every two seconds: not provisioned yet
+  * slow blink: joining Wi-Fi
+  * medium blink: connecting to AWS IoT
+  * steady: connected, nothing to do
+  * fast blink: an update is waiting for a button press
+  * double flash: downloading or checking an update
+  * triple flash: a new image is running on trial
 * **LED2** is driven by the network core and keeps blinking whatever the application
   core is doing.
+
+## Buttons
+
+* **Button 1** installs an update that is on offer. **Button 2** declines it.
+* Holding **Button 2** for five seconds and releasing it erases everything provisioned
+  onto the board (Wi-Fi network, cloud settings, device key and certificates) and
+  restarts it. It does nothing while an update is offered or under way.

@@ -20,7 +20,7 @@ struct identity_settings {
 	char endpoint[IDENTITY_ENDPOINT_MAX];
 	/*
 	 * Firmware is only ever downloaded from URLs that start with this prefix, for
-	 * example "https://my-bucket.s3.us-east-1.amazonaws.com/fw/".
+	 * example "https://my-bucket.s3.us-east-1.amazonaws.com/firmware/".
 	 */
 	char download_url_prefix[IDENTITY_URL_PREFIX_MAX];
 };
