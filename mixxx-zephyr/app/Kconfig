@@ -1,0 +1,67 @@
+menu "Mixxx Zephyr"
+
+config MZ_SAMPLE_RATE
+	int "Output sample rate (Hz)"
+	default 48000
+	help
+	  Rate of the I2S output. Tracks at other rates are resampled.
+
+config MZ_BLOCK_FRAMES
+	int "Frames per audio block"
+	default 256
+	range 64 512
+	help
+	  Frames rendered per I2S block: 256 frames at 48 kHz is 5.3 ms.
+
+config MZ_I2S_BLOCKS
+	int "I2S blocks in flight"
+	default 4
+	range 2 8
+
+config MZ_CHUNK_FRAMES
+	int "Frames per cache chunk"
+	default 4096
+	help
+	  A power of two. Each chunk holds this many 16-bit stereo frames,
+	  so 4096 frames is 16 KiB and about 85 ms at 48 kHz.
+
+config MZ_CHUNKS_PER_DECK
+	int "Cache chunks per deck"
+	default 6
+	range 3 32
+
+config MZ_MAX_TRACKS
+	int "Tracks the library lists"
+	default 64
+
+config MZ_MUSIC_DIR
+	string "Folder on the SD card that holds the tracks"
+	default "/SD:/MUSIC"
+
+choice MZ_OUTPUT
+	prompt "What the stereo I2S output carries"
+	default MZ_OUTPUT_MAIN
+
+config MZ_OUTPUT_MAIN
+	bool "Main mix"
+
+config MZ_OUTPUT_HEADPHONES
+	bool "Headphone mix"
+
+config MZ_OUTPUT_SPLIT_CUE
+	bool "Split cue: cue mix left, main mix right, both mono"
+
+endchoice
+
+config MZ_CONFIRM_AFTER_MS
+	int "Mark a new image good after this much clean playback (ms)"
+	default 10000
+	help
+	  After an update MCUboot runs the new image once on trial. The image
+	  marks itself good once the SD card is mounted and audio has run this
+	  long without the audio thread missing a block; otherwise the next
+	  reset returns to the previous image.
+
+endmenu
+
+source "Kconfig.zephyr"

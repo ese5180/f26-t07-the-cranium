@@ -82,6 +82,8 @@ The Raspberry Pi runs Mixxx on Raspberry Pi OS. [`docs/raspberry-pi-ota.md`](doc
 compares the ways to update it and describes the chosen one: RAUC, driven by the same
 AWS IoT console. That design is not built yet: only the nRF board is updated today.
 
+A side project, a port of the Mixxx engine to Zephyr for the same board, is in [`mixxx-zephyr/`](mixxx-zephyr/README.md).
+
 - **Draw and describe your bootloading process**
   ![Boot process](<./pics/Boot Process.png>)
 
