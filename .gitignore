@@ -10,17 +10,37 @@ __pycache__/
 *.pyc
 node_modules/
 
+# Signed firmware images, stored by each build
+/binaries/*
+!/binaries/README.md
+
 # Local secrets: nothing in secrets/ is tracked except documentation and templates
 /secrets/*
 !/secrets/README.md
 !/secrets/*.example
 
-# Private key material anywhere in the tree
+# Private key material and credentials anywhere in the tree, under any name a person
+# might give them. A public repository cannot take one back: GitHub goes on serving a
+# commit by its id after it has been removed from every branch.
 *.key
 *.p12
 *.pfx
-*private*.pem
-*signing*key*.pem
+*.pem
+*.der
+*.crt
+*.csr
+*.jks
+credentials
+id_rsa
+id_ed25519
+id_ecdsa
+wifi_secrets.h
+
+# The PEM files that are public on purpose, each by name
+!/firmware/keys/fw_signing_pub.pem
+!/firmware/certs/AmazonRootCA1.pem
+!/cloud/api/test/fixtures/other_signing_pub.pem
+!/cloud/api/test/fixtures/test_signing_pub.pem
 
 # Account-specific deployment output and local environment files
 /cloud/.deploy/
