@@ -11,7 +11,18 @@
 	chosen {
 		nordic,pm-ext-flash = &mx25r64;
 		zephyr,code-partition = &boot_partition;
+		/*
+		 * Serial recovery cannot share a UART with the log. It takes uart0, the port
+		 * the application's console uses. The log goes to uart1, the DK's other
+		 * virtual COM port, where TF-M logs as well.
+		 */
+		zephyr,uart-mcumgr = &uart0;
+		zephyr,console = &uart1;
 	};
+};
+
+&uart1 {
+	status = "okay";
 };
 
 /delete-node/ &boot_partition;
