@@ -8,8 +8,9 @@ The file is kept outside the repository (see tools/local.py), so it cannot be co
 and does not end up in a synchronised folder.
 
 `wifi` writes the file owned by root with mode 0600, so reading it afterwards needs an
-administrator password (the provisioning tool asks for it through sudo). The passphrase
-is typed without echo and never appears on a command line.
+administrator password (the provisioning tool asks for it through sudo). With --unlocked
+the file stays owned by you, for a test bench that has to provision without anyone at the
+keyboard. The passphrase is typed without echo and never appears on a command line.
 """
 
 import argparse
@@ -43,13 +44,36 @@ def c_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def wifi() -> None:
+def known_spelling(ssid: str) -> str | None:
+    """A network this Mac has joined whose name differs from the typed one only in case
+    or apostrophe. A board needs the exact name: a phone's hotspot has a curly apostrophe
+    that nobody types by hand, and with a straight one the board just never finds it.
+    """
+    def plain(name: str) -> str:
+        return name.replace("’", "'").casefold()
+
+    try:
+        listing = subprocess.run(["networksetup", "-listpreferredwirelessnetworks", "en0"],
+                                 capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    names = [line.strip() for line in listing.splitlines()[1:]]
+    if ssid in names:
+        return None
+    return next((name for name in names if plain(name) == plain(ssid)), None)
+
+
+def wifi(unlocked: bool = False) -> None:
     if os.name != "posix":
         sys.exit("Locking the file is only implemented for macOS and Linux")
 
     ssid = input("Wi-Fi network name (SSID): ").strip()
     if not 1 <= len(ssid.encode()) <= 32:
         sys.exit("An SSID is 1 to 32 bytes long")
+
+    known = known_spelling(ssid)
+    if known and input(f"This Mac knows that network as \"{known}\". Use that? [Y/n] ").strip().lower() != "n":
+        ssid = known
 
     passphrase = getpass.getpass("Passphrase (not shown): ")
     if passphrase != getpass.getpass("Passphrase again: "):
@@ -64,6 +88,14 @@ def wifi() -> None:
     content = TEMPLATE.format(ssid=c_string(ssid), passphrase=c_string(passphrase),
                               security=security)
     ensure_local_dir()
+
+    if unlocked:
+        # Owner-only, without root: the provisioning tool can then run unattended.
+        descriptor = os.open(WIFI, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w") as file:
+            file.write(content)
+        print(f"Wrote {WIFI} (owner you, mode 600, outside the repository)")
+        return
 
     print("Writing the file as root so that reading it needs an administrator password.")
     # The root shell receives the content on stdin, so the passphrase is never
@@ -90,8 +122,14 @@ def status() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=["wifi", "status"])
+    parser.add_argument("--unlocked", action="store_true",
+                        help="wifi: keep the file owned by you, so that no administrator "
+                             "password is needed to provision a board")
     args = parser.parse_args()
-    {"wifi": wifi, "status": status}[args.command]()
+    if args.command == "wifi":
+        wifi(args.unlocked)
+    else:
+        status()
 
 
 if __name__ == "__main__":
