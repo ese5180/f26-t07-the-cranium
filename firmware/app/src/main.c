@@ -59,6 +59,13 @@ K_MSGQ_DEFINE(event_queue, sizeof(struct app_event), 32, 4);
 
 static int cloud_retry_in = -1;
 static int cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
+/*
+ * The console asked for a new connection (APP_EVENT_CLOUD_RECONNECT), and the connection or the
+ * attempt that was there then has not ended yet. The CLOUD_DOWN that ends it connects again at
+ * once instead of backing off, and a CLOUD_UP of that attempt is closed first: it used the
+ * settings from before.
+ */
+static bool cloud_reconnect_asked;
 /* Since the last report to the shadow. A report that nothing asked for is the board's heartbeat. */
 static int seconds_since_report;
 static int seconds_since_diag;
@@ -75,6 +82,12 @@ int app_event_post_simple(enum app_event_type type)
 	const struct app_event event = { .type = type };
 
 	return app_event_post(&event);
+}
+
+/* on_tick() counts the value down once a tick, and connects on the tick that takes it below 0. */
+int app_cloud_retry_in(void)
+{
+	return cloud_retry_in < 0 ? -1 : cloud_retry_in + 1;
 }
 
 static void on_tick_timer(struct k_timer *timer)
@@ -277,6 +290,37 @@ static void on_job_message(void)
 	}
 }
 
+/* Without waiting for a retry: a new connection if there is a network and somewhere to go. */
+static void connect_cloud_now(void)
+{
+	cloud_retry_in = -1;
+
+	if (!device_is_factory() && net_is_up() && identity_settings_get() != NULL) {
+		cloud_connect();
+	}
+}
+
+/* APP_EVENT_CLOUD_RECONNECT. See cloud_reconnect_asked for how a connection that is there ends. */
+static void reconnect_cloud(void)
+{
+	/* The console refuses during an update. An update can have begun since it posted this. */
+	if (ota_state() != OTA_IDLE) {
+		LOG_WRN("Reconnect ignored while an update is in progress");
+		return;
+	}
+
+	LOG_INF("Reconnecting to AWS IoT, as asked on the console");
+	cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
+
+	if (cloud_is_connected() || cloud_is_connecting()) {
+		cloud_reconnect_asked = true;
+		cloud_disconnect();
+		return;
+	}
+
+	connect_cloud_now();
+}
+
 static void decide_mode(void)
 {
 	switch (device_boot()) {
@@ -319,6 +363,13 @@ static void handle(const struct app_event *event)
 		net_report_join_failed(event->join_failed.reason);
 		break;
 	case APP_EVENT_CLOUD_UP:
+		if (cloud_reconnect_asked) {
+			/* Its CLOUD_DOWN connects again, with what is set now. */
+			LOG_INF("Connected to AWS IoT with the settings from before: reconnecting");
+			cloud_disconnect();
+			break;
+		}
+
 		LOG_INF("Connected to AWS IoT");
 		cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
 		cloud_retry_in = -1;
@@ -332,7 +383,10 @@ static void handle(const struct app_event *event)
 		break;
 	case APP_EVENT_CLOUD_DOWN:
 		LOG_INF("Disconnected from AWS IoT");
-		if (net_is_up()) {
+		if (cloud_reconnect_asked) {
+			cloud_reconnect_asked = false;
+			connect_cloud_now();
+		} else if (net_is_up()) {
 			cloud_retry_in = cloud_backoff;
 			cloud_backoff = MIN(cloud_backoff * 2, CLOUD_BACKOFF_MAX);
 		}
@@ -341,6 +395,9 @@ static void handle(const struct app_event *event)
 		stuck_on_new_settings();
 		cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
 		cloud_retry_in = CLOUD_SETTLE_SECONDS;
+		break;
+	case APP_EVENT_CLOUD_RECONNECT:
+		reconnect_cloud();
 		break;
 	case APP_EVENT_JOB_MESSAGE:
 		on_job_message();

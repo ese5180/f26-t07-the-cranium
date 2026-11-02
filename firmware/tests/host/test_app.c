@@ -75,6 +75,7 @@ static struct {
 	bool trial;
 	bool cloud_connecting;
 	int cloud_connects;
+	int cloud_disconnects;
 	int cloud_inits;
 	uint32_t update_progress;
 
@@ -519,8 +520,10 @@ bool cloud_is_connecting(void)
 	return board.cloud_connecting;
 }
 
+/* The library's CLOUD_DOWN that follows is for a test to post: see test_a_reconnect_from_the_console(). */
 void cloud_disconnect(void)
 {
+	board.cloud_disconnects++;
 	board.cloud_up = false;
 }
 
@@ -722,6 +725,7 @@ static void run_main(enum device_boot result, bool factory, bool network, bool s
 	seconds_down = 0;
 	cloud_retry_in = -1;
 	cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
+	cloud_reconnect_asked = false;
 
 	board.boot_result = result;
 	board.factory = factory;
@@ -1820,6 +1824,152 @@ static void test_the_cloud_gets_tried_again_after_a_lost_event(void)
 	CHECK(cloud_retry_in == CLOUD_SETTLE_SECONDS - 1);
 }
 
+/* ---- MQTT_RECONNECT and MQTT_HOST: APP_EVENT_CLOUD_RECONNECT --------------------------- */
+
+static void post_event(enum app_event_type type)
+{
+	CHECK(app_event_post_simple(type) == 0);
+	run_loop();
+}
+
+/* What cloud.c reports when an attempt has come up, and when a connection or an attempt ends. */
+static void cloud_attempt_comes_up(void)
+{
+	board.cloud_connecting = false;
+	board.cloud_up = true;
+	post_event(APP_EVENT_CLOUD_UP);
+}
+
+static void cloud_connection_ends(void)
+{
+	board.cloud_connecting = false;
+	board.cloud_up = false;
+	post_event(APP_EVENT_CLOUD_DOWN);
+}
+
+static void test_a_reconnect_from_the_console(void)
+{
+	int connects;
+	int disconnects;
+	int reports;
+
+	/* What the console says of the next attempt: at most this many seconds, and then it comes. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	CHECK(app_cloud_retry_in() == -1);
+	link_comes_up();
+	CHECK(app_cloud_retry_in() == CLOUD_SETTLE_SECONDS + 1);
+	ticks(CLOUD_SETTLE_SECONDS);
+	CHECK(app_cloud_retry_in() == 1);
+	CHECK(board.cloud_connects == 0);
+	ticks(1);
+	CHECK(board.cloud_connects == 1);
+	CHECK(app_cloud_retry_in() == -1);
+
+	/* Connected: the connection is closed, and its end connects again at once, with no back-off. */
+	cloud_attempt_comes_up();
+	disconnects = board.cloud_disconnects;
+	reports = board.shadow_reports;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_disconnects == disconnects + 1);
+	CHECK(!board.cloud_up);
+	CHECK(board.cloud_connects == 1);
+	cloud_connection_ends();
+	CHECK(board.cloud_connects == 2);
+	CHECK(app_cloud_retry_in() == -1);
+	CHECK(cloud_backoff == CONFIG_APP_CLOUD_RETRY_SECONDS);
+	cloud_attempt_comes_up();
+	CHECK(board.shadow_reports == reports + 1);
+	CHECK(!cloud_reconnect_asked);
+
+	/* The next connection to end backs off as ever. */
+	cloud_connection_ends();
+	CHECK(app_cloud_retry_in() == CONFIG_APP_CLOUD_RETRY_SECONDS + 1);
+	CHECK(board.cloud_connects == 2);
+
+	/* Waiting, with the back-off grown: an attempt now, and the back-off from the start. */
+	cloud_connection_ends();
+	cloud_connection_ends();
+	CHECK(cloud_backoff == CONFIG_APP_CLOUD_RETRY_SECONDS * 8);
+	CHECK(app_cloud_retry_in() == CONFIG_APP_CLOUD_RETRY_SECONDS * 4 + 1);
+	connects = board.cloud_connects;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_connects == connects + 1);
+	CHECK(app_cloud_retry_in() == -1);
+	CHECK(cloud_backoff == CONFIG_APP_CLOUD_RETRY_SECONDS);
+	CHECK(!cloud_reconnect_asked);
+
+	/* That attempt is under way, with the settings from before. It runs to its end... */
+	CHECK(board.cloud_connecting);
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_connects == connects + 1);
+	CHECK(cloud_reconnect_asked);
+	ticks(CONFIG_APP_CLOUD_RETRY_SECONDS);
+	CHECK(board.cloud_connects == connects + 1);
+
+	/* ...and when it comes up, it is closed at once, with nothing sent over it, and made again. */
+	reports = board.shadow_reports;
+	cloud_attempt_comes_up();
+	CHECK(!board.cloud_up);
+	CHECK(board.shadow_reports == reports);
+	CHECK(board.cloud_connects == connects + 1);
+	cloud_connection_ends();
+	CHECK(board.cloud_connects == connects + 2);
+	CHECK(!cloud_reconnect_asked);
+	cloud_attempt_comes_up();
+	CHECK(board.shadow_reports == reports + 1);
+
+	/* An attempt under way that fails: the next one starts at once, not after a back-off. */
+	cloud_connection_ends();
+	ticks(CONFIG_APP_CLOUD_RETRY_SECONDS + 1);
+	CHECK(board.cloud_connecting);
+	connects = board.cloud_connects;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	cloud_connection_ends();
+	CHECK(board.cloud_connects == connects + 1);
+	CHECK(cloud_backoff == CONFIG_APP_CLOUD_RETRY_SECONDS);
+	CHECK(app_cloud_retry_in() == -1);
+
+	/* No network: nothing is tried, and it connects as usual once the network is back. */
+	link_goes_down();
+	board.cloud_connecting = false;
+	cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS * 8;
+	connects = board.cloud_connects;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_connects == connects);
+	CHECK(cloud_backoff == CONFIG_APP_CLOUD_RETRY_SECONDS);
+	CHECK(app_cloud_retry_in() == -1);
+	link_comes_up();
+	CHECK(app_cloud_retry_in() == CLOUD_SETTLE_SECONDS + 1);
+
+	/* No cloud settings: nowhere to go. */
+	boot(DEVICE_BOOT_OPERATING, false, true, false);
+	link_comes_up();
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_connects == 0);
+
+	/* An update that began after the console asked keeps its connection. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	link_comes_up();
+	ticks(CLOUD_SETTLE_SECONDS + 1);
+	cloud_attempt_comes_up();
+	board.ota = OTA_DOWNLOADING;
+	disconnects = board.cloud_disconnects;
+	connects = board.cloud_connects;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(board.cloud_up);
+	CHECK(board.cloud_disconnects == disconnects);
+	CHECK(board.cloud_connects == connects);
+	CHECK(!cloud_reconnect_asked);
+	board.ota = OTA_IDLE;
+
+	/* A restart forgets that it was asked. */
+	board.cloud_connecting = true;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(cloud_reconnect_asked);
+	boot_again();
+	CHECK(!cloud_reconnect_asked);
+}
+
 static void test_ticks_do_not_pile_up(void)
 {
 	boot(DEVICE_BOOT_OPERATING, false, true, true);
@@ -2843,6 +2993,7 @@ int main(void)
 	test_new_settings_give_the_cloud_its_full_wait();
 	test_a_restart_at_the_top_of_the_count_writes_nothing();
 	test_the_cloud_gets_tried_again_after_a_lost_event();
+	test_a_reconnect_from_the_console();
 	test_ticks_do_not_pile_up();
 	test_a_held_up_main_loop_does_not_hold_up_the_timers();
 	test_a_join_on_a_link_that_is_up_waits_for_the_link_to_go();

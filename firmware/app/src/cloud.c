@@ -26,7 +26,15 @@ static char topic_update_accepted[TOPIC_MAX];
 static char topic_update_rejected[TOPIC_MAX];
 static char topic_get_next[TOPIC_MAX];
 
-static struct mqtt_topic subscriptions[5];
+/* What is subscribed to, in this order. The console lists them from here as well. */
+static char *const subscribed[] = {
+	topic_notify_next, topic_get_accepted, topic_get_rejected, topic_update_accepted,
+	topic_update_rejected,
+};
+
+static struct mqtt_topic subscriptions[ARRAY_SIZE(subscribed)];
+/* The topics are complete: before that the console must not read them. */
+static atomic_t topics_ready;
 
 static K_THREAD_STACK_DEFINE(connect_stack, CONNECT_STACK);
 static struct k_work_q connect_queue;
@@ -36,6 +44,40 @@ static char connect_host[IDENTITY_ENDPOINT_MAX];
 
 static atomic_t connected;
 static atomic_t connecting;
+
+/*
+ * Written by the connection thread, the MQTT helper's thread and whoever publishes, and read by
+ * the console: under a lock, so that a copy is never half of one update and half of another. The
+ * state is not in here. It comes from the atomics above, which the rest of this file goes by.
+ */
+static struct k_spinlock stats_lock;
+static struct cloud_stats connection_stats = {
+	.connected_at_ms = -1,
+	.last_error_ms = -1,
+	.last_publish_ms = -1,
+	.last_receive_ms = -1,
+};
+
+static void stats_note_error(enum cloud_error_source source, int err)
+{
+	int64_t now = k_uptime_get();
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+
+	connection_stats.errors++;
+	connection_stats.last_error_source = source;
+	connection_stats.last_error = err;
+	connection_stats.last_error_ms = now;
+	k_spin_unlock(&stats_lock, key);
+}
+
+/* A connection that was up has ended. */
+static void stats_note_down(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+
+	connection_stats.disconnects++;
+	k_spin_unlock(&stats_lock, key);
+}
 
 /* One jobs message at a time is handed to the main loop. */
 static char job_payload[CONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN + 1];
@@ -166,6 +208,13 @@ static void queue_job_message(enum cloud_job_message kind, const char *payload, 
 
 static void on_message(const char *topic, size_t topic_len, const char *payload, size_t len)
 {
+	int64_t now = k_uptime_get();
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+
+	connection_stats.received++;
+	connection_stats.last_receive_ms = now;
+	k_spin_unlock(&stats_lock, key);
+
 	if (ends_with(topic, topic_len, "/jobs/notify-next")) {
 		/* Only a signal. Its copy of the document has no usable download URL. */
 		queue_job_message(CLOUD_JOB_NOTIFY_NEXT, "", 0);
@@ -182,13 +231,24 @@ static void on_message(const char *topic, size_t topic_len, const char *payload,
 
 static void on_aws_iot_event(const struct aws_iot_evt *const event)
 {
+	k_spinlock_key_t key;
+	int64_t now;
+
 	switch (event->type) {
 	case AWS_IOT_EVT_CONNECTED:
+		/* Before the flag: whoever sees the flag sees when it came up. */
+		now = k_uptime_get();
+		key = k_spin_lock(&stats_lock);
+		connection_stats.connects++;
+		connection_stats.connected_at_ms = now;
+		k_spin_unlock(&stats_lock, key);
+
 		atomic_set(&connected, 1);
 		(void)app_event_post_simple(APP_EVENT_CLOUD_UP);
 		break;
 	case AWS_IOT_EVT_DISCONNECTED:
 		if (atomic_set(&connected, 0)) {
+			stats_note_down();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
 		}
 		break;
@@ -202,7 +262,9 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 		 * STUCK_NO_CLOUD_SECONDS of link-up time with no connection does, in stuck.c.
 		 */
 		LOG_WRN("AWS IoT library error %d", event->data.err);
+		stats_note_error(CLOUD_ERROR_LIBRARY, event->data.err);
 		if (atomic_set(&connected, 0)) {
+			stats_note_down();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
 		}
 		break;
@@ -217,14 +279,25 @@ static void connect_work_handler(struct k_work *work)
 		.client_id = (char *)identity_thing_name(),
 		.host_name = connect_host,
 	};
+	k_spinlock_key_t key;
 	int err;
 
 	ARG_UNUSED(work);
 
 	LOG_INF("Connecting to AWS IoT as %s", identity_thing_name());
 
+	key = k_spin_lock(&stats_lock);
+	connection_stats.attempts++;
+	k_spin_unlock(&stats_lock, key);
+
 	/* Blocks until the broker has acknowledged the subscriptions, or fails. */
 	err = aws_iot_connect(&aws_config);
+
+	/* Counted before the flag goes: whoever sees the attempt over sees its error as well. */
+	if (err) {
+		stats_note_error(CLOUD_ERROR_CONNECT, err);
+	}
+
 	atomic_set(&connecting, 0);
 
 	if (err) {
@@ -245,7 +318,7 @@ static int build_topic(char *buf, const char *suffix)
 
 static void subscribe_to(size_t index, const char *topic)
 {
-	subscriptions[index].topic.utf8 = topic;
+	subscriptions[index].topic.utf8 = (const uint8_t *)topic;
 	subscriptions[index].topic.size = strlen(topic);
 	subscriptions[index].qos = MQTT_QOS_1_AT_LEAST_ONCE;
 }
@@ -264,11 +337,10 @@ int cloud_init(void)
 		return err;
 	}
 
-	subscribe_to(0, topic_notify_next);
-	subscribe_to(1, topic_get_accepted);
-	subscribe_to(2, topic_get_rejected);
-	subscribe_to(3, topic_update_accepted);
-	subscribe_to(4, topic_update_rejected);
+	for (size_t i = 0; i < ARRAY_SIZE(subscribed); i++) {
+		subscribe_to(i, subscribed[i]);
+	}
+	atomic_set(&topics_ready, 1);
 
 	err = aws_iot_init(on_aws_iot_event);
 	if (err) {
@@ -317,6 +389,31 @@ bool cloud_is_connecting(void)
 	return atomic_get(&connecting) != 0;
 }
 
+void cloud_stats_get(struct cloud_stats *out)
+{
+	/* The flags first: what they say happened was counted before they were set. */
+	bool up = atomic_get(&connected) != 0;
+	bool trying = atomic_get(&connecting) != 0;
+	k_spinlock_key_t key = k_spin_lock(&stats_lock);
+
+	*out = connection_stats;
+	k_spin_unlock(&stats_lock, key);
+
+	out->state = up ? CLOUD_STATE_CONNECTED : trying ? CLOUD_STATE_CONNECTING : CLOUD_STATE_IDLE;
+	if (!up) {
+		out->connected_at_ms = -1;
+	}
+}
+
+const char *cloud_subscription(size_t index)
+{
+	if (!atomic_get(&topics_ready) || index >= ARRAY_SIZE(subscribed)) {
+		return NULL;
+	}
+
+	return subscribed[index];
+}
+
 static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topic,
 		   const char *payload)
 {
@@ -328,12 +425,24 @@ static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topi
 		.ptr = (char *)payload,
 		.len = strlen(payload),
 	};
+	k_spinlock_key_t key;
+	int err;
 
 	if (!atomic_get(&connected)) {
 		return -ENOTCONN;
 	}
 
-	return aws_iot_send(&message);
+	err = aws_iot_send(&message);
+	if (err == 0) {
+		int64_t now = k_uptime_get();
+
+		key = k_spin_lock(&stats_lock);
+		connection_stats.published++;
+		connection_stats.last_publish_ms = now;
+		k_spin_unlock(&stats_lock, key);
+	}
+
+	return err;
 }
 
 int cloud_shadow_report(const char *reported_json)

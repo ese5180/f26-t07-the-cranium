@@ -135,8 +135,11 @@ all start with `[BOOT]`.
 | `NET` | | connection state, SSID, IP, RSSI and MAC |
 | `CLOUD\|<endpoint>\|<download-url-prefix>` | | save where the board connects and downloads from; `CLOUD\|` clears them |
 | `KEYGEN` or `KEYGEN\|REPLACE` | | create the device key inside TF-M and print a signing request, never the key |
+| `MQTT` | | the MQTT connection: its state, server, port, client ID, counts since boot, last error, and topics: see [MQTT](#mqtt) |
+| `MQTT_HOST\|<endpoint>` | | change the AWS IoT endpoint only, keep the download prefix, and reconnect if there is a connection |
+| `MQTT_RECONNECT` | | drop the MQTT connection and connect again now, with the back-off from the start |
 | `STATS` | | a box with state, ID, firmware, Wi-Fi, uptime, free heap and last reset reason |
-| `STATUS` or `STATUS\|<section>` | | the configuration: `device`, `wifi`, `cloud`, `certs` or `update`. `device` also has `stuck count`: see [When the board is stuck](#when-the-board-is-stuck) |
+| `STATUS` or `STATUS\|<section>` | | the configuration: `device`, `wifi`, `cloud`, `certs` or `update`. `device` also has `stuck count` (see [When the board is stuck](#when-the-board-is-stuck)), and `cloud` has `mqtt`, the state that `MQTT` starts with |
 | `STREAM_START\|<total_bytes>\|<chunk_count>\|<crc16_hex>\|<CA or CERT>` | | start loading a certificate, at most 1800 bytes of DER |
 | `STREAM_CHUNK\|<index>\|<base64>` | | the next piece of it |
 | `STREAM_STATUS`, `STREAM_CANCEL` | | how far it is; give up on it |
@@ -182,6 +185,12 @@ IDs, network names, passwords, URLs and data stay exactly as typed.
                     <download-url-prefix>    download prefix; empty clears
   KEYGEN            [REPLACE]                create the device key, print a
                                              signing request
+  MQTT                                       show the MQTT connection: state,
+                                             server, counts, topics
+  MQTT_HOST         <endpoint>               change only the AWS IoT endpoint,
+                                             and reconnect to it
+  MQTT_RECONNECT                             drop the MQTT connection and
+                                             connect again now
 +-- Status --------------------------------------------------------------------+
   STATS                                      show state, id, firmware, wifi,
                                              uptime, memory, last reset
@@ -215,6 +224,7 @@ A word from the console's own table can be in any case. What a person chooses st
 | `WIFI_SEC` | `WPA2_PSK`, `WPA2_PSK_SHA256`, `WPA3_SAE` | the SSID, the password |
 | `INIT`, `SET_ID` | | the ID |
 | `CLOUD` | | the endpoint, the download prefix, also its `https://` |
+| `MQTT_HOST` | | the endpoint |
 | `KEYGEN` | `REPLACE` | |
 | `STREAM_START` | `CA`, `CERT`, and the letters of the CRC, which is a number | |
 | `STREAM_CHUNK` | | the base64 |
@@ -245,7 +255,8 @@ The rules that apply to values:
 * While an update is in progress or a new image is on trial, whatever could lose the
   trial's record or take the board off the network is refused with
   `ERR update in progress`: `FACTORY_RESET`, `RESET_CONFIG`, `INIT`, `SET_ID`, `CLEAR_WIFI`,
-  and also `WIFI`, `WIFI_SEC`, `CLOUD`, `KEYGEN` and `STREAM_START`. Creating a key takes
+  and also `WIFI`, `WIFI_SEC`, `CLOUD`, `MQTT_HOST`, `MQTT_RECONNECT`, `KEYGEN` and
+  `STREAM_START`. `MQTT` and the other commands that only read work as ever. Creating a key takes
   seconds, and an update can begin meanwhile: the old key is only given up afterwards, on the
   main loop, if none has.
 
@@ -272,6 +283,74 @@ TF-M. Output goes through one ring buffer, whole lines only, and is sent by inte
 console task waits for room, so a reply is never lost. Other threads do not, so a log line
 that does not fit is dropped and counted (`[CONSOLE] WRN: 3 lines dropped`). The watchdog
 stays with the main loop, which keeps running whatever the console does.
+
+### MQTT
+
+`MQTT` says how the connection to AWS IoT stands, from what `src/cloud.c` has counted since the
+board started. Nothing in it is secret: the endpoint is in `STATUS` as well. On a board that has been
+connected for a minute:
+
+```text
+state          connected
+endpoint       example-ats.iot.us-east-1.amazonaws.com
+port           8883
+client id      cranium-fe5b26c0c5b1dcd7
+keep alive     120 s
+tls sec tag    201
+connected for  65 s
+attempts       3
+connects       2
+disconnects    1
+errors         1
+last error     -11 (connect), 35 s ago
+published      42
+received       7
+last publish   5 s ago
+last receive   1 s ago
+subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/notify-next
+subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/accepted
+subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/rejected
+subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/accepted
+subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/rejected
+OK
+```
+
+* `state` is `connected`, `connecting` (an attempt is running, for at most 30 s), `waiting to retry in
+  N s` (30 s after a failure, doubling up to 300 s), `no network` or `no cloud settings`. `waiting to
+  retry` with no time is the second before the main loop schedules the next attempt. `STATUS|cloud`
+  has the same words as `mqtt`. `connected for` is there only while it is connected.
+* Only the endpoint can be changed while the board runs. The port and the keep-alive are built in
+  (`CONFIG_MQTT_HELPER_PORT`, `CONFIG_MQTT_KEEPALIVE`), because the AWS IoT library takes nothing else
+  at run time. The client ID is the thing name, and cannot be changed: the board's policy in AWS IoT
+  allows no other. The root CA, the certificate and the key are under the TLS sec tag 201, and
+  `STATUS|certs` says which are there.
+* `attempts`, `connects`, `disconnects` and `errors` count since the boot. A connection counts once the
+  broker has acknowledged every subscription.
+* `last error` is a number, where it came from, and when. `(connect)` is what the attempt returned:
+  -11 is no answer within 30 s, other negative numbers are errnos (-116 timed out, -111 refused, -118 no
+  route to the host), and 2 or 3 is a host name that DNS does not know or did not answer for.
+  `(library)` is the library closing a connection: 5 is the broker's "not authorized", which a
+  certificate that AWS IoT does not know, or a policy that does not fit, gets. 1 to 4 are the other
+  refusals of MQTT's CONNACK, and 0 a message too large for the board's buffer.
+* `published` counts what the library took to send, `received` what arrived on a subscription.
+* The topics are the jobs topics that the board subscribes to at every connection. The library adds
+  no shadow topic of its own: the board only publishes to its shadow and never subscribes to it.
+
+`MQTT_HOST|<endpoint>` changes the endpoint and keeps the download prefix, which `CLOUD` would ask
+for again. The endpoint has to be a host name, as for `CLOUD`: at most 127 letters, digits, dots and
+hyphens. It is stored at once, and a connection or an attempt that is there is replaced, so that the
+board reconnects to the new one right away (`OK mqtt server set to <endpoint>, reconnecting`).
+Otherwise the next attempt uses it, 3 seconds later if there is a network. Without cloud settings
+there is no prefix to keep, and it says to use `CLOUD`.
+
+`MQTT_RECONNECT` drops the connection and connects again now, with the back-off from the start. An
+attempt that is running is let finish first: if it comes up, it is closed at once and made again.
+Without a network or cloud settings it says so and does nothing. Both are refused during an update
+or a trial, like `CLOUD`, and the main loop ignores a request that an update overtook on its way.
+
+The serial console page in `cloud/web` has an MQTT panel for the three: Check MQTT shows this reply
+as a list, Set server checks the host name on the page and sends `MQTT_HOST` only once it has been
+confirmed there, and Reconnect sends `MQTT_RECONNECT`.
 
 ## Factory mode
 

@@ -34,12 +34,14 @@ const PROBE_MS = 2000;
 const REPLY_MS = 10000;
 const RESTART_SETTLE_MS = 300;
 
-// The firmware's limits: CONSOLE_LINE_MAX, DEVICE_ID_MAX, NET_SSID_MAX, NET_PASSWORD_MIN and _MAX.
+// The firmware's limits: CONSOLE_LINE_MAX, DEVICE_ID_MAX, NET_SSID_MAX, NET_PASSWORD_MIN and _MAX,
+// and IDENTITY_ENDPOINT_MAX less its terminating zero.
 const LINE_MAX = 384;
 const ID_MAX = 32;
 const SSID_MAX = 32;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 63;
+const ENDPOINT_MAX = 127;
 // The firmware shows no more than this of a name it does not know.
 const NAME_SHOWN_MAX = 32;
 
@@ -81,6 +83,12 @@ const RULES = {
     }
     return CONTROL.test(value) ? 'password cannot contain a control character' : null;
   },
+  // valid_host_name() in identity.c: letters, digits, dots and hyphens, a dot somewhere, and
+  // neither a dot nor a hyphen first. Nothing else, so no scheme, port, path or blank either.
+  host(value) {
+    const shaped = value.length <= ENDPOINT_MAX && /^[0-9A-Za-z][0-9A-Za-z.-]*$/.test(value) && value.includes('.');
+    return shaped ? null : `endpoint must be a host name of at most ${ENDPOINT_MAX} letters, digits, dots and hyphens`;
+  },
 };
 
 // The table. `group` is the part of the page with its form, null for what can only be
@@ -98,6 +106,12 @@ const PASSWORD_FIELD = {
 const SECURITY_FIELD = { key: 'security', label: 'Security', choices: ['WPA2_PSK', 'WPA2_PSK_SHA256', 'WPA3_SAE'] };
 const SECTION_FIELD = {
   key: 'section', label: 'Section', optional: true, choices: ['', 'device', 'wifi', 'cloud', 'certs', 'update'],
+};
+const HOST_FIELD = {
+  key: 'host',
+  label: 'Server',
+  rule: 'host',
+  hint: 'The AWS IoT endpoint, such as xxxxxxxxxxxxxx-ats.iot.us-east-1.amazonaws.com. The download prefix stays as it is.',
 };
 
 export const COMMANDS = Object.freeze([
@@ -123,6 +137,24 @@ export const COMMANDS = Object.freeze([
   },
   { name: 'CLEAR_WIFI', group: 'wifi', factory: false, args: [0, 0], fields: [], text: 'Erase the network and disconnect.' },
   { name: 'NET', group: 'wifi', factory: false, args: [0, 0], fields: [], text: 'Show connection state, name, IP, signal and MAC.' },
+  // The MQTT panel draws these itself: see mqttPanel().
+  { name: 'MQTT', group: 'mqtt', factory: false, args: [0, 0], fields: [], text: 'Ask how the connection to AWS IoT stands.' },
+  {
+    name: 'MQTT_HOST',
+    group: 'mqtt',
+    factory: false,
+    args: [1, 1],
+    fields: [HOST_FIELD],
+    text: 'Change the AWS IoT endpoint only, and reconnect to it.',
+  },
+  {
+    name: 'MQTT_RECONNECT',
+    group: 'mqtt',
+    factory: false,
+    args: [0, 0],
+    fields: [],
+    text: 'Drop the MQTT connection and connect again now.',
+  },
   { name: 'STATS', group: 'status', factory: false, args: [0, 0], fields: [], text: 'State, ID, firmware, Wi-Fi, uptime, memory, last reset.' },
   { name: 'STATUS', group: 'status', factory: false, args: [0, 1], fields: [SECTION_FIELD], text: 'Print the configuration, or one section of it.' },
   { name: 'HELP', alias: '?', group: 'status', factory: true, args: [0, 0], fields: [], text: 'List the commands of this firmware.' },
@@ -170,6 +202,7 @@ const KNOWN = new Map(COMMANDS.flatMap((command) => [
 const GROUPS = [
   ['identity', 'Identity'],
   ['wifi', 'Wi-Fi'],
+  ['mqtt', 'MQTT'],
   ['status', 'Status'],
   ['maintenance', 'Maintenance'],
 ];
@@ -319,6 +352,52 @@ export function classifyLine(raw) {
   return { kind: 'output', text };
 }
 
+// A line of a status listing, "client id      cranium-…": a key of letters and blanks, two blanks
+// or more, and its value. The same as tools/board.py's KEY_VALUE.
+const KEY_VALUE = /^([A-Za-z][A-Za-z ]*?) {2,}(\S.*)$/;
+
+// What the keys of MQTT's reply are called on the page. A key it does not know is shown as it comes.
+const MQTT_LABELS = {
+  state: 'State',
+  endpoint: 'Server',
+  port: 'Port',
+  'client id': 'Client ID',
+  'keep alive': 'Keep-alive',
+  'tls sec tag': 'TLS sec tag',
+  'connected for': 'Connected for',
+  attempts: 'Attempts',
+  connects: 'Connects',
+  disconnects: 'Disconnects',
+  errors: 'Errors',
+  'last error': 'Last error',
+  published: 'Published',
+  received: 'Received',
+  'last publish': 'Last publish',
+  'last receive': 'Last receive',
+  subscribed: 'Subscribed to',
+};
+
+// No reply of the firmware's has more lines than this: what goes beyond it is not kept.
+const REPLY_LINES_KEPT = 64;
+
+/**
+ * The lines of a reply to MQTT as facts, in the board's order. A key that comes again, as
+ * "subscribed" does for each topic, is one fact with several values. Lines that are not a key
+ * and a value are left out.
+ */
+export function mqttFacts(lines) {
+  const facts = [];
+  for (const text of lines) {
+    const match = KEY_VALUE.exec(text);
+    if (!match) continue;
+    const [, key, value] = match;
+    const known = facts.find((fact) => fact.key === key);
+    if (known) known.values.push(value);
+    else facts.push({ key, label: MQTT_LABELS[key] ?? key, values: [value] });
+  }
+  return facts;
+}
+
 // A command coming back. HELP's lines hold the same words, but they start with a mark.
 const ECHOED_SECRET = /^(?:> ?)?(wifi(?:_sec)?\|.*)$/is;
 
@@ -362,6 +441,9 @@ function clockNow(date) {
  *
  * phase: idle, opening, probing (asking who is there), silent (nobody answered), ready
  * or closing. Commands can only be sent when it is ready.
+ *
+ * mqtt: the board's last answer to MQTT, however it was sent, as { facts, at, stale }, or null.
+ * It is stale once MQTT_HOST or MQTT_RECONNECT has been answered with OK since.
  */
 export function createSerialSession({ serial, onChange = () => {}, now = () => new Date() }) {
   let port = null;
@@ -380,6 +462,7 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     phase: 'idle',
     problem: null,
     board: null,
+    mqtt: null,
     lines: [],
     linesDropped: 0,
     said: '',
@@ -462,7 +545,8 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     add({ kind: 'sent', text: shown, auto });
     if (form) session.reply = { form, kind: 'wait', text: 'Sent, waiting for the board.' };
     return new Promise((resolve) => {
-      const entry = { shown, name, form, resolve, echoed: false, timer: 0 };
+      // The lines of the reply are kept only where the page reads them, which is MQTT's.
+      const entry = { shown, name, form, resolve, echoed: false, timer: 0, lines: name === 'MQTT' ? [] : null };
       entry.timer = setTimeout(() => {
         const at = waiting.indexOf(entry);
         if (at >= 0) waiting.splice(at, 1);
@@ -510,6 +594,12 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
         session.board = bar < 0 ? { id: line.text, version: '' }
           : { id: line.text.slice(0, bar), version: line.text.slice(bar + 1) };
       }
+      if (entry.name === 'MQTT') {
+        session.mqtt = line.kind === 'ok' ? { facts: mqttFacts(entry.lines), at: clockNow(now()), stale: false } : null;
+      }
+      if (['MQTT_HOST', 'MQTT_RECONNECT'].includes(entry.name) && line.kind === 'ok' && session.mqtt) {
+        session.mqtt = { ...session.mqtt, stale: true };
+      }
     }
     add(line);
     session.said = `${line.kind === 'ok' ? 'OK' : 'Error'}${line.text ? `: ${line.text}` : ''}`;
@@ -553,6 +643,9 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
       echo.echoed = true;
       return;
     }
+    // The lines of a reply come before its final line, and the board answers in order.
+    const answering = waiting[0];
+    if (answering?.lines && answering.lines.length < REPLY_LINES_KEPT) answering.lines.push(line.text);
     add({ kind: 'output', text: shownOutput(line.text) });
   }
 
@@ -622,6 +715,7 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     if (session.phase !== 'idle') return;
     session.problem = null;
     session.board = null;
+    session.mqtt = null;
     setPhase('opening');
     let chosen;
     try {
@@ -657,6 +751,7 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     session.phase = 'closing';
     session.problem = problem;
     session.board = null;
+    session.mqtt = null;
     if (session.reply?.kind === 'wait') session.reply = null;
     const rest = lineReader.flush();
     if (rest !== null) takeLine(rest);
@@ -720,6 +815,8 @@ const ui = {
   typedProblem: null,
   typedHidden: false,
   recalling: -1,
+  // The server that "Set server" is waiting to have confirmed, or null. Not a secret.
+  mqttConfirm: null,
 };
 
 let shared = null;
@@ -1070,15 +1167,160 @@ function commandRow(command, session, ctx) {
     reply);
 }
 
+// The MQTT panel: what MQTT says, a new server, and a new connection.
+
+const commandNamed = (name) => KNOWN.get(name);
+const MONO_FACTS = new Set(['endpoint', 'client id', 'subscribed']);
+const OLD_FIRMWARE = 'The firmware on this board is older than the MQTT commands. Update it to use them.';
+
+/** A command that takes no arguments, sent from the panel with its reply beside it. */
+function sendPlain(name, session, ctx) {
+  ui.problems.delete(name);
+  session.send(name, { form: name }).then(({ sent, problem }) => {
+    if (!sent) {
+      ui.problems.set(name, problem);
+      ctx.actions.redraw();
+    }
+  });
+  ctx.actions.redraw();
+}
+
+/** The reply to one of the panel's commands, with a word for firmware that does not know it. */
+function mqttReply(name, session) {
+  const reply = replyOf(commandNamed(name), session);
+  const unknown = session.reply?.form === name && session.reply.kind === 'err' && /^unknown command/.test(session.reply.text);
+  return [reply, unknown ? h('p', { class: 'field-hint', key: 'old' }, OLD_FIRMWARE) : null];
+}
+
+function mqttFactList(mqtt) {
+  return [
+    h('dl', { class: 'facts', key: 'facts', 'aria-label': 'MQTT connection' },
+      mqtt.facts.map((fact) => h('div', { class: 'fact', key: fact.key },
+        h('dt', null, fact.label),
+        h('dd', null, fact.values.map((value, index) => {
+          const shown = MONO_FACTS.has(fact.key) ? mono(value) : value;
+          return h('span', { key: String(index), class: fact.key === 'state' ? 'fact-strong' : null }, shown);
+        }))))),
+    h('p', { class: 'field-hint', key: 'when' },
+      mqtt.stale ? `As of ${mqtt.at}, before the last change: check again to see how it stands now.` : `As of ${mqtt.at}.`),
+  ];
+}
+
+/**
+ * "Set server": the host name is checked here first, in the firmware's words, and then has to
+ * be confirmed in the page itself before MQTT_HOST goes to the board.
+ */
+function mqttHostForm(session, ctx) {
+  const command = commandNamed('MQTT_HOST');
+  const fieldId = `serial-${command.name}-host`;
+  const current = session.mqtt?.facts.find((fact) => fact.key === 'endpoint')?.values[0];
+  const confirming = ui.mqttConfirm;
+
+  const ask = (event) => {
+    event?.preventDefault();
+    const el = fieldById(fieldId);
+    const { errors } = checkCommand(command, { host: el?.value ?? '' });
+    ui.problems.delete(command.name);
+    if (Object.keys(errors).length > 0) {
+      ui.errors.set(command.name, errors);
+      ui.mqttConfirm = null;
+      ctx.actions.redraw();
+      fieldById(fieldId)?.focus();
+      return;
+    }
+    ui.errors.delete(command.name);
+    ui.mqttConfirm = el.value;
+    ctx.actions.redraw();
+    fieldById('serial-MQTT_HOST-yes')?.focus();
+  };
+  const cancel = () => {
+    ui.mqttConfirm = null;
+    ctx.actions.redraw();
+    fieldById(fieldId)?.focus();
+  };
+  const confirm = () => {
+    const { errors, line } = checkCommand(command, { host: ui.mqttConfirm ?? '' });
+    ui.mqttConfirm = null;
+    if (Object.keys(errors).length > 0) {
+      ui.errors.set(command.name, errors);
+      ctx.actions.redraw();
+      return;
+    }
+    ui.problems.delete(command.name);
+    session.send(line, { form: command.name }).then(({ sent, problem }) => {
+      if (!sent) {
+        ui.problems.set(command.name, problem);
+        ctx.actions.redraw();
+      }
+    });
+    ctx.actions.redraw();
+  };
+
+  return h('form', { class: 'serial-row', key: command.name, autocomplete: 'off', noValidate: true, onSubmit: ask },
+    h('h3', { class: 'serial-name' }, 'Set server'),
+    h('p', { class: 'serial-does' }, command.text, ' Sends ', mono('MQTT_HOST|<endpoint>'), '.'),
+    h('div', { class: 'field', key: 'host' },
+      h('label', { class: 'field-label', for: fieldId }, HOST_FIELD.label),
+      h('input', {
+        id: fieldId,
+        class: 'input mono',
+        type: 'text',
+        autocomplete: 'off',
+        autocapitalize: 'none',
+        autocorrect: 'off',
+        spellcheck: 'false',
+        placeholder: current ?? 'xxxxxxxxxxxxxx-ats.iot.us-east-1.amazonaws.com',
+        'aria-describedby': describedBy(command, 'host', true),
+        'aria-invalid': ui.errors.get(command.name)?.host ? 'true' : null,
+        // What is being confirmed is what was in the field: a change takes the question back.
+        onInput: () => {
+          if (ui.mqttConfirm !== null) {
+            ui.mqttConfirm = null;
+            ctx.actions.redraw();
+          }
+        },
+      }),
+      h('p', { class: 'field-hint', id: `${fieldId}-hint` },
+        HOST_FIELD.hint, current ? [' Now: ', mono(current), '.'] : null),
+      fieldError(command, 'host')),
+    confirming === null
+      ? h('div', { class: 'serial-row-foot', key: 'foot' },
+        h('button', { type: 'submit', class: 'btn is-small' }, 'Set server'))
+      : h('div', { class: 'serial-row-foot', key: 'confirm', role: 'group', 'aria-labelledby': 'serial-MQTT_HOST-question' },
+        h('p', { class: 'serial-does', id: 'serial-MQTT_HOST-question' },
+          'Set the server to ', mono(confirming), '? The board drops its MQTT connection and connects to this one.'),
+        h('button', { type: 'button', id: 'serial-MQTT_HOST-yes', class: 'btn is-small is-primary', onClick: confirm }, 'Yes, set the server'),
+        ' ',
+        h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: cancel }, 'Cancel')),
+    mqttReply(command.name, session));
+}
+
+function mqttPanel(session, ctx) {
+  const check = commandNamed('MQTT');
+  const reconnect = commandNamed('MQTT_RECONNECT');
+  return h('section', { class: 'serial-group', key: 'mqtt' },
+    h('h2', { class: 'eyebrow' }, 'MQTT'),
+    h('div', { class: 'serial-row is-plain', key: check.name },
+      h('button', { type: 'button', class: 'btn is-small', onClick: () => sendPlain(check.name, session, ctx) }, icon('pulse'), 'Check MQTT'),
+      h('p', { class: 'serial-does' }, check.text),
+      mqttReply(check.name, session)),
+    session.mqtt ? mqttFactList(session.mqtt) : null,
+    mqttHostForm(session, ctx),
+    h('div', { class: 'serial-row is-plain', key: reconnect.name },
+      h('button', { type: 'button', class: 'btn is-small', onClick: () => sendPlain(reconnect.name, session, ctx) }, icon('restart'), 'Reconnect'),
+      h('p', { class: 'serial-does' }, reconnect.text),
+      mqttReply(reconnect.name, session)));
+}
+
 function commandForms(session, ctx) {
   const ready = session.phase === 'ready';
   return h('div', { class: 'serial-forms', key: 'forms' },
     h('fieldset', { class: 'serial-fieldset', disabled: !ready },
       h('legend', { class: 'sr-only' }, 'Commands'),
       ready ? null : h('p', { class: 'serial-waiting' }, icon('lock', 'is-small'), 'Connect a board to use these.'),
-      GROUPS.map(([group, title]) => h('section', { class: 'serial-group', key: group },
+      GROUPS.map(([group, title]) => (group === 'mqtt' ? mqttPanel(session, ctx) : h('section', { class: 'serial-group', key: group },
         h('h2', { class: 'eyebrow' }, title),
-        COMMANDS.filter((command) => command.group === group).map((command) => commandRow(command, session, ctx))))));
+        COMMANDS.filter((command) => command.group === group).map((command) => commandRow(command, session, ctx)))))));
 }
 
 const LEDE = 'Drive a board on its USB cable from this browser. What you type here goes only over the ' +

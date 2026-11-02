@@ -667,11 +667,18 @@ class WhatPeopleTypeTest(SimulatedBoard, unittest.TestCase):
         for name in ("HELP", "INIT", "GET_ID", "THING", "ECHO", "REBOOT", "ENTER_BOOTLOADER"):
             self.assertEqual(rows[name][0], "*", name)
         for name in ("SET_ID", "WIFI", "WIFI_SEC", "CLEAR_WIFI", "NET", "CLOUD", "KEYGEN", "STATS", "STATUS",
-                     "RESET_CONFIG", "FACTORY_RESET", "STREAM_START", "BUTTON"):
+                     "RESET_CONFIG", "FACTORY_RESET", "STREAM_START", "BUTTON", "MQTT", "MQTT_HOST",
+                     "MQTT_RECONNECT"):
             self.assertEqual(rows[name][0], " ", name)
         self.assertIn("HELP or ?", rows["HELP"])
         self.assertIn("<ON or OFF>", rows["ECHO"])
         self.assertIn("[REPLACE]", rows["KEYGEN"])
+        self.assertIn("<endpoint>", rows["MQTT_HOST"])
+        # The MQTT commands are with the cloud's, between its rule and the next.
+        cloud, status = reply.index(next(rule for rule in rules if "Cloud" in rule)), \
+            reply.index(next(rule for rule in rules if "Status" in rule))
+        for name in ("MQTT", "MQTT_HOST", "MQTT_RECONNECT"):
+            self.assertTrue(cloud < reply.index(rows[name]) < status, name)
 
         # The same in every spelling, and in factory mode, as it comes from one table.
         for spelling in ("?", "help", "Help"):
@@ -802,6 +809,122 @@ class WhatPeopleTypeTest(SimulatedBoard, unittest.TestCase):
         # Its scheme is compared exactly, as the board's download code would need it.
         self.assertRegex(self.console.exchange(f"CLOUD|{endpoint}|HTTPS://b.example.com/fw/")[1],
                          "^ERR endpoint must be")
+
+
+@unittest.skipUnless(SIMULATOR.exists(), "run `make -C firmware/tests/host` first")
+class MqttTest(SimulatedBoard, unittest.TestCase):
+    """MQTT, MQTT_HOST and MQTT_RECONNECT on the console's real code, read the way the tools read."""
+
+    ENDPOINT = "example-ats.iot.us-east-1.amazonaws.com"
+    OTHER = "other-ats.iot.eu-west-1.amazonaws.com"
+    PREFIX = "https://b.example.com/fw/"
+    TOPICS = [f"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/{suffix}" for suffix in
+              ("notify-next", "$next/get/accepted", "$next/get/rejected", "+/update/accepted",
+               "+/update/rejected")]
+
+    def setUp(self):
+        self.start_simulator()
+        self.link = PtyLink(self.parent)
+        self.console = Console("/dev/simulated", self.link)
+        self.console.wait_until_up(5)
+        self.console.run("INIT|ABC123", wait=3)
+        self.console.wait_until_up(5)
+
+    def mqtt(self):
+        """The reply to MQTT as a dict, with every topic it lists under "subscribed"."""
+        reply = self.console.run("MQTT")
+        # Every line is a key and its value, as parse_key_values() takes them.
+        self.assertEqual([line for line in reply if not board.KEY_VALUE.match(line)], [])
+        values = board.parse_key_values(reply)
+        values["subscribed"] = [match.group(2).strip() for match in map(board.KEY_VALUE.match, reply)
+                                if match.group(1).strip() == "subscribed"]
+        return values
+
+    def wait_for_state(self, state, seconds=3):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            values = self.mqtt()
+            if values["state"] == state:
+                return values
+            time.sleep(0.05)
+        self.fail(f"MQTT never said {state}, last: {values['state']}")
+
+    def test_what_it_says_before_anything_is_set_up(self):
+        values = self.mqtt()
+        self.assertEqual(values["state"], "no cloud settings")
+        self.assertEqual(values["endpoint"], "unset")
+        self.assertEqual(values["port"], "8883")
+        self.assertEqual(values["client id"], "cranium-fe5b26c0c5b1dcd7")
+        self.assertEqual(values["keep alive"], "120 s")
+        self.assertEqual(values["tls sec tag"], "201")
+        self.assertEqual(values["attempts"], "0")
+        self.assertEqual(values["last error"], "none")
+        self.assertEqual(values["last publish"], "never")
+        self.assertNotIn("connected for", values)
+        self.assertEqual(values["subscribed"], self.TOPICS)
+        self.assertEqual(self.console.status()["mqtt"], "no cloud settings")
+
+        # Nothing to change and nowhere to go: each says what to do instead.
+        self.assertEqual(self.console.exchange(f"MQTT_HOST|{self.OTHER}")[1],
+                         "ERR no cloud settings to change, send CLOUD|<endpoint>|<download-url-prefix>")
+        self.assertEqual(self.console.exchange("MQTT_RECONNECT")[1],
+                         "ERR no cloud settings, send CLOUD|<endpoint>|<download-url-prefix>")
+
+        self.console.run(f"CLOUD|{self.ENDPOINT}|{self.PREFIX}")
+        self.assertEqual(self.mqtt()["state"], "no network")
+        self.assertEqual(self.console.exchange("MQTT_RECONNECT")[1],
+                         "ERR no network: the board connects once Wi-Fi is up")
+
+    def test_a_new_server_keeps_the_download_prefix(self):
+        self.console.run(f"CLOUD|{self.ENDPOINT}|{self.PREFIX}")
+        self.assertEqual(self.console.exchange(f"mqtt_host|{self.OTHER}")[1],
+                         f"OK mqtt server set to {self.OTHER}, the next connection uses it")
+        status = self.console.status()
+        self.assertEqual(status["endpoint"], self.OTHER)
+        self.assertEqual(status["download from"], self.PREFIX)
+        self.assertEqual(self.mqtt()["endpoint"], self.OTHER)
+
+        # What is not a host name is refused, and changes nothing.
+        for host in ("not a host", "nodots", "https://x.example.com", "a_b.example.com"):
+            self.assertEqual(self.console.exchange(f"MQTT_HOST|{host}")[1],
+                             "ERR endpoint must be a host name of at most 127 letters, digits, dots "
+                             "and hyphens", host)
+        self.assertEqual(self.console.exchange("MQTT_HOST")[1], "ERR usage: MQTT_HOST|<endpoint>")
+        self.assertEqual(self.console.status()["endpoint"], self.OTHER)
+
+        # It survives a restart.
+        self.console.run("REBOOT")
+        self.console.wait_until_up(5)
+        self.assertEqual(self.console.status()["endpoint"], self.OTHER)
+
+    def test_a_connection_is_counted_and_made_again(self):
+        self.provision_board()
+        values = self.wait_for_state("connected")
+        self.assertEqual(values["endpoint"], "example-ats.iot.us-east-1.amazonaws.com")
+        self.assertEqual((values["attempts"], values["connects"], values["disconnects"]), ("1", "1", "0"))
+        self.assertRegex(values["connected for"], r"^\d+ s$")
+        self.assertEqual(self.console.status()["mqtt"], "connected")
+
+        self.link.keep, self.link.kept = True, b""
+        self.assertEqual(self.console.exchange("MQTT_RECONNECT")[1], "OK reconnecting")
+        values = self.wait_for_state("connected")
+        self.assertEqual((values["connects"], values["disconnects"]), ("2", "1"))
+        self.assertIn(b"[app] Disconnected from AWS IoT", self.link.kept)
+        self.assertIn(b"[app] Connected to AWS IoT", self.link.kept)
+
+        # A new server, with a connection there: it is used at once.
+        self.assertEqual(self.console.exchange(f"MQTT_HOST|{self.OTHER}")[1],
+                         f"OK mqtt server set to {self.OTHER}, reconnecting")
+        values = self.wait_for_state("connected")
+        self.assertEqual(values["endpoint"], self.OTHER)
+        self.assertEqual(values["connects"], "3")
+        self.assertNotIn(PASSWORD.encode(), self.link.kept)
+
+    def test_not_in_factory_mode(self):
+        self.console.run("FACTORY_RESET", wait=3)
+        self.console.wait_until_up(5)
+        for command in ("MQTT", f"MQTT_HOST|{self.OTHER}", "MQTT_RECONNECT"):
+            self.assertEqual(self.console.exchange(command)[1], "ERR factory mode, send INIT|<id> first", command)
 
 
 @unittest.skipUnless(SIMULATOR.exists(), "run `make -C firmware/tests/host` first")

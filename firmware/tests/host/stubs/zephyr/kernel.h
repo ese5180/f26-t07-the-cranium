@@ -72,6 +72,20 @@ struct k_timer {
 #define K_TIMER_DEFINE(name, on_expiry, on_stop) static struct k_timer name = { on_expiry }
 void k_timer_start(struct k_timer *timer, k_timeout_t duration, k_timeout_t period);
 
+struct k_work;
+typedef void (*k_work_handler_t)(struct k_work *work);
+struct k_work {
+	k_work_handler_t handler;
+};
+struct k_work_q {
+	int unused;
+};
+void k_work_init(struct k_work *work, k_work_handler_t handler);
+void k_work_queue_init(struct k_work_q *queue);
+void k_work_queue_start(struct k_work_q *queue, char *stack, size_t size, int priority,
+			const void *config);
+int k_work_submit_to_queue(struct k_work_q *queue, struct k_work *work);
+
 typedef long atomic_t;
 typedef long atomic_val_t;
 #define ATOMIC_INIT(value) (value)

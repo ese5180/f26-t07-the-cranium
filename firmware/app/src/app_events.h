@@ -23,6 +23,11 @@ enum app_event_type {
 	APP_EVENT_CLOUD_DOWN,
 	/* The cloud settings have changed: connect again soon, with the new ones. */
 	APP_EVENT_CLOUD_CHANGED,
+	/*
+	 * Asked for on the console: close the connection, or let the attempt under way end, and
+	 * connect again at once, with the back-off from the start. Ignored during an update.
+	 */
+	APP_EVENT_CLOUD_RECONNECT,
 	/* A jobs message (the next job, or the reply to a request for it) is waiting. */
 	APP_EVENT_JOB_MESSAGE,
 	/* AWS IoT answered a job status update that the update logic is waiting on. */
@@ -85,5 +90,11 @@ int app_event_post(const struct app_event *event);
 
 /* Shorthand for events that carry no data. */
 int app_event_post_simple(enum app_event_type type);
+
+/*
+ * The most seconds until the main loop tries to connect to AWS IoT again, or -1 if no attempt
+ * is scheduled. Only on the main loop: the console reads it through console_port_on_main().
+ */
+int app_cloud_retry_in(void);
 
 #endif /* APP_EVENTS_H_ */

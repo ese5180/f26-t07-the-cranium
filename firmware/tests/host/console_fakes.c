@@ -20,6 +20,11 @@ void fake_reset(void)
 	memset(&fake, 0, sizeof(fake));
 	fake.cut_after = -1;
 	fake.ota = OTA_IDLE;
+	fake.cloud_retry_in = -1;
+	fake.cloud_stats.connected_at_ms = -1;
+	fake.cloud_stats.last_error_ms = -1;
+	fake.cloud_stats.last_publish_ms = -1;
+	fake.cloud_stats.last_receive_ms = -1;
 }
 
 void fake_clear_log(void)
@@ -32,6 +37,7 @@ void fake_clear_log(void)
 	fake.reboots = 0;
 	fake.joins = 0;
 	fake.cloud_changes = 0;
+	fake.cloud_reconnects = 0;
 	fake.button_presses = 0;
 }
 
@@ -220,6 +226,41 @@ bool cloud_is_connected(void)
 	return fake.cloud_connected;
 }
 
+bool cloud_is_connecting(void)
+{
+	return fake.cloud_connecting;
+}
+
+void cloud_stats_get(struct cloud_stats *out)
+{
+	*out = fake.cloud_stats;
+	out->state = fake.cloud_connected    ? CLOUD_STATE_CONNECTED
+		     : fake.cloud_connecting ? CLOUD_STATE_CONNECTING
+					     : CLOUD_STATE_IDLE;
+	if (!fake.cloud_connected) {
+		out->connected_at_ms = -1;
+	}
+}
+
+/* The topics that cloud.c builds, for the thing name of the fake SoC. */
+const char *cloud_subscription(size_t index)
+{
+	static const char *const topics[] = {
+		"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/notify-next",
+		"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/accepted",
+		"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/rejected",
+		"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/accepted",
+		"$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/rejected",
+	};
+
+	return index < sizeof(topics) / sizeof(topics[0]) ? topics[index] : NULL;
+}
+
+int app_cloud_retry_in(void)
+{
+	return fake.cloud_retry_in;
+}
+
 enum ota_state ota_state(void)
 {
 	return fake.ota;
@@ -256,11 +297,19 @@ int app_event_post(const struct app_event *event)
 
 int app_event_post_simple(enum app_event_type type)
 {
+	if (fake.event_queue_full) {
+		return -ENOMSG;
+	}
+
 	if (type == APP_EVENT_NET_JOIN) {
 		fake.joins++;
 		fake_note_op("join");
 	} else if (type == APP_EVENT_CLOUD_CHANGED) {
 		fake.cloud_changes++;
+		fake_note_op("cloud-changed");
+	} else if (type == APP_EVENT_CLOUD_RECONNECT) {
+		fake.cloud_reconnects++;
+		fake_note_op("reconnect");
 	}
 
 	return 0;

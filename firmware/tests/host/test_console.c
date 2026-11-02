@@ -1246,12 +1246,15 @@ static void test_no_secret_comes_back(void)
 		"BUTTON|" PASSWORD,
 		"SET_ID|bad " PASSWORD,
 		"CLOUD|" PASSWORD "|",
+		"MQTT_HOST|" PASSWORD,
+		"MQTT|" PASSWORD,
+		"MQTT_RECONNECT|" PASSWORD,
 		"STREAM_START|" PASSWORD "|1|0|CA",
 		"STREAM_CHUNK|0|" PASSWORD,
 		"INIT|bad " PASSWORD,
 	};
 	static const char *const status_commands[] = { "STATUS", "STATUS|wifi", "NET", "STATS",
-						       "HELP" };
+						       "HELP", "MQTT" };
 
 	for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
 		operating_board();
@@ -1772,7 +1775,8 @@ static void test_refused_during_an_update(void)
 		"FACTORY_RESET", "RESET_CONFIG", "INIT|NEWID", "SET_ID|NEWID", "CLEAR_WIFI",
 		"WIFI|net|" PASSWORD, "WIFI_SEC|net|WPA3_SAE|" PASSWORD,
 		"CLOUD|" ENDPOINT "|" PREFIX, "CLOUD|", "KEYGEN|REPLACE",
-		"STREAM_START|100|1|1234|CERT",
+		"STREAM_START|100|1|1234|CERT", "MQTT_HOST|other-ats.iot.eu-west-1.amazonaws.com",
+		"MQTT_RECONNECT",
 	};
 	static const enum ota_state states[] = { OTA_AWAITING_USER, OTA_RETRY_WAIT, OTA_DOWNLOADING,
 						 OTA_VERIFYING, OTA_REBOOTING, OTA_TESTING };
@@ -1793,6 +1797,9 @@ static void test_refused_during_an_update(void)
 			CHECK(fake.private_key);
 			CHECK(!device_is_factory());
 			CHECK(identity_settings_get() != NULL);
+			CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+			CHECK(fake.cloud_reconnects == 0);
+			CHECK(fake.cloud_changes == 0);
 		}
 	}
 
@@ -1806,6 +1813,9 @@ static void test_refused_during_an_update(void)
 	command("STATUS");
 	CHECK_TEXT(final_line(), "OK");
 	CHECK_TEXT(value_of("update"), "testing (last: none)");
+	command("MQTT");
+	CHECK_TEXT(final_line(), "OK");
+	CHECK(strcmp(value_of("state"), "<none>") != 0);
 	command("GET_ID");
 	CHECK(strncmp(final_line(), "OK ABC123|", 10) == 0);
 
@@ -2088,6 +2098,7 @@ static void test_status(void)
 	CHECK_TEXT(value_of("endpoint"), ENDPOINT);
 	CHECK_TEXT(value_of("download from"), PREFIX);
 	CHECK_TEXT(value_of("cloud"), "connected");
+	CHECK_TEXT(value_of("mqtt"), "connected");
 	CHECK_TEXT(value_of("root CA"), "set");
 	CHECK_TEXT(value_of("private key"), "set");
 	CHECK_TEXT(value_of("certificate"), "set");
@@ -2099,9 +2110,20 @@ static void test_status(void)
 	CHECK_TEXT(final_line(), "OK");
 	CHECK_TEXT(value_of("wifi link"), "up");
 	CHECK_TEXT(value_of("endpoint"), "<none>");
+	CHECK_TEXT(value_of("mqtt"), "<none>");
 	command("STATUS|CLOUD");
 	CHECK_TEXT(value_of("endpoint"), ENDPOINT);
 	CHECK_TEXT(value_of("wifi link"), "<none>");
+	CHECK_TEXT(value_of("mqtt"), "connected");
+	/* The bench reads a "state" only from the device section. */
+	CHECK_TEXT(value_of("state"), "<none>");
+	fake.cloud_connected = false;
+	fake.cloud_retry_in = 7;
+	command("STATUS|cloud");
+	CHECK_TEXT(value_of("cloud"), "not connected");
+	CHECK_TEXT(value_of("mqtt"), "waiting to retry in 7 s");
+	fake.cloud_connected = true;
+	fake.cloud_retry_in = -1;
 	command("status|device");
 	CHECK_TEXT(value_of("thing name"), "cranium-" SOC_ID);
 	fake.stuck_count = 3;
@@ -2128,6 +2150,7 @@ static void test_status(void)
 	CHECK_TEXT(value_of("wifi link"), "down");
 	CHECK_TEXT(value_of("endpoint"), "unset");
 	CHECK_TEXT(value_of("cloud"), "not connected");
+	CHECK_TEXT(value_of("mqtt"), "no cloud settings");
 	CHECK_TEXT(value_of("private key"), "unset");
 
 	/* NET */
@@ -2345,6 +2368,385 @@ static void test_cloud_and_keygen(void)
 	CHECK_TEXT(final_line(), "ERR request could not be encoded (-5)");
 	CHECK(!fake.key_in_memory);
 	fake.key_print_err = 0;
+}
+
+/* ---- MQTT ----------------------------------------------------------------------- */
+
+#define OTHER_ENDPOINT "other-ats.iot.eu-west-1.amazonaws.com"
+#define TOPIC_BASE     "$aws/things/cranium-" SOC_ID "/jobs/"
+
+/* How many lines of the reply have this key. */
+static int lines_with_key(const char *key)
+{
+	int count = 0;
+
+	for (const char *at = fake.output; *at != '\0'; at = strchr(at, '\n') + 1) {
+		count += strncmp(at, key, strlen(key)) == 0 && at[strlen(key)] == ' ';
+	}
+
+	return count;
+}
+
+/*
+ * Every line before the final one is a key of letters and blanks, two blanks or more, and a value:
+ * what tools/board.py's parse_key_values() and the web page's console read.
+ */
+static void check_key_value_lines(void)
+{
+	for (const char *at = fake.output; strncmp(at, "OK", 2) != 0; at = strchr(at, '\n') + 1) {
+		const char *end = strchr(at, '\n');
+		const char *gap = strstr(at, "  ");
+
+		CHECK(end != NULL && gap != NULL && gap < end);
+		if (end == NULL || gap == NULL || gap >= end) {
+			return;
+		}
+
+		CHECK(isalpha((unsigned char)at[0]));
+		for (const char *c = at; c < gap; c++) {
+			CHECK(isalpha((unsigned char)*c) || *c == ' ');
+		}
+		CHECK(gap + strspn(gap, " ") < end);
+		CHECK(end - at <= 120);
+	}
+}
+
+/* A board that has been connected for a while, with a little of everything behind it. */
+static void busy_board(void)
+{
+	operating_board();
+	/* INIT disconnected a cloud that was not there. */
+	fake.cloud_disconnects = 0;
+	fake.link_up = true;
+	fake.cloud_connected = true;
+	fake.now_ms = 75000;
+	fake.cloud_stats.connected_at_ms = 10000;
+	fake.cloud_stats.attempts = 3;
+	fake.cloud_stats.connects = 2;
+	fake.cloud_stats.disconnects = 1;
+	fake.cloud_stats.errors = 1;
+	fake.cloud_stats.last_error_source = CLOUD_ERROR_CONNECT;
+	fake.cloud_stats.last_error = -11;
+	fake.cloud_stats.last_error_ms = 40000;
+	fake.cloud_stats.published = 42;
+	fake.cloud_stats.received = 7;
+	fake.cloud_stats.last_publish_ms = 70000;
+	fake.cloud_stats.last_receive_ms = 74000;
+}
+
+static void test_mqtt_status(void)
+{
+	static const char *const topics[] = {
+		TOPIC_BASE "notify-next",
+		TOPIC_BASE "$next/get/accepted",
+		TOPIC_BASE "$next/get/rejected",
+		TOPIC_BASE "+/update/accepted",
+		TOPIC_BASE "+/update/rejected",
+	};
+
+	busy_board();
+	command("MQTT");
+	CHECK(fake.finals == 1);
+	CHECK_TEXT(final_line(), "OK");
+	check_key_value_lines();
+
+	CHECK_TEXT(value_of("state"), "connected");
+	CHECK_TEXT(value_of("endpoint"), ENDPOINT);
+	CHECK_TEXT(value_of("port"), "8883");
+	CHECK_TEXT(value_of("client id"), "cranium-" SOC_ID);
+	CHECK_TEXT(value_of("keep alive"), "120 s");
+	CHECK_TEXT(value_of("tls sec tag"), "201");
+	CHECK_TEXT(value_of("connected for"), "65 s");
+	CHECK_TEXT(value_of("attempts"), "3");
+	CHECK_TEXT(value_of("connects"), "2");
+	CHECK_TEXT(value_of("disconnects"), "1");
+	CHECK_TEXT(value_of("errors"), "1");
+	CHECK_TEXT(value_of("last error"), "-11 (connect), 35 s ago");
+	CHECK_TEXT(value_of("published"), "42");
+	CHECK_TEXT(value_of("received"), "7");
+	CHECK_TEXT(value_of("last publish"), "5 s ago");
+	CHECK_TEXT(value_of("last receive"), "1 s ago");
+
+	/* Every topic, in the order cloud.c subscribes to them, after everything else. */
+	CHECK(lines_with_key("subscribed") == 5);
+	{
+		const char *at = strstr(fake.output, "subscribed");
+
+		for (size_t i = 0; i < sizeof(topics) / sizeof(topics[0]); i++) {
+			char line[160];
+
+			snprintf(line, sizeof(line), "%-14s %s\n", "subscribed", topics[i]);
+			CHECK(at != NULL && strncmp(at, line, strlen(line)) == 0);
+			at = at != NULL ? at + strlen(line) : NULL;
+		}
+		CHECK(at != NULL && strcmp(at, "OK\n") == 0);
+	}
+
+	/* Each state in its words. Only a connection that is up has a time. */
+	busy_board();
+	fake.cloud_connected = false;
+	fake.cloud_connecting = true;
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "connecting");
+	CHECK_TEXT(value_of("connected for"), "<none>");
+
+	fake.cloud_connecting = false;
+	fake.cloud_retry_in = 12;
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "waiting to retry in 12 s");
+	CHECK_TEXT(value_of("connected for"), "<none>");
+
+	/* Between an attempt and the tick that schedules the next one. */
+	fake.cloud_retry_in = -1;
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "waiting to retry");
+
+	fake.cloud_retry_in = 12;
+	fake.link_up = false;
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "no network");
+
+	CHECK(identity_settings_clear() == 0);
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "no cloud settings");
+	CHECK_TEXT(value_of("endpoint"), "unset");
+	fake.link_up = true;
+	command("MQTT");
+	CHECK_TEXT(value_of("state"), "no cloud settings");
+	check_key_value_lines();
+
+	/* STATUS says the same in one line. */
+	command("STATUS|cloud");
+	CHECK_TEXT(value_of("mqtt"), "no cloud settings");
+
+	/* A board that has not done anything yet says so, and not "0 s ago". */
+	operating_board();
+	command("MQTT");
+	CHECK_TEXT(value_of("last error"), "none");
+	CHECK_TEXT(value_of("last publish"), "never");
+	CHECK_TEXT(value_of("last receive"), "never");
+	CHECK_TEXT(value_of("attempts"), "0");
+	CHECK_TEXT(value_of("state"), "no network");
+
+	/* An error of the library's, which the broker's refusal is. */
+	busy_board();
+	fake.cloud_stats.last_error_source = CLOUD_ERROR_LIBRARY;
+	fake.cloud_stats.last_error = 5;
+	fake.cloud_stats.last_error_ms = 75000;
+	command("MQTT");
+	CHECK_TEXT(value_of("last error"), "5 (library), 0 s ago");
+
+	/* The same reply in any case, as for every command; nothing is changed by asking. */
+	busy_board();
+	command("mqtt");
+	CHECK_TEXT(value_of("state"), "connected");
+	CHECK(fake.cloud_reconnects == 0 && fake.cloud_changes == 0);
+	CHECK(strstr(fake.ops, "W") == NULL);
+	command("MQTT|now");
+	CHECK_TEXT(final_line(), "ERR usage: MQTT");
+}
+
+static void test_mqtt_host(void)
+{
+	static const char *const bad[] = {
+		"not a host", "nodots", ".leading.dot", "-leading.hyphen", "under_score.example.com",
+		"slash.example.com/path", "https://example.com", "with:8883.example.com", "",
+		"a.com|b", "caf\xc3\xa9.example.com",
+	};
+	char line[300];
+	char host[200];
+
+	/* Connected: the new server is stored, the prefix stays, and the board reconnects to it. */
+	busy_board();
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK(fake.finals == 1);
+	CHECK_TEXT(final_line(), "OK mqtt server set to " OTHER_ENDPOINT ", reconnecting");
+	CHECK_TEXT(identity_settings_get()->endpoint, OTHER_ENDPOINT);
+	CHECK_TEXT(identity_settings_get()->download_url_prefix, PREFIX);
+	CHECK(fake.cloud_changes == 1);
+	CHECK(fake.cloud_reconnects == 1);
+	/* Stored first, then the main loop is told, then the reply. */
+	CHECK(ops_contain_in_order("W1", "cloud-changed"));
+	CHECK(ops_contain_in_order("cloud-changed", "reconnect"));
+	CHECK(ops_contain_in_order("reconnect", "final"));
+	/* What happens to the connection is the main loop's business: see test_app.c. */
+	CHECK(fake.cloud_disconnects == 0);
+
+	command("STATUS|cloud");
+	CHECK_TEXT(value_of("endpoint"), OTHER_ENDPOINT);
+	command("MQTT");
+	CHECK_TEXT(value_of("endpoint"), OTHER_ENDPOINT);
+
+	/* It survives a restart, with the prefix. */
+	CHECK(boot() == DEVICE_BOOT_OPERATING);
+	CHECK_TEXT(identity_settings_get()->endpoint, OTHER_ENDPOINT);
+	CHECK_TEXT(identity_settings_get()->download_url_prefix, PREFIX);
+
+	/* An attempt under way used the old one: it is replaced too. */
+	busy_board();
+	fake.cloud_connected = false;
+	fake.cloud_connecting = true;
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "OK mqtt server set to " OTHER_ENDPOINT ", reconnecting");
+	CHECK(fake.cloud_reconnects == 1);
+
+	/* Nothing there to replace: the next attempt, which CLOUD_CHANGED brings forward, uses it. */
+	busy_board();
+	fake.cloud_connected = false;
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "OK mqtt server set to " OTHER_ENDPOINT ", the next connection uses it");
+	CHECK(fake.cloud_changes == 1);
+	CHECK(fake.cloud_reconnects == 0);
+
+	/* What is not a host name changes nothing, and says what one is. */
+	for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+		busy_board();
+		snprintf(line, sizeof(line), "MQTT_HOST|%s", bad[i]);
+		command(line);
+		CHECK_TEXT(final_line(),
+			   "ERR endpoint must be a host name of at most 127 letters, digits, dots and hyphens");
+		CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+		CHECK(strstr(fake.ops, "W") == NULL);
+		CHECK(fake.cloud_changes == 0 && fake.cloud_reconnects == 0);
+	}
+
+	/* 127 characters is the most that is stored, and 128 too many. */
+	memset(host, 'a', 127);
+	memcpy(host + 120, ".a.com", 7);
+	CHECK(strlen(host) == 126);
+	strcat(host, "a");
+	busy_board();
+	snprintf(line, sizeof(line), "MQTT_HOST|%s", host);
+	command(line);
+	CHECK(strncmp(final_line(), "OK mqtt server set to ", 22) == 0);
+	CHECK_TEXT(identity_settings_get()->endpoint, host);
+	strcat(host, "a");
+	busy_board();
+	snprintf(line, sizeof(line), "MQTT_HOST|%s", host);
+	command(line);
+	CHECK(strncmp(final_line(), "ERR endpoint must be", 20) == 0);
+	CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+
+	/* No argument at all is a usage error, like any other. */
+	busy_board();
+	command("MQTT_HOST");
+	CHECK_TEXT(final_line(), "ERR usage: MQTT_HOST|<endpoint>");
+
+	/* There is no download prefix to keep without cloud settings: CLOUD sets both. */
+	busy_board();
+	CHECK(identity_settings_clear() == 0);
+	fake_clear_log();
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "ERR no cloud settings to change, send CLOUD|<endpoint>|<download-url-prefix>");
+	CHECK(identity_settings_get() == NULL);
+	CHECK(strstr(fake.ops, "W") == NULL);
+
+	/* Storage that fails keeps what was there, in memory and on flash. */
+	busy_board();
+	fake.fail_write[STORE_DEVICE_CONFIG] = true;
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "ERR the settings could not be stored (-5)");
+	CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+	CHECK(fake.cloud_changes == 0 && fake.cloud_reconnects == 0);
+	fake.fail_write[STORE_DEVICE_CONFIG] = false;
+	CHECK(boot() == DEVICE_BOOT_OPERATING);
+	CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+
+	/* Stored, and the request to reconnect did not fit in the queue: it says what to do. */
+	busy_board();
+	fake.event_queue_full = true;
+	command("MQTT_HOST|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "OK mqtt server set to " OTHER_ENDPOINT
+		   "; the board is busy, send MQTT_RECONNECT to use it now");
+	CHECK_TEXT(identity_settings_get()->endpoint, OTHER_ENDPOINT);
+	fake.event_queue_full = false;
+
+	/* During an update or a trial, the server it reports to stays as it is. */
+	busy_board();
+	fake.ota = OTA_TESTING;
+	command("mqtt_host|" OTHER_ENDPOINT);
+	CHECK_TEXT(final_line(), "ERR update in progress");
+	CHECK_TEXT(identity_settings_get()->endpoint, ENDPOINT);
+	CHECK(fake.cloud_reconnects == 0);
+	fake.ota = OTA_IDLE;
+}
+
+static void test_mqtt_reconnect(void)
+{
+	static const enum ota_state states[] = { OTA_AWAITING_USER, OTA_RETRY_WAIT, OTA_DOWNLOADING,
+						 OTA_VERIFYING, OTA_REBOOTING, OTA_TESTING };
+
+	/* Connected, connecting or waiting: the main loop is asked, on the main loop. */
+	busy_board();
+	fake.main_calls = 0;
+	command("MQTT_RECONNECT");
+	CHECK(fake.finals == 1);
+	CHECK_TEXT(final_line(), "OK reconnecting");
+	CHECK(fake.cloud_reconnects == 1);
+	CHECK(fake.main_calls == 1);
+	CHECK(ops_contain_in_order("reconnect", "final"));
+	CHECK(fake.cloud_changes == 0);
+	CHECK(strstr(fake.ops, "W") == NULL);
+
+	busy_board();
+	fake.cloud_connected = false;
+	fake.cloud_retry_in = 200;
+	command("mqtt_reconnect");
+	CHECK_TEXT(final_line(), "OK reconnecting");
+	CHECK(fake.cloud_reconnects == 1);
+
+	/* What it cannot do, it says, and asks nothing. */
+	busy_board();
+	fake.cloud_connected = false;
+	fake.link_up = false;
+	command("MQTT_RECONNECT");
+	CHECK_TEXT(final_line(), "ERR no network: the board connects once Wi-Fi is up");
+	CHECK(fake.cloud_reconnects == 0);
+
+	busy_board();
+	CHECK(identity_settings_clear() == 0);
+	command("MQTT_RECONNECT");
+	CHECK_TEXT(final_line(), "ERR no cloud settings, send CLOUD|<endpoint>|<download-url-prefix>");
+	CHECK(fake.cloud_reconnects == 0);
+
+	busy_board();
+	fake.event_queue_full = true;
+	command("MQTT_RECONNECT");
+	CHECK_TEXT(final_line(), "ERR the application is busy");
+	fake.event_queue_full = false;
+
+	/* An update or a trial keeps its connection. */
+	for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); i++) {
+		busy_board();
+		fake.ota = states[i];
+		command("MQTT_RECONNECT");
+		CHECK_TEXT(final_line(), "ERR update in progress");
+		CHECK(fake.cloud_reconnects == 0);
+	}
+	fake.ota = OTA_IDLE;
+
+	busy_board();
+	command("MQTT_RECONNECT|now");
+	CHECK_TEXT(final_line(), "ERR usage: MQTT_RECONNECT");
+	CHECK(fake.cloud_reconnects == 0);
+
+	/* All three are in HELP, with the cloud's commands. */
+	command("HELP");
+	{
+		const char *cloud = strstr(fake.output, "+-- Cloud ");
+		const char *status = strstr(fake.output, "+-- Status ");
+
+		for (const char *const *name = (const char *const[]){ "MQTT ", "MQTT_HOST ", "MQTT_RECONNECT ",
+								      NULL };
+		     *name != NULL; name++) {
+			char row[40];
+			const char *at;
+
+			snprintf(row, sizeof(row), "\n  %s", *name);
+			at = strstr(fake.output, row);
+			CHECK(at != NULL && cloud != NULL && status != NULL && at > cloud && at < status);
+		}
+	}
 }
 
 static void test_button_and_restart(void)
@@ -3013,6 +3415,14 @@ static void test_what_is_chosen_stays_exactly_as_typed(void)
 	CHECK(strncmp(final_line(), "ERR endpoint must be", 20) == 0);
 	CHECK_TEXT(identity_settings_get()->endpoint, "Example-ATS.iot.US-East-1.amazonaws.com");
 
+	/* MQTT_HOST's endpoint, in any case of the command. */
+	command("Mqtt_Host|Other-ATS.iot.EU-West-1.amazonaws.com");
+	CHECK_TEXT(final_line(), "OK mqtt server set to Other-ATS.iot.EU-West-1.amazonaws.com, the next connection uses it");
+	CHECK_TEXT(identity_settings_get()->endpoint, "Other-ATS.iot.EU-West-1.amazonaws.com");
+	CHECK_TEXT(identity_settings_get()->download_url_prefix, "https://Bucket.s3.amazonaws.com/FirmWare/");
+	command("MQTT");
+	CHECK_TEXT(value_of("endpoint"), "Other-ATS.iot.EU-West-1.amazonaws.com");
+
 	/* Base64, where the case of a letter is another six bits. */
 	{
 		char encoded[400];
@@ -3155,6 +3565,9 @@ int main(void)
 	test_status();
 	test_boot_box();
 	test_cloud_and_keygen();
+	test_mqtt_status();
+	test_mqtt_host();
+	test_mqtt_reconnect();
 	test_button_and_restart();
 	test_crc();
 	test_stream_in_order();

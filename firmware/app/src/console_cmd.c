@@ -662,6 +662,9 @@ static struct {
 	const char *update_state;
 	char update_last[16];
 	uint8_t stuck_count;
+	bool net_up;
+	/* Seconds until the next attempt to connect to the cloud, -1 for none. */
+	int cloud_retry_in;
 } main_view;
 
 static int read_main_view(void *arg)
@@ -680,7 +683,40 @@ static int read_main_view(void *arg)
 	main_view.update_state = ota_state_name();
 	strncpy(main_view.update_last, ota_last_result(), sizeof(main_view.update_last) - 1);
 	main_view.stuck_count = stuck_count();
+	main_view.net_up = net_is_up();
+	main_view.cloud_retry_in = app_cloud_retry_in();
 	return 0;
+}
+
+/*
+ * The state of the MQTT connection in a few words, from the statistics and a fresh main_view.
+ * What stands in the way comes before the wait, which never ends without it.
+ */
+static const char *mqtt_state_name(const struct cloud_stats *stats, char *buffer, size_t size)
+{
+	if (stats->state == CLOUD_STATE_CONNECTED) {
+		return "connected";
+	}
+
+	if (stats->state == CLOUD_STATE_CONNECTING) {
+		return "connecting";
+	}
+
+	if (!main_view.has_settings) {
+		return "no cloud settings";
+	}
+
+	if (!main_view.net_up) {
+		return "no network";
+	}
+
+	if (main_view.cloud_retry_in < 0) {
+		/* The next tick schedules one: see on_tick() in main.c. */
+		return "waiting to retry";
+	}
+
+	(void)snprintk(buffer, size, "waiting to retry in %d s", main_view.cloud_retry_in);
+	return buffer;
 }
 
 static const char *set_or_unset(bool set)
@@ -715,12 +751,18 @@ static void print_wifi(void)
 
 static void print_cloud(void)
 {
+	struct cloud_stats stats;
+	char state[48];
+
+	cloud_stats_get(&stats);
+
 	console_reply_line(KEY_VALUE, "endpoint",
 			   main_view.has_settings ? main_view.endpoint : "unset");
 	console_reply_line(KEY_VALUE, "download from",
 			   main_view.has_settings ? main_view.download_url_prefix : "unset");
 	console_reply_line(KEY_VALUE, "cloud",
 			   cloud_is_connected() ? "connected" : "not connected");
+	console_reply_line(KEY_VALUE, "mqtt", mqtt_state_name(&stats, state, sizeof(state)));
 }
 
 static void print_certs(void)
@@ -852,6 +894,207 @@ static void cmd_stats(int argc, char **argv)
 	box_field("", "Reset", console_port_reset_reason());
 	console_reply_line(BOX_RULE);
 	reply_done();
+}
+
+/* ---- MQTT ----------------------------------------------------------------------- */
+
+/*
+ * The port and the keep-alive are built in (CONFIG_MQTT_HELPER_PORT, CONFIG_MQTT_KEEPALIVE): the
+ * AWS IoT library takes only the host name and the client ID at run time. The client ID is the
+ * thing name and cannot be changed, because the board's policy in AWS IoT allows no other.
+ */
+
+static const char *const error_sources[] = {
+	[CLOUD_ERROR_NONE] = "none",
+	[CLOUD_ERROR_CONNECT] = "connect",
+	[CLOUD_ERROR_LIBRARY] = "library",
+};
+
+/* Whole seconds from one uptime to a later one. */
+static long long seconds_between(int64_t from_ms, int64_t to_ms)
+{
+	return to_ms > from_ms ? (long long)((to_ms - from_ms) / 1000) : 0;
+}
+
+/* "12 s ago", or "never" for a time of -1. Uptimes, so nothing here depends on a clock. */
+static const char *time_ago(int64_t at_ms, int64_t now_ms, char *buffer, size_t size)
+{
+	if (at_ms < 0) {
+		return "never";
+	}
+
+	(void)snprintk(buffer, size, "%lld s ago", seconds_between(at_ms, now_ms));
+	return buffer;
+}
+
+static void cmd_mqtt(int argc, char **argv)
+{
+	struct cloud_stats stats;
+	char value[64];
+	char ago[32];
+	const char *topic;
+	int64_t now;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	(void)console_port_on_main(read_main_view, NULL);
+	cloud_stats_get(&stats);
+	now = console_port_uptime_ms();
+
+	console_reply_line(KEY_VALUE, "state", mqtt_state_name(&stats, value, sizeof(value)));
+	console_reply_line(KEY_VALUE, "endpoint",
+			   main_view.has_settings ? main_view.endpoint : "unset");
+	console_reply_line("%-14s %d", "port", CONFIG_MQTT_HELPER_PORT);
+	console_reply_line(KEY_VALUE, "client id", identity_thing_name());
+	console_reply_line("%-14s %d s", "keep alive", CONFIG_MQTT_KEEPALIVE);
+	console_reply_line("%-14s %d", "tls sec tag", CONFIG_MQTT_HELPER_SEC_TAG);
+
+	if (stats.state == CLOUD_STATE_CONNECTED && stats.connected_at_ms >= 0) {
+		console_reply_line("%-14s %lld s", "connected for",
+				   seconds_between(stats.connected_at_ms, now));
+	}
+
+	console_reply_line("%-14s %u", "attempts", (unsigned int)stats.attempts);
+	console_reply_line("%-14s %u", "connects", (unsigned int)stats.connects);
+	console_reply_line("%-14s %u", "disconnects", (unsigned int)stats.disconnects);
+	console_reply_line("%-14s %u", "errors", (unsigned int)stats.errors);
+
+	if (stats.last_error_source == CLOUD_ERROR_NONE) {
+		console_reply_line(KEY_VALUE, "last error", "none");
+	} else {
+		console_reply_line("%-14s %d (%s), %s", "last error", stats.last_error,
+				   error_sources[stats.last_error_source],
+				   time_ago(stats.last_error_ms, now, ago, sizeof(ago)));
+	}
+
+	console_reply_line("%-14s %u", "published", (unsigned int)stats.published);
+	console_reply_line("%-14s %u", "received", (unsigned int)stats.received);
+	console_reply_line(KEY_VALUE, "last publish",
+			   time_ago(stats.last_publish_ms, now, ago, sizeof(ago)));
+	console_reply_line(KEY_VALUE, "last receive",
+			   time_ago(stats.last_receive_ms, now, ago, sizeof(ago)));
+
+	for (size_t i = 0; (topic = cloud_subscription(i)) != NULL; i++) {
+		console_reply_line(KEY_VALUE, "subscribed", topic);
+	}
+
+	reply_done();
+}
+
+struct mqtt_host_call {
+	const char *endpoint;
+	/* Out: there was a connection or an attempt, which is being replaced. */
+	bool reconnecting;
+	/* Out: the request for that could not be queued. */
+	bool reconnect_lost;
+};
+
+/* The download prefix stays: it is copied out first, because storing replaces the record it is in. */
+static int do_mqtt_host(void *arg)
+{
+	struct mqtt_host_call *call = arg;
+	const struct identity_settings *config = identity_settings_get();
+	char prefix[IDENTITY_URL_PREFIX_MAX];
+	int err;
+
+	if (config == NULL) {
+		return -ENOENT;
+	}
+
+	strncpy(prefix, config->download_url_prefix, sizeof(prefix) - 1);
+	prefix[sizeof(prefix) - 1] = '\0';
+
+	err = identity_settings_set(call->endpoint, prefix);
+	if (err) {
+		return err;
+	}
+
+	/* As after CLOUD: the stuck timers give the new server its full time, and the back-off restarts. */
+	(void)app_event_post_simple(APP_EVENT_CLOUD_CHANGED);
+
+	call->reconnecting = cloud_is_connected() || cloud_is_connecting();
+	if (call->reconnecting) {
+		call->reconnect_lost = app_event_post_simple(APP_EVENT_CLOUD_RECONNECT) != 0;
+	}
+
+	return 0;
+}
+
+static void cmd_mqtt_host(int argc, char **argv)
+{
+	struct mqtt_host_call call = { .endpoint = argv[0] };
+	int err;
+
+	ARG_UNUSED(argc);
+
+	err = on_main_guarded(do_mqtt_host, &call);
+	if (refused_by_update(err)) {
+		return;
+	}
+
+	if (err == -ENOENT) {
+		reply_err("no cloud settings to change, send CLOUD|<endpoint>|<download-url-prefix>");
+		return;
+	}
+
+	if (err == -EINVAL) {
+		reply_err("endpoint must be a host name of at most %d letters, digits, dots and hyphens",
+			  IDENTITY_ENDPOINT_MAX - 1);
+		return;
+	}
+
+	if (err) {
+		reply_err("the settings could not be stored (%d)", err);
+		return;
+	}
+
+	if (call.reconnect_lost) {
+		reply_ok("mqtt server set to %s; the board is busy, send MQTT_RECONNECT to use it now",
+			 call.endpoint);
+	} else if (call.reconnecting) {
+		reply_ok("mqtt server set to %s, reconnecting", call.endpoint);
+	} else {
+		reply_ok("mqtt server set to %s, the next connection uses it", call.endpoint);
+	}
+}
+
+/* On the main loop, so that what is checked cannot change before the request is queued. */
+static int do_mqtt_reconnect(void *arg)
+{
+	ARG_UNUSED(arg);
+
+	if (identity_settings_get() == NULL) {
+		return -ENOENT;
+	}
+
+	if (!net_is_up()) {
+		return -ENETDOWN;
+	}
+
+	return app_event_post_simple(APP_EVENT_CLOUD_RECONNECT) != 0 ? -EBUSY : 0;
+}
+
+static void cmd_mqtt_reconnect(int argc, char **argv)
+{
+	int err = on_main_guarded(do_mqtt_reconnect, NULL);
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (refused_by_update(err)) {
+		return;
+	}
+
+	if (err == -ENOENT) {
+		reply_err("no cloud settings, send CLOUD|<endpoint>|<download-url-prefix>");
+	} else if (err == -ENETDOWN) {
+		reply_err("no network: the board connects once Wi-Fi is up");
+	} else if (err) {
+		reply_err("the application is busy");
+	} else {
+		reply_ok("reconnecting");
+	}
 }
 
 /* ---- loading a certificate ------------------------------------------------------ */
@@ -1161,6 +1404,13 @@ static const struct console_command commands[] = {
 	  2, cmd_cloud },
 	{ "KEYGEN", NULL, "KEYGEN[|REPLACE]", "create the device key, print a signing request",
 	  SECTION_CLOUD, false, 0, 1, cmd_keygen },
+	{ "MQTT", NULL, "MQTT", "show the MQTT connection: state, server, counts, topics",
+	  SECTION_CLOUD, false, 0, 0, cmd_mqtt },
+	{ "MQTT_HOST", NULL, "MQTT_HOST|<endpoint>",
+	  "change only the AWS IoT endpoint, and reconnect to it", SECTION_CLOUD, false, 1, 1,
+	  cmd_mqtt_host },
+	{ "MQTT_RECONNECT", NULL, "MQTT_RECONNECT", "drop the MQTT connection and connect again now",
+	  SECTION_CLOUD, false, 0, 0, cmd_mqtt_reconnect },
 
 	{ "STATS", NULL, "STATS", "show state, id, firmware, wifi, uptime, memory, last reset",
 	  SECTION_STATUS, false, 0, 0, cmd_stats },

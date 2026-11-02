@@ -9,13 +9,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  SERIAL, VIEWS, all, click, createDocument, descendants, one, textOf,
+  SERIAL, VIEWS, all, click, createDocument, descendants, one, textOf, withText,
 } from './page.mjs';
 
 const serial = await import(SERIAL);
 const views = await import(VIEWS);
 const {
-  COMMANDS, MASK, checkCommand, checkTyped, classifyLine, createLineReader, createSerialSession, holdsSecret, shownCommand,
+  COMMANDS, MASK, checkCommand, checkTyped, classifyLine, createLineReader, createSerialSession, holdsSecret, mqttFacts,
+  shownCommand,
 } = serial;
 
 globalThis.document = createDocument();
@@ -32,12 +33,38 @@ async function settle() {
 
 // The board.
 
+// MQTT's reply as console_cmd.c writes it, on a board that has been connected for a minute.
+const TOPIC = '$aws/things/cranium-fe5b26c0c5b1dcd7/jobs/';
+const MQTT_LINES = [
+  'state          connected',
+  'endpoint       example-ats.iot.us-east-1.amazonaws.com',
+  'port           8883',
+  'client id      cranium-fe5b26c0c5b1dcd7',
+  'keep alive     120 s',
+  'tls sec tag    201',
+  'connected for  65 s',
+  'attempts       3',
+  'connects       2',
+  'disconnects    1',
+  'errors         1',
+  'last error     -11 (connect), 35 s ago',
+  'published      42',
+  'received       7',
+  'last publish   5 s ago',
+  'last receive   1 s ago',
+  ...['notify-next', '$next/get/accepted', '$next/get/rejected', '+/update/accepted', '+/update/rejected']
+    .map((suffix) => `subscribed     ${TOPIC}${suffix}`),
+];
+
 const REPLIES = {
   GET_ID: () => 'OK ABC123|1.2.3+5\r\n',
   ECHO: (line) => `OK echo ${line.split('|')[1].toLowerCase()}\r\n`,
   WIFI: (line) => `OK saved, connecting to ${line.split('|')[1]}\r\n`,
   WIFI_SEC: (line) => `OK saved, connecting to ${line.split('|')[1]}\r\n`,
   NET: () => 'state connected\r\nssid Lab\r\nOK\r\n',
+  MQTT: () => `${MQTT_LINES.join('\r\n')}\r\nOK\r\n`,
+  MQTT_HOST: (line) => `OK mqtt server set to ${line.split('|')[1]}, reconnecting\r\n`,
+  MQTT_RECONNECT: () => 'OK reconnecting\r\n',
 };
 
 function fakeBoard({ reply = (line) => (REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'), echo = false } = {}) {
@@ -483,6 +510,7 @@ test('the table agrees with the firmware\'s table and limits', { skip: !existsSy
   assert.equal(define('net.h', 'NET_PASSWORD_MIN'), 8);
   assert.equal(define('net.h', 'NET_PASSWORD_MAX'), 63);
   assert.equal(define('console_parser.h', 'CONSOLE_LINE_MAX'), 384);
+  assert.equal(define('identity.h', 'IDENTITY_ENDPOINT_MAX'), 128, 'the page allows one less, for the terminating zero');
 });
 
 // Secrets.
@@ -831,6 +859,226 @@ test('every form and button is held back until a board answers', async (t) => {
   assert.equal(field(box, 'serial-typed').disabled, true);
   assert.match(textOf(box), /Connect a board to use these/);
   assert.equal(one(box, 'button', 'Connect a board').disabled, false);
+});
+
+// The MQTT panel.
+
+const mqttPanel = (box) => all(box, 'section.serial-group').find((section) => textOf(one(section, 'h2')) === 'MQTT');
+
+/** The browser's own dialogs are not for this page: a test fails if one is opened. */
+function noDialogs(t) {
+  const opened = [];
+  for (const name of ['confirm', 'alert', 'prompt']) {
+    const had = Object.hasOwn(globalThis, name);
+    const before = globalThis[name];
+    globalThis[name] = () => { opened.push(name); return true; };
+    t.after(() => { if (had) globalThis[name] = before; else delete globalThis[name]; });
+  }
+  return opened;
+}
+
+test('the MQTT panel has the three MQTT commands, after Wi-Fi', async (t) => {
+  assert.deepEqual(COMMANDS.filter((item) => item.group === 'mqtt').map((item) => item.name),
+    ['MQTT', 'MQTT_HOST', 'MQTT_RECONNECT']);
+  const { session } = await connected(t);
+  const { box } = drawn(session);
+  assert.deepEqual(all(box, 'section.serial-group').map((section) => textOf(one(section, 'h2'))),
+    ['Identity', 'Wi-Fi', 'MQTT', 'Status', 'Maintenance']);
+  const panel = mqttPanel(box);
+  for (const label of ['Check MQTT', 'Set server', 'Reconnect']) one(panel, 'button', label);
+  // Nothing about MQTT is known before the board is asked.
+  assert.equal(all(panel, 'dl').length, 0);
+});
+
+test('a server is a host name, as valid_host_name() in identity.c has it', () => {
+  const wrong = 'endpoint must be a host name of at most 127 letters, digits, dots and hyphens';
+  const host = (value) => checkCommand(command('MQTT_HOST'), { host: value });
+  for (const good of ['example-ats.iot.us-east-1.amazonaws.com', 'Mixed-Case.Example.COM', 'a.b', '1.2', `${'a'.repeat(123)}.com`]) {
+    assert.deepEqual(host(good), { errors: {}, line: `MQTT_HOST|${good}` }, good);
+  }
+  for (const bad of ['', 'nodots', '.leading.dot', '-leading.hyphen', 'under_score.example.com', 'with space.com',
+    'https://example.com', 'example.com:8883', 'example.com/path', 'a|b.com', 'café.example.com', 'x.com\r\nFACTORY_RESET',
+    `${'a'.repeat(124)}.com`]) {
+    assert.deepEqual(host(bad).errors, { host: wrong }, bad);
+  }
+});
+
+test('MQTT\'s reply is read as facts, a key that comes again as one with several values', () => {
+  const facts = mqttFacts([...MQTT_LINES, 'not a key value line', 'future thing   new value']);
+  assert.deepEqual(facts.slice(0, 3), [
+    { key: 'state', label: 'State', values: ['connected'] },
+    { key: 'endpoint', label: 'Server', values: ['example-ats.iot.us-east-1.amazonaws.com'] },
+    { key: 'port', label: 'Port', values: ['8883'] },
+  ]);
+  const by = Object.fromEntries(facts.map((fact) => [fact.key, fact]));
+  assert.deepEqual(by['last error'].values, ['-11 (connect), 35 s ago']);
+  assert.equal(by['client id'].label, 'Client ID');
+  assert.equal(by.subscribed.label, 'Subscribed to');
+  assert.equal(by.subscribed.values.length, 5);
+  assert.equal(by.subscribed.values[1], `${TOPIC}$next/get/accepted`);
+  // What the page has no word for is shown as the board said it, and what is not a fact is left out.
+  assert.deepEqual(by['future thing'], { key: 'future thing', label: 'future thing', values: ['new value'] });
+  assert.equal(facts.length, 18);
+});
+
+test('Check MQTT asks the board and shows its reply as a list, topics and all', async (t) => {
+  const { board, session } = await connected(t);
+  const { box, redraw } = drawn(session);
+  click(one(mqttPanel(box), 'button', 'Check MQTT'));
+  await settle();
+  redraw();
+
+  assert.equal(board.lines.at(-1), 'MQTT');
+  const panel = mqttPanel(box);
+  const facts = all(panel, 'div.fact');
+  assert.equal(facts.length, 17);
+  const fact = (label) => facts.find((item) => textOf(one(item, 'dt')) === label);
+  assert.equal(textOf(one(fact('State'), 'dd')), 'connected');
+  assert.equal(textOf(one(fact('Server'), 'dd')), 'example-ats.iot.us-east-1.amazonaws.com');
+  assert.equal(textOf(one(fact('Port'), 'dd')), '8883');
+  assert.equal(textOf(one(fact('Keep-alive'), 'dd')), '120 s');
+  assert.equal(textOf(one(fact('Last error'), 'dd')), '-11 (connect), 35 s ago');
+  assert.equal(all(one(fact('Subscribed to'), 'dd'), 'span.mono').length, 5);
+  assert.match(textOf(panel), /As of /);
+  assert.equal(textOf(one(panel, 'p.serial-result')), 'OK');
+  // The transcript has every line as well, as for any command.
+  assert.equal(session.lines.filter((line) => line.kind === 'output').length, MQTT_LINES.length);
+  // The field shows the server now in use.
+  assert.match(textOf(panel), /Now: example-ats\.iot\.us-east-1\.amazonaws\.com/);
+});
+
+test('MQTT typed in the free input, in any case, fills the panel too', async (t) => {
+  const { session } = await connected(t);
+  const { box, redraw } = drawn(session);
+  field(box, 'serial-typed').value = 'mqtt';
+  one(box, 'form.serial-prompt').dispatchEvent({ type: 'submit' });
+  await settle();
+  redraw();
+  assert.equal(session.mqtt.facts[0].values[0], 'connected');
+  assert.equal(all(mqttPanel(box), 'div.fact').length, 17);
+  assert.equal(checkTyped('MQTT_HOST|example.com').line, 'MQTT_HOST|example.com', 'it can be typed, as CLOUD can');
+});
+
+test('Set server checks the name here, and sends it only once it is confirmed on the page', async (t) => {
+  const dialogs = noDialogs(t);
+  const { board, session } = await connected(t);
+  const { box, redraw } = drawn(session);
+  const host = () => field(box, 'serial-MQTT_HOST-host');
+  const submit = () => click(one(mqttPanel(box), 'button', 'Set server'));
+  board.lines.length = 0;
+
+  // A name that is not a host name: the firmware's words beside the field, and nothing sent.
+  host().value = 'https://example.com';
+  submit();
+  await settle();
+  assert.deepEqual(board.lines, []);
+  assert.match(textOf(mqttPanel(box)), /endpoint must be a host name of at most 127 letters, digits, dots and hyphens/);
+  assert.equal(host().getAttribute('aria-invalid'), 'true');
+  assert.equal(document.activeElement, host());
+
+  // A good one is asked about first, on the page, and the question can be put away.
+  host().value = 'other-ats.iot.eu-west-1.amazonaws.com';
+  submit();
+  await settle();
+  assert.deepEqual(board.lines, []);
+  assert.equal(host().getAttribute('aria-invalid'), null);
+  assert.match(textOf(mqttPanel(box)), /Set the server to other-ats\.iot\.eu-west-1\.amazonaws\.com\? The board drops its MQTT connection/);
+  assert.equal(document.activeElement, field(box, 'serial-MQTT_HOST-yes'));
+  click(one(mqttPanel(box), 'button', 'Cancel'));
+  await settle();
+  assert.deepEqual(board.lines, []);
+  assert.equal(withText(mqttPanel(box), 'button', 'Yes, set the server').length, 0);
+  assert.equal(document.activeElement, host());
+
+  // Asked again, and confirmed: now it goes, as it was typed.
+  submit();
+  click(one(mqttPanel(box), 'button', 'Yes, set the server'));
+  await settle();
+  redraw();
+  assert.deepEqual(board.lines, ['MQTT_HOST|other-ats.iot.eu-west-1.amazonaws.com']);
+  assert.match(textOf(one(mqttPanel(box), 'p.serial-result')), /OK mqtt server set to other-ats\.iot\.eu-west-1\.amazonaws\.com, reconnecting/);
+  assert.equal(withText(mqttPanel(box), 'button', 'Yes, set the server').length, 0, 'the question is gone');
+  one(mqttPanel(box), 'button', 'Set server');
+  assert.deepEqual(dialogs, []);
+});
+
+test('changing the name while it is being asked about takes the question back', async (t) => {
+  const { board, session } = await connected(t);
+  const { box } = drawn(session);
+  const host = () => field(box, 'serial-MQTT_HOST-host');
+  board.lines.length = 0;
+  host().value = 'one.example.com';
+  click(one(mqttPanel(box), 'button', 'Set server'));
+  assert.equal(withText(mqttPanel(box), 'button', 'Yes, set the server').length, 1);
+  host().value = 'two.example.com';
+  host().dispatchEvent({ type: 'input' });
+  assert.equal(withText(mqttPanel(box), 'button', 'Yes, set the server').length, 0);
+  assert.deepEqual(board.lines, []);
+});
+
+test('Reconnect sends MQTT_RECONNECT, and what the board answers shows beside it', async (t) => {
+  const { board, session } = await connected(t, {
+    reply: (line) => (line === 'MQTT_RECONNECT' ? 'ERR no network: the board connects once Wi-Fi is up\r\n'
+      : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
+  });
+  const { box, redraw } = drawn(session);
+  click(one(mqttPanel(box), 'button', 'Check MQTT'));
+  await settle();
+  click(one(mqttPanel(box), 'button', 'Reconnect'));
+  await settle();
+  redraw();
+  assert.equal(board.lines.at(-1), 'MQTT_RECONNECT');
+  assert.match(textOf(one(mqttPanel(box), 'p.serial-result')), /^ERR no network: the board connects once Wi-Fi is up$/);
+  // Refused: what the panel shows of the connection is still how it stands.
+  assert.equal(session.mqtt.stale, false);
+});
+
+test('after a change, what the panel shows is marked as from before it', async (t) => {
+  const { session } = await connected(t);
+  const { box, redraw } = drawn(session);
+  click(one(mqttPanel(box), 'button', 'Check MQTT'));
+  await settle();
+  click(one(mqttPanel(box), 'button', 'Reconnect'));
+  await settle();
+  redraw();
+  assert.equal(session.mqtt.stale, true);
+  assert.match(textOf(mqttPanel(box)), /before the last change: check again/);
+  click(one(mqttPanel(box), 'button', 'Check MQTT'));
+  await settle();
+  redraw();
+  assert.equal(session.mqtt.stale, false);
+});
+
+test('a board with firmware from before the MQTT commands is told so in words', async (t) => {
+  const { session } = await connected(t, {
+    reply: (line) => (line.startsWith('MQTT') ? `ERR unknown command ${line.split('|')[0]}, type HELP\r\n`
+      : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
+  });
+  const { box, redraw } = drawn(session);
+  click(one(mqttPanel(box), 'button', 'Check MQTT'));
+  await settle();
+  redraw();
+  assert.equal(session.mqtt, null);
+  assert.match(textOf(mqttPanel(box)), /ERR unknown command MQTT, type HELP/);
+  assert.match(textOf(mqttPanel(box)), /older than the MQTT commands/);
+});
+
+test('what the panel knew goes with the board', async (t) => {
+  const { session } = await connected(t);
+  drawn(session);
+  await session.send('MQTT');
+  await settle();
+  assert.notEqual(session.mqtt, null);
+  await session.disconnect();
+  await settle();
+  assert.equal(session.mqtt, null);
+});
+
+test('the panel is held back until a board answers, like every form', async (t) => {
+  const { session } = await connected(t, {}, { connect: false });
+  const { box } = drawn(session);
+  assert.equal(one(box, 'fieldset').disabled, true);
+  assert.equal(mqttPanel(box) !== undefined, true);
 });
 
 // How replies read.

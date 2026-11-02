@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "app_events.h"
+#include "cloud.h"
 #include "console_stream.h"
 #include "net.h"
 #include "ota.h"
@@ -62,7 +63,14 @@ struct fake_board {
 	bool link_up;
 	bool link_up_without_address;
 	bool cloud_connected;
+	bool cloud_connecting;
 	int cloud_disconnects;
+	/* What cloud_stats_get() says, apart from the state, which follows the two above. */
+	struct cloud_stats cloud_stats;
+	/* What the main loop says of its next attempt to connect: app_cloud_retry_in(). */
+	int cloud_retry_in;
+	/* APP_EVENT_CLOUD_RECONNECT, as far as it was posted. */
+	int cloud_reconnects;
 
 	/* What the code did, in order: "W3" is a write of record 3, "reply", "join" and so on. */
 	char ops[FAKE_OPS_MAX];

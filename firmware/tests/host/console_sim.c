@@ -21,6 +21,10 @@
  * join gets anywhere, and after this many milliseconds the board says so and restarts. 0 means
  * that it never does, as on firmware without the timers, until somebody sends REBOOT.
  *
+ * The cloud comes up with the link, if the board has its settings, key and certificate. MQTT counts
+ * what came and went. MQTT_RECONNECT and MQTT_HOST on a board with a connection drop it, and it comes
+ * back a moment later, each with an [app] line as on the board.
+ *
  * Built with CONFIG_APP_TEST_FAULT_WIFI_DEAD, TEST_WIFI_DEAD stops the chip with the board on the
  * cloud. SIM_DEAD_REASON says which timer gets it: no_cloud, or wifi_silent if the link goes as
  * well. SIM_DEAD_DOWN_MS says when the cloud or the link goes, and SIM_DEAD_STUCK_MS how long after
@@ -178,6 +182,9 @@ int main(void)
 	/* The test image's stopped chip: when it stopped, and whether the cloud or link has gone. */
 	long long dead_at = -1;
 	long long down_at = -1;
+	/* The cloud, as MQTT counts it, and a reconnect under way. */
+	bool cloud_was_up = false;
+	long long reconnect_at = -1;
 
 	if (reasons == NULL) {
 		reasons = "wrong password";
@@ -236,6 +243,14 @@ int main(void)
 			hung_at = -1;
 			dead_at = -1;
 			down_at = -1;
+			reconnect_at = -1;
+			fake.cloud_connecting = false;
+			fake.cloud_reconnects = 0;
+			/* What the statistics count is in RAM. */
+			fake.cloud_stats = (struct cloud_stats){ .connected_at_ms = -1, .last_error_ms = -1,
+								 .last_publish_ms = -1,
+								 .last_receive_ms = -1 };
+			cloud_was_up = false;
 			boot_at = now + (boot_time != NULL ? atoi(boot_time) : BOOT_TIME_MS);
 		}
 
@@ -338,6 +353,39 @@ int main(void)
 				restart_for_being_stuck(reason);
 			}
 		}
+
+		/* MQTT_RECONNECT, or MQTT_HOST on a board with a connection: down, and back in a moment. */
+		if (fake.cloud_reconnects > 0) {
+			fake.cloud_reconnects = 0;
+			if (fake.cloud_connected) {
+				fake.cloud_connected = false;
+				console_event("app", "Disconnected from AWS IoT");
+			}
+			if (fake.link_up && identity_settings_get() != NULL) {
+				fake.cloud_connecting = true;
+				reconnect_at = now + JOIN_TIME_MS;
+			}
+		}
+
+		if (reconnect_at >= 0 && now >= reconnect_at) {
+			reconnect_at = -1;
+			fake.cloud_connecting = false;
+			if (fake.link_up && identity_settings_get() != NULL && fake.private_key &&
+			    fake.certificate) {
+				fake.cloud_connected = true;
+				console_event("app", "Connected to AWS IoT");
+			}
+		}
+
+		/* What cloud.c would have counted, however the connection came or went. */
+		if (fake.cloud_connected && !cloud_was_up) {
+			fake.cloud_stats.attempts++;
+			fake.cloud_stats.connects++;
+			fake.cloud_stats.connected_at_ms = now;
+		} else if (!fake.cloud_connected && cloud_was_up) {
+			fake.cloud_stats.disconnects++;
+		}
+		cloud_was_up = fake.cloud_connected;
 
 		if (now >= next_log) {
 			next_log = now + LOG_EVERY_MS;
