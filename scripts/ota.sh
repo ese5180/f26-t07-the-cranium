@@ -22,9 +22,9 @@
 # CRANIUM_CONSOLE_URL, or else from ConsoleUrl in cloud/.deploy/outputs.json. The token is
 # never printed and never put on a command line.
 #
-# Without a token, the API function is invoked directly with AWS credentials. The board does
-# not have to be on USB. With no console found, or with --cloud-only, the update is
-# followed through the job and the device shadow with AWS credentials. Firmware from 1.7.2 on starts
+# Without a token, the API function is invoked directly with AWS credentials.
+# The board does not have to be on USB. With no console found, or with --cloud-only, the update
+# is followed through the job and the device shadow with AWS credentials. Firmware from 1.7.2 on starts
 # the update by itself. Older firmware, such as the frozen golden image 1.5.0, reports that it waits
 # for Button 1: the button is then pressed through the board's development console if it has one, and
 # otherwise the script says so and waits for a person. The AWS profile comes from AWS_PROFILE (default
