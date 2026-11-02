@@ -1,0 +1,69 @@
+# The Xcode project of the Cranium iPhone app, for XcodeGen. The .xcodeproj it makes is not in git:
+# run scripts/generate.sh after a change here or after a pull, and scripts/testflight.sh does too.
+#
+# The logic is in the Swift package CraniumKit/ (swift build, swift test); this is only the app
+# around it. See README.md.
+
+name: Cranium
+
+options:
+  bundleIdPrefix: com.craniumiot
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    # The version people see. TestFlight builds get their build number from scripts/testflight.sh.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  CraniumKit:
+    path: CraniumKit
+
+targets:
+  Cranium:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+    dependencies:
+      - package: CraniumKit
+        product: CraniumKit
+      - package: CraniumKit
+        product: CraniumBLE
+    settings:
+      base:
+        PRODUCT_NAME: Cranium
+        PRODUCT_BUNDLE_IDENTIFIER: com.craniumiot.cranium
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # iPhone only, portrait. No Mac or Vision Pro version of an iPhone app.
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        # From ~/.cranium/appstoreconnect/key.json, by scripts/generate.sh. Empty: pick the team
+        # in Xcode's Signing & Capabilities (until the next generate).
+        DEVELOPMENT_TEAM: "${CRANIUM_TEAM_ID}"
+        # The configuration script reads apps/config/, outside the sandbox Xcode gives scripts.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    postBuildScripts:
+      - name: Copy the configuration
+        # Into the built app, never into the source tree: apps/config/cranium.json names the AWS
+        # account. Without it, a Debug build takes cranium.example.json and the app says so on
+        # every screen; a Release build stops.
+        script: '"${SRCROOT}/scripts/copy-config.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+    # A shared scheme named Cranium, which xcodebuild -scheme needs.
+    scheme: {}

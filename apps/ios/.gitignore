@@ -1,0 +1,4 @@
+# SwiftPM's build products, and Xcode's state for the package. The root .gitignore covers
+# apps/ios/.build/, but the package's own .build/ is one level down.
+/CraniumKit/.build/
+/CraniumKit/.swiftpm/

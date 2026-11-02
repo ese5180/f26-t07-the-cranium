@@ -1,0 +1,4 @@
+# Kotlin compiler session files, and Android Studio's own. The rest is in the root .gitignore.
+.kotlin/
+.idea/
+*.iml

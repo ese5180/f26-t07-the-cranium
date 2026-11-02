@@ -65,7 +65,7 @@ HTTP status; show the message.
 | `GET /api/me` | Anyone signed in | `{"email", "groups": [...], "canWrite": bool, "expiresAt"}`. `canWrite` is true for a release manager |
 | `GET /api/firmware` | Anyone signed in | `{"releases": [{"version": "1.8.0+0", "size", "sha256", "status": "active" or "revoked", "uploadedAt", "notes", ...}], "slotSize"}`, newest first |
 | `GET /api/firmware/{version}/image` | Release managers | The signed image itself, `application/octet-stream`. 403 for anyone else, 404 for a revoked or unknown version. Recorded in the activity log |
-| `GET /api/pairing/{name}` | Release managers | `{"thing", "name", "passkey": "123456", "reportedAt"}` for the board advertising as `{name}`, while its window is open. 404 when no online board has one open. Recorded in the activity log |
+| `GET /api/pairing/{name}` | Release managers | `{"thing", "name", "passkey": "123456", "reportedAt"}` for the board advertising as `{name}`, while a phone is pairing with it. 404 when no online board has one yet. A passkey handed out, and a refused caller, are recorded in the activity log; a 404 is not, because the app asks again |
 
 `{version}` is the text from the list, `1.8.0+0`, URL-encoded. Only offer `active` releases.
 
@@ -81,8 +81,14 @@ release's.
 | Advertised name | `Cranium-` and four upper-case hex digits, new for each window. Nothing else identifies the board |
 | Advertising data | The SMP service UUID `8D53DC1D-1DB7-4CD3-868B-8A527460AA84` |
 | SMP characteristic | `DA2E7828-FBCE-4E01-AE9E-261174997C48`: write without response, and notify |
-| Pairing | LE Secure Connections only, passkey shown by the board and typed on the phone. No bond is kept, so every session pairs again. The phone's OS asks for the passkey when the app first touches the characteristic |
+| Pairing | LE Secure Connections only, passkey shown by the board and typed on the phone. No bond is kept, so every session pairs again. The phone's OS asks for the passkey when the app first touches the characteristic. The board drops a link that has not paired within 45 s |
+| Idle link | The board drops an authenticated link with nothing on it for 30 s. While the person chooses a release and the image downloads, read the image state every 10 to 20 s |
 | MTU | The board takes ATT packets up to 498 bytes and SMP packets up to 512 |
+| Versions | The board's image state gives `1.8.0`, or `1.8.0.5` when the build number is not 0, never `1.8.0+5`. Compare major, minor, revision and build number, as the board does |
+
+Ask for the passkey from the moment the phone connects until it has paired, every 3 s and for at
+most 90 s: the board draws a new one for each attempt, and reports it about a second after the
+attempt starts.
 
 Scan for the service UUID, and show the names found. Use Nordic's nRF Connect Device Manager
 library: [`iOSMcuManagerLibrary`](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager)
@@ -97,10 +103,19 @@ What the board allows on an authenticated link:
 | Image upload, image 0 | Allowed, once per window, only for a version strictly newer than what runs |
 | Image test, confirm, erase, reset, anything else | **Refused** |
 
-So the apps upload only: no test, no confirm and no reset afterwards. The library's "firmware
-upgrade" flows end with a test, which the board refuses, so use the plain upload (upload-only mode,
-or the image manager's upload). An error on test would be shown to the person as a failure when
-nothing failed.
+So the apps upload only: no test, no confirm and no reset afterwards. Use the image manager's
+upload directly. The libraries' "firmware upgrade" managers ask for parameters first and end with a
+test or a reset, even in their upload-only mode, and the board refuses those, which the person would
+see as a failure when nothing failed. Android's library also asks for parameters by itself when it
+connects. The board refuses that too, and prints `[BT] refused a command: group 0, id 6, op 0`,
+which is harmless.
+
+An upload the board refuses at its first piece comes back as MCUmgr error 6 (bad state) or 11
+(access denied): not newer than what runs, or an image already sent in this window.
+
+Reading the image state has one effect besides: on a board whose new image is on trial with no Wi-Fi
+in reach, a read on a paired link is part of what keeps that image (`proof: person` in the firmware's
+README). That is by design, and it is why only a person at the board can open the window.
 
 Offer only releases newer than the version in slot 0. When the upload finishes, tell the person to
 press Button 1 on the board within 2 minutes, and disconnect. Afterwards the app can poll

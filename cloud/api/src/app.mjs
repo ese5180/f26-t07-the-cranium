@@ -202,7 +202,9 @@ export function createApp({
     // Reads, but each one is for release managers only and goes on record like a write:
     // the image a phone sends to a board over Bluetooth, and that board's passkey.
     route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }),
-    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0 }),
+    // A phone asks every few seconds until the board has a passkey, so an answer of "none yet" is
+    // not recorded: only a passkey handed out, and a caller refused.
+    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] }),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
       { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments', deployments.list),
@@ -249,7 +251,7 @@ export function createApp({
   }
 
   async function write(found, event, request) {
-    const { action, maxBody } = found.route.write;
+    const { action, maxBody, unrecorded = [] } = found.route.write;
     // The handler fills these in as it learns what the request is about.
     const entry = { target: '', detail: {} };
     const actor = { sub: claimedSub(event), email: '' };
@@ -292,6 +294,7 @@ export function createApp({
           : await context.directory.emailOf(request.sub);
       }
     }
+    if (failure !== null && unrecorded.includes(outcome)) throw failure;
     const recorded = await audit.record({
       at: clock(), requestId: request.id, actor: { sub: actor.sub, email }, action, target, outcome, detail,
     });

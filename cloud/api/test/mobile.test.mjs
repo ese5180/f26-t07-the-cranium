@@ -164,10 +164,17 @@ test('no passkey for a viewer, a stale report, an unknown name or a malformed on
   fake.addThing(THING);
   fake.device(THING).setRaw(shadowWithPairing(clock.ms, 5000));
 
+  const refusedBefore = fake.auditLog().length;
   const refused = await call('GET', '/api/pairing/Cranium-1A2B', { as: viewer });
   assert.equal(refused.status, 403);
+  // A refusal is always on record.
+  assert.equal(fake.auditLog().length, refusedBefore + 1);
+  assert.equal(fake.auditLog().at(-1).outcome, 'denied');
 
+  const before = fake.auditLog().length;
   assert.equal((await call('GET', '/api/pairing/Cranium-0000', { as: manager })).status, 404);
+  // A phone asks again every few seconds until there is one: "none yet" is not put on record.
+  assert.equal(fake.auditLog().length, before);
   const bad = await call('GET', '/api/pairing/cranium-1a2b', { as: manager });
   assert.equal(bad.status, 400);
   assert.equal(bad.body.error.code, 'invalid_name');
