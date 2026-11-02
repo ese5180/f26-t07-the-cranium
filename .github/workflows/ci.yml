@@ -96,7 +96,13 @@ jobs:
           run_test() {
             local log
             log=$(mktemp)
-            python3 "firmware/tests/hil/$1" 2>&1 | tee "$log"
+            if [ "$1" = test_board.py ]; then
+              # 276 tests that mostly wait on simulated boards: in 8 processes it takes about a minute
+              # instead of six. run_sharded.py ends with the same OK or FAILED line as unittest.
+              python3 firmware/tests/hil/run_sharded.py --jobs 8 --split-classes "firmware/tests/hil/$1" 2>&1 | tee "$log"
+            else
+              python3 "firmware/tests/hil/$1" 2>&1 | tee "$log"
+            fi
             if [ "$(grep -E '^(OK|FAILED)' "$log" | tail -n 1)" != "$2" ]; then
               echo "::error file=firmware/tests/hil/$1::Expected the result \"$2\". A new skip has to be listed in ci.yml, with its reason."
               exit 1
@@ -211,12 +217,33 @@ jobs:
           fi
           python3 "$ZEPHYR_BASE/../bootloader/mcuboot/scripts/imgtool.py" keygen -t ecdsa-p256 -k "$HOME/.cranium/mcuboot_signing_key.pem"
 
+      # The compiler's cache from the last run on main, which the toolchain's ccache picks up by itself.
+      # Unlike the SDK's cache it holds build output, and a restore may be any earlier one: that is
+      # acceptable because nothing built here is ever installed. Every image of this job is signed
+      # with a throwaway key that no board accepts, and releases are built and signed on a person's
+      # machine. A pull request can read main's cache and cannot write to it.
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.configuration }}-${{ env.NCS_VERSION }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.configuration }}-${{ env.NCS_VERSION }}-
+
       - name: Build
         run: |
+          export CCACHE_DIR="$HOME/.ccache" CCACHE_MAXSIZE=400M
           arguments=()
           if [ -n "$CMAKE_ARGS" ]; then arguments=(-- "$CMAKE_ARGS"); fi
           cd "$HOME/ncs"
           west build -d "$GITHUB_WORKSPACE/build" -b "$BOARD" --sysbuild --pristine=always "$GITHUB_WORKSPACE/firmware/app" "${arguments[@]}"
+          ccache --show-stats || true
+
+      - name: Save the compiler cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.configuration }}-${{ env.NCS_VERSION }}-${{ github.run_id }}
 
       # An image that does not verify against this job's key is not from this job.
       - name: Check the image and report its size

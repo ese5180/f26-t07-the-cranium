@@ -963,8 +963,15 @@ test('no expression is ever pasted into a run step', () => {
 test('the signing key comes from nowhere but the job, and is neither cached nor uploaded', () => {
   assert.match(WORKFLOW, /imgtool\.py" keygen -t ecdsa-p256 -k "\$HOME\/\.cranium\/mcuboot_signing_key\.pem"/);
   assert.doesNotMatch(WORKFLOW, /python3? tools\/keys\.py/, 'it would write over the public key in the repository');
-  for (const path of WORKFLOW.matchAll(/^\s+path: (.+)$/gm)) assert.ok(['~/ncs', 'ci-artifact/'].includes(path[1]), path[1]);
-  assert.doesNotMatch(WORKFLOW, /^\s+restore-keys:/m, 'only a cache of exactly this SDK');
+  for (const path of WORKFLOW.matchAll(/^\s+path: (.+)$/gm)) {
+    assert.ok(['~/ncs', '~/.ccache', 'ci-artifact/'].includes(path[1]), path[1]);
+  }
+  assert.doesNotMatch(WORKFLOW, /path: ~\/\.cranium/);
+  // Only a cache of exactly this SDK. The compiler's cache may come from an earlier run on main:
+  // nothing this job builds is ever installed, since its key is a throwaway one.
+  const restores = [...WORKFLOW.matchAll(/^\s+restore-keys: (.+)$/gm)].map((match) => match[1]);
+  assert.deepEqual(restores, ['ccache-${{ matrix.configuration }}-${{ env.NCS_VERSION }}-']);
+  assert.match(WORKFLOW, /- name: Save the compiler cache\n\s+if: github\.ref == 'refs\/heads\/main'\n/);
 });
 
 test('the artifact says what it is, and lasts thirty days', () => {
