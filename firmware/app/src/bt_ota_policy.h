@@ -18,8 +18,11 @@
 
 /* A phone that connects has this long to finish pairing. Pairing times out by itself at 30 s. */
 #define BT_OTA_PAIRING_LIMIT_SECONDS 45
-/* An authenticated link on which nothing has happened for this long is dropped. */
-#define BT_OTA_QUIET_LIMIT_SECONDS   30
+/*
+ * An authenticated link on which nothing has happened for this long is dropped. Long enough for a
+ * person to choose a file and a mode in a phone app after pairing: 30 s was not, on the first test.
+ */
+#define BT_OTA_QUIET_LIMIT_SECONDS   120
 /* The most a window can last up to the arrival of an image. A slot at 1 KB/s would just fit. */
 #define BT_OTA_SESSION_LIMIT_SECONDS 900
 /* A person has this long to press a button when an image has arrived. */

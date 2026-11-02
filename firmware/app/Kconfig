@@ -147,7 +147,7 @@ if APP_BT_OTA
 
 config APP_BT_OTA_WINDOW_SECONDS
 	int "Seconds that Button 1 opens Bluetooth for"
-	default 120
+	default 180
 	range 30 600
 	help
 	  Advertising stops after this, or as soon as a phone has connected. An authenticated

@@ -1062,6 +1062,46 @@ static void test_an_offline_board_keeps_the_passkey_on_its_console(void)
 	CHECK(!pairing_reported);
 }
 
+static void test_the_console_says_what_the_link_negotiated(void)
+{
+	struct bt_conn_le_phy_info phy = { .tx_phy = BT_GAP_LE_PHY_2M, .rx_phy = BT_GAP_LE_PHY_1M };
+	struct bt_conn_le_data_len_info len = { .tx_max_len = 251, .rx_max_len = 27 };
+
+	fresh_board();
+	open_by_hand();
+	phone_connects();
+	fake.console[0] = '\0';
+
+	/* From the Bluetooth threads: nothing printed there, all of it on the main loop. */
+	connection_callbacks.le_param_updated(&phone, 24, 0, 400);
+	connection_callbacks.le_phy_updated(&phone, &phy);
+	connection_callbacks.le_data_len_updated(&phone, &len);
+	CHECK(fake.console[0] == '\0');
+	run_what_was_posted();
+	CHECK(strstr(fake.console, "[BT] link: interval 30.00 ms, latency 0, timeout 4000 ms\n") != NULL);
+	CHECK(strstr(fake.console, "[BT] link: PHY 2M out, 1M in\n") != NULL);
+	CHECK(strstr(fake.console, "[BT] link: packets up to 251 bytes out, 27 in\n") != NULL);
+}
+
+static void test_a_refused_security_level_and_a_lost_link_are_explained(void)
+{
+	fresh_board();
+	open_by_hand();
+	phone_connects();
+	fake.console[0] = '\0';
+
+	connection_callbacks.security_changed(&phone, BT_SECURITY_L2, BT_SECURITY_ERR_SUCCESS);
+	run_what_was_posted();
+	CHECK(strstr(fake.console, "[BT] security not accepted: level 2, error 0\n") != NULL);
+
+	fake.console[0] = '\0';
+	fake.connected = false;
+	connection_callbacks.disconnected(&phone, BT_HCI_ERR_LL_RESP_TIMEOUT);
+	run_what_was_posted();
+	CHECK(strstr(fake.console,
+		     "[BT] the phone is gone: reason 0x22 (a link-layer exchange got no answer within 40 s)\n") != NULL);
+}
+
 static void test_a_full_queue_only_makes_it_wait_for_the_tick(void)
 {
 	fresh_board();
@@ -1988,6 +2028,8 @@ int main(void)
 	test_pairing_is_only_accepted_while_open();
 	test_the_callbacks_are_registered_once_for_a_display_and_no_keyboard();
 	test_a_passkey_comes_out_on_the_main_loop();
+	test_the_console_says_what_the_link_negotiated();
+	test_a_refused_security_level_and_a_lost_link_are_explained();
 	test_an_online_board_puts_the_passkey_in_its_shadow_and_takes_it_out();
 	test_a_failed_attempt_and_a_closed_window_take_the_passkey_out();
 	test_an_offline_board_keeps_the_passkey_on_its_console();

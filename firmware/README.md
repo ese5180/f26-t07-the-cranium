@@ -423,7 +423,7 @@ nothing: one failed read must not take it off the network.
   and restarts it in factory mode, like `FACTORY_RESET`. It does nothing while an update
   is offered or under way.
 * In a build for [firmware update over Bluetooth](#firmware-update-over-bluetooth), holding
-  **Button 1** for five seconds and letting go opens Bluetooth for two minutes, unless the build has
+  **Button 1** for five seconds and letting go opens Bluetooth for three minutes, unless the build has
   offers and an update is on offer. Then it is what it always was. `BUTTON|1` on the console opens nothing.
 * A button that was already down when the application started does nothing when it is let
   go: only a press that was seen counts. So holding Button 2 through a boot, for the
@@ -774,7 +774,7 @@ image group as the only group, and Bluetooth as the only transport.
 
 1. Hold **Button 1** for five seconds and let go. Only a real press counts. `BUTTON|1` on the console
    does not, and neither does anything from the cloud. Bluetooth has not even been started until
-   this first press. LED1 shows four short flashes, and the console says `[BT] open for 120 s`.
+   this first press. LED1 shows four short flashes, and the console says `[BT] open for 180 s`.
 2. The board advertises as `Cranium-` and four hexadecimal digits, drawn anew for each window, and on
    the console as `[BT] advertising as Cranium-1A2B`. Its address is a resolvable private one that
    changes every 15 minutes (`CONFIG_BT_PRIVACY`), with a key drawn at each start that is never handed
@@ -808,10 +808,15 @@ image group as the only group, and Bluetooth as the only transport.
 
 Button 2 closes the window at any point, and advertising stops at the end of the window or when a
 phone connects. A phone that does not finish pairing is dropped after 45 s, and an authenticated link
-on which nothing happens after 30 s. A link that keeps busy can outlast the window, because an upload
+on which nothing happens after 120 s (30 s up to 1.11.1, which was too short for a person working through a
+phone app). A link that keeps busy can outlast the window, because an upload
 takes a while, up to 15 minutes in all, plus the two minutes of the offer if the image got there in
 time. The window does not open again by itself after that, and it will not open again while the last
 phone has not gone, so that a new window always takes a new pairing.
+
+From 1.11.2 the console also says what the link negotiated, `[BT] link: interval 30.00 ms, latency 0, timeout
+4000 ms`, `[BT] link: PHY 2M out, 2M in` and `[BT] link: packets up to 251 bytes out, 251 in`; why a security level
+was not accepted; and why a link ended, in words: `reason 0x22 (a link-layer exchange got no answer within 40 s)`.
 
 ### What a phone can do
 
@@ -1027,7 +1032,7 @@ The bootloader stays as it is. Copy the other images to the phone.
 | --- | --- | --- |
 | 1 | Scan with the phone before pressing anything | The board is not there |
 | 2 | Send `BUTTON\|1` on the console, and press Button 1 briefly | Still not there, and LED1 does not change |
-| 3 | Hold Button 1 for 5 s, and let go. Do nothing for 2 minutes | Four flashes, `[BT] open for 120 s`, seen on the phone. Then `[BT] closed`, and gone from the phone |
+| 3 | Hold Button 1 for 5 s, and let go. Do nothing for 3 minutes | Four flashes, `[BT] open for 180 s`, seen on the phone. Then `[BT] closed`, and gone from the phone |
 | 4 | Open it, connect, and type a wrong passkey, three times | `[BT] closed: too many failed pairings` |
 | 5 | Open it, connect, and try to upload without pairing, by declining the prompt | Nothing is written |
 | 6 | Open it, pair with the passkey from the console, and look at the phone's bond list | Paired for this link, and no bond afterwards |

@@ -140,11 +140,21 @@ static atomic_t upload_done;
 #define SAY_CANCELLED BIT(2)
 #define SAY_FAILED    BIT(3)
 #define SAY_GONE      BIT(4)
+#define SAY_REFUSED   BIT(5)
+#define SAY_PARAMS    BIT(6)
+#define SAY_PHY       BIT(7)
+#define SAY_DATA_LEN  BIT(8)
 static atomic_t to_say;
 /* The passkey plus one, because 0 is a passkey too. */
 static atomic_t passkey_to_say;
 static atomic_t failure_reason;
 static atomic_t gone_reason;
+/* What the link negotiated, and a security level that was not enough: for the console only. */
+static atomic_t refused_security; /* level << 8 | error */
+static atomic_t link_params;      /* interval (1.25 ms units) << 16 | timeout (10 ms units) */
+static atomic_t link_latency;
+static atomic_t link_phy;         /* tx << 8 | rx */
+static atomic_t link_data_len;    /* tx bytes << 16 | rx bytes */
 
 /* ---- the threads that serve a phone: only what the atomics hold ---------------------- */
 
@@ -308,13 +318,45 @@ static void on_security_changed(struct bt_conn *conn, bt_security_t level, enum 
 
 	/* What the host would not allow anyway. Refused here too, because this is the point. */
 	(void)atomic_set(&secure, 0);
+	(void)atomic_set(&refused_security, (atomic_val_t)(((uint32_t)level << 8) | (uint8_t)err));
+	tell_main_loop(SAY_REFUSED);
 	(void)bt_conn_disconnect(conn, BT_HCI_ERR_AUTH_FAIL);
+}
+
+static void on_le_param_updated(struct bt_conn *conn, uint16_t interval, uint16_t latency,
+				uint16_t timeout)
+{
+	ARG_UNUSED(conn);
+
+	(void)atomic_set(&link_params, (atomic_val_t)(((uint32_t)interval << 16) | timeout));
+	(void)atomic_set(&link_latency, latency);
+	tell_main_loop(SAY_PARAMS);
+}
+
+static void on_le_phy_updated(struct bt_conn *conn, struct bt_conn_le_phy_info *param)
+{
+	ARG_UNUSED(conn);
+
+	(void)atomic_set(&link_phy, (atomic_val_t)(((uint32_t)param->tx_phy << 8) | param->rx_phy));
+	tell_main_loop(SAY_PHY);
+}
+
+static void on_le_data_len_updated(struct bt_conn *conn, struct bt_conn_le_data_len_info *info)
+{
+	ARG_UNUSED(conn);
+
+	(void)atomic_set(&link_data_len,
+			 (atomic_val_t)(((uint32_t)info->tx_max_len << 16) | info->rx_max_len));
+	tell_main_loop(SAY_DATA_LEN);
 }
 
 BT_CONN_CB_DEFINE(connection_callbacks) = {
 	.connected = on_connected,
 	.disconnected = on_disconnected,
 	.security_changed = on_security_changed,
+	.le_param_updated = on_le_param_updated,
+	.le_phy_updated = on_le_phy_updated,
+	.le_data_len_updated = on_le_data_len_updated,
 };
 
 static enum bt_security_err on_pairing_accept(struct bt_conn *conn,
@@ -406,6 +448,41 @@ static void unreport_pairing(void)
 	}
 }
 
+static const char *phy_name(uint32_t phy)
+{
+	switch (phy) {
+	case BT_GAP_LE_PHY_1M:
+		return "1M";
+	case BT_GAP_LE_PHY_2M:
+		return "2M";
+	case BT_GAP_LE_PHY_CODED:
+		return "coded";
+	default:
+		return "unknown";
+	}
+}
+
+/* The reasons a link ends that a person can act on, in words. */
+static const char *gone_reason_text(uint8_t reason)
+{
+	switch (reason) {
+	case BT_HCI_ERR_AUTH_FAIL:
+		return " (pairing or security failed)";
+	case BT_HCI_ERR_CONN_TIMEOUT:
+		return " (the phone went out of range)";
+	case BT_HCI_ERR_REMOTE_USER_TERM_CONN:
+		return " (the phone closed the link)";
+	case BT_HCI_ERR_LOCALHOST_TERM_CONN:
+		return " (this board closed the link)";
+	case BT_HCI_ERR_LL_RESP_TIMEOUT:
+		return " (a link-layer exchange got no answer within 40 s)";
+	case BT_HCI_ERR_TERM_DUE_TO_MIC_FAIL:
+		return " (an encrypted packet failed its check)";
+	default:
+		return "";
+	}
+}
+
 static void say_what_happened(void)
 {
 	atomic_val_t what = atomic_set(&to_say, 0);
@@ -436,9 +513,39 @@ static void say_what_happened(void)
 		unreport_pairing();
 	}
 
+	if (what & SAY_REFUSED) {
+		uint32_t refused = (uint32_t)atomic_get(&refused_security);
+
+		console_event("BT", "security not accepted: level %u, error %u", refused >> 8,
+			      refused & 0xffU);
+	}
+
+	if (what & SAY_PARAMS) {
+		uint32_t params = (uint32_t)atomic_get(&link_params);
+		uint32_t interval_us = (params >> 16) * 1250U;
+
+		console_event("BT", "link: interval %u.%02u ms, latency %u, timeout %u ms",
+			      interval_us / 1000U, (interval_us % 1000U) / 10U,
+			      (unsigned int)atomic_get(&link_latency), (params & 0xffffU) * 10U);
+	}
+
+	if (what & SAY_PHY) {
+		uint32_t phy = (uint32_t)atomic_get(&link_phy);
+
+		console_event("BT", "link: PHY %s out, %s in", phy_name(phy >> 8), phy_name(phy & 0xffU));
+	}
+
+	if (what & SAY_DATA_LEN) {
+		uint32_t len = (uint32_t)atomic_get(&link_data_len);
+
+		console_event("BT", "link: packets up to %u bytes out, %u in", len >> 16, len & 0xffffU);
+	}
+
 	if (what & SAY_GONE) {
-		console_event("BT", "the phone is gone: reason 0x%02x",
-			      (unsigned int)atomic_get(&gone_reason));
+		uint8_t reason = (uint8_t)atomic_get(&gone_reason);
+
+		console_event("BT", "the phone is gone: reason 0x%02x%s", (unsigned int)reason,
+			      gone_reason_text(reason));
 	}
 }
 

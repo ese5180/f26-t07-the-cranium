@@ -72,11 +72,31 @@ struct bt_conn_info {
 	} security;
 };
 
+struct bt_conn_le_phy_info {
+	uint8_t tx_phy;
+	uint8_t rx_phy;
+};
+
+struct bt_conn_le_data_len_info {
+	uint16_t tx_max_len;
+	uint16_t tx_max_time;
+	uint16_t rx_max_len;
+	uint16_t rx_max_time;
+};
+
+#define BT_GAP_LE_PHY_1M    1
+#define BT_GAP_LE_PHY_2M    2
+#define BT_GAP_LE_PHY_CODED 4
+
 struct bt_conn_cb {
 	void (*connected)(struct bt_conn *conn, uint8_t err);
 	void (*disconnected)(struct bt_conn *conn, uint8_t reason);
 	void (*security_changed)(struct bt_conn *conn, bt_security_t level,
 				 enum bt_security_err err);
+	void (*le_param_updated)(struct bt_conn *conn, uint16_t interval, uint16_t latency,
+				 uint16_t timeout);
+	void (*le_phy_updated)(struct bt_conn *conn, struct bt_conn_le_phy_info *param);
+	void (*le_data_len_updated)(struct bt_conn *conn, struct bt_conn_le_data_len_info *info);
 };
 #define BT_CONN_CB_DEFINE(name) static const struct bt_conn_cb name
 
@@ -96,7 +116,11 @@ struct bt_conn_auth_info_cb {
 };
 
 #define BT_HCI_ERR_AUTH_FAIL              0x05
+#define BT_HCI_ERR_CONN_TIMEOUT           0x08
 #define BT_HCI_ERR_REMOTE_USER_TERM_CONN  0x13
+#define BT_HCI_ERR_LOCALHOST_TERM_CONN    0x16
+#define BT_HCI_ERR_LL_RESP_TIMEOUT        0x22
+#define BT_HCI_ERR_TERM_DUE_TO_MIC_FAIL   0x3d
 #define BT_CONN_TYPE_LE                   1
 
 int bt_conn_auth_cb_register(const struct bt_conn_auth_cb *cb);
