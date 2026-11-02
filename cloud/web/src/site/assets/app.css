@@ -1943,6 +1943,135 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   animation: groove-wave 2.2s ease-in-out calc(var(--step) * 120ms) infinite;
 }
 
+/* The console's own sign-in page: two fields, then six boxes for the code. */
+
+.gate-message.signin {
+  width: 100%;
+  max-width: 27rem;
+}
+
+/* One column that never grows past the page: on a phone the six boxes shrink to fit. */
+.signin-form,
+.signin-form > .field {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.signin-form {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* At least 16 px: a phone does not zoom into a field with text that large. */
+.signin-form .input {
+  padding: 11px 13px;
+  font-size: 1rem;
+}
+
+.signin-form .input[readonly],
+.code-digit[readonly] {
+  background: var(--well);
+  color: var(--ink-2);
+}
+
+.signin-form .input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+.signin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.gate .signin-actions .btn,
+.gate .signin-other .btn {
+  margin-top: 0;
+}
+
+.signin-who {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.signin-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: var(--bad-wash);
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.signin-problem .icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--bad);
+}
+
+/* The six boxes, in two groups of three as authenticator apps show a code. */
+.code-boxes {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.code-digit {
+  flex: 0 1 3.25rem;
+  width: 3.25rem;
+  min-width: 0;
+  height: 3.75rem;
+  padding: 0;
+  border: 1px solid var(--line-field);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--ink);
+  caret-color: var(--accent);
+  font-family: var(--mono);
+  font-size: 1.625rem;
+  font-weight: 600;
+  text-align: center;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.code-digit:nth-child(3) {
+  margin-right: 10px;
+}
+
+.code-digit:focus-visible {
+  border-color: var(--accent);
+  outline-offset: 1px;
+}
+
+.code-boxes.is-wrong .code-digit {
+  border-color: var(--bad);
+}
+
+.signin-other {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  width: 100%;
+}
+
+.signin-other .btn.is-quiet {
+  margin-left: -15px;
+}
+
+.signin-note {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
 /* Overview. */
 
 .overview-panel {

@@ -5,6 +5,7 @@
 #   cloud/logs.sh api      the API function: one JSON line per request, and errors
 #   cloud/logs.sh web      the function that serves the console's static files
 #   cloud/logs.sh events   the recorder: one line per message from a board, with the kinds it recorded
+#   cloud/logs.sh signin   the sign-in trigger: Lambda's own lines for each token Cognito makes
 #   cloud/logs.sh access   API Gateway: every request, with status and authorizer error
 #   cloud/logs.sh iot      AWS IoT: connections, refused publishes, job events
 #
@@ -91,6 +92,7 @@ main() {
     api) check_tools; group="$(stack_log_group ApiLogGroup)" ;;
     web) check_tools; group="$(stack_log_group WebLogGroup)" ;;
     events) check_tools; group="$(stack_log_group EventsLogGroup)" ;;
+    signin) check_tools; group="$(stack_log_group SignInScopeLogGroup)" ;;
     access) check_tools; group="$(stack_log_group AccessLogGroup)" ;;
     iot)
       check_tools

@@ -2968,3 +2968,113 @@ test('revoking a token is asked for in the page\'s own dialog, which says what f
   click(one(dialog, 'button', 'Keep the token'));
   assert.deepEqual(calls, ['submit', 'close']);
 });
+
+// The console's own sign-in page.
+
+function signInModel(changes = {}) {
+  const calls = [];
+  const note = (name) => (...args) => calls.push([name, ...args]);
+  return {
+    calls,
+    model: {
+      step: 'password', email: '', digits: ['', '', '', '', '', ''], busy: false, problem: null, tries: 0, lead: null,
+      passwordRef: note('passwordRef'), setEmail: note('setEmail'), submitPassword: note('submitPassword'),
+      submitCode: note('submitCode'), startOver: note('startOver'), useAwsPage: note('useAwsPage'),
+      forgotPassword: note('forgotPassword'), enterDigits: note('enterDigits'), pasteDigits: note('pasteDigits'),
+      keyInBox: note('keyInBox'),
+      ...changes,
+    },
+  };
+}
+
+test('the sign-in page: an address and a password that the page never holds, and a form that goes nowhere', () => {
+  const { model, calls } = signInModel();
+  const drawn = draw(views.signInView(model));
+  assert.equal(textOf(one(drawn, 'h1')), 'Sign in');
+  assert.equal(one(drawn, 'h1').id, 'page-title');
+  const email = all(drawn, 'input').find((el) => el.id === 'signin-email');
+  const password = all(drawn, 'input').find((el) => el.id === 'signin-password');
+  assert.deepEqual(['type', 'autocomplete', 'inputmode', 'autocapitalize', 'spellcheck'].map((name) => email.getAttribute(name)),
+    ['email', 'username', 'email', 'off', 'false']);
+  assert.equal(textOf(email.parentNode), 'E-mail address', 'labelled by the label it stands in');
+  assert.equal(password.getAttribute('type'), 'password');
+  assert.equal(password.getAttribute('autocomplete'), 'current-password');
+  assert.equal(textOf(password.parentNode), 'Password');
+  // Nothing from the state goes into the password field, and it has no name to be sent by.
+  assert.equal(password.value, '');
+  assert.equal(password.hasAttribute('name'), false);
+  assert.equal(email.hasAttribute('name'), false);
+  assert.deepEqual(calls.filter(([name]) => name === 'passwordRef').map(([, el]) => el), [password]);
+
+  const form = one(drawn, 'form.signin-form');
+  assert.equal(form.hasAttribute('novalidate'), true);
+  assert.equal(form.hasAttribute('action'), false);
+  const sent = form.dispatchEvent({ type: 'submit' });
+  assert.equal(sent.defaultPrevented, true);
+  assert.deepEqual(calls.filter(([name]) => name === 'submitPassword').length, 1);
+  assert.deepEqual(controls(drawn), ['Continue', 'Forgot your password?', 'Use the AWS sign-in page']);
+  assert.equal(one(drawn, 'button', 'Continue').getAttribute('type'), 'submit');
+
+  // While the answer is awaited the fields keep their place and the keyboard, and are not sent twice.
+  const busy = signInModel({ busy: true });
+  const waiting = draw(views.signInView(busy.model));
+  assert.equal(textOf(one(waiting, 'button', 'Checking')), 'Checking…');
+  assert.equal(one(waiting, 'button', 'Checking').getAttribute('aria-disabled'), 'true');
+  assert.equal(all(waiting, 'input').every((el) => el.hasAttribute('readonly') && !el.disabled), true);
+  one(waiting, 'form.signin-form').dispatchEvent({ type: 'submit' });
+  assert.deepEqual(busy.calls.filter(([name]) => name === 'submitPassword'), []);
+
+  // What went wrong is said at once, tied to both fields.
+  const wrong = draw(views.signInView(signInModel({ problem: 'wrong-password', email: 'someone@example.invalid', tries: 2 }).model));
+  const problem = one(wrong, 'p.signin-problem');
+  assert.equal(textOf(problem), 'The e-mail address or password is wrong.');
+  assert.equal(problem.getAttribute('role'), 'alert');
+  assert.equal(problem.id, 'signin-problem');
+  for (const field of all(wrong, 'input')) {
+    assert.equal(field.getAttribute('aria-describedby'), 'signin-problem');
+    assert.equal(field.getAttribute('aria-invalid'), 'true');
+  }
+});
+
+test('the six boxes: labelled one by one and as a group, digits only, and the first one takes a whole code', () => {
+  const { model, calls } = signInModel({ step: 'code', email: 'someone@example.invalid', digits: ['1', '2', '', '', '', ''] });
+  const drawn = draw(views.signInView(model));
+  assert.equal(textOf(one(drawn, 'h1')), 'Enter the code');
+  assert.match(textOf(drawn), /Signing in as someone@example\.invalid\./);
+  const group = one(drawn, 'div.code-boxes');
+  assert.equal(group.getAttribute('role'), 'group');
+  assert.equal(group.getAttribute('aria-labelledby'), 'code-label');
+  assert.equal(textOf(all(drawn, 'span').find((el) => el.id === 'code-label')), 'Code from your authenticator app');
+  assert.equal(group.getAttribute('aria-describedby'), 'code-hint');
+
+  const boxes = all(group, 'input.code-digit');
+  assert.equal(boxes.length, 6);
+  assert.deepEqual(boxes.map((el) => el.getAttribute('aria-label')),
+    ['Digit 1 of 6', 'Digit 2 of 6', 'Digit 3 of 6', 'Digit 4 of 6', 'Digit 5 of 6', 'Digit 6 of 6']);
+  assert.deepEqual(boxes.map((el) => el.id), [1, 2, 3, 4, 5, 6].map((n) => `code-digit-${n}`));
+  assert.deepEqual(boxes.map((el) => el.value), ['1', '2', '', '', '', '']);
+  for (const el of boxes) {
+    assert.equal(el.getAttribute('inputmode'), 'numeric');
+    assert.equal(el.getAttribute('type'), 'text');
+    assert.equal(el.getAttribute('pattern'), '[0-9]*');
+    // No limit of one character: a whole code pasted or filled in must arrive whole.
+    assert.equal(el.hasAttribute('maxlength'), false);
+  }
+  assert.deepEqual(boxes.map((el) => el.getAttribute('autocomplete')), ['one-time-code', 'off', 'off', 'off', 'off', 'off']);
+
+  // Each box says which box it is: typed text, a paste and a key all go with the index.
+  boxes[3].dispatchEvent({ type: 'input', target: boxes[3], data: '7' });
+  boxes[4].dispatchEvent({ type: 'input', target: { value: '' }, data: null });
+  boxes[2].dispatchEvent({ type: 'keydown', key: 'Backspace' });
+  boxes[5].dispatchEvent({ type: 'paste', clipboardData: { getData: () => '123 456' } });
+  assert.deepEqual(calls.map(([name, index, value]) => [name, index, typeof value === 'string' ? value : value?.type]), [
+    ['enterDigits', 3, '7'], ['enterDigits', 4, ''], ['keyInBox', 2, 'keydown'], ['pasteDigits', 5, 'paste'],
+  ]);
+  assert.deepEqual(controls(drawn), ['Sign in', 'Start again', 'Use the AWS sign-in page']);
+
+  // A wrong code: said, and the boxes marked.
+  const wrong = draw(views.signInView(signInModel({ step: 'code', email: 'x@example.invalid', problem: 'wrong-code' }).model));
+  assert.equal(textOf(one(wrong, 'p.signin-problem')), 'That code is not right. Try the next one from your authenticator app.');
+  assert.equal(one(wrong, 'div.code-boxes').getAttribute('aria-describedby'), 'signin-problem code-hint');
+  assert.equal(all(wrong, 'input.code-digit').every((el) => el.getAttribute('aria-invalid') === 'true'), true);
+});

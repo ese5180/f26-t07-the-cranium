@@ -1047,12 +1047,308 @@ export function createClock(read = () => Date.now()) {
   };
 }
 
-// Sign-in: OAuth 2.0 authorization code with PKCE against the managed login pages.
+// The proof of a password that Cognito asks for: SRP, as Cognito does it.
 //
-// One sign-in keeps its state and its PKCE verifier in sessionStorage until the login
-// page sends the browser back; both are used once. After that the only thing kept is
-// the access token and when it ends. The refresh token that comes with it is not
-// wanted: it is never stored and is revoked straight away.
+// On the console's own sign-in page the password never leaves the browser. Cognito's
+// USER_SRP_AUTH is SRP-6a (RFC 5054) with choices of its own, which are those of its
+// JavaScript library (amazon-cognito-identity-js, AuthenticationHelper.js) and of the
+// independent pycognito; both were read for this, and the tests check every step against
+// a server written apart from this code:
+//
+// - N is the 3072-bit prime of RFC 3526 (group 15), and g = 2.
+// - A number is hashed as its shortest big-endian bytes with room for a sign, the way
+//   Java writes a BigInteger: a 00 byte in front when the top bit is set. It is not
+//   padded to the length of N, as RFC 5054 would have it.
+// - k = H(N | g), u = H(A | B), x = H(salt | H(poolName | userId | ":" | password)), where
+//   poolName is the part of the pool ID after the underscore and userId is the
+//   USER_ID_FOR_SRP that Cognito sends back, not the address that was typed.
+// - S = (B - k * g^x) ^ (a + u * x) mod N.
+// - The key is the first 16 bytes of HKDF-SHA-256 (RFC 5869) with S as the input, u as
+//   the salt and "Caldera Derived Key" as the info.
+// - The claim is HMAC-SHA-256 under that key of poolName | userId | the bytes of
+//   SECRET_BLOCK | the time, written as "Mon Nov 2 03:04:05 UTC 2026": English names, the
+//   day without a leading zero, hours, minutes and seconds in UTC with two digits each.
+//
+// a is 128 random bytes from the CSPRNG and lives for one sign-in, in memory.
+
+const SRP_N = BigInt(`0x${[
+  'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1',
+  '29024E088A67CC74020BBEA63B139B22514A08798E3404DD',
+  'EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245',
+  'E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED',
+  'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D',
+  'C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F',
+  '83655D23DCA3AD961C62F356208552BB9ED529077096966D',
+  '670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B',
+  'E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9',
+  'DE2BCBF6955817183995497CEA956AE515D2261898FA0510',
+  '15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64',
+  'ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7',
+  'ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B',
+  'F12FFA06D98A0864D87602733EC86A64521F2B18177B200C',
+  'BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31',
+  '43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF',
+].join('')}`);
+const SRP_G = 2n;
+const SRP_INFO = 'Caldera Derived Key';
+const SRP_KEY_BYTES = 16;
+const SRP_SECRET_BYTES = 128;
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// What Cognito sends in its challenge, checked before it is used.
+const SRP_NUMBER = /^[0-9a-fA-F]{1,1024}$/;
+const SRP_BLOCK = /^[A-Za-z0-9+/]{1,8192}={0,2}$/;
+const SRP_USER = /^[^\s:]{1,128}$/;
+
+/** The prime and the generator, for the tests. */
+export const SRP_GROUP = Object.freeze({ N: SRP_N, g: SRP_G });
+
+/** A whole number as Cognito hashes it, in hex: its shortest bytes with room for a sign. */
+export function srpHex(value) {
+  if (typeof value !== 'bigint' || value < 0n) throw new RangeError('Only a whole number of 0 or more');
+  let hex = value.toString(16);
+  if (hex.length % 2 === 1) hex = `0${hex}`;
+  else if (/^[89a-f]/.test(hex)) hex = `00${hex}`;
+  return hex;
+}
+
+function bytesOfHex(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesOfBase64(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function joined(...parts) {
+  const bytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.length;
+  }
+  return bytes;
+}
+
+const utf8 = (text) => new TextEncoder().encode(text);
+const numberOf = (bytes) => BigInt(`0x${hexOf(bytes) || '0'}`);
+
+/** base^exponent mod modulus, for whole numbers; the base may be negative. */
+export function modPow(base, exponent, modulus) {
+  let result = 1n;
+  let square = ((base % modulus) + modulus) % modulus;
+  for (let rest = exponent; rest > 0n; rest >>= 1n) {
+    if (rest & 1n) result = (result * square) % modulus;
+    square = (square * square) % modulus;
+  }
+  return result;
+}
+
+/** The time as Cognito wants it in a PASSWORD_VERIFIER answer. */
+export function cognitoTimestamp(ms) {
+  const at = new Date(ms);
+  const two = (value) => String(value).padStart(2, '0');
+  return `${WEEKDAYS[at.getUTCDay()]} ${MONTHS[at.getUTCMonth()]} ${at.getUTCDate()} ` +
+    `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} UTC ${at.getUTCFullYear()}`;
+}
+
+async function sha256(subtle, bytes) {
+  return new Uint8Array(await subtle.digest('SHA-256', bytes));
+}
+
+/** H of numbers written one after the other, as a number. */
+async function hashOfNumbers(subtle, ...values) {
+  return numberOf(await sha256(subtle, joined(...values.map((value) => bytesOfHex(srpHex(value))))));
+}
+
+/** The first 16 bytes of HKDF-SHA-256 (RFC 5869). */
+export async function srpKey(subtle, input, salt, info = utf8(SRP_INFO)) {
+  const key = await subtle.importKey('raw', input, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, SRP_KEY_BYTES * 8));
+}
+
+/**
+ * The browser's half of an SRP exchange: a secret a and the A that goes to Cognito.
+ *
+ * @param {object} crypto  getRandomValues
+ */
+export function startSrp(crypto) {
+  const a = numberOf(crypto.getRandomValues(new Uint8Array(SRP_SECRET_BYTES)));
+  const A = modPow(SRP_G, a, SRP_N);
+  // Only a broken random source gets here.
+  if (a === 0n || A % SRP_N === 0n) throw new Error('No usable random number for the sign-in.');
+  return { a, A };
+}
+
+/**
+ * The PASSWORD_CLAIM_SIGNATURE for Cognito's PASSWORD_VERIFIER challenge: proof that this
+ * browser knows the password, made without sending it. Throws if what Cognito sent
+ * cannot be used.
+ *
+ * @param {object} options
+ * @param {object} options.subtle      WebCrypto
+ * @param {string} options.userPoolId  such as "us-east-1_AbC123"
+ * @param {string} options.userId      USER_ID_FOR_SRP
+ * @param {string} options.password
+ * @param {bigint} options.a           from startSrp
+ * @param {bigint} options.A
+ * @param {string} options.srpB        SRP_B, hex
+ * @param {string} options.salt        SALT, hex
+ * @param {string} options.secretBlock SECRET_BLOCK, base64
+ * @param {string} options.timestamp   from cognitoTimestamp
+ */
+export async function srpClaim({ subtle, userPoolId, userId, password, a, A, srpB, salt, secretBlock, timestamp }) {
+  if (!SRP_NUMBER.test(srpB) || !SRP_NUMBER.test(salt) || !SRP_BLOCK.test(secretBlock) || !SRP_USER.test(userId)) {
+    throw new Error('Cognito sent a challenge that cannot be used.');
+  }
+  const B = BigInt(`0x${srpB}`);
+  if (B % SRP_N === 0n) throw new Error('Cognito sent a challenge that cannot be used.');
+  const u = await hashOfNumbers(subtle, A, B);
+  if (u === 0n) throw new Error('Cognito sent a challenge that cannot be used.');
+  const k = await hashOfNumbers(subtle, SRP_N, SRP_G);
+  const poolName = userPoolId.slice(userPoolId.indexOf('_') + 1);
+  const inner = await sha256(subtle, utf8(`${poolName}${userId}:${password}`));
+  const x = numberOf(await sha256(subtle, joined(bytesOfHex(srpHex(BigInt(`0x${salt}`))), inner)));
+  const S = modPow(B - k * modPow(SRP_G, x, SRP_N), a + u * x, SRP_N);
+  const key = await srpKey(subtle, bytesOfHex(srpHex(S)), bytesOfHex(srpHex(u)));
+  const hmac = await subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const message = joined(utf8(poolName), utf8(userId), bytesOfBase64(secretBlock), utf8(timestamp));
+  return toBase64(new Uint8Array(await subtle.sign('HMAC', hmac, message)));
+}
+
+// The six boxes of an authenticator code. What a key, a typed digit, a paste or the
+// browser filling in the code does to them; the page draws the result.
+
+export const CODE_LENGTH = 6;
+
+/** Whether every box holds a digit. */
+export function codeComplete(digits) {
+  return digits.length === CODE_LENGTH && digits.every((digit) => /^\d$/.test(digit));
+}
+
+/**
+ * `text` arrived in box `index`: typed, pasted or filled in by the browser. Only digits
+ * count. A whole code goes into all six boxes, wherever it arrived, with or without a
+ * space in the middle; fewer digits go into this box and the ones after it. Text without
+ * a digit changes nothing, and an emptied box is empty.
+ *
+ * @returns {{digits: string[], focus: number}}  the boxes, and the box to go to
+ */
+export function enterCode(digits, index, text) {
+  const next = [...digits];
+  const given = String(text ?? '');
+  const typed = given.replace(/\D/g, '');
+  if (typed === '') {
+    if (given === '') next[index] = '';
+    return { digits: next, focus: index };
+  }
+  if (typed.length >= CODE_LENGTH) {
+    return { digits: [...typed.slice(0, CODE_LENGTH)], focus: CODE_LENGTH - 1 };
+  }
+  let at = index;
+  for (const digit of typed) {
+    if (at >= CODE_LENGTH) break;
+    next[at] = digit;
+    at += 1;
+  }
+  return { digits: next, focus: Math.min(at, CODE_LENGTH - 1) };
+}
+
+/**
+ * A key pressed in box `index`, or null for a key the boxes leave to the browser.
+ * Backspace empties the box, or, in an empty box, the one before it, and goes there.
+ */
+export function keyInCode(digits, index, key) {
+  const next = [...digits];
+  switch (key) {
+    case 'Backspace':
+      if (next[index] !== '' || index === 0) {
+        next[index] = '';
+        return { digits: next, focus: index };
+      }
+      next[index - 1] = '';
+      return { digits: next, focus: index - 1 };
+    case 'Delete':
+      next[index] = '';
+      return { digits: next, focus: index };
+    case 'ArrowLeft':
+      return { digits: next, focus: Math.max(0, index - 1) };
+    case 'ArrowRight':
+      return { digits: next, focus: Math.min(CODE_LENGTH - 1, index + 1) };
+    case 'Home':
+      return { digits: next, focus: 0 };
+    case 'End':
+      return { digits: next, focus: CODE_LENGTH - 1 };
+    default:
+      return null;
+  }
+}
+
+// What went wrong with a sign-in on the console's own page, in words. Never Cognito's
+// own message: the same words whether the account exists or not.
+
+export const SIGN_IN_WORDS = Object.freeze({
+  'wrong-password': 'The e-mail address or password is wrong.',
+  'wrong-code': 'That code is not right. Try the next one from your authenticator app.',
+  expired: 'The sign-in took too long, so it starts again. Enter your password once more.',
+  'too-many': 'Too many tries. Wait a minute.',
+  network: 'The sign-in service could not be reached. Check the connection and try again.',
+  failed: 'Signing in did not work. Try again, or use the AWS sign-in page.',
+  missing: 'Enter your e-mail address and your password.',
+  'short-code': 'Type all six digits of the code.',
+});
+
+/** What Cognito's error answer is called, such as NotAuthorizedException; '' if it does not say. */
+export function cognitoErrorName(reply, header = null) {
+  const raw = typeof reply?.__type === 'string' ? reply.__type : String(header ?? '');
+  const name = raw.split('#').pop().split(':')[0];
+  return /^[A-Za-z]{1,64}$/.test(name) ? name : '';
+}
+
+/**
+ * What an error of Cognito's means for a sign-in at `step` ('password' or 'code'): one of
+ * SIGN_IN_WORDS, or 'elsewhere' for what only the AWS sign-in page can do. After the
+ * password, NotAuthorizedException is Cognito ending the sign-in: its session is over.
+ */
+export function signInProblem(name, step) {
+  switch (name) {
+    case 'NotAuthorizedException':
+    case 'UserNotFoundException':
+      return step === 'code' ? 'expired' : 'wrong-password';
+    case 'CodeMismatchException':
+      return step === 'code' ? 'wrong-code' : 'failed';
+    case 'ExpiredCodeException':
+      return 'expired';
+    case 'TooManyRequestsException':
+    case 'LimitExceededException':
+    case 'TooManyFailedAttemptsException':
+      return 'too-many';
+    case 'PasswordResetRequiredException':
+      return 'elsewhere';
+    default:
+      return 'failed';
+  }
+}
+
+// Sign-in. There are two ways, and both end with the same session in the tab.
+//
+// The console's own page asks for the e-mail address, the password and the code, and
+// talks to Cognito's user pool API (USER_SRP_AUTH, then the code). The password stays in
+// the browser (above). Cognito's session for the step of the code is kept in memory only.
+//
+// The AWS sign-in page is OAuth 2.0 authorization code with PKCE against the managed
+// login pages. One sign-in keeps its state and its PKCE verifier in sessionStorage until
+// the login page sends the browser back; both are used once.
+//
+// After either, the only thing kept is the access token and when it ends. The refresh
+// token that comes with it is not wanted: it is never stored and is revoked straight away.
 
 const FLOW_KEY = 'cranium.signin';
 const SESSION_KEY = 'cranium.session';
@@ -1062,19 +1358,27 @@ const RENEW_BEFORE_S = 60;
 const LOGIN_TIMEOUT_MS = 15000;
 const FORM = { 'content-type': 'application/x-www-form-urlencoded' };
 const OAUTH_ERROR = /^[a-z_]{1,40}$/;
+// The Region, an underscore, and letters and digits.
+const USER_POOL_ID = /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}_[0-9A-Za-z]{1,64}$/;
+// Cognito's user pool API: one address, the operation in a header.
+const IDP_JSON = 'application/x-amz-json-1.1';
+const IDP_TARGET = 'AWSCognitoIdentityProviderService.';
+const CHALLENGE_NAME = /^[A-Z_]{1,40}$/;
+const CODE = /^\d{6}$/;
 
 /** The sign-in settings the server put in the page. Null if they are unusable. */
 export function readConfig(json) {
   const value = parseJson(json ?? '');
   if (value === null || typeof value !== 'object') return null;
   const config = {};
-  for (const field of ['clientId', 'loginOrigin', 'scope', 'redirectUri']) {
+  for (const field of ['clientId', 'loginOrigin', 'scope', 'redirectUri', 'userPoolId', 'idpOrigin']) {
     if (typeof value[field] !== 'string' || value[field] === '') return null;
     config[field] = value[field];
   }
   const origin = /^https?:\/\/[^/?#\s]+$/;
   const address = /^https?:\/\/[^?#\s]+$/;
-  return origin.test(config.loginOrigin) && address.test(config.redirectUri) ? config : null;
+  return origin.test(config.loginOrigin) && origin.test(config.idpOrigin) && address.test(config.redirectUri) &&
+    USER_POOL_ID.test(config.userPoolId) ? config : null;
 }
 
 function form(fields) {
@@ -1086,7 +1390,8 @@ function form(fields) {
  * in for them: storage (sessionStorage), location, history, fetch and crypto.
  *
  * The session is timed with this computer's own clock from start to end (`now`), so a
- * clock that is wrong changes nothing: the token's lifetime is a length of time.
+ * clock that is wrong changes nothing: the token's lifetime is a length of time. The
+ * time in the proof of the password goes by Cognito's clock where its answer says it.
  */
 export function createAuth({
   config, storage, location, history, fetch, crypto, now = () => Date.now(), tellOtherTabs = () => {},
@@ -1203,32 +1508,185 @@ export function createAuth({
       const reason = OAUTH_ERROR.test(reply?.error ?? '') ? ` (${reply.error})` : '';
       throw new Error(`The sign-in service refused to issue a token${reason}.`);
     }
-    if (typeof reply?.access_token !== 'string' || reply.access_token === '' ||
-        !Number.isFinite(reply.expires_in) || reply.expires_in <= 0 ||
-        String(reply.token_type).toLowerCase() !== 'bearer') {
+    if (!usable(reply?.access_token, reply?.expires_in, reply?.token_type)) {
       throw new Error('The sign-in service sent a reply the console could not read.');
     }
+    keep(reply.access_token, reply.expires_in, reply.refresh_token);
+  }
 
+  function usable(accessToken, expiresIn, tokenType) {
+    return typeof accessToken === 'string' && accessToken !== '' && Number.isFinite(expiresIn) && expiresIn > 0 &&
+      String(tokenType).toLowerCase() === 'bearer';
+  }
+
+  /** The session of a sign-in that worked, either way. */
+  function keep(accessToken, expiresIn, refreshToken) {
     // The refresh token goes nowhere but back to the service that issued it.
-    if (typeof reply.refresh_token === 'string' && reply.refresh_token !== '') {
-      revocation = revoke(reply.refresh_token);
+    if (typeof refreshToken === 'string' && refreshToken !== '') {
+      revocation = revoke(refreshToken);
     }
     signedInAt = seconds();
+    storage.removeItem(SIGNED_OUT_KEY);
     storage.setItem(SESSION_KEY, JSON.stringify({
-      accessToken: reply.access_token,
-      expiresAt: signedInAt + Math.floor(reply.expires_in),
+      accessToken,
+      expiresAt: signedInAt + Math.floor(expiresIn),
     }));
+  }
+
+  // Sign-in on the console's own page.
+
+  // The step that waits for the code: Cognito's session for it, and whom it is for.
+  let challenge = null;
+
+  /** One call of Cognito's user pool API: { reply, date }, { error } or { problem }. */
+  async function askCognito(operation, body) {
+    let response;
+    try {
+      response = await fetch(`${config.idpOrigin}/`, {
+        method: 'POST',
+        headers: { 'content-type': IDP_JSON, 'x-amz-target': `${IDP_TARGET}${operation}` },
+        body: JSON.stringify(body),
+        credentials: 'omit',
+        cache: 'no-store',
+        referrerPolicy: 'no-referrer',
+        signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+      });
+    } catch {
+      return { problem: 'network' };
+    }
+    let reply;
+    try {
+      reply = parseJson(await response.text());
+    } catch {
+      return { problem: 'network' };
+    }
+    if (!response.ok) return { error: cognitoErrorName(reply, response.headers.get('x-amzn-errortype')) };
+    if (reply === null || typeof reply !== 'object' || Array.isArray(reply)) return { problem: 'failed' };
+    return { reply, date: response.headers.get('date') };
+  }
+
+  /** Where a refusal leaves the sign-in. */
+  function refused(answer, step) {
+    if (answer.problem) return { step, problem: answer.problem };
+    const problem = signInProblem(answer.error, step);
+    if (problem === 'elsewhere') return { step: 'elsewhere', challenge: 'PASSWORD_RESET_REQUIRED' };
+    if (problem === 'expired') {
+      challenge = null;
+      return { step: 'password', problem };
+    }
+    return { step, problem };
+  }
+
+  /** What follows an answer: the code, a token, or a step for the AWS sign-in page. */
+  function following(reply, step, userId) {
+    const result = reply.AuthenticationResult;
+    if (result && typeof result === 'object') {
+      if (!usable(result.AccessToken, result.ExpiresIn, result.TokenType)) return { step, problem: 'failed' };
+      challenge = null;
+      keep(result.AccessToken, result.ExpiresIn, result.RefreshToken);
+      return { step: 'done' };
+    }
+    const name = typeof reply.ChallengeName === 'string' && CHALLENGE_NAME.test(reply.ChallengeName)
+      ? reply.ChallengeName : '';
+    if (name === 'SOFTWARE_TOKEN_MFA' && typeof reply.Session === 'string' && reply.Session !== '') {
+      challenge = { session: reply.Session, userId };
+      return { step: 'code' };
+    }
+    challenge = null;
+    // A new password, an authenticator app to set up, or anything else this page does not do.
+    return name === '' ? { step, problem: 'failed' } : { step: 'elsewhere', challenge: name };
+  }
+
+  /**
+   * Sign in with an e-mail address and a password: Cognito's USER_SRP_AUTH. The password
+   * is used for the proof and nothing else; it is not kept and not sent.
+   *
+   * @returns {Promise<{step: 'code'} | {step: 'done'} | {step: 'elsewhere', challenge: string} |
+   *   {step: 'password', problem: string}>}
+   */
+  async function passwordSignIn(email, password) {
+    challenge = null;
+    const username = String(email ?? '').trim().toLowerCase();
+    if (username === '' || typeof password !== 'string' || password === '') {
+      return { step: 'password', problem: 'missing' };
+    }
+    const { a, A } = startSrp(crypto);
+    const started = await askCognito('InitiateAuth', {
+      AuthFlow: 'USER_SRP_AUTH',
+      ClientId: config.clientId,
+      AuthParameters: { USERNAME: username, SRP_A: A.toString(16) },
+    });
+    if (!started.reply) return refused(started, 'password');
+    const { reply } = started;
+    if (reply.ChallengeName !== 'PASSWORD_VERIFIER') return following(reply, 'password', null);
+
+    const parameters = reply.ChallengeParameters ?? {};
+    const userId = parameters.USER_ID_FOR_SRP;
+    // Cognito's clock, where its answer may be read, or else this computer's.
+    const cognitoNow = Date.parse(started.date ?? '');
+    const timestamp = cognitoTimestamp(Number.isNaN(cognitoNow) ? now() : cognitoNow);
+    let signature;
+    try {
+      signature = await srpClaim({
+        subtle: crypto.subtle,
+        userPoolId: config.userPoolId,
+        userId: String(userId),
+        password,
+        a,
+        A,
+        srpB: String(parameters.SRP_B),
+        salt: String(parameters.SALT),
+        secretBlock: String(parameters.SECRET_BLOCK),
+        timestamp,
+      });
+    } catch {
+      return { step: 'password', problem: 'failed' };
+    }
+    const verified = await askCognito('RespondToAuthChallenge', {
+      ChallengeName: 'PASSWORD_VERIFIER',
+      ClientId: config.clientId,
+      ChallengeResponses: {
+        USERNAME: userId,
+        PASSWORD_CLAIM_SECRET_BLOCK: parameters.SECRET_BLOCK,
+        TIMESTAMP: timestamp,
+        PASSWORD_CLAIM_SIGNATURE: signature,
+      },
+      ...(typeof reply.Session === 'string' && reply.Session !== '' ? { Session: reply.Session } : {}),
+    });
+    if (!verified.reply) return refused(verified, 'password');
+    return following(verified.reply, 'password', userId);
+  }
+
+  /**
+   * The code from the authenticator app, for the sign-in that asked for it. A wrong code
+   * leaves that sign-in waiting for another; a sign-in that Cognito has ended starts again.
+   *
+   * @returns {Promise<{step: 'done'} | {step: 'elsewhere', challenge: string} |
+   *   {step: 'code', problem: string} | {step: 'password', problem: string}>}
+   */
+  async function sendCode(code) {
+    if (challenge === null) return { step: 'password', problem: 'expired' };
+    if (!CODE.test(code)) return { step: 'code', problem: 'wrong-code' };
+    const { session, userId } = challenge;
+    const answered = await askCognito('RespondToAuthChallenge', {
+      ChallengeName: 'SOFTWARE_TOKEN_MFA',
+      ClientId: config.clientId,
+      Session: session,
+      ChallengeResponses: { USERNAME: userId, SOFTWARE_TOKEN_MFA_CODE: code },
+    });
+    if (!answered.reply) return refused(answered, 'code');
+    return following(answered.reply, 'code', userId);
   }
 
   /**
    * Work out where the browser stands when the page loads: back from the login page,
-   * already signed in, just signed out, or in need of signing in (which then starts).
+   * already signed in, just signed out, or in need of signing in, which the console's own
+   * page then asks for. The address stays as it is, so that the console opens there after.
    *
-   * @param {string} currentHash  the route to come back to if sign-in has to start
-   * @returns {Promise<{status: 'signed-in', route: string|null} | {status: 'redirecting'} |
+   * @returns {Promise<{status: 'signed-in', route: string|null} | {status: 'sign-in'} |
    *   {status: 'signed-out', reason: string, message?: string}>}
    */
-  async function resume(currentHash) {
+  async function resume() {
     const query = new URLSearchParams(location.search);
     const code = query.get('code');
     const state = query.get('state');
@@ -1267,12 +1725,13 @@ export function createAuth({
     if (readSession() && secondsLeft() > RENEW_BEFORE_S) {
       return { status: 'signed-in', route: null };
     }
-    await signIn(currentHash);
-    return { status: 'redirecting' };
+    storage.removeItem(SESSION_KEY);
+    return { status: 'sign-in' };
   }
 
   /** Forget everything of this session in this tab. A reload then finds it signed out. */
   function forgetSession() {
+    challenge = null;
     storage.clear();
     storage.setItem(SIGNED_OUT_KEY, '1');
   }
@@ -1289,7 +1748,14 @@ export function createAuth({
 
   return {
     resume,
+    /** Leave for the AWS sign-in page. */
     signIn,
+    passwordSignIn,
+    sendCode,
+    /** Drop a sign-in on the console's own page that waits for its code. */
+    cancelPasswordSignIn() {
+      challenge = null;
+    },
     signOut,
     /** Another tab was signed out: the same here, without going to the login pages. */
     signedOutElsewhere: forgetSession,

@@ -18,7 +18,9 @@ const HOME = 'home.example.test';
 const WWW = `www.${HOME}`;
 const CONSOLE = 'console.example.test';
 const LOGIN = 'https://cranium-0a1b2c3d.auth.region-1.login.test';
-const SETTINGS = { clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console' };
+const SETTINGS = {
+  clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console', userPoolId: 'xx-test-1_Pool0Tests',
+};
 
 const HOME_CSP = "default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; " +
   "form-action 'none'; frame-ancestors 'none'";
@@ -51,7 +53,8 @@ test('a console host gets the same bytes and headers as when there is no home pa
   assert.equal(page.statusCode, 200);
   assert.match(page.body, /<meta name="cranium-config" content="[^"]+">/);
   assert.match(page.body, /<meta name="robots" content="noindex, nofollow">/);
-  assert.match(page.headers['content-security-policy'], new RegExp(`connect-src 'self' ${LOGIN};`));
+  assert.match(page.headers['content-security-policy'],
+    new RegExp(`connect-src 'self' ${LOGIN} https://cognito-idp\\.xx-test-1\\.amazonaws\\.com;`));
 });
 
 test('an unknown host gets the console, and only the exact names get the home page', async () => {
@@ -81,7 +84,7 @@ test('a home host gets the home page, with a stricter policy and none of the con
     assert.match(page.body, /^<!doctype html>/);
     assert.doesNotMatch(page.body, /%BUILD%|%CONFIG%|cranium-config/);
     const everything = JSON.stringify(page);
-    for (const secretless of [SETTINGS.clientId, LOGIN, 'cranium/console', 'oauth2']) {
+    for (const secretless of [SETTINGS.clientId, LOGIN, SETTINGS.userPoolId, 'cognito-idp', 'cranium/console', 'oauth2']) {
       assert.equal(everything.includes(secretless), false, secretless);
     }
   }
@@ -147,7 +150,7 @@ test('a list of home hosts that is not a list of host names is refused when the 
 });
 
 test('HOME_HOSTS names the home hosts, and left out or empty there are none', async (t) => {
-  const names = ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE', 'HOME_HOSTS'];
+  const names = ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE', 'USER_POOL_ID', 'HOME_HOSTS'];
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   const consoleLog = console.log;
   console.log = () => {};
@@ -161,6 +164,7 @@ test('HOME_HOSTS names the home hosts, and left out or empty there are none', as
   process.env.USER_POOL_CLIENT_ID = 'deployed-client';
   process.env.OAUTH_SCOPE = 'openid cranium/console';
   process.env.LOGIN_DOMAIN = LOGIN.slice('https://'.length);
+  process.env.USER_POOL_ID = SETTINGS.userPoolId;
 
   // The handler keeps its settings once made, so each case needs a module of its own.
   const fresh = async (value, tag) => {

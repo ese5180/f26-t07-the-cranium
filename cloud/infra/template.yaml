@@ -379,9 +379,10 @@ Resources:
       SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
 
   # ---------------------------------------------------------------------------------
-  # Sign-in: Cognito user pool with managed login. Users are created by an
-  # administrator (cloud/users.sh), sign in with e-mail and password, and must use an
-  # authenticator app.
+  # Sign-in: Cognito user pool. Users are created by an administrator (cloud/users.sh),
+  # sign in with e-mail and password, and must use an authenticator app. The console has
+  # a sign-in page of its own (the user pool API, with SRP and the sign-in trigger below)
+  # and keeps the managed login pages for what that page does not do.
   # ---------------------------------------------------------------------------------
 
   UserPool:
@@ -440,6 +441,16 @@ Resources:
         AttributesRequireVerificationBeforeUpdate:
           - email
       DeletionProtection: !Ref UserPoolDeletionProtection
+      # The console's own sign-in page signs in through the user pool API, whose access
+      # tokens lack cranium/console: SignInScopeFn adds it for the console's client only
+      # (see there). Version 2 is the one that may change an access token; it needs the
+      # Essentials plan above. The function is named by its ARN, not with !GetAtt, because
+      # it is told the client's ID, and the client belongs to this pool: a reference here
+      # would make a loop that CloudFormation refuses.
+      LambdaConfig:
+        PreTokenGenerationConfig:
+          LambdaArn: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-signin-scope'
+          LambdaVersion: V2_0
 
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
@@ -500,10 +511,13 @@ Resources:
         - !GetAtt Api.ApiEndpoint
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Ref AWS::NoValue]
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}', !Ref AWS::NoValue]
+      # SRP is what the console's own sign-in page uses: the password stays in the browser.
+      # Never ALLOW_USER_PASSWORD_AUTH, which would send it.
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
         - ALLOW_USER_SRP_AUTH
       EnableTokenRevocation: true
+      # A wrong address and a wrong password get the same answer.
       PreventUserExistenceErrors: ENABLED
       # Minutes a user has for each step of signing in. The default of 3 is short for a
       # first sign-in, where an authenticator app may have to be installed first.
@@ -983,6 +997,8 @@ Resources:
           USER_POOL_CLIENT_ID: !Ref UserPoolClient
           LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
           OAUTH_SCOPE: openid cranium/console
+          # For the console's own sign-in page. Public, as the client ID is.
+          USER_POOL_ID: !Ref UserPool
           HOME_HOSTS: !If
             - HasHomeDomain
             - !Sub '${HomeDomainName},www.${HomeDomainName}'
@@ -1229,6 +1245,90 @@ Resources:
       Qualifier: $LATEST
       MaximumRetryAttempts: 1
       MaximumEventAgeInSeconds: 3600
+
+  # ---------------------------------------------------------------------------------
+  # The sign-in trigger: Cognito's pre token generation trigger (UserPool, LambdaConfig).
+  #
+  # Why it exists. The console's own sign-in page (six boxes for the code) talks to the
+  # user pool API with USER_SRP_AUTH, so that the password never leaves the browser.
+  # Cognito gives a token made that way one scope, aws.cognito.signin.user.admin, and not
+  # cranium/console, which every API route demands. For the console's web client only,
+  # and only at the end of such a sign-in or at a refresh, the function adds
+  # cranium/console and takes aws.cognito.signin.user.admin out, so that the token cannot
+  # be used to read or change the account through Cognito's user APIs. That is what the
+  # managed login pages hand out already. Their tokens, the phone apps' client and every
+  # other step pass through unchanged (cloud/api/src/signin-scope.mjs).
+  #
+  # Cognito calls it for every token of the pool and waits at most 5 seconds. While it
+  # cannot be called nobody gets a token, by either page and from either client: on the
+  # first deployment with it, for the moments between the update of the pool and the
+  # creation of the function and its permission.
+  #
+  # Its name is fixed, unlike the other functions', because the pool names it by ARN (see
+  # UserPool). The only properties that would make CloudFormation replace it, and so fail
+  # on the name, are the name itself and the package type, and neither is meant to change.
+  # ---------------------------------------------------------------------------------
+
+  SignInScopeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-signin-scope'
+      RetentionInDays: 90
+
+  # It may write to its log, and nothing else: it reads and calls nothing.
+  SignInScopeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-own-log
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt SignInScopeLogGroup.Arn
+
+  SignInScopeFn:
+    Type: AWS::Lambda::Function
+    DependsOn: SignInScopeLogGroup
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-signin-scope'
+      LoggingConfig:
+        LogGroup: !Ref SignInScopeLogGroup
+      Description: !Sub 'Cranium firmware console - sign-in scope - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: signin-scope.handler
+      MemorySize: 128
+      Timeout: 5
+      Role: !GetAtt SignInScopeRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          # The only client whose tokens it changes. Never the phone apps' client.
+          CONSOLE_CLIENT_ID: !Ref UserPoolClient
+
+  # Cognito may call it for this user pool, in this account, and nothing else may.
+  SignInScopePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SignInScopeFn
+      Principal: cognito-idp.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt UserPool.Arn
 
 Outputs:
   ConsoleUrl:

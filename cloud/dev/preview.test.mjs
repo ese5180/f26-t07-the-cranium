@@ -19,7 +19,7 @@ import { test } from 'node:test';
 
 import { deviceFromShadow } from '../api/src/lib/shadow.mjs';
 import { deriveTimeline } from '../api/src/lib/timeline.mjs';
-import { SCENARIOS, UsageError, createPreview, parseArguments } from './preview.mjs';
+import { PREVIEW_CODE, PREVIEW_PASSWORD, SCENARIOS, UsageError, createPreview, parseArguments } from './preview.mjs';
 
 // The console's script, loaded as the browser loads it (web/test/core.test.mjs says
 // why it goes through a data: address).
@@ -190,7 +190,9 @@ async function consoleClient(origin, clock, sent) {
     now: () => clock.ms,
   });
 
-  assert.deepEqual(await auth.resume('#/devices'), { status: 'redirecting' });
+  // Without a session the console asks on its own page; this goes by the AWS sign-in page.
+  assert.deepEqual(await auth.resume(), { status: 'sign-in' });
+  await auth.signIn('#/devices');
   const reply = await fetch(tab.location.assigned, { redirect: 'manual' });
   assert.equal(reply.status, 302);
   tab.location.search = new URL(reply.headers.get('location')).search;
@@ -463,9 +465,92 @@ test('the console signs in with its own code and leaves no refresh token behind'
   assert.deepEqual(await api.me(), {
     sub: preview.user.sub, email: preview.user.email, groups: ['release-managers'], canWrite: true,
   });
-  // The page may talk to the sign-in origin, and to no other.
+  // The page may talk to the sign-in origin, and to no other: there the stand-in answers
+  // for the managed login and for the user pool API alike.
   const policy = (await fetch(`${origin}/`)).headers.get('content-security-policy');
   assert.equal(policy.includes(`connect-src 'self' ${config.loginOrigin};`), true);
+  assert.equal(config.idpOrigin, config.loginOrigin);
+});
+
+/** The console's own sign-in code, on its own page, with the preview's password and code. */
+async function signInHere(origin, clock, email, password = PREVIEW_PASSWORD) {
+  const config = await settings(origin);
+  const tab = browserTab('#/devices');
+  const auth = core.createAuth({
+    config, storage: tab.storage, location: tab.location, history: tab.history, fetch, crypto: webcrypto,
+    now: () => clock.ms,
+  });
+  const first = await auth.passwordSignIn(email, password);
+  return { auth, tab, config, first };
+}
+
+test('the console\'s own sign-in page signs in through the user pool API, and the sign-in trigger lets it in', async (t) => {
+  const { preview, origin, clock } = await start(t);
+  for (const person of [preview.user, { email: 'viewer@preview.invalid', sub: '00000000-0000-4000-8000-000000000002' }]) {
+    const { auth, tab, config, first } = await signInHere(origin, clock, person.email);
+    assert.deepEqual(first, { step: 'code' });
+    assert.deepEqual(await auth.sendCode('000000'), { step: 'code', problem: 'wrong-code' });
+    assert.deepEqual(await auth.sendCode(PREVIEW_CODE), { step: 'done' });
+    assert.deepEqual([...tab.stored.keys()], ['cranium.session']);
+    assert.equal(await auth.revocation(), 'revoked');
+    assert.equal(tab.location.assigned, null, 'the browser went nowhere');
+
+    // The gateway takes the token: the trigger gave it the console's scope. The API sees
+    // whoever signed in, with that person's groups.
+    const api = core.createApi({
+      auth, crypto: webcrypto, clock: core.createClock(() => clock.ms),
+      onUnauthorized: () => assert.fail('the API refused a token from the console\'s own sign-in page'),
+      fetch: (path, init) => fetch(`${origin}${path}`, init),
+    });
+    const me = await api.me();
+    assert.equal(me.sub, person.sub);
+    assert.equal(me.email, person.email);
+    assert.equal(me.canWrite, person.sub === preview.user.sub);
+    assert.equal(config.userPoolId, 'us-east-1_local');
+  }
+  assert.equal(preview.signIn.refreshTokensLeft(), 0);
+});
+
+test('the stand-in for the user pool API refuses what Cognito refuses, in Cognito\'s form', async (t) => {
+  const { origin, clock } = await start(t);
+  const config = await settings(origin);
+  // A wrong password and an address nobody has: the same answer.
+  for (const [email, password] of [['manager@preview.invalid', 'not-the-password'], ['nobody@preview.invalid', PREVIEW_PASSWORD]]) {
+    const { first } = await signInHere(origin, clock, email, password);
+    assert.deepEqual(first, { step: 'password', problem: 'wrong-password' }, email);
+  }
+
+  const call = (operation, body, headers = {}) => fetch(`${config.idpOrigin}/`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityProviderService.${operation}`, ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  // The flow that would send the password is not on.
+  const plain = await call('InitiateAuth', {
+    AuthFlow: 'USER_PASSWORD_AUTH', ClientId: config.clientId,
+    AuthParameters: { USERNAME: 'manager@preview.invalid', PASSWORD: PREVIEW_PASSWORD },
+  });
+  assert.equal(plain.status, 400);
+  assert.equal((await plain.json()).__type, 'InvalidParameterException');
+  assert.equal(plain.headers.get('access-control-allow-origin'), origin);
+  // Another client is unknown.
+  const stranger = await call('InitiateAuth', { AuthFlow: 'USER_SRP_AUTH', ClientId: 'another', AuthParameters: {} });
+  assert.equal((await stranger.json()).__type, 'ResourceNotFoundException');
+  // The browser asks first whether its page may call, and may.
+  const preflight = await fetch(`${config.idpOrigin}/`, {
+    method: 'OPTIONS',
+    headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-amz-target' },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /x-amz-target/);
+  // Something that is not the API's JSON is not read.
+  const garbled = await fetch(`${config.idpOrigin}/`, {
+    method: 'POST', headers: { 'content-type': 'text/plain', 'x-amz-target': 'AWSCognitoIdentityProviderService.InitiateAuth' }, body: '{}',
+  });
+  assert.equal(garbled.status, 400);
 });
 
 test('a board can be seen offline, and on firmware that is not a release', async (t) => {

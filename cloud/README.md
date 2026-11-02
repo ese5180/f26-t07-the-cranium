@@ -20,7 +20,9 @@ It is two CloudFormation stacks, deployed with the AWS CLI:
     event log ([docs/aws-iot.md](../docs/aws-iot.md#the-event-log)).
   - A Cognito user pool for sign-in. Accounts are created by an administrator, and
     the console asks for a password and a code from an authenticator app at every
-    sign-in.
+    sign-in, on its own sign-in page or on the AWS sign-in page. A small function, the
+    sign-in trigger, gives the tokens of the console's own page the console's scope
+    ([docs/aws-iot.md](../docs/aws-iot.md#sign-in)).
   - A bucket for firmware images. An image is written once and never overwritten.
   - Three DynamoDB tables: the releases, the audit log, and the boards' event log (events
     kept 90 days, readings 7), which the Events and Diagnostics pages read.
@@ -190,7 +192,8 @@ viewer may only look. `add` on an existing account changes its role. An address 
 always stored in lower case, however it is typed.
 
 Cognito sends the new user a temporary password that is valid for three days. At the
-first sign-in the user chooses a password and registers an authenticator app. Nobody
+first sign-in the user chooses a password and registers an authenticator app, on the AWS
+sign-in page, which the console's own page opens by itself for that. Nobody
 can sign up, reset a password or change their address alone. A session lasts 60 minutes,
 then the console asks for the password and the code again.
 
@@ -198,9 +201,9 @@ Each tab has a session of its own. Signing out ends the session of every open ta
 same address, but not of one on the other address. Closing a tab does not end its session:
 a tab that is restored can bring its token back until the token runs out. And it is the
 console that asks for the password every time (`prompt=login`), not a rule of the user
-pool: for an hour after the last password, Cognito's own login cookie still works for
-somebody at that computer who writes the sign-in request by hand. So lock the computer,
-and sign out.
+pool: for an hour after the last password on the AWS sign-in page, Cognito's own login
+cookie still works for somebody at that computer who writes the sign-in request by hand.
+The console's own sign-in page leaves no such cookie. So lock the computer, and sign out.
 
 `reset-mfa` is for a forgotten password, a lost phone or a new phone. It replaces the
 account with one of the same role, so the user also gets a new temporary password.
@@ -226,7 +229,7 @@ the controls of the old role.
 cloud/smoke.sh          # the console answers, the API refuses anonymous calls and
                         # accounts that do not exist, the sign-in page loads, the API
                         # function can reach its data
-cloud/logs.sh api       # or: web, events, access, iot
+cloud/logs.sh api       # or: web, events, signin, access, iot
 ```
 
 | What you see | Where to look |
@@ -521,12 +524,14 @@ node cloud/dev/preview.mjs --scenario waiting-for-button    # --help lists the s
 ```
 
 A local preview on `127.0.0.1`: the real console and the real API, with an in-memory
-stand-in for AWS, an emulated sign-in without a password, and simulated boards. It talks
-to nothing outside this computer, shows no real data, and is never deployed. Add `--live`
-to let the boards act and press their buttons from the terminal, as firmware before 1.7.2 has them do,
-which is what these boards run, or `--viewer` to see the
-console as a viewer does. `--home` shows the public home page instead, served by the real
-web function as one of its home page names.
+stand-in for AWS, an emulated sign-in with a made-up password and code that the preview
+prints (the console's own page, with the real sign-in trigger deciding the token's scope),
+and simulated boards. It talks to nothing outside this computer, shows no real data, and is
+never deployed. Add `--live` to let the boards act and press their buttons from the
+terminal, as firmware before 1.7.2 has them do, which is what these boards run. To see the
+console as a viewer does, sign in with the viewer's address, or add `--viewer` for "Use the
+AWS sign-in page". `--home` shows the public home page instead, served by the real web
+function as one of its home page names.
 
 While a scenario is built the boards that are on report every minute, and every report and
 connection goes through the recorder's own code, so the Events and Diagnostics pages have a

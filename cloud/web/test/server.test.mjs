@@ -15,10 +15,13 @@ const SITE = new URL('../src/site/', import.meta.url);
 const ofConsole = (name) => !name.startsWith('.') && !name.startsWith('home.');
 const DOMAIN = 'a1b2c3d4e5.execute-api.region-1.cloud.test';
 const LOGIN = 'https://cranium-0a1b2c3d.auth.region-1.login.test';
-const SETTINGS = { clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console' };
+// A made-up Region: the pool's ID names it, and the address of the user pool API follows.
+const POOL = 'xx-test-1_Pool0Tests';
+const USER_POOL_API = 'https://cognito-idp.xx-test-1.amazonaws.com';
+const SETTINGS = { clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console', userPoolId: POOL };
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
-  `connect-src 'self' ${LOGIN}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+  `connect-src 'self' ${LOGIN} ${USER_POOL_API}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 /** An event as API Gateway sends it. A value given as undefined stays undefined. */
 function request(rawPath, options = {}) {
@@ -88,7 +91,36 @@ test('the page carries the sign-in settings', async () => {
     loginOrigin: LOGIN,
     scope: SETTINGS.scope,
     redirectUri: `https://${DOMAIN}/`,
+    // For the console's own sign-in page: the pool, and its API in the pool's Region.
+    userPoolId: POOL,
+    idpOrigin: USER_POOL_API,
   });
+});
+
+test('the page may talk to itself, the login pages and the user pool API, and to nothing else', async () => {
+  const policy = (await serve(request('/'))).headers['content-security-policy'];
+  const connect = policy.split('; ').find((directive) => directive.startsWith('connect-src '));
+  assert.deepEqual(connect.split(' ').slice(1), ["'self'", LOGIN, USER_POOL_API]);
+  // Each pool talks to the API of its own Region.
+  const elsewhere = await quiet({ ...SETTINGS, userPoolId: 'yy-other-2_AbC123' })(request('/'));
+  assert.equal(settingsIn(elsewhere.body).idpOrigin, 'https://cognito-idp.yy-other-2.amazonaws.com');
+  assert.match(elsewhere.headers['content-security-policy'],
+    /connect-src 'self' \S+ https:\/\/cognito-idp\.yy-other-2\.amazonaws\.com;/);
+  // Sending a form stays forbidden: the sign-in page never posts one.
+  assert.match(policy, /(^|; )form-action 'none'(;|$)/);
+});
+
+test('a user pool ID that is not one is refused when the handler is made', () => {
+  const refused = [
+    'xx-test-1_Pool0Tests evil.example', 'xx-test-1_Pool;script-src *', 'xx-test-1_', '_Pool0Tests', 'xx-test-1',
+    'XX-TEST-1_Pool0Tests', 'xx-test-1_Pool-0', 'xx-test-1_Pool0Tests\n', '', undefined, null, 5,
+  ];
+  for (const userPoolId of refused) {
+    assert.throws(() => createWebHandler({ ...SETTINGS, userPoolId }), TypeError, String(userPoolId));
+  }
+  for (const idpOrigin of ['https://idp.example; script-src *', 'https://idp.example/', '', 7]) {
+    assert.throws(() => createWebHandler({ ...SETTINGS, idpOrigin }), TypeError, String(idpOrigin));
+  }
 });
 
 test('the redirect address is https on the domain of the request, unless one is given', async () => {
@@ -96,11 +128,13 @@ test('the redirect address is https on the domain of the request, unless one is 
   assert.equal(settingsIn(other.body).redirectUri, 'https://other.execute-api.region-2.cloud.test/');
 
   const loopback = 'http://127.0.0.1:8787';
-  const preview = quiet({ ...SETTINGS, loginOrigin: loopback, redirectUri: `${loopback}/` });
+  // The preview's stand-in for the user pool API answers on its login origin: named once.
+  const preview = quiet({ ...SETTINGS, loginOrigin: loopback, idpOrigin: loopback, redirectUri: `${loopback}/` });
   const local = await preview(request('/', { domainName: 'ignored.example' }));
   const settings = settingsIn(local.body);
   assert.equal(settings.redirectUri, 'http://127.0.0.1:8787/');
   assert.equal(settings.loginOrigin, 'http://127.0.0.1:8787');
+  assert.equal(settings.idpOrigin, 'http://127.0.0.1:8787');
   assert.match(local.headers['content-security-policy'], /connect-src 'self' http:\/\/127\.0\.0\.1:8787;/);
 });
 
@@ -341,7 +375,7 @@ test('one line is logged per request, and never the query string', async () => {
 });
 
 test('the deployed handler reads its settings from the environment and always uses https', async (t) => {
-  const names = ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE'];
+  const names = ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE', 'USER_POOL_ID'];
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   const lines = [];
   const consoleLog = console.log;
@@ -359,6 +393,11 @@ test('the deployed handler reads its settings from the environment and always us
 
   process.env.USER_POOL_CLIENT_ID = 'deployed-client';
   process.env.OAUTH_SCOPE = 'openid cranium/console';
+  process.env.LOGIN_DOMAIN = LOGIN.slice('https://'.length);
+  await assert.rejects(handler(request('/')), /USER_POOL_ID is not set/);
+  process.env.USER_POOL_ID = 'xx-test-1_Pool0Tests" connect-src *';
+  await assert.rejects(handler(request('/')), TypeError);
+  process.env.USER_POOL_ID = POOL;
   process.env.LOGIN_DOMAIN = 'login.example"><script>';
   await assert.rejects(handler(request('/')), TypeError);
 
@@ -371,6 +410,8 @@ test('the deployed handler reads its settings from the environment and always us
     loginOrigin: LOGIN,
     scope: 'openid cranium/console',
     redirectUri: `https://${DOMAIN}/`,
+    userPoolId: POOL,
+    idpOrigin: USER_POOL_API,
   });
   assertSecurityHeaders(response);
 

@@ -15,7 +15,8 @@
  * Assets are served under /assets/<build id>/, where the build id is a hash of the
  * files of that site, and may be cached for ever; any other build id is a 404. A page
  * is revalidated on every load. The console's carries the public sign-in settings in a
- * <meta> tag; nothing in them is secret.
+ * <meta> tag: the app client, the login pages, the user pool and the address of its API.
+ * Nothing in them is secret; a browser that signs in learns all of them anyway.
  *
  * The query string is never read and never logged: after sign-in it carries the
  * authorization code.
@@ -55,6 +56,9 @@ const HOST = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 // The login origin is written into the Content-Security-Policy header, where a space,
 // comma or semicolon would start a new source, policy or directive.
 const ORIGIN = /^https?:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?$/;
+// A user pool ID: the Region, an underscore, and letters and digits. The Region names the
+// address of Cognito's user pool API, which goes into the policy too.
+const USER_POOL_ID = /^([a-z]{2}(?:-[a-z]+)+-\d{1,2})_[0-9A-Za-z]{1,64}$/;
 
 const LOGGED_PATH_LENGTH = 200;
 
@@ -160,13 +164,19 @@ function requireText(name, value) {
   }
 }
 
-function consolePolicy(loginOrigin) {
+/**
+ * The page may talk to its own origin, to the managed login pages (the token and the
+ * revocation of the refresh token) and to Cognito's user pool API (the console's own
+ * sign-in page). Nowhere else.
+ */
+function consolePolicy(loginOrigin, idpOrigin) {
+  const connect = [...new Set(["'self'", loginOrigin, idpOrigin])].join(' ');
   return [
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'self'",
     "img-src 'self' data:",
-    `connect-src 'self' ${loginOrigin}`,
+    `connect-src ${connect}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
@@ -212,6 +222,10 @@ function writeLog(entry) {
  * @param {string} options.loginOrigin   origin of the managed login pages, for example
  *                                       https://<prefix>.auth.<region>.amazoncognito.com
  * @param {string} options.scope         OAuth scopes, space separated
+ * @param {string} options.userPoolId    the user pool, for the console's own sign-in page
+ * @param {string} [options.idpOrigin]   where Cognito's user pool API answers. Left out, it
+ *                                       is https://cognito-idp.<the Region of the pool>
+ *                                       .amazonaws.com. Only the local preview sets it.
  * @param {string} [options.redirectUri] the address the login pages send the browser
  *                                       back to. Left out, it is https://<the domain
  *                                       name of the request>/. Only the local preview
@@ -222,7 +236,7 @@ function writeLog(entry) {
  * @param {(entry: object) => void} [options.log]  receives one entry per request
  */
 export function createWebHandler({
-  clientId, loginOrigin, scope, redirectUri, homeHosts = [], log = writeLog,
+  clientId, loginOrigin, scope, userPoolId, idpOrigin, redirectUri, homeHosts = [], log = writeLog,
 } = {}) {
   requireText('clientId', clientId);
   requireText('scope', scope);
@@ -230,13 +244,20 @@ export function createWebHandler({
   if (!ORIGIN.test(loginOrigin)) {
     throw new TypeError('loginOrigin must be an origin such as https://login.example');
   }
+  requireText('userPoolId', userPoolId);
+  const pool = USER_POOL_ID.exec(userPoolId);
+  if (!pool) throw new TypeError('userPoolId must be a user pool ID such as us-east-1_AbC123');
+  const userPoolApi = idpOrigin ?? `https://cognito-idp.${pool[1]}.amazonaws.com`;
+  if (typeof userPoolApi !== 'string' || !ORIGIN.test(userPoolApi)) {
+    throw new TypeError('idpOrigin must be an origin such as https://cognito-idp.example');
+  }
   if (redirectUri !== undefined) requireText('redirectUri', redirectUri);
   if (!Array.isArray(homeHosts) || !homeHosts.every((host) => typeof host === 'string' && HOST.test(host))) {
     throw new TypeError('homeHosts must be a list of host names in lower case');
   }
 
   const homeNames = new Set(homeHosts);
-  const consoleHeaders = securityHeaders(consolePolicy(loginOrigin), '(self)');
+  const consoleHeaders = securityHeaders(consolePolicy(loginOrigin, userPoolApi), '(self)');
   const homeHeaders = securityHeaders(HOME_POLICY, '()');
 
   function respond(headers, statusCode, type, cacheControl, body, extra) {
@@ -257,7 +278,9 @@ export function createWebHandler({
       }
       returnTo = `https://${host}/`;
     }
-    const config = JSON.stringify({ clientId, loginOrigin, scope, redirectUri: returnTo });
+    const config = JSON.stringify({
+      clientId, loginOrigin, scope, redirectUri: returnTo, userPoolId, idpOrigin: userPoolApi,
+    });
     const { pageHead, pageTail } = site.console;
     return respond(consoleHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
   }
@@ -290,13 +313,14 @@ export function createWebHandler({
 }
 
 function settingsFromEnvironment(env) {
-  for (const name of ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE']) {
+  for (const name of ['USER_POOL_CLIENT_ID', 'LOGIN_DOMAIN', 'OAUTH_SCOPE', 'USER_POOL_ID']) {
     if (!env[name]) throw new Error(`${name} is not set`);
   }
   return {
     clientId: env.USER_POOL_CLIENT_ID,
     loginOrigin: `https://${env.LOGIN_DOMAIN}`,
     scope: env.OAUTH_SCOPE,
+    userPoolId: env.USER_POOL_ID,
     // Left out or empty, every name gets the console. Commas, no spaces: a name that is
     // not a host name is refused when the handler is made.
     homeHosts: (env.HOME_HOSTS ?? '').split(',').filter((name) => name !== ''),

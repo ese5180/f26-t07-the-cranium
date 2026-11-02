@@ -19,13 +19,18 @@
  *                  deployed: it carries a personal API token, made on the console's API
  *                  tokens page, which the function checks. What no route claims goes to
  *                  the web function, as it does when deployed.
- *   Cognito        The four addresses of the managed login that the console uses:
- *                  /oauth2/authorize, /oauth2/token, /oauth2/revoke and /logout. They
- *                  are served on the next port, so that they are another origin as in
- *                  production. There is no sign-in page and no password. The preview
- *                  has one user, a local release manager (--viewer: a local viewer),
- *                  and "authorize" signs that user in at once. The console's own
- *                  sign-in code runs unchanged: state, PKCE, token request, revocation.
+ *   Cognito        Two parts, served on the next port, so that they are another origin
+ *                  as in production. The user pool API that the console's own sign-in
+ *                  page talks to: InitiateAuth with SRP and the step of the code, played
+ *                  by web/test/cognito.mjs, with the real sign-in trigger
+ *                  (api/src/signin-scope.mjs) deciding the scopes of the token. It knows
+ *                  the two local users, by address, with the password and the code that
+ *                  the preview prints. And the four addresses of the managed login that
+ *                  the console uses for "Use the AWS sign-in page": /oauth2/authorize,
+ *                  /oauth2/token, /oauth2/revoke and /logout. That has no page and no
+ *                  password: "authorize" signs in the local release manager (--viewer: the
+ *                  local viewer) at once. The console's own sign-in code runs unchanged
+ *                  both ways: SRP, the code, state, PKCE, token request, revocation.
  *   AWS IoT, S3,   api/test/fake-aws.mjs, which starts empty. AWS does not document
  *   DynamoDB       what a forced cancellation does to a deployment that was cancelled
  *                  before, without force, and still has a board at work. The stand-in
@@ -71,8 +76,10 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from '../api/src/app.mjs';
 import { loadConfig } from '../api/src/config.mjs';
 import { compareVersions, parseVersion } from '../api/src/lib/mcuboot.mjs';
+import { withConsoleScope } from '../api/src/signin-scope.mjs';
 import { accessClaims, createFakeAws, fakeEnv, fixture } from '../api/test/fake-aws.mjs';
 import { createWebHandler } from '../web/src/server.mjs';
+import { createCognito } from '../web/test/cognito.mjs';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
@@ -109,6 +116,16 @@ const FORM_BODY = /^application\/x-www-form-urlencoded\b/i;
 // PKCE (RFC 7636): an S256 challenge is 43 characters, a verifier 43 to 128.
 const CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+
+// What the console's own sign-in page takes in the preview, for both local users. Made up
+// for the preview, printed when it starts, and good nowhere else.
+export const PREVIEW_PASSWORD = 'preview-password';
+export const PREVIEW_CODE = '123456';
+// Cognito's user pool API: one address, the operation in a header.
+const IDP_JSON = 'application/x-amz-json-1.1';
+const IDP_TARGET = /^AWSCognitoIdentityProviderService\.(\w+)$/;
+// What a token made through the user pool API carries before the sign-in trigger.
+const USER_POOL_API_SCOPES = Object.freeze(['aws.cognito.signin.user.admin']);
 
 // The firmware's heartbeat comes every 30 s, and a board counts as online for 90 s after one
 // (240 s if it says that it is restarting).
@@ -269,14 +286,16 @@ function gatewayEvent({ routeKey, method, path, query, headers, host, body = nul
 /**
  * @param {object} options
  * @param {string} options.clientId        the app client the console signs in with
+ * @param {string} options.userPoolId      the user pool, for the user pool API and its SRP
+ * @param {object} options.user            whom the managed login signs in
  * @param {() => string} options.host      host and port this stand-in is addressed by
  * @param {() => string} options.consoleOrigin  the origin that may read the replies
  * @param {() => string} options.redirectUri    the registered callback and sign-out address
  * @param {() => number} options.now       the clock, epoch milliseconds
  */
-function createSignIn({ clientId, host, consoleOrigin, redirectUri, now }) {
+function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirectUri, now }) {
   const codes = new Map();          // code -> { challenge, scopes, expiresAt }
-  const sessions = new Map();       // access token -> { scopes, expiresAt }
+  const sessions = new Map();       // access token -> { scopes, expiresAt, user }
   const refreshTokens = new Set();
 
   const seconds = () => Math.floor(now() / 1000);
@@ -371,7 +390,7 @@ function createSignIn({ clientId, host, consoleOrigin, redirectUri, now }) {
     forget();
     const accessToken = secret();
     const refreshToken = secret();
-    sessions.set(accessToken, { scopes: grant.scopes, expiresAt: seconds() + TOKEN_SECONDS });
+    sessions.set(accessToken, { scopes: grant.scopes, expiresAt: seconds() + TOKEN_SECONDS, user });
     refreshTokens.add(refreshToken);
     // Cognito answers with these five. The console wants only the access token.
     reply(response, 200, {
@@ -403,6 +422,81 @@ function createSignIn({ clientId, host, consoleOrigin, redirectUri, now }) {
     redirect(response, redirectUri());
   }
 
+  // The user pool API, for the console's own sign-in page.
+
+  /**
+   * A token made at the end of a sign-in through the user pool API. Its scopes are what
+   * Cognito would give it after the real sign-in trigger has had its say.
+   */
+  function issue(person) {
+    const event = withConsoleScope({
+      version: '2',
+      triggerSource: 'TokenGeneration_Authentication',
+      region: userPoolId.split('_')[0],
+      userPoolId,
+      userName: person.userId,
+      callerContext: { awsSdkVersion: 'aws-sdk-unknown-unknown', clientId },
+      request: {
+        userAttributes: { sub: person.userId, email: person.email, email_verified: 'true' },
+        groupConfiguration: { groupsToOverride: [...person.groups], iamRolesToOverride: [], preferredRole: null },
+        scopes: [...USER_POOL_API_SCOPES],
+      },
+      response: { claimsAndScopeOverrideDetails: null },
+    }, clientId);
+    const change = event.response.claimsAndScopeOverrideDetails?.accessTokenGeneration ?? {};
+    const scopes = [...new Set([
+      ...USER_POOL_API_SCOPES.filter((scope) => !(change.scopesToSuppress ?? []).includes(scope)),
+      ...(change.scopesToAdd ?? []),
+    ])];
+    forget();
+    const accessToken = secret();
+    const refreshToken = secret();
+    sessions.set(accessToken, { scopes, expiresAt: seconds() + TOKEN_SECONDS, user: person.local });
+    refreshTokens.add(refreshToken);
+    return { AccessToken: accessToken, ExpiresIn: TOKEN_SECONDS, RefreshToken: refreshToken, IdToken: secret() };
+  }
+
+  const userPool = createCognito({
+    userPoolId,
+    clientId,
+    users: Object.values(USERS).map((local) => ({
+      email: local.email, userId: local.sub, password: PREVIEW_PASSWORD, code: PREVIEW_CODE, groups: local.groups, local,
+    })),
+    now,
+    issue,
+  });
+
+  /** CORS, as Cognito's user pool API allows the console's page to call it. */
+  const crossOrigin = () => ({ 'access-control-allow-origin': consoleOrigin(), vary: 'origin' });
+
+  function preflight(response) {
+    send(response, 204, {
+      ...sealed,
+      ...crossOrigin(),
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'content-type, x-amz-target, x-amz-user-agent',
+      'access-control-max-age': '600',
+    });
+  }
+
+  async function userPoolApi(request, response) {
+    const target = IDP_TARGET.exec(String(request.headers['x-amz-target'] ?? ''));
+    const body = request.headers['content-type'] === IDP_JSON ? await readBody(request, MAX_FORM_BYTES) : null;
+    let call = null;
+    try {
+      call = target && body !== null ? JSON.parse(body.toString('utf8')) : null;
+    } catch {
+      call = null;
+    }
+    const { status, body: answer } = call !== null && typeof call === 'object'
+      ? userPool.answer(target[1], call)
+      : { status: 400, body: { __type: 'SerializationException', message: 'Unreadable request.' } };
+    // Its own clock in the Date header, as Cognito's answers carry Cognito's.
+    send(response, status, {
+      ...sealed, ...crossOrigin(), 'content-type': IDP_JSON, date: new Date(now()).toUTCString(),
+    }, JSON.stringify(answer));
+  }
+
   return {
     async handle(request, response) {
       // Only requests addressed to this origin: a page elsewhere that points a host
@@ -413,7 +507,11 @@ function createSignIn({ clientId, host, consoleOrigin, redirectUri, now }) {
       }
       const [path, query] = splitTarget(request.url ?? '');
       const { method } = request;
-      if (method === 'GET' && path === '/oauth2/authorize') {
+      if (method === 'OPTIONS' && path === '/') {
+        preflight(response);
+      } else if (method === 'POST' && path === '/') {
+        await userPoolApi(request, response);
+      } else if (method === 'GET' && path === '/oauth2/authorize') {
         authorize(response, query);
       } else if (method === 'GET' && path === '/logout') {
         signOut(response, query);
@@ -1234,6 +1332,8 @@ export async function createPreview({
 
   const signIn = createSignIn({
     clientId: config.userPoolClientId,
+    userPoolId: config.userPoolId,
+    user,
     host: () => loginHost,
     consoleOrigin: () => `http://${consoleHost}`,
     redirectUri: () => `http://${consoleHost}/`,
@@ -1306,8 +1406,9 @@ export async function createPreview({
         sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
         return;
       }
+      // Whoever signed in: on the console's own page, either local user.
       sendResult(response,
-        await callApi({ method, path, query, headers, body, user, expiresAt: session.expiresAt }));
+        await callApi({ method, path, query, headers, body, user: session.user, expiresAt: session.expiresAt }));
     }
   }
 
@@ -1366,6 +1467,9 @@ export async function createPreview({
     clientId: config.userPoolClientId,
     loginOrigin: `http://${loginHost}`,
     scope: CLIENT_SCOPES.join(' '),
+    userPoolId: config.userPoolId,
+    // The stand-in for the user pool API answers on the login origin.
+    idpOrigin: `http://${loginHost}`,
     redirectUri: `http://${consoleHost}/`,
     homeHosts: home ? [HOME_HOST] : [],
     log: (line) => log({ function: 'web', ...line }),
@@ -1416,7 +1520,8 @@ export async function createPreview({
 const USAGE = `Usage: node cloud/dev/preview.mjs [options]
 
   --scenario <name>   start in the state this scenario builds (default: empty)
-  --viewer            sign in as a viewer instead of a release manager
+  --viewer            the AWS sign-in page signs in the viewer instead of the release
+                      manager (the console's own page signs in whoever's address is typed)
   --live              let the boards act by themselves; type 1 or 2 to press a button
   --home              serve the public home page instead of the console
   --port <number>     port of the console (default ${DEFAULT_PORT}); sign-in uses the next one
@@ -1498,13 +1603,16 @@ function banner({ consoleUrl, loginOrigin, user, scenario, live, home }) {
   Cranium firmware console: LOCAL PREVIEW
 
   This is not the deployed console, and it is not connected to AWS. The API runs in
-  this process against an in-memory stand-in, sign-in is emulated without a password,
-  and the boards are simulated. Everything shown was built by the scenario or done in
-  this session, and is gone when the preview stops.
+  this process against an in-memory stand-in, sign-in is emulated with a made-up password
+  and code, and the boards are simulated. Everything shown was built by the scenario or
+  done in this session, and is gone when the preview stops.
 
     Console     ${consoleUrl}
     Sign-in     emulated at ${loginOrigin}
-    Signed in   ${user.email} (${user.role})
+                on the console's page: ${USERS.manager.email} (${USERS.manager.role})
+                or ${USERS.viewer.email} (${USERS.viewer.role}),
+                password ${PREVIEW_PASSWORD}, code ${PREVIEW_CODE}
+                "Use the AWS sign-in page": ${user.email} (${user.role}), at once
     Scenario    ${scenario}
                 ${SCENARIOS[scenario].summary}
     Boards      ${boards}

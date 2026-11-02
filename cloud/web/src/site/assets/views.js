@@ -16,7 +16,7 @@
  */
 
 import {
-  FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, STEPS, alreadyRuns, asksForButton, busyBoards, canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
+  CODE_LENGTH, FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, SIGN_IN_WORDS, STEPS, alreadyRuns, asksForButton, busyBoards, canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
   deploymentHref, describeAudit, describeCounts, describeDeployment, describeExecution, describeHistory,
   describeUpdate, deviceActivity, deviceHref, duration, exactBytes, exactTime, failedCheck, fileSize, IMAGE_CHECKS,
   installStanding, isRefusal, isRestarting, isUnderWay, isUnfinished, isUnregistered, nameOf, parseVersion, plainMessage,
@@ -1033,25 +1033,164 @@ function returnPath(execution, description) {
 
 // Sign-in and other moments when there is no console to show.
 
-/** A single message in the middle of the page, with at most one thing to do. */
-export function gateView({ iconName = 'lock', title, text, detail, code, action, waiting, leaving }) {
-  const moving = waiting || leaving;
-  return h('div', { class: `gate ${moving ? 'is-moving' : ''}`.trim() },
+/** The frame of a page without the console: the brand, a message, and the dome beside it. */
+function gateFrame(className, message) {
+  return h('div', { class: className },
     h('div', { class: 'gate-copy' },
       h('div', { class: 'gate-brand' },
         brandMark(),
         h('span', { class: 'gate-brand-text' },
           h('span', { class: 'gate-brand-name' }, 'Cranium'),
           h('span', { class: 'gate-brand-sub' }, 'Firmware console'))),
-      h('div', { class: 'gate-message' },
-        // The padlock is what every gate has by default; the mark above says as much.
-        iconName === 'lock' ? null : h('span', { class: 'gate-icon' }, icon(iconName)),
-        h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, title),
-        text ? h('p', { class: 'gate-text' }, text) : null,
-        detail ? h('p', { class: 'gate-text' }, detail, code ? [' ', mono(code)] : null) : null,
-        action ? button(`is-large ${action.quiet ? '' : 'is-primary'}`.trim(), action.run, action.label) : null),
+      message,
       h('p', { class: 'gate-foot' }, 'Upload signed firmware, offer it to boards, watch each one update.')),
     h('div', { class: 'gate-art' }, domeArt()));
+}
+
+/** A single message in the middle of the page, with at most one thing to do. */
+export function gateView({ iconName = 'lock', title, text, detail, code, action, waiting, leaving }) {
+  const moving = waiting || leaving;
+  return gateFrame(`gate ${moving ? 'is-moving' : ''}`.trim(),
+    h('div', { class: 'gate-message' },
+      // The padlock is what every gate has by default; the mark above says as much.
+      iconName === 'lock' ? null : h('span', { class: 'gate-icon' }, icon(iconName)),
+      h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, title),
+      text ? h('p', { class: 'gate-text' }, text) : null,
+      detail ? h('p', { class: 'gate-text' }, detail, code ? [' ', mono(code)] : null) : null,
+      action ? button(`is-large ${action.quiet ? '' : 'is-primary'}`.trim(), action.run, action.label) : null));
+}
+
+// The console's own sign-in page: the e-mail address and the password, then the code from
+// the authenticator app in six boxes. app.js keeps the state and does the work; nothing
+// here holds the password. Its field has no value from the state and no name, and the
+// form never goes anywhere: the page's policy forbids sending a form (form-action 'none').
+
+const SIGN_IN_LEAD = 'With your e-mail address, your password and the code from your authenticator app.';
+
+/** What went wrong, said at once to a screen reader: a new element for every attempt. */
+function signInProblemLine(model) {
+  if (!model.problem) return null;
+  return h('p', { class: 'signin-problem', id: 'signin-problem', role: 'alert', key: `problem-${model.tries}` },
+    icon('alert'), h('span', null, SIGN_IN_WORDS[model.problem] ?? SIGN_IN_WORDS.failed));
+}
+
+function signInForm(model, key, onSubmit, ...body) {
+  return h('form', {
+    class: 'signin-form',
+    key,
+    novalidate: true,
+    'aria-busy': model.busy ? 'true' : null,
+    onSubmit(event) {
+      event.preventDefault();
+      if (!model.busy) onSubmit();
+    },
+  }, body);
+}
+
+/** The button that sends; while its request is on the way it keeps the focus and only says so. */
+function signInButton(model, label) {
+  return h('button', {
+    key: 'send',
+    type: 'submit',
+    class: 'btn is-large is-primary',
+    'aria-disabled': model.busy ? 'true' : null,
+  }, model.busy ? 'Checking…' : label);
+}
+
+function passwordStep(model) {
+  const wrong = model.problem === 'wrong-password' || model.problem === 'missing';
+  return signInForm(model, 'password', model.submitPassword,
+    h('label', { class: 'field', key: 'email' },
+      h('span', { class: 'field-label' }, 'E-mail address'),
+      h('input', {
+        class: 'input',
+        id: 'signin-email',
+        type: 'email',
+        autocomplete: 'username',
+        inputmode: 'email',
+        autocapitalize: 'off',
+        spellcheck: 'false',
+        value: model.email,
+        readonly: model.busy,
+        'aria-invalid': wrong ? 'true' : null,
+        'aria-describedby': model.problem ? 'signin-problem' : null,
+        onInput: (event) => model.setEmail(event.target.value),
+      })),
+    h('label', { class: 'field', key: 'password' },
+      h('span', { class: 'field-label' }, 'Password'),
+      h('input', {
+        class: 'input',
+        id: 'signin-password',
+        type: 'password',
+        autocomplete: 'current-password',
+        readonly: model.busy,
+        'aria-invalid': wrong ? 'true' : null,
+        'aria-describedby': model.problem ? 'signin-problem' : null,
+        ref: model.passwordRef,
+      })),
+    signInProblemLine(model),
+    h('div', { class: 'signin-actions', key: 'actions' },
+      signInButton(model, 'Continue'),
+      h('button', { type: 'button', class: 'btn is-quiet', onClick: model.forgotPassword }, 'Forgot your password?')));
+}
+
+function codeStep(model) {
+  const wrong = model.problem === 'wrong-code';
+  return signInForm(model, 'code', model.submitCode,
+    h('div', { class: 'field', key: 'code' },
+      h('span', { class: 'field-label', id: 'code-label' }, 'Code from your authenticator app'),
+      h('div', {
+        class: `code-boxes ${wrong ? 'is-wrong' : ''}`.trim(),
+        role: 'group',
+        'aria-labelledby': 'code-label',
+        'aria-describedby': model.problem ? 'signin-problem code-hint' : 'code-hint',
+      }, model.digits.map((digit, index) => h('input', {
+        key: `digit-${index}`,
+        id: `code-digit-${index + 1}`,
+        class: 'code-digit',
+        type: 'text',
+        inputmode: 'numeric',
+        pattern: '[0-9]*',
+        // The first box is where a browser or a phone fills in the whole code.
+        autocomplete: index === 0 ? 'one-time-code' : 'off',
+        'aria-label': `Digit ${index + 1} of ${CODE_LENGTH}`,
+        'aria-invalid': wrong ? 'true' : null,
+        value: digit,
+        readonly: model.busy,
+        onInput: (event) => model.enterDigits(index, event.data ?? event.target.value),
+        onPaste: (event) => model.pasteDigits(index, event),
+        onKeydown: (event) => model.keyInBox(index, event),
+        onFocus: (event) => event.target.select?.(),
+      }))),
+      h('span', { class: 'field-hint', id: 'code-hint' },
+        'The six digits it shows now. The code goes in by itself once the last digit is typed.')),
+    signInProblemLine(model),
+    h('div', { class: 'signin-actions', key: 'actions' },
+      signInButton(model, 'Sign in'),
+      h('button', {
+        type: 'button', class: 'btn is-quiet', 'aria-disabled': model.busy ? 'true' : null, onClick: model.startOver,
+      }, 'Start again')));
+}
+
+/**
+ * The console's own sign-in page.
+ *
+ * @param {object} model  step ('password' or 'code'), email, digits, busy, problem (a key
+ *                        of SIGN_IN_WORDS), tries, lead, and what each control does
+ */
+export function signInView(model) {
+  const code = model.step === 'code';
+  return gateFrame('gate is-signin',
+    h('div', { class: 'gate-message signin', key: code ? 'code' : 'password' },
+      h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, code ? 'Enter the code' : 'Sign in'),
+      code
+        ? h('p', { class: 'gate-text' }, 'Signing in as ', h('strong', { class: 'signin-who' }, model.email), '.')
+        : h('p', { class: 'gate-text' }, model.lead ?? SIGN_IN_LEAD),
+      code ? codeStep(model) : passwordStep(model),
+      h('div', { class: 'signin-other', key: 'other' },
+        h('button', { type: 'button', class: 'btn is-quiet', onClick: model.useAwsPage },
+          'Use the AWS sign-in page', icon('arrow-right')),
+        h('p', { class: 'signin-note' }, 'The same account and the same code, on Amazon’s page.'))));
 }
 
 // The masthead: sections and who is signed in.

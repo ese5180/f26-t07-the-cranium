@@ -14,8 +14,10 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
+import { createCognito } from './cognito.mjs';
 import {
-  CORE, HISTORY, NEIGHBOURS, SERIAL, TELEMETRY, VIEWS, all, click, controls, createDocument, one, scriptAddress, textOf,
+  CORE, HISTORY, NEIGHBOURS, SERIAL, TELEMETRY, VIEWS, all, click, controls, createDocument, descendants, one, scriptAddress,
+  textOf,
 } from './page.mjs';
 import {
   INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
@@ -41,11 +43,18 @@ async function until(check, what) {
 }
 
 const LOGIN = 'https://login.example';
+const IDP = 'https://idp.example';
 const CONFIG = {
   clientId: 'client-1',
   loginOrigin: LOGIN,
   scope: 'openid cranium/console',
   redirectUri: 'https://console.example/',
+  userPoolId: 'xx-test-1_Pool0Tests',
+  idpOrigin: IDP,
+};
+// The account the console's own sign-in page signs in with. Made up for these tests.
+const PERSON = {
+  email: MANAGER.email, userId: MANAGER.sub, password: 'Only-For-Tests-7', code: '135790',
 };
 const TOKENS = {
   access_token: 'FRESH-TOKEN', refresh_token: 'REFRESH', token_type: 'Bearer', expires_in: 3600,
@@ -83,16 +92,21 @@ function navigatorSerial() {
  * @param {Function} [options.upload]     (body) => { status, body } for an upload
  * @param {Function} [options.BroadcastChannel]  what the tab has for a line to other tabs; by
  *                                        default nothing, as in a browser without one
+ * @param {object[]} [options.users]      the accounts of Cognito's user pool API (cognito.mjs)
+ * @param {Function} [options.fail]       an error for Cognito to answer a call with, by name
  */
 async function openTab(t, options = {}) {
   const {
     world = WORLD, viewer = false, hash = '#/overview', search = '', session = 3600, stored = {},
     touch = false, answer = () => null, upload = () => ({ status: 500, body: {} }), BroadcastChannel,
+    users = [PERSON], fail,
   } = options;
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
+  const cognito = createCognito({ userPoolId: CONFIG.userPoolId, clientId: CONFIG.clientId, users, fail });
 
   const replies = repliesFor(world, { viewer });
   const requests = [];
+  const headersSent = [];
   const navigations = [];
   const document = createDocument(['skip', 'main', 'nav', 'account', 'toasts', 'announcer']);
   document.querySelector = (selector) =>
@@ -141,8 +155,11 @@ async function openTab(t, options = {}) {
     const json = typeof init.body === 'string' && init.body.startsWith('{');
     const body = json ? JSON.parse(init.body) : init.body;
     requests.push({ method, url, body, token: init.headers?.authorization ?? null });
+    headersSent.push(init.headers ?? {});
     const special = answer(method, url, body);
     if (special) return special;
+    if (url.startsWith(IDP)) return cognito.fetch(IDP, url, init);
+    if (url === `${LOGIN}/oauth2/revoke`) return new Response(null, { status: 200 });
     if (method === 'GET' && replies.has(url)) return Response.json(replies.get(url));
     return refusal(404, 'not_found', `There is nothing at ${url}.`);
   }
@@ -207,7 +224,9 @@ async function openTab(t, options = {}) {
   const tab = {
     document,
     location,
+    cognito,
     requests,
+    headersSent,
     navigations,
     replies,
     storage,
@@ -723,38 +742,347 @@ test('a page that could not be loaded says so, and is asked for again more slowl
   assert.equal(all(tab.main, 'li.board-line').length, 3);
 });
 
-// The session.
+// The session, and the console's own sign-in page.
 
-const leaving = (tab) => until(() => tab.navigations.length > 0, 'the way to the sign-in page');
+const leaving = (tab) => until(() => tab.navigations.length > 0, 'the way to the AWS sign-in page');
 const authorizeUrl = (tab) => new URL(tab.navigations.at(-1));
 const pendingRoute = (tab) => JSON.parse(tab.storage.get('cranium.signin')).route;
+const signInPage = (tab) => all(tab.main, 'form.signin-form')[0] ?? null;
+const asked = (tab) => until(() => signInPage(tab) !== null, 'the sign-in page');
+const focused = (tab) => tab.document.activeElement?.id ?? null;
+const box = (tab, n) => tab.document.getElementById(`code-digit-${n}`);
+const digits = (tab) => all(tab.main, 'input.code-digit').map((el) => el.value).join('');
+const codeCalls = (tab) => tab.cognito.calls.filter((call) => call.body.ChallengeName === 'SOFTWARE_TOKEN_MFA');
 
-test('the console leaves for the sign-in page a minute before the token ends', async (t) => {
-  const tab = await openTab(t, { session: 100, hash: `#/devices/${WAITING}` });
-  await tab.wait(35000);
-  assert.deepEqual(tab.navigations, [], 'with 65 s left');
-  await tab.wait(5000);
-  await leaving(tab);
-  assert.equal(authorizeUrl(tab).origin + authorizeUrl(tab).pathname, `${LOGIN}/oauth2/authorize`);
-  assert.equal(authorizeUrl(tab).searchParams.get('code_challenge_method'), 'S256');
-  // The page to come back to is remembered, and the old token is put away.
-  assert.equal(pendingRoute(tab), `#/devices/${WAITING}`);
-  assert.equal(tab.storage.has('cranium.session'), false);
-  assert.equal(textOf(one(tab.main, 'h1')), 'Taking you to the sign-in page…');
-  // It leaves once.
-  await tab.wait(30000);
-  assert.equal(tab.navigations.length, 1);
+/** Type into the box that has the keyboard, as a keyboard does. */
+async function key(tab, text) {
+  const el = tab.document.activeElement;
+  el.value = `${el.value}${text}`;
+  el.dispatchEvent({ type: 'input', target: el, data: text });
+  await settle();
+}
+
+/** Press a key that is not typed, such as Backspace, in the box that has the keyboard. */
+async function hit(tab, name) {
+  const event = tab.document.activeElement.dispatchEvent({ type: 'keydown', key: name });
+  await settle();
+  return event;
+}
+
+/** Paste into a box; what the boxes hold straight after, before anything was answered. */
+async function paste(tab, el, text) {
+  const event = el.dispatchEvent({ type: 'paste', clipboardData: { getData: (type) => (type === 'text' ? text : '') } });
+  const held = digits(tab);
+  await settle();
+  return { event, held };
+}
+
+/** The address and the password, sent as Enter or the button sends them. */
+async function givePassword(tab, email = PERSON.email, password = PERSON.password) {
+  await tab.type(tab.document.getElementById('signin-email'), email);
+  tab.document.getElementById('signin-password').value = password;
+  one(tab.main, 'form.signin-form').dispatchEvent({ type: 'submit' });
+  await settle();
+}
+
+const atCode = (tab) => until(() => box(tab, 1) !== null && !one(tab.main, 'form.signin-form').hasAttribute('aria-busy'),
+  'the boxes for the code');
+const settled = (tab) => until(() => !signInPage(tab)?.hasAttribute('aria-busy'), 'an answer from Cognito');
+
+/** From the password to the console, on the console's own page. */
+async function signInHere(tab) {
+  await givePassword(tab);
+  await atCode(tab);
+  for (const digit of PERSON.code) await key(tab, digit);
+  await until(() => !tab.document.body.contains(box(tab, 1) ?? tab.main) || signInPage(tab) === null, 'the console');
+  await until(() => tab.nav.hidden === false, 'the console');
+}
+
+/** Whatever a script wrote to the browser's console, as one text. */
+function consoleSpy(t) {
+  const written = [];
+  for (const name of ['log', 'info', 'warn', 'error', 'debug']) {
+    t.mock.method(console, name, (...items) => written.push(items.map((item) => String(item?.stack ?? item)).join(' ')));
+  }
+  return written;
+}
+
+test('without a session the console asks on its own page, and opens at the address after the code', async (t) => {
+  const written = consoleSpy(t);
+  const tab = await openTab(t, { session: null, hash: '#/devices' });
+  await asked(tab);
+  assert.equal(textOf(one(tab.main, 'h1')), 'Sign in');
+  assert.equal(tab.nav.hidden, true);
+  assert.deepEqual(controls(tab.main), ['Continue', 'Forgot your password?', 'Use the AWS sign-in page']);
+  assert.equal(focused(tab), 'signin-email');
+  // Nothing was asked of anybody, and the browser went nowhere.
+  assert.deepEqual(tab.requests, []);
+  assert.deepEqual(tab.navigations, []);
+
+  await givePassword(tab);
+  await atCode(tab);
+  assert.equal(textOf(one(tab.main, 'h1')), 'Enter the code');
+  assert.match(textOf(tab.main), new RegExp(`Signing in as ${PERSON.email.replace('.', '\\.')}\\.`));
+  // The password field is gone with its step, and it was emptied before that.
+  assert.equal(all(tab.main, 'input').some((el) => el.getAttribute('type') === 'password'), false);
+  assert.equal(focused(tab), 'code-digit-1');
+
+  // Each digit moves the keyboard on; the sixth sends the code by itself.
+  for (const [index, digit] of [...PERSON.code].entries()) {
+    await key(tab, digit);
+    if (index < 5) assert.equal(focused(tab), `code-digit-${index + 2}`, `after digit ${index + 1}`);
+  }
+  await until(() => tab.document.title.startsWith('Devices'), 'the devices page');
+  assert.equal(tab.location.hash, '#/devices');
+  assert.equal(codeCalls(tab).length, 1);
+
+  // The session is what the AWS sign-in page would have left, and its refresh token is revoked.
+  assert.deepEqual([...tab.storage.keys()], ['cranium.session']);
+  assert.equal(sentTo(tab, '/api/me')[0].token, 'Bearer SRP-ACCESS-1');
+  const revoke = sentTo(tab, `${LOGIN}/oauth2/revoke`);
+  assert.equal(revoke.length, 1);
+  assert.equal(new URLSearchParams(revoke[0].body).get('token'), 'SRP-REFRESH-1');
+  assert.deepEqual(tab.navigations, []);
+
+  // The password is nowhere: not sent, not stored, not in the page, not written to the console.
+  const everything = [
+    ...tab.requests.map((request) => `${request.url} ${JSON.stringify(request.body)}`),
+    ...tab.headersSent.map((headers) => JSON.stringify(headers)),
+    ...tab.storage.values(),
+    ...descendants(tab.document.body).map((el) => `${el.value} ${[...el.attributes.values()].join(' ')}`),
+    textOf(tab.document.body),
+    ...written,
+  ].join('\n');
+  assert.equal(everything.includes(PERSON.password), false);
+  assert.equal(JSON.stringify(tab.cognito.calls).includes(PERSON.password), false);
 });
 
-test('a hidden tab does not leave for the sign-in page; it does when it is looked at again', async (t) => {
+test('a wrong password, and an address nobody has, get the same words; the field is emptied', async (t) => {
+  const tab = await openTab(t, { session: null, hash: '#/firmware' });
+  await asked(tab);
+  const said = [];
+  for (const [email, password] of [[PERSON.email, 'Not-It-At-All-1'], ['nobody@example.invalid', PERSON.password]]) {
+    await givePassword(tab, email, password);
+    await settled(tab);
+    said.push(textOf(one(tab.main, 'p.signin-problem')));
+    assert.equal(one(tab.main, 'p.signin-problem').getAttribute('role'), 'alert');
+    assert.equal(tab.document.getElementById('signin-password').value, '');
+    assert.equal(focused(tab), 'signin-password');
+    assert.equal(tab.document.getElementById('signin-email').value, email, 'the address is kept');
+  }
+  assert.deepEqual(said, ['The e-mail address or password is wrong.', 'The e-mail address or password is wrong.']);
+  // Each attempt is a new message, so that a screen reader says the second one too.
+  assert.deepEqual(tab.storage.size, 0);
+
+  // Nothing typed at all is said before anything is sent.
+  const calls = tab.cognito.calls.length;
+  await givePassword(tab, '', '');
+  assert.equal(textOf(one(tab.main, 'p.signin-problem')), 'Enter your e-mail address and your password.');
+  assert.equal(tab.cognito.calls.length, calls);
+  assert.equal(focused(tab), 'signin-email');
+});
+
+test('a wrong code clears the boxes, puts the keyboard in the first, says so; the right one then signs in', async (t) => {
+  const tab = await openTab(t, { session: null, hash: '#/overview' });
+  await asked(tab);
+  await givePassword(tab);
+  await atCode(tab);
+  for (const digit of '000000') await key(tab, digit);
+  await settled(tab);
+  assert.equal(codeCalls(tab).length, 1, 'sent once');
+  assert.equal(digits(tab), '');
+  assert.equal(focused(tab), 'code-digit-1');
+  const problem = one(tab.main, 'p.signin-problem');
+  assert.equal(textOf(problem), 'That code is not right. Try the next one from your authenticator app.');
+  assert.equal(problem.getAttribute('role'), 'alert');
+  assert.equal(one(tab.main, 'div.code-boxes').getAttribute('aria-describedby'), 'signin-problem code-hint');
+  assert.equal(box(tab, 1).getAttribute('aria-invalid'), 'true');
+
+  for (const digit of PERSON.code) await key(tab, digit);
+  await until(() => tab.nav.hidden === false, 'the console');
+  assert.equal(codeCalls(tab).length, 2);
+  assert.deepEqual([...tab.storage.keys()], ['cranium.session']);
+});
+
+test('the boxes: Backspace goes back and clears, the arrows move, anything but a digit is ignored', async (t) => {
+  const tab = await openTab(t, { session: null });
+  await asked(tab);
+  await givePassword(tab);
+  await atCode(tab);
+
+  await key(tab, '1');
+  await key(tab, 'a');
+  assert.equal(digits(tab), '1');
+  assert.equal(focused(tab), 'code-digit-2', 'a letter does not move the keyboard on');
+  assert.equal(box(tab, 2).value, '', 'and is not left in the box');
+  await key(tab, '2');
+  await key(tab, '3');
+  assert.equal(focused(tab), 'code-digit-4');
+
+  // In an empty box Backspace goes back one and clears that box.
+  assert.equal((await hit(tab, 'Backspace')).defaultPrevented, true);
+  assert.equal(focused(tab), 'code-digit-3');
+  assert.equal(digits(tab), '12');
+  // In a full box it clears it and stays.
+  await hit(tab, 'ArrowLeft');
+  assert.equal(focused(tab), 'code-digit-2');
+  await hit(tab, 'Backspace');
+  assert.deepEqual(all(tab.main, 'input.code-digit').map((el) => el.value), ['1', '', '', '', '', '']);
+  assert.equal(focused(tab), 'code-digit-2');
+  await hit(tab, 'ArrowRight');
+  await hit(tab, 'ArrowRight');
+  assert.equal(focused(tab), 'code-digit-4');
+  await hit(tab, 'Home');
+  assert.equal(focused(tab), 'code-digit-1');
+  await hit(tab, 'End');
+  assert.equal(focused(tab), 'code-digit-6');
+  // Tab and the like are left to the browser.
+  assert.equal((await hit(tab, 'Tab')).defaultPrevented, false);
+  assert.equal(codeCalls(tab).length, 0, 'nothing was sent on the way');
+});
+
+test('a whole code pasted or filled in, with or without a space, fills every box and is sent once', async (t) => {
+  for (const [text, where] of [[PERSON.code, 1], [`${PERSON.code.slice(0, 3)} ${PERSON.code.slice(3)}`, 4]]) {
+    const tab = await openTab(t, { session: null });
+    await asked(tab);
+    await givePassword(tab);
+    await atCode(tab);
+    const { event, held } = await paste(tab, box(tab, where), text);
+    assert.equal(event.defaultPrevented, true, 'the browser does not paste it into one box as well');
+    assert.equal(held, PERSON.code);
+    await until(() => tab.nav.hidden === false, 'the console');
+    assert.equal(codeCalls(tab).length, 1, JSON.stringify(text));
+    t.mock.timers.reset();
+  }
+
+  // The browser filling the code into the first box (autocomplete="one-time-code").
+  const tab = await openTab(t, { session: null });
+  await asked(tab);
+  await givePassword(tab);
+  await atCode(tab);
+  const first = box(tab, 1);
+  first.value = PERSON.code;
+  first.dispatchEvent({ type: 'input', target: first, data: null });
+  await settle();
+  // While it is on its way, what is typed changes nothing and sends nothing more.
+  await key(tab, '9');
+  await until(() => tab.nav.hidden === false, 'the console');
+  assert.equal(codeCalls(tab).length, 1);
+});
+
+test('a code sent from the button needs all six digits; Start again goes back to the password', async (t) => {
+  const tab = await openTab(t, { session: null });
+  await asked(tab);
+  await givePassword(tab);
+  await atCode(tab);
+  await key(tab, '1');
+  await key(tab, '3');
+  await tab.press(tab.main, 'button', 'Sign in');
+  assert.equal(textOf(one(tab.main, 'p.signin-problem')), 'Type all six digits of the code.');
+  assert.equal(focused(tab), 'code-digit-3');
+  assert.equal(codeCalls(tab).length, 0);
+
+  await tab.press(tab.main, 'button', 'Start again');
+  assert.equal(textOf(one(tab.main, 'h1')), 'Sign in');
+  assert.equal(tab.document.getElementById('signin-email').value, PERSON.email);
+  assert.equal(focused(tab), 'signin-password');
+});
+
+test('limits, an ended sign-in and a lost connection are said in words, never in Cognito\'s', async (t) => {
+  let rule = null;
+  const tab = await openTab(t, { session: null, fail: (operation, body) => rule?.(operation, body) ?? null });
+  await asked(tab);
+  rule = (operation) => (operation === 'InitiateAuth' ? 'TooManyRequestsException' : null);
+  await givePassword(tab);
+  await settled(tab);
+  assert.equal(textOf(one(tab.main, 'p.signin-problem')), 'Too many tries. Wait a minute.');
+
+  rule = (operation, body) => (body.ChallengeName === 'SOFTWARE_TOKEN_MFA' ? 'NotAuthorizedException' : null);
+  await givePassword(tab);
+  await atCode(tab);
+  for (const digit of PERSON.code) await key(tab, digit);
+  await settled(tab);
+  // Cognito ended its sign-in: back to the password.
+  assert.equal(textOf(one(tab.main, 'h1')), 'Sign in');
+  assert.equal(textOf(one(tab.main, 'p.signin-problem')),
+    'The sign-in took too long, so it starts again. Enter your password once more.');
+  assert.equal(focused(tab), 'signin-password');
+  assert.doesNotMatch(textOf(tab.main), /Exception|Incorrect|Invalid session/);
+});
+
+test('a step this page does not do goes to the AWS sign-in page by itself, to come back to the same page', async (t) => {
+  for (const [next, words] of [
+    ['NEW_PASSWORD_REQUIRED', /needs a new password first/],
+    ['MFA_SETUP', /needs an authenticator app first/],
+    ['SELECT_MFA_TYPE', /a step that only that page does/],
+  ]) {
+    const tab = await openTab(t, { session: null, hash: '#/deployments', users: [{ ...PERSON, next }] });
+    await asked(tab);
+    await givePassword(tab);
+    await leaving(tab);
+    assert.equal(authorizeUrl(tab).origin + authorizeUrl(tab).pathname, `${LOGIN}/oauth2/authorize`);
+    assert.equal(authorizeUrl(tab).searchParams.get('prompt'), 'login');
+    assert.equal(pendingRoute(tab), '#/deployments');
+    assert.equal(textOf(one(tab.main, 'h1')), 'Taking you to the AWS sign-in page…');
+    assert.match(textOf(tab.main), words);
+    assert.equal(tab.storage.has('cranium.session'), false);
+    t.mock.timers.reset();
+  }
+});
+
+test('the AWS sign-in page is always one press away, and so is a forgotten password', async (t) => {
+  for (const label of ['Use the AWS sign-in page', 'Forgot your password?']) {
+    const tab = await openTab(t, { session: null, hash: '#/activity' });
+    await asked(tab);
+    await tab.press(tab.main, 'button', label);
+    await leaving(tab);
+    assert.equal(authorizeUrl(tab).searchParams.get('code_challenge_method'), 'S256');
+    assert.equal(pendingRoute(tab), '#/activity');
+    assert.deepEqual(tab.cognito.calls, [], label);
+    t.mock.timers.reset();
+  }
+  // Also from the step of the code.
+  const tab = await openTab(t, { session: null });
+  await asked(tab);
+  await givePassword(tab);
+  await atCode(tab);
+  await tab.press(tab.main, 'button', 'Use the AWS sign-in page');
+  await leaving(tab);
+  assert.equal(codeCalls(tab).length, 0);
+});
+
+test('a minute before the token ends the console asks for the password again, in place', async (t) => {
+  const tab = await openTab(t, { session: 100, hash: `#/devices/${WAITING}` });
+  await tab.wait(35000);
+  assert.equal(signInPage(tab), null, 'with 65 s left');
+  await tab.wait(5000);
+  await asked(tab);
+  assert.match(textOf(one(tab.main, 'p.gate-text')), /^Your session has ended\. Sign in again/);
+  // It goes nowhere, and keeps the address.
+  assert.deepEqual(tab.navigations, []);
+  assert.equal(tab.location.hash, `#/devices/${WAITING}`);
+  await tab.wait(30000);
+  assert.deepEqual(tab.navigations, []);
+
+  await signInHere(tab);
+  assert.equal(tab.location.hash, `#/devices/${WAITING}`);
+  assert.match(tab.document.title, /^cranium-0000/);
+  assert.equal(sentTo(tab, '/api/me').at(-1).token, 'Bearer SRP-ACCESS-1');
+  // The listeners of the console are set up once: one change of address, one load.
+  const mark = sentTo(tab, '/api/devices').length;
+  await tab.goto('#/devices');
+  assert.equal(sentTo(tab, '/api/devices').length, mark + 1);
+});
+
+test('a hidden tab does not ask for the password; it does when it is looked at again', async (t) => {
   const tab = await openTab(t, { session: 100, hash: '#/firmware' });
   await tab.hide(true);
   await tab.wait(90000);
   await pause(20);
-  assert.deepEqual(tab.navigations, []);
+  assert.equal(signInPage(tab), null);
   await tab.hide(false);
-  await leaving(tab);
-  assert.equal(pendingRoute(tab), '#/firmware');
+  await asked(tab);
+  assert.equal(tab.location.hash, '#/firmware');
 });
 
 test('an open dialog is not interrupted by the end of the session', async (t) => {
@@ -764,14 +1092,13 @@ test('an open dialog is not interrupted by the end of the session', async (t) =>
 
   await tab.wait(60000);
   await pause(20);
-  assert.deepEqual(tab.navigations, [], 'the dialog is left alone');
+  assert.equal(signInPage(tab), null, 'the dialog is left alone');
   assert.notEqual(tab.dialog(), null);
 
-  // Closed, the console leaves at once.
+  // Closed, the console asks at once.
   await tab.press(tab.dialog(), 'button', 'Keep the release');
   assert.equal(tab.dialog(), null);
-  await leaving(tab);
-  assert.equal(pendingRoute(tab), '#/firmware');
+  await asked(tab);
 });
 
 /** An MCUboot image as far as the browser looks at one: a header with a version. */
@@ -803,27 +1130,27 @@ test('a request made after the session has ended says so, and keeps the dialog w
   await tab.submit();
 
   assert.equal(tab.requests.filter((request) => request.method === 'POST').length, mark, 'nothing was sent');
-  assert.deepEqual(tab.navigations, [], 'and the console has not left');
+  assert.equal(signInPage(tab), null, 'and the console has not asked');
   assert.equal(tab.dialog(), dialog);
   assert.equal(textOf(one(dialog, 'span.notice-said')), 'Not revoked. Your session has ended. Sign in again to continue.');
   assert.equal(one(dialog, 'textarea').value, REASON);
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ended');
 
   await tab.press(dialog, 'button', 'Sign in again');
-  await leaving(tab);
-  assert.equal(pendingRoute(tab), '#/firmware');
+  await asked(tab);
   assert.equal(tab.dialog(), null);
+  assert.deepEqual(tab.navigations, []);
 });
 
 test('a refresh that finds the session over does not take away what is in hand', async (t) => {
   const tab = await openTab(t, { session: 100, hash: `#/deployments/${OFFERED}` });
   await tab.press(tab.main, 'button', 'Cancel deployment');
   await tab.wait(110000);
-  assert.deepEqual(tab.navigations, []);
+  assert.equal(signInPage(tab), null);
   assert.notEqual(tab.dialog(), null);
 });
 
-test('a chosen file is not thrown away by the end of the session', async (t) => {
+test('a chosen file is not thrown away by the end of the session, nor by signing in again', async (t) => {
   const tab = await openTab(t, { session: 100, hash: '#/firmware' });
   await chooseFile(tab);
   assert.equal(textOf(one(tab.main, 'p.upload-title')), 'zephyr.signed.bin');
@@ -832,7 +1159,7 @@ test('a chosen file is not thrown away by the end of the session', async (t) => 
 
   await tab.wait(60000);
   await pause(20);
-  assert.deepEqual(tab.navigations, [], 'the file is still in hand');
+  assert.equal(signInPage(tab), null, 'the file is still in hand');
   assert.equal(textOf(one(tab.main, 'p.upload-title')), 'zephyr.signed.bin');
 
   // The session is over by now; the panel says so and offers the way back in. Sending
@@ -842,19 +1169,25 @@ test('a chosen file is not thrown away by the end of the session', async (t) => 
   assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'), false);
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ended');
   await tab.press(tab.main, 'button', 'Sign in again');
-  await leaving(tab);
-  assert.equal(pendingRoute(tab), '#/firmware');
+  await asked(tab);
+
+  // Signed in again in place, the file is still there, and may be sent.
+  await signInHere(tab);
+  await until(() => all(tab.main, 'p.upload-title').length > 0, 'the firmware page');
+  assert.equal(textOf(one(tab.main, 'p.upload-title')), 'zephyr.signed.bin');
+  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'), true);
+  assert.deepEqual(tab.navigations, []);
 });
 
-test('with the file put down again, the console leaves as usual', async (t) => {
+test('with the file put down again, the console asks as usual', async (t) => {
   const tab = await openTab(t, { session: 100, hash: '#/firmware' });
   await chooseFile(tab);
   await tab.wait(60000);
-  assert.deepEqual(tab.navigations, []);
+  assert.equal(signInPage(tab), null);
   await tab.press(tab.main, 'button', 'Choose another file');
   assert.equal(all(tab.main, 'label.drop').length, 1);
   await tab.wait(5000);
-  await leaving(tab);
+  await asked(tab);
 });
 
 /** A tab that comes back from the sign-in page with a code for the sign-in it started. */
@@ -873,7 +1206,7 @@ function returning(t, route, answer = () => null) {
   });
 }
 
-test('back from the sign-in page, the console redeems the code and returns to where it was', async (t) => {
+test('back from the AWS sign-in page, the console redeems the code and returns to where it was', async (t) => {
   const tab = await returning(t, `#/deployments/${OFFERED}`);
   await until(() => tab.document.title.startsWith('Deployment'), 'the page');
 
@@ -894,6 +1227,8 @@ test('a reply from the sign-in page that this tab did not ask for is dropped unr
   assert.deepEqual(tab.requests, []);
   assert.equal(tab.location.search, '');
   assert.deepEqual(controls(tab.main), ['Sign in']);
+  await tab.press(tab.main, 'button', 'Sign in');
+  await asked(tab);
 });
 
 test('a token the API refuses counts as over, whatever time it had left', async (t) => {
@@ -907,23 +1242,21 @@ test('a token the API refuses counts as over, whatever time it had left', async 
   assert.match(textOf(tab.dialog()), /Your session has ended/);
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ended');
   assert.equal(tab.storage.has('cranium.session'), false, 'a token that is refused is not kept');
-  // Once the work is put down, the console leaves for the sign-in page as it does at the end of a session.
-  assert.deepEqual(tab.navigations, []);
+  // Once the work is put down, the console asks for the password as it does at the end of a session.
+  assert.equal(signInPage(tab), null);
   await tab.press(tab.dialog(), 'button', 'Keep the release');
   await tab.wait(5000);
-  // The way there hashes a code, which takes real time and is not on the test's clock.
-  await leaving(tab);
-  assert.equal(tab.navigations.length, 1);
-  assert.match(tab.navigations[0], /\/oauth2\/authorize\?/);
+  await asked(tab);
+  assert.deepEqual(tab.navigations, []);
 });
 
-test('a token the API refuses leads back to sign-in, to the page the user was on', async (t) => {
+test('a token the API refuses leads back to sign-in, on the page the user was on', async (t) => {
   const tab = await openTab(t, {
     hash: '#/devices',
     answer: (method, url) => (url === '/api/devices' ? gateway(401, 'Unauthorized') : null),
   });
-  await leaving(tab);
-  assert.equal(pendingRoute(tab), '#/devices');
+  await asked(tab);
+  assert.equal(tab.location.hash, '#/devices');
   assert.equal(sentTo(tab, '/api/devices').length, 1, 'a refused token is not tried again');
 });
 
@@ -934,6 +1267,25 @@ test('a token refused straight after signing in does not send the user round in 
   assert.equal(textOf(one(tab.main, 'h1')), 'The server did not accept this sign-in');
   assert.deepEqual(tab.navigations, []);
   assert.deepEqual(controls(tab.main), ['Sign out']);
+
+  // The same on the console's own page, and for a token without the console's scope,
+  // which the gateway turns away with a 403 of its own.
+  t.mock.timers.reset();
+  for (const status of [401, 403]) {
+    const here = await openTab(t, {
+      session: null,
+      answer: (method, url) => (url === '/api/me' ? gateway(status, status === 401 ? 'Unauthorized' : 'Forbidden') : null),
+    });
+    await asked(here);
+    await givePassword(here);
+    await atCode(here);
+    for (const digit of PERSON.code) await key(here, digit);
+    await until(() => signInPage(here) === null && all(here.main, 'h1').length > 0 &&
+      textOf(one(here.main, 'h1')) !== 'Loading the console…', 'a message');
+    assert.equal(textOf(one(here.main, 'h1')), 'The server did not accept this sign-in', String(status));
+    assert.deepEqual(controls(here.main), ['Sign out']);
+    t.mock.timers.reset();
+  }
 });
 
 // Revoking.

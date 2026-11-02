@@ -114,8 +114,77 @@ test('a user cannot change their own e-mail address', () => {
   const client = block(template, 'UserPoolClient');
   const allowed = [...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
   assert.deepEqual(allowed, ['name']);
-  // Left as it is on purpose: managed login may need it, which only a test can show.
-  assert.ok(client.includes('ALLOW_USER_SRP_AUTH'));
+});
+
+test('the console\'s client signs in with SRP, never by sending the password', () => {
+  for (const name of ['UserPoolClient', 'MobileUserPoolClient']) {
+    const flows = [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
+    assert.deepEqual(flows, ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH'], name);
+  }
+  assert.equal(template.includes('USER_PASSWORD_AUTH\n'), false);
+  assert.equal(/^\s+- ALLOW_USER_PASSWORD_AUTH/m.test(template), false);
+  const client = block(template, 'UserPoolClient');
+  assert.ok(client.includes('PreventUserExistenceErrors: ENABLED'));
+  assert.ok(client.includes('EnableTokenRevocation: true'));
+});
+
+test('the sign-in trigger: version 2, on the pool, named the way the function is named', () => {
+  const pool = block(template, 'UserPool');
+  // Access tokens can be changed from version 2 on, which needs the Essentials plan.
+  assert.ok(pool.includes('UserPoolTier: ESSENTIALS'));
+  const config = block(block(pool, 'LambdaConfig', 6), 'PreTokenGenerationConfig', 8);
+  assert.ok(config.includes('LambdaVersion: V2_0'));
+  const arn = /LambdaArn: !Sub '([^']+)'/.exec(config)[1];
+  assert.equal(arn, 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-signin-scope');
+  // Only this trigger: no other step of the pool calls a function.
+  assert.deepEqual([...block(pool, 'LambdaConfig', 6).matchAll(/^ {8}(\w+):/gm)].map((match) => match[1]),
+    ['PreTokenGenerationConfig']);
+  // By name, not with !GetAtt: the function is told the client, which belongs to the pool.
+  assert.equal(/!(?:GetAtt|Ref) SignInScopeFn/.test(pool), false);
+
+  const fn = block(template, 'SignInScopeFn');
+  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: SignInScopeLogGroup', "FunctionName: !Sub '${AWS::StackName}-signin-scope'",
+    'LogGroup: !Ref SignInScopeLogGroup', 'Runtime: nodejs22.x', '- arm64', 'Handler: signin-scope.handler',
+    'Role: !GetAtt SignInScopeRole.Arn', 'Code: ../api/src', 'Timeout: 5', '${DeployedCommit} (${DeployedTree})']) {
+    assert.ok(fn.includes(line), line);
+  }
+  // It is told the web client and nothing else; never the phone apps' client.
+  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+): (.+)$/gm)].map((match) => [match[1], match[2]]),
+    [['CONSOLE_CLIENT_ID', '!Ref UserPoolClient']]);
+  assert.equal(fn.includes('MobileUserPoolClient'), false);
+  const group = block(template, 'SignInScopeLogGroup');
+  assert.ok(group.includes("LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-signin-scope'"));
+  assert.ok(group.includes('RetentionInDays: 90'));
+  // The handler the template names is there.
+  assert.ok(read('api/src/signin-scope.mjs').includes('export const handler'));
+});
+
+test('the sign-in trigger may write its log and nothing else, and only Cognito, for this pool, may call it', () => {
+  const role = block(template, 'SignInScopeRole');
+  assert.ok(role.includes('Service: lambda.amazonaws.com'));
+  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog']);
+  const own = statement(role, 'WriteOwnLog');
+  assert.ok(own.includes('Resource: !GetAtt SignInScopeLogGroup.Arn'));
+  assert.deepEqual([...role.matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['logs:CreateLogStream', 'logs:PutLogEvents']);
+  assert.equal(/Action: \S+:\*|Resource: '\*'|ManagedPolicyArns/.test(role), false);
+
+  const permissions = template.split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('SignInScopeFn'));
+  assert.equal(permissions.length, 1);
+  const permission = block(template, 'SignInScopePermission');
+  for (const line of ['Action: lambda:InvokeFunction', 'FunctionName: !Ref SignInScopeFn', 'Principal: cognito-idp.amazonaws.com',
+    'SourceAccount: !Ref AWS::AccountId', 'SourceArn: !GetAtt UserPool.Arn']) {
+    assert.ok(permission.includes(line), line);
+  }
+});
+
+test('the web function is told the user pool, for the console\'s own sign-in page', () => {
+  const variables = block(block(template, 'WebFn'), 'Variables', 8);
+  assert.ok(variables.includes('USER_POOL_ID: !Ref UserPool'));
+  // It still may call no AWS API: its role writes its log, and that is all.
+  assert.deepEqual([...block(template, 'WebRole').matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['logs:CreateLogStream', 'logs:PutLogEvents']);
 });
 
 test('the tables are protected from deletion once the stack exists, not while it is created', () => {

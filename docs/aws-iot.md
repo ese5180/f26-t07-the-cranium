@@ -29,8 +29,8 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | IAM role for signing links | Lets AWS IoT Jobs (and nothing else) create a download link for an image. |
 | DynamoDB tables | The list of releases, the audit log, and the boards' event log. The API's role may put and query audit entries, and nothing else; it may only query the event log. What that does and does not guarantee is under [Security decisions](#security-decisions). |
 | IoT rules and the recorder | Two AWS IoT rules hand each shadow report and each connection to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
-| Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. |
-| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route. |
+| Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. A small Lambda function, the sign-in trigger, gives the console's own sign-in page its scope: [Sign-in](#sign-in). |
+| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
 
 ## A board's identity
@@ -209,6 +209,83 @@ password works for 3 days. A session lasts 60 minutes. The console keeps no refr
 asks for the password and the code again. *Viewers* can look; *release managers* can upload, deploy,
 cancel and revoke. [`cloud/README.md`](../cloud/README.md#add-users) has the details.
 
+### Sign-in
+
+**What a person sees.** The console signs people in on a page of its own, in its own design. First
+the e-mail address and the password. Then the code from the authenticator app, in six boxes: a typed
+digit moves to the next box, Backspace in an empty box goes back and clears that one, the arrow keys
+move, and a code that is pasted or filled in by the browser or phone, as `123456` or `123 456`, fills
+all six from any box. The sixth digit sends the code by itself, once. A wrong code clears the boxes,
+puts the cursor in the first one and says so. Each box is labelled for a screen reader ("Digit 1 of
+6"), the six are one labelled group, and every message is announced. The page is the default whenever
+the tab has no session: on opening the console, a minute before a session ends, after a sign-out and
+when the API turns a token away. It asks in place, so the address stays and so does a firmware file
+that was chosen and not yet sent.
+
+**How it signs in.** The browser calls Cognito's user pool API directly
+(`https://cognito-idp.<Region>.amazonaws.com/`, JSON with an `x-amz-target` header): `InitiateAuth`
+with `USER_SRP_AUTH`, then `RespondToAuthChallenge` with `PASSWORD_VERIFIER`, then with
+`SOFTWARE_TOKEN_MFA` and the code. SRP lets the browser prove that it knows the password without
+sending it; Cognito keeps only a verifier. Cognito's variant of SRP-6a is written out in
+`cloud/web/src/site/assets/core.js` with `BigInt` and WebCrypto, with no AWS SDK and no library, since
+the page's content security policy allows no outside script. The details (the 3072-bit prime of RFC
+3526 with g = 2, numbers hashed as Java writes them, k = H(N | g), u = H(A | B),
+x = H(salt | H(pool | user | ":" | password)), a 16-byte HKDF key with the info "Caldera Derived Key",
+the claim an HMAC over pool, user, secret block and a time written `Mon Nov 2 03:04:05 UTC 2026`)
+were taken from Cognito's own JavaScript library (amazon-cognito-identity-js) and checked against
+pycognito. The tests (`cloud/web/test/signin.test.mjs`) play Cognito's side of the exchange with a
+server written apart from the console's code, with Node's crypto and Node's copy of the prime, and
+check every step, including fixed values for the time format, the padding and HKDF. The app client
+allows `USER_SRP_AUTH` and not `USER_PASSWORD_AUTH`, which would send the password.
+
+The password is read from its field when the form is sent, and the field is emptied at once. It is
+used to make the proof and is then dropped: it is not kept in the page's state, in storage or in a
+log, and it is never sent. The fields have no `name`, and the policy's `form-action 'none'` keeps the
+form from going anywhere. Cognito's session for the step of the code is kept in memory only. The
+result is the same session as before: the access token and when it ends, in `sessionStorage` for the
+tab, and the refresh token revoked at once at `/oauth2/revoke`. The page config carries the user pool
+ID and the address of the user pool API, both public, and `connect-src` allows exactly that address
+next to the login pages.
+
+**The sign-in trigger.** A token made through the user pool API carries one scope,
+`aws.cognito.signin.user.admin`, and not `cranium/console`, which every API route demands. A Cognito
+pre token generation trigger, event version 2 (`SignInScopeFn`, `cloud/api/src/signin-scope.mjs`),
+fixes that for the console's web client only, and only at the end of such a sign-in
+(`TokenGeneration_Authentication`) or at a refresh (`TokenGeneration_RefreshTokens`): it adds
+`cranium/console` and takes `aws.cognito.signin.user.admin` out, so the token cannot be used to read
+or change the account through Cognito's user APIs. That is exactly what the managed login pages give
+the same person. Their tokens, the phone apps' client and every other step pass through unchanged, and
+the groups go back as they came. The function calls nothing; its role may only write its own log, and
+only Cognito, for this user pool in this account, may invoke it. The pool names it by ARN, with a
+fixed function name, because the function is told the client's ID and the client belongs to the pool.
+
+**The AWS sign-in page stays.** Both steps offer "Use the AWS sign-in page", which is the managed login
+flow as before (OAuth 2.0 code with PKCE, `prompt=login`). The console goes there by itself for what
+its page does not do: a first sign-in that sets a new password, setting up an authenticator app, a
+password that must be reset, any other challenge, and "Forgot your password?". This pool lets only an
+administrator reset a password (`cloud/users.sh reset-mfa`), so the AWS page cannot do more for a
+forgotten one than this page; whether it offers a reset at all with that setting has not been tried.
+
+**In words.** A wrong password and an address that has no account get the same message, "The e-mail
+address or password is wrong." Others: a wrong code, a sign-in that took too long (it starts again at
+the password), too many tries, a lost connection. Cognito's own messages are never shown.
+
+**What was weighed.** `USER_PASSWORD_AUTH` would have been a few lines, and sends the password to
+Cognito in the request; SRP keeps it in the browser, at the price of writing Cognito's SRP by hand. The
+scope is added for the console's client alone, because a trigger that added it for any client would
+open the API to every client of the pool that can sign in through the API. The admin scope is taken
+out, because the console never needs it and a token without it is worth less to a thief. The managed
+login pages stay, for the steps above and as a way in if this page fails.
+
+**What only a deployment shows.** All of this has run against the stand-in and in the local preview,
+not against Cognito. Still to see with a real account: that Cognito accepts the claim; that the token
+from the console's page carries `cranium/console`, not the admin scope, and still has the groups; that
+the user pool API answers the browser across origins; that `/oauth2/revoke` revokes a refresh token
+made this way; how Cognito answers repeated wrong codes; and that the managed login pages and the phone
+apps sign in as before. While the trigger cannot be called nobody gets a token, by either page or app:
+on the first deployment with it, for the moments between the update of the pool and the creation of the
+function. `cloud/logs.sh signin` shows its invocations.
+
 - **Upload.** The console accepts only an MCUboot image whose SHA-256 and ECDSA P-256
   signature verify against this project's public key, built for this product's flash
   layout, with a version higher than every release registered before. It holds the
@@ -374,7 +451,7 @@ sign-in (see [Known limits](#known-limits)).
 After a new signing key, run `cloud/deploy.sh --replace-signing-key`, so that the console
 trusts its public half. `secrets/README.md` covers the rest.
 
-`cloud/logs.sh api|web|access|iot` follows the logs. `cloud/teardown.sh` removes the console and
+`cloud/logs.sh api|web|events|signin|access|iot` follows the logs. `cloud/teardown.sh` removes the console and
 what it stored. It leaves the budget stack, the `cranium-trail` stack with its log files, and the
 log group `AWSIotLogsV2`.
 
@@ -488,7 +565,12 @@ Stated plainly. What has been measured, and on which firmware, is in the
   passwords, and the attempts need no credential. Sign-in names are e-mail addresses, so anyone who
   knows an address can keep that person from signing in. This comes from AWS's documentation and was
   not tested here. Recovery: add an account at another address with `cloud/users.sh`, or use the AWS
-  CLI stop in `cloud/README.md`.
+  CLI stop in `cloud/README.md`. During such a lock the console's own sign-in page says that the
+  address or password is wrong, also for the right password, because Cognito answers both the same way.
+- The time in the console's proof of the password comes from the computer's clock, unless the browser
+  may read the time in Cognito's answer, which depends on Cognito's CORS headers. A clock that is far off
+  may make Cognito refuse the proof, which then reads as a wrong password. The AWS sign-in page does not
+  depend on that clock. Not tried.
 - API Gateway checks a token offline, so signing out does not end a copy of the token: it works
   for reading and writing until it expires, at most 60 minutes. A removed or disabled user cannot
   write, and reads for at most another minute. During a Cognito outage such a user may read

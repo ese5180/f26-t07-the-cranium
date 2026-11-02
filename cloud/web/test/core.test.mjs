@@ -24,6 +24,8 @@ const CONFIG = {
   loginOrigin: 'https://login.example',
   scope: 'openid cranium/console',
   redirectUri: 'https://console.example/',
+  userPoolId: 'xx-test-1_Pool0Tests',
+  idpOrigin: 'https://idp.example',
 };
 
 // Grammar.
@@ -407,7 +409,9 @@ async function returned(options = {}) {
 
 test('sign-in settings are read from the page, or not at all', () => {
   assert.deepEqual(core.readConfig(JSON.stringify(CONFIG)), CONFIG);
-  const local = { ...CONFIG, loginOrigin: 'http://127.0.0.1:8787', redirectUri: 'http://127.0.0.1:8787/' };
+  const local = {
+    ...CONFIG, loginOrigin: 'http://127.0.0.1:8787', idpOrigin: 'http://127.0.0.1:8787', redirectUri: 'http://127.0.0.1:8787/',
+  };
   assert.deepEqual(core.readConfig(JSON.stringify({ ...local, extra: 1 })), local);
 
   const unusable = [
@@ -417,6 +421,13 @@ test('sign-in settings are read from the page, or not at all', () => {
     JSON.stringify({ ...CONFIG, loginOrigin: 'javascript:alert(1)' }),
     JSON.stringify({ ...CONFIG, loginOrigin: 'https://login.example/path' }),
     JSON.stringify({ ...CONFIG, redirectUri: '/relative' }),
+    // The console's own sign-in page needs the pool and the address of its API.
+    JSON.stringify({ ...CONFIG, userPoolId: undefined }),
+    JSON.stringify({ ...CONFIG, userPoolId: 'Pool0Tests' }),
+    JSON.stringify({ ...CONFIG, userPoolId: 'xx-test-1_Pool 0' }),
+    JSON.stringify({ ...CONFIG, idpOrigin: undefined }),
+    JSON.stringify({ ...CONFIG, idpOrigin: 'https://idp.example/path' }),
+    JSON.stringify({ ...CONFIG, idpOrigin: 'javascript:alert(1)' }),
   ];
   for (const text of unusable) assert.equal(core.readConfig(text), null, String(text));
 });
@@ -677,13 +688,13 @@ test('how the revocation went is known even when its reply cannot be read', asyn
   assert.equal(none.fetches().length, 1);
 });
 
-test('without a session, loading the page starts a sign-in and remembers the route', async () => {
+test('without a session, loading the page asks for a sign-in on the console\'s own page, and goes nowhere', async () => {
   const tab = browser({ hash: `#/devices/${THING}` });
-  assert.deepEqual(await tab.auth.resume(`#/devices/${THING}`), { status: 'redirecting' });
-  assert.equal(tab.fetches().length, 0);
-  assert.equal(tab.navigations().length, 1);
-  assert.equal(tab.navigations()[0].pathname, '/oauth2/authorize');
-  assert.equal(tab.pending().route, `#/devices/${THING}`);
+  assert.deepEqual(await tab.auth.resume(), { status: 'sign-in' });
+  // Nothing is asked of anybody, the address stays as it is, and no sign-in is pending.
+  assert.deepEqual(tab.events, []);
+  assert.equal(tab.location.hash, `#/devices/${THING}`);
+  assert.deepEqual(tab.storage.contents(), {});
 });
 
 test('with a session, loading the page asks nobody', async () => {
@@ -713,11 +724,12 @@ test('the session ends with the token, and is renewed a minute before', async ()
   tab.advance(60);
   assert.equal(tab.auth.accessToken(), null);
 
-  // A page loaded with less than a minute left signs in again straight away.
+  // A page loaded with less than a minute left asks for a sign-in straight away.
   const late = browser({ storage: tab.storage });
   late.advance(3600 - 30);
-  assert.deepEqual(await late.auth.resume('#/firmware'), { status: 'redirecting' });
+  assert.deepEqual(await late.auth.resume(), { status: 'sign-in' });
   assert.equal(late.storage.contents()['cranium.session'], undefined);
+  assert.deepEqual(late.events, []);
 });
 
 test('a damaged session record counts as none', async () => {
@@ -757,7 +769,7 @@ test('signing out clears the tab and ends the session at the login pages', async
   assert.deepEqual(back.events, []);
   assert.deepEqual(storage.contents(), {});
   // The next load is an ordinary one.
-  assert.deepEqual(await browser({ storage }).auth.resume(''), { status: 'redirecting' });
+  assert.deepEqual(await browser({ storage }).auth.resume(''), { status: 'sign-in' });
 });
 
 // The API client.

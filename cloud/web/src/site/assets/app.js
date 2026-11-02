@@ -8,8 +8,9 @@
  */
 
 import {
-  ApiError, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, cancelNotice, createApi,
-  createAuth, createClock, describeExecution, deviceActivity, executionActivity, isUnderWay, isUnfinished, onlyChoice, parseRoute,
+  ApiError, CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, cancelNotice,
+  codeComplete, createApi, createAuth, createClock, describeExecution, deviceActivity, enterCode, executionActivity,
+  isUnderWay, isUnfinished, keyInCode, onlyChoice, parseRoute,
   pollInterval, readConfig, readImageHeader, recordedFilename, refreshPlan, revocationInPlace, revocationNotice,
   routeHash, sha256Hex, shouldRenew, singleLine, staleAfter, stillFinishing, stillRunning, stillSettling, summaryActivity,
   TOKEN_DAYS, toBase64, tokenDays, uploadInHand, versionOfDeployment,
@@ -17,7 +18,7 @@ import {
 import {
   accountView, activityView, cancelDialog, createTokenDialog, deployDialog, deploymentView, deploymentsView, deviceView,
   devicesView, firmwareView, gateView, navView, overviewView, render, revokeDialog, revokeTokenDialog, scriptPending,
-  toastView, tokensView,
+  signInView, toastView, tokensView,
 } from './views.js';
 
 // Board lists, and the lists that another person can change at any time, are also
@@ -50,6 +51,8 @@ function resource() {
 
 const state = {
   gate: null,
+  // The console's own sign-in page while it is shown (gate.signIn): never the password.
+  signIn: null,
   me: null,
   route: { view: 'overview' },
   now: Date.now(),
@@ -114,8 +117,8 @@ function paint() {
   if (state.gate) {
     nav.hidden = true;
     account.hidden = true;
-    const node = gateView(state.gate);
-    node.key = 'gate';
+    const node = state.gate.signIn ? signInView(signInModel()) : gateView(state.gate);
+    node.key = state.gate.signIn ? 'sign-in' : 'gate';
     render(main, node);
     return;
   }
@@ -567,15 +570,202 @@ async function refreshNow(full) {
   if (mine === turn) arm();
 }
 
-// Sign-in.
+// Sign-in. The console's own page asks, in place: the address stays as it is, and so
+// does whatever the page had in memory, such as a chosen file. The AWS sign-in page is
+// there on request, and takes over what the console's page does not do.
 
+// Whether the console has been shown once: its listeners and timers are set up then.
+let started = false;
+// The address used last, so that signing in again does not ask for it again. Memory only.
+let lastEmail = '';
+// The password field of the sign-in page, read once when the form is sent and emptied.
+let passwordField = null;
+
+const emptyCode = () => Array(CODE_LENGTH).fill('');
+
+/** Put the keyboard on an element of the sign-in page, once it is drawn. */
+function focusOn(id) {
+  const el = document.getElementById(id);
+  el?.focus();
+  el?.select?.();
+}
+
+const focusBox = (index) => focusOn(`code-digit-${index + 1}`);
+
+/** Show the console's own sign-in page, unless a sign-in is under way already. */
 function beginSignIn() {
+  if (state.gate?.leaving || state.gate?.signIn) return;
+  auth.cancelPasswordSignIn();
+  state.signIn = {
+    step: 'password',
+    email: lastEmail,
+    digits: emptyCode(),
+    busy: false,
+    problem: null,
+    tries: 0,
+    // Said when the console was in use until now, not after a message such as a sign-out.
+    lead: started && !state.gate ? 'Your session has ended. Sign in again to carry on where you were.' : null,
+  };
+  showGate({ signIn: true });
+  focusOn(lastEmail ? 'signin-password' : 'signin-email');
+}
+
+function setSignIn(changes) {
+  state.signIn = { ...state.signIn, ...changes };
+  paint();
+}
+
+const ELSEWHERE_WORDS = {
+  NEW_PASSWORD_REQUIRED: 'Your account needs a new password first, and the AWS sign-in page asks for it.',
+  MFA_SETUP: 'Your account needs an authenticator app first, and the AWS sign-in page sets one up.',
+  PASSWORD_RESET_REQUIRED: 'Your password has to be reset first.',
+};
+
+/** Leave for the AWS sign-in page, the way the console signed in before it had its own. */
+function toAwsPage(challenge = null) {
   if (state.gate?.leaving) return;
-  showGate({ iconName: 'lock', title: 'Taking you to the sign-in page…', leaving: true });
+  state.signIn = null;
+  auth.cancelPasswordSignIn();
+  showGate({
+    iconName: 'lock',
+    title: 'Taking you to the AWS sign-in page…',
+    // A step the console's page does not do is said; the name of any other is not.
+    text: ELSEWHERE_WORDS[challenge] ?? (challenge ? 'Your account needs a step that only that page does.' : null),
+    leaving: true,
+  });
   auth.signIn(location.hash).catch((error) => {
     console.error(error);
     showGate(signedOutGate({ reason: 'cannot-start' }));
   });
+}
+
+/** Tell the user if the refresh token that came with a new session may still be good. */
+function watchRevocation() {
+  auth.revocation().then((result) => {
+    if (result === 'failed' || result === 'refused') {
+      notify('The sign-in service did not confirm that the unused refresh token was revoked. ' +
+        'It expires by itself within the hour.', 'bad');
+    }
+  });
+}
+
+/** A sign-in on the console's own page is complete: the console opens where it was. */
+function signedInHere() {
+  state.signIn = null;
+  showGate({ iconName: 'clock', title: 'Loading the console…', waiting: true });
+  watchRevocation();
+  // Somebody else may have signed in: their own tokens are read again.
+  state.tokens = resource();
+  start();
+}
+
+/** Where an answer of Cognito leaves the sign-in page. */
+function afterStep(outcome) {
+  // The page was left meanwhile, or another tab signed out.
+  if (!state.gate?.signIn || !state.signIn) return;
+  const tries = state.signIn.tries + 1;
+  if (outcome.step === 'done') {
+    signedInHere();
+  } else if (outcome.step === 'elsewhere') {
+    toAwsPage(outcome.challenge);
+  } else if (outcome.step === 'code') {
+    // A wrong code, or one given too often, is cleared for the next; a code that did not
+    // get through is kept to be sent again.
+    const cleared = !outcome.problem || outcome.problem === 'wrong-code' || outcome.problem === 'too-many';
+    setSignIn({
+      step: 'code', busy: false, problem: outcome.problem ?? null, tries,
+      digits: cleared ? emptyCode() : state.signIn.digits,
+    });
+    if (cleared) focusBox(0);
+  } else {
+    setSignIn({ step: 'password', busy: false, problem: outcome.problem ?? 'failed', tries, digits: emptyCode() });
+    focusOn(state.signIn.email.trim() === '' ? 'signin-email' : 'signin-password');
+  }
+}
+
+async function submitPassword() {
+  const model = state.signIn;
+  if (!model || model.busy || model.step !== 'password') return;
+  // Out of the page at once. From here on only this call holds the password, until the
+  // proof of it is made; nothing keeps it after that.
+  const password = passwordField?.value ?? '';
+  if (passwordField) passwordField.value = '';
+  lastEmail = model.email.trim();
+  setSignIn({ busy: true, problem: null });
+  let outcome;
+  try {
+    outcome = await auth.passwordSignIn(model.email, password);
+  } catch {
+    // Nothing of what went wrong is logged: it might hold what was typed.
+    outcome = { step: 'password', problem: 'failed' };
+  }
+  afterStep(outcome);
+}
+
+async function submitCode() {
+  const model = state.signIn;
+  if (!model || model.busy || model.step !== 'code') return;
+  if (!codeComplete(model.digits)) {
+    setSignIn({ problem: 'short-code', tries: model.tries + 1 });
+    focusBox(Math.max(0, model.digits.findIndex((digit) => digit === '')));
+    return;
+  }
+  setSignIn({ busy: true, problem: null });
+  let outcome;
+  try {
+    outcome = await auth.sendCode(model.digits.join(''));
+  } catch {
+    outcome = { step: 'code', problem: 'failed' };
+  }
+  afterStep(outcome);
+}
+
+/** New digits in the boxes. The sixth sends the code, once. */
+function changeCode(result) {
+  const before = state.signIn.digits;
+  setSignIn({ digits: result.digits });
+  focusBox(result.focus);
+  if (!codeComplete(before) && codeComplete(result.digits)) submitCode();
+}
+
+function signInModel() {
+  const busy = () => state.signIn?.busy !== false;
+  return {
+    ...state.signIn,
+    passwordRef: (el) => {
+      passwordField = el;
+    },
+    setEmail(text) {
+      state.signIn.email = text;
+    },
+    submitPassword,
+    submitCode,
+    startOver() {
+      if (busy()) return;
+      auth.cancelPasswordSignIn();
+      setSignIn({ step: 'password', digits: emptyCode(), problem: null });
+      focusOn('signin-password');
+    },
+    enterDigits(index, text) {
+      if (busy()) return;
+      changeCode(enterCode(state.signIn.digits, index, text));
+    },
+    pasteDigits(index, event) {
+      event.preventDefault();
+      if (busy()) return;
+      changeCode(enterCode(state.signIn.digits, index, event.clipboardData?.getData('text') ?? ''));
+    },
+    keyInBox(index, event) {
+      const result = keyInCode(state.signIn.digits, index, event.key);
+      if (result === null) return;
+      event.preventDefault();
+      // While the code is on its way the keys only move.
+      if (busy() && result.digits.join('') !== state.signIn.digits.join('')) return;
+      changeCode(result);
+    },
+    useAwsPage: () => toAwsPage(),
+    forgotPassword: () => toAwsPage(),
+  };
 }
 
 function signedOutGate({ reason, message }) {
@@ -638,7 +828,7 @@ function onUnauthorized() {
   else if (step === 'sign-in') beginSignIn();
 }
 
-/** Leave for the sign-in page shortly before the token ends, unless work is in hand. */
+/** Ask for the password again shortly before the token ends, unless work is in hand. */
 function checkSession() {
   const renew = shouldRenew({
     needsRenewal: auth.needsRenewal(),
@@ -659,6 +849,7 @@ function signedOutElsewhere() {
   auth.signedOutElsewhere();
   chosen += 1;
   state.upload = { stage: 'idle', over: false };
+  state.signIn = null;
   showGate(signedOutGate({ reason: 'signed-out' }));
 }
 
@@ -1231,6 +1422,12 @@ async function start() {
   } catch (error) {
     if (error?.status === 401) return;
     const fault = asProblem(error);
+    // The gateway's own 403: the token lacks the console's scope, which the person cannot
+    // change by signing in again (the sign-in trigger, infra/template.yaml).
+    if (fault.status === 403 && fault.code === 'gateway') {
+      showGate(signedOutGate({ reason: 'refused' }));
+      return;
+    }
     const gate = fault.code === 'account_inactive'
       ? {
         title: 'Your account is not active',
@@ -1261,6 +1458,12 @@ async function start() {
     return;
   }
   state.gate = null;
+  // After a sign-in in place the console is set up already: it only shows its page again.
+  if (started) {
+    showRoute();
+    return;
+  }
+  started = true;
 
   window.addEventListener('hashchange', showRoute);
   document.addEventListener('visibilitychange', () => {
@@ -1332,15 +1535,15 @@ async function boot() {
       clock,
       onUnauthorized,
     });
-    outcome = await auth.resume(location.hash);
+    outcome = await auth.resume();
   } catch (error) {
     console.error(error);
     showGate(signedOutGate({ reason: 'cannot-start' }));
     return;
   }
 
-  if (outcome.status === 'redirecting') {
-    showGate({ iconName: 'lock', title: 'Taking you to the sign-in page…', leaving: true });
+  if (outcome.status === 'sign-in') {
+    beginSignIn();
     return;
   }
   if (outcome.status === 'signed-out') {
@@ -1348,12 +1551,7 @@ async function boot() {
     return;
   }
   if (outcome.route) history.replaceState(null, '', location.pathname + outcome.route);
-  auth.revocation().then((result) => {
-    if (result === 'failed' || result === 'refused') {
-      notify('The sign-in service did not confirm that the unused refresh token was revoked. ' +
-        'It expires by itself within the hour.', 'bad');
-    }
-  });
+  watchRevocation();
   await start();
 }
 
