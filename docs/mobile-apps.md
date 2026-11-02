@@ -14,11 +14,12 @@ This file is the contract both apps follow. The board's side is in
 1. Sign in, with the console's own account. Only a release manager can download firmware.
 2. Pick a release. The newest active one is chosen by default.
 3. At the board, hold **Button 1** for 5 s and let go. LED1 flashes four times: Bluetooth is open
-   for 2 minutes.
+   for 3 minutes (2 before firmware 1.11.2).
 4. In the app, pick the board, `Cranium-` and four hex digits.
 5. Type the 6-digit passkey into the phone's pairing prompt. The app shows it, fetched from the
    cloud, when the board is online. Otherwise it is on the board's serial console, `[BT] passkey`.
-6. The app sends the image. It takes a few minutes.
+6. The app sends the image: the one on the phone if it has it (see [Cache](#cache)), else one it
+   downloads from AWS first. It takes a few minutes.
 7. At the board, press **Button 1** within 2 minutes to install it. **Button 2** throws it away.
 8. The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT.
 
@@ -74,6 +75,22 @@ first four bytes must be MCUboot's magic, `3d b8 f3 96`. The version in its head
 major, minor, little-endian 16-bit revision, little-endian 32-bit build number) must equal the
 release's.
 
+## Cache
+
+The apps keep checked images on the phone, so that sending a release again needs no download. Each
+is `firmware/<sha256>.bin`, named after its release's SHA-256, in app-private storage that is not
+backed up: `filesDir` on Android (the app allows no backup), Application Support on iOS (excluded
+from iCloud backup). When a release is chosen and the phone holds its file, the file goes through
+the whole check above against the release in the list; it is sent, with no download, only if it
+passes, and is deleted and downloaded again if not. A download is kept only after it passes, written
+to a temporary file and renamed into place. At most 5 images stay, the least recently used going
+first. Each time the list loads, the files of releases that are no longer active (revoked or gone)
+are deleted, and an account that is not a release manager keeps none. Sign-out, the end of a
+session, and "Clear downloaded firmware" delete them all, and a phone that is no longer signed in
+sends nothing from the cache. The app says whether the image came from the phone or was downloaded,
+and its size. An image sent from the phone makes no `GET /api/firmware/{version}/image`, so the
+activity log has only its first download.
+
 ## Bluetooth
 
 | | |
@@ -82,7 +99,7 @@ release's.
 | Advertising data | The SMP service UUID `8D53DC1D-1DB7-4CD3-868B-8A527460AA84` |
 | SMP characteristic | `DA2E7828-FBCE-4E01-AE9E-261174997C48`: write without response, and notify |
 | Pairing | LE Secure Connections only, passkey shown by the board and typed on the phone. No bond is kept, so every session pairs again. The phone's OS asks for the passkey when the app first touches the characteristic. The board drops a link that has not paired within 45 s |
-| Idle link | The board drops an authenticated link with nothing on it for 30 s. While the person chooses a release and the image downloads, read the image state every 10 to 20 s |
+| Idle link | The board drops an authenticated link with nothing on it for 120 s (30 s before firmware 1.11.2). While the person chooses a release and the image downloads, read the image state every 10 to 20 s |
 | MTU | The board takes ATT packets up to 498 bytes and SMP packets up to 512 |
 | Versions | The board's image state gives `1.8.0`, or `1.8.0.5` when the build number is not 0, never `1.8.0+5`. Compare major, minor, revision and build number, as the board does |
 
@@ -126,7 +143,7 @@ new version, but the board's own LEDs and console are the real answer.
 
 | What happens | Why | What the app says |
 | --- | --- | --- |
-| No board found | Window not open, or closed after 2 minutes | Hold Button 1 for 5 s, then look again |
+| No board found | Window not open, or closed after 3 minutes | Hold Button 1 for 5 s, then look again |
 | Pairing fails | Wrong passkey. Three failures close the window | Open the window again, and use the new passkey |
 | Upload refused at the start | Not newer than what runs, or already sent in this window | Pick a newer release, or open a new window |
 | Disconnected during upload | Out of range, or the window closed | Open a new window and send it again: it starts over |

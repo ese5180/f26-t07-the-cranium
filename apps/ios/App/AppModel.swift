@@ -24,6 +24,8 @@ final class AppModel: ObservableObject {
         case pairing
         /// The board has said what it runs; the newer releases are on offer.
         case choose
+        /// Checking the image the phone holds for this release, if any.
+        case checking(String)
         case downloading(String)
         case uploading(UploadProgress)
         /// The image has arrived. The person presses Button 1.
@@ -38,6 +40,14 @@ final class AppModel: ObservableObject {
     @Published var preferred: String?
     @Published private(set) var busy = false
     @Published var message: String?
+    /// While the chosen release's image is checked or downloaded, before going to the boards.
+    @Published private(set) var preparing: String?
+
+    /// Images that have passed their checks in this session, by release version, and where they
+    /// came from. The checked images kept on the phone are in `cache`.
+    @Published private(set) var obtained: [String: ObtainedImage] = [:]
+    /// What the phone keeps, for the release list and "Clear downloaded firmware".
+    @Published private(set) var firmwareOnPhone: CacheSummary = .empty
 
     @Published private(set) var boards: [DiscoveredBoard] = []
     @Published private(set) var radioProblem: String?
@@ -51,6 +61,8 @@ final class AppModel: ObservableObject {
     /// Set once the cloud has said, for a while, that it has no passkey for this board.
     @Published private(set) var passkeyNotInCloud = false
     @Published private(set) var uploadStarted: Date?
+    /// The image being sent, for where it came from and its size.
+    @Published private(set) var sending: ObtainedImage?
     @Published private(set) var device: DeviceStatus?
 
     private var auth: AuthSession?
@@ -61,8 +73,8 @@ final class AppModel: ObservableObject {
     private var radioIfMade: BoardRadio?
     private var session: BoardSession?
     private var thing: String?
-    /// Images that have passed their checks, by release version.
-    private var checked: [String: VerifiedImage] = [:]
+    /// Application Support/firmware, out of the iCloud backup (docs/mobile-apps.md, "Cache").
+    private let cache = FirmwareCache.standard()
     private var pairingPoll: Task<Void, Never>?
     private var keepAlive: Task<Void, Never>?
     private var devicePoll: Task<Void, Never>?
@@ -107,6 +119,8 @@ final class AppModel: ObservableObject {
             await refresh()
         } else {
             stage = .signedOut
+            // A signed-out phone keeps nothing from the console, even after a sign-out cut short.
+            await forgetFirmware()
         }
     }
 
@@ -133,9 +147,10 @@ final class AppModel: ObservableObject {
         await leaveBoard()
         radioIfMade?.stopScanning()
         await auth?.signOut()
+        await forgetFirmware()
         me = nil
         releases = []
-        checked = [:]
+        sending = nil
         preferred = nil
         message = nil
         stage = .signedOut
@@ -154,6 +169,13 @@ final class AppModel: ObservableObject {
             let (me, firmware) = try await (who, list)
             self.me = me
             releases = ReleaseOffer.active(firmware.releases)
+            // Keep only images of active releases, and none for an account that cannot download.
+            if me.canWrite {
+                firmwareOnPhone = await cache.prune(keepingActiveIn: firmware.releases)
+                obtained = obtained.filter { _, held in releases.contains { held.isImage(of: $0) } }
+            } else {
+                await forgetFirmware()
+            }
             if chosenRelease == nil {
                 preferred = ReleaseOffer.newest(releases)?.version
             }
@@ -164,15 +186,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Downloads and checks the chosen release before anyone goes to the board, so that a
-    /// refusal or a bad image shows up here, and the link to the board is not left idle later.
+    /// Gets the chosen release's image ready before anyone goes to the board, from the phone or
+    /// downloaded, so that a refusal or a bad image shows up here, and the link to the board is
+    /// not left idle later.
     func continueToBoards() async {
         guard let release = chosenRelease, !busy else { return }
         busy = true
         message = nil
-        defer { busy = false }
+        preparing = "Checking \(release.version)…"
+        defer {
+            busy = false
+            preparing = nil
+        }
         do {
-            _ = try await checkedImage(for: release)
+            _ = try await image(for: release) { @MainActor [weak self] in
+                self?.preparing = "Downloading \(release.version) from the console…"
+            }
             stage = .boards
             lookForBoards()
         } catch {
@@ -180,13 +209,30 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func checkedImage(for release: FirmwareRelease) async throws -> VerifiedImage {
-        if let image = checked[release.version] { return image }
-        guard let api else { throw AuthError.notSignedIn }
-        let data = try await api.image(of: release)
-        let image = try ImageCheck.verify(data, for: release)
-        checked[release.version] = image
-        return image
+    /// The checked image of `release`: one already checked in this session, else the one the
+    /// phone keeps if it passes the check again, else a download that passes it (and is kept).
+    private func image(for release: FirmwareRelease,
+                       onDownload: @escaping @Sendable () async -> Void) async throws -> ObtainedImage {
+        // An image on the phone is only for a phone that is still signed in.
+        guard let api, let auth, await auth.isSignedIn else { throw AuthError.sessionExpired }
+        if let held = obtained[release.version], held.isImage(of: release) { return held }
+        let result = try await cache.image(for: release, onDownload: onDownload) {
+            try await api.image(of: release)
+        }
+        obtained[release.version] = result
+        firmwareOnPhone = await cache.summary()
+        return result
+    }
+
+    /// "Clear downloaded firmware": the next update downloads its image again.
+    func clearFirmware() async {
+        await forgetFirmware()
+    }
+
+    private func forgetFirmware() async {
+        await cache.clear()
+        obtained = [:]
+        firmwareOnPhone = .empty
     }
 
     func backToReleases() {
@@ -265,7 +311,7 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled, let self, let session = self.session else { return }
                 switch self.boardStage {
-                case .choose, .downloading: break
+                case .choose, .checking, .downloading: break
                 default: continue
                 }
                 do {
@@ -281,16 +327,17 @@ final class AppModel: ObservableObject {
     func send() async {
         guard let session, let release = offered.first(where: { $0.version == preferred }) else { return }
         do {
-            if checked[release.version] == nil {
-                boardStage = .downloading(release.version)
+            boardStage = .checking(release.version)
+            let obtained = try await image(for: release) { @MainActor [weak self] in
+                self?.boardStage = .downloading(release.version)
             }
-            let image = try await checkedImage(for: release)
             keepAlive?.cancel()
-            boardStage = .uploading(UploadProgress(sent: 0, total: image.data.count))
+            sending = obtained
+            boardStage = .uploading(UploadProgress(sent: 0, total: obtained.size))
             uploadStarted = Date()
             setScreenAwake(true)
             defer { setScreenAwake(false) }
-            try await session.send(image) { progress in
+            try await session.send(obtained.image) { progress in
                 Task { @MainActor [weak self] in
                     guard let self, case .uploading = self.boardStage else { return }
                     self.boardStage = .uploading(progress)
@@ -302,6 +349,9 @@ final class AppModel: ObservableObject {
             keepAlive?.cancel()
             await session.close()
             boardStage = .failed(UserMessage.text(for: error))
+            if case AuthError.sessionExpired = error {
+                await handle(error)
+            }
         }
     }
 

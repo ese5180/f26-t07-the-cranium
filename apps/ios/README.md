@@ -15,7 +15,7 @@ iOS, signing, the upload, pairing and the transfer itself still have to be tried
 
 | Path | What |
 | --- | --- |
-| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain), the console API, image checks, which releases to offer, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
+| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain), the console API, image checks, the firmware cache on the phone, which releases to offer, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
 | `App/` | The SwiftUI app: sign in, release, board, passkey, upload, Button 1 |
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
 | `scripts/generate.sh` | Makes `Cranium.xcodeproj` |
@@ -26,6 +26,16 @@ iOS, signing, the upload, pairing and the transfer itself still have to be tried
 The app only lists the board's image slots and uploads to image 0. It never sends test, confirm,
 erase or reset, which the board refuses. That is why it uses `ImageManager.upload` and not the
 library's `FirmwareUpgradeManager`, whose upload-only mode still asks for parameters and resets.
+
+## Firmware on the phone
+
+A checked image is kept in Application Support, `firmware/<sha256>.bin`, excluded from iCloud
+backup, so that sending the same release again needs no download. It is checked again in full
+before each use. At most 5 are kept, only for active releases, and sign-out deletes them all; so
+does "Clear downloaded firmware" in the account menu. The app says whether the image came from the
+phone or was downloaded, and its size. The rules are in
+[`docs/mobile-apps.md`](../../docs/mobile-apps.md#cache), and the code in `FirmwareCache.swift`
+and `FirmwareCachePolicy.swift`.
 
 ## What you need
 
@@ -83,6 +93,7 @@ is false), so App Store Connect does not ask about export compliance.
 apps/ios/scripts/check.sh
 ```
 
-It builds the package, runs its tests (77 of them, Swift Testing), type-checks the app's sources
+It builds the package, runs its tests (103 of them, Swift Testing; the firmware cache's on real
+files in a temporary folder), type-checks the app's sources
 against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only the Command
 Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.

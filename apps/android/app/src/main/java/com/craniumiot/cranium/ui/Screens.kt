@@ -45,7 +45,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.craniumiot.cranium.ble.BlePermissions
 import com.craniumiot.cranium.ble.FoundBoard
 import com.craniumiot.cranium.core.Release
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,7 +90,7 @@ fun CraniumApp(vm: CraniumViewModel) {
             when (state.step) {
                 Step.STARTING -> Busy("Starting…")
                 Step.SIGN_IN -> SignInScreen(state, onSignIn = { vm.signInIntent()?.let(signIn::launch) })
-                Step.RELEASES -> ReleasesScreen(state, vm::choose, vm::refreshReleases, vm::toFindBoard)
+                Step.RELEASES -> ReleasesScreen(state, vm::choose, vm::refreshReleases, vm::toFindBoard, vm::clearFirmware)
                 Step.FIND_BOARD -> FindBoardScreen(
                     state,
                     onAllow = { permissions.launch(BlePermissions.required()) },
@@ -140,6 +139,7 @@ private fun ColumnScope.ReleasesScreen(
     onChoose: (String) -> Unit,
     onRefresh: () -> Unit,
     onNext: () -> Unit,
+    onClearFirmware: () -> Unit,
 ) {
     state.me?.let { me ->
         Text("Signed in as ${me.email.ifEmpty { "an account with no email" }}", style = MaterialTheme.typography.bodyMedium)
@@ -151,6 +151,16 @@ private fun ColumnScope.ReleasesScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        }
+    }
+    if (state.firmware.count > 0) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                Messages.firmwareOnPhone(state.firmware),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClearFirmware, enabled = state.busy == null) { Text("Clear downloaded firmware") }
         }
     }
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -168,6 +178,7 @@ private fun ColumnScope.ReleasesScreen(
                 release = release,
                 selected = release.version == state.chosen,
                 newest = release == state.releases.firstOrNull(),
+                onPhone = state.firmware.holds(release),
                 enabled = true,
                 onClick = { onChoose(release.version) },
             )
@@ -271,6 +282,7 @@ private fun ColumnScope.BoardScreen(
                             release = release,
                             selected = release.version == board.selected,
                             newest = release == board.offer.firstOrNull(),
+                            onPhone = state.firmware.holds(release),
                             enabled = board.phase == BoardPhase.READY,
                             onClick = { onChoose(release.version) },
                         )
@@ -278,8 +290,8 @@ private fun ColumnScope.BoardScreen(
                     }
                 }
                 when (board.phase) {
-                    BoardPhase.DOWNLOADING -> Busy("Downloading ${board.selected}…")
-                    BoardPhase.CHECKING -> Busy("Checking the image…")
+                    BoardPhase.DOWNLOADING -> Busy("Downloading ${board.selected} from the console…")
+                    BoardPhase.CHECKING -> Busy("Checking the image of ${board.selected}…")
                     else -> Unit
                 }
                 Button(
@@ -300,6 +312,9 @@ private fun ColumnScope.BoardScreen(
             val fraction = if (board.total > 0) board.sent.toFloat() / board.total else 0f
             LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
             Text("${kilobytes(board.sent.toLong())} of ${kilobytes(board.total.toLong())} (${(fraction * 100).toInt()} %)")
+            board.image?.let {
+                Text(Messages.imageOrigin(it), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+            }
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) { Text("Cancel") }
         }
@@ -334,6 +349,9 @@ private fun ColumnScope.DoneScreen(state: UiState, onAnother: () -> Unit) {
         }
     }
     Text("The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT.")
+    done.image?.let {
+        Text(Messages.imageOrigin(it), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+    }
     done.status?.let {
         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
     }
@@ -366,7 +384,14 @@ private fun PasskeyCard(board: BoardUi) {
 }
 
 @Composable
-private fun ReleaseRow(release: Release, selected: Boolean, newest: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun ReleaseRow(
+    release: Release,
+    selected: Boolean,
+    newest: Boolean,
+    onPhone: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -381,7 +406,9 @@ private fun ReleaseRow(release: Release, selected: Boolean, newest: Boolean, ena
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                listOf(kilobytes(release.size), release.uploadedAt.take(10)).filter { it.isNotEmpty() }.joinToString(" · "),
+                listOf(kilobytes(release.size), release.uploadedAt.take(10), if (onPhone) "on this phone" else "")
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
             )
             if (release.notes.isNotBlank()) {
@@ -429,4 +456,4 @@ private fun Busy(text: String) {
     }
 }
 
-private fun kilobytes(bytes: Long): String = String.format(Locale.ROOT, "%,d KB", (bytes + 512) / 1024)
+private fun kilobytes(bytes: Long): String = Messages.kilobytes(bytes)

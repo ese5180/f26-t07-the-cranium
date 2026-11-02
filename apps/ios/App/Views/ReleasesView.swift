@@ -14,7 +14,8 @@ struct ReleasesView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.releases) { release in
-                        ReleaseRow(release: release, selected: release.version == model.preferred)
+                        ReleaseRow(release: release, selected: release.version == model.preferred,
+                                   onPhone: model.firmwareOnPhone.holds(release))
                             .contentShape(Rectangle())
                             .onTapGesture { model.preferred = release.version }
                     }
@@ -30,6 +31,12 @@ struct ReleasesView: View {
                 if let message = model.message {
                     MessageText(text: message)
                 }
+                if let preparing = model.preparing {
+                    Text(preparing)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 WideButton(title: model.chosenRelease.map { "Continue with \($0.version)" } ?? "Continue",
                            busy: model.busy,
                            enabled: model.canDownload && model.chosenRelease != nil) {
@@ -44,6 +51,8 @@ struct ReleasesView: View {
 struct ReleaseRow: View {
     let release: FirmwareRelease
     let selected: Bool
+    /// The phone keeps a checked image of it: sending it needs no download.
+    var onPhone = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -53,6 +62,9 @@ struct ReleaseRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(release.version)
                     .font(.body.monospacedDigit().weight(.semibold))
+                Text(onPhone ? "\(UserMessage.kilobytes(release.size)), on this phone" : UserMessage.kilobytes(release.size))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if let uploaded = Self.date(release.uploadedAt) {
                     Text("Uploaded \(uploaded.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption)

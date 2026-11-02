@@ -3,12 +3,15 @@ package com.craniumiot.cranium.ui
 import com.craniumiot.cranium.auth.SignInException
 import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiError
+import com.craniumiot.cranium.core.CacheSummary
+import com.craniumiot.cranium.core.ImageOrigin
 import kotlinx.serialization.SerializationException
 import no.nordicsemi.android.mcumgr.ble.exception.McuMgrBluetoothDisabledException
 import no.nordicsemi.android.mcumgr.ble.exception.McuMgrDisconnectedException
 import no.nordicsemi.android.mcumgr.exception.McuMgrErrorException
 import no.nordicsemi.android.mcumgr.exception.McuMgrTimeoutException
 import java.io.IOException
+import java.util.Locale
 
 /** What the app says, after the error table in docs/mobile-apps.md. */
 object Messages {
@@ -52,6 +55,23 @@ object Messages {
         else -> "The upload failed (${e.message ?: e.javaClass.simpleName}). " +
             "Open a new window and send it again: it starts over."
     }
+
+    /** Where the image that is sent came from, and its size. */
+    fun imageOrigin(note: ImageNote): String = when (note.origin) {
+        ImageOrigin.PHONE ->
+            "The image was already on this phone (${kilobytes(note.bytes)}) and passed the check again, so nothing was downloaded."
+        ImageOrigin.DOWNLOADED ->
+            "The image was downloaded from the console just now (${kilobytes(note.bytes)}) and checked."
+    }
+
+    /** The checked images the phone keeps, for the "Clear downloaded firmware" line. */
+    fun firmwareOnPhone(summary: CacheSummary): String = when (summary.count) {
+        0 -> "No firmware is kept on this phone."
+        1 -> "1 firmware image is kept on this phone (${kilobytes(summary.bytes)})."
+        else -> "${summary.count} firmware images are kept on this phone (${kilobytes(summary.bytes)})."
+    }
+
+    fun kilobytes(bytes: Long): String = String.format(Locale.ROOT, "%,d KB", (bytes + 512) / 1024)
 
     /** An error from the console or the sign-in, in words. */
     fun describe(e: Throwable): String = when (e) {

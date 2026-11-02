@@ -10,6 +10,30 @@ public enum UserMessage {
     public static let pressButton = "At the board, press Button 1 within 2 minutes to install it. Button 2 throws it away."
     public static let afterInstall = "The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT. Its LEDs and console are the real answer."
 
+    /// Where the image that is sent came from, and its size.
+    public static func origin(of image: ObtainedImage) -> String {
+        switch image.origin {
+        case .phone:
+            return "Already on this phone (\(kilobytes(image.size))), and checked again: nothing to download."
+        case .downloaded:
+            return "Downloaded from the console just now (\(kilobytes(image.size))), and checked."
+        }
+    }
+
+    /// The checked images the phone keeps, next to "Clear downloaded firmware".
+    public static func firmwareOnPhone(_ summary: CacheSummary) -> String {
+        switch summary.count {
+        case 0: return "No firmware kept on this phone"
+        case 1: return "1 firmware image on this phone, \(kilobytes(summary.bytes))"
+        default: return "\(summary.count) firmware images on this phone, \(kilobytes(summary.bytes))"
+        }
+    }
+
+    /// Rounded to the nearest kilobyte (1024 bytes).
+    public static func kilobytes(_ bytes: Int) -> String {
+        "\((max(bytes, 0) + 512) / 1024) KB"
+    }
+
     public static func text(for error: Error) -> String {
         switch error {
         case let error as BoardError:

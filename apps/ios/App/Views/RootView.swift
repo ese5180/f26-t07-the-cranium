@@ -21,6 +21,13 @@ struct RootView: View {
                             if let email = model.me?.email {
                                 Text(email)
                             }
+                            Divider()
+                            Text(UserMessage.firmwareOnPhone(model.firmwareOnPhone))
+                            Button("Clear downloaded firmware") {
+                                Task { await model.clearFirmware() }
+                            }
+                            .disabled(model.firmwareOnPhone.count == 0)
+                            Divider()
                             Button("Sign out", role: .destructive) {
                                 Task { await model.signOut() }
                             }

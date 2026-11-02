@@ -11,10 +11,15 @@ struct BoardView: View {
             PairingView()
         case .choose:
             ChooseView()
+        case .checking(let version):
+            VStack(spacing: 16) {
+                ProgressView()
+                Text("Checking \(version)…")
+            }
         case .downloading(let version):
             VStack(spacing: 16) {
                 ProgressView()
-                Text("Downloading and checking \(version)…")
+                Text("Downloading \(version) from the console…")
             }
         case .uploading(let progress):
             UploadView(progress: progress)
@@ -97,7 +102,8 @@ struct ChooseView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.offered) { release in
-                        ReleaseRow(release: release, selected: release.version == model.preferred)
+                        ReleaseRow(release: release, selected: release.version == model.preferred,
+                                   onPhone: model.firmwareOnPhone.holds(release))
                             .contentShape(Rectangle())
                             .onTapGesture { model.preferred = release.version }
                     }
@@ -141,6 +147,12 @@ struct UploadView: View {
             }
             .font(.callout.monospacedDigit())
             .foregroundStyle(.secondary)
+            if let image = model.sending {
+                Text(UserMessage.origin(of: image))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
             Text(UserMessage.uploadTakes)
                 .multilineTextAlignment(.center)
             Spacer()

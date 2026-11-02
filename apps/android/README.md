@@ -12,6 +12,16 @@ Each connection still shows `[BT] refused a command: group 0, id 6, op 0` on the
 That is mcumgr-ble asking for the board's SMP buffer sizes as it connects, which it always does; the
 board takes only the image group, and the library goes on without the answer. It does no harm.
 
+## Firmware on the phone
+
+A checked image is kept in the app's private storage, `filesDir/firmware/<sha256>.bin`, so that
+sending the same release again needs no download. It is checked again in full before each use. At
+most 5 are kept, only for active releases, and sign-out deletes them all; "Clear downloaded
+firmware" on the releases screen does too. The upload screen says whether the image came from the
+phone or was downloaded, and its size. The rules are in
+[`docs/mobile-apps.md`](../../docs/mobile-apps.md#cache), and the code in `core/FirmwareCache.kt`
+and `core/FirmwareCachePolicy.kt`.
+
 ## What it needs
 
 - JDK 17 and the Android SDK command-line tools. On a Mac, without sudo:
@@ -70,8 +80,10 @@ Never attach it to a public GitHub release and never commit it: git ignores `*.a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests of the parts that need no phone: reading the MCUboot
-header and comparing versions, decoding the release list, the checks on a downloaded image, which
-releases are offered, and the sign-in request (PKCE and the authorize URL). Sign-in against
-Cognito, the API calls and everything over Bluetooth take a phone, a deployed stack and a board,
-and have not been tried yet.
+`./gradlew testDebugUnitTest` runs JVM tests (70 of them) of the parts that need no phone: reading
+the MCUboot header and comparing versions, decoding the release list, the checks on a downloaded
+image, which releases are offered, the sign-in request (PKCE and the authorize URL), and the
+firmware cache: when a cached image is used, replaced or downloaded, which images are evicted, and
+which are removed when a release is revoked, on real files in a temporary folder. Sign-in against
+Cognito, the API calls, the cache on a phone and everything over Bluetooth take a phone, a deployed
+stack and a board, and have not been tried yet.

@@ -11,8 +11,9 @@ struct BoardsView: View {
             List {
                 Section {
                     Label(UserMessage.openWindow, systemImage: "hand.tap")
-                    if let release = model.chosenRelease {
-                        Label("Ready to send \(release.version): downloaded and checked.", systemImage: "checkmark.seal")
+                    if let release = model.chosenRelease, let image = model.obtained[release.version] {
+                        Label("Ready to send \(release.version). \(UserMessage.origin(of: image))",
+                              systemImage: image.origin == .phone ? "iphone" : "icloud.and.arrow.down")
                             .foregroundStyle(.secondary)
                     }
                 }

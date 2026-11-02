@@ -20,10 +20,13 @@ import com.craniumiot.cranium.core.ApiPaths
 import com.craniumiot.cranium.core.BoardBluetooth
 import com.craniumiot.cranium.core.BoardImages
 import com.craniumiot.cranium.core.BoardProgressText
+import com.craniumiot.cranium.core.CacheSummary
+import com.craniumiot.cranium.core.FirmwareCache
 import com.craniumiot.cranium.core.FirmwareVersion
-import com.craniumiot.cranium.core.ImageCheck
-import com.craniumiot.cranium.core.ImageCheckResult
+import com.craniumiot.cranium.core.ImageOrigin
 import com.craniumiot.cranium.core.ImageSlot
+import com.craniumiot.cranium.core.ImageStep
+import com.craniumiot.cranium.core.ObtainedImage
 import com.craniumiot.cranium.core.Me
 import com.craniumiot.cranium.core.Release
 import com.craniumiot.cranium.core.ReleaseFilter
@@ -39,6 +42,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 enum class Step { STARTING, SIGN_IN, RELEASES, FIND_BOARD, BOARD, DONE }
@@ -48,6 +52,9 @@ enum class BluetoothStatus { UNKNOWN, NO_BLUETOOTH, NEEDS_PERMISSION, OFF, LOCAT
 enum class BoardPhase { CONNECTING, READING, READY, DOWNLOADING, CHECKING, UPLOADING, FAILED }
 
 data class Notice(val text: String, val isError: Boolean = true)
+
+/** The image that is sent: from the phone, or downloaded just now, and its size. */
+data class ImageNote(val origin: ImageOrigin, val bytes: Long)
 
 data class BoardUi(
     val name: String,
@@ -59,9 +66,10 @@ data class BoardUi(
     val selected: String? = null,
     val sent: Int = 0,
     val total: Int = 0,
+    val image: ImageNote? = null,
 )
 
-data class DoneUi(val version: String, val boardName: String, val status: String? = null)
+data class DoneUi(val version: String, val boardName: String, val status: String? = null, val image: ImageNote? = null)
 
 data class UiState(
     val step: Step = Step.STARTING,
@@ -76,16 +84,22 @@ data class UiState(
     val boards: List<FoundBoard> = emptyList(),
     val board: BoardUi? = null,
     val done: DoneUi? = null,
+    /** The checked images kept on the phone (docs/mobile-apps.md, "Cache"). */
+    val firmware: CacheSummary = CacheSummary.EMPTY,
 )
 
 /**
- * The whole flow: sign in, pick a release, find the board, pair, check what it runs, download and
- * check the image, upload it, and tell the person to press Button 1. See docs/mobile-apps.md.
+ * The whole flow: sign in, pick a release, find the board, pair, check what it runs, take the
+ * image from the phone or download it, check it, upload it, and tell the person to press Button 1.
+ * See docs/mobile-apps.md.
  */
 class CraniumViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val config = CraniumConfig.fromBuild()
     private val scanner = BoardScanner(app)
+
+    /** App-private storage, never backed up (AndroidManifest.xml, data_extraction_rules.xml). */
+    private val firmware = FirmwareCache(File(app.filesDir, "firmware"))
 
     private var auth: AuthManager? = null
     private var api: ApiClient? = null
@@ -108,11 +122,18 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
                 withContext(Dispatchers.IO) { AuthManager(app, config, TokenStore(app)) }
             } catch (e: Exception) {
                 _state.update { it.copy(step = Step.SIGN_IN, notice = Notice("The app could not open its secure storage: ${e.message}")) }
+                forgetFirmware()
                 return@launch
             }
             auth = manager
             api = ApiClient(ApiPaths(config.consoleUrl), manager)
-            if (manager.isSignedIn) loadReleases() else _state.update { it.copy(step = Step.SIGN_IN) }
+            if (manager.isSignedIn) {
+                loadReleases()
+            } else {
+                // A signed-out phone keeps nothing from the console, even after a sign-out cut short.
+                _state.update { it.copy(step = Step.SIGN_IN) }
+                forgetFirmware()
+            }
         }
         viewModelScope.launch { scanner.boards.collect { boards -> _state.update { it.copy(boards = boards) } } }
         viewModelScope.launch {
@@ -154,7 +175,35 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
         stopEverything()
         val manager = auth
         _state.value = UiState(step = Step.SIGN_IN, exampleConfig = config.isExample)
+        forgetFirmwareSoon()
         if (manager != null) viewModelScope.launch { manager.signOut() }
+    }
+
+    // ---- Firmware kept on the phone --------------------------------------------------------------
+
+    /** "Clear downloaded firmware": the next update downloads its image again. */
+    fun clearFirmware() {
+        viewModelScope.launch {
+            forgetFirmware()
+            _state.update {
+                it.copy(notice = Notice("No firmware is kept on this phone now. The next update downloads its image.", isError = false))
+            }
+        }
+    }
+
+    private suspend fun forgetFirmware() {
+        withContext(Dispatchers.IO) { firmware.clear() }
+        _state.update { it.copy(firmware = CacheSummary.EMPTY) }
+    }
+
+    /** From code that is not a coroutine, or one that is being cancelled. */
+    private fun forgetFirmwareSoon() {
+        viewModelScope.launch { forgetFirmware() }
+    }
+
+    private suspend fun showFirmwareOnPhone() {
+        val summary = withContext(Dispatchers.IO) { firmware.summary() }
+        _state.update { it.copy(firmware = summary) }
     }
 
     // ---- Releases ------------------------------------------------------------------------------
@@ -172,12 +221,19 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
         _state.update { it.copy(step = Step.RELEASES, busy = "Loading the releases…", notice = null) }
         try {
             val me = client.me()
-            val active = ReleaseFilter.active(client.releases().releases)
+            val all = client.releases().releases
+            val active = ReleaseFilter.active(all)
+            // Keep only images of active releases, and none for an account that cannot download.
+            val onPhone = withContext(Dispatchers.IO) {
+                if (me.canWrite) firmware.prune(all) else firmware.clear()
+                firmware.summary()
+            }
             _state.update { s ->
                 s.copy(
                     busy = null,
                     me = me,
                     releases = active,
+                    firmware = onPhone,
                     chosen = ReleaseFilter.preselect(active, s.chosen)?.version,
                     notice = if (active.isEmpty()) Notice("There is no active release on the console.", isError = false) else null,
                 )
@@ -275,7 +331,10 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
         updateBoard { it.copy(selected = version) }
     }
 
-    /** Download the chosen release, check it, and upload it. Nothing else is sent. */
+    /**
+     * Take the chosen release's image from the phone if it holds one that passes the check, else
+     * download it and check it; then upload it. Nothing else is sent.
+     */
     fun send() {
         val current = session ?: return
         val client = api ?: return
@@ -285,20 +344,34 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
 
         boardWork = viewModelScope.launch {
             val image: ByteArray
+            val note: ImageNote
             try {
                 _state.update { it.copy(notice = null) }
-                updateBoard { it.copy(phase = BoardPhase.DOWNLOADING) }
-                image = client.image(release)
-                updateBoard { it.copy(phase = BoardPhase.CHECKING) }
-                val check = withContext(Dispatchers.Default) { ImageCheck.check(image, release) }
-                if (check is ImageCheckResult.Failed) {
-                    backToReady("The image of ${release.version} failed a check, so nothing was sent. ${check.message}")
-                    return@launch
+                // An image on the phone is only for a phone that is still signed in.
+                if (auth?.isSignedIn != true) throw SignedOutException("Sign in to continue.")
+                val obtained = firmware.obtain(
+                    release,
+                    onStep = { step ->
+                        val phase = if (step == ImageStep.DOWNLOADING) BoardPhase.DOWNLOADING else BoardPhase.CHECKING
+                        updateBoard { it.copy(phase = phase) }
+                    },
+                ) { client.image(release) }
+                showFirmwareOnPhone()
+                when (obtained) {
+                    is ObtainedImage.Failed -> {
+                        backToReady("The image of ${release.version} failed a check, so nothing was sent. ${obtained.failure.message}")
+                        return@launch
+                    }
+                    is ObtainedImage.Ready -> {
+                        image = obtained.image
+                        note = ImageNote(obtained.origin, image.size.toLong())
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SignedOutException) {
                 stopEverything()
+                forgetFirmwareSoon()
                 _state.update { it.copy(step = Step.SIGN_IN, board = null, notice = Notice(Messages.describe(e))) }
                 return@launch
             } catch (e: Exception) {
@@ -307,7 +380,7 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
             }
 
             keepAlive?.cancelAndJoin()
-            updateBoard { it.copy(phase = BoardPhase.UPLOADING, sent = 0, total = image.size) }
+            updateBoard { it.copy(phase = BoardPhase.UPLOADING, sent = 0, total = image.size, image = note) }
             val taken = AtomicInteger(0)
             try {
                 current.upload(image) { sent, total ->
@@ -325,7 +398,7 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
             pairingPoll?.cancel()
             closeSession()
             _state.update {
-                it.copy(step = Step.DONE, board = null, notice = null, done = DoneUi(release.version, board.name))
+                it.copy(step = Step.DONE, board = null, notice = null, done = DoneUi(release.version, board.name, image = note))
             }
             followBoard(release)
         }
@@ -508,6 +581,7 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
     private fun showFailure(e: Throwable) {
         if (e is SignedOutException) {
             stopEverything()
+            forgetFirmwareSoon()
             _state.update { it.copy(step = Step.SIGN_IN, busy = null, me = null, releases = emptyList(), notice = Notice(Messages.describe(e))) }
         } else {
             _state.update { it.copy(busy = null, notice = Notice(Messages.describe(e))) }
