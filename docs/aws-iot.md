@@ -214,11 +214,42 @@ cancel and revoke. [`cloud/README.md`](../cloud/README.md#add-users) has the det
   cancelled, and its file is tagged so that S3 refuses every download, including links
   that were already issued.
 - **Activity.** Every upload, deployment, cancellation and revocation that reaches the API
-  function, with the person it names and whether it was allowed. Entries made by `scripts/ota.sh`
-  or the test bench name the release manager they act for, not a signed-in session. Their request
-  IDs start with `bench-`. Actions taken directly in AWS, such as the AWS CLI stop in
-  `cloud/README.md`, the bench's own jobs or anything an administrator does, do not pass through
-  the API and are not listed here.
+  function, with the person it names and whether it was allowed, and every API token made or
+  revoked. A change made with an API token names the token's owner and the token's ID. Entries
+  made by `scripts/ota.sh` with AWS credentials, or by the test bench, name the release manager they
+  act for, not a signed-in session. Their request IDs start with `bench-`. Actions taken directly in
+  AWS, such as the AWS CLI stop in `cloud/README.md`, the bench's own jobs or anything an
+  administrator does, do not pass through the API and are not listed here.
+
+### API tokens
+
+A personal API token lets a script, such as `scripts/ota.sh` or an assistant that runs it for you,
+use the console's API as you without signing in. Every member, viewer or release manager, makes and
+revokes their own on the console, under **Developer > API tokens**, and sees only their own.
+
+- **Making one.** Choose **New token**, give it a name (1 to 40 characters) and a lifetime of 1 to
+  90 days (30 unless you choose). The token, `crn_` and 43 characters, is shown once, with a copy
+  button. The console keeps only its SHA-256, so it cannot show it again. A person has at most 10
+  tokens that still work.
+- **Keeping it.** Treat it like a password. `scripts/ota.sh` reads it from `CRANIUM_TOKEN` or from
+  `~/.cranium/console-token`, a file of your own with mode 600, and refuses any other file
+  ([scripts/README.md](../scripts/README.md#otash-with-an-api-token)).
+- **Using it.** A request to `/api/t/<path>` with `Authorization: Bearer crn_…` is the request to
+  `/api/<path>`: `GET /api/t/firmware` lists releases, `POST /api/t/deployments` deploys, and
+  `GET /api/t/me` says whose token it is and whether it may write. These two routes have no authorizer
+  at the gateway; the API function looks the token up by its digest and refuses one that is unknown,
+  revoked or expired with `401 invalid_token`.
+- **What it may do.** What its owner may do at that moment. On every request the function asks
+  Cognito whether the owner is active and in which groups, so a person who is demoted, disabled or
+  removed takes the power of their tokens with them at once. A viewer's token only reads. A token
+  cannot make or revoke tokens, and cannot read a board's Bluetooth passkey.
+- **Revoking it.** **Revoke** next to the token, then confirm in the dialog. It is refused from the
+  next request on. Revoking only marks the token; nothing is deleted.
+- **On record.** Making and revoking a token are entries in the activity log (`token.create`,
+  `token.revoke`), and a change made with a token carries the token's ID. A request whose token
+  names nobody (missing, malformed or unknown) leaves no entry, as a request the gateway's authorizer
+  refuses leaves none. The function log names a token by its ID only; neither the token nor its digest
+  is ever logged.
 
 ## The Raspberry Pi (planned)
 
@@ -259,8 +290,10 @@ Releasing an update:
 3. Deploy it. A board on 1.7.2 or newer installs it as soon as it sees it. A board on older firmware, the golden image
    among it, waits until someone presses Button 1 on it.
 
-`scripts/ota.sh` does steps 2 and 3 for one board and follows the update to the end. It invokes
-the API function directly, which bypasses API Gateway and sign-in (see [Known limits](#known-limits)).
+`scripts/ota.sh` does steps 2 and 3 for one board and follows the update to the end. With an
+[API token](#api-tokens) it goes through API Gateway to `/api/t/`, as the token's owner, and needs no
+AWS credentials. Without one, it invokes the API function directly, which bypasses API Gateway and
+sign-in (see [Known limits](#known-limits)).
 
 After a new signing key, run `cloud/deploy.sh --replace-signing-key`, so that the console
 trusts its public half. `secrets/README.md` covers the rest.
@@ -282,7 +315,7 @@ log group `AWSIotLogsV2`.
 | Least privilege | Met for the boards and the console. The device policy is limited to the board's own topics. The console's roles have no delete, publish, signing or certificate rights. Not met for the operator: deployment and the bench run as the AWS root user (see [Known limits](#known-limits)). |
 | Secure update: safe failure, no rollback to old firmware | Partly met. Over the air: trial boot with automatic revert; version checks in the console and the application, and in MCUboot for a test or permanent swap; an update begins only when a release manager deploys it. A revert skips MCUboot's check, and code in the application can forge one. Serial recovery has no version check and no trial, and a golden image restore goes back to the frozen image on purpose (see [Known limits](#known-limits)). |
 | No default or shared passwords, two-factor sign-in | Administrator-created accounts with a temporary password and a required authenticator code. |
-| Log security-relevant actions, never secrets | An audit entry for every attempted change that reaches the API function. A request that API Gateway's token check refuses appears only in the access log. An entry that cannot be stored is lost, and if the change itself succeeded the caller gets `audit_failed`. IAM lets the API's role only put and query entries, so it cannot delete or update one. A put could still replace an entry with the same key, and IAM cannot forbid that: the code sends a condition on every put that refuses it. To notice a rewrite, the function logs a digest of each entry, which the role cannot change, and `cloud/api/verify-audit.mjs` compares the two for the 90 days the log keeps its lines. Access log without query strings; no tokens, links or request bodies in any log. |
+| Log security-relevant actions, never secrets | An audit entry for every attempted change that reaches the API function. A request that API Gateway's token check refuses appears only in the access log. An entry that cannot be stored is lost, and if the change itself succeeded the caller gets `audit_failed`. IAM lets the API's role only put and query entries, so it cannot delete or update one. A put could still replace an entry with the same key, and IAM cannot forbid that: the code sends a condition on every put that refuses it. To notice a rewrite, the function logs a digest of each entry, which the role cannot change, and `cloud/api/verify-audit.mjs` compares the two for the 90 days the log keeps its lines. Access log without query strings; no tokens, links or request bodies in any log. An API token is stored as its SHA-256 only, and logged by its ID only. |
 | Only the servers a device needs | The board talks to its AWS IoT endpoint and downloads from one bucket prefix. |
 
 ### Known limits
@@ -356,8 +389,16 @@ Stated plainly. What has been measured, and on which firmware, is in the
   lasts up to 12 hours and has full rights. The least-privilege row above covers the boards and the
   console's roles, not the operator. These jobs should move to an IAM user or to IAM Identity Center
   (SSO), with root kept for account-level tasks.
-- `scripts/ota.sh` and `firmware/tests/hil/ota_bench.py` invoke the API function directly, with
-  `aws lambda invoke` and hand-written token claims. This bypasses API Gateway and sign-in: no token
+- An API token is a bearer secret: whoever holds a copy acts as its owner, with the owner's role at
+  that moment, from anywhere, until it expires (at most 90 days) or is revoked. Only its owner can
+  revoke it on the console. An administrator who has to stop one at once disables or removes the
+  owner's account (`cloud/users.sh`), which ends all of that person's tokens on their next request. The
+  token routes have no authorizer, so a request with a made-up token runs the API function for one
+  lookup; their own request limits keep that from reaching the console's routes. Expired and revoked
+  tokens stay in the state table, marked, because the API role may not delete. None of this has run on
+  the deployed stack yet: it is tested against the in-memory stand-in and the local preview.
+- Without an API token, `scripts/ota.sh` and `firmware/tests/hil/ota_bench.py` invoke the API function
+  directly, with `aws lambda invoke` and hand-written token claims. This bypasses API Gateway and sign-in: no token
   check, no password, no authenticator code, no request limit and no line in the access log. The
   function trusts the claims, because it expects API Gateway to have checked them. It still asks
   Cognito whether the named person is an active release manager, runs its upload checks and writes
@@ -401,7 +442,8 @@ Stated plainly. What has been measured, and on which firmware, is in the
   80 instead. The invitation mail links to the `https://` address.
 - The home page's names are not a separate site. The stack maps them to the same API and stage as the
   console's name, so `/api/me` on the home host is the console's API, behind the same token check. With
-  no token it gets the same 401 from the gateway. The web function's 404 for that path, which
+  no token it gets the same 401 from the gateway, and `/api/t/` on the home host gets the API function's
+  401 for a missing API token. The web function's 404 for that path, which
   `cloud/web/test/home.test.mjs` checks, is not what a `GET` there meets, because the API's route claims
   it first. No page on those names calls the API, and a token is good for nothing there that it was not
   good for already. This is from `cloud/infra/template.yaml`, and was not tried on the deployed home
@@ -417,6 +459,7 @@ console accounts and the audit log. Firmware images hold no secrets.
 | Someone on the network path | TLS with verified certificates on every connection, and signed images. | They can block traffic. An update then waits or fails, and nothing is installed. |
 | Someone on the internet, with no account | Sign-in with a password and an authenticator code. Uploads need a valid signature. | A flood can use up the API's shared request limit, because an HTTP API has no per-caller limit. Wrong passwords against a known address can keep that person from signing in. The AWS CLI stop still works in both cases, and an administrator can add an account at another address. |
 | A stolen release-manager session | The console cannot sign. Boards verify with their own key and refuse older versions. | Until the token expires they can deploy existing releases, cancel and revoke, and from firmware 1.7.2 on a board installs a newer release with nobody at it. |
+| A stolen API token | The same, and the owner's role is asked of Cognito on every request. It cannot make tokens or read a Bluetooth passkey. Every change it makes carries its ID in the activity log. | What its owner may do, until it expires (at most 90 days) or the owner revokes it, or an administrator disables the owner. Unlike a session, it is not over within the hour. |
 | A break-in at the API function | The same: the function cannot sign, and boards make the same checks. | Until the code is replaced it holds the API role, with no token limit. It can create jobs, cancel, revoke and add false audit entries. |
 | Code running in the application on one board | MCUboot refuses unsigned firmware. Other boards are out of reach. The pin in the bootloader keeps any other image from being restored as the golden one. | That board's device key can be read. Retire its certificate. It can forge a revert to an older signed image, the golden image among them, and it can erase the golden copy (see [Known limits](#known-limits)). |
 | Someone holding a development kit | Nothing yet: the debug port is open. | They can read or replace anything on that board, and Button 2 takes it back to the golden image and its known flaws. A product build would have to lock the port. This repository has no such build yet. |

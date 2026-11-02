@@ -24,6 +24,10 @@
  * everybody during a Cognito outage, just when a release manager may need to watch a
  * deployment. A write in the same situation fails.
  *
+ * A personal API token (handlers/tokens.mjs) carries no claims at all: it names its owner,
+ * and Cognito is asked on every request which groups that owner is in now. Its reads are
+ * not let through on an old answer, and fail when Cognito cannot be asked.
+ *
  * What neither check can see is whether a token was signed out. The gateway only looks at
  * the signature, and Cognito cannot be asked: the console revokes its own refresh token at
  * sign-in, so to Cognito every live token already counts as revoked. A token copied before
@@ -35,6 +39,7 @@ import { describeError, forbidden, unauthorized } from './http.mjs';
 
 export const VIEWERS = 'viewers';
 export const RELEASE_MANAGERS = 'release-managers';
+const CONSOLE_GROUPS = Object.freeze([RELEASE_MANAGERS, VIEWERS]);
 
 // A Cognito sub is a UUID. Anything outside this set is not an identity of this pool.
 const SUB = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -90,7 +95,7 @@ export function authenticate(event, clientIds) {
   return {
     sub: claims.sub,
     // Only the two groups of this console matter; other names are not echoed.
-    groups: [RELEASE_MANAGERS, VIEWERS].filter((name) => groups.includes(name)),
+    groups: CONSOLE_GROUPS.filter((name) => groups.includes(name)),
     expiresAt: numericClaim(claims.exp),
   };
 }
@@ -207,17 +212,27 @@ export function createDirectory({ aws, now, log = () => {} }) {
   }
 
   /**
+   * Ask Cognito, now, about an account: its e-mail address and which of the console's
+   * groups it is in. Throws 403 for an account that is gone, disabled or not confirmed.
+   * A failure to ask is thrown as it is: the request fails.
+   */
+  async function liveAccount(sub) {
+    const [user, groups] = await Promise.all([aws.getUser(sub), aws.listUserGroups(sub)]);
+    const email = user === null ? '' : displayEmail(user.email);
+    if (user !== null) remember(sub, email);
+    if (!isActive(user)) throw inactive();
+    return { email, groups: Array.isArray(groups) ? CONSOLE_GROUPS.filter((name) => groups.includes(name)) : [] };
+  }
+
+  /**
    * Ask Cognito, now, whether this caller may change things: the account is enabled
    * and confirmed, and it is in the release-managers group. The groups in the token do
    * not decide this; they only choose the words of the refusal. Returns the user's
    * e-mail address, or throws 403. A failure to ask is a failure of the request.
    */
   async function requireLiveWriter(caller) {
-    const [user, groups] = await Promise.all([aws.getUser(caller.sub), aws.listUserGroups(caller.sub)]);
-    const email = user === null ? '' : displayEmail(user.email);
-    if (user !== null) remember(caller.sub, email);
-    if (!isActive(user)) throw inactive();
-    if (!Array.isArray(groups) || !groups.includes(RELEASE_MANAGERS)) {
+    const { email, groups } = await liveAccount(caller.sub);
+    if (!groups.includes(RELEASE_MANAGERS)) {
       throw forbidden('release_manager_required', caller.groups.includes(RELEASE_MANAGERS)
         ? 'You are no longer a release manager.'
         : 'Only release managers can do this.');
@@ -225,5 +240,17 @@ export function createDirectory({ aws, now, log = () => {} }) {
     return email;
   }
 
-  return { emailOf, knownEmail, unreachable, requireLiveReader, requireLiveWriter };
+  /**
+   * The same, for a change that any member may make to what is their own (their API
+   * tokens): the account is active and in one of the console's groups, now.
+   */
+  async function requireLiveMember(caller) {
+    const { email, groups } = await liveAccount(caller.sub);
+    if (groups.length === 0) throw noAccess();
+    return email;
+  }
+
+  return {
+    emailOf, knownEmail, unreachable, liveAccount, requireLiveReader, requireLiveWriter, requireLiveMember,
+  };
 }

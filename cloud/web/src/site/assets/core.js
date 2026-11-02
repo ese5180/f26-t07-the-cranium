@@ -69,7 +69,7 @@ export function versionOfDeployment(id) {
 
 // Routes. The console has exactly these; anything else in the address bar is ignored.
 
-const SECTIONS = ['overview', 'devices', 'firmware', 'deployments', 'activity', 'serial', 'history'];
+const SECTIONS = ['overview', 'devices', 'firmware', 'deployments', 'activity', 'serial', 'history', 'tokens'];
 const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?$/;
 
 /** Turn a location hash into a route, or null if it is not one of the console's. */
@@ -608,6 +608,65 @@ function readMe(body) {
     groups: texts(reply.groups),
     canWrite: reply.canWrite === true,
   };
+}
+
+// Personal API tokens (cloud/api/src/handlers/tokens.mjs). The page shows a token once,
+// in the answer that made it; the list never holds one.
+
+const TOKEN = /^crn_[A-Za-z0-9_-]{43}$/;
+const TOKEN_ID = /^[0-9a-f]{16}$/;
+const TOKEN_STATES = ['active', 'expired', 'revoked'];
+export const TOKEN_NAME_LIMIT = 40;
+export const TOKEN_DAYS = Object.freeze({ least: 1, most: 90, usual: 30 });
+
+export function isTokenId(value) {
+  return typeof value === 'string' && TOKEN_ID.test(value);
+}
+
+function readToken(raw) {
+  const item = record(raw);
+  return {
+    id: isTokenId(item.id) ? item.id : '',
+    name: text(item.name, TOKEN_NAME_LIMIT),
+    createdAt: instant(item.createdAt),
+    expiresAt: instant(item.expiresAt),
+    revokedAt: instant(item.revokedAt),
+    // The server's word, for its own clock. Anything else is taken for the end of it.
+    status: TOKEN_STATES.includes(item.status) ? item.status : 'expired',
+  };
+}
+
+function readTokens(body) {
+  const reply = record(body);
+  return {
+    tokens: list(reply.tokens).map(readToken).filter((token) => token.id !== ''),
+    limit: whole(reply.limit, 1, 1000) ?? 10,
+    maxDays: whole(reply.maxDays, 1, 3650) ?? TOKEN_DAYS.most,
+  };
+}
+
+/** The answer to making a token: the token itself, once, and what it is called. */
+function readNewToken(body) {
+  const reply = record(body);
+  if (typeof reply.token !== 'string' || !TOKEN.test(reply.token) || !isTokenId(reply.id)) throw unreadable();
+  return {
+    token: reply.token,
+    id: reply.id,
+    name: text(reply.name, TOKEN_NAME_LIMIT),
+    createdAt: instant(reply.createdAt),
+    expiresAt: instant(reply.expiresAt),
+  };
+}
+
+/**
+ * Whether a number of days is one the server takes for a token's life: a whole number
+ * from 1 to 90. The field gives text; anything else is null.
+ */
+export function tokenDays(value) {
+  const textValue = String(value ?? '').trim();
+  if (!/^\d{1,3}$/.test(textValue)) return null;
+  const days = Number(textValue);
+  return days >= TOKEN_DAYS.least && days <= TOKEN_DAYS.most ? days : null;
 }
 
 /** Boards the server named when it refused a deployment because they are busy. */
@@ -1269,6 +1328,11 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async cancel(id, force) {
       const path = `/api/deployments/${checked(isDeploymentId, id)}/cancel`;
       return readDeployment(record(record(await post(path, { force: force === true })).deployment));
+    },
+    tokens: async () => readTokens(await get('/api/tokens')),
+    createToken: async ({ name, days }) => readNewToken(await post('/api/tokens', { name, days })),
+    async revokeToken(id) {
+      return readToken(record(await post(`/api/tokens/${checked(isTokenId, id)}/revoke`, {})).token);
     },
   };
 }
@@ -2159,12 +2223,20 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to read a Bluetooth passkey',
     icon: 'shield',
   },
+  // A person's own API tokens, named by their id; the token itself is never recorded.
+  'token.create': {
+    done: 'made API token', tried: 'tried to make API token', triedAlone: 'tried to make an API token', icon: 'key',
+  },
+  'token.revoke': {
+    done: 'revoked API token', tried: 'tried to revoke API token', triedAlone: 'tried to revoke an API token', icon: 'key',
+  },
 };
 
-// What scripts/ota.sh and the test bench call their requests. They invoke the API function
-// directly, with AWS credentials and without API Gateway or a sign-in, in a person's name.
-// API Gateway makes up the id of every request that comes through it, so nobody can put
-// this on a request from a browser.
+// What scripts/ota.sh without an API token, and the test bench, call their requests. They
+// invoke the API function directly, with AWS credentials and without API Gateway or a
+// sign-in, in a person's name. API Gateway makes up the id of every request that comes
+// through it, so nobody can put this on a request from a browser, or from a script that
+// uses an API token: such a change carries the token's id instead.
 const SCRIPTED_REQUEST = 'bench-';
 
 const AUDIT_OUTCOMES = {
@@ -2228,6 +2300,14 @@ export const REFUSAL_WORDS = {
   version_zero: 'Version 0.0.0+0 is never accepted',
   device_busy: 'A board had an unfinished update',
   release_revoked: 'The release is revoked',
+  invalid_token: 'The API token was not valid, or had been revoked or had expired',
+  token_not_allowed: 'An API token cannot be used for that',
+  too_many_tokens: 'That person already had as many API tokens as one may have',
+  invalid_token_name: 'The token’s name was empty, too long or not one line',
+  invalid_days: 'The token’s lifetime was not a whole number of days from 1 to 90',
+  invalid_token_id: 'Not a valid token ID',
+  unknown_token: 'That person has no API token with that ID',
+  token_already_revoked: 'That API token was already revoked',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */
@@ -2268,6 +2348,12 @@ const AUDIT_DETAILS = {
   cancelled: { label: 'Cancelled', say: cancelledAnyway },
   size: { label: 'Size', say: (value) => exactBytes(Number(value)) || value },
   sha256: { label: 'SHA-256', code: true },
+  // A change made with an API token, by the token's id. Its state is set when it no longer counted.
+  token: { label: 'With API token', code: true },
+  tokenState: { label: 'The token had', say: (value) => (value === 'revoked' ? 'been revoked' : value) },
+  name: { label: 'Named', sentence: true },
+  days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
+  withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },
 };
 
 function auditFact(entry, key, value) {

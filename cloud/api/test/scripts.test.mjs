@@ -3,14 +3,15 @@
 // A script's functions are run by loading it without its last line, which starts it.
 
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { createTestConsole } from './fake-aws.mjs';
+import { apiEvent, createTestConsole } from './fake-aws.mjs';
 
 const CLOUD = fileURLToPath(new URL('../../', import.meta.url));
 const work = mkdtempSync(join(tmpdir(), 'cranium-scripts-'));
@@ -311,4 +312,147 @@ test('the event smoke.sh sends is one the API function takes, and it tells the t
   assert.equal(JSON.parse(unknown.body).error.code, 'account_inactive');
   // Writes nothing: this is a read, whoever it claims to be.
   assert.equal(console_.fake.auditLog().length, 0);
+});
+
+// scripts/ota.sh with a personal API token: curl to the console's /api/t/, no AWS at all.
+
+const OTA = join(CLOUD, '..', 'scripts', 'ota.sh');
+const IMAGE = fileURLToPath(new URL('./fixtures/valid-1.2.3+4.signed.bin', import.meta.url));
+const BOARD = 'cranium-00000000000000aa';
+const hasTools = ['curl', 'python3'].every((tool) => spawnSync(tool, ['--version']).status === 0);
+
+/** Run ota.sh without blocking, so that the console in this process can answer it. */
+function ota(args, env) {
+  return new Promise((resolve) => {
+    const child = spawn('bash', [OTA, ...args], { env: environment(env) });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.on('close', (status) => resolve({ status, out, err }));
+  });
+}
+
+/**
+ * The console behind a local address, as API Gateway serves /api/t/: no authorizer, the
+ * request handed to the function as it came. Each request moves the console's clock on, so
+ * that nothing is answered from a cache, and `onRequest` plays the board.
+ */
+async function consoleServer(t, { onRequest = () => {} } = {}) {
+  const console_ = createTestConsole();
+  console_.fake.addThing(BOARD);
+  const manager = console_.addUser('manager', ['release-managers']);
+  const seen = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks).toString('utf8');
+    seen.push({ method: request.method, url: request.url, authorization: request.headers.authorization ?? null });
+    console_.advance(5000);
+    onRequest(console_, request.method, request.url);
+    const headers = request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization };
+    const answer = await console_.app(apiEvent(request.method, request.url, { headers, body: body === '' ? undefined : body }));
+    response.writeHead(answer.statusCode, answer.headers);
+    response.end(answer.body);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const made = await console_.call('POST', '/api/tokens', { as: manager, body: { name: 'ota' } });
+  return { console_, manager, seen, token: made.body.token, id: made.body.id, url: `http://127.0.0.1:${server.address().port}` };
+}
+
+test('ota.sh with an API token uploads, deploys and follows the board through the console', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
+  const { console_, seen, token, id, url } = await consoleServer(t, {
+    // The board: it starts the update when the script first looks, and has it confirmed by the next look.
+    onRequest(context, method, path) {
+      const match = /^\/api\/t\/deployments\/([\w-]+)$/.exec(path);
+      if (method !== 'GET' || !match) return;
+      const execution = context.fake.execution(match[1], BOARD);
+      if (execution.get().status === 'QUEUED') execution.update('IN_PROGRESS', { step: 'downloading' });
+      else execution.update('SUCCEEDED', { running: '1.2.3+4' });
+    },
+  });
+  const home = mkdtempSync(join(work, 'home-'));
+  const { status, out, err } = await ota([IMAGE], {
+    HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: `${url}/`, CRANIUM_POLL_SECONDS: '1',
+  });
+  assert.equal(status, 0, `${out}\n${err}`);
+  assert.match(out, /Using the API token from CRANIUM_TOKEN/);
+  assert.match(out, /Uploaded release 1\.2\.3\+4/);
+  assert.match(out, new RegExp(`Done: ${BOARD} installed 1\\.2\\.3\\+4 and reported running 1\\.2\\.3\\+4\\.`));
+  // Never shown, and sent only as the header.
+  for (const text of [out, err]) assert.equal(text.includes(token.slice(4)), false);
+  assert.deepEqual(seen.map((request) => `${request.method} ${request.url.replace(/cranium-1-2-3-b4-\S+/, '<id>')}`).slice(0, 4),
+    ['GET /api/t/me', 'GET /api/t/devices', 'POST /api/t/firmware', 'POST /api/t/deployments']);
+  assert.ok(seen.every((request) => request.authorization === `Bearer ${token}`));
+
+  // The changes are on record in the owner's name, with the token's id.
+  const entries = console_.fake.auditLog().filter((entry) => entry.detail.token === id);
+  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome]),
+    [['firmware.upload', 'ok'], ['deployment.create', 'ok']]);
+  assert.equal(console_.fake.releases.size, 1);
+});
+
+test('ota.sh takes a token file only if it is its owner\'s alone, and never prints a token', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
+  const { seen, token, url } = await consoleServer(t);
+  const home = mkdtempSync(join(work, 'home-'));
+  mkdirSync(join(home, '.cranium'));
+  const file = join(home, '.cranium', 'console-token');
+  const env = { HOME: home, CRANIUM_CONSOLE_URL: url };
+
+  writeFileSync(file, `${token}\n`, { mode: 0o644 });
+  chmodSync(file, 0o644);
+  let run = await ota([IMAGE, '--thing', BOARD], env);
+  assert.equal(run.status, 1);
+  assert.match(run.err, /can be read or changed by others \(mode 644\)/);
+  assert.match(run.err, /chmod 600/);
+  assert.deepEqual(seen, []);
+
+  // A link to a token is not a token file either.
+  const elsewhere = join(home, 'kept');
+  writeFileSync(elsewhere, token, { mode: 0o600 });
+  rmSync(file);
+  symlinkSync(elsewhere, file);
+  run = await ota([IMAGE], env);
+  assert.equal(run.status, 1);
+  assert.match(run.err, /is not a plain file/);
+
+  // Not a token of the console: refused without showing what it was.
+  rmSync(file);
+  writeFileSync(file, `crn_${'x'.repeat(10)}\n`, { mode: 0o600 });
+  run = await ota([IMAGE], env);
+  assert.equal(run.status, 1);
+  assert.match(run.err, /is not one the console makes/);
+  assert.equal(run.err.includes('xxxxxxxxxx'), false);
+  assert.deepEqual(seen, []);
+
+  // Well formed but unknown: the console says no, and the script says what to do.
+  const unknown = `crn_${'B'.repeat(42)}A`;
+  writeFileSync(file, `${unknown}\n`, { mode: 0o600 });
+  chmodSync(file, 0o600);
+  run = await ota([IMAGE], env);
+  assert.equal(run.status, 1);
+  assert.match(run.err, /did not accept the API token/);
+  assert.match(run.err, /Developer > API tokens/);
+  for (const text of [run.out, run.err]) assert.equal(text.includes(unknown.slice(4)), false);
+  assert.deepEqual(seen.map((request) => request.url), ['/api/t/me']);
+
+  // The address must be https, but for the local preview on this computer.
+  run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
+  assert.equal(run.status, 1);
+  assert.match(run.err, /must start with https:\/\//);
+  run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'https://console.example.com/x?y' });
+  assert.match(run.err, /not the address of a console/);
+});
+
+test('ota.sh with a viewer\'s token stops before it uploads anything', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
+  const { console_, seen, url } = await consoleServer(t);
+  const viewer = console_.addUser('viewer', ['viewers']);
+  const made = await console_.call('POST', '/api/tokens', { as: viewer, body: { name: 'read only' } });
+  const home = mkdtempSync(join(work, 'home-'));
+  const run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: made.body.token, CRANIUM_CONSOLE_URL: url });
+  assert.equal(run.status, 1);
+  assert.match(run.err, /viewer@example\.invalid, is not a release manager now, so it can only read/);
+  assert.deepEqual(seen.map((request) => request.url), ['/api/t/me']);
+  assert.equal(console_.fake.releases.size, 0);
 });

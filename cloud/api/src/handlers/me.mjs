@@ -5,7 +5,9 @@
  * token's sub (and cached for a few minutes), unless Cognito failed a moment ago and
  * the request would only wait for it again. The groups and the expiry come from the
  * token; they tell the browser which controls to show and when the session ends. They
- * grant nothing: every write is checked again on the server.
+ * grant nothing: every write is checked again on the server. With an API token
+ * (GET /api/t/me) the groups are Cognito's answer of this request, and the expiry is the
+ * token's: a script can ask what its token may do before it tries.
  */
 
 import { RELEASE_MANAGERS } from '../auth.mjs';

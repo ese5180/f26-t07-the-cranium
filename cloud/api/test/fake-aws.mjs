@@ -155,6 +155,7 @@ export function createFakeAws({
   const objects = new Map();    // key -> { body, contentType, sha256Base64, tags }
   const releases = new Map();   // sk -> item
   const auditItems = new Map(); // sk -> item
+  const tokens = new Map();     // sk (the digest of a token) -> item
   const users = new Map();      // sub -> { email, enabled, status, groups }
   const faults = new Map();     // method -> [error | () => error]
   const calls = [];
@@ -445,6 +446,35 @@ export function createFakeAws({
       return { ok: true, release: copy(item) };
     },
 
+    async getToken(sk) {
+      if (typeof sk !== 'string' || sk === '') throw new TypeError('sk is required');
+      return tokens.has(sk) ? copy(tokens.get(sk)) : null;
+    },
+
+    async listTokens(ownerSub) {
+      if (typeof ownerSub !== 'string' || ownerSub === '') throw new TypeError('ownerSub is required');
+      return [...tokens.values()].filter((item) => item.ownerSub === ownerSub).map(copy);
+    },
+
+    async putToken({ sk, token }) {
+      if (typeof sk !== 'string' || sk === '') throw new TypeError('sk is required');
+      assertStorable(token, 'token');
+      if (tokens.has(sk)) return { ok: false, reason: 'exists' };
+      tokens.set(sk, { ...copy(token), pk: 'TOK', sk });
+      return { ok: true };
+    },
+
+    async markTokenRevoked({ sk, ownerSub, at }) {
+      if (typeof at !== 'string' || at === '') throw new TypeError('at is required');
+      const item = tokens.get(sk);
+      // Both conditions of the update: the owner's token, and not revoked before.
+      if (item === undefined || item.ownerSub !== ownerSub || item.revokedAt !== null) {
+        return { ok: false, reason: 'not_active' };
+      }
+      item.revokedAt = at;
+      return { ok: true, token: copy(item) };
+    },
+
     async putAudit(item) {
       assertStorable(item, 'item');
       if (typeof item.sk !== 'string' || item.sk === '') throw new TypeError('sk is required');
@@ -646,6 +676,7 @@ export function createFakeAws({
     objects,
     releases,
     jobs,
+    tokens,
     auditLog() {
       return [...auditItems.keys()].sort().map((sk) => copy(auditItems.get(sk)));
     },
@@ -706,20 +737,27 @@ let requestCount = 0;
 
 /**
  * An API Gateway HTTP API event in payload format 2.0. Like the gateway, it gives
- * every request its own id unless one is passed in.
+ * every request its own id unless one is passed in. A path under /api/t/ is one of the
+ * routes for API tokens, which have no authorizer: `headers` carries the token.
  */
-export function apiEvent(method, path, { claims, body, query, requestId, base64 = false } = {}) {
+export function apiEvent(method, path, { claims, body, query, requestId, base64 = false, headers = {} } = {}) {
   if (requestId === undefined) {
     requestCount += 1;
     requestId = `local-${String(requestCount).padStart(6, '0')}`;
   }
-  const routeKey = `${method} /api/{proxy+}`;
+  const routeKey = typeof path === 'string' && path.startsWith('/api/t/')
+    ? `${method} /api/t/{proxy+}`
+    : `${method} /api/{proxy+}`;
   const event = {
     version: '2.0',
     routeKey,
     rawPath: path,
     rawQueryString: query === undefined ? '' : new URLSearchParams(query).toString(),
-    headers: { 'content-type': 'application/json' },
+    // The gateway hands header names on in lower case.
+    headers: {
+      'content-type': 'application/json',
+      ...Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value])),
+    },
     requestContext: {
       http: { method, path, protocol: 'HTTP/1.1', sourceIp: '127.0.0.1', userAgent: 'test' },
       requestId,
@@ -830,11 +868,19 @@ export function createTestConsole({
     },
 
     /**
-     * Send one request through the handler. `as` is a user from addUser; `invocation`
-     * is what Lambda passes as the second argument, if the test has a use for it.
+     * Send one request through the handler. `as` is a user from addUser; `token` is an
+     * API token, sent as "Bearer <token>" (`authorization` sends that header as given);
+     * `invocation` is what Lambda passes as the second argument, if the test has a use for it.
      */
-    async call(method, path, { as, claims, body, query, requestId, base64, invocation } = {}) {
-      const event = apiEvent(method, path, { claims: claims ?? as?.claims, body, query, requestId, base64 });
+    async call(method, path, {
+      as, claims, body, query, requestId, base64, invocation, token, authorization,
+    } = {}) {
+      const headers = {};
+      if (token !== undefined) headers.authorization = `Bearer ${token}`;
+      if (authorization !== undefined) headers.authorization = authorization;
+      const event = apiEvent(method, path, {
+        claims: claims ?? as?.claims, body, query, requestId, base64, headers,
+      });
       const response = await app(event, invocation);
       // A firmware image comes back as base64 bytes; everything else is JSON.
       const decoded = response.isBase64Encoded === true

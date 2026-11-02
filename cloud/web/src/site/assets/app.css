@@ -6071,6 +6071,72 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: 0.875rem;
 }
 
+/* API tokens. */
+
+.token-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-bottom: 6px;
+}
+
+.token-count {
+  flex: 1 1 260px;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.token-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.token-name {
+  overflow-wrap: anywhere;
+}
+
+.row.token.is-over .token-name {
+  color: var(--ink-2);
+}
+
+.token-actions {
+  display: flex;
+  align-self: center;
+}
+
+.token-usage {
+  margin-bottom: 14px;
+}
+
+.token-example {
+  display: block;
+  max-width: 100%;
+}
+
+/* The token itself, shown once: in one piece to select, and wrapped where it has to be. */
+.token-secret {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.token-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  user-select: all;
+  word-break: break-all;
+}
+
+.token-days {
+  max-width: 9em;
+}
+
 /* The serial console. */
 
 .serial-layout {

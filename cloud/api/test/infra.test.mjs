@@ -52,11 +52,12 @@ test('reads and writes have a request limit each, and neither is weaker than the
     assert.ok(route.includes('- cranium/console'), resource);
     assert.ok(route.includes('integrations/${ApiIntegration}'), resource);
   }
-  // Only the page itself, its files and what no route claims are open, whatever a route is called.
+  // Only the page itself, its files, what no route claims and the routes whose function
+  // checks an API token itself are open, whatever a route is called.
   const open = template.split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE'))
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /assets/{proxy+}']);
+  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}', 'POST /api/t/{proxy+}']);
 
   const stage = block(template, 'Stage');
   for (const name of ['ApiReadRoute', 'ApiWriteRoute']) assert.ok(block(stage, 'DependsOn', 4).includes(`- ${name}`));
@@ -68,6 +69,45 @@ test('reads and writes have a request limit each, and neither is weaker than the
   };
   assert.deepEqual(limits('GET /api/{proxy+}'), [20, 10]);
   assert.deepEqual(limits('POST /api/{proxy+}'), [10, 5]);
+});
+
+test('API tokens have two routes of their own, to the API function, with limits below the session routes', () => {
+  for (const [resource, key] of [['ApiTokenReadRoute', 'GET /api/t/{proxy+}'], ['ApiTokenWriteRoute', 'POST /api/t/{proxy+}']]) {
+    const route = block(template, resource);
+    assert.ok(route.includes(`RouteKey: '${key}'`), resource);
+    // The function checks the token: the gateway's authorizer only knows Cognito's.
+    assert.ok(route.includes('AuthorizationType: NONE'), resource);
+    assert.equal(route.includes('AuthorizerId'), false, resource);
+    // To the API function, never to the web function.
+    assert.ok(route.includes("Target: !Sub 'integrations/${ApiIntegration}'"), resource);
+    assert.ok(block(block(template, 'Stage'), 'DependsOn', 4).includes(`- ${resource}`), resource);
+  }
+  const settings = block(block(template, 'Stage'), 'RouteSettings', 6);
+  const limits = (key) => {
+    const part = settings.split(`'${key}':`)[1].split('\n').slice(1, 3).join('\n');
+    return [Number(/ThrottlingBurstLimit: (\d+)/.exec(part)[1]), Number(/ThrottlingRateLimit: (\d+)/.exec(part)[1])];
+  };
+  assert.deepEqual(limits('GET /api/t/{proxy+}'), [10, 5]);
+  assert.deepEqual(limits('POST /api/t/{proxy+}'), [5, 2]);
+  // The function knows the prefix the routes name.
+  const app = read('api/src/app.mjs');
+  assert.ok(app.includes("const TOKEN_SEGMENT = 't';"));
+});
+
+test('the API role reads, adds and updates in the state table, and never deletes from it', () => {
+  const role = block(template, 'ApiRole');
+  const state = statement(role, 'ReadAndWriteReleasesAndTokens');
+  // GetItem looks a token up, Query lists a person's tokens, UpdateItem revokes one.
+  assert.deepEqual([...state.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']);
+  assert.ok(state.includes('Resource: !GetAtt StateTable.Arn'));
+  // Nothing else in the role names that table, and the only DynamoDB actions the role is
+  // allowed are these and the audit table's two: no delete, no scan, no wildcard.
+  assert.equal((role.match(/StateTable\.Arn/g) ?? []).length, 1);
+  const denied = statement(role, 'NeverChangeAuditEntries');
+  const allowed = role.replace(denied, '').match(/^\s*(?:Action: |- )dynamodb:\S+$/gm).map((line) => line.trim());
+  assert.deepEqual(allowed, ['- dynamodb:GetItem', '- dynamodb:Query', '- dynamodb:PutItem', '- dynamodb:UpdateItem',
+    '- dynamodb:PutItem', '- dynamodb:Query']);
 });
 
 test('a user cannot change their own e-mail address', () => {

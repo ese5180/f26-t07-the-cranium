@@ -14,8 +14,11 @@
  *
  *   API Gateway    The routes of the HTTP API and its JWT authorizer. A request to
  *                  /api/ needs the access token that the sign-in below issued, and
- *                  reaches the API function as the event the gateway would build. What
- *                  no route claims goes to the web function, as it does when deployed.
+ *                  reaches the API function as the event the gateway would build. A
+ *                  request to /api/t/ goes to the function with no authorizer, as
+ *                  deployed: it carries a personal API token, made on the console's API
+ *                  tokens page, which the function checks. What no route claims goes to
+ *                  the web function, as it does when deployed.
  *   Cognito        The four addresses of the managed login that the console uses:
  *                  /oauth2/authorize, /oauth2/token, /oauth2/revoke and /logout. They
  *                  are served on the next port, so that they are another origin as in
@@ -81,6 +84,9 @@ const WEB_ASSETS = 'GET /assets/{proxy+}';
 const WEB_DEFAULT = '$default';
 const API_READ = 'GET /api/{proxy+}';
 const API_WRITE = 'POST /api/{proxy+}';
+// API tokens: no authorizer; the function checks the token (api/src/handlers/tokens.mjs).
+const API_TOKEN_READ = 'GET /api/t/{proxy+}';
+const API_TOKEN_WRITE = 'POST /api/t/{proxy+}';
 
 // What the requests of --home are addressed to. A reserved domain: it can never exist.
 const HOME_HOST = 'home.preview.invalid';
@@ -1100,14 +1106,25 @@ export async function createPreview({
 
     // The routes of the HTTP API. As deployed, {proxy+} also matches nothing at all
     // after the slash: /api/ reaches the authorizer, /api does not. The API takes only
-    // these two methods, and what no route claims goes to the web function.
+    // these two methods, and what no route claims goes to the web function. The most
+    // specific route wins, so /api/t/ is the routes for API tokens.
     let routeKey = WEB_DEFAULT;
     if (method === 'GET' && path === '/') routeKey = WEB_ROOT;
     else if (method === 'GET' && path.startsWith('/assets/')) routeKey = WEB_ASSETS;
+    else if (method === 'GET' && path.startsWith('/api/t/')) routeKey = API_TOKEN_READ;
+    else if (method === 'POST' && path.startsWith('/api/t/')) routeKey = API_TOKEN_WRITE;
     else if (method === 'GET' && path.startsWith('/api/')) routeKey = API_READ;
     else if (method === 'POST' && path.startsWith('/api/')) routeKey = API_WRITE;
 
-    if (routeKey !== API_READ && routeKey !== API_WRITE) {
+    if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE) {
+      // No authorizer: the request goes to the function as it came, token and all.
+      const body = await readBody(request, MAX_REQUEST_BYTES);
+      if (body === null) {
+        sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
+        return;
+      }
+      sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, body })));
+    } else if (routeKey !== API_READ && routeKey !== API_WRITE) {
       const event = gatewayEvent({ routeKey, method, path, query, headers, host: home ? HOME_HOST : consoleHost });
       sendResult(response, await web(event));
     } else {

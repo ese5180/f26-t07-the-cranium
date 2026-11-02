@@ -203,6 +203,30 @@ Resources:
         - cranium/console
       Target: !Sub 'integrations/${ApiIntegration}'
 
+  # Personal API tokens, for scripts: /api/t/<path> is /api/<path> with "Authorization:
+  # Bearer crn_..." instead of a session. The gateway cannot check such a token, so these
+  # two routes have no authorizer and the function checks it: its digest must be stored,
+  # unrevoked and unexpired, and Cognito is asked about its owner on every request (see
+  # cloud/api/src/handlers/tokens.mjs). API Gateway picks the most specific route, so
+  # nothing under /api/t/ reaches the two routes above. A request with no valid token is
+  # answered 401 by the function and, like one the authorizer refuses, adds no entry to the
+  # activity log; each still invokes the function, which the limits in Stage keep small.
+  ApiTokenReadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'GET /api/t/{proxy+}'
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  ApiTokenWriteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'POST /api/t/{proxy+}'
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${ApiIntegration}'
+
   AccessLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -276,6 +300,8 @@ Resources:
       - AssetsRoute
       - ApiReadRoute
       - ApiWriteRoute
+      - ApiTokenReadRoute
+      - ApiTokenWriteRoute
     Properties:
       ApiId: !Ref Api
       StageName: '$default'
@@ -301,6 +327,15 @@ Resources:
         'POST /api/{proxy+}':
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
+        # Scripts with an API token: an update follows a deployment every few seconds. Kept
+        # apart and below the session routes, so that a script, or a flood of requests with
+        # no valid token, cannot use up what the console itself needs.
+        'GET /api/t/{proxy+}':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+        'POST /api/t/{proxy+}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
       AccessLogSettings:
         DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogGroup}'
         # The route key, never the path: a query string can carry an authorization
@@ -920,9 +955,12 @@ Resources:
                   ForAllValues:StringEquals:
                     s3:RequestObjectTagKeys:
                       - revoked
-              # TransactWriteItems is authorized through PutItem and UpdateItem; IAM
-              # has no action of its own for it. No Scan and no DeleteItem.
-              - Sid: ReadAndWriteReleases
+              # Releases (pk REL and META) and API tokens (pk TOK, keyed by the digest of
+              # the token). A token is looked up with GetItem, a person's tokens are read
+              # with Query, and revoking one sets its revokedAt with UpdateItem, as revoking
+              # a release sets its status. TransactWriteItems is authorized through PutItem
+              # and UpdateItem; IAM has no action of its own for it. No Scan and no DeleteItem.
+              - Sid: ReadAndWriteReleasesAndTokens
                 Effect: Allow
                 Action:
                   - dynamodb:GetItem

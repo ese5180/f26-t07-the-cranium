@@ -341,6 +341,34 @@ test('the API is behind the authorizer: no token, no answer', async (t) => {
   assert.equal((await answerTo(`Bearer ${token}`)).status, 401);
 });
 
+test('an API token made in a session is used on /api/t/, which has no authorizer', async (t) => {
+  const { origin } = await start(t);
+  const session = await accessToken(origin);
+
+  // No authorizer: the function itself answers, in its own words and with its headers.
+  const none = await fetch(`${origin}/api/t/me`);
+  assert.equal(none.status, 401);
+  assert.equal((await none.json()).error.code, 'invalid_token');
+  assert.equal(none.headers.get('cache-control'), 'no-store');
+  // A session is not a token.
+  assert.equal((await call(origin, session, 'GET', '/api/t/me')).body.error.code, 'invalid_token');
+
+  const made = await call(origin, session, 'POST', '/api/tokens', { name: 'preview', days: 1 });
+  assert.equal(made.status, 201);
+  const me = await call(origin, made.body.token, 'GET', '/api/t/me');
+  assert.deepEqual([me.status, me.body.canWrite], [200, true]);
+  const listed = await call(origin, made.body.token, 'GET', '/api/t/firmware');
+  assert.equal(listed.status, 200);
+  // A token is no session: the routes behind the authorizer refuse it at the gateway.
+  const gate = await call(origin, made.body.token, 'GET', '/api/firmware');
+  assert.deepEqual([gate.status, gate.body], [401, { message: 'Unauthorized' }]);
+  // And it cannot manage tokens.
+  assert.equal((await call(origin, made.body.token, 'GET', '/api/t/tokens')).body.error.code, 'token_not_allowed');
+
+  assert.equal((await call(origin, session, 'POST', `/api/tokens/${made.body.id}/revoke`, {})).status, 200);
+  assert.equal((await call(origin, made.body.token, 'GET', '/api/t/me')).status, 401);
+});
+
 test('sign-in refuses what Cognito refuses, and insists on state and PKCE', async (t) => {
   const { origin } = await start(t);
   const config = await settings(origin);

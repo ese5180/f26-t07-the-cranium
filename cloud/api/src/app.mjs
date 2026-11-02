@@ -17,6 +17,20 @@
  * its outcome, including the refusals in steps 1, 2 and 5 and a request that runs out
  * of time.
  *
+ * Personal API tokens (handlers/tokens.mjs). A request to /api/t/<path> is the request to
+ * /api/<path>, made with a token instead of a session: the gateway lets it through with no
+ * authorizer, and steps 1 to 3 become
+ *
+ *   1. the token: exactly "Bearer crn_…", whose digest is stored, not revoked or expired (401)
+ *   2. and 3. its owner, asked of Cognito now: active, and in one of the groups   (403)
+ *
+ * after which a write still needs a release manager, by that same answer. A token cannot
+ * be used to manage tokens or to read a board's Bluetooth passkey (403); tokens are managed
+ * with a session of the console's own app client only, not a phone app's. An entry made
+ * with a token names the token's id. A token request that names nobody, because its token
+ * is missing, malformed or unknown, leaves no entry: it is what the gateway's authorizer
+ * refuses for the other routes, which leaves none either.
+ *
  * Time: Lambda stops the function 20 s after a request arrived, and what it stops
  * leaves no answer, no log line and no entry. A request is therefore given up earlier,
  * while there is time left to record it. Its work is not waited for any longer, and
@@ -30,20 +44,23 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 
-import { authenticate, claimedSub, createDirectory, requireMember } from './auth.mjs';
+import { RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireMember } from './auth.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
+import { createTokenHandlers } from './handlers/tokens.mjs';
 import {
-  HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, json, notFound, readJsonObject,
+  HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, forbidden, json, notFound, readJsonObject,
 } from './http.mjs';
 import { REQUEST_ID } from './lib/audit.mjs';
 
 const METHODS = Object.freeze(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const MAX_PATH = 512;
+// /api/t/<path> is /api/<path> with an API token.
+const TOKEN_SEGMENT = 't';
 
 // The function has 20 s for a request (Timeout of ApiFn in infra/template.yaml). A
 // request is given up after 16 s, and in any case 4 s before Lambda's own limit: the
@@ -51,8 +68,24 @@ const MAX_PATH = 512;
 const REQUEST_BUDGET_MS = 16_000;
 const RESERVE_MS = 4_000;
 
-function route(method, path, run, write = null) {
-  return Object.freeze({ method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write });
+/**
+ * A route. `write` makes it a change that goes on record; `token: false` keeps it from
+ * being used with an API token; `website: true` takes a session of the console's own app
+ * client only, not one of the phone apps.
+ */
+function route(method, path, run, write = null, { token = true, website = false } = {}) {
+  return Object.freeze({
+    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, website,
+  });
+}
+
+/** Whether a path is one of the token routes: /api/t/ and something after it. */
+function isTokenPath(segments) {
+  return segments !== null && segments.length >= 3 && segments[0] === 'api' && segments[1] === TOKEN_SEGMENT;
+}
+
+function notForTokens() {
+  return forbidden('token_not_allowed', 'An API token cannot be used for this. Sign in to the console instead.');
 }
 
 /**
@@ -189,8 +222,15 @@ export function createApp({
   const firmware = createFirmwareHandlers(context, { deployments });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
+  const tokens = createTokenHandlers(context);
   // Tokens from the console and from the phone apps are both accepted.
   const clientIds = [config.userPoolClientId, config.mobileClientId];
+  // Changes a member makes to what is their own: the live check asks for a member, not a release manager.
+  const ownTokens = { maxBody: SMALL_BODY_LIMIT, member: true };
+  const sessionOnly = { token: false };
+  // API tokens are made and ended on the website: a session of an hour from elsewhere does
+  // not turn into a token of ninety days.
+  const websiteOnly = { token: false, website: true };
 
   const routes = Object.freeze([
     route('GET', '/api/me', me.get),
@@ -203,8 +243,10 @@ export function createApp({
     // the image a phone sends to a board over Bluetooth, and that board's passkey.
     route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }),
     // A phone asks every few seconds until the board has a passkey, so an answer of "none yet" is
-    // not recorded: only a passkey handed out, and a caller refused.
-    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] }),
+    // not recorded: only a passkey handed out, and a caller refused. A passkey is for a person
+    // with a phone at the board, never for a script with an API token.
+    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] },
+      sessionOnly),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
       { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments', deployments.list),
@@ -214,7 +256,28 @@ export function createApp({
     route('POST', '/api/deployments/{id}/cancel', deployments.cancel,
       { action: 'deployment.cancel', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/audit', audit.list),
+    // A person's own API tokens, from a signed-in session only: a token never makes or ends one.
+    route('GET', '/api/tokens', tokens.list, null, websiteOnly),
+    route('POST', '/api/tokens', tokens.create, { action: 'token.create', ...ownTokens }, websiteOnly),
+    route('POST', '/api/tokens/{id}/revoke', tokens.revoke, { action: 'token.revoke', ...ownTokens }, websiteOnly),
   ]);
+
+  /**
+   * Who is calling, with the checks of steps 1 and 2: from the claims the gateway
+   * verified, or from an API token and what Cognito says of its owner now. `email` is
+   * known for a token's owner only; a session's is looked up by the live check that follows.
+   */
+  async function identify(found, event, request) {
+    if (!request.viaToken) {
+      const caller = authenticate(event, found?.route.website ? [config.userPoolClientId] : clientIds);
+      request.sub = caller.sub;
+      requireMember(caller);
+      return { caller, email: '' };
+    }
+    const known = await tokens.authenticate(event, request);
+    requireMember(known.caller);
+    return known;
+  }
 
   /**
    * Do the work of a request, for no longer than `request.budget` milliseconds. When
@@ -242,27 +305,41 @@ export function createApp({
   }
 
   async function read(found, event, request) {
-    const caller = authenticate(event, clientIds);
-    request.sub = caller.sub;
-    requireMember(caller);
-    await context.directory.requireLiveReader(caller, request.id);
+    const { caller } = await identify(found, event, request);
+    // A token's owner was asked about just now, without the minute's grace of a session.
+    if (!request.viaToken) await context.directory.requireLiveReader(caller, request.id);
     if (found === null) throw notFound('not_found', 'There is nothing at this address.');
+    if (request.viaToken && !found.route.token) throw notForTokens();
     return found.route.run({ caller, params: found.params, query: queryOf(event) });
+  }
+
+  /** Step 5 for a write: a release manager, or for a member's own things a member, now. */
+  async function liveWriter(found, request, known) {
+    if (!request.viaToken) {
+      return found.route.write.member === true
+        ? context.directory.requireLiveMember(known.caller)
+        : context.directory.requireLiveWriter(known.caller);
+    }
+    if (!found.route.token) throw notForTokens();
+    // The groups are Cognito's answer of a moment ago, for this request.
+    if (!known.caller.groups.includes(RELEASE_MANAGERS)) {
+      throw forbidden('release_manager_required', 'Only release managers can do this.');
+    }
+    return known.email;
   }
 
   async function write(found, event, request) {
     const { action, maxBody, unrecorded = [] } = found.route.write;
     // The handler fills these in as it learns what the request is about.
     const entry = { target: '', detail: {} };
-    const actor = { sub: claimedSub(event), email: '' };
+    const actor = { sub: request.viaToken ? '' : claimedSub(event), email: '' };
     let result = null;
     let failure = null;
     try {
       result = await withinDeadline(request, async () => {
-        const caller = authenticate(event, clientIds);
-        request.sub = caller.sub;
-        requireMember(caller);
-        actor.email = await context.directory.requireLiveWriter(caller);
+        const known = await identify(found, event, request);
+        const { caller } = known;
+        actor.email = await liveWriter(found, request, known);
         return found.route.run({
           caller,
           actor: { sub: caller.sub, email: actor.email },
@@ -277,10 +354,15 @@ export function createApp({
       failure = error;
     }
 
+    // A token that named nobody: there is nobody to put on record (see the top of this file).
+    if (failure !== null && request.viaToken && request.sub === null) throw failure;
+
     // What is known now is what goes on record. After a timeout the work that was left
-    // behind may still write to these.
+    // behind may still write to these. The token comes first, so that it is never cut.
     const target = entry.target;
-    const detail = { ...entry.detail };
+    const detail = request.token === null ? { ...entry.detail } : { token: request.token.id, ...entry.detail };
+    if (request.token !== null && request.token.status !== 'active') detail.tokenState = request.token.status;
+    const sub = request.viaToken ? request.sub : actor.sub;
     let email = actor.email;
     let outcome = 'ok';
     if (failure !== null) {
@@ -296,7 +378,7 @@ export function createApp({
     }
     if (failure !== null && unrecorded.includes(outcome)) throw failure;
     const recorded = await audit.record({
-      at: clock(), requestId: request.id, actor: { sub: actor.sub, email }, action, target, outcome, detail,
+      at: clock(), requestId: request.id, actor: { sub, email }, action, target, outcome, detail,
     });
     if (failure !== null) throw failure;
     if (!recorded) {
@@ -318,9 +400,14 @@ export function createApp({
     const started = clock();
     const requestId = requestIdOf(event);
     const method = methodOf(event);
-    const found = findRoute(routes, method, pathSegments(event));
-    // `sub` is filled in once the caller is identified.
-    const request = { id: requestId, sub: null, budget: budgetOf(invocation), timedOut: false };
+    const segments = pathSegments(event);
+    const viaToken = isTokenPath(segments);
+    const found = findRoute(routes, method, viaToken ? ['api', ...segments.slice(2)] : segments);
+    // `sub` is filled in once the caller is identified, and `token` ({ id, status }) once
+    // an API token has named its owner.
+    const request = {
+      id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false,
+    };
 
     let response;
     try {
@@ -339,14 +426,17 @@ export function createApp({
       response = failed.response;
     }
 
-    log({
+    const line = {
       requestId,
       sub: request.sub,
       method,
       route: found === null ? 'unmatched' : found.route.name,
       status: response.statusCode,
       duration: clock() - started,
-    });
+    };
+    // Which token, by its id: never the token, never its digest.
+    if (viaToken) Object.assign(line, { via: 'token', token: request.token?.id ?? null });
+    log(line);
     return response;
   };
 }

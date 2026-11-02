@@ -2819,3 +2819,152 @@ test('a cancelled update on a board with a cut list of updates is not said to ha
   assert.match(textOf(one(away, 'section.flash')), /^Flash memory when last seen/);
   assert.match(textOf(one(away, 'li.flash-row', 'Primary slot')), /1\.2\.3\+5 ?Ran from here, confirmed/);
 });
+
+// API tokens.
+
+const DAY_S = 86400;
+const later = (seconds) => new Date(NOW + seconds * 1000).toISOString();
+const SECRET = `crn_${'Q'.repeat(42)}A`;
+const TOKEN_LIST = {
+  tokens: [
+    { id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(3600), expiresAt: later(29 * DAY_S), revokedAt: null, status: 'active' },
+    { id: 'bbbbbbbbbbbbbbbb', name: 'old ci', createdAt: ago(40 * DAY_S), expiresAt: ago(10 * DAY_S), revokedAt: null, status: 'expired' },
+    { id: 'cccccccccccccccc', name: 'leaked', createdAt: ago(5 * DAY_S), expiresAt: later(DAY_S), revokedAt: ago(DAY_S), status: 'revoked' },
+  ],
+  limit: 10,
+  maxDays: 90,
+};
+
+function tokensPage({ listing = TOKEN_LIST, viewer = false, actions = recorder().actions } = {}) {
+  const state = {
+    me: { canWrite: !viewer, email: MANAGER.email, sub: MANAGER.sub },
+    route: { view: 'tokens' },
+    now: NOW,
+    interval: 0,
+    origin: 'https://console.test',
+    tokens: loaded(listing),
+  };
+  return draw(views.tokensView({ state, actions }));
+}
+
+test('the API tokens page lists the person\'s own tokens with their state, and revokes only one that works', () => {
+  const { actions, calls } = recorder();
+  const drawn = tokensPage({ actions });
+  assert.equal(textOf(one(drawn, 'h1')), 'API tokens');
+  assert.equal(one(drawn, 'nav.dev-tabs').childNodes.length, 4);
+  assert.equal(one(drawn, 'a', 'API tokens').getAttribute('aria-current'), 'page');
+
+  const rows = all(drawn, 'li.token');
+  assert.deepEqual(rows.map((row) => textOf(one(row, 'span.badge'))), ['Active', 'Expired', 'Revoked']);
+  assert.match(textOf(rows[0]), /laptop .*ID aaaaaaaaaaaaaaaa .*Made 1 h ago .*Expires in 29 d/);
+  assert.match(textOf(rows[1]), /Expired 10 d ago/);
+  assert.match(textOf(rows[2]), /Revoked 1 d ago/);
+  assert.deepEqual(all(drawn, 'li.token.is-over').length, 2);
+  // Only the token that still works can be revoked, and its button says which it is.
+  assert.deepEqual(controls(drawn).filter((label) => label.startsWith('Revoke')), ['Revoke the token laptop']);
+  click(one(drawn, 'button', 'New token'));
+  click(all(rows[0], 'button')[0]);
+  assert.deepEqual(calls.map(([name, argument]) => [name, argument?.id ?? argument ?? null]),
+    [['openCreateToken', null], ['openRevokeToken', 'aaaaaaaaaaaaaaaa']]);
+
+  // How to use one, with this console's own address; and nowhere a token.
+  assert.match(textOf(drawn), /curl -H "Authorization: Bearer \$CRANIUM_TOKEN" https:\/\/console\.test\/api\/t\/me/);
+  assert.match(textOf(drawn), /~\/\.cranium\/console-token/);
+  assert.doesNotMatch(textOf(drawn), /crn_[A-Za-z0-9_-]{43}/);
+  assert.match(textOf(one(drawn, 'p.token-count')), /^1 token in use, of the 10 you may have\.$/);
+});
+
+test('with no tokens, with all ten in use, and for a viewer, the page says so', () => {
+  const none = tokensPage({ listing: { ...TOKEN_LIST, tokens: [] } });
+  assert.match(textOf(none), /You have no API tokens\./);
+  assert.equal(one(none, 'button', 'New token').disabled, false);
+
+  const active = TOKEN_LIST.tokens[0];
+  const ten = Array.from({ length: 10 }, (_, index) => ({ ...active, id: `${index}`.padStart(16, 'a'), name: `t${index}` }));
+  const full = tokensPage({ listing: { ...TOKEN_LIST, tokens: ten } });
+  assert.equal(one(full, 'button', 'New token').disabled, true);
+  assert.equal(one(full, 'button', 'New token').getAttribute('title'), 'Revoke a token you no longer use first.');
+
+  const viewer = tokensPage({ viewer: true });
+  assert.match(textOf(one(viewer, 'p.token-count')), /You are a viewer, so your tokens can only read\./);
+  // A viewer makes and revokes their own tokens all the same.
+  assert.equal(one(viewer, 'button', 'New token').disabled, false);
+  assert.equal(controls(viewer).includes('Revoke the token laptop'), true);
+});
+
+test('the Developer section is current on the API tokens page too', () => {
+  const nav = draw(views.navView({ state: { route: { view: 'tokens' }, me: { canWrite: false } } }));
+  assert.equal(one(nav, 'a', 'Developer').getAttribute('aria-current'), 'page');
+});
+
+/** The dialog that makes a token, with a model that records what it is asked. */
+function tokenDialog(changes = {}) {
+  const calls = [];
+  const model = {
+    name: '', days: '30', made: null, sending: false, error: null,
+    setName: (text) => calls.push(['setName', text]),
+    setDays: (text) => calls.push(['setDays', text]),
+    submit: () => calls.push(['submit']),
+    close: () => calls.push(['close']),
+    ...changes,
+  };
+  const { actions, calls: done } = recorder();
+  const ctx = { state: { now: NOW }, actions };
+  return { dialog: draw(views.createTokenDialog(model, ctx)), calls, done };
+}
+
+test('a token is made with a name and a lifetime, and the dialog says what is missing', () => {
+  const blank = tokenDialog();
+  const go = one(blank.dialog, 'button', 'Make token');
+  assert.equal(go.disabled, true);
+  assert.equal(textOf(one(blank.dialog, 'span.dialog-hint')), 'Give it a name first.');
+  assert.equal(all(blank.dialog, 'input').length, 2);
+  const [name, days] = all(blank.dialog, 'input');
+  assert.equal(name.getAttribute('maxlength'), '40');
+  assert.deepEqual([days.getAttribute('min'), days.getAttribute('max'), days.value], ['1', '90', '30']);
+  name.value = 'laptop';
+  name.dispatchEvent({ type: 'input', target: name });
+  days.value = '7';
+  days.dispatchEvent({ type: 'input', target: days });
+  assert.deepEqual(blank.calls, [['setName', 'laptop'], ['setDays', '7']]);
+
+  const tooLong = tokenDialog({ name: 'laptop', days: '91' });
+  assert.equal(textOf(one(tooLong.dialog, 'span.dialog-hint')), 'Choose 1 to 90 days.');
+  assert.equal(one(tooLong.dialog, 'button', 'Make token').disabled, true);
+
+  const ready = tokenDialog({ name: 'laptop', days: '30' });
+  assert.equal(all(ready.dialog, 'span.dialog-hint').length, 0);
+  click(one(ready.dialog, 'button', 'Make token'));
+  assert.deepEqual(ready.calls, [['submit']]);
+  click(one(ready.dialog, 'button', 'Cancel'));
+  assert.deepEqual(ready.calls, [['submit'], ['close']]);
+});
+
+test('a new token is shown once, with a copy button and a plain warning that it will not be shown again', () => {
+  const made = { token: SECRET, id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(0), expiresAt: later(30 * DAY_S) };
+  const { dialog, calls, done } = tokenDialog({ name: 'laptop', made });
+  assert.equal(textOf(one(dialog, 'h2')), 'Your new API token');
+  assert.equal(textOf(one(dialog, 'code.token-value')), SECRET);
+  assert.match(textOf(dialog), /Copy it now: you won’t see this token again\./);
+  assert.match(textOf(dialog), /ID aaaaaaaaaaaaaaaa/);
+  assert.equal(all(dialog, 'input').length, 0);
+  click(all(dialog, 'button').find((el) => el.getAttribute('aria-label') === 'Copy the token'));
+  assert.deepEqual(done, [['copy', SECRET, 'the token']]);
+  click(one(dialog, 'button', 'Done'));
+  assert.deepEqual(calls, [['close']]);
+});
+
+test('revoking a token is asked for in the page\'s own dialog, which says what follows', () => {
+  const calls = [];
+  const token = TOKEN_LIST.tokens[0];
+  const model = { token, sending: false, error: null, submit: () => calls.push('submit'), close: () => calls.push('close') };
+  const dialog = draw(views.revokeTokenDialog(model, { state: { now: NOW } }));
+  assert.equal(textOf(one(dialog, 'h2')), 'Revoke the token “laptop”?');
+  assert.match(textOf(dialog), /A script that uses it is refused from its next request on\./);
+  assert.match(textOf(dialog), /This cannot be undone\./);
+  assert.deepEqual(controls(dialog), ['Close', 'Keep the token', 'Revoke token']);
+  assert.equal(one(dialog, 'button', 'Keep the token').getAttribute('autofocus') !== null, true);
+  click(one(dialog, 'button', 'Revoke token'));
+  click(one(dialog, 'button', 'Keep the token'));
+  assert.deepEqual(calls, ['submit', 'close']);
+});

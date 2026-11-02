@@ -21,7 +21,7 @@ import {
   describeUpdate, deviceActivity, deviceHref, duration, exactBytes, exactTime, failedCheck, fileSize, IMAGE_CHECKS,
   installStanding, isRefusal, isRestarting, isUnderWay, isUnfinished, isUnregistered, nameOf, parseVersion, plainMessage,
   plural, reviewImage, revocationState, sentence, shortAccount, signalQuality, singleLine, stillFinishing, timeAgo,
-  timeOfDay, toldByDate, versionOfDeployment,
+  timeOfDay, TOKEN_DAYS, TOKEN_NAME_LIMIT, tokenDays, toldByDate, versionOfDeployment,
 } from './core.js';
 
 // Drawing.
@@ -1064,7 +1064,9 @@ const SECTIONS = [
   ['activity', 'Activity'],
   ['developer', 'Developer'],
 ];
-const SECTION_OF = { device: 'devices', deployment: 'deployments', serial: 'developer', history: 'developer' };
+const SECTION_OF = {
+  device: 'devices', deployment: 'deployments', serial: 'developer', history: 'developer', tokens: 'developer',
+};
 
 /** Where Developer leads: a viewer has no use for the serial console's controls. */
 function sectionHref(view, ctx) {
@@ -1084,14 +1086,15 @@ export function navView(ctx) {
     }, label))));
 }
 
-// The pages of the Developer section, which have a script each (serial.js, history.js).
+// The pages of the Developer section. Two have a script each (serial.js, history.js);
+// API tokens is drawn here, because it talks to the API like the other pages.
 
 export { badge, button, empty, loading, mono, notice, pageHead };
 
 export function developerTabs(current) {
   return h('nav', { class: 'dev-tabs', key: 'tabs', 'aria-label': 'Developer pages' },
     h('span', { class: 'eyebrow' }, 'Developer'),
-    [['serial', 'Serial console'], ['history', 'History']].map(([view, label]) => h('a', {
+    [['serial', 'Serial console'], ['history', 'History'], ['tokens', 'API tokens']].map(([view, label]) => h('a', {
       key: view,
       class: 'nav-link',
       href: `#/${view}`,
@@ -1135,7 +1138,7 @@ export function accountView(ctx) {
 // Overview.
 
 const SCRIPTED_TAG = 'Script, no sign-in';
-const SCRIPTED_NOTE = 'Sent by a script (the test bench or scripts/ota.sh) with AWS credentials, directly to the API ' +
+const SCRIPTED_NOTE = 'Sent by a script (the test bench, or scripts/ota.sh without an API token) with AWS credentials, directly to the API ' +
   'function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, ' +
   'so the entry does not show that this person did it.';
 
@@ -3275,6 +3278,114 @@ export function activityView(ctx) {
     body);
 }
 
+// API tokens: a person's own, for scripts. Any member may make them. A token does what
+// its owner may do at the moment it is used, which the server asks Cognito each time, so
+// the page is the same for a viewer and a release manager.
+
+const TOKEN_LOOK = {
+  active: ['good', 'check-circle', 'Active'],
+  expired: ['idle', 'clock', 'Expired'],
+  revoked: ['bad', 'ban', 'Revoked'],
+};
+
+/** A time still to come: how long until then, with the date and time as its tooltip. */
+function until(iso, now) {
+  const left = Date.parse(iso) - now;
+  if (!(left > 0)) return h('time', { datetime: iso, title: exactTime(iso) }, dateAndTime(iso));
+  return h('time', { datetime: iso, title: exactTime(iso) }, `in ${duration(left / 1000)}`);
+}
+
+function tokenRow(token, ctx) {
+  const { now } = ctx.state;
+  const [tone, iconName, label] = TOKEN_LOOK[token.status] ?? TOKEN_LOOK.expired;
+  let life;
+  if (token.status === 'revoked') life = ['Revoked ', when(token.revokedAt, now)];
+  else if (token.status === 'expired') life = ['Expired ', when(token.expiresAt, now)];
+  else life = ['Expires ', until(token.expiresAt, now), ` (${dateAndTime(token.expiresAt)})`];
+  return h('li', { key: token.id, class: `row token ${token.status === 'active' ? '' : 'is-over'}`.trim() },
+    h('div', { class: 'row-main' },
+      h('p', { class: 'row-title token-title' },
+        h('span', { class: 'token-name' }, token.name), badge(tone, iconName, label)),
+      h('p', { class: 'row-note dotted' },
+        h('span', null, 'ID ', mono(token.id)),
+        h('span', null, 'Made ', when(token.createdAt, now)),
+        h('span', null, life))),
+    token.status === 'active'
+      ? h('div', { class: 'token-actions' }, h('button', {
+        type: 'button',
+        class: 'btn is-small',
+        'aria-label': `Revoke the token ${token.name}`,
+        onClick: () => ctx.actions.openRevokeToken(token),
+      }, icon('ban'), 'Revoke'))
+      : null);
+}
+
+/** How to use a token, said once on the page, with this console's own address. */
+function tokenUsage(ctx) {
+  const origin = typeof ctx.state.origin === 'string' && ctx.state.origin !== '' ? ctx.state.origin : 'https://<console>';
+  return card({ key: 'use', title: 'Using a token' },
+    h('ul', { class: 'consequences token-usage' },
+      h('li', { key: 'how' },
+        'Send it as ', mono('Authorization: Bearer crn_…'), ' to the API under ', mono('/api/t/'), ': ',
+        mono('GET /api/t/firmware'), ' answers what ', mono('GET /api/firmware'), ' does for you here.'),
+      h('li', { key: 'ota' },
+        mono('scripts/ota.sh'), ' uses the token in ', mono('~/.cranium/console-token'),
+        ' (readable by you alone: ', mono('chmod 600'), '), or in ', mono('CRANIUM_TOKEN'), '.'),
+      h('li', { key: 'who' },
+        'It acts as you, with what you may do at that moment: a viewer’s token only reads, and if your ' +
+        'account loses a role or is disabled, its tokens lose it at once.'),
+      h('li', { key: 'log' },
+        'A change made with a token is in the activity log under your name, with the token’s ID. A token ' +
+        'cannot make or revoke tokens, or read a board’s Bluetooth passkey.')),
+    h('code', { class: 'code token-example', key: 'example' },
+      `curl -H "Authorization: Bearer $CRANIUM_TOKEN" ${origin}/api/t/me`));
+}
+
+export function tokensView(ctx) {
+  const { state, actions } = ctx;
+  const listing = state.tokens.value;
+  const active = listing ? listing.tokens.filter((token) => token.status === 'active').length : 0;
+  const full = listing !== null && active >= listing.limit;
+  const viewer = state.me?.canWrite === false;
+
+  let body;
+  if (!listing) {
+    body = pending(state.tokens, 'your API tokens');
+  } else if (listing.tokens.length === 0) {
+    body = empty({
+      iconName: 'key',
+      title: 'You have no API tokens.',
+      text: 'Make one for a script that should use the console as you, such as scripts/ota.sh.',
+    });
+  } else {
+    body = h('ul', { class: 'rows token-list', key: 'list' }, listing.tokens.map((token) => tokenRow(token, ctx)));
+  }
+
+  return h('div', { class: 'page', key: 'page' },
+    developerTabs('tokens'),
+    pageHead({
+      title: 'API tokens',
+      lede: 'A token lets a script use this console’s API as you, without signing in, until it expires or ' +
+        'you revoke it. Each person makes and sees only their own.',
+      tools: freshness(state.tokens, ctx),
+    }),
+    loadProblem(state.tokens, 'your API tokens', ctx),
+    card({ key: 'tokens', title: 'Your tokens' },
+      h('div', { class: 'token-head', key: 'head' },
+        h('p', { class: 'token-count' },
+          listing ? `${plural(active, 'token', 'tokens')} in use, of the ${listing.limit} you may have.` : null,
+          viewer ? ' You are a viewer, so your tokens can only read.' : null),
+        h('button', {
+          type: 'button',
+          class: 'btn is-primary',
+          disabled: !listing || full,
+          title: full ? 'Revoke a token you no longer use first.' : null,
+          onClick: actions.openCreateToken,
+        }, icon('plus'), 'New token')),
+      body),
+    tokenUsage(ctx));
+}
+
 // Dialogs. Each is a form inside a <dialog>. It acts when one of its buttons is used,
 // never because Enter was pressed in a field, and every button says what it does.
 
@@ -3787,6 +3898,133 @@ export function revokeDialog(model, ctx) {
         sending: model.sending,
         describedBy: reason ? null : 'dialog-hint',
       }, icon('ban'), model.sending ? 'Revoking…' : ['Revoke ', release.version]),
+    ],
+  });
+}
+
+/**
+ * Making an API token: a name and a lifetime, then the token itself, once. Once it is
+ * shown, only the dialog's own buttons close it: Escape or a click beside it would lose
+ * a token that cannot be shown again.
+ */
+export function createTokenDialog(model, ctx) {
+  if (model.made) return madeTokenDialog(model, ctx);
+  const name = model.name.trim();
+  const days = tokenDays(model.days);
+  let hint = null;
+  if (name === '') hint = 'Give it a name first.';
+  else if (days === null) hint = `Choose ${TOKEN_DAYS.least} to ${TOKEN_DAYS.most} days.`;
+  return dialogFrame({
+    title: 'New API token',
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: hint ? null : model.submit,
+    body: [
+      h('p', { key: 'lead' },
+        'A script that has this token can use the console’s API as you, with what you may do at that moment.'),
+      h('label', { class: 'field', key: 'name' },
+        h('span', { class: 'field-label' }, 'Name ', h('span', { class: 'quiet' }, '(required)')),
+        h('input', {
+          class: 'input',
+          type: 'text',
+          maxlength: String(TOKEN_NAME_LIMIT),
+          autofocus: true,
+          disabled: model.sending,
+          value: model.name,
+          onInput: (event) => model.setName(event.target.value),
+        }),
+        h('span', { class: 'field-hint' },
+          `What it is for: the computer or the script that uses it. Up to ${TOKEN_NAME_LIMIT} characters.`)),
+      h('label', { class: 'field', key: 'days' },
+        h('span', { class: 'field-label' }, 'Valid for, in days'),
+        h('input', {
+          class: 'input token-days',
+          type: 'number',
+          inputmode: 'numeric',
+          min: String(TOKEN_DAYS.least),
+          max: String(TOKEN_DAYS.most),
+          step: '1',
+          disabled: model.sending,
+          value: model.days,
+          onInput: (event) => model.setDays(event.target.value),
+        }),
+        h('span', { class: 'field-hint' },
+          `From ${TOKEN_DAYS.least} to ${TOKEN_DAYS.most}. A token cannot be extended: make a new one when it runs out.`)),
+    ],
+    error: model.error ? failure('No token was made.', model.error, null, model.signIn) : null,
+    foot: [
+      dialogButton({ key: 'keep', disabled: model.sending, onClick: model.close }, 'Cancel'),
+      SPACER(),
+      hint ? h('span', { class: 'dialog-hint', id: 'dialog-hint', key: 'hint' }, hint) : null,
+      dialogButton({
+        key: 'go',
+        className: 'is-primary',
+        submit: true,
+        disabled: Boolean(hint),
+        sending: model.sending,
+        describedBy: hint ? 'dialog-hint' : null,
+      }, icon('key'), model.sending ? 'Making…' : 'Make token'),
+    ],
+  });
+}
+
+function madeTokenDialog(model, ctx) {
+  const { made } = model;
+  return dialogFrame({
+    title: 'Your new API token',
+    busy: false,
+    onClose: model.close,
+    onSubmit: model.close,
+    body: [
+      notice('warn', 'alert', [h('strong', null, 'Copy it now: you won’t see this token again. '),
+        'The console keeps only a digest of it, from which it cannot be read back.']),
+      h('div', { class: 'token-secret', key: 'secret' },
+        h('code', { class: 'code token-value' }, made.token),
+        copyButton(made.token, 'the token', ctx)),
+      facts([
+        ['Name', made.name],
+        ['ID', mono(made.id), factNote('How the list and the activity log name it.')],
+        ['Expires', made.expiresAt ? dateAndTime(made.expiresAt) : '—'],
+      ]),
+      h('p', { key: 'keep' },
+        'Keep it like a password. For ', mono('scripts/ota.sh'), ', put it in ', mono('~/.cranium/console-token'),
+        ' and make that file readable by you alone, for example on a Mac after copying:'),
+      h('code', { class: 'code', key: 'save' },
+        'mkdir -p ~/.cranium && (umask 077 && pbpaste > ~/.cranium/console-token)'),
+    ],
+    foot: [
+      SPACER(),
+      dialogButton({ key: 'done', className: 'is-primary', submit: true, autofocus: true }, 'Done'),
+    ],
+  });
+}
+
+export function revokeTokenDialog(model, ctx) {
+  const { token } = model;
+  const { now } = ctx.state;
+  return dialogFrame({
+    title: ['Revoke the token ', h('span', { class: 'token-name' }, `“${token.name}”`), '?'],
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: model.submit,
+    body: [
+      facts([
+        ['ID', mono(token.id)],
+        ['Made', when(token.createdAt, now)],
+        ['Expires', until(token.expiresAt, now)],
+      ]),
+      consequences([
+        'A script that uses it is refused from its next request on.',
+        'What it has done stays done, and stays in the activity log.',
+        'This cannot be undone. A script that still needs access needs a new token.',
+      ]),
+    ],
+    error: model.error ? failure('Not revoked.', model.error, null, model.signIn) : null,
+    foot: [
+      dialogButton({ key: 'keep', autofocus: true, disabled: model.sending, onClick: model.close }, 'Keep the token'),
+      SPACER(),
+      dialogButton({ key: 'go', className: 'is-danger', submit: true, sending: model.sending },
+        icon('ban'), model.sending ? 'Revoking…' : 'Revoke token'),
     ],
   });
 }

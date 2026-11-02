@@ -2646,3 +2646,88 @@ test('an offline board\'s silence on updates is told as of when it was last seen
   assert.equal(update(false).title, 'No update in progress when last seen');
   assert.equal(update(false).quiet, true);
 });
+
+// API tokens.
+
+const A_TOKEN = `crn_${'A'.repeat(43)}`;
+const TOKEN_ID = '0123456789abcdef';
+
+test('the API tokens page has a route of its own, in the Developer section', () => {
+  assert.deepEqual(core.parseRoute('#/tokens'), { view: 'tokens' });
+  assert.equal(core.routeHash({ view: 'tokens' }), '#/tokens');
+  for (const hash of ['#/tokens/', `#/tokens/${TOKEN_ID}`, '#/token', '#/Tokens']) {
+    assert.equal(core.parseRoute(hash), null, hash);
+  }
+});
+
+test('a token\'s lifetime is a whole number of days from 1 to 90, as typed into its field', () => {
+  assert.deepEqual(core.TOKEN_DAYS, { least: 1, most: 90, usual: 30 });
+  for (const [typed, days] of [['30', 30], [' 7 ', 7], ['1', 1], ['90', 90], [90, 90]]) {
+    assert.equal(core.tokenDays(typed), days, String(typed));
+  }
+  for (const typed of ['', '0', '91', '1.5', '-3', '1e1', 'thirty', '0x10', null, undefined]) {
+    assert.equal(core.tokenDays(typed), null, String(typed));
+  }
+});
+
+test('tokens are listed, made and revoked at the addresses the API has, and read with care', async () => {
+  const listed = {
+    tokens: [
+      { id: TOKEN_ID, name: 'laptop', createdAt: NOON, expiresAt: NOON, revokedAt: null, status: 'active' },
+      { id: 'fedcba9876543210', name: 'x'.repeat(80), createdAt: NOON, expiresAt: NOON, revokedAt: NOON, status: 'odd' },
+      { id: 'not an id', name: 'dropped', status: 'active' },
+    ],
+    limit: 10,
+    maxDays: 90,
+  };
+  const made = { token: A_TOKEN, id: TOKEN_ID, name: 'laptop', createdAt: NOON, expiresAt: NOON };
+  const { api, calls } = client({ answers: [
+    reply(200, listed),
+    reply(201, made),
+    reply(200, { token: { ...listed.tokens[0], revokedAt: NOON, status: 'revoked' } }),
+  ] });
+
+  const tokens = await api.tokens();
+  assert.deepEqual(tokens.tokens.map((token) => [token.id, token.name.length, token.status]),
+    [[TOKEN_ID, 6, 'active'], ['fedcba9876543210', 40, 'expired']]);
+  assert.deepEqual([tokens.limit, tokens.maxDays], [10, 90]);
+  assert.deepEqual(await api.createToken({ name: 'laptop', days: 30 }), made);
+  assert.equal((await api.revokeToken(TOKEN_ID)).status, 'revoked');
+  assert.deepEqual(calls.map((call) => `${call.options.method} ${call.path}`),
+    ['GET /api/tokens', 'POST /api/tokens', `POST /api/tokens/${TOKEN_ID}/revoke`]);
+  assert.deepEqual(JSON.parse(calls[1].options.body), { name: 'laptop', days: 30 });
+
+  // A reply that does not carry a token of the right form is not taken for one.
+  for (const odd of [{ ...made, token: 'crn_short' }, { ...made, token: undefined }, { ...made, id: 'x' }]) {
+    assert.equal((await failure(answering(201, odd).api.createToken({ name: 'a', days: 1 }))).code, 'bad_response');
+  }
+  // An id is checked before it is put into a path.
+  const none = client({ answers: [] });
+  assert.equal((await failure(none.api.revokeToken('../../firmware'))) instanceof core.ApiError, true);
+  assert.equal(none.calls.length, 0);
+});
+
+test('the log says what was done with a token, and which token made a change', () => {
+  const made = core.describeAudit({
+    action: 'token.create', target: TOKEN_ID, outcome: 'ok', detail: [['name', 'laptop'], ['days', '30']],
+  });
+  assert.deepEqual([made.icon, made.verb, made.label, made.href], ['key', 'made API token', TOKEN_ID, null]);
+  assert.deepEqual(made.facts.map((fact) => [fact.label, fact.value]), [['Named', 'laptop'], ['Valid for', '30 days']]);
+  const ended = core.describeAudit({ action: 'token.revoke', target: TOKEN_ID, outcome: 'ok', detail: [['name', 'laptop']] });
+  assert.equal(ended.verb, 'revoked API token');
+  const refused = core.describeAudit({ action: 'token.create', target: '', outcome: 'rejected', detail: [['code', 'too_many_tokens']] });
+  assert.equal(refused.verb, 'tried to make an API token');
+  assert.equal(refused.facts[0].words, 'That person already had as many API tokens as one may have');
+
+  const scripted = core.describeAudit({
+    action: 'deployment.create', target: DEPLOYMENT, outcome: 'ok', detail: [['token', TOKEN_ID], ['version', '1.1.0+7']],
+  });
+  const token = scripted.facts.find((fact) => fact.key === 'token');
+  assert.deepEqual([token.label, token.value, token.code], ['With API token', TOKEN_ID, true]);
+  const late = core.describeAudit({
+    action: 'firmware.upload', target: '', outcome: 'denied',
+    detail: [['token', TOKEN_ID], ['tokenState', 'revoked'], ['code', 'invalid_token']],
+  });
+  assert.deepEqual(late.facts.map((fact) => [fact.label, fact.value]),
+    [['Refused with', 'invalid_token'], ['With API token', TOKEN_ID], ['The token had', 'been revoked']]);
+});

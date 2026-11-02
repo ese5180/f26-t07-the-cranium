@@ -1525,3 +1525,122 @@ test('the history page shows the file beside its script, and fetches it once', a
   assert.equal(tab.since(mark).some((request) => request.includes('history.json')), false);
   assert.match(textOf(tab.main), /Add a page/);
 });
+
+// API tokens.
+
+const NEW_SECRET = `crn_${'Z'.repeat(42)}A`;
+const IN_30_DAYS = new Date(NOW + 30 * 86400000).toISOString();
+
+/** The API's side of the tokens page: a list that a POST adds to and a revocation changes. */
+function tokenServer() {
+  const server = {
+    tokens: [{ id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(3600), expiresAt: IN_30_DAYS, revokedAt: null, status: 'active' }],
+    answer(method, url, body) {
+      if (method === 'GET' && url === '/api/tokens') return Response.json({ tokens: server.tokens, limit: 10, maxDays: 90 });
+      if (method === 'POST' && url === '/api/tokens') {
+        const made = { id: 'bbbbbbbbbbbbbbbb', name: body.name, createdAt: ago(0), expiresAt: IN_30_DAYS };
+        server.tokens = [{ ...made, revokedAt: null, status: 'active' }, ...server.tokens];
+        return Response.json({ token: NEW_SECRET, ...made }, { status: 201 });
+      }
+      const revoke = /^\/api\/tokens\/([0-9a-f]{16})\/revoke$/.exec(url);
+      if (method === 'POST' && revoke) {
+        const token = server.tokens.find((item) => item.id === revoke[1]);
+        if (token.revokedAt) return refusal(409, 'token_already_revoked', 'It is revoked already.');
+        Object.assign(token, { revokedAt: ago(0), status: 'revoked' });
+        return Response.json({ token });
+      }
+      return null;
+    },
+  };
+  return server;
+}
+
+test('a token is made on its own page, shown once in its dialog, and gone with the dialog', async (t) => {
+  const server = tokenServer();
+  const tab = await openTab(t, { hash: '#/tokens', answer: server.answer });
+  assert.equal(tab.document.title, 'API tokens · Cranium');
+  assert.equal(one(tab.nav, 'a', 'Developer').getAttribute('aria-current'), 'page');
+  assert.deepEqual(tab.since(0).filter((line) => line.includes('/api/tokens')), ['GET /api/tokens']);
+  assert.equal(all(tab.main, 'li.token').length, 1);
+
+  await tab.press(tab.main, 'button', 'New token');
+  const [name] = all(tab.dialog(), 'input');
+  await tab.type(name, '  ci runner ');
+  await tab.press(tab.dialog(), 'button', 'Make token');
+  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => [request.url, request.body]),
+    [['/api/tokens', { name: 'ci runner', days: 30 }]]);
+
+  // Shown once, and not to be lost by a stray Escape or a click beside the dialog.
+  const dialog = tab.dialog();
+  assert.equal(textOf(one(dialog, 'code.token-value')), NEW_SECRET);
+  assert.equal(dialog.dispatchEvent({ type: 'cancel' }).defaultPrevented, true);
+  await tab.wait(400);
+  dialog.dispatchEvent({ type: 'mousedown', target: dialog });
+  dialog.dispatchEvent({ type: 'click', target: dialog });
+  assert.equal(tab.dialog(), dialog);
+  // The list behind it is read again, and holds no token.
+  assert.equal(all(tab.main, 'li.token').length, 2);
+  assert.equal(textOf(tab.main).includes(NEW_SECRET), false);
+
+  await tab.press(dialog, 'button', 'Done');
+  assert.equal(tab.dialog(), null);
+  assert.equal(textOf(tab.document.body).includes(NEW_SECRET), false);
+});
+
+test('the copy button puts the new token on the clipboard and says so', async (t) => {
+  const server = tokenServer();
+  const tab = await openTab(t, { hash: '#/tokens', answer: server.answer });
+  const copied = [];
+  globalThis.navigator.clipboard.writeText = async (text) => copied.push(text);
+  await tab.press(tab.main, 'button', 'New token');
+  await tab.type(all(tab.dialog(), 'input')[0], 'ci');
+  await tab.press(tab.dialog(), 'button', 'Make token');
+  click(all(tab.dialog(), 'button').find((el) => el.getAttribute('aria-label') === 'Copy the token'));
+  await settle();
+  assert.deepEqual(copied, [NEW_SECRET]);
+  assert.deepEqual(tab.toasts(), ['Copied the token.']);
+});
+
+test('a token is revoked through the page\'s own dialog, never a browser prompt', async (t) => {
+  const server = tokenServer();
+  const tab = await openTab(t, { hash: '#/tokens', answer: server.answer });
+  const prompts = [];
+  for (const name of ['confirm', 'alert', 'prompt']) {
+    Object.defineProperty(globalThis.window, name, { value: () => prompts.push(name), configurable: true });
+  }
+  await tab.press(tab.main, 'button', 'Revoke');
+  assert.match(textOf(one(tab.dialog(), 'h2')), /Revoke the token “laptop”\?/);
+  // Keeping it sends nothing.
+  await tab.press(tab.dialog(), 'button', 'Keep the token');
+  assert.equal(tab.dialog(), null);
+  assert.equal(tab.requests.some((request) => request.method === 'POST'), false);
+
+  await tab.press(tab.main, 'button', 'Revoke');
+  await tab.press(tab.dialog(), 'button', 'Revoke token');
+  assert.equal(tab.dialog(), null);
+  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => request.url),
+    ['/api/tokens/aaaaaaaaaaaaaaaa/revoke']);
+  assert.deepEqual(tab.toasts(), ['Revoked the token “laptop”. A script that uses it is refused from now on.']);
+  assert.equal(textOf(one(tab.main, 'li.token', 'laptop')).includes('Revoked'), true);
+  assert.equal(all(tab.main, 'button').some((el) => textOf(el) === 'Revoke'), false);
+  assert.deepEqual(prompts, []);
+});
+
+test('a refused token is said in the dialog, which keeps what was typed', async (t) => {
+  const tab = await openTab(t, {
+    hash: '#/tokens',
+    answer(method, url) {
+      if (method === 'GET' && url === '/api/tokens') return Response.json({ tokens: [], limit: 10, maxDays: 90 });
+      if (method === 'POST' && url === '/api/tokens') {
+        return refusal(409, 'too_many_tokens', 'You have 10 API tokens that are still valid.');
+      }
+      return null;
+    },
+  });
+  await tab.press(tab.main, 'button', 'New token');
+  await tab.type(all(tab.dialog(), 'input')[0], 'eleventh');
+  await tab.press(tab.dialog(), 'button', 'Make token');
+  assert.match(textOf(one(tab.dialog(), 'div.dialog-error')), /No token was made\. You have 10 API tokens that are still valid\./);
+  assert.equal(all(tab.dialog(), 'input')[0].value, 'eleventh');
+  assert.equal(all(tab.dialog(), 'code.token-value').length, 0);
+});

@@ -94,6 +94,17 @@
  *                                    not revoked, or the time is on record already
  *                                    records revoked.enforcedAt = at (an ISO time), once
  *
+ * API tokens (state table, pk "TOK"; sk is the SHA-256 of the token in hex, never the token)
+ *   getToken(sk)                  -> object | null   consistent read
+ *   listTokens(ownerSub)          -> object[]        that person's tokens, any order, revoked and
+ *                                                    expired ones included; consistent read
+ *   putToken({ sk, token })       -> { ok: true } | { ok: false, reason: "exists" }  never replaces
+ *   markTokenRevoked({ sk, ownerSub, at })
+ *                                 -> { ok: true, token }  the item after the change
+ *                                  | { ok: false, reason: "not_active" }  no such token of that
+ *                                    owner, or it is revoked already
+ *                                    sets revokedAt = at (an ISO time), once
+ *
  * Audit (audit table; an item carries sk = "<ISO time>#<request id>")
  *   putAudit(item)                -> { ok: true } | { ok: false, reason: "exists" }
  *   queryAudit({ before, limit }) -> object[]   at most `limit` items, highest sk first, only
@@ -140,6 +151,7 @@ const MAX_ATTEMPTS = 2;
 const RELEASE_PK = 'REL';
 const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PK = 'AUD';
+const TOKEN_PK = 'TOK';
 
 const THROTTLING = new Set([
   'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException',
@@ -711,6 +723,77 @@ export function createAws(env) {
         return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_pending' };
+        throw failure('UpdateItem', cause);
+      }
+    },
+
+    async getToken(sk) {
+      try {
+        const out = await dynamo.send(new GetItemCommand({
+          TableName: stateTable, Key: { pk: { S: TOKEN_PK }, sk: { S: sk } }, ConsistentRead: true,
+        }));
+        return out.Item === undefined || out.Item === null ? null : fromItem(out.Item);
+      } catch (cause) {
+        throw failure('GetItem', cause);
+      }
+    },
+
+    async listTokens(ownerSub) {
+      const items = [];
+      let start;
+      try {
+        for (let pages = 0; pages < MAX_PAGES; pages += 1) {
+          // The filter is applied by DynamoDB, so other people's items never leave the table.
+          const out = await dynamo.send(new QueryCommand({
+            TableName: stateTable,
+            KeyConditionExpression: '#pk = :pk',
+            FilterExpression: '#owner = :owner',
+            ExpressionAttributeNames: { '#pk': 'pk', '#owner': 'ownerSub' },
+            ExpressionAttributeValues: { ':pk': { S: TOKEN_PK }, ':owner': { S: ownerSub } },
+            ConsistentRead: true,
+            ExclusiveStartKey: start,
+          }));
+          for (const item of out.Items ?? []) items.push(fromItem(item));
+          if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
+          start = out.LastEvaluatedKey;
+        }
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+      throw failure('Query', new Error(`more than ${MAX_PAGES} pages`), 'failed');
+    },
+
+    async putToken({ sk, token }) {
+      const item = toItem({ ...token, pk: TOKEN_PK, sk });
+      try {
+        await dynamo.send(new PutItemCommand({
+          TableName: stateTable,
+          Item: item,
+          ConditionExpression: 'attribute_not_exists(#pk)',
+          ExpressionAttributeNames: { '#pk': 'pk' },
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
+        throw failure('PutItem', cause);
+      }
+    },
+
+    async markTokenRevoked({ sk, ownerSub, at }) {
+      try {
+        const out = await dynamo.send(new UpdateItemCommand({
+          TableName: stateTable,
+          Key: { pk: { S: TOKEN_PK }, sk: { S: sk } },
+          UpdateExpression: 'SET #revokedAt = :at',
+          // Only the owner's token, and only once. False for an item that does not exist, too.
+          ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+          ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+          ExpressionAttributeValues: { ':owner': { S: ownerSub }, ':null': { S: 'NULL' }, ':at': { S: at } },
+          ReturnValues: 'ALL_NEW',
+        }));
+        return { ok: true, token: out.Attributes ? fromItem(out.Attributes) : null };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_active' };
         throw failure('UpdateItem', cause);
       }
     },

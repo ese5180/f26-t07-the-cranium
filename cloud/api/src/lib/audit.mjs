@@ -25,6 +25,8 @@ export const ACTIONS = Object.freeze([
   'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
   // A phone app's two calls for an update over Bluetooth (docs/mobile-apps.md).
   'firmware.download', 'pairing.read',
+  // A person's own API tokens, made and ended on the website (handlers/tokens.mjs).
+  'token.create', 'token.revoke',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
@@ -63,7 +65,7 @@ function cleanDetail(detail) {
  * @param {string} entry.requestId
  * @param {{sub: string, email: string}} entry.actor
  * @param {string} entry.action       one of ACTIONS
- * @param {string} entry.target       version, deployment id or file name
+ * @param {string} entry.target       version, deployment id, file name or token id
  * @param {string} entry.outcome      one of OUTCOMES
  * @param {object} entry.detail       short keys with short values
  */

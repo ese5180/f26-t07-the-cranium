@@ -9,6 +9,7 @@
 
 import { badRequest } from '../http.mjs';
 import { formatVersion, parseVersion } from './mcuboot.mjs';
+import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, MAX_TOKEN_NAME, MIN_TOKEN_DAYS, TOKEN_ID } from './tokens.mjs';
 
 // "major.minor.revision+build", the build number always present.
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
@@ -152,6 +153,36 @@ export function requireBase64(value, name) {
     throw badRequest(`invalid_${name}`, `"${name}" is not valid base64.`);
   }
   return bytes;
+}
+
+/** The name of an API token: one line of 1 to 40 printable characters, trimmed. */
+export function requireTokenName(value) {
+  if (typeof value !== 'string') {
+    throw badRequest('invalid_token_name', 'Give the token a name, so that you can tell it from your others.');
+  }
+  const name = value.trim();
+  if (name === '' || name.length > MAX_TOKEN_NAME || CONTROL.test(name)) {
+    throw badRequest('invalid_token_name',
+      `A token's name is one line of 1 to ${MAX_TOKEN_NAME} characters, without control characters.`);
+  }
+  return name;
+}
+
+/** How many days an API token is valid: a whole number from 1 to 90, 30 when absent. */
+export function requireTokenDays(value) {
+  if (value === undefined) return DEFAULT_TOKEN_DAYS;
+  if (!Number.isInteger(value) || value < MIN_TOKEN_DAYS || value > MAX_TOKEN_DAYS) {
+    throw badRequest('invalid_days', `"days" must be a whole number from ${MIN_TOKEN_DAYS} to ${MAX_TOKEN_DAYS}.`);
+  }
+  return value;
+}
+
+/** The id of an API token: 16 lowercase hex digits. */
+export function requireTokenId(value) {
+  if (typeof value !== 'string' || !TOKEN_ID.test(value)) {
+    throw badRequest('invalid_token_id', 'A token id is 16 lowercase hex digits.');
+  }
+  return value;
 }
 
 /** The page size of the activity log: 1 to 100, 50 when absent. */

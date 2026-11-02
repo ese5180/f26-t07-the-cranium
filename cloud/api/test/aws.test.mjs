@@ -398,10 +398,10 @@ test('the adapter and the in-memory fake have the same methods', () => {
   const fake = createFakeAws();
   const methods = Object.keys(real).sort();
   assert.deepEqual(methods, [
-    'cancelJob', 'createJob', 'describeJob', 'describeJobExecution', 'getFirmwareObject', 'getRelease', 'getShadow', 'getUser',
-    'highestReleaseKey', 'listGroupThings', 'listJobExecutionsForJob', 'listJobExecutionsForThing', 'listJobs', 'listReleases',
-    'listThingPrincipals', 'listUserGroups', 'markReleaseRevoked', 'markRevocationEnforced', 'putAudit',
-    'putFirmwareObject', 'queryAudit', 'registerRelease', 'tagFirmwareRevoked',
+    'cancelJob', 'createJob', 'describeJob', 'describeJobExecution', 'getFirmwareObject', 'getRelease', 'getShadow', 'getToken',
+    'getUser', 'highestReleaseKey', 'listGroupThings', 'listJobExecutionsForJob', 'listJobExecutionsForThing', 'listJobs',
+    'listReleases', 'listThingPrincipals', 'listTokens', 'listUserGroups', 'markReleaseRevoked', 'markRevocationEnforced',
+    'markTokenRevoked', 'putAudit', 'putFirmwareObject', 'putToken', 'queryAudit', 'registerRelease', 'tagFirmwareRevoked',
   ]);
   for (const method of methods) {
     assert.equal(typeof real[method], 'function');
@@ -1155,6 +1155,90 @@ test('putAudit appends and never overwrites', async () => {
   await rejectsWith(aws.putAudit(item), { code: 'throttled', operation: 'PutItem' });
   sdk.reply('PutItemCommand', fails('ResourceNotFoundException'));
   await rejectsWith(aws.putAudit(item), { code: 'failed', operation: 'PutItem' });
+});
+
+const DIGEST = 'ab'.repeat(32);
+const TOKEN_RECORD = Object.freeze({
+  id: '0123456789abcdef', ownerSub: 'who', name: 'laptop', createdAt: '2026-10-10T22:15:00.000Z',
+  expiresAt: '2026-11-09T22:15:00.000Z', revokedAt: null,
+});
+const TOKEN_ITEM = Object.freeze({
+  pk: { S: 'TOK' }, sk: { S: DIGEST }, id: { S: '0123456789abcdef' }, ownerSub: { S: 'who' }, name: { S: 'laptop' },
+  createdAt: { S: '2026-10-10T22:15:00.000Z' }, expiresAt: { S: '2026-11-09T22:15:00.000Z' }, revokedAt: { NULL: true },
+});
+
+test('getToken reads one token item by its digest, consistently', async () => {
+  const aws = adapter();
+  sdk.reply('GetItemCommand', { Item: TOKEN_ITEM });
+  assert.deepEqual(await aws.getToken(DIGEST), { ...TOKEN_RECORD, pk: 'TOK', sk: DIGEST });
+  assert.deepEqual(sdk.inputs('GetItemCommand'), [{
+    TableName: 'state-table', Key: { pk: { S: 'TOK' }, sk: { S: DIGEST } }, ConsistentRead: true,
+  }]);
+  sdk.reply('GetItemCommand', {});
+  assert.equal(await aws.getToken(DIGEST), null);
+  sdk.reply('GetItemCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.getToken(DIGEST), { code: 'throttled', operation: 'GetItem' });
+});
+
+test('listTokens asks DynamoDB for one person\'s tokens only, every page', async () => {
+  const aws = adapter();
+  sdk.reply('QueryCommand',
+    { Items: [TOKEN_ITEM], LastEvaluatedKey: { pk: { S: 'TOK' }, sk: { S: DIGEST } } },
+    { Items: [] });
+  assert.deepEqual(await aws.listTokens('who'), [{ ...TOKEN_RECORD, pk: 'TOK', sk: DIGEST }]);
+  const first = {
+    TableName: 'state-table',
+    KeyConditionExpression: '#pk = :pk',
+    FilterExpression: '#owner = :owner',
+    ExpressionAttributeNames: { '#pk': 'pk', '#owner': 'ownerSub' },
+    ExpressionAttributeValues: { ':pk': { S: 'TOK' }, ':owner': { S: 'who' } },
+    ConsistentRead: true,
+  };
+  assert.deepEqual(sdk.inputs('QueryCommand'), [first,
+    { ...first, ExclusiveStartKey: { pk: { S: 'TOK' }, sk: { S: DIGEST } } }]);
+  sdk.reply('QueryCommand', fails('InternalServerError', { status: 500 }));
+  await rejectsWith(aws.listTokens('who'), { code: 'failed', operation: 'Query' });
+  // A list that never ends is given up on.
+  sdk.reset();
+  for (let page = 0; page < 40; page += 1) sdk.reply('QueryCommand', { Items: [], LastEvaluatedKey: { pk: { S: 'TOK' } } });
+  await rejectsWith(aws.listTokens('who'), { code: 'failed', operation: 'Query' });
+});
+
+test('putToken stores a token record under its digest and never replaces one', async () => {
+  const aws = adapter();
+  sdk.reply('PutItemCommand', {});
+  assert.deepEqual(await aws.putToken({ sk: DIGEST, token: { ...TOKEN_RECORD, pk: 'ignored', sk: 'ignored' } }), { ok: true });
+  assert.deepEqual(sdk.inputs('PutItemCommand'), [{
+    TableName: 'state-table',
+    Item: TOKEN_ITEM,
+    ConditionExpression: 'attribute_not_exists(#pk)',
+    ExpressionAttributeNames: { '#pk': 'pk' },
+  }]);
+  sdk.reply('PutItemCommand', fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await aws.putToken({ sk: DIGEST, token: TOKEN_RECORD }), { ok: false, reason: 'exists' });
+  sdk.reply('PutItemCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.putToken({ sk: DIGEST, token: TOKEN_RECORD }), { code: 'throttled', operation: 'PutItem' });
+});
+
+test('markTokenRevoked sets the time once, on the owner\'s token only', async () => {
+  const aws = adapter();
+  const at = '2026-10-12T08:00:00.000Z';
+  sdk.reply('UpdateItemCommand', { Attributes: { ...TOKEN_ITEM, revokedAt: { S: at } } });
+  assert.deepEqual(await aws.markTokenRevoked({ sk: DIGEST, ownerSub: 'who', at }),
+    { ok: true, token: { ...TOKEN_RECORD, pk: 'TOK', sk: DIGEST, revokedAt: at } });
+  assert.deepEqual(sdk.inputs('UpdateItemCommand'), [{
+    TableName: 'state-table',
+    Key: { pk: { S: 'TOK' }, sk: { S: DIGEST } },
+    UpdateExpression: 'SET #revokedAt = :at',
+    ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+    ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+    ExpressionAttributeValues: { ':owner': { S: 'who' }, ':null': { S: 'NULL' }, ':at': { S: at } },
+    ReturnValues: 'ALL_NEW',
+  }]);
+  sdk.reply('UpdateItemCommand', fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await aws.markTokenRevoked({ sk: DIGEST, ownerSub: 'who', at }), { ok: false, reason: 'not_active' });
+  sdk.reply('UpdateItemCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.markTokenRevoked({ sk: DIGEST, ownerSub: 'who', at }), { code: 'throttled', operation: 'UpdateItem' });
 });
 
 test('queryAudit reads newest first, below a cursor, never more than asked', async () => {

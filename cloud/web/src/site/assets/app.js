@@ -12,11 +12,12 @@ import {
   createAuth, createClock, describeExecution, deviceActivity, executionActivity, isUnderWay, isUnfinished, onlyChoice, parseRoute,
   pollInterval, readConfig, readImageHeader, recordedFilename, refreshPlan, revocationInPlace, revocationNotice,
   routeHash, sha256Hex, shouldRenew, singleLine, staleAfter, stillFinishing, stillRunning, stillSettling, summaryActivity,
-  toBase64, uploadInHand, versionOfDeployment,
+  TOKEN_DAYS, toBase64, tokenDays, uploadInHand, versionOfDeployment,
 } from './core.js';
 import {
-  accountView, activityView, cancelDialog, deployDialog, deploymentView, deploymentsView, deviceView,
-  devicesView, firmwareView, gateView, navView, overviewView, render, revokeDialog, scriptPending, toastView,
+  accountView, activityView, cancelDialog, createTokenDialog, deployDialog, deploymentView, deploymentsView, deviceView,
+  devicesView, firmwareView, gateView, navView, overviewView, render, revokeDialog, revokeTokenDialog, scriptPending,
+  toastView, tokensView,
 } from './views.js';
 
 // Board lists, and the lists that another person can change at any time, are also
@@ -60,6 +61,10 @@ const state = {
   recent: resource(),
   audit: { ...resource(), loadingMore: false, moreError: null },
   commits: resource(),
+  // The caller's own API tokens: never a token itself, which only its dialog holds, once.
+  tokens: resource(),
+  // This console's address, for the example on the API tokens page.
+  origin: typeof window.location?.origin === 'string' ? window.location.origin : '',
   scriptFailed: false,
   deviceDetails: new Map(),
   deploymentDetails: new Map(),
@@ -470,6 +475,15 @@ const pages = {
       draw();
     },
     interval: () => 0,
+  },
+  // Read again now and then, so that a token that runs out reads as expired.
+  tokens: {
+    title: 'API tokens',
+    view: tokensView,
+    resources: () => [state.tokens],
+    refresh: () => load(state.tokens, api.tokens),
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => dialogOpen(),
   },
 };
 
@@ -962,6 +976,74 @@ function openRevoke(release) {
   self = openDialog(() => revokeDialog(model, { state, actions }));
 }
 
+// API tokens. A new token is shown once, in the dialog that made it, and is gone with
+// the dialog: nothing else on the page ever holds it.
+
+function openCreateToken() {
+  if (dialogOpen()) return;
+  let self = null;
+  const model = {
+    name: '',
+    days: String(TOKEN_DAYS.usual),
+    made: null,
+    sending: false,
+    error: null,
+    // Once the token is shown, Escape and the backdrop no longer close the dialog (it is
+    // held busy); its own buttons do, and the token goes with it.
+    close() {
+      const shown = model.made !== null;
+      model.made = null;
+      self.close(shown);
+    },
+    signIn: beginSignIn,
+    setName(text) {
+      model.name = text;
+      model.error = null;
+      self.redraw();
+    },
+    setDays(text) {
+      model.days = text;
+      model.error = null;
+      self.redraw();
+    },
+    submit: () => submitFrom(self, model, async () => {
+      const made = await api.createToken({ name: model.name.trim(), days: tokenDays(model.days) });
+      model.made = made;
+      model.sending = false;
+      self.busy = true;
+      self.redraw();
+      load(state.tokens, api.tokens);
+    }),
+  };
+  self = openDialog(() => createTokenDialog(model, { state, actions }));
+}
+
+function openRevokeToken(token) {
+  if (dialogOpen() || !token) return;
+  let self = null;
+  const model = {
+    token,
+    sending: false,
+    error: null,
+    close: () => self.close(),
+    signIn: beginSignIn,
+    submit: () => submitFrom(self, model, async () => {
+      try {
+        const revoked = await api.revokeToken(token.id);
+        const listing = state.tokens.value;
+        if (listing) listing.tokens = listing.tokens.map((item) => (item.id === revoked.id ? revoked : item));
+      } catch (error) {
+        // Revoked already, from another tab: what was asked for is so.
+        if (!(error?.status === 409 && error.code === 'token_already_revoked')) throw error;
+      }
+      self.close(true);
+      notify(`Revoked the token “${token.name}”. A script that uses it is refused from now on.`);
+      refreshNow(true);
+    }),
+  };
+  self = openDialog(() => revokeTokenDialog(model, { state, actions }));
+}
+
 // Uploading firmware.
 
 let chosen = 0;
@@ -1085,6 +1167,8 @@ const actions = {
   openDeploy,
   openCancel,
   openRevoke,
+  openCreateToken,
+  openRevokeToken,
   async loadMoreActivity() {
     const audit = state.audit;
     if (!audit.value?.next || audit.loadingMore) return;

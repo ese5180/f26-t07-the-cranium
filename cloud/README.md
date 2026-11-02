@@ -344,6 +344,8 @@ What this console does not do, stated plainly.
 | --- | --- | --- | --- |
 | `GET /api/{proxy+}` | 10 | 20 | Yes |
 | `POST /api/{proxy+}` | 5 | 10 | Yes |
+| `GET /api/t/{proxy+}`: scripts with an API token | 5 | 10 | No: the function checks the API token |
+| `POST /api/t/{proxy+}`: scripts with an API token | 2 | 5 | No: the function checks the API token |
 | `GET /` and `GET /assets/{proxy+}`, each | 20 | 60 | No |
 | `$default`: everything else | 10 | 20 | No |
 
@@ -356,6 +358,10 @@ such as many open pages, from starving revoke and cancel. That is all it does:
   about 432,000 a day, each naming the caller's account id.
 - The page routes need no token, so anyone can make page loads and the return from
   sign-in answer 429. Open pages keep working, because they use the API routes.
+- The routes for API tokens (`/api/t/`, see [docs/aws-iot.md](../docs/aws-iot.md#api-tokens))
+  have no authorizer, so anyone can make scripts that use a token answer 429, and every such
+  request runs the API function once, for a lookup by digest. A request whose token names
+  nobody leaves no entry in the activity log. The console's own routes are not affected.
 - AWS does not document whether a request that the authorizer refuses counts against its
   route, and it has not been measured here. Assume that it does, which would mean that
   blocking the API needs no account.
@@ -378,7 +384,8 @@ and logs its path, cut to 200 characters. Some answers still come from API Gatew
 those headers, because an HTTP API cannot change them: the authorizer's 401 on `/api/`, a 429
 when a request limit is reached, the 403 for a `Host` that no custom domain claims, and, by the
 gateway's design, an answer it gives when it cannot reach a function. The API function's own
-answers on `/api/` carry `strict-transport-security`, `cache-control` and `nosniff`. They are JSON
+answers on `/api/` carry `strict-transport-security`, `cache-control` and `nosniff`, and so does
+its 401 for a missing or invalid API token on `/api/t/`, which has no authorizer. They are JSON
 that nothing renders, so they do not carry the page's content security policy.
 
 ### Sessions and removal
