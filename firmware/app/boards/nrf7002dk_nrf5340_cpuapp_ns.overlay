@@ -133,16 +133,12 @@
 };
 
 /*
- * Pins owned by the network core. By default the board forwards the network core's
- * UART pins; this image has no console, so only LED2 (P1.07) is handed over. LED1 and
- * both buttons stay with the application core.
+ * No pins are handed to the network core. By default the board forwards its UART pins, but
+ * its image has no console. Up to 1.7.x LED2 (P1.07) went to it, for its blink; from 1.8.0
+ * the application drives both LEDs (ui.c), and the network core still runs with no pin.
  */
 &gpio_fwd {
-	/delete-node/ uart;
-
-	netcore-led {
-		gpios = <&gpio1 7 0>;
-	};
+	status = "disabled";
 };
 
 /* LED1 (P1.06) is driven as a plain GPIO, so release it from the PWM peripheral. */

@@ -1,8 +1,9 @@
 /*
- * LED1 and the two buttons.
+ * The two LEDs and the two buttons.
  *
- * LED1 shows what the security domain is doing. LED2 belongs to the network core and
- * is not touched here.
+ * LED1 shows what the security domain is doing. From 1.8.0, LED2 is driven here too: it
+ * lights only when the board is online, taking turns with LED1. Before 1.8.0 it belonged
+ * to the network core.
  */
 
 #ifndef UI_H_
@@ -17,7 +18,7 @@ enum ui_state {
 	UI_NETWORK_CONNECTING,
 	/* Medium blink: Wi-Fi is up, connecting to the cloud. */
 	UI_CLOUD_CONNECTING,
-	/* Steady: connected, nothing to do. */
+	/* LED1 and LED2 take turns, a quarter of a second each: connected, nothing to do. */
 	UI_ONLINE,
 	/* Fast blink: an update is waiting for a button press. */
 	UI_UPDATE_OFFERED,

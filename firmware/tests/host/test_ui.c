@@ -174,6 +174,43 @@ static void test_the_window_has_a_pattern_of_its_own(void)
 }
 #endif
 
+static uint16_t led1_of(enum ui_state state)
+{
+	ui_set_state(state);
+	return (uint16_t)((uint32_t)atomic_get(&current_pattern) & 0xffffU);
+}
+
+static uint16_t led2_of(enum ui_state state)
+{
+	ui_set_state(state);
+	return (uint16_t)((uint32_t)atomic_get(&current_pattern) >> 16);
+}
+
+static void test_online_the_leds_take_turns(void)
+{
+	/* At every step exactly one of the two is on, and each one does blink. */
+	CHECK((uint16_t)(led1_of(UI_ONLINE) ^ led2_of(UI_ONLINE)) == 0xffffU);
+	CHECK(led1_of(UI_ONLINE) != 0U && led1_of(UI_ONLINE) != 0xffffU);
+}
+
+static void test_led2_is_dark_in_every_other_state(void)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(patterns); i++) {
+		if (i != UI_ONLINE) {
+			CHECK(led2_of((enum ui_state)i) == 0U);
+			CHECK(led1_of((enum ui_state)i) == patterns[i]);
+		}
+	}
+}
+
+static void test_online_looks_like_nothing_else_on_led1(void)
+{
+	/* Even with LED2 out of sight, LED1 alone has to tell online from every other state. */
+	for (size_t i = 0; i < ARRAY_SIZE(patterns); i++) {
+		CHECK(i == UI_ONLINE || patterns[i] != patterns[UI_ONLINE]);
+	}
+}
+
 static void test_other_input_is_ignored(void)
 {
 	struct input_event not_a_key = { .type = INPUT_EV_REL, .code = INPUT_KEY_1, .value = 1 };
@@ -197,6 +234,9 @@ int main(void)
 	test_a_press_counts_once();
 	test_the_buttons_do_not_share_a_press();
 	test_other_input_is_ignored();
+	test_online_the_leds_take_turns();
+	test_led2_is_dark_in_every_other_state();
+	test_online_looks_like_nothing_else_on_led1();
 #if defined(CONFIG_APP_BT_OTA)
 	test_a_real_press_says_it_is_one();
 	test_the_window_has_a_pattern_of_its_own();

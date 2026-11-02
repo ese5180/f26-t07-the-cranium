@@ -3,8 +3,9 @@
  *
  * The application core is the security domain: verified boot, TF-M, credentials, the
  * cloud connection and firmware updates all live there. This core only shows that the
- * product's ordinary work keeps running independently: it blinks LED2. The application
- * core hands it that one pin and releases it from reset; nothing else is shared.
+ * product's ordinary work keeps running independently: it blinks LED2. Application
+ * firmware up to 1.7.x hands it that one pin and releases it from reset. From 1.8.0 the
+ * application keeps LED2 for itself, so this core still runs but its blink no longer shows.
  */
 
 #include <zephyr/kernel.h>

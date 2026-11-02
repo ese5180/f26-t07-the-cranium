@@ -316,15 +316,20 @@ nothing: one failed read must not take it off the network.
   * a short flash every two seconds: set up, but not provisioned yet
   * slow blink: joining Wi-Fi
   * medium blink: connecting to AWS IoT
-  * steady: connected, nothing to do
+  * LED1 and LED2 taking turns, a quarter of a second each: connected, nothing to do. Before 1.8.0,
+    LED1 was steady here
   * fast blink: an update is waiting for a button press, which only firmware before 1.7.2 and a build
     with `CONFIG_APP_OTA_REQUIRE_USER_CONSENT` do
   * double flash: downloading or checking an update
   * triple flash: a new image is running on trial
-* **LED2** is driven by the network core and keeps blinking whatever the application
-  core is doing.
+* **LED2**, from 1.8.0, is driven by the application too. It lights only when connected, taking turns
+  with LED1, and is dark in every other state. Before 1.8.0 the application handed it to the network
+  core, which blinks it once a second whatever the application is doing. The network core still runs
+  that blink, but it no longer has the pin, so it doesn't show.
 * In a build for [firmware update over Bluetooth](#firmware-update-over-bluetooth), LED1 also shows
-  four short flashes while Bluetooth is open, and LED2 stays dark.
+  four short flashes while Bluetooth is open.
+* LED1 and LED2 are the only LEDs wired to the nRF5340. No firmware here can change the board's
+  other LEDs.
 
 ## Buttons
 

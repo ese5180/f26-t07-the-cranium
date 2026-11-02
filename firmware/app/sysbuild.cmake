@@ -17,7 +17,7 @@ if(NOT EXISTS "${cranium_signing_key}")
 endif()
 
 # Building the network-core image does not start that core: the application has to
-# release it from reset and hand over the LED pin.
+# release it from reset.
 if(SB_CONFIG_NETCORE_BLINKY)
   set_config_bool(${DEFAULT_IMAGE} CONFIG_SOC_NRF53_CPUNET_ENABLE y)
 endif()

@@ -8,6 +8,10 @@
 
 #include "app_events.h"
 
+#if defined(CONFIG_SOC_NRF5340_CPUAPP)
+#include <soc_secure.h>
+#endif
+
 LOG_MODULE_REGISTER(ui, CONFIG_APP_LOG_LEVEL);
 
 #define STEP_MS       125
@@ -15,14 +19,15 @@ LOG_MODULE_REGISTER(ui, CONFIG_APP_LOG_LEVEL);
 #define LONG_PRESS_MS 5000
 
 static const struct gpio_dt_spec status_led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
+static const struct gpio_dt_spec second_led = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
 
-/* One bit per 125 ms step, least significant bit first: a two-second cycle. */
+/* LED1: one bit per 125 ms step, least significant bit first: a two-second cycle. */
 static const uint16_t patterns[] = {
 	[UI_FACTORY] = 0x000f,
 	[UI_UNPROVISIONED] = 0x0001,
 	[UI_NETWORK_CONNECTING] = 0x00ff,
 	[UI_CLOUD_CONNECTING] = 0x0f0f,
-	[UI_ONLINE] = 0xffff,
+	[UI_ONLINE] = 0x3333,
 	[UI_UPDATE_OFFERED] = 0x5555,
 	[UI_UPDATE_IN_PROGRESS] = 0x0505,
 	[UI_UPDATE_TESTING] = 0x0015,
@@ -31,17 +36,27 @@ static const uint16_t patterns[] = {
 #endif
 };
 
+/*
+ * LED2, in the same steps. It lights only when the board is online, as the opposite of LED1,
+ * so that the two take turns. In every other state it stays dark.
+ */
+static const uint16_t second_patterns[] = {
+	[UI_ONLINE] = 0xcccc,
+};
+
+/* LED1's pattern in the low 16 bits, LED2's in the next 16. */
 static atomic_t current_pattern = ATOMIC_INIT(0x0001);
 static int64_t pressed_at[2];
 
 static void led_step(struct k_timer *timer)
 {
 	static uint8_t step;
-	uint16_t pattern = (uint16_t)atomic_get(&current_pattern);
+	uint32_t both = (uint32_t)atomic_get(&current_pattern);
 
 	ARG_UNUSED(timer);
 
-	(void)gpio_pin_set_dt(&status_led, (pattern >> step) & 1U);
+	(void)gpio_pin_set_dt(&status_led, (both >> step) & 1U);
+	(void)gpio_pin_set_dt(&second_led, (both >> (16 + step)) & 1U);
 	step = (step + 1) % STEPS;
 }
 
@@ -113,13 +128,36 @@ int ui_init(void)
 		return err;
 	}
 
+#if defined(CONFIG_SOC_NRF5340_CPUAPP)
+	/*
+	 * Before 1.8.0 this core handed LED2 to the network core, whose image blinks it. Take it
+	 * back explicitly, in case that choice survived the restart into this image.
+	 */
+	soc_secure_gpio_pin_mcu_select(NRF_DT_GPIOS_TO_PSEL(DT_ALIAS(led1), gpios),
+				       NRF_GPIO_PIN_SEL_APP);
+#endif
+
+	/* Nothing depends on LED2, so a failure here only leaves it dark. */
+	if (!gpio_is_ready_dt(&second_led) ||
+	    gpio_pin_configure_dt(&second_led, GPIO_OUTPUT_INACTIVE) != 0) {
+		LOG_WRN("LED2 could not be set up");
+	}
+
 	k_timer_start(&led_timer, K_MSEC(STEP_MS), K_MSEC(STEP_MS));
 	return 0;
 }
 
 void ui_set_state(enum ui_state state)
 {
-	if ((size_t)state < ARRAY_SIZE(patterns)) {
-		atomic_set(&current_pattern, patterns[state]);
+	uint32_t second = 0U;
+
+	if ((size_t)state >= ARRAY_SIZE(patterns)) {
+		return;
 	}
+
+	if ((size_t)state < ARRAY_SIZE(second_patterns)) {
+		second = second_patterns[state];
+	}
+
+	atomic_set(&current_pattern, (atomic_val_t)((second << 16) | patterns[state]));
 }
