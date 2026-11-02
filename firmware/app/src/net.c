@@ -644,6 +644,17 @@ int net_rssi(void)
 	return status.rssi;
 }
 
+unsigned int net_channel(void)
+{
+	struct wifi_iface_status status;
+
+	if (!net_is_up() || link_status(&status) != 0) {
+		return 0;
+	}
+
+	return status.channel;
+}
+
 static void copy_stored_ssid(void *arg, const char *ssid, size_t ssid_len)
 {
 	struct net_status *status = arg;

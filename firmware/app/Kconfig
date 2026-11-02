@@ -28,6 +28,15 @@ config APP_SHADOW_INTERVAL_SECONDS
 	  90 seconds (ONLINE_WINDOW_MS in cloud/api/src/lib/shadow.mjs). There is no second
 	  message for this and no last will: this report is the heartbeat.
 
+config APP_DIAG_INTERVAL_SECONDS
+	int "Seconds between diagnostics reports"
+	default 300
+	range 60 86400
+	help
+	  The Wi-Fi address and channel and the heap, for the console's diagnostics page (src/diag.h).
+	  Sent when the board reaches the cloud and this often after, as a report of its own, so that
+	  the heartbeat stays short.
+
 config APP_CLOUD_RETRY_SECONDS
 	int "Seconds to wait before the first retry of a failed cloud connection"
 	default 30

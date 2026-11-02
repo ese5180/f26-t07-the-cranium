@@ -632,6 +632,19 @@ a reset can be explained with no serial port. Each entry is `version/cause/stage
 An image that fails on trial and is swapped back shows up here, if it reached `main`. If it did not, its entry is missing,
 and that says something too. It writes to storage up to four times each boot. A factory reset erases it.
 
+## Diagnostics
+
+From firmware 1.10.0 the board also sends a `diag` report to its device shadow, when it reaches the cloud and every five
+minutes after (`CONFIG_APP_DIAG_INTERVAL_SECONDS`), apart from the heartbeat so that the heartbeat stays short:
+
+```json
+{"diag": {"mac": "f4:ce:36:00:8b:c9", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
+```
+
+`mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not
+associated. `heap` is the system heap in bytes: free now, the least it has been since the board started, and its size.
+Nothing in it is secret, and nothing names the network. The console's diagnostics page shows it.
+
 ## Firmware update over Bluetooth
 
 An image can be uploaded from a phone over Bluetooth LE, for a board that has no Wi-Fi in reach or

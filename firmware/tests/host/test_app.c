@@ -10,6 +10,7 @@
 #define CONFIG_WIFI_CREDENTIALS_MAX_ENTRIES 2
 #define CONFIG_APP_CLOUD_RETRY_SECONDS      30
 #define CONFIG_APP_SHADOW_INTERVAL_SECONDS  30
+#define CONFIG_APP_DIAG_INTERVAL_SECONDS    300
 
 #include <errno.h>
 #include <setjmp.h>
@@ -19,6 +20,7 @@
 #include <string.h>
 
 #include "net.c"
+#include "diag.c"
 
 #define main cranium_main
 #include "main.c"
@@ -98,6 +100,9 @@ static struct {
 	int64_t disconnect_takes_ms;
 	int shadow_reports;
 	char last_report[420];
+	/* The diagnostics report goes through the same call, and is counted apart. */
+	int diag_reports;
+	char last_diag[160];
 	int fault_ticks;
 	bool ota_changed;
 	int up_requests;
@@ -526,6 +531,11 @@ bool cloud_is_connected(void)
 
 int cloud_shadow_report(const char *reported_json)
 {
+	if (strncmp(reported_json, "{\"diag\":", 8) == 0) {
+		strncpy(board.last_diag, reported_json, sizeof(board.last_diag) - 1);
+		board.diag_reports++;
+		return 0;
+	}
 	strncpy(board.last_report, reported_json, sizeof(board.last_report) - 1);
 	board.shadow_reports++;
 	return 0;
@@ -2729,6 +2739,52 @@ static void test_the_report_says_how_it_stands_with_being_stuck(void)
 	CHECK(strstr(board.last_report, ",\"stuck\":{\"count\":1,\"reason\":\"wifi_silent\"},\"uptime\":") != NULL);
 }
 
+static void test_diagnostics_go_on_connecting_and_every_five_minutes(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.diag_reports = 0;
+	board.last_diag[0] = '\0';
+
+	/* Not connected: nothing. */
+	ticks(CONFIG_APP_DIAG_INTERVAL_SECONDS * 2);
+	CHECK(board.diag_reports == 0);
+
+	board.cloud_up = true;
+	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
+	run_loop();
+	CHECK(board.diag_reports == 1);
+	CHECK(strncmp(board.last_diag, "{\"diag\":{\"mac\":\"", 16) == 0);
+	CHECK(strstr(board.last_diag, "\"heap\":{\"free\":") != NULL);
+
+	ticks(CONFIG_APP_DIAG_INTERVAL_SECONDS - 1);
+	CHECK(board.diag_reports == 1);
+	ticks(1);
+	CHECK(board.diag_reports == 2);
+}
+
+static void test_the_diagnostics_report_says_only_what_it_should(void)
+{
+	struct diag_values values = { .channel = 6, .heap_free = 21312, .heap_least = 9840, .heap_size = 44240 };
+	char text[160];
+
+	strcpy(values.mac, "f4:ce:36:00:8b:c9");
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strcmp(text, "{\"diag\":{\"mac\":\"f4:ce:36:00:8b:c9\",\"channel\":6,"
+			   "\"heap\":{\"free\":21312,\"least\":9840,\"size\":44240}}}") == 0);
+
+	/* Anything that is not an address does not go into the JSON. */
+	strcpy(values.mac, "\"},\"x\":\"1");
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strstr(text, "\"mac\":\"unknown\"") != NULL);
+
+	/* The longest one fits the buffer main.c gives it, and a short buffer is refused. */
+	strcpy(values.mac, "ff:ff:ff:ff:ff:ff");
+	values.channel = 4294967295U;
+	values.heap_free = values.heap_least = values.heap_size = 4294967295U;
+	CHECK(diag_format(&values, text, 128) > 0);
+	CHECK(diag_format(&values, text, 40) == -ENOSPC);
+}
+
 static void test_the_longest_report_fits(void)
 {
 	/* What main.c and cloud.c hold it in: every field at its longest, by hand, with room left. */
@@ -2808,6 +2864,8 @@ int main(void)
 	test_the_heartbeat_is_the_report();
 	test_the_report_says_how_it_stands_with_being_stuck();
 	test_the_longest_report_fits();
+	test_diagnostics_go_on_connecting_and_every_five_minutes();
+	test_the_diagnostics_report_says_only_what_it_should();
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 	test_the_main_loop_gives_the_fault_its_ticks();
 #endif

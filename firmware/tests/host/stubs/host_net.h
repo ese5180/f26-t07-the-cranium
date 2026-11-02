@@ -120,6 +120,7 @@ struct wifi_iface_status {
 	enum wifi_iface_state state;
 	enum wifi_security_type security;
 	int rssi;
+	unsigned int channel;
 };
 
 #define WIFI_CREDENTIALS_FLAG_MFP_REQUIRED 1

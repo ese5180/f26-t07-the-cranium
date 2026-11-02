@@ -14,6 +14,7 @@ target_sources(app PRIVATE
   src/main.c
   src/cloud.c
   src/device.c
+  src/diag.c
   src/factory.c
   src/health.c
   src/identity.c

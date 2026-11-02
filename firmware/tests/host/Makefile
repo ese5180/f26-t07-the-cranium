@@ -75,7 +75,7 @@ $(BUILD)/console_output_tests: test_console_output.c $(SRC)/console.c $(SRC)/con
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_console_output.c $(SRC)/console_parser.c
 
-$(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
+$(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_app.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c
@@ -132,7 +132,7 @@ $(BUILD)/ota_bt_no_confirm_tests: test_ota_bt.c $(SRC)/ota.c $(SRC)/ota.h $(SRC)
 $(BUILD)/console_bt_tests: test_console.c $(CONSOLE_SOURCES) $(BUILD)/base64.o $(CONSOLE_HEADERS)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(BT_DEFINES) -o $@ $(filter %.c %.o,$^)
 
-$(BUILD)/app_bt_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
+$(BUILD)/app_bt_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(BT_DEFINES) -o $@ test_app.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c
@@ -175,7 +175,7 @@ $(BUILD)/fault_wifi_command_tests: test_fault_wifi.c $(SRC)/fault_wifi.c $(SRC)/
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_TEST_WIFI_DEAD_AFTER_SECONDS=0 -o $@ test_fault_wifi.c
 
-$(BUILD)/app_fault_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
+$(BUILD)/app_fault_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
 		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(FAULT_DEFINES) -o $@ test_app.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c

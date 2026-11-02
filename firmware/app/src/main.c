@@ -22,6 +22,7 @@
 #include "cloud.h"
 #include "console.h"
 #include "device.h"
+#include "diag.h"
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 #include "fault_wifi.h"
 #endif
@@ -60,6 +61,7 @@ static int cloud_retry_in = -1;
 static int cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
 /* Since the last report to the shadow. A report that nothing asked for is the board's heartbeat. */
 static int seconds_since_report;
+static int seconds_since_diag;
 /* A tick is in the queue. A main loop that is held up must not come back to a queue full of them. */
 static atomic_t tick_queued;
 
@@ -173,6 +175,23 @@ static void publish_report(void)
 	seconds_since_report = 0;
 }
 
+/* The diagnostics report (src/diag.h): slow-changing things, apart from the heartbeat. */
+static void publish_diag(void)
+{
+	struct diag_values values;
+	char reported[128];
+
+	if (!cloud_is_connected()) {
+		return;
+	}
+
+	diag_collect(&values);
+	if (diag_format(&values, reported, sizeof(reported)) > 0) {
+		(void)cloud_shadow_report(reported);
+	}
+	seconds_since_diag = 0;
+}
+
 static void on_tick(void)
 {
 	health_feed();
@@ -209,6 +228,10 @@ static void on_tick(void)
 		update_ui();
 	} else if (++seconds_since_report >= CONFIG_APP_SHADOW_INTERVAL_SECONDS) {
 		publish_report();
+	}
+
+	if (++seconds_since_diag >= CONFIG_APP_DIAG_INTERVAL_SECONDS) {
+		publish_diag();
 	}
 
 	stuck_on_tick();
@@ -301,6 +324,7 @@ static void handle(const struct app_event *event)
 		cloud_retry_in = -1;
 		ota_on_cloud_up();
 		publish_report();
+		publish_diag();
 #if defined(CONFIG_APP_BOOT_DIARY)
 		boot_diary_stage(BOOT_DIARY_CLOUD_UP);
 		boot_diary_report();
