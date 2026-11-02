@@ -112,6 +112,7 @@ jobs:
           run_test test_recover.py 'OK'
           run_test test_golden.py 'OK (skipped=1)'
           run_test test_build_report.py 'OK'
+          run_test test_check_image.py 'OK'
 
   cloud-tests:
     name: Cloud tests

@@ -9,6 +9,7 @@ everything in this folder except this file.
 | `latest.signed.bin` | The newest build |
 | `latest.json` | Its version, size, SHA-256, git commit and build time |
 | `cranium-<version>-<build>.signed.bin` | Each version, the newest ten of them |
+| `cranium-<version>-<build>.json` | Its record, the same as `latest.json` was for it. `scripts/check-image.sh` reads it |
 | `golden/cranium-<version>-<build>.signed.bin` | The frozen golden image. Only `tools/golden.py freeze` puts it there, and nothing removes it: a build never touches this folder |
 | `golden/mcuboot-before-golden.hex` | The bootloader that was on the board before the golden image, kept as the way back |
 

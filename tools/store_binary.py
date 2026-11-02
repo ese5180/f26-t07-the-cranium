@@ -4,6 +4,8 @@
     binaries/cranium-1.2.0-0.signed.bin    this version, named so that the console accepts it
     binaries/latest.signed.bin             a copy of the newest build
     binaries/latest.json                   its version, size, digest, git commit and -D settings
+    binaries/cranium-1.2.0-0.json          the same record, kept next to each version's image, so
+                                           that scripts/check-image.sh can check any of them
 
 Only a build of the checkout itself is kept: the test bench builds from scratch copies,
 which have no .git, and an image built with a test fault is refused. latest.json says whether
@@ -92,6 +94,7 @@ def prune(folder: Path) -> None:
     images = sorted(folder.glob("cranium-*.signed.bin"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in images[KEEP:]:
         old.unlink()
+        old.with_name(old.name.removesuffix(".signed.bin") + ".json").unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -116,7 +119,7 @@ def main() -> None:
     folder.mkdir(exist_ok=True)
     shutil.copyfile(image, folder / f"cranium-{name}.signed.bin")
     shutil.copyfile(image, folder / "latest.signed.bin")
-    (folder / "latest.json").write_text(json.dumps({
+    record = json.dumps({
         "version": version,
         "file": f"cranium-{name}.signed.bin",
         "size": len(data),
@@ -125,7 +128,9 @@ def main() -> None:
         "commit": git_commit(args.repo),
         "command_line": command_line_settings(args.build),
         "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }, indent=2) + "\n")
+    }, indent=2) + "\n"
+    (folder / f"cranium-{name}.json").write_text(record)
+    (folder / "latest.json").write_text(record)
     prune(folder)
     print(f"store_binary: {version} is in binaries/ ({len(data)} bytes)")
 

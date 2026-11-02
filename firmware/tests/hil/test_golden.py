@@ -761,6 +761,13 @@ class StoreBinaryTest(unittest.TestCase):
         self.assertIs(json.loads((binaries / "latest.json").read_text())["bluetooth"], True)
         self.assertEqual(len(list(binaries.glob("cranium-*.signed.bin"))), 1)
 
+    def test_each_version_keeps_its_own_record(self):
+        binaries = self.store("CONFIG_APP_BT_OTA=y\n")
+        images = list(binaries.glob("cranium-*.signed.bin"))
+        self.assertEqual(len(images), 1)
+        record = images[0].with_name(images[0].name.removesuffix(".signed.bin") + ".json")
+        self.assertEqual(record.read_text(), (binaries / "latest.json").read_text())
+
     def test_a_build_without_bluetooth_is_kept_and_says_so(self):
         binaries = self.store("# CONFIG_APP_BT_OTA is not set\nCONFIG_LOG=y\n")
         self.assertEqual((binaries / "latest.signed.bin").read_bytes(), make_image())
