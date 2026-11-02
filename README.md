@@ -99,8 +99,8 @@ To update, a release manager deploys a signed image from our console, which crea
 
 | Question | Answer |
 | --- | --- |
-| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.7.4 build). |
-| How large is your existing application code? | The application is 631,308 bytes of flash and uses 360,112 of 409,600 bytes of RAM. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 762,532 bytes in a 933,888-byte slot. The network core's blinky is another 19,024 bytes (1.7.4 build). |
+| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.8.0 build). |
+| How large is your existing application code? | The application is 631,412 bytes of flash and uses 360,112 of 409,600 bytes of RAM. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 762,635 bytes in a 933,888-byte slot. The network core's blinky is another 19,024 bytes (1.8.0 build). |
 | Does the bootloader or application code handle the firmware image download? | The application. MCUboot has no network stack. |
 | What wireless communication is used to download the images? | Wi-Fi (nRF7002). The job arrives over MQTT with mutual TLS, and the image comes over HTTPS from a signed S3 link. |
 | Why this method? | A signed image is about 760 KB. Wi-Fi reaches the server directly and downloads it in about a minute. Bluetooth would need a phone as a relay, and we're saving it for audio. |
