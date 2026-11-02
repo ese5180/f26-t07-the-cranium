@@ -920,6 +920,13 @@ function slotsOfDevice(device) {
     return flashMap(title, { ...running, state: onTrialWords, tone: online ? 'live' : 'idle', iconName: 'pulse' },
       { none: 'Previous firmware', state: 'Kept to fall back on' }, options);
   }
+  // A phone may be writing here; nothing is installed without a press of Button 1 at the board.
+  if (ota.state === 'bluetooth') {
+    return flashMap(title, running, {
+      none: 'Not reported by the board',
+      state: online ? 'A phone may be sending an image over Bluetooth' : describeUpdate(device).title,
+    }, options);
+  }
   // It went quiet in the middle of this, and may have moved on since: old news is told as old news.
   if (!online) return flashMap(title, running, { version: target, state: describeUpdate(device).title }, options);
   if (ota.state === 'downloading') {

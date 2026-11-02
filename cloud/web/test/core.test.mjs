@@ -2141,9 +2141,16 @@ test('what a board last reported about updates is put into words', () => {
   assert.equal(gone.title, 'Was waiting for Button\u00a01 when last seen');
   assert.equal(gone.tone, 'idle');
   assert.equal(gone.text, '');
-  for (const state of ['awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'a_new_state']) {
+  for (const state of ['awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth', 'a_new_state']) {
     assert.match(update(ota(state), false).title, /^Was [a-z].* when last seen$/, state);
   }
+
+  // A person at the board opened Bluetooth for a phone: no deployment is moving it.
+  const bluetooth = update(ota('bluetooth', { job: null }));
+  assert.equal(bluetooth.title, 'Open for an update over Bluetooth');
+  assert.equal(bluetooth.tone, 'live');
+  assert.match(bluetooth.text, /Updates from here wait until it closes/);
+  assert.equal(update(ota('bluetooth'), false).title, 'Was open for an update over Bluetooth when last seen');
 
   assert.equal(TONES.includes(update(ota('a_new_state')).tone), true);
 });

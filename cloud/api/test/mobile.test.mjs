@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 
 import { objectKey } from '../src/handlers/firmware.mjs';
-import { PAIRING_FRESH_MS, pairingFromShadow } from '../src/lib/shadow.mjs';
+import { PAIRING_FRESH_MS, deviceFromShadow, pairingFromShadow } from '../src/lib/shadow.mjs';
 import { accessClaims, createTestConsole, fixture } from './fake-aws.mjs';
 
 const THING = 'cranium-fe5b26c0c5b1dcd7';
@@ -183,4 +183,15 @@ test('a board outside the project\'s group is never asked', async () => {
   fake.addThing(THING, { inGroup: false });
   fake.device(THING).setRaw(shadowWithPairing(clock.ms, 5000));
   assert.equal((await call('GET', '/api/pairing/Cranium-1A2B', { as: manager })).status, 404);
+});
+
+test('a board with its Bluetooth window open says so, and the console passes it on', () => {
+  const now = Date.parse('2026-11-02T18:00:00Z');
+  const stamp = Math.floor(now / 1000) - 5;
+  const device = deviceFromShadow(THING, {
+    state: { reported: { ota: { state: 'bluetooth', job: null, progress: 0, last: 'none', error: '' }, uptime: 9 } },
+    metadata: { reported: { uptime: { timestamp: stamp } } },
+  }, now);
+  assert.equal(device.ota.state, 'bluetooth');
+  assert.equal(device.online, true);
 });

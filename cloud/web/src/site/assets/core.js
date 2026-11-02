@@ -1980,6 +1980,10 @@ export function describeUpdate(device) {
     case 'testing':
       return live('live', 'pulse', `On trial: ${target}`, 'It is kept once the board has reconnected.',
         { was: `on trial with ${target}` });
+    case 'bluetooth':
+      return live('live', 'download', 'Open for an update over Bluetooth',
+        'A person at the board opened Bluetooth for a phone. Updates from here wait until it closes.',
+        { was: 'open for an update over Bluetooth' });
     default:
       return live('live', 'restart', 'Updating', '');
   }

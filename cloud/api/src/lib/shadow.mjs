@@ -33,8 +33,10 @@ import { parseJobId, strictVersion } from './validate.mjs';
 export const ONLINE_WINDOW_MS = 90_000;
 export const RESTART_WINDOW_MS = 240_000;
 
+// `bluetooth`: a person opened the board's Bluetooth window, for an update from a phone. Cloud
+// updates wait until it closes.
 const OTA_STATES = Object.freeze(
-  ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing']);
+  ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth']);
 const OTA_RESULTS = Object.freeze(
   ['none', 'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled']);
 const SHORT_ASCII = /^[\x20-\x7e]{0,64}$/;
