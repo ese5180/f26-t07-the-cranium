@@ -4,6 +4,7 @@
 #
 #   cloud/logs.sh api      the API function: one JSON line per request, and errors
 #   cloud/logs.sh web      the function that serves the console's static files
+#   cloud/logs.sh events   the recorder: one line per message from a board, with the kinds it recorded
 #   cloud/logs.sh access   API Gateway: every request, with status and authorizer error
 #   cloud/logs.sh iot      AWS IoT: connections, refused publishes, job events
 #
@@ -89,6 +90,7 @@ main() {
   case "${1:-}" in
     api) check_tools; group="$(stack_log_group ApiLogGroup)" ;;
     web) check_tools; group="$(stack_log_group WebLogGroup)" ;;
+    events) check_tools; group="$(stack_log_group EventsLogGroup)" ;;
     access) check_tools; group="$(stack_log_group AccessLogGroup)" ;;
     iot)
       check_tools

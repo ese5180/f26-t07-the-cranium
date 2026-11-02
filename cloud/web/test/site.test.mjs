@@ -21,7 +21,7 @@ const assets = visible(new URL('assets/', SITE)).map((entry) => entry.name)
   .filter((name) => !name.startsWith('home.') && name !== HISTORY_DATA).sort();
 const scripts = assets.filter((name) => name.endsWith('.js'));
 // Each belongs to one page and is fetched when that page is opened.
-const ON_DEMAND = ['history.js', 'serial.js'];
+const ON_DEMAND = ['history.js', 'serial.js', 'telemetry.js'];
 const atOnce = assets.filter((name) => !ON_DEMAND.includes(name));
 const styles = assets.filter((name) => name.endsWith('.css'));
 const read = (name) => readFileSync(new URL(name, SITE), 'utf8');

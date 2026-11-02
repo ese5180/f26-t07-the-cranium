@@ -44,6 +44,7 @@ test('a well-formed shadow becomes a Device', () => {
     ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
     rssi: -52,
     uptime: 1234,
+    stuck: null, diag: null, diary: null, bt: null,
   });
 
   const busy = read({
@@ -56,7 +57,10 @@ test('a well-formed shadow becomes a Device', () => {
 });
 
 test('a thing without a shadow has never reported', () => {
-  const never = { thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null };
+  const never = {
+    thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
+    stuck: null, diag: null, diary: null, bt: null,
+  };
   assert.deepEqual(deviceFromShadow(THING, null, NOW), never);
   assert.deepEqual(unknownDevice(THING), never);
   for (const document of [undefined, {}, { state: {} }, { state: null }, { state: { desired: { x: 1 } } },
@@ -75,11 +79,9 @@ test('the window has room for a late heartbeat at the interval that the firmware
   assert.equal(ONLINE_WINDOW_MS, interval * 3 * 1000);
 });
 
-test('what a board says about being stuck is not for the console: it reads as if it were not there', () => {
+test('what a board says about being stuck is for the Diagnostics page, and nothing in it upsets the rest', () => {
   const said = { ...healthy(), stuck: { count: 2, reason: 'no_cloud' } };
-  assert.deepEqual(read(said), read(healthy()));
-  assert.equal(Object.hasOwn(read(said), 'stuck'), false);
-  // Nor does anything in it upset the rest.
+  assert.deepEqual(read(said), { ...read(healthy()), stuck: { count: 2, reason: 'no_cloud' } });
   for (const stuck of [null, 'no', 7, [], { count: 'many', reason: {} }]) {
     assert.deepEqual(read({ ...healthy(), stuck }), read(healthy()), JSON.stringify(stuck));
   }
@@ -237,6 +239,7 @@ test('nothing a board adds to its shadow reaches the output', () => {
     ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
     rssi: -40,
     uptime: 9,
+    stuck: null, diag: null, diary: null, bt: null,
   });
   assert.equal({}.polluted, undefined);
   assert.equal({}.admin, undefined);
@@ -261,4 +264,64 @@ test('deeply nested and oversized shadows are handled without effort', () => {
 
   const wide = Object.fromEntries(Array.from({ length: 20000 }, (_, n) => [`key${n}`, n]));
   assert.deepEqual(deviceFromShadow(THING, shadow({ ...wide, uptime: 5 }), NOW).uptime, 5);
+});
+
+test('the reports beside the heartbeat are read field by field: stuck, diagnostics, boot diary, Bluetooth record', () => {
+  const metadata = { uptime: { timestamp: SEEN }, diag: { channel: { timestamp: SEEN - 60 } } };
+  const device = deviceFromShadow(THING, {
+    state: { reported: {
+      ...healthy(),
+      stuck: { count: 2, reason: 'wifi_silent' },
+      diag: { mac: 'F4:CE:36:00:8B:C9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
+      diary: { boots: 42, log: ['1.7.4+0/8/4', '1.10.0+0/10/3', '1.10.0+0/1/1'] },
+      bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
+      btpair: { name: 'Cranium-1A2B', passkey: '480913' },
+    } },
+    metadata: { reported: metadata },
+  }, NOW);
+  assert.deepEqual(device.stuck, { count: 2, reason: 'wifi_silent' });
+  assert.deepEqual(device.diag, {
+    mac: 'f4:ce:36:00:8b:c9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 },
+    at: new Date((SEEN - 60) * 1000).toISOString(),
+  });
+  // Newest first: the boot that is running, why the one before it ended, how far each got.
+  assert.deepEqual(device.diary, {
+    boots: 42,
+    entries: [
+      { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 1 },
+      { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
+      { version: '1.7.4+0', cause: '8', causes: ['power_on'], stage: 4 },
+    ],
+  });
+  assert.deepEqual(device.bt, { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 });
+  // The passkey is for the pairing route alone.
+  assert.equal(JSON.stringify(device).includes('480913'), false);
+});
+
+test('a report beside the heartbeat that is not what the firmware sends is left out', () => {
+  const read2 = (extra) => read({ ...healthy(), ...extra });
+  for (const stuck of [{ count: -1, reason: 'none' }, { count: 1, reason: 'Wi-Fi!' }, { count: '1', reason: 'none' }, 'stuck']) {
+    assert.equal(read2({ stuck }).stuck, null, JSON.stringify(stuck));
+  }
+  // An address that is not one, a channel out of range and a heap without statistics are each dropped alone.
+  assert.deepEqual(read2({ diag: { mac: 'unknown', channel: 300, heap: { free: 0, least: 0, size: 0 } } }).diag, null);
+  assert.deepEqual(read2({ diag: { mac: 'unknown', channel: 0, heap: { free: 5, least: 9, size: 8 } } }).diag,
+    { mac: null, channel: 0, heap: null, at: null });
+  assert.equal(read2({ diag: 'x' }).diag, null);
+  // Entries that are not entries go; a diary that is not one is none.
+  assert.deepEqual(read2({ diary: { boots: 3, log: ['1.0.0+0/8/4', 'x/y/z', '1.0.0/8/4', '1.0.0+0/8g/4', 7, '1.0.0+0/4000/2'] } }).diary,
+    { boots: 3, entries: [
+      { version: '1.0.0+0', cause: '4000', causes: ['temperature'], stage: 2 },
+      { version: '1.0.0+0', cause: '8', causes: ['power_on'], stage: 4 },
+    ] });
+  for (const diary of [{ boots: -1, log: [] }, { boots: 1, log: 'x' }, { boots: 1, log: Array(17).fill('1.0.0+0/8/4') }]) {
+    assert.equal(read2({ diary }).diary, null);
+  }
+  assert.deepEqual(read2({ diary: { boots: 1, log: ['1.0.0+0/0/1', '1.0.0+0/8000/1'] } }).diary.entries.map((entry) => entry.causes),
+    [['unknown'], ['power_on']]);
+  for (const bt of [{ from: '1.5.0', to: '1.6.0+0', result: 'succeeded' }, { from: '1.5.0+0', to: '1.6.0+0', result: 'great' }]) {
+    assert.equal(read2({ bt }).bt, null);
+  }
+  assert.deepEqual(read2({ bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'magic', count: -2 } }).bt,
+    { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'none', count: 0 });
 });

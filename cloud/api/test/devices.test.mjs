@@ -52,15 +52,15 @@ test('boards are listed by name with what their shadows say', async () => {
       thing: BOARD_A, online: true, lastSeen: reportedAt,
       fw: { version: '1.0.0+3', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -61, uptime: 4321,
+      rssi: -61, uptime: 4321, stuck: null, diag: null, diary: null, bt: null,
     },
     // Registered, but it has never connected: there is no shadow.
-    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null },
+    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
     {
       thing: BOARD_C, online: true, lastSeen: reportedAt,
       fw: { version: '1.2.3+4', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -80, uptime: 12,
+      rssi: -80, uptime: 12, stuck: null, diag: null, diary: null, bt: null,
     },
   ]);
 });
@@ -135,8 +135,9 @@ test('a hostile shadow shows as little as it deserves', async () => {
     {
       thing: BOARD_A, online: false, lastSeen: null, fw: null,
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' }, rssi: null, uptime: null,
+      stuck: null, diag: null, diary: null, bt: null,
     },
-    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null },
+    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
   ]);
 });
 

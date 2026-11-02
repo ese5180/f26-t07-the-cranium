@@ -193,3 +193,60 @@ export function requirePageSize(value) {
   }
   return Number(value);
 }
+
+// The event log of the boards (handlers/events.mjs).
+
+// An ISO time in UTC, to the second or the millisecond: what toISOString() writes, and the same without milliseconds.
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+export const MAX_EVENT_PAGE = 500;
+export const MAX_EVENT_RANGE_DAYS = 31;
+export const MAX_SAMPLE_HOURS = 168;
+export const DEFAULT_SAMPLE_HOURS = 24;
+
+/** A time in the query string, as epoch milliseconds; `fallback` when it is absent. */
+export function requireTime(value, name, fallback) {
+  if (value === undefined && fallback !== undefined) return fallback;
+  const ms = typeof value === 'string' && ISO_TIME.test(value) ? Date.parse(value) : NaN;
+  // Date.parse takes 2026-02-31 for 3 March; such a date is not the one that was written.
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 19) !== value.slice(0, 19)) {
+    throw badRequest('invalid_time', `"${name}" must be a time in UTC, like 2026-11-02T14:30:00Z.`);
+  }
+  return ms;
+}
+
+/** The span of a query of the event log: `from` before `to`, at most 31 days apart. */
+export function requireEventRange(fromMs, toMs) {
+  if (!(fromMs < toMs)) throw badRequest('invalid_range', '"from" must be before "to".');
+  if (toMs - fromMs > MAX_EVENT_RANGE_DAYS * 86_400_000) {
+    throw badRequest('invalid_range', `A range of events may be at most ${MAX_EVENT_RANGE_DAYS} days long.`);
+  }
+}
+
+/** Kinds of event, comma separated, each one of `known` and none twice; null when absent. */
+export function requireKinds(value, known) {
+  if (value === undefined) return null;
+  const kinds = typeof value === 'string' ? value.split(',') : [];
+  if (kinds.length === 0 || kinds.length > known.length || kinds.some((kind) => !known.includes(kind)) ||
+      new Set(kinds).size !== kinds.length) {
+    throw badRequest('invalid_kinds', `"kinds" is a list of kinds separated by commas, from: ${known.join(', ')}.`);
+  }
+  return kinds;
+}
+
+/** The page size of the event log: 1 to 500, 500 when absent. */
+export function requireEventPageSize(value) {
+  if (value === undefined) return MAX_EVENT_PAGE;
+  if (typeof value !== 'string' || !/^[1-9]\d{0,2}$/.test(value) || Number(value) > MAX_EVENT_PAGE) {
+    throw badRequest('invalid_limit', `"limit" must be a number from 1 to ${MAX_EVENT_PAGE}.`);
+  }
+  return Number(value);
+}
+
+/** How many hours of a board's readings: 1 to 168, 24 when absent. */
+export function requireHours(value) {
+  if (value === undefined) return DEFAULT_SAMPLE_HOURS;
+  if (typeof value !== 'string' || !/^[1-9]\d{0,2}$/.test(value) || Number(value) > MAX_SAMPLE_HOURS) {
+    throw badRequest('invalid_hours', `"hours" must be a whole number from 1 to ${MAX_SAMPLE_HOURS}.`);
+  }
+  return Number(value);
+}

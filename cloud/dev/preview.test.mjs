@@ -535,8 +535,54 @@ for (const scenario of Object.keys(SCENARIOS)) {
     assert.deepEqual(audit.entries.map((entry) => ({ ...entry, detail: Object.fromEntries(entry.detail) })),
       sent.at(-1).entries);
     for (const entry of audit.entries) assert.notEqual(core.describeAudit(entry).verb, 'did something');
+
+    // The event log of the boards, and each board's readings.
+    const to = new Date(clock.ms).toISOString();
+    const from = new Date(clock.ms - 7 * 86_400_000).toISOString();
+    const events = await api.events({ from, to });
+    assert.deepEqual(events, sent.at(-1));
+    for (const event of events.events) assert.ok(core.EVENT_KINDS.includes(event.kind), event.kind);
+    for (const device of fleet.devices) {
+      const read = await api.samples(device.thing, 24);
+      const { thing: name, ...answer } = sent.at(-1);
+      assert.equal(name, device.thing);
+      assert.deepEqual(read, answer);
+    }
   });
 }
+
+test('fleet: the Events and Diagnostics pages have a history of every kind to show', async (t) => {
+  const { origin, clock } = await start(t, { scenario: 'fleet' });
+  const { api } = await consoleClient(origin, clock, []);
+  const to = new Date(clock.ms).toISOString();
+  const from = new Date(clock.ms - 3 * 86_400_000).toISOString();
+  const { events, cursor } = await api.events({ from, to });
+  assert.equal(cursor, null);
+  assert.deepEqual([...new Set(events.map((event) => event.kind))].sort(), [...core.EVENT_KINDS].sort());
+  const whats = new Set(events.map((event) => `${event.kind}/${event.what}`));
+  for (const what of ['connection/connected', 'connection/disconnected', 'firmware/changed', 'update/step', 'update/result',
+    'restart/restarted', 'restart/boot', 'restart/stuck', 'bluetooth/opened', 'bluetooth/closed', 'bluetooth/record',
+    'health/channel', 'health/memory']) {
+    assert.ok(whats.has(what), what);
+  }
+  // Newest first, and a warning where something went wrong.
+  assert.deepEqual(events.map((event) => event.at), [...events.map((event) => event.at)].sort().reverse());
+  assert.ok(events.some((event) => event.level === 'warn' && event.what === 'stuck'));
+
+  const { devices } = await api.devices();
+  const withDiag = devices.filter((device) => device.diag !== null);
+  assert.equal(withDiag.length, 1);
+  assert.equal(withDiag[0].diag.channel, 11);
+  assert.ok(withDiag[0].diag.heap.least < withDiag[0].diag.heap.size * 0.15);
+  assert.equal(devices.filter((device) => device.diary !== null).length, 2);
+  assert.equal(devices.filter((device) => device.online).length, 2);
+  const readings = await api.samples(withDiag[0].thing, 24);
+  // A minute apart for a day: over 600 readings, thinned for the chart.
+  assert.equal(readings.samples.length <= 600, true);
+  assert.ok(readings.bucketSeconds > 0);
+  assert.ok(readings.samples.some((sample) => sample.heapFree !== null));
+  assert.ok(readings.samples.every((sample) => sample.rssi !== null));
+});
 
 test('the console\'s client makes every change the way the API expects it', async (t) => {
   const { preview, origin, clock } = await start(t, { scenario: 'one-board-idle' });

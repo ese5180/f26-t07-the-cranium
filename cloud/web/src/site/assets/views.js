@@ -1059,6 +1059,8 @@ export function gateView({ iconName = 'lock', title, text, detail, code, action,
 const SECTIONS = [
   ['overview', 'Overview'],
   ['devices', 'Devices'],
+  ['diagnostics', 'Diagnostics'],
+  ['events', 'Events'],
   ['firmware', 'Firmware'],
   ['deployments', 'Deployments'],
   ['activity', 'Activity'],
@@ -1087,9 +1089,13 @@ export function navView(ctx) {
 }
 
 // The pages of the Developer section. Two have a script each (serial.js, history.js);
-// API tokens is drawn here, because it talks to the API like the other pages.
+// API tokens is drawn here, because it talks to the API like the other pages. Events and
+// Diagnostics have one too (telemetry.js), which draws with these same pieces.
 
-export { badge, button, empty, loading, mono, notice, pageHead };
+export {
+  NO_BOARDS, badge, button, card, empty, factNote, facts, failure, freshness, linkTo, loadProblem, loading, meter, mono,
+  notice, pageHead, pending, presence, signalBars, statusLine, when, whenAt,
+};
 
 export function developerTabs(current) {
   return h('nav', { class: 'dev-tabs', key: 'tabs', 'aria-label': 'Developer pages' },
@@ -1104,9 +1110,9 @@ export function developerTabs(current) {
 }
 
 /** Such a page while its script is on the way, or when it could not be fetched. */
-export function scriptPending(ctx, view, title) {
+export function scriptPending(ctx, view, title, { tabs = true } = {}) {
   return h('div', { class: 'page', key: 'page' },
-    developerTabs(view),
+    tabs ? developerTabs(view) : null,
     pageHead({ title }),
     ctx.state.scriptFailed
       ? notice('bad', 'alert', 'This page could not be loaded. The console may have been updated since ' +

@@ -15,6 +15,7 @@ const PATTERNS = Object.freeze({
   AWS_REGION: /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/,
   STATE_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
   AUDIT_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
+  EVENTS_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
   FIRMWARE_BUCKET: /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/,
   THING_GROUP: /^[A-Za-z0-9:_-]{1,128}$/,
   PRESIGN_ROLE_ARN: /^arn:[a-z0-9-]+:iam::\d{12}:role\/[\w+=,.@/-]{1,576}$/,
@@ -60,6 +61,8 @@ export function loadConfig(env = process.env) {
     region: read(env, 'AWS_REGION'),
     stateTable: read(env, 'STATE_TABLE'),
     auditTable: read(env, 'AUDIT_TABLE'),
+    // The events and readings of the boards, written by the recorder (recorder.mjs).
+    eventsTable: read(env, 'EVENTS_TABLE'),
     firmwareBucket: read(env, 'FIRMWARE_BUCKET'),
     thingGroup: read(env, 'THING_GROUP'),
     presignRoleArn: read(env, 'PRESIGN_ROLE_ARN'),

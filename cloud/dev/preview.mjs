@@ -48,6 +48,12 @@
  * cancellation, carry a started update through, and take their two buttons from the
  * terminal.
  *
+ * While a scenario's time goes by, a board that is on reports a heartbeat every minute, and
+ * one with a diagnostics report sends it every 5 minutes. Everything a board reports, and
+ * each connection and disconnection, goes through the recorder of the Events page as the
+ * AWS IoT rules would hand it over (api/test/fake-aws.mjs), so that the Events and
+ * Diagnostics pages have a history to show. The "fleet" scenario has one of each kind.
+ *
  * The page is the one that is deployed. Nothing in web/ knows about the preview. With
  * --home the requests carry a host name that is on the web function's list of home page
  * names, so that the public home page is served by the same routing as when deployed.
@@ -110,6 +116,9 @@ const HEARTBEAT_MS = 30_000;
 // A board left to itself (--live): ten percent of the download every two seconds,
 // and twelve seconds for the restart into the new firmware.
 const LIVE_TICK_MS = 1000;
+// While a scenario's time goes by: a heartbeat a minute, a diagnostics report every five.
+const PASSING_HEARTBEAT_MS = 60_000;
+const DIAG_MS = 5 * 60_000;
 const LIVE_SECONDS_PER_STEP = 2;
 const LIVE_RESTART_SECONDS = 12;
 
@@ -458,7 +467,12 @@ function createBoard(fake, thing, version, say) {
   const board = {
     thing, version, powered: false, state: 'idle', job: null, target: null, progress: 0,
     last: 'none', error: '', rssi: -52,
+    // What later firmware reports beside the heartbeat (firmware/README.md); none by default.
+    stuck: null, diag: null, diary: null, bt: null,
+    // How the signal and the heap move while time goes by: (board, at) => void, or null.
+    wander: null,
   };
+  let lastDiag = -Infinity;
   let secondsInState = 0;
   // The object the offered image is stored under, from the job document.
   let imageKey = null;
@@ -477,8 +491,16 @@ function createBoard(fake, thing, version, say) {
         state: board.state, job: board.job, progress: board.progress, last: board.last, error: board.error,
       },
       wifi: { rssi: board.rssi },
+      ...(board.stuck === null ? {} : { stuck: board.stuck }),
       ...extra,
     });
+  }
+
+  /** What the firmware sends on reaching the cloud, after its heartbeat. */
+  function reportOnConnecting() {
+    if (board.diag !== null) report({ diag: board.diag });
+    if (board.diary !== null) report({ diary: board.diary });
+    if (board.bt !== null) report({ bt: board.bt });
   }
 
   function enter(state) {
@@ -554,6 +576,7 @@ function createBoard(fake, thing, version, say) {
     enter('rebooting');
     report();
     board.powered = false;
+    fake.device(thing).disconnect('CONNECTION_LOST');
     say(`${thing}: downloaded and checked ${board.target}, restarting`);
     return true;
   }
@@ -564,13 +587,51 @@ function createBoard(fake, thing, version, say) {
     /** Power up and connect. `uptime`: seconds since the board started. */
     connect(uptime = 6) {
       board.powered = true;
+      fake.device(thing).connect();
       report({ uptime });
+      reportOnConnecting();
       lookForJob();
     },
 
-    /** Lose power or the network. The shadow keeps what was reported last. */
-    disconnect() {
+    /** Lose power or the network, for the reason AWS IoT would give. The shadow keeps what was reported last. */
+    disconnect(reason = 'CONNECTION_LOST') {
+      if (board.powered) fake.device(thing).disconnect(reason);
       board.powered = false;
+    },
+
+    /**
+     * Restart by itself and come back: a new line in the boot diary with why (a Zephyr reset
+     * cause in hex: 10 is the watchdog, 2 a restart by the software), and the count of
+     * restarts for being stuck if that was why.
+     */
+    restart({ cause = '10', stuck = null } = {}) {
+      board.disconnect();
+      if (stuck !== null) board.stuck = stuck;
+      if (board.diary !== null) {
+        board.diary = { boots: board.diary.boots + 1, log: [...board.diary.log, `${board.version}/${cause}/4`].slice(-8) };
+      }
+      if (board.diag?.heap) board.diag = { ...board.diag, heap: { ...board.diag.heap, least: board.diag.heap.free } };
+      board.connect(5);
+    },
+
+    /** A person opens the Bluetooth window for a phone, and later it closes, with the record of what came of it. */
+    openBluetooth() {
+      enter('bluetooth');
+      report();
+    },
+    closeBluetooth(record = null) {
+      enter('idle');
+      if (record !== null) board.bt = record;
+      report(record === null ? undefined : { bt: record });
+    },
+
+    /** A moment of a board that is on, while a scenario's time goes by: its heartbeat, and now and then its diagnostics. */
+    passTime(at) {
+      if (!board.powered) return;
+      board.wander?.(board, at);
+      const due = board.diag !== null && at - lastDiag >= DIAG_MS;
+      if (due) lastDiag = at;
+      report(due ? { diag: board.diag } : undefined);
     },
 
     /**
@@ -642,6 +703,7 @@ function createBoard(fake, thing, version, say) {
     comeBack({ kept, uptime = 6 }) {
       if (board.state !== 'rebooting') return;
       board.powered = true;
+      fake.device(thing).connect();
       if (kept) board.version = board.target;
       // If the job was cancelled meanwhile nobody takes this answer; the board runs
       // what it runs all the same.
@@ -720,6 +782,20 @@ function duration(text) {
  */
 function createStage({ fake, clock, boards, callApi, say }) {
   const begun = clock.now();
+  // Up to when the boards that are on have reported while the scenario's time went by.
+  let passed = null;
+
+  /** Let the time go by up to `to`: every board that is on reports as it would meanwhile. */
+  function passTo(to) {
+    if (passed !== null) {
+      for (let at = passed + PASSING_HEARTBEAT_MS; at < to; at += PASSING_HEARTBEAT_MS) {
+        clock.moveTo(at);
+        for (const board of boards) board.passTime(at);
+      }
+    }
+    clock.moveTo(to);
+    passed = to;
+  }
 
   async function request(method, path, body, expected) {
     const result = await callApi({
@@ -745,7 +821,12 @@ function createStage({ fake, clock, boards, callApi, say }) {
   return {
     /** Go to the moment that lay this long before the preview started, e.g. "2h50m". */
     ago(text) {
-      clock.moveTo(begun - duration(text));
+      passTo(begun - duration(text));
+    },
+
+    /** Let the time go by up to when the preview started. */
+    catchUp() {
+      if (passed !== null && passed < begun) passTo(begun);
     },
 
     /** What tools/provision_device.py does: a thing in the group, with its certificate. */
@@ -871,6 +952,83 @@ async function flashedOverUsb(stage) {
   return board;
 }
 
+/** A deterministic wobble, -1 to 1, so that a scenario's readings look alive and are the same on every run. */
+function wobble(at, periodMs, phase = 0) {
+  return Math.sin((at / periodMs) * 2 * Math.PI + phase);
+}
+
+/**
+ * Three boards over two days, for the Events and Diagnostics pages: every kind of event, a
+ * board with diagnostics, one on firmware too old for them that went offline, and an update
+ * through the console.
+ */
+async function fleet(stage) {
+  stage.ago('2d');
+  const first = stage.provision(1, '1.10.0+0');
+  Object.assign(first, {
+    stuck: { count: 0, reason: 'none' },
+    // A locally administered address: no real network card has it.
+    diag: { mac: '02:5e:a1:00:00:01', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
+    diary: { boots: 41, log: ['1.9.0+0/8/4', '1.9.0+0/1/4', '1.10.0+0/2/4', '1.10.0+0/1/4'] },
+    wander(board, at) {
+      board.rssi = Math.round(-58 + 6 * wobble(at, 5 * 3_600_000) + 2 * wobble(at, 17 * 60_000, 1));
+      const { heap } = board.diag;
+      const free = Math.round(21000 + 1800 * wobble(at, 2 * 3_600_000, 2));
+      board.diag = { ...board.diag, heap: { ...heap, free, least: Math.min(heap.least, free) } };
+    },
+  });
+  const second = stage.provision(2, '1.9.0+0');
+  Object.assign(second, {
+    stuck: { count: 0, reason: 'none' },
+    diary: { boots: 17, log: ['1.8.0+0/8/4', '1.9.0+0/2/4'] },
+    bt: { from: '1.8.0+0', to: '1.9.0+0', result: 'succeeded', proof: 'person', count: 1 },
+    wander(board, at) {
+      board.rssi = Math.round(-71 + 4 * wobble(at, 3 * 3_600_000, 0.5) + 2 * wobble(at, 11 * 60_000));
+    },
+  });
+  const third = stage.provision(3, '1.2.3+4');
+  third.wander = (board, at) => {
+    board.rssi = Math.round(-49 + 3 * wobble(at, 7 * 3_600_000, 3));
+  };
+  for (const board of [first, second, third]) board.connect(40);
+  stage.ago('1d23h');
+  await stage.upload('valid-1.2.3+4.signed.bin', 'The build the boards were flashed with over USB.');
+
+  // The watchdog: the connection drops, and the board is back 20 s later.
+  stage.ago('1d6h');
+  first.disconnect('MQTT_KEEP_ALIVE_TIMEOUT');
+  stage.ago('1d5h59m40s');
+  first.restart({ cause: '10' });
+  stage.ago('1d1h');
+  second.disconnect('MQTT_KEEP_ALIVE_TIMEOUT');
+  stage.ago('22h');
+  second.restart({ cause: '2', stuck: { count: 1, reason: 'wifi_silent' } });
+  stage.ago('20h');
+  first.diag = { ...first.diag, heap: { ...first.diag.heap, free: 7400, least: 6100 } };
+  stage.ago('9h');
+  first.diag = { ...first.diag, channel: 11 };
+  stage.ago('5h');
+  second.openBluetooth();
+  stage.ago('4h56m');
+  second.closeBluetooth({ from: '1.9.0+0', to: '1.9.1+0', result: 'not_installed', proof: 'none', count: 2 });
+
+  stage.ago('3h');
+  await stage.upload('valid-1.2.3+5.signed.bin', 'Reconnects faster after the Wi-Fi drops out.');
+  stage.ago('2h50m');
+  await stage.deploy('1.2.3+5', [third], 'The oldest board first.');
+  stage.ago('2h49m');
+  third.lookForJob();
+  stage.ago('2h40m');
+  third.pressButton1();
+  stage.ago('2h39m');
+  third.download(100);
+  third.install();
+  stage.ago('2h37m');
+  third.comeBack({ kept: true });
+  stage.ago('1h');
+  second.disconnect('CONNECTION_LOST');
+}
+
 export const SCENARIOS = Object.freeze({
   empty: {
     summary: 'Nothing is registered yet: every page shows its empty state.',
@@ -952,6 +1110,10 @@ export const SCENARIOS = Object.freeze({
       const board = await flashedOverUsb(stage);
       board.disconnect();
     },
+  },
+  fleet: {
+    summary: 'Three boards over two days, an event of every kind and diagnostics: for the Events and Diagnostics pages.',
+    build: fleet,
   },
   revoked: {
     summary: 'Three boards and a longer history: 2.0.0+0 was revoked while it was being rolled out.',
@@ -1187,8 +1349,9 @@ export async function createPreview({
   try {
     consoleHost = `${host}:${await listen(consoleServer, port)}`;
     loginHost = `${host}:${await listen(loginServer, port === 0 ? 0 : port + 1)}`;
-    await SCENARIOS[scenario].build(
-      createStage({ fake, clock, boards, callApi, say: (text) => narrate(text) }));
+    const stage = createStage({ fake, clock, boards, callApi, say: (text) => narrate(text) });
+    await SCENARIOS[scenario].build(stage);
+    stage.catchUp();
   } catch (error) {
     await stop();
     if (error?.code !== 'EADDRINUSE') throw error;
@@ -1208,8 +1371,14 @@ export async function createPreview({
     log: (line) => log({ function: 'web', ...line }),
   });
 
+  let beats = 0;
   timers.push(setInterval(() => {
-    for (const board of boards) board.heartbeat();
+    beats += 1;
+    // Every tenth heartbeat is 5 minutes on: the diagnostics report of the boards that send one.
+    for (const board of boards) {
+      if (beats % 10 === 0) board.passTime(clock.now());
+      else board.heartbeat();
+    }
     // The stand-in keeps every call for tests to look at. Nobody looks here.
     fake.calls.length = 0;
   }, HEARTBEAT_MS));

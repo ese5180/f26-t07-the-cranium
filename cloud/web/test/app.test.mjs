@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  CORE, HISTORY, NEIGHBOURS, SERIAL, VIEWS, all, click, controls, createDocument, one, scriptAddress, textOf,
+  CORE, HISTORY, NEIGHBOURS, SERIAL, TELEMETRY, VIEWS, all, click, controls, createDocument, one, scriptAddress, textOf,
 } from './page.mjs';
 import {
   INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
@@ -199,7 +199,7 @@ async function openTab(t, options = {}) {
   // A copy of app.js of its own: the script starts the console when it is loaded.
   copies += 1;
   await import(scriptAddress('app.js', {
-    'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY,
+    'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY, 'telemetry.js': TELEMETRY,
   }, `tab ${copies}`));
   await settle();
 

@@ -58,9 +58,154 @@ function oneOf(value, allowed) {
   return typeof value === 'string' && allowed.includes(value) ? value : null;
 }
 
+// What else a board reports, each in a message of its own (firmware/README.md):
+//
+//   { "stuck": { "count": 0, "reason": "none" } }                     with the heartbeat, from 1.7.0
+//   { "diary": { "boots": 42, "log": ["1.10.0+0/10/4", ...] } }       on connecting, from 1.7.4
+//   { "bt": { "from": "1.5.0+0", "to": "1.6.0+0", "result": "succeeded",
+//             "proof": "person", "count": 3 } }                       on connecting, from 1.9.0
+//   { "diag": { "mac": "f4:ce:36:00:8b:c9", "channel": 6,
+//               "heap": { "free": 21312, "least": 9840, "size": 44240 } } }   every 5 min, from 1.10.0
+//
+// A stuck reason the console does not know yet is kept if it looks like one: a later firmware
+// may add a timer.
+const STUCK_REASON = /^[a-z][a-z_]{0,31}$/;
+export const BT_RESULTS = Object.freeze(
+  ['pending', 'succeeded', 'rolled_back', 'not_installed', 'trial_lost', 'superseded', 'flash_error']);
+export const BT_PROOFS = Object.freeze(['none', 'cloud', 'person']);
+const MAC = /^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/;
+// version/cause/stage: the cause in hex, as the firmware prints it with %x.
+const DIARY_ENTRY = /^([0-9.+]{5,24})\/([0-9a-f]{1,8})\/(\d{1,3})$/;
+const DIARY_MAX = 16;
+// Zephyr's RESET_ bits (zephyr/drivers/hwinfo.h). The firmware reports the raw value.
+export const RESET_CAUSES = Object.freeze([
+  [0x1, 'pin'], [0x2, 'software'], [0x4, 'brownout'], [0x8, 'power_on'], [0x10, 'watchdog'],
+  [0x20, 'debugger'], [0x40, 'security'], [0x80, 'wake'], [0x100, 'lockup'], [0x200, 'parity'],
+  [0x400, 'pll'], [0x800, 'clock'], [0x1000, 'hardware'], [0x2000, 'user'], [0x4000, 'temperature'],
+]);
+// Larger than any heap of this board, and still exact in a double.
+const MAX_HEAP = 2 ** 31;
+
+/** The names of the reset causes in a cause the diary gives in hex. No bit at all is a power-on. */
+export function resetCauses(hex) {
+  const value = parseInt(hex, 16);
+  if (!Number.isInteger(value) || value === 0) return ['power_on'];
+  const names = RESET_CAUSES.filter(([bit]) => (value & bit) !== 0).map(([, name]) => name);
+  return names.length > 0 ? names : ['unknown'];
+}
+
+function readStuck(reported) {
+  const stuck = own(reported, 'stuck');
+  const count = integerIn(own(stuck, 'count'), 0, 2 ** 32);
+  const reason = own(stuck, 'reason');
+  if (count === null || typeof reason !== 'string' || !STUCK_REASON.test(reason)) return null;
+  return { count, reason };
+}
+
+function readHeap(heap) {
+  const free = integerIn(own(heap, 'free'), 0, MAX_HEAP);
+  const least = integerIn(own(heap, 'least'), 0, MAX_HEAP);
+  const size = integerIn(own(heap, 'size'), 1, MAX_HEAP);
+  // A build without heap statistics reports zeros: that is no reading.
+  if (free === null || least === null || size === null || free > size || least > size) return null;
+  return { free, least, size };
+}
+
+/** The diagnostics report; `at` is when AWS IoT received it, or null if the shadow does not say. */
+function readDiag(reported, metadata) {
+  const diag = own(reported, 'diag');
+  if (diag === undefined) return null;
+  const mac = own(diag, 'mac');
+  const result = {
+    mac: typeof mac === 'string' && MAC.test(mac) ? mac.toLowerCase() : null,
+    channel: integerIn(own(diag, 'channel'), 0, 233),
+    heap: readHeap(own(diag, 'heap')),
+    at: null,
+  };
+  if (result.mac === null && result.channel === null && result.heap === null) return null;
+  const stamp = own(own(own(metadata, 'diag'), 'channel'), 'timestamp');
+  if (Number.isInteger(stamp) && stamp > 0 && stamp <= MAX_EPOCH_SEC) result.at = new Date(stamp * 1000).toISOString();
+  return result;
+}
+
+/** The boot diary, newest boot first. Each entry: its version, why the boot before it ended, how far it got. */
+function readDiary(reported) {
+  const diary = own(reported, 'diary');
+  const boots = integerIn(own(diary, 'boots'), 0, 2 ** 32);
+  const log = own(diary, 'log');
+  if (boots === null || !Array.isArray(log) || log.length > DIARY_MAX) return null;
+  const entries = [];
+  for (const line of log) {
+    const match = typeof line === 'string' ? DIARY_ENTRY.exec(line) : null;
+    const version = match ? strictVersion(match[1]) : null;
+    if (version === null) continue;
+    entries.push({
+      version: version.text, cause: match[2], causes: resetCauses(match[2]), stage: Number(match[3]),
+    });
+  }
+  return { boots, entries: entries.reverse() };
+}
+
+function readBt(reported) {
+  const bt = own(reported, 'bt');
+  const from = strictVersion(own(bt, 'from'));
+  const to = strictVersion(own(bt, 'to'));
+  const result = oneOf(own(bt, 'result'), BT_RESULTS);
+  if (from === null || to === null || result === null) return null;
+  return {
+    from: from.text,
+    to: to.text,
+    result,
+    proof: oneOf(own(bt, 'proof'), BT_PROOFS) ?? 'none',
+    count: integerIn(own(bt, 'count'), 0, 2 ** 32) ?? 0,
+  };
+}
+
+/**
+ * What a board says about itself under state.reported, each part checked on its own: the
+ * version it runs, its update, its signal and uptime, and the reports beside the heartbeat.
+ * `pairing` (btpair) is never read here. `metadata` is metadata.reported, if there is one.
+ */
+export function readReported(reported, metadata) {
+  const result = {
+    fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null,
+  };
+  if (reported === undefined || reported === null || typeof reported !== 'object' || Array.isArray(reported)) {
+    return result;
+  }
+  const fw = own(reported, 'fw');
+  const version = strictVersion(own(fw, 'version'));
+  if (version !== null) result.fw = { version: version.text, confirmed: own(fw, 'confirmed') === true };
+
+  const ota = own(reported, 'ota');
+  const state = oneOf(own(ota, 'state'), OTA_STATES);
+  if (state !== null) {
+    const error = own(ota, 'error');
+    result.ota = {
+      state,
+      // AWS deletes a key whose value is null, so no job is the usual case.
+      job: parseJobId(own(ota, 'job'))?.id ?? null,
+      progress: integerIn(own(ota, 'progress'), 0, 100) ?? 0,
+      last: oneOf(own(ota, 'last'), OTA_RESULTS) ?? 'none',
+      error: typeof error === 'string' && SHORT_ASCII.test(error) ? error : '',
+    };
+  }
+
+  result.rssi = integerIn(own(own(reported, 'wifi'), 'rssi'), -127, 0);
+  result.uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
+  result.stuck = readStuck(reported);
+  result.diag = readDiag(reported, metadata);
+  result.diary = readDiary(reported);
+  result.bt = readBt(reported);
+  return result;
+}
+
 /** The Device for a thing that has never reported. */
 export function unknownDevice(thing) {
-  return { thing, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null };
+  return {
+    thing, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
+    stuck: null, diag: null, diary: null, bt: null,
+  };
 }
 
 /**
@@ -74,37 +219,15 @@ export function deviceFromShadow(thing, shadow, nowMs) {
   const device = unknownDevice(thing);
   const reported = own(own(shadow, 'state'), 'reported');
   if (reported === undefined) return device;
+  const metadata = own(own(shadow, 'metadata'), 'reported');
+  Object.assign(device, readReported(reported, metadata));
 
-  const ota = own(reported, 'ota');
-  const state = oneOf(own(ota, 'state'), OTA_STATES);
-
-  const seenSec = own(own(own(own(shadow, 'metadata'), 'reported'), 'uptime'), 'timestamp');
+  const seenSec = own(own(metadata, 'uptime'), 'timestamp');
   if (Number.isInteger(seenSec) && seenSec > 0 && seenSec <= MAX_EPOCH_SEC) {
     const seenMs = seenSec * 1000;
     device.lastSeen = new Date(seenMs).toISOString();
-    device.online = nowMs - seenMs < (state === 'rebooting' ? RESTART_WINDOW_MS : ONLINE_WINDOW_MS);
+    device.online = nowMs - seenMs < (device.ota?.state === 'rebooting' ? RESTART_WINDOW_MS : ONLINE_WINDOW_MS);
   }
-
-  const fw = own(reported, 'fw');
-  const version = strictVersion(own(fw, 'version'));
-  if (version !== null) {
-    device.fw = { version: version.text, confirmed: own(fw, 'confirmed') === true };
-  }
-
-  if (state !== null) {
-    const error = own(ota, 'error');
-    device.ota = {
-      state,
-      // AWS deletes a key whose value is null, so no job is the usual case.
-      job: parseJobId(own(ota, 'job'))?.id ?? null,
-      progress: integerIn(own(ota, 'progress'), 0, 100) ?? 0,
-      last: oneOf(own(ota, 'last'), OTA_RESULTS) ?? 'none',
-      error: typeof error === 'string' && SHORT_ASCII.test(error) ? error : '',
-    };
-  }
-
-  device.rssi = integerIn(own(own(reported, 'wifi'), 'rssi'), -127, 0);
-  device.uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
   return device;
 }
 

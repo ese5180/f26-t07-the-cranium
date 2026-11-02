@@ -15,12 +15,15 @@ It is two CloudFormation stacks, deployed with the AWS CLI:
   uploaded to.
 - `cranium-ota` (`infra/template.yaml`): everything else.
   - An HTTP API with two Lambda functions: one serves the console and the public home
-    page, one is the console's API.
+    page, one is the console's API. A third, the recorder, has no route: two AWS IoT rules
+    hand it every shadow report and every connection of a board, and it writes the boards'
+    event log ([docs/aws-iot.md](../docs/aws-iot.md#the-event-log)).
   - A Cognito user pool for sign-in. Accounts are created by an administrator, and
     the console asks for a password and a code from an authenticator app at every
     sign-in.
   - A bucket for firmware images. An image is written once and never overwritten.
-  - Two DynamoDB tables: the releases and the audit log.
+  - Three DynamoDB tables: the releases, the audit log, and the boards' event log (events
+    kept 90 days, readings 7), which the Events and Diagnostics pages read.
   - In AWS IoT: the thing group `cranium-devices`, the device policy `cranium-device`,
     and the role AWS IoT Jobs uses to sign short-lived download links.
 
@@ -136,7 +139,7 @@ stack outputs to `cloud/.deploy/outputs.json` (the board provisioning tool reads
 file) and prints the address of the console. A first deployment takes a few minutes.
 Run it again after any change: it only changes what differs.
 
-- The user pool and the two tables are created without deletion protection, so that a
+- The user pool and the three tables are created without deletion protection, so that a
   failed first deployment can clean up after itself. The same run switches the protection
   on once the stack exists.
 - The stack switches on AWS IoT logging, which is one setting per account and Region.
@@ -223,7 +226,7 @@ the controls of the old role.
 cloud/smoke.sh          # the console answers, the API refuses anonymous calls and
                         # accounts that do not exist, the sign-in page loads, the API
                         # function can reach its data
-cloud/logs.sh api       # or: web, access, iot
+cloud/logs.sh api       # or: web, events, access, iot
 ```
 
 | What you see | Where to look |
@@ -235,6 +238,7 @@ cloud/logs.sh api       # or: web, access, iot
 | A 500 with no line in the API log | `logs.sh access`: `integrationError` |
 | A board does not come online | `logs.sh iot`: look for `Connect` entries with status `Failure`. The client ID must be the thing name, and the certificate must be attached to the thing |
 | A board refuses or fails an update | the deployment page of the console, then the board's serial console |
+| A board's events are missing from the Events page | `logs.sh events`: one `recorded` line per report of a board, or `message_ignored` with why. No line at all: the AWS IoT rules did not invoke the recorder |
 | A revocation answers that it is not complete, or a release shows as not completely revoked | Revoke it again. The release is marked, so nothing new can start; blocking the image or cancelling a deployment did not go through, or a board is still at work that could not be stopped (see below). The answer says which |
 
 Search the access log with text patterns, for example
@@ -502,7 +506,7 @@ cloud/teardown.sh
 After you have typed the stack name, it removes everything: the jobs, the boards'
 things and certificates, both stacks, and also what the stack keeps on purpose when it
 is deleted (the user pool with its accounts, the firmware bucket with every image, the
-two tables, whose deletion protection it switches off first). It can be run again if it
+three tables, whose deletion protection it switches off first). It can be run again if it
 stops halfway. Boards have to be provisioned again after a new deployment.
 
 It leaves three things alone: the budget stack (`infra/budget.yaml`, a monthly cost alert
@@ -523,6 +527,11 @@ to let the boards act and press their buttons from the terminal, as firmware bef
 which is what these boards run, or `--viewer` to see the
 console as a viewer does. `--home` shows the public home page instead, served by the real
 web function as one of its home page names.
+
+While a scenario is built the boards that are on report every minute, and every report and
+connection goes through the recorder's own code, so the Events and Diagnostics pages have a
+history. `--scenario fleet` has two days of three boards with an event of every kind and a
+board on firmware 1.10.0 with its diagnostics.
 
 The stand-in refuses a forced cancellation of a deployment that is cancelled already
 (see "A board at work on a cancelled deployment" above). `--repeated-cancel accepted`

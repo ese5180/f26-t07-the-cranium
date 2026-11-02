@@ -46,6 +46,7 @@ export const CORE = scriptAddress('core.js');
 export const VIEWS = scriptAddress('views.js', { 'core.js': CORE });
 export const SERIAL = scriptAddress('serial.js', { 'views.js': VIEWS });
 export const HISTORY = scriptAddress('history.js', { 'core.js': CORE, 'views.js': VIEWS });
+export const TELEMETRY = scriptAddress('telemetry.js', { 'core.js': CORE, 'views.js': VIEWS });
 
 // The document.
 

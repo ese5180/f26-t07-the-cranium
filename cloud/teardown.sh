@@ -11,7 +11,7 @@
 #   4. turns off the deletion protection of the user pool and the tables,
 #   5. deletes the stacks cranium-ota and cranium-ota-bootstrap,
 #   6. deletes what the stack keeps on purpose: the user pool with its accounts, the
-#      firmware bucket and the two tables.
+#      firmware bucket and the three tables.
 #
 # It can be run again if it stops halfway. Boards keep their key and certificate in
 # flash, but AWS IoT no longer knows them: provision them again after a new deployment.
@@ -44,6 +44,7 @@ POOL=""
 FIRMWARE_BUCKET=""
 STATE_TABLE=""
 AUDIT_TABLE=""
+EVENTS_TABLE=""
 ARTIFACTS_BUCKET=""
 
 # die <message> [further lines ...]
@@ -150,12 +151,14 @@ discover() {
   FIRMWARE_BUCKET="$(resolve "$STACK" FirmwareBucketName)"
   STATE_TABLE="$(resolve "$STACK" StateTableName)"
   AUDIT_TABLE="$(resolve "$STACK" AuditTableName)"
+  EVENTS_TABLE="$(resolve "$STACK" EventsTableName)"
   ARTIFACTS_BUCKET="$(resolve "$BOOTSTRAP_STACK" ArtifactsBucketName)"
   # CloudFormation derives these names from the stack name.
   check_name "user pool" "$POOL" '^[A-Za-z0-9-]+_[A-Za-z0-9]+$'
   check_name "firmware bucket" "$FIRMWARE_BUCKET" '^cranium-ota-[a-z0-9-]+$'
   check_name "release table" "$STATE_TABLE" '^cranium-ota-[A-Za-z0-9-]+$'
   check_name "audit table" "$AUDIT_TABLE" '^cranium-ota-[A-Za-z0-9-]+$'
+  check_name "events table" "$EVENTS_TABLE" '^cranium-ota-[A-Za-z0-9-]+$'
   check_name "artifacts bucket" "$ARTIFACTS_BUCKET" '^cranium-ota-bootstrap-[a-z0-9-]+$'
 }
 
@@ -167,6 +170,7 @@ save_state() {
     printf 'FirmwareBucketName=%s\n' "$FIRMWARE_BUCKET"
     printf 'StateTableName=%s\n' "$STATE_TABLE"
     printf 'AuditTableName=%s\n' "$AUDIT_TABLE"
+    printf 'EventsTableName=%s\n' "$EVENTS_TABLE"
     printf 'ArtifactsBucketName=%s\n' "$ARTIFACTS_BUCKET"
   } > "$STATE_FILE"
 }
@@ -180,6 +184,7 @@ confirm() {
   echo "  - the user pool with every account: ${POOL:-not found}"
   echo "  - the firmware bucket with every stored image: ${FIRMWARE_BUCKET:-not found}"
   echo "  - the release table and the audit table: ${STATE_TABLE:-not found}, ${AUDIT_TABLE:-not found}"
+  echo "  - the boards' event log: ${EVENTS_TABLE:-not found}"
   echo "  - every cranium-* job, and the thing and certificate of every board"
   echo "It cannot be undone."
   printf 'Type %s to confirm: ' "$STACK"
@@ -514,6 +519,7 @@ main() {
   delete_firmware_bucket
   delete_table "release table" "$STATE_TABLE"
   delete_table "audit table" "$AUDIT_TABLE"
+  delete_table "events table" "$EVENTS_TABLE"
 
   rm -f "$STATE_FILE" "$OUTPUTS_FILE" "$DEPLOY_DIR/packaged.yaml"
   rmdir "$DEPLOY_DIR" 2> /dev/null || true

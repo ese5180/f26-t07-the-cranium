@@ -450,6 +450,33 @@ const pages = {
     // Reading the first page again would take away the pages loaded by hand.
     holdStill: () => state.audit.loadingMore || (state.audit.value?.entries.length ?? 0) > ACTIVITY_PAGE,
   },
+  // What the boards did, and how they are now. The two pages share a script (telemetry.js),
+  // fetched when either is opened, so a cold load stays at five requests.
+  events: {
+    title: 'Events',
+    view: (ctx) => (telemetryScript ? telemetryScript.eventsView(ctx) : scriptPending(ctx, 'events', 'Events', { tabs: false })),
+    resources: () => telemetryScript?.eventsResources(state) ?? [],
+    async refresh(full) {
+      if (await telemetry()) await telemetryScript.refreshEvents(full);
+      draw();
+    },
+    interval: () => telemetryScript?.eventsInterval(state) ?? 0,
+    holdStill: () => telemetryScript?.eventsHoldStill(state) ?? false,
+  },
+  diagnostics: {
+    title: (route) => (route.thing ? `Diagnostics of ${route.thing.slice(0, 12)}…` : 'Diagnostics'),
+    view: (ctx) => (telemetryScript
+      ? telemetryScript.diagnosticsView(ctx)
+      : scriptPending(ctx, 'diagnostics', 'Diagnostics', { tabs: false })),
+    resources: () => telemetryScript?.diagnosticsResources(state) ?? [],
+    async refresh(full) {
+      if (await telemetry()) await telemetryScript.refreshDiagnostics(full);
+      draw();
+    },
+    interval: () => (telemetryScript ? telemetryScript.DIAGNOSTICS_REFRESH_MS : 0),
+    // The time since each board's last heartbeat is counted up every second.
+    everySecond: true,
+  },
   // These two load their script when they are opened, so a cold load stays at five requests.
   // The serial console talks to a board and never to the API.
   serial: {
@@ -489,6 +516,16 @@ const pages = {
 
 let serialScript = null;
 let historyScript = null;
+let telemetryScript = null;
+
+/** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */
+async function telemetry() {
+  if (!telemetryScript) {
+    telemetryScript = await pageScript(() => import('./telemetry.js'));
+    telemetryScript?.connect({ state, api, load, draw, clock, refresh: () => refreshNow(true) });
+  }
+  return telemetryScript;
+}
 
 /** The script of a page, or null if it could not be fetched: after a deployment an old tab's is gone. */
 async function pageScript(fetching) {
@@ -1240,6 +1277,9 @@ async function start() {
   setInterval(() => {
     if (document.visibilityState === 'visible') draw();
   }, REDRAW_MS);
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && !state.gate && pages[state.route.view].everySecond) draw();
+  }, 1000);
   setInterval(checkSession, SESSION_CHECK_MS);
 
   showRoute();

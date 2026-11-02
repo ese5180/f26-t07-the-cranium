@@ -304,6 +304,7 @@ const ENV = Object.freeze({
   AWS_REGION: 'eu-west-1',
   STATE_TABLE: 'state-table',
   AUDIT_TABLE: 'audit-table',
+  EVENTS_TABLE: 'events-table',
   FIRMWARE_BUCKET: 'firmware-bucket',
   THING_GROUP: 'cranium-devices',
   PRESIGN_ROLE_ARN: 'arn:aws:iam::000000000000:role/presign-role',
@@ -325,7 +326,7 @@ console.log = (line) => startup.push(line);
 process.emitWarning = (warning, ...rest) => {
   if (!String(warning).includes('Importing JSON modules')) realWarning.call(process, warning, ...rest);
 };
-const { createAws } = await import('../src/aws.mjs');
+const { createAws, createEventStore } = await import('../src/aws.mjs');
 console.log = realLog;
 process.emitWarning = realWarning;
 
@@ -401,7 +402,8 @@ test('the adapter and the in-memory fake have the same methods', () => {
     'cancelJob', 'createJob', 'describeJob', 'describeJobExecution', 'getFirmwareObject', 'getRelease', 'getShadow', 'getToken',
     'getUser', 'highestReleaseKey', 'listGroupThings', 'listJobExecutionsForJob', 'listJobExecutionsForThing', 'listJobs',
     'listReleases', 'listThingPrincipals', 'listTokens', 'listUserGroups', 'markReleaseRevoked', 'markRevocationEnforced',
-    'markTokenRevoked', 'putAudit', 'putFirmwareObject', 'putToken', 'queryAudit', 'registerRelease', 'tagFirmwareRevoked',
+    'markTokenRevoked', 'putAudit', 'putFirmwareObject', 'putToken', 'queryAudit', 'queryEvents', 'querySamples',
+    'registerRelease', 'tagFirmwareRevoked',
   ]);
   for (const method of methods) {
     assert.equal(typeof real[method], 'function');
@@ -1293,6 +1295,112 @@ test('queryAudit reads newest first, below a cursor, never more than asked', asy
   await rejectsWith(aws.queryAudit({ before: null, limit: 5 }), { code: 'throttled', operation: 'Query' });
 });
 
+test('queryEvents reads one board between two keys, newest first, every page, never more than asked', async () => {
+  const aws = adapter();
+  const event = (n) => ({ pk: { S: THING }, sk: { S: `E#2026-10-10T22:15:0${n}.000Z#00000${n}` }, kind: { S: 'firmware' } });
+  const low = 'E#2026-10-10T00:00:00.000Z';
+  const high = 'E#2026-10-11T00:00:00.000Z#~';
+  sdk.reply('QueryCommand',
+    { Items: [event(9), event(8)], LastEvaluatedKey: { pk: { S: THING }, sk: event(8).sk } },
+    { Items: [event(7), event(6)] });
+  assert.deepEqual((await aws.queryEvents({ thing: THING, low, high, kinds: null, limit: 3 })).map((item) => item.sk.slice(-1)),
+    ['9', '8', '7']);
+  const base = {
+    TableName: 'events-table',
+    KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :low AND :high',
+    ExpressionAttributeNames: { '#pk': 'pk', '#sk': 'sk' },
+    ExpressionAttributeValues: { ':pk': { S: THING }, ':low': { S: low }, ':high': { S: high } },
+    ScanIndexForward: false,
+  };
+  assert.deepEqual(sdk.inputs('QueryCommand'), [
+    { ...base, Limit: 3 },
+    { ...base, Limit: 1, ExclusiveStartKey: { pk: { S: THING }, sk: event(8).sk } },
+  ]);
+
+  // With kinds, DynamoDB filters, and its Limit would count what it read: there is none.
+  sdk.reset();
+  sdk.reply('QueryCommand', { Items: [event(5)], LastEvaluatedKey: { pk: { S: THING }, sk: event(1).sk } }, { Items: [] });
+  assert.equal((await aws.queryEvents({ thing: THING, low, high, kinds: ['firmware', 'update'], limit: 10 })).length, 1);
+  const [filtered, next] = sdk.inputs('QueryCommand');
+  assert.equal(filtered.FilterExpression, '#kind IN (:k0, :k1)');
+  assert.deepEqual(filtered.ExpressionAttributeNames, { '#pk': 'pk', '#sk': 'sk', '#kind': 'kind' });
+  assert.deepEqual(filtered.ExpressionAttributeValues[':k1'], { S: 'update' });
+  assert.equal(Object.hasOwn(filtered, 'Limit'), false);
+  assert.deepEqual(next.ExclusiveStartKey, { pk: { S: THING }, sk: event(1).sk });
+
+  await assert.rejects(aws.queryEvents({ thing: THING, low, high, kinds: [], limit: 1 }), TypeError);
+  sdk.reply('QueryCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.queryEvents({ thing: THING, low, high, kinds: null, limit: 5 }), { code: 'throttled', operation: 'Query' });
+});
+
+test('querySamples reads one board between two keys, oldest first, every page', async () => {
+  const aws = adapter();
+  const sample = (n) => ({ pk: { S: THING }, sk: { S: `S#2026-10-10T22:15:0${n}.000Z` }, rssi: { N: '-50' } });
+  sdk.reply('QueryCommand', { Items: [sample(1)], LastEvaluatedKey: { pk: { S: THING }, sk: sample(1).sk } }, { Items: [sample(2)] });
+  const items = await aws.querySamples({ thing: THING, low: 'S#2026-10-10T00:00:00.000Z', high: 'S#2026-10-11T00:00:00.000Z~' });
+  assert.deepEqual(items, [
+    { pk: THING, sk: 'S#2026-10-10T22:15:01.000Z', rssi: -50 }, { pk: THING, sk: 'S#2026-10-10T22:15:02.000Z', rssi: -50 },
+  ]);
+  const [first] = sdk.inputs('QueryCommand');
+  assert.equal(first.ScanIndexForward, true);
+  assert.equal(Object.hasOwn(first, 'Limit'), false);
+  assert.equal(first.TableName, 'events-table');
+  sdk.reply('QueryCommand', fails('InternalServerError', { status: 500 }));
+  await rejectsWith(aws.querySamples({ thing: THING, low: 'S#', high: 'S#~' }), { code: 'failed', operation: 'Query' });
+});
+
+test('the recorder\'s adapter has one client, one table and one operation: PutItem', async () => {
+  const env = { AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table' };
+  sdk.reset();
+  sdk.clients.length = 0;
+  const store = createEventStore(env);
+  assert.deepEqual(sdk.clients.map((client) => client.package), ['@aws-sdk/client-dynamodb']);
+  assert.deepEqual(Object.keys(sdk.clients[0].config).sort(), ['maxAttempts', 'region', 'requestHandler']);
+  assert.equal(Object.isFrozen(store), true);
+  assert.deepEqual(Object.keys(store), ['putEvent']);
+  // It needs nothing but these two: not the other tables, the bucket or the pool.
+  for (const name of Object.keys(env)) assert.throws(() => createEventStore({ ...env, [name]: '' }), new RegExp(name));
+
+  sdk.reply('PutItemCommand', {});
+  await store.putEvent({ pk: THING, sk: 'E#2026-10-10T22:15:00.000Z#abcdef', kind: 'firmware', confirmed: true, progress: 40 });
+  assert.deepEqual(sdk.inputs('PutItemCommand'), [{
+    TableName: 'events-table',
+    Item: {
+      pk: { S: THING }, sk: { S: 'E#2026-10-10T22:15:00.000Z#abcdef' }, kind: { S: 'firmware' }, confirmed: { BOOL: true },
+      progress: { N: '40' },
+    },
+  }]);
+  sdk.reply('PutItemCommand', fails('ProvisionedThroughputExceededException'));
+  await rejectsWith(store.putEvent({ pk: THING, sk: 'S#x' }), { code: 'throttled', operation: 'PutItem' });
+
+  // Its twin in the stand-in has the same methods.
+  assert.deepEqual(Object.keys(createFakeAws().eventStore()), Object.keys(store));
+});
+
+test('the recorder\'s entry point records a board\'s report through its adapter', async () => {
+  Object.assign(process.env, { AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table' });
+  const lines = [];
+  const realLog = console.log;
+  console.log = (line) => lines.push(JSON.parse(line));
+  try {
+    const { handler } = await import('../src/events.mjs');
+    sdk.reset();
+    sdk.reply('PutItemCommand', {}, {});
+    const result = await handler({
+      previous: { state: { reported: { uptime: 900 } } },
+      current: { state: { reported: { uptime: 3, wifi: { rssi: -60 } } } },
+      timestamp: Math.floor(Date.now() / 1000),
+      thing: THING,
+    });
+    assert.deepEqual(result, { recorded: 2 });
+  } finally {
+    console.log = realLog;
+  }
+  assert.deepEqual(sdk.inputs('PutItemCommand').map((input) => [input.TableName, input.Item.sk.S.slice(0, 2)]),
+    [['events-table', 'E#'], ['events-table', 'S#']]);
+  assert.deepEqual(lines.map((line) => line.event), ['recorded']);
+});
+
 test('getUser asks the pool by sub and reports enabled, status and address', async () => {
   const aws = adapter();
   const sub = '11111111-2222-4333-8444-555555555555';
@@ -1463,6 +1571,17 @@ test('the fake answers in the same shapes as the adapter', async () => {
   });
   assert.deepEqual(await fake.queryAudit({ before: null, limit: 5 }), await aws.queryAudit({ before: null, limit: 5 }));
 
+  const stored = { pk: THING, sk: 'E#2026-10-10T22:15:00.000Z#abcdef', kind: 'firmware', what: 'changed', ttl: 1800000000 };
+  await fake.eventStore().putEvent(stored);
+  await fake.eventStore().putEvent({ pk: THING, sk: 'S#2026-10-10T22:15:00.000Z', rssi: -50 });
+  sdk.reply('QueryCommand', {
+    Items: [{ pk: { S: THING }, sk: { S: stored.sk }, kind: { S: 'firmware' }, what: { S: 'changed' }, ttl: { N: '1800000000' } }],
+  }, { Items: [{ pk: { S: THING }, sk: { S: 'S#2026-10-10T22:15:00.000Z' }, rssi: { N: '-50' } }] });
+  const range = { thing: THING, low: 'E#2026-10-10', high: 'E#2026-10-11', kinds: null, limit: 5 };
+  assert.deepEqual(await fake.queryEvents(range), await aws.queryEvents(range));
+  const samples = { thing: THING, low: 'S#2026-10-10', high: 'S#2026-10-11' };
+  assert.deepEqual(await fake.querySamples(samples), await aws.querySamples(samples));
+
   fake.addUser({ sub: 'who', email: 'address', groups: ['viewers'] });
   sdk.reply('AdminGetUserCommand', { Enabled: true, UserStatus: 'CONFIRMED', UserAttributes: [{ Name: 'email', Value: 'address' }] },
     fails('UserNotFoundException'));
@@ -1505,7 +1624,7 @@ test('the Lambda entry point serves a viewer\'s reads through the adapter', asyn
   }
   assert.deepEqual(responses.map((response) => response.statusCode), [200, 200, 200, 200]);
   assert.deepEqual(JSON.parse(responses[0].body).devices,
-    [{ thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null }]);
+    [{ thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null }]);
   assert.deepEqual(JSON.parse(responses[1].body).releases, []);
   assert.deepEqual(JSON.parse(responses[2].body), { deployments: [] });
   assert.deepEqual(JSON.parse(responses[3].body), { entries: [], next: null });

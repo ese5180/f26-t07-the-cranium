@@ -915,9 +915,8 @@ refused it, but it may also have started, and crashed or lost power before that 
 reverted, which is a `rolled_back` by any other name. Only code in the new image could tell, and a cloud
 update reports the same.
 
-The console in the cloud does not show the record yet. It does not know the state `bluetooth` either:
-its API leaves out what it does not know (`OTA_STATES` in `cloud/api/src/lib/shadow.mjs`), so a board
-with an open window reads `Nothing reported` under its updates there.
+The console shows the record on its Diagnostics page, and each change of it on its Events page. A board
+with its window open reads "Open for an update over Bluetooth" there.
 
 An image built without this option leaves the record where it is and does not look at it, also when
 it is factory reset. An image on trial with no knowledge of Bluetooth can only be proved by the cloud.

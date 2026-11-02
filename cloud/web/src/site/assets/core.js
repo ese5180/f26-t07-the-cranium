@@ -69,7 +69,9 @@ export function versionOfDeployment(id) {
 
 // Routes. The console has exactly these; anything else in the address bar is ignored.
 
-const SECTIONS = ['overview', 'devices', 'firmware', 'deployments', 'activity', 'serial', 'history', 'tokens'];
+const SECTIONS = [
+  'overview', 'devices', 'diagnostics', 'events', 'firmware', 'deployments', 'activity', 'serial', 'history', 'tokens',
+];
 const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?$/;
 
 /** Turn a location hash into a route, or null if it is not one of the console's. */
@@ -80,6 +82,8 @@ export function parseRoute(hash) {
   if (item === undefined) return SECTIONS.includes(section) ? { view: section } : null;
   if (section === 'devices' && isThing(item)) return { view: 'device', thing: item };
   if (section === 'deployments' && isDeploymentId(item)) return { view: 'deployment', id: item };
+  // One board's diagnostics, when there are too many boards for a card each.
+  if (section === 'diagnostics' && isThing(item)) return { view: 'diagnostics', thing: item };
   return null;
 }
 
@@ -87,6 +91,7 @@ export function parseRoute(hash) {
 export function routeHash(route) {
   if (route?.view === 'device' && isThing(route.thing)) return `#/devices/${route.thing}`;
   if (route?.view === 'deployment' && isDeploymentId(route.id)) return `#/deployments/${route.id}`;
+  if (route?.view === 'diagnostics' && isThing(route.thing)) return `#/diagnostics/${route.thing}`;
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }
@@ -424,6 +429,70 @@ function person(value) {
   return { sub: text(value.sub, 64), email: text(value.email, 254) };
 }
 
+// What a board reports beside its heartbeat (cloud/api/src/lib/shadow.mjs). Each is null
+// when the board has not sent it, or when what arrived is not what the firmware sends.
+
+const MAC = /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/;
+const HEX = /^[0-9a-f]{1,8}$/;
+const WORD = /^[a-z][a-z_]{0,31}$/;
+const RESET_NAMES = ['pin', 'software', 'brownout', 'power_on', 'watchdog', 'debugger', 'security', 'wake', 'lockup',
+  'parity', 'pll', 'clock', 'hardware', 'user', 'temperature', 'unknown'];
+export const BT_RESULTS = ['pending', 'succeeded', 'rolled_back', 'not_installed', 'trial_lost', 'superseded', 'flash_error'];
+
+function anObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readStuck(value) {
+  if (!anObject(value)) return null;
+  const count = whole(value.count, 0, 2 ** 32);
+  return count === null || typeof value.reason !== 'string' || !WORD.test(value.reason)
+    ? null
+    : { count, reason: value.reason };
+}
+
+function readDiag(value) {
+  if (!anObject(value)) return null;
+  const heap = anObject(value.heap) ? {
+    free: whole(value.heap.free, 0, 2 ** 31),
+    least: whole(value.heap.least, 0, 2 ** 31),
+    size: whole(value.heap.size, 1, 2 ** 31),
+  } : null;
+  const usable = heap && heap.free !== null && heap.least !== null && heap.size !== null &&
+    heap.free <= heap.size && heap.least <= heap.size;
+  return {
+    mac: typeof value.mac === 'string' && MAC.test(value.mac) ? value.mac : null,
+    channel: whole(value.channel, 0, 233),
+    heap: usable ? heap : null,
+    at: instant(value.at),
+  };
+}
+
+function readDiary(value) {
+  if (!anObject(value) || !Array.isArray(value.entries)) return null;
+  const boots = whole(value.boots, 0, 2 ** 32);
+  if (boots === null) return null;
+  const entries = value.entries.slice(0, 16).filter(anObject).map((entry) => ({
+    version: versionOrNull(entry.version),
+    cause: typeof entry.cause === 'string' && HEX.test(entry.cause) ? entry.cause : null,
+    causes: texts(entry.causes, 16).filter((name) => RESET_NAMES.includes(name)),
+    stage: whole(entry.stage, 0, 255),
+  })).filter((entry) => entry.version !== null && entry.cause !== null && entry.stage !== null);
+  return { boots, entries };
+}
+
+function readBt(value) {
+  if (!anObject(value)) return null;
+  const from = versionOrNull(value.from);
+  const to = versionOrNull(value.to);
+  if (from === null || to === null || !BT_RESULTS.includes(value.result)) return null;
+  return {
+    from, to, result: value.result,
+    proof: ['cloud', 'person'].includes(value.proof) ? value.proof : 'none',
+    count: whole(value.count, 0, 2 ** 32) ?? 0,
+  };
+}
+
 function readDevice(raw) {
   const item = record(raw);
   const fw = item.fw && typeof item.fw === 'object' && isVersion(item.fw.version)
@@ -446,6 +515,10 @@ function readDevice(raw) {
     ota,
     rssi: whole(item.rssi, -127, 0),
     uptime: whole(item.uptime, 0, 2 ** 32),
+    stuck: readStuck(item.stuck),
+    diag: readDiag(item.diag),
+    diary: readDiary(item.diary),
+    bt: readBt(item.bt),
   };
 }
 
@@ -597,6 +670,82 @@ function readAudit(body) {
   return {
     entries: list(reply.entries).map(readAuditEntry),
     next: typeof reply.next === 'string' && CURSOR.test(reply.next) ? reply.next : null,
+  };
+}
+
+// The event log of the boards (cloud/api/src/handlers/events.mjs).
+
+export const EVENT_KINDS = Object.freeze(['connection', 'firmware', 'update', 'restart', 'bluetooth', 'health']);
+const EVENT_ID = /^[0-9a-f]{6}$/;
+const UPDATE_STATES = ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth'];
+// The typed fields an event may carry, each with how it is read.
+const EVENT_FIELDS = {
+  version: versionOrNull,
+  from: versionOrNull,
+  to: versionOrNull,
+  confirmed: (value) => (typeof value === 'boolean' ? value : null),
+  job: (value) => (isDeploymentId(value) ? value : null),
+  state: (value) => (UPDATE_STATES.includes(value) ? value : null),
+  progress: (value) => whole(value, 0, 100),
+  result: (value) => (typeof value === 'string' && WORD.test(value) ? value : null),
+  error: (value) => boardText(value, 64) || null,
+  upFor: (value) => whole(value, 0, 2 ** 32),
+  cause: (value) => (typeof value === 'string' && HEX.test(value) ? value : null),
+  stage: (value) => whole(value, 0, 255),
+  boots: (value) => whole(value, 0, 2 ** 32),
+  newBoots: (value) => whole(value, 1, 2 ** 32),
+  count: (value) => whole(value, 0, 2 ** 32),
+  reason: (value) => (typeof value === 'string' && /^[A-Za-z][A-Za-z_]{0,47}$/.test(value) ? value : null),
+  proof: (value) => (typeof value === 'string' && WORD.test(value) ? value : null),
+  channel: (value) => whole(value, 1, 233),
+  before: (value) => whole(value, 1, 233),
+  heapLeast: (value) => whole(value, 0, 2 ** 31),
+  heapSize: (value) => whole(value, 1, 2 ** 31),
+};
+
+/** One event, or null for one that cannot be shown: no board, no time or no kind the console knows. */
+function readEvent(raw) {
+  if (!anObject(raw) || !isThing(raw.thing) || instant(raw.at) === null || !EVENT_KINDS.includes(raw.kind)) return null;
+  const event = {
+    thing: raw.thing,
+    at: raw.at,
+    id: typeof raw.id === 'string' && EVENT_ID.test(raw.id) ? raw.id : '000000',
+    kind: raw.kind,
+    what: boardText(raw.what, 24),
+    level: raw.level === 'warn' ? 'warn' : 'info',
+    text: boardText(raw.text, 200),
+  };
+  for (const [name, read] of Object.entries(EVENT_FIELDS)) {
+    const value = Object.hasOwn(raw, name) ? read(raw[name]) : null;
+    if (value !== null) event[name] = value;
+  }
+  return event;
+}
+
+function readEvents(body) {
+  const reply = record(body);
+  return {
+    events: list(reply.events).map(readEvent).filter((event) => event !== null),
+    cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
+    from: instant(reply.from),
+    to: instant(reply.to),
+  };
+}
+
+function readSamples(body) {
+  const reply = record(body);
+  return {
+    samples: list(reply.samples).filter(anObject).map((sample) => ({
+      at: instant(sample.at),
+      rssi: whole(sample.rssi, -127, 0),
+      uptime: whole(sample.uptime, 0, 2 ** 32),
+      heapFree: whole(sample.heapFree, 0, 2 ** 31),
+      heapLeast: whole(sample.heapLeast, 0, 2 ** 31),
+    })).filter((sample) => sample.at !== null),
+    hours: whole(reply.hours, 1, 168) ?? 24,
+    bucketSeconds: whole(reply.bucketSeconds, 0, 86400) ?? 0,
+    from: instant(reply.from),
+    to: instant(reply.to),
   };
 }
 
@@ -1304,6 +1453,19 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     deployments: async () => readDeployments(await get('/api/deployments')),
     deployment: async (id) =>
       readDeployment(record(record(await get(`/api/deployments/${checked(isDeploymentId, id)}`)).deployment)),
+    /** The boards' events between two times (ISO), newest first, a page at a time. */
+    async events({ from, to, thing = null, kinds = null, cursor = null }) {
+      const query = { from: checked(instant, from), to: checked(instant, to) };
+      if (thing !== null) query.thing = checked(isThing, thing);
+      if (kinds !== null) query.kinds = kinds.map((kind) => checked((name) => EVENT_KINDS.includes(name), kind)).join(',');
+      if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
+      return readEvents(await get(`/api/events?${form(query)}`));
+    },
+    /** A board's readings of the last `hours` hours, oldest first. */
+    async samples(thing, hours = 24) {
+      const query = { hours: String(checked((value) => whole(value, 1, 168) !== null, hours)) };
+      return readSamples(await get(`/api/devices/${checked(isThing, thing)}/samples?${form(query)}`));
+    },
     async audit({ limit = 50, before = null } = {}) {
       const query = { limit: String(limit) };
       if (before !== null) query.before = checked((cursor) => CURSOR.test(cursor), before);
@@ -2308,6 +2470,10 @@ export const REFUSAL_WORDS = {
   invalid_token_id: 'Not a valid token ID',
   unknown_token: 'That person has no API token with that ID',
   token_already_revoked: 'That API token was already revoked',
+  invalid_time: 'A time was not written the way the server reads times',
+  invalid_range: 'The time range was empty, backwards or longer than 31 days',
+  invalid_kinds: 'The list of kinds of event was not valid',
+  invalid_hours: 'The number of hours was not a whole number from 1 to 168',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */

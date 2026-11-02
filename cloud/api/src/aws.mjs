@@ -12,7 +12,7 @@
  * and a message for the log. test/fake-aws.mjs implements the same interface in
  * memory; keep the two in step.
  *
- * createAws(env) reads AWS_REGION, STATE_TABLE, AUDIT_TABLE, FIRMWARE_BUCKET,
+ * createAws(env) reads AWS_REGION, STATE_TABLE, AUDIT_TABLE, EVENTS_TABLE, FIRMWARE_BUCKET,
  * THING_GROUP, PRESIGN_ROLE_ARN and USER_POOL_ID. Every method is async. Arguments are
  * expected to be validated already: thing names, job ids and keys go to AWS as given.
  * A call that AWS does not answer within a few seconds is given up and reported as a
@@ -110,6 +110,21 @@
  *   queryAudit({ before, limit }) -> object[]   at most `limit` items, highest sk first, only
  *                                               items with sk below `before` unless it is null
  *
+ * Events (events table; pk = thing name, sk "E#<ISO time>#<6 hex>" for an event and
+ * "S#<ISO time>" for a sample: lib/events.mjs). Reads are eventually consistent.
+ *   queryEvents({ thing, low, high, kinds, limit })
+ *                                 -> object[]   that board's items with low <= sk <= high,
+ *                                               highest sk first, at most `limit`; only those
+ *                                               whose kind is in `kinds` unless it is null
+ *   querySamples({ thing, low, high })
+ *                                 -> object[]   that board's items with low <= sk <= high,
+ *                                               lowest sk first
+ *
+ * createEventStore(env) is the recorder's adapter (recorder.mjs). It reads AWS_REGION and
+ * EVENTS_TABLE only, and has one method:
+ *   putEvent(item)                -> undefined   stores an item of the events table as it is;
+ *                                               an item with the same key is replaced
+ *
  * Users (Cognito user pool; the username is the token's sub)
  *   getUser(sub)                  -> { enabled: boolean, status: string, email: string } | null
  *   listUserGroups(sub)           -> string[]   [] for an unknown user
@@ -149,6 +164,8 @@ const CALL_TIMEOUT_MS = 4000;
 const MAX_ATTEMPTS = 2;
 
 const RELEASE_PK = 'REL';
+// The most kinds a query of the events table may filter on.
+const MAX_KINDS = 16;
 const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PK = 'AUD';
 const TOKEN_PK = 'TOK';
@@ -282,6 +299,63 @@ function required(env, name) {
 }
 
 /**
+ * The settings of a client. No call may hang: left alone, a call that gets no answer lasts
+ * until Lambda stops the function. A call is tried twice at most; the SDK's own default is
+ * three times. Every client gets an object of its own: the SDK keeps the one it is given.
+ */
+function clientSettings(region) {
+  return {
+    region,
+    maxAttempts: MAX_ATTEMPTS,
+    requestHandler: {
+      connectionTimeout: CONNECT_TIMEOUT_MS,
+      socketTimeout: IDLE_TIMEOUT_MS,
+      requestTimeout: CALL_TIMEOUT_MS,
+      // Without this the SDK only writes a warning when a call takes too long.
+      throwOnRequestTimeout: true,
+    },
+  };
+}
+
+/**
+ * Query one board's part of the events table between two sort keys, every page of it, up to
+ * `limit` items. `filter` is a FilterExpression with its values, or null.
+ */
+async function queryEventTable(dynamo, table, { thing, low, high, forward, limit = Infinity, kinds = null }) {
+  const names = { '#pk': 'pk', '#sk': 'sk' };
+  const values = { ':pk': { S: thing }, ':low': { S: low }, ':high': { S: high } };
+  let filter;
+  if (kinds !== null) {
+    names['#kind'] = 'kind';
+    kinds.forEach((kind, index) => {
+      values[`:k${index}`] = { S: kind };
+    });
+    filter = `#kind IN (${kinds.map((_, index) => `:k${index}`).join(', ')})`;
+  }
+  const items = [];
+  let start;
+  for (let pages = 0; pages < MAX_PAGES; pages += 1) {
+    const input = {
+      TableName: table,
+      KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :low AND :high',
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ScanIndexForward: forward,
+      ExclusiveStartKey: start,
+    };
+    if (filter !== undefined) input.FilterExpression = filter;
+    // With a filter, DynamoDB counts the items it read, not the ones it returns.
+    if (Number.isFinite(limit) && filter === undefined) input.Limit = limit - items.length;
+    const out = await dynamo.send(new QueryCommand(input));
+    for (const item of out.Items ?? []) items.push(fromItem(item));
+    if (items.length >= limit) return items.slice(0, limit);
+    if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
+    start = out.LastEvaluatedKey;
+  }
+  throw new Error(`more than ${MAX_PAGES} pages`);
+}
+
+/**
  * @param {Record<string, string|undefined>} env  the Lambda environment
  * @returns the adapter described at the top of this file
  */
@@ -289,6 +363,7 @@ export function createAws(env) {
   const region = required(env, 'AWS_REGION');
   const stateTable = required(env, 'STATE_TABLE');
   const auditTable = required(env, 'AUDIT_TABLE');
+  const eventsTable = required(env, 'EVENTS_TABLE');
   const bucket = required(env, 'FIRMWARE_BUCKET');
   const thingGroup = required(env, 'THING_GROUP');
   const presignRoleArn = required(env, 'PRESIGN_ROLE_ARN');
@@ -300,19 +375,7 @@ export function createAws(env) {
   if (!role) throw new Error('Environment variable PRESIGN_ROLE_ARN is not a role ARN');
   const thingArn = (thing) => `arn:${role[1]}:iot:${region}:${role[2]}:thing/${thing}`;
 
-  // No call may hang: left alone, a call that gets no answer lasts until Lambda stops
-  // the function. A call is tried twice at most; the SDK's own default is three times.
-  const settings = () => ({
-    region,
-    maxAttempts: MAX_ATTEMPTS,
-    requestHandler: {
-      connectionTimeout: CONNECT_TIMEOUT_MS,
-      socketTimeout: IDLE_TIMEOUT_MS,
-      requestTimeout: CALL_TIMEOUT_MS,
-      // Without this the SDK only writes a warning when a call takes too long.
-      throwOnRequestTimeout: true,
-    },
-  });
+  const settings = () => clientSettings(region);
   const iot = new IoTClient(settings());
   const iotData = new IoTDataPlaneClient(settings());
   const s3 = new S3Client(settings());
@@ -822,6 +885,25 @@ export function createAws(env) {
       }
     },
 
+    async queryEvents({ thing, low, high, kinds = null, limit }) {
+      if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > MAX_KINDS)) {
+        throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
+      }
+      try {
+        return await queryEventTable(dynamo, eventsTable, { thing, low, high, kinds, limit, forward: false });
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+    },
+
+    async querySamples({ thing, low, high }) {
+      try {
+        return await queryEventTable(dynamo, eventsTable, { thing, low, high, forward: true });
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+    },
+
     async getUser(sub) {
       try {
         const out = await cognito.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: sub }));
@@ -850,6 +932,26 @@ export function createAws(env) {
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return [];
         throw nameOf(cause) === 'AwsError' ? cause : failure('AdminListGroupsForUser', cause);
+      }
+    },
+  });
+}
+
+/**
+ * The recorder's adapter: one DynamoDB client, and only PutItem on the events table.
+ *
+ * @param {Record<string, string|undefined>} env  the Lambda environment
+ */
+export function createEventStore(env) {
+  const region = required(env, 'AWS_REGION');
+  const table = required(env, 'EVENTS_TABLE');
+  const dynamo = new DynamoDBClient(clientSettings(region));
+  return Object.freeze({
+    async putEvent(item) {
+      try {
+        await dynamo.send(new PutItemCommand({ TableName: table, Item: toItem(item) }));
+      } catch (cause) {
+        throw failure('PutItem', cause);
       }
     },
   });

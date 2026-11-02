@@ -93,15 +93,18 @@ test('the version is recovered from a deployment id', () => {
 // Routes.
 
 const ROUTES = [
-  '#/overview', '#/devices', `#/devices/${THING}`, '#/firmware', '#/deployments',
-  `#/deployments/${DEPLOYMENT}`, '#/activity',
+  '#/overview', '#/devices', `#/devices/${THING}`, '#/diagnostics', `#/diagnostics/${THING}`, '#/events', '#/firmware',
+  '#/deployments', `#/deployments/${DEPLOYMENT}`, '#/activity',
 ];
 
-test('the console has exactly seven kinds of route', () => {
+test('the console has exactly ten kinds of route', () => {
   assert.deepEqual(ROUTES.map(core.parseRoute), [
     { view: 'overview' },
     { view: 'devices' },
     { view: 'device', thing: THING },
+    { view: 'diagnostics' },
+    { view: 'diagnostics', thing: THING },
+    { view: 'events' },
     { view: 'firmware' },
     { view: 'deployments' },
     { view: 'deployment', id: DEPLOYMENT },
@@ -114,7 +117,8 @@ test('anything else is not a route, and never becomes one', () => {
   const others = [
     '', '#', '#/', '#overview', '/overview', '#/Overview', '#/overview/', '#/overview/x',
     '#/device', '#/devices/', '#/devices/cranium-xyz', `#/devices/${THING}/x`,
-    `#/deployments/${THING}`, `#/devices/${DEPLOYMENT}`, '#/firmware/1.1.0+7', '#/settings',
+    `#/deployments/${THING}`, `#/devices/${DEPLOYMENT}`, '#/firmware/1.1.0+7', '#/settings', '#/events/x',
+    `#/events/${THING}`, '#/diagnostics/cranium-xyz', `#/diagnostics/${DEPLOYMENT}`,
     '#//evil.example', '#/https://evil.example', 'https://evil.example/#/overview',
     'javascript:alert(1)', '#/overview?next=https://evil.example', '#/devices/../firmware',
     null, undefined, 3, {},
@@ -1003,7 +1007,9 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(generatedAt, null);
   assert.equal(devices.length, 2, 'a row without a name is dropped');
   const [bad, good] = devices;
-  assert.deepEqual(Object.keys(bad).sort(), ['fw', 'lastSeen', 'online', 'ota', 'rssi', 'thing', 'uptime']);
+  assert.deepEqual(Object.keys(bad).sort(),
+    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'online', 'ota', 'rssi', 'stuck', 'thing', 'uptime']);
+  assert.deepEqual([bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null]);
   assert.equal(bad.online, false);
   assert.equal(bad.lastSeen, null);
   assert.equal(bad.fw, null);
@@ -1015,7 +1021,80 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(bad.ota.last, 'none?evil');
   assert.equal(bad.ota.error.length, 64);
   assert.match(bad.ota.error, /^[\x20-\x7e]*$/);
-  assert.deepEqual(good, honest);
+  assert.deepEqual(good, { ...honest, stuck: null, diag: null, diary: null, bt: null });
+});
+
+test('what a board reports beside its heartbeat is read field by field, and nothing else of it', async () => {
+  const board = {
+    thing: THING, online: true, lastSeen: NOON, fw: null, ota: null, rssi: -52, uptime: 60,
+    stuck: { count: 2, reason: 'wifi_silent' },
+    diag: { mac: 'f4:ce:36:00:8b:c9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: NOON },
+    diary: { boots: 9, entries: [{ version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 4 }] },
+    bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
+    btpair: { name: 'Cranium-1A2B', passkey: '480913' },
+  };
+  const hostile = {
+    thing: THING,
+    stuck: { count: -1, reason: 'Bad' },
+    diag: { mac: '<b>', channel: 999, heap: { free: 50, least: 10, size: 20 }, at: 'never' },
+    diary: { boots: 'x', entries: [] },
+    bt: { from: '1', to: '2', result: 'succeeded' },
+  };
+  const odd = {
+    thing: THING,
+    diary: { boots: 3, entries: [{ version: '1.0.0+0', cause: 'zz', causes: [], stage: 1 }, { version: '1.0.0+0', cause: '4', causes: ['brownout', 'rm -rf'], stage: 2 }] },
+  };
+  const { api } = answering(200, { devices: [board, hostile, odd] });
+  const [read, bad, partial] = (await api.devices()).devices;
+  assert.deepEqual(read.stuck, board.stuck);
+  assert.deepEqual(read.diag, board.diag);
+  assert.deepEqual(read.diary, board.diary);
+  assert.deepEqual(read.bt, board.bt);
+  assert.equal(JSON.stringify(read).includes('480913'), false);
+  assert.deepEqual([bad.stuck, bad.diary, bad.bt], [null, null, null]);
+  assert.deepEqual(bad.diag, { mac: null, channel: null, heap: null, at: null });
+  assert.deepEqual(partial.diary, { boots: 3, entries: [{ version: '1.0.0+0', cause: '4', causes: ['brownout'], stage: 2 }] });
+});
+
+test('the event log is read event by event: a board, a time and a kind, or it is left out', async () => {
+  const event = {
+    thing: THING, at: NOON, id: 'a1b2c3', kind: 'update', what: 'result', level: 'warn',
+    text: 'Update to 1.2.3+5 failed: download_failed', result: 'failed', error: 'download_failed', job: DEPLOYMENT,
+    progress: 40, admin: true,
+  };
+  const { api, calls } = answering(200, {
+    events: [event, { ...event, thing: 'nope' }, { ...event, kind: 'gossip' }, { ...event, at: 'soon' }, 'x',
+      { ...event, text: 'line\u0007bell', level: 'panic', job: '../x', id: '<>' }],
+    cursor: 'abc_DEF-1', from: NOON, to: NOON,
+  });
+  const read = await api.events({ from: NOON, to: NOON, thing: THING, kinds: ['update', 'restart'], cursor: 'xyz' });
+  assert.deepEqual(read.events[0], {
+    thing: THING, at: NOON, id: 'a1b2c3', kind: 'update', what: 'result', level: 'warn',
+    text: 'Update to 1.2.3+5 failed: download_failed', result: 'failed', error: 'download_failed', job: DEPLOYMENT, progress: 40,
+  });
+  assert.equal(read.events.length, 2);
+  assert.deepEqual([read.events[1].text, read.events[1].level, read.events[1].id, read.events[1].job], ['line?bell', 'info', '000000', undefined]);
+  assert.equal(read.cursor, 'abc_DEF-1');
+  const asked = new URL(calls[0].path, 'https://console.test');
+  assert.equal(asked.pathname, '/api/events');
+  assert.deepEqual(Object.fromEntries(asked.searchParams), { from: NOON, to: NOON, thing: THING, kinds: 'update,restart', cursor: 'xyz' });
+  await assert.rejects(api.events({ from: NOON, to: NOON, kinds: ['gossip'] }), /not valid/);
+  await assert.rejects(api.events({ from: 'soon', to: NOON }), /not valid/);
+});
+
+test('a board\'s readings are read with their times, and a reading that is not one is left out', async () => {
+  const { api, calls } = answering(200, {
+    samples: [{ at: NOON, rssi: -60, uptime: 5, heapFree: 100, heapLeast: 50 }, { at: 'x', rssi: -1 }, { at: NOON, rssi: 7, heapFree: -1 }],
+    hours: 24, bucketSeconds: 0, from: NOON, to: NOON,
+  });
+  const read = await api.samples(THING, 24);
+  assert.deepEqual(read.samples, [
+    { at: NOON, rssi: -60, uptime: 5, heapFree: 100, heapLeast: 50 },
+    { at: NOON, rssi: null, uptime: null, heapFree: null, heapLeast: null },
+  ]);
+  assert.equal(calls[0].path, `/api/devices/${THING}/samples?hours=24`);
+  await assert.rejects(api.samples(THING, 200), /not valid/);
+  await assert.rejects(api.samples('board', 24), /not valid/);
 });
 
 test('a board\'s reason and note are plain ASCII and short', async () => {

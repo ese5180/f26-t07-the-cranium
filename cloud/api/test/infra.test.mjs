@@ -107,7 +107,7 @@ test('the API role reads, adds and updates in the state table, and never deletes
   const denied = statement(role, 'NeverChangeAuditEntries');
   const allowed = role.replace(denied, '').match(/^\s*(?:Action: |- )dynamodb:\S+$/gm).map((line) => line.trim());
   assert.deepEqual(allowed, ['- dynamodb:GetItem', '- dynamodb:Query', '- dynamodb:PutItem', '- dynamodb:UpdateItem',
-    '- dynamodb:PutItem', '- dynamodb:Query']);
+    '- dynamodb:PutItem', '- dynamodb:Query', 'Action: dynamodb:Query']);
 });
 
 test('a user cannot change their own e-mail address', () => {
@@ -121,7 +121,7 @@ test('a user cannot change their own e-mail address', () => {
 test('the tables are protected from deletion once the stack exists, not while it is created', () => {
   assert.ok(template.includes('ProtectFromDeletion: !Equals [!Ref UserPoolDeletionProtection, ACTIVE]'));
   assert.ok(block(block(template, 'Parameters', 0), 'UserPoolDeletionProtection').includes('Default: INACTIVE'));
-  for (const table of ['StateTable', 'AuditTable']) {
+  for (const table of ['StateTable', 'AuditTable', 'EventsTable']) {
     assert.ok(block(template, table).includes('DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]'), table);
     assert.ok(block(template, table).includes('DeletionPolicy: RetainExceptOnCreate'), table);
   }
@@ -252,4 +252,83 @@ test('teardown leaves the trail and its log files alone', () => {
   for (const word of ['cranium-trail', 'delete-trail', 'stop-logging']) {
     assert.equal(teardown.includes(word), false, word);
   }
+});
+
+test('the events table is on demand, recoverable, protected, and lets DynamoDB expire items by their ttl', () => {
+  const table = block(template, 'EventsTable');
+  for (const line of ['Type: AWS::DynamoDB::Table', 'BillingMode: PAY_PER_REQUEST', 'DeletionPolicy: RetainExceptOnCreate',
+    'PointInTimeRecoveryEnabled: true', 'DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]']) {
+    assert.ok(table.includes(line), line);
+  }
+  assert.ok(block(table, 'TimeToLiveSpecification', 6).includes('AttributeName: ttl\n        Enabled: true'));
+  assert.match(table, /AttributeName: pk\n {10}KeyType: HASH\n {8}- AttributeName: sk\n {10}KeyType: RANGE/);
+  // teardown.sh removes it like the other two, after the stack, with its protection off.
+  assert.ok(teardown.includes('delete_table "events table" "$EVENTS_TABLE"'));
+  assert.ok(teardown.includes('EVENTS_TABLE="$(resolve "$STACK" EventsTableName)"'));
+  assert.ok(block(block(template, 'Outputs', 0), 'EventsTableName').includes('Value: !Ref EventsTable'));
+});
+
+test('the recorder is a function of its own: own log, own role, and nothing but PutItem on the events table', () => {
+  const fn = block(template, 'EventsFn');
+  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: EventsLogGroup', 'LogGroup: !Ref EventsLogGroup',
+    'Runtime: nodejs22.x', '- arm64', 'Handler: events.handler', 'Role: !GetAtt EventsRole.Arn', 'Code: ../api/src',
+    'EVENTS_TABLE: !Ref EventsTable', '${DeployedCommit} (${DeployedTree})']) {
+    assert.ok(fn.includes(line), line);
+  }
+  // It is told the events table and nothing else.
+  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]), ['EVENTS_TABLE']);
+  assert.ok(block(template, 'EventsLogGroup').includes('RetentionInDays: 90'));
+
+  const role = block(template, 'EventsRole');
+  assert.ok(role.includes('Service: lambda.amazonaws.com'));
+  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog', 'RecordEvents']);
+  const record = statement(role, 'RecordEvents');
+  assert.ok(record.includes('Action: dynamodb:PutItem\n'));
+  assert.ok(record.includes('Resource: !GetAtt EventsTable.Arn'));
+  assert.deepEqual(role.match(/dynamodb:\w+/g), ['dynamodb:PutItem']);
+  assert.ok(statement(role, 'WriteOwnLog').includes('Resource: !GetAtt EventsLogGroup.Arn'));
+  assert.equal(/Resource: '\*'/.test(role), false);
+
+  const retries = block(template, 'EventsFnInvokeConfig');
+  assert.ok(retries.includes('FunctionName: !Ref EventsFn'));
+  assert.ok(retries.includes('MaximumRetryAttempts: 1'));
+  assert.ok(block(block(template, 'Outputs', 0), 'EventsFunctionName').includes('Value: !Ref EventsFn'));
+});
+
+test('two IoT rules feed the recorder: shadow documents and presence, only for things named like the boards', () => {
+  const sql = (name) => block(template, name).split('Sql: >-\n')[1].split('\n').slice(0, 2).map((line) => line.trim()).join(' ');
+  assert.equal(sql('ShadowEventsRule'),
+    "SELECT *, topic(3) AS thing FROM '$aws/things/+/shadow/update/documents' WHERE startswith(topic(3), 'cranium-')");
+  assert.equal(sql('PresenceEventsRule'), "SELECT * FROM '$aws/events/presence/+/+' WHERE startswith(topic(5), 'cranium-')");
+  for (const name of ['ShadowEventsRule', 'PresenceEventsRule']) {
+    const rule = block(template, name);
+    assert.ok(rule.includes('Type: AWS::IoT::TopicRule'), name);
+    assert.ok(rule.includes("AwsIotSqlVersion: '2016-03-23'"), name);
+    assert.ok(rule.includes('RuleDisabled: false'), name);
+    assert.ok(rule.includes('FunctionArn: !GetAtt EventsFn.Arn'), name);
+    assert.equal(/RoleArn|Republish|S3:|DynamoDBv2/.test(rule), false, name);
+  }
+  // AWS IoT may invoke the recorder for exactly these two rules of this account.
+  const permissions = template.split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref EventsFn'));
+  assert.equal(permissions.length, 2);
+  for (const [name, rule] of [['ShadowEventsPermission', 'ShadowEventsRule'], ['PresenceEventsPermission', 'PresenceEventsRule']]) {
+    const permission = block(template, name);
+    assert.ok(permission.includes('Principal: iot.amazonaws.com'), name);
+    assert.ok(permission.includes('Action: lambda:InvokeFunction'), name);
+    assert.ok(permission.includes('SourceAccount: !Ref AWS::AccountId'), name);
+    assert.ok(permission.includes(`SourceArn: !GetAtt ${rule}.Arn`), name);
+  }
+  // The boards' own policy is unchanged: they publish nowhere new.
+  assert.equal(block(template, 'DevicePolicy').includes('events'), false);
+});
+
+test('the API reads the events table and nothing more: Query, on that table alone', () => {
+  const role = block(template, 'ApiRole');
+  const read = statement(role, 'ReadEvents');
+  assert.ok(read.includes('Action: dynamodb:Query\n'));
+  assert.ok(read.includes('Resource: !GetAtt EventsTable.Arn'));
+  assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 1);
+  assert.ok(block(template, 'ApiFn').includes('EVENTS_TABLE: !Ref EventsTable'));
+  assert.equal(block(template, 'WebRole').includes('EventsTable'), false);
 });

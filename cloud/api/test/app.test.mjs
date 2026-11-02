@@ -553,6 +553,7 @@ test('the configuration is complete or the function does not start', () => {
     THING_GROUP: ['cranium devices', 'x'.repeat(129), 'a/b'],
     STATE_TABLE: ['ab', 'has space', 'a/b'],
     AUDIT_TABLE: ['ab', 'has space'],
+    EVENTS_TABLE: ['ab', 'has space', 'a/b'],
     SLOT_SIZE: ['0', '-5', '1.5', '0x1000', '933888 ', 'big', '99999999999'],
     LOAD_ADDRESS: ['-1', '0x30000', '1e5', '03', '99999999999'],
     SIGNING_PUBLIC_KEY_B64: ['not base64!', 'AAAA', Buffer.from('not a key').toString('base64'), `${env.SIGNING_PUBLIC_KEY_B64}\n`],

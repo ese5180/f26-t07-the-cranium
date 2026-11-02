@@ -15,6 +15,7 @@
 //   fake.addThing('cranium-0123456789abcdef', { certificates: ['<64 hex>'] });
 //   fake.addUser({ sub, email, groups: ['release-managers'] });
 //   fake.device(thing).report({ fw: { version: '1.0.0+3', confirmed: true }, uptime: 60, ... });
+//   fake.device(thing).connect();  fake.device(thing).disconnect('CONNECTION_LOST');
 //   fake.device(thing).nextJob();                    // { jobId, status, document } or null
 //   fake.execution(jobId, thing).update('IN_PROGRESS', { step: 'downloading' });   // { accepted: true }
 //
@@ -24,6 +25,12 @@
 // "testing" with the new fw.version; update SUCCEEDED running=<version>; report "idle".
 // Every report is also a heartbeat: a board is online for 90 s after one, or 240 s after one
 // that says "rebooting".
+//
+// The two AWS IoT rules and the recorder behind them (src/recorder.mjs) are played here too:
+// every report goes through the recorder's own logic (src/lib/events.mjs) as the shadow
+// document AWS IoT would publish, and so do connect() and disconnect() as presence messages.
+// What they make lands in the stand-in's events table, where queryEvents and querySamples
+// read it. fake.eventStore() is the stand-in for the recorder's adapter (createEventStore).
 //
 // Time comes from the `now` function passed in (the system clock by default). Jobs
 // behave as in AWS IoT: an execution in progress times out after the job's timeout, a
@@ -53,6 +60,7 @@ import { readFileSync } from 'node:fs';
 
 import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
+import { recordsOf } from '../src/lib/events.mjs';
 
 const THING_NAME = /^[a-zA-Z0-9:_-]{1,128}$/;
 const JOB_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -156,10 +164,12 @@ export function createFakeAws({
   const releases = new Map();   // sk -> item
   const auditItems = new Map(); // sk -> item
   const tokens = new Map();     // sk (the digest of a token) -> item
+  const eventItems = new Map(); // thing -> Map(sk -> item): the events table
   const users = new Map();      // sub -> { email, enabled, status, groups }
   const faults = new Map();     // method -> [error | () => error]
   const calls = [];
   let highest;                  // the pointer item's value
+  let eventDraws = 0;
 
   const clock = () => {
     const value = now();
@@ -238,6 +248,38 @@ export function createFakeAws({
 
   function checkJobId(operation, jobId) {
     if (typeof jobId !== 'string' || !JOB_ID.test(jobId)) throw invalid(operation, 'job id');
+  }
+
+  /** Store an item of the events table as PutItem does: an item with the same key is replaced. */
+  function putEventItem(item) {
+    assertStorable(item, 'item');
+    if (typeof item.pk !== 'string' || item.pk === '' || typeof item.sk !== 'string' || item.sk === '') {
+      throw new TypeError('pk and sk are required');
+    }
+    if (!eventItems.has(item.pk)) eventItems.set(item.pk, new Map());
+    eventItems.get(item.pk).set(item.sk, copy(item));
+  }
+
+  /** What the rules and the recorder make of a message: repeatable random digits, the stand-in's clock. */
+  function record(message) {
+    const made = recordsOf(message, {
+      nowMs: clock(),
+      randomHex: (count) => {
+        eventDraws += 1;
+        return createHash('sha256').update(`event ${eventDraws}`).digest('hex').slice(0, 2 * count);
+      },
+    });
+    for (const item of made.items ?? []) putEventItem(item);
+    return made;
+  }
+
+  /** A board's part of the events table between two sort keys, lowest first. */
+  function eventPart(thing, low, high) {
+    if (typeof thing !== 'string' || typeof low !== 'string' || typeof high !== 'string') {
+      throw new TypeError('thing, low and high are required');
+    }
+    const part = eventItems.get(thing) ?? new Map();
+    return [...part.keys()].filter((sk) => sk >= low && sk <= high).sort().map((sk) => part.get(sk));
   }
 
   const adapter = {
@@ -491,6 +533,21 @@ export function createFakeAws({
         .map((sk) => copy(auditItems.get(sk)));
     },
 
+    async queryEvents({ thing, low, high, kinds = null, limit }) {
+      if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > 16)) {
+        throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
+      }
+      if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
+      return eventPart(thing, low, high).reverse()
+        .filter((item) => kinds === null || kinds.includes(item.kind))
+        .slice(0, limit)
+        .map(copy);
+    },
+
+    async querySamples({ thing, low, high }) {
+      return eventPart(thing, low, high).map(copy);
+    },
+
     async getUser(sub) {
       const user = users.get(sub);
       return user === undefined ? null : { enabled: user.enabled, status: user.status, email: user.email };
@@ -570,10 +627,30 @@ export function createFakeAws({
             typeof shadow.state?.reported === 'object' && shadow.state.reported !== null &&
             typeof shadow.metadata?.reported === 'object' && shadow.metadata.reported !== null;
           if (!wellFormed) shadow = { state: { reported: {} }, metadata: { reported: {} }, version: 0, timestamp: stamp };
+          const previous = copy({ state: shadow.state, metadata: shadow.metadata, version: shadow.version });
           mergeReported(shadow.state.reported, shadow.metadata.reported, update, stamp);
           shadow.version = (Number.isInteger(shadow.version) ? shadow.version : 0) + 1;
           shadow.timestamp = stamp;
           shadows.set(thing, shadow);
+          // What AWS IoT publishes on $aws/things/<thing>/shadow/update/documents, as the rule
+          // selects it.
+          record({
+            previous: wellFormed ? previous : undefined,
+            current: copy({ state: shadow.state, metadata: shadow.metadata, version: shadow.version }),
+            timestamp: stamp,
+            thing,
+          });
+        },
+        /** The board connects to AWS IoT: the presence message of the second rule. */
+        connect() {
+          record({ clientId: thing, timestamp: clock(), eventType: 'connected' });
+        },
+        /** The connection ends, for the reason AWS IoT gives (disconnectReason). */
+        disconnect(reason = 'CONNECTION_LOST') {
+          record({
+            clientId: thing, timestamp: clock(), eventType: 'disconnected', disconnectReason: reason,
+            clientInitiatedDisconnect: reason === 'CLIENT_INITIATED_DISCONNECT',
+          });
         },
         /** Put any document in place of the shadow, to see how the console copes. */
         setRaw(document) {
@@ -672,6 +749,26 @@ export function createFakeAws({
       };
     },
 
+    /** The stand-in for the recorder's adapter (src/aws.mjs createEventStore). */
+    eventStore() {
+      return Object.freeze({
+        async putEvent(item) {
+          calls.push({ method: 'putEvent', args: [item] });
+          putEventItem(item);
+        },
+      });
+    },
+
+    /** Hand a message to the recorder as one of the two rules would: what it made, or why it was dropped. */
+    deliver(message) {
+      return record(message);
+    },
+
+    /** A board's items in the events table, lowest sort key first. */
+    eventItems(thing) {
+      return [...(eventItems.get(thing) ?? new Map()).keys()].sort().map((sk) => copy(eventItems.get(thing).get(sk)));
+    },
+
     /** What is stored, for assertions. */
     objects,
     releases,
@@ -703,6 +800,7 @@ export function fakeEnv(overrides = {}) {
     AWS_REGION: REGION,
     STATE_TABLE: 'local-state',
     AUDIT_TABLE: 'local-audit',
+    EVENTS_TABLE: 'local-events',
     FIRMWARE_BUCKET: 'local-firmware',
     THING_GROUP: 'cranium-devices',
     PRESIGN_ROLE_ARN: `arn:aws:iam::${ACCOUNT}:role/local-presign`,

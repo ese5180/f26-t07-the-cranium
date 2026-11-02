@@ -27,9 +27,10 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | IoT jobs `cranium-…` | One job per deployment. AWS IoT is the only record of a deployment. The hardware bench also creates `cranium-bench-…` jobs, which the console's deployment list leaves out and a revocation does not cancel. |
 | S3 bucket | Firmware images, stored once under their SHA-256. Private, versioned, write-once. The bench also stores test images here, including damaged and wrongly signed ones. Boards refuse those. |
 | IAM role for signing links | Lets AWS IoT Jobs (and nothing else) create a download link for an image. |
-| DynamoDB tables | The list of releases, and the audit log. The API's role may put and query audit entries, and nothing else. What that does and does not guarantee is under [Security decisions](#security-decisions). |
+| DynamoDB tables | The list of releases, the audit log, and the boards' event log. The API's role may put and query audit entries, and nothing else; it may only query the event log. What that does and does not guarantee is under [Security decisions](#security-decisions). |
+| IoT rules and the recorder | Two AWS IoT rules hand each shadow report and each connection to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
 | Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. |
-| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. |
+| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route. |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
 
 ## A board's identity
@@ -95,12 +96,18 @@ The board writes its state to its classic shadow when something changes and, as 
 ```
 
 `stuck` is there from firmware 1.7.2 on: how many restarts in a row [the board's timers](../firmware/README.md#when-the-board-is-stuck)
-have come to, and the last reason. It is for a bench with no console. The console does not read it.
+have come to, and the last reason. The Diagnostics page shows it.
 
 `ota.state` is `idle`, `awaiting_user`, `downloading`, `verifying`, `rebooting` or
-`testing`. A build for firmware update over Bluetooth can also report `bluetooth`, which the console
-does not know and leaves out. Everything in a shadow comes from the board, so the console validates each
-field before showing it and never bases a decision on it.
+`testing`. A build for firmware update over Bluetooth can also report `bluetooth`. Everything in a shadow
+comes from the board, so the console validates each field before showing it and never bases a decision on it.
+
+Beside the heartbeat a board sends reports of their own, each into the same shadow: its boot diary (`diary`,
+from 1.7.4, when it reaches the cloud), the record of its last update over Bluetooth (`bt`, from 1.9.0, when it
+connects), and its diagnostics (`diag`, from 1.10.0, when it reaches the cloud and every 5 minutes: the Wi-Fi
+address and channel, and the free heap). [`firmware/README.md`](../firmware/README.md#boot-diary) gives their
+shapes. The API reads each field by field (`cloud/api/src/lib/shadow.mjs`) and the Diagnostics page shows them.
+While a phone is pairing, the shadow also holds the pairing passkey (`btpair`); only the pairing route reads it.
 
 ### The heartbeat
 
@@ -250,6 +257,75 @@ revokes their own on the console, under **Developer > API tokens**, and sees onl
   names nobody (missing, malformed or unknown) leaves no entry, as a request the gateway's authorizer
   refuses leaves none. The function log names a token by its ID only; neither the token nor its digest
   is ever logged.
+
+## The event log
+
+The console's **Events** page shows what every board did, over time, and **Diagnostics** how each board is now.
+Both read an event log that AWS IoT feeds as the boards report.
+
+```
+  board ── shadow report ──▶ AWS IoT ── rule: $aws/things/+/shadow/update/documents ──┐
+        ── MQTT connect / disconnect ──▶ AWS IoT ── rule: $aws/events/presence/+/+ ───┤
+                                                                                      ▼
+            console API ◀── Query ── DynamoDB events table ◀── PutItem ── recorder (Lambda)
+```
+
+**How.** After each report AWS IoT publishes the board's shadow before and after it on
+`$aws/things/<thing>/shadow/update/documents`, and when a client connects or disconnects it publishes a presence
+message on `$aws/events/presence/<connected|disconnected>/<client id>`. A board's client ID is its thing name. Two
+topic rules (`ShadowEventsRule`, `PresenceEventsRule` in `cloud/infra/template.yaml`) pass these on, for things named
+`cranium-…` only, to the recorder (`EventsFn`, the API's code with the entry point `cloud/api/src/events.mjs`), which
+AWS IoT invokes without waiting. The recorder compares the two shadows and writes one item for each change
+(`cloud/api/src/lib/events.mjs`). Its role may write to its log group and put items in the events table, and nothing
+else. A message that cannot be written is tried once more and dropped after an hour.
+
+**What is recorded.** Each event has a kind, a short sentence and a few typed fields:
+
+| Kind | Events |
+| --- | --- |
+| `connection` | Connected; disconnected, with AWS IoT's reason (`CONNECTION_LOST`, `MQTT_KEEP_ALIVE_TIMEOUT`, ...) |
+| `firmware` | The version changed (and whether it is on trial); a version on trial was confirmed; the first version a board reported |
+| `update` | Each step of an update, with its deployment and the progress at that step; how it ended (`succeeded`, `failed`, `rolled_back`, `declined`, `refused`, `cancelled`, with the board's error code) |
+| `restart` | The uptime went down; the boot diary grew, with why the boot before ended (reset cause) and how far that one got; the board restarted itself for being stuck, with the timer that fired |
+| `bluetooth` | The Bluetooth window opened or closed; the Bluetooth update record changed |
+| `health` | The Wi-Fi channel changed; the free heap fell below 15% of the heap at least once (once per boot) |
+
+Failed, rolled back and refused updates, a restart by the watchdog, a brownout or a lockup, a restart for being stuck,
+a Bluetooth update that did not stay, and memory that ran low are marked as warnings. Every report is also one
+*sample*: the signal, the uptime and, from firmware 1.10.0, the free heap and its lowest since the board started. The
+Diagnostics page draws the last 24 hours of them. The Events page adds the console's activity log as a lane of its
+own, from `GET /api/audit`.
+
+**Kept.** Items are keyed by board and time (`E#<time>#<random>` for an event, `S#<time>` for a sample). Events are
+kept 90 days and samples 7: each item carries its expiry in `ttl`, and DynamoDB deletes it some time after that,
+usually within a few days; the API leaves out what has expired meanwhile. Point-in-time recovery and deletion
+protection are on, as for the other tables, and `cloud/teardown.sh` removes the table with the rest. The time of an
+event is the one AWS IoT stamped on the message, to the second.
+
+**Never stored.** The pairing passkey (`btpair`) is never read by the recorder. Of a presence message only the client
+ID, the time, connected or disconnected and the reason are kept: never the IP address, the certificate's principal or
+the session. No shadow is stored whole: only what the table above names, after the same field-by-field checks as the
+console's own reads. The recorder's log names the board and the kinds it recorded, never what the board said.
+
+**Read.** Two read routes, for viewers and release managers alike (also with an API token), which go on no record:
+
+- `GET /api/events?from=<ISO>&to=<ISO>&thing=<name>&kinds=<a,b>&cursor=<cursor>` lists events newest first, at most
+  500 a page and 31 days at a time, for one board or every board of the group.
+- `GET /api/devices/<thing>/samples?hours=<1-168>` gives a board's samples oldest first, merged into at most 600
+  points: the mean signal, the last uptime and the lowest heap of each stretch.
+
+**Cost.** A board on 1.10.0 sends about 3,200 shadow reports a day (the heartbeat every 30 s, diagnostics every
+5 minutes, and the rest), so each rule, each invocation of the recorder and each sample written comes to about
+100,000 a month per board. At the prices AWS publishes for rules, Lambda and on-demand DynamoDB that is of the order of
+10 to 20 US cents a month per board, and the table holds a few megabytes. The Events page asks every 15 seconds while
+its range ends now, one query per board; the Diagnostics page asks for each board's last day of samples once a minute
+while it is open. Check the bill once boards report through the rules.
+
+**What has been checked, and what only a deployment can.** The rule SQL, the document and presence shapes and the
+fact that AWS IoT publishes presence messages without being asked come from AWS's documentation and have been tested
+only against the stand-in in `cloud/api/test/fake-aws.mjs`. After a deployment, `cloud/logs.sh events` should show one
+`recorded` line per report of a board, and a `connection` event should appear on the Events page when a board
+restarts.
 
 ## The Raspberry Pi (planned)
 
@@ -448,6 +524,11 @@ Stated plainly. What has been measured, and on which firmware, is in the
   it first. No page on those names calls the API, and a token is good for nothing there that it was not
   good for already. This is from `cloud/infra/template.yaml`, and was not tried on the deployed home
   page.
+- The event log is a view of what the boards reported, not a record anyone can rely on: a board writes
+  its own shadow, a message that the rule or the recorder loses is a missing event with no error to say so
+  (the rules have no error action), and AWS IoT can deliver a presence message twice or out of order. The
+  Events page sorts by time and draws an online band from the connections, and from the heartbeat where no
+  connection says. Who did what in the console is the activity log, whose guarantees are above.
 
 ## Threat model
 
@@ -470,5 +551,6 @@ console accounts and the audit log. Firmware images hold no secrets.
 
 Everything is pay-per-use and, for four boards and four users, comes to well under one
 US dollar a month: a board's one-minute report is about 45,000 messages a month, and the
-console's functions and tables see a few thousand requests. The `cranium-budget` stack
+console's functions and tables see a few thousand requests. The event log adds its own
+share, of the order of 10 to 20 US cents a month per board: see [The event log](#the-event-log). The `cranium-budget` stack
 sends an e-mail when the monthly cost passes its thresholds.

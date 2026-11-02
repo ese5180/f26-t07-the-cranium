@@ -48,6 +48,7 @@ import { RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireMem
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
+import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
@@ -219,6 +220,7 @@ export function createApp({
   const audit = createAuditHandlers(context);
   const devices = createDeviceHandlers(context);
   const deployments = createDeploymentHandlers(context, { devices });
+  const events = createEventHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
@@ -236,6 +238,9 @@ export function createApp({
     route('GET', '/api/me', me.get),
     route('GET', '/api/devices', devices.list),
     route('GET', '/api/devices/{thing}', devices.get),
+    // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
+    route('GET', '/api/devices/{thing}/samples', events.samples),
+    route('GET', '/api/events', events.list),
     route('GET', '/api/firmware', firmware.list),
     route('POST', '/api/firmware', firmware.upload, { action: 'firmware.upload', maxBody: UPLOAD_BODY_LIMIT }),
     route('GET', '/api/firmware/{version}', firmware.get),
