@@ -34,7 +34,8 @@ files derived from it keep Nordic's copyright notice and licence identifier.
    The signed application image, the file the firmware console in the cloud takes, is
    `build/app/zephyr/zephyr.signed.bin`.
 4. Provision the board (device ID, Wi-Fi network, device identity, cloud settings) with
-   `python tools/provision_device.py`. [`docs/aws-iot.md`](../docs/aws-iot.md) lists
+   `python tools/provision_device.py`. For a blank board, follow [`docs/new-board-setup.md`](../docs/new-board-setup.md),
+   which covers every step, including the golden image. [`docs/aws-iot.md`](../docs/aws-iot.md) lists
    what it needs and what it does.
 
 Zephyr cannot build from a path that contains spaces. If your checkout is under such

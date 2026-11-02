@@ -37,6 +37,8 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 Each board is one *thing* named `cranium-<16 hex digits>`, derived from the nRF5340's
 hardware ID, with one X.509 certificate of its own.
 
+Setting up a blank board, from flashing to online, is in [`new-board-setup.md`](new-board-setup.md).
+
 `python3 tools/provision_device.py` does the following over the board's serial console (firmware
 1.3.0 or later, see [`firmware/README.md`](../firmware/README.md#serial-console)):
 

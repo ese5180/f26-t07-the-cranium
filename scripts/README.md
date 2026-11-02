@@ -27,6 +27,8 @@ scripts/ota.sh      # installs the newest one, or upload it on the console's Fir
 | `verify-github-release.sh` | Checks a published release's files |
 | `release-lib.sh` | Checks shared by the two release scripts |
 
+Setting up a blank board is in [`docs/new-board-setup.md`](../docs/new-board-setup.md).
+
 ## Where things go
 
 | Folder | What's in it | In git? |
