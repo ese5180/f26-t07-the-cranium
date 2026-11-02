@@ -7,7 +7,8 @@ Zephyr / nRF Connect SDK **v3.4.0** project for the nRF7002 DK
 | --- | --- | --- |
 | `mcuboot` | application core, secure | Bootloader. Verifies the ECDSA P-256 signature of the application image on every boot, installs updates from the secondary slot in external flash, and puts the previous image back if a new one is not confirmed. |
 | `app` | application core | Trusted Firmware-M in the secure domain plus the non-secure application. This is the security domain of the product. |
-| `netcore_blinky` | network core | Base-function domain: blinks LED2 once a second. No radio stack, no console, no keys. A build for [firmware update over Bluetooth](#firmware-update-over-bluetooth) has `hci_ipc` here instead. |
+| `hci_ipc` | network core | The Bluetooth LE controller, for [firmware update over Bluetooth](#firmware-update-over-bluetooth), in every build from 1.9.0. Flashed over the debug port only. |
+| `netcore_blinky` | network core | Only in a build with `no_bt_sysbuild.conf`, and in every build before 1.9.0: blinks LED2 once a second. No radio stack, no console, no keys. |
 
 `app/` started as a copy of Nordic's `samples/net/aws_iot` from nRF Connect SDK v3.4.0;
 files derived from it keep Nordic's copyright notice and licence identifier.
@@ -47,8 +48,9 @@ a path, build through a symbolic link that has none.
 app/                     application-core image and the sysbuild configuration
   boards/                Kconfig and devicetree for the nRF7002 DK
   src/                   the application: Wi-Fi, AWS IoT, updates, the serial console
-  bt_ota_sysbuild.conf   the one switch for firmware update over Bluetooth, off unless given
-  bt_ota.conf            what that switch adds to the application
+  no_bt_sysbuild.conf    a build without firmware update over Bluetooth, which is on from 1.9.0
+  bt_ota_sysbuild.conf   the old switch that turned it on; it now changes nothing
+  bt_ota.conf            what Bluetooth adds to the application
   sysbuild/hci_ipc.conf  what it sets for the Bluetooth controller on the network core
   sysbuild/mcuboot/      bootloader configuration
     golden/              the golden image's code, a module of the bootloader
@@ -632,23 +634,27 @@ and that says something too. It writes to storage up to four times each boot. A 
 
 ## Firmware update over Bluetooth
 
-An image can be uploaded from a phone over Bluetooth LE, with nothing of the cloud involved, for a
-board that has no Wi-Fi in reach. It is off in a normal build, and the network core needs a
-debug-port flash to have it at all.
+An image can be uploaded from a phone over Bluetooth LE, for a board that has no Wi-Fi in reach or
+for a person standing next to it. The phone apps in `apps/` take the release from the console and send
+it: see [`docs/mobile-apps.md`](../docs/mobile-apps.md). From 1.9.0 every build has it. The network
+core needs one debug-port flash to have the controller, after which every update can go either way.
 
 **None of this has been on the air.** It has been built, its logic has been tested on a host against
 fakes, and nothing else: see [Testing it](#testing-it). Whether a phone pairs, how fast an upload goes
 and how it gets along with Wi-Fi are what a person still has to find out.
 
+`sysbuild.conf` sets `SB_CONFIG_APP_BT_OTA`, which applies `bt_ota.conf` to the application, and
+`SB_CONFIG_NETCORE_HCI_IPC`, which puts Zephyr's `hci_ipc` with the SoftDevice Controller on the
+network core in place of the blinky. A build without it:
+
 ```sh
-west build -b nrf7002dk/nrf5340/cpuapp/ns --sysbuild firmware/app -- -DSB_EXTRA_CONF_FILE=bt_ota_sysbuild.conf
+west build -b nrf7002dk/nrf5340/cpuapp/ns --sysbuild firmware/app -- -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf
 ```
 
-That one file sets `SB_CONFIG_APP_BT_OTA`, which applies `bt_ota.conf` to the application, and
-`SB_CONFIG_NETCORE_HCI_IPC`, which puts Zephyr's `hci_ipc` with the SoftDevice Controller on the
-network core in place of the blinky. It needs the console, which is the only way to see a passkey, so
-the build stops if it is combined with `-Dapp_CONFIG_APP_CONSOLE=n`. The bootloader and TF-M come out
-the same either way. These are from the 1.7.0 build:
+It needs the console, which is the one way to see a passkey on a board that is offline, so the build
+stops if it is combined with `-Dapp_CONFIG_APP_CONSOLE=n`. The bootloader and TF-M come out the same
+either way. These are from the 1.7.0 build; 1.9.0's application is 708,676 bytes of flash and 394,668
+bytes of RAM, and its signed image 839,898 bytes:
 
 | Image | Off | On | What it has |
 | --- | --- | --- | --- |
@@ -666,9 +672,9 @@ The TLS buffers and everything else that Wi-Fi uses are the same with it on. The
 bytes larger, because Bluetooth takes from it at the first press and Wi-Fi should not notice. What it
 adds takes the RAM that nothing was using.
 
-Firmware with the switch is not kept in `binaries/`: `tools/store_binary.py` says so and leaves
-`latest.signed.bin` alone, so that `scripts/ota.sh` cannot pick it up by accident. Take it from the
-build directory. `src/bt_ota.c` stops the build if one of the options the security rests on changes:
+`tools/store_binary.py` keeps every build in `binaries/` and writes `"bluetooth": true` or `false` into
+`latest.json`. A board whose network core still has the blinky takes such an image over Wi-Fi as
+before: its Button 1 hold then says that the controller is missing. `src/bt_ota.c` stops the build if one of the options the security rests on changes:
 the characteristic's permission, LE Secure Connections only, no bonds, a passkey drawn by the host, the
 image group as the only group, and Bluetooth as the only transport.
 
@@ -686,6 +692,12 @@ image group as the only group, and Bluetooth as the only transport.
    and nothing else. The board prints `[BT] passkey 123456`, and the person types that on the phone. A
    new one is drawn for each attempt. Three failed attempts close the window. No bond is kept, so a
    phone that pairs today has no way back in tomorrow.
+
+   A board that is online also puts the passkey, with the name it advertises, into its device shadow
+   (`{"btpair": {"name": "Cranium-1A2B", "passkey": "123456"}}`), and takes it out again once the
+   attempt is over or the window closes. The console hands it only to a release manager, records each
+   time it does, and not after 150 s, so the phone apps can show it to the person holding the phone.
+   Nothing more goes on the air than before. An offline board has only the console.
 4. The phone uploads a signed image to the secondary slot. The first piece has to show an image
    header with a version strictly newer than what runs, for image 0, no longer than what stops short
    of the trailer. Anything else is refused there, before anything is written. While this goes on,

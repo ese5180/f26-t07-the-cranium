@@ -146,8 +146,8 @@ jobs:
         include:
           - configuration: default
             cmake-args: ''
-          - configuration: Bluetooth
-            cmake-args: -DSB_EXTRA_CONF_FILE=bt_ota_sysbuild.conf
+          - configuration: no Bluetooth
+            cmake-args: -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf
     env:
       CMAKE_ARGS: ${{ matrix.cmake-args }}
     steps:
@@ -229,25 +229,27 @@ jobs:
             echo "::error::This image verifies against the project's own key. CI must never have that key."
             exit 1
           fi
-          if grep -qx 'CONFIG_APP_BT_OTA=y' build/app/zephyr/.config; then
-            echo "::error::The default configuration has the Bluetooth option on."
+          # From 1.9.0 every release can also be sent from a phone (docs/mobile-apps.md).
+          if ! grep -qx 'CONFIG_APP_BT_OTA=y' build/app/zephyr/.config; then
+            echo "::error::The default configuration has lost firmware update over Bluetooth."
             exit 1
           fi
           python3 -I tools/build_report.py --build build --repo . \
             --summary "$GITHUB_STEP_SUMMARY" --artifact ci-artifact --output "$GITHUB_OUTPUT"
 
-      - name: Check that the Bluetooth option took effect
-        if: matrix.configuration == 'Bluetooth'
+      - name: Check that the build without Bluetooth has none
+        if: matrix.configuration == 'no Bluetooth'
         run: |
-          grep -qx 'CONFIG_APP_BT_OTA=y' build/app/zephyr/.config
-          grep -qx 'CONFIG_BT=y' build/app/zephyr/.config
+          if grep -qx 'CONFIG_APP_BT_OTA=y' build/app/zephyr/.config || grep -qx 'CONFIG_BT=y' build/app/zephyr/.config; then
+            echo "::error::no_bt_sysbuild.conf did not turn Bluetooth off."
+            exit 1
+          fi
           test -s build/app/zephyr/zephyr.signed.bin
-          # tools/store_binary.py keeps no Bluetooth image, so that scripts/ota.sh cannot find one.
-          test ! -e binaries/latest.signed.bin
+          test -d build/netcore_blinky
           {
-            echo "## Firmware build with the Bluetooth option"
+            echo "## Firmware build without Bluetooth"
             echo
-            echo "It compiled and linked. Nothing on Actions has run it, and no artifact is kept."
+            echo "It compiled and linked, with the blinky on the network core. No artifact is kept."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove the throwaway key

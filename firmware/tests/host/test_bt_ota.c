@@ -497,6 +497,7 @@ static void fresh_board(void)
 	report_waiting = false;
 	last_proof = BT_OTA_PROVED;
 	name[0] = '\0';
+	pairing_reported = false;
 	atomic_set(&gate, 0);
 	atomic_set(&ready, 0);
 	atomic_set(&start_failed, 0);
@@ -987,6 +988,78 @@ static void test_a_passkey_comes_out_on_the_main_loop(void)
 	run_what_was_posted();
 	CHECK(fake.console[0] == '\0');
 	CHECK(atomic_get(&passkey_to_say) == 0);
+}
+
+static void test_an_online_board_puts_the_passkey_in_its_shadow_and_takes_it_out(void)
+{
+	char expected[80];
+
+	fresh_board();
+	fake.cloud_up = true;
+	open_by_hand();
+	bt_ota_on_tick();
+	CHECK(strncmp(name, "Cranium-", 8) == 0);
+	phone_connects();
+	fake.shadow_reports = 0;
+	fake.last_shadow[0] = '\0';
+
+	fake.auth->passkey_display(&phone, 4321);
+	run_what_was_posted();
+	(void)snprintf(expected, sizeof(expected),
+		       "{\"btpair\":{\"name\":\"%s\",\"passkey\":\"004321\"}}", name);
+	CHECK(fake.shadow_reports == 1);
+	CHECK(strcmp(fake.last_shadow, expected) == 0);
+
+	/* The one attempt it was good for is over. */
+	connection_callbacks.security_changed(&phone, BT_SECURITY_L4, BT_SECURITY_ERR_SUCCESS);
+	run_what_was_posted();
+	CHECK(fake.shadow_reports == 2);
+	CHECK(strcmp(fake.last_shadow, "{\"btpair\":null}") == 0);
+
+	/* Nothing more to take out when the window closes. */
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	CHECK(fake.shadow_reports == 2);
+}
+
+static void test_a_failed_attempt_and_a_closed_window_take_the_passkey_out(void)
+{
+	fresh_board();
+	fake.cloud_up = true;
+	open_by_hand();
+	bt_ota_on_tick();
+	phone_connects();
+	fake.auth->passkey_display(&phone, 111111);
+	run_what_was_posted();
+	fake.auth_info->pairing_failed(&phone, BT_SECURITY_ERR_AUTH_FAIL);
+	run_what_was_posted();
+	CHECK(strcmp(fake.last_shadow, "{\"btpair\":null}") == 0);
+
+	/* A report that could not be taken out is tried again when the window closes. */
+	fake.auth->passkey_display(&phone, 222222);
+	run_what_was_posted();
+	fake.shadow_result = -EAGAIN;
+	phone_leaves();
+	run_what_was_posted();
+	CHECK(pairing_reported);
+	fake.shadow_result = 0;
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	CHECK(!pairing_reported);
+	CHECK(strcmp(fake.last_shadow, "{\"btpair\":null}") == 0);
+}
+
+static void test_an_offline_board_keeps_the_passkey_on_its_console(void)
+{
+	fresh_board();
+	fake.cloud_up = false;
+	open_by_hand();
+	bt_ota_on_tick();
+	phone_connects();
+	fake.shadow_reports = 0;
+	fake.auth->passkey_display(&phone, 654321);
+	run_what_was_posted();
+	CHECK(strstr(fake.console, "[BT] passkey 654321\n") != NULL);
+	CHECK(fake.shadow_reports == 0);
+	CHECK(!pairing_reported);
 }
 
 static void test_a_full_queue_only_makes_it_wait_for_the_tick(void)
@@ -1915,6 +1988,9 @@ int main(void)
 	test_pairing_is_only_accepted_while_open();
 	test_the_callbacks_are_registered_once_for_a_display_and_no_keyboard();
 	test_a_passkey_comes_out_on_the_main_loop();
+	test_an_online_board_puts_the_passkey_in_its_shadow_and_takes_it_out();
+	test_a_failed_attempt_and_a_closed_window_take_the_passkey_out();
+	test_an_offline_board_keeps_the_passkey_on_its_console();
 	test_a_full_queue_only_makes_it_wait_for_the_tick();
 	test_the_bluetooth_threads_do_not_print();
 	test_three_failed_pairings_close_it();

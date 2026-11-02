@@ -755,23 +755,16 @@ class StoreBinaryTest(unittest.TestCase):
             store_binary.main()
         return repo / "binaries"
 
-    def test_a_bluetooth_build_does_not_become_latest_or_a_release_name(self):
+    def test_a_bluetooth_build_is_kept_and_says_so(self):
         binaries = self.store("CONFIG_LOG=y\nCONFIG_APP_BT_OTA=y\nCONFIG_APP_BT_OTA_WINDOW_SECONDS=120\n")
-        self.assertFalse((binaries / "latest.signed.bin").exists())
-        self.assertFalse((binaries / "latest.json").exists())
-        self.assertEqual(list(binaries.glob("cranium-*")) if binaries.exists() else [], [])
+        self.assertEqual((binaries / "latest.signed.bin").read_bytes(), make_image())
+        self.assertIs(json.loads((binaries / "latest.json").read_text())["bluetooth"], True)
+        self.assertEqual(len(list(binaries.glob("cranium-*.signed.bin"))), 1)
 
-    def test_a_bluetooth_build_leaves_what_is_there_alone(self):
-        binaries = self.folder / "repo" / "binaries"
-        binaries.mkdir(parents=True)
-        (binaries / "latest.signed.bin").write_bytes(b"the last normal build")
-        self.store("CONFIG_APP_BT_OTA=y\n")
-        self.assertEqual((binaries / "latest.signed.bin").read_bytes(), b"the last normal build")
-
-    def test_every_other_build_is_kept_as_before(self):
+    def test_a_build_without_bluetooth_is_kept_and_says_so(self):
         binaries = self.store("# CONFIG_APP_BT_OTA is not set\nCONFIG_LOG=y\n")
         self.assertEqual((binaries / "latest.signed.bin").read_bytes(), make_image())
-        self.assertTrue((binaries / "latest.json").exists())
+        self.assertIs(json.loads((binaries / "latest.json").read_text())["bluetooth"], False)
         self.assertEqual(len(list(binaries.glob("cranium-*.signed.bin"))), 1)
 
 

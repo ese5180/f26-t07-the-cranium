@@ -113,6 +113,8 @@ static bool controller_failed;
 static bool report_waiting;
 static enum bt_ota_proof_result last_proof = BT_OTA_PROVED;
 static char name[ADV_NAME_SIZE];
+/* A passkey went into the device shadow, and has not been taken out again. */
+static bool pairing_reported;
 
 /* Set by the main loop, read by the threads that serve a phone. */
 #define GATE_OPEN    BIT(0)
@@ -370,6 +372,40 @@ static void on_bt_ready(int err)
 
 static void apply(uint32_t actions);
 
+/*
+ * The passkey also goes into the device shadow while the board is online, with the name it
+ * advertises, so that a release manager's phone app can show it (docs/mobile-apps.md). The cloud
+ * hands it only to release managers, records each time it does, and only within 150 s of the
+ * report. Nothing more goes on the air than before: the name already does, and the passkey never.
+ * An offline board has the console only, as before.
+ */
+static void report_pairing(unsigned int passkey)
+{
+	char json[80];
+
+	if (!cloud_is_connected()) {
+		return;
+	}
+
+	if (snprintk(json, sizeof(json), "{\"btpair\":{\"name\":\"%s\",\"passkey\":\"%06u\"}}", name,
+		     passkey) >= (int)sizeof(json)) {
+		return;
+	}
+
+	if (cloud_shadow_report(json) == 0) {
+		pairing_reported = true;
+	}
+}
+
+/* A passkey is good for one attempt: once that is over, it comes out of the shadow. */
+static void unreport_pairing(void)
+{
+	if (pairing_reported && cloud_is_connected() &&
+	    cloud_shadow_report("{\"btpair\":null}") == 0) {
+		pairing_reported = false;
+	}
+}
+
 static void say_what_happened(void)
 {
 	atomic_val_t what = atomic_set(&to_say, 0);
@@ -381,6 +417,7 @@ static void say_what_happened(void)
 
 	if (passkey != 0) {
 		console_event("BT", "passkey %06u", (unsigned int)(passkey - 1));
+		report_pairing((unsigned int)(passkey - 1));
 	}
 
 	if (what & SAY_PAIRED) {
@@ -393,6 +430,10 @@ static void say_what_happened(void)
 
 	if (what & SAY_FAILED) {
 		console_event("BT", "pairing failed: %d", (int)atomic_get(&failure_reason));
+	}
+
+	if (what & (SAY_PAIRED | SAY_CANCELLED | SAY_FAILED | SAY_GONE)) {
+		unreport_pairing();
 	}
 
 	if (what & SAY_GONE) {
@@ -621,6 +662,7 @@ static void close_window(bool discard)
 	}
 
 	console_event("BT", "closed: %s", bt_ota_closed_text(window.closed));
+	unreport_pairing();
 	ota_bt_leave();
 }
 

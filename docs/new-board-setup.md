@@ -51,7 +51,8 @@ From an nRF Connect SDK terminal, in the repository:
 west flash --recover
 ```
 
-This erases both cores and writes the bootloader, TF-M with the application, and the network core's blinky. The board then
+This erases both cores and writes the bootloader, TF-M with the application, and the network core's Bluetooth controller
+(from 1.9.0; earlier builds put a blinky there). The board then
 starts in **factory mode**: LED1 flashes long every 2 seconds, and its boot log says `State FACTORY`. That's expected.
 
 ## 4. Put the golden image on, and seal it

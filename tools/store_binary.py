@@ -6,10 +6,9 @@
     binaries/latest.json                   its version, size, digest, git commit and -D settings
 
 Only a build of the checkout itself is kept: the test bench builds from scratch copies,
-which have no .git, and an image built with a test fault is refused. So is one built for
-firmware update over Bluetooth, which needs a network core that a board only gets over the
-debug port, and which scripts/ota.sh should not find by accident. A signed image is not a
-secret, but it is large and can be rebuilt, so git ignores these files.
+which have no .git, and an image built with a test fault is refused. latest.json says whether
+the image has firmware update over Bluetooth, which every build has from 1.9.0. A signed image
+is not a secret, but it is large and can be rebuilt, so git ignores these files.
 
 Install what is stored here with scripts/ota.sh, or upload it on the console's Firmware page.
 """
@@ -107,11 +106,6 @@ def main() -> None:
     if has_test_fault(args.build / "app" / "zephyr" / ".config"):
         print("store_binary: this image has a test fault built in, so it is not kept")
         return
-    if has_bluetooth_update(args.build / "app" / "zephyr" / ".config"):
-        print("store_binary: this image has Bluetooth updates built in, so it is not kept: "
-              "take it from the build directory")
-        return
-
     image = args.build / "app" / "zephyr" / "zephyr.signed.bin"
     if not image.exists():
         sys.exit(f"store_binary: {image} is missing")
@@ -127,6 +121,7 @@ def main() -> None:
         "file": f"cranium-{name}.signed.bin",
         "size": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
+        "bluetooth": has_bluetooth_update(args.build / "app" / "zephyr" / ".config"),
         "commit": git_commit(args.repo),
         "command_line": command_line_settings(args.build),
         "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
