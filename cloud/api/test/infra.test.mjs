@@ -99,9 +99,30 @@ test('the API role can set the revoked tag and cannot clear it', () => {
   assert.ok(block(mark, 'ForAllValues:StringEquals', 18).includes('- revoked'));
 
   assert.equal((role.match(/s3:PutObjectTagging/g) ?? []).length, 1);
-  for (const action of ['s3:DeleteObjectTagging', 's3:PutObjectVersionTagging', 's3:DeleteObject', 's3:GetObject']) {
+  for (const action of ['s3:DeleteObjectTagging', 's3:PutObjectVersionTagging', 's3:DeleteObject']) {
     assert.equal(role.includes(`${action}\n`), false, action);
   }
+});
+
+test('the API role reads images for the phone apps, and the bucket still refuses a revoked one', () => {
+  const role = block(template, 'ApiRole');
+  const read = statement(role, 'ReadFirmware');
+  assert.ok(read.includes('Action: s3:GetObject\n'));
+  assert.ok(read.includes("Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'"));
+  assert.equal((role.match(/s3:GetObject/g) ?? []).length, 1);
+  assert.ok(block(template, 'FirmwareBucketPolicy').includes('Sid: DenyDownloadingRevokedFirmware'));
+});
+
+test('the phone apps have their own client, which only signs in back into the app', () => {
+  const client = block(template, 'MobileUserPoolClient');
+  assert.ok(client.includes('GenerateSecret: false'));
+  assert.ok(client.includes('- code\n'));
+  assert.ok(client.includes('- cranium/console'));
+  assert.ok(client.includes('CallbackURLs:\n        - cranium://signin'));
+  assert.equal(client.includes('implicit'), false);
+  assert.ok(block(template, 'MobileManagedLoginBranding').includes('ClientId: !Ref MobileUserPoolClient'));
+  assert.ok(template.includes('Audience:\n          - !Ref UserPoolClient\n          - !Ref MobileUserPoolClient'));
+  assert.ok(template.includes('MOBILE_CLIENT_ID: !Ref MobileUserPoolClient'));
 });
 
 test('the API role may only add to and read the audit table', () => {

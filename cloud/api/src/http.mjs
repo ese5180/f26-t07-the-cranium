@@ -1,7 +1,7 @@
 /**
  * Responses and errors of the console API.
  *
- * Every response is JSON and is never cached. An error leaves the API as
+ * Every response is JSON, but for a firmware image, and is never cached. An error leaves the API as
  *
  *   { "error": { "code": "snake_case", "message": "text for a person", "requestId": "..." } }
  *
@@ -44,6 +44,24 @@ export function json(status, body) {
     headers: { ...HEADERS },
     body: JSON.stringify(body),
     isBase64Encoded: false,
+  };
+}
+
+/**
+ * A file, for the one route that returns one: a signed firmware image for a phone app.
+ * API Gateway decodes the base64 body back into bytes.
+ */
+export function binary(status, data, filename) {
+  const { 'content-type': _json, ...headers } = HEADERS;
+  return {
+    statusCode: status,
+    headers: {
+      ...headers,
+      'content-type': 'application/octet-stream',
+      'content-disposition': `attachment; filename="${filename}"`,
+    },
+    body: Buffer.from(data).toString('base64'),
+    isBase64Encoded: true,
   };
 }
 

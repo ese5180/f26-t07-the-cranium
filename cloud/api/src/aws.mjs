@@ -66,6 +66,8 @@
  *                                 -> { stored: true }
  *                                  | { stored: false, reason: "exists" }        the key is taken;
  *                                    nothing was written
+ *   getFirmwareObject(key)        -> Buffer | null   null for a missing object, and for a revoked one,
+ *                                    which the bucket refuses to serve
  *   tagFirmwareRevoked(key)       -> { ok: true } | { ok: false, reason: "not_found" }
  *
  * Releases (state table; an item is the release plus pk and sk). Items hold plain data
@@ -118,7 +120,7 @@ import {
   ListThingPrincipalsCommand, ListThingsInThingGroupCommand,
 } from '@aws-sdk/client-iot';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
-import { PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
 
 // The largest page the list operations of AWS IoT allow, and of Cognito for groups.
 const PAGE_SIZE = 250;
@@ -561,6 +563,18 @@ export function createAws(env) {
           if (!raced || attempt >= 2) throw failure('PutObject', cause);
           await sleep(100 * (attempt + 1));
         }
+      }
+    },
+
+    async getFirmwareObject(key) {
+      try {
+        const answer = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        return Buffer.from(await answer.Body.transformToByteArray());
+      } catch (cause) {
+        // A revoked image is refused by the bucket policy: 403, the same as missing here.
+        if (nameOf(cause) === 'NoSuchKey' || nameOf(cause) === 'AccessDenied'
+          || statusOf(cause) === 404 || statusOf(cause) === 403) return null;
+        throw failure('GetObject', cause);
       }
     },
 

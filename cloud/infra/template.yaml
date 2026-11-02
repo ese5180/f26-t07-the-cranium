@@ -147,6 +147,7 @@ Resources:
         # An access token has no "aud"; API Gateway then checks "client_id" against this.
         Audience:
           - !Ref UserPoolClient
+          - !Ref MobileUserPoolClient
 
   RootRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -480,6 +481,45 @@ Resources:
         IdToken: minutes
         RefreshToken: minutes
 
+  # The phone apps (apps/ios, apps/android): the same accounts and the same scope as the
+  # console, through the same managed login, with a redirect back into the app. A phone
+  # cannot keep a secret either, so it uses PKCE. See docs/mobile-apps.md.
+  MobileUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: ResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - cranium/console
+      SupportedIdentityProviders:
+        - COGNITO
+      # As for the console's client: nothing a first sign-in has to write, and no way to
+      # change the e-mail address.
+      WriteAttributes:
+        - name
+      CallbackURLs:
+        - cranium://signin
+      LogoutURLs:
+        - cranium://signin
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AuthSessionValidity: 15
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: minutes
+
   # Managed login serves no page for an app client that has no branding style, so
   # without this resource nobody can sign in.
   ManagedLoginBranding:
@@ -488,6 +528,14 @@ Resources:
     Properties:
       UserPoolId: !Ref UserPool
       ClientId: !Ref UserPoolClient
+      UseCognitoProvidedValues: true
+
+  MobileManagedLoginBranding:
+    Type: AWS::Cognito::ManagedLoginBranding
+    DependsOn: UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientId: !Ref MobileUserPoolClient
       UseCognitoProvidedValues: true
 
   ReleaseManagersGroup:
@@ -847,10 +895,16 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt ApiLogGroup.Arn
-              # Store an image. No read and no delete.
+              # Store an image. No delete.
               - Sid: StoreFirmware
                 Effect: Allow
                 Action: s3:PutObject
+                Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'
+              # Read an image, to hand it to a release manager's phone app for an update
+              # over Bluetooth. The bucket still refuses a revoked one.
+              - Sid: ReadFirmware
+                Effect: Allow
+                Action: s3:GetObject
                 Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'
               # Mark an image as revoked, which makes the bucket refuse to serve it. The
               # role can set exactly this tag and nothing else, so it cannot clear the
@@ -973,6 +1027,7 @@ Resources:
           PRESIGN_ROLE_ARN: !GetAtt PresignRole.Arn
           USER_POOL_ID: !Ref UserPool
           USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
           SLOT_SIZE: !Ref SlotSize
           LOAD_ADDRESS: !Ref LoadAddress
@@ -1003,6 +1058,9 @@ Outputs:
     Value: !Ref UserPool
   UserPoolClientId:
     Value: !Ref UserPoolClient
+  MobileClientId:
+    Description: The phone apps' client id. apps/configure.sh copies it into their configuration.
+    Value: !Ref MobileUserPoolClient
   LoginDomain:
     Description: Host name of the managed login pages.
     Value: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'

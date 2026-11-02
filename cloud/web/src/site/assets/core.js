@@ -2142,6 +2142,19 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to cancel a deployment',
     icon: 'stop',
   },
+  // From the phone apps, for an update over Bluetooth.
+  'firmware.download': {
+    done: 'downloaded firmware to a phone',
+    tried: 'tried to download firmware',
+    triedAlone: 'tried to download firmware',
+    icon: 'download',
+  },
+  'pairing.read': {
+    done: 'read the Bluetooth passkey of',
+    tried: 'tried to read the Bluetooth passkey of',
+    triedAlone: 'tried to read a Bluetooth passkey',
+    icon: 'shield',
+  },
 };
 
 // What scripts/ota.sh and the test bench call their requests. They invoke the API function
@@ -2186,6 +2199,10 @@ export const REFUSAL_WORDS = {
   unknown_deployment: 'There is no such deployment',
   unknown_device: 'A board is not registered',
   unknown_version: 'There is no such release',
+  image_unavailable: 'The image could not be read; it may have been revoked',
+  image_mismatch: 'The stored image is not the one that was verified',
+  invalid_name: 'Not the name of a board over Bluetooth',
+  no_pairing: 'No board online was pairing under that name',
   unsupported_flags: 'Uses image options this project does not',
   upload_conflict: 'Another upload was under way at that moment',
   wrong_key: 'Signed with a different key than this project’s',

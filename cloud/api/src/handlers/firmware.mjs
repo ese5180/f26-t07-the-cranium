@@ -23,6 +23,8 @@
  * (revoked.enforcedAt). Until then it is null, and revoking again completes the work.
  */
 
+import { createHash } from 'node:crypto';
+
 import { HttpError, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import { ImageError, compareVersions, formatVersion, validateImage } from '../lib/mcuboot.mjs';
 import {
@@ -186,6 +188,31 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
       const release = await findRelease(version);
       if (release === null) throw notFound('unknown_version', `There is no release ${version.text}.`);
       return { body: { release } };
+    },
+
+    /**
+     * The signed image of an active release, for a release manager's phone app to send to
+     * a board over Bluetooth. The board and its bootloader check it again, but the bytes are
+     * checked here first against the release, which this server verified when it stored it.
+     */
+    async image({ params, entry }) {
+      const version = versionInPath(params.version);
+      entry.target = version.text;
+      const release = await findRelease(version);
+      if (release === null || release.status !== 'active') {
+        throw notFound('unknown_version', `There is no active release ${version.text}.`);
+      }
+      const data = await aws.getFirmwareObject(objectKey(release.sha256));
+      if (data === null) {
+        throw notFound('image_unavailable', `The image of ${version.text} cannot be read. It may have been revoked.`);
+      }
+      if (data.length !== release.size || createHash('sha256').update(data).digest('hex') !== release.sha256) {
+        log({ level: 'error', event: 'stored_image_mismatch', version: version.text });
+        throw new HttpError(500, 'image_mismatch', `The stored image of ${version.text} is not the one that was verified.`);
+      }
+      entry.detail.sha256 = release.sha256;
+      const safeName = /^[A-Za-z0-9._+-]{1,64}$/.test(release.filename ?? '') ? release.filename : 'cranium.signed.bin';
+      return { file: { data, name: safeName } };
     },
 
     async upload({ actor, json, entry }) {

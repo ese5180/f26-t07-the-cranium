@@ -177,6 +177,15 @@ const REFERENCE = {
           'VersionId', 'ContentMD5', 'ChecksumAlgorithm', 'Tagging', 'ExpectedBucketOwner', 'RequestPayer',
         ],
       },
+      GetObjectCommand: {
+        required: ['Bucket', 'Key'],
+        optional: [
+          'IfMatch', 'IfModifiedSince', 'IfNoneMatch', 'IfUnmodifiedSince', 'Range', 'ResponseCacheControl',
+          'ResponseContentDisposition', 'ResponseContentEncoding', 'ResponseContentLanguage',
+          'ResponseContentType', 'ResponseExpires', 'VersionId', 'SSECustomerAlgorithm', 'SSECustomerKey',
+          'SSECustomerKeyMD5', 'RequestPayer', 'PartNumber', 'ExpectedBucketOwner', 'ChecksumMode',
+        ],
+      },
     },
   },
 };
@@ -389,7 +398,7 @@ test('the adapter and the in-memory fake have the same methods', () => {
   const fake = createFakeAws();
   const methods = Object.keys(real).sort();
   assert.deepEqual(methods, [
-    'cancelJob', 'createJob', 'describeJob', 'describeJobExecution', 'getRelease', 'getShadow', 'getUser',
+    'cancelJob', 'createJob', 'describeJob', 'describeJobExecution', 'getFirmwareObject', 'getRelease', 'getShadow', 'getUser',
     'highestReleaseKey', 'listGroupThings', 'listJobExecutionsForJob', 'listJobExecutionsForThing', 'listJobs', 'listReleases',
     'listThingPrincipals', 'listUserGroups', 'markReleaseRevoked', 'markRevocationEnforced', 'putAudit',
     'putFirmwareObject', 'queryAudit', 'registerRelease', 'tagFirmwareRevoked',
@@ -842,6 +851,22 @@ test('tagFirmwareRevoked sets the tag the bucket policy looks for', async () => 
   assert.deepEqual(await aws.tagFirmwareRevoked(key), { ok: false, reason: 'not_found' });
   sdk.reply('PutObjectTaggingCommand', fails('AccessDenied', { status: 403 }));
   await rejectsWith(aws.tagFirmwareRevoked(key), { code: 'failed', operation: 'PutObjectTagging' });
+});
+
+test('getFirmwareObject reads an image, and a missing or revoked one is null', async () => {
+  const aws = adapter();
+  const key = `firmware/${'cd'.repeat(32)}.bin`;
+  sdk.reply('GetObjectCommand', { Body: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) } });
+  assert.deepEqual(await aws.getFirmwareObject(key), Buffer.from([1, 2, 3]));
+  assert.deepEqual(sdk.inputs('GetObjectCommand'), [{ Bucket: 'firmware-bucket', Key: key }]);
+
+  sdk.reply('GetObjectCommand', fails('NoSuchKey', { status: 404 }));
+  assert.equal(await aws.getFirmwareObject(key), null);
+  // The bucket policy's answer for a revoked image.
+  sdk.reply('GetObjectCommand', fails('AccessDenied', { status: 403 }));
+  assert.equal(await aws.getFirmwareObject(key), null);
+  sdk.reply('GetObjectCommand', fails('InternalError', { status: 500 }));
+  await rejectsWith(aws.getFirmwareObject(key), { code: 'failed', operation: 'GetObject' });
 });
 
 const RELEASE = Object.freeze({

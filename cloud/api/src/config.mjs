@@ -20,6 +20,7 @@ const PATTERNS = Object.freeze({
   PRESIGN_ROLE_ARN: /^arn:[a-z0-9-]+:iam::\d{12}:role\/[\w+=,.@/-]{1,576}$/,
   USER_POOL_ID: /^[\w-]+_[0-9A-Za-z]+$/,
   USER_POOL_CLIENT_ID: /^[\w+]{1,128}$/,
+  MOBILE_CLIENT_ID: /^[\w+]{1,128}$/,
   SIGNING_PUBLIC_KEY_B64: /^[A-Za-z0-9+/]+={0,2}$/,
   SLOT_SIZE: /^[1-9]\d{0,9}$/,
   LOAD_ADDRESS: /^(?:0|[1-9]\d{0,9})$/,
@@ -64,6 +65,8 @@ export function loadConfig(env = process.env) {
     presignRoleArn: read(env, 'PRESIGN_ROLE_ARN'),
     userPoolId: read(env, 'USER_POOL_ID'),
     userPoolClientId: read(env, 'USER_POOL_CLIENT_ID'),
+    // The phone apps' client (docs/mobile-apps.md). A token from either is accepted.
+    mobileClientId: read(env, 'MOBILE_CLIENT_ID'),
     // { key, keyHash }: the public key and the SHA-256 of its DER encoding.
     signingKey,
     signingKeyFingerprint: signingKey.keyHash.toString('hex'),

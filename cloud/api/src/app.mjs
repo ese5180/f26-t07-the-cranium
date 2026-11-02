@@ -36,8 +36,9 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
+import { createPairingHandlers } from './handlers/pairing.mjs';
 import {
-  HttpError, SMALL_BODY_LIMIT, errorCode, errorResponse, json, notFound, readJsonObject,
+  HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, json, notFound, readJsonObject,
 } from './http.mjs';
 import { REQUEST_ID } from './lib/audit.mjs';
 
@@ -187,6 +188,9 @@ export function createApp({
   const deployments = createDeploymentHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments });
   const me = createMeHandlers(context);
+  const pairing = createPairingHandlers(context);
+  // Tokens from the console and from the phone apps are both accepted.
+  const clientIds = [config.userPoolClientId, config.mobileClientId];
 
   const routes = Object.freeze([
     route('GET', '/api/me', me.get),
@@ -195,6 +199,10 @@ export function createApp({
     route('GET', '/api/firmware', firmware.list),
     route('POST', '/api/firmware', firmware.upload, { action: 'firmware.upload', maxBody: UPLOAD_BODY_LIMIT }),
     route('GET', '/api/firmware/{version}', firmware.get),
+    // Reads, but each one is for release managers only and goes on record like a write:
+    // the image a phone sends to a board over Bluetooth, and that board's passkey.
+    route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }),
+    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0 }),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
       { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments', deployments.list),
@@ -232,7 +240,7 @@ export function createApp({
   }
 
   async function read(found, event, request) {
-    const caller = authenticate(event, config.userPoolClientId);
+    const caller = authenticate(event, clientIds);
     request.sub = caller.sub;
     requireMember(caller);
     await context.directory.requireLiveReader(caller, request.id);
@@ -249,7 +257,7 @@ export function createApp({
     let failure = null;
     try {
       result = await withinDeadline(request, async () => {
-        const caller = authenticate(event, config.userPoolClientId);
+        const caller = authenticate(event, clientIds);
         request.sub = caller.sub;
         requireMember(caller);
         actor.email = await context.directory.requireLiveWriter(caller);
@@ -317,7 +325,9 @@ export function createApp({
         ? await write(found, event, request)
         : await withinDeadline(request, () => read(found, event, request),
           'The server ran out of time. Try again in a moment.');
-      response = json(result.status ?? 200, result.body);
+      response = result.file !== undefined
+        ? binary(result.status ?? 200, result.file.data, result.file.name)
+        : json(result.status ?? 200, result.body);
     } catch (error) {
       const failed = errorResponse(error, requestId);
       if (failed.internal !== null) {

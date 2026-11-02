@@ -105,3 +105,33 @@ export function deviceFromShadow(thing, shadow, nowMs) {
   device.uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
   return device;
 }
+
+// While a person has a board's Bluetooth window open and a phone is pairing, the board also
+// reports the name it advertises and the passkey it shows on its console:
+//
+//   { "btpair": { "name": "Cranium-1A2B", "passkey": "012345" } }
+//
+// and clears it when the window closes. A passkey is good for one attempt, in a window of
+// 2 minutes, so a report older than this is not handed out, whatever the board last said.
+export const PAIRING_NAME = /^Cranium-[0-9A-F]{4}$/;
+export const PAIRING_FRESH_MS = 150_000;
+const PASSKEY = /^\d{6}$/;
+// How far ahead of this server's clock a report may seem to be.
+const CLOCK_SLACK_MS = 30_000;
+
+/**
+ * The pairing a board reports, if it is fresh: { name, passkey, reportedAt }, else null.
+ * The time is the one AWS IoT stamped on the passkey, not the board's.
+ */
+export function pairingFromShadow(shadow, nowMs) {
+  const pair = own(own(own(shadow, 'state'), 'reported'), 'btpair');
+  const name = own(pair, 'name');
+  const passkey = own(pair, 'passkey');
+  if (typeof name !== 'string' || !PAIRING_NAME.test(name)) return null;
+  if (typeof passkey !== 'string' || !PASSKEY.test(passkey)) return null;
+  const sec = own(own(own(own(own(shadow, 'metadata'), 'reported'), 'btpair'), 'passkey'), 'timestamp');
+  if (!Number.isInteger(sec) || sec <= 0 || sec > MAX_EPOCH_SEC) return null;
+  const atMs = sec * 1000;
+  if (nowMs - atMs > PAIRING_FRESH_MS || atMs - nowMs > CLOCK_SLACK_MS) return null;
+  return { name, passkey, reportedAt: new Date(atMs).toISOString() };
+}

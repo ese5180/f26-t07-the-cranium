@@ -74,13 +74,16 @@ export function claimedSub(event) {
 
 /**
  * Identify the caller, or throw 401. Fails closed: anything missing or unexpected is
- * a refusal.
+ * a refusal. `clientIds` is the app client, or the list of them, whose tokens count:
+ * the console's and the phone apps'.
  */
-export function authenticate(event, userPoolClientId) {
+export function authenticate(event, clientIds) {
   const claims = claimsOf(event);
   if (claims === null) throw unauthorized();
-  if (typeof userPoolClientId !== 'string' || userPoolClientId === '') throw unauthorized();
-  if (claims.token_use !== 'access' || claims.client_id !== userPoolClientId) throw unauthorized();
+  const accepted = (Array.isArray(clientIds) ? clientIds : [clientIds])
+    .filter((id) => typeof id === 'string' && id !== '');
+  if (accepted.length === 0) throw unauthorized();
+  if (claims.token_use !== 'access' || !accepted.includes(claims.client_id)) throw unauthorized();
   if (typeof claims.sub !== 'string' || !SUB.test(claims.sub)) throw unauthorized();
 
   const groups = parseGroups(claims['cognito:groups']);

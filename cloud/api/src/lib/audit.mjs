@@ -21,8 +21,11 @@
 
 import { createHash } from 'node:crypto';
 
-export const ACTIONS = Object.freeze(
-  ['firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel']);
+export const ACTIONS = Object.freeze([
+  'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
+  // A phone app's two calls for an update over Bluetooth (docs/mobile-apps.md).
+  'firmware.download', 'pairing.read',
+]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
 export const REQUEST_ID = /^[A-Za-z0-9+/=_.:-]{1,128}$/;

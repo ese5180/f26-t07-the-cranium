@@ -53,3 +53,21 @@ cloud/web/src/site/assets/history.json
 
 # The course manual
 /IoT Venture Manual*.pdf
+
+# Phone apps: their configuration names the AWS account, and so does every build of them
+/apps/config/cranium.json
+/apps/dist/
+*.apk
+*.aab
+*.ipa
+*.p8
+*.keystore
+*.mobileprovision
+*.xcarchive
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/**/build/
+apps/ios/.build/
+apps/ios/build/
+apps/ios/**/xcuserdata/
+apps/ios/*.xcodeproj/

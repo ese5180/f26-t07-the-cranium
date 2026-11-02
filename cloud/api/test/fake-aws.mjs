@@ -385,6 +385,14 @@ export function createFakeAws({
       return { stored: true };
     },
 
+    async getFirmwareObject(key) {
+      if (typeof key !== 'string' || key === '') throw invalid('GetObject', 'key');
+      const object = objects.get(key);
+      // The bucket policy refuses a revoked object, as it refuses a missing one.
+      if (object === undefined || object.tags.revoked === 'true') return null;
+      return Buffer.from(object.body);
+    },
+
     async tagFirmwareRevoked(key) {
       if (!objects.has(key)) return { ok: false, reason: 'not_found' };
       // PutObjectTagging replaces the whole tag set.
@@ -669,6 +677,7 @@ export function fakeEnv(overrides = {}) {
     PRESIGN_ROLE_ARN: `arn:aws:iam::${ACCOUNT}:role/local-presign`,
     USER_POOL_ID: `${REGION}_local`,
     USER_POOL_CLIENT_ID: 'localclient',
+    MOBILE_CLIENT_ID: 'localmobile',
     SIGNING_PUBLIC_KEY_B64: der.toString('base64'),
     SLOT_SIZE: '933888',
     LOAD_ADDRESS: '196608',
@@ -827,7 +836,11 @@ export function createTestConsole({
     async call(method, path, { as, claims, body, query, requestId, base64, invocation } = {}) {
       const event = apiEvent(method, path, { claims: claims ?? as?.claims, body, query, requestId, base64 });
       const response = await app(event, invocation);
-      return { status: response.statusCode, headers: response.headers, body: JSON.parse(response.body) };
+      // A firmware image comes back as base64 bytes; everything else is JSON.
+      const decoded = response.isBase64Encoded === true
+        ? Buffer.from(response.body, 'base64')
+        : JSON.parse(response.body);
+      return { status: response.statusCode, headers: response.headers, body: decoded };
     },
   };
 }

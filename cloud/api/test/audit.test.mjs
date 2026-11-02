@@ -94,7 +94,9 @@ test('an audit item carries who, what, when and how it ended', () => {
     detail: { filename: 'zephyr.signed.bin', size: '1264', forced: 'false' },
     requestId: 'JKJaXmPLvHcESHA=',
   });
-  assert.deepEqual(ACTIONS, ['firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel']);
+  assert.deepEqual(ACTIONS, [
+    'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel', 'firmware.download', 'pairing.read',
+  ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });
 
