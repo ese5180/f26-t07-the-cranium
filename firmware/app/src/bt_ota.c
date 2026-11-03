@@ -75,6 +75,9 @@ LOG_MODULE_REGISTER(bt_ota, CONFIG_APP_LOG_LEVEL);
 #if !defined(CONFIG_MCUMGR_GRP_IMG_MUTEX)
 #error "Closing a window relies on img_mgmt's lock: see close_window()"
 #endif
+#if defined(CONFIG_BT_GAP_AUTO_UPDATE_CONN_PARAMS)
+#error "The board must not ask a phone for other connection timing while it pairs: see bt_ota.conf"
+#endif
 
 BUILD_ASSERT(BT_OTA_SMP_OP_READ == MGMT_OP_READ && BT_OTA_SMP_OP_WRITE == MGMT_OP_WRITE);
 BUILD_ASSERT(BT_OTA_SMP_GROUP_IMAGE == MGMT_GROUP_ID_IMAGE);

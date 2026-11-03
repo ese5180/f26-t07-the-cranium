@@ -814,7 +814,9 @@ takes a while, up to 15 minutes in all, plus the two minutes of the offer if the
 time. The window does not open again by itself after that, and it will not open again while the last
 phone has not gone, so that a new window always takes a new pairing.
 
-From 1.11.2 the console also says what the link negotiated, `[BT] link: interval 30.00 ms, latency 0, timeout
+From 1.11.3 the board no longer asks the phone for other connection timing, 5 s after it connects, and keeps the
+phone's own. That request, landing while the phone pairs and starts encryption, is the likeliest cause of the first
+test's drop on reason 0x22. From 1.11.2 the console also says what the link negotiated, `[BT] link: interval 30.00 ms, latency 0, timeout
 4000 ms`, `[BT] link: PHY 2M out, 2M in` and `[BT] link: packets up to 251 bytes out, 251 in`; why a security level
 was not accepted; and why a link ended, in words: `reason 0x22 (a link-layer exchange got no answer within 40 s)`.
 
