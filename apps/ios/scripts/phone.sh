@@ -105,5 +105,6 @@ Xcode is opening the project. Then:
   3. Under the Cranium target's Signing & Capabilities, the team should be your Personal Team.
   4. Press Run (the triangle). The first time, on the iPhone: Settings > General >
      VPN & Device Management > your Apple ID > Trust. Then open the app.
-In 7 days the app stops opening: press Run again to renew it.
+In 7 days the app stops opening: press Run again to renew it, or let the Mac do it every week:
+  apps/ios/scripts/renew.sh --schedule
 EOF
