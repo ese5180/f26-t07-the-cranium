@@ -69,10 +69,13 @@ managed login pages above, and the refresh of its own tokens.
 Every API call sends `Authorization: Bearer {access_token}`. Tokens go in the Keychain on iOS and
 in `EncryptedSharedPreferences` on Android, never in plain storage or logs.
 
-A token of the phone apps' client is good for the calls below and a few reads (`GET /api/firmware/{version}`,
-`GET /api/devices`, `GET /api/devices/{thing}`), nothing else. Every other route of the API takes the
-console's own sign-in only and answers a phone's token with `403 phone_not_allowed`: a phone cannot
-deploy, revoke, upload, make API tokens or read the activity log, whoever is signed in on it.
+The apps do everything the website does, so a token of the phone apps' client is good for every route of
+the API, with one rule: **a change made from the phone needs a sign-in, with password and code, in the last
+15 minutes.** That covers uploading, revoking, deploying, cancelling, and making or ending API tokens. A phone
+whose sign-in is older gets `403 phone_sign_in_again`, and the app asks for the password and code again
+before it retries. Reads never ask. The three calls a person makes while standing at a board for an update
+over Bluetooth do not ask either: the image, the passkey and the check before a send. A deployment made from
+the phone goes into the activity log with `from: phone`.
 
 ## The API
 

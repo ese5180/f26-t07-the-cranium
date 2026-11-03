@@ -55,7 +55,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 
-import { RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireMember } from './auth.mjs';
+import {
+  RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireFreshSignIn, requireMember,
+} from './auth.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
@@ -82,12 +84,14 @@ const RESERVE_MS = 4_000;
 
 /**
  * A route. `write` makes it a change that goes on record; `token: false` keeps it from
- * being used with an API token; `phone: true` lets a session of the phone apps' client use
- * it too. Without it a route takes a session of the console's own app client only.
+ * being used with an API token; `phone: false` would keep a session of the phone apps' client
+ * off it, and no route does that now: the app does everything the website does. A change made
+ * from the phone needs a sign-in in the last 15 minutes, except where `atTheBoard` says the
+ * person is standing at a board (the image and passkey for Bluetooth, and the check before a send).
  */
-function route(method, path, run, write = null, { token = true, phone = false } = {}) {
+function route(method, path, run, write = null, { token = true, phone = true, atTheBoard = false } = {}) {
   return Object.freeze({
-    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, phone,
+    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, phone, atTheBoard,
   });
 }
 
@@ -245,39 +249,40 @@ export function createApp({
   const clientIds = [config.userPoolClientId, config.mobileClientId];
   // Changes a member makes to what is their own: the live check asks for a member, not a release manager.
   const ownTokens = { maxBody: SMALL_BODY_LIMIT, member: true };
-  // What the phone apps call (docs/mobile-apps.md, "The API"), and nothing else.
-  const phone = { phone: true };
-  // A passkey is for a person with a phone at the board, never for a script with an API token.
-  const phoneSessionOnly = { token: false, phone: true };
+  // A person at a board with a phone, for an update over Bluetooth: no fresh sign-in asked for.
+  const atBoard = { atTheBoard: true };
   // API tokens are made and ended on the website: a session of an hour from elsewhere does
   // not turn into a token of ninety days. Not with an API token, and, as on every route
   // without `phone`, not with a phone app's session.
   const websiteOnly = { token: false };
 
   const routes = Object.freeze([
-    route('GET', '/api/me', me.get, null, phone),
-    route('GET', '/api/devices', devices.list, null, phone),
-    route('GET', '/api/devices/{thing}', devices.get, null, phone),
+    route('GET', '/api/me', me.get),
+    route('GET', '/api/devices', devices.list),
+    route('GET', '/api/devices/{thing}', devices.get),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/events', events.list),
-    route('GET', '/api/firmware', firmware.list, null, phone),
+    route('GET', '/api/firmware', firmware.list),
     route('POST', '/api/firmware', firmware.upload, { action: 'firmware.upload', maxBody: UPLOAD_BODY_LIMIT }),
-    route('GET', '/api/firmware/{version}', firmware.get, null, phone),
+    route('GET', '/api/firmware/{version}', firmware.get),
     // Reads, but each one is for release managers only and goes on record like a write:
     // the image a phone sends to a board over Bluetooth, and that board's passkey.
-    route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }, phone),
+    route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }, atBoard),
     // A phone asks every few seconds until the board has a passkey, so an answer of "none yet" is
     // not recorded: only a passkey handed out, and a caller refused.
     route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] },
-      phoneSessionOnly),
+      { token: false, atTheBoard: true }),
     // What a phone asks right before every Bluetooth send, from whatever image it holds: is this
     // release, with this SHA-256, still active? It changes nothing, and goes on record like a
     // write, so that a send of an image the phone kept leaves a trace too.
     route('POST', '/api/firmware/{version}/bluetooth', firmware.bluetooth,
-      { action: 'firmware.bluetooth_send', maxBody: SMALL_BODY_LIMIT }, phone),
+      { action: 'firmware.bluetooth_send', maxBody: SMALL_BODY_LIMIT }, atBoard),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
       { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
+    // An update over the internet from the phone app too, and stopping one. From the phone a
+    // deployment is to one board, and needs a sign-in in the last 15 minutes: see
+    // deployments.create. Uploading and revoking stay on the website.
     route('GET', '/api/deployments', deployments.list),
     route('POST', '/api/deployments', deployments.create,
       { action: 'deployment.create', maxBody: SMALL_BODY_LIMIT }),
@@ -371,6 +376,7 @@ export function createApp({
       result = await withinDeadline(request, async () => {
         const known = await identify(found, event, request);
         const { caller } = known;
+        if (caller.clientId === config.mobileClientId && !found.route.atTheBoard) requireFreshSignIn(caller, clock());
         actor.email = await liveWriter(found, request, known);
         return found.route.run({
           caller,

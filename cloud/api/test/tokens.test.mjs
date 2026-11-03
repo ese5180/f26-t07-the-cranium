@@ -484,23 +484,28 @@ test('two tokens made at the same moment cannot take a person past ten', async (
   assert.equal(withdrawn.length, results.filter((item) => item.status === 409).length);
 });
 
-test('tokens are made and ended on the website: a phone app\'s session cannot', async () => {
-  const { call, fake, manager, make, config } = setup();
+test('a phone app\'s session manages tokens too, with a sign-in in the last 15 minutes', async () => {
+  const { call, fake, manager, make, config, clock } = setup();
   const { id } = await make(manager);
-  const phone = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId });
-  // The phone's session is good for what the apps call.
-  assert.equal((await call('GET', '/api/firmware', { claims: phone })).status, 200);
+  const nowSec = Math.floor(clock.ms / 1000);
+  const stale = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId, authTime: nowSec - 3600 });
+  const fresh = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId, authTime: nowSec });
+
+  // Reading the list asks for no new sign-in; a change does.
+  assert.equal((await call('GET', '/api/tokens', { claims: stale })).status, 200);
   const before = fake.auditLog().length;
-  for (const [method, path, body] of [['GET', '/api/tokens'], ['POST', '/api/tokens', { name: 'from a phone' }],
-    ['POST', `/api/tokens/${id}/revoke`, {}]]) {
-    const response = await call(method, path, { claims: phone, body });
-    assert.deepEqual([response.status, response.body.error.code], [403, 'phone_not_allowed'], path);
+  for (const [path, body] of [['/api/tokens', { name: 'from a phone' }], [`/api/tokens/${id}/revoke`, {}]]) {
+    const response = await call('POST', path, { claims: stale, body });
+    assert.deepEqual([response.status, response.body.error.code], [403, 'phone_sign_in_again'], path);
   }
   assert.equal(fake.tokens.size, 1);
-  assert.equal([...fake.tokens.values()][0].revokedAt, null);
-  // The two attempts to change something are on record, in the phone's owner's name.
   assert.deepEqual(fake.auditLog().slice(before).map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.detail.code]), [
-    ['token.create', 'denied', manager.sub, 'phone_not_allowed'],
-    ['token.revoke', 'denied', manager.sub, 'phone_not_allowed'],
+    ['token.create', 'denied', manager.sub, 'phone_sign_in_again'],
+    ['token.revoke', 'denied', manager.sub, 'phone_sign_in_again'],
   ]);
+
+  // Signed in just now, the phone can.
+  assert.equal((await call('POST', '/api/tokens', { claims: fresh, body: { name: 'from a phone' } })).status, 201);
+  assert.equal((await call('POST', `/api/tokens/${id}/revoke`, { claims: fresh, body: {} })).status, 200);
 });
+

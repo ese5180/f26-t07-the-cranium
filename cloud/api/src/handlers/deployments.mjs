@@ -447,7 +447,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       return { body: { deployment: detail } };
     },
 
-    async create({ actor, json, entry }) {
+    async create({ caller, actor, json, entry }) {
       const body = json();
       const version = requireVersion(field(body, 'version'));
       entry.target = version.text;
@@ -455,6 +455,8 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       const things = requireThings(field(body, 'things'));
       entry.detail.things = String(things.length);
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
+      // From the phone app: on record as such. Its recent sign-in is checked by the router.
+      if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
 
       const sortKey = releaseKey(version.parts);
       const release = releaseFromItem(await aws.getRelease(sortKey));

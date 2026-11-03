@@ -2942,6 +2942,7 @@ export const REFUSAL_WORDS = {
   invalid_token: 'The API token was not valid, or had been revoked or had expired',
   token_not_allowed: 'An API token cannot be used for that',
   phone_not_allowed: 'The phone app’s sign-in cannot be used for that',
+  phone_sign_in_again: 'A change from the phone needs a sign-in in the last 15 minutes',
   too_many_tokens: 'That person already had as many API tokens as one may have',
   invalid_token_name: 'The token’s name was empty, too long or not one line',
   invalid_days: 'The token’s lifetime was not a whole number of days from 1 to 90',

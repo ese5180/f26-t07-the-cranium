@@ -97,10 +97,15 @@ test('the caller is described by sub, console groups, expiry and app client', ()
   const caller = authenticate(eventWith({
     ...accessClaims({ sub: SUB, groups: ['viewers', 'some-other-group', 'release-managers'], exp: 1787988914 }),
   }), CLIENT);
-  assert.deepEqual(caller, { sub: SUB, groups: ['release-managers', 'viewers'], expiresAt: 1787988914, clientId: CLIENT });
+  assert.deepEqual(caller, {
+    sub: SUB, groups: ['release-managers', 'viewers'], expiresAt: 1787988914, clientId: CLIENT, authTime: null,
+  });
 
   const bare = authenticate(eventWith({ sub: SUB, token_use: 'access', client_id: CLIENT }), CLIENT);
-  assert.deepEqual(bare, { sub: SUB, groups: [], expiresAt: null, clientId: CLIENT });
+  assert.deepEqual(bare, { sub: SUB, groups: [], expiresAt: null, clientId: CLIENT, authTime: null });
+  // When the person signed in, as the gateway passes it on: a string of epoch seconds.
+  const signedIn = authenticate(eventWith(accessClaims({ sub: SUB, authTime: 1787985000 })), CLIENT);
+  assert.equal(signedIn.authTime, 1787985000);
   // Of two accepted clients, the one the token names.
   const phone = authenticate(eventWith(accessClaims({ sub: SUB, clientId: 'localmobile' })), [CLIENT, 'localmobile']);
   assert.equal(phone.clientId, 'localmobile');

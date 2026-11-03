@@ -99,6 +99,9 @@ export function authenticate(event, clientIds) {
     groups: CONSOLE_GROUPS.filter((name) => groups.includes(name)),
     expiresAt: numericClaim(claims.exp),
     clientId: claims.client_id,
+    // When the person last signed in with their password and code, in epoch seconds. A refreshed
+    // token keeps the time of the sign-in it came from.
+    authTime: numericClaim(claims.auth_time),
   };
 }
 
@@ -255,4 +258,17 @@ export function createDirectory({ aws, now, log = () => {} }) {
   return {
     emailOf, knownEmail, unreachable, liveAccount, requireLiveReader, requireLiveWriter, requireLiveMember,
   };
+}
+
+// How recent a sign-in on the phone app, password and code, must be for it to change anything:
+// a phone left unlocked and signed in cannot upload, deploy or revoke hours later.
+export const PHONE_SIGN_IN_FRESH_SEC = 15 * 60;
+
+/** Throws 403 unless the caller signed in, with password and code, in the last 15 minutes. */
+export function requireFreshSignIn(caller, nowMs) {
+  const age = Number.isFinite(caller.authTime) ? Math.floor(nowMs / 1000) - caller.authTime : Infinity;
+  if (!(age >= -60 && age <= PHONE_SIGN_IN_FRESH_SEC)) {
+    throw forbidden('phone_sign_in_again', 'To change anything from the phone, sign in again first: ' +
+      'a change from the phone needs a sign-in in the last 15 minutes.');
+  }
 }

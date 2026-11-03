@@ -818,7 +818,7 @@ export function fakeEnv(overrides = {}) {
  * The claims of an access token as API Gateway hands them to the function: every value
  * a string, and the groups flattened into one bracketed string.
  */
-export function accessClaims({ sub, groups = [], clientId = 'localclient', exp = 4102444800 }) {
+export function accessClaims({ sub, groups = [], clientId = 'localclient', exp = 4102444800, authTime = null }) {
   const claims = {
     sub,
     token_use: 'access',
@@ -827,6 +827,7 @@ export function accessClaims({ sub, groups = [], clientId = 'localclient', exp =
     username: sub,
     exp: String(exp),
   };
+  if (authTime !== null) claims.auth_time = String(authTime);
   if (groups !== null) claims['cognito:groups'] = `[${groups.join(' ')}]`;
   return claims;
 }

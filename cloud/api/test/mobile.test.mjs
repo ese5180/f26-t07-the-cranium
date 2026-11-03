@@ -221,30 +221,30 @@ const ROUTES = [
   { route: 'GET /api/me', status: 200, phone: true },
   { route: 'GET /api/devices', status: 200, phone: true },
   { route: 'GET /api/devices/{thing}', path: `/api/devices/${THING}`, status: 200, phone: true },
-  { route: 'GET /api/devices/{thing}/samples', path: `/api/devices/${THING}/samples`, status: 200, phone: false },
-  { route: 'GET /api/events', status: 200, phone: false },
+  { route: 'GET /api/devices/{thing}/samples', path: `/api/devices/${THING}/samples`, status: 200, phone: true },
+  { route: 'GET /api/events', status: 200, phone: true },
   { route: 'GET /api/firmware', status: 200, phone: true },
   {
-    route: 'POST /api/firmware', status: 201, phone: false,
+    route: 'POST /api/firmware', status: 201, phone: true,
     body: () => ({ filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+5.signed.bin').toString('base64'), notes: '' }),
   },
   { route: 'GET /api/firmware/{version}', path: `/api/firmware/${V}`, status: 200, phone: true },
   { route: 'GET /api/firmware/{version}/image', path: `/api/firmware/${V}/image`, status: 200, phone: true },
   { route: 'GET /api/pairing/{name}', path: '/api/pairing/Cranium-1A2B', status: 200, phone: true },
-  { route: 'POST /api/firmware/{version}/revoke', path: `/api/firmware/${V}/revoke`, status: 200, phone: false,
+  { route: 'POST /api/firmware/{version}/revoke', path: `/api/firmware/${V}/revoke`, status: 200, phone: true,
     body: { reason: 'bricks the encoder' } },
   { route: 'POST /api/firmware/{version}/bluetooth', path: `/api/firmware/${V}/bluetooth`, status: 200, phone: true,
     body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } },
-  { route: 'GET /api/deployments', status: 200, phone: false },
-  { route: 'POST /api/deployments', status: 201, phone: false, body: { version: VERSION, things: [THING] } },
+  { route: 'GET /api/deployments', status: 200, phone: true },
+  { route: 'POST /api/deployments', status: 201, phone: true, body: { version: VERSION, things: [THING] } },
   // No such deployment: the console's session gets as far as looking for it.
-  { route: 'GET /api/deployments/{id}', path: `/api/deployments/${SOME_DEPLOYMENT}`, status: 404, phone: false },
+  { route: 'GET /api/deployments/{id}', path: `/api/deployments/${SOME_DEPLOYMENT}`, status: 404, phone: true },
   { route: 'POST /api/deployments/{id}/cancel', path: `/api/deployments/${SOME_DEPLOYMENT}/cancel`, status: 404,
-    phone: false, body: {} },
-  { route: 'GET /api/audit', status: 200, phone: false },
-  { route: 'GET /api/tokens', status: 200, phone: false },
-  { route: 'POST /api/tokens', status: 201, phone: false, body: { name: 'laptop' } },
-  { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: false, body: {} },
+    phone: true, body: {} },
+  { route: 'GET /api/audit', status: 200, phone: true },
+  { route: 'GET /api/tokens', status: 200, phone: true },
+  { route: 'POST /api/tokens', status: 201, phone: true, body: { name: 'laptop' } },
+  { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: true, body: {} },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */
@@ -253,8 +253,19 @@ async function world() {
   context.fake.addThing(THING);
   context.fake.device(THING).setRaw(shadowWithPairing(context.clock.ms, 5000));
   assert.equal((await context.upload()).status, 201);
-  const phone = accessClaims({ sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT });
+  // Signed in on the phone just now: a phone's deployment needs a recent sign-in.
+  const phone = accessClaims({
+    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT, authTime: Math.floor(context.clock.ms / 1000),
+  });
   return { ...context, phone };
+}
+
+/** An answer without request ids, which differ from one request to the next, at any depth. */
+function withoutRequestId(value) {
+  if (Array.isArray(value)) return value.map(withoutRequestId);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'requestId')
+    .map(([key, inner]) => [key, withoutRequestId(inner)]));
 }
 
 function requestOf(entry) {
@@ -293,7 +304,8 @@ test('every route takes the console\'s session; a phone app\'s only where the ap
       // The same answer as the console's session gets, to the byte.
       assert.equal(phone.status, entry.status, `${entry.route} with a phone app's session`);
       if (Buffer.isBuffer(console_.body)) assert.ok(console_.body.equals(phone.body), entry.route);
-      else assert.deepEqual(phone.body, console_.body, entry.route);
+      else if (entry.route === 'POST /api/tokens') assert.equal(typeof phone.body.token, 'string', entry.route);
+      else assert.deepEqual(withoutRequestId(phone.body), withoutRequestId(console_.body), entry.route);
       continue;
     }
     assert.deepEqual([phone.status, phone.body.error?.code], [403, 'phone_not_allowed'], `${entry.route} with a phone app's session`);
@@ -422,4 +434,42 @@ test('a release manager\'s API token may ask too, and the entry names the token'
   assert.equal(response.status, 200);
   const entry = fake.auditLog().at(-1);
   assert.deepEqual([entry.action, entry.outcome, entry.detail.token], ['firmware.bluetooth_send', 'ok', made.body.id]);
+});
+
+test('a change from the phone needs a sign-in in the last 15 minutes; at a board it does not', async () => {
+  const context = await world();
+  context.fake.addThing(OTHER_THING);
+  const stale = accessClaims({
+    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT,
+    authTime: Math.floor(context.clock.ms / 1000) - 16 * 60,
+  });
+  const unknown = accessClaims({ sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT });
+
+  for (const claims of [stale, unknown]) {
+    const before = context.fake.auditLog().length;
+    const deploy = await context.call('POST', '/api/deployments', { claims, body: { version: VERSION, things: [THING] } });
+    assert.deepEqual([deploy.status, deploy.body.error?.code], [403, 'phone_sign_in_again']);
+    const revoke = await context.call('POST', `/api/firmware/${V}/revoke`, { claims, body: { reason: 'old build' } });
+    assert.equal(revoke.body.error?.code, 'phone_sign_in_again');
+    const token = await context.call('POST', '/api/tokens', { claims, body: { name: 'phone' } });
+    assert.equal(token.body.error?.code, 'phone_sign_in_again');
+    // Refused, and on record as refused.
+    const added = context.fake.auditLog().slice(before);
+    assert.deepEqual(added.map((entry) => [entry.outcome, entry.detail.code]),
+      [['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again']]);
+  }
+  assert.equal(context.fake.calls.filter((call) => call.method === 'createJob').length, 0);
+
+  // Reading never asks for a new sign-in, nor does what a person at a board does.
+  assert.equal((await context.call('GET', '/api/firmware', { claims: stale })).status, 200);
+  assert.equal((await context.call('GET', `/api/firmware/${V}/image`, { claims: stale })).status, 200);
+  const check = await context.call('POST', `/api/firmware/${V}/bluetooth`, { claims: stale, body: { sha256: sha256(IMAGE) } });
+  assert.equal(check.status, 200);
+
+  // Signed in just now: a deployment to two boards goes ahead, and says it came from the phone.
+  const both = await context.call('POST', '/api/deployments', { claims: context.phone, body: { version: VERSION, things: [THING, OTHER_THING] } });
+  assert.equal(both.status, 201, JSON.stringify(both.body));
+  const entry = context.fake.auditLog().at(-1);
+  assert.equal(entry.action, 'deployment.create');
+  assert.equal(entry.detail.from, 'phone');
 });
