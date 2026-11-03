@@ -27,6 +27,31 @@ Every run below was on one nRF7002 DK. The benches write one line per run to a l
 
 <!-- OVER-THE-AIR REGRESSION: the section under this comment is the one place that says whether the over-the-air regression on the final firmware has run. Other documents link to it. When it has run, replace its text with the date, the firmware, the bootloader, the results and what failed on the way, and add a row to the table above. -->
 
+## The first update over Bluetooth, 1.11.3 to 1.11.4
+
+On 2026-11-03, on the real board, with nRF Connect Device Manager on an iPhone 17 Pro ("Upload only"), the board on a
+computer's USB port and on Wi-Fi. **It worked from start to finish.**
+
+| Time | What the board said |
+| --- | --- |
+| 17:42:28 | `[BT] open for 180 s`, after Button 1 was held for 5 s; advertising as `Cranium-DB1B` |
+| 17:43:35 | `[BT] a phone connected`; the link at 2M PHY, packets of 251 bytes both ways |
+| 17:43:37 | `[BT] passkey …`, which also reached the console and was read from there |
+| 17:43:50 | `[BT] paired: LE Secure Connections, authenticated` |
+| 17:43:58 | `[BT] upload started, 844762 bytes` |
+| 17:44:55 | `[BT] firmware 1.11.4+0 has arrived`: **57 s for the whole image**, about 14.8 KB/s |
+| 17:45:09 | Button 1 pressed: `[BT] restarting into the bootloader`, and MCUboot found a test swap |
+| 17:46:42 | `[BT] on trial: 1.11.4+0 from 1.11.3+0`, 91 s after the swap started |
+| 17:46:53 | `[app] Connected to AWS IoT`, and `[BT] update over Bluetooth: 1.11.4+0 from 1.11.3+0, succeeded, proof cloud` |
+
+The device shadow then showed firmware 1.11.4+0 confirmed, the Bluetooth record `succeeded`, proof `cloud`, update 1 of
+this board, and the new `diag.id`. What changed since the first attempt, which ended on reason 0x22: 1.11.2 gave a person
+more time, and 1.11.3 stopped the board asking the phone for other connection timing. The link stayed up through pairing
+and the upload this time.
+
+Not yet tried: our own apps doing the same, an update over Bluetooth with no Wi-Fi (the `proof: person` path), and the
+failure cases in the firmware README's test table.
+
 ## Firmware 1.8.0 to 1.11.2, Bluetooth, the event log and the new sign-in
 
 All on 2026-11-02, on the bootloader that holds the pin, with the board on a computer's USB port.
