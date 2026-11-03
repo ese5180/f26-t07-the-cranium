@@ -96,7 +96,7 @@ test('an audit item carries who, what, when and how it ended', () => {
   });
   assert.deepEqual(ACTIONS, [
     'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel', 'firmware.download', 'pairing.read',
-    'token.create', 'token.revoke',
+    'firmware.bluetooth_send', 'token.create', 'token.revoke',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });

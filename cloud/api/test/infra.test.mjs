@@ -117,10 +117,10 @@ test('a user cannot change their own e-mail address', () => {
 });
 
 test('the console\'s client signs in with SRP, never by sending the password', () => {
-  for (const name of ['UserPoolClient', 'MobileUserPoolClient']) {
-    const flows = [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
-    assert.deepEqual(flows, ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH'], name);
-  }
+  const flows = (name) => [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
+  assert.deepEqual(flows('UserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
+  // The phone apps sign in through the managed login pages with PKCE only: no sign-in through the API at all.
+  assert.deepEqual(flows('MobileUserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH']);
   assert.equal(template.includes('USER_PASSWORD_AUTH\n'), false);
   assert.equal(/^\s+- ALLOW_USER_PASSWORD_AUTH/m.test(template), false);
   const client = block(template, 'UserPoolClient');

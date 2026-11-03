@@ -21,7 +21,11 @@ object BoardBluetooth {
     const val SMP_CHARACTERISTIC_UUID = "DA2E7828-FBCE-4E01-AE9E-261174997C48"
 
     private val NAME = Regex("^Cranium-[0-9A-F]{4}$")
+    private val THING = Regex("^cranium-[0-9a-f]{16}$")
 
     /** Whether [name] is what a board advertises: `Cranium-` and four upper-case hex digits. */
     fun isBoardName(name: String?): Boolean = name != null && NAME.matches(name)
+
+    /** Whether [thing] is a board's name in the console (its AWS IoT thing): `cranium-` and 16 hex digits. */
+    fun isThing(thing: String?): Boolean = thing != null && THING.matches(thing)
 }

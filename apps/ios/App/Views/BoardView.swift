@@ -21,6 +21,13 @@ struct BoardView: View {
                 ProgressView()
                 Text("Downloading \(version) from the console…")
             }
+        case .confirming(let version):
+            VStack(spacing: 16) {
+                ProgressView()
+                Text("Asking the console whether \(version) may still be sent…")
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
         case .uploading(let progress):
             UploadView(progress: progress)
         case .sent(let version):
@@ -55,6 +62,13 @@ struct PairingView: View {
                     Text("From the cloud. The board draws a new one for each attempt.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Which board the console gave this passkey for, so that a person can notice
+                    // when it is not the board in front of them.
+                    if let thing = model.consoleThing {
+                        Text(UserMessage.boardInConsole(thing))
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
                 }
                 .padding(.top, 24)
             } else if model.passkeyNotInCloud {

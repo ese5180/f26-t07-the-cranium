@@ -555,9 +555,10 @@ Resources:
         - cranium://signin
       LogoutURLs:
         - cranium://signin
+      # The apps sign in through the managed login pages only, with PKCE, and never call the
+      # user pool API to sign in: nothing but the refresh of their own tokens.
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
-        - ALLOW_USER_SRP_AUTH
       EnableTokenRevocation: true
       PreventUserExistenceErrors: ENABLED
       AuthSessionValidity: 15

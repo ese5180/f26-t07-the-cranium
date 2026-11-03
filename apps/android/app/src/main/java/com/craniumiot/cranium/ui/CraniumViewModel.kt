@@ -23,6 +23,7 @@ import com.craniumiot.cranium.core.BoardProgressText
 import com.craniumiot.cranium.core.CacheSummary
 import com.craniumiot.cranium.core.FirmwareCache
 import com.craniumiot.cranium.core.FirmwareVersion
+import com.craniumiot.cranium.core.ImageCheck
 import com.craniumiot.cranium.core.ImageOrigin
 import com.craniumiot.cranium.core.ImageSlot
 import com.craniumiot.cranium.core.ImageStep
@@ -49,7 +50,8 @@ enum class Step { STARTING, SIGN_IN, RELEASES, FIND_BOARD, BOARD, DONE }
 
 enum class BluetoothStatus { UNKNOWN, NO_BLUETOOTH, NEEDS_PERMISSION, OFF, LOCATION_OFF, READY }
 
-enum class BoardPhase { CONNECTING, READING, READY, DOWNLOADING, CHECKING, UPLOADING, FAILED }
+/** CONFIRMING: asking the console, right before the upload, whether the image may still be sent. */
+enum class BoardPhase { CONNECTING, READING, READY, DOWNLOADING, CHECKING, CONFIRMING, UPLOADING, FAILED }
 
 data class Notice(val text: String, val isError: Boolean = true)
 
@@ -61,6 +63,8 @@ data class BoardUi(
     val phase: BoardPhase = BoardPhase.CONNECTING,
     val passkey: String? = null,
     val passkeyNote: String? = null,
+    /** The board the console says is pairing under this name, shown with the passkey to catch a mix-up. */
+    val consoleThing: String? = null,
     val running: String? = null,
     val offer: List<Release> = emptyList(),
     val selected: String? = null,
@@ -333,7 +337,8 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * Take the chosen release's image from the phone if it holds one that passes the check, else
-     * download it and check it; then upload it. Nothing else is sent.
+     * download it and check it; ask the console whether it may still be sent; then upload it.
+     * Nothing else is sent, and nothing at all without the console's answer.
      */
     fun send() {
         val current = session ?: return
@@ -376,6 +381,25 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             } catch (e: Exception) {
                 backToReady("Could not get the image of ${release.version}. ${Messages.describe(e)}")
+                return@launch
+            }
+
+            // The console's word, right before the upload, wherever the image came from: a release
+            // may have been revoked since it was downloaded (docs/mobile-apps.md, step 6). Without
+            // an answer, offline included, nothing is sent.
+            try {
+                updateBoard { it.copy(phase = BoardPhase.CONFIRMING) }
+                val sha256 = withContext(Dispatchers.Default) { ImageCheck.sha256Hex(image) }
+                client.confirmSend(release, sha256, board.name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SignedOutException) {
+                stopEverything()
+                forgetFirmwareSoon()
+                _state.update { it.copy(step = Step.SIGN_IN, board = null, notice = Notice(Messages.describe(e))) }
+                return@launch
+            } catch (e: Exception) {
+                backToReady(Messages.notCleared(release.version, e))
                 return@launch
             }
 
@@ -482,9 +506,10 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
                     val pairing = client.pairing(name)
                     if (pairing != null) {
                         thing = pairing.thing
-                        updateBoard { it.copy(passkey = pairing.passkey, passkeyNote = null) }
+                        val shown = pairing.thing.takeIf { BoardBluetooth.isThing(it) }
+                        updateBoard { it.copy(passkey = pairing.passkey, passkeyNote = null, consoleThing = shown) }
                     } else {
-                        updateBoard { it.copy(passkey = null, passkeyNote = Messages.PASSKEY_NOT_IN_CLOUD) }
+                        updateBoard { it.copy(passkey = null, passkeyNote = Messages.PASSKEY_NOT_IN_CLOUD, consoleThing = null) }
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -494,6 +519,7 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
                         it.copy(
                             passkey = null,
                             passkeyNote = "${Messages.describe(e)} The passkey is also on the board's serial console, the line [BT] passkey.",
+                            consoleThing = null,
                         )
                     }
                     if (stop) return@launch
@@ -559,7 +585,8 @@ class CraniumViewModel(application: Application) : AndroidViewModel(application)
         when (board.phase) {
             BoardPhase.CONNECTING, BoardPhase.READING -> boardFailed(Messages.PAIRING_FAILED)
             BoardPhase.UPLOADING -> boardFailed(Messages.DISCONNECTED_DURING_UPLOAD)
-            BoardPhase.READY, BoardPhase.DOWNLOADING, BoardPhase.CHECKING -> boardFailed(Messages.DISCONNECTED)
+            BoardPhase.READY, BoardPhase.DOWNLOADING, BoardPhase.CHECKING, BoardPhase.CONFIRMING ->
+                boardFailed(Messages.DISCONNECTED)
             BoardPhase.FAILED -> Unit
         }
     }

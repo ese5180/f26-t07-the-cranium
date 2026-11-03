@@ -69,14 +69,38 @@ public final class ConsoleAPI: Sendable {
         return try decode(Answer.self, from: try await get(["api", "devices", thing])).device
     }
 
+    /// `POST /api/firmware/{version}/bluetooth`, right before every Bluetooth send: may `image` be
+    /// sent to `board` now? Returns only if the console answers 200 with the same release, the
+    /// same SHA-256 and `active` (`SendCheck`). Throws `SendCheckError` otherwise, when the console
+    /// cannot be reached included: then nothing may be sent. A sign-in that has ended is thrown as
+    /// it is.
+    public func confirmSend(_ image: VerifiedImage, board: String?) async throws {
+        let sha256 = ImageCheck.sha256Hex(image.data)
+        let answer: Data
+        do {
+            answer = try await get(["api", "firmware", image.release, "bluetooth"],
+                                   post: SendCheck.body(sha256: sha256, board: board))
+        } catch is URLError {
+            throw SendCheckError.unreachable(release: image.release)
+        } catch let error as APIError where error.status != 401 {
+            throw SendCheckError.refused(release: image.release, message: error.message)
+        }
+        try SendCheck.requireCleared(answer, release: image.release, sha256: sha256)
+    }
+
     // MARK: -
 
+    /// A GET, or with `post` a POST of that JSON body.
     private func get(_ segments: [String], accept: String = "application/json",
-                     timeout: TimeInterval = 30) async throws -> Data {
+                     timeout: TimeInterval = 30, post: Data? = nil) async throws -> Data {
         let path = segments.map(FormEncoding.pathSegment).joined(separator: "/")
         guard let url = URL(string: base + "/" + path) else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = post == nil ? "GET" : "POST"
+        if let post {
+            request.httpBody = post
+            request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        }
         request.setValue(accept, forHTTPHeaderField: "Accept")
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData

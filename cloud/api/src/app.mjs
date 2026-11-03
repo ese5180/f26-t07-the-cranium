@@ -5,6 +5,8 @@
  * Every request takes the same path:
  *
  *   1. identify the caller from the claims the gateway verified   (401)
+ *      and, for a token of the phone apps' client, require a route
+ *      that the phone apps use                                   (403)
  *   2. require membership of one of the console's groups         (403)
  *   3. for a read: ask Cognito whether the account is still active and a
  *      member, or go by an answer from the last minute            (403)
@@ -25,11 +27,20 @@
  *   2. and 3. its owner, asked of Cognito now: active, and in one of the groups   (403)
  *
  * after which a write still needs a release manager, by that same answer. A token cannot
- * be used to manage tokens or to read a board's Bluetooth passkey (403); tokens are managed
- * with a session of the console's own app client only, not a phone app's. An entry made
+ * be used to manage tokens or to read a board's Bluetooth passkey (403). An entry made
  * with a token names the token's id. A token request that names nobody, because its token
- * is missing, malformed or unknown, leaves no entry: it is what the gateway's authorizer
- * refuses for the other routes, which leaves none either.
+ * is missing, malformed, unknown, revoked or expired, leaves no entry: it is what the
+ * gateway's authorizer refuses for the other routes, which leaves none either. Whoever
+ * holds a revoked or expired token could otherwise fill the activity log in its owner's
+ * name. The log line of such a request names the token's id and its state.
+ *
+ * The phone apps (docs/mobile-apps.md). The gateway's authorizer takes the access tokens of
+ * two app clients, the console's and the phone apps', and so does step 1. A phone app's
+ * token is then good only for what the apps do: who is signed in, the releases and a
+ * release's image, a board's passkey, the boards, and the check before a Bluetooth send.
+ * Every other route is the console's alone and refuses it (403), so that a phone's session
+ * cannot deploy, revoke, upload, make API tokens or read the activity log. A route says so
+ * with `phone: true`.
  *
  * Time: Lambda stops the function 20 s after a request arrived, and what it stops
  * leaves no answer, no log line and no entry. A request is therefore given up earlier,
@@ -71,12 +82,12 @@ const RESERVE_MS = 4_000;
 
 /**
  * A route. `write` makes it a change that goes on record; `token: false` keeps it from
- * being used with an API token; `website: true` takes a session of the console's own app
- * client only, not one of the phone apps.
+ * being used with an API token; `phone: true` lets a session of the phone apps' client use
+ * it too. Without it a route takes a session of the console's own app client only.
  */
-function route(method, path, run, write = null, { token = true, website = false } = {}) {
+function route(method, path, run, write = null, { token = true, phone = false } = {}) {
   return Object.freeze({
-    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, website,
+    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, phone,
   });
 }
 
@@ -87,6 +98,10 @@ function isTokenPath(segments) {
 
 function notForTokens() {
   return forbidden('token_not_allowed', 'An API token cannot be used for this. Sign in to the console instead.');
+}
+
+function notForPhones() {
+  return forbidden('phone_not_allowed', 'The phone app\'s sign-in cannot be used for this. Sign in to the console instead.');
 }
 
 /**
@@ -225,33 +240,42 @@ export function createApp({
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
   const tokens = createTokenHandlers(context);
-  // Tokens from the console and from the phone apps are both accepted.
+  // Tokens from the console and from the phone apps are both tokens of this console; which
+  // routes take the phone apps' is up to each route (`phone`).
   const clientIds = [config.userPoolClientId, config.mobileClientId];
   // Changes a member makes to what is their own: the live check asks for a member, not a release manager.
   const ownTokens = { maxBody: SMALL_BODY_LIMIT, member: true };
-  const sessionOnly = { token: false };
+  // What the phone apps call (docs/mobile-apps.md, "The API"), and nothing else.
+  const phone = { phone: true };
+  // A passkey is for a person with a phone at the board, never for a script with an API token.
+  const phoneSessionOnly = { token: false, phone: true };
   // API tokens are made and ended on the website: a session of an hour from elsewhere does
-  // not turn into a token of ninety days.
-  const websiteOnly = { token: false, website: true };
+  // not turn into a token of ninety days. Not with an API token, and, as on every route
+  // without `phone`, not with a phone app's session.
+  const websiteOnly = { token: false };
 
   const routes = Object.freeze([
-    route('GET', '/api/me', me.get),
-    route('GET', '/api/devices', devices.list),
-    route('GET', '/api/devices/{thing}', devices.get),
+    route('GET', '/api/me', me.get, null, phone),
+    route('GET', '/api/devices', devices.list, null, phone),
+    route('GET', '/api/devices/{thing}', devices.get, null, phone),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/events', events.list),
-    route('GET', '/api/firmware', firmware.list),
+    route('GET', '/api/firmware', firmware.list, null, phone),
     route('POST', '/api/firmware', firmware.upload, { action: 'firmware.upload', maxBody: UPLOAD_BODY_LIMIT }),
-    route('GET', '/api/firmware/{version}', firmware.get),
+    route('GET', '/api/firmware/{version}', firmware.get, null, phone),
     // Reads, but each one is for release managers only and goes on record like a write:
     // the image a phone sends to a board over Bluetooth, and that board's passkey.
-    route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }),
+    route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }, phone),
     // A phone asks every few seconds until the board has a passkey, so an answer of "none yet" is
-    // not recorded: only a passkey handed out, and a caller refused. A passkey is for a person
-    // with a phone at the board, never for a script with an API token.
+    // not recorded: only a passkey handed out, and a caller refused.
     route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] },
-      sessionOnly),
+      phoneSessionOnly),
+    // What a phone asks right before every Bluetooth send, from whatever image it holds: is this
+    // release, with this SHA-256, still active? It changes nothing, and goes on record like a
+    // write, so that a send of an image the phone kept leaves a trace too.
+    route('POST', '/api/firmware/{version}/bluetooth', firmware.bluetooth,
+      { action: 'firmware.bluetooth_send', maxBody: SMALL_BODY_LIMIT }, phone),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
       { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments', deployments.list),
@@ -271,11 +295,14 @@ export function createApp({
    * Who is calling, with the checks of steps 1 and 2: from the claims the gateway
    * verified, or from an API token and what Cognito says of its owner now. `email` is
    * known for a token's owner only; a session's is looked up by the live check that follows.
+   * A session of any client but the console's own is refused where the route does not take
+   * the phone apps', and so is one at an address with no route.
    */
   async function identify(found, event, request) {
     if (!request.viaToken) {
-      const caller = authenticate(event, found?.route.website ? [config.userPoolClientId] : clientIds);
+      const caller = authenticate(event, clientIds);
       request.sub = caller.sub;
+      if (caller.clientId !== config.userPoolClientId && found?.route.phone !== true) throw notForPhones();
       requireMember(caller);
       return { caller, email: '' };
     }
@@ -359,14 +386,15 @@ export function createApp({
       failure = error;
     }
 
-    // A token that named nobody: there is nobody to put on record (see the top of this file).
+    // A token that named nobody, or nobody any more because it is revoked or expired: there
+    // is nobody to put on record (see the top of this file). `sub` is only set for a token
+    // that counts.
     if (failure !== null && request.viaToken && request.sub === null) throw failure;
 
     // What is known now is what goes on record. After a timeout the work that was left
     // behind may still write to these. The token comes first, so that it is never cut.
     const target = entry.target;
     const detail = request.token === null ? { ...entry.detail } : { token: request.token.id, ...entry.detail };
-    if (request.token !== null && request.token.status !== 'active') detail.tokenState = request.token.status;
     const sub = request.viaToken ? request.sub : actor.sub;
     let email = actor.email;
     let outcome = 'ok';
@@ -408,8 +436,8 @@ export function createApp({
     const segments = pathSegments(event);
     const viaToken = isTokenPath(segments);
     const found = findRoute(routes, method, viaToken ? ['api', ...segments.slice(2)] : segments);
-    // `sub` is filled in once the caller is identified, and `token` ({ id, status }) once
-    // an API token has named its owner.
+    // `sub` is filled in once the caller is identified, which for an API token means a token
+    // that is active, and `token` ({ id, status }) once an API token is found at all.
     const request = {
       id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false,
     };
@@ -439,8 +467,10 @@ export function createApp({
       status: response.statusCode,
       duration: clock() - started,
     };
-    // Which token, by its id: never the token, never its digest.
+    // Which token, by its id: never the token, never its digest. And whether it was revoked
+    // or expired: such a request leaves no entry in the activity log, so this line is its trace.
     if (viaToken) Object.assign(line, { via: 'token', token: request.token?.id ?? null });
+    if (viaToken && request.token !== null && request.token.status !== 'active') line.tokenState = request.token.status;
     log(line);
     return response;
   };

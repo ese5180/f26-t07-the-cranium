@@ -38,8 +38,14 @@ data class Pkce(val verifier: String, val challenge: String) {
 
 /**
  * The authorization request that starts a sign-in: authorization code with PKCE (S256), the
- * scopes `openid` and `cranium/console`, a random state, and no nonce. AppAuth sends exactly these
- * values ([com.craniumiot.cranium.auth.AuthManager]); [url] is the same request as text.
+ * scopes `openid` and `cranium/console`, a random state, no nonce, and `prompt=login`. AppAuth
+ * sends exactly these values ([com.craniumiot.cranium.auth.AuthManager]); [url] is the same request
+ * as text.
+ *
+ * `prompt=login` has the managed login ask for the password and code every time, as the web
+ * console does: the Custom Tab shares the browser's cookies, so without it a sign-out in the app
+ * would leave Cognito's own session in the browser, and the next sign-in would go through with no
+ * question asked, as whoever signed in last.
  */
 data class AuthorizeRequest(
     val endpoint: String,
@@ -49,6 +55,7 @@ data class AuthorizeRequest(
     val pkce: Pkce,
 ) {
     val scope: String get() = SCOPE
+    val prompt: String get() = PROMPT
 
     fun parameters(): List<Pair<String, String>> = listOf(
         "response_type" to "code",
@@ -58,12 +65,14 @@ data class AuthorizeRequest(
         "code_challenge" to pkce.challenge,
         "code_challenge_method" to Pkce.METHOD,
         "state" to state,
+        "prompt" to prompt,
     )
 
     fun url(): String = endpoint + "?" + formEncode(parameters())
 
     companion object {
         const val SCOPE = "openid cranium/console"
+        const val PROMPT = "login"
 
         fun create(
             loginDomain: String,

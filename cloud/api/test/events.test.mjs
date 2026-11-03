@@ -28,7 +28,7 @@ const heartbeat = (changes = {}) => ({
 });
 
 const diag = (heap = { free: 21312, least: 9840, size: 44240 }, channel = 6) =>
-  ({ mac: 'f4:ce:36:00:8b:c9', channel, heap });
+  ({ mac: 'f4:ce:36:12:34:56', channel, heap });
 
 /** What one report changes: [kind, what, level] of each event. */
 const summary = (before, after) => changesBetween(before, after).map(({ kind, what, level }) => [kind, what, level]);

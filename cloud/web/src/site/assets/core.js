@@ -2851,6 +2851,14 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to read a Bluetooth passkey',
     icon: 'shield',
   },
+  // The check a phone makes right before it sends a release to a board over Bluetooth. The
+  // console cleared it; whether the board took it, only the board knows.
+  'firmware.bluetooth_send': {
+    done: 'was cleared to send over Bluetooth',
+    tried: 'tried to send over Bluetooth',
+    triedAlone: 'tried to send firmware over Bluetooth',
+    icon: 'chip',
+  },
   // A person's own API tokens, named by their id; the token itself is never recorded.
   'token.create': {
     done: 'made API token', tried: 'tried to make API token', triedAlone: 'tried to make an API token', icon: 'key',
@@ -2906,6 +2914,9 @@ export const REFUSAL_WORDS = {
   image_unavailable: 'The image could not be read; it may have been revoked',
   image_mismatch: 'The stored image is not the one that was verified',
   invalid_name: 'Not the name of a board over Bluetooth',
+  invalid_board: 'Not the name of a board over Bluetooth',
+  invalid_sha256: 'Not a valid SHA-256',
+  sha256_mismatch: 'The phone’s image is not the release’s',
   no_pairing: 'No board online was pairing under that name',
   unsupported_flags: 'Uses image options this project does not',
   upload_conflict: 'Another upload was under way at that moment',
@@ -2930,6 +2941,7 @@ export const REFUSAL_WORDS = {
   release_revoked: 'The release is revoked',
   invalid_token: 'The API token was not valid, or had been revoked or had expired',
   token_not_allowed: 'An API token cannot be used for that',
+  phone_not_allowed: 'The phone app’s sign-in cannot be used for that',
   too_many_tokens: 'That person already had as many API tokens as one may have',
   invalid_token_name: 'The token’s name was empty, too long or not one line',
   invalid_days: 'The token’s lifetime was not a whole number of days from 1 to 90',
@@ -2980,9 +2992,12 @@ const AUDIT_DETAILS = {
   cancelled: { label: 'Cancelled', say: cancelledAnyway },
   size: { label: 'Size', say: (value) => exactBytes(Number(value)) || value },
   sha256: { label: 'SHA-256', code: true },
-  // A change made with an API token, by the token's id. Its state is set when it no longer counted.
+  // A change made with an API token, by the token's id. Entries from before November 2026 also
+  // say when a token had been revoked or had expired; such a request leaves no entry now.
   token: { label: 'With API token', code: true },
   tokenState: { label: 'The token had', say: (value) => (value === 'revoked' ? 'been revoked' : value) },
+  // The board a phone named when it asked to send over Bluetooth.
+  board: { label: 'To board', code: true },
   name: { label: 'Named', sentence: true },
   days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
   withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },

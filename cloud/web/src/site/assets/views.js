@@ -3359,6 +3359,7 @@ function activityPanel(audit) {
     [count(action('deployment.create')), 'deployment', 'deployments'],
     [count(action('deployment.cancel')), 'cancellation', 'cancellations'],
     [count(action('firmware.revoke')), 'revocation', 'revocations'],
+    [count(action('firmware.bluetooth_send')), 'send over Bluetooth', 'sends over Bluetooth'],
   ].filter(([amount]) => amount > 0);
   return h('p', { class: 'log-summary dotted', key: 'summary' },
     h('span', { key: 'scope', class: 'log-scope' },

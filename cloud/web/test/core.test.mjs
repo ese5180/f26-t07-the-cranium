@@ -1040,7 +1040,7 @@ test('what a board reports beside its heartbeat is read field by field, and noth
   const board = {
     thing: THING, online: true, lastSeen: NOON, fw: null, ota: null, rssi: -52, uptime: 60,
     stuck: { count: 2, reason: 'wifi_silent' },
-    diag: { mac: 'f4:ce:36:00:8b:c9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: NOON },
+    diag: { mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: NOON },
     diary: { boots: 9, entries: [{ version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 4 }] },
     bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
     btpair: { name: 'Cranium-1A2B', passkey: '480913' },
@@ -2796,6 +2796,31 @@ test('tokens are listed, made and revoked at the addresses the API has, and read
   const none = client({ answers: [] });
   assert.equal((await failure(none.api.revokeToken('../../firmware'))) instanceof core.ApiError, true);
   assert.equal(none.calls.length, 0);
+});
+
+test('the check before a Bluetooth send reads as what it was, with its board and why it was refused', () => {
+  const said = (line) => `${line.verb} ${line.label}`.trim();
+  const sha = 'ab'.repeat(32);
+  const cleared = core.describeAudit({
+    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'ok', detail: [['sha256', sha], ['board', 'Cranium-1A2B']],
+  });
+  assert.deepEqual([cleared.icon, said(cleared), cleared.href], ['chip', 'was cleared to send over Bluetooth 1.1.0+7', '#/firmware']);
+  assert.deepEqual(cleared.facts.map((fact) => [fact.label, fact.value, fact.code]),
+    [['SHA-256', sha, true], ['To board', 'Cranium-1A2B', true]]);
+  const refused = core.describeAudit({
+    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'rejected', detail: [['code', 'release_revoked'], ['sha256', sha]],
+  });
+  assert.equal(said(refused), 'tried to send over Bluetooth 1.1.0+7');
+  assert.equal(refused.facts[0].words, 'The release is revoked');
+  const alone = core.describeAudit({ action: 'firmware.bluetooth_send', target: '', outcome: 'rejected', detail: [['code', 'invalid_version']] });
+  assert.equal(said(alone), 'tried to send firmware over Bluetooth');
+  const other = core.describeAudit({
+    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'rejected', detail: [['code', 'sha256_mismatch']],
+  });
+  assert.equal(other.facts[0].words, 'The phone’s image is not the release’s');
+  // A phone app's sign-in where it may not go.
+  const phone = core.describeAudit({ action: 'deployment.create', target: '1.1.0+7', outcome: 'denied', detail: [['code', 'phone_not_allowed']] });
+  assert.equal(phone.facts[0].words, 'The phone app’s sign-in cannot be used for that');
 });
 
 test('the log says what was done with a token, and which token made a change', () => {

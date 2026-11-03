@@ -16,6 +16,11 @@ const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]
 const THING = /^cranium-[0-9a-f]{16}$/;
 const JOB_ID = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})-(\d{8}T\d{6}Z)-[0-9a-f]{4}$/;
 const FILENAME = /^[A-Za-z0-9._-]{1,64}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+
+// The name a board advertises over Bluetooth while its window is open, drawn anew for each
+// window. It is also the name a board reports while a phone pairs with it (lib/shadow.mjs).
+export const BLUETOOTH_NAME = /^Cranium-[0-9A-F]{4}$/;
 
 // Control and format characters, unpaired surrogates, private-use and unassigned code
 // points, and the two Unicode line separators. None of them belongs in a one-line note.
@@ -153,6 +158,27 @@ export function requireBase64(value, name) {
     throw badRequest(`invalid_${name}`, `"${name}" is not valid base64.`);
   }
   return bytes;
+}
+
+/** The SHA-256 of a file, as this API writes it: 64 lowercase hex digits, nothing else. */
+export function requireSha256(value) {
+  if (typeof value !== 'string' || !SHA256.test(value)) {
+    throw badRequest('invalid_sha256', '"sha256" must be the SHA-256 of the image: 64 lowercase hex digits.');
+  }
+  return value;
+}
+
+/**
+ * The name a board advertises over Bluetooth, where giving one is up to the caller:
+ * "Cranium-" and four upper-case hex digits, or absent (null). Anything else, null included,
+ * is refused.
+ */
+export function requireBluetoothName(value) {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !BLUETOOTH_NAME.test(value)) {
+    throw badRequest('invalid_board', '"board" is the name the board advertises: Cranium- and four hexadecimal digits.');
+  }
+  return value;
 }
 
 /** The name of an API token: one line of 1 to 40 printable characters, trimmed. */

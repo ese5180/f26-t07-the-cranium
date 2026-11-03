@@ -10,6 +10,7 @@ import com.craniumiot.cranium.core.Me
 import com.craniumiot.cranium.core.Pairing
 import com.craniumiot.cranium.core.Release
 import com.craniumiot.cranium.core.ReleaseList
+import com.craniumiot.cranium.core.SendCheck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -44,16 +45,32 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
 
     suspend fun device(thing: String): Device = ApiJson.device(getJson(paths.device(thing)))
 
+    /**
+     * Right before every Bluetooth send: may the image whose SHA-256 is [sha256] be sent to [board]
+     * as [release] now? Returns only if the console answers 200 with the same release, the same
+     * SHA-256 and `active` ([SendCheck]). Throws otherwise, an [IOException] when the console cannot
+     * be reached included: then nothing may be sent.
+     */
+    suspend fun confirmSend(release: Release, sha256: String, board: String?) {
+        val body = SendCheck.body(sha256, board)
+        val answer = call(paths.bluetooth(release.version), "application/json", MAX_JSON_BYTES, body)
+        if (answer.size >= MAX_JSON_BYTES) throw IOException("The console's answer is too long.")
+        SendCheck.requireCleared(answer.decodeToString(), release, sha256)
+    }
+
     private suspend fun getJson(url: String): String {
         val body = get(url, "application/json", MAX_JSON_BYTES)
         if (body.size >= MAX_JSON_BYTES) throw IOException("The console's answer is too long.")
         return body.decodeToString()
     }
 
-    private suspend fun get(url: String, accept: String, maxBytes: Long): ByteArray {
-        var answer = fetch(url, accept, maxBytes, auth.accessToken())
+    private suspend fun get(url: String, accept: String, maxBytes: Long): ByteArray = call(url, accept, maxBytes, null)
+
+    /** A GET, or with [jsonBody] a POST of that JSON. */
+    private suspend fun call(url: String, accept: String, maxBytes: Long, jsonBody: String?): ByteArray {
+        var answer = fetch(url, accept, maxBytes, auth.accessToken(), jsonBody)
         if (answer.status == 401) {
-            answer = fetch(url, accept, maxBytes, auth.accessToken(forceRefresh = true))
+            answer = fetch(url, accept, maxBytes, auth.accessToken(forceRefresh = true), jsonBody)
             if (answer.status == 401) {
                 auth.forget()
                 throw SignedOutException("The console no longer takes this sign-in. Sign in again.")
@@ -65,7 +82,7 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
 
     private class Answer(val status: Int, val body: ByteArray)
 
-    private suspend fun fetch(url: String, accept: String, maxBytes: Long, token: String): Answer =
+    private suspend fun fetch(url: String, accept: String, maxBytes: Long, token: String, jsonBody: String?): Answer =
         withContext(Dispatchers.IO) {
             val connection = URL(url).openConnection() as HttpURLConnection
             try {
@@ -75,6 +92,14 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
                 connection.useCaches = false
                 connection.setRequestProperty("Authorization", "Bearer $token")
                 connection.setRequestProperty("Accept", accept)
+                if (jsonBody != null) {
+                    val bytes = jsonBody.toByteArray(Charsets.UTF_8)
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setFixedLengthStreamingMode(bytes.size)
+                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    connection.outputStream.use { it.write(bytes) }
+                }
                 val status = connection.responseCode
                 val stream = if (status in 200..299) connection.inputStream else connection.errorStream
                 val limit = if (status in 200..299) maxBytes else MAX_JSON_BYTES

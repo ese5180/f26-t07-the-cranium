@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { HttpError, SMALL_BODY_LIMIT, field, readJsonObject } from '../src/http.mjs';
+import { PAIRING_NAME } from '../src/lib/shadow.mjs';
 import {
-  isThing, parseJobId, requireBase64, requireBoolean, requireFilename, requireJobId, requirePageSize,
-  requireText, requireThing, requireThings, requireVersion, strictVersion,
+  BLUETOOTH_NAME, isThing, parseJobId, requireBase64, requireBluetoothName, requireBoolean, requireFilename,
+  requireJobId, requirePageSize, requireSha256, requireText, requireThing, requireThings, requireVersion, strictVersion,
 } from '../src/lib/validate.mjs';
 
 function refuses(run, code, status = 400) {
@@ -157,6 +158,26 @@ test('uploaded data must be canonical base64', () => {
     '!!!!', '', null, undefined, 42, ['aGVsbG8='], Buffer.from('hello'),
   ];
   for (const value of bad) refuses(() => requireBase64(value, 'data'), 'invalid_data');
+});
+
+test('a SHA-256 is 64 lowercase hex digits, in no other spelling', () => {
+  const good = '0123456789abcdef'.repeat(4);
+  assert.equal(requireSha256(good), good);
+  for (const bad of [undefined, null, '', good.toUpperCase(), good.slice(1), `${good}0`, ` ${good}`, `${good}\n`,
+    `sha256:${good}`, 'g'.repeat(64), 42, [good], { sha256: good }]) {
+    refuses(() => requireSha256(bad), 'invalid_sha256');
+  }
+});
+
+test('a board\'s name over Bluetooth is Cranium- and four upper-case hex digits, or absent', () => {
+  for (const good of ['Cranium-1A2B', 'Cranium-0000', 'Cranium-FFFF']) assert.equal(requireBluetoothName(good), good);
+  assert.equal(requireBluetoothName(undefined), null);
+  for (const bad of [null, '', 'Cranium-1a2b', 'cranium-1A2B', 'Cranium-12345', 'Cranium-123', 'Cranium-1A2G',
+    'Cranium-1A2B\n', ' Cranium-1A2B', 'Cranium', 7, ['Cranium-1A2B']]) {
+    refuses(() => requireBluetoothName(bad), 'invalid_board');
+  }
+  // One grammar: the name a board reports while it pairs is the same.
+  assert.equal(PAIRING_NAME, BLUETOOTH_NAME);
 });
 
 test('the page size of the activity log is 1 to 100', () => {

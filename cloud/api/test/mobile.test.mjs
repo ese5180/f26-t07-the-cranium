@@ -1,9 +1,12 @@
-// Tests for the two calls the phone apps make for an update over Bluetooth
-// (docs/mobile-apps.md): the signed image of a release, and the passkey of the board a
-// phone is pairing with. Both are for release managers only, and both go on record.
+// Tests for the calls the phone apps make for an update over Bluetooth
+// (docs/mobile-apps.md): the signed image of a release, the passkey of the board a phone is
+// pairing with, and the check right before every send. All three are for release managers
+// only, and all three go on record. And for what a phone app's sign-in may reach: those
+// calls and a few reads, nothing else.
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { objectKey } from '../src/handlers/firmware.mjs';
@@ -49,7 +52,7 @@ test('a release manager gets the signed image of an active release, byte for byt
   assert.equal(added[0].detail.sha256, sha256(IMAGE));
 });
 
-test('a token from the phone apps\' client counts like one from the console', async () => {
+test('a token from the phone apps\' client counts like one from the console, where the apps call', async () => {
   const { call, manager, upload } = setup();
   await upload();
   const claims = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: 'localmobile' });
@@ -201,4 +204,222 @@ test('a board with its Bluetooth window open says so, and the console passes it 
   }, now);
   assert.equal(device.ota.state, 'bluetooth');
   assert.equal(device.online, true);
+});
+
+// What a phone app's sign-in reaches (app.mjs, "The phone apps").
+
+const PHONE_CLIENT = 'localmobile';
+const V = encodeURIComponent(VERSION);
+const SOME_DEPLOYMENT = 'cranium-1-2-3-b4-20261102T180000Z-abcd';
+
+/**
+ * Every route of the API, with a request that a release manager of the console may make in
+ * the world below, what the console's own session gets for it, and whether a phone app's
+ * session may make it. `body` is a function where it must be made afresh for each call.
+ */
+const ROUTES = [
+  { route: 'GET /api/me', status: 200, phone: true },
+  { route: 'GET /api/devices', status: 200, phone: true },
+  { route: 'GET /api/devices/{thing}', path: `/api/devices/${THING}`, status: 200, phone: true },
+  { route: 'GET /api/devices/{thing}/samples', path: `/api/devices/${THING}/samples`, status: 200, phone: false },
+  { route: 'GET /api/events', status: 200, phone: false },
+  { route: 'GET /api/firmware', status: 200, phone: true },
+  {
+    route: 'POST /api/firmware', status: 201, phone: false,
+    body: () => ({ filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+5.signed.bin').toString('base64'), notes: '' }),
+  },
+  { route: 'GET /api/firmware/{version}', path: `/api/firmware/${V}`, status: 200, phone: true },
+  { route: 'GET /api/firmware/{version}/image', path: `/api/firmware/${V}/image`, status: 200, phone: true },
+  { route: 'GET /api/pairing/{name}', path: '/api/pairing/Cranium-1A2B', status: 200, phone: true },
+  { route: 'POST /api/firmware/{version}/revoke', path: `/api/firmware/${V}/revoke`, status: 200, phone: false,
+    body: { reason: 'bricks the encoder' } },
+  { route: 'POST /api/firmware/{version}/bluetooth', path: `/api/firmware/${V}/bluetooth`, status: 200, phone: true,
+    body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } },
+  { route: 'GET /api/deployments', status: 200, phone: false },
+  { route: 'POST /api/deployments', status: 201, phone: false, body: { version: VERSION, things: [THING] } },
+  // No such deployment: the console's session gets as far as looking for it.
+  { route: 'GET /api/deployments/{id}', path: `/api/deployments/${SOME_DEPLOYMENT}`, status: 404, phone: false },
+  { route: 'POST /api/deployments/{id}/cancel', path: `/api/deployments/${SOME_DEPLOYMENT}/cancel`, status: 404,
+    phone: false, body: {} },
+  { route: 'GET /api/audit', status: 200, phone: false },
+  { route: 'GET /api/tokens', status: 200, phone: false },
+  { route: 'POST /api/tokens', status: 201, phone: false, body: { name: 'laptop' } },
+  { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: false, body: {} },
+];
+
+/** A console with a release, and a board online that is pairing as Cranium-1A2B. */
+async function world() {
+  const context = setup();
+  context.fake.addThing(THING);
+  context.fake.device(THING).setRaw(shadowWithPairing(context.clock.ms, 5000));
+  assert.equal((await context.upload()).status, 201);
+  const phone = accessClaims({ sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT });
+  return { ...context, phone };
+}
+
+function requestOf(entry) {
+  const [method, pattern] = entry.route.split(' ');
+  const body = typeof entry.body === 'function' ? entry.body() : entry.body;
+  return { method, path: entry.path ?? pattern, body };
+}
+
+/** What state a refused request must leave alone: releases, tokens, deployments. */
+function snapshot(fake) {
+  return JSON.stringify([[...fake.releases.entries()], [...fake.tokens.entries()], fake.calls.filter(
+    (call) => ['createJob', 'cancelJob', 'putFirmwareObject', 'registerRelease', 'markReleaseRevoked',
+      'tagFirmwareRevoked', 'putToken', 'markTokenRevoked'].includes(call.method)).length]);
+}
+
+test('the table below names every route of the API', () => {
+  const source = readFileSync(new URL('../src/app.mjs', import.meta.url), 'utf8');
+  const declared = [...source.matchAll(/\broute\('([A-Z]+)', '([^']+)'/g)].map(([, method, path]) => `${method} ${path}`);
+  assert.ok(declared.length > 15, `found ${declared.length} routes`);
+  assert.deepEqual(ROUTES.map((entry) => entry.route).sort(), [...declared].sort());
+});
+
+test('every route takes the console\'s session; a phone app\'s only where the apps call', async () => {
+  for (const entry of ROUTES) {
+    const { method, path, body } = requestOf(entry);
+
+    const ours = await world();
+    const console_ = await ours.call(method, path, { as: ours.manager, body });
+    assert.equal(console_.status, entry.status, `${entry.route} with the console's session: ${JSON.stringify(console_.body)}`);
+
+    const theirs = await world();
+    const before = theirs.fake.auditLog().length;
+    const untouched = snapshot(theirs.fake);
+    const phone = await theirs.call(method, path, { claims: theirs.phone, body: requestOf(entry).body });
+    if (entry.phone) {
+      // The same answer as the console's session gets, to the byte.
+      assert.equal(phone.status, entry.status, `${entry.route} with a phone app's session`);
+      if (Buffer.isBuffer(console_.body)) assert.ok(console_.body.equals(phone.body), entry.route);
+      else assert.deepEqual(phone.body, console_.body, entry.route);
+      continue;
+    }
+    assert.deepEqual([phone.status, phone.body.error?.code], [403, 'phone_not_allowed'], `${entry.route} with a phone app's session`);
+    assert.match(phone.body.error.message, /Sign in to the console instead\./);
+    assert.equal(snapshot(theirs.fake), untouched, `${entry.route}: nothing changed`);
+    // A write that is refused is on record, as every write is; a read is not.
+    const added = theirs.fake.auditLog().slice(before);
+    if (method === 'POST') {
+      assert.equal(added.length, 1, entry.route);
+      assert.deepEqual([added[0].outcome, added[0].actor.sub, added[0].detail.code],
+        ['denied', theirs.manager.sub, 'phone_not_allowed'], entry.route);
+    } else {
+      assert.equal(added.length, 0, entry.route);
+    }
+  }
+});
+
+test('a phone app\'s session reaches no address the API does not have, and still needs a member', async () => {
+  const { call, phone, viewer } = await world();
+  const nowhere = await call('GET', '/api/nowhere', { claims: phone });
+  assert.deepEqual([nowhere.status, nowhere.body.error.code], [403, 'phone_not_allowed']);
+  // On a route the apps call, everything else still applies: a viewer reads, and cannot download.
+  const viewers = accessClaims({ sub: viewer.sub, groups: ['viewers'], clientId: PHONE_CLIENT });
+  assert.equal((await call('GET', '/api/firmware', { claims: viewers })).status, 200);
+  const image = await call('GET', imagePath(VERSION), { claims: viewers });
+  assert.deepEqual([image.status, image.body.error.code], [403, 'release_manager_required']);
+  const nobody = accessClaims({ sub: viewer.sub, groups: [], clientId: PHONE_CLIENT });
+  const outsider = await call('GET', '/api/firmware', { claims: nobody });
+  assert.deepEqual([outsider.status, outsider.body.error.code], [403, 'forbidden']);
+});
+
+// POST /api/firmware/{version}/bluetooth: the check before every Bluetooth send.
+
+const sendPath = (version) => `/api/firmware/${encodeURIComponent(version)}/bluetooth`;
+
+test('an active release with the same SHA-256 may be sent, and the check is on record', async () => {
+  const { call, manager, upload, fake } = setup();
+  await upload();
+  const before = fake.auditLog().length;
+  const response = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { version: VERSION, sha256: sha256(IMAGE), status: 'active' });
+
+  // Without the board's name, too.
+  const bare = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: sha256(IMAGE) } });
+  assert.deepEqual(bare.body, response.body);
+
+  const added = fake.auditLog().slice(before);
+  assert.deepEqual(added.map((entry) => [entry.action, entry.outcome, entry.target, entry.actor.sub]), [
+    ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
+    ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
+  ]);
+  assert.deepEqual(added[0].detail, { sha256: sha256(IMAGE), board: 'Cranium-1A2B' });
+  assert.deepEqual(added[1].detail, { sha256: sha256(IMAGE) });
+  // It changes nothing: the release is as it was.
+  assert.equal((await call('GET', `/api/firmware/${encodeURIComponent(VERSION)}`, { as: manager })).body.release.status, 'active');
+});
+
+test('a revoked release, another image or an unknown version may not be sent, on record', async () => {
+  const { call, manager, upload, fake } = setup();
+  await upload();
+  const other = 'f'.repeat(64);
+  const before = fake.auditLog().length;
+
+  const mismatch = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: other, board: 'Cranium-1A2B' } });
+  assert.deepEqual([mismatch.status, mismatch.body.error.code], [409, 'sha256_mismatch']);
+  const unknown = await call('POST', sendPath('9.9.9+9'), { as: manager, body: { sha256: sha256(IMAGE) } });
+  assert.deepEqual([unknown.status, unknown.body.error.code], [404, 'unknown_version']);
+
+  const revoked = await call('POST', `/api/firmware/${encodeURIComponent(VERSION)}/revoke`, {
+    as: manager, body: { reason: 'bricks the encoder' },
+  });
+  assert.equal(revoked.status, 200);
+  const refused = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: sha256(IMAGE) } });
+  assert.deepEqual([refused.status, refused.body.error.code], [409, 'release_revoked']);
+
+  const added = fake.auditLog().slice(before).filter((entry) => entry.action === 'firmware.bluetooth_send');
+  assert.deepEqual(added.map((entry) => [entry.outcome, entry.target, entry.detail.code, entry.detail.sha256]), [
+    ['rejected', VERSION, 'sha256_mismatch', other],
+    ['rejected', '9.9.9+9', 'unknown_version', sha256(IMAGE)],
+    ['rejected', VERSION, 'release_revoked', sha256(IMAGE)],
+  ]);
+  assert.equal(added[0].detail.board, 'Cranium-1A2B');
+});
+
+test('the check takes a SHA-256 and a board\'s name in exactly one spelling each', async () => {
+  const { call, manager, upload, fake } = setup();
+  await upload();
+  const good = sha256(IMAGE);
+  for (const value of [undefined, null, '', good.toUpperCase(), good.slice(1), `${good}0`, ` ${good}`, 42, [good]]) {
+    const response = await call('POST', sendPath(VERSION), { as: manager, body: value === undefined ? {} : { sha256: value } });
+    assert.deepEqual([response.status, response.body.error.code], [400, 'invalid_sha256'], JSON.stringify(value));
+  }
+  for (const board of [null, '', 'cranium-1a2b', 'Cranium-1a2b', 'Cranium-12345', 'Cranium-1A2', 'Cranium-1A2G', 7, ['Cranium-1A2B']]) {
+    const response = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: good, board } });
+    assert.deepEqual([response.status, response.body.error.code], [400, 'invalid_board'], JSON.stringify(board));
+  }
+  const badVersion = await call('POST', '/api/firmware/not-a-version/bluetooth', { as: manager, body: { sha256: good } });
+  assert.deepEqual([badVersion.status, badVersion.body.error.code], [400, 'invalid_version']);
+  const notJson = await call('POST', sendPath(VERSION), { as: manager, body: '{' });
+  assert.deepEqual([notJson.status, notJson.body.error.code], [400, 'invalid_json']);
+  const large = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: good, pad: 'x'.repeat(20_000) } });
+  assert.deepEqual([large.status, large.body.error.code], [413, 'payload_too_large']);
+  // Each refusal is on record, as every write is.
+  assert.ok(fake.auditLog().filter((entry) => entry.action === 'firmware.bluetooth_send' && entry.outcome === 'rejected').length >= 21);
+});
+
+test('a viewer may not send, and the refusal is on record', async () => {
+  const { call, viewer, upload, fake } = setup();
+  await upload();
+  const before = fake.auditLog().length;
+  const response = await call('POST', sendPath(VERSION), { as: viewer, body: { sha256: sha256(IMAGE) } });
+  assert.deepEqual([response.status, response.body.error.code], [403, 'release_manager_required']);
+  const added = fake.auditLog().slice(before);
+  assert.deepEqual(added.map((entry) => [entry.action, entry.outcome]), [['firmware.bluetooth_send', 'denied']]);
+});
+
+test('a release manager\'s API token may ask too, and the entry names the token', async () => {
+  const { call, manager, upload, fake } = setup();
+  await upload();
+  const made = await call('POST', '/api/tokens', { as: manager, body: { name: 'bench' } });
+  assert.equal(made.status, 201);
+  const response = await call('POST', `/api/t/firmware/${encodeURIComponent(VERSION)}/bluetooth`, {
+    token: made.body.token, body: { sha256: sha256(IMAGE) },
+  });
+  assert.equal(response.status, 200);
+  const entry = fake.auditLog().at(-1);
+  assert.deepEqual([entry.action, entry.outcome, entry.detail.token], ['firmware.bluetooth_send', 'ok', made.body.id]);
 });

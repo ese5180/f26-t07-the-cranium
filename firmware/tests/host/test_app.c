@@ -2917,9 +2917,9 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	struct diag_values values = { .channel = 6, .heap_free = 21312, .heap_least = 9840, .heap_size = 44240 };
 	char text[160];
 
-	strcpy(values.mac, "f4:ce:36:00:8b:c9");
+	strcpy(values.mac, "f4:ce:36:12:34:56");
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
-	CHECK(strcmp(text, "{\"diag\":{\"mac\":\"f4:ce:36:00:8b:c9\",\"channel\":6,"
+	CHECK(strcmp(text, "{\"diag\":{\"mac\":\"f4:ce:36:12:34:56\",\"channel\":6,"
 			   "\"heap\":{\"free\":21312,\"least\":9840,\"size\":44240}}}") == 0);
 
 	/* Anything that is not an address does not go into the JSON. */

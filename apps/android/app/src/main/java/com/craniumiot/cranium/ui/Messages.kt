@@ -5,6 +5,7 @@ import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.CacheSummary
 import com.craniumiot.cranium.core.ImageOrigin
+import com.craniumiot.cranium.core.SendNotCleared
 import kotlinx.serialization.SerializationException
 import no.nordicsemi.android.mcumgr.ble.exception.McuMgrBluetoothDisabledException
 import no.nordicsemi.android.mcumgr.ble.exception.McuMgrDisconnectedException
@@ -54,6 +55,22 @@ object Messages {
             "Open a new window and send it again: it starts over."
         else -> "The upload failed (${e.message ?: e.javaClass.simpleName}). " +
             "Open a new window and send it again: it starts over."
+    }
+
+    /** Next to the passkey: the board the console says is pairing under this name. */
+    fun boardInConsole(thing: String): String = "Board in the console: $thing"
+
+    /**
+     * Why an image was not sent: the console did not clear it right before the upload. Offline is
+     * a refusal too: an image kept on the phone is never sent without the console's word.
+     */
+    fun notCleared(version: String, e: Throwable): String = when (e) {
+        is SendNotCleared -> e.message ?: "The console did not clear $version, so nothing was sent."
+        is ApiError -> "The console did not clear $version for sending, so nothing was sent. ${e.message}"
+        is IOException -> "Could not reach the console to check that $version may still be sent, so nothing was sent. " +
+            "An image kept on this phone is only sent once the console says the release is still active. " +
+            "Check the phone's connection, then send again."
+        else -> "Nothing was sent: ${describe(e)}"
     }
 
     /** Where the image that is sent came from, and its size. */

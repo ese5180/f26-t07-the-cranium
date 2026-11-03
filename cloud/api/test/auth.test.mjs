@@ -93,14 +93,17 @@ test('a request without the expected claims is refused', () => {
   refused(eventWith({ ...good, client_id: undefined }), undefined);
 });
 
-test('the caller is described by sub, console groups and expiry', () => {
+test('the caller is described by sub, console groups, expiry and app client', () => {
   const caller = authenticate(eventWith({
     ...accessClaims({ sub: SUB, groups: ['viewers', 'some-other-group', 'release-managers'], exp: 1787988914 }),
   }), CLIENT);
-  assert.deepEqual(caller, { sub: SUB, groups: ['release-managers', 'viewers'], expiresAt: 1787988914 });
+  assert.deepEqual(caller, { sub: SUB, groups: ['release-managers', 'viewers'], expiresAt: 1787988914, clientId: CLIENT });
 
   const bare = authenticate(eventWith({ sub: SUB, token_use: 'access', client_id: CLIENT }), CLIENT);
-  assert.deepEqual(bare, { sub: SUB, groups: [], expiresAt: null });
+  assert.deepEqual(bare, { sub: SUB, groups: [], expiresAt: null, clientId: CLIENT });
+  // Of two accepted clients, the one the token names.
+  const phone = authenticate(eventWith(accessClaims({ sub: SUB, clientId: 'localmobile' })), [CLIENT, 'localmobile']);
+  assert.equal(phone.clientId, 'localmobile');
   for (const exp of ['', 'soon', null, true, [5], '12.5', '-3']) {
     const claims = { ...accessClaims({ sub: SUB }), exp };
     assert.equal(authenticate(eventWith(claims), CLIENT).expiresAt, null);

@@ -27,6 +27,8 @@ final class AppModel: ObservableObject {
         /// Checking the image the phone holds for this release, if any.
         case checking(String)
         case downloading(String)
+        /// Asking the console, right before the upload, whether the image may still be sent.
+        case confirming(String)
         case uploading(UploadProgress)
         /// The image has arrived. The person presses Button 1.
         case sent(String)
@@ -58,6 +60,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var running: FirmwareVersion?
     @Published private(set) var offered: [FirmwareRelease] = []
     @Published private(set) var passkey: String?
+    /// The board the console says is pairing under this name, shown with the passkey.
+    @Published private(set) var consoleThing: String?
     /// Set once the cloud has said, for a while, that it has no passkey for this board.
     @Published private(set) var passkeyNotInCloud = false
     @Published private(set) var uploadStarted: Date?
@@ -260,6 +264,7 @@ final class AppModel: ObservableObject {
         running = nil
         offered = []
         passkey = nil
+        consoleThing = nil
         passkeyNotInCloud = false
         thing = nil
         device = nil
@@ -292,6 +297,7 @@ final class AppModel: ObservableObject {
                 if let pairing = try? await api.pairing(name: name) {
                     self.passkey = pairing.passkey
                     self.thing = pairing.thing
+                    self.consoleThing = BoardName.isThing(pairing.thing) ? pairing.thing : nil
                     self.passkeyNotInCloud = false
                 } else if self.passkey == nil, Date().timeIntervalSince(started) > 8 {
                     self.passkeyNotInCloud = true
@@ -311,7 +317,7 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled, let self, let session = self.session else { return }
                 switch self.boardStage {
-                case .choose, .checking, .downloading: break
+                case .choose, .checking, .downloading, .confirming: break
                 default: continue
                 }
                 do {
@@ -324,13 +330,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Sends the chosen release: its checked image, from this session, the phone or a download,
+    /// once the console has said, right now, that it may still be sent. Without that answer,
+    /// offline included, nothing is sent (docs/mobile-apps.md, step 6).
     func send() async {
-        guard let session, let release = offered.first(where: { $0.version == preferred }) else { return }
+        guard let session, let api, let release = offered.first(where: { $0.version == preferred }) else { return }
         do {
             boardStage = .checking(release.version)
             let obtained = try await image(for: release) { @MainActor [weak self] in
                 self?.boardStage = .downloading(release.version)
             }
+            boardStage = .confirming(release.version)
+            try await api.confirmSend(obtained.image, board: boardName)
             keepAlive?.cancel()
             sending = obtained
             boardStage = .uploading(UploadProgress(sent: 0, total: obtained.size))

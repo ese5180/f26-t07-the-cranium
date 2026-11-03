@@ -1,5 +1,6 @@
 /**
- * Firmware releases: list, upload, look up and revoke.
+ * Firmware releases: list, upload, look up and revoke, and the check a phone app makes before
+ * it sends a release to a board over Bluetooth.
  *
  * A release exists only for an image that this server has verified itself: a
  * well-formed MCUboot image, built for this product's flash layout, whose SHA-256 and
@@ -28,7 +29,8 @@ import { createHash } from 'node:crypto';
 import { HttpError, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import { ImageError, compareVersions, formatVersion, validateImage } from '../lib/mcuboot.mjs';
 import {
-  MAX_NOTES, MAX_REASON, requireBase64, requireFilename, requireText, requireVersion, strictVersion,
+  MAX_NOTES, MAX_REASON, requireBase64, requireBluetoothName, requireFilename, requireSha256, requireText,
+  requireVersion, strictVersion,
 } from '../lib/validate.mjs';
 
 // Enough for an image that fills the slot, base64 encoded, with its notes.
@@ -213,6 +215,44 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
       entry.detail.sha256 = release.sha256;
       const safeName = /^[A-Za-z0-9._+-]{1,64}$/.test(release.filename ?? '') ? release.filename : 'cranium.signed.bin';
       return { file: { data, name: safeName } };
+    },
+
+    /**
+     * POST /api/firmware/{version}/bluetooth, body { "sha256": "<hex>", "board": "Cranium-1A2B" }
+     * with "board" optional: may this image be sent to a board over Bluetooth now? A phone app
+     * asks right before every send, whether its image was downloaded just now, kept from
+     * earlier, or held in memory, and sends nothing unless the answer is 200 with the same
+     * SHA-256. Only an active release whose image has exactly that SHA-256 gets it.
+     *
+     * Nothing changes, but the question goes on record (firmware.bluetooth_send), its refusals
+     * included, so that a send leaves a trace even when it needed no download. What the board
+     * finally takes is not known here: the board does not report a Bluetooth upload.
+     *
+     * The board cannot be made to enforce a revocation. A board takes any image that is
+     * signed with the project's key and newer than what it runs, from whoever is at it with a
+     * window open; this check holds the apps to the console's word, not anyone else.
+     */
+    async bluetooth({ params, json, entry }) {
+      const version = versionInPath(params.version);
+      entry.target = version.text;
+      const body = json();
+      const sha256 = requireSha256(field(body, 'sha256'));
+      entry.detail.sha256 = sha256;
+      const board = requireBluetoothName(field(body, 'board'));
+      if (board !== null) entry.detail.board = board;
+
+      const release = await findRelease(version);
+      if (release === null || release.version !== version.text) {
+        throw notFound('unknown_version', `There is no release ${version.text}.`);
+      }
+      if (release.status !== 'active') {
+        throw conflict('release_revoked', `Release ${version.text} is revoked. Do not send it to a board.`);
+      }
+      if (release.sha256 !== sha256) {
+        throw conflict('sha256_mismatch', `That image is not the one of release ${version.text}: ` +
+          'its SHA-256 is different. Do not send it to a board.');
+      }
+      return { body: { version: release.version, sha256: release.sha256, status: 'active' } };
     },
 
     async upload({ actor, json, entry }) {

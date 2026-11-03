@@ -80,7 +80,8 @@ export function claimedSub(event) {
 /**
  * Identify the caller, or throw 401. Fails closed: anything missing or unexpected is
  * a refusal. `clientIds` is the app client, or the list of them, whose tokens count:
- * the console's and the phone apps'.
+ * the console's and the phone apps'. `clientId` in the answer says which one the token
+ * was made for, so that a route can take one of them only (app.mjs).
  */
 export function authenticate(event, clientIds) {
   const claims = claimsOf(event);
@@ -97,6 +98,7 @@ export function authenticate(event, clientIds) {
     // Only the two groups of this console matter; other names are not echoed.
     groups: CONSOLE_GROUPS.filter((name) => groups.includes(name)),
     expiresAt: numericClaim(claims.exp),
+    clientId: claims.client_id,
   };
 }
 

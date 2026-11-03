@@ -74,6 +74,7 @@ class OAuthTest {
                 "code_challenge" to rfcChallenge,
                 "code_challenge_method" to "S256",
                 "state" to "af0ifjsldkj",
+                "prompt" to "login",
             ),
             query(url),
         )
@@ -81,7 +82,23 @@ class OAuthTest {
         assertTrue(url.contains("&scope=openid+cranium%2Fconsole&"))
         assertTrue(url.contains("&redirect_uri=cranium%3A%2F%2Fsignin&"))
         // No nonce, no client secret, nothing else.
-        assertEquals(7, query(url).size)
+        assertEquals(8, query(url).size)
+    }
+
+    @Test
+    fun `every sign-in asks for the password again, so a sign-out ends the managed login's session too`() {
+        val request = AuthorizeRequest.create(exampleValue("loginDomain"), "client", "cranium://signin")
+        assertEquals("login", request.prompt)
+        assertEquals("login", query(request.url()).toMap()["prompt"])
+        // AppAuth's request is built with android.net.Uri, which a JVM test cannot make, so this
+        // checks that AuthManager hands AppAuth the same prompt, once, before the request is built.
+        val source = listOf(
+            "src/main/java/com/craniumiot/cranium/auth/AuthManager.kt",
+            "app/src/main/java/com/craniumiot/cranium/auth/AuthManager.kt",
+        ).map(::File).first { it.isFile }.readText()
+        val built = source.substringAfter("AuthorizationRequest.Builder(").substringBefore(".build()")
+        assertEquals(1, Regex("""\.setPrompt\(spec\.prompt\)""").findAll(built).count())
+        assertEquals(1, Regex("""\.setPrompt\(""").findAll(source).count())
     }
 
     @Test
@@ -111,6 +128,7 @@ class OAuthTest {
         assertEquals("https://console.example.com/api/firmware", paths.firmware)
         assertEquals("https://console.example.com/api/firmware/1.8.0%2B0/image", paths.image("1.8.0+0"))
         assertEquals("https://console.example.com/api/pairing/Cranium-1A2B", paths.pairing("Cranium-1A2B"))
+        assertEquals("https://console.example.com/api/firmware/1.8.0%2B0/bluetooth", paths.bluetooth("1.8.0+0"))
         assertEquals("a%20b%2Fc%C3%A9", ApiPaths.encodeSegment("a b/cé"))
     }
 
@@ -119,5 +137,13 @@ class OAuthTest {
         listOf("Cranium-1A2B", "Cranium-0000", "Cranium-FFFF").forEach { assertTrue(it, BoardBluetooth.isBoardName(it)) }
         listOf(null, "", "Cranium-1a2b", "Cranium-12345", "Cranium-123", "cranium-1A2B", "Cranium-1A2G", "Cranium")
             .forEach { assertTrue("$it", !BoardBluetooth.isBoardName(it)) }
+    }
+
+    @Test
+    fun `a board's name in the console is cranium- and 16 lower-case hex digits`() {
+        assertTrue(BoardBluetooth.isThing("cranium-0123456789abcdef"))
+        listOf(null, "", "cranium-0123456789ABCDEF", "cranium-0123456789abcde", "cranium-0123456789abcdef0",
+            "Cranium-1A2B", "cranium-0123456789abcdeg", " cranium-0123456789abcdef")
+            .forEach { assertTrue("$it", !BoardBluetooth.isThing(it)) }
     }
 }

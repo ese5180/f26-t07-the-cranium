@@ -717,7 +717,7 @@ From firmware 1.10.0 the board also sends a `diag` report to its device shadow, 
 minutes after (`CONFIG_APP_DIAG_INTERVAL_SECONDS`), apart from the heartbeat so that the heartbeat stays short:
 
 ```json
-{"diag": {"mac": "f4:ce:36:00:8b:c9", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
+{"diag": {"mac": "f4:ce:36:12:34:56", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
 ```
 
 `mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not

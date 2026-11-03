@@ -12,6 +12,9 @@ class ApiPaths(consoleUrl: String) {
 
     fun pairing(name: String): String = "$base/api/pairing/${encodeSegment(name)}"
 
+    /** The check right before every Bluetooth send: may this image of the release be sent now? */
+    fun bluetooth(version: String): String = "$base/api/firmware/${encodeSegment(version)}/bluetooth"
+
     fun device(thing: String): String = "$base/api/devices/${encodeSegment(thing)}"
 
     companion object {

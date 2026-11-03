@@ -10,6 +10,12 @@ public enum UserMessage {
     public static let pressButton = "At the board, press Button 1 within 2 minutes to install it. Button 2 throws it away."
     public static let afterInstall = "The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT. Its LEDs and console are the real answer."
 
+    /// Next to the passkey: the board the console says is pairing under this name, so that a person
+    /// can notice when it is not the board in front of them.
+    public static func boardInConsole(_ thing: String) -> String {
+        "Board in the console: \(thing)"
+    }
+
     /// Where the image that is sent came from, and its size.
     public static func origin(of image: ObtainedImage) -> String {
         switch image.origin {
@@ -47,6 +53,8 @@ public enum UserMessage {
             return error.message
         case let error as ImageCheckError:
             return "The image failed its check, so nothing was sent. \(error.errorDescription ?? "")"
+        case let error as SendCheckError:
+            return error.errorDescription ?? "The console did not clear the image, so nothing was sent."
         case let error as AuthError:
             return error.errorDescription ?? "Sign-in failed."
         case let error as ConfigError:

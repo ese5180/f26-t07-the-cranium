@@ -18,6 +18,16 @@ public enum BoardName {
             ("0"..."9").contains($0) || ("A"..."F").contains($0)
         }
     }
+
+    /// A board's name in the console, its AWS IoT thing: `cranium-` and 16 lower-case hex digits.
+    public static func isThing(_ thing: String) -> Bool {
+        let prefix = "cranium-"
+        guard thing.hasPrefix(prefix) else { return false }
+        let digits = thing.dropFirst(prefix.count)
+        return digits.count == 16 && digits.unicodeScalars.allSatisfy {
+            ("0"..."9").contains($0) || ("a"..."f").contains($0)
+        }
+    }
 }
 
 /// One slot of `image list`.

@@ -68,8 +68,11 @@ export function createTokenHandlers({ aws, now, randomHex, log, directory }) {
   return {
     /**
      * Who sent a request to /api/t/: the owner of its token, as Cognito describes them now.
-     * Fills in `request.sub` and `request.token` as soon as the token names its owner, so
-     * that a refusal from then on goes on record in that person's name.
+     * Fills in `request.token` ({ id, status }) once the token is found, for the log line,
+     * and `request.sub` once it is found to be active, so that a refusal from then on goes on
+     * record in its owner's name. A revoked or expired token names nobody: a request with
+     * one leaves no entry in the activity log, only its log line (app.mjs), so that whoever
+     * holds such a token cannot fill the log in its owner's name.
      *
      * @returns {{ caller: object, email: string }}  caller as auth.authenticate describes one
      */
@@ -80,10 +83,10 @@ export function createTokenHandlers({ aws, now, randomHex, log, directory }) {
       const record = tokenFromItem(await aws.getToken(digest));
       if (record === null || !sameDigest(record.digest, digest)) throw tokenRefused();
 
-      request.sub = record.ownerSub;
       const status = tokenStatus(record, now());
       request.token = { id: record.id, status };
       if (status !== 'active') throw tokenRefused();
+      request.sub = record.ownerSub;
 
       const account = await directory.liveAccount(record.ownerSub);
       return {

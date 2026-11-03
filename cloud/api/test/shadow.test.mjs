@@ -272,7 +272,7 @@ test('the reports beside the heartbeat are read field by field: stuck, diagnosti
     state: { reported: {
       ...healthy(),
       stuck: { count: 2, reason: 'wifi_silent' },
-      diag: { mac: 'F4:CE:36:00:8B:C9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
+      diag: { mac: 'F4:CE:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
       diary: { boots: 42, log: ['1.7.4+0/8/4', '1.10.0+0/10/3', '1.10.0+0/1/1'] },
       bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
       btpair: { name: 'Cranium-1A2B', passkey: '480913' },
@@ -281,7 +281,7 @@ test('the reports beside the heartbeat are read field by field: stuck, diagnosti
   }, NOW);
   assert.deepEqual(device.stuck, { count: 2, reason: 'wifi_silent' });
   assert.deepEqual(device.diag, {
-    mac: 'f4:ce:36:00:8b:c9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 },
+    mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 },
     at: new Date((SEEN - 60) * 1000).toISOString(),
   });
   // Newest first: the boot that is running, why the one before it ended, how far each got.

@@ -37,6 +37,10 @@ phone or was downloaded, and its size. The rules are in
 [`docs/mobile-apps.md`](../../docs/mobile-apps.md#cache), and the code in `FirmwareCache.swift`
 and `FirmwareCachePolicy.swift`.
 
+Whatever the image came from, the app asks the console right before every upload whether the
+release is still active and the image still its own, and sends nothing without that yes, offline
+included (`SendCheck.swift`).
+
 ## What you need
 
 - A Mac with a current Xcode (16 or later; App Store Connect only takes builds from recent
@@ -93,7 +97,7 @@ is false), so App Store Connect does not ask about export compliance.
 apps/ios/scripts/check.sh
 ```
 
-It builds the package, runs its tests (103 of them, Swift Testing; the firmware cache's on real
+It builds the package, runs its tests (111 of them, Swift Testing; the firmware cache's on real
 files in a temporary folder), type-checks the app's sources
 against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only the Command
 Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.

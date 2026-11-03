@@ -191,7 +191,8 @@ test('every icon that a description names is drawn', () => {
     }
   }
   for (const counted of core.describeCounts(counts)) named.add(counted.icon);
-  const actions = ['firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel', 'new'];
+  const actions = ['firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
+    'firmware.download', 'pairing.read', 'firmware.bluetooth_send', 'token.create', 'token.revoke', 'new'];
   for (const action of actions) {
     for (const outcome of ['ok', 'rejected', 'denied', 'error', 'new']) {
       const line = core.describeAudit({ action, target: 'x', outcome, detail: [] });
@@ -2317,6 +2318,23 @@ test('the activity log says what it covers, without claiming more', async () => 
   assert.match(deployments, /A job made directly in AWS IoT is not listed here/);
   // What a board does depends on what it runs, and this says so.
   assert.match(deployments, /A board on firmware 1\.7\.2 or newer starts as soon as it sees it, and older firmware waits for someone to press Button 1/);
+});
+
+test('the activity log counts the sends over Bluetooth a phone was cleared for', async () => {
+  const sha = 'ab'.repeat(32);
+  const entries = [
+    entry('firmware.bluetooth_send', '2.0.0+0', { at: ago(30), detail: { sha256: sha, board: 'Cranium-1A2B' } }),
+    entry('firmware.bluetooth_send', '2.0.0+0', { at: ago(20), outcome: 'rejected', detail: { sha256: sha, code: 'release_revoked' } }),
+  ];
+  const drawn = page(views.activityView, await consoleState({ ...WORLD, entries }));
+  const summary = textOf(one(drawn, 'p.log-summary'));
+  assert.match(summary, /2 sends over Bluetooth/);
+  assert.match(summary, /1 refused or failed/);
+  const text = textOf(drawn);
+  assert.match(text, /was cleared to send over Bluetooth/);
+  assert.match(text, /tried to send over Bluetooth/);
+  assert.match(text, /The release is revoked/);
+  assert.match(text, /Cranium-1A2B/);
 });
 
 test('a declined deployment is told as what it was, and is offered again only where that can work', async () => {

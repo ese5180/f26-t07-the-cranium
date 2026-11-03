@@ -44,7 +44,14 @@ echo "== swift test"
 swift test -j "$JOBS" ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
 
 echo "== the app's sources, type-checked for macOS 13 (the nearest to iOS 16 this Mac has)"
-MODULES="$(swift build -j "$JOBS" --show-bin-path)/Modules"
+BIN="$(swift build -j "$JOBS" --show-bin-path)"
+# Swift 6.3 kept the built modules in <bin>/Modules; the Command Line Tools for Xcode 27 build into
+# .build/out/Products/<configuration>, with the modules beside the products.
+MODULES="$BIN/Modules"
+if [[ ! -d "$MODULES" ]]; then
+  MODULES="$(cd "$IOS_DIR/CraniumKit" && pwd)/.build/out/Products/Debug"
+fi
+[[ -d "$MODULES" ]] || { echo "error: the built modules were not found under $BIN" >&2; exit 1; }
 xcrun swiftc -typecheck -parse-as-library -swift-version 5 \
   -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macosx13.0" \
   -I "$MODULES" "$IOS_DIR"/App/*.swift "$IOS_DIR"/App/Views/*.swift

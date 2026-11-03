@@ -268,7 +268,7 @@ private fun ColumnScope.BoardScreen(
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onLeave, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) { Text("Stop") }
         }
-        BoardPhase.READY, BoardPhase.DOWNLOADING, BoardPhase.CHECKING -> {
+        BoardPhase.READY, BoardPhase.DOWNLOADING, BoardPhase.CHECKING, BoardPhase.CONFIRMING -> {
             Text("The board runs ${board.running}.", style = MaterialTheme.typography.bodyLarge)
             if (board.offer.isNotEmpty()) {
                 Text(
@@ -292,6 +292,7 @@ private fun ColumnScope.BoardScreen(
                 when (board.phase) {
                     BoardPhase.DOWNLOADING -> Busy("Downloading ${board.selected} from the console…")
                     BoardPhase.CHECKING -> Busy("Checking the image of ${board.selected}…")
+                    BoardPhase.CONFIRMING -> Busy("Asking the console whether ${board.selected} may still be sent…")
                     else -> Unit
                 }
                 Button(
@@ -377,6 +378,11 @@ private fun PasskeyCard(board: BoardUi) {
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
+                // Which board the console gave this passkey for, so that a person can notice when it
+                // is not the board in front of them.
+                board.consoleThing?.let { thing ->
+                    Text(Messages.boardInConsole(thing), style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                }
             }
             board.passkeyNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
         }

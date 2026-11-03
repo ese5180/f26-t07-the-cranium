@@ -28,7 +28,7 @@
  * too, in `testing`, for the swap back, and offline is what that should look like.
  */
 
-import { parseJobId, strictVersion } from './validate.mjs';
+import { BLUETOOTH_NAME, parseJobId, strictVersion } from './validate.mjs';
 
 export const ONLINE_WINDOW_MS = 90_000;
 export const RESTART_WINDOW_MS = 240_000;
@@ -64,7 +64,7 @@ function oneOf(value, allowed) {
 //   { "diary": { "boots": 42, "log": ["1.10.0+0/10/4", ...] } }       on connecting, from 1.7.4
 //   { "bt": { "from": "1.5.0+0", "to": "1.6.0+0", "result": "succeeded",
 //             "proof": "person", "count": 3 } }                       on connecting, from 1.9.0
-//   { "diag": { "mac": "f4:ce:36:00:8b:c9", "channel": 6,
+//   { "diag": { "mac": "f4:ce:36:12:34:56", "channel": 6,
 //               "heap": { "free": 21312, "least": 9840, "size": 44240 } } }   every 5 min, from 1.10.0
 //
 // A stuck reason the console does not know yet is kept if it looks like one: a later firmware
@@ -238,7 +238,7 @@ export function deviceFromShadow(thing, shadow, nowMs) {
 //
 // and clears it when the window closes. A passkey is good for one attempt, in a window of
 // 2 minutes, so a report older than this is not handed out, whatever the board last said.
-export const PAIRING_NAME = /^Cranium-[0-9A-F]{4}$/;
+export const PAIRING_NAME = BLUETOOTH_NAME;
 export const PAIRING_FRESH_MS = 150_000;
 const PASSKEY = /^\d{6}$/;
 // How far ahead of this server's clock a report may seem to be.

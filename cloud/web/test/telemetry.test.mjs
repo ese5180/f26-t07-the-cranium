@@ -488,7 +488,7 @@ test('a failed load of the events says so, with a way to try again', async () =>
 function diagnosed(thing, changes = {}) {
   return board(thing, {
     stuck: { count: 2, reason: 'wifi_silent' },
-    diag: { mac: 'f4:ce:36:00:8b:c9', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: at(4 * MINUTE) },
+    diag: { mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: at(4 * MINUTE) },
     diary: { boots: 9, entries: [
       { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 4 },
       { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
@@ -521,7 +521,7 @@ test('the Diagnostics page has a card for each of a few boards, with what each r
   assert.match(text, /1\.10\.0\+0 Confirmed/);
   assert.match(text, /2 in a row Restarted itself 2 times in a row for being stuck; the last time because the Wi-Fi chip stopped answering/);
   assert.match(text, /Excellent · −52 dBm/);
-  assert.match(text, /Channel 6 · MAC f4:ce:36:00:8b:c9/);
+  assert.match(text, /Channel 6 · MAC f4:ce:36:12:34:56/);
   assert.match(text, /21 KiB free of 43 KiB/);
   assert.match(text, /0123456789abcdef…/);
   const boots = all(first, 'table.boot-table')[0].children[2].children.map((row) => row.children.map((cell) => textOf(cell)));

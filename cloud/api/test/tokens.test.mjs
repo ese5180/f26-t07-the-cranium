@@ -276,13 +276,44 @@ test('a token stops working when it expires', async () => {
   const listed = await call('GET', '/api/tokens', { as: manager });
   assert.equal(listed.body.tokens[0].status, 'expired');
 
-  // A write with it goes on record in the owner's name, with why it was refused.
+  // A write with it gets the same answer, and leaves no entry: an expired token names nobody
+  // any more. The log line says which token it was, and that it had expired.
+  const { logs } = context;
   const before = fake.auditLog().length;
-  assert.equal((await call('POST', '/api/t/firmware', { token, body: upload() })).status, 401);
-  const [entry] = fake.auditLog().slice(before);
-  assert.deepEqual([entry.action, entry.outcome, entry.actor, entry.detail],
-    ['firmware.upload', 'denied', { sub: manager.sub, email: manager.email },
-      { token: id, tokenState: 'expired', code: 'invalid_token' }]);
+  const mark = fake.calls.length;
+  const write = await call('POST', '/api/t/firmware', { token, body: upload(), requestId: 'req-expired' });
+  assert.deepEqual([write.status, write.body.error.code], [401, 'invalid_token']);
+  assert.equal(fake.auditLog().length, before);
+  // One lookup by digest, and nobody asked about its owner.
+  assert.deepEqual(fake.methodsCalled().slice(mark), ['getToken']);
+  const line = logs.find((entry) => entry.requestId === 'req-expired' && entry.event === undefined);
+  assert.deepEqual([line.via, line.token, line.tokenState, line.sub, line.status, line.route],
+    ['token', id, 'expired', null, 401, 'POST /api/firmware']);
+});
+
+test('a revoked token fills no activity log, however often it is used', async () => {
+  const context = setup();
+  const { call, fake, manager, make, logs } = context;
+  const { token, id } = await make(manager, { name: 'leaked' });
+  assert.equal((await call('POST', `/api/tokens/${id}/revoke`, { as: manager })).status, 200);
+  const before = fake.auditLog().length;
+  const writes = [['/api/t/firmware', upload()], ['/api/t/deployments', { version: '1.2.3+4', things: [BOARD] }],
+    ['/api/t/firmware/1.2.3+4/revoke', { reason: 'x' }], ['/api/t/firmware/1.2.3+4/bluetooth', { sha256: 'a'.repeat(64) }]];
+  for (let round = 0; round < 5; round += 1) {
+    for (const [path, body] of writes) {
+      const response = await call('POST', path, { token, body, requestId: `req-${round}-${path.length}` });
+      assert.deepEqual([response.status, response.body.error.code], [401, 'invalid_token'], path);
+    }
+    const read = await call('GET', '/api/t/firmware/1.2.3+4/image', { token });
+    assert.deepEqual([read.status, read.body.error.code], [401, 'invalid_token']);
+  }
+  assert.equal(fake.auditLog().length, before);
+  // The same answer as for a token that never existed, and a log line for each request.
+  const unknown = await call('POST', '/api/t/firmware', { token: newToken(), body: upload() });
+  assert.deepEqual(unknown.body.error.message, (await call('POST', '/api/t/firmware', { token, body: upload() })).body.error.message);
+  const refused = logs.filter((line) => line.via === 'token' && line.token === id);
+  assert.equal(refused.length, 26);
+  assert.ok(refused.every((line) => line.tokenState === 'revoked' && line.status === 401 && line.sub === null));
 });
 
 test('the owner revokes a token on the website, and it stops working at once', async () => {
@@ -457,13 +488,19 @@ test('tokens are made and ended on the website: a phone app\'s session cannot', 
   const { call, fake, manager, make, config } = setup();
   const { id } = await make(manager);
   const phone = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId });
-  // The phone's session is good for the rest of the API.
+  // The phone's session is good for what the apps call.
   assert.equal((await call('GET', '/api/firmware', { claims: phone })).status, 200);
+  const before = fake.auditLog().length;
   for (const [method, path, body] of [['GET', '/api/tokens'], ['POST', '/api/tokens', { name: 'from a phone' }],
     ['POST', `/api/tokens/${id}/revoke`, {}]]) {
     const response = await call(method, path, { claims: phone, body });
-    assert.deepEqual([response.status, response.body.error.code], [401, 'unauthorized'], path);
+    assert.deepEqual([response.status, response.body.error.code], [403, 'phone_not_allowed'], path);
   }
   assert.equal(fake.tokens.size, 1);
   assert.equal([...fake.tokens.values()][0].revokedAt, null);
+  // The two attempts to change something are on record, in the phone's owner's name.
+  assert.deepEqual(fake.auditLog().slice(before).map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.detail.code]), [
+    ['token.create', 'denied', manager.sub, 'phone_not_allowed'],
+    ['token.revoke', 'denied', manager.sub, 'phone_not_allowed'],
+  ]);
 });

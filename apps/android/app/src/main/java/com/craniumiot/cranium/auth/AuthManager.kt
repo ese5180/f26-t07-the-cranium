@@ -65,6 +65,8 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
             .setState(spec.state)
             .setNonce(null)
             .setCodeVerifier(spec.pkce.verifier, spec.pkce.challenge, Pkce.METHOD)
+            // A sign-out in the app ends the managed login's session too (AuthorizeRequest).
+            .setPrompt(spec.prompt)
             .build()
         return service.getAuthorizationRequestIntent(request)
     }

@@ -331,9 +331,11 @@ revokes their own on the console, under **Developer > API tokens**, and sees onl
   next request on. Revoking only marks the token; nothing is deleted.
 - **On record.** Making and revoking a token are entries in the activity log (`token.create`,
   `token.revoke`), and a change made with a token carries the token's ID. A request whose token
-  names nobody (missing, malformed or unknown) leaves no entry, as a request the gateway's authorizer
-  refuses leaves none. The function log names a token by its ID only; neither the token nor its digest
-  is ever logged.
+  names nobody (missing, malformed, unknown, revoked or expired) leaves no entry, as a request the
+  gateway's authorizer refuses leaves none: whoever holds a revoked or expired token cannot fill the
+  log in its owner's name. The function log has a line for it all the same, with the token's ID and,
+  for a revoked or expired one, `tokenState`. The function log names a token by its ID only; neither
+  the token nor its digest is ever logged.
 
 ## The event log
 
@@ -622,6 +624,7 @@ console accounts and the audit log. Firmware images hold no secrets.
 | Someone on the network path | TLS with verified certificates on every connection, and signed images. | They can block traffic. An update then waits or fails, and nothing is installed. |
 | Someone on the internet, with no account | Sign-in with a password and an authenticator code. Uploads need a valid signature. | A flood can use up the API's shared request limit, because an HTTP API has no per-caller limit. Wrong passwords against a known address can keep that person from signing in. The AWS CLI stop still works in both cases, and an administrator can add an account at another address. |
 | A stolen release-manager session | The console cannot sign. Boards verify with their own key and refuse older versions. | Until the token expires they can deploy existing releases, cancel and revoke, and from firmware 1.7.2 on a board installs a newer release with nobody at it. |
+| A stolen session of a phone app | The API takes the phone apps' client only for what the apps call ([docs/mobile-apps.md](mobile-apps.md#signing-in)): the releases and their images, the boards, a passkey and the check before a Bluetooth send. Everything else answers `403 phone_not_allowed`. | Until the token expires, a release manager's can download active images and read the passkey of a board that is pairing. Each of those is in the activity log. |
 | A stolen API token | The same, and the owner's role is asked of Cognito on every request. It cannot make tokens or read a Bluetooth passkey. Every change it makes carries its ID in the activity log. | What its owner may do, until it expires (at most 90 days) or the owner revokes it, or an administrator disables the owner. Unlike a session, it is not over within the hour. |
 | A break-in at the API function | The same: the function cannot sign, and boards make the same checks. | Until the code is replaced it holds the API role, with no token limit. It can create jobs, cancel, revoke and add false audit entries. |
 | Code running in the application on one board | MCUboot refuses unsigned firmware. Other boards are out of reach. The pin in the bootloader keeps any other image from being restored as the golden one. | That board's device key can be read. Retire its certificate. It can forge a revert to an older signed image, the golden image among them, and it can erase the golden copy (see [Known limits](#known-limits)). |

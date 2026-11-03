@@ -22,6 +22,10 @@ phone or was downloaded, and its size. The rules are in
 [`docs/mobile-apps.md`](../../docs/mobile-apps.md#cache), and the code in `core/FirmwareCache.kt`
 and `core/FirmwareCachePolicy.kt`.
 
+Whatever the image came from, the app asks the console right before every upload whether the
+release is still active and the image still its own, and sends nothing without that yes, offline
+included (`core/SendCheck.kt`).
+
 ## What it needs
 
 - JDK 17 and the Android SDK command-line tools. On a Mac, without sudo:
@@ -80,9 +84,10 @@ Never attach it to a public GitHub release and never commit it: git ignores `*.a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (70 of them) of the parts that need no phone: reading
+`./gradlew testDebugUnitTest` runs JVM tests (79 of them) of the parts that need no phone: reading
 the MCUboot header and comparing versions, decoding the release list, the checks on a downloaded
-image, which releases are offered, the sign-in request (PKCE and the authorize URL), and the
+image, the console's check before a send and what the app says when it does not clear one, which
+releases are offered, the sign-in request (PKCE, `prompt=login` and the authorize URL), and the
 firmware cache: when a cached image is used, replaced or downloaded, which images are evicted, and
 which are removed when a release is revoked, on real files in a temporary folder. Sign-in against
 Cognito, the API calls, the cache on a phone and everything over Bluetooth take a phone, a deployed

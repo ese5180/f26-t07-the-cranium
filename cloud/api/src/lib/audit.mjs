@@ -23,8 +23,10 @@ import { createHash } from 'node:crypto';
 
 export const ACTIONS = Object.freeze([
   'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
-  // A phone app's two calls for an update over Bluetooth (docs/mobile-apps.md).
-  'firmware.download', 'pairing.read',
+  // A phone app's calls for an update over Bluetooth (docs/mobile-apps.md): the image, the
+  // board's passkey, and the check right before every send, which goes on record even when
+  // the image came from the phone and needed no download.
+  'firmware.download', 'pairing.read', 'firmware.bluetooth_send',
   // A person's own API tokens, made and ended on the website (handlers/tokens.mjs).
   'token.create', 'token.revoke',
 ]);
