@@ -109,8 +109,20 @@ function create(node, svg) {
   node.el = inSvg ? document.createElementNS(SVG_NAMESPACE, node.tag) : document.createElement(node.tag);
   setProps(node.el, NO_PROPS, node.props);
   for (const child of node.children) node.el.appendChild(create(child, inSvg));
+  settleSelect(node);
   if (typeof node.props.ref === 'function') created.push([node.props.ref, node.el]);
   return node.el;
+}
+
+/**
+ * A select's value picks one of its options, so it is set again once its options are in place.
+ * Set before them, it picks none, and the select then reads back as '', so that a later value
+ * of '' (the first option, say) would look already set and never be.
+ */
+function settleSelect(node) {
+  if (node.tag !== 'select' || !('value' in node.props)) return;
+  const next = String(node.props.value ?? '');
+  if (node.el.value !== next || node.el.selectedIndex === -1) node.el.value = next;
 }
 
 function same(a, b) {
@@ -126,6 +138,7 @@ function update(before, after, svg) {
   const inSvg = svg || after.tag === 'svg';
   setProps(after.el, before.props, after.props);
   updateChildren(after.el, before.children, after.children, inSvg);
+  settleSelect(after);
 }
 
 function updateChildren(parent, before, after, svg) {

@@ -142,6 +142,51 @@ test('a page that is drawn again keeps its elements and changes only what differ
   assert.equal(second.parentNode, null, 'taken out');
 });
 
+test('a select shows the option its value names, however its options came after the value', () => {
+  // A stand-in stricter than any browser: a select here picks an option only when its value is
+  // set, never when an option is added, and one that picks none reads back as ''. Chrome showed
+  // the Events page's board filter blank on its first draw this way.
+  const Element = document.createElement('div').constructor;
+  class Select extends Element {
+    get options() {
+      return this.children.filter((child) => child.tagName === 'OPTION');
+    }
+
+    get selectedIndex() {
+      return this.picked ?? -1;
+    }
+
+    get value() {
+      return this.options[this.selectedIndex]?.value ?? '';
+    }
+
+    set value(value) {
+      this.picked = this.childNodes ? this.options.findIndex((option) => option.value === value) : -1;
+    }
+  }
+  const createElement = document.createElement;
+  document.createElement = (tag) => (tag === 'select' ? new Select(tag, null, document) : createElement(tag));
+  try {
+    const box = createElement('div');
+    const filter = (value, things) => views.h('select', { value },
+      views.h('option', { value: '', key: 'all' }, `All boards (${things.length})`),
+      things.map((thing) => views.h('option', { value: thing, key: thing }, thing)));
+
+    views.render(box, filter('', ['a', 'b']));
+    const select = box.firstChild;
+    assert.equal(select.selectedIndex, 0, 'first drawn, it shows All boards');
+    views.render(box, filter('b', ['a', 'b']));
+    assert.equal(select.selectedIndex, 2);
+    views.render(box, filter('c', ['a', 'b', 'c']));
+    assert.equal(select.selectedIndex, 3, 'the option came in the same draw as the value');
+    views.render(box, filter('', ['a', 'b', 'c']));
+    assert.equal(select.selectedIndex, 0);
+    assert.equal(box.firstChild, select, 'the same select throughout');
+  } finally {
+    document.createElement = createElement;
+  }
+});
+
 test('a handler is attached once and replaced in place', () => {
   const seen = [];
   const box = document.createElement('div');
