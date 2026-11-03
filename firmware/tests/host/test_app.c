@@ -103,7 +103,7 @@ static struct {
 	char last_report[420];
 	/* The diagnostics report goes through the same call, and is counted apart. */
 	int diag_reports;
-	char last_diag[160];
+	char last_diag[200];
 	int fault_ticks;
 	bool ota_changed;
 	int up_requests;
@@ -388,9 +388,27 @@ bool device_is_factory(void)
 	return board.factory;
 }
 
+/* The board's own ID, as INIT or SET_ID left it. */
+static char fake_device_id[33] = "fe5b26c0c5b1dcd7";
+
 const char *device_id(void)
 {
-	return "fe5b26c0c5b1dcd7";
+	return fake_device_id;
+}
+
+/* The same rule as device.c's: 1 to 32 letters and digits. */
+bool device_id_valid(const char *id)
+{
+	size_t length = 0;
+
+	for (; id[length] != '\0'; length++) {
+		char c = id[length];
+
+		if (length == 32 || !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+			return false;
+		}
+	}
+	return length > 0;
 }
 
 int factory_reset(void)
@@ -2903,7 +2921,7 @@ static void test_diagnostics_go_on_connecting_and_every_five_minutes(void)
 	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
 	run_loop();
 	CHECK(board.diag_reports == 1);
-	CHECK(strncmp(board.last_diag, "{\"diag\":{\"mac\":\"", 16) == 0);
+	CHECK(strncmp(board.last_diag, "{\"diag\":{\"id\":\"fe5b26c0c5b1dcd7\",\"mac\":\"", 40) == 0);
 	CHECK(strstr(board.last_diag, "\"heap\":{\"free\":") != NULL);
 
 	ticks(CONFIG_APP_DIAG_INTERVAL_SECONDS - 1);
@@ -2927,13 +2945,50 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
 	CHECK(strstr(text, "\"mac\":\"unknown\"") != NULL);
 
+	/* The board's own ID goes first, from 1.11.4; anything that is not one is left out. */
+	strcpy(values.mac, "f4:ce:36:12:34:56");
+	strcpy(values.id, "CRVIHAAN01");
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strncmp(text, "{\"diag\":{\"id\":\"CRVIHAAN01\",\"mac\":\"f4:ce:36:12:34:56\",", 52) == 0);
+	strcpy(values.id, "bad\"id");
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strstr(text, "\"id\"") == NULL);
+
 	/* The longest one fits the buffer main.c gives it, and a short buffer is refused. */
+	char longest[200];
+
+	memset(values.id, 'Z', 32);
+	values.id[32] = '\0';
 	strcpy(values.mac, "ff:ff:ff:ff:ff:ff");
 	values.channel = 4294967295U;
 	values.heap_free = values.heap_least = values.heap_size = 4294967295U;
-	CHECK(diag_format(&values, text, 128) > 0);
-	CHECK(diag_format(&values, text, 40) == -ENOSPC);
+	CHECK(diag_format(&values, longest, 192) > 0);
+	CHECK(diag_format(&values, longest, 40) == -ENOSPC);
 }
+
+static void test_a_new_device_id_goes_to_the_console_at_once(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
+	run_loop();
+	CHECK(board.diag_reports == 1);
+	CHECK(strstr(board.last_diag, "\"id\":\"fe5b26c0c5b1dcd7\"") != NULL);
+
+	/* Nothing new: no report until the interval. */
+	ticks(5);
+	CHECK(board.diag_reports == 1);
+
+	/* SET_ID: the next tick tells the console. */
+	strcpy(fake_device_id, "CRVIHAAN01");
+	ticks(1);
+	CHECK(board.diag_reports == 2);
+	CHECK(strstr(board.last_diag, "\"id\":\"CRVIHAAN01\"") != NULL);
+	ticks(5);
+	CHECK(board.diag_reports == 2);
+	strcpy(fake_device_id, "fe5b26c0c5b1dcd7");
+}
+
 
 static void test_the_longest_report_fits(void)
 {
@@ -3017,6 +3072,7 @@ int main(void)
 	test_the_longest_report_fits();
 	test_diagnostics_go_on_connecting_and_every_five_minutes();
 	test_the_diagnostics_report_says_only_what_it_should();
+	test_a_new_device_id_goes_to_the_console_at_once();
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 	test_the_main_loop_gives_the_fault_its_ticks();
 #endif

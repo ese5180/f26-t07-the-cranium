@@ -189,18 +189,21 @@ static void publish_report(void)
 }
 
 /* The diagnostics report (src/diag.h): slow-changing things, apart from the heartbeat. */
+/* The device ID the console last heard, so that a new one (SET_ID, INIT) goes out at once. */
+static char reported_id[DEVICE_ID_MAX + 1];
+
 static void publish_diag(void)
 {
 	struct diag_values values;
-	char reported[128];
+	char reported[192];
 
 	if (!cloud_is_connected()) {
 		return;
 	}
 
 	diag_collect(&values);
-	if (diag_format(&values, reported, sizeof(reported)) > 0) {
-		(void)cloud_shadow_report(reported);
+	if (diag_format(&values, reported, sizeof(reported)) > 0 && cloud_shadow_report(reported) == 0) {
+		strncpy(reported_id, values.id, sizeof(reported_id) - 1);
 	}
 	seconds_since_diag = 0;
 }
@@ -243,7 +246,9 @@ static void on_tick(void)
 		publish_report();
 	}
 
-	if (++seconds_since_diag >= CONFIG_APP_DIAG_INTERVAL_SECONDS) {
+	if (++seconds_since_diag >= CONFIG_APP_DIAG_INTERVAL_SECONDS ||
+	    (cloud_is_connected() && strcmp(device_id(), reported_id) != 0 &&
+	     device_id_valid(device_id()))) {
 		publish_diag();
 	}
 

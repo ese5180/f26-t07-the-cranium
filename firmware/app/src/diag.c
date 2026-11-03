@@ -1,6 +1,7 @@
 #include "diag.h"
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -28,6 +29,9 @@ static bool is_mac_text(const char *text)
 void diag_collect(struct diag_values *values)
 {
 	memset(values, 0, sizeof(*values));
+	if (device_id_valid(device_id())) {
+		strncpy(values->id, device_id(), sizeof(values->id) - 1);
+	}
 	if (net_mac_address(values->mac, sizeof(values->mac)) < 0 || !is_mac_text(values->mac)) {
 		strcpy(values->mac, "unknown");
 	}
@@ -51,9 +55,12 @@ void diag_collect(struct diag_values *values)
 int diag_format(const struct diag_values *values, char *buf, size_t len)
 {
 	const char *mac = is_mac_text(values->mac) ? values->mac : "unknown";
+	/* Letters and digits only (device_id_valid), so it can go into the JSON as it is. */
+	bool has_id = values->id[0] != '\0' && device_id_valid(values->id);
 	int written = snprintf(buf, len,
-			       "{\"diag\":{\"mac\":\"%s\",\"channel\":%u,"
+			       "{\"diag\":{%s%s%s\"mac\":\"%s\",\"channel\":%u,"
 			       "\"heap\":{\"free\":%u,\"least\":%u,\"size\":%u}}}",
+			       has_id ? "\"id\":\"" : "", has_id ? values->id : "", has_id ? "\"," : "",
 			       mac, values->channel, (unsigned int)values->heap_free,
 			       (unsigned int)values->heap_least, (unsigned int)values->heap_size);
 

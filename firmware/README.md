@@ -717,10 +717,11 @@ From firmware 1.10.0 the board also sends a `diag` report to its device shadow, 
 minutes after (`CONFIG_APP_DIAG_INTERVAL_SECONDS`), apart from the heartbeat so that the heartbeat stays short:
 
 ```json
-{"diag": {"mac": "f4:ce:36:12:34:56", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
+{"diag": {"id": "CRVIHAAN01", "mac": "f4:ce:36:12:34:56", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
 ```
 
-`mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not
+`id`, from 1.11.4, is the board's own device ID, set with `INIT` or `SET_ID`, which the console shows as the board's name; it
+is sent again as soon as it changes, and left out when there is none. The thing name stays the board's AWS identity. `mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not
 associated. `heap` is the system heap in bytes: free now, the least it has been since the board started, and its size.
 Nothing in it is secret, and nothing names the network. The console's diagnostics page shows it.
 
