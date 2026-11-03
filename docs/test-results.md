@@ -27,6 +27,46 @@ Every run below was on one nRF7002 DK. The benches write one line per run to a l
 
 <!-- OVER-THE-AIR REGRESSION: the section under this comment is the one place that says whether the over-the-air regression on the final firmware has run. Other documents link to it. When it has run, replace its text with the date, the firmware, the bootloader, the results and what failed on the way, and add a row to the table above. -->
 
+## Firmware 1.8.0 to 1.11.2, Bluetooth, the event log and the new sign-in
+
+All on 2026-11-02, on the bootloader that holds the pin, with the board on a computer's USB port.
+
+**Updates over the air.** Each one confirmed itself; the boot diary shows a software restart into each, and each reached
+the cloud.
+
+| Update | Result |
+| --- | --- |
+| 1.7.4 to 1.7.5 and 1.7.6 (the demo images) | `SUCCEEDED` |
+| 1.7.6 to 1.8.0 | `SUCCEEDED`; LED1 and LED2 take turns when online |
+| 1.8.0 to 1.10.0 | `SUCCEEDED`; the `diag` report arrives: the MAC address, Wi-Fi channel 157 and the heap |
+| 1.10.0 to 1.11.0 | `SUCCEEDED` |
+| 1.11.0 to 1.11.2 | `SUCCEEDED`, 2 min 51 s from the download starting: 47 s to download, 1 min 44 s from the restart to the cloud |
+
+**The network core.** `scripts/flash-netcore.sh` put the Bluetooth controller on it over the debug port. The board came
+back on 1.11.0, confirmed, with its ID, Wi-Fi and certificates as before.
+
+**Bluetooth, first test, partial.** With nRF Connect Device Manager on an iPhone, on 1.11.0:
+
+| What | Result |
+| --- | --- |
+| Button 1 for 5 s opens Bluetooth | Yes: the shadow says `bluetooth`, four times |
+| The phone finds the board and connects | Yes |
+| The passkey reaches the phone's person through the console | Yes, twice |
+| An image arrives | **No.** Once the board dropped the paired link after 30 s with nothing sent, while its person chose a mode; once the link ended on reason 0x22, a link-layer exchange that got no answer within 40 s, 40 s after connecting. Device Manager's Upgrade flow also stalled, because it asks for settings the board refuses |
+
+1.11.2 gives a quiet link 120 s and the window 180 s, and says on the console what the link negotiated and why it ended,
+for the next test. Not fixed until an image goes through.
+
+**The event log.** Deployed from eed1e50. The 1.11.0 to 1.11.2 update was recorded step by step: downloading,
+checking, restarting, the disconnect (the board closed it), the connect, the restart after 30 min up with its cause from
+the boot diary, the firmware change, and the update's success. Signal samples arrive every 30 s.
+
+**Signing in on the console's own page.** Deployed from 22e9c37. The owner signed in with their own account: the
+password and then the six-box code. Cognito accepted the exchange and the console's API accepted the token.
+
+**Not run yet:** the `MQTT` commands on the board itself (they are tested on the simulator), either phone app on a
+phone, and the iPhone app built for iOS.
+
 ## Over the air on the final firmware
 
 **Updates have finished on 1.7.0, 1.7.1 and 1.7.2, one failed the same way twice, and the regression has not run.**

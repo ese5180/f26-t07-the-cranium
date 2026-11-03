@@ -91,7 +91,7 @@ We are developing a mounted attachment to beginner DJ controllers in order to re
 
 ![Boot process](<./pics/Boot Process.png>)
 
-On every reset, MCUboot checks the image's SHA-256 and ECDSA P-256 signature, and only boots it if both are valid. The image contains TF-M (secure world: crypto and encrypted storage) and our application (non-secure world). The network core runs a small blinky, which is flashed over the debug port and isn't updated over the air.
+On every reset, MCUboot checks the image's SHA-256 and ECDSA P-256 signature, and only boots it if both are valid. The image contains TF-M (secure world: crypto and encrypted storage) and our application (non-secure world). The network core runs the Bluetooth controller, which is flashed over the debug port and isn't updated over the air.
 
 To update, a release manager deploys a signed image from our console, which creates an AWS IoT job. The application downloads the image into the secondary slot, checks it and resets. MCUboot verifies the signature, swaps the slots and starts the new image on trial. If it can't reconnect to AWS IoT, the next reset swaps the old image back.
 
@@ -99,8 +99,8 @@ To update, a release manager deploys a signed image from our console, which crea
 
 | Question | Answer |
 | --- | --- |
-| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.8.0 build). |
-| How large is your existing application code? | The application is 631,412 bytes of flash and uses 360,112 of 409,600 bytes of RAM. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 762,635 bytes in a 933,888-byte slot. The network core's blinky is another 19,024 bytes (1.8.0 build). |
+| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.11.2 build). |
+| How large is your existing application code? | The application is 713,532 bytes of flash and uses 394,676 of 409,600 bytes of RAM. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 844,755 bytes in a 933,888-byte slot. The network core's Bluetooth controller is another 133,232 bytes (1.11.2 build). |
 | Does the bootloader or application code handle the firmware image download? | The application. MCUboot has no network stack. |
 | What wireless communication is used to download the images? | Wi-Fi (nRF7002). The job arrives over MQTT with mutual TLS, and the image comes over HTTPS from a signed S3 link. |
 | Why this method? | A signed image is about 760 KB. Wi-Fi reaches the server directly and downloads it in about a minute. Bluetooth would need a phone as a relay, and we're saving it for audio. |
