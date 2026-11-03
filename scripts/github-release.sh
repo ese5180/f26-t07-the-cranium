@@ -11,7 +11,7 @@
 # It refuses unless no tracked file has changed, HEAD is on a branch of origin, the version is the one
 # in firmware/app/VERSION and in the image's header, the signature verifies against
 # firmware/keys/fw_signing_pub.pem with the console's own check, and binaries/latest.json names this
-# commit. It refuses a test image, a Bluetooth image, the golden image, and a version that already has
+# commit. It refuses a test image, the golden image, and a version that already has
 # a tag or a release. It uploads the signed image, latest.json and SHA256SUMS, and nothing else. All of
 # that happens on origin's repository on GitHub, whatever gh would have chosen by itself.
 #

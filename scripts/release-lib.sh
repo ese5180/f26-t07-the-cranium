@@ -97,10 +97,12 @@ check_image() {
   printf '%s\n' "$info"
 }
 
-# check_is_a_release_build <image> <latest.json>: what can tell a test image or a Bluetooth image from
-# a release. store_binary.py keeps neither in binaries/, so this looks for one that got there by hand.
+# check_is_a_release_build <image> <latest.json>: what can tell a test image from a release.
+# store_binary.py keeps none in binaries/, so this looks for one that got there by hand. From 1.9.0
+# every release has firmware update over Bluetooth; a build without it needs a -D setting, which is
+# refused below like any other.
 #
-# The log lines that a fault writes are in the image's bytes, and so is the Bluetooth stack's. Only
+# The log lines that a fault writes are in the image's bytes. Only
 # CONFIG_APP_TEST_FAULT_NO_CONFIRM writes none. That one shows only as a setting in latest.json, like
 # anything else from the command line, so an image built with any -D setting is refused. That includes
 # a build with the serial console off: docs/ci.md says what a GitHub Release is today.
@@ -114,15 +116,12 @@ check_is_a_release_build() {
     '[]') ;;
     undefined) die "latest.json does not say how this image was configured: build it again" ;;
     '['*) die "this image was built with settings from the command line: $settings" \
-         "A fault or the Bluetooth option is set that way, and any setting means the commit does not say" \
+         "A fault, or a build without Bluetooth, is set that way, and any setting means the commit does not say" \
          "what the image is. Build it again with --pristine=always. docs/ci.md says what a release is." ;;
     *) die "latest.json's command_line is not a list: $settings" ;;
   esac
   if LC_ALL=C grep -a -q -i -F 'test image:' "$1"; then
     die "this image has a test fault built in: it has a fault's log lines in it"
-  fi
-  if LC_ALL=C grep -a -q -e 'Bluetooth could not start' -e 'bt_hci_core' "$1"; then
-    die "this image has firmware update over Bluetooth built in: it needs a network core that an update cannot give a board"
   fi
 }
 

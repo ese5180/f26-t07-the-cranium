@@ -27,6 +27,12 @@ if [[ "$(xcode-select -p 2>/dev/null)" == *CommandLineTools* ]]; then
     -Xlinker -rpath -Xlinker "$CLT/Frameworks"
     -Xlinker -rpath -Xlinker "$CLT/usr/lib"
   )
+  # From the Command Line Tools for Xcode 27, the plugin behind Swift Testing's @Test and @Suite
+  # macros is here, where swift test does not look by itself.
+  PLUGINS="$(xcode-select -p)/usr/lib/swift/host/plugins/testing"
+  if [[ -d "$PLUGINS" ]]; then
+    TEST_FLAGS+=(-Xswiftc -plugin-path -Xswiftc "$PLUGINS")
+  fi
 fi
 
 cd "$IOS_DIR/CraniumKit"

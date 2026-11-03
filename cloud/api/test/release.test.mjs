@@ -404,17 +404,21 @@ test('an image with settings from the command line is refused, a fault or Blueto
   assertRefused(release(state), /does not say how this image was configured/);
 });
 
-test('a test image that got into binaries/ by hand is told by its log lines, and a Bluetooth image by its stack', () => {
+test('a test image that got into binaries/ by hand is told by its log lines', () => {
   const cases = [
     ['Test image: hanging on purpose, the watchdog will fire', /test fault built in/],
     ['test image: losing power before the init flag', /test fault built in/],
-    ['Bluetooth could not start: %d', /over Bluetooth built in/],
-    ['bt_hci_core', /over Bluetooth built in/],
   ];
   for (const [text, reason] of cases) {
     const body = Buffer.concat([Buffer.alloc(64, 0x41), Buffer.from(text), Buffer.alloc(64, 0x41)]);
     assertRefused(release(checkout({ image: makeImage({ body }) })), reason);
   }
+});
+
+test('from 1.9.0 every release has Bluetooth, so its stack in an image is no reason to refuse it', () => {
+  const lib = readFileSync(join(REPO, 'scripts/release-lib.sh'), 'utf8');
+  assert.doesNotMatch(lib, /bt_hci_core|Bluetooth could not start/);
+  assert.match(readFileSync(join(REPO, 'firmware/app/sysbuild.conf'), 'utf8'), /^SB_CONFIG_APP_BT_OTA=y$/m);
 });
 
 test('those log lines are still what the firmware says', () => {
@@ -424,7 +428,6 @@ test('those log lines are still what the firmware says', () => {
     assert.ok(source('main.c').includes(text), text);
   }
   assert.ok(source('console.c').includes('test image: losing power'));
-  assert.ok(source('bt_ota.c').includes('Bluetooth could not start'));
 });
 
 /** A checkout whose one commit has had this change made to it, built and pushed. */

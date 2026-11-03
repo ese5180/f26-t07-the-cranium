@@ -6,11 +6,14 @@
 #   scripts/build.sh --version 1.8.0   that version instead
 #   scripts/build.sh --keep            the version already in firmware/app/VERSION
 #   scripts/build.sh --jobs 8          compile with that many jobs (default 4)
+#   scripts/build.sh --no-upload       build, and do not upload it to the console
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. It then checks the image's signature with
-# the same code the console uses. Upload that file on the console's Firmware page, or run
-# scripts/ota.sh. A version can be uploaded only once, which is why each build takes a new one.
+# the same code the console uses, and uploads it to the console's Firmware page with your API token
+# (scripts/upload-to-console.sh): only uploads, so no board gets it until it is deployed. Without a
+# token it says how to make one, and the image stays in binaries/. A version can be uploaded only
+# once, which is why each build takes a new one. Exit status 3: built, but the upload failed.
 #
 # The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/. This
 # checkout cannot see what else has been uploaded, so the console may still refuse a number. A
@@ -71,10 +74,12 @@ EOF
 
 jobs=4
 keep=false
+upload=true
 version=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=true ;;
+    --no-upload) upload=false ;;
     --version)
       [ $# -ge 2 ] || die "--version needs a value, for example --version 1.8.0"
       version="$2"
@@ -186,4 +191,26 @@ elif ! git -C "$REPO_DIR" diff --quiet -- firmware/app/VERSION 2>/dev/null; then
   echo "firmware/app/VERSION now says ${expected%+*}, and that change is not committed."
 fi
 
-echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/ota.sh."
+if [ "$upload" = false ]; then
+  echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/upload-to-console.sh."
+  exit 0
+fi
+
+echo
+commit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("commit", "unknown"))' \
+  "$REPO_DIR/binaries/latest.json")"
+notes="Built by scripts/build.sh from commit $commit"
+case "$commit" in
+  *+uncommitted) notes="$notes: firmware/ had changes that are in no commit" ;;
+esac
+set +e
+"$REPO_DIR/scripts/upload-to-console.sh" "$file" "$notes"
+uploaded=$?
+set -e
+case "$uploaded" in
+  0) echo "Deploy it to a board on the console's Firmware page, or with scripts/ota.sh." ;;
+  2) echo "The image is in binaries/$name: upload it on the console's Firmware page by hand." ;;
+  *)
+    echo "warning: built, but not uploaded: see above. The image is in binaries/$name." >&2
+    exit 3 ;;
+esac

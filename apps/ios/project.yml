@@ -40,7 +40,8 @@ targets:
     settings:
       base:
         PRODUCT_NAME: Cranium
-        PRODUCT_BUNDLE_IDENTIFIER: com.craniumiot.cranium
+        # com.craniumiot.cranium unless scripts/generate.sh is given another (a free team's own).
+        PRODUCT_BUNDLE_IDENTIFIER: "${CRANIUM_BUNDLE_ID}"
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         # iPhone only, portrait. No Mac or Vision Pro version of an iPhone app.
@@ -52,8 +53,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
-        # From ~/.cranium/appstoreconnect/key.json, by scripts/generate.sh. Empty: pick the team
-        # in Xcode's Signing & Capabilities (until the next generate).
+        # From scripts/generate.sh: a free Personal Team's ID, or the paid team's. Empty: pick the
+        # team in Xcode's Signing & Capabilities (until the next generate).
         DEVELOPMENT_TEAM: "${CRANIUM_TEAM_ID}"
         # The configuration script reads apps/config/, outside the sandbox Xcode gives scripts.
         ENABLE_USER_SCRIPT_SANDBOXING: NO

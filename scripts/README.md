@@ -4,7 +4,10 @@
 
 | Script | What it does |
 | --- | --- |
-| `build.sh` | Builds the firmware with the next unused version, and leaves the signed image in `binaries/` |
+| `build.sh` | Builds the firmware with the next unused version, leaves the signed image in `binaries/`, and uploads it to the console's Firmware page (`--no-upload` not to). It never deploys |
+| `upload-to-console.sh` | Uploads one signed image to the console with your API token; `build.sh` runs it after each build |
+| `check-image.sh` | Checks an image before it goes anywhere: the console's own checks, its build record, its commit on main, and CI |
+| `flash-netcore.sh` | The one USB step: puts the Bluetooth controller on a board's network core |
 | `ota.sh` | Installs an image from `binaries/` on the board over the air, and follows it to the end. With an API token it needs no AWS credentials; with no USB, it follows through the cloud |
 | `open-console.sh` | Signs in to AWS and opens the console |
 | `github-release.sh` | Publishes a signed image as a GitHub Release, for whoever holds the signing key |
@@ -12,9 +15,12 @@
 A normal update is:
 
 ```sh
-scripts/build.sh    # makes binaries/cranium-<version>-0.signed.bin
-scripts/ota.sh      # installs the newest one, or upload it on the console's Firmware page
+scripts/build.sh    # makes binaries/cranium-<version>-0.signed.bin and uploads it to the console
+scripts/ota.sh      # installs the newest one; or deploy it from the console's Firmware page
 ```
+
+For the upload, keep an API token in `~/.cranium/console-token` with mode 600 (see below). An upload-only
+token is enough. Without one, `build.sh` says so and leaves the image in `binaries/`.
 
 `build.sh --help` lists its options. Run them from a normal terminal: they load the nRF Connect SDK toolchain themselves.
 

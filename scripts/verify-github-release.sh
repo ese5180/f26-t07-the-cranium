@@ -9,7 +9,7 @@
 # SHA256SUMS is right, the signature verifies against firmware/keys/fw_signing_pub.pem with the
 # console's own check, and the version in the image's header, latest.json and firmware/app/VERSION
 # is the one in the tag. It also repeats what scripts/github-release.sh looks for: a latest.json that
-# names another commit, a test image, a Bluetooth image, the golden image.
+# names another commit, a test image, the golden image.
 #
 # An image carries no commit, and latest.json is not signed. So this shows what latest.json says about
 # the commit and the settings, and it cannot show that they are true.

@@ -20,7 +20,7 @@ because no release has been published, and `scripts/github-release.sh` has not b
 | Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
-| Firmware (Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=bt_ota_sysbuild.conf` | The Bluetooth option compiles and links. Nothing more |
+| Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
 | Check the release's files | A release is published | `scripts/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
 
 The last job is the only one that runs for a release, and it runs for nothing else.
@@ -194,10 +194,10 @@ It takes the image from `binaries/`, and it refuses unless all of these hold:
 - The signature verifies against `firmware/keys/fw_signing_pub.pem`, by the check the console makes on
   an upload (`cloud/api/verify-image.mjs` runs `cloud/api/src/lib/mcuboot.mjs`).
 - `binaries/latest.json` describes this file and names this commit.
-- The image is not a test image or a Bluetooth image. `latest.json` records the `-D` settings of the
-  build, with or without a type, and any setting is refused. The image is also searched for the log
-  lines of a fault and for the Bluetooth stack. `CONFIG_APP_TEST_FAULT_NO_CONFIRM` writes no log line of
-  its own, so an image with that fault is only told apart by `latest.json`.
+- The image is not a test image. `latest.json` records the `-D` settings of the build, with or without
+  a type, and any setting is refused, which also refuses a build without Bluetooth: from 1.9.0 every
+  release has it. The image is also searched for the log lines of a fault. `CONFIG_APP_TEST_FAULT_NO_CONFIRM`
+  writes no log line of its own, so an image with that fault is only told apart by `latest.json`.
 - It is not the golden image: neither its file's digest nor the digest MCUboot verifies is one that
   `firmware/golden.json` pins or that a file in `binaries/golden/` has. If `firmware/golden.json` is
   missing or does not hold those digests, that is a refusal too. The script takes nothing from that
@@ -228,7 +228,7 @@ annotation, if any of these is wrong:
 - The signature verifies against `firmware/keys/fw_signing_pub.pem`, by the console's check.
 - The version in the header, in `latest.json` and in `firmware/app/VERSION` is the one in the tag.
 - `latest.json` names the commit that the tag is on, and its `command_line` is an empty list.
-- It is not a test image, a Bluetooth image or the golden image, by the same checks as above.
+- It is not a test image or the golden image, by the same checks as above.
 
 The signature shows who signed the image, and the job can show nothing more about how it was made. An
 image carries no commit, and `latest.json` is not signed, so only `latest.json` says which commit the
