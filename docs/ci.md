@@ -21,6 +21,8 @@ because no release has been published, and `scripts/github-release.sh` has not b
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
 | Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
+| Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass and it builds. It cannot sign in: the real configuration is never in git |
+| iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass and the app compiles for iPhone. Nothing is signed or installed |
 | Check the release's files | A release is published | `scripts/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
 
 The last job is the only one that runs for a release, and it runs for nothing else.

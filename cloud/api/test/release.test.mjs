@@ -993,7 +993,7 @@ test('the SDK named in the workflow, the fetch script and the image is one SDK',
 test('the job that checks a release runs on publishing, and nothing else runs then', () => {
   assert.match(WORKFLOW, /^ {2}release:\n {4}types: \[published\]$/m);
   const jobs = WORKFLOW.slice(WORKFLOW.indexOf('\njobs:\n')).split(/\n(?= {2}[\w-]+:\n)/).slice(1);
-  assert.equal(jobs.length, 6);
+  assert.equal(jobs.length, 8);
   for (const job of jobs) {
     const expected = job.startsWith('  release-assets:') ? "github.event_name == 'release'" : "github.event_name != 'release'";
     assert.ok(job.includes(`if: ${expected}`), job.split('\n')[0]);

@@ -136,6 +136,51 @@ jobs:
         working-directory: cloud/dev
         run: node --test
 
+  # The phone apps. Their real configuration names the AWS account and is never in git, so these
+  # builds use apps/config/cranium.example.json and say so: nothing built here can sign in.
+  android:
+    name: Android app
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Unit tests and a debug build
+        working-directory: apps/android
+        run: ./gradlew --console=plain --no-daemon testDebugUnitTest assembleDebug
+
+  ios:
+    name: iPhone app
+    if: github.event_name != 'release'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use the newest Xcode on the runner
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - name: The logic package's build and tests
+        working-directory: apps/ios/CraniumKit
+        run: swift test
+      # XcodeGen makes the project, which is not in git. It comes from Homebrew, unpinned, and only
+      # for this check: nothing built here is installed anywhere.
+      - name: The app, compiled for iPhone without signing
+        run: |
+          brew install xcodegen
+          apps/ios/scripts/generate.sh
+          xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -configuration Debug \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+
   firmware:
     name: Firmware (${{ matrix.configuration }})
     if: github.event_name != 'release'
