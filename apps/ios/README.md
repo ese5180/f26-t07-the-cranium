@@ -1,38 +1,72 @@
 # Cranium for iPhone
 
-A release manager signs in with the console's own account, picks a firmware release that is on
-AWS, and sends it to an nRF7002 DK over Bluetooth LE with MCUmgr. The board still asks for a press
-of Button 1 to install it. [`docs/mobile-apps.md`](../../docs/mobile-apps.md) is the contract this
-app follows: sign-in, API calls, Bluetooth, what the board refuses, and what the app says when
-something goes wrong.
+The web console on a phone: every page of the website, in its colours and its words, talking
+directly to the console's API on AWS. A release manager can upload a signed image, revoke a release,
+deploy a release over the internet to one or more boards, cancel a deployment, make and revoke API
+tokens, and send a release to an nRF7002 DK over Bluetooth LE; a viewer sees everything, read-only,
+as on the website. [`docs/mobile-apps.md`](../../docs/mobile-apps.md) is the contract this app
+follows: sign-in, the API, Bluetooth, what the board refuses, and what the app says when something
+goes wrong.
 
-**Nothing here has been compiled for iOS yet**, run on a phone, or tried against a board or the
-real console. It was written on a Mac with only the Command Line Tools. The package below builds
-and its tests pass there, and the app's sources type-check against the macOS SDK. Building for
-iOS, signing, the upload, pairing and the transfer itself still have to be tried.
+It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator with made-up data
+(below). It has not yet been run against the real console, on a phone, or with a board.
 
 ## What is where
 
+| Tab | What | The website's |
+| --- | --- | --- |
+| Overview | Updates in progress, board by board; the fleet online; firmware in the fleet; the newest release; the boards; recent activity; an unfinished revocation, said on top | Overview |
+| Boards | Every board as it last reported; a board's page: heartbeat ticking every second, uptime, firmware, update, signal, flash slots, stuck restarts, Wi-Fi channel and MAC, memory, certificates, the last boots decoded, the last update over Bluetooth, its update history, and charts of signal and free memory. Live every 10 s | Devices, Diagnostics |
+| Firmware | Every release on AWS, active and revoked; upload a signed `.bin` from Files (its MCUboot header checked here first); a release's page: details, deploy over the internet, send over Bluetooth, revoke or finish revoking | Firmware |
+| Events | What the boards did: range presets or a custom range, board and kind filters, a timeline with a lane per board and the console's, online bands, and the list. Live every 15 s while the range ends now | Events |
+| More | Deployments (list; a deployment with each board's steps, live; cancel; new deployment), Activity, Update over Bluetooth, API tokens, History, Serial console (an iPhone has no USB serial: it says so), Account | Deployments, Activity, Developer |
+
+A board is shown by its device ID (`CRVIHAAN01`, from firmware 1.11.4) with its thing name under it,
+or by its thing name until it has reported one. Every call uses the thing name.
+
+A change from the phone needs a sign-in in the last 15 minutes. When the console answers
+`403 phone_sign_in_again`, the form says so and offers to sign in again (the managed login, with
+`prompt=login`); after the sign-in the change runs once more with what was entered. If another
+account signs in, nothing is changed in its name.
+
 | Path | What |
 | --- | --- |
-| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain), the console API, image checks, the firmware cache on the phone, which releases to offer, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
-| `App/` | The SwiftUI app: sign in, release, board, passkey, upload, Button 1 |
+| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain), every route of the console API, the console's wording (`Words.swift`, `Telemetry.swift`, `OverviewWords.swift`, from the website's `core.js` and `telemetry.js`), the upload's checks, the fresh sign-in rule, image checks, the firmware cache, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
+| `App/` | The SwiftUI app. `Theme.swift` names the console's colours; `Views/` has the screens |
+| `App/Assets.xcassets/Console/` | The console's colour tokens, light and dark, made from `cloud/web/src/site/assets/app.css` by `scripts/colors.sh` |
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
 | `scripts/generate.sh` | Makes `Cranium.xcodeproj` |
+| `scripts/phone.sh` | Puts the app on your own iPhone with a free Personal Team; `--check` compiles it for iPhone without signing |
 | `scripts/testflight.sh` | Archives a Release build and uploads it to TestFlight |
-| `scripts/check.sh` | Everything that can be checked without Xcode or a phone |
+| `scripts/check.sh` | Everything that can be checked without a phone |
+| `scripts/colors.sh` | Makes the colour sets from the website's stylesheet again |
 | `scripts/copy-config.sh` | Build phase: copies the configuration into the built app |
 
-The app only lists the board's image slots and uploads to image 0. It never sends test, confirm,
-erase or reset, which the board refuses. That is why it uses `ImageManager.upload` and not the
-library's `FirmwareUpgradeManager`, whose upload-only mode still asks for parameters and resets.
+For Bluetooth, the app only lists the board's image slots and uploads to image 0. It never sends
+test, confirm, erase or reset, which the board refuses. That is why it uses `ImageManager.upload`
+and not the library's `FirmwareUpgradeManager`, whose upload-only mode still asks for parameters and
+resets.
+
+## The Simulator, with made-up data
+
+A Debug build started with the launch argument `-CraniumDemo` signs nobody in and makes no network
+request: every answer comes from `App/DemoData.swift`. `-CraniumTab 0` to `4` opens a tab, and
+`-CraniumRoute board`, `deployment`, `release`, `deployments`, `activity`, `tokens`, `history`,
+`serial` or `account` a screen on it. A Release build has none of this.
+
+```sh
+xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
+  -derivedDataPath apps/ios/build/sim CODE_SIGNING_ALLOWED=NO -jobs 4 build
+xcrun simctl install booted apps/ios/build/sim/Build/Products/Debug-iphonesimulator/Cranium.app
+xcrun simctl launch booted com.craniumiot.cranium -CraniumDemo -CraniumTab 1 -CraniumRoute board
+```
 
 ## Firmware on the phone
 
 A checked image is kept in Application Support, `firmware/<sha256>.bin`, excluded from iCloud
 backup, so that sending the same release again needs no download. It is checked again in full
 before each use. At most 5 are kept, only for active releases, and sign-out deletes them all; so
-does "Clear downloaded firmware" in the account menu. The app says whether the image came from the
+does "Clear downloaded firmware" on the Account screen (More, Account). The app says whether the image came from the
 phone or was downloaded, and its size. The rules are in
 [`docs/mobile-apps.md`](../../docs/mobile-apps.md#cache), and the code in `FirmwareCache.swift`
 and `FirmwareCachePolicy.swift`.
@@ -91,13 +125,15 @@ external ones only after Apple's beta review.
 The app declares that it uses no encryption beyond the system's (`ITSAppUsesNonExemptEncryption`
 is false), so App Store Connect does not ask about export compliance.
 
-## Check without Xcode
+## Check without a phone
 
 ```sh
 apps/ios/scripts/check.sh
+apps/ios/scripts/phone.sh --check
 ```
 
-It builds the package, runs its tests (111 of them, Swift Testing; the firmware cache's on real
-files in a temporary folder), type-checks the app's sources
-against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only the Command
-Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.
+`check.sh` builds the package, runs its tests (164 of them, Swift Testing: 155 in CraniumKitTests,
+9 in CraniumBLETests; the firmware cache's on real files in a temporary folder), type-checks the
+app's sources against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only
+the Command Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.
+`phone.sh --check` compiles the app for iPhone, without signing.

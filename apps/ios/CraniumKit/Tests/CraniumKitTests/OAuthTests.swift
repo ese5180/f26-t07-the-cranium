@@ -28,7 +28,8 @@ import Testing
         #expect(pending.url.absoluteString ==
             "https://login.test/oauth2/authorize?response_type=code&client_id=testclient123" +
             "&redirect_uri=cranium://signin&scope=openid+cranium/console" +
-            "&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=s-1")
+            "&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=s-1" +
+            "&prompt=login")
     }
 
     func pending() -> PendingSignIn { OAuth.begin(testConfig, pkce: pkce, state: "s-1") }

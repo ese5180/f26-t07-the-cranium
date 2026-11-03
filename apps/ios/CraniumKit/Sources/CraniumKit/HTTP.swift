@@ -41,6 +41,11 @@ enum FormEncoding {
         return items.map { "\(one($0.0))=\(one($0.1))" }.joined(separator: "&")
     }
 
+    /// For the query of an API call: the same, under its own name.
+    static func urlQuery(_ items: [(String, String)]) -> String {
+        query(items)
+    }
+
     /// One path segment: everything but the unreserved characters is encoded, so `1.8.0+0`
     /// becomes `1.8.0%2B0`.
     static func pathSegment(_ text: String) -> String {

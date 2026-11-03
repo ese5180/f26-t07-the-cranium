@@ -2,7 +2,7 @@ import Foundation
 
 /// What the app says, from docs/mobile-apps.md, "What a person does" and "Errors to expect".
 public enum UserMessage {
-    public static let openWindow = "At the board, hold Button 1 for 5 s and let go. LED1 flashes four times: Bluetooth is open for 2 minutes."
+    public static let openWindow = "At the board, hold Button 1 for 5 s and let go. LED1 flashes four times: Bluetooth is open for 3 minutes."
     public static let noBoard = "No board found. Hold Button 1 for 5 s, then look again."
     public static let pairing = "Type the 6-digit passkey into the phone's pairing prompt."
     public static let passkeyOnConsole = "The board is not online, so its passkey is not in the cloud. Read it on the board's serial console: the line [BT] passkey."
@@ -47,7 +47,10 @@ public enum UserMessage {
         case let error as UpdateError:
             return update(error)
         case let error as APIError:
-            if error.status == 403 {
+            if error.needsFreshSignIn {
+                return FreshSignIn.ask
+            }
+            if error.status == 403 && error.code != "token_not_allowed" && error.code != "phone_not_allowed" {
                 return "\(error.message) Ask an administrator for the role."
             }
             return error.message
@@ -57,6 +60,8 @@ public enum UserMessage {
             return error.errorDescription ?? "The console did not clear the image, so nothing was sent."
         case let error as AuthError:
             return error.errorDescription ?? "Sign-in failed."
+        case let error as FreshSignInError:
+            return error.errorDescription ?? FreshSignIn.ask
         case let error as ConfigError:
             return error.errorDescription ?? "The configuration is not usable."
         case let error as URLError:

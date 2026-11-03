@@ -61,7 +61,8 @@ app client. That client is public (no secret), allows only the `code` flow, and 
 Android adds `&prompt=login` to the sign-in: its Custom Tab shares the browser's cookies, and without
 it a sign-out in the app would leave the managed login's own session behind, so that the next sign-in
 went through, as the last person, without a password. The web console does the same. iOS opens an
-ephemeral web authentication session, which keeps no cookies at all.
+ephemeral web authentication session, which keeps no cookies at all, and adds `&prompt=login` too, so
+that a sign-in again for a change (below) always asks for the password and code.
 
 The app client allows no sign-in through the user pool API (no SRP, no password flow): only the
 managed login pages above, and the refresh of its own tokens.

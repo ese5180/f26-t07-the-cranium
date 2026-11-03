@@ -67,7 +67,7 @@ public enum OAuth {
     }
 
     /// `{loginDomain}/oauth2/authorize?response_type=code&client_id=…&redirect_uri=cranium://signin
-    /// &scope=openid+cranium/console&code_challenge=…&code_challenge_method=S256&state=…`
+    /// &scope=openid+cranium/console&code_challenge=…&code_challenge_method=S256&state=…&prompt=login`
     public static func authorizeURL(_ config: CraniumConfig, challenge: String, state: String) -> URL {
         let query = FormEncoding.query([
             ("response_type", "code"),
@@ -77,6 +77,9 @@ public enum OAuth {
             ("code_challenge", challenge),
             ("code_challenge_method", PKCE.method),
             ("state", state),
+            // The managed login asks for the password and code every time, as the website and the
+            // Android app have it: a sign-in again for a change has to be a real one.
+            ("prompt", "login"),
         ])
         // The pieces are checked or encoded, so this cannot fail.
         return URL(string: config.loginDomain.absoluteString + "/oauth2/authorize?" + query)!
