@@ -30,7 +30,7 @@ This file is the contract both apps follow. The board's side is in
 
 ## Configuration
 
-The apps need four values from the deployed stack. They are not in git: the repository is public,
+The apps need six values from the deployed stack. They are not in git: the repository is public,
 and they name the AWS account. `apps/configure.sh` writes them from `cloud/.deploy/outputs.json`
 into `apps/config/cranium.json`, which git ignores, and each app reads that file at build time.
 
@@ -39,7 +39,9 @@ into `apps/config/cranium.json`, which git ignores, and each app reads that file
   "consoleUrl": "https://console.example.com",
   "loginDomain": "https://login.example.com",
   "mobileClientId": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "redirectUri": "cranium://signin"
+  "redirectUri": "cranium://signin",
+  "region": "us-east-1",
+  "userPoolId": "us-east-1_xxxxxxxxx"
 }
 ```
 
@@ -47,8 +49,25 @@ into `apps/config/cranium.json`, which git ignores, and each app reads that file
 
 ## Signing in
 
-OAuth 2.0 authorization code with PKCE (S256), against Cognito's managed login, with the mobile
-app client. That client is public (no secret), allows only the `code` flow, and the scopes
+The apps sign in on their own screen, as the console's website does: the e-mail address and the
+password, then the code from the authenticator app in six boxes. This is Cognito's user pool API with
+SRP (`USER_SRP_AUTH`), so the password stays on the phone and is used for the proof only:
+
+| Step | Request |
+| --- | --- |
+| Start | `POST https://cognito-idp.{region}.amazonaws.com/`, `X-Amz-Target: AWSCognitoIdentityProviderService.InitiateAuth`, `AuthFlow: USER_SRP_AUTH`, `ClientId: {mobileClientId}`, `USERNAME`, `SRP_A` |
+| Proof | `RespondToAuthChallenge` with `PASSWORD_VERIFIER`: the SRP-6a signature over the pool name (after the `_` of `userPoolId`), the user, the secret block and a timestamp in the form Cognito asks, from the server's clock |
+| Code | `RespondToAuthChallenge` with `SOFTWARE_TOKEN_MFA` and `SOFTWARE_TOKEN_MFA_CODE` |
+
+Tokens from that sign-in carry `cranium/console`: the user pool's pre token generation trigger
+(`cloud/api/src/signin-scope.mjs`) adds it, and takes out `aws.cognito.signin.user.admin`, for the
+console's web client and the phone apps' client only. Any other step Cognito asks for (a new password, an
+authenticator app to set up, a password reset) is not done on that screen: the app says so and opens the
+managed login pages instead, as below. Each app checks its SRP against the website's with the same
+fixed numbers in a unit test.
+
+The managed login, for those steps and as "Use the AWS sign-in page": OAuth 2.0 authorization code with
+PKCE (S256), with the mobile app client. That client is public (no secret), allows only the `code` flow, and the scopes
 `openid` and `cranium/console`. Its only redirect URI is `cranium://signin`.
 
 | Step | Request |
@@ -64,8 +83,8 @@ went through, as the last person, without a password. The web console does the s
 ephemeral web authentication session, which keeps no cookies at all, and adds `&prompt=login` too, so
 that a sign-in again for a change (below) always asks for the password and code.
 
-The app client allows no sign-in through the user pool API (no SRP, no password flow): only the
-managed login pages above, and the refresh of its own tokens.
+The app client allows SRP and the managed login pages, and the refresh of its own tokens; never
+`USER_PASSWORD_AUTH`, which would send the password.
 
 Every API call sends `Authorization: Bearer {access_token}`. Tokens go in the Keychain on iOS and
 in `EncryptedSharedPreferences` on Android, never in plain storage or logs.

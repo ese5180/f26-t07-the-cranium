@@ -441,9 +441,9 @@ Resources:
         AttributesRequireVerificationBeforeUpdate:
           - email
       DeletionProtection: !Ref UserPoolDeletionProtection
-      # The console's own sign-in page signs in through the user pool API, whose access
-      # tokens lack cranium/console: SignInScopeFn adds it for the console's client only
-      # (see there). Version 2 is the one that may change an access token; it needs the
+      # The console's own sign-in page and the phone apps' own sign-in screen sign in through
+      # the user pool API, whose access tokens lack cranium/console: SignInScopeFn adds it for
+      # those two clients only (see there). Version 2 is the one that may change an access token; it needs the
       # Essentials plan above. The function is named by its ARN, not with !GetAtt, because
       # it is told the client's ID, and the client belongs to this pool: a reference here
       # would make a loop that CloudFormation refuses.
@@ -555,10 +555,13 @@ Resources:
         - cranium://signin
       LogoutURLs:
         - cranium://signin
-      # The apps sign in through the managed login pages only, with PKCE, and never call the
-      # user pool API to sign in: nothing but the refresh of their own tokens.
+      # The apps sign in on their own screen with SRP, as the console's page does, so that the
+      # code goes in six boxes: the password stays on the phone. A step that screen does not
+      # do (a new password, an authenticator to set up) goes to the managed login pages above,
+      # with PKCE. Never ALLOW_USER_PASSWORD_AUTH, which would send the password.
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
       EnableTokenRevocation: true
       PreventUserExistenceErrors: ENABLED
       AuthSessionValidity: 15
@@ -1318,8 +1321,9 @@ Resources:
       Code: ../api/src
       Environment:
         Variables:
-          # The only client whose tokens it changes. Never the phone apps' client.
+          # The only clients whose tokens it changes: the console's and the phone apps'.
           CONSOLE_CLIENT_ID: !Ref UserPoolClient
+          MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
 
   # Cognito may call it for this user pool, in this account, and nothing else may.
   SignInScopePermission:

@@ -116,11 +116,12 @@ test('a user cannot change their own e-mail address', () => {
   assert.deepEqual(allowed, ['name']);
 });
 
-test('the console\'s client signs in with SRP, never by sending the password', () => {
+test('the console\'s client and the phone apps\' client sign in with SRP, never by sending the password', () => {
   const flows = (name) => [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
   assert.deepEqual(flows('UserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
-  // The phone apps sign in through the managed login pages with PKCE only: no sign-in through the API at all.
-  assert.deepEqual(flows('MobileUserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH']);
+  // The phone apps sign in on their own screen with SRP, and through the managed login pages
+  // with PKCE for the steps that screen does not do.
+  assert.deepEqual(flows('MobileUserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
   assert.equal(template.includes('USER_PASSWORD_AUTH\n'), false);
   assert.equal(/^\s+- ALLOW_USER_PASSWORD_AUTH/m.test(template), false);
   const client = block(template, 'UserPoolClient');
@@ -148,10 +149,9 @@ test('the sign-in trigger: version 2, on the pool, named the way the function is
     'Role: !GetAtt SignInScopeRole.Arn', 'Code: ../api/src', 'Timeout: 5', '${DeployedCommit} (${DeployedTree})']) {
     assert.ok(fn.includes(line), line);
   }
-  // It is told the web client and nothing else; never the phone apps' client.
+  // It is told the two clients whose tokens it changes, and nothing else.
   assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+): (.+)$/gm)].map((match) => [match[1], match[2]]),
-    [['CONSOLE_CLIENT_ID', '!Ref UserPoolClient']]);
-  assert.equal(fn.includes('MobileUserPoolClient'), false);
+    [['CONSOLE_CLIENT_ID', '!Ref UserPoolClient'], ['MOBILE_CLIENT_ID', '!Ref MobileUserPoolClient']]);
   const group = block(template, 'SignInScopeLogGroup');
   assert.ok(group.includes("LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-signin-scope'"));
   assert.ok(group.includes('RetentionInDays: 90'));

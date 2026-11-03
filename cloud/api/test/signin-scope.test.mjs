@@ -1,7 +1,8 @@
 // Tests for the sign-in trigger (src/signin-scope.mjs): Cognito's pre token generation
 // trigger, event version 2. It may give cranium/console, and take away
-// aws.cognito.signin.user.admin, only for the console's web client at the end of a
-// sign-in through the user pool API or a refresh, and must leave everything else as it came.
+// aws.cognito.signin.user.admin, only for the console's web client and the phone apps' client
+// at the end of a sign-in through the user pool API or a refresh, and must leave everything
+// else as it came.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -31,18 +32,19 @@ function event({ source = 'TokenGeneration_Authentication', client = WEB, scopes
   };
 }
 
-const handler = createScopeTrigger(WEB);
+const handler = createScopeTrigger([WEB, MOBILE]);
 
-test('a sign-in of the web client through the user pool API gets the console\'s scope and loses the admin scope', async () => {
-  for (const source of ['TokenGeneration_Authentication', 'TokenGeneration_RefreshTokens']) {
-    const given = event({ source });
+test('a sign-in through the user pool API gets the console\'s scope and loses the admin scope, on the web and the phone', async () => {
+  for (const [client, source] of [[WEB, 'TokenGeneration_Authentication'], [WEB, 'TokenGeneration_RefreshTokens'],
+    [MOBILE, 'TokenGeneration_Authentication'], [MOBILE, 'TokenGeneration_RefreshTokens']]) {
+    const given = event({ client, source });
     const before = structuredClone(given);
     const answer = await handler(given);
     assert.deepEqual(answer.response.claimsAndScopeOverrideDetails, {
       accessTokenGeneration: { scopesToAdd: [CONSOLE_SCOPE], scopesToSuppress: [ADMIN_SCOPE] },
       // Handed back as they came: Cognito's documented way to keep the groups.
       groupOverrideDetails: GROUPS,
-    }, source);
+    }, `${client} ${source}`);
     // Nothing else of the event changes, and the event that came in is left alone.
     assert.deepEqual({ ...answer, response: before.response }, before);
     assert.deepEqual(given, before);
@@ -56,10 +58,9 @@ test('every other token passes through untouched', async () => {
     // The managed login pages: their tokens already carry the scope they asked for.
     event({ source: 'TokenGeneration_HostedAuth', scopes: ['openid', CONSOLE_SCOPE] }),
     event({ source: 'TokenGeneration_HostedAuth', scopes: [ADMIN_SCOPE, 'openid'] }),
-    // The phone apps' client, whichever way it signs in.
-    event({ client: MOBILE }),
-    event({ client: MOBILE, source: 'TokenGeneration_RefreshTokens' }),
+    // The phone apps' client through the managed login pages, and a refresh of such a token.
     event({ client: MOBILE, source: 'TokenGeneration_HostedAuth', scopes: ['openid', CONSOLE_SCOPE] }),
+    event({ client: MOBILE, source: 'TokenGeneration_RefreshTokens', scopes: ['openid', CONSOLE_SCOPE] }),
     // Any other client, or none.
     event({ client: 'someoneelse' }),
     event({ client: null }),
@@ -108,11 +109,14 @@ test('the groups go back in the form of an answer, and an odd group setting is n
   assert.equal('groupOverrideDetails' in missing.response.claimsAndScopeOverrideDetails, false);
 });
 
-test('a trigger that does not know the web client changes nothing; it never throws', async () => {
-  for (const id of [undefined, '', null, 5]) {
+test('a trigger that does not know the client changes nothing; it never throws', async () => {
+  for (const id of [undefined, '', null, 5, [], [undefined, ''], [null, 5]]) {
     const given = event();
     assert.deepEqual(await createScopeTrigger(id)(given), event(), String(id));
   }
+  // Told only one of the two clients, it changes the tokens of that one only.
+  assert.deepEqual(await createScopeTrigger(WEB)(event({ client: MOBILE })), event({ client: MOBILE }));
+  assert.deepEqual(await createScopeTrigger([undefined, MOBILE])(event()), event());
   for (const odd of [null, undefined, 'text', 7, [], {}, { callerContext: null }, { triggerSource: 'TokenGeneration_Authentication' }]) {
     assert.deepEqual(await handler(odd), odd);
   }
@@ -123,17 +127,22 @@ test('a trigger that does not know the web client changes nothing; it never thro
     .accessTokenGeneration.scopesToAdd, [CONSOLE_SCOPE]);
 });
 
-test('the deployed handler is told the web client by its environment, and needs nothing else', async () => {
-  const saved = process.env.CONSOLE_CLIENT_ID;
+test('the deployed handler is told both clients by its environment, and needs nothing else', async () => {
+  const saved = { web: process.env.CONSOLE_CLIENT_ID, mobile: process.env.MOBILE_CLIENT_ID };
   process.env.CONSOLE_CLIENT_ID = WEB;
+  process.env.MOBILE_CLIENT_ID = MOBILE;
   try {
     const { handler: deployed } = await import('../src/signin-scope.mjs?deployed');
-    const answer = await deployed(event());
-    assert.deepEqual(answer.response.claimsAndScopeOverrideDetails.accessTokenGeneration.scopesToAdd, [CONSOLE_SCOPE]);
-    assert.deepEqual(await deployed(event({ client: MOBILE })), event({ client: MOBILE }));
+    for (const client of [WEB, MOBILE]) {
+      const answer = await deployed(event({ client }));
+      assert.deepEqual(answer.response.claimsAndScopeOverrideDetails.accessTokenGeneration.scopesToAdd, [CONSOLE_SCOPE]);
+    }
+    assert.deepEqual(await deployed(event({ client: 'someoneelse' })), event({ client: 'someoneelse' }));
   } finally {
-    if (saved === undefined) delete process.env.CONSOLE_CLIENT_ID;
-    else process.env.CONSOLE_CLIENT_ID = saved;
+    for (const [name, value] of [['CONSOLE_CLIENT_ID', saved.web], ['MOBILE_CLIENT_ID', saved.mobile]]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
   // It imports nothing: no AWS SDK, no other module of the API.
   const { readFileSync } = await import('node:fs');

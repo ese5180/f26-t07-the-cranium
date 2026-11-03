@@ -2,23 +2,24 @@
  * Lambda entry point of the sign-in trigger (handler: signin-scope.handler), the function
  * SignInScopeFn: Cognito's pre token generation trigger, event version 2 (V2_0).
  *
- * The console's own sign-in page signs in through Cognito's user pool API (USER_SRP_AUTH),
- * not through the managed login pages. An access token made that way carries one scope,
+ * The console's own sign-in page, and the phone apps' own sign-in screen, sign in through
+ * Cognito's user pool API (USER_SRP_AUTH), not through the managed login pages: that is how
+ * they ask for the code in six boxes. An access token made that way carries one scope,
  * aws.cognito.signin.user.admin, which lets its holder read and change their own account
  * through Cognito's user APIs, and not cranium/console, which every API route demands. For
- * the console's web client, and only for a token made at the end of such a sign-in or by
- * a refresh, this adds cranium/console and takes the other scope out. That is the access
- * the same person gets through the managed login pages, which already ask for
- * cranium/console and never for the other scope.
+ * the console's web client and the phone apps' client, and only for a token made at the end
+ * of such a sign-in or by a refresh, this adds cranium/console and takes the other scope out.
+ * That is the access the same person gets through the managed login pages, which already ask
+ * for cranium/console and never for the other scope.
  *
  * Everything else passes through as it came: the managed login pages
- * (TokenGeneration_HostedAuth), the phone apps' client, and any other step. The groups
- * are handed back as Cognito sent them, which its documentation gives as the way to keep
- * them. Cognito calls this for every token of the pool, so it never throws and calls
- * nothing: on anything it does not expect, it changes nothing.
+ * (TokenGeneration_HostedAuth), any other client, and any other step. The groups are handed
+ * back as Cognito sent them, which its documentation gives as the way to keep them. Cognito
+ * calls this for every token of the pool, so it never throws and calls nothing: on anything
+ * it does not expect, it changes nothing.
  *
- * The function is told the web client's ID (CONSOLE_CLIENT_ID) and nothing else. Its role
- * may only write its own log.
+ * The function is told the two clients' IDs (CONSOLE_CLIENT_ID, MOBILE_CLIENT_ID) and nothing
+ * else. Its role may only write its own log.
  */
 
 export const CONSOLE_SCOPE = 'cranium/console';
@@ -38,17 +39,25 @@ function sameGroups(configuration) {
   };
 }
 
+/** The client IDs given, as a list of the non-empty strings among them. */
+function served(clientIds) {
+  return (Array.isArray(clientIds) ? clientIds : [clientIds])
+    .filter((id) => typeof id === 'string' && id !== '');
+}
+
 /**
- * The event with Cognito's answer in it: the scopes changed for the console's web client,
- * or the event as it came.
+ * The event with Cognito's answer in it: the scopes changed for the console's clients, or
+ * the event as it came.
  *
- * @param {object} event             a pre token generation event, version 2
- * @param {string} consoleClientId   the console's web client; no token of another changes
+ * @param {object} event                      a pre token generation event, version 2
+ * @param {string | string[]} clientIds       the console's web client and the phone apps'
+ *                                            client; no token of another changes
  */
-export function withConsoleScope(event, consoleClientId) {
-  if (typeof consoleClientId !== 'string' || consoleClientId === '') return event;
+export function withConsoleScope(event, clientIds) {
+  const clients = served(clientIds);
+  if (clients.length === 0) return event;
   if (event === null || typeof event !== 'object') return event;
-  if (event.callerContext?.clientId !== consoleClientId || !SOURCES.has(event.triggerSource)) return event;
+  if (!clients.includes(event.callerContext?.clientId) || !SOURCES.has(event.triggerSource)) return event;
 
   // An event without the list of scopes still gets the scope and loses the other.
   const scopes = Array.isArray(event.request?.scopes) ? event.request.scopes : null;
@@ -67,9 +76,9 @@ export function withConsoleScope(event, consoleClientId) {
   return { ...event, response: { ...response, claimsAndScopeOverrideDetails: details } };
 }
 
-/** The Lambda handler for one web client. */
-export function createScopeTrigger(consoleClientId) {
-  return async (event) => withConsoleScope(event, consoleClientId);
+/** The Lambda handler for the clients given (an ID, or a list of them). */
+export function createScopeTrigger(clientIds) {
+  return async (event) => withConsoleScope(event, clientIds);
 }
 
-export const handler = createScopeTrigger(process.env.CONSOLE_CLIENT_ID);
+export const handler = createScopeTrigger([process.env.CONSOLE_CLIENT_ID, process.env.MOBILE_CLIENT_ID]);

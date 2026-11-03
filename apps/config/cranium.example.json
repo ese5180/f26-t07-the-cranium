@@ -2,5 +2,7 @@
   "consoleUrl": "https://console.example.com",
   "loginDomain": "https://cranium-example.auth.us-east-1.amazoncognito.com",
   "mobileClientId": "exampleclientid0000000000",
-  "redirectUri": "cranium://signin"
+  "redirectUri": "cranium://signin",
+  "region": "us-east-1",
+  "userPoolId": "us-east-1_EXAMPLE00"
 }
