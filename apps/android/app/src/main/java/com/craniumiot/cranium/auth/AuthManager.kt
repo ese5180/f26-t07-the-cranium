@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import com.craniumiot.cranium.CraniumConfig
 import com.craniumiot.cranium.core.AuthorizeRequest
 import com.craniumiot.cranium.core.CognitoEndpoints
+import com.craniumiot.cranium.core.FreshSignIn
 import com.craniumiot.cranium.core.Pkce
 import com.craniumiot.cranium.core.revokeForm
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +111,13 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
         if (token != before) withContext(Dispatchers.IO) { store.save(current) }
         token
     }
+
+    /**
+     * When the person last signed in with password and code, in epoch seconds: the `auth_time` of
+     * the access token, which a refresh keeps. A change from the phone needs one in the last 15
+     * minutes (FreshSignIn).
+     */
+    suspend fun authTime(): Long? = mutex.withLock { FreshSignIn.authTime(state?.accessToken) }
 
     /** Forget the tokens here, without telling Cognito: the console no longer takes them. */
     suspend fun forget() {

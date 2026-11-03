@@ -1,11 +1,15 @@
 package com.craniumiot.cranium.core
 
-/** The console's API calls under [consoleUrl] (docs/mobile-apps.md, "The API"). */
+/** The console's API calls under [consoleUrl] (cloud/api/src/app.mjs; docs/mobile-apps.md, "The API"). */
 class ApiPaths(consoleUrl: String) {
     private val base = consoleUrl.trimEnd('/')
 
+    val root: String get() = "$base/"
     val me: String get() = "$base/api/me"
     val firmware: String get() = "$base/api/firmware"
+    val devices: String get() = "$base/api/devices"
+    val deployments: String get() = "$base/api/deployments"
+    val tokens: String get() = "$base/api/tokens"
 
     /** The signed image of a release. `{version}` is the text from the list, URL-encoded. */
     fun image(version: String): String = "$base/api/firmware/${encodeSegment(version)}/image"
@@ -15,7 +19,35 @@ class ApiPaths(consoleUrl: String) {
     /** The check right before every Bluetooth send: may this image of the release be sent now? */
     fun bluetooth(version: String): String = "$base/api/firmware/${encodeSegment(version)}/bluetooth"
 
+    fun revoke(version: String): String = "$base/api/firmware/${encodeSegment(version)}/revoke"
+
     fun device(thing: String): String = "$base/api/devices/${encodeSegment(thing)}"
+
+    fun samples(thing: String, hours: Int): String = "$base/api/devices/${encodeSegment(thing)}/samples?hours=$hours"
+
+    fun deployment(id: String): String = "$base/api/deployments/${encodeSegment(id)}"
+
+    fun cancel(id: String): String = "$base/api/deployments/${encodeSegment(id)}/cancel"
+
+    fun revokeToken(id: String): String = "$base/api/tokens/${encodeSegment(id)}/revoke"
+
+    fun audit(limit: Int, before: String?): String =
+        "$base/api/audit?" + formEncode(listOfNotNull("limit" to limit.toString(), before?.let { "before" to it }))
+
+    /** The boards' events between two times (ISO), newest first, a page at a time. */
+    fun events(from: String, to: String, thing: String?, kinds: List<String>?, cursor: String?): String =
+        "$base/api/events?" + formEncode(
+            listOfNotNull(
+                "from" to from,
+                "to" to to,
+                thing?.let { "thing" to it },
+                kinds?.let { "kinds" to it.joinToString(",") },
+                cursor?.let { "cursor" to it },
+            ),
+        )
+
+    /** The website's history of commits, beside its scripts under the build id. */
+    fun history(build: String): String = "$base/assets/${encodeSegment(build)}/history.json"
 
     companion object {
         private const val HEX = "0123456789ABCDEF"
@@ -34,6 +66,13 @@ class ApiPaths(consoleUrl: String) {
                     append('%').append(HEX[c shr 4]).append(HEX[c and 0x0F])
                 }
             }
+        }
+
+        /** The build id in the console's own page: its scripts are under `/assets/<build>/`. */
+        fun buildIdIn(html: String): String? {
+            val match = Regex("/assets/([A-Za-z0-9._-]{1,64})/app\\.js").find(html) ?: return null
+            val build = match.groupValues[1]
+            return build.takeIf { it != "." && it != ".." }
         }
     }
 }

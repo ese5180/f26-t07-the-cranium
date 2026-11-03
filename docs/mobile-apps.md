@@ -76,7 +76,9 @@ the API, with one rule: **a change made from the phone needs a sign-in, with pas
 whose sign-in is older gets `403 phone_sign_in_again`, and the app asks for the password and code again
 before it retries. Reads never ask. The three calls a person makes while standing at a board for an update
 over Bluetooth do not ask either: the image, the passkey and the check before a send. A deployment made from
-the phone goes into the activity log with `from: phone`.
+the phone goes into the activity log with `from: phone`. The Android app also reads the access token's
+`auth_time`, the claim the console checks, and asks for the sign-in before it tries a change once that is
+more than 14 minutes old, so that a change is not refused on its way and logged as such.
 
 ## The API
 

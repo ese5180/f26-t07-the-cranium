@@ -120,6 +120,8 @@ dependencies {
     implementation(libs.appauth)
     implementation(libs.security.crypto)
     implementation(libs.mcumgr.ble)
+    implementation(libs.usb.serial)
 
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
 }

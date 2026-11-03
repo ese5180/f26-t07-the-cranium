@@ -78,7 +78,7 @@ class ApiJsonTest {
     @Test
     fun `decodes me, pairing and a device`() {
         val me = ApiJson.me("""{"email": "rm@example.com", "groups": ["release-managers"], "canWrite": true, "expiresAt": 1798000000}""")
-        assertEquals(Me("rm@example.com", listOf("release-managers"), true), me)
+        assertEquals(Me("rm@example.com", listOf("release-managers"), true, expiresAt = 1798000000), me)
         assertFalse(ApiJson.me("""{"email": "viewer@example.com", "groups": [], "canWrite": false}""").canWrite)
 
         val pairing = ApiJson.pairing(
@@ -110,6 +110,13 @@ class ApiJsonTest {
         val error = ApiJson.error(403, """{"error": {"code": "forbidden", "message": "Only release managers can do this."}}""")
         assertTrue(error.message!!.startsWith("Only release managers can do this."))
         assertTrue(error.message!!.contains("ask an administrator for the role"))
+    }
+
+    @Test
+    fun `a 403 that is not about the role is shown as it is`() {
+        val error = ApiJson.error(403, """{"error": {"code": "phone_sign_in_again", "message": "Sign in again first."}}""")
+        assertEquals("Sign in again first.", error.message)
+        assertEquals("phone_sign_in_again", error.code)
     }
 
     @Test

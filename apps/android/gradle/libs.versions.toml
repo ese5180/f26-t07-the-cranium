@@ -10,6 +10,8 @@ serialization = "1.12.0"
 appauth = "0.11.1"
 securityCrypto = "1.1.0"
 mcumgr = "3.4.1"
+# USB host serial for the board's J-Link virtual COM ports (MIT licence, from JitPack).
+usbSerial = "3.11.0"
 junit = "4.13.2"
 
 [libraries]
@@ -26,7 +28,9 @@ serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serializ
 appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 mcumgr-ble = { group = "no.nordicsemi.android", name = "mcumgr-ble", version.ref = "mcumgr" }
+usb-serial = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usbSerial" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

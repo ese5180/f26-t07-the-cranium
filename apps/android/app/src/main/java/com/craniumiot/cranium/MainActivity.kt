@@ -7,10 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.craniumiot.cranium.ui.CraniumApp
 import com.craniumiot.cranium.ui.CraniumTheme
-import com.craniumiot.cranium.ui.CraniumViewModel
+import com.craniumiot.cranium.ui.ConsoleViewModel
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: CraniumViewModel by viewModels()
+    private val viewModel: ConsoleViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

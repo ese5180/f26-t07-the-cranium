@@ -1,6 +1,7 @@
 package com.craniumiot.cranium.ui
 
 import com.craniumiot.cranium.auth.SignInException
+import com.craniumiot.cranium.ble.ImageNote
 import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.CacheSummary

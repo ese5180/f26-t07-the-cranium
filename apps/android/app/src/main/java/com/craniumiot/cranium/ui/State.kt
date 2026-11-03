@@ -1,0 +1,202 @@
+package com.craniumiot.cranium.ui
+
+import com.craniumiot.cranium.core.ApiToken
+import com.craniumiot.cranium.core.AuditEntry
+import com.craniumiot.cranium.core.AuditPage
+import com.craniumiot.cranium.core.BoardEvent
+import com.craniumiot.cranium.core.CacheSummary
+import com.craniumiot.cranium.core.Deployment
+import com.craniumiot.cranium.core.DeploymentSummary
+import com.craniumiot.cranium.core.Device
+import com.craniumiot.cranium.core.DeviceDetail
+import com.craniumiot.cranium.core.DeviceList
+import com.craniumiot.cranium.core.Glyph
+import com.craniumiot.cranium.core.HistoryRead
+import com.craniumiot.cranium.core.Me
+import com.craniumiot.cranium.core.NewToken
+import com.craniumiot.cranium.core.Release
+import com.craniumiot.cranium.core.ReleaseList
+import com.craniumiot.cranium.core.Samples
+import com.craniumiot.cranium.core.Telemetry
+import com.craniumiot.cranium.core.TokenList
+import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.UploadReview
+
+/** Something read from the console: the last value, the last failure, when it was read, and whether it is being read. */
+data class Resource<T>(val value: T? = null, val error: Throwable? = null, val loadedAt: Long = 0, val loading: Boolean = false)
+
+/** The sections of the bottom bar. More holds the rest of the website's sections. */
+enum class Tab(val label: String, val glyph: Glyph) {
+    OVERVIEW("Overview", Glyph.HOME),
+    BOARDS("Boards", Glyph.CHIP),
+    FIRMWARE("Firmware", Glyph.PACKAGE),
+    EVENTS("Events", Glyph.PULSE),
+    MORE("More", Glyph.MORE),
+}
+
+/** The pages of the app: the website's routes, and the update over Bluetooth. */
+sealed interface Route {
+    val key: String
+
+    data object Overview : Route { override val key = "overview" }
+    data object Boards : Route { override val key = "devices" }
+    data class Board(val thing: String) : Route { override val key = "device/$thing" }
+    data object Firmware : Route { override val key = "firmware" }
+    data object Events : Route { override val key = "events" }
+    data object More : Route { override val key = "more" }
+    data object Deployments : Route { override val key = "deployments" }
+    data class DeploymentPage(val id: String) : Route { override val key = "deployment/$id" }
+    data object Activity : Route { override val key = "activity" }
+    data object Tokens : Route { override val key = "tokens" }
+    data object History : Route { override val key = "history" }
+    data object Serial : Route { override val key = "serial" }
+    data object Account : Route { override val key = "account" }
+    data class Bluetooth(val version: String?) : Route { override val key = "bluetooth" }
+}
+
+/** Where the person is: a tab, and in each tab the pages they went through. */
+data class Nav(
+    val tab: Tab = Tab.OVERVIEW,
+    val stacks: Map<Tab, List<Route>> = mapOf(
+        Tab.OVERVIEW to listOf(Route.Overview),
+        Tab.BOARDS to listOf(Route.Boards),
+        Tab.FIRMWARE to listOf(Route.Firmware),
+        Tab.EVENTS to listOf(Route.Events),
+        Tab.MORE to listOf(Route.More),
+    ),
+) {
+    val route: Route get() = stacks.getValue(tab).last()
+    val canGoBack: Boolean get() = stacks.getValue(tab).size > 1 || tab != Tab.OVERVIEW
+}
+
+/** Before the console can be shown. */
+sealed interface Gate {
+    data object Starting : Gate
+    data class SignIn(val busy: String? = null, val notice: String? = null) : Gate
+    data object Ready : Gate
+}
+
+/** A message at the foot of the screen, for as long as it takes to read it. */
+data class Toast(val id: Long, val text: String, val tone: Tone = Tone.GOOD)
+
+/** The Events page: its range, its filters and what was read. */
+data class EventsQuery(val from: String, val to: String, val thing: String?, val kinds: List<String>?)
+
+data class EventsData(
+    val events: List<BoardEvent>,
+    val cursor: String?,
+    val span: Telemetry.TimeSpan,
+    val query: EventsQuery,
+    /** The activity log in the range, for the Console lane; null while that lane is off. */
+    val audit: List<AuditEntry>?,
+    val auditCut: Boolean,
+    val pages: Int,
+)
+
+data class EventsPage(
+    val range: Telemetry.Range = Telemetry.Range.Last("24h"),
+    val zooms: List<Telemetry.Range> = emptyList(),
+    val thing: String = "",
+    val hidden: Set<String> = emptySet(),
+    val data: Resource<EventsData> = Resource(),
+    val moreLoading: Boolean = false,
+    val moreError: Throwable? = null,
+    val selected: String? = null,
+)
+
+/** Everything read from the console, as the website's state holds it. */
+data class Store(
+    val me: Me? = null,
+    val devices: Resource<DeviceList> = Resource(),
+    val firmware: Resource<ReleaseList> = Resource(),
+    val deployments: Resource<List<DeploymentSummary>> = Resource(),
+    val recent: Resource<AuditPage> = Resource(),
+    val audit: Resource<AuditPage> = Resource(),
+    val auditMoreLoading: Boolean = false,
+    val auditMoreError: Throwable? = null,
+    val tokens: Resource<TokenList> = Resource(),
+    val history: Resource<HistoryRead> = Resource(),
+    val deviceDetails: Map<String, Resource<DeviceDetail>> = emptyMap(),
+    val deploymentDetails: Map<String, Resource<Deployment>> = emptyMap(),
+    val samples: Map<String, Resource<Samples>> = emptyMap(),
+    val events: EventsPage = EventsPage(),
+    /** The checked images kept on the phone (docs/mobile-apps.md, "Cache"). */
+    val cache: CacheSummary = CacheSummary.EMPTY,
+) {
+    val deviceList: List<Device>? get() = devices.value?.devices
+    val releases: List<Release>? get() = firmware.value?.releases
+}
+
+/** A board that has an update open, as its own history says. */
+data class BusyInfo(val deployment: String, val version: String?)
+
+/** The dialogs that change something. Each keeps what the person entered until it closes. */
+sealed interface DialogState {
+    val sending: Boolean
+    val error: Throwable?
+
+    data class Deploy(
+        val step: Int,
+        val version: String?,
+        val things: Set<String> = emptySet(),
+        val chosenByHand: Boolean = false,
+        val note: String = "",
+        val busy: Map<String, BusyInfo> = emptyMap(),
+        val releases: List<Release>? = null,
+        val devices: List<Device>? = null,
+        val loading: Boolean = true,
+        val loadError: Throwable? = null,
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+        /** The release this dialog was opened for, revoked since. */
+        val gone: String? = null,
+    ) : DialogState
+
+    data class Cancel(
+        val id: String,
+        val force: Boolean = false,
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+    ) : DialogState
+
+    data class Revoke(
+        val version: String,
+        val reason: String = "",
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+    ) : DialogState
+
+    data class CreateToken(
+        val name: String = "",
+        val days: String = "30",
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+        /** The token, shown once. Gone with the dialog. */
+        val made: NewToken? = null,
+    ) : DialogState
+
+    data class RevokeToken(
+        val token: ApiToken,
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+    ) : DialogState
+}
+
+/** Where a chosen file stands on its way to the boards. */
+enum class UploadStep { IDLE, READING, READY, SENDING, CHECKING, DONE, REFUSED }
+
+data class UploadState(
+    val step: UploadStep = UploadStep.IDLE,
+    val name: String = "",
+    val recordedAs: String = "",
+    val size: Long = 0,
+    val digest: String = "",
+    val header: UploadReview.Header? = null,
+    val notes: String = "",
+    val sent: Float = 0f,
+    val error: Throwable? = null,
+    val release: Release? = null,
+) {
+    /** A chosen file is in hand: being read, waiting to be sent, on its way or refused. */
+    val inHand: Boolean get() = step != UploadStep.IDLE && step != UploadStep.DONE
+}

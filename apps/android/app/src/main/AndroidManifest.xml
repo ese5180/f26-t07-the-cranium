@@ -26,6 +26,11 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <!-- The serial console: the board's J-Link on a USB cable, with the phone as USB host (OTG). -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <!-- So that AppAuth can find a browser that offers Custom Tabs for the sign-in page. -->
     <queries>
         <intent>

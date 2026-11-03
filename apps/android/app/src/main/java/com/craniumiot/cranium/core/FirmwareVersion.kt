@@ -37,6 +37,13 @@ data class FirmwareVersion(
         // is 0 and "1.8.0.5" when it is not. A "+" is taken too.
         private val BOARD = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,5})(?:[.+](\d{1,10}))?$""")
 
+        // The API's strict form: the build number always present (cloud/api/src/lib/validate.mjs).
+        private val STRICT =
+            Regex("""^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$""")
+
+        /** A version in the API's strict form, `1.8.0+0` with the build number, or null. */
+        fun parseStrict(text: String): FirmwareVersion? = STRICT.matchEntire(text)?.let(::fromMatch)
+
         /** A release's version, `1.8.0+0`, or null if it is not one. */
         fun parseRelease(text: String): FirmwareVersion? = RELEASE.matchEntire(text)?.let(::fromMatch)
 
