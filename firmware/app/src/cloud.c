@@ -10,12 +10,25 @@
 #include <zephyr/sys/atomic.h>
 
 #include "app_events.h"
+#include "cloud_events.h"
 #include "identity.h"
 
 LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 
 #define TOPIC_MAX        128
 #define SHADOW_MAX       512
+/*
+ * An event's topic is "cranium/<thing name>/events", where the thing name is the prefix and 16
+ * hexadecimal digits. Its PUBLISH at QoS 0 has a fixed header of 3 bytes (up to 16383 bytes in all)
+ * and the topic's length in 2. The library sends the payload from where it is and only puts the rest
+ * into its buffer; all of it fits there all the same, as the shadow report does.
+ */
+#define EVENTS_TOPIC_LENGTH (sizeof("cranium//events") - 1 + sizeof(CONFIG_APP_THING_NAME_PREFIX) - 1 + 16)
+#define PUBLISH_QOS0_HEADER 5
+BUILD_ASSERT(EVENTS_TOPIC_LENGTH < TOPIC_MAX, "the events topic must fit its buffer");
+BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX - 1 <=
+		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
+	     "the longest event must fit the MQTT buffer with its topic");
 #define CONNECT_STACK    4096
 #define CONNECT_PRIORITY K_PRIO_PREEMPT(10)
 
@@ -25,6 +38,7 @@ static char topic_get_rejected[TOPIC_MAX];
 static char topic_update_accepted[TOPIC_MAX];
 static char topic_update_rejected[TOPIC_MAX];
 static char topic_get_next[TOPIC_MAX];
+static char topic_events[TOPIC_MAX];
 
 /* What is subscribed to, in this order. The console lists them from here as well. */
 static char *const subscribed[] = {
@@ -325,6 +339,7 @@ static void subscribe_to(size_t index, const char *topic)
 
 int cloud_init(void)
 {
+	int written;
 	int err;
 
 	err = build_topic(topic_notify_next, "notify-next");
@@ -335,6 +350,12 @@ int cloud_init(void)
 	err = err ? err : build_topic(topic_get_next, "$next/get");
 	if (err) {
 		return err;
+	}
+
+	written = snprintk(topic_events, sizeof(topic_events), "cranium/%s/events",
+			   identity_thing_name());
+	if (written < 0 || written >= (int)sizeof(topic_events)) {
+		return -ENOSPC;
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(subscribed); i++) {
@@ -414,11 +435,11 @@ const char *cloud_subscription(size_t index)
 	return subscribed[index];
 }
 
-static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topic,
-		   const char *payload)
+static int publish_at(enum mqtt_qos qos, const char *topic,
+		      enum aws_iot_shadow_topic_type shadow_topic, const char *payload)
 {
 	struct aws_iot_data message = {
-		.qos = MQTT_QOS_1_AT_LEAST_ONCE,
+		.qos = qos,
 		.topic.type = shadow_topic,
 		.topic.str = topic,
 		.topic.len = topic ? strlen(topic) : 0,
@@ -445,6 +466,12 @@ static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topi
 	return err;
 }
 
+static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topic,
+		   const char *payload)
+{
+	return publish_at(MQTT_QOS_1_AT_LEAST_ONCE, topic, shadow_topic, payload);
+}
+
 int cloud_shadow_report(const char *reported_json)
 {
 	static char document[SHADOW_MAX];
@@ -456,6 +483,16 @@ int cloud_shadow_report(const char *reported_json)
 	}
 
 	return publish(NULL, AWS_IOT_SHADOW_TOPIC_UPDATE, document);
+}
+
+/* QoS 0: nothing here would send it again, and the shadow is what the board's state is kept in. */
+int cloud_event_publish(const char *json)
+{
+	if (topic_events[0] == '\0') {
+		return -ENOTCONN;
+	}
+
+	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic_events, AWS_IOT_SHADOW_TOPIC_NONE, json);
 }
 
 int cloud_jobs_request_next(void)

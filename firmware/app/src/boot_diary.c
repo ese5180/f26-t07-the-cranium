@@ -52,6 +52,11 @@ void boot_diary_begin(void)
 	(void)store_write(STORE_BOOT_DIARY, &diary, sizeof(diary));
 }
 
+uint32_t boot_diary_boots(void)
+{
+	return diary.boots;
+}
+
 void boot_diary_stage(enum boot_diary_stage stage)
 {
 	if (diary.entries[current].stage < stage) {

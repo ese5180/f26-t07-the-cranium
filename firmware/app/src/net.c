@@ -667,6 +667,15 @@ static void copy_stored_ssid(void *arg, const char *ssid, size_t ssid_len)
 	}
 }
 
+size_t net_stored_ssid(char *buf, size_t len)
+{
+	struct net_status status = { 0 };
+
+	wifi_credentials_for_each_ssid(copy_stored_ssid, &status);
+	(void)snprintk(buf, len, "%s", status.ssid);
+	return strlen(buf);
+}
+
 void net_status_get(struct net_status *status)
 {
 	memset(status, 0, sizeof(*status));

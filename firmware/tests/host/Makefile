@@ -19,7 +19,7 @@ CFLAGS := -std=c11 -O1 -g $(SANITIZE) -I$(SRC) -Istubs -I$(CJSON_DIR)
 WARNINGS := -Wall -Wextra -Werror
 
 # What the console's code expects from Kconfig.
-CONSOLE_DEFINES := -D_GNU_SOURCE -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_LOG_LEVEL=0 \
+CONSOLE_DEFINES := -D_GNU_SOURCE -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_CLOUD_EVENTS=1 -DCONFIG_APP_LOG_LEVEL=0 \
 	-DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" -DCONFIG_MQTT_HELPER_SEC_TAG=201 \
 	-DCONFIG_APP_DOWNLOAD_SEC_TAG=202 -DCONFIG_MQTT_HELPER_PORT=8883 -DCONFIG_MQTT_KEEPALIVE=120
 CONSOLE_SOURCES := $(SRC)/console_cmd.c $(SRC)/console_parser.c $(SRC)/console_stream.c \
@@ -33,7 +33,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/console_bt_tests $(BUILD)/app_bt_tests $(BUILD)/ui_bt_tests \
 		$(BUILD)/stuck_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
 		$(BUILD)/fault_wifi_tests $(BUILD)/fault_wifi_command_tests $(BUILD)/app_fault_tests \
-		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests
+		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -55,6 +55,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/fault_wifi_command_tests
 	./$(BUILD)/app_fault_tests
 	./$(BUILD)/cloud_tests
+	./$(BUILD)/cloud_events_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -84,10 +85,20 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 # cloud.c, included by its test to get at the AWS IoT library's callback and the connection's work,
 # against a fake of that library: what the console's MQTT command counts, and the topics it lists.
 $(BUILD)/cloud_tests: test_cloud.c $(SRC)/cloud.c $(SRC)/cloud.h $(SRC)/app_events.h $(SRC)/identity.h \
-		stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h stubs/zephyr/kernel.h
+		$(SRC)/cloud_events.h stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h stubs/zephyr/kernel.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN=4096 \
+		-DCONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE=512 -DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" \
 		-o $@ test_cloud.c
+
+# The events for the console (src/cloud_events.c), included by its test to get at the ring and the
+# connection's state, against fakes of the cloud, the main loop's queue and the Wi-Fi store: what is
+# never sent, what is replaced, the JSON, the ring, the limit, and when a connection may have them.
+$(BUILD)/cloud_events_tests: test_cloud_events.c $(SRC)/cloud_events.c $(SRC)/cloud_events.h $(SRC)/app_events.h \
+		$(SRC)/cloud.h $(SRC)/net.h $(SRC)/boot_diary.h stubs/zephyr/kernel.h $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_CLOUD_EVENTS=1 -DCONFIG_APP_BOOT_DIARY=1 \
+		-o $@ test_cloud_events.c $(BUILD)/cJSON.o -lm
 
 # ui.c, included by its test to get at its input callback.
 $(BUILD)/ui_tests: test_ui.c $(SRC)/ui.c $(SRC)/ui.h $(SRC)/app_events.h

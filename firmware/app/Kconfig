@@ -134,6 +134,18 @@ config APP_CONSOLE_RX_BUFFER_SIZE
 
 endif # APP_CONSOLE
 
+config APP_CLOUD_EVENTS
+	bool "Send what the console says about the board to AWS IoT"
+	depends on APP_CONSOLE
+	default y
+	help
+	  From 1.12.0. Every line of console_event() and of this application's log modules also goes to
+	  cranium/<thing name>/events, for the console in the cloud. src/cloud_events.c keeps out the
+	  Bluetooth passkey and anything like a secret, and replaces network names and URLs. Lines wait
+	  in RAM while the board is offline, the last 32 of them, and at most 5 a second (20 at once)
+	  get in. The device policy in AWS IoT has to allow publishing there: see "Events to the console"
+	  in firmware/README.md.
+
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"
 	depends on APP_CONSOLE && BT

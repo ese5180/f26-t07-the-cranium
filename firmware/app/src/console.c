@@ -29,6 +29,7 @@
 #include <zephyr/sys/sys_heap.h>
 
 #include "app_events.h"
+#include "cloud_events.h"
 #include "console_cmd.h"
 #include "console_port.h"
 
@@ -385,6 +386,9 @@ static void switch_to_polling(void)
 static struct {
 	char text[LOG_LINE_MAX + 1];
 	size_t length;
+	/* The module's name, and where what follows "[tag] " starts: the mark, then the message. */
+	const char *tag;
+	size_t after_tag;
 	/* Where the message starts, behind the tag. */
 	size_t start;
 	bool truncated;
@@ -402,6 +406,8 @@ static void log_line_begin(const char *tag, uint8_t level)
 
 	log_line.start = (size_t)snprintk(log_line.text, sizeof(log_line.text), "[%s] %s", tag, mark);
 	log_line.length = log_line.start;
+	log_line.tag = tag;
+	log_line.after_tag = log_line.start - strlen(mark);
 	log_line.truncated = false;
 }
 
@@ -414,6 +420,15 @@ static void log_line_end(void)
 
 	if (log_line.length > log_line.start) {
 		console_port_event(log_line.text, log_line.length);
+
+		/*
+		 * src/cloud_events.c decides whether it goes: by the module, the level and the text. Not
+		 * once the board is about to restart, or in a fatal error, which may have struck in there.
+		 */
+		if (!polling) {
+			cloud_events_add(log_line.tag, log_line.text + log_line.after_tag,
+					 log_line.length - log_line.after_tag);
+		}
 	}
 
 	log_line.length = log_line.start;

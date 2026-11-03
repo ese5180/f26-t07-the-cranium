@@ -12,6 +12,7 @@
 
 #include "app_events.h"
 #include "cloud.h"
+#include "cloud_events.h"
 #include "console_parser.h"
 #include "console_port.h"
 #include "console_stream.h"
@@ -64,6 +65,8 @@ static struct console_reader reader;
 /* The reply being assembled. Only the console task uses this. */
 static char reply_text[REPLY_MAX];
 static bool final_sent;
+/* The final line said OK. */
+static bool final_ok;
 
 /* A line that does not fit is marked as such, and never just cut off. */
 static size_t format_into(char *buffer, size_t size, const char *format, va_list args)
@@ -105,6 +108,7 @@ static void reply_final(const char *head, const char *format, va_list args)
 	}
 
 	final_sent = true;
+	final_ok = head[0] == 'O';
 	memcpy(reply_text, head, used);
 	used += format_into(reply_text + used, sizeof(reply_text) - used, format, args);
 	console_port_reply(reply_text, used, true);
@@ -132,14 +136,17 @@ static void reply_done(void)
 {
 	if (!final_sent) {
 		final_sent = true;
+		final_ok = true;
 		console_port_reply("OK", 2, true);
 	}
 }
 
+/* The line goes to the cloud as well, as it is here, unless src/cloud_events.c says otherwise. */
 void console_event(const char *tag, const char *format, ...)
 {
 	char line[EVENT_MAX];
-	int used = snprintk(line, sizeof(line), "[%s] ", tag);
+	int start = snprintk(line, sizeof(line), "[%s] ", tag);
+	int used = start;
 	va_list args;
 
 	va_start(args, format);
@@ -147,6 +154,47 @@ void console_event(const char *tag, const char *format, ...)
 	va_end(args);
 
 	console_port_event(line, (size_t)used);
+	cloud_events_add(tag, line + start, (size_t)(used - start));
+}
+
+/*
+ * The commands that change the board. One of them that worked is an event for the console in the
+ * cloud, and not a line here, where its reply is: by its name and what it does, and by nothing that
+ * was typed after the name, which can be a network's name, a password, an endpoint or a certificate.
+ * A certificate that was loaded is told of where it is stored, in apply_stream(). INIT, REBOOT,
+ * ENTER_BOOTLOADER and FACTORY_RESET restart the board before anything could be sent.
+ */
+static const char *const commands_that_change_the_board[] = {
+	"SET_ID", "RESET_CONFIG", "WIFI", "WIFI_SEC", "CLEAR_WIFI", "CLOUD", "KEYGEN", "MQTT_HOST",
+	"MQTT_RECONNECT", "BUTTON",
+};
+
+static void __printf_like(1, 2) cloud_only_event(const char *format, ...)
+{
+	char text[EVENT_MAX];
+	size_t length;
+	va_list args;
+
+	va_start(args, format);
+	length = format_into(text, sizeof(text), format, args);
+	va_end(args);
+
+	cloud_events_add("CONSOLE", text, length);
+}
+
+static void tell_the_cloud(const struct console_command *command)
+{
+	if (!final_ok) {
+		return;
+	}
+
+	for (size_t i = 0; i < ARRAY_SIZE(commands_that_change_the_board); i++) {
+		if (strcmp(command->name, commands_that_change_the_board[i]) == 0) {
+			cloud_only_event("%s done on the serial console: %s", command->name,
+					 command->description);
+			return;
+		}
+	}
 }
 
 /* ---- the main loop's side ------------------------------------------------------- */
@@ -1231,6 +1279,8 @@ static void apply_stream(void)
 	}
 
 	reply_ok("%s stored (%u bytes)", stream_kind_name(call.kind), (unsigned int)call.length);
+	cloud_only_event("%s certificate loaded on the serial console (%u bytes)",
+			 call.kind == CONSOLE_STREAM_CA ? "a CA" : "the device", (unsigned int)call.length);
 }
 
 static void cmd_stream_chunk(int argc, char **argv)
@@ -1588,6 +1638,7 @@ static void run_line(char *line)
 
 	command->handler(argc, argv);
 	reply_done();
+	tell_the_cloud(command);
 }
 
 /* ---- the task's entry points ---------------------------------------------------- */

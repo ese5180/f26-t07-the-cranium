@@ -56,6 +56,11 @@ static struct {
 	struct cloud_stats during_connect;
 	int send_result;
 	int sends;
+	/* The last message the library was given. */
+	char sent_topic[TOPIC_MAX];
+	enum aws_iot_shadow_topic_type sent_shadow_topic;
+	enum mqtt_qos sent_qos;
+	char sent_payload[CLOUD_EVENTS_JSON_MAX];
 
 	/* The connection thread. */
 	k_work_handler_t work;
@@ -184,8 +189,12 @@ int aws_iot_disconnect(void)
 
 int aws_iot_send(const struct aws_iot_data *const tx_data)
 {
-	ARG_UNUSED(tx_data);
 	lib.sends++;
+	snprintf(lib.sent_topic, sizeof(lib.sent_topic), "%.*s", (int)tx_data->topic.len,
+		 tx_data->topic.str != NULL ? tx_data->topic.str : "");
+	lib.sent_shadow_topic = tx_data->topic.type;
+	lib.sent_qos = tx_data->qos;
+	snprintf(lib.sent_payload, sizeof(lib.sent_payload), "%.*s", (int)tx_data->len, tx_data->ptr);
 	return lib.send_result;
 }
 
@@ -340,6 +349,40 @@ static void test_messages_in_and_out(void)
 	CHECK(stats.published == 2);
 }
 
+/*
+ * An event for the console goes to the board's own events topic, at QoS 0, and counts as published.
+ * The longest one fits the MQTT buffer with that topic: see test_cloud_events.c for the longest.
+ */
+static void test_an_event_goes_to_the_events_topic(void)
+{
+	const char json[] = "{\"t\":1,\"seq\":1,\"boot\":1,\"up\":2,\"tag\":\"BT\",\"text\":\"a phone connected\"}";
+	uint32_t published = now_stats().published;
+
+	lib.uptime_ms = 9700;
+	CHECK(cloud_event_publish(json) == 0);
+	CHECK_TEXT(lib.sent_topic, "cranium/" THING "/events");
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_NONE);
+	CHECK(lib.sent_qos == MQTT_QOS_0_AT_MOST_ONCE);
+	CHECK_TEXT(lib.sent_payload, json);
+	CHECK(now_stats().published == published + 1);
+	CHECK(now_stats().last_publish_ms == 9700);
+
+	/* Everything else still goes at QoS 1. */
+	CHECK(cloud_shadow_report("{}") == 0);
+	CHECK(lib.sent_qos == MQTT_QOS_1_AT_LEAST_ONCE);
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_UPDATE);
+
+	/* The topic is no subscription: nothing comes back on it. */
+	for (size_t i = 0; cloud_subscription(i) != NULL; i++) {
+		CHECK(strstr(cloud_subscription(i), "/events") == NULL);
+	}
+
+	/* What cloud.c asserts at build time, with the topic it made. */
+	CHECK(strlen(topic_events) == EVENTS_TOPIC_LENGTH);
+	CHECK(PUBLISH_QOS0_HEADER + strlen(topic_events) + CLOUD_EVENTS_JSON_MAX - 1 <=
+	      CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE);
+}
+
 static void test_a_connection_that_ends(void)
 {
 	struct cloud_stats stats;
@@ -361,7 +404,8 @@ static void test_a_connection_that_ends(void)
 
 	/* Not connected: nothing goes out, and nothing is counted. */
 	CHECK(cloud_shadow_report("{}") == -ENOTCONN);
-	CHECK(now_stats().published == 2);
+	CHECK(cloud_event_publish("{}") == -ENOTCONN);
+	CHECK(now_stats().published == 4);
 }
 
 static void test_errors_say_where_they_came_from(void)
@@ -421,6 +465,7 @@ int main(void)
 	test_the_topics_listed_are_the_ones_subscribed_to();
 	test_a_connection_is_counted_as_it_happens();
 	test_messages_in_and_out();
+	test_an_event_goes_to_the_events_topic();
 	test_a_connection_that_ends();
 	test_errors_say_where_they_came_from();
 

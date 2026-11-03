@@ -550,6 +550,28 @@ bool cloud_is_connected(void)
 	return board.cloud_up;
 }
 
+/* src/cloud_events.h, which test_cloud_events.c tests: when the main loop calls it. */
+static struct {
+	int ups;
+	int downs;
+	int sends;
+} events;
+
+void cloud_events_on_cloud_up(void)
+{
+	events.ups++;
+}
+
+void cloud_events_on_cloud_down(void)
+{
+	events.downs++;
+}
+
+void cloud_events_send(void)
+{
+	events.sends++;
+}
+
 int cloud_shadow_report(const char *reported_json)
 {
 	if (strncmp(reported_json, "{\"diag\":", 8) == 0) {
@@ -744,6 +766,10 @@ static void run_main(enum device_boot result, bool factory, bool network, bool s
 	cloud_retry_in = -1;
 	cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
 	cloud_reconnect_asked = false;
+	last_report_ms = -REPORT_FLOOR_MS;
+	reported_status[0] = '\0';
+	report_due = false;
+	memset(&events, 0, sizeof(events));
 
 	board.boot_result = result;
 	board.factory = factory;
@@ -2855,11 +2881,13 @@ static void test_a_join_held_at_the_supplicant(void)
 
 static void test_the_heartbeat_is_the_report(void)
 {
-	/* Connected: one report when that happens, and one every interval. */
+	/*
+	 * Connected: one report when that happens, and one every interval. Wi-Fi is up, as it is on a
+	 * board that reaches the cloud, so the timers in stuck.c have nothing to restart it for.
+	 */
 	boot(DEVICE_BOOT_OPERATING, false, true, true);
-	board.cloud_up = true;
-	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
-	run_loop();
+	link_comes_up();
+	cloud_attempt_comes_up();
 	CHECK(board.shadow_reports == 1);
 	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS - 1);
 	CHECK(board.shadow_reports == 1);
@@ -2867,9 +2895,16 @@ static void test_the_heartbeat_is_the_report(void)
 	CHECK(board.shadow_reports == 2);
 	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS * 10);
 	CHECK(board.shadow_reports == 12);
+	CHECK(board.reboots == 0);
 
-	/* A change of the update's state is reported at once, and the interval counts from there. */
+	/*
+	 * A change of the update's state is reported at once, but no sooner than REPORT_FLOOR_MS after
+	 * the last report: this one, a second after the heartbeat, a second later. The interval counts
+	 * from there.
+	 */
 	board.ota_changed = true;
+	ticks(1);
+	CHECK(board.shadow_reports == 12);
 	ticks(1);
 	CHECK(board.shadow_reports == 13);
 	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS - 1);
@@ -2877,8 +2912,15 @@ static void test_the_heartbeat_is_the_report(void)
 	ticks(1);
 	CHECK(board.shadow_reports == 14);
 
+	/* Long enough after the last one: at the next tick. */
+	ticks(5);
+	board.ota_changed = true;
+	ticks(1);
+	CHECK(board.shadow_reports == 15);
+
 	/* Not connected: nothing goes out, and the next one goes as soon as it can. */
 	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	link_comes_up();
 	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS * 3);
 	CHECK(board.shadow_reports == 0);
 	board.cloud_up = true;
@@ -2886,6 +2928,159 @@ static void test_the_heartbeat_is_the_report(void)
 	CHECK(board.shadow_reports == 1);
 	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS - 1);
 	CHECK(board.shadow_reports == 1);
+	CHECK(board.reboots == 0);
+}
+
+/* A no-op on the main loop, which is how the console and bt_ota.c reach it. */
+static void nothing(void)
+{
+}
+
+static void post_nothing(void)
+{
+	const struct app_event event = { .type = APP_EVENT_CALL, .call.function = nothing };
+
+	CHECK(app_event_post(&event) == 0);
+	run_loop();
+}
+
+static void test_a_change_is_reported_at_once_and_not_too_often(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	link_comes_up();
+	cloud_attempt_comes_up();
+	CHECK(board.shadow_reports == 1);
+	ticks(10);
+	CHECK(board.shadow_reports == 1);
+
+	/* Nothing changed: nothing more, whatever the main loop is given to do. */
+	post_nothing();
+	post_nothing();
+	CHECK(board.shadow_reports == 1);
+
+	/* A trial begins: the report says so after the event that changed it, before any tick. */
+	board.ota = OTA_TESTING;
+	post_nothing();
+	CHECK(board.shadow_reports == 2);
+	CHECK(strstr(board.last_report, "\"confirmed\":false") != NULL);
+
+	/* And ends at once: held back for the floor, then sent by a tick, saying how it is now. */
+	board.ota = OTA_IDLE;
+	post_nothing();
+	CHECK(board.shadow_reports == 2);
+	uptime_ms += REPORT_FLOOR_MS - 1;
+	post_nothing();
+	CHECK(board.shadow_reports == 2);
+	ticks(1);
+	CHECK(board.shadow_reports == 3);
+	CHECK(strstr(board.last_report, "\"confirmed\":true") != NULL);
+
+	/* A state that flaps every 100 ms for a minute gets one report in 2 s, and the heartbeat. */
+	{
+		int reports = board.shadow_reports;
+
+		for (int step = 1; step <= 600; step++) {
+			uptime_ms += 100;
+			board.ota = (step % 2) != 0 ? OTA_TESTING : OTA_IDLE;
+			post_nothing();
+			if (step % 10 == 0) {
+				uptime_ms -= MSEC_PER_SEC;
+				ticks(1);
+			}
+		}
+
+		CHECK(board.shadow_reports - reports <= 60 / 2 + 2);
+		CHECK(board.shadow_reports - reports >= 60 / 2 - 2);
+	}
+
+	/* What it last said is what it is: the last change goes out once the floor has passed. */
+	board.ota = OTA_IDLE;
+	ticks(3);
+	CHECK(strstr(board.last_report, "\"confirmed\":true") != NULL);
+
+	/* Offline, a change waits for the connection, whose first report says it. */
+	cloud_connection_ends();
+	{
+		int reports = board.shadow_reports;
+
+		board.ota = OTA_TESTING;
+		post_nothing();
+		ticks(5);
+		CHECK(board.shadow_reports == reports);
+		cloud_attempt_comes_up();
+		CHECK(board.shadow_reports == reports + 1);
+		CHECK(strstr(board.last_report, "\"confirmed\":false") != NULL);
+		ticks(5);
+		CHECK(board.shadow_reports == reports + 1);
+		board.ota = OTA_IDLE;
+		ticks(1);
+		CHECK(board.shadow_reports == reports + 2);
+	}
+
+	/*
+	 * Wi-Fi going away is said, while the connection is still there to say it, and coming back too,
+	 * which the main loop learns of from the stack.
+	 */
+	{
+		int reports = board.shadow_reports;
+
+		ticks(5);
+		atomic_set(&link_up, 0);
+		post_nothing();
+		CHECK(board.shadow_reports == reports + 1);
+		ticks(5);
+		atomic_set(&link_up, 1);
+		post_nothing();
+		CHECK(board.shadow_reports == reports + 2);
+	}
+
+	/* Being stuck: the count that comes back to 0 after a long healthy run is said at once. */
+	{
+		int reports;
+
+		boot(DEVICE_BOOT_OPERATING, false, true, true);
+		ticks_quietly(WIFI_SILENT);
+		CHECK(board.reboots == 1);
+		boot_again();
+		link_comes_up();
+		cloud_attempt_comes_up();
+		CHECK(strstr(board.last_report, "\"stuck\":{\"count\":1,") != NULL);
+		for (int second = 0; second <= STUCK_HEALTHY_SECONDS && stuck_count() != 0; second++) {
+			ticks_quietly(1);
+		}
+		CHECK(stuck_count() == 0);
+
+		/* Within the floor, and not at the next heartbeat, which can be half a minute away. */
+		reports = board.shadow_reports;
+		ticks_quietly(REPORT_FLOOR_MS / MSEC_PER_SEC);
+		CHECK(strstr(board.last_report, "\"stuck\":{\"count\":0,\"reason\":\"none\"}") != NULL);
+		CHECK(board.shadow_reports - reports <= 1);
+	}
+}
+
+/* main.c hands the connection's comings and goings to the events, and gives them the main loop. */
+static void test_the_main_loop_gives_the_events_their_turn(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	CHECK(events.ups == 0 && events.downs == 0);
+	ticks(3);
+	CHECK(events.sends == 3);
+
+	link_comes_up();
+	cloud_attempt_comes_up();
+	CHECK(events.ups == 1);
+	cloud_connection_ends();
+	CHECK(events.downs == 1);
+
+	/* A connection that the console's reconnect closes at once was never one for the events. */
+	cloud_attempt_comes_up();
+	CHECK(events.ups == 2);
+	board.cloud_connecting = true;
+	board.cloud_up = false;
+	post_event(APP_EVENT_CLOUD_RECONNECT);
+	CHECK(cloud_reconnect_asked);
+	cloud_attempt_comes_up();
+	CHECK(events.ups == 2);
 }
 
 static void test_the_report_says_how_it_stands_with_being_stuck(void)
@@ -3068,6 +3263,8 @@ int main(void)
 	test_a_restart_forgets_a_held_join();
 	test_a_join_held_at_the_supplicant();
 	test_the_heartbeat_is_the_report();
+	test_a_change_is_reported_at_once_and_not_too_often();
+	test_the_main_loop_gives_the_events_their_turn();
 	test_the_report_says_how_it_stands_with_being_stuck();
 	test_the_longest_report_fits();
 	test_diagnostics_go_on_connecting_and_every_five_minutes();

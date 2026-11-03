@@ -7,6 +7,8 @@
 #ifndef BOOT_DIARY_H_
 #define BOOT_DIARY_H_
 
+#include <stdint.h>
+
 enum boot_diary_stage {
 	BOOT_DIARY_MAIN = 1,
 	BOOT_DIARY_OTA_READY = 2,
@@ -22,5 +24,11 @@ void boot_diary_stage(enum boot_diary_stage stage);
 
 /* Send the entries to the device shadow as "diary". */
 void boot_diary_report(void);
+
+/*
+ * How many boots the diary has counted, this one included, or 0 before boot_diary_begin(). It starts
+ * again at 1 after a factory reset, or if the record could not be read.
+ */
+uint32_t boot_diary_boots(void);
 
 #endif /* BOOT_DIARY_H_ */

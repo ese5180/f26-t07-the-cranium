@@ -344,12 +344,23 @@ void console_event(const char *tag, const char *format, ...)
 	console_port_event(line, (size_t)used);
 }
 
+/* src/cloud_events.h: what the log backend hands it, as "tag|text" lines. */
+static char cloud_lines[4096];
+
+void cloud_events_add(const char *tag, const char *text, size_t length)
+{
+	size_t used = strlen(cloud_lines);
+
+	snprintf(cloud_lines + used, sizeof(cloud_lines) - used, "%s|%.*s\n", tag, (int)length, text);
+}
+
 /* ---- helpers -------------------------------------------------------------------- */
 
 static void start_over(void)
 {
 	memset(&hw, 0, sizeof(hw));
 	lines_run[0] = '\0';
+	cloud_lines[0] = '\0';
 	tx_running = false;
 	polling = false;
 	reply_open = false;
@@ -482,6 +493,57 @@ static void test_log_lines_look_as_they_should(void)
 	}
 	run_interrupts();
 	CHECK_TEXT(hw.wire, "[ota] packet (16 bytes)\r\n");
+}
+
+/*
+ * Every log line also goes to src/cloud_events.c, as it is on the console without "[tag] ", with
+ * its module's name: which of them leave the board is for that file to say, and test_cloud_events.c
+ * to test. What the console says of its own buffers is no event.
+ */
+static void test_log_lines_go_to_the_cloud_events_as_they_are(void)
+{
+	running_console();
+
+	log_message(LOG_LEVEL_INF, "Image verified");
+	log_message(LOG_LEVEL_WRN, "careful");
+	log_message(LOG_LEVEL_DBG, "details");
+	log_message(LOG_LEVEL_WRN, "one\ntwo");
+	log_message(LOG_LEVEL_INF, "");
+	run_interrupts();
+	CHECK_TEXT(cloud_lines, "ota|Image verified\nota|WRN: careful\nota|DBG: details\n"
+				"ota|WRN: one\nota|WRN: two\n");
+
+	/* Another module, and a line cut short, as the console has it. */
+	cloud_lines[0] = '\0';
+	{
+		union log_msg_generic message = {
+			.log = { .source = 1, .level = LOG_LEVEL_ERR, .text = "bound" },
+		};
+		char text[400];
+
+		backend_process(NULL, &message);
+		memset(text, 'x', sizeof(text) - 1);
+		text[sizeof(text) - 1] = '\0';
+		log_message(LOG_LEVEL_INF, text);
+	}
+	CHECK(strncmp(cloud_lines, "net_dhcpv4|ERR: bound\nota|xxx", strlen("net_dhcpv4|ERR: bound\nota|xxx")) == 0);
+	CHECK(strstr(cloud_lines, "xx...\n") != NULL);
+	CHECK(strlen(cloud_lines) == strlen("net_dhcpv4|ERR: bound\nota|") + LOG_LINE_MAX - strlen("[ota] ") + 1);
+
+	/* Lines that were dropped are said on the console, and are not an event. */
+	cloud_lines[0] = '\0';
+	dropped_lines = 3;
+	event("[BT] a phone connected");
+	run_interrupts();
+	CHECK(strstr(hw.wire, "lines dropped") != NULL);
+	CHECK_TEXT(cloud_lines, "");
+
+	/* Before a restart, or in a fatal error: the console has it, and nothing else is asked to. */
+	backend_panic(NULL);
+	clear_wire();
+	log_message(LOG_LEVEL_ERR, "going down");
+	CHECK_TEXT(hw.wire, "[ota] ERR: going down\r\n");
+	CHECK_TEXT(cloud_lines, "");
 }
 
 /* ---- whole lines ---------------------------------------------------------------- */
@@ -844,6 +906,7 @@ static void test_a_call_on_the_main_loop(void)
 int main(void)
 {
 	test_log_lines_look_as_they_should();
+	test_log_lines_go_to_the_cloud_events_as_they_are();
 	test_a_log_line_never_lands_in_a_reply();
 	test_a_log_line_starts_under_a_half_typed_one();
 	test_a_full_buffer_stalls_nobody_and_loses_no_reply();

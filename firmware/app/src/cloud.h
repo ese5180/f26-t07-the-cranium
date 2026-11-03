@@ -1,8 +1,9 @@
 /*
  * Connection to AWS IoT Core: MQTT over TLS with mutual authentication.
  *
- * The device talks only to its own shadow and its own jobs topics. The endpoint and
- * the client ID (the thing name) are provisioned per device.
+ * The device talks only to its own shadow and its own jobs topics, and from 1.12.0 publishes its
+ * events to cranium/<thing name>/events. The endpoint and the client ID (the thing name) are
+ * provisioned per device.
  */
 
 #ifndef CLOUD_H_
@@ -89,6 +90,13 @@ const char *cloud_subscription(size_t index);
 
 /* Publish the reported state. json is the object that goes under state.reported. */
 int cloud_shadow_report(const char *reported_json);
+
+/*
+ * Publish one event for the console (src/cloud_events.h) to cranium/<thing name>/events, at QoS 0.
+ * The device policy has to allow that topic: AWS IoT closes the connection of a board that publishes
+ * where it may not.
+ */
+int cloud_event_publish(const char *json);
 
 /* Ask for the next pending job execution, including a fresh job document. */
 int cloud_jobs_request_next(void);

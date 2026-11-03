@@ -334,7 +334,9 @@ OK
   refusals of MQTT's CONNACK, and 0 a message too large for the board's buffer.
 * `published` counts what the library took to send, `received` what arrived on a subscription.
 * The topics are the jobs topics that the board subscribes to at every connection. The library adds
-  no shadow topic of its own: the board only publishes to its shadow and never subscribes to it.
+  no shadow topic of its own: the board only publishes to its shadow and never subscribes to it. From
+  1.12.0 it also publishes [its events](#events-to-the-console) to `cranium/<thing name>/events`, which
+  is not listed either: nothing comes back on it.
 
 `MQTT_HOST|<endpoint>` changes the endpoint and keeps the download prefix, which `CLOUD` would ask
 for again. The endpoint has to be a host name, as for `CLOUD`: at most 127 letters, digits, dots and
@@ -724,6 +726,105 @@ minutes after (`CONFIG_APP_DIAG_INTERVAL_SECONDS`), apart from the heartbeat so 
 is sent again as soon as it changes, and left out when there is none. The thing name stays the board's AWS identity. `mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not
 associated. `heap` is the system heap in bytes: free now, the least it has been since the board started, and its size.
 Nothing in it is secret, and nothing names the network. The console's diagnostics page shows it.
+
+## Events to the console
+
+From firmware 1.12.0 the board tells the console in the cloud what it tells its serial console. Each line
+that `console_event()` prints (`[BT]`, `[WIFI]`, `[STUCK]`, `[CONSOLE]`), and each log line of the
+application's own modules (`[app]`, `[ota]`, `[net]`, `[cloud]`, `[stuck]` and the rest), also goes to AWS
+IoT as one MQTT message, at QoS 0, on
+
+```text
+cranium/<thing name>/events
+```
+
+The line on the serial console stays exactly as it was. `src/cloud_events.c` does this, with
+`CONFIG_APP_CLOUD_EVENTS`, which is on wherever the console is: a build without the console sends none.
+
+```json
+{"t":61234,"seq":17,"boot":42,"up":61240,"tag":"WIFI","text":"connected ip=10.0.0.7 rssi=-51"}
+```
+
+- `t` is the board's uptime in milliseconds when it printed the line, and `seq` counts the events of this
+  boot from 1.
+- `boot` is the [boot diary](#boot-diary)'s count of boots, so that `boot` and then `seq` order events
+  across restarts. It starts at 1 again after a factory reset.
+- `up` is the uptime when the message was sent. A line that waited while the board was offline happened
+  `up - t` milliseconds before the cloud got it.
+- `dropped`, only when it is not 0, is how many lines are missing right before this one, for a full ring or
+  for the rate limit. `seq` skips over them, so each `seq` is the one before it, plus 1, plus `dropped`.
+- `tag` is the console's tag without its brackets, and `text` what follows it: at most 160 characters of
+  printable ASCII, anything else as `?`, and a longer line cut to end in `...`. A log line keeps its `WRN: `
+  or `ERR: `.
+
+The serial console's own commands that change the board are events too, when they worked, though not lines
+on the serial console, where their reply is: `SET_ID`, `RESET_CONFIG`, `WIFI`, `WIFI_SEC`, `CLEAR_WIFI`,
+`CLOUD`, `KEYGEN`, `MQTT_HOST`, `MQTT_RECONNECT` and `BUTTON`, as `[CONSOLE] WIFI done on the serial console:
+save a WPA2 network and join it`: the name and what it does, never what was typed after the name. So is a
+certificate loaded there: `the device certificate loaded on the serial console (1200 bytes)`. `INIT`,
+`REBOOT`, `ENTER_BOOTLOADER` and `FACTORY_RESET` restart the board first; a restart shows as the next boot's
+events, with a new `boot`.
+
+### What is never sent
+
+`src/cloud_events.c` decides when a line comes in, with one rule for each source, and
+`tests/host/test_cloud_events.c` has a line for every `console_event()` call in the firmware, and for every log
+line that prints a value from outside, with what becomes of it.
+
+- Only the sources it lists go: `console_event()`'s four tags and this application's log modules. Nothing
+  from Zephyr or the SDK, whose Wi-Fi supplicant, MQTT library and downloader are where network names, host
+  names and URLs get printed. No debug line (`DBG: `).
+- The Bluetooth passkey: `[BT] passkey 012345` never goes, nor does any `[BT]` or `[bt_ota]` line with the
+  word in it. A release manager's phone gets the passkey from the shadow, for 150 s, as
+  [firmware update over Bluetooth](#firmware-update-over-bluetooth) says.
+- A line with any of `passkey`, `passphrase`, `password=`, `password:`, `psk=`, `secret`, `-----BEGIN`,
+  `PRIVATE KEY` or `X-Amz-` in it, in any case, from any source. No line of this firmware has one: this is for
+  the line that someone adds. `[WIFI] failed reason=wrong password` does go.
+- A network's name becomes `the network`. In `[net]` and `[WIFI]` lines that is whatever stands from the first
+  double quote to the last, as in `[net] ERR: Leaving "<ssid>": its security mode (2) is not allowed`, since
+  a name can have quotes in it. In every line, the stored network's name becomes it wherever it stands as a
+  name of its own: a network called `net` leaves `network not found` alone.
+- A URL, from `scheme://` to the next blank or quote, becomes `a URL`. The firmware never prints the download
+  URL or the endpoint with a query, and `X-Amz-` above catches a signed URL that lost its scheme.
+- Certificates and keys are never printed on the console, so no event can hold one, and `-----BEGIN` and
+  `PRIVATE KEY` above would stop it.
+
+### Offline, the limit and the order
+
+Lines wait in RAM, the last 32 of them, and go out oldest first, with their own `t` and `seq`, once the board
+is connected: from the main loop only, 8 at a time, and the rest after whatever else the main loop has to
+do. When the ring is full the oldest goes, and the one after it says how many did. At most 5 lines a second get
+into the ring, after a first 20 at once, online or not, so that a failure that prints in a loop cannot flood
+MQTT, the ring or the bill: 432,000 messages a day at the very most. The next line that gets in says how many
+did not. What waits is lost when the board restarts.
+
+Lines come from every thread: the console task, the log thread, Bluetooth's callbacks. They go into the ring
+under a spinlock and never wait, and they wake the main loop once, until it has run. The ring and what goes
+with it take about 7 KB of RAM. The longest message there can be (`CLOUD_EVENTS_JSON_MAX`, every number at its
+largest and a text of 160 quotes) is 455 bytes, which with its 39-byte topic and the MQTT header fits the
+512-byte buffer (`CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE`), as the shadow report does: `src/cloud.c` asserts
+it at build time.
+
+### The device policy
+
+AWS IoT closes the connection of a board that publishes where its policy does not allow, so the device policy
+(`cranium-device` in `cloud/infra/template.yaml`) has to allow `iot:Publish` on
+`topic/cranium/${iot:Connection.Thing.ThingName}/events` before a board runs 1.12.0. In case it does not:
+until AWS IoT has taken an event in a boot, a connection sends its first event no sooner than 5 s after it
+came up, so that an update's messages go first, and the rest only once the connection has lived 5 s with it.
+After two connections that ended sooner than that, events stay off until the next restart, with
+`[cloud_events] WRN: AWS IoT closed the connection right after an event, 2 times: ...` on the serial console;
+updates and the shadow go on as before. That first event goes back to the front of the ring each time, so a
+connection that ended for another reason can bring it twice, with the same `boot` and `seq`.
+
+### Changes reach the shadow at once
+
+From 1.12.0 the heartbeat, the shadow report every 30 s, also goes as soon as something it carries changes:
+the firmware version, `confirmed`, the update's state, job, progress, last result and error, the stuck count
+and reason, and whether Wi-Fi is up. Never sooner than 2 s after the last report (`REPORT_FLOOR_MS` in
+`src/main.c`), so that a state that flaps sends one report every 2 s at most, and the last change goes when
+the 2 s are up. The signal strength and the uptime change all the time, and do not count. Offline, nothing is
+said: the first report of the next connection says how it stands.
 
 ## Firmware update over Bluetooth
 

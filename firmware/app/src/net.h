@@ -106,4 +106,11 @@ int net_mac_address(char *buf, size_t len);
 /* What is stored and what the link is doing. Safe from any thread. */
 void net_status_get(struct net_status *status);
 
+/*
+ * The name of the stored network, so that it can be kept out of what goes to the cloud: its length,
+ * and 0 when none is stored. buf always ends in a NUL. Takes the credentials store's lock: not from
+ * an interrupt.
+ */
+size_t net_stored_ssid(char *buf, size_t len);
+
 #endif /* NET_H_ */

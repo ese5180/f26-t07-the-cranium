@@ -20,6 +20,7 @@
 #include "bt_ota.h"
 #endif
 #include "cloud.h"
+#include "cloud_events.h"
 #include "console.h"
 #include "device.h"
 #include "diag.h"
@@ -54,6 +55,8 @@ LOG_MODULE_REGISTER(app, CONFIG_APP_LOG_LEVEL);
 
 #define CLOUD_SETTLE_SECONDS    3
 #define CLOUD_BACKOFF_MAX       300
+/* A change goes to the shadow at once, but never sooner than this after the last report. */
+#define REPORT_FLOOR_MS         2000
 
 K_MSGQ_DEFINE(event_queue, sizeof(struct app_event), 32, 4);
 
@@ -68,6 +71,11 @@ static int cloud_backoff = CONFIG_APP_CLOUD_RETRY_SECONDS;
 static bool cloud_reconnect_asked;
 /* Since the last report to the shadow. A report that nothing asked for is the board's heartbeat. */
 static int seconds_since_report;
+/* When the last report was sent, and what of the board's state it said: see report_changes(). */
+static int64_t last_report_ms = -REPORT_FLOOR_MS;
+static char reported_status[192];
+/* Something the report carries has changed, and the floor holds it back. */
+static bool report_due;
 static int seconds_since_diag;
 /* A tick is in the queue. A main loop that is held up must not come back to a queue full of them. */
 static atomic_t tick_queued;
@@ -150,6 +158,20 @@ static void update_ui(void)
 }
 
 /*
+ * What the heartbeat carries, apart from the signal strength and the uptime, which change all the
+ * time, and with whether the network is up: a report goes as soon as this changes.
+ */
+static void status_text(char *buf, size_t len)
+{
+	const char *job_id = ota_job_id();
+
+	(void)snprintk(buf, len, "%s|%d|%s|%s|%d|%s|%s|%u|%s|%d", fw_version_running_string(),
+		       ota_state() == OTA_TESTING, ota_state_name(), job_id != NULL ? job_id : "",
+		       ota_progress(), ota_last_result(), ota_last_error(), (unsigned int)stuck_count(),
+		       stuck_reason_name(), net_is_up());
+}
+
+/*
  * Publish what the console shows for this device. Nothing here is secret. AWS IoT stamps the time
  * that it gets the uptime, which is what the console calls the last heartbeat, and there is no other
  * message for that.
@@ -164,6 +186,10 @@ static void publish_report(void)
 	if (!cloud_is_connected()) {
 		return;
 	}
+
+	/* What this report says, whether or not it gets out: a report that failed tries again. */
+	last_report_ms = k_uptime_get();
+	report_due = false;
 
 	if (job_id != NULL) {
 		(void)snprintk(job, sizeof(job), "\"%s\"", job_id);
@@ -181,11 +207,38 @@ static void publish_report(void)
 			   (unsigned int)stuck_count(), stuck_reason_name(),
 			   k_uptime_get() / MSEC_PER_SEC);
 
-	if (written > 0 && written < (int)sizeof(reported)) {
-		(void)cloud_shadow_report(reported);
+	if (written > 0 && written < (int)sizeof(reported) && cloud_shadow_report(reported) == 0) {
+		status_text(reported_status, sizeof(reported_status));
+	} else {
+		reported_status[0] = '\0';
 	}
 
 	seconds_since_report = 0;
+}
+
+/*
+ * A change to what the heartbeat carries goes out at once instead of with the next heartbeat: the
+ * update's state, the trial, being stuck, the network. Never sooner than REPORT_FLOOR_MS after the
+ * last report, so that a state that flaps cannot flood the shadow. Offline, nothing is said: the
+ * connection's first report says how it stands.
+ */
+static void report_changes(void)
+{
+	/* The main loop's alone: off its stack, which the TLS layer below a report needs. */
+	static char now[sizeof(reported_status)];
+
+	if (!cloud_is_connected()) {
+		return;
+	}
+
+	status_text(now, sizeof(now));
+	if (strcmp(now, reported_status) != 0) {
+		report_due = true;
+	}
+
+	if (report_due && k_uptime_get() - last_report_ms >= REPORT_FLOOR_MS) {
+		publish_report();
+	}
 }
 
 /* The diagnostics report (src/diag.h): slow-changing things, apart from the heartbeat. */
@@ -240,9 +293,11 @@ static void on_tick(void)
 #endif
 
 	if (ota_take_changed()) {
-		publish_report();
+		report_due = true;
 		update_ui();
-	} else if (++seconds_since_report >= CONFIG_APP_SHADOW_INTERVAL_SECONDS) {
+	}
+
+	if (++seconds_since_report >= CONFIG_APP_SHADOW_INTERVAL_SECONDS) {
 		publish_report();
 	}
 
@@ -253,6 +308,8 @@ static void on_tick(void)
 	}
 
 	stuck_on_tick();
+	report_changes();
+	cloud_events_send();
 }
 
 static void on_button(const struct app_event *event)
@@ -385,9 +442,12 @@ static void handle(const struct app_event *event)
 		boot_diary_stage(BOOT_DIARY_CLOUD_UP);
 		boot_diary_report();
 #endif
+		/* Last: the update's messages go first on a new connection. */
+		cloud_events_on_cloud_up();
 		break;
 	case APP_EVENT_CLOUD_DOWN:
 		LOG_INF("Disconnected from AWS IoT");
+		cloud_events_on_cloud_down();
 		if (cloud_reconnect_asked) {
 			cloud_reconnect_asked = false;
 			connect_cloud_now();
@@ -429,6 +489,7 @@ static void handle(const struct app_event *event)
 	}
 
 	update_ui();
+	report_changes();
 }
 
 #if defined(CONFIG_APP_TEST_FAULT_WRECK_SLOTS)

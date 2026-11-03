@@ -1272,6 +1272,10 @@ static void test_no_secret_comes_back(void)
 		}
 		CHECK(strstr(fake.echo, PASSWORD) == NULL);
 		CHECK(strstr(fake.events, PASSWORD) == NULL);
+		/* What goes to the cloud has neither the password nor the network's name. */
+		CHECK(strstr(fake.cloud_events, PASSWORD) == NULL);
+		CHECK(strstr(fake.cloud_events, "MyNetwork") == NULL);
+		CHECK(strstr(fake.cloud_events, "123456789") == NULL);
 
 		/* And nothing of it stays in the line buffer. */
 		command("GET_ID");
@@ -1305,6 +1309,93 @@ static void test_no_secret_comes_back(void)
 	feed("WIFI|net|" PASSWORD "\r");
 	CHECK(strstr(fake.echo, PASSWORD) != NULL);
 	CHECK(strstr(fake.output, PASSWORD) == NULL);
+}
+
+/*
+ * A command that changed the board is an event for the console in the cloud, by its name and what
+ * it does: never by what was typed after the name, and never one that did not work or changed nothing.
+ */
+static void test_commands_that_change_the_board_go_to_the_cloud(void)
+{
+	static const struct {
+		const char *line;
+		const char *event;
+	} cases[] = {
+		{ "WIFI|MyNetwork|" PASSWORD,
+		  "CONSOLE|WIFI done on the serial console: save a WPA2 network and join it\n" },
+		{ "wifi_sec|MyNetwork|wpa3_sae|" PASSWORD,
+		  "CONSOLE|WIFI_SEC done on the serial console: the same, with the security mode named\n" },
+		{ "CLEAR_WIFI", "CONSOLE|CLEAR_WIFI done on the serial console: erase the network and disconnect\n" },
+		{ "SET_ID|NEW123", "CONSOLE|SET_ID done on the serial console: change the id, keep everything else\n" },
+		{ "CLOUD|" ENDPOINT "|" PREFIX,
+		  "CONSOLE|CLOUD done on the serial console: save the AWS IoT endpoint and the download prefix; "
+		  "empty clears\n" },
+		{ "MQTT_HOST|" ENDPOINT,
+		  "CONSOLE|MQTT_HOST done on the serial console: change only the AWS IoT endpoint, and reconnect "
+		  "to it\n" },
+		{ "RESET_CONFIG",
+		  "CONSOLE|RESET_CONFIG done on the serial console: clear the cloud settings only; keep id, wifi, "
+		  "certificates, key\n" },
+		{ "BUTTON|1", "CONSOLE|BUTTON done on the serial console: act as if the button was pressed\n" },
+		/* What only reads, and what did not work. */
+		{ "NET", "" },
+		{ "STATUS", "" },
+		{ "MQTT", "" },
+		{ "GET_ID", "" },
+		{ "WIFI_SEC|MyNetwork|NOPE|" PASSWORD, "" },
+		{ "SET_ID|not valid", "" },
+		{ "CLOUD|http://" ENDPOINT "|" PREFIX, "" },
+		{ "BUTTON|3", "" },
+		{ "NOPE|" PASSWORD, "" },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(cases); i++) {
+		operating_board();
+		fake.link_up = true;
+		command(cases[i].line);
+		if (strcmp(fake.cloud_events, cases[i].event) != 0) {
+			printf("after %s: %s\n", cases[i].line, final_line());
+		}
+		CHECK_TEXT(fake.cloud_events, cases[i].event);
+		CHECK(strstr(fake.cloud_events, PASSWORD) == NULL);
+		CHECK(strstr(fake.cloud_events, "MyNetwork") == NULL);
+		CHECK(strstr(fake.cloud_events, ENDPOINT) == NULL);
+		CHECK(strstr(fake.cloud_events, "NEW123") == NULL);
+	}
+
+	/* Refused during an update: no change, and no event. */
+	operating_board();
+	fake.ota = OTA_DOWNLOADING;
+	command("CLOUD|" ENDPOINT "|" PREFIX);
+	CHECK(strncmp(final_line(), "ERR", 3) == 0);
+	CHECK_TEXT(fake.cloud_events, "");
+	fake.ota = OTA_IDLE;
+
+	/* Whatever arguments a command is given, an event of it is its name and description alone. */
+	{
+		size_t count;
+		const struct console_command *table = console_cmd_table(&count);
+
+		for (size_t i = 0; i < count; i++) {
+			char line[160];
+			char expected[200];
+
+			/* These restart the board, which here means nothing more happens. */
+			if (strcmp(table[i].name, "INIT") == 0 || strcmp(table[i].name, "REBOOT") == 0 ||
+			    strcmp(table[i].name, "ENTER_BOOTLOADER") == 0 ||
+			    strcmp(table[i].name, "FACTORY_RESET") == 0) {
+				continue;
+			}
+
+			operating_board();
+			snprintf(line, sizeof(line), "%s|" PASSWORD "|MyNetwork|x|y", table[i].name);
+			command(line);
+			snprintf(expected, sizeof(expected), "CONSOLE|%s done on the serial console: %s\n",
+				 table[i].name, table[i].description);
+			CHECK(fake.cloud_events[0] == '\0' || strcmp(fake.cloud_events, expected) == 0);
+			CHECK(strstr(fake.cloud_events, PASSWORD) == NULL);
+		}
+	}
 }
 
 static void test_line_buffer_is_wiped(void)
@@ -2852,15 +2943,18 @@ static void test_stream_in_order(void)
 	CHECK_TEXT(final_line(), "OK CERT chunk 0 of 5, 0 of 1200 bytes");
 
 	for (size_t i = 0; i < size / chunk; i++) {
-		/* Nothing is applied before the end. */
+		/* Nothing is applied before the end, and a chunk is no event for the cloud. */
 		CHECK(fake.certificates_stored == 0);
 		CHECK(!fake.certificate);
+		CHECK_TEXT(fake.cloud_events, "");
 
 		stream_chunk(i, certificate + i * chunk, chunk);
 		CHECK(fake.finals == 1);
 	}
 
 	CHECK_TEXT(final_line(), "OK CERT stored (1200 bytes)");
+	CHECK_TEXT(fake.cloud_events,
+		   "CONSOLE|the device certificate loaded on the serial console (1200 bytes)\n");
 	CHECK(fake.certificates_stored == 1);
 	CHECK(fake.stored_kind == CONSOLE_STREAM_CERT);
 	CHECK(fake.stored_length == size);
@@ -2880,6 +2974,7 @@ static void test_stream_in_order(void)
 	stream_chunk(1, certificate + 100, 200);
 	stream_chunk(2, certificate + 300, 250);
 	CHECK_TEXT(final_line(), "OK CA stored (550 bytes)");
+	CHECK_TEXT(fake.cloud_events, "CONSOLE|a CA certificate loaded on the serial console (550 bytes)\n");
 	CHECK(fake.stored_kind == CONSOLE_STREAM_CA);
 	CHECK(fake.ca_cloud);
 	CHECK(fake.ca_download);
@@ -3101,6 +3196,8 @@ static void test_stream_idle_timeout(void)
 	fake_clear_log();
 	console_cmd_tick();
 	CHECK_TEXT(fake.events, "[CONSOLE] stream aborted: idle timeout\n");
+	/* An event goes to the cloud as well, as it is here without its tag. */
+	CHECK_TEXT(fake.cloud_events, "CONSOLE|stream aborted: idle timeout\n");
 	stream_chunk(1, certificate + 200, 200);
 	CHECK_TEXT(final_line(), "ERR no transfer is under way");
 	CHECK(fake.certificates_stored == 0);
@@ -3548,6 +3645,7 @@ int main(void)
 	test_id_validation();
 	test_wifi_validation();
 	test_no_secret_comes_back();
+	test_commands_that_change_the_board_go_to_the_cloud();
 	test_line_buffer_is_wiped();
 	test_init_validates_first();
 	test_init_order();

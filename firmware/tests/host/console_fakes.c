@@ -8,6 +8,7 @@
 #include <zephyr/net/tls_credentials.h>
 
 #include "cloud.h"
+#include "cloud_events.h"
 #include "console_cmd.h"
 #include "console_port.h"
 #include "store.h"
@@ -32,6 +33,7 @@ void fake_clear_log(void)
 	fake.ops[0] = '\0';
 	fake.output[0] = '\0';
 	fake.events[0] = '\0';
+	fake.cloud_events[0] = '\0';
 	fake.echo[0] = '\0';
 	fake.finals = 0;
 	fake.reboots = 0;
@@ -379,6 +381,15 @@ void console_port_event(const char *text, size_t length)
 {
 	append(fake.events, sizeof(fake.events), text, length);
 	append(fake.events, sizeof(fake.events), "\n", 1);
+}
+
+/* src/cloud_events.h: what it would be given. What it makes of that, test_cloud_events.c tests. */
+void cloud_events_add(const char *tag, const char *text, size_t length)
+{
+	append(fake.cloud_events, sizeof(fake.cloud_events), tag, strlen(tag));
+	append(fake.cloud_events, sizeof(fake.cloud_events), "|", 1);
+	append(fake.cloud_events, sizeof(fake.cloud_events), text, length);
+	append(fake.cloud_events, sizeof(fake.cloud_events), "\n", 1);
 }
 
 void console_port_echo(const char *text, size_t length)
