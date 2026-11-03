@@ -49,20 +49,47 @@ test('boards are listed by name with what their shadows say', async () => {
   assert.equal(body.generatedAt, new Date(clock.ms).toISOString());
   assert.deepEqual(body.devices, [
     {
-      thing: BOARD_A, online: true, lastSeen: reportedAt,
+      thing: BOARD_A, name: null, online: true, lastSeen: reportedAt,
       fw: { version: '1.0.0+3', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
       rssi: -61, uptime: 4321, stuck: null, diag: null, diary: null, bt: null,
     },
     // Registered, but it has never connected: there is no shadow.
-    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
+    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
     {
-      thing: BOARD_C, online: true, lastSeen: reportedAt,
+      thing: BOARD_C, name: null, online: true, lastSeen: reportedAt,
       fw: { version: '1.2.3+4', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
       rssi: -80, uptime: 12, stuck: null, diag: null, diary: null, bt: null,
     },
   ]);
+});
+
+test('a board that reports its name is listed under its thing name with the name beside it', async () => {
+  const context = setup();
+  const { fake } = context;
+  fake.addThing(BOARD_A);
+  fake.addThing(BOARD_B);
+  fake.device(BOARD_A).report(reported('1.11.4+0'));
+  fake.device(BOARD_A).report({ diag: { id: 'CRVIHAAN01', mac: 'f4:ce:36:12:34:56', channel: 6 } });
+  fake.device(BOARD_B).report({ ...reported(), diag: { id: 'not a name!' } });
+
+  const [named, unnamed] = (await context.list()).devices;
+  assert.equal(named.thing, BOARD_A);
+  assert.equal(named.name, 'CRVIHAAN01');
+  assert.equal(unnamed.thing, BOARD_B);
+  assert.equal(unnamed.name, null);
+
+  // A board's own page says the same, and it is still found by its thing name only.
+  const page = await context.call('GET', `/api/devices/${BOARD_A}`, { as: context.viewer });
+  assert.equal(page.status, 200);
+  assert.equal(page.body.device.name, 'CRVIHAAN01');
+  assert.equal((await context.call('GET', '/api/devices/CRVIHAAN01', { as: context.viewer })).status, 400);
+
+  // Renamed at the serial console: the next diagnostics report says so.
+  context.advance(10_000);
+  fake.device(BOARD_A).report({ diag: { id: 'CRBENCH02' } });
+  assert.equal((await context.list()).devices[0].name, 'CRBENCH02');
 });
 
 test('a board goes offline 90 seconds after its last heartbeat', async () => {
@@ -133,11 +160,11 @@ test('a hostile shadow shows as little as it deserves', async () => {
   const body = await context.list();
   assert.deepEqual(body.devices, [
     {
-      thing: BOARD_A, online: false, lastSeen: null, fw: null,
+      thing: BOARD_A, name: null, online: false, lastSeen: null, fw: null,
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' }, rssi: null, uptime: null,
       stuck: null, diag: null, diary: null, bt: null,
     },
-    { thing: BOARD_B, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
+    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
   ]);
 });
 

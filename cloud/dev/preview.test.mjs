@@ -647,7 +647,7 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   const whats = new Set(events.map((event) => `${event.kind}/${event.what}`));
   for (const what of ['connection/connected', 'connection/disconnected', 'firmware/changed', 'update/step', 'update/result',
     'restart/restarted', 'restart/boot', 'restart/stuck', 'bluetooth/opened', 'bluetooth/closed', 'bluetooth/record',
-    'health/channel', 'health/memory']) {
+    'health/channel', 'health/memory', 'health/named']) {
     assert.ok(whats.has(what), what);
   }
   // Newest first, and a warning where something went wrong.
@@ -657,6 +657,10 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   const { devices } = await api.devices();
   const withDiag = devices.filter((device) => device.diag !== null);
   assert.equal(withDiag.length, 1);
+  // The board with diagnostics reports its own name with them; the others are their thing names alone.
+  assert.deepEqual(devices.map((device) => device.name).sort(), ['CRVIHAAN01', null, null]);
+  assert.equal(withDiag[0].name, 'CRVIHAAN01');
+  assert.ok(events.some((event) => event.what === 'named' && event.text === 'Reported its name CRVIHAAN01'));
   assert.equal(withDiag[0].diag.channel, 11);
   assert.ok(withDiag[0].diag.heap.least < withDiag[0].diag.heap.size * 0.15);
   assert.equal(devices.filter((device) => device.diary !== null).length, 2);

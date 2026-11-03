@@ -8,8 +8,8 @@
  */
 
 import {
-  ApiError, CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, cancelNotice,
-  codeComplete, createApi, createAuth, createClock, describeExecution, deviceActivity, enterCode, executionActivity,
+  ApiError, CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, boardName, boardOf,
+  cancelNotice, codeComplete, createApi, createAuth, createClock, describeExecution, deviceActivity, enterCode, executionActivity,
   isUnderWay, isUnfinished, keyInCode, onlyChoice, parseRoute,
   pollInterval, readConfig, readImageHeader, recordedFilename, refreshPlan, revocationInPlace, revocationNotice,
   routeHash, sha256Hex, shouldRenew, singleLine, staleAfter, stillFinishing, stillRunning, stillSettling, summaryActivity,
@@ -144,9 +144,23 @@ function paint() {
   }
   node.key = routeHash(state.route);
   keepingFocus(() => render(main, node));
+  // A board's page is titled by the board's name, which may arrive after the page opened.
+  const title = pageTitle(state.route);
+  if (document.title !== title) document.title = title;
   pages[state.route.view].painted?.();
   announceBoards();
   if (dialogOpen()) dialog.redraw();
+}
+
+/** The tab's title for a route. */
+function pageTitle(route) {
+  const { title } = pages[route.view];
+  return `${typeof title === 'function' ? title(route) : title} · Cranium`;
+}
+
+/** A board by its thing name, as its own page or else the list of boards last read it. */
+function knownBoard(thing) {
+  return state.deviceDetails.get(thing)?.value?.device ?? boardOf(thing, state.devices.value?.devices);
 }
 
 function draw() {
@@ -348,7 +362,7 @@ const pages = {
     interval: () => pollInterval(fleetActivity()) || IDLE_REFRESH_MS,
   },
   device: {
-    title: (route) => `${route.thing.slice(0, 12)}…`,
+    title: (route) => boardName(knownBoard(route.thing), { short: true }),
     view: deviceView,
     resources: () => [entry(state.deviceDetails, state.route.thing)],
     async refresh(full) {
@@ -448,6 +462,9 @@ const pages = {
         // How a deployment ended is not in the log: it follows from the deployment.
         due(state.deployments, full) ? load(state.deployments, api.deployments) : null,
       ]);
+      // An entry that names a board has its thing name; what the board is called is in the list of boards.
+      const namesBoard = (state.audit.value?.entries ?? []).some((item) => item.detail.some(([key]) => key === 'thing'));
+      if (namesBoard && state.devices.loadedAt === 0) await load(state.devices, api.devices);
     },
     interval: () => IDLE_REFRESH_MS,
     // Reading the first page again would take away the pages loaded by hand.
@@ -467,7 +484,7 @@ const pages = {
     holdStill: () => telemetryScript?.eventsHoldStill(state) ?? false,
   },
   diagnostics: {
-    title: (route) => (route.thing ? `Diagnostics of ${route.thing.slice(0, 12)}…` : 'Diagnostics'),
+    title: (route) => (route.thing ? `Diagnostics of ${boardName(knownBoard(route.thing), { short: true })}` : 'Diagnostics'),
     view: (ctx) => (telemetryScript
       ? telemetryScript.diagnosticsView(ctx)
       : scriptPending(ctx, 'diagnostics', 'Diagnostics', { tabs: false })),
@@ -900,8 +917,7 @@ function showRoute() {
   if (dialog) dialog.close(true);
   state.route = route;
   state.interval = 0;
-  const { title } = pages[route.view];
-  document.title = `${typeof title === 'function' ? title(route) : title} · Cranium`;
+  document.title = pageTitle(route);
   paint();
   placePage();
   // Moving between pages puts the focus on the new page's title, where reading and

@@ -25,12 +25,12 @@
  */
 
 import {
-  EVENT_KINDS, clockTime, dateAndTime, dayLabel, describeAudit, describeUpdate, deploymentHref, deviceHref, duration,
-  exactTime, fileSize, isThing, nameOf, plural, routeHash, signalQuality, timeAgo, timeOfDay,
+  EVENT_KINDS, boardName, boardOf, clockTime, dateAndTime, dayLabel, describeAudit, describeUpdate, deploymentHref,
+  duration, exactTime, fileSize, isThing, nameOf, plural, routeHash, signalQuality, timeAgo, timeOfDay,
 } from './core.js';
 import {
-  NO_BOARDS, badge, button, card, empty, factNote, facts, failure, freshness, h, icon, linkTo, loadProblem, loading,
-  meter, mono, pageHead, pending, presence, signalBars, statusLine, when,
+  NO_BOARDS, badge, boardLabel, boardThing, button, card, empty, factNote, facts, failure, freshness, h, icon, linkTo,
+  loadProblem, loading, meter, mono, pageHead, pending, presence, signalBars, statusLine, when,
 } from './views.js';
 
 const MINUTE = 60_000;
@@ -207,9 +207,10 @@ export function consoleEvent(entry) {
 }
 
 /**
- * The lanes of the timeline: one per board, in the order of their names, and the Console
- * lane last. Every board of the group has one, also without events; a board that has
- * events and is no longer in the list keeps its lane for them.
+ * The lanes of the timeline: one per board, in the order of their thing names, and the
+ * Console lane last. Every board of the group has one, also without events; a board that
+ * has events and is no longer in the list keeps its lane for them. A lane is labelled with
+ * what the board is called (boardName in core.js), and `thing` is its thing name.
  */
 export function lanesOf({ events, devices, thing = '', consoleEvents = null }) {
   const names = thing
@@ -217,11 +218,12 @@ export function lanesOf({ events, devices, thing = '', consoleEvents = null }) {
     : [...new Set([...devices.map((device) => device.thing), ...events.map((event) => event.thing)])].filter(isThing).sort();
   const lanes = names.map((name) => ({
     id: name,
-    label: name,
+    thing: name,
+    label: boardName(boardOf(name, devices)),
     device: devices.find((device) => device.thing === name) ?? null,
     events: events.filter((event) => event.thing === name),
   }));
-  if (consoleEvents !== null) lanes.push({ id: 'console', label: 'Console', device: null, events: consoleEvents });
+  if (consoleEvents !== null) lanes.push({ id: 'console', thing: null, label: 'Console', device: null, events: consoleEvents });
   return lanes;
 }
 
@@ -788,7 +790,8 @@ function timelineTip(lane, spot, span, y, below) {
     role: 'presentation',
     vars: { '--x': percent(x), '--y': `${y}px` },
   },
-  h('p', { class: 'tip-head' }, lane.id === 'console' ? 'Console' : mono(lane.label)),
+  h('p', { class: 'tip-head' },
+    lane.id === 'console' ? 'Console' : [mono(lane.label), boardThing({ thing: lane.thing, name: lane.label })]),
   h('ul', { class: 'tip-list' }, shown.map((event) => h('li', { key: eventKey(event), class: 'tip-row' },
     swatch(event.kind),
     h('span', { class: 'tip-text' },
@@ -867,6 +870,8 @@ function timeline(lanes, span, page, data) {
     return h('g', { key: lane.id, class: `tl-lane ${lane.id === 'console' ? 'is-console' : ''}`.trim() },
       h('text', { class: 'tl-lane-name', x: '0', y: String(top + 14) },
         lane.id === 'console' ? 'Console' : lane.label,
+        // The thing name after the board's own, quieter; left out where the timeline is narrow.
+        lane.thing && lane.label !== lane.thing ? h('tspan', { class: 'tl-lane-thing', dx: '8' }, lane.thing) : null,
         state ? h('tspan', { class: `tl-lane-state is-${state.tone}`, dx: '10' }, state.words) : null,
         lane.shown.length === 0 ? h('tspan', { class: 'tl-lane-state', dx: '10' }, 'No events') : null),
       h('rect', { class: 'tl-track', x: '0', y: String(top + LANE_HEAD), width: '100%', height: String(TRACK), rx: '3' }),
@@ -976,6 +981,20 @@ function rangeTools(page, span) {
     page.zooms.length > 0 ? button('is-small', zoomOut, icon('arrow-left', 'is-small'), 'Zoom out') : null);
 }
 
+/**
+ * What each board is called in the list to choose from: its name, and with its thing name too
+ * where two boards report the same name, since an option has no room for anything else to tell them apart.
+ */
+export function boardChoices(things, devices) {
+  const names = things.map((thing) => boardName(boardOf(thing, devices)));
+  return things.map((thing, index) => ({
+    thing,
+    label: names.indexOf(names[index]) === names.lastIndexOf(names[index])
+      ? names[index]
+      : boardName(boardOf(thing, devices), { full: true }),
+  }));
+}
+
 function boardFilter(page, devices) {
   const things = devices.map((device) => device.thing);
   if (page.thing && !things.includes(page.thing)) things.push(page.thing);
@@ -987,7 +1006,8 @@ function boardFilter(page, devices) {
       onChange: (event) => chooseThing(event.currentTarget.value),
     },
     h('option', { value: '', key: 'all', selected: page.thing === '' }, `All boards (${things.length})`),
-    things.map((thing) => h('option', { value: thing, key: thing, selected: page.thing === thing }, thing))));
+    boardChoices(things, devices).map(({ thing, label }) =>
+      h('option', { value: thing, key: thing, title: thing, selected: page.thing === thing }, label))));
 }
 
 function customForm(page) {
@@ -1026,7 +1046,7 @@ function kindChips(page, counts) {
     h('span', { class: 'chip-band', key: 'band' }, h('span', { class: 'band-swatch', 'aria-hidden': 'true' }), 'Online'));
 }
 
-function eventRow(event, laneLabel, page) {
+function eventRow(event, board, page) {
   const key = eventKey(event);
   const kind = kindOf(event.kind);
   const selected = key === page.selected;
@@ -1040,8 +1060,7 @@ function eventRow(event, laneLabel, page) {
         title: `${exactTime(event.at)}. Show it on the timeline.`,
         onClick: () => select(key, { from: 'row' }),
       }, h('time', { datetime: event.at }, timeOfDay(event.at)))),
-    h('td', { class: 'event-board' },
-      event.thing ? linkTo(deviceHref(event.thing), { class: 'mono' }, laneLabel) : h('span', null, 'Console')),
+    h('td', { class: 'event-board' }, board ? boardLabel(board) : h('span', null, 'Console')),
     h('td', { class: 'event-kind' }, swatch(event.kind), h('span', null, kind.label)),
     h('td', { class: 'event-text' },
       h('span', null, event.text),
@@ -1050,7 +1069,7 @@ function eventRow(event, laneLabel, page) {
       event.kind === 'console' && event.href ? [' ', linkTo(event.href, { class: 'event-link' }, 'Open', icon('arrow-right', 'is-small'))] : null));
 }
 
-function eventTable(events, page, now) {
+function eventTable(events, page, now, devices) {
   const rows = [];
   let day = null;
   for (const event of events) {
@@ -1059,7 +1078,7 @@ function eventTable(events, page, now) {
       day = label;
       rows.push(h('tr', { key: `day-${label}`, class: 'event-day' }, h('th', { colspan: '4', scope: 'colgroup' }, label)));
     }
-    rows.push(eventRow(event, event.thing ?? 'Console', page));
+    rows.push(eventRow(event, event.thing ? boardOf(event.thing, devices) : null, page));
   }
   return h('div', { class: 'event-table-wrap' },
     h('table', { class: 'event-table' },
@@ -1128,7 +1147,7 @@ export function eventsView(ctx) {
                 ? 'Some kinds or boards are left out: show them all, or choose a longer range.'
                 : 'Boards record events when they connect, update, restart or change state. Choose a longer range.',
             })
-            : eventTable(shown, page, now),
+            : eventTable(shown, page, now, devices),
           h('div', { class: 'log-more', key: 'more' },
             data.cursor
               ? h('button', { type: 'button', class: 'btn', disabled: page.more.loading, onClick: loadMoreEvents },
@@ -1414,8 +1433,8 @@ function boardCard(ctx, device) {
   return h('section', { key: device.thing, class: 'card diag-card', 'aria-labelledby': `diag-${device.thing}` },
     h('header', { class: 'diag-head' },
       h('div', { class: 'diag-who' },
-        h('h2', { class: 'diag-name', id: `diag-${device.thing}` },
-          linkTo(deviceHref(device.thing), { class: 'mono' }, device.thing)),
+        h('h2', { class: 'diag-name', id: `diag-${device.thing}` }, boardLabel(device)),
+        boardName(device) === device.thing ? null : h('p', { class: 'diag-thing' }, boardThing(device)),
         h('p', { class: 'diag-heartbeat' },
           device.lastSeen
             ? ['Last heartbeat ', h('time', { datetime: device.lastSeen, title: exactTime(device.lastSeen), class: 'diag-age' },
@@ -1431,7 +1450,7 @@ function boardCard(ctx, device) {
             ? [mono(device.fw.version, 'fact-strong'), device.fw.confirmed ? badge('good', 'check', 'Confirmed') : badge('warn', 'pulse', 'On trial')]
             : h('span', { class: 'quiet' }, 'Not reported')],
           ['Update', h('div', { class: 'fact-stack' }, statusLine(update),
-            update.progress !== null ? meter(update.progress, `Download on ${device.thing}`) : null)],
+            update.progress !== null ? meter(update.progress, `Download on ${boardName(device)}`) : null)],
           ['Stuck', stuck
             ? [stuck.tone === 'warn' ? badge('warn', 'alert', stuck.badge) : null, h('span', null, stuck.text)]
             : h('span', { class: 'quiet' }, 'Not reported: firmware before 1.7.0 has no such timer')],
@@ -1478,7 +1497,7 @@ function boardPicker(devices, chosen, now) {
           href: routeHash({ view: 'diagnostics', thing: device.thing }),
           'aria-current': device.thing === chosen ? 'page' : null,
         },
-        h('span', { class: 'mono picker-name' }, device.thing),
+        h('span', { class: 'mono picker-name', title: device.thing }, boardName(device)),
         h('span', { class: `picker-state is-${device.online ? 'good' : 'idle'}` },
           icon(device.online ? 'online' : 'offline', 'is-small'),
           device.online ? 'Online' : device.lastSeen ? `Offline, ${timeAgo(device.lastSeen, now)}` : 'Never connected'),

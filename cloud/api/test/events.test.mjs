@@ -217,6 +217,50 @@ test('a new Wi-Fi channel and memory that ran low are health events, the low mem
   assert.deepEqual(changesBetween(heartbeat({ diag: diag() }), heartbeat({ diag: diag({ free: 0, least: 0, size: 0 }) })), []);
 });
 
+test('the name a board reports is an event when it is first seen and when it changes, and only then', () => {
+  const named = (id, rest = diag()) => heartbeat({ diag: { id, ...rest } });
+  // Firmware 1.11.4 reports the name for the first time, beside a heartbeat that had none.
+  assert.deepEqual(changesBetween(heartbeat({ diag: diag() }), named('CRVIHAAN01')), [{
+    kind: 'health', what: 'named', level: 'info', text: 'Reported its name CRVIHAAN01', fields: { name: 'CRVIHAAN01' },
+  }]);
+  assert.deepEqual(summary(heartbeat(), named('CRVIHAAN01')), [['health', 'named', 'info']]);
+  assert.deepEqual(summary(undefined, named('CRVIHAAN01')).filter(([, what]) => what === 'named'), [['health', 'named', 'info']]);
+  // Every heartbeat and every diagnostics report after it carries the same name: nothing new.
+  assert.deepEqual(changesBetween(named('CRVIHAAN01'), named('CRVIHAAN01', diag(undefined, 6))), []);
+  assert.deepEqual(changesBetween(named('CRVIHAAN01'), heartbeat({ uptime: 630, diag: { id: 'CRVIHAAN01', ...diag() } })), []);
+  // Set again at the serial console.
+  assert.deepEqual(changesBetween(named('CRVIHAAN01'), named('CRBENCH02')), [{
+    kind: 'health', what: 'named', level: 'info', text: 'Name changed from CRVIHAAN01 to CRBENCH02',
+    fields: { name: 'CRBENCH02', nameBefore: 'CRVIHAAN01' },
+  }]);
+  // A name that goes, or that is not one, says nothing; the next valid name is new again.
+  assert.deepEqual(changesBetween(named('CRVIHAAN01'), heartbeat({ diag: diag() })), []);
+  assert.deepEqual(changesBetween(named('CRVIHAAN01'), named('CR VIHAAN01')), []);
+  for (const id of ['', 'x'.repeat(33), 'CR-01', '<b>CR</b>', 5, null, ['CR01']]) {
+    assert.deepEqual(changesBetween(heartbeat({ diag: diag() }), named(id)), [], JSON.stringify(id));
+  }
+  // With a new channel in the same report, each is an event of its own.
+  assert.deepEqual(summary(named('CRVIHAAN01'), named('CRBENCH02', diag(undefined, 11))),
+    [['health', 'named', 'info'], ['health', 'channel', 'info']]);
+});
+
+test('a name is stored with its event and read back field by field', () => {
+  const before = heartbeat({ diag: { id: 'CRVIHAAN01', ...diag() } });
+  const after = heartbeat({ diag: { id: 'CRBENCH02', ...diag() } });
+  const [item] = recordsFromDocument(documentOf(before, after), options).items;
+  assert.equal(item.kind, 'health');
+  assert.equal(item.name, 'CRBENCH02');
+  assert.equal(item.nameBefore, 'CRVIHAAN01');
+  const event = eventFromItem(item);
+  assert.equal(event.text, 'Name changed from CRVIHAAN01 to CRBENCH02');
+  assert.equal(event.name, 'CRBENCH02');
+  assert.equal(event.nameBefore, 'CRVIHAAN01');
+  // The table is not trusted either.
+  const forged = eventFromItem({ ...item, name: '<img src=x>', nameBefore: 'x'.repeat(33) });
+  assert.equal(Object.hasOwn(forged, 'name'), false);
+  assert.equal(Object.hasOwn(forged, 'nameBefore'), false);
+});
+
 test('nothing malformed makes an event, a crash or a field that was not checked', () => {
   const junk = [undefined, null, 7, 'reported', [], [heartbeat()], { __proto__: { polluted: true } },
     JSON.parse('{"__proto__": {"admin": true}, "fw": {"version": "<b>1</b>", "confirmed": "yes"}}'),

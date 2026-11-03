@@ -20,7 +20,8 @@
  *   update     the update moved to another step, or ended with a result
  *   restart    the uptime went down; the boot diary said why; it restarted for being stuck
  *   bluetooth  the Bluetooth window opened or closed; the Bluetooth update record changed
- *   health     the Wi-Fi channel changed; the free memory fell below 15% at least once
+ *   health     the Wi-Fi channel changed; the free memory fell below 15% at least once; the
+ *              board reported its name (its device ID, from 1.11.4) for the first time, or another one
  *   connection connected or disconnected (from the presence rule)
  *
  * and every document is also one sample: the signal, the uptime and, from firmware 1.10.0,
@@ -40,7 +41,7 @@
  * No AWS here, and no clock: the caller passes the time and the random digits.
  */
 
-import { readReported } from './shadow.mjs';
+import { BOARD_NAME, readReported } from './shadow.mjs';
 import { isThing, parseJobId, strictVersion } from './validate.mjs';
 
 export const KINDS = Object.freeze(['connection', 'firmware', 'update', 'restart', 'bluetooth', 'health']);
@@ -92,6 +93,8 @@ const FIELDS = Object.freeze({
   before: int(1, 233),
   heapLeast: int(0, 2 ** 31),
   heapSize: int(1, 2 ** 31),
+  name: (value) => typeof value === 'string' && BOARD_NAME.test(value),
+  nameBefore: (value) => typeof value === 'string' && BOARD_NAME.test(value),
 });
 
 /** An own property of a plain object, or undefined. */
@@ -326,6 +329,15 @@ export function changesBetween(previousReported, currentReported) {
     const proved = outcome === 'succeeded' ? PROOF_WORDS[proof] ?? '' : '';
     changes.push(change('bluetooth', 'record', `Bluetooth update from ${from} to ${to} ${BT_WORDS[outcome]}${proved}`,
       { from, to, result: outcome, proof, count }, BAD_BT.has(outcome) ? 'warn' : 'info'));
+  }
+
+  // The name a person gave the board at its serial console. A report without one says nothing
+  // about it: older firmware has none to send.
+  if (now.name !== null && before.name !== now.name) {
+    changes.push(before.name === null
+      ? change('health', 'named', `Reported its name ${now.name}`, { name: now.name })
+      : change('health', 'named', `Name changed from ${before.name} to ${now.name}`,
+        { name: now.name, nameBefore: before.name }));
   }
 
   const channel = now.diag?.channel ?? 0;

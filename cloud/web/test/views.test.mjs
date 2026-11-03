@@ -1280,6 +1280,116 @@ test('a detail page names what it is about in its heading', async () => {
   for (const drawn of pages.values()) assert.equal(all(drawn, 'h1').length, 1);
 });
 
+// A board's own name. WAITING has one; the other boards run firmware from before 1.11.4.
+
+const NAMED = Object.freeze({
+  ...WORLD,
+  devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)),
+});
+
+test('a board is shown by its own name first and its thing name second, on every page that lists boards', async () => {
+  const state = await consoleState(NAMED);
+
+  // The overview's table and the panel of what is under way are narrow: the name, with the thing name as its tooltip.
+  const overview = page(views.overviewView, state);
+  const line = one(overview, 'a.board-line-name', 'CRVIHAAN01');
+  assert.equal(textOf(line), 'CRVIHAAN01');
+  assert.equal(line.getAttribute('title'), WAITING);
+  assert.equal(line.getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(textOf(one(overview, 'a.board-line-name', INSTALLING)), INSTALLING);
+  const run = one(overview, 'a.board-run-name', 'CRVIHAAN01');
+  assert.equal(run.getAttribute('title'), WAITING);
+  assert.equal(withText(overview, 'li.board-line', WAITING).length, 0, 'the thing name is not written out in the table');
+  // Each tile that stands for it says both.
+  assert.deepEqual([...new Set(all(overview, 'span.tile').map((tile) => tile.getAttribute('title')))].sort(),
+    [`CRVIHAAN01 · ${WAITING}`, INSTALLING, NEVER]);
+
+  // The list of devices has room for both: the name, and the thing name under it.
+  const list = page(views.devicesView, state);
+  const card = all(list, 'article.device').find((item) => textOf(one(item, 'h2')) === 'CRVIHAAN01');
+  assert.equal(one(card, 'a.cover-link').getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(textOf(one(card, 'p.device-thing')), WAITING);
+  assert.equal(all(card, 'span.board-thing').length, 1);
+  const unnamed = all(list, 'article.device').find((item) => textOf(one(item, 'h2')) === INSTALLING);
+  assert.equal(all(unnamed, 'p.device-thing').length, 0, 'a board without a name is its thing name alone');
+
+  // The board's own page: the name is its title, the thing name right under it.
+  const own = page(views.deviceView, state, { thing: WAITING });
+  assert.equal(textOf(one(own, 'h1')), 'Board CRVIHAAN01');
+  assert.equal(textOf(one(own, 'div.page-meta')), `AWS IoT thing ${WAITING}`);
+  const plain = page(views.deviceView, state, { thing: INSTALLING });
+  assert.equal(textOf(one(plain, 'h1')), `Board ${INSTALLING}`);
+  assert.equal(all(plain, 'div.page-meta').length, 0);
+  // Before its own copy has come, the page takes the name from the list of boards.
+  const early = page(views.deviceView, { ...state, deviceDetails: new Map() }, { thing: WAITING });
+  assert.equal(textOf(one(early, 'h1')), 'Board CRVIHAAN01');
+
+  // A deployment's boards.
+  const deploymentPage = page(views.deploymentView, state, { id: OFFERED });
+  const head = one(deploymentPage, 'h2.execution-name');
+  assert.equal(textOf(head), `CRVIHAAN01 ${WAITING}`);
+  assert.equal(one(head, 'a').getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(textOf(one(head, 'span.board-thing')), WAITING);
+  const installing = page(views.deploymentView, state, { id: WITHDRAWN });
+  assert.equal(textOf(one(installing, 'h2.execution-name')), INSTALLING);
+  assert.equal(one(installing, 'div.meter').getAttribute('aria-label'), `Download on ${INSTALLING}`);
+});
+
+test('the activity log calls the board whose passkey was read by its own name', async () => {
+  const read = entry('pairing.read', 'Cranium-1A2B', { at: ago(30), detail: { thing: WAITING } });
+  const other = entry('pairing.read', 'Cranium-3C4D', { at: ago(40), detail: { thing: INSTALLING } });
+  const state = await consoleState({ ...NAMED, entries: [read, other] });
+  const [named, plain] = all(page(views.activityView, state), 'li.log-line');
+  assert.equal(textOf(one(named, 'p.log-what')), `${MANAGER.email} read the Bluetooth passkey of Cranium-1A2B`);
+  const fact = one(named, 'span', `Board CRVIHAAN01 ${WAITING}`);
+  assert.equal(one(fact, 'a').getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(textOf(one(fact, 'a')), 'CRVIHAAN01');
+  assert.equal(textOf(one(plain, 'p.log-detail').children[0]), `Board ${INSTALLING}`);
+  // Without the list of boards the log still names the board, by its thing name.
+  const unread = page(views.activityView, { ...state, devices: { ...state.devices, value: null } });
+  assert.equal(textOf(one(all(unread, 'li.log-line')[0], 'p.log-detail').children[0]), `Board ${WAITING}`);
+});
+
+test('choosing boards to deploy to: each by its name, with its thing name beside it', () => {
+  const named = board(WAITING, { name: 'CRVIHAAN01' });
+  const plain = board(INSTALLING);
+  const { dialog } = wizard({ devices: [named, plain] });
+  const [first, second] = all(dialog, 'span.choice-title');
+  assert.match(textOf(first), new RegExp(`^CRVIHAAN01 ${WAITING} Online`));
+  assert.equal(textOf(one(first, 'span.board-thing')), WAITING);
+  assert.match(textOf(second), new RegExp(`^${INSTALLING} Online`));
+  assert.equal(all(second, 'span.board-thing').length, 0);
+
+  // The last step, at the moment of commitment, says the same.
+  const review = wizard({ step: 2, devices: [named, plain], things: new Set([WAITING, INSTALLING]) }).dialog;
+  assert.deepEqual(all(review, 'li.board-pick').map((item) => textOf(item).split(' Online')[0]),
+    [`CRVIHAAN01 ${WAITING}`, INSTALLING]);
+
+  // A refusal: the server names the board by its thing name; the console adds its own.
+  const busy = new core.ApiError(409, 'device_busy',
+    `${WAITING} still has an update that is not finished. Wait for it or cancel it first.`,
+    { details: [{ thing: WAITING, deployment: OFFERED }] });
+  const notice = one(wizard({ devices: [named], error: busy }).dialog, 'div.notice.is-bad');
+  assert.match(textOf(notice), /cancel it first\. That update on CRVIHAAN01 is the deployment of 1\.2\.3\+5\./);
+  const several = new core.ApiError(409, 'device_busy', '2 boards still have an update that is not finished.',
+    { details: [{ thing: WAITING, deployment: OFFERED }, { thing: INSTALLING, deployment: OFFERED }] });
+  const held = one(wizard({ devices: [named, plain], error: several }).dialog, 'ul.plain-list');
+  assert.deepEqual(all(held, 'li').map(textOf),
+    [`CRVIHAAN01 ${WAITING}: the deployment of 1.2.3+5`, `${INSTALLING}: the deployment of 1.2.3+5`]);
+});
+
+test('a name that is not one is never shown, and a name is only ever text', async () => {
+  const hostile = '<img src=x onerror=alert(1)>';
+  const state = await consoleState({
+    ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: hostile } : item)),
+  });
+  for (const drawn of everyPage(state).values()) {
+    assert.equal(descendants(drawn).some((el) => el.localName === 'img'), false);
+    assert.equal(textOf(drawn).includes(hostile), false);
+  }
+  assert.equal(textOf(one(page(views.deviceView, state, { thing: WAITING }), 'h1')), `Board ${WAITING}`);
+});
+
 test('the sections keep their place: each link holds the room its name takes in bold', async () => {
   const nav = draw(views.navView({ state: { route: { view: 'overview' } } }));
   assert.deepEqual(all(nav, 'a').map((link) => link.getAttribute('data-label')),

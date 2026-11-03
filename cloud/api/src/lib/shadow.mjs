@@ -67,6 +67,11 @@ function oneOf(value, allowed) {
 //   { "diag": { "mac": "f4:ce:36:12:34:56", "channel": 6,
 //               "heap": { "free": 21312, "least": 9840, "size": 44240 } } }   every 5 min, from 1.10.0
 //
+// From 1.11.4 the diagnostics also carry the board's own name, the device ID that a person
+// gave it at its serial console (INIT|<id>, SET_ID|<id>): "diag": { "id": "CRVIHAAN01", ... }.
+// The thing name is the board's identity in AWS IoT and never changes; this name only says
+// which board it is to a person, and is shown beside the thing name, never in its place.
+//
 // A stuck reason the console does not know yet is kept if it looks like one: a later firmware
 // may add a timer.
 const STUCK_REASON = /^[a-z][a-z_]{0,31}$/;
@@ -74,6 +79,8 @@ export const BT_RESULTS = Object.freeze(
   ['pending', 'succeeded', 'rolled_back', 'not_installed', 'trial_lost', 'superseded', 'flash_error']);
 export const BT_PROOFS = Object.freeze(['none', 'cloud', 'person']);
 const MAC = /^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/;
+// device_id_valid() in firmware/app/src/device.c: 1 to 32 letters and digits.
+export const BOARD_NAME = /^[A-Za-z0-9]{1,32}$/;
 // version/cause/stage: the cause in hex, as the firmware prints it with %x.
 const DIARY_ENTRY = /^([0-9.+]{5,24})\/([0-9a-f]{1,8})\/(\d{1,3})$/;
 const DIARY_MAX = 16;
@@ -128,6 +135,12 @@ function readDiag(reported, metadata) {
   return result;
 }
 
+/** The board's own name, from its diagnostics, or null if it has not reported one that is valid. */
+function readName(reported) {
+  const id = own(own(reported, 'diag'), 'id');
+  return typeof id === 'string' && BOARD_NAME.test(id) ? id : null;
+}
+
 /** The boot diary, newest boot first. Each entry: its version, why the boot before it ended, how far it got. */
 function readDiary(reported) {
   const diary = own(reported, 'diary');
@@ -162,13 +175,13 @@ function readBt(reported) {
 }
 
 /**
- * What a board says about itself under state.reported, each part checked on its own: the
- * version it runs, its update, its signal and uptime, and the reports beside the heartbeat.
- * `pairing` (btpair) is never read here. `metadata` is metadata.reported, if there is one.
+ * What a board says about itself under state.reported, each part checked on its own: its
+ * name, the version it runs, its update, its signal and uptime, and the reports beside the
+ * heartbeat. `pairing` (btpair) is never read here. `metadata` is metadata.reported, if there is one.
  */
 export function readReported(reported, metadata) {
   const result = {
-    fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null,
+    name: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null,
   };
   if (reported === undefined || reported === null || typeof reported !== 'object' || Array.isArray(reported)) {
     return result;
@@ -194,16 +207,20 @@ export function readReported(reported, metadata) {
   result.rssi = integerIn(own(own(reported, 'wifi'), 'rssi'), -127, 0);
   result.uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
   result.stuck = readStuck(reported);
+  result.name = readName(reported);
   result.diag = readDiag(reported, metadata);
   result.diary = readDiary(reported);
   result.bt = readBt(reported);
   return result;
 }
 
-/** The Device for a thing that has never reported. */
+/**
+ * The Device for a thing that has never reported. `name` is the board's own name, null until
+ * it reports one; `thing` stays what names the board to the API.
+ */
 export function unknownDevice(thing) {
   return {
-    thing, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
+    thing, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
     stuck: null, diag: null, diary: null, bt: null,
   };
 }

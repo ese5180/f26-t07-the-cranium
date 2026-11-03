@@ -1057,17 +1057,18 @@ function wobble(at, periodMs, phase = 0) {
 
 /**
  * Three boards over two days, for the Events and Diagnostics pages: every kind of event, a
- * board with diagnostics, one on firmware too old for them that went offline, and an update
- * through the console.
+ * board with diagnostics and a name of its own (its device ID, from firmware 1.11.4), one on
+ * firmware too old for either that went offline, and an update through the console.
  */
 async function fleet(stage) {
   stage.ago('2d');
-  const first = stage.provision(1, '1.10.0+0');
+  const first = stage.provision(1, '1.11.4+0');
   Object.assign(first, {
     stuck: { count: 0, reason: 'none' },
-    // A locally administered address: no real network card has it.
-    diag: { mac: '02:5e:a1:00:00:01', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
-    diary: { boots: 41, log: ['1.9.0+0/8/4', '1.9.0+0/1/4', '1.10.0+0/2/4', '1.10.0+0/1/4'] },
+    // The name set at its serial console (SET_ID), and a locally administered address: no real
+    // network card has it.
+    diag: { id: 'CRVIHAAN01', mac: '02:5e:a1:00:00:01', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
+    diary: { boots: 41, log: ['1.9.0+0/8/4', '1.9.0+0/1/4', '1.11.4+0/2/4', '1.11.4+0/1/4'] },
     wander(board, at) {
       board.rssi = Math.round(-58 + 6 * wobble(at, 5 * 3_600_000) + 2 * wobble(at, 17 * 60_000, 1));
       const { heap } = board.diag;

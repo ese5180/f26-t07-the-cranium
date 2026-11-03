@@ -580,6 +580,79 @@ test('with many boards there is a list to pick from and one card, and an unknown
   assert.match(textOf(page), /No board with this name is registered\./);
 });
 
+// A board's own name: shown first, with its thing name second or in its tooltip.
+
+test('a lane is labelled with the board\'s name and keeps its thing name, in the order of the thing names', () => {
+  const events = [event(B, MINUTE, 'health', 'named', 'Reported its name CRVIHAAN01', { name: 'CRVIHAAN01' })];
+  const lanes = telemetry.lanesOf({ events, devices: [board(B, { name: 'CRVIHAAN01' }), board(A)], consoleEvents: [] });
+  assert.deepEqual(lanes.map((lane) => [lane.id, lane.thing, lane.label]),
+    [[A, A, A], [B, B, 'CRVIHAAN01'], ['console', null, 'Console']]);
+});
+
+test('two boards that report the same name are told apart in the list to choose from', () => {
+  const devices = [board(A, { name: 'CR01' }), board(B, { name: 'CR01' }), board(C, { name: 'CR02' }), board(D)];
+  assert.deepEqual(telemetry.boardChoices([A, B, C, D], devices).map((choice) => choice.label),
+    [`CR01 · ${A}`, `CR01 · ${B}`, 'CR02', D]);
+});
+
+test('the Events page calls a board by its name in its lane, its tooltip, its rows and the list to choose from', async () => {
+  const world = setup({
+    ...eventsWorld(),
+    devices: [board(A, { name: 'CRVIHAAN01' }), board(B, { online: false, lastSeen: at(2 * HOUR) })],
+  });
+  await telemetry.refreshEvents(true);
+  let page = drawn(telemetry.eventsView(world.ctx));
+
+  // The lane: the name, then the thing name, quieter, then its state.
+  const lane = one(page, 'text.tl-lane-name', 'CRVIHAAN01');
+  assert.equal(lane.childNodes[0].textContent, 'CRVIHAAN01');
+  assert.equal(textOf(one(lane, 'tspan.tl-lane-thing')), A);
+  assert.equal(all(one(page, 'text.tl-lane-name', B), 'tspan.tl-lane-thing').length, 0);
+  const mark = all(page, 'svg.tl-mark').find((el) => /download_failed/.test(el.getAttribute('aria-label')));
+  assert.match(mark.getAttribute('aria-label'), /^CRVIHAAN01, /);
+
+  // The table: the name, linked to the board, with the thing name as its tooltip.
+  const row = one(page, 'tr.event-row', 'download_failed');
+  const cell = one(one(row, 'td.event-board'), 'a');
+  assert.equal(textOf(cell), 'CRVIHAAN01');
+  assert.equal(cell.getAttribute('title'), A);
+  assert.equal(cell.getAttribute('href'), `#/devices/${A}`);
+  assert.equal(textOf(one(one(page, 'tr.event-row', 'connection was lost'), 'td.event-board')), B);
+
+  // The list to choose a board from: the name, for the thing name it stands for.
+  const options = all(one(page, 'select'), 'option');
+  assert.deepEqual(options.map((option) => [option.value, textOf(option)]),
+    [['', 'All boards (2)'], [A, 'CRVIHAAN01'], [B, B]]);
+  assert.equal(options[1].getAttribute('title'), A);
+
+  // The tooltip over a marker: the name and the thing name.
+  mark.dispatchEvent({ type: 'click' });
+  page = drawn(telemetry.eventsView(world.ctx));
+  assert.equal(textOf(one(page, 'p.tip-head')), `CRVIHAAN01 ${A}`);
+});
+
+test('the Diagnostics page calls a board by its name, with its thing name under it and in the list to pick from', async () => {
+  const named = diagnosed(A, { name: 'CRVIHAAN01', ota: { state: 'downloading', job: DEPLOYMENT, progress: 30, last: 'none', error: '' } });
+  const world = setup({ devices: [named, diagnosed(B)], route: { view: 'diagnostics' }, samples: SAMPLES });
+  await telemetry.refreshDiagnostics(true);
+  let page = drawn(telemetry.diagnosticsView(world.ctx));
+  const [first, second] = all(page, 'section.diag-card');
+  assert.equal(textOf(one(first, 'h2.diag-name')), 'CRVIHAAN01');
+  assert.equal(one(one(first, 'h2.diag-name'), 'a').getAttribute('href'), `#/devices/${A}`);
+  assert.equal(textOf(one(first, 'p.diag-thing')), A);
+  assert.equal(one(first, 'div.meter').getAttribute('aria-label'), 'Download on CRVIHAAN01');
+  assert.equal(textOf(one(second, 'h2.diag-name')), B);
+  assert.equal(all(second, 'p.diag-thing').length, 0);
+
+  // With more boards than cards, the list to pick from has the name, and the thing name as its tooltip.
+  const many = setup({ devices: [named, diagnosed(B), diagnosed(C), diagnosed(D)], route: { view: 'diagnostics', thing: A }, samples: [] });
+  await telemetry.refreshDiagnostics(true);
+  page = drawn(telemetry.diagnosticsView(many.ctx));
+  const names = all(page, 'span.picker-name');
+  assert.deepEqual(names.map(textOf), ['CRVIHAAN01', B, C, D]);
+  assert.equal(names[0].getAttribute('title'), A);
+});
+
 test('with no boards at all, both pages say how to get one', async () => {
   const world = setup({ devices: [], route: { view: 'diagnostics' } });
   await telemetry.refreshDiagnostics(true);

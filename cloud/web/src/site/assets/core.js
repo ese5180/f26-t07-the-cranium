@@ -17,6 +17,8 @@
 
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 const THING = /^cranium-[0-9a-f]{16}$/;
+// device_id_valid() in firmware/app/src/device.c: 1 to 32 letters and digits.
+const BOARD_NAME = /^[A-Za-z0-9]{1,32}$/;
 const DEPLOYMENT = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
 const CURSOR = /^[A-Za-z0-9_-]{1,512}$/;
 
@@ -57,6 +59,36 @@ export function isThing(text) {
 
 export function isDeploymentId(text) {
   return typeof text === 'string' && DEPLOYMENT.test(text);
+}
+
+// Boards by name. A board's thing name (cranium-…) is its identity in AWS IoT: it is in every
+// address, request and record, and never changes. Its own name is the device ID a person gave
+// it at its serial console, which firmware from 1.11.4 reports with its diagnostics, and it is
+// what people know the board by. Wherever a board is shown, the name comes first and the thing
+// name second; a board that has not reported a name is shown by its thing name, as before. The
+// choice is made here and nowhere else. Like everything a board says, a name is only ever text.
+
+export function isBoardName(text) {
+  return typeof text === 'string' && BOARD_NAME.test(text);
+}
+
+/**
+ * What to call a board ({ thing, name }): its own name, or its thing name if it has none.
+ * `short` cuts a thing name to its start, for a tab's title or a sentence that is read out;
+ * `full` adds the thing name to a name, for a tooltip or a line that has to say both.
+ */
+export function boardName(board, { short = false, full = false } = {}) {
+  const thing = typeof board?.thing === 'string' ? board.thing : '';
+  if (isBoardName(board?.name)) return full && thing ? `${board.name} · ${thing}` : board.name;
+  return short && thing.length > 12 ? `${thing.slice(0, 12)}…` : thing;
+}
+
+/**
+ * The board with a thing name in a list of boards, for a view that has only the thing name:
+ * the board as listed, or one that has no name if the list does not have it (yet).
+ */
+export function boardOf(thing, devices) {
+  return (devices ?? []).find((device) => device.thing === thing) ?? { thing, name: null };
 }
 
 /** The firmware version a deployment installs, recovered from its id. */
@@ -509,6 +541,8 @@ function readDevice(raw) {
     : null;
   return {
     thing: text(item.thing, 64),
+    // From firmware 1.11.4. Shown beside the thing name, never in its place.
+    name: isBoardName(item.name) ? item.name : null,
     online: item.online === true,
     lastSeen: instant(item.lastSeen),
     fw,
@@ -701,6 +735,8 @@ const EVENT_FIELDS = {
   before: (value) => whole(value, 1, 233),
   heapLeast: (value) => whole(value, 0, 2 ** 31),
   heapSize: (value) => whole(value, 1, 2 ** 31),
+  name: (value) => (isBoardName(value) ? value : null),
+  nameBefore: (value) => (isBoardName(value) ? value : null),
 };
 
 /** One event, or null for one that cannot be shown: no board, no time or no kind the console knows. */
@@ -968,13 +1004,13 @@ export function revocationInPlace(error) {
  * That boards report a release that was just revoked. What an offline board runs is only
  * what it last reported, and may no longer be so.
  *
- * @param {{thing: string, online: boolean}[]} boards
+ * @param {{thing: string, name: string|null, online: boolean}[]} boards
  */
 export function stillRunning(boards) {
   const heard = boards.filter((board) => board.online).length;
   const quiet = boards.length - heard;
   const who = boards.length === 1
-    ? `${boards[0].thing} ${heard === 1 ? 'still runs it' : 'last reported running it'}`
+    ? `${boardName(boards[0])} ${heard === 1 ? 'still runs it' : 'last reported running it'}`
     : [
       heard > 0 ? plural(heard, 'board still runs it', 'boards still run it') : null,
       quiet > 0 ? `${plural(quiet, 'board')} last reported running it` : null,
@@ -2797,7 +2833,7 @@ export function boardChanges(before, devices) {
     const { title } = describeUpdate(device);
     seen.set(device.thing, title);
     if (before.has(device.thing) && before.get(device.thing) !== title) {
-      said.push(`${device.thing.slice(0, 12)}…: ${title}.`);
+      said.push(`${boardName(device, { short: true })}: ${title}.`);
     }
   }
   return { seen, said };
@@ -2999,6 +3035,8 @@ const AUDIT_DETAILS = {
   tokenState: { label: 'The token had', say: (value) => (value === 'revoked' ? 'been revoked' : value) },
   // The board a phone named when it asked to send over Bluetooth.
   board: { label: 'To board', code: true },
+  // The board whose Bluetooth passkey was read, by its thing name. The page shows its own name.
+  thing: { label: 'Board', code: true },
   name: { label: 'Named', sentence: true },
   days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
   withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },

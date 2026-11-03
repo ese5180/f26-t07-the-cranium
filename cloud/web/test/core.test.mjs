@@ -84,6 +84,36 @@ test('board names and deployment ids follow their patterns exactly', () => {
   assert.equal(core.deploymentHref(DEPLOYMENT), `#/deployments/${DEPLOYMENT}`);
 });
 
+test('a board is called by its own name where it has one, and by its thing name where it has not', () => {
+  for (const name of ['CRVIHAAN01', 'b', '7', 'A'.repeat(32), 'crBench2']) assert.equal(core.isBoardName(name), true, name);
+  for (const name of ['', 'A'.repeat(33), 'CR VIHAAN', 'CR-01', 'CR_01', THING, 'Crânium', 'CR01\n', '<b>', 7, null, undefined, ['CR01']]) {
+    assert.equal(core.isBoardName(name), false, String(name));
+  }
+
+  const named = { thing: THING, name: 'CRVIHAAN01' };
+  const unnamed = { thing: THING, name: null };
+  assert.equal(core.boardName(named), 'CRVIHAAN01');
+  assert.equal(core.boardName(unnamed), THING);
+  // A list from before 1.11.4 has no name at all; one that is not a name is none.
+  assert.equal(core.boardName({ thing: THING }), THING);
+  assert.equal(core.boardName({ thing: THING, name: '<img src=x onerror=alert(1)>' }), THING);
+  assert.equal(core.boardName({ thing: THING, name: 'CR-01' }), THING);
+  // For a tab or a sentence read out, a thing name is cut to its start; a name never is.
+  assert.equal(core.boardName(unnamed, { short: true }), 'cranium-fe5b…');
+  assert.equal(core.boardName(named, { short: true }), 'CRVIHAAN01');
+  // For a tooltip, both.
+  assert.equal(core.boardName(named, { full: true }), `CRVIHAAN01 · ${THING}`);
+  assert.equal(core.boardName(unnamed, { full: true }), THING);
+  assert.equal(core.boardName(null), '');
+
+  // A view that has only the thing name finds the board in the list, or one without a name.
+  const other = { thing: 'cranium-00000000000000aa', name: 'CRBENCH02', online: true };
+  assert.equal(core.boardOf(other.thing, [named, other]), other);
+  assert.deepEqual(core.boardOf('cranium-00000000000000bb', [named, other]), { thing: 'cranium-00000000000000bb', name: null });
+  assert.deepEqual(core.boardOf(THING, null), { thing: THING, name: null });
+  assert.equal(core.boardName(core.boardOf(THING, [named])), 'CRVIHAAN01');
+});
+
 test('the version is recovered from a deployment id', () => {
   assert.equal(core.versionOfDeployment(DEPLOYMENT), '1.1.0+7');
   assert.equal(core.versionOfDeployment(LARGEST_DEPLOYMENT), '255.255.65535+4294967295');
@@ -1002,6 +1032,7 @@ test('what a board reports is cut down to known shapes', async () => {
     },
     rssi: 12,
     uptime: -5,
+    name: '<img src=x onerror=alert(1)>',
     extra: { nested: true },
   };
   const honest = {
@@ -1020,8 +1051,8 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(devices.length, 2, 'a row without a name is dropped');
   const [bad, good] = devices;
   assert.deepEqual(Object.keys(bad).sort(),
-    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'online', 'ota', 'rssi', 'stuck', 'thing', 'uptime']);
-  assert.deepEqual([bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null]);
+    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'name', 'online', 'ota', 'rssi', 'stuck', 'thing', 'uptime']);
+  assert.deepEqual([bad.name, bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null, null]);
   assert.equal(bad.online, false);
   assert.equal(bad.lastSeen, null);
   assert.equal(bad.fw, null);
@@ -1033,7 +1064,12 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(bad.ota.last, 'none?evil');
   assert.equal(bad.ota.error.length, 64);
   assert.match(bad.ota.error, /^[\x20-\x7e]*$/);
-  assert.deepEqual(good, { ...honest, stuck: null, diag: null, diary: null, bt: null });
+  assert.deepEqual(good, { ...honest, name: null, stuck: null, diag: null, diary: null, bt: null });
+
+  // From firmware 1.11.4 a board reports its own name; only letters and digits, at most 32, are one.
+  const names = ['CRVIHAAN01', 'A'.repeat(33), 'CR 01', 'CR\u202e01', 7, null];
+  const { api: named } = answering(200, { devices: names.map((name) => ({ ...honest, name })) });
+  assert.deepEqual((await named.devices()).devices.map((device) => device.name), ['CRVIHAAN01', null, null, null, null, null]);
 });
 
 test('what a board reports beside its heartbeat is read field by field, and nothing else of it', async () => {
@@ -1092,6 +1128,15 @@ test('the event log is read event by event: a board, a time and a kind, or it is
   assert.deepEqual(Object.fromEntries(asked.searchParams), { from: NOON, to: NOON, thing: THING, kinds: 'update,restart', cursor: 'xyz' });
   await assert.rejects(api.events({ from: NOON, to: NOON, kinds: ['gossip'] }), /not valid/);
   await assert.rejects(api.events({ from: 'soon', to: NOON }), /not valid/);
+
+  // A name the board reported, or changed, comes with its event; one that is not a name does not.
+  const renamed = { ...event, kind: 'health', what: 'named', level: 'info', text: 'Name changed from CRVIHAAN01 to CRBENCH02' };
+  const { api: names } = answering(200, {
+    events: [{ ...renamed, name: 'CRBENCH02', nameBefore: 'CRVIHAAN01' }, { ...renamed, name: '<b>', nameBefore: 'x'.repeat(33) }],
+  });
+  const [kept, dropped] = (await names.events({ from: NOON, to: NOON })).events;
+  assert.deepEqual([kept.name, kept.nameBefore], ['CRBENCH02', 'CRVIHAAN01']);
+  assert.deepEqual([Object.hasOwn(dropped, 'name'), Object.hasOwn(dropped, 'nameBefore')], [false, false]);
 });
 
 test('a board\'s readings are read with their times, and a reading that is not one is left out', async () => {
@@ -1458,6 +1503,9 @@ test('a screen reader hears when a board changes state, and not at every percent
   const pressed = core.boardChanges(first.seen, [board('downloading', 10)]);
   assert.deepEqual(pressed.said, ['cranium-f55e…: Downloading 1.2.3+5.']);
   assert.deepEqual(core.boardChanges(pressed.seen, [board('downloading', 20)]).said, []);
+  // A board with a name of its own is called by it.
+  const verifying = core.boardChanges(pressed.seen, [{ ...board('verifying', 100), name: 'CRVIHAAN01' }]);
+  assert.deepEqual(verifying.said, ['CRVIHAAN01: Checking the download of 1.2.3+5.']);
 });
 
 // Failed requests.
@@ -1574,6 +1622,7 @@ test('a repeated revocation that finds everything in place is a success, and is 
   assert.match(core.stillRunning([online, offline]), /^1 board still runs it and 1 board last reported running it; /);
   assert.match(core.stillRunning([online, online, offline, offline]), /^2 boards still run it and 2 boards last reported running it; /);
   assert.match(notice({ cancelled: [], again: false, running: [offline] }), new RegExp(`${THING} last reported running it; `));
+  assert.match(core.stillRunning([{ ...online, name: 'CRVIHAAN01' }]), /^CRVIHAAN01 still runs it; /);
   assert.doesNotMatch(notice({ cancelled: [], again: false, running: [] }), /still run/);
   assert.equal(notice({ cancelled: [], again: false }),
     'Revoked 1.1.0+7. No deployment of it was still open.');
@@ -2821,6 +2870,14 @@ test('the check before a Bluetooth send reads as what it was, with its board and
   // A phone app's sign-in where it may not go.
   const phone = core.describeAudit({ action: 'deployment.create', target: '1.1.0+7', outcome: 'denied', detail: [['code', 'phone_not_allowed']] });
   assert.equal(phone.facts[0].words, 'The phone app’s sign-in cannot be used for that');
+});
+
+test('a passkey that was read names its board by its thing name, for the page to call it by its own', () => {
+  const read = core.describeAudit({
+    action: 'pairing.read', target: 'Cranium-1A2B', outcome: 'ok', detail: [['thing', THING]],
+  });
+  assert.equal(`${read.verb} ${read.label}`, 'read the Bluetooth passkey of Cranium-1A2B');
+  assert.deepEqual(read.facts.map((fact) => [fact.key, fact.label, fact.value, fact.code]), [['thing', 'Board', THING, true]]);
 });
 
 test('the log says what was done with a token, and which token made a change', () => {

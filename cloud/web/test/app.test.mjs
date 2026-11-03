@@ -329,6 +329,15 @@ test('the title of the tab tells open tabs apart', async (t) => {
   assert.equal(tab.document.title, 'Firmware · Cranium');
 });
 
+test('a board with a name of its own has its tab called by it, once the board has been read', async (t) => {
+  const named = { ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)) };
+  const tab = await openTab(t, { world: named, hash: `#/devices/${WAITING}` });
+  await until(() => tab.document.title === 'CRVIHAAN01 · Cranium', 'the title with the board\'s name');
+  assert.equal(textOf(one(tab.main, 'h1')), 'Board CRVIHAAN01');
+  await tab.goto(`#/devices/${INSTALLING}`);
+  assert.equal(tab.document.title, 'cranium-0000… · Cranium');
+});
+
 test('a screen reader hears a board change state on every page but the one that says it itself', async (t) => {
   const waiting = { ...WORLD, devices: [WORLD.devices[0]] };
   const tab = await openTab(t, { world: waiting });
@@ -338,6 +347,25 @@ test('a screen reader hears a board change state on every page but the one that 
   tab.becomes({ ...WORLD, devices: [moved] });
   await tab.wait(3000);
   assert.equal(heard(), 'cranium-0000…: Downloading 1.2.3+5.');
+});
+
+const NAMED_WORLD = { ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)) };
+
+test('the activity log does not read the list of boards when no entry names a board', async (t) => {
+  const tab = await openTab(t, { world: NAMED_WORLD, hash: '#/activity' });
+  await until(() => all(tab.main, 'li.log-line').length > 0, 'the log');
+  assert.equal(sentTo(tab, '/api/devices').length, 0);
+});
+
+test('the activity log reads the list of boards when an entry names a board, to call it by its name', async (t) => {
+  const named = NAMED_WORLD;
+  const read = {
+    at: ago(30), actor: MANAGER, action: 'pairing.read', target: 'Cranium-1A2B', outcome: 'ok', detail: { thing: WAITING }, requestId: 'req-2',
+  };
+  const tab = await openTab(t, { world: { ...named, entries: [read, ...named.entries] }, hash: '#/activity' });
+  await until(() => all(tab.main, 'li.log-line').length > 0 && sentTo(tab, '/api/devices').length > 0, 'the log and the boards');
+  await settle();
+  assert.match(textOf(all(tab.main, 'li.log-line')[0]), new RegExp(`Board CRVIHAAN01 ${WAITING}`));
 });
 
 test('a toast stays until it has been read, and can be closed', async (t) => {

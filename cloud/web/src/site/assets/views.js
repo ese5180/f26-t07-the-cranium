@@ -16,7 +16,8 @@
  */
 
 import {
-  CODE_LENGTH, FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, SIGN_IN_WORDS, STEPS, alreadyRuns, asksForButton, busyBoards, canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
+  CODE_LENGTH, FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, SIGN_IN_WORDS, STEPS, alreadyRuns, asksForButton, boardName, boardOf, busyBoards,
+  canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
   deploymentHref, describeAudit, describeCounts, describeDeployment, describeExecution, describeHistory,
   describeUpdate, deviceActivity, deviceHref, duration, exactBytes, exactTime, failedCheck, fileSize, IMAGE_CHECKS,
   installStanding, isRefusal, isRestarting, isUnderWay, isUnfinished, isUnregistered, nameOf, parseVersion, plainMessage,
@@ -381,6 +382,23 @@ function linkTo(href, props, ...children) {
   return href ? h('a', { ...props, href }, children) : h('span', props, children);
 }
 
+/**
+ * A board by what people call it (boardName in core.js), as a link to its page. Its thing
+ * name is the tooltip; where there is room, boardThing() writes it out next to the name.
+ */
+function boardLabel(board, className = '', href = deviceHref(board.thing)) {
+  return linkTo(href, { class: `mono ${className}`.trim(), title: board.thing }, boardName(board));
+}
+
+/**
+ * The thing name of a board that has a name of its own, smaller and quieter, after a space
+ * that sets it apart from the name in what is read and copied; nothing for a board without one.
+ */
+function boardThing(board, className = '') {
+  if (boardName(board) === board.thing) return null;
+  return [' ', h('span', { class: `board-thing mono ${className}`.trim() }, board.thing)];
+}
+
 /** A time, told relative to now, with the exact time as its tooltip. */
 function when(iso, now, prefix = '') {
   if (!iso) return null;
@@ -494,7 +512,7 @@ function boardTiles(devices) {
   const looks = ['is-on', 'is-off', 'is-never'];
   const ordered = [...devices].sort((a, b) => rank(a) - rank(b));
   return h('span', { class: 'tiles', 'aria-hidden': 'true' }, ordered.map((device) =>
-    h('span', { key: device.thing, class: `tile ${looks[rank(device)]}`, title: device.thing })));
+    h('span', { key: device.thing, class: `tile ${looks[rank(device)]}`, title: boardName(device, { full: true }) })));
 }
 
 /** Nothing here yet: what that means, and what to do next. `action` is a link drawn as a button. */
@@ -1232,8 +1250,8 @@ export function navView(ctx) {
 // Diagnostics have one too (telemetry.js), which draws with these same pieces.
 
 export {
-  NO_BOARDS, badge, button, card, empty, factNote, facts, failure, freshness, linkTo, loadProblem, loading, meter, mono,
-  notice, pageHead, pending, presence, signalBars, statusLine, when, whenAt,
+  NO_BOARDS, badge, boardLabel, boardThing, button, card, empty, factNote, facts, failure, freshness, linkTo, loadProblem,
+  loading, meter, mono, notice, pageHead, pending, presence, signalBars, statusLine, when, whenAt,
 };
 
 export function developerTabs(current) {
@@ -1353,6 +1371,11 @@ function auditFact(fact, ctx) {
   if (fact.words) {
     return h('span', { key: `fact-${fact.key}`, title: `Code ${fact.value}` }, `${fact.words}.`);
   }
+  // The log keeps a board's thing name; the board is called by its own name, as listed now.
+  if (fact.key === 'thing') {
+    const board = boardOf(fact.value, ctx.state.devices?.value?.devices);
+    return h('span', { key: 'fact-thing' }, `${fact.label} `, boardLabel(board), boardThing(board));
+  }
   return h('span', { key: `fact-${fact.key}` },
     fact.phrase ? `${fact.label} ` : `${fact.label}: `,
     fact.code ? mono(fact.value) : fact.value);
@@ -1377,10 +1400,11 @@ function boardLine(execution, deployment, ctx, known) {
   });
   const lastSeen = known?.lastSeen ?? null;
   const offline = !execution.online;
+  const board = known ?? boardOf(execution.thing);
   return h('li', { key: execution.thing, class: `board-run is-${description.tone}` },
     h('div', { class: 'board-run-head' },
       h('div', { class: 'board-run-who' },
-        linkTo(deviceHref(execution.thing), { class: 'mono board-run-name', title: execution.thing }, execution.thing),
+        boardLabel(board, 'board-run-name'),
         h('div', { class: 'board-run-state' },
           description.progress !== null
             ? h('span', { class: `status is-${description.tone}` },
@@ -1389,7 +1413,7 @@ function boardLine(execution, deployment, ctx, known) {
                 h('span', { class: 'said-big' }, ` ${description.progress}%`)))
             : statusLine(description),
           description.progress !== null
-            ? meter(description.progress, `Download on ${execution.thing}`)
+            ? meter(description.progress, `Download on ${boardName(board)}`)
             : h('span', { class: 'board-run-note' }, prose(description.brief),
               offline && lastSeen ? [' Last seen ', when(lastSeen, now), '.'] : null))),
       description.progress !== null
@@ -1587,7 +1611,7 @@ function boardsCard(ctx, devices) {
         return h('li', { key: device.thing, class: 'board-line' },
           h('span', { class: `presence-dot ${isUp(device) ? 'is-on' : ''}`.trim() }),
           h('span', { class: 'board-line-who' },
-            linkTo(deviceHref(device.thing), { class: 'mono board-line-name', title: device.thing }, device.thing),
+            boardLabel(device, 'board-line-name'),
             h('span', { class: 'board-line-note' }, seen)),
           h('span', { class: 'board-line-fw' },
             device.fw
@@ -1663,7 +1687,7 @@ function versionRows(devices, newest, revokedOnes, releases) {
         revokedOnes.has(version) ? h('span', { class: 'tag is-bad' }, 'Revoked release') : null),
       tiled
         ? h('span', { class: 'tiles', 'aria-hidden': 'true' }, members.map((device) =>
-          h('span', { key: device.thing, class: `tile is-${tone}`, title: device.thing })))
+          h('span', { key: device.thing, class: `tile is-${tone}`, title: boardName(device, { full: true }) })))
         : null);
   }));
 }
@@ -2072,7 +2096,7 @@ function updateFact(device, offer) {
     : null;
   return h('div', { class: 'fact-stack' },
     statusLine(update, percent),
-    update.progress !== null ? meter(update.progress, `Download on ${device.thing}`) : null,
+    update.progress !== null ? meter(update.progress, `Download on ${boardName(device)}`) : null,
     update.text ? factNote(prose(update.text)) : null,
     offer && !update.deployment
       ? factNote([
@@ -2188,8 +2212,9 @@ export function devicesView(ctx) {
             h('header', { class: 'device-head' },
               h('div', null,
                 h('h2', { class: 'device-name' },
-                  linkTo(deviceHref(device.thing), { class: 'mono cover-link' }, device.thing),
+                  boardLabel(device, 'cover-link'),
                   icon('arrow-right', 'is-small')),
+                boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
                 h('p', { class: 'device-seen' }, seenLine(device, state.now)),
                 device.lastSeen || device.online ? null : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)),
               presence(device, state.now)),
@@ -2273,13 +2298,19 @@ export function deviceView(ctx) {
   const { thing } = state.route;
   const resource = state.deviceDetails.get(thing) ?? NOT_LOADED;
   const detail = resource.value;
+  // The board as this page last read it, else as the list of boards has it: the name is
+  // there before the page's own copy has come.
+  const board = detail?.device ?? boardOf(thing, state.devices?.value?.devices);
+  const named = boardName(board) !== thing;
   const head = pageHead({
     back: { href: '#/devices', label: 'Devices' },
     eyebrow: 'Board',
-    title: mono(thing),
+    // A name is set in the sans at display size, like a version; a thing name stays monospaced.
+    title: named ? h('span', { class: 'board-title' }, boardName(board)) : mono(thing),
     lede: detail
       ? [seenLine(detail.device, state.now), detail.device.lastSeen || detail.device.online ? null : ` ${NEVER_REPORTED_HELP}`]
       : null,
+    meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
     tools: missing(resource) ? null : freshness(resource, ctx),
   });
   if (missing(resource)) {
@@ -3114,6 +3145,8 @@ function executionCard(execution, deployment, ctx, boards = 1) {
   const { now } = ctx.state;
   const known = (ctx.state.devices.value?.devices ?? []).find((device) => device.thing === execution.thing);
   const unread = ctx.state.devices.value === null;
+  // What to call the board: as the list of boards has it, or as its own page last read it.
+  const board = known ?? ctx.state.deviceDetails.get(execution.thing)?.value?.device ?? boardOf(execution.thing);
   const description = describeExecution(execution, {
     board: known ?? null, deployment: deployment.id, version: deployment.version, ...historyOf(execution, ctx), unread,
   });
@@ -3149,8 +3182,7 @@ function executionCard(execution, deployment, ctx, boards = 1) {
     class: `card execution is-${description.tone}${compact ? ' is-compact' : ''}`,
   },
     h('header', { class: 'execution-head' },
-      h('h2', { class: 'execution-name' },
-        linkTo(deviceHref(execution.thing), { class: 'mono' }, execution.thing)),
+      h('h2', { class: 'execution-name' }, boardLabel(board), boardThing(board)),
       executionPresence(execution, known, unread)),
     h('div', { class: 'execution-state' },
       h('div', { class: 'execution-words' },
@@ -3176,7 +3208,7 @@ function executionCard(execution, deployment, ctx, boards = 1) {
           ? h('p', { class: 'execution-code' }, 'Board’s note: ', mono(execution.detail))
           : null,
         description.progress !== null
-          ? meter(description.progress, `Download on ${execution.thing}`)
+          ? meter(description.progress, `Download on ${boardName(board)}`)
           : null),
       description.progress !== null
         ? h('p', { class: 'execution-figure', 'aria-hidden': 'true' },
@@ -3648,7 +3680,7 @@ function wizardBoard(device, model, now) {
     disabled: Boolean(busy),
     onChange: () => model.toggle(device.thing),
   },
-  [mono(device.thing), presence(device, now)],
+  [mono(boardName(device)), boardThing(device), presence(device, now)],
   h('span', { class: 'choice-note' },
     device.fw ? [device.online ? 'Runs ' : 'Last reported ', mono(device.fw.version)] : 'Has not reported a version',
     device.online || !device.lastSeen ? null : [' · last seen ', when(device.lastSeen, now)]),
@@ -3664,7 +3696,7 @@ function wizardReview(model, release, chosen, now) {
       ['Release', mono(model.version, 'fact-strong'),
         release ? factNote(`${fileSize(release.size)} · SHA-256 ${release.sha256.slice(0, 12)}…`) : null],
       ['Boards', h('ul', { class: 'plain-list' }, chosen.map((device) =>
-        h('li', { key: device.thing }, mono(device.thing), presence(device, now),
+        h('li', { key: device.thing, class: 'board-pick' }, mono(boardName(device)), boardThing(device), presence(device, now),
           alreadyRuns(device, model.version) ? willRefuse() : null)))],
     ]),
     h('label', { class: 'field', key: 'note' },
@@ -3703,19 +3735,24 @@ function wizardReview(model, release, chosen, now) {
 
 /**
  * Where the boards are held up that the server named when it refused a deployment. Its
- * own sentence names a single board; with several it only gives their number.
+ * own sentence names a single board, by its thing name; with several it only gives their number.
  */
-function heldBy(entries) {
+function heldBy(entries, devices) {
   const where = (entry) => {
     const version = versionOfDeployment(entry.deployment);
     return linkTo(deploymentHref(entry.deployment), null,
       version ? ['the deployment of ', mono(version)] : 'another deployment');
   };
   if (entries.length === 1) {
-    return h('p', { class: 'notice-more' }, 'That update is ', where(entries[0]), '.');
+    const board = boardOf(entries[0].thing, devices);
+    const named = boardName(board) !== board.thing;
+    return h('p', { class: 'notice-more' },
+      'That update', named ? [' on ', mono(boardName(board))] : null, ' is ', where(entries[0]), '.');
   }
-  return h('ul', { class: 'plain-list notice-more' }, entries.map((entry) =>
-    h('li', { key: `${entry.thing} ${entry.deployment}` }, mono(entry.thing), ': ', where(entry))));
+  return h('ul', { class: 'plain-list notice-more' }, entries.map((entry) => {
+    const board = boardOf(entry.thing, devices);
+    return h('li', { key: `${entry.thing} ${entry.deployment}` }, mono(boardName(board)), boardThing(board), ': ', where(entry));
+  }));
 }
 
 export function deployDialog(model, ctx) {
@@ -3814,7 +3851,7 @@ export function deployDialog(model, ctx) {
     ],
     error: model.error
       ? failure('The deployment was not started.', model.error,
-        refusedBoards.length > 0 ? heldBy(refusedBoards) : null, model.signIn)
+        refusedBoards.length > 0 ? heldBy(refusedBoards, devices) : null, model.signIn)
       : null,
     foot: [
       dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'),

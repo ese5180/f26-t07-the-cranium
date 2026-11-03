@@ -107,6 +107,10 @@ from 1.7.4, when it reaches the cloud), the record of its last update over Bluet
 connects), and its diagnostics (`diag`, from 1.10.0, when it reaches the cloud and every 5 minutes: the Wi-Fi
 address and channel, and the free heap). [`firmware/README.md`](../firmware/README.md#boot-diary) gives their
 shapes. The API reads each field by field (`cloud/api/src/lib/shadow.mjs`) and the Diagnostics page shows them.
+From firmware 1.11.4 the diagnostics also carry the board's own name, `diag.id`: the device ID a person set at its serial
+console (`INIT|<id>`, `SET_ID|<id>`, 1 to 32 letters and digits). The API passes a valid one on as `name` beside `thing`,
+and the console shows it first wherever it shows a board. The thing name stays the board's identity in AWS IoT, in
+every URL, deployment and log entry; older firmware sends no `id`, and the console then shows the thing name alone.
 While a phone is pairing, the shadow also holds the pairing passkey (`btpair`); only the pairing route reads it.
 
 ### The heartbeat
@@ -367,7 +371,7 @@ else. A message that cannot be written is tried once more and dropped after an h
 | `update` | Each step of an update, with its deployment and the progress at that step; how it ended (`succeeded`, `failed`, `rolled_back`, `declined`, `refused`, `cancelled`, with the board's error code) |
 | `restart` | The uptime went down; the boot diary grew, with why the boot before ended (reset cause) and how far that one got; the board restarted itself for being stuck, with the timer that fired |
 | `bluetooth` | The Bluetooth window opened or closed; the Bluetooth update record changed |
-| `health` | The Wi-Fi channel changed; the free heap fell below 15% of the heap at least once (once per boot) |
+| `health` | The Wi-Fi channel changed; the free heap fell below 15% of the heap at least once (once per boot); the board reported its name (`diag.id`) for the first time, or a different one |
 
 Failed, rolled back and refused updates, a restart by the watchdog, a brownout or a lockup, a restart for being stuck,
 a Bluetooth update that did not stay, and memory that ran low are marked as warnings. Every report is also one

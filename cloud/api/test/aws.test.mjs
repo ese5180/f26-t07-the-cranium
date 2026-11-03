@@ -1624,7 +1624,7 @@ test('the Lambda entry point serves a viewer\'s reads through the adapter', asyn
   }
   assert.deepEqual(responses.map((response) => response.statusCode), [200, 200, 200, 200]);
   assert.deepEqual(JSON.parse(responses[0].body).devices,
-    [{ thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null }]);
+    [{ thing: THING, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null }]);
   assert.deepEqual(JSON.parse(responses[1].body).releases, []);
   assert.deepEqual(JSON.parse(responses[2].body), { deployments: [] });
   assert.deepEqual(JSON.parse(responses[3].body), { entries: [], next: null });

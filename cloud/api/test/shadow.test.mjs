@@ -38,6 +38,7 @@ const read = (reported, options) => deviceFromShadow(THING, shadow(reported, opt
 test('a well-formed shadow becomes a Device', () => {
   assert.deepEqual(read(healthy()), {
     thing: THING,
+    name: null,
     online: true,
     lastSeen: new Date(SEEN * 1000).toISOString(),
     fw: { version: '1.0.0+3', confirmed: true },
@@ -58,7 +59,7 @@ test('a well-formed shadow becomes a Device', () => {
 
 test('a thing without a shadow has never reported', () => {
   const never = {
-    thing: THING, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
+    thing: THING, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
     stuck: null, diag: null, diary: null, bt: null,
   };
   assert.deepEqual(deviceFromShadow(THING, null, NOW), never);
@@ -233,6 +234,7 @@ test('nothing a board adds to its shadow reaches the output', () => {
   const device = deviceFromShadow(THING, hostile, NOW);
   assert.deepEqual(device, {
     thing: THING,
+    name: null,
     online: true,
     lastSeen: new Date(SEEN * 1000).toISOString(),
     fw: { version: '1.0.0+3', confirmed: true },
@@ -324,4 +326,33 @@ test('a report beside the heartbeat that is not what the firmware sends is left 
   }
   assert.deepEqual(read2({ bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'magic', count: -2 } }).bt,
     { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'none', count: 0 });
+});
+
+test('the name a board reports with its diagnostics is shown beside its thing name, and only a valid one', () => {
+  const diag = { mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } };
+  const named = read({ ...healthy(), diag: { id: 'CRVIHAAN01', ...diag } });
+  assert.equal(named.name, 'CRVIHAAN01');
+  // The thing name stays what names the board, and the name is not part of the diagnostics.
+  assert.equal(named.thing, THING);
+  assert.deepEqual(Object.keys(named).slice(0, 2), ['thing', 'name']);
+  assert.equal(Object.hasOwn(named.diag, 'id'), false);
+  assert.deepEqual(named.diag, read({ ...healthy(), diag }).diag);
+
+  // Firmware before 1.11.4 sends no name; a report with nothing but the name is still one.
+  assert.equal(read({ ...healthy(), diag }).name, null);
+  assert.equal(read(healthy()).name, null);
+  assert.equal(read({ ...healthy(), diag: { id: 'b' } }).name, 'b');
+  assert.equal(read({ ...healthy(), diag: { id: 'b' } }).diag, null);
+  assert.equal(read({ ...healthy(), diag: { id: 'A'.repeat(32) } }).name, 'A'.repeat(32));
+
+  // device_id_valid() in the firmware: 1 to 32 letters and digits. Anything else is no name.
+  for (const id of ['', 'A'.repeat(33), 'CR VIHAAN', 'CR-01', 'CR_01', 'CR.01', ' CR01', 'CR01\n', 'Crânium', 'CR\u0000',
+    '<b>x</b>', '\u202eCR01', 7, 1e3, null, true, ['CR01'], { id: 'CR01' }]) {
+    assert.equal(read({ ...healthy(), diag: { id, ...diag } }).name, null, JSON.stringify(id));
+  }
+  // Only the diagnostics say it: a name elsewhere in the shadow is not one.
+  for (const reported of [{ ...healthy(), name: 'CR01' }, { ...healthy(), id: 'CR01' }, { ...healthy(), fw: { version: '1.0.0+3', id: 'CR01' } },
+    { ...healthy(), diag: Object.create({ id: 'CR01' }) }]) {
+    assert.equal(read(reported).name, null);
+  }
 });
