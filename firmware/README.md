@@ -1547,7 +1547,7 @@ The 1.12.0 build, with the console and Bluetooth, in bytes:
 | MCUboot, flash | 43,520 | 65,536 |
 | Network core (`hci_ipc`), flash | 133,232 | 262,144 |
 | Network core, RAM | 35,168 | 65,536 |
-| Signed image | 325,481 | 933,888 |
+| Signed image | 325,482 | 933,888 |
 
 The application has no link-time optimisation here, which the nRF7002 DK needs to fit, and most of its RAM is the heap
 that `bt_ota.conf` sizes for an nRF7002 DK's Wi-Fi and TLS. MCUboot is 6,804 bytes smaller than the nRF7002 DK's,
