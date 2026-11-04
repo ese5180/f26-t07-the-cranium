@@ -61,6 +61,8 @@ the connection was lost is not known: the channel change suggests a different ac
 The same day, the iPhone app (19226de) signed in on its own screen for the first time: e-mail, password, then the code in
 six boxes, against the live user pool after the deploy that allowed SRP for the phone client. It went straight through.
 
+Also on 2026-11-04, the iPhone app a244efa on the owner's iPhone 17 Pro: Face ID turned on after a full sign-in, and reopening the app asked for Face ID instead of the password and code. Reported by the owner. Not tried yet on the phone: the lock after 5 minutes away, a changed face, a removed passcode, and the 30-day session (live since the deploy of 7f34f56).
+
 ## The first update over Bluetooth, 1.11.3 to 1.11.4
 
 On 2026-11-03, on the real board, with nRF Connect Device Manager on an iPhone 17 Pro ("Upload only"), the board on a
