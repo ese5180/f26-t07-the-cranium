@@ -22,6 +22,31 @@ builds it says so; [`test-results.md`](test-results.md) says what has run on a b
 - A `nrf5340dk` is never a target of an AWS IoT job. The console lists it as "Bluetooth only", with its last version
   as a phone last saw it.
 
+## Compatibility: the right image on the right board
+
+Every image carries what it is compatible with, in its protected (signed) TLV area, and each step that can put an
+image on a board checks it. The board's own check is the last word.
+
+| Protected TLV | Value (ASCII) | Meaning | A legacy image without it |
+| --- | --- | --- | --- |
+| `0xA1` | `nrf7002dk`, `nrf5340dk` (1–16 lowercase letters and digits) | The board type it is built for | `nrf7002dk` |
+| `0xA2` | `1`, `2`, … (a positive integer) | The flash layout it is built for: partitions, slot sizes, the golden area. It goes up whenever the partitions change, so an image never lands on a board whose flash is divided differently | `1` |
+
+- **The build** sets both: `CONFIG_APP_BOARD_TYPE` and `CONFIG_APP_IMAGE_LAYOUT` (per board, in the board's conf). The
+  build stops if the image does not carry the values the board's configuration says.
+- **The board** reports both in its diagnostics (`"board"`, `"layout"`) and, before it installs anything, reads the
+  new image's protected TLVs: over the internet after the download is verified, and over Bluetooth after an upload,
+  before it marks the image to test. A different board type or layout is refused: the image is never marked, MCUboot
+  never swaps, the update ends `failed` with reason `incompatible_board` or `incompatible_layout`, and a `CMD`/`ota`
+  line says why. A Bluetooth upload of such an image is refused the same way, whatever tool sent it.
+- **The console** reads both on upload, shows them on the release, and never offers a release to a board of another
+  type or layout (`400 incompatible_board`, `400 incompatible_layout`), whether the board is named, in a group, or
+  part of Update everything.
+- **The phone apps** check the same before a Bluetooth send, from the image they hold and the board's reported type and
+  layout, and send `thing` with the console's pre-send check so that the console checks too.
+- **One version is one image.** Versions are one sequence across all board types, so `1.13.0` names exactly one file;
+  a build for another type takes the next number.
+
 ## Groups and rollouts
 
 - **Groups** are names a release manager gives to sets of boards ("lab bench", "demo"). A board can be in several. Every
