@@ -620,6 +620,25 @@ const pages = {
     interval: () => IDLE_REFRESH_MS,
     holdStill: () => dialogOpen(),
   },
+  // The customer site's customers and their boards (docs/customer-site.md), for release managers.
+  // Its script is fetched when the page is opened, like the serial console's.
+  customers: {
+    title: 'Customers',
+    view: (ctx) => (customersScript
+      ? customersScript.customersView(ctx)
+      : scriptPending(ctx, 'customers', 'Customers', { tabs: false })),
+    resources: () => customersScript?.resources(state) ?? [],
+    async refresh(full) {
+      if (!customersScript) {
+        customersScript = await pageScript(() => import('./customers.js'));
+        customersScript?.connect({ state, api, load, draw, notify, clock });
+      }
+      if (customersScript) await customersScript.refresh(full);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => customersScript?.holdStill() ?? false,
+  },
 };
 
 let serialScript = null;
@@ -679,6 +698,7 @@ function fleetReady() {
   });
   return fleetLoading;
 }
+let customersScript = null;
 
 /** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */
 async function telemetry() {
@@ -1828,6 +1848,8 @@ async function boot() {
     });
     return;
   }
+  // Admin mode of the customer site: where to go back to.
+  state.customerSite = config.customerSite ?? null;
 
   const channel = openSessionChannel();
   let outcome;

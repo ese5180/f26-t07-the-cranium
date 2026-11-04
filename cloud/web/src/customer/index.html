@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#faf7f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171411" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Cranium is an attachment for beginner DJ controllers such as the Pioneer FLX4, meant to run them without a laptop. Sign in to see your boards.">
+<meta name="cranium-config" content="%CONFIG%">
+<title>Cranium · Your DJ controller, without the laptop</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23b7410e' d='M2 18a14 14 0 0 1 28 0v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z'/%3E%3Cpath fill='none' stroke='%23faf7f2' stroke-width='2.4' d='M8 30V18a8 8 0 0 1 16 0v12M14 30V18a2 2 0 0 1 4 0v12'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/%BUILD%/app.css">
+<link rel="stylesheet" href="/assets/%BUILD%/customer.css">
+<link rel="modulepreload" href="/assets/%BUILD%/core.js">
+<link rel="modulepreload" href="/assets/%BUILD%/views.js">
+<link rel="modulepreload" href="/assets/%BUILD%/customer-core.js">
+<link rel="modulepreload" href="/assets/%BUILD%/customer-views.js">
+<script type="module" src="/assets/%BUILD%/customer.js"></script>
+</head>
+<body>
+<button type="button" class="skip" id="skip">Skip to content</button>
+
+<div class="cs-landing" id="landing">
+  <header class="cs-landing-top">
+    <a class="cs-brand" href="#/">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <path class="brand-dome" d="M2 18a14 14 0 0 1 28 0v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z"/>
+        <path class="brand-grooves" d="M7 30V18a9 9 0 0 1 18 0v12M12 30V18a4 4 0 0 1 8 0v12"/>
+      </svg>
+      <span class="cs-brand-text"><span class="cs-brand-name">Cranium</span></span>
+    </a>
+    <nav class="cs-landing-nav" aria-label="On this page">
+      <a href="#how">How it works</a>
+      <a href="#account">Your account</a>
+      <a href="#mixes">Your mixes</a>
+      <a href="#/help">Help</a>
+    </nav>
+    <a class="btn is-primary is-small" href="#/sign-in">Sign in</a>
+  </header>
+
+  <main class="cs-landing-main" id="landing-main" tabindex="-1">
+    <section class="cs-hero" aria-labelledby="hero-title">
+      <div class="cs-hero-copy">
+        <p class="eyebrow">In development</p>
+        <h1 class="cs-hero-title" id="hero-title">Your DJ controller, without the laptop.</h1>
+        <p class="cs-hero-text">Cranium is an attachment for beginner DJ controllers such as the Pioneer FLX4.
+          With Bluetooth audio and a Raspberry Pi, the controller is meant to run on its own, with no computer at any point.</p>
+        <p class="cs-hero-actions">
+          <a class="btn is-primary is-large" href="#/sign-in">Sign in</a>
+          <a class="btn is-large" href="#how">How it works</a>
+        </p>
+        <p class="cs-hero-note">Cranium is being built by a student team at Penn. Accounts are made by the team for the
+          people it gives a board to: there is no sign-up.</p>
+      </div>
+      <div class="cs-hero-art" aria-hidden="true">
+        <svg class="cs-record" viewBox="0 0 240 240" focusable="false">
+          <circle class="cs-record-disc" cx="120" cy="120" r="112"/>
+          <circle class="cs-record-groove" cx="120" cy="120" r="96"/>
+          <circle class="cs-record-groove" cx="120" cy="120" r="80"/>
+          <circle class="cs-record-groove" cx="120" cy="120" r="64"/>
+          <circle class="cs-record-label" cx="120" cy="120" r="40"/>
+          <path class="cs-record-dome" d="M100 128a20 20 0 0 1 40 0v12a4 4 0 0 1-4 4h-32a4 4 0 0 1-4-4z"/>
+        </svg>
+        <p class="cs-hero-sleeve">Side A · Good things on repeat</p>
+      </div>
+    </section>
+
+    <section class="cs-band" id="account" aria-labelledby="account-title">
+      <div class="cs-band-head">
+        <p class="eyebrow">Your account</p>
+        <h2 class="cs-band-title" id="account-title">Your deck, a little more connected.</h2>
+        <p class="cs-band-text">Sign in and you see every Cranium on your account, as it last reported. Each board
+          reports every 30 seconds while it is on.</p>
+      </div>
+      <ul class="cs-features">
+        <li class="cs-feature">
+          <h3 class="cs-feature-title">Whether it is online</h3>
+          <p>Online, offline, restarting or updating, and when it was last heard from.</p>
+        </li>
+        <li class="cs-feature">
+          <h3 class="cs-feature-title">Which firmware it runs</h3>
+          <p>The version on each board, and whether a new one is still on trial.</p>
+        </li>
+        <li class="cs-feature">
+          <h3 class="cs-feature-title">How its updates went</h3>
+          <p>An update as it downloads and installs, and how the last one ended.</p>
+        </li>
+        <li class="cs-feature">
+          <h3 class="cs-feature-title">What it did lately</h3>
+          <p>When it came online or went offline, restarted, or changed firmware.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="cs-band" id="how" aria-labelledby="how-title">
+      <div class="cs-band-head">
+        <p class="eyebrow">Updates</p>
+        <h2 class="cs-band-title" id="how-title">Updates that look after themselves.</h2>
+        <p class="cs-band-text">Cranium sends firmware updates over the air, and a board takes only what was signed.
+          There is nothing to do on your side.</p>
+      </div>
+      <ol class="cs-steps-band">
+        <li><strong>Signed.</strong> Every update carries a signature that only Cranium can make.</li>
+        <li><strong>Checked.</strong> The board checks it before it installs anything.</li>
+        <li><strong>On trial.</strong> A new update has 5 minutes to reach Cranium.</li>
+        <li><strong>Kept, or undone.</strong> If it cannot, the board goes back to the firmware it had, by itself.</li>
+      </ol>
+    </section>
+
+    <section class="cs-band" id="mixes" aria-labelledby="mixes-title">
+      <div class="cs-band-head">
+        <p class="eyebrow">Coming later</p>
+        <h2 class="cs-band-title" id="mixes-title">Good mixes happen. Great ones get remembered.</h2>
+        <p class="cs-band-text">A home for the tracks, the transitions and the happy accidents of every set. Your board
+          cannot send what you play yet, so none of this is built: it is what the site is for, next.</p>
+      </div>
+      <ul class="cs-features is-later">
+        <li class="cs-feature"><span class="tag is-warn">Not built yet</span>
+          <h3 class="cs-feature-title">Sessions</h3><p>Every set, with its tracks in the order you played them.</p></li>
+        <li class="cs-feature"><span class="tag is-warn">Not built yet</span>
+          <h3 class="cs-feature-title">Transitions</h3><p>Which tracks you put together, and how long they overlapped.</p></li>
+        <li class="cs-feature"><span class="tag is-warn">Not built yet</span>
+          <h3 class="cs-feature-title">Track library</h3><p>The tracks you keep coming back to.</p></li>
+        <li class="cs-feature"><span class="tag is-warn">Not built yet</span>
+          <h3 class="cs-feature-title">Saved moments</h3><p>A note on a blend worth trying again.</p></li>
+      </ul>
+    </section>
+
+    <section class="cs-band is-status" aria-labelledby="status-title">
+      <div class="cs-band-head">
+        <p class="eyebrow">Where it stands, November 2026</p>
+        <h2 class="cs-band-title" id="status-title">In development, and plain about it.</h2>
+      </div>
+      <div class="cs-status">
+        <div>
+          <h3 class="cs-feature-title">Built and tested</h3>
+          <p>Over-the-air updates for the board, through the cloud, tested on one board.</p>
+        </div>
+        <div>
+          <h3 class="cs-feature-title">Not built yet</h3>
+          <p>Audio, the enclosure and its mount, updating the Raspberry Pi, and your mixes on this site.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="cs-landing-foot">
+    <span>Cranium · a student project at Penn</span>
+    <nav class="cs-landing-foot-nav" aria-label="More">
+      <a href="#/help">Help</a>
+      <a href="#/sign-in">Sign in</a>
+      <a href="#/admin-sign-in">Admin sign-in</a>
+      <a href="https://github.com/ese5180/f26-t07-the-cranium">Source on GitHub</a>
+    </nav>
+  </footer>
+  <noscript><p class="cs-noscript">Signing in needs JavaScript. Switch it on for this site and reload the page.</p></noscript>
+</div>
+
+<div class="cs-app" id="app" hidden></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div class="sr-only" id="announcer" role="status" aria-live="polite"></div>
+</body>
+</html>
