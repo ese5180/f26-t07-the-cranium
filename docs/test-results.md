@@ -6,7 +6,7 @@ came from are in the table below.
 **Which firmware.** The golden image, the one a person can always go back to, is firmware 1.5.0. It is
 frozen: [`firmware/golden.json`](../firmware/golden.json) names it, and the bootloader holds its digest.
 The first release with [what restarts a stuck board](../firmware/README.md#when-the-board-is-stuck) is
-1.7.0. From 1.7.2 an update starts with no button. The latest is 1.7.4, on the board since 2026-11-01. Test images
+1.7.0. From 1.7.2 an update starts with no button. The latest is 1.12.0, on the board since 2026-11-04. Test images
 for the bench are numbered around them.
 
 Every run below was on one nRF7002 DK. The benches write one line per run to a local
@@ -21,11 +21,37 @@ Every run below was on one nRF7002 DK. The benches write one line per run to a l
 | [Serial console, by the web page](#the-consoles-serial-page-on-firmware-150) | 1.5.0 | The one that holds the pin | 2026-11-01 |
 | [Serial console, by the bench](#the-serial-console-on-firmware-130) | 1.3.0 | From before the golden image | 2026-10-31 |
 | [Over the air, and serial recovery](#over-the-air-on-the-older-shell-firmware) | 1.1.x and 1.2.0, with the older Zephyr shell | From before the golden image | 2026-10-31 |
-| Firmware update over Bluetooth | None: it has not been tried on the air | | |
+| [Firmware 1.12.0 over Wi-Fi, the board log, and the phone's own sign-in](#firmware-1120-over-wi-fi-the-board-log-and-the-phones-own-sign-in) | 1.11.4 to 1.12.0 | The one that holds the pin | 2026-11-04 |
+| [The first update over Bluetooth](#the-first-update-over-bluetooth-1113-to-1114) | 1.11.3 to 1.11.4 | The one that holds the pin | 2026-11-03 |
 | [The serial console, and a real hang](#the-serial-console-and-a-real-hang-on-firmware-170) | 1.7.0 | The one that holds the pin | 2026-11-01 |
 | [One update to 1.7.0](#over-the-air-on-the-final-firmware) | 1.5.0 to 1.7.0 | The one that holds the pin | 2026-11-01 |
 
 <!-- OVER-THE-AIR REGRESSION: the section under this comment is the one place that says whether the over-the-air regression on the final firmware has run. Other documents link to it. When it has run, replace its text with the date, the firmware, the bootloader, the results and what failed on the way, and add a row to the table above. -->
+
+## Firmware 1.12.0 over Wi-Fi, the board log, and the phone's own sign-in
+
+On 2026-11-04, on the console at commit 7f34f56, one board (CRVIHAAN01), from 1.11.4 to 1.12.0 over Wi-Fi, started on
+the console's Firmware page. Times from the console's event log and the board's own log:
+
+| When (UTC) | What |
+| --- | --- |
+| 17:56:42 | Deployment made |
+| 17:56:47 | Downloading 1.12.0+0 (848,995 bytes) |
+| 17:57:37 | Checking the download |
+| 17:57:38 | Restarting into 1.12.0+0 |
+| 17:59:32 | Running 1.12.0+0 on trial (the board's log line) |
+| 17:59:37 | Wi-Fi connected, signal -61 dBm |
+| 17:59:41 | Connected to AWS IoT; firmware 1.12.0+0 confirmed; update succeeded |
+| 17:59:55 | Deployment completed |
+
+3 min 13 s from the deployment to its end, about 50 s of it the download. **The board log works:** the first boot of
+1.12.0 sent its own lines to `cranium/<thing>/events`, and the Events page's Board log showed them in order, with the
+board's local address and signal as it printed them and nothing withheld. The device policy deployed before it (662e305)
+let the board publish; the topic guard had nothing to do. Not measured yet: how soon a status change reaches the console
+(the steps above were reported by 1.11.4, which waits for its heartbeat), lines held while offline, and the rate limit.
+
+The same day, the iPhone app (19226de) signed in on its own screen for the first time: e-mail, password, then the code in
+six boxes, against the live user pool after the deploy that allowed SRP for the phone client. It went straight through.
 
 ## The first update over Bluetooth, 1.11.3 to 1.11.4
 
