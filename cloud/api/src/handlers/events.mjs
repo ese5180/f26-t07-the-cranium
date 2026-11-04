@@ -11,6 +11,11 @@
  *        newest first, at most 500 a page; `to` is now and `from` a day before it unless
  *        given, at most 31 days apart; every board of the group unless `thing` names one
  *
+ *   GET /api/events/log?from=<ISO>&to=<ISO>&thing=<name>&kinds=<a,b>&tags=<A,b>&limit=<n>&cursor=<cursor>
+ *     -> { lines: [{ thing, at, id, kind, tag, level, text, boot, seq, dropped? }], cursor, from, to }
+ *        the boards' own log, line by line (lib/lines.mjs), with the same range, pages and
+ *        defaults as /api/events; `tags` keeps the lines of those sources only
+ *
  *   GET /api/devices/{thing}/samples?hours=<1-168>
  *     -> { thing, hours, from, to, samples: [{ at, rssi, uptime, heapFree, heapLeast }],
  *          bucketSeconds }
@@ -23,9 +28,14 @@ import {
   KINDS, decodeEventCursor, encodeEventCursor, eventFromItem, eventRange, orderKey, sampleFromItem, sampleRange,
   thinSamples,
 } from '../lib/events.mjs';
+import { LINE_KINDS, TAGS, decodeLineCursor, lineFromItem, lineRange } from '../lib/lines.mjs';
 import {
-  requireEventPageSize, requireEventRange, requireHours, requireKinds, requireThing, requireTime,
+  requireEventPageSize, requireEventRange, requireHours, requireKinds, requireTags, requireThing, requireTime,
 } from '../lib/validate.mjs';
+
+// What a page of events and a page of the board log each read: their part of the table and how.
+const EVENT_PAGES = Object.freeze({ kinds: KINDS, range: eventRange, decode: decodeEventCursor, read: eventFromItem });
+const LINE_PAGES = Object.freeze({ kinds: LINE_KINDS, range: lineRange, decode: decodeLineCursor, read: lineFromItem });
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -44,45 +54,55 @@ export function createEventHandlers({ aws, now }, { devices }) {
     return [thing];
   }
 
+  /** One page of events or of the board log, newest first: { items, cursor, from, to }. */
+  async function page(query, { kinds: known, range: rangeOf, decode, read }, tags = null) {
+    const toMs = requireTime(field(query, 'to'), 'to', now());
+    const fromMs = requireTime(field(query, 'from'), 'from', toMs - DAY_MS);
+    requireEventRange(fromMs, toMs);
+    const kinds = requireKinds(field(query, 'kinds'), known);
+    const limit = requireEventPageSize(field(query, 'limit'));
+    let cursor = null;
+    if (field(query, 'cursor') !== undefined) {
+      cursor = decode(field(query, 'cursor'));
+      if (cursor === null) throw badRequest('invalid_cursor', '"cursor" is not a cursor from this log.');
+    }
+    const things = await boardsOf(query);
+
+    // Each board's newest, from where the last page ended. An event of another board can
+    // have the same time; the board's name decides the order then (orderKey).
+    const range = rangeOf(fromMs, toMs);
+    const high = cursor !== null && cursor.sk < range.high ? cursor.sk : range.high;
+    const after = cursor === null ? null : orderKey({ sk: cursor.sk, pk: cursor.thing });
+    // Two more than a page: one to know that another page follows, one for the event the
+    // last page ended on, which comes back with its board's part.
+    const parts = await Promise.all(things.map((thing) =>
+      aws.queryEvents({ thing, low: range.low, high, kinds, ...(tags === null ? {} : { tags }), limit: limit + 2 })));
+    // DynamoDB deletes an expired item some time after its ttl, and returns it until then.
+    const nowSec = now() / 1000;
+    const ordered = parts.flat()
+      .filter((item) => typeof item?.sk === 'string' && typeof item?.pk === 'string')
+      .filter((item) => !(Number.isFinite(item.ttl) && item.ttl <= nowSec))
+      .filter((item) => after === null || orderKey(item) < after)
+      .sort((a, b) => (orderKey(a) < orderKey(b) ? 1 : -1));
+    const shown = ordered.slice(0, limit);
+    return {
+      items: shown.map(read).filter((item) => item !== null),
+      cursor: ordered.length > limit ? encodeEventCursor(shown[shown.length - 1]) : null,
+      from: iso(fromMs),
+      to: iso(toMs),
+    };
+  }
+
   return {
     async list({ query }) {
-      const toMs = requireTime(field(query, 'to'), 'to', now());
-      const fromMs = requireTime(field(query, 'from'), 'from', toMs - DAY_MS);
-      requireEventRange(fromMs, toMs);
-      const kinds = requireKinds(field(query, 'kinds'), KINDS);
-      const limit = requireEventPageSize(field(query, 'limit'));
-      let cursor = null;
-      if (field(query, 'cursor') !== undefined) {
-        cursor = decodeEventCursor(field(query, 'cursor'));
-        if (cursor === null) throw badRequest('invalid_cursor', '"cursor" is not a cursor from this log.');
-      }
-      const things = await boardsOf(query);
+      const { items, ...rest } = await page(query, EVENT_PAGES);
+      return { body: { events: items, ...rest } };
+    },
 
-      // Each board's newest, from where the last page ended. An event of another board can
-      // have the same time; the board's name decides the order then (orderKey).
-      const range = eventRange(fromMs, toMs);
-      const high = cursor !== null && cursor.sk < range.high ? cursor.sk : range.high;
-      const after = cursor === null ? null : orderKey({ sk: cursor.sk, pk: cursor.thing });
-      // Two more than a page: one to know that another page follows, one for the event the
-      // last page ended on, which comes back with its board's part.
-      const parts = await Promise.all(things.map((thing) =>
-        aws.queryEvents({ thing, low: range.low, high, kinds, limit: limit + 2 })));
-      // DynamoDB deletes an expired item some time after its ttl, and returns it until then.
-      const nowSec = now() / 1000;
-      const ordered = parts.flat()
-        .filter((item) => typeof item?.sk === 'string' && typeof item?.pk === 'string')
-        .filter((item) => !(Number.isFinite(item.ttl) && item.ttl <= nowSec))
-        .filter((item) => after === null || orderKey(item) < after)
-        .sort((a, b) => (orderKey(a) < orderKey(b) ? 1 : -1));
-      const page = ordered.slice(0, limit);
-      return {
-        body: {
-          events: page.map(eventFromItem).filter((event) => event !== null),
-          cursor: ordered.length > limit ? encodeEventCursor(page[page.length - 1]) : null,
-          from: iso(fromMs),
-          to: iso(toMs),
-        },
-      };
+    async log({ query }) {
+      const tags = requireTags(field(query, 'tags'), TAGS);
+      const { items, ...rest } = await page(query, LINE_PAGES, tags);
+      return { body: { lines: items, ...rest } };
     },
 
     async samples({ params, query }) {

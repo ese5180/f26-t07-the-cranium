@@ -723,8 +723,9 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
-  # What the boards did and how they were: an event for each change a board reports, and
-  # a reading of its signal and memory for each report (cloud/api/src/lib/events.mjs). Only
+  # What the boards did and how they were: an event for each change a board reports, a
+  # line for each line of its console (from firmware 1.12.0, cloud/api/src/lib/lines.mjs),
+  # and a reading of its signal and memory for each report (cloud/api/src/lib/events.mjs). Only
   # the recorder writes here, and only with PutItem (EventsRole); the API only reads
   # (ApiRole). An event is kept 90 days and a reading 7: DynamoDB deletes an item some time
   # after the epoch second in its `ttl`, usually within a few days, and the API leaves out
@@ -769,6 +770,13 @@ Resources:
   # What one board may do with its own certificate. Every resource contains the thing
   # name of the connection, so a board can only act as itself. "${!" keeps the IoT
   # policy variable out of Fn::Sub; "$aws" and "$next" are literal topic parts.
+  #
+  # cranium/<thing>/events is where firmware 1.12.0 publishes the lines of its console
+  # (BoardLogRule below). Publish only: nothing subscribes to it but the rule, and a board
+  # gets nothing back on it. A change to the document is an update in place: AWS IoT keeps
+  # the policy and its name, makes the new document its default version, and every
+  # certificate it is attached to has the new rights at once (AWS::IoT::Policy,
+  # PolicyDocument: "Update requires: No interruption"; only PolicyName replaces it).
   DevicePolicy:
     Type: AWS::IoT::Policy
     Properties:
@@ -788,6 +796,7 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/shadow/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'
           - Effect: Allow
             Action: iot:Subscribe
             Resource:
@@ -871,11 +880,12 @@ Resources:
                   - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:AWSIotLogsV2'
                   - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:AWSIotLogsV2:*'
 
-  # The two rules that feed the recorder (EventsFn). Each message is one invocation of it,
+  # The three rules that feed the recorder (EventsFn). Each message is one invocation of it,
   # made by AWS IoT without waiting for the result. The first gets a board's shadow before
   # and after each of its reports, with the thing name from the topic; the second gets AWS
-  # IoT's own messages about connections. Both only pass on what concerns a thing named
-  # like this project's boards; the recorder checks the rest. Neither message is written
+  # IoT's own messages about connections; the third, BoardLogRule, the lines a board on
+  # firmware 1.12.0 prints on its console. All only pass on what concerns a thing named
+  # like this project's boards; the recorder checks the rest. No message is written
   # anywhere else, and the recorder keeps neither the address nor the certificate that a
   # presence message names.
   ShadowEventsRule:
@@ -906,7 +916,27 @@ Resources:
           - Lambda:
               FunctionArn: !GetAtt EventsFn.Arn
 
-  # AWS IoT may invoke the recorder for these two rules of this account, and for nothing else.
+  # A board's own log: one message per line, on the topic only that board may publish on.
+  # The thing name is taken from the topic, and the time AWS IoT got the message from AWS
+  # IoT (timestamp()), never from the board: a message that carries a "thing" or "received"
+  # of its own is not passed on at all, so that it cannot name another board or date itself,
+  # whichever of the two values the SELECT would keep. WHERE reads the message as it came.
+  # At most 5 lines a second per board, by the firmware's own limit (cloud/api/src/lib/lines.mjs).
+  BoardLogRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      TopicRulePayload:
+        Description: The console lines of a Cranium board, for its event log.
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: >-
+          SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/events'
+          WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt EventsFn.Arn
+
+  # AWS IoT may invoke the recorder for these three rules of this account, and for nothing else.
   ShadowEventsPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -924,6 +954,15 @@ Resources:
       Principal: iot.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !GetAtt PresenceEventsRule.Arn
+
+  BoardLogPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EventsFn
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt BoardLogRule.Arn
 
   # Account-level setting: there is one per account and Region, and it must not be
   # enabled already when this stack is created (deploy.sh checks).
@@ -1216,7 +1255,7 @@ Resources:
                 Action: dynamodb:PutItem
                 Resource: !GetAtt EventsTable.Arn
 
-  # The recorder: turns the messages of the two rules above into events and readings. It
+  # The recorder: turns the messages of the three rules above into events and readings. It
   # is the API's code with another entry point (cloud/api/src/events.mjs), and is given
   # only the name of the events table.
   EventsFn:

@@ -5,7 +5,10 @@
  *
  * Both read what the recorder in the cloud made of the boards' reports (cloud/api/src/
  * lib/events.mjs): events, and readings of the signal and the memory. The Events page adds
- * the console's own activity log as a lane of its own.
+ * the console's own activity log as a lane of its own, and the boards' own log (cloud/api/src/
+ * lib/lines.mjs, firmware 1.12.0 and later): every line a board prints on its serial console, in a
+ * list of its own, with a tick for each at the foot of its board's lane, so that the markers of the
+ * events stay as few as they were.
  *
  * The charts are drawn here, as SVG with the console's own renderer: no library, no canvas,
  * and no inline style, only custom properties and attributes. How they look follows one
@@ -25,8 +28,9 @@
  */
 
 import {
-  EVENT_KINDS, boardName, boardOf, clockTime, dateAndTime, dayLabel, describeAudit, describeUpdate, deploymentHref,
-  duration, exactTime, fileSize, isThing, nameOf, plural, routeHash, signalQuality, timeAgo, timeOfDay,
+  EVENT_KINDS, LINE_KINDS, LINE_TAGS, auditSentence, boardName, boardOf, clockTime, dateAndTime, dayLabel, describeAudit,
+  describeUpdate, deploymentHref, duration, exactTime, fileSize, isThing, plural, routeHash, signalQuality, timeAgo,
+  timeOfDay,
 } from './core.js';
 import {
   NO_BOARDS, badge, boardLabel, boardThing, button, card, empty, factNote, facts, failure, freshness, h, icon, linkTo,
@@ -80,6 +84,9 @@ export const KINDS = Object.freeze([
   { id: 'health', label: 'Wi-Fi and memory', shape: 'down', tone: 'c' },
   { id: 'bluetooth', label: 'Bluetooth', shape: 'up', tone: 'b' },
   { id: 'console', label: 'Console', shape: 'ring', tone: 'b' },
+  // Lines of the board log only: a setting changed at a board's serial console, and the rest.
+  { id: 'setting', label: 'Settings', shape: 'plus', tone: 'b' },
+  { id: 'log', label: 'Other lines', shape: 'dot', tone: 'quiet' },
   { id: 'connection', label: 'Connection', shape: 'bar', tone: 'quiet' },
 ]);
 
@@ -96,6 +103,8 @@ function glyph(shape) {
     case 'down': return h('path', { class: 'glyph', d: 'M0 6L5.8 -4.6H-5.8Z' });
     case 'ring': return h('circle', { class: 'glyph is-ring', r: '4.4' });
     case 'bar': return h('rect', { class: 'glyph', x: '-1.6', y: '-7', width: '3.2', height: '14', rx: '1.6' });
+    case 'plus': return h('path', { class: 'glyph', d: 'M-1.8 -6H1.8V-1.8H6V1.8H1.8V6H-1.8V1.8H-6V-1.8H-1.8Z' });
+    case 'dot': return h('circle', { class: 'glyph', r: '3.2' });
     default: return h('circle', { class: 'glyph', r: '5' });
   }
 }
@@ -190,10 +199,10 @@ export function eventKey(event) {
   return `${owner}-${Date.parse(event.at)}-${String(event.id).replace(/[^A-Za-z0-9]/g, '_')}`;
 }
 
-/** An entry of the activity log as an event of the Console lane. */
-export function consoleEvent(entry) {
+/** An entry of the activity log as an event of the Console lane. Boards are called what `devices` calls them. */
+export function consoleEvent(entry, devices = []) {
   const description = describeAudit(entry);
-  const what = [nameOf(entry.actor), description.verb, description.label].filter(Boolean).join(' ');
+  const what = auditSentence(entry, devices);
   return {
     thing: null,
     at: entry.at,
@@ -487,8 +496,12 @@ function eventsPage(state) {
     zooms: [],
     thing: '',
     hidden: new Set(),
+    // The board log: shown or not, and the one source it is narrowed to ('' for all of them).
+    log: true,
+    tag: '',
     data: resource(),
     more: { loading: false, error: null },
+    linesMore: { loading: false, error: null },
     selected: null,
     focused: null,
     hovered: null,
@@ -520,7 +533,26 @@ async function consoleEntries(api, fromMs, toMs) {
   return { entries, cut: true };
 }
 
-/** What the Events page reads: the boards' events of the range, and the Console lane. */
+/**
+ * The board log of the range, as the page shows it: { lines, cursor, query, pages }, { error }
+ * when it could not be read, which leaves the events as they are, or null while it is hidden.
+ */
+async function boardLogOf(api, page, span) {
+  if (!page.log) return null;
+  const kinds = LINE_KINDS.filter((kind) => !page.hidden.has(kind));
+  const query = { from: iso(span.fromMs), to: iso(span.toMs), thing: page.thing || null };
+  if (kinds.length < LINE_KINDS.length) query.kinds = kinds;
+  if (page.tag) query.tags = [page.tag];
+  if (kinds.length === 0) return { lines: [], cursor: null, query, pages: 1 };
+  try {
+    const read = await api.boardLog(query);
+    return { lines: read.lines, cursor: read.cursor, query, pages: 1 };
+  } catch (error) {
+    return { error };
+  }
+}
+
+/** What the Events page reads: the boards' events of the range, the Console lane, and the board log. */
 export async function refreshEvents(full) {
   const { state, api, load, clock } = tools;
   const page = eventsPage(state);
@@ -532,12 +564,14 @@ export async function refreshEvents(full) {
   const devicesDue = full || state.devices.loadedAt === 0 || clock.now() - state.devices.loadedAt > 25_000;
   await Promise.all([
     load(page.data, async () => {
-      const [read, audit] = await Promise.all([
+      const [read, audit, log] = await Promise.all([
         kinds.length === 0 ? { events: [], cursor: null } : api.events(query),
         page.hidden.has('console') ? null : consoleEntries(api, span.fromMs, span.toMs),
+        boardLogOf(api, page, span),
       ]);
       page.more = { loading: false, error: null };
-      return { events: read.events, cursor: read.cursor, query, span, audit, pages: 1 };
+      page.linesMore = { loading: false, error: null };
+      return { events: read.events, cursor: read.cursor, query, span, audit, log, pages: 1 };
     }),
     devicesDue ? load(state.devices, api.devices) : null,
   ]);
@@ -560,6 +594,26 @@ async function loadMoreEvents() {
   draw();
 }
 
+async function loadMoreLines() {
+  const { state, api, draw } = tools;
+  const page = eventsPage(state);
+  const value = page.data.value;
+  const log = value?.log;
+  if (!log?.cursor || page.linesMore.loading) return;
+  page.linesMore = { loading: true, error: null };
+  draw();
+  try {
+    const next = await api.boardLog({ ...log.query, cursor: log.cursor });
+    page.data.value = {
+      ...value, log: { ...log, lines: log.lines.concat(next.lines), cursor: next.cursor, pages: log.pages + 1 },
+    };
+    page.linesMore = { loading: false, error: null };
+  } catch (error) {
+    page.linesMore = { loading: false, error };
+  }
+  draw();
+}
+
 export function eventsInterval(state) {
   const page = eventsPage(state);
   return rangeOf(page.range, 0).live ? EVENTS_REFRESH_MS : 0;
@@ -568,7 +622,8 @@ export function eventsInterval(state) {
 /** A refresh would take away pages loaded by hand, or a drag under way. */
 export function eventsHoldStill(state) {
   const page = eventsPage(state);
-  return page.more.loading || (page.data.value?.pages ?? 1) > 1 || page.drag !== null;
+  return page.more.loading || page.linesMore.loading || (page.data.value?.pages ?? 1) > 1 ||
+    (page.data.value?.log?.pages ?? 1) > 1 || page.drag !== null;
 }
 
 export function eventsResources(state) {
@@ -658,6 +713,18 @@ function chooseThing(thing) {
   const page = eventsPage(tools.state);
   page.thing = isThing(thing) ? thing : '';
   page.selected = null;
+  tools.refresh();
+}
+
+function toggleLog() {
+  const page = eventsPage(tools.state);
+  page.log = !page.log;
+  tools.refresh();
+}
+
+function chooseTag(tag) {
+  const page = eventsPage(tools.state);
+  page.tag = LINE_TAGS.includes(tag) ? tag : '';
   tools.refresh();
 }
 
@@ -883,6 +950,7 @@ function timeline(lanes, span, page, data) {
         width: percent(place(band.toMs, span.fromMs, span.toMs) - place(band.fromMs, span.fromMs, span.toMs)),
         height: String(TRACK),
       })),
+      logTicks(lane, span, top + LANE_HEAD + TRACK),
       markers);
   });
 
@@ -911,7 +979,8 @@ function timeline(lanes, span, page, data) {
       height: String(height),
       role: 'group',
       'aria-label': `Timeline of events, ${rangeWords(span)}. One lane per board${lanes.some((lane) => lane.id === 'console') ? ' and one for the console' : ''}. ` +
-        'Use the arrow keys to move between events and Enter to pick one; the table below lists them all.',
+        'Use the arrow keys to move between events and Enter to pick one; the table below lists them all' +
+        `${lanes.some((lane) => lane.lines?.length > 0) ? ', and the board log under it every line of the boards’ own logs' : ''}.`,
     },
     ticks.map((tick) => {
       const x = place(tick.ms, span.fromMs, span.toMs);
@@ -926,6 +995,23 @@ function timeline(lanes, span, page, data) {
     laneNodes,
     drag),
     tip);
+}
+
+/**
+ * The lines of a board's own log, as ticks at the foot of its lane: where it was talking, and
+ * in which family's hue, without a marker for each. They are not reached with the keyboard and
+ * not read out; the Board log under the timeline lists every one.
+ */
+function logTicks(lane, span, bottom) {
+  if (!lane.lines || lane.lines.length === 0) return null;
+  return h('g', { key: 'log', class: 'tl-log', 'aria-hidden': 'true' }, lane.lines.map((line) => {
+    const x = percent(place(Date.parse(line.at), span.fromMs, span.toMs));
+    return h('line', {
+      key: `${line.thing}-${line.id}`,
+      class: `tl-log-tick is-${kindOf(line.kind).tone}${line.level === 'warn' ? ' is-warn' : ''}`,
+      x1: x, x2: x, y1: String(bottom - 7), y2: String(bottom - 1),
+    });
+  }));
 }
 
 /**
@@ -1089,6 +1175,117 @@ function eventTable(events, page, now, devices) {
       h('tbody', null, rows)));
 }
 
+// The board log.
+
+/** The time of day to the second: lines of a log come many to a minute. */
+function secondOfDay(iso) {
+  const then = new Date(Date.parse(iso));
+  if (Number.isNaN(then.getTime())) return '';
+  return then.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** The lines of the log that the page shows: those of the kinds that are switched on, newest first. */
+export function shownLines(log, hidden) {
+  if (!log || log.error) return [];
+  return log.lines.filter((line) => !hidden.has(line.kind));
+}
+
+function tagFilter(page) {
+  return h('label', { class: 'inline-field', key: 'tag' },
+    h('span', { class: 'inline-field-label' }, 'Source'),
+    h('select', {
+      class: 'input is-select',
+      value: page.tag,
+      onChange: (event) => chooseTag(event.currentTarget.value),
+    },
+    h('option', { value: '', key: 'all', selected: page.tag === '' }, 'All sources'),
+    LINE_TAGS.map((tag) => h('option', { value: tag, key: tag, selected: page.tag === tag }, tag))));
+}
+
+function lineRow(line, board) {
+  const kind = kindOf(line.kind);
+  return h('tr', {
+    key: `${line.thing}-${line.id}`,
+    class: `event-row log-row ${line.level === 'warn' ? 'is-warn' : ''}`.trim(),
+    title: line.boot !== null && line.seq !== null ? `Boot ${line.boot}, line ${line.seq} of that boot` : null,
+  },
+  h('td', { class: 'event-time' }, h('time', { datetime: line.at, title: exactTime(line.at) }, secondOfDay(line.at))),
+  h('td', { class: 'event-board' }, boardLabel(board)),
+  h('td', { class: 'event-kind', title: kind.label }, swatch(line.kind), h('span', { class: 'mono log-tag' }, line.tag)),
+  h('td', { class: 'event-text' },
+    h('span', { class: 'mono log-text' }, line.text),
+    line.level === 'warn' ? [' ', badge('warn', 'alert', 'Warning')] : null,
+    line.dropped ? h('span', { class: 'log-dropped' }, `${plural(line.dropped, 'line')} lost before this one`) : null));
+}
+
+function lineTable(lines, now, devices) {
+  const rows = [];
+  let day = null;
+  for (const line of lines) {
+    const label = dayLabel(line.at, now);
+    if (label !== day) {
+      day = label;
+      rows.push(h('tr', { key: `day-${label}`, class: 'event-day' }, h('th', { colspan: '4', scope: 'colgroup' }, label)));
+    }
+    rows.push(lineRow(line, boardOf(line.thing, devices)));
+  }
+  return h('div', { class: 'event-table-wrap' },
+    h('table', { class: 'event-table log-table' },
+      h('caption', { class: 'sr-only' }, 'Every line of the boards’ own logs in this range, newest first'),
+      h('thead', null, h('tr', null,
+        h('th', { scope: 'col' }, 'Time'), h('th', { scope: 'col' }, 'Board'), h('th', { scope: 'col' }, 'Source'),
+        h('th', { scope: 'col' }, 'Line'))),
+      h('tbody', null, rows)));
+}
+
+/** What every board printed on its serial console, as far as it sends it (firmware 1.12.0 and later). */
+function boardLogCard(page, data, devices, now) {
+  const { log } = data;
+  const lines = shownLines(log, page.hidden);
+  const warnings = lines.filter((line) => line.level === 'warn').length;
+  let body;
+  if (!page.log) {
+    body = h('p', { class: 'card-note', key: 'off' }, 'Hidden. The board log is every line a board on firmware 1.12.0 or ' +
+      'later prints on its serial console, a passkey or anything like a password never among them.');
+  } else if (log?.error) {
+    body = failure('Could not load the board log.', log.error);
+  } else if (lines.length === 0) {
+    body = empty({
+      iconName: 'list',
+      title: 'No lines in this range.',
+      text: page.tag || page.thing || LINE_KINDS.some((kind) => page.hidden.has(kind))
+        ? 'Some sources, kinds or boards are left out: show them all, or choose a longer range.'
+        : 'A board on firmware 1.12.0 or later sends what it prints on its serial console. Older firmware sends nothing here.',
+    });
+  } else {
+    body = lineTable(lines, now, devices);
+  }
+  return h('section', { key: 'log', class: 'card log-card', 'aria-label': 'Board log' },
+    h('header', { class: 'card-head log-head' },
+      h('h2', { class: 'eyebrow' }, 'Board log'),
+      page.log && log && !log.error
+        ? h('p', { class: 'event-count dotted' },
+          h('span', null, plural(lines.length, 'line')),
+          warnings > 0 ? h('span', { class: 'status is-warn' }, icon('alert', 'is-small'), plural(warnings, 'warning')) : null,
+          log.cursor ? h('span', null, 'more in this range') : null)
+        : null,
+      h('div', { class: 'log-tools' },
+        page.log ? tagFilter(page) : null,
+        h('button', {
+          type: 'button',
+          class: 'btn is-small',
+          'aria-pressed': page.log ? 'true' : 'false',
+          onClick: toggleLog,
+        }, page.log ? 'Hide the board log' : 'Show the board log'))),
+    body,
+    page.log && log?.cursor
+      ? h('div', { class: 'log-more', key: 'more' },
+        h('button', { type: 'button', class: 'btn', disabled: page.linesMore.loading, onClick: loadMoreLines },
+          page.linesMore.loading ? 'Loading…' : 'Load 500 more lines'),
+        page.linesMore.error ? failure('Could not load more.', page.linesMore.error) : null)
+      : null);
+}
+
 export function eventsView(ctx) {
   const { state } = ctx;
   const page = eventsPage(state);
@@ -1099,7 +1296,8 @@ export function eventsView(ctx) {
   const head = pageHead({
     title: 'Events',
     lede: 'What every board did, as it reported it: connections, updates, restarts, Bluetooth and its health, with what ' +
-      'people did in this console alongside. Events are kept for 90 days.',
+      'people did in this console alongside, and every line a board prints on its serial console. Events and lines are ' +
+      'kept for 90 days.',
     tools: freshness(page.data, ctx),
   });
 
@@ -1107,12 +1305,15 @@ export function eventsView(ctx) {
   if (!data) {
     body = pending(page.data, 'events');
   } else {
-    const consoleEvents = data.audit ? data.audit.entries.map(consoleEvent) : null;
+    const consoleEvents = data.audit ? data.audit.entries.map((entry) => consoleEvent(entry, devices)) : null;
+    const lines = shownLines(page.log ? data.log : null, page.hidden);
     const lanes = lanesOf({ events: data.events, devices, thing: page.thing, consoleEvents })
-      .map((lane) => ({ ...lane, shown: shownEvents([lane], page.hidden) }));
+      .map((lane) => ({
+        ...lane, shown: shownEvents([lane], page.hidden), lines: lane.thing ? lines.filter((line) => line.thing === lane.thing) : [],
+      }));
     const shown = shownEvents(lanes, page.hidden);
     const counts = new Map();
-    for (const event of shown) counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+    for (const item of [...shown, ...lines]) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
     const warnings = shown.filter((event) => event.level === 'warn').length;
     // No board at all, and none that was ever heard of in this range: the way to get one first.
     if (lanes.length === 0 || (state.devices.value && devices.length === 0 && data.events.length === 0)) {
@@ -1131,6 +1332,7 @@ export function eventsView(ctx) {
         timeline(lanes, span, page, data),
         h('p', { class: 'card-note timeline-note' },
           'A band is a board online. Hover or tab to an event for what happened; drag across the timeline to zoom in.',
+          lines.length > 0 ? ' A tick at the foot of a lane is a line of that board’s own log, listed under Board log.' : '',
           data.audit?.cut ? ' The Console lane shows the newest 500 entries of the activity log in this range.' : '')),
         h('section', { key: 'list', class: 'card event-card' },
           h('header', { class: 'card-head' },
@@ -1154,6 +1356,7 @@ export function eventsView(ctx) {
                 page.more.loading ? 'Loading…' : 'Load 500 more')
               : null,
             page.more.error ? failure('Could not load more.', page.more.error) : null)),
+        boardLogCard(page, data, devices, now),
       ];
     }
   }

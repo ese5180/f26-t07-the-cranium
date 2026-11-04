@@ -33,6 +33,8 @@ const CACHE_MS = 2000;
 const LIST_LIMIT = 25;
 const MAX_CACHED = 1000;
 const ANY_JOB_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// The longest value of an audit detail (lib/audit.mjs): eight thing names and the blanks between them.
+const MAX_BOARDS_NAMED = 200;
 // The states of a job in which AWS rolls out nothing more.
 const OVER = Object.freeze(['COMPLETED', 'CANCELED', 'DELETION_IN_PROGRESS']);
 // AWS stops the boards of a job a few seconds after it accepted a forced cancellation
@@ -454,6 +456,9 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       entry.detail.version = version.text;
       const things = requireThings(field(body, 'things'));
       entry.detail.things = String(things.length);
+      // Which boards, by thing name, as far as a detail holds them: eight, of the 25 a deployment may have.
+      const named = things.join(' ');
+      if (named.length <= MAX_BOARDS_NAMED) entry.detail.boards = named;
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
       // From the phone app: on record as such. Its recent sign-in is checked by the router.
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';

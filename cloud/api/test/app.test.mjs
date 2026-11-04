@@ -239,7 +239,7 @@ test('a write that runs out of time is answered and recorded, and goes no furthe
   const entry = entries.at(-1);
   assert.deepEqual([entry.action, entry.outcome, entry.target, entry.requestId],
     ['deployment.create', 'error', '1.2.3+4', 'req-slow']);
-  assert.deepEqual(entry.detail, { version: '1.2.3+4', things: '1', code: 'timeout' });
+  assert.deepEqual(entry.detail, { version: '1.2.3+4', things: '1', boards: 'cranium-00000000000000aa', code: 'timeout' });
   assert.deepEqual(entry.actor, { sub: manager.sub, email: manager.email });
   // And the three log lines: what happened, the digest of the entry, and the line every
   // request gets.

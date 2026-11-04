@@ -6607,6 +6607,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .serial-row.is-plain .serial-result,
+.serial-row.is-plain .serial-record,
 .serial-row.is-plain .serial-error {
   grid-column: 1 / -1;
 }
@@ -6659,6 +6660,26 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .serial-result.is-none {
+  color: var(--warn);
+}
+
+/* Whether the command is in the activity log: under the board's own answer, quieter. */
+.serial-record {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: -4px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.serial-record .icon {
+  flex: none;
+  align-self: center;
+}
+
+.serial-record.is-failed {
   color: var(--warn);
 }
 
@@ -7161,6 +7182,32 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   stroke-width: 2.5;
 }
 
+/* A line of a board's own log: a short tick at the foot of its lane, in its family's hue. */
+.tl-log-tick {
+  stroke: var(--kind-quiet);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.tl-log-tick.is-a {
+  stroke: var(--kind-a);
+}
+
+.tl-log-tick.is-b {
+  stroke: var(--kind-b);
+}
+
+.tl-log-tick.is-c {
+  stroke: var(--kind-c);
+}
+
+.tl-log-tick.is-warn {
+  stroke: var(--warn);
+  stroke-width: 2;
+  opacity: 1;
+}
+
 .tl-unloaded rect {
   fill: var(--paper);
   opacity: 0.75;
@@ -7267,7 +7314,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: 0.8125rem;
 }
 
-.event-card {
+.event-card,
+.log-card {
   margin-top: clamp(28px, 3vw, 44px);
 }
 
@@ -7372,6 +7420,36 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .event-text {
   overflow-wrap: anywhere;
+}
+
+.log-head {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.log-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: auto;
+}
+
+.log-tag {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.log-text {
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.log-dropped {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
 }
 
 .event-link {
@@ -7821,6 +7899,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   .glyph {
     fill: CanvasText;
     stroke: Canvas;
+  }
+
+  .tl-log-tick {
+    stroke: CanvasText;
   }
 
   .tl-band,

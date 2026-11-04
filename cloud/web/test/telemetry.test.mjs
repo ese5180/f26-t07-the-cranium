@@ -43,7 +43,10 @@ function event(thing, msAgo, kind, what, text, extra = {}) {
 const loaded = (value) => ({ value, error: null, loadedAt: NOW, loading: false });
 
 /** The page's tools as app.js hands them over, with an API that answers from the test. */
-function setup({ devices = [board(A), board(B)], events = [], cursor = null, audit = [], route = { view: 'events' }, samples = [] } = {}) {
+function setup({
+  devices = [board(A), board(B)], events = [], cursor = null, audit = [], route = { view: 'events' }, samples = [], lines = null,
+  linesCursor = null,
+} = {}) {
   const state = { now: NOW, route, interval: 0, me: { canWrite: false }, devices: loaded({ devices }) };
   const asked = [];
   const api = {
@@ -54,6 +57,14 @@ function setup({ devices = [board(A), board(B)], events = [], cursor = null, aud
     async audit(query) {
       asked.push(['audit', query]);
       return { entries: audit, next: null };
+    },
+    // An API from before the board log has no such route: the page goes on without it.
+    async boardLog(query) {
+      asked.push(['boardLog', query]);
+      if (lines === null) throw Object.assign(new Error('There is nothing at this address.'), { status: 404, code: 'not_found' });
+      return query.cursor
+        ? { lines: [logLine(A, 9 * HOUR, 'app', 'Network is up', { id: '1.1' })], cursor: null }
+        : { lines, cursor: linesCursor };
     },
     async devices() {
       asked.push(['devices']);
@@ -287,6 +298,15 @@ test('a gap in the readings breaks the line, and the table has every hour', () =
 
 // The Events page.
 
+/** A line of a board's log, as the API's client reads it. */
+function logLine(thing, msAgo, tag, text, extra = {}) {
+  const kinds = { WIFI: 'health', net: 'health', BT: 'bluetooth', CONSOLE: 'setting', app: 'log', ota: 'update', STUCK: 'restart' };
+  return {
+    thing, at: at(msAgo), id: `42.${Math.round(msAgo / 1000)}`, kind: kinds[tag], tag, level: 'info', text, boot: 42,
+    seq: Math.round(msAgo / 1000), dropped: null, ...extra,
+  };
+}
+
 function eventsWorld() {
   return {
     devices: [board(A), board(B, { online: false, lastSeen: at(2 * HOUR) })],
@@ -334,7 +354,8 @@ test('the timeline has a lane per board and the console, a marker per event and 
   // The legend is the filter: one chip per kind, all on, with the counts of what is shown.
   const chips = all(page, 'button.chip');
   assert.deepEqual(chips.map((chip) => chip.children.slice(1).map((part) => part.textContent)),
-    [['Update', '2'], ['Firmware'], ['Restart', '1'], ['Wi-Fi and memory'], ['Bluetooth'], ['Console', '1'], ['Connection', '2']]);
+    [['Update', '2'], ['Firmware'], ['Restart', '1'], ['Wi-Fi and memory'], ['Bluetooth'], ['Console', '1'], ['Settings'],
+      ['Other lines'], ['Connection', '2']]);
   assert.ok(chips.every((chip) => chip.getAttribute('aria-pressed') === 'true'));
   // The table lists the same events, newest first, under their day.
   const rows = all(page, 'tr.event-row');
@@ -399,7 +420,7 @@ test('presets, the board, the kinds and a drag across the timeline each ask agai
   page = drawn(telemetry.eventsView(world.ctx));
   assert.equal(one(page, 'button.segmented-option', '7 d').getAttribute('aria-pressed'), 'true');
 
-  const select = one(page, 'select');
+  const select = one(page, 'select', 'All boards');
   select.value = B;
   select.dispatchEvent({ type: 'change' });
   await settle();
@@ -620,7 +641,7 @@ test('the Events page calls a board by its name in its lane, its tooltip, its ro
   assert.equal(textOf(one(one(page, 'tr.event-row', 'connection was lost'), 'td.event-board')), B);
 
   // The list to choose a board from: the name, for the thing name it stands for.
-  const options = all(one(page, 'select'), 'option');
+  const options = all(one(page, 'select', 'All boards'), 'option');
   assert.deepEqual(options.map((option) => [option.value, textOf(option)]),
     [['', 'All boards (2)'], [A, 'CRVIHAAN01'], [B, B]]);
   assert.equal(options[1].getAttribute('title'), A);
@@ -629,6 +650,106 @@ test('the Events page calls a board by its name in its lane, its tooltip, its ro
   mark.dispatchEvent({ type: 'click' });
   page = drawn(telemetry.eventsView(world.ctx));
   assert.equal(textOf(one(page, 'p.tip-head')), `CRVIHAAN01 ${A}`);
+});
+
+test('the board log lists every line with its board, source and kind, ticks the lanes, and keeps the events as they were', async () => {
+  const lines = [
+    logLine(A, 2 * MINUTE, 'WIFI', 'connected ip=10.0.0.7 rssi=-51'),
+    logLine(B, 3 * MINUTE, 'CONSOLE', 'WIFI done on the serial console: save a WPA2 network and join it'),
+    logLine(A, 4 * MINUTE, 'ota', 'WRN: Download stalled at 40%', { level: 'warn', dropped: 3 }),
+  ];
+  const world = setup({ ...eventsWorld(), devices: [board(A, { name: 'CRVIHAAN01' }), board(B)], lines });
+  await telemetry.refreshEvents(true);
+  const [, query] = world.asked.find(([name]) => name === 'boardLog');
+  assert.deepEqual(query, { from: at(DAY), to: at(0), thing: null });
+  const page = drawn(telemetry.eventsView(world.ctx));
+  const card = one(page, 'section.log-card');
+  const rows = all(card, 'tr.log-row');
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((row) => textOf(one(row, 'td.event-kind'))), ['WIFI', 'CONSOLE', 'ota']);
+  assert.equal(textOf(one(one(rows[0], 'td.event-board'), 'a')), 'CRVIHAAN01');
+  assert.match(textOf(rows[2]), /WRN: Download stalled at 40% Warning 3 lines lost before this one/);
+  assert.equal(rows[2].getAttribute('title'), 'Boot 42, line 240 of that boot');
+  assert.match(textOf(one(card, 'p.event-count')), /3 lines.*1 warning/);
+  // Ticks at the foot of each board's lane, out of the way of the keyboard and the screen reader.
+  assert.equal(all(page, 'line.tl-log-tick').length, 3);
+  assert.equal(all(page, 'line.tl-log-tick.is-warn').length, 1);
+  assert.deepEqual(all(page, 'g.tl-log').map((group) => group.getAttribute('aria-hidden')), ['true', 'true']);
+  // The markers and the table of events are what they were; the chips count lines with events.
+  assert.equal(all(page, 'svg.tl-mark').length, 6);
+  assert.equal(all(one(page, 'section.event-card'), 'tr.event-row').length, 6);
+  const chip = (label) => one(page, 'button.chip', label).children.slice(1).map((part) => part.textContent);
+  assert.deepEqual([chip('Settings'), chip('Update'), chip('Other lines')], [['Settings', '1'], ['Update', '3'], ['Other lines']]);
+  assert.match(textOf(one(page, 'p.timeline-note')), /tick at the foot of a lane/);
+});
+
+test('the board log is narrowed by source, kind and board, can be hidden, and loads more by hand', async () => {
+  const lines = [logLine(A, 2 * MINUTE, 'WIFI', 'connected ip=10.0.0.7 rssi=-51')];
+  const world = setup({ ...eventsWorld(), lines, linesCursor: 'more-lines' });
+  await telemetry.refreshEvents(true);
+  const lastQuery = () => world.asked.filter(([name]) => name === 'boardLog').at(-1)[1];
+  let page = drawn(telemetry.eventsView(world.ctx));
+  const select = one(page, 'select', 'All sources');
+  assert.deepEqual(all(select, 'option').map((option) => option.value), ['', ...core.LINE_TAGS]);
+  select.value = 'net';
+  select.dispatchEvent({ type: 'change' });
+  await settle();
+  assert.deepEqual(lastQuery().tags, ['net']);
+
+  page = drawn(telemetry.eventsView(world.ctx));
+  one(page, 'button.chip', 'Settings').dispatchEvent({ type: 'click' });
+  await settle();
+  assert.deepEqual(lastQuery().kinds, ['bluetooth', 'update', 'restart', 'health', 'log']);
+  // The kinds of the board log are not asked of the events.
+  assert.equal(world.asked.filter(([name]) => name === 'events').at(-1)[1].kinds, undefined);
+
+  page = drawn(telemetry.eventsView(world.ctx));
+  one(page, 'select', 'All boards').value = A;
+  one(page, 'select', 'All boards').dispatchEvent({ type: 'change' });
+  await settle();
+  assert.equal(lastQuery().thing, A);
+
+  page = drawn(telemetry.eventsView(world.ctx));
+  assert.match(textOf(one(page, 'section.log-card')), /more in this range/);
+  one(page, 'button', 'Load 500 more lines').dispatchEvent({ type: 'click' });
+  await settle();
+  page = drawn(telemetry.eventsView(world.ctx));
+  assert.equal(all(page, 'tr.log-row').length, 2);
+  assert.equal(world.asked.filter(([name]) => name === 'boardLog').at(-1)[1].cursor, 'more-lines');
+  assert.equal(telemetry.eventsHoldStill(world.state), true, 'a page loaded by hand is not taken away');
+
+  // Hidden: not asked for, no ticks, and a button to show it again.
+  const asked = world.asked.filter(([name]) => name === 'boardLog').length;
+  one(page, 'button', 'Hide the board log').dispatchEvent({ type: 'click' });
+  await settle();
+  page = drawn(telemetry.eventsView(world.ctx));
+  assert.equal(world.asked.filter(([name]) => name === 'boardLog').length, asked);
+  assert.equal(all(page, 'line.tl-log-tick').length, 0);
+  assert.equal(all(page, 'tr.log-row').length, 0);
+  assert.equal(one(page, 'button', 'Show the board log').getAttribute('aria-pressed'), 'false');
+});
+
+test('without the board log the Events page shows the events all the same, and says that the log could not be read', async () => {
+  const world = setup(eventsWorld());
+  await telemetry.refreshEvents(true);
+  const page = drawn(telemetry.eventsView(world.ctx));
+  assert.equal(all(page, 'svg.tl-mark').length, 6);
+  assert.match(textOf(one(page, 'section.log-card')), /Could not load the board log/);
+  // With no line in the range: why that may be.
+  const quiet = setup({ ...eventsWorld(), lines: [] });
+  await telemetry.refreshEvents(true);
+  assert.match(textOf(one(drawn(telemetry.eventsView(quiet.ctx)), 'section.log-card')), /firmware 1\.12\.0 or later/);
+});
+
+test('the Console lane says who did what in the words of the activity log, boards by their names', () => {
+  const entry = {
+    at: at(MINUTE), actor: { sub: 's', email: 'manager@example.invalid' }, action: 'deployment.create', target: DEPLOYMENT,
+    outcome: 'ok', detail: [['version', '1.2.3+5'], ['things', '1'], ['boards', A]], requestId: 'req-9',
+  };
+  assert.equal(telemetry.consoleEvent(entry, [board(A, { name: 'CRVIHAAN01' })]).text,
+    'manager@example.invalid deployed 1.2.3+5 to CRVIHAAN01');
+  const signIn = { ...entry, action: 'account.sign_in', target: '', detail: [['client', 'web']] };
+  assert.equal(telemetry.consoleEvent(signIn).text, 'manager@example.invalid signed in on the website');
 });
 
 test('the Diagnostics page calls a board by its name, with its thing name under it and in the list to pick from', async () => {

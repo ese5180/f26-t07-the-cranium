@@ -28,7 +28,7 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | S3 bucket | Firmware images, stored once under their SHA-256. Private, versioned, write-once. The bench also stores test images here, including damaged and wrongly signed ones. Boards refuse those. |
 | IAM role for signing links | Lets AWS IoT Jobs (and nothing else) create a download link for an image. |
 | DynamoDB tables | The list of releases, the audit log, and the boards' event log. The API's role may put and query audit entries, and nothing else; it may only query the event log. What that does and does not guarantee is under [Security decisions](#security-decisions). |
-| IoT rules and the recorder | Two AWS IoT rules hand each shadow report and each connection to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
+| IoT rules and the recorder | Three AWS IoT rules hand each shadow report, each connection and each line a board prints on its console to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
 | Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. A small Lambda function, the sign-in trigger, gives the console's own sign-in page its scope: [Sign-in](#sign-in). |
 | HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
@@ -75,11 +75,23 @@ its own thing and its own topics. `T` stands for that thing name.
 | Action | Resource |
 | --- | --- |
 | Connect | client ID `T`, and only while the certificate is attached to thing `T` |
-| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update` |
+| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update`, `cranium/T/events` |
 | Subscribe, receive | `$aws/things/T/jobs/notify-next`, `$aws/things/T/jobs/$next/get/*`, `$aws/things/T/jobs/<job>/update/*` |
 
 A board cannot read or write another board's shadow or jobs, cannot publish to any other
-topic, and has no last-will message.
+topic, and has no last-will message. `cranium/T/events` is where firmware 1.12.0 and later publish the lines of
+the board's console ([The board log](#the-board-log)): publish only, nobody subscribes to it but a rule, and the board
+gets nothing back on it.
+
+The policy has a fixed name, `cranium-device`, because provisioning attaches it by name. Changing its document is an
+update in place: CloudFormation's `AWS::IoT::Policy` says "Update requires: No interruption" for `PolicyDocument` and
+"Replacement" only for `PolicyName`. AWS IoT keeps the policy, adds the new document as a version and makes it the
+default, so every certificate it is attached to has the new topic at once, and no board has to be provisioned again.
+AWS IoT keeps at most five versions of a policy; whether CloudFormation deletes the oldest by itself once there are five
+is not stated on that page. This policy had never changed since it was created on 2026-10-10 (git history of
+`cloud/infra/template.yaml`), so the `events` topic is its first change: if a deployment fails on the version limit,
+`aws iot list-policy-versions --policy-name cranium-device` shows them and `aws iot delete-policy-version` removes one
+that is not the default.
 
 ## Shadow: what the console shows about a board
 
@@ -116,7 +128,7 @@ While a phone is pairing, the shadow also holds the pairing passkey (`btpair`); 
 ### The heartbeat
 
 This report is the heartbeat. There is no second message, and no last will: the device policy allows a board to
-publish to its own shadow and jobs topics only, and a connection that announces any other topic is refused. AWS IoT
+publish to its own shadow, jobs and board-log topics only, and a connection that announces any other topic is refused. AWS IoT
 stamps the time at which it received `uptime`, and a board is online when that is less than 90 seconds ago
 (`ONLINE_WINDOW_MS` in `cloud/api/src/lib/shadow.mjs`). A board that dies counts as offline in the API after 90
 seconds. A page that is open can take about 125 seconds to show it: the API keeps a shadow for 5 seconds, and a page
@@ -307,7 +319,74 @@ function. `cloud/logs.sh signin` shows its invocations.
   made by `scripts/ota.sh` with AWS credentials, or by the test bench, name the release manager they
   act for, not a signed-in session. Their request IDs start with `bench-`. Actions taken directly in
   AWS, such as the AWS CLI stop in `cloud/README.md`, the bench's own jobs or anything an
-  administrator does, do not pass through the API and are not listed here.
+  administrator does, do not pass through the API and are not listed here. Every sign-in and every
+  change made to a board at its serial console from the console are there too:
+  [What the activity log records](#what-the-activity-log-records).
+
+### What the activity log records
+
+Each entry is one action, with who (the account's sub and its e-mail address at that moment), what, on what, and how
+it ended (`ok`, `rejected`, `denied`, `error`). The Activity page puts each in a sentence, a board by the name it has
+in the list of boards now: "vihaan@… deployed 1.12.0+0 to CRVIHAAN01", "… set the Wi-Fi network of CRVIHAAN01 over
+USB", "… signed in on the phone app".
+
+| Action | What it is | Details |
+| --- | --- | --- |
+| `firmware.upload` | An image uploaded, or refused | file, size, SHA-256 |
+| `firmware.revoke` | A release revoked | reason, deployments cancelled |
+| `deployment.create` | A deployment started | version, `things` (how many boards), `boards` (their thing names, up to eight), `from: phone` |
+| `deployment.cancel` | A deployment cancelled | force |
+| `firmware.download` | An image downloaded to a phone | |
+| `pairing.read` | A board's Bluetooth passkey read by a phone | the board's thing name |
+| `firmware.bluetooth_send` | The check right before a send over Bluetooth | SHA-256, the board's Bluetooth name |
+| `token.create`, `token.revoke` | An API token made or ended | its name, its lifetime |
+| `account.sign_in` | A sign-in with password and code | `client`: `web` or `phone` |
+| `serial.command` | A command that changed a board at its serial console, sent over USB from the console | `command`, the board's device ID as the target, the firmware `version` it gave, `from: phone` |
+
+A refused request also carries the `code` it was refused with.
+
+**Sign-ins.** The API records a sign-in when it sees the first request of it: a sign-in is the token's `sub`, its
+`auth_time` (when the person gave the password and code) and its client, `web` for the console's app client and
+`phone` for the phone apps'. A refreshed token keeps its `auth_time`, so a phone that refreshes its session for days
+is one sign-in; the website keeps no refresh token, so each sign-in there is one. A request with an API token is no
+sign-in, and neither is one that `cloud/smoke.sh` or the bench makes up (request IDs `smoke-` and `bench-`). The
+request has to get past the live check first, so an account that is disabled or in neither group is not recorded.
+The entry is dated at `auth_time` and keyed by the sign-in itself (`<auth_time>#signin.<sub>.<client>.<auth_time>`),
+so every instance of the API function makes the same key, and the conditional put that every entry gets lets the
+first one in. Each instance remembers the sign-ins it has recorded, and puts once for each: a sign-in costs one put
+per instance of the function that serves it, one or two in practice, of which one is stored and the rest refused. It
+is written after the request's own work, waits at most 1.5 s, and never changes the request's answer; one that
+could not be written is tried again by the next request. No address is recorded.
+
+**What cannot be recorded here.** A failed sign-in never reaches the API: a wrong password or code is between the
+browser or phone and Cognito, so it is not in the activity log. Cognito's own record of sign-in attempts, the user
+activity log and its auth event history (`AdminListUserAuthEvents`), is part of threat protection and needs the Plus
+tier; this pool is on Essentials, and a Lambda trigger on the sign-in path was ruled out. What Essentials does have is
+CloudTrail: Cognito logs every call of the user pool API, `InitiateAuth` and `RespondToAuthChallenge` among them, and
+the managed login pages' `login_POST` and `mfa_totp_POST`, as management events, a failed one with its `errorCode`
+(`NotAuthorizedException` for a wrong password, `CodeMismatchException` for a wrong code) and the user's sub in
+`additionalEventData`, never the user name. The `cranium-trail` stack keeps those (`cloud/trail.sh`), and CloudTrail's
+event history shows the last 90 days of them without a trail. That is from AWS's documentation and has not been looked
+at for this pool; the console does not read CloudTrail. Cognito's lockout after repeated wrong passwords happens all the
+same (see [Known limits](#known-limits)). Not recorded either: signing out (the console only forgets its
+tokens and revokes the refresh token at Cognito), a session that simply expires, what a person only reads (reads are
+not logged, apart from the image and the passkey), what a person does at a serial console outside the console's own
+Serial page (another terminal, `tools/provision_device.py`), and what a board is told by its buttons.
+
+**Changes at a board's serial console.** The Serial page drives a board over USB from the browser, so the server sees
+no command. Once the board has answered OK to one that changes it (`INIT`, `SET_ID`, `RESET_CONFIG`, `FACTORY_RESET`,
+`WIFI`, `WIFI_SEC`, `CLEAR_WIFI`, `CLOUD`, `KEYGEN`, `MQTT_HOST`, `MQTT_RECONNECT`, `BUTTON`, `REBOOT`,
+`ENTER_BOOTLOADER`), the page posts `POST /api/serial/commands` with the command's name, and the board's device ID
+and firmware version as the board gave them (`GET_ID`). Never a value: the body may hold those three fields and
+nothing else, so a client that sent a network name or a password would be refused, on record. Only a release manager
+may post, as for every change; a phone app's session needs no fresh sign-in for it, as for the calls made at a board
+for Bluetooth, because the change is already made and refusing the record would only keep it off the log. At most 30
+a minute per person, counted from the activity log itself; one more gets `429 rate_limited` and, unlike every other
+refusal, leaves no entry, since the limit is there to keep the log from filling up. If the post fails, the command
+still counts as done, and the page says that the record did not get through. What is recorded is what the poster
+says: a release manager's session could post a command that was never sent. From firmware 1.12.0 the board itself
+reports the same commands in its log (`[CONSOLE] WIFI done on the serial console: …`), which is the board's word for
+it.
 
 ### API tokens
 
@@ -349,6 +428,7 @@ Both read an event log that AWS IoT feeds as the boards report.
 ```
   board ── shadow report ──▶ AWS IoT ── rule: $aws/things/+/shadow/update/documents ──┐
         ── MQTT connect / disconnect ──▶ AWS IoT ── rule: $aws/events/presence/+/+ ───┤
+        ── console line (1.12.0) ──▶ AWS IoT ── rule: cranium/+/events ──────────────┤
                                                                                       ▼
             console API ◀── Query ── DynamoDB events table ◀── PutItem ── recorder (Lambda)
 ```
@@ -372,6 +452,8 @@ else. A message that cannot be written is tried once more and dropped after an h
 | `restart` | The uptime went down; the boot diary grew, with why the boot before ended (reset cause) and how far that one got; the board restarted itself for being stuck, with the timer that fired |
 | `bluetooth` | The Bluetooth window opened or closed; the Bluetooth update record changed |
 | `health` | The Wi-Fi channel changed; the free heap fell below 15% of the heap at least once (once per boot); the board reported its name (`diag.id`) for the first time, or a different one |
+
+Lines of a board's log ([below](#the-board-log)) have a kind too: one of these, or `setting` or `log`.
 
 Failed, rolled back and refused updates, a restart by the watchdog, a brownout or a lockup, a restart for being stuck,
 a Bluetooth update that did not stay, and memory that ran low are marked as warnings. Every report is also one
@@ -409,6 +491,73 @@ fact that AWS IoT publishes presence messages without being asked come from AWS'
 only against the stand-in in `cloud/api/test/fake-aws.mjs`. After a deployment, `cloud/logs.sh events` should show one
 `recorded` line per report of a board, and a `connection` event should appear on the Events page when a board
 restarts.
+
+### The board log
+
+From firmware 1.12.0 a board also sends every line it prints on its serial console, one MQTT message each at QoS 0,
+on `cranium/<thing>/events` (["Events to the console"](../firmware/README.md#events-to-the-console) in the firmware's
+README): `{"t":61234,"seq":17,"boot":42,"up":61240,"tag":"WIFI","text":"connected ip=10.0.0.7 rssi=-51"}`. A third rule,
+`BoardLogRule`, hands each to the recorder:
+
+```sql
+SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/events'
+WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)
+```
+
+The board's name comes from the topic, which the device policy lets a board publish on for itself only, and the time
+of arrival from AWS IoT. WHERE reads the message as it came, so a message that carries a `thing` or `received` of its
+own is not passed on at all: a board cannot write into another board's log or choose when it arrived, whichever value
+the SELECT would keep when two have one name (AWS does not say). The recorder takes a message as a line because it has
+`received`, which only this rule adds, and reads nothing else of it as a shadow or a connection.
+
+**Checked again, as if the board had checked nothing** (`cloud/api/src/lib/lines.mjs`): `t` and `up` whole numbers with
+`t <= up`, `seq` from 1, `boot` and `dropped` whole numbers, the `tag` one of the 16 sources the firmware may send
+(`BT`, `WIFI`, `STUCK`, `CONSOLE` and the application's log modules), the text a string of at most 1024 characters. The
+text is then made printable ASCII (anything else becomes `?`), and a line with any of `passkey`, `passphrase`,
+`password=`, `password:`, `psk=`, `secret`, `-----begin`, `private key` or `x-amz-` in it, in any case, is not stored
+at all, nor is a debug line (`DBG: `): the firmware's own rule, again. The recorder logs such a line as
+`line_withheld` with its board, tag and reason, never its text, so `cloud/logs.sh events` counts them. In what is left
+a network name between quotes in a `WIFI` or `net` line becomes "the network", a URL becomes "a URL" and a host name
+ending in `.amazonaws.com` becomes "AWS", and the text is cut to 160 characters, ending in `...`.
+
+**Kinds.** Each line becomes an event of the kind its source is about, so that the kind filters on the Events page work
+the same for events and lines:
+
+| Source | Kind | Why |
+| --- | --- | --- |
+| `BT`, `bt_ota` | `bluetooth` | the Bluetooth window and the update over it |
+| `ota` | `update` | an update over the air |
+| `STUCK`, `stuck`, `boot_diary` | `restart` | why a board restarted, or is about to |
+| `WIFI`, `net`, `health` | `health` | the Events page's "Wi-Fi and memory" |
+| `CONSOLE`, `factory` | `setting` (new) | a setting of the board changed at its serial console, or erased by a factory reset: what a person did to the board, which the page can then show on its own |
+| `app`, `cloud`, `identity`, `store`, `ui` | `log` (new) | the rest of what the board says |
+
+`connection` stays AWS IoT's own word that a board connected or disconnected: the page draws when a board was online
+from it, and a line of the board's must never count as one. A line that starts with `WRN: ` or `ERR: `, or a `STUCK`
+line, is a warning.
+
+**Dated and stored once.** A line happened `up - t` milliseconds before the board sent it, so it is dated at the time AWS
+IoT got it less that. A line is one item, `L#<time>#<boot>.<seq>`, 90 days like an event, with its tag, `boot`, `seq` and
+`dropped` (how many lines are missing before it). The first line of a boot can arrive twice, in two connections: the
+second copy has another `up` and arrives at another time, so its date differs by how much longer one copy took on its
+way, and a key with the time in it cannot catch it. So a line is first claimed: an item `K#<boot>.<seq>` with its date,
+put only where none is, where the one there has the same date (Lambda handing over the same message again, which then
+makes the same line key and replaces its own item), or where the one there is more than 10 s away, which is a board
+counting its boots from 1 again after a factory reset. A copy within 10 s is the same line and is not stored again
+(`line_repeated` in the log). Two puts per line.
+
+**Read.** `GET /api/events/log?from=<ISO>&to=<ISO>&thing=<name>&kinds=<a,b>&tags=<A,b>&cursor=<cursor>` lists lines newest
+first, with the same range, pages and limits as `GET /api/events`, for viewers and release managers alike:
+`{ lines: [{ thing, at, id, kind, tag, level, text, boot, seq, dropped? }], cursor, from, to }`. `GET /api/events`
+returns no lines, so what it returned before is unchanged. The Events page lists the lines in a **Board log** card
+of their own, under the events, with their source, a filter by source, and a button to hide it; on the timeline each
+line is a short tick at the foot of its board's lane, in the colour of its kind's family, so that the markers stay as
+few as they were.
+
+**Cost.** At most 5 lines a second per board, by the firmware's limit: 432,000 messages a day at the very most, which
+would be of the order of 30 US dollars a month for one board flooding all day (messages, rule, Lambda, two puts).
+A board that is well says far less: a few dozen lines when it starts and connects, and a few an hour after that. The
+recorder has no limit of its own beyond the firmware's.
 
 ## The Raspberry Pi (planned)
 
@@ -474,7 +623,7 @@ log group `AWSIotLogsV2`.
 | Least privilege | Met for the boards and the console. The device policy is limited to the board's own topics. The console's roles have no delete, publish, signing or certificate rights. Not met for the operator: deployment and the bench run as the AWS root user (see [Known limits](#known-limits)). |
 | Secure update: safe failure, no rollback to old firmware | Partly met. Over the air: trial boot with automatic revert; version checks in the console and the application, and in MCUboot for a test or permanent swap; an update begins only when a release manager deploys it. A revert skips MCUboot's check, and code in the application can forge one. Serial recovery has no version check and no trial, and a golden image restore goes back to the frozen image on purpose (see [Known limits](#known-limits)). |
 | No default or shared passwords, two-factor sign-in | Administrator-created accounts with a temporary password and a required authenticator code. |
-| Log security-relevant actions, never secrets | An audit entry for every attempted change that reaches the API function. A request that API Gateway's token check refuses appears only in the access log. An entry that cannot be stored is lost, and if the change itself succeeded the caller gets `audit_failed`. IAM lets the API's role only put and query entries, so it cannot delete or update one. A put could still replace an entry with the same key, and IAM cannot forbid that: the code sends a condition on every put that refuses it. To notice a rewrite, the function logs a digest of each entry, which the role cannot change, and `cloud/api/verify-audit.mjs` compares the two for the 90 days the log keeps its lines. Access log without query strings; no tokens, links or request bodies in any log. An API token is stored as its SHA-256 only, and logged by its ID only. |
+| Log security-relevant actions, never secrets | An audit entry for every attempted change that reaches the API function, for every sign-in, and for every change made to a board at its serial console from the console, by the command's name only. A board's own log never holds a passkey, a password or a key: the board leaves them out and the recorder checks again. A request that API Gateway's token check refuses appears only in the access log. An entry that cannot be stored is lost, and if the change itself succeeded the caller gets `audit_failed`. IAM lets the API's role only put and query entries, so it cannot delete or update one. A put could still replace an entry with the same key, and IAM cannot forbid that: the code sends a condition on every put that refuses it. To notice a rewrite, the function logs a digest of each entry, which the role cannot change, and `cloud/api/verify-audit.mjs` compares the two for the 90 days the log keeps its lines. Access log without query strings; no tokens, links or request bodies in any log. An API token is stored as its SHA-256 only, and logged by its ID only. |
 | Only the servers a device needs | The board talks to its AWS IoT endpoint and downloads from one bucket prefix. |
 
 ### Known limits
@@ -616,7 +765,12 @@ Stated plainly. What has been measured, and on which firmware, is in the
   its own shadow, a message that the rule or the recorder loses is a missing event with no error to say so
   (the rules have no error action), and AWS IoT can deliver a presence message twice or out of order. The
   Events page sorts by time and draws an online band from the connections, and from the heartbeat where no
-  connection says. Who did what in the console is the activity log, whose guarantees are above.
+  connection says. Who did what in the console is the activity log, whose guarantees are above. The board log
+  is the board's word too, sent at QoS 0: a line lost on the way is gone, and only the next line's `dropped`
+  says that lines were lost on the board itself.
+- A `serial.command` entry is what a release manager's page said it did at a board's serial console, which the
+  server cannot check. A failed sign-in is not in the activity log: only CloudTrail has it
+  ([What the activity log records](#what-the-activity-log-records)).
 
 ## Threat model
 
@@ -641,5 +795,6 @@ console accounts and the audit log. Firmware images hold no secrets.
 Everything is pay-per-use and, for four boards and four users, comes to well under one
 US dollar a month: a board's one-minute report is about 45,000 messages a month, and the
 console's functions and tables see a few thousand requests. The event log adds its own
-share, of the order of 10 to 20 US cents a month per board: see [The event log](#the-event-log). The `cranium-budget` stack
+share, of the order of 10 to 20 US cents a month per board, and the board log a little more for a board that is
+well: see [The event log](#the-event-log) and [The board log](#the-board-log). The `cranium-budget` stack
 sends an e-mail when the monthly cost passes its thresholds.

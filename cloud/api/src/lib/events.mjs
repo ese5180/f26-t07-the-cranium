@@ -32,7 +32,9 @@
  *   sk = "E#<ISO time>#<6 hex>"   an event, kept 90 days
  *   sk = "S#<ISO time>"           a sample, kept 7 days
  *
- * with `ttl` in epoch seconds, after which DynamoDB deletes the item. The time of an event is
+ * and, from firmware 1.12.0, the lines of each board's console, with sk "L#..." and "K#..."
+ * (lib/lines.mjs, the third rule). Every item has
+ * `ttl` in epoch seconds, after which DynamoDB deletes the item. The time of an event is
  * the time AWS IoT stamped on the message, to the second for a shadow document. Within its
  * second, an event is placed by the shadow's version (ten milliseconds per version, modulo a
  * hundred) and by its place in the document (a millisecond each), so that two reports in one
@@ -394,7 +396,7 @@ export function sampleRange(fromMs, toMs) {
 }
 
 /** A message time that AWS IoT stamped, if it is believable; otherwise the recorder's clock. */
-function stamped(ms, nowMs) {
+export function stamped(ms, nowMs) {
   return Number.isFinite(ms) && ms >= nowMs - STAMP_PAST_MS && ms <= nowMs + STAMP_FUTURE_MS ? Math.floor(ms) : nowMs;
 }
 

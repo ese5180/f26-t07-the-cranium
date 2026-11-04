@@ -364,12 +364,16 @@ test('the recorder is a function of its own: own log, own role, and nothing but 
   assert.ok(block(block(template, 'Outputs', 0), 'EventsFunctionName').includes('Value: !Ref EventsFn'));
 });
 
-test('two IoT rules feed the recorder: shadow documents and presence, only for things named like the boards', () => {
+test('three IoT rules feed the recorder: shadow documents, presence and board logs, only for things named like the boards', () => {
   const sql = (name) => block(template, name).split('Sql: >-\n')[1].split('\n').slice(0, 2).map((line) => line.trim()).join(' ');
   assert.equal(sql('ShadowEventsRule'),
     "SELECT *, topic(3) AS thing FROM '$aws/things/+/shadow/update/documents' WHERE startswith(topic(3), 'cranium-')");
   assert.equal(sql('PresenceEventsRule'), "SELECT * FROM '$aws/events/presence/+/+' WHERE startswith(topic(5), 'cranium-')");
-  for (const name of ['ShadowEventsRule', 'PresenceEventsRule']) {
+  // The board's name from the topic and the time from AWS IoT, and no message that brings either of its own.
+  assert.equal(sql('BoardLogRule'),
+    "SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/events' " +
+    "WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)");
+  for (const name of ['ShadowEventsRule', 'PresenceEventsRule', 'BoardLogRule']) {
     const rule = block(template, name);
     assert.ok(rule.includes('Type: AWS::IoT::TopicRule'), name);
     assert.ok(rule.includes("AwsIotSqlVersion: '2016-03-23'"), name);
@@ -377,19 +381,35 @@ test('two IoT rules feed the recorder: shadow documents and presence, only for t
     assert.ok(rule.includes('FunctionArn: !GetAtt EventsFn.Arn'), name);
     assert.equal(/RoleArn|Republish|S3:|DynamoDBv2/.test(rule), false, name);
   }
-  // AWS IoT may invoke the recorder for exactly these two rules of this account.
+  // AWS IoT may invoke the recorder for exactly these three rules of this account.
   const permissions = template.split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref EventsFn'));
-  assert.equal(permissions.length, 2);
-  for (const [name, rule] of [['ShadowEventsPermission', 'ShadowEventsRule'], ['PresenceEventsPermission', 'PresenceEventsRule']]) {
+  assert.equal(permissions.length, 3);
+  for (const [name, rule] of [['ShadowEventsPermission', 'ShadowEventsRule'], ['PresenceEventsPermission', 'PresenceEventsRule'],
+    ['BoardLogPermission', 'BoardLogRule']]) {
     const permission = block(template, name);
     assert.ok(permission.includes('Principal: iot.amazonaws.com'), name);
     assert.ok(permission.includes('Action: lambda:InvokeFunction'), name);
     assert.ok(permission.includes('SourceAccount: !Ref AWS::AccountId'), name);
     assert.ok(permission.includes(`SourceArn: !GetAtt ${rule}.Arn`), name);
   }
-  // The boards' own policy is unchanged: they publish nowhere new.
-  assert.equal(block(template, 'DevicePolicy').includes('events'), false);
+});
+
+test('a board may publish its log on its own events topic, and do nothing else there', () => {
+  const policy = block(template, 'DevicePolicy');
+  // The fixed name stays: it is part of the provisioning contract, and a new name would replace the policy.
+  assert.ok(policy.includes('PolicyName: cranium-device'));
+  const topic = "!Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'";
+  const statements = policy.split(/\n {10}- Effect: /).slice(1);
+  const publish = statements.find((text) => text.includes('Action: iot:Publish'));
+  assert.ok(publish.includes(`- ${topic}`));
+  // Only under Publish: a board neither subscribes to it nor receives on it, and has no other topic of this kind.
+  assert.equal(policy.split('cranium/').length - 1, 1);
+  for (const text of statements.filter((item) => !item.includes('Action: iot:Publish'))) {
+    assert.equal(text.includes('/events'), false);
+  }
+  // Every resource of the policy is the connection's own thing.
+  for (const resource of policy.match(/^\s+- !Sub '[^']+'$/gm)) assert.match(resource, /\$\{!iot:Connection\.Thing\.ThingName\}/);
 });
 
 test('the API reads the events table and nothing more: Query, on that table alone', () => {

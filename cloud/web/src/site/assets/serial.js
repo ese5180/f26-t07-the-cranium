@@ -1,8 +1,12 @@
 /**
  * The serial console: a board on a USB cable, driven from this page with Web Serial.
  *
- * Nothing here talks to the API. What is typed goes over the cable to the board and
- * nowhere else, and what the board says stays in this tab's memory.
+ * What is typed goes over the cable to the board and nowhere else, and what the board says
+ * stays in this tab's memory. The one thing that goes to the API is a record, for the activity
+ * log, of a command that changed the board (RECORDED), once the board has answered it with OK:
+ * the command's name, and the board's device ID and firmware version as it gave them (GET_ID).
+ * Never what was typed after the name, so never a network, a password or an endpoint. The
+ * command is done whether or not the record gets through; the page says when it did not.
  *
  * The board's protocol is firmware/app/src/console_cmd.c: one command per line, of the
  * form COMMAND|arg1|arg2. A command's reply ends with exactly one final line, OK ... or
@@ -209,6 +213,15 @@ const GROUPS = [
 
 // How many arguments come before the password.
 const BEFORE_SECRET = { WIFI: 1, WIFI_SEC: 2 };
+
+// The commands that change a board, which the activity log hears of once the board said OK
+// (cloud/api/src/handlers/serial.mjs): those that firmware 1.12.0 also reports to the cloud itself,
+// the two that erase it, and the two that restart it, one of them into its bootloader.
+export const RECORDED = new Set([
+  'INIT', 'SET_ID', 'RESET_CONFIG', 'FACTORY_RESET', 'WIFI', 'WIFI_SEC', 'CLEAR_WIFI', 'CLOUD', 'KEYGEN',
+  'MQTT_HOST', 'MQTT_RECONNECT', 'BUTTON', 'REBOOT', 'ENTER_BOOTLOADER',
+]);
+const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 
 /** The name of the command on a line, in capitals: what the firmware compares. */
 function commandName(line) {
@@ -444,8 +457,12 @@ function clockNow(date) {
  *
  * mqtt: the board's last answer to MQTT, however it was sent, as { facts, at, stale }, or null.
  * It is stale once MQTT_HOST or MQTT_RECONNECT has been answered with OK since.
+ *
+ * record({ command, device, version }) puts a command the board answered OK to on record, and
+ * returns a promise; without it nothing is recorded. A form's reply then carries how that went,
+ * as `record`: 'sending', 'done' or 'failed', with `recordProblem`.
  */
-export function createSerialSession({ serial, onChange = () => {}, now = () => new Date() }) {
+export function createSerialSession({ serial, onChange = () => {}, now = () => new Date(), record = null }) {
   let port = null;
   let writer = null;
   let reader = null;
@@ -546,7 +563,7 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     if (form) session.reply = { form, kind: 'wait', text: 'Sent, waiting for the board.' };
     return new Promise((resolve) => {
       // The lines of the reply are kept only where the page reads them, which is MQTT's.
-      const entry = { shown, name, form, resolve, echoed: false, timer: 0, lines: name === 'MQTT' ? [] : null };
+      const entry = { shown, name, form, auto, resolve, echoed: false, timer: 0, lines: name === 'MQTT' ? [] : null };
       entry.timer = setTimeout(() => {
         const at = waiting.indexOf(entry);
         if (at >= 0) waiting.splice(at, 1);
@@ -584,11 +601,36 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
 
   // Reading.
 
+  /** The record of a form's command, if the form's reply is still the one about it. */
+  function markRecord(form, record, recordProblem = null) {
+    if (form && session.reply?.form === form) session.reply = { ...session.reply, record, recordProblem };
+    changed();
+  }
+
+  /** Put on record a command the board did: by name, with the board as it said it is. Never a value. */
+  function recordCommand(entry) {
+    const board = session.board;
+    const device = board && /^[0-9A-Za-z]{1,32}$/.test(board.id) ? board.id : null;
+    const version = board && VERSION.test(board.version) ? board.version : null;
+    markRecord(entry.form, 'sending');
+    Promise.resolve()
+      .then(() => record({ command: entry.name, device, version }))
+      .then(() => {
+        note(`${entry.name} is in the activity log, under your name.`);
+        markRecord(entry.form, 'done');
+      }, (error) => {
+        const why = error?.message ? ` ${error.message}` : '';
+        note(`${entry.name} was done on the board, but it could not be put in the activity log.${why}`, 'warn');
+        markRecord(entry.form, 'failed', `Done on the board, but not in the activity log.${why}`);
+      });
+  }
+
   function finalLine(line) {
     const entry = waiting.shift();
     if (entry) {
       clearTimeout(entry.timer);
       if (entry.form) session.reply = { form: entry.form, kind: line.kind, text: line.text };
+      if (record && line.kind === 'ok' && !entry.auto && RECORDED.has(entry.name)) recordCommand(entry);
       if (entry.name === 'GET_ID' && line.kind === 'ok') {
         const bar = line.text.lastIndexOf('|');
         session.board = bar < 0 ? { id: line.text, version: '' }
@@ -822,7 +864,9 @@ const ui = {
 let shared = null;
 
 function sharedSession(ctx) {
-  shared ??= createSerialSession({ serial: navigator.serial, onChange: ctx.actions.redraw });
+  shared ??= createSerialSession({
+    serial: navigator.serial, onChange: ctx.actions.redraw, record: (command) => ctx.actions.recordSerialCommand(command),
+  });
   return shared;
 }
 
@@ -1114,7 +1158,22 @@ function replyOf(command, session) {
   const { reply } = session;
   if (reply?.form !== command.name) return null;
   const [iconName, word] = REPLY_MARKS[reply.kind];
-  return h('p', { class: `serial-result is-${reply.kind}` }, icon(iconName, 'is-small'), word ? `${word} ` : '', reply.text);
+  return [
+    h('p', { class: `serial-result is-${reply.kind}`, key: 'reply' }, icon(iconName, 'is-small'), word ? `${word} ` : '', reply.text),
+    recordOf(reply),
+  ];
+}
+
+/** Whether the command a form sent is in the activity log, said under the board's own answer. */
+function recordOf(reply) {
+  if (reply.record === 'sending') return h('p', { class: 'serial-record', key: 'record' }, 'Putting it in the activity log…');
+  if (reply.record === 'done') {
+    return h('p', { class: 'serial-record is-done', key: 'record' }, icon('check', 'is-small'), 'In the activity log.');
+  }
+  if (reply.record === 'failed') {
+    return h('p', { class: 'serial-record is-failed', key: 'record', role: 'alert' }, icon('alert', 'is-small'), reply.recordProblem);
+  }
+  return null;
 }
 
 /** Read a form's fields, check them, and send: out of the field first if it is a password. */
@@ -1324,7 +1383,8 @@ function commandForms(session, ctx) {
 }
 
 const LEDE = 'Drive a board on its USB cable from this browser. What you type here goes only over the ' +
-  'cable to the board, never to the server, and nothing is saved.';
+  'cable to the board, never to the server, and nothing is saved. A command that changes the board is put in the ' +
+  'activity log once the board has done it, by its name only.';
 
 function explained(title, text, command) {
   return h('div', { class: 'page', key: 'page' },

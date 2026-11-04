@@ -44,6 +44,30 @@ export function createAuditHandlers({ aws, log }) {
       }
     },
 
+    /**
+     * Store an entry that more than one instance of the function may make, with the same key:
+     * a sign-in. "stored", "exists" when another instance stored it first, or "failed", which
+     * is logged here. Never throws.
+     */
+    async recordOnce(entry) {
+      try {
+        const item = auditItem(entry);
+        const stored = await aws.putAudit(item);
+        if (!stored.ok) return 'exists';
+        log({
+          event: 'audit_entry', requestId: item.requestId, sub: item.actor.sub, action: item.action,
+          outcome: item.outcome, digest: auditDigest(item),
+        });
+        return 'stored';
+      } catch (error) {
+        log({
+          level: 'error', event: 'audit_write_failed', requestId: entry.requestId, action: entry.action,
+          outcome: entry.outcome, error: describeError(error),
+        });
+        return 'failed';
+      }
+    },
+
     async list({ query }) {
       const limit = requirePageSize(field(query, 'limit'));
       const cursor = field(query, 'before');

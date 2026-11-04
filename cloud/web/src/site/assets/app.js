@@ -462,8 +462,10 @@ const pages = {
         // How a deployment ended is not in the log: it follows from the deployment.
         due(state.deployments, full) ? load(state.deployments, api.deployments) : null,
       ]);
-      // An entry that names a board has its thing name; what the board is called is in the list of boards.
-      const namesBoard = (state.audit.value?.entries ?? []).some((item) => item.detail.some(([key]) => key === 'thing'));
+      // An entry that names a board has its thing name, or for a command at its serial console its own
+      // name; what the board is called now, and which board has that name, is in the list of boards.
+      const namesBoard = (state.audit.value?.entries ?? []).some((item) =>
+        item.detail.some(([key]) => key === 'thing' || key === 'boards') || (item.action === 'serial.command' && item.target));
       if (namesBoard && state.devices.loadedAt === 0) await load(state.devices, api.devices);
     },
     interval: () => IDLE_REFRESH_MS,
@@ -1369,6 +1371,8 @@ const actions = {
   refresh: () => refreshNow(true),
   redraw: draw,
   signOut: () => auth.signOut(),
+  // The Serial page's record of a command a board answered OK to: its name, never a value.
+  recordSerialCommand: (command) => api.recordSerialCommand(command),
   // Asked for by hand where the console does not leave by itself: with a file in hand.
   signInAgain: () => beginSignIn(),
   async copy(value, label) {

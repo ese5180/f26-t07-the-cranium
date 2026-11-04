@@ -17,6 +17,12 @@
  *
  * Item: pk = "AUD", sk = "<ISO time>#<request id>". Newest first is descending sk.
  * A page cursor is the last sk of the page, base64url encoded.
+ *
+ * A sign-in (account.sign_in) is the one entry that no request asked for. Its key is made from
+ * the sign-in itself, so that every instance of the function that sees it makes the same one:
+ * the time is the token's auth_time, and the "request id" is signin.<sub>.<client>.<auth_time>,
+ * where client is web or phone. It is put with the same condition as every entry, so the first
+ * instance stores it and the others are refused.
  */
 
 import { createHash } from 'node:crypto';
@@ -29,6 +35,12 @@ export const ACTIONS = Object.freeze([
   'firmware.download', 'pairing.read', 'firmware.bluetooth_send',
   // A person's own API tokens, made and ended on the website (handlers/tokens.mjs).
   'token.create', 'token.revoke',
+  // A sign-in with password and code, on the website or in a phone app, recorded once, by the
+  // first request of it that the API sees (app.mjs). Its request id is made up, not a request's.
+  'account.sign_in',
+  // A command that changed a board at its serial console, posted by the page that sent it over
+  // USB (handlers/serial.mjs): the command's name only, never what was typed after it.
+  'serial.command',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
@@ -57,6 +69,12 @@ function cleanDetail(detail) {
     else if (typeof value === 'number' || typeof value === 'boolean') clean[key] = String(value);
   }
   return clean;
+}
+
+/** The request id of the entry for one sign-in, or null if the parts cannot make one. */
+export function signInRequestId({ sub, client, authTime }) {
+  const id = `signin.${sub}.${client}.${authTime}`;
+  return Number.isSafeInteger(authTime) && authTime > 0 && REQUEST_ID.test(id) ? id : null;
 }
 
 /**

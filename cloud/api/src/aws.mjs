@@ -107,23 +107,32 @@
  *
  * Audit (audit table; an item carries sk = "<ISO time>#<request id>")
  *   putAudit(item)                -> { ok: true } | { ok: false, reason: "exists" }
- *   queryAudit({ before, limit }) -> object[]   at most `limit` items, highest sk first, only
- *                                               items with sk below `before` unless it is null
+ *   queryAudit({ before, after, limit })
+ *                                 -> object[]   at most `limit` items, highest sk first, only
+ *                                               items with sk below `before` unless it is null,
+ *                                               and above `after` unless it is null or absent
  *
- * Events (events table; pk = thing name, sk "E#<ISO time>#<6 hex>" for an event and
- * "S#<ISO time>" for a sample: lib/events.mjs). Reads are eventually consistent.
- *   queryEvents({ thing, low, high, kinds, limit })
+ * Events (events table; pk = thing name, sk "E#<ISO time>#<6 hex>" for an event,
+ * "S#<ISO time>" for a sample: lib/events.mjs; "L#<ISO time>#<boot>.<seq>" for a line of a
+ * board's log and "K#<boot>.<seq>" for its claim: lib/lines.mjs). Reads are eventually consistent.
+ *   queryEvents({ thing, low, high, kinds, tags, limit })
  *                                 -> object[]   that board's items with low <= sk <= high,
  *                                               highest sk first, at most `limit`; only those
- *                                               whose kind is in `kinds` unless it is null
+ *                                               whose kind is in `kinds` unless it is null, and
+ *                                               whose tag is in `tags` unless it is null
  *   querySamples({ thing, low, high })
  *                                 -> object[]   that board's items with low <= sk <= high,
  *                                               lowest sk first
  *
  * createEventStore(env) is the recorder's adapter (recorder.mjs). It reads AWS_REGION and
- * EVENTS_TABLE only, and has one method:
+ * EVENTS_TABLE only, and has two methods, both PutItem:
  *   putEvent(item)                -> undefined   stores an item of the events table as it is;
  *                                               an item with the same key is replaced
+ *   claimLine({ pk, sk, at, ttl })
+ *                                 -> { ok: true }  stored: there was no claim, or one with the
+ *                                                  same `at`, or one more than SAME_LINE_MS away
+ *                                  | { ok: false, reason: "same_line" }  a claim within
+ *                                                  SAME_LINE_MS of `at` and not equal to it
  *
  * Users (Cognito user pool; the username is the token's sub)
  *   getUser(sub)                  -> { enabled: boolean, status: string, email: string } | null
@@ -147,6 +156,8 @@ import {
 } from '@aws-sdk/client-iot';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
+
+import { SAME_LINE_MS } from './lib/lines.mjs';
 
 // The largest page the list operations of AWS IoT allow, and of Cognito for groups.
 const PAGE_SIZE = 250;
@@ -321,17 +332,21 @@ function clientSettings(region) {
  * Query one board's part of the events table between two sort keys, every page of it, up to
  * `limit` items. `filter` is a FilterExpression with its values, or null.
  */
-async function queryEventTable(dynamo, table, { thing, low, high, forward, limit = Infinity, kinds = null }) {
+async function queryEventTable(dynamo, table, {
+  thing, low, high, forward, limit = Infinity, kinds = null, tags = null,
+}) {
   const names = { '#pk': 'pk', '#sk': 'sk' };
   const values = { ':pk': { S: thing }, ':low': { S: low }, ':high': { S: high } };
-  let filter;
-  if (kinds !== null) {
-    names['#kind'] = 'kind';
-    kinds.forEach((kind, index) => {
-      values[`:k${index}`] = { S: kind };
+  const filters = [];
+  for (const [attribute, prefix, wanted] of [['kind', 'k', kinds], ['tag', 't', tags]]) {
+    if (wanted === null) continue;
+    names[`#${attribute}`] = attribute;
+    wanted.forEach((value, index) => {
+      values[`:${prefix}${index}`] = { S: value };
     });
-    filter = `#kind IN (${kinds.map((_, index) => `:k${index}`).join(', ')})`;
+    filters.push(`#${attribute} IN (${wanted.map((_, index) => `:${prefix}${index}`).join(', ')})`);
   }
+  const filter = filters.length > 0 ? filters.join(' AND ') : undefined;
   const items = [];
   let start;
   for (let pages = 0; pages < MAX_PAGES; pages += 1) {
@@ -383,24 +398,40 @@ export function createAws(env) {
   const cognito = new CognitoIdentityProviderClient(settings());
 
   /** Query one partition, highest sort key first, up to `limit` items. */
-  async function queryDescending(table, pk, { before = null, limit = Infinity } = {}) {
+  async function queryDescending(table, pk, { before = null, after = null, limit = Infinity } = {}) {
     const items = [];
     let start;
+    const names = { '#pk': 'pk' };
+    const values = { ':pk': { S: pk } };
+    let condition = '#pk = :pk';
+    if (before !== null && after !== null) {
+      // BETWEEN takes both ends; the items at the ends are left out below.
+      condition += ' AND #sk BETWEEN :after AND :before';
+    } else if (before !== null) {
+      condition += ' AND #sk < :before';
+    } else if (after !== null) {
+      condition += ' AND #sk > :after';
+    }
+    if (before !== null) values[':before'] = { S: before };
+    if (after !== null) values[':after'] = { S: after };
+    if (before !== null || after !== null) names['#sk'] = 'sk';
     for (let pages = 0; pages < MAX_PAGES; pages += 1) {
       const input = {
         TableName: table,
-        KeyConditionExpression: before === null ? '#pk = :pk' : '#pk = :pk AND #sk < :before',
-        ExpressionAttributeNames: before === null ? { '#pk': 'pk' } : { '#pk': 'pk', '#sk': 'sk' },
-        ExpressionAttributeValues: before === null
-          ? { ':pk': { S: pk } }
-          : { ':pk': { S: pk }, ':before': { S: before } },
+        KeyConditionExpression: condition,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
         ScanIndexForward: false,
         ConsistentRead: true,
         ExclusiveStartKey: start,
       };
       if (Number.isFinite(limit)) input.Limit = limit - items.length;
       const out = await dynamo.send(new QueryCommand(input));
-      for (const item of out.Items ?? []) items.push(fromItem(item));
+      for (const item of out.Items ?? []) {
+        const sk = item.sk?.S;
+        if ((before !== null && sk === before) || (after !== null && sk === after)) continue;
+        items.push(fromItem(item));
+      }
       if (items.length >= limit) return items.slice(0, limit);
       if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
       start = out.LastEvaluatedKey;
@@ -877,20 +908,23 @@ export function createAws(env) {
       }
     },
 
-    async queryAudit({ before, limit }) {
+    async queryAudit({ before, after = null, limit }) {
       try {
-        return await queryDescending(auditTable, AUDIT_PK, { before: before ?? null, limit });
+        return await queryDescending(auditTable, AUDIT_PK, { before: before ?? null, after: after ?? null, limit });
       } catch (cause) {
         throw failure('Query', cause);
       }
     },
 
-    async queryEvents({ thing, low, high, kinds = null, limit }) {
+    async queryEvents({ thing, low, high, kinds = null, tags = null, limit }) {
       if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > MAX_KINDS)) {
         throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
       }
+      if (tags !== null && (!Array.isArray(tags) || tags.length === 0 || tags.length > MAX_KINDS)) {
+        throw new TypeError('tags must be null or a list of 1 to 16 tags');
+      }
       try {
-        return await queryEventTable(dynamo, eventsTable, { thing, low, high, kinds, limit, forward: false });
+        return await queryEventTable(dynamo, eventsTable, { thing, low, high, kinds, tags, limit, forward: false });
       } catch (cause) {
         throw failure('Query', cause);
       }
@@ -951,6 +985,28 @@ export function createEventStore(env) {
       try {
         await dynamo.send(new PutItemCommand({ TableName: table, Item: toItem(item) }));
       } catch (cause) {
+        throw failure('PutItem', cause);
+      }
+    },
+
+    async claimLine({ pk, sk, at, ttl }) {
+      try {
+        await dynamo.send(new PutItemCommand({
+          TableName: table,
+          Item: toItem({ pk, sk, at, ttl }),
+          // Nobody's yet; this very line again (Lambda's retry); or another life of the board,
+          // which counts its boots from 1 again after a factory reset.
+          ConditionExpression: 'attribute_not_exists(#sk) OR #at = :at OR #at < :low OR #at > :high',
+          ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+          ExpressionAttributeValues: {
+            ':at': { N: String(at) },
+            ':low': { N: String(at - SAME_LINE_MS) },
+            ':high': { N: String(at + SAME_LINE_MS) },
+          },
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'same_line' };
         throw failure('PutItem', cause);
       }
     },

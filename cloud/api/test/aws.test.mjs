@@ -1295,6 +1295,28 @@ test('queryAudit reads newest first, below a cursor, never more than asked', asy
   await rejectsWith(aws.queryAudit({ before: null, limit: 5 }), { code: 'throttled', operation: 'Query' });
 });
 
+test('queryAudit reads what is newer than a time, and between two keys without either end', async () => {
+  const aws = adapter();
+  const entry = (n) => ({ pk: { S: 'AUD' }, sk: { S: `2026-10-10T22:15:0${n}.000Z#r${n}` }, outcome: { S: 'ok' } });
+  sdk.reply('QueryCommand', { Items: [entry(9), entry(8)] });
+  assert.equal((await aws.queryAudit({ before: null, after: '2026-10-10T22:15:07.000Z', limit: 1000 })).length, 2);
+  assert.deepEqual(sdk.inputs('QueryCommand'), [{
+    TableName: 'audit-table',
+    KeyConditionExpression: '#pk = :pk AND #sk > :after',
+    ExpressionAttributeNames: { '#pk': 'pk', '#sk': 'sk' },
+    ExpressionAttributeValues: { ':pk': { S: 'AUD' }, ':after': { S: '2026-10-10T22:15:07.000Z' } },
+    ScanIndexForward: false,
+    ConsistentRead: true,
+    Limit: 1000,
+  }]);
+
+  sdk.reset();
+  sdk.reply('QueryCommand', { Items: [entry(8), entry(7), entry(6), entry(5)] });
+  const between = await aws.queryAudit({ before: entry(8).sk.S, after: entry(5).sk.S, limit: 10 });
+  assert.deepEqual(between.map((item) => item.sk.slice(-2)), ['r7', 'r6']);
+  assert.equal(sdk.inputs('QueryCommand')[0].KeyConditionExpression, '#pk = :pk AND #sk BETWEEN :after AND :before');
+});
+
 test('queryEvents reads one board between two keys, newest first, every page, never more than asked', async () => {
   const aws = adapter();
   const event = (n) => ({ pk: { S: THING }, sk: { S: `E#2026-10-10T22:15:0${n}.000Z#00000${n}` }, kind: { S: 'firmware' } });
@@ -1329,6 +1351,17 @@ test('queryEvents reads one board between two keys, newest first, every page, ne
   assert.deepEqual(next.ExclusiveStartKey, { pk: { S: THING }, sk: event(1).sk });
 
   await assert.rejects(aws.queryEvents({ thing: THING, low, high, kinds: [], limit: 1 }), TypeError);
+  await assert.rejects(aws.queryEvents({ thing: THING, low, high, tags: [], limit: 1 }), TypeError);
+
+  // The board log narrows by source as well, both filters at once.
+  sdk.reset();
+  sdk.reply('QueryCommand', { Items: [] });
+  await aws.queryEvents({ thing: THING, low, high, kinds: ['health'], tags: ['WIFI', 'net'], limit: 10 });
+  const [both] = sdk.inputs('QueryCommand');
+  assert.equal(both.FilterExpression, '#kind IN (:k0) AND #tag IN (:t0, :t1)');
+  assert.deepEqual(both.ExpressionAttributeNames, { '#pk': 'pk', '#sk': 'sk', '#kind': 'kind', '#tag': 'tag' });
+  assert.deepEqual([both.ExpressionAttributeValues[':t0'], both.ExpressionAttributeValues[':t1']], [{ S: 'WIFI' }, { S: 'net' }]);
+
   sdk.reply('QueryCommand', fails('ThrottlingException'));
   await rejectsWith(aws.queryEvents({ thing: THING, low, high, kinds: null, limit: 5 }), { code: 'throttled', operation: 'Query' });
 });
@@ -1357,7 +1390,7 @@ test('the recorder\'s adapter has one client, one table and one operation: PutIt
   assert.deepEqual(sdk.clients.map((client) => client.package), ['@aws-sdk/client-dynamodb']);
   assert.deepEqual(Object.keys(sdk.clients[0].config).sort(), ['maxAttempts', 'region', 'requestHandler']);
   assert.equal(Object.isFrozen(store), true);
-  assert.deepEqual(Object.keys(store), ['putEvent']);
+  assert.deepEqual(Object.keys(store), ['putEvent', 'claimLine']);
   // It needs nothing but these two: not the other tables, the bucket or the pool.
   for (const name of Object.keys(env)) assert.throws(() => createEventStore({ ...env, [name]: '' }), new RegExp(name));
 
@@ -1372,6 +1405,21 @@ test('the recorder\'s adapter has one client, one table and one operation: PutIt
   }]);
   sdk.reply('PutItemCommand', fails('ProvisionedThroughputExceededException'));
   await rejectsWith(store.putEvent({ pk: THING, sk: 'S#x' }), { code: 'throttled', operation: 'PutItem' });
+
+  // The claim of a line of a board's log: a PutItem too, on a condition, and nothing else.
+  sdk.reset();
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'), fails('ThrottlingException'));
+  const claim = { pk: THING, sk: 'K#42.17', at: 1793534400123, ttl: 1801310400 };
+  assert.deepEqual(await store.claimLine(claim), { ok: true });
+  assert.deepEqual(sdk.inputs('PutItemCommand')[0], {
+    TableName: 'events-table',
+    Item: { pk: { S: THING }, sk: { S: 'K#42.17' }, at: { N: '1793534400123' }, ttl: { N: '1801310400' } },
+    ConditionExpression: 'attribute_not_exists(#sk) OR #at = :at OR #at < :low OR #at > :high',
+    ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+    ExpressionAttributeValues: { ':at': { N: '1793534400123' }, ':low': { N: '1793534390123' }, ':high': { N: '1793534410123' } },
+  });
+  assert.deepEqual(await store.claimLine(claim), { ok: false, reason: 'same_line' });
+  await rejectsWith(store.claimLine(claim), { code: 'throttled', operation: 'PutItem' });
 
   // Its twin in the stand-in has the same methods.
   assert.deepEqual(Object.keys(createFakeAws().eventStore()), Object.keys(store));

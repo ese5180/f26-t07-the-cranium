@@ -2347,10 +2347,11 @@ test('a deployment as a whole is summed up from its boards', () => {
 test('an entry of the activity log reads as a sentence and links only to what exists', () => {
   const entry = (action, target, outcome = 'ok', detail = []) =>
     core.describeAudit({ action, target, outcome, detail });
-  const said = (line) => `${line.verb} ${line.label}`.trim();
+  const said = (line) => [line.verb, line.label, line.tail, core.auditBoards(line)].filter(Boolean).join(' ');
 
   assert.deepEqual(entry('firmware.upload', '1.1.0+7'), {
-    icon: 'upload', verb: 'uploaded firmware', label: '1.1.0+7', outcome: null, href: '#/firmware', facts: [], scripted: false,
+    icon: 'upload', verb: 'uploaded firmware', label: '1.1.0+7', tail: '', outcome: null, href: '#/firmware', facts: [],
+    scripted: false, boards: [], boardCount: 0, byName: false,
   });
   // What a script sent past the gateway is told apart. A request through the gateway cannot carry this id.
   assert.equal(core.describeAudit({ action: 'firmware.revoke', target: '1.1.0+7', outcome: 'ok', detail: [], requestId: 'bench-0123' }).scripted, true);
@@ -2359,16 +2360,17 @@ test('an entry of the activity log reads as a sentence and links only to what ex
 
   // A deployment is called by the version it installs. Its id is one of the details,
   // and the version is not said twice.
+  // Which boards it went to: by name where the entry names them, else how many.
   const started = entry('deployment.create', DEPLOYMENT, 'ok', [['version', '1.1.0+7'], ['things', '2']]);
-  assert.equal(said(started), 'started a deployment of 1.1.0+7');
+  assert.equal(said(started), 'deployed 1.1.0+7 to 2 boards');
   assert.equal(started.href, `#/deployments/${DEPLOYMENT}`);
-  assert.deepEqual(started.facts.map((fact) => [fact.label, fact.value, fact.code]),
-    [['Boards', '2', false], ['Deployment', DEPLOYMENT, true]]);
+  assert.deepEqual(started.facts.map((fact) => [fact.label, fact.value, fact.code]), [['Deployment', DEPLOYMENT, true]]);
   assert.equal(said(entry('deployment.cancel', DEPLOYMENT)), 'cancelled the deployment of 1.1.0+7');
   assert.equal(said(entry('deployment.cancel', DEPLOYMENT, 'rejected')),
     'tried to cancel the deployment of 1.1.0+7');
   assert.equal(said(entry('deployment.create', '1.1.0+7', 'rejected')), 'tried to deploy 1.1.0+7');
   assert.equal(said(entry('deployment.create', DEPLOYMENT, 'rejected')), 'tried to deploy 1.1.0+7');
+  assert.equal(said(entry('deployment.create', DEPLOYMENT)), 'deployed 1.1.0+7');
   // An id whose version is out of range is shown as it is.
   const odd = 'cranium-999-0-0-b1-20261010T221500Z-ffff';
   assert.equal(entry('deployment.cancel', odd).label, odd);
@@ -2423,7 +2425,7 @@ test('the details of an entry are put in the words of the console, not in the AP
   assert.deepEqual(said(facts('deployment.cancel', 'error', [['force', 'false'], ['cancelled', 'true'],
     ['code', 'internal']])), ['Failed with internal', 'Asked to withdraw the offer', 'Cancelled all the same']);
   assert.deepEqual(said(facts('deployment.create', 'rejected', [['version', '1.1.0+7'], ['things', '2'],
-    ['code', 'device_busy']])), ['Refused with device_busy', 'Boards 2']);
+    ['code', 'device_busy']])), ['Refused with device_busy']);
   // A version that is not the target is said.
   assert.deepEqual(said(facts('deployment.create', 'ok', [['version', '9.9.9+9']])), ['Version 9.9.9+9']);
 
@@ -2848,18 +2850,18 @@ test('tokens are listed, made and revoked at the addresses the API has, and read
 });
 
 test('the check before a Bluetooth send reads as what it was, with its board and why it was refused', () => {
-  const said = (line) => `${line.verb} ${line.label}`.trim();
+  const said = (line) => [line.verb, line.label, line.tail].filter(Boolean).join(' ');
   const sha = 'ab'.repeat(32);
   const cleared = core.describeAudit({
     action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'ok', detail: [['sha256', sha], ['board', 'Cranium-1A2B']],
   });
-  assert.deepEqual([cleared.icon, said(cleared), cleared.href], ['chip', 'was cleared to send over Bluetooth 1.1.0+7', '#/firmware']);
+  assert.deepEqual([cleared.icon, said(cleared), cleared.href], ['chip', 'was cleared to send 1.1.0+7 over Bluetooth', '#/firmware']);
   assert.deepEqual(cleared.facts.map((fact) => [fact.label, fact.value, fact.code]),
     [['SHA-256', sha, true], ['To board', 'Cranium-1A2B', true]]);
   const refused = core.describeAudit({
     action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'rejected', detail: [['code', 'release_revoked'], ['sha256', sha]],
   });
-  assert.equal(said(refused), 'tried to send over Bluetooth 1.1.0+7');
+  assert.equal(said(refused), 'tried to send 1.1.0+7 over Bluetooth');
   assert.equal(refused.facts[0].words, 'The release is revoked');
   const alone = core.describeAudit({ action: 'firmware.bluetooth_send', target: '', outcome: 'rejected', detail: [['code', 'invalid_version']] });
   assert.equal(said(alone), 'tried to send firmware over Bluetooth');
@@ -2870,6 +2872,122 @@ test('the check before a Bluetooth send reads as what it was, with its board and
   // A phone app's sign-in where it may not go.
   const phone = core.describeAudit({ action: 'deployment.create', target: '1.1.0+7', outcome: 'denied', detail: [['code', 'phone_not_allowed']] });
   assert.equal(phone.facts[0].words, 'The phone app’s sign-in cannot be used for that');
+});
+
+test('a deployment says which boards it went to, by the name each has now, and a download reads as one', () => {
+  const A = 'cranium-0123456789abcdef';
+  const B = 'cranium-fedcba9876543210';
+  const C = 'cranium-00000000000000aa';
+  const devices = [{ thing: A, name: 'CRVIHAAN01' }, { thing: B, name: null }];
+  const deployed = (boards, things = String(boards.length)) => ({
+    action: 'deployment.create', target: DEPLOYMENT, outcome: 'ok', actor: { sub: 's', email: 'vihaan@example.invalid' },
+    detail: [['version', '1.1.0+7'], ['things', things], ...(boards.length > 0 ? [['boards', boards.join(' ')]] : [])],
+  });
+  assert.equal(core.auditSentence(deployed([A]), devices), 'vihaan@example.invalid deployed 1.1.0+7 to CRVIHAAN01');
+  assert.equal(core.auditSentence(deployed([A, B]), devices), `vihaan@example.invalid deployed 1.1.0+7 to CRVIHAAN01 and ${B}`);
+  // Three and more: how many in the sentence, and every one among the details.
+  const three = core.describeAudit(deployed([A, B, C]));
+  assert.equal(core.auditSentence(deployed([A, B, C]), devices), 'vihaan@example.invalid deployed 1.1.0+7 to 3 boards');
+  assert.deepEqual(three.facts.map((fact) => [fact.key, fact.value]), [['boards', `${A} ${B} ${C}`], ['target', DEPLOYMENT]]);
+  // More than the entry could name; and an entry from before the names were recorded.
+  assert.equal(core.auditSentence(deployed([], '12'), devices), 'vihaan@example.invalid deployed 1.1.0+7 to 12 boards');
+  assert.equal(core.auditBoards(core.describeAudit(deployed([], 'x'))), '');
+  // A name that is not a thing name is not taken for one.
+  assert.deepEqual(core.describeAudit(deployed(['CRVIHAAN01'])).boards, []);
+
+  const download = { action: 'firmware.download', target: '1.1.0+7', outcome: 'ok', actor: { email: 'a@b' }, detail: [] };
+  assert.equal(core.auditSentence(download), 'a@b downloaded 1.1.0+7 to a phone');
+  assert.equal(core.auditSentence({ ...download, target: '' }), 'a@b downloaded firmware to a phone');
+  assert.equal(core.auditSentence({ ...download, outcome: 'denied' }), 'a@b tried to download 1.1.0+7');
+  const fromPhone = core.describeAudit({ ...deployed([A]), detail: [['things', '1'], ['boards', A], ['from', 'phone']] });
+  assert.deepEqual(fromPhone.facts.map((fact) => [fact.label, fact.value]), [['From', 'the phone app'], ['Deployment', DEPLOYMENT]]);
+});
+
+test('a sign-in says where it was made, and nothing more', () => {
+  const signIn = (client) => ({
+    action: 'account.sign_in', target: '', outcome: 'ok', actor: { sub: 's', email: 'vihaan@example.invalid' },
+    detail: [['client', client]], requestId: `signin.s.${client}.1793700000`,
+  });
+  assert.equal(core.auditSentence(signIn('web')), 'vihaan@example.invalid signed in on the website');
+  assert.equal(core.auditSentence(signIn('phone')), 'vihaan@example.invalid signed in on the phone app');
+  assert.equal(core.auditSentence(signIn('tv')), 'vihaan@example.invalid signed in');
+  const line = core.describeAudit(signIn('web'));
+  assert.deepEqual([line.icon, line.label, line.facts, line.href, line.scripted], ['user', '', [], null, false]);
+});
+
+test('a command at a board\'s serial console reads as what it did, to which board, never with a value', () => {
+  const command = (name, device = 'CRVIHAAN01', outcome = 'ok', extra = []) => ({
+    action: 'serial.command', target: device, outcome, actor: { email: 'a@b' },
+    detail: [['command', name], ['version', '1.12.0+0'], ...extra],
+  });
+  assert.equal(core.auditSentence(command('WIFI')), 'a@b set the Wi-Fi network of CRVIHAAN01 over USB');
+  assert.equal(core.auditSentence(command('SET_ID')), 'a@b changed the device ID of CRVIHAAN01 over USB');
+  assert.equal(core.auditSentence(command('INIT', '')), 'a@b set up a board from factory mode over USB');
+  assert.equal(core.auditSentence(command('ENTER_BOOTLOADER')), 'a@b restarted CRVIHAAN01 into its bootloader over USB');
+  assert.equal(core.auditSentence(command('NEWER_ONE')), 'a@b ran a command on CRVIHAAN01 over USB');
+  assert.equal(core.auditSentence(command('WIFI', 'CRVIHAAN01', 'rejected', [['code', 'unexpected_field']])),
+    'a@b tried to put on record a command on CRVIHAAN01 over USB');
+  assert.equal(core.auditSentence(command('WIFI', '', 'denied')), 'a@b tried to put on record a command run over USB');
+  // Every command the API records has its own words, each with a place for the board.
+  for (const name of ['INIT', 'SET_ID', 'RESET_CONFIG', 'FACTORY_RESET', 'WIFI', 'WIFI_SEC', 'CLEAR_WIFI', 'CLOUD', 'KEYGEN',
+    'MQTT_HOST', 'MQTT_RECONNECT', 'BUTTON', 'REBOOT', 'ENTER_BOOTLOADER']) {
+    assert.match(core.SERIAL_WORDS[name], /\{\}/, name);
+  }
+  const line = core.describeAudit(command('WIFI', 'CRVIHAAN01', 'ok', [['from', 'phone']]));
+  assert.equal(line.byName, true);
+  assert.deepEqual(line.facts.map((fact) => [fact.label, fact.value, fact.code]),
+    [['Running', '1.12.0+0', true], ['Command', 'WIFI', true], ['From', 'the phone app', false]]);
+  assert.equal(core.describeAudit(command('WIFI', '')).byName, false);
+});
+
+test('a command at the serial console is posted once, with its name, the board\'s ID and version, and nothing else', async () => {
+  const sent = client({ answers: [reply(201, { recorded: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } })] });
+  assert.deepEqual(await sent.api.recordSerialCommand({ command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' }),
+    { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' });
+  assert.equal(sent.calls[0].path, '/api/serial/commands');
+  assert.equal(sent.calls[0].options.method, 'POST');
+  assert.deepEqual(JSON.parse(sent.calls[0].options.body), { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' });
+  const bare = client({ answers: [reply(201, { recorded: { command: 'INIT', device: null, version: null } })] });
+  await bare.api.recordSerialCommand({ command: 'INIT' });
+  assert.deepEqual(JSON.parse(bare.calls[0].options.body), { command: 'INIT' });
+  // Too many in a minute is not waited out: one try, and the refusal as the server put it.
+  const limited = client({ answers: [reply(429, { error: { code: 'rate_limited', message: 'At most 30 a minute.' } }), reply(201, {})] });
+  const error = await failure(limited.api.recordSerialCommand({ command: 'REBOOT' }));
+  assert.deepEqual([error.status, error.code, limited.calls.length, limited.pauses.length], [429, 'rate_limited', 1, 0]);
+  // What is not a command name, a device ID or a version is not sent at all.
+  const none = client({ answers: [] });
+  for (const body of [{ command: 'WIFI|Lab|secret' }, { command: 'WIFI', device: 'CR-01' }, { command: 'WIFI', version: '1.12.0' }]) {
+    assert.equal((await failure(none.api.recordSerialCommand(body))) instanceof core.ApiError, true, JSON.stringify(body));
+  }
+  assert.equal(none.calls.length, 0);
+});
+
+test('the board log is asked for with its range, board, kinds and sources, and read line by line', async () => {
+  const thing = 'cranium-0123456789abcdef';
+  const { api, calls } = answering(200, {
+    lines: [
+      { thing, at: NOON, id: '42.17', kind: 'health', tag: 'WIFI', level: 'warn', text: 'connected\u0007 é', boot: 42, seq: 17, dropped: 3 },
+      { thing, at: NOON, id: '42.18', kind: 'connection', tag: 'WIFI', text: 'not a kind of the log' },
+      { thing, at: NOON, id: '42.19', kind: 'log', tag: 'zephyr', text: 'not a source of the log' },
+      { thing: 'someone', at: NOON, id: '42.20', kind: 'log', tag: 'app', text: 'not a board' },
+    ],
+    cursor: 'abc_-1', from: NOON, to: NOON,
+  });
+  const read = await api.boardLog({ from: NOON, to: NOON, thing, kinds: ['health', 'setting'], tags: ['WIFI', 'net'], cursor: 'xyz' });
+  const asked = new URL(calls[0].path, 'https://console.example');
+  assert.equal(asked.pathname, '/api/events/log');
+  assert.deepEqual(Object.fromEntries(asked.searchParams), {
+    from: NOON, to: NOON, thing, kinds: 'health,setting', tags: 'WIFI,net', cursor: 'xyz',
+  });
+  assert.deepEqual(read.lines, [{
+    thing, at: NOON, id: '42.17', kind: 'health', tag: 'WIFI', level: 'warn', text: 'connected? ?', boot: 42, seq: 17, dropped: 3,
+  }]);
+  assert.equal(read.cursor, 'abc_-1');
+  const none = client({ answers: [] });
+  for (const query of [{ kinds: ['connection'] }, { tags: ['zephyr'] }]) {
+    assert.equal((await failure(none.api.boardLog({ from: NOON, to: NOON, ...query }))) instanceof core.ApiError, true);
+  }
+  assert.equal(none.calls.length, 0);
 });
 
 test('a passkey that was read names its board by its thing name, for the page to call it by its own', () => {

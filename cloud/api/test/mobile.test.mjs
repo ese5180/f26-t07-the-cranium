@@ -223,6 +223,7 @@ const ROUTES = [
   { route: 'GET /api/devices/{thing}', path: `/api/devices/${THING}`, status: 200, phone: true },
   { route: 'GET /api/devices/{thing}/samples', path: `/api/devices/${THING}/samples`, status: 200, phone: true },
   { route: 'GET /api/events', status: 200, phone: true },
+  { route: 'GET /api/events/log', status: 200, phone: true },
   { route: 'GET /api/firmware', status: 200, phone: true },
   {
     route: 'POST /api/firmware', status: 201, phone: true,
@@ -245,6 +246,7 @@ const ROUTES = [
   { route: 'GET /api/tokens', status: 200, phone: true },
   { route: 'POST /api/tokens', status: 201, phone: true, body: { name: 'laptop' } },
   { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: true, body: {} },
+  { route: 'POST /api/serial/commands', status: 201, phone: true, body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */
@@ -445,8 +447,10 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   });
   const unknown = accessClaims({ sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT });
 
+  // The changes, and not the sign-in that the first of them records.
+  const changes = () => context.fake.auditLog().filter((entry) => entry.action !== 'account.sign_in');
   for (const claims of [stale, unknown]) {
-    const before = context.fake.auditLog().length;
+    const before = changes().length;
     const deploy = await context.call('POST', '/api/deployments', { claims, body: { version: VERSION, things: [THING] } });
     assert.deepEqual([deploy.status, deploy.body.error?.code], [403, 'phone_sign_in_again']);
     const revoke = await context.call('POST', `/api/firmware/${V}/revoke`, { claims, body: { reason: 'old build' } });
@@ -454,7 +458,7 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
     const token = await context.call('POST', '/api/tokens', { claims, body: { name: 'phone' } });
     assert.equal(token.body.error?.code, 'phone_sign_in_again');
     // Refused, and on record as refused.
-    const added = context.fake.auditLog().slice(before);
+    const added = changes().slice(before);
     assert.deepEqual(added.map((entry) => [entry.outcome, entry.detail.code]),
       [['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again']]);
   }
@@ -465,11 +469,15 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   assert.equal((await context.call('GET', `/api/firmware/${V}/image`, { claims: stale })).status, 200);
   const check = await context.call('POST', `/api/firmware/${V}/bluetooth`, { claims: stale, body: { sha256: sha256(IMAGE) } });
   assert.equal(check.status, 200);
+  // Nor does saying what was done at a board's serial console, which is done already.
+  const serial = await context.call('POST', '/api/serial/commands', { claims: stale, body: { command: 'CLEAR_WIFI' } });
+  assert.equal(serial.status, 201, JSON.stringify(serial.body));
+  assert.deepEqual([changes().at(-1).action, changes().at(-1).detail.from], ['serial.command', 'phone']);
 
   // Signed in just now: a deployment to two boards goes ahead, and says it came from the phone.
   const both = await context.call('POST', '/api/deployments', { claims: context.phone, body: { version: VERSION, things: [THING, OTHER_THING] } });
   assert.equal(both.status, 201, JSON.stringify(both.body));
-  const entry = context.fake.auditLog().at(-1);
+  const entry = changes().at(-1);
   assert.equal(entry.action, 'deployment.create');
   assert.equal(entry.detail.from, 'phone');
 });

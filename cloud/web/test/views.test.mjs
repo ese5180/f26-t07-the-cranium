@@ -1184,7 +1184,8 @@ test('the log says what happened in the words of the console', async () => {
   assert.deepEqual(lines.map((line) => textOf(one(line, 'p.log-what'))), [
     `${MANAGER.email} revoked firmware 2.0.0+0`,
     `${MANAGER.email} cancelled the deployment of 1.2.4+0`,
-    `${MANAGER.email} started a deployment of 1.2.3+5`,
+    // An entry from before the log named the boards: they come from the deployment.
+    `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`,
     'account 7a7a7a7a… tried to upload zephyr.signed.bin Refused',
   ]);
   const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
@@ -1193,7 +1194,7 @@ test('the log says what happened in the words of the console', async () => {
   assert.deepEqual(detail(lines[1]),
     ['Asked to withdraw the offer', `Deployment ${WITHDRAWN}`, 'Account f9e8d7c6…', 'Request req-1']);
   assert.deepEqual(detail(lines[2]),
-    ['Boards 1', `Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
+    [`Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
   // A refusal in words, with its code only for whoever points at them; the file is what the sentence names already,
   // and a digest is shortened beside a button that copies all of it.
   assert.deepEqual(detail(lines[3]), [
@@ -1206,7 +1207,7 @@ test('the log says what happened in the words of the console', async () => {
   assert.equal(all(one(lines[3], 'span', 'Signed with'), 'span.mono').length, 0);
   assert.equal(one(lines[3], 'span', 'Signed with').getAttribute('title'), 'Code wrong_key');
   // The deployment links to its page under the name of its version.
-  assert.equal(one(lines[2], 'a.log-target').getAttribute('href'), `#/deployments/${OFFERED}`);
+  assert.equal(all(lines[2], 'a.log-target')[0].getAttribute('href'), `#/deployments/${OFFERED}`);
 });
 
 test('the log says how a deployment that is over ended, and leaves the others alone', async () => {
@@ -1215,11 +1216,41 @@ test('the log says how a deployment that is over ended, and leaves the others al
     executions: [execution(WAITING, 'rolled_back', { status: 'FAILED', reason: 'rolled_back' })],
   });
   const line = async (deployments) => textOf(one(one(page(views.activityView,
-    await consoleState({ ...WORLD, deployments })), 'li.log-line', 'started a deployment'), 'p.log-what'));
-  assert.equal(await line([over]), `${MANAGER.email} started a deployment of 1.2.3+5 Failed`);
+    await consoleState({ ...WORLD, deployments })), 'li.log-line', 'deployed'), 'p.log-what'));
+  assert.equal(await line([over]), `${MANAGER.email} deployed 1.2.3+5 to ${WAITING} Failed`);
   assert.equal(await line([deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] })]),
-    `${MANAGER.email} started a deployment of 1.2.3+5`);
-  assert.equal(await line([]), `${MANAGER.email} started a deployment of 1.2.3+5`);
+    `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`);
+  // Without the deployment, the entry's own count.
+  assert.equal(await line([]), `${MANAGER.email} deployed 1.2.3+5 to 1 board`);
+});
+
+test('the log names the boards a deployment went to, a board changed over USB and a sign-in, each by its name now', async () => {
+  const named = WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item));
+  const entries = [
+    entry('deployment.create', OFFERED, { detail: { version: '1.2.3+5', things: '2', boards: `${WAITING} ${INSTALLING}`, from: 'phone' } }),
+    entry('serial.command', 'CRVIHAAN01', { detail: { command: 'WIFI', version: '1.12.0+0' } }),
+    entry('serial.command', 'NOTLISTED', { detail: { command: 'REBOOT' } }),
+    entry('account.sign_in', '', { detail: { client: 'phone' }, requestId: `signin.${MANAGER.sub}.phone.1793700000` }),
+  ];
+  const lines = all(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'li.log-line');
+  assert.deepEqual(lines.map((line) => textOf(one(line, 'p.log-what'))), [
+    `${MANAGER.email} deployed 1.2.3+5 to CRVIHAAN01 and ${INSTALLING}`,
+    `${MANAGER.email} set the Wi-Fi network of CRVIHAAN01 over USB`,
+    `${MANAGER.email} restarted NOTLISTED over USB`,
+    `${MANAGER.email} signed in on the phone app`,
+  ]);
+  // Each board links to its page, the one found by its name too; one not in the list is said as it is.
+  assert.deepEqual(all(lines[0], 'a.log-target').map((link) => link.getAttribute('href')),
+    [`#/deployments/${OFFERED}`, `#/devices/${WAITING}`, `#/devices/${INSTALLING}`]);
+  assert.equal(one(lines[1], 'a.log-target').getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(all(lines[2], 'a.log-target').length, 0);
+  const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
+  assert.deepEqual(detail(lines[0]), ['From the phone app', `Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
+  assert.deepEqual(detail(lines[1]), ['Running 1.12.0+0', 'Command WIFI', 'Account 0b1c2d3e…', 'Request req-1']);
+  // A sign-in's id is made of the sign-in, not a request's: it is not shown as one.
+  assert.deepEqual(detail(lines[3]), ['Account 0b1c2d3e…']);
+  assert.match(textOf(one(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'p.log-summary')),
+    /2 commands over USB.*1 sign-in/);
 });
 
 test('a reason as long as the dialog accepts is shown whole', async () => {
@@ -2486,8 +2517,8 @@ test('the activity log counts the sends over Bluetooth a phone was cleared for',
   assert.match(summary, /2 sends over Bluetooth/);
   assert.match(summary, /1 refused or failed/);
   const text = textOf(drawn);
-  assert.match(text, /was cleared to send over Bluetooth/);
-  assert.match(text, /tried to send over Bluetooth/);
+  assert.match(text, /was cleared to send 2\.0\.0\+0 over Bluetooth/);
+  assert.match(text, /tried to send 2\.0\.0\+0 over Bluetooth/);
   assert.match(text, /The release is revoked/);
   assert.match(text, /Cranium-1A2B/);
 });

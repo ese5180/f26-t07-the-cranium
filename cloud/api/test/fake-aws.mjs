@@ -31,6 +31,8 @@
 // document AWS IoT would publish, and so do connect() and disconnect() as presence messages.
 // What they make lands in the stand-in's events table, where queryEvents and querySamples
 // read it. fake.eventStore() is the stand-in for the recorder's adapter (createEventStore).
+// The third rule, a board's log (src/lib/lines.mjs), is played by fake.device(thing).log(tag, text),
+// which publishes one line on cranium/<thing>/events as firmware 1.12.0 does.
 //
 // Time comes from the `now` function passed in (the system clock by default). Jobs
 // behave as in AWS IoT: an execution in progress times out after the job's timeout, a
@@ -61,6 +63,7 @@ import { readFileSync } from 'node:fs';
 import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { recordsOf } from '../src/lib/events.mjs';
+import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
 
 const THING_NAME = /^[a-zA-Z0-9:_-]{1,128}$/;
 const JOB_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -165,6 +168,7 @@ export function createFakeAws({
   const auditItems = new Map(); // sk -> item
   const tokens = new Map();     // sk (the digest of a token) -> item
   const eventItems = new Map(); // thing -> Map(sk -> item): the events table
+  const lineCounters = new Map(); // thing -> { boot, seq }: the board log's numbers
   const users = new Map();      // sub -> { email, enabled, status, groups }
   const faults = new Map();     // method -> [error | () => error]
   const calls = [];
@@ -260,8 +264,26 @@ export function createFakeAws({
     eventItems.get(item.pk).set(item.sk, copy(item));
   }
 
+  /** The claim of a line, as the conditional PutItem of createEventStore makes it. */
+  function claimLineItem(claim) {
+    assertStorable(claim, 'claim');
+    const there = eventItems.get(claim.pk)?.get(claim.sk);
+    if (there !== undefined && there.at !== claim.at && Math.abs(there.at - claim.at) <= SAME_LINE_MS) {
+      return { ok: false, reason: 'same_line' };
+    }
+    putEventItem(claim);
+    return { ok: true };
+  }
+
   /** What the rules and the recorder make of a message: repeatable random digits, the stand-in's clock. */
   function record(message) {
+    if (isLineMessage(message)) {
+      const made = recordsFromLine(message, { nowMs: clock() });
+      if (made.items === undefined) return made;
+      if (!claimLineItem(made.claim).ok) return { ...made, items: [], repeated: true };
+      for (const item of made.items) putEventItem(item);
+      return made;
+    }
     const made = recordsOf(message, {
       nowMs: clock(),
       randomHex: (count) => {
@@ -525,21 +547,26 @@ export function createFakeAws({
       return { ok: true };
     },
 
-    async queryAudit({ before, limit }) {
+    async queryAudit({ before, after = null, limit }) {
       if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
       return [...auditItems.keys()].sort().reverse()
         .filter((sk) => before === null || before === undefined || sk < before)
+        .filter((sk) => after === null || after === undefined || sk > after)
         .slice(0, limit)
         .map((sk) => copy(auditItems.get(sk)));
     },
 
-    async queryEvents({ thing, low, high, kinds = null, limit }) {
+    async queryEvents({ thing, low, high, kinds = null, tags = null, limit }) {
       if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > 16)) {
         throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
+      }
+      if (tags !== null && (!Array.isArray(tags) || tags.length === 0 || tags.length > 16)) {
+        throw new TypeError('tags must be null or a list of 1 to 16 tags');
       }
       if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
       return eventPart(thing, low, high).reverse()
         .filter((item) => kinds === null || kinds.includes(item.kind))
+        .filter((item) => tags === null || tags.includes(item.tag))
         .slice(0, limit)
         .map(copy);
     },
@@ -652,6 +679,26 @@ export function createFakeAws({
             clientInitiatedDisconnect: reason === 'CLIENT_INITIATED_DISCONNECT',
           });
         },
+        /**
+         * The board prints a line that goes to the console in the cloud (firmware 1.12.0): one
+         * message on cranium/<thing>/events, as the board log's rule selects it. The line was
+         * printed `waitedMs` before it was sent; `seq` and `boot` count as the board does unless
+         * given. Returns what the recorder made of it.
+         */
+        log(tag, text, { waitedMs = 0, seq, boot, dropped, received = clock() } = {}) {
+          // A board heard of for the first time here has been up a minute, or as long as the line waited.
+          if (!booted.has(thing)) booted.set(thing, clock() - Math.max(60_000, waitedMs));
+          const up = Math.max(0, clock() - booted.get(thing));
+          const counter = lineCounters.get(thing) ?? { boot: 1, seq: 0 };
+          counter.seq = seq ?? counter.seq + 1;
+          if (boot !== undefined) counter.boot = boot;
+          lineCounters.set(thing, counter);
+          const message = {
+            t: Math.max(0, up - waitedMs), seq: counter.seq, boot: counter.boot, up, tag, text, thing, received,
+          };
+          if (dropped !== undefined) message.dropped = dropped;
+          return record(message);
+        },
         /** Put any document in place of the shadow, to see how the console copes. */
         setRaw(document) {
           shadows.set(thing, copy(document));
@@ -755,6 +802,10 @@ export function createFakeAws({
         async putEvent(item) {
           calls.push({ method: 'putEvent', args: [item] });
           putEventItem(item);
+        },
+        async claimLine(claim) {
+          calls.push({ method: 'claimLine', args: [claim] });
+          return claimLineItem(claim);
         },
       });
     },

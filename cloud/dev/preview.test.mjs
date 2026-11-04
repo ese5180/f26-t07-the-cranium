@@ -671,6 +671,24 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   assert.ok(readings.bucketSeconds > 0);
   assert.ok(readings.samples.some((sample) => sample.heapFree !== null));
   assert.ok(readings.samples.every((sample) => sample.rssi !== null));
+
+  // The board on 1.12.0 sends its log: lines of several sources, a warning, a gap, and never the passkey.
+  const { lines } = await api.boardLog({ from, to });
+  assert.ok(lines.length >= 10, `${lines.length} lines`);
+  assert.deepEqual([...new Set(lines.map((line) => line.thing))], [withDiag[0].thing]);
+  assert.deepEqual([...new Set(lines.map((line) => line.tag))].sort(), ['CONSOLE', 'WIFI', 'app', 'cloud', 'net']);
+  assert.ok(lines.some((line) => line.dropped === 2));
+  const leaving = lines.find((line) => line.tag === 'net');
+  assert.deepEqual([leaving.level, leaving.text], ['warn', 'ERR: Leaving the network: its security mode (2) is not allowed']);
+  assert.equal(lines.some((line) => /passkey|123456/.test(line.text)), false);
+  assert.ok(lines.some((line) => line.kind === 'setting' && /^WIFI done on the serial console/.test(line.text)));
+  // And the activity log says who did that, and when they had signed in.
+  const { entries } = await api.audit({ limit: 50 });
+  const serial = entries.find((entry) => entry.action === 'serial.command');
+  assert.deepEqual([serial.target, Object.fromEntries(serial.detail)], ['CRVIHAAN01', { command: 'WIFI', version: '1.12.0+0' }]);
+  assert.equal(core.auditSentence(serial, devices), 'manager@preview.invalid set the Wi-Fi network of CRVIHAAN01 over USB');
+  assert.deepEqual(entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => Object.fromEntries(entry.detail)),
+    [{ client: 'web' }, { client: 'web' }, { client: 'web' }]);
 });
 
 test('the console\'s client makes every change the way the API expects it', async (t) => {
@@ -679,7 +697,9 @@ test('the console\'s client makes every change the way the API expects it', asyn
   const { api } = await consoleClient(origin, clock, sent);
   const [board] = preview.boards;
   const { thing } = board;
-  const outcomes = (entries) => entries.map((entry) => `${entry.action} ${entry.outcome}`);
+  // The changes; the sign-in through the AWS sign-in page that made them is on record once, apart.
+  const outcomes = (entries) => entries.filter((entry) => entry.action !== 'account.sign_in')
+    .map((entry) => `${entry.action} ${entry.outcome}`);
 
   // An upload, prepared as the Firmware page prepares it. What the page reads from the
   // file before sending is what the server reads from it afterwards.
@@ -849,7 +869,8 @@ test('each scenario is in the state its name promises', async (t) => {
       details,
       devices: (await get('/api/devices')).devices,
       releases: releases.map((release) => `${release.version} ${release.status}`),
-      audit: (await get('/api/audit')).entries,
+      // What the scenario changed, without the sign-in of the page that looks at it, which is on record too.
+      audit: (await get('/api/audit')).entries.filter((entry) => entry.action !== 'account.sign_in'),
     };
   }
 
@@ -970,7 +991,11 @@ test('an upload goes through the gateway to the real handler and is stored or re
     assert.equal(found.body.release.sha256, accepted.body.release.sha256, path);
   }
   assert.equal(preview.fake.objects.size, 1);
-  assert.equal((await call(origin, token, 'GET', '/api/audit')).body.entries.length, 7);
+  // Seven changes tried, and the sign-in on the preview's own page that made them, once.
+  const entries = (await call(origin, token, 'GET', '/api/audit')).body.entries;
+  assert.equal(entries.length, 8);
+  assert.deepEqual(entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => [entry.actor.email, entry.detail]),
+    [[preview.user.email, { client: 'web' }]]);
 });
 
 test('a viewer sees everything and changes nothing', async (t) => {

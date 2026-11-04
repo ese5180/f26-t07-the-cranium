@@ -1,10 +1,12 @@
 # Phone apps: updating a board over Bluetooth
 
-Two apps, one for iPhone (`apps/ios`, Swift, shipped through TestFlight) and one for Android
-(`apps/android`, Kotlin). Both do the same thing: a release manager signs in, picks a firmware
-release that is on AWS, and sends it to a board over Bluetooth LE. Nothing else about the board
-changes: MCUboot still checks the signature, the board still asks for a button press to install,
-and the new image still runs on trial.
+Two apps, one for iPhone (`apps/ios`, Swift; installed with a free Apple team, see
+[`apps/ios/README.md`](../apps/ios/README.md)) and one for Android (`apps/android`, Kotlin). Both do
+everything the console's website does, and one thing more: a release manager picks a firmware release
+that is on AWS and sends it to a board over Bluetooth LE. Nothing else about the board changes for
+that: MCUboot still checks the signature, the board asks for a press of Button 1 to install an image
+that came over Bluetooth (an update over Wi-Fi needs no button from 1.7.2 on), and the new image
+still runs on trial.
 
 This file is the contract both apps follow. The board's side is in
 [`firmware/README.md`](../firmware/README.md#firmware-update-over-bluetooth).
@@ -94,8 +96,11 @@ the API, with one rule: **a change made from the phone needs a sign-in, with pas
 15 minutes.** That covers uploading, revoking, deploying, cancelling, and making or ending API tokens. A phone
 whose sign-in is older gets `403 phone_sign_in_again`, and the app asks for the password and code again
 before it retries. Reads never ask. The three calls a person makes while standing at a board for an update
-over Bluetooth do not ask either: the image, the passkey and the check before a send. A deployment made from
-the phone goes into the activity log with `from: phone`. The Android app also reads the access token's
+over Bluetooth do not ask either: the image, the passkey and the check before a send, and nor does the record of a
+command given at a board's serial console ([below](#changes-made-at-a-boards-serial-console)). A deployment made from
+the phone goes into the activity log with `from: phone`. A sign-in on the phone is in the activity log too, once,
+as "signed in on the phone app", when the API sees the first request of it: a refreshed token keeps its `auth_time`
+and is the same sign-in. The Android app also reads the access token's
 `auth_time`, the claim the console checks, and asks for the sign-in before it tries a change once that is
 more than 14 minutes old, so that a change is not refused on its way and logged as such.
 
@@ -113,6 +118,39 @@ HTTP status; show the message.
 | `POST /api/firmware/{version}/bluetooth` | Release managers | Body `{"sha256": "<the image's SHA-256, lower-case hex>", "board": "Cranium-1A2B"}`, `board` optional. Ask right before every Bluetooth send. `{"version", "sha256", "status": "active"}` only for an active release whose image has that SHA-256; 409 `release_revoked` for a revoked one, 409 `sha256_mismatch` for another image, 404 `unknown_version`, 400 for a malformed body. Changes nothing. Every call, refusals included, is recorded in the activity log (`firmware.bluetooth_send`) |
 
 `{version}` is the text from the list, `1.8.0+0`, URL-encoded. Only offer `active` releases.
+
+### Changes made at a board's serial console
+
+An app that drives a board's serial console over USB (the Android app does) puts each command that changed the
+board in the activity log, as the website's Serial page does. The server never sees the command itself, so the app
+says which one it was, once the board has answered it with `OK`:
+
+| Call | Who | Answer |
+| --- | --- | --- |
+| `POST /api/serial/commands` | Release managers | Body `{"command": "WIFI", "device": "CRVIHAAN01", "version": "1.12.0+0"}`. `201 {"recorded": {"command", "device", "version"}}`. Recorded in the activity log (`serial.command`), with `from: phone` |
+
+- **When.** Right after the board's final line for the command is `OK ...`, for these commands only: `INIT`,
+  `SET_ID`, `RESET_CONFIG`, `FACTORY_RESET`, `WIFI`, `WIFI_SEC`, `CLEAR_WIFI`, `CLOUD`, `KEYGEN`, `MQTT_HOST`,
+  `MQTT_RECONNECT`, `BUTTON`, `REBOOT`, `ENTER_BOOTLOADER`. Not after `ERR`, not for a command that only asks
+  (`GET_ID`, `STATUS`, `NET`, `MQTT`, `HELP`), and not for what the app sends by itself (`ECHO|OFF`, the `GET_ID`
+  after connecting). A command typed by hand counts the same as one from a form; compare the name in capitals.
+- **What.** `command` is the command's name in capitals, as the firmware compares it. `device` and `version` are what
+  the board answered to `GET_ID` (`OK <device ID>|<version>`): the device ID only if it is 1 to 32 letters or digits,
+  the version only in the form `1.12.0+0`; leave either out otherwise, as for a board in factory mode. **Nothing
+  else**: never the network's name, the password, the endpoint, a key or a certificate, and never the line as it was
+  typed. The server refuses a body with any other field (`400 unexpected_field`), and that refusal is on record.
+- **Who.** A release manager, as the server asks Cognito at that moment; a viewer gets `403 release_manager_required`.
+  A phone needs no sign-in in the last 15 minutes for it, as for the calls at a board for Bluetooth: the change is
+  made by then, and a refusal would only keep it off the record.
+- **Limit.** At most 30 a minute per person. One more gets `429 rate_limited`, which is not retried and leaves no
+  entry.
+- **If it fails.** The command is done on the board whatever the answer. Say so next to the board's own `OK`: that it
+  was done, and that it is not in the activity log, with the server's message. Do not send the command again, and do
+  not queue the record for later: a record that arrives late would be dated late.
+
+The website does the same (`cloud/web/src/site/assets/serial.js`, `recordCommand`). From firmware 1.12.0 the board
+also reports the same commands to the cloud by itself, in its board log (`[CONSOLE] WIFI done on the serial console:
+...`); the record says who did it.
 
 Before sending an image, the app checks it: its SHA-256 and size must match the list, and its
 first four bytes must be MCUboot's magic, `3d b8 f3 96`. The version in its header (bytes 20 to 27:

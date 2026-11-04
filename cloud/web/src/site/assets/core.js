@@ -768,6 +768,46 @@ function readEvents(body) {
   };
 }
 
+// The boards' own log, line by line, from firmware 1.12.0 (cloud/api/src/lib/lines.mjs). Each line
+// has a kind, as an event does, and the source it came from on the board's console, its tag.
+
+export const LINE_KINDS = Object.freeze(['bluetooth', 'update', 'restart', 'health', 'setting', 'log']);
+export const LINE_TAGS = Object.freeze([
+  'BT', 'WIFI', 'STUCK', 'CONSOLE',
+  'app', 'boot_diary', 'bt_ota', 'cloud', 'factory', 'health', 'identity', 'net', 'ota', 'store', 'stuck', 'ui',
+]);
+const LINE_ID = /^(0|[1-9]\d{0,9})\.([1-9]\d{0,9})$/;
+
+/** One line of a board's log, or null for one that cannot be shown. */
+function readLine(raw) {
+  if (!anObject(raw) || !isThing(raw.thing) || instant(raw.at) === null || !LINE_KINDS.includes(raw.kind) ||
+      !LINE_TAGS.includes(raw.tag) || typeof raw.id !== 'string' || !LINE_ID.test(raw.id)) {
+    return null;
+  }
+  return {
+    thing: raw.thing,
+    at: raw.at,
+    id: raw.id,
+    kind: raw.kind,
+    tag: raw.tag,
+    level: raw.level === 'warn' ? 'warn' : 'info',
+    text: boardText(raw.text, 160),
+    boot: whole(raw.boot, 0, 2 ** 32 - 1),
+    seq: whole(raw.seq, 1, 2 ** 32 - 1),
+    dropped: whole(raw.dropped, 1, 2 ** 32 - 1),
+  };
+}
+
+function readLines(body) {
+  const reply = record(body);
+  return {
+    lines: list(reply.lines).map(readLine).filter((line) => line !== null),
+    cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
+    from: instant(reply.from),
+    to: instant(reply.to),
+  };
+}
+
 function readSamples(body) {
   const reply = record(body);
   return {
@@ -1852,8 +1892,8 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     return new ApiError(401, 'unauthorized', 'Your session has ended. Sign in again to continue.');
   }
 
-  async function request(method, path, body) {
-    const retry = method === 'GET' ? RETRY_GET : RETRY_POST;
+  async function request(method, path, body, { once = false } = {}) {
+    const retry = once ? new Set() : (method === 'GET' ? RETRY_GET : RETRY_POST);
     for (let attempt = 1; ; attempt += 1) {
       const token = auth.accessToken();
       if (token === null) throw unauthorized();
@@ -1963,6 +2003,15 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       return readEvents(await get(`/api/events?${form(query)}`));
     },
+    /** The boards' own log between two times (ISO), newest first, a page at a time. */
+    async boardLog({ from, to, thing = null, kinds = null, tags = null, cursor = null }) {
+      const query = { from: checked(instant, from), to: checked(instant, to) };
+      if (thing !== null) query.thing = checked(isThing, thing);
+      if (kinds !== null) query.kinds = kinds.map((kind) => checked((name) => LINE_KINDS.includes(name), kind)).join(',');
+      if (tags !== null) query.tags = tags.map((tag) => checked((name) => LINE_TAGS.includes(name), tag)).join(',');
+      if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
+      return readLines(await get(`/api/events/log?${form(query)}`));
+    },
     /** A board's readings of the last `hours` hours, oldest first. */
     async samples(thing, hours = 24) {
       const query = { hours: String(checked((value) => whole(value, 1, 168) !== null, hours)) };
@@ -1992,6 +2041,17 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async cancel(id, force) {
       const path = `/api/deployments/${checked(isDeploymentId, id)}/cancel`;
       return readDeployment(record(record(await post(path, { force: force === true })).deployment));
+    },
+    /**
+     * Put on record a command the board answered OK to at its serial console: its name, and the
+     * board's device ID and firmware as it gave them. Never a value. Tried once: a refusal for
+     * too many is not one to wait out, and the board has done it either way.
+     */
+    async recordSerialCommand({ command, device = null, version = null }) {
+      const body = { command: checked((name) => /^[A-Z][A-Z_]{1,31}$/.test(name), command) };
+      if (device !== null) body.device = checked(isBoardName, device);
+      if (version !== null) body.version = checked(isVersion, version);
+      return record(await request('POST', '/api/serial/commands', body, { once: true })).recorded ?? null;
     },
     tokens: async () => readTokens(await get('/api/tokens')),
     createToken: async ({ name, days }) => readNewToken(await post('/api/tokens', { name, days })),
@@ -2855,9 +2915,11 @@ export function nameOf(person) {
   return person?.sub ? `account ${shortAccount(person.sub)}` : 'an unknown account';
 }
 
-// A deployment is named by the version it installs: the words that end in "of" lose it
-// when an entry has no target.
-// `triedAlone` is the whole sentence for a request refused before it named anything.
+// What each action of the activity log is called. `done` and `tried` read on into the entry's
+// label: a version, a board, a token. Where `{}` stands in them the label goes there, and the
+// words after it follow it. `doneAlone` and `triedAlone` are the whole sentence for an entry that
+// has no label, as a request refused before it named anything. A deployment is named by the
+// version it installs, and the boards it went to follow the sentence (auditBoards).
 const AUDIT_ACTIONS = {
   'firmware.upload': {
     done: 'uploaded firmware', tried: 'tried to upload', triedAlone: 'tried to upload a file', icon: 'upload',
@@ -2866,7 +2928,8 @@ const AUDIT_ACTIONS = {
     done: 'revoked firmware', tried: 'tried to revoke firmware', triedAlone: 'tried to revoke a release', icon: 'ban',
   },
   'deployment.create': {
-    done: 'started a deployment of', tried: 'tried to deploy', triedAlone: 'tried to start a deployment', icon: 'send',
+    done: 'deployed', doneAlone: 'started a deployment', tried: 'tried to deploy', triedAlone: 'tried to start a deployment',
+    icon: 'send',
   },
   'deployment.cancel': {
     done: 'cancelled the deployment of',
@@ -2876,8 +2939,9 @@ const AUDIT_ACTIONS = {
   },
   // From the phone apps, for an update over Bluetooth.
   'firmware.download': {
-    done: 'downloaded firmware to a phone',
-    tried: 'tried to download firmware',
+    done: 'downloaded {} to a phone',
+    doneAlone: 'downloaded firmware to a phone',
+    tried: 'tried to download',
     triedAlone: 'tried to download firmware',
     icon: 'download',
   },
@@ -2890,8 +2954,9 @@ const AUDIT_ACTIONS = {
   // The check a phone makes right before it sends a release to a board over Bluetooth. The
   // console cleared it; whether the board took it, only the board knows.
   'firmware.bluetooth_send': {
-    done: 'was cleared to send over Bluetooth',
-    tried: 'tried to send over Bluetooth',
+    done: 'was cleared to send {} over Bluetooth',
+    doneAlone: 'was cleared to send firmware over Bluetooth',
+    tried: 'tried to send {} over Bluetooth',
     triedAlone: 'tried to send firmware over Bluetooth',
     icon: 'chip',
   },
@@ -2902,6 +2967,40 @@ const AUDIT_ACTIONS = {
   'token.revoke': {
     done: 'revoked API token', tried: 'tried to revoke API token', triedAlone: 'tried to revoke an API token', icon: 'key',
   },
+  // A sign-in with password and code, on the website or the phone app (SIGNED_IN_ON).
+  'account.sign_in': {
+    done: 'signed in', tried: 'tried to sign in', triedAlone: 'tried to sign in', icon: 'user',
+  },
+  // A command that changed a board at its serial console, over USB from this console's Serial page
+  // or a phone app, named by the board's device ID (SERIAL_WORDS).
+  'serial.command': {
+    done: 'ran a command on {} over USB',
+    doneAlone: 'ran a command on a board over USB',
+    tried: 'tried to put on record a command on {} over USB',
+    triedAlone: 'tried to put on record a command run over USB',
+    icon: 'chip',
+  },
+};
+
+const SIGNED_IN_ON = { web: 'signed in on the website', phone: 'signed in on the phone app' };
+
+// What a command at a board's serial console did (cloud/api/src/handlers/serial.mjs), with the
+// board where {} stands. What was typed after the command is never recorded, so never said.
+export const SERIAL_WORDS = {
+  INIT: 'set up {} from factory mode over USB',
+  SET_ID: 'changed the device ID of {} over USB',
+  RESET_CONFIG: 'cleared the cloud settings of {} over USB',
+  FACTORY_RESET: 'erased {} back to factory mode over USB',
+  WIFI: 'set the Wi-Fi network of {} over USB',
+  WIFI_SEC: 'set the Wi-Fi network and its security mode of {} over USB',
+  CLEAR_WIFI: 'erased the Wi-Fi network of {} over USB',
+  CLOUD: 'set the AWS IoT endpoint and download address of {} over USB',
+  KEYGEN: 'made a new device key on {} over USB',
+  MQTT_HOST: 'set the AWS IoT endpoint of {} over USB',
+  MQTT_RECONNECT: 'reconnected {} to AWS IoT over USB',
+  BUTTON: 'pressed a button of {} over USB',
+  REBOOT: 'restarted {} over USB',
+  ENTER_BOOTLOADER: 'restarted {} into its bootloader over USB',
 };
 
 // What scripts/ota.sh without an API token, and the test bench, call their requests. They
@@ -2989,6 +3088,11 @@ export const REFUSAL_WORDS = {
   invalid_range: 'The time range was empty, backwards or longer than 31 days',
   invalid_kinds: 'The list of kinds of event was not valid',
   invalid_hours: 'The number of hours was not a whole number from 1 to 168',
+  invalid_tags: 'The list of sources of the board log was not valid',
+  invalid_command: 'Not a command that changes a board at its serial console',
+  invalid_device: 'Not a board’s device ID',
+  unexpected_field: 'The request held more than the command, the device ID and the version',
+  rate_limited: 'More serial console commands in a minute than are recorded for one person',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */
@@ -3037,6 +3141,12 @@ const AUDIT_DETAILS = {
   board: { label: 'To board', code: true },
   // The board whose Bluetooth passkey was read, by its thing name. The page shows its own name.
   thing: { label: 'Board', code: true },
+  // The boards of a deployment of more than two, by thing name; up to two, the sentence names them.
+  boards: { label: 'To' },
+  // A command at a board's serial console, by its name, and where a change came from.
+  command: { label: 'Command', code: true },
+  from: { label: 'From', say: (value) => (value === 'phone' ? 'the phone app' : value) },
+  client: { label: 'On', say: (value) => ({ web: 'the website', phone: 'the phone app' })[value] ?? value },
   name: { label: 'Named', sentence: true },
   days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
   withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },
@@ -3050,6 +3160,8 @@ function auditFact(entry, key, value) {
   // did not refuse anything.
   if (key === 'cancelled' && entry.action === 'firmware.revoke') label = 'Deployments cancelled';
   if (key === 'code' && entry.outcome === 'error') label = 'Failed with';
+  // The firmware a board ran when a command was given at its serial console.
+  if (key === 'version' && entry.action === 'serial.command') label = 'Running';
   return {
     key,
     label,
@@ -3063,8 +3175,11 @@ function auditFact(entry, key, value) {
 
 /**
  * One line of the activity log: what was done, to what, and how it ended if not well.
- * `label` is what to call the target. A deployment is called by its version; its id
- * goes to `facts`, which are the details of the entry in words.
+ * `verb` comes before the label and `tail` after it; `label` is what to call the target. A
+ * deployment is called by its version; its id goes to `facts`, which are the details of the entry
+ * in words. `boards` are the thing names of the boards a deployment went to, as far as the entry
+ * names them, and `boardCount` how many there were; auditBoards puts them into words. `byName`
+ * says that the label is a board's own name, its device ID, which the page may find in its list.
  */
 export function describeAudit(entry) {
   const action = entryOf(AUDIT_ACTIONS, entry.action);
@@ -3077,13 +3192,38 @@ export function describeAudit(entry) {
   const resumed = entry.action === 'firmware.revoke' && ok && details.get('resumed') === 'true';
   let words = entry.action || 'did something';
   if (resumed) words = 'finished revoking firmware';
-  else if (action && ok) words = action.done;
+  else if (entry.action === 'account.sign_in' && ok) words = entryOf(SIGNED_IN_ON, details.get('client')) ?? action.done;
+  else if (entry.action === 'serial.command' && ok) words = entryOf(SERIAL_WORDS, details.get('command')) ?? action.done;
+  else if (action && ok) words = label ? action.done : action.doneAlone ?? action.done;
   else if (action) words = label ? action.tried : action.triedAlone;
 
+  let verb = words;
+  let tail = '';
+  const slot = words.indexOf('{}');
+  if (slot >= 0 && label) {
+    verb = words.slice(0, slot).trimEnd();
+    tail = words.slice(slot + 2).trimStart();
+  } else if (slot >= 0) {
+    verb = words.replace('{}', 'a board');
+  }
+  if (!label) verb = verb.replace(/ of$/, '');
+
+  // The boards of a deployment: by name where the entry has them, else how many.
+  const boards = entry.action === 'deployment.create' ? (details.get('boards') ?? '').split(' ').filter(isThing) : [];
+  const counted = entry.action === 'deployment.create' && /^[1-9]\d{0,3}$/.test(details.get('things') ?? '')
+    ? Number(details.get('things'))
+    : 0;
+  const boardCount = Math.max(counted, boards.length);
+
+  // What the sentence says already is not said again as a fact.
+  const said = new Set();
+  if (entry.action === 'account.sign_in') said.add('client');
+  if (entry.action === 'deployment.create' && boardCount > 0) said.add('things');
+  if (boards.length <= 2) said.add('boards');
   const order = [...Object.keys(AUDIT_DETAILS), ...details.keys()];
   const facts = [];
   for (const key of new Set(order)) {
-    if (!details.has(key)) continue;
+    if (!details.has(key) || said.has(key)) continue;
     // Said by the sentence already: the version of a deployment, and that a revocation was finished.
     if ((key === 'version' && details.get(key) === label) || (key === 'resumed' && resumed)) continue;
     // And the name of the file that an upload is told by.
@@ -3096,11 +3236,34 @@ export function describeAudit(entry) {
 
   return {
     icon: action?.icon ?? 'list',
-    verb: label ? words : words.replace(/ of$/, ''),
+    verb,
     label,
+    tail,
     outcome: ok ? null : entryOf(AUDIT_OUTCOMES, entry.outcome) ?? other,
     href: deploymentHref(entry.target) ?? (isVersion(entry.target) ? '#/firmware' : null),
     facts,
     scripted: String(entry.requestId ?? '').startsWith(SCRIPTED_REQUEST),
+    boards,
+    boardCount,
+    byName: entry.action === 'serial.command' && isBoardName(label),
   };
+}
+
+/**
+ * Where a deployment went, in words, each board by what it is called in `devices`: "to
+ * CRVIHAAN01", "to CRVIHAAN01 and cranium-0123…", "to 3 boards"; '' when the entry does not say.
+ */
+export function auditBoards(description, devices = []) {
+  const { boards, boardCount } = description;
+  if (boards.length > 0 && boards.length <= 2) {
+    return `to ${boards.map((thing) => boardName(boardOf(thing, devices))).join(' and ')}`;
+  }
+  return boardCount > 0 ? `to ${plural(boardCount, 'board')}` : '';
+}
+
+/** A whole line of the activity log in words, for where it is plain text: "a@b deployed 1.12.0+0 to CRVIHAAN01". */
+export function auditSentence(entry, devices = []) {
+  const description = describeAudit(entry);
+  return [nameOf(entry.actor), description.verb, description.label, description.tail, auditBoards(description, devices)]
+    .filter(Boolean).join(' ');
 }

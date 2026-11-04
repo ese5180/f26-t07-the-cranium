@@ -17,7 +17,20 @@
  *
  * A request to a write route leaves exactly one entry in the activity log, whatever
  * its outcome, including the refusals in steps 1, 2 and 5 and a request that runs out
- * of time.
+ * of time. A route may leave out refusals of one kind (`unrecorded`, `unrecordedCodes`).
+ *
+ * Sign-ins. The first request of a sign-in that this instance of the function sees, read or
+ * write, that gets past the live check of step 3 or 5, also leaves an entry `account.sign_in`:
+ * who, on the website or in a phone app, and when they gave their password and code. A sign-in
+ * is the token's sub, its auth_time and its client: a refreshed token keeps its auth_time, so a
+ * phone that refreshes its session for days is one sign-in, and the website, which keeps no
+ * refresh token, makes one each time a person signs in. An API token is no sign-in, and neither
+ * is a request made up by cloud/smoke.sh or the test bench (SCRIPTED). Every instance makes the
+ * same key for the same sign-in (lib/audit.mjs signInRequestId) and the put is conditional, so the
+ * log holds one entry however many instances see it; each instance remembers the sign-ins it has
+ * recorded, so that it puts at most once for each. It is written after the request's own work, waits for at most
+ * SIGN_IN_WAIT_MS, and whatever happens to it, the request's answer stays what it was. No
+ * address of the caller is recorded.
  *
  * Personal API tokens (handlers/tokens.mjs). A request to /api/t/<path> is the request to
  * /api/<path>, made with a token instead of a session: the gateway lets it through with no
@@ -65,11 +78,12 @@ import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
+import { createSerialHandlers } from './handlers/serial.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import {
   HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, forbidden, json, notFound, readJsonObject,
 } from './http.mjs';
-import { REQUEST_ID } from './lib/audit.mjs';
+import { REQUEST_ID, signInRequestId } from './lib/audit.mjs';
 
 const METHODS = Object.freeze(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const MAX_PATH = 512;
@@ -81,6 +95,14 @@ const TOKEN_SEGMENT = 't';
 // time it takes to write the entry in the activity log and the log line.
 const REQUEST_BUDGET_MS = 16_000;
 const RESERVE_MS = 4_000;
+
+// How long a request waits for its sign-in to be recorded, and how many sign-ins an instance
+// remembers having recorded before it starts again from none.
+const SIGN_IN_WAIT_MS = 1_500;
+const SIGN_INS_KEPT = 1024;
+// The request ids of cloud/smoke.sh and the test bench, which invoke the function directly with
+// claims they wrote themselves (docs/aws-iot.md, Known limits): such a request is no sign-in.
+const SCRIPTED = /^(?:bench|smoke)-/;
 
 /**
  * A route. `write` makes it a change that goes on record; `token: false` keeps it from
@@ -243,6 +265,7 @@ export function createApp({
   const firmware = createFirmwareHandlers(context, { deployments });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
+  const serial = createSerialHandlers(context);
   const tokens = createTokenHandlers(context);
   // Tokens from the console and from the phone apps are both tokens of this console; which
   // routes take the phone apps' is up to each route (`phone`).
@@ -263,6 +286,8 @@ export function createApp({
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/events', events.list),
+    // What the boards printed on their serial consoles, from firmware 1.12.0 (lib/lines.mjs).
+    route('GET', '/api/events/log', events.log),
     route('GET', '/api/firmware', firmware.list),
     route('POST', '/api/firmware', firmware.upload, { action: 'firmware.upload', maxBody: UPLOAD_BODY_LIMIT }),
     route('GET', '/api/firmware/{version}', firmware.get),
@@ -294,6 +319,12 @@ export function createApp({
     route('GET', '/api/tokens', tokens.list, null, websiteOnly),
     route('POST', '/api/tokens', tokens.create, { action: 'token.create', ...ownTokens }, websiteOnly),
     route('POST', '/api/tokens/{id}/revoke', tokens.revoke, { action: 'token.revoke', ...ownTokens }, websiteOnly),
+    // Who changed a board at its serial console, posted by the page that drove it over USB. Like
+    // the calls for Bluetooth, from a person at the board with a cable in hand, and after the
+    // board has done it: a fresh sign-in asked of a phone would not undo the change, only keep it
+    // off the record. A post over the limit leaves no entry (handlers/serial.mjs).
+    route('POST', '/api/serial/commands', serial.record,
+      { action: 'serial.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
   ]);
 
   /**
@@ -344,7 +375,10 @@ export function createApp({
   async function read(found, event, request) {
     const { caller } = await identify(found, event, request);
     // A token's owner was asked about just now, without the minute's grace of a session.
-    if (!request.viaToken) await context.directory.requireLiveReader(caller, request.id);
+    if (!request.viaToken) {
+      await context.directory.requireLiveReader(caller, request.id);
+      request.signIn = signInOf(caller, request.id);
+    }
     if (found === null) throw notFound('not_found', 'There is nothing at this address.');
     if (request.viaToken && !found.route.token) throw notForTokens();
     return found.route.run({ caller, params: found.params, query: queryOf(event) });
@@ -366,7 +400,7 @@ export function createApp({
   }
 
   async function write(found, event, request) {
-    const { action, maxBody, unrecorded = [] } = found.route.write;
+    const { action, maxBody, unrecorded = [], unrecordedCodes = [] } = found.route.write;
     // The handler fills these in as it learns what the request is about.
     const entry = { target: '', detail: {} };
     const actor = { sub: request.viaToken ? '' : claimedSub(event), email: '' };
@@ -378,6 +412,7 @@ export function createApp({
         const { caller } = known;
         if (caller.clientId === config.mobileClientId && !found.route.atTheBoard) requireFreshSignIn(caller, clock());
         actor.email = await liveWriter(found, request, known);
+        if (!request.viaToken) request.signIn = signInOf(caller, request.id);
         return found.route.run({
           caller,
           actor: { sub: caller.sub, email: actor.email },
@@ -415,7 +450,7 @@ export function createApp({
           : await context.directory.emailOf(request.sub);
       }
     }
-    if (failure !== null && unrecorded.includes(outcome)) throw failure;
+    if (failure !== null && (unrecorded.includes(outcome) || unrecordedCodes.includes(errorCode(failure)))) throw failure;
     const recorded = await audit.record({
       at: clock(), requestId: request.id, actor: { sub, email }, action, target, outcome, detail,
     });
@@ -425,6 +460,53 @@ export function createApp({
         'the activity log. Check the result before you repeat it.');
     }
     return result;
+  }
+
+  /**
+   * The sign-in a session's token comes from: { sub, authTime, client }, or null if it does not
+   * say, or if the request was made up by one of this project's own scripts (SCRIPTED).
+   */
+  function signInOf(caller, requestId) {
+    if (SCRIPTED.test(requestId)) return null;
+    if (!Number.isSafeInteger(caller.authTime) || caller.authTime <= 0) return null;
+    if (caller.clientId === config.userPoolClientId) return { sub: caller.sub, authTime: caller.authTime, client: 'web' };
+    if (caller.clientId === config.mobileClientId) return { sub: caller.sub, authTime: caller.authTime, client: 'phone' };
+    return null;
+  }
+
+  // The sign-ins this instance has recorded, or is recording, as "<sub> <auth_time> <client>".
+  const signInsSeen = new Set();
+
+  /** Record a sign-in, once (see the top of this file). Never throws, and gives up after SIGN_IN_WAIT_MS. */
+  async function noteSignIn(signIn, requestId) {
+    const key = `${signIn.sub} ${signIn.authTime} ${signIn.client}`;
+    if (signInsSeen.has(key)) return;
+    const id = signInRequestId(signIn);
+    if (id === null) return;
+    if (signInsSeen.size >= SIGN_INS_KEPT) signInsSeen.clear();
+    signInsSeen.add(key);
+    let timer = null;
+    const late = new Promise((resolve) => {
+      timer = timers.set(() => resolve('late'), SIGN_IN_WAIT_MS);
+    });
+    const recording = (async () => {
+      const email = context.directory.knownEmail(signIn.sub) || await context.directory.emailOf(signIn.sub);
+      return audit.recordOnce({
+        at: signIn.authTime * 1000,
+        requestId: id,
+        actor: { sub: signIn.sub, email },
+        action: 'account.sign_in',
+        target: '',
+        outcome: 'ok',
+        detail: { client: signIn.client },
+      });
+    })().catch(() => 'failed');
+    const result = await Promise.race([recording, late]).finally(() => timers.clear(timer));
+    // Not on record, as far as this instance knows: the next request of this sign-in tries again.
+    if (result !== 'stored' && result !== 'exists') {
+      signInsSeen.delete(key);
+      log({ level: 'warn', event: 'sign_in_unrecorded', requestId, sub: signIn.sub, why: result });
+    }
   }
 
   /** The gateway's id for the request, or one made up here if there is no usable one. */
@@ -445,7 +527,7 @@ export function createApp({
     // `sub` is filled in once the caller is identified, which for an API token means a token
     // that is active, and `token` ({ id, status }) once an API token is found at all.
     const request = {
-      id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false,
+      id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false, signIn: null,
     };
 
     let response;
@@ -464,6 +546,9 @@ export function createApp({
       }
       response = failed.response;
     }
+
+    // A request that ran out of time has none left to spare.
+    if (request.signIn !== null && !request.timedOut) await noteSignIn(request.signIn, requestId);
 
     const line = {
       requestId,

@@ -120,11 +120,11 @@ function fakeSerial(board) {
 }
 
 /** A session on a board, connected unless told otherwise. */
-async function connected(t, options = {}, { connect = true } = {}) {
+async function connected(t, options = {}, { connect = true, record = null } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const board = fakeBoard(options);
   const port = fakeSerial(board);
-  const session = createSerialSession({ serial: port });
+  const session = createSerialSession({ serial: port, record });
   if (connect) {
     session.connect();
     await settle();
@@ -635,6 +635,7 @@ test('the page says where what is typed goes', async (t) => {
   const { session } = await connected(t);
   const { box } = drawn(session);
   assert.match(textOf(box), /goes only over the cable to the board, never to the server/);
+  assert.match(textOf(box), /put in the activity log once the board has done it, by its name only/);
 });
 
 // The free input.
@@ -850,6 +851,99 @@ test('a command without arguments goes out with one press, and its reply shows b
   redraw();
   assert.equal(board.lines.at(-1), 'NET');
   assert.equal(textOf(one(box, 'p.serial-result')), 'OK');
+});
+
+// The activity log.
+
+/** A stand-in for the console's API: what was put on record, or a refusal. */
+function recorder(failure = null) {
+  const records = [];
+  return {
+    records,
+    record: async (body) => {
+      records.push(body);
+      if (failure) throw failure;
+      return { ...body };
+    },
+  };
+}
+
+test('a command the board did is put on record by its name, with the board\'s ID and firmware, and never a value', async (t) => {
+  const { records, record } = recorder();
+  const { board, session } = await connected(t, {}, { record });
+  const { box, redraw } = drawn(session);
+  field(box, 'serial-WIFI-ssid').value = 'Lab';
+  field(box, 'serial-WIFI-password').value = PASSWORD;
+  click(one(all(box, 'form').find((form) => textOf(form).includes('Save a WPA2')), 'button'));
+  await settle();
+  redraw();
+  assert.equal(board.lines.at(-1), `WIFI|Lab|${PASSWORD}`);
+  assert.deepEqual(records, [{ command: 'WIFI', device: 'ABC123', version: '1.2.3+5' }]);
+  assert.equal(JSON.stringify(records).includes('Lab'), false);
+  assert.equal(JSON.stringify(records).includes('battery'), false);
+  const form = all(box, 'form').find((item) => textOf(item).includes('Save a WPA2'));
+  assert.equal(textOf(one(form, 'p.serial-record')), 'In the activity log.');
+  assert.ok(session.lines.some((line) => line.kind === 'note' && line.text === 'WIFI is in the activity log, under your name.'));
+
+  // What only asks, what the page sends by itself, and what the board refused are not changes.
+  click(one(box, 'button', 'NET'));
+  session.send('STATUS|wifi');
+  session.send('get_id');
+  await settle();
+  assert.equal(records.length, 1);
+  // Typed, in any case, it counts the same.
+  session.send('clear_wifi');
+  await settle();
+  assert.deepEqual(records.at(-1), { command: 'CLEAR_WIFI', device: 'ABC123', version: '1.2.3+5' });
+  assert.ok(board.lines.includes('ECHO|OFF') && board.lines.includes('GET_ID'));
+  assert.equal(records.length, 2);
+});
+
+test('a command the board answered with ERR is not put on record', async (t) => {
+  const { records, record } = recorder();
+  const reply = (line) => (/^SET_ID/i.test(line) ? 'ERR id must be 1-32 letters or digits\r\n' : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n');
+  const { session } = await connected(t, { reply }, { record });
+  session.send('SET_ID|NEW-ID');
+  session.send('REBOOT');
+  await settle();
+  assert.deepEqual(records.map((item) => item.command), ['REBOOT']);
+});
+
+test('a record that does not get through leaves the command done, and says so beside it and in the transcript', async (t) => {
+  const { records, record } = recorder(new Error('At most 30 serial console commands a minute are recorded for one person.'));
+  const { session } = await connected(t, {}, { record });
+  const { box, redraw } = drawn(session);
+  click(one(box, 'button', 'Reconnect'));
+  await settle();
+  redraw();
+  assert.equal(records.length, 1);
+  const failed = one(box, 'p.serial-record.is-failed');
+  assert.equal(failed.getAttribute('role'), 'alert');
+  assert.equal(textOf(failed),
+    'Done on the board, but not in the activity log. At most 30 serial console commands a minute are recorded for one person.');
+  // The board's own answer stays what it was.
+  assert.match(textOf(one(box, 'p.serial-result.is-ok')), /reconnecting/);
+  const note = session.lines.at(-1);
+  assert.deepEqual([note.kind, note.tone], ['note', 'warn']);
+  assert.match(note.text, /^MQTT_RECONNECT was done on the board, but it could not be put in the activity log\./);
+});
+
+test('a board without an ID, as in factory mode, is put on record by the command alone', async (t) => {
+  const { records, record } = recorder();
+  const reply = (line) => (/^GET_ID/i.test(line) ? 'OK |1.12.0\r\n' : 'OK\r\n');
+  const { session } = await connected(t, { reply }, { record });
+  session.send('KEYGEN');
+  await settle();
+  assert.deepEqual(records, [{ command: 'KEYGEN', device: null, version: null }]);
+});
+
+test('without somewhere to put it on record, the page records nothing and says nothing of it', async (t) => {
+  const { session } = await connected(t);
+  const { box, redraw } = drawn(session);
+  click(one(box, 'button', 'Reconnect'));
+  await settle();
+  redraw();
+  assert.equal(all(box, 'p.serial-record').length, 0);
 });
 
 test('every form and button is held back until a board answers', async (t) => {

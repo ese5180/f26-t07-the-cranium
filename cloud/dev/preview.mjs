@@ -57,7 +57,10 @@
  * one with a diagnostics report sends it every 5 minutes. Everything a board reports, and
  * each connection and disconnection, goes through the recorder of the Events page as the
  * AWS IoT rules would hand it over (api/test/fake-aws.mjs), so that the Events and
- * Diagnostics pages have a history to show. The "fleet" scenario has one of each kind.
+ * Diagnostics pages have a history to show. The "fleet" scenario has one of each kind, and its
+ * board on firmware 1.12.0 also sends lines of its board log (AWS IoT's third rule), a sign-in
+ * of the release manager and a change made at that board's serial console are in its activity log.
+ * A sign-in on the preview's own page is recorded as one, as it is when deployed.
  *
  * The page is the one that is deployed. Nothing in web/ knows about the preview. With
  * --home the requests carry a host name that is on the web function's list of home page
@@ -390,7 +393,8 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     forget();
     const accessToken = secret();
     const refreshToken = secret();
-    sessions.set(accessToken, { scopes: grant.scopes, expiresAt: seconds() + TOKEN_SECONDS, user });
+    // When the person signed in, as the token's auth_time says: what the activity log records a sign-in by.
+    sessions.set(accessToken, { scopes: grant.scopes, expiresAt: seconds() + TOKEN_SECONDS, user, authTime: seconds() });
     refreshTokens.add(refreshToken);
     // Cognito answers with these five. The console wants only the access token.
     reply(response, 200, {
@@ -451,7 +455,7 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     forget();
     const accessToken = secret();
     const refreshToken = secret();
-    sessions.set(accessToken, { scopes, expiresAt: seconds() + TOKEN_SECONDS, user: person.local });
+    sessions.set(accessToken, { scopes, expiresAt: seconds() + TOKEN_SECONDS, user: person.local, authTime: seconds() });
     refreshTokens.add(refreshToken);
     return { AccessToken: accessToken, ExpiresIn: TOKEN_SECONDS, RefreshToken: refreshToken, IdToken: secret() };
   }
@@ -683,6 +687,11 @@ function createBoard(fake, thing, version, say) {
     lookForJob,
 
     /** Power up and connect. `uptime`: seconds since the board started. */
+    /** A line the board prints on its serial console, which firmware 1.12.0 and later also sends to the cloud. */
+    log(tag, text, options = {}) {
+      if (board.powered) fake.device(thing).log(tag, text, options);
+    },
+
     connect(uptime = 6) {
       board.powered = true;
       fake.device(thing).connect();
@@ -882,6 +891,8 @@ function createStage({ fake, clock, boards, callApi, say }) {
   const begun = clock.now();
   // Up to when the boards that are on have reported while the scenario's time went by.
   let passed = null;
+  // When the release manager of the scenario signed in, in epoch seconds, once they have.
+  let signedInAt = null;
 
   /** Let the time go by up to `to`: every board that is on reports as it would meanwhile. */
   function passTo(to) {
@@ -900,6 +911,7 @@ function createStage({ fake, clock, boards, callApi, say }) {
       method,
       path,
       user: USERS.manager,
+      authTime: signedInAt,
       headers: { 'content-type': 'application/json' },
       body: Buffer.from(JSON.stringify(body), 'utf8'),
     });
@@ -925,6 +937,16 @@ function createStage({ fake, clock, boards, callApi, say }) {
     /** Let the time go by up to when the preview started. */
     catchUp() {
       if (passed !== null && passed < begun) passTo(begun);
+    },
+
+    /** The release manager signs in on the website now: their next request puts the sign-in on record. */
+    signIn() {
+      signedInAt = Math.floor(clock.now() / 1000);
+    },
+
+    /** What the Serial page posts once a board has answered OK to a command that changed it. */
+    async serialCommand(command, board) {
+      await request('POST', '/api/serial/commands', { command, device: board.diag?.id, version: board.version }, 'ok');
     },
 
     /** What tools/provision_device.py does: a thing in the group, with its certificate. */
@@ -1062,13 +1084,13 @@ function wobble(at, periodMs, phase = 0) {
  */
 async function fleet(stage) {
   stage.ago('2d');
-  const first = stage.provision(1, '1.11.4+0');
+  const first = stage.provision(1, '1.12.0+0');
   Object.assign(first, {
     stuck: { count: 0, reason: 'none' },
     // The name set at its serial console (SET_ID), and a locally administered address: no real
     // network card has it.
     diag: { id: 'CRVIHAAN01', mac: '02:5e:a1:00:00:01', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
-    diary: { boots: 41, log: ['1.9.0+0/8/4', '1.9.0+0/1/4', '1.11.4+0/2/4', '1.11.4+0/1/4'] },
+    diary: { boots: 41, log: ['1.9.0+0/8/4', '1.9.0+0/1/4', '1.12.0+0/2/4', '1.12.0+0/1/4'] },
     wander(board, at) {
       board.rssi = Math.round(-58 + 6 * wobble(at, 5 * 3_600_000) + 2 * wobble(at, 17 * 60_000, 1));
       const { heap } = board.diag;
@@ -1090,7 +1112,13 @@ async function fleet(stage) {
     board.rssi = Math.round(-49 + 3 * wobble(at, 7 * 3_600_000, 3));
   };
   for (const board of [first, second, third]) board.connect(40);
+  // Firmware 1.12.0 sends what it printed while it was coming up, once it is connected.
+  first.log('app', 'Network is up', { waitedMs: 12_000, boot: 40, seq: 1 });
+  first.log('WIFI', 'connected ip=10.0.0.7 rssi=-55', { waitedMs: 11_000 });
+  first.log('cloud', 'Connecting to AWS IoT as cranium-' + first.thing.slice(8), { waitedMs: 9_000 });
+  first.log('app', 'Connected to AWS IoT', { waitedMs: 5_000 });
   stage.ago('1d23h');
+  stage.signIn();
   await stage.upload('valid-1.2.3+4.signed.bin', 'The build the boards were flashed with over USB.');
 
   // The watchdog: the connection drops, and the board is back 20 s later.
@@ -1098,14 +1126,27 @@ async function fleet(stage) {
   first.disconnect('MQTT_KEEP_ALIVE_TIMEOUT');
   stage.ago('1d5h59m40s');
   first.restart({ cause: '10' });
+  first.log('app', 'Network is up', { waitedMs: 10_000, boot: 41, seq: 1 });
+  first.log('WIFI', 'connected ip=10.0.0.7 rssi=-58', { waitedMs: 9_000 });
+  first.log('app', 'Connected to AWS IoT', { waitedMs: 4_000, dropped: 2 });
   stage.ago('1d1h');
   second.disconnect('MQTT_KEEP_ALIVE_TIMEOUT');
   stage.ago('22h');
   second.restart({ cause: '2', stuck: { count: 1, reason: 'wifi_silent' } });
   stage.ago('20h');
   first.diag = { ...first.diag, heap: { ...first.diag.heap, free: 7400, least: 6100 } };
+  // A new network for the first board, set at its serial console from the Serial page.
+  stage.ago('9h2m');
+  stage.signIn();
+  first.log('CONSOLE', 'WIFI done on the serial console: save a WPA2 network and join it');
+  await stage.serialCommand('WIFI', first);
+  first.log('WIFI', 'disconnected');
   stage.ago('9h');
   first.diag = { ...first.diag, channel: 11 };
+  first.log('net', 'ERR: Leaving "Lab 2.4": its security mode (2) is not allowed', { waitedMs: 30_000 });
+  first.log('WIFI', 'connected ip=10.0.0.9 rssi=-61', { waitedMs: 3_000 });
+  // A line that the cloud never stores: the board says it, the recorder withholds it.
+  first.log('BT', 'passkey 123456');
   stage.ago('5h');
   second.openBluetooth();
   stage.ago('4h56m');
@@ -1342,12 +1383,13 @@ export async function createPreview({
   });
 
   /** Hand a request to the API function, as the gateway does once its authorizer is satisfied. */
-  function callApi({ method, path, query = '', headers = {}, body = null, user: caller, expiresAt }) {
+  function callApi({ method, path, query = '', headers = {}, body = null, user: caller, expiresAt, authTime = null }) {
     const claims = accessClaims({
       sub: caller.sub,
       groups: caller.groups,
       clientId: config.userPoolClientId,
       exp: expiresAt ?? Math.floor(now() / 1000) + TOKEN_SECONDS,
+      authTime,
     });
     return app(gatewayEvent({
       routeKey: method === 'GET' ? API_READ : API_WRITE, method, path, query, headers, host: consoleHost, body, claims,
@@ -1409,7 +1451,9 @@ export async function createPreview({
       }
       // Whoever signed in: on the console's own page, either local user.
       sendResult(response,
-        await callApi({ method, path, query, headers, body, user: session.user, expiresAt: session.expiresAt }));
+        await callApi({
+          method, path, query, headers, body, user: session.user, expiresAt: session.expiresAt, authTime: session.authTime,
+        }));
     }
   }
 

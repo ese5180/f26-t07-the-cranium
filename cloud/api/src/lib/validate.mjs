@@ -259,6 +259,17 @@ export function requireKinds(value, known) {
   return kinds;
 }
 
+/** Sources of the board log, comma separated, each one of `known` and none twice; null when absent. */
+export function requireTags(value, known) {
+  if (value === undefined) return null;
+  const tags = typeof value === 'string' ? value.split(',') : [];
+  if (tags.length === 0 || tags.length > known.length || tags.some((tag) => !known.includes(tag)) ||
+      new Set(tags).size !== tags.length) {
+    throw badRequest('invalid_tags', `"tags" is a list of sources separated by commas, from: ${known.join(', ')}.`);
+  }
+  return tags;
+}
+
 /** The page size of the event log: 1 to 500, 500 when absent. */
 export function requireEventPageSize(value) {
   if (value === undefined) return MAX_EVENT_PAGE;

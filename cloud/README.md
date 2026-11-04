@@ -15,9 +15,10 @@ It is two CloudFormation stacks, deployed with the AWS CLI:
   uploaded to.
 - `cranium-ota` (`infra/template.yaml`): everything else.
   - An HTTP API with two Lambda functions: one serves the console and the public home
-    page, one is the console's API. A third, the recorder, has no route: two AWS IoT rules
-    hand it every shadow report and every connection of a board, and it writes the boards'
-    event log ([docs/aws-iot.md](../docs/aws-iot.md#the-event-log)).
+    page, one is the console's API. A third, the recorder, has no route: three AWS IoT rules
+    hand it every shadow report, every connection and, from firmware 1.12.0, every console
+    line of a board, and it writes the boards' event log
+    ([docs/aws-iot.md](../docs/aws-iot.md#the-event-log)).
   - A Cognito user pool for sign-in. Accounts are created by an administrator, and
     the console asks for a password and a code from an authenticator app at every
     sign-in, on its own sign-in page or on the AWS sign-in page. A small function, the
@@ -242,6 +243,8 @@ cloud/logs.sh api       # or: web, events, signin, access, iot
 | A board does not come online | `logs.sh iot`: look for `Connect` entries with status `Failure`. The client ID must be the thing name, and the certificate must be attached to the thing |
 | A board refuses or fails an update | the deployment page of the console, then the board's serial console |
 | A board's events are missing from the Events page | `logs.sh events`: one `recorded` line per report of a board, or `message_ignored` with why. No line at all: the AWS IoT rules did not invoke the recorder |
+| A board's log is missing from the Events page | The board runs firmware 1.12.0 or later, and the device policy allows `cranium/<thing>/events` (else its serial console says `AWS IoT closed the connection right after an event`). `logs.sh events`: `recorded` with a `tag` per line, `line_withheld` for a line with a passkey or a password in it, `line_repeated` for one sent twice |
+| A sign-in is not in the activity log | It is recorded by the first request of it that reaches the API function; `logs.sh api` shows `sign_in_unrecorded` with why when it could not be written, and the next request tries again |
 | A revocation answers that it is not complete, or a release shows as not completely revoked | Revoke it again. The release is marked, so nothing new can start; blocking the image or cancelling a deployment did not go through, or a board is still at work that could not be stopped (see below). The answer says which |
 
 Search the access log with text patterns, for example
@@ -427,6 +430,9 @@ stolen, run `cloud/users.sh reset-mfa` or `remove`: the old account is gone, so 
 stops at once and reading within a minute.
 
 ### The activity log
+
+What it records, sign-ins and changes at a board's serial console among them, is in
+[docs/aws-iot.md](../docs/aws-iot.md#what-the-activity-log-records).
 
 What is enforced by IAM: the API function's role may put and query items in the table, and
 is refused anything that deletes or updates them. What is enforced by code only: that a

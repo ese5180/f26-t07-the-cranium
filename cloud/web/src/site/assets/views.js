@@ -20,7 +20,8 @@ import {
   canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
   deploymentHref, describeAudit, describeCounts, describeDeployment, describeExecution, describeHistory,
   describeUpdate, deviceActivity, deviceHref, duration, exactBytes, exactTime, failedCheck, fileSize, IMAGE_CHECKS,
-  installStanding, isRefusal, isRestarting, isUnderWay, isUnfinished, isUnregistered, nameOf, parseVersion, plainMessage,
+  installStanding, isRefusal, isRestarting, isThing, isUnderWay, isUnfinished, isUnregistered, nameOf, parseVersion,
+  plainMessage,
   plural, reviewImage, revocationState, sentence, shortAccount, signalQuality, singleLine, stillFinishing, timeAgo,
   timeOfDay, TOKEN_DAYS, TOKEN_NAME_LIMIT, tokenDays, toldByDate, versionOfDeployment,
 } from './core.js';
@@ -1325,19 +1326,44 @@ function scriptedKey(entries, className) {
     h('span', { class: 'tag is-warn' }, SCRIPTED_TAG), ` ${SCRIPTED_NOTE}`);
 }
 
+/** The boards of a list, each by its own name and linked to its page, as "A, B and C". */
+function boardsInWords(things, devices) {
+  return things.flatMap((thing, index) => [
+    index === 0 ? null : index === things.length - 1 ? ' and ' : ', ',
+    boardLabel(boardOf(thing, devices), 'log-target'),
+  ]);
+}
+
+/** What the entry is about, as a link: a board by the name it gave at its serial console is found in the list. */
+function auditTarget(description, devices) {
+  if (!description.label) return null;
+  if (description.byName) {
+    const board = (devices ?? []).find((device) => device.name === description.label);
+    if (board) return boardLabel(board, 'log-target');
+  }
+  return linkTo(description.href, { class: 'mono log-target' }, description.label);
+}
+
 /** One entry of the activity log. The short form is for the overview. */
 function activityLine(entry, ctx, compact) {
   const description = describeAudit(entry);
+  const devices = ctx.state.devices?.value?.devices;
+  // The line says that the deployment was started. How it ended is not in the log, and
+  // follows from the deployment as it is now, once it is over.
+  const run = entry.action === 'deployment.create' && entry.outcome === 'ok'
+    ? (ctx.state.deployments.value ?? []).find((deployment) => deployment.id === entry.target) ?? null
+    : null;
+  // Where it went: as the entry names the boards, or, for an entry from before it did, as the deployment does.
+  const { boardCount } = description;
+  const boards = description.boards.length > 0 || !run ? description.boards : run.things.filter((thing) => isThing(thing));
+  let where = null;
+  if (boards.length > 0 && boards.length <= 2) where = [' to ', boardsInWords(boards, devices)];
+  else if (Math.max(boardCount, boards.length) > 0) where = ` to ${plural(Math.max(boardCount, boards.length), 'board')}`;
   const { actor } = entry;
   const name = nameOf(actor);
   const account = actor?.sub ? `Account ${actor.sub}` : null;
   const outcome = description.outcome
     ? [' ', badge(description.outcome.tone, description.outcome.icon, description.outcome.label)]
-    : null;
-  // The line says that the deployment was started. How it ended is not in the log, and
-  // follows from the deployment as it is now, once it is over.
-  const run = entry.action === 'deployment.create' && entry.outcome === 'ok'
-    ? (ctx.state.deployments.value ?? []).find((deployment) => deployment.id === entry.target) ?? null
     : null;
   const ending = run && !isUnderWay(run) ? describeDeployment(run) : null;
   return h('li', { key: `${entry.at}-${entry.requestId}`, class: 'log-line' },
@@ -1352,9 +1378,9 @@ function activityLine(entry, ctx, compact) {
           title: compact ? [actor?.email, account].filter(Boolean).join(' · ') || null : account,
         }, name),
         ` ${description.verb} `,
-        description.label
-          ? linkTo(description.href, { class: 'mono log-target' }, description.label)
-          : null,
+        auditTarget(description, devices),
+        description.tail ? ` ${description.tail}` : null,
+        where,
         outcome,
         ending ? [' ', badge(ending.tone, ending.icon, ending.label)] : null,
         description.scripted ? [' ', h('span', { class: 'tag is-warn' }, SCRIPTED_TAG)] : null),
@@ -1367,7 +1393,8 @@ function activityLine(entry, ctx, compact) {
             ? h('span', { key: 'account', class: 'log-ref', title: account },
               'Account ', mono(shortAccount(actor.sub)))
             : null,
-          entry.requestId
+          // A sign-in was asked for by no request: its id is made of the sign-in itself.
+          entry.requestId && entry.action !== 'account.sign_in'
             ? h('span', { key: 'request', class: 'log-ref' }, 'Request ', mono(entry.requestId))
             : null)),
     // The full log files its lines under the day, so a line says when in that day.
@@ -1388,6 +1415,10 @@ function auditFact(fact, ctx) {
   if (fact.key === 'thing') {
     const board = boardOf(fact.value, ctx.state.devices?.value?.devices);
     return h('span', { key: 'fact-thing' }, `${fact.label} `, boardLabel(board), boardThing(board));
+  }
+  if (fact.key === 'boards') {
+    const things = fact.value.split(' ').filter((thing) => isThing(thing));
+    return h('span', { key: 'fact-boards' }, `${fact.label} `, boardsInWords(things, ctx.state.devices?.value?.devices));
   }
   return h('span', { key: `fact-${fact.key}` },
     fact.phrase ? `${fact.label} ` : `${fact.label}: `,
@@ -3405,6 +3436,8 @@ function activityPanel(audit) {
     [count(action('deployment.cancel')), 'cancellation', 'cancellations'],
     [count(action('firmware.revoke')), 'revocation', 'revocations'],
     [count(action('firmware.bluetooth_send')), 'send over Bluetooth', 'sends over Bluetooth'],
+    [count(action('serial.command')), 'command over USB', 'commands over USB'],
+    [count(action('account.sign_in')), 'sign-in', 'sign-ins'],
   ].filter(([amount]) => amount > 0);
   return h('p', { class: 'log-summary dotted', key: 'summary' },
     h('span', { key: 'scope', class: 'log-scope' },
@@ -3435,7 +3468,7 @@ export function activityView(ctx) {
       iconName: 'list',
       title: 'Nothing has been recorded yet.',
       text: 'Uploads, deployments, cancellations and revocations made through this console’s API will appear here, ' +
-        'including attempts that were refused.',
+        'including attempts that were refused, and so will sign-ins and changes made to a board over USB.',
     }));
   } else {
     body = [
@@ -3460,9 +3493,10 @@ export function activityView(ctx) {
     pageHead({
       title: 'Activity',
       lede: 'Every upload, deployment, cancellation and revocation made through this console’s API, with who asked ' +
-        'for it and whether it went through. A job made directly in AWS IoT does not pass through that API, so it is ' +
-        'not in this log, though its board’s page lists it. A deployment that is over shows how it ended. ' +
-        'This console has no way to change an entry.',
+        'for it and whether it went through; every sign-in, on the website or the phone app; and every change made to ' +
+        'a board at its serial console from this console’s Serial page, by its name only. A job made directly in AWS IoT ' +
+        'does not pass through that API, so it is not in this log, though its board’s page lists it. A deployment that ' +
+        'is over shows how it ended. This console has no way to change an entry.',
       tools: freshness(state.audit, ctx),
     }),
     loadProblem(state.audit, 'the activity log', ctx),

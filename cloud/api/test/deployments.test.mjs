@@ -119,7 +119,24 @@ test('a deployment is one snapshot job with the contract\'s document', async () 
   assert.equal(entry.action, 'deployment.create');
   assert.equal(entry.target, deployment.id);
   assert.equal(entry.outcome, 'ok');
-  assert.deepEqual(entry.detail, { version: '1.2.3+4', things: '2' });
+  // Which boards, by thing name, in order: the activity log names them by their own names.
+  assert.deepEqual(entry.detail, { version: '1.2.3+4', things: '2', boards: `${BOARD_A} ${BOARD_B}` });
+});
+
+test('a deployment to more boards than a detail holds is on record with their number only', async () => {
+  const context = await setup();
+  const boards = Array.from({ length: 9 }, (_, index) => `cranium-${String(index).padStart(16, 'a')}`);
+  for (const thing of boards) context.fake.addThing(thing);
+  const eight = await context.create({ version: '1.2.3+4', things: boards.slice(0, 8) });
+  assert.equal(eight.status, 201, JSON.stringify(eight.body));
+  assert.equal(context.fake.auditLog().at(-1).detail.boards, boards.slice(0, 8).join(' '));
+  context.advance(1000);
+  await context.cancel(eight.body.deployment.id, { force: true });
+  context.advance(1000);
+  const nine = await context.create({ version: '1.2.3+4', things: boards });
+  assert.equal(nine.status, 201, JSON.stringify(nine.body));
+  const entry = context.fake.auditLog().at(-1);
+  assert.deepEqual([entry.detail.things, entry.detail.boards], ['9', undefined]);
 });
 
 test('the request for a deployment is validated before anything is looked up', async () => {
