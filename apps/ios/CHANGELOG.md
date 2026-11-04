@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.5.2
+
+Plain words for the console's newer refusals: the fleet's (a release for another board type or flash layout, groups,
+staged rollouts), the e-mail alerts' and commands', and the Apps page's.
+
+2026-11-04.
+
 ## 0.5.1
 
 A fix: the Events screen compiles with the newest Xcode, which refuses a closure that uses a value declared after it.
