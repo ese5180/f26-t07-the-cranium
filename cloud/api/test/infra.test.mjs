@@ -524,4 +524,161 @@ test('staged rollouts move on every minute, in a function of their own that can 
   assert.equal(/Action: \S+:\*/.test(role), false);
   assert.ok(statement(role, 'PassPresignRoleToIot').includes('iam:PassedToService: iot.amazonaws.com'));
   assert.ok(block(block(template, 'Outputs', 0), 'RolloutsFunctionName').includes('Value: !Ref RolloutTickFn'));
+// The customer site (docs/customer-site.md).
+
+test('customers have a pool of their own: invited by an admin, e-mail and 10 characters, a code if they like', () => {
+  const pool = block(template, 'CustomerUserPool');
+  for (const line of [
+    'Type: AWS::Cognito::UserPool', 'DeletionPolicy: RetainExceptOnCreate', 'UpdateReplacePolicy: Retain',
+    'UserPoolTier: ESSENTIALS', 'CaseSensitive: false', 'AllowAdminCreateUserOnly: !If [CustomerSelfSignUpAllowed, false, true]',
+    'MinimumLength: 10', "MfaConfiguration: 'OPTIONAL'", '- SOFTWARE_TOKEN_MFA', '- Name: verified_email',
+    'DeletionProtection: !Ref UserPoolDeletionProtection',
+  ]) {
+    assert.ok(pool.includes(line), line);
+  }
+  assert.deepEqual([...block(pool, 'UsernameAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['email']);
+  for (const kind of ['Uppercase', 'Lowercase', 'Numbers', 'Symbols']) assert.ok(pool.includes(`Require${kind}: false`), kind);
+  // No trigger, no groups: a customer can never be a member of the console's groups, which are in the staff pool.
+  assert.equal(pool.includes('LambdaConfig'), false);
+  const groups = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolGroup'));
+  assert.ok(groups.length >= 2);
+  for (const group of groups) assert.ok(group.includes('UserPoolId: !Ref UserPool\n'), group);
+  // Self sign-up is off unless asked for.
+  const parameter = block(template, 'CustomerSelfSignUp');
+  assert.ok(parameter.includes("Default: 'false'"));
+  assert.ok(template.includes("CustomerSelfSignUpAllowed: !Equals [!Ref CustomerSelfSignUp, 'true']"));
+  // The invitation names the site once it has an address, and no other link.
+  const invite = block(pool, 'InviteMessageTemplate', 8);
+  assert.deepEqual([...invite.matchAll(/href="([^"]+)"/g)].map((match) => match[1]), ['https://${CustomerDomainName}/']);
+  assert.ok(invite.includes('{username}') && invite.includes('{####}'));
+});
+
+test('the customer site\'s client signs in with SRP on its own pages, and never says whether an address exists', () => {
+  const client = block(template, 'CustomerUserPoolClient');
+  for (const line of [
+    'UserPoolId: !Ref CustomerUserPool', 'GenerateSecret: false', 'AllowedOAuthFlowsUserPoolClient: false',
+    'EnableTokenRevocation: true', 'PreventUserExistenceErrors: ENABLED', 'AccessTokenValidity: 60',
+  ]) {
+    assert.ok(client.includes(line), line);
+  }
+  assert.deepEqual([...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
+  assert.deepEqual([...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['name']);
+  for (const word of ['CallbackURLs', 'AllowedOAuthFlows:', 'AllowedOAuthScopes']) assert.equal(client.includes(word), false, word);
+  // No managed login pages for customers: the only domain of a pool is the staff pool's.
+  const domains = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolDomain'));
+  assert.equal(domains.length, 1);
+  assert.ok(domains[0].includes('UserPoolId: !Ref UserPool\n'));
+});
+
+test('a customer\'s token and a staff token each open their own API only, at the gateway', () => {
+  const staff = block(template, 'Authorizer');
+  assert.ok(staff.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'"));
+  assert.deepEqual([...block(staff, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
+    ['UserPoolClient', 'MobileUserPoolClient']);
+  assert.equal(staff.includes('Customer'), false);
+
+  const customer = block(template, 'CustomerAuthorizer');
+  assert.ok(customer.includes('AuthorizerType: JWT'));
+  assert.ok(customer.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CustomerUserPool}'"));
+  assert.deepEqual([...block(customer, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
+    ['CustomerUserPoolClient']);
+
+  const route = block(template, 'CustomerApiReadRoute');
+  for (const line of ["RouteKey: 'GET /api/c/{proxy+}'", 'AuthorizationType: JWT', 'AuthorizerId: !Ref CustomerAuthorizer',
+    '- aws.cognito.signin.user.admin', 'integrations/${CustomerApiIntegration}']) {
+    assert.ok(route.includes(line), line);
+  }
+  assert.ok(block(template, 'CustomerApiIntegration').includes('IntegrationUri: !GetAtt CustomerApiFn.Arn'));
+  // Read only: no other route goes to the customer API, and every console route keeps the staff authorizer.
+  const routes = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route'));
+  assert.equal(routes.filter((resource) => resource.includes('integrations/${CustomerApiIntegration}')).length, 1);
+  const keys = routes.map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
+  assert.deepEqual(keys.filter((key) => key.includes('/api/c/')), ['GET /api/c/{proxy+}']);
+  for (const resource of routes.filter((text) => text.includes('AuthorizerId: !Ref Authorizer\n'))) {
+    assert.equal(/RouteKey: '[^']*\/api\/c\//.test(resource), false);
+  }
+  const stage = block(template, 'Stage');
+  assert.ok(block(stage, 'DependsOn', 4).includes('- CustomerApiReadRoute'));
+  const settings = block(stage, 'RouteSettings', 6).split("'GET /api/c/{proxy+}':")[1].split('\n').slice(1, 3).join('\n');
+  assert.match(settings, /ThrottlingBurstLimit: \d+\n\s+ThrottlingRateLimit: \d+/);
+});
+
+test('the customer API may read the boards, their events, the ownership records and the customer pool, and nothing else', () => {
+  const role = block(template, 'CustomerApiRole');
+  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog', 'ReadOwnership', 'ReadEvents', 'ReadShadows', 'CheckCustomers']);
+  assert.deepEqual([...role.matchAll(/Action: ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['sts:AssumeRole', 'dynamodb:Query', 'dynamodb:Query', 'iot:GetThingShadow', 'cognito-idp:AdminGetUser']);
+  const ownership = statement(role, 'ReadOwnership');
+  assert.ok(ownership.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.ok(ownership.includes('dynamodb:LeadingKeys:\n') && ownership.includes('- OWN'));
+  assert.ok(statement(role, 'CheckCustomers').includes('Resource: !GetAtt CustomerUserPool.Arn'));
+  for (const word of ['AuditTable', 'FirmwareBucket', ' UserPool.Arn', 'iot:CreateJob', 'PutItem', 'UpdateItem', 'DeleteItem',
+    'ManagedPolicyArns', "Resource: '*'"]) {
+    assert.equal(role.includes(word), false, word);
+  }
+  const fn = block(template, 'CustomerApiFn');
+  for (const line of ['Handler: customer.handler', 'Role: !GetAtt CustomerApiRole.Arn', 'Code: ../api/src', 'Runtime: nodejs22.x',
+    'LogGroup: !Ref CustomerApiLogGroup', '${DeployedCommit} (${DeployedTree})']) {
+    assert.ok(fn.includes(line), line);
+  }
+  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
+    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID']);
+  assert.ok(read('api/src/customer.mjs').includes('export const handler'));
+  assert.ok(block(template, 'CustomerApiFnPermission').includes('FunctionName: !Ref CustomerApiFn'));
+});
+
+test('the console\'s API may invite, list and switch customers off and on, in the customer pool only', () => {
+  const role = block(template, 'ApiRole');
+  const manage = statement(role, 'ManageCustomers');
+  assert.deepEqual([...manage.matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]),
+    ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminGetUser', 'cognito-idp:ListUsers', 'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser']);
+  assert.ok(manage.includes('Resource: !GetAtt CustomerUserPool.Arn'));
+  // The staff pool's statement is unchanged: a look-up and the groups, nothing that makes or changes an account.
+  const staff = statement(role, 'ReadUsers');
+  assert.ok(staff.includes('Resource: !GetAtt UserPool.Arn'));
+  assert.equal(/AdminCreateUser|ListUsers|AdminDisableUser/.test(staff), false);
+  for (const action of ['AdminDeleteUser', 'AdminSetUserPassword', 'AdminAddUserToGroup', 'AdminUpdateUserAttributes']) {
+    assert.equal(role.includes(action), false, action);
+  }
+  const variables = block(block(template, 'ApiFn'), 'Variables', 8);
+  assert.ok(variables.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool'));
+  assert.ok(variables.includes("CUSTOMER_SITE_URL: !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/', '']"));
+});
+
+test('the customer site\'s address changes nothing until it is set, and then serves the name and www', () => {
+  for (const name of ['CustomerDomainName', 'CustomerCertificateArn']) {
+    assert.ok(block(template, name).includes("Default: ''"), name);
+  }
+  assert.ok(template.includes("HasCustomerDomain: !Not [!Equals [!Ref CustomerDomainName, '']]"));
+  for (const name of ['CustomerDomain', 'CustomerDomainMapping', 'CustomerWwwDomain', 'CustomerWwwDomainMapping']) {
+    assert.ok(block(template, name).includes('Condition: HasCustomerDomain'), name);
+  }
+  assert.ok(block(template, 'CustomerWwwDomain').includes("DomainName: !Sub 'www.${CustomerDomainName}'"));
+  for (const name of ['CustomerDomain', 'CustomerWwwDomain']) {
+    const domain = block(template, name);
+    assert.ok(domain.includes('CertificateArn: !Ref CustomerCertificateArn') && domain.includes('SecurityPolicy: TLS_1_2'), name);
+  }
+  const outputs = block(template, 'Outputs', 0);
+  for (const output of ['CustomerUrl', 'CustomerDomainTarget', 'CustomerWwwDomainTarget']) {
+    assert.ok(block(outputs, output).includes('Condition: HasCustomerDomain'), output);
+  }
+  const web = block(block(template, 'WebFn'), 'Variables', 8);
+  assert.ok(web.includes("- !Sub '${CustomerDomainName},www.${CustomerDomainName}'"));
+  assert.ok(web.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool') && web.includes('CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient'));
+  // Admin mode is the console under /admin of that name: the staff client may return there, once the name is set.
+  const client = block(template, 'UserPoolClient');
+  for (const list of ['CallbackURLs', 'LogoutURLs']) {
+    const urls = block(client, list, 6);
+    assert.ok(urls.includes("- !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/admin', !Ref AWS::NoValue]"), list);
+  }
+  assert.equal(block(template, 'MobileUserPoolClient').includes('Customer'), false);
+});
+
+test('teardown removes the customer pool too, which the stack keeps like the staff pool', () => {
+  assert.ok(teardown.includes('CUSTOMER_POOL="$(resolve "$STACK" CustomerUserPoolId)"'));
+  assert.ok(teardown.includes('delete_user_pool "customer pool" "$CUSTOMER_POOL"'));
+  assert.ok(block(block(template, 'Outputs', 0), 'CustomerUserPoolId').includes('Value: !Ref CustomerUserPool'));
 });

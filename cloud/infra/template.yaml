@@ -96,11 +96,37 @@ Parameters:
     Description: >-
       Issued certificate for HomeDomainName and www.<that name>, in this Region. See
       "A real address" in cloud/README.md.
+  CustomerDomainName:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    ConstraintDescription: must be empty, or a host name in lower case
+    Description: >-
+      Host name of the customer website, such as example.com, with the console for admins
+      under /admin. www.<this name> sends the browser there. Empty means no customer site:
+      no name gets it, and no invitation goes out. See docs/customer-site.md.
+  CustomerCertificateArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws[a-z-]*:acm:[a-z0-9-]+:[0-9]{12}:certificate/[0-9a-f-]+$'
+    ConstraintDescription: must be empty, or the ARN of a certificate in AWS Certificate Manager
+    Description: >-
+      Issued certificate for CustomerDomainName and www.<that name>, in this Region. See
+      docs/customer-site.md.
+  CustomerSelfSignUp:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >-
+      Whether people may make a customer account themselves. Off: an admin invites each
+      customer from the console's Customers page. The customer site has no sign-up page.
 
 Conditions:
   CaseInsensitiveSignIn: !Equals [!Ref SignInNamesCaseSensitive, 'false']
   HasConsoleDomain: !Not [!Equals [!Ref ConsoleDomainName, '']]
   HasHomeDomain: !Not [!Equals [!Ref HomeDomainName, '']]
+  HasCustomerDomain: !Not [!Equals [!Ref CustomerDomainName, '']]
+  CustomerSelfSignUpAllowed: !Equals [!Ref CustomerSelfSignUp, 'true']
   ProtectFromDeletion: !Equals [!Ref UserPoolDeletionProtection, ACTIVE]
   RestrictedIotLoggingTrust: !Equals [!Ref RestrictIotLoggingTrust, 'true']
 
@@ -248,6 +274,45 @@ Resources:
       RouteKey: 'PUT /api/t/{proxy+}'
       AuthorizationType: NONE
       Target: !Sub 'integrations/${ApiIntegration}'
+  # The customer site's API (docs/customer-site.md): another function, behind an authorizer of
+  # its own, whose issuer is the customer pool and whose audience is the customer site's client.
+  # Authorizer above keeps the staff pool and the staff clients, so neither kind of token opens the
+  # other's API, at the gateway, before any code runs. The most specific route wins, so nothing
+  # under /api/c/ reaches the console's routes; there is no POST, because the customer API only
+  # reads, and a POST to /api/c/ meets the console's authorizer, which refuses a customer's token.
+  CustomerAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref Api
+      Name: cognito-customer-access-token
+      AuthorizerType: JWT
+      IdentitySource:
+        - $request.header.Authorization
+      JwtConfiguration:
+        Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CustomerUserPool}'
+        Audience:
+          - !Ref CustomerUserPoolClient
+
+  CustomerApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt CustomerApiFn.Arn
+      PayloadFormatVersion: '2.0'
+
+  # The scope is the one every access token of the user pool API carries, and no ID token does:
+  # an ID token of the customer site's client is refused here.
+  CustomerApiReadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'GET /api/c/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CustomerAuthorizer
+      AuthorizationScopes:
+        - aws.cognito.signin.user.admin
+      Target: !Sub 'integrations/${CustomerApiIntegration}'
 
   AccessLogGroup:
     Type: AWS::Logs::LogGroup
@@ -314,6 +379,46 @@ Resources:
       DomainName: !Ref HomeWwwDomain
       Stage: !Ref Stage
 
+  # The customer website (docs/customer-site.md), on a name, with the console under /admin of the
+  # same name for admins. www.<name> answers too, by sending the browser to the name itself: one
+  # origin, so that a sign-in is kept in one place and the console's sign-in pages need one more
+  # return address, not two. The web function tells the names apart by CUSTOMER_HOSTS, below.
+  CustomerDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasCustomerDomain
+    Properties:
+      DomainName: !Ref CustomerDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CustomerCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  CustomerDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasCustomerDomain
+    Properties:
+      ApiId: !Ref Api
+      DomainName: !Ref CustomerDomain
+      Stage: !Ref Stage
+
+  CustomerWwwDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasCustomerDomain
+    Properties:
+      DomainName: !Sub 'www.${CustomerDomainName}'
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CustomerCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  CustomerWwwDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasCustomerDomain
+    Properties:
+      ApiId: !Ref Api
+      DomainName: !Ref CustomerWwwDomain
+      Stage: !Ref Stage
+
   Stage:
     Type: AWS::ApiGatewayV2::Stage
     # RouteSettings names route keys, which API Gateway rejects until the routes exist.
@@ -326,6 +431,7 @@ Resources:
       - ApiTokenWriteRoute
       - ApiPutRoute
       - ApiTokenPutRoute
+      - CustomerApiReadRoute
     Properties:
       ApiId: !Ref Api
       StageName: '$default'
@@ -367,6 +473,11 @@ Resources:
         'PUT /api/t/{proxy+}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
+        # Customers, apart from the console's own routes, so that busy customers cannot use up
+        # what release managers need, nor the other way round.
+        'GET /api/c/{proxy+}':
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
       AccessLogSettings:
         DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogGroup}'
         # The route key, never the path: a query string can carry an authorization
@@ -406,6 +517,14 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ApiFn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+
+  CustomerApiFnPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CustomerApiFn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
 
@@ -537,11 +656,14 @@ Resources:
         - !GetAtt Api.ApiEndpoint
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Ref AWS::NoValue]
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}', !Ref AWS::NoValue]
+        # The console as admin mode of the customer site (docs/customer-site.md).
+        - !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/admin', !Ref AWS::NoValue]
       LogoutURLs:
         - !Sub '${Api.ApiEndpoint}/'
         - !GetAtt Api.ApiEndpoint
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Ref AWS::NoValue]
         - !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}', !Ref AWS::NoValue]
+        - !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/admin', !Ref AWS::NoValue]
       # SRP is what the console's own sign-in page uses: the password stays in the browser.
       # Never ALLOW_USER_PASSWORD_AUTH, which would send it.
       ExplicitAuthFlows:
@@ -640,6 +762,114 @@ Resources:
       UserPoolId: !Ref UserPool
       GroupName: viewers
       Description: Read only.
+
+  # ---------------------------------------------------------------------------------
+  # Customers of the customer site (docs/customer-site.md): a user pool of their own, apart from
+  # the staff pool above, so that no customer account can ever be a member of the console's
+  # groups or sign in to the console. Admins invite customers from the console's Customers page
+  # (AdminCreateUser), and Cognito e-mails the invitation. A customer signs in with e-mail and
+  # password on the customer site's own page, with SRP; an authenticator app is the customer's
+  # choice. No managed login pages, no OAuth, no trigger.
+  #
+  # It exists whether or not CustomerDomainName is set, so that customers and their boards can be
+  # prepared before the name is pointed here. Without a name no invitation goes out (the API
+  # refuses it), because the invitation would have no address to give.
+  # ---------------------------------------------------------------------------------
+
+  CustomerUserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-customers'
+      UserPoolTier: ESSENTIALS
+      UsernameAttributes:
+        - email
+      # A new pool, so it can have this from the start: Ada@Example.com is ada@example.com.
+      UsernameConfiguration:
+        CaseSensitive: false
+      AutoVerifiedAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: !If [CustomerSelfSignUpAllowed, false, true]
+        InviteMessageTemplate:
+          EmailSubject: Your Cranium account
+          EmailMessage: !If
+            - HasCustomerDomain
+            - !Sub >-
+              <p>You have a Cranium account.</p>
+              <p>Sign in at <a href="https://${CustomerDomainName}/">https://${CustomerDomainName}/</a><br>
+              E-mail address: {username}<br>
+              Temporary password: {####}</p>
+              <p>The temporary password works for 7 days. When you first sign in, you choose your
+              own password.</p>
+            - >-
+              <p>You have a Cranium account.</p>
+              <p>E-mail address: {username}<br>
+              Temporary password: {####}</p>
+              <p>The temporary password works for 7 days.</p>
+      # The code of a password reset ("Forgot your password?" on the customer site).
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailSubject: Your Cranium code
+        EmailMessage: >-
+          Your Cranium code is {####}. Type it on the Cranium site to choose a new password.
+          If you did not ask for it, ignore this e-mail: your password stays as it is.
+      # At least 10 characters, and nothing else asked of them: length is what makes a password
+      # hard to guess.
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 10
+          RequireUppercase: false
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+      # An authenticator app, if the customer turns it on (the site's Account page). Quoted, like ON.
+      MfaConfiguration: 'OPTIONAL'
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
+      # A forgotten password is reset by a code sent to the address, which an invitation verifies.
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      UserAttributeUpdateSettings:
+        AttributesRequireVerificationBeforeUpdate:
+          - email
+      DeletionProtection: !Ref UserPoolDeletionProtection
+
+  CustomerUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CustomerUserPool
+      ClientName: customer-site
+      # A browser cannot keep a secret, and the site needs none: it signs in with SRP.
+      GenerateSecret: false
+      # No OAuth and no managed login pages: every step is on the site's own pages.
+      AllowedOAuthFlowsUserPoolClient: false
+      SupportedIdentityProviders:
+        - COGNITO
+      # The address is the sign-in name, and only an admin changes it. See UserPoolClient.
+      WriteAttributes:
+        - name
+      # SRP only: the password never leaves the browser. Never ALLOW_USER_PASSWORD_AUTH.
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      EnableTokenRevocation: true
+      # A wrong address and a wrong password get the same answer, and so does a reset asked for
+      # an address that has no account.
+      PreventUserExistenceErrors: ENABLED
+      AuthSessionValidity: 15
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      # The site revokes the refresh token at once, as the console does, and keeps none.
+      RefreshTokenValidity: 60
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: minutes
 
   # ---------------------------------------------------------------------------------
   # Firmware storage. Objects are firmware/<sha256 of the file>.bin, written once. The
@@ -1174,6 +1404,14 @@ Resources:
             - HasHomeDomain
             - !Sub '${HomeDomainName},www.${HomeDomainName}'
             - !Ref AWS::NoValue
+          # The customer site: the first name serves it, and the second sends the browser there.
+          CUSTOMER_HOSTS: !If
+            - HasCustomerDomain
+            - !Sub '${CustomerDomainName},www.${CustomerDomainName}'
+            - !Ref AWS::NoValue
+          # For the customer site's own sign-in page. Public, as the staff client ID is.
+          CUSTOMER_POOL_ID: !Ref CustomerUserPool
+          CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -1361,6 +1599,19 @@ Resources:
                   - sns:ListSubscriptionsByTopic
                   - sns:Unsubscribe
                 Resource: !Ref AlertTopic
+              # The console's Customers page: invite a customer (Cognito sends the e-mail and
+              # makes the temporary password), list them, switch one off and on. Never a password,
+              # never a group, never a delete, and nothing in the staff pool. Who owns which board
+              # is in the state table (pk OWN), under ReadAndWriteReleasesAndTokens above.
+              - Sid: ManageCustomers
+                Effect: Allow
+                Action:
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminGetUser
+                  - cognito-idp:ListUsers
+                  - cognito-idp:AdminDisableUser
+                  - cognito-idp:AdminEnableUser
+                Resource: !GetAtt CustomerUserPool.Arn
 
   ApiFn:
     Type: AWS::Lambda::Function
@@ -1397,6 +1648,93 @@ Resources:
           # console's address and the host of its login pages, as apps/configure.sh takes them.
           CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
           LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+          # The Customers page (handlers/customers.mjs). An invitation names the site, so none
+          # goes out while it has no address.
+          CUSTOMER_POOL_ID: !Ref CustomerUserPool
+          CUSTOMER_SITE_URL: !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/', '']
+
+  # ---------------------------------------------------------------------------------
+  # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own
+  # boards. A function and a role of its own, so that a fault in it can reach no more than it
+  # needs: the shadows of the boards, their events, who owns which board, and whether a
+  # customer's account is on. No firmware, no deployments, no activity log, no staff accounts,
+  # no writes of any kind.
+  # ---------------------------------------------------------------------------------
+
+  CustomerApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-customer-api'
+      RetentionInDays: 90
+
+  CustomerApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: customer-api
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt CustomerApiLogGroup.Arn
+              # Who owns which board: the OWN partition of the state table, and no other. Releases
+              # and API tokens live in the same table, in partitions this role cannot read.
+              - Sid: ReadOwnership
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - OWN
+              # The events of the boards. Which board's, the function decides: the owner's only.
+              - Sid: ReadEvents
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt EventsTable.Arn
+              - Sid: ReadShadows
+                Effect: Allow
+                Action: iot:GetThingShadow
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              # Whether the caller's account is on, asked on every request but for a minute's grace.
+              - Sid: CheckCustomers
+                Effect: Allow
+                Action: cognito-idp:AdminGetUser
+                Resource: !GetAtt CustomerUserPool.Arn
+
+  CustomerApiFn:
+    Type: AWS::Lambda::Function
+    DependsOn: CustomerApiLogGroup
+    Properties:
+      LoggingConfig:
+        LogGroup: !Ref CustomerApiLogGroup
+      Description: !Sub 'Cranium customer site - API - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: customer.handler
+      MemorySize: 256
+      Timeout: 10
+      Role: !GetAtt CustomerApiRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          STATE_TABLE: !Ref StateTable
+          EVENTS_TABLE: !Ref EventsTable
+          CUSTOMER_POOL_ID: !Ref CustomerUserPool
+          CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
 
   EventsLogGroup:
     Type: AWS::Logs::LogGroup
@@ -1895,6 +2233,26 @@ Outputs:
     Condition: HasHomeDomain
     Description: What the DNS record of www.<HomeDomainName> has to point to.
     Value: !GetAtt HomeWwwDomain.RegionalDomainName
+  CustomerUrl:
+    Condition: HasCustomerDomain
+    Description: Address of the customer website. Admin mode is /admin there.
+    Value: !Sub 'https://${CustomerDomainName}/'
+  CustomerDomainTarget:
+    Condition: HasCustomerDomain
+    Description: What the DNS record of CustomerDomainName has to point to.
+    Value: !GetAtt CustomerDomain.RegionalDomainName
+  CustomerWwwDomainTarget:
+    Condition: HasCustomerDomain
+    Description: What the DNS record of www.<CustomerDomainName> has to point to.
+    Value: !GetAtt CustomerWwwDomain.RegionalDomainName
+  CustomerUserPoolId:
+    Description: The customer pool, apart from the staff pool (UserPoolId).
+    Value: !Ref CustomerUserPool
+  CustomerClientId:
+    Description: The customer site's client of the customer pool.
+    Value: !Ref CustomerUserPoolClient
+  CustomerApiFunctionName:
+    Value: !Ref CustomerApiFn
   Region:
     Value: !Ref AWS::Region
   UserPoolId:

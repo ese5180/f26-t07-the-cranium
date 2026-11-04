@@ -7,8 +7,9 @@
 # The profile and the Region come from AWS_PROFILE and AWS_REGION (default us-east-1).
 # Optional arguments set template parameters: SlotSize, LoadAddress, IotLogLevel,
 # UserPoolDeletionProtection, RestrictIotLoggingTrust, ConsoleDomainName,
-# ConsoleCertificateArn, HomeDomainName and HomeCertificateArn. A parameter that is not
-# given keeps its current value.
+# ConsoleCertificateArn, HomeDomainName, HomeCertificateArn, CustomerDomainName,
+# CustomerCertificateArn and CustomerSelfSignUp (docs/customer-site.md). A parameter that is
+# not given keeps its current value.
 #
 # The console accepts only images signed with the key in firmware/keys/fw_signing_pub.pem.
 # Once it is deployed, a run that finds another key in that file stops and shows both
@@ -336,6 +337,9 @@ main() {
       SlotSize=*|LoadAddress=*|IotLogLevel=*|RestrictIotLoggingTrust=*|ConsoleDomainName=*|ConsoleCertificateArn=*|HomeDomainName=*|HomeCertificateArn=*)
         extra+=("$arg")
         ;;
+      CustomerDomainName=*|CustomerCertificateArn=*|CustomerSelfSignUp=true|CustomerSelfSignUp=false)
+        extra+=("$arg")
+        ;;
       *)
         # Refused here: "aws cloudformation deploy" silently ignores unknown names.
         die "unknown argument: $arg" "Run cloud/deploy.sh --help for the parameters."
@@ -481,6 +485,11 @@ main() {
 
   step "9/9 Done"
   echo "Console: $(stack_output "$STACK" ConsoleUrl)"
+  local customer_url
+  customer_url="$(stack_output "$STACK" CustomerUrl)"
+  if [ -n "$customer_url" ] && [ "$customer_url" != None ]; then
+    echo "Customer site: $customer_url (admin mode: ${customer_url}admin)"
+  fi
   echo "Deployed from commit $(stack_output "$STACK" DeployedCommit) ($(stack_output "$STACK" DeployedTree))"
   echo
   echo "Next steps"
