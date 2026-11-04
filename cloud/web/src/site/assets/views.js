@@ -16,7 +16,8 @@
  */
 
 import {
-  CODE_LENGTH, FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, SIGN_IN_WORDS, STEPS, alreadyRuns, asksForButton, boardName, boardOf, busyBoards,
+  CODE_LENGTH, FIRST_WITH_NO_BUTTON, SESSION_WARNING_S, SIGN_IN_WORDS, STEPS, actorOf, alreadyRuns, asksForButton, boardName, boardOf,
+  BLUETOOTH_ONLY_TYPES, boardTypeLabel, busyBoards, compatibilityWords, offeredBoards,
   canRetryUpload, clockTime, compareVersions, dateAndTime, dayLabel,
   deploymentHref, describeAudit, describeCounts, describeDeployment, describeExecution, describeHistory,
   describeUpdate, deviceActivity, deviceHref, duration, exactBytes, exactTime, failedCheck, fileSize, IMAGE_CHECKS,
@@ -25,6 +26,8 @@ import {
   plural, reviewImage, revocationState, sentence, shortAccount, signalQuality, singleLine, stillFinishing, timeAgo,
   timeOfDay, TOKEN_DAYS, TOKEN_NAME_LIMIT, tokenDays, toldByDate, versionOfDeployment,
 } from './core.js';
+// The map, commands and alerts (docs/fleet.md).
+import { canCommand, distanceWords, positionSteps, unplacedReason } from './core.js';
 
 // Drawing.
 
@@ -256,6 +259,11 @@ const ICONS = {
     ['path', { d: 'M10 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H10M9.5 12H20' }],
     ['polyline', { points: '16 8 20 12 16 16' }],
   ],
+  // The map, commands and alerts.
+  locate: [['circle', { cx: 12, cy: 12, r: 6.5 }], ['circle', { cx: 12, cy: 12, r: 1.6 }], ['path', { d: 'M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3' }]],
+  pin: [['path', { d: 'M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z' }], ['circle', { cx: 12, cy: 10, r: 2.4 }]],
+  bell: [['path', { d: 'M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14zM10 20.5h4' }]],
+  more: [['path', { d: 'M5.5 12v.1M12 12v.1M18.5 12v.1' }]],
 };
 
 /** A decorative icon. Its meaning is always also given in words next to it. */
@@ -518,12 +526,14 @@ function stats(rows) {
  * One tile per board: filled while it is online, an outline once it has gone quiet, a
  * dashed outline if it has never reported. The words next to the tiles count the same.
  */
-function boardTiles(devices) {
+function boardTiles(devices, phone = new Set()) {
   const rank = (device) => {
     if (isUp(device)) return 0;
+    if (phone.has(device.thing)) return 3;
     return device.lastSeen ? 1 : 2;
   };
-  const looks = ['is-on', 'is-off', 'is-never'];
+  // A board without Wi-Fi never connects: it is no board that has never connected (fleet.js).
+  const looks = ['is-on', 'is-off', 'is-never', 'is-phone'];
   const ordered = [...devices].sort((a, b) => rank(a) - rank(b));
   return h('span', { class: 'tiles', 'aria-hidden': 'true' }, ordered.map((device) =>
     h('span', { key: device.thing, class: `tile ${looks[rank(device)]}`, title: boardName(device, { full: true }) })));
@@ -1230,15 +1240,21 @@ export function signInView(model) {
 const SECTIONS = [
   ['overview', 'Overview'],
   ['devices', 'Devices'],
+  ['map', 'Map'],
   ['diagnostics', 'Diagnostics'],
   ['events', 'Events'],
   ['firmware', 'Firmware'],
   ['deployments', 'Deployments'],
+  // Board types, groups, staged rollouts and "Update everything" (fleet.js).
+  ['fleet', 'Fleet'],
   ['activity', 'Activity'],
+  // The phone apps: where to get them, and how to put them on a phone (apps.js).
+  ['apps', 'Apps'],
   ['developer', 'Developer'],
 ];
 const SECTION_OF = {
   device: 'devices', deployment: 'deployments', serial: 'developer', history: 'developer', tokens: 'developer',
+  rollout: 'fleet',
 };
 
 /** Where Developer leads: a viewer has no use for the serial console's controls. */
@@ -1267,6 +1283,23 @@ export {
   NO_BOARDS, badge, boardLabel, boardThing, button, card, empty, factNote, facts, failure, freshness, linkTo, loadProblem,
   loading, meter, mono, notice, pageHead, pending, presence, signalBars, statusLine, when, whenAt,
 };
+// And for the fleet's pages and dialogs (fleet.js), which draw with the same pieces.
+export { SPACER, choice, consequences, dialogButton, dialogFrame, problemRef, segments, stats, who };
+
+/**
+ * The foot of every page: the console's own version and the commit it was built from (GET /api/me, from
+ * cloud/VERSION; docs/versions.md), and where to read what is new in it and to find the phone apps.
+ */
+export function footView(ctx) {
+  const own = ctx.state.me?.console ?? { version: null, commit: null };
+  return h('div', { class: 'foot-inner' },
+    h('p', { class: 'foot-version' },
+      own.version ? ['Console ', h('span', { class: 'mono' }, own.version)] : 'Console version not known',
+      own.commit ? h('span', { class: 'foot-commit quiet', title: `Built from commit ${own.commit}` }, ` · ${own.commit.slice(0, 7)}`) : null),
+    h('p', { class: 'foot-links' },
+      h('a', { href: '#/history' }, 'What\u2019s new'),
+      h('a', { href: '#/apps' }, 'Phone apps')));
+}
 
 export function developerTabs(current) {
   return h('nav', { class: 'dev-tabs', key: 'tabs', 'aria-label': 'Developer pages' },
@@ -1305,7 +1338,9 @@ export function accountView(ctx) {
   const identity = [me.email, me.sub ? `Account ${me.sub}` : ''].filter(Boolean).join(' · ');
   return h('div', { class: 'account-box' },
     h('div', { class: 'account-who' },
-      h('span', { class: 'account-email', title: identity || null }, me.email || 'Signed in'),
+      // The address leads to the Account page: who is signed in, and their e-mail alerts (account.js).
+      h('a', { class: 'account-link', href: '#/account' },
+        h('span', { class: 'account-email', title: identity || null }, me.email || 'Signed in')),
       h('span', { class: 'account-meta' },
         h('span', { class: 'account-role' }, icon(me.canWrite ? 'key' : 'user', 'is-small'), role),
         h('span', { class: 'account-session', title: session.title }, session.text))),
@@ -1360,7 +1395,7 @@ function activityLine(entry, ctx, compact) {
   if (boards.length > 0 && boards.length <= 2) where = [' to ', boardsInWords(boards, devices)];
   else if (Math.max(boardCount, boards.length) > 0) where = ` to ${plural(Math.max(boardCount, boards.length), 'board')}`;
   const { actor } = entry;
-  const name = nameOf(actor);
+  const name = actorOf(entry);
   const account = actor?.sub ? `Account ${actor.sub}` : null;
   const outcome = description.outcome
     ? [' ', badge(description.outcome.tone, description.outcome.icon, description.outcome.label)]
@@ -1584,31 +1619,39 @@ function isUp(device) {
   return device.online && !isRestarting(device);
 }
 
-/** Boards in the words the tiles draw them in. */
-function boardsCounted(devices) {
+/** The boards without Wi-Fi, as the fleet says (fleet.js): they are never online, and that is no fault. */
+function phoneOnly(ctx) {
+  return new Set((ctx.state.fleet?.value?.boards ?? []).filter((board) => board.bluetoothOnly).map((board) => board.thing));
+}
+
+/** Boards in the words the tiles draw them in. A board without Wi-Fi is counted apart. */
+function boardsCounted(devices, phone = new Set()) {
   const online = devices.filter(isUp).length;
-  const quiet = devices.filter((device) => !isUp(device) && device.lastSeen).length;
-  const never = devices.length - online - quiet;
-  return { online, quiet, never };
+  const bluetooth = devices.filter((device) => !isUp(device) && phone.has(device.thing)).length;
+  const quiet = devices.filter((device) => !isUp(device) && !phone.has(device.thing) && device.lastSeen).length;
+  const never = devices.length - online - quiet - bluetooth;
+  return { online, quiet, never, bluetooth };
 }
 
 /** The words next to the tiles, for a fleet of more than one board: one board is said by the figure. */
-function tileWords(devices, extra = []) {
-  const { online, quiet, never } = boardsCounted(devices);
+function tileWords(devices, extra = [], phone = new Set()) {
+  const { online, quiet, never, bluetooth } = boardsCounted(devices, phone);
   return h('p', { class: 'tile-words dotted', key: 'words' },
     online ? h('span', { key: 'online' }, `${online} online`) : null,
     quiet ? h('span', { key: 'quiet' }, `${quiet} offline`) : null,
     never ? h('span', { key: 'never' }, `${never} never connected`) : null,
+    bluetooth ? h('span', { key: 'bluetooth' }, `${bluetooth} Bluetooth only`) : null,
     extra.filter(([, count]) => count > 0).map(([word, count]) => h('span', { key: word }, `${count} ${word}`)));
 }
 
-function fleetFigure(devices) {
-  const { online } = boardsCounted(devices);
+function fleetFigure(devices, phone = new Set()) {
+  const { online, bluetooth } = boardsCounted(devices, phone);
   return [
     h('p', { class: 'figure', key: 'figure' },
       h('span', { class: 'figure-value' }, String(online)),
-      h('span', { class: 'figure-unit' }, ` of ${plural(devices.length, 'board')} online`)),
-    devices.length > 1 ? boardTiles(devices) : null,
+      // Of the boards that can be online at all: one without Wi-Fi never is.
+      h('span', { class: 'figure-unit' }, ` of ${plural(devices.length - bluetooth, 'board')} online`)),
+    devices.length > 1 ? boardTiles(devices, phone) : null,
   ];
 }
 
@@ -1620,7 +1663,7 @@ function onlineCard(ctx, devices) {
   } else if (devices.length === 0) {
     body = h('p', { class: 'quiet' }, 'No boards are registered yet.');
   } else {
-    body = [fleetFigure(devices), devices.length > 1 ? tileWords(devices) : null];
+    body = [fleetFigure(devices, phoneOnly(ctx)), devices.length > 1 ? tileWords(devices, [], phoneOnly(ctx)) : null];
   }
   return card({ key: 'online', title: 'Fleet', className: 'is-zone' }, body);
 }
@@ -1778,9 +1821,40 @@ function fleetCard(ctx, devices, newest) {
  * can be deployed. An upload that is newer still but revoked is mentioned below it.
  * Only when nothing can be deployed is the newest upload shown, as revoked.
  */
+/** The newest active release of each board type the releases name, newest type first. */
+function newestByType(firmware) {
+  const byType = new Map();
+  for (const release of firmware?.releases ?? []) {
+    if (release.status === 'active' && release.board && !byType.has(release.board)) byType.set(release.board, release);
+  }
+  return byType;
+}
+
+/** With releases for more than one board type: the newest of each, and how many of its boards run it. */
+function releasesByTypeCard(ctx, byType) {
+  const { state } = ctx;
+  const boards = state.fleet?.value?.boards ?? null;
+  return card({
+    key: 'release', title: 'Newest releases', className: 'is-zone', more: { href: '#/firmware', label: 'Firmware' },
+  }, h('ul', { class: 'type-releases' }, [...byType].map(([type, release]) => {
+    const ofType = boards === null ? null : boards.filter((board) => board.type === type && (board.layout ?? 1) === (release.layout ?? 1));
+    const on = ofType === null ? null : ofType.filter((board) => board.version === release.version).length;
+    return h('li', { key: type },
+      h('p', { class: 'type-release-head' }, h('span', { class: 'fleet-chip board-chip' }, compatibilityWords(release))),
+      h('p', { class: 'release-figure is-small' }, mono(release.version), releaseBadge(release)),
+      h('p', { class: 'card-note' }, 'Uploaded ', when(release.uploadedAt, state.now), ' by ', who(release.uploadedBy)),
+      ofType !== null && ofType.length > 0
+        ? h('p', { class: 'card-note' }, `${on} of ${plural(ofType.length, 'board')} on it`)
+        : null);
+  })));
+}
+
 function releaseCard(ctx, newest) {
   const { state } = ctx;
   const firmware = state.firmware.value;
+  // Releases for more than one board type: the newest is said for each (docs/fleet.md).
+  const byType = newestByType(firmware);
+  if (byType.size > 1) return releasesByTypeCard(ctx, byType);
   const unused = firmware && (newest ?? firmware.releases[0])
     ? unusedReleaseWords(newest ?? firmware.releases[0], state.devices.value?.devices)
     : null;
@@ -2074,6 +2148,8 @@ export function overviewView(ctx) {
         updatesCard(ctx, devices),
         h('div', { class: 'fleet' },
           onlineCard(ctx, devices), fleetCard(ctx, devices, newest), releaseCard(ctx, newest))),
+      // Versions by board type, the last week's updates, and the boards that need looking at (fleet.js).
+      ctx.fleet?.healthCard(ctx) ?? null,
       h('div', { class: 'overview', key: 'grid' }, boardsCard(ctx, devices), activityCard(ctx)),
     ];
   } else if (recorded) {
@@ -2227,8 +2303,8 @@ function devicesPanel(devices, ctx) {
   return h('section', { class: 'panel on-ink devices-panel', key: 'panel', 'aria-label': 'The fleet at a glance' },
     h('div', { class: 'devices-figure' },
       h('h2', { class: 'eyebrow' }, 'Fleet'),
-      fleetFigure(devices),
-      devices.length > 1 ? tileWords(devices, [['updating now', updating], ['on trial', onTrial]]) : null),
+      fleetFigure(devices, phoneOnly(ctx)),
+      devices.length > 1 ? tileWords(devices, [['updating now', updating], ['on trial', onTrial]], phoneOnly(ctx)) : null),
     h('div', { class: 'devices-versions' },
       h('h2', { class: 'eyebrow' }, 'Firmware in the fleet'),
       asReported(devices, ctx.state.now),
@@ -2251,18 +2327,25 @@ export function devicesView(ctx) {
       h('div', { class: 'device-grid', key: 'grid' },
         h('div', { class: 'device-columns', key: 'columns', 'aria-hidden': 'true' },
           DEVICE_COLUMNS.map((name) => h('span', { key: name }, name))),
-        devices.map((device) =>
-          h('article', { key: device.thing, class: 'card device' },
+        devices.map((device) => {
+          // Its type and its groups, and for a board without Wi-Fi what a phone last saw (fleet.js).
+          const viaPhone = ctx.fleet?.bluetoothOnly(device, ctx) ?? null;
+          return h('article', { key: device.thing, class: 'card device' },
             h('header', { class: 'device-head' },
               h('div', null,
                 h('h2', { class: 'device-name' },
                   boardLabel(device, 'cover-link'),
                   icon('arrow-right', 'is-small')),
                 boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
-                h('p', { class: 'device-seen' }, seenLine(device, state.now)),
-                device.lastSeen || device.online ? null : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)),
-              presence(device, state.now)),
-            deviceFacts(device, ctx)))),
+                ctx.fleet?.boardTags(device, ctx) ?? null,
+                h('p', { class: 'device-seen' }, viaPhone ? viaPhone.line : seenLine(device, state.now)),
+                device.lastSeen || device.online || viaPhone ? null : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)),
+              viaPhone ? viaPhone.badge : presence(device, state.now),
+              identifyButton(device, ctx, { compact: true })),
+            deviceFacts(device, ctx));
+        })),
+      // The groups of boards, made and changed here by release managers (fleet.js).
+      ctx.fleet?.groupsCard(ctx) ?? null,
     ];
   }
   return h('div', { class: 'page' },
@@ -2355,7 +2438,7 @@ export function deviceView(ctx) {
       ? [seenLine(detail.device, state.now), detail.device.lastSeen || detail.device.online ? null : ` ${NEVER_REPORTED_HELP}`]
       : null,
     meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
-    tools: missing(resource) ? null : freshness(resource, ctx),
+    tools: missing(resource) ? null : [detail ? commandTools(detail.device, ctx) : null, freshness(resource, ctx)],
   });
   if (missing(resource)) {
     return h('div', { class: 'page' },
@@ -2382,12 +2465,16 @@ export function deviceView(ctx) {
   return h('div', { class: 'page is-board' },
     head,
     loadProblem(resource, 'this board', ctx),
+    commandNotice(device, ctx),
     boardPanel(device),
     h('div', { class: 'split', key: 'split' },
       card({ key: 'state', title: 'State', className: 'device' },
         h('div', { class: 'device-presence' }, presence(device, state.now)),
         deviceFacts(device, ctx, { offer, withScale: true, withHeartbeat: true })),
       h('div', { class: 'stack' },
+        locationCard(device, ctx),
+        // Its type and flash layout, and the releases it can take (fleet.js).
+        ctx.fleet?.compatibilityCard(device, ctx) ?? null,
         card({ key: 'certificates', title: 'Certificates' },
           certificates.length === 0
             ? h('p', { class: 'quiet' },
@@ -2816,6 +2903,10 @@ function releaseDetails(release, fingerprint) {
         factNote('What the signature covers and the bootloader verifies.')],
       ['Signed with', mono(release.keyHash, 'digest'), factNote(signedWords(release, fingerprint))],
       ['Load address', mono(`0x${(release.loadAddress ?? 0).toString(16)}`)],
+      release.board
+        ? ['Compatible with', `${boardTypeLabel(release.board)}, flash layout ${release.layout ?? 1}`,
+          factNote('Read from the image\u2019s signed TLVs. A board of another type or layout is never offered it, and refuses it.')]
+        : null,
       ['Uploaded', exactTime(release.uploadedAt), byAccount(release.uploadedBy)],
       revoked ? ['Revoked', exactTime(revoked.at), byAccount(revoked.by)] : null,
       revoked?.enforcedAt
@@ -2910,16 +3001,27 @@ function releaseRow(release, ctx) {
   const active = release.status === 'active';
   const revocation = revocationState(release);
 
+  // A release manager changes the note of any release, revoked ones too.
+  const noteButton = me.canWrite
+    ? h('button', {
+      type: 'button',
+      class: 'btn is-small is-quiet',
+      'aria-label': `Edit the note of ${release.version}`,
+      onClick: () => actions.openNotes(release),
+    }, icon('file'), 'Edit note')
+    : null;
   let controls = null;
+  // A release for a board without Wi-Fi is sent from the phone app: no deployment can reach one.
+  const overTheAir = !BLUETOOTH_ONLY_TYPES.includes(release.board);
   if (me.canWrite && active) {
     // Every row has the same two buttons. Their names say which release they act on.
     controls = [
-      h('button', {
+      overTheAir ? h('button', {
         type: 'button',
         class: 'btn is-small',
         'aria-label': `Deploy ${release.version}`,
         onClick: () => actions.openDeploy(release.version),
-      }, icon('send'), 'Deploy'),
+      }, icon('send'), 'Deploy') : null,
       h('button', {
         type: 'button',
         class: 'btn is-small is-danger-quiet',
@@ -2936,13 +3038,18 @@ function releaseRow(release, ctx) {
     controls = button('is-small', () => actions.openRevoke(release), 'Apply the revocation again');
   }
 
+  if (noteButton) controls = [...(controls === null ? [] : [controls].flat()), noteButton];
   return h('li', { key: release.version, class: `row release ${active ? '' : 'is-revoked'}`.trim() },
     h('div', { class: 'release-main' },
       h('div', { class: 'release-story' },
         h('div', { class: 'release-title' },
           mono(release.version, 'release-version'),
-          releaseBadge(release)),
-        release.notes ? h('p', { class: 'release-notes' }, release.notes) : null,
+          releaseBadge(release),
+          // What the image is built for: its board type and flash layout (docs/fleet.md, Compatibility).
+          release.board ? h('span', { class: 'fleet-chip board-chip', title: 'The board type and flash layout this image is built for' },
+            compatibilityWords(release)) : null),
+        // What changed, over up to three lines; the whole note is its title.
+        release.notes ? h('p', { class: 'release-notes is-clamped', title: release.notes }, release.notes) : null,
         release.revoked
           ? h('p', { class: 'release-revoked' }, icon('ban', 'is-small'),
             h('span', null,
@@ -3120,6 +3227,8 @@ export function deploymentsView(ctx) {
   } else {
     body = [
       deploymentsPanel(deployments, ctx),
+      // Staged rollouts: a canary, then waves (fleet.js).
+      ctx.fleet?.rolloutsPanel(ctx) ?? null,
       card({ key: 'list', className: 'is-flush' },
         h('ul', { class: 'rows' }, deployments.map((deployment) => deploymentRow(deployment, ctx)))),
     ];
@@ -3734,7 +3843,25 @@ function wizardBoard(device, model, now) {
   remark);
 }
 
+/** For more than one board: how the staged rollout goes, and the two numbers that steer it. */
+function stagedChoices(model, chosen) {
+  const most = Math.min(5, chosen.length - 1);
+  const number = (key, label, value, min, max, set, unit) => h('label', { class: 'field is-inline', key },
+    h('span', { class: 'field-label' }, label),
+    h('input', {
+      class: 'input is-number', type: 'number', min: String(min), max: String(max), step: '1', value: String(value),
+      onInput: (event) => {
+        const read = Number(event.target.value);
+        if (Number.isInteger(read) && read >= min && read <= max) set(read);
+      },
+    }), unit ? h('span', { class: 'quiet' }, unit) : null);
+  return h('div', { class: 'staged-choices', key: 'staged' },
+    number('canary', 'Canary boards', Math.min(model.canary, most), 1, most, model.setCanary, null),
+    number('abort', 'Stop when failures reach', model.abortPercent, 1, 100, model.setAbortPercent, '%'));
+}
+
 function wizardReview(model, release, chosen, now) {
+  const staged = chosen.length > 1 && model.staged;
   const offline = chosen.filter((device) => !device.online && device.lastSeen).length;
   const never = chosen.filter((device) => !device.online && !device.lastSeen).length;
   const asking = chosen.filter(asksForButton).length;
@@ -3756,9 +3883,16 @@ function wizardReview(model, release, chosen, now) {
         value: model.note,
         onInput: (event) => model.setNote(event.target.value),
       })),
+    staged ? stagedChoices(model, chosen) : null,
     h('div', { class: 'callout', key: 'what' },
       h('p', { class: 'callout-title' }, 'What happens when you deploy'),
       consequences([
+        staged
+          ? [`A staged rollout: ${plural(Math.min(model.canary, chosen.length - 1), 'board gets', 'boards get')} `,
+            mono(model.version), ' first. The rest follow in waves only once that canary has confirmed it, a board a ' +
+            `minute to start with and faster as boards confirm. It stops by itself, before what has not started, once ${model.abortPercent}% ` +
+            'of the boards that finished have failed.']
+          : null,
         ['Each board gets ', mono(model.version),
           `. Firmware ${FIRST_WITH_NO_BUTTON} or newer installs it as soon as the board sees it, with nobody at the board.`],
         asking > 0
@@ -3805,8 +3939,11 @@ function heldBy(entries, devices) {
 export function deployDialog(model, ctx) {
   const { now } = ctx.state;
   const releases = model.releases ?? [];
-  const devices = model.devices ?? [];
   const release = releases.find((candidate) => candidate.version === model.version) ?? null;
+  // Only the boards of the release's type that can take a job (docs/fleet.md); the others are counted.
+  const devices = offeredBoards(model.devices ?? [], model.types, release);
+  const notOffered = (model.devices ?? []).length - devices.length;
+  model.staged = Boolean(ctx.fleet);
   const chosen = devices.filter((device) => model.things.has(device.thing));
   const free = devices.filter((device) => !model.busy.has(device.thing));
   // "All" leaves out what would only refuse: that takes a tick of its own.
@@ -3841,11 +3978,24 @@ export function deployDialog(model, ctx) {
     body = [gone, h('fieldset', { class: 'choices', key: 'releases' },
       h('legend', null, 'Which release?'),
       releases.map((candidate) => wizardRelease(candidate, model, now)))];
+  } else if (model.step === 1 && devices.length === 0 && notOffered > 0) {
+    body = empty({
+      iconName: 'chip',
+      title: `No board can take ${model.version}.`,
+      text: `It is for the ${boardTypeLabel(release?.board)} with flash layout ${release?.layout ?? 1}, and none is registered ` +
+        'that can take it over the internet. ' +
+        'A board without Wi-Fi updates over Bluetooth from the phone app.',
+    });
   } else if (model.step === 1 && devices.length === 0) {
     body = empty(NO_BOARDS);
   } else if (model.step === 1) {
     body = h('fieldset', { class: 'choices' },
       h('legend', null, 'Which boards get ', mono(model.version), '?'),
+      notOffered > 0
+        ? h('p', { class: 'choice-hint', key: 'types' }, `For the ${boardTypeLabel(release?.board)}, layout ${release?.layout ?? 1}, only: `,
+          `${plural(notOffered, 'board', 'boards')} of another type or flash layout, or without Wi-Fi, ` +
+          `${notOffered === 1 ? 'is' : 'are'} not offered it.`)
+        : null,
       devices.map((device) => wizardBoard(device, model, now)),
       selectable.length > 1
         ? button('is-small is-quiet', model.toggleAll,
@@ -3914,7 +4064,9 @@ export function deployDialog(model, ctx) {
           submit: true,
           disabled: chosen.length === 0,
           sending: model.sending,
-        }, icon('send'), model.sending ? 'Starting…' : `Deploy to ${plural(chosen.length, 'board')}`)
+        }, icon('send'), model.sending ? 'Starting…' : chosen.length > 1 && model.staged
+          ? `Start staged rollout to ${plural(chosen.length, 'board')}`
+          : `Deploy to ${plural(chosen.length, 'board')}`)
         : dialogButton({
           key: 'next',
           className: 'is-primary',
@@ -4137,6 +4289,44 @@ export function revokeDialog(model, ctx) {
  * shown, only the dialog's own buttons close it: Escape or a click beside it would lose
  * a token that cannot be shown again.
  */
+// A release's note: what it changed, one line of up to 500 characters, for every release.
+const NOTES_LIMIT = 500;
+
+export function notesDialog(model) {
+  const { release } = model;
+  const left = NOTES_LIMIT - model.notes.length;
+  return dialogFrame({
+    title: ['The note of ', mono(release.version)],
+    busy: model.sending,
+    onClose: model.close,
+    onSubmit: model.submit,
+    body: [
+      h('p', { class: 'dialog-lede', key: 'lede' },
+        'What this release changed, in a sentence or two. It is shown with the release on the Firmware page and in the ' +
+        'phone apps. Leave it empty for no note.'),
+      h('label', { class: 'field', key: 'notes' },
+        h('span', { class: 'field-label' }, 'Note'),
+        h('textarea', {
+          class: 'input is-notes',
+          rows: '4',
+          maxlength: String(NOTES_LIMIT),
+          value: model.notes,
+          autofocus: true,
+          onInput: (event) => model.setNotes(event.target.value),
+        }),
+        h('span', { class: `field-count ${left < 40 ? 'is-low' : ''}`.trim(), 'aria-live': 'polite' },
+          `${left} characters left`)),
+    ],
+    error: model.error ? failure('The note was not saved.', model.error, null, model.signIn) : null,
+    foot: [
+      dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'),
+      SPACER(),
+      dialogButton({ key: 'save', className: 'is-primary', submit: true, sending: model.sending },
+        icon('check'), model.sending ? 'Saving…' : 'Save note'),
+    ],
+  });
+}
+
 export function createTokenDialog(model, ctx) {
   if (model.made) return madeTokenDialog(model, ctx);
   const name = model.name.trim();
@@ -4258,3 +4448,127 @@ export function revokeTokenDialog(model, ctx) {
     ],
   });
 }
+
+// The map, commands and alerts (docs/fleet.md): a command to a board from its row and its page, the
+// board's answer as its log brings it, and where the board is. The Map and Account pages draw with
+// these same pieces (map.js, account.js); the maps themselves are drawn by map.js once it is loaded.
+
+/** What this page knows of the last command sent to a board (app.js), or null. */
+function commandOf(ctx, thing) {
+  return ctx.state.commands?.get(thing) ?? null;
+}
+
+/**
+ * Identify: the board blinks its two LEDs for 15 s, so that a person at a bench of boards can tell
+ * which one it is. For release managers, and for a board that connects to AWS IoT; an offline one
+ * would miss it, so the button says so instead.
+ */
+function identifyButton(device, ctx, { compact = false } = {}) {
+  if (ctx.state.me?.canWrite !== true || !canCommand(device)) return null;
+  const name = boardName(device, { short: true });
+  const busy = commandOf(ctx, device.thing)?.status === 'sending';
+  return h('button', {
+    type: 'button',
+    key: 'identify',
+    class: compact ? 'btn is-quiet is-icon identify-button' : 'btn is-small identify-button',
+    disabled: busy || !device.online,
+    title: device.online ? `Blink the lights of ${name} for 15 s` : `${name} is offline, so it would miss the command`,
+    'aria-label': compact ? `Identify ${name}` : null,
+    onClick: () => ctx.actions.identify(device.thing),
+  }, icon('locate'), compact ? null : 'Identify');
+}
+
+/** The tools of a board's page: Identify, and a menu with Report now. */
+function commandTools(device, ctx) {
+  const identify = identifyButton(device, ctx);
+  if (identify === null) return null;
+  const busy = commandOf(ctx, device.thing)?.status === 'sending';
+  return h('div', { class: 'board-commands', key: 'commands' },
+    identify,
+    h('details', { class: 'menu', key: 'menu' },
+      h('summary', { class: 'btn is-small is-icon', title: 'More', 'aria-label': `More for ${boardName(device, { short: true })}` },
+        icon('more')),
+      h('div', { class: 'menu-list', role: 'group' },
+        h('button', {
+          type: 'button', class: 'menu-item', key: 'report', disabled: busy || !device.online,
+          onClick: (event) => {
+            event.currentTarget?.closest?.('details')?.removeAttribute?.('open');
+            ctx.actions.reportNow(device.thing);
+          },
+        }, icon('send'), h('span', null, 'Report now',
+          h('span', { class: 'menu-note' }, 'Heartbeat, diagnostics and a Wi-Fi scan, at once'))))));
+}
+
+const COMMAND_TITLES = { identify: 'Identify', report: 'Report now' };
+
+/** What became of the last command sent to the board from this page. */
+function commandNotice(device, ctx) {
+  const sent = commandOf(ctx, device.thing);
+  if (sent === null) return null;
+  const what = COMMAND_TITLES[sent.cmd] ?? 'Command';
+  const id = sent.id ? [' ', mono(sent.id)] : null;
+  switch (sent.status) {
+    case 'sending':
+      return notice('wait', 'clock', [`${what}: sending`]);
+    case 'failed':
+      return notice('bad', 'alert', [`${what} was not sent: `, sent.error ?? 'the server refused it.']);
+    case 'answered':
+      return notice(sent.answer.ignored ? 'warn' : 'good', sent.answer.ignored ? 'alert' : 'check-circle',
+        [`${what}: the board answered “`, h('span', { class: 'mono' }, sent.answer.text), '” ', when(sent.answer.at, ctx.state.now)]);
+    case 'unanswered':
+      return notice('warn', 'alert', [`${what} sent`, id, ', and the board has not answered. ',
+        device.online ? 'Boards from firmware 1.13.0 answer in their log; older ones ignore it.' : 'It is offline, and missed it.']);
+    default:
+      return notice('wait', 'clock', [`${what} sent`, id, '. Waiting for the board to answer in its log…']);
+  }
+}
+
+/**
+ * The credit the map's tiles need, on the map itself (OpenStreetMap's tile usage policy), and Leaflet's,
+ * whose licence is one of the assets of this build, beside this script.
+ */
+function mapCredit() {
+  return h('p', { class: 'map-credit', key: 'credit' },
+    h('a', { href: 'https://www.openstreetmap.org/copyright', rel: 'noreferrer', target: '_blank' }, '© OpenStreetMap contributors'),
+    ' · ',
+    h('a', { href: new URL('leaflet-license.txt', import.meta.url).href, target: '_blank' }, 'Leaflet'));
+}
+
+/** Where a board is: a small map of its last positions, and the list of them. Drawn by map.js. */
+function locationCard(device, ctx) {
+  const reason = unplacedReason(device);
+  const known = ctx.state.positions?.get(device.thing)?.value ?? null;
+  const steps = positionSteps(known?.positions ?? (device.position ? [device.position] : []));
+  const more = { href: '#/map', label: 'Map' };
+  if (reason !== null) {
+    return card({ key: 'location', title: 'Location', more },
+      h('p', { class: 'location-reason' }, icon('pin', 'is-small'), h('strong', null, reason.title), ' ', reason.text));
+  }
+  const { position } = device;
+  return card({ key: 'location', title: 'Location', more, className: 'location-card' },
+    h('div', { class: 'map-frame is-board', key: 'frame' },
+      h('div', {
+        class: 'map-canvas', id: 'board-map', key: 'map', role: 'img',
+        'aria-label': `Map of where ${boardName(device, { short: true })} was: its last ${steps.length === 1 ? 'position' : `${steps.length} positions`}`,
+      }),
+      mapCredit()),
+    facts([
+      ['Within', distanceWords(position.accuracy)],
+      ['Placed', whenAt(position.at, ctx.state.now)],
+      device.location?.checkedAt && device.location.checkedAt !== position.at
+        ? ['Still there', when(device.location.checkedAt, ctx.state.now)]
+        : null,
+    ]),
+    steps.length > 1
+      ? h('ol', { class: 'position-list', key: 'positions', 'aria-label': 'Positions, newest first' }, steps.map((step) =>
+        h('li', { key: step.at },
+          whenAt(step.at, ctx.state.now),
+          h('span', { class: 'position-note' }, ` within ${distanceWords(step.accuracy)}`,
+            step.moved !== null && step.moved >= 50 ? `, ${distanceWords(step.moved)} from the one before` : ''))))
+      : null,
+    h('p', { class: 'card-note', key: 'note' },
+      'Worked out by AWS IoT Core Device Location from the Wi-Fi access points the board hears. ',
+      'Only the position is kept, never the access points.'));
+}
+
+export { commandNotice, commandTools, identifyButton, locationCard, mapCredit };

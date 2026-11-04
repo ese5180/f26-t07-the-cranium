@@ -12,11 +12,16 @@
  * Lambda tries the message again (EventInvokeConfig in infra/template.yaml limits how often and
  * for how long).
  *
+ * Alerts (alerts.mjs): once the events of a message are stored, the alerter is told about them, and
+ * about a connection or disconnection; an EventBridge rule also runs this function every 5 minutes for
+ * the alerts that are due. An alert that cannot be handled never fails the message.
+ *
  * Like app.mjs, nothing here imports the AWS SDK: the store is passed in.
  */
 
 import { randomBytes } from 'node:crypto';
 
+import { isScheduledCheck } from './alerts.mjs';
 import { describeError } from './http.mjs';
 import { recordsOf } from './lib/events.mjs';
 import { isLineMessage, recordsFromLine } from './lib/lines.mjs';
@@ -26,6 +31,9 @@ import { isLineMessage, recordsFromLine } from './lib/lines.mjs';
  * @param {{ putEvent: (item: object) => Promise<void>,
  *           claimLine: (claim: object) => Promise<{ ok: boolean }> }} options.store
  *        aws.mjs createEventStore
+ * @param {{ afterRecord: Function, check: Function } | null} [options.alerts]
+ *        the alerter (alerts.mjs): told what each message made, and run by the scheduled check;
+ *        null records events only
  * @param {() => number|Date} [options.now]
  * @param {(count: number) => string} [options.randomHex]
  * @param {(line: object) => void} [options.log]
@@ -33,6 +41,7 @@ import { isLineMessage, recordsFromLine } from './lib/lines.mjs';
  */
 export function createRecorder({
   store,
+  alerts = null,
   now = Date.now,
   randomHex = (count) => randomBytes(count).toString('hex'),
   log = (line) => console.log(JSON.stringify(line)),
@@ -72,6 +81,8 @@ export function createRecorder({
 
   return async function handler(message) {
     if (isLineMessage(message)) return recordLine(message);
+    // Every 5 minutes (AlertCheckRule): the alerts that are due, and nothing to record.
+    if (isScheduledCheck(message)) return { recorded: 0, alerts: alerts === null ? 0 : await alerts.check() };
     const made = recordsOf(message, { nowMs: clock(), randomHex });
     if (made.ignored !== undefined) {
       log({ level: 'warn', event: 'message_ignored', reason: made.ignored });
@@ -89,6 +100,8 @@ export function createRecorder({
       event: 'recorded', thing: made.thing, kinds: events.map((item) => item.kind),
       samples: made.items.length - events.length,
     });
+    // After the events are on record, and never in their way: the alerter logs its own failures.
+    if (alerts !== null) await alerts.afterRecord(message, events);
     return { recorded: made.items.length };
   };
 }

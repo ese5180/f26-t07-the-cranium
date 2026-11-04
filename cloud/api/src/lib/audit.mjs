@@ -41,6 +41,18 @@ export const ACTIONS = Object.freeze([
   // A command that changed a board at its serial console, posted by the page that sent it over
   // USB (handlers/serial.mjs): the command's name only, never what was typed after it.
   'serial.command',
+  // A command sent to a board (handlers/commands.mjs), and a release manager's own e-mail alerts
+  // (handlers/alerts.mjs): docs/fleet.md.
+  'board.command', 'alert.subscribe', 'alert.unsubscribe',
+  // The fleet (docs/fleet.md): groups of boards, staged rollouts and the two that start several at
+  // once, what a phone saw of a board (handlers/groups.mjs, rollouts.mjs, fleet.mjs), and a
+  // release's note changed after its upload (handlers/firmware.mjs). rollout.advance and
+  // rollout.stop are the console's own, made by the schedule that moves rollouts on (tick.mjs).
+  'group.create', 'group.update', 'group.delete', 'rollout.create', 'rollout.cancel', 'rollout.advance', 'rollout.stop',
+  'fleet.update_everything', 'group.rollback', 'device.seen', 'firmware.notes',
+  // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once
+  // what arrived is checked, and each download link handed out, for a person or a QR code.
+  'app.upload', 'app.publish', 'app.download',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 

@@ -97,6 +97,10 @@ test('an audit item carries who, what, when and how it ended', () => {
   assert.deepEqual(ACTIONS, [
     'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel', 'firmware.download', 'pairing.read',
     'firmware.bluetooth_send', 'token.create', 'token.revoke', 'account.sign_in', 'serial.command',
+    'board.command', 'alert.subscribe', 'alert.unsubscribe',
+    'group.create', 'group.update', 'group.delete', 'rollout.create', 'rollout.cancel', 'rollout.advance', 'rollout.stop',
+    'fleet.update_everything', 'group.rollback', 'device.seen', 'firmware.notes',
+    'app.upload', 'app.publish', 'app.download',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });

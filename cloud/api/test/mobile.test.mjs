@@ -247,6 +247,46 @@ const ROUTES = [
   { route: 'POST /api/tokens', status: 201, phone: true, body: { name: 'laptop' } },
   { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: true, body: {} },
   { route: 'POST /api/serial/commands', status: 201, phone: true, body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } },
+  // The map, commands and alerts (docs/fleet.md).
+  { route: 'GET /api/devices/{thing}/positions', path: `/api/devices/${THING}/positions`, status: 200, phone: true },
+  { route: 'POST /api/devices/{thing}/commands', path: `/api/devices/${THING}/commands`, status: 202, phone: true,
+    body: { cmd: 'identify' } },
+  { route: 'GET /api/alerts', status: 200, phone: true },
+  { route: 'POST /api/alerts/subscribe', status: 202, phone: true, body: {} },
+  // Nobody has subscribed in this world: the console's session gets as far as looking.
+  { route: 'POST /api/alerts/unsubscribe', status: 404, phone: true, body: {} },
+  // Board types, groups and staged rollouts (docs/fleet.md). No group or rollout exists in this world:
+  // the console's session gets as far as looking for one.
+  { route: 'GET /api/fleet', status: 200, phone: true },
+  { route: 'GET /api/fleet/health', status: 200, phone: true },
+  { route: 'GET /api/groups', status: 200, phone: true },
+  { route: 'POST /api/groups', status: 201, phone: true, body: { name: 'Bench', things: [THING] } },
+  { route: 'POST /api/groups/{id}', path: '/api/groups/grp-0a0b0c0d', status: 404, phone: true, body: { name: 'Desk' } },
+  { route: 'POST /api/groups/{id}/delete', path: '/api/groups/grp-0a0b0c0d/delete', status: 404, phone: true, body: {} },
+  { route: 'GET /api/groups/{id}/rollback', path: '/api/groups/grp-0a0b0c0d/rollback', status: 404, phone: true },
+  { route: 'POST /api/groups/{id}/rollback', path: '/api/groups/grp-0a0b0c0d/rollback', status: 404, phone: true, body: {} },
+  { route: 'GET /api/rollouts', status: 200, phone: true },
+  { route: 'POST /api/rollouts', status: 201, phone: true, body: { version: VERSION, target: { kind: 'boards', things: [THING] } } },
+  { route: 'GET /api/rollouts/{id}', path: '/api/rollouts/rol-20261102T180000Z-abcdef', status: 404, phone: true },
+  { route: 'POST /api/rollouts/{id}/cancel', path: '/api/rollouts/rol-20261102T180000Z-abcdef/cancel', status: 404, phone: true,
+    body: {} },
+  { route: 'GET /api/fleet/update-everything', status: 200, phone: true },
+  // The board has never reported, so the plan leaves it out: asked for all the same, it is refused.
+  { route: 'POST /api/fleet/update-everything', status: 409, phone: true,
+    body: { types: [{ type: 'nrf7002dk', version: VERSION, things: [THING] }] } },
+  { route: 'POST /api/devices/{thing}/seen', path: `/api/devices/${THING}/seen`, status: 201, phone: true,
+    body: { version: VERSION, name: 'Cranium-1A2B' } },
+  { route: 'PUT /api/firmware/{version}/notes', path: `/api/firmware/${V}/notes`, status: 200, phone: true,
+    body: { notes: 'Reconnects faster after the Wi-Fi drops out.' } },
+  // The phone apps on the Apps page (docs/mobile-apps.md). No Android app is published in this world, and
+  // no APK has arrived: the console's session gets a URL to send one to, and then as far as looking for it.
+  { route: 'GET /api/apps', status: 200, phone: true },
+  { route: 'GET /api/apps/config', status: 200, phone: true },
+  { route: 'POST /api/apps/android/uploads', status: 201, phone: true,
+    body: { version: '0.4.0', versionCode: 4, sha256: 'a'.repeat(64), size: 4096, notes: '' } },
+  { route: 'POST /api/apps/android/releases/{version}', path: '/api/apps/android/releases/0.4.0', status: 409, phone: true,
+    body: { versionCode: 4, sha256: 'a'.repeat(64), size: 4096 } },
+  { route: 'GET /api/apps/android/{version}/download', path: '/api/apps/android/0.4.0/download', status: 404, phone: true },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */
@@ -480,4 +520,29 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   const entry = changes().at(-1);
   assert.equal(entry.action, 'deployment.create');
   assert.equal(entry.detail.from, 'phone');
+});
+
+test('from the phone, the fleet\'s changes need a recent sign-in; saying what a phone saw of a board does not', async () => {
+  const context = await world();
+  const stale = accessClaims({
+    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT,
+    authTime: Math.floor(context.clock.ms / 1000) - 16 * 60,
+  });
+  const changes = () => context.fake.auditLog().filter((entry) => entry.action !== 'account.sign_in');
+  const before = changes().length;
+  for (const [method, path, body] of [
+    ['POST', '/api/groups', { name: 'Bench', things: [THING] }],
+    ['POST', '/api/rollouts', { version: VERSION, target: { kind: 'fleet' } }],
+    ['POST', '/api/fleet/update-everything', { types: [] }],
+    ['PUT', `/api/firmware/${V}/notes`, { notes: 'From the phone' }],
+  ]) {
+    const refused = await context.call(method, path, { claims: stale, body });
+    assert.deepEqual([refused.status, refused.body.error?.code], [403, 'phone_sign_in_again'], path);
+  }
+  assert.deepEqual(changes().slice(before).map((entry) => [entry.action, entry.outcome]), [
+    ['group.create', 'denied'], ['rollout.create', 'denied'], ['fleet.update_everything', 'denied'], ['firmware.notes', 'denied'],
+  ]);
+  const seen = await context.call('POST', `/api/devices/${THING}/seen`, { claims: stale, body: { version: VERSION } });
+  assert.equal(seen.status, 201, JSON.stringify(seen.body));
+  assert.deepEqual([changes().at(-1).action, changes().at(-1).detail.from], ['device.seen', 'phone']);
 });

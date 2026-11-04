@@ -57,7 +57,8 @@ test('reads and writes have a request limit each, and neither is weaker than the
   const open = template.split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE'))
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}', 'POST /api/t/{proxy+}']);
+  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}', 'POST /api/t/{proxy+}',
+    'PUT /api/t/{proxy+}']);
 
   const stage = block(template, 'Stage');
   for (const name of ['ApiReadRoute', 'ApiWriteRoute']) assert.ok(block(stage, 'DependsOn', 4).includes(`- ${name}`));
@@ -218,7 +219,9 @@ test('the API role reads images for the phone apps, and the bucket still refuses
   const read = statement(role, 'ReadFirmware');
   assert.ok(read.includes('Action: s3:GetObject\n'));
   assert.ok(read.includes("Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'"));
-  assert.equal((role.match(/s3:GetObject/g) ?? []).length, 1);
+  // The other two are the Android app's, on its APKs alone (apps-infra.test.mjs).
+  const apks = ['CheckAndroidApks', 'ServeAndroidApks'].map((sid) => statement(role, sid));
+  assert.equal((apks.reduce((rest, part) => rest.replace(part, ''), role).match(/s3:GetObject/g) ?? []).length, 1);
   assert.ok(block(template, 'FirmwareBucketPolicy').includes('Sid: DenyDownloadingRevokedFirmware'));
 });
 
@@ -351,24 +354,27 @@ test('the events table is on demand, recoverable, protected, and lets DynamoDB e
   assert.ok(block(block(template, 'Outputs', 0), 'EventsTableName').includes('Value: !Ref EventsTable'));
 });
 
-test('the recorder is a function of its own: own log, own role, and nothing but PutItem on the events table', () => {
+test('the recorder is a function of its own: own log, own role, PutItem on the events table and the alerts alone', () => {
   const fn = block(template, 'EventsFn');
   for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: EventsLogGroup', 'LogGroup: !Ref EventsLogGroup',
     'Runtime: nodejs22.x', '- arm64', 'Handler: events.handler', 'Role: !GetAtt EventsRole.Arn', 'Code: ../api/src',
     'EVENTS_TABLE: !Ref EventsTable', '${DeployedCommit} (${DeployedTree})']) {
     assert.ok(fn.includes(line), line);
   }
-  // It is told the events table and nothing else.
-  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]), ['EVENTS_TABLE']);
+  // It is told the events table, and for the alerts their topic and the console's address, and nothing else.
+  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
+    ['EVENTS_TABLE', 'ALERT_TOPIC_ARN', 'CONSOLE_URL']);
   assert.ok(block(template, 'EventsLogGroup').includes('RetentionInDays: 90'));
 
   const role = block(template, 'EventsRole');
   assert.ok(role.includes('Service: lambda.amazonaws.com'));
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog', 'RecordEvents']);
+  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog', 'RecordEvents', 'ReadAlerts', 'SendAlerts']);
   const record = statement(role, 'RecordEvents');
   assert.ok(record.includes('Action: dynamodb:PutItem\n'));
   assert.ok(record.includes('Resource: !GetAtt EventsTable.Arn'));
-  assert.deepEqual(role.match(/dynamodb:\w+/g), ['dynamodb:PutItem']);
+  // It reads the alerts' own partition, and nothing else of the table (map-infra.test.mjs).
+  assert.deepEqual(role.match(/dynamodb:\w+/g), ['dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:LeadingKeys']);
   assert.ok(statement(role, 'WriteOwnLog').includes('Resource: !GetAtt EventsLogGroup.Arn'));
   assert.equal(/Resource: '\*'/.test(role), false);
 
@@ -395,9 +401,11 @@ test('three IoT rules feed the recorder: shadow documents, presence and board lo
     assert.ok(rule.includes('FunctionArn: !GetAtt EventsFn.Arn'), name);
     assert.equal(/RoleArn|Republish|S3:|DynamoDBv2/.test(rule), false, name);
   }
-  // AWS IoT may invoke the recorder for exactly these three rules of this account.
+  // AWS IoT may invoke the recorder for exactly these three rules of this account (and EventBridge for
+  // the check of the alerts: map-infra.test.mjs).
   const permissions = template.split(/\n(?= {2}\w+:\n)/)
-    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref EventsFn'));
+    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref EventsFn') &&
+      resource.includes('Principal: iot.amazonaws.com'));
   assert.equal(permissions.length, 3);
   for (const [name, rule] of [['ShadowEventsPermission', 'ShadowEventsRule'], ['PresenceEventsPermission', 'PresenceEventsRule'],
     ['BoardLogPermission', 'BoardLogRule']]) {
@@ -417,8 +425,10 @@ test('a board may publish its log on its own events topic, and do nothing else t
   const statements = policy.split(/\n {10}- Effect: /).slice(1);
   const publish = statements.find((text) => text.includes('Action: iot:Publish'));
   assert.ok(publish.includes(`- ${topic}`));
-  // Only under Publish: a board neither subscribes to it nor receives on it, and has no other topic of this kind.
-  assert.equal(policy.split('cranium/').length - 1, 1);
+  // Only under Publish: a board neither subscribes to it nor receives on it. Its other topics of this
+  // kind, location and commands, are checked in map-infra.test.mjs.
+  assert.equal(policy.split('cranium/').length - 1, 4);
+  assert.equal(policy.split('/events').length - 1, 1);
   for (const text of statements.filter((item) => !item.includes('Action: iot:Publish'))) {
     assert.equal(text.includes('/events'), false);
   }
@@ -434,4 +444,84 @@ test('the API reads the events table and nothing more: Query, on that table alon
   assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 1);
   assert.ok(block(template, 'ApiFn').includes('EVENTS_TABLE: !Ref EventsTable'));
   assert.equal(block(template, 'WebRole').includes('EventsTable'), false);
+});
+
+// The fleet (docs/fleet.md): a release's note, the boards' attributes, and the schedule that moves
+// staged rollouts on.
+
+test('a release\'s note is changed with PUT, through a session route and a token route like POST\'s', () => {
+  for (const [resource, key, auth] of [['ApiPutRoute', 'PUT /api/{proxy+}', 'JWT'], ['ApiTokenPutRoute', 'PUT /api/t/{proxy+}', 'NONE']]) {
+    const route = block(template, resource);
+    assert.ok(route.includes(`RouteKey: '${key}'`), resource);
+    assert.ok(route.includes(`AuthorizationType: ${auth}`), resource);
+    assert.ok(route.includes("Target: !Sub 'integrations/${ApiIntegration}'"), resource);
+    assert.ok(block(block(template, 'Stage'), 'DependsOn', 4).includes(`- ${resource}`), resource);
+  }
+  assert.ok(block(template, 'ApiPutRoute').includes('AuthorizerId: !Ref Authorizer'));
+  assert.ok(block(template, 'ApiPutRoute').includes('- cranium/console'));
+  const settings = block(block(template, 'Stage'), 'RouteSettings', 6);
+  const limits = (key) => {
+    const part = settings.split(`'${key}':`)[1].split('\n').slice(1, 3).join('\n');
+    return [Number(/ThrottlingBurstLimit: (\d+)/.exec(part)[1]), Number(/ThrottlingRateLimit: (\d+)/.exec(part)[1])];
+  };
+  assert.deepEqual(limits('PUT /api/{proxy+}'), limits('POST /api/{proxy+}'));
+  assert.deepEqual(limits('PUT /api/t/{proxy+}'), limits('POST /api/t/{proxy+}'));
+  assert.ok(read('api/src/app.mjs').includes("route('PUT', '/api/firmware/{version}/notes'"));
+});
+
+test('the API reads a board\'s attributes for its type, on the boards of this project only', () => {
+  const boards = statement(block(template, 'ApiRole'), 'ReadBoards');
+  assert.ok(boards.includes('- iot:DescribeThing'));
+  assert.ok(boards.includes(':thing/cranium-*'));
+});
+
+test('staged rollouts move on every minute, in a function of their own that can start jobs and little else', () => {
+  const fn = block(template, 'RolloutTickFn');
+  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: RolloutTickLogGroup', 'LogGroup: !Ref RolloutTickLogGroup',
+    'Runtime: nodejs22.x', 'Handler: rollouts-tick.handler', 'Role: !GetAtt RolloutTickRole.Arn', 'Code: ../api/src',
+    '${DeployedCommit} (${DeployedTree})']) {
+    assert.ok(fn.includes(line), line);
+  }
+  assert.ok(block(template, 'RolloutTickLogGroup').includes('RetentionInDays: 90'));
+  const rule = block(template, 'RolloutTickRule');
+  assert.ok(rule.includes('ScheduleExpression: rate(1 minute)'));
+  assert.ok(rule.includes('Arn: !GetAtt RolloutTickFn.Arn'));
+  const permission = block(template, 'RolloutTickPermission');
+  assert.ok(permission.includes('Principal: events.amazonaws.com'));
+  assert.ok(permission.includes('SourceArn: !GetAtt RolloutTickRule.Arn'));
+  // Only EventBridge, for this rule, may invoke it.
+  const invokers = template.split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref RolloutTickFn'));
+  assert.equal(invokers.length, 1);
+
+  const role = block(template, 'RolloutTickRole');
+  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog', 'ReadReleasesAndFleet',
+    'WriteRollouts', 'AppendAudit', 'StartAndReadDeployments', 'CancelAndReadJobs', 'ReadOneExecution', 'ReadBoards', 'ListBoards',
+    'ListDeployments', 'PassPresignRoleToIot', 'ReadAlerts', 'WriteAlerts', 'SendAlerts', 'NeverChangeAuditEntries']);
+  // Writes in the state table only to a rollout; reads only of releases and the fleet's records.
+  const writes = statement(role, 'WriteRollouts');
+  assert.ok(writes.includes('Action: dynamodb:UpdateItem'));
+  assert.deepEqual([...writes.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]), ['ROL']);
+  const reads = statement(role, 'ReadReleasesAndFleet');
+  assert.deepEqual([...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['REL', 'ROL', 'GRP', 'SEEN']);
+  assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
+  // The events table only for the alerts' own part, and the alert topic only to publish to: the alert
+  // of a rollout that stopped by itself.
+  for (const sid of ['ReadAlerts', 'WriteAlerts']) {
+    const alerts = statement(role, sid);
+    assert.ok(alerts.includes('Resource: !GetAtt EventsTable.Arn'), sid);
+    assert.deepEqual([...alerts.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]), ['ALERTS'], sid);
+  }
+  assert.ok(statement(role, 'ReadAlerts').includes('Action: dynamodb:Query'));
+  assert.ok(statement(role, 'WriteAlerts').includes('Action: dynamodb:PutItem'));
+  const send = statement(role, 'SendAlerts');
+  assert.ok(send.includes('Action: sns:Publish') && send.includes('Resource: !Ref AlertTopic'));
+  assert.equal((role.match(/sns:/g) ?? []).length, 1);
+  assert.equal((role.match(/EventsTable/g) ?? []).length, 2);
+  assert.equal(/s3:|cognito-idp:|iotwireless:/.test(role), false);
+  assert.ok(fn.includes('ALERT_TOPIC_ARN: !Ref AlertTopic') && fn.includes('CONSOLE_URL: '));
+  assert.equal(/Action: \S+:\*/.test(role), false);
+  assert.ok(statement(role, 'PassPresignRoleToIot').includes('iam:PassedToService: iot.amazonaws.com'));
+  assert.ok(block(block(template, 'Outputs', 0), 'RolloutsFunctionName').includes('Value: !Ref RolloutTickFn'));
 });

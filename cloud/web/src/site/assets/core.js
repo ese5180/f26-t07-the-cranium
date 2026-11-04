@@ -103,7 +103,23 @@ export function versionOfDeployment(id) {
 
 const SECTIONS = [
   'overview', 'devices', 'diagnostics', 'events', 'firmware', 'deployments', 'activity', 'serial', 'history', 'tokens',
+  // Board types, groups and staged rollouts (fleet.js).
+  'fleet',
+  // The map of the boards, and the Account page with its e-mail alerts (map.js, account.js).
+  'map', 'account',
+  // The phone apps: where to get them, and how to put them on a phone (apps.js).
+  'apps',
 ];
+// A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
+const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
+
+export function isRolloutId(value) {
+  return typeof value === 'string' && ROLLOUT.test(value);
+}
+
+export function rolloutHref(id) {
+  return isRolloutId(id) ? `#/rollouts/${id}` : null;
+}
 const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?$/;
 
 /** Turn a location hash into a route, or null if it is not one of the console's. */
@@ -116,6 +132,8 @@ export function parseRoute(hash) {
   if (section === 'deployments' && isDeploymentId(item)) return { view: 'deployment', id: item };
   // One board's diagnostics, when there are too many boards for a card each.
   if (section === 'diagnostics' && isThing(item)) return { view: 'diagnostics', thing: item };
+  // One staged rollout: its canary, its waves, and why it stopped (fleet.js).
+  if (section === 'rollouts' && isRolloutId(item)) return { view: 'rollout', id: item };
   return null;
 }
 
@@ -124,6 +142,7 @@ export function routeHash(route) {
   if (route?.view === 'device' && isThing(route.thing)) return `#/devices/${route.thing}`;
   if (route?.view === 'deployment' && isDeploymentId(route.id)) return `#/deployments/${route.id}`;
   if (route?.view === 'diagnostics' && isThing(route.thing)) return `#/diagnostics/${route.thing}`;
+  if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }
@@ -553,6 +572,9 @@ function readDevice(raw) {
     diag: readDiag(item.diag),
     diary: readDiary(item.diary),
     bt: readBt(item.bt),
+    // Where it is, from the Wi-Fi it hears (docs/fleet.md), and why it is not on the map if it is not.
+    position: readPosition(item.position),
+    location: readLocation(item.location),
   };
 }
 
@@ -614,7 +636,48 @@ function readRelease(raw) {
     uploadedAt: instant(item.uploadedAt),
     status: item.status === 'active' ? 'active' : 'revoked',
     revoked,
+    // The board type the image is for (docs/fleet.md), where the server says: as with enforcedAt,
+    // a server that does not leave it out here too.
+    ...(Object.hasOwn(item, 'board') ? { board: BOARD_TYPES.includes(item.board) ? item.board : 'nrf7002dk' } : {}),
+    // And the flash layout it is built for, the same way.
+    ...(Object.hasOwn(item, 'layout') ? { layout: whole(item.layout, 1, 9999) ?? 1 } : {}),
   };
+}
+
+// Board types (cloud/api/src/lib/boards.mjs): what an image is for, and what a board is.
+export const BOARD_TYPES = Object.freeze(['nrf7002dk', 'nrf5340dk']);
+export const BOARD_LABELS = Object.freeze({ nrf7002dk: 'nRF7002 DK', nrf5340dk: 'nRF5340 DK' });
+// No Wi-Fi: a release for these goes to a board from the phone app, never by a deployment.
+export const BLUETOOTH_ONLY_TYPES = Object.freeze(['nrf5340dk']);
+
+/**
+ * The boards a release can be offered to by a deployment: those of its type and its flash layout
+ * that can take a job. `types` is thing -> { type, layout, bluetoothOnly } from the fleet, or null
+ * while it is not known, when every board is offered and the server decides (400 incompatible_board,
+ * 400 incompatible_layout).
+ */
+export function offeredBoards(devices, types, release) {
+  if (!types || !release) return devices;
+  const board = release.board ?? 'nrf7002dk';
+  const layout = release.layout ?? 1;
+  return devices.filter((device) => {
+    const known = types.get(device.thing);
+    return !known || (known.type === board && (known.layout ?? 1) === layout && !known.bluetoothOnly);
+  });
+}
+
+/**
+ * What a release is compatible with, in words: "For nRF7002 DK · layout 1". Empty for a release from a
+ * server that does not say.
+ */
+export function compatibilityWords(release) {
+  if (!release?.board) return '';
+  return `For ${boardTypeLabel(release.board)} · layout ${release.layout ?? 1}`;
+}
+
+/** "nRF5340 DK" for nrf5340dk; the type itself for one this console does not know. */
+export function boardTypeLabel(type) {
+  return BOARD_LABELS[type] ?? String(type ?? '');
 }
 
 function readFirmware(body) {
@@ -774,6 +837,8 @@ function readEvents(body) {
 export const LINE_KINDS = Object.freeze(['bluetooth', 'update', 'restart', 'health', 'setting', 'log']);
 export const LINE_TAGS = Object.freeze([
   'BT', 'WIFI', 'STUCK', 'CONSOLE',
+  // A board's answer to a command from the console (identify, report), from firmware 1.13.0.
+  'CMD',
   'app', 'boot_diary', 'bt_ota', 'cloud', 'factory', 'health', 'identity', 'net', 'ota', 'store', 'stuck', 'ui',
 ]);
 const LINE_ID = /^(0|[1-9]\d{0,9})\.([1-9]\d{0,9})$/;
@@ -832,6 +897,11 @@ function readMe(body) {
     email: text(reply.email, 254),
     groups: texts(reply.groups),
     canWrite: reply.canWrite === true,
+    // The console's own version and the commit it was built from (cloud/VERSION, docs/versions.md), or null.
+    console: {
+      version: /^\d{1,4}\.\d{1,4}\.\d{1,6}$/.test(reply.console?.version ?? '') ? reply.console.version : null,
+      commit: /^[0-9a-f]{40}$/.test(reply.console?.commit ?? '') ? reply.console.commit : null,
+    },
   };
 }
 
@@ -2053,11 +2123,49 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
       if (version !== null) body.version = checked(isVersion, version);
       return record(await request('POST', '/api/serial/commands', body, { once: true })).recorded ?? null;
     },
+    /** A release's note, changed after its upload: the whole note, '' for none. */
+    async setNotes(version, notes) {
+      const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/notes`;
+      return readRelease(record(await request('PUT', path, { notes })).release);
+    },
+    /**
+     * The fleet's requests (fleet.js reads its own answers): board types, groups and staged
+     * rollouts, and nothing else of the API.
+     */
+    async fleetRequest(method, path, body) {
+      const allowed = (method === 'GET' || method === 'POST') && typeof path === 'string' &&
+        /^\/api\/(?:fleet|groups|rollouts)(?:\/[A-Za-z0-9-]+){0,2}(?:\?[A-Za-z0-9=&%._-]*)?$/.test(path);
+      if (!allowed) throw new ApiError(0, 'bad_request', 'That is not a request of the fleet.');
+      return record(await request(method, path, body));
+    },
+    /**
+     * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
+     * to download an Android release, which the console puts on record. Tried once: a link is for now.
+     */
+    async appsRequest(method, path) {
+      const allowed = method === 'GET' && typeof path === 'string' &&
+        /^\/api\/apps(?:\/config|\/android\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download(?:\?via=qr)?)?$/.test(path);
+      if (!allowed) throw new ApiError(0, 'bad_request', 'That is not a request of the Apps page.');
+      return record(await request(method, path, undefined, { once: path.includes('/download') }));
+    },
     tokens: async () => readTokens(await get('/api/tokens')),
     createToken: async ({ name, days }) => readNewToken(await post('/api/tokens', { name, days })),
     async revokeToken(id) {
       return readToken(record(await post(`/api/tokens/${checked(isTokenId, id)}/revoke`, {})).token);
     },
+    // The map, commands and alerts (docs/fleet.md): a board's last positions, a command to a board,
+    // and the caller's own e-mail alerts.
+    positions: async (thing) => readPositions(await get(`/api/devices/${checked(isThing, thing)}/positions`)),
+    /** identify (for `seconds`) or report, now. Tried once: a command is for now, and a refusal says why. */
+    async command(thing, cmd, seconds = null) {
+      const body = { cmd: checked((name) => COMMANDS.includes(name), cmd) };
+      if (seconds !== null) body.seconds = checked((value) => whole(value, 1, 60) !== null, seconds);
+      return readCommand(record(await request('POST', `/api/devices/${checked(isThing, thing)}/commands`, body,
+        { once: true })).command);
+    },
+    alerts: async () => readAlerts(await get('/api/alerts')),
+    subscribeAlerts: async () => text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
+    unsubscribeAlerts: async () => text(record(await post('/api/alerts/unsubscribe', {})).subscription, 16),
   };
 }
 
@@ -2980,9 +3088,86 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to put on record a command run over USB',
     icon: 'chip',
   },
+  // A command sent to a board over the internet (COMMAND_WORDS), and a person's own e-mail alerts.
+  'board.command': {
+    done: 'sent a command to', tried: 'tried to send a command to', triedAlone: 'tried to send a command to a board',
+    icon: 'locate',
+  },
+  'alert.subscribe': {
+    done: 'asked for e-mail alerts at', tried: 'tried to ask for e-mail alerts at', triedAlone: 'tried to ask for e-mail alerts',
+    icon: 'bell',
+  },
+  'alert.unsubscribe': {
+    done: 'stopped the e-mail alerts to', tried: 'tried to stop the e-mail alerts to',
+    triedAlone: 'tried to stop e-mail alerts', icon: 'bell',
+  },
+  // The fleet (docs/fleet.md): groups, staged rollouts, a phone's sighting, a release's note.
+  'group.create': { done: 'made the group', tried: 'tried to make the group', triedAlone: 'tried to make a group', icon: 'list' },
+  'group.update': { done: 'changed the group', tried: 'tried to change the group', triedAlone: 'tried to change a group', icon: 'list' },
+  'group.delete': { done: 'deleted the group', tried: 'tried to delete the group', triedAlone: 'tried to delete a group', icon: 'list' },
+  'group.rollback': {
+    done: 'rolled back the group', tried: 'tried to roll back the group', triedAlone: 'tried to roll back a group', icon: 'restart',
+  },
+  'rollout.create': {
+    done: 'started a staged rollout of', doneAlone: 'started a staged rollout', tried: 'tried to start a staged rollout of',
+    triedAlone: 'tried to start a staged rollout', icon: 'send',
+  },
+  'rollout.cancel': {
+    done: 'cancelled the staged rollout', tried: 'tried to cancel the staged rollout', triedAlone: 'tried to cancel a staged rollout',
+    icon: 'stop',
+  },
+  // The console's own, when a canary has confirmed or a rollout stopped (cloud/api/src/tick.mjs).
+  'rollout.advance': {
+    done: 'went on with the staged rollout', tried: 'could not go on with the staged rollout',
+    triedAlone: 'could not go on with a staged rollout', icon: 'send',
+  },
+  'rollout.stop': {
+    done: 'stopped the staged rollout', tried: 'could not stop the staged rollout', triedAlone: 'could not stop a staged rollout',
+    icon: 'stop',
+  },
+  'fleet.update_everything': {
+    done: 'started updating everything', doneAlone: 'started updating everything', tried: 'tried to update everything',
+    triedAlone: 'tried to update everything', icon: 'send',
+  },
+  'device.seen': {
+    done: 'saw {} over Bluetooth', doneAlone: 'saw a board over Bluetooth', tried: 'tried to say a phone saw {}',
+    triedAlone: 'tried to say a phone saw a board', icon: 'chip',
+  },
+  'firmware.notes': {
+    done: 'changed the note of', tried: 'tried to change the note of', triedAlone: 'tried to change the note of a release',
+    icon: 'file',
+  },
+  // The phone apps (the Apps page): the URL a build sends an APK to S3 with, the APK published once the
+  // console has checked what arrived, and a download link handed out, for a person or a phone's QR code.
+  'app.upload': {
+    done: 'started publishing the Android app', tried: 'tried to start publishing the Android app',
+    triedAlone: 'tried to start publishing the Android app', icon: 'upload',
+  },
+  'app.publish': {
+    done: 'published the Android app', tried: 'tried to publish the Android app', triedAlone: 'tried to publish the Android app',
+    icon: 'package',
+  },
+  'app.download': {
+    done: 'downloaded the Android app', tried: 'tried to download the Android app', triedAlone: 'tried to download the Android app',
+    icon: 'download',
+  },
 };
 
+// What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
+const CONSOLE_ACTIONS = Object.freeze(['rollout.advance', 'rollout.stop']);
+
+/** Who did what an entry says: a person, or for what the schedule did, the console. */
+export function actorOf(entry) {
+  return CONSOLE_ACTIONS.includes(entry?.action) && !entry.actor?.sub ? 'The console' : nameOf(entry?.actor);
+}
+
 const SIGNED_IN_ON = { web: 'signed in on the website', phone: 'signed in on the phone app' };
+
+// What a command sent to a board asked of it (cloud/api/src/handlers/commands.mjs), with the board where {} stands.
+export const COMMAND_WORDS = {
+  identify: 'asked {} to blink its lights',
+  report: 'asked {} to report now',
+};
 
 // What a command at a board's serial console did (cloud/api/src/handlers/serial.mjs), with the
 // board where {} stands. What was typed after the command is never recorded, so never said.
@@ -3023,6 +3208,7 @@ export const REFUSAL_WORDS = {
   already_cancelled: 'That deployment was already cancelled',
   already_finished: 'That deployment had already finished',
   already_revoked: 'That release was already revoked',
+  already_subscribed: 'Alerts already go to that address',
   audit_failed: 'The change could not be written to this log',
   bad_header: 'The image header cannot be read',
   bad_signing_key: 'The server’s signing key cannot be read',
@@ -3033,10 +3219,14 @@ export const REFUSAL_WORDS = {
   invalid_deployment: 'Not a valid deployment ID',
   invalid_filename: 'The file name has characters the server does not accept, or is too long',
   invalid_json: 'The request could not be read',
+  invalid_seconds: 'A board blinks for 1 to 60 seconds',
   invalid_thing: 'Not a valid board name',
   invalid_things: 'The list of boards is not valid',
   invalid_version: 'Not a valid version number',
+  no_email: 'The account has no e-mail address',
+  not_confirmed: 'The subscription waits for its e-mail to be confirmed',
   not_found: 'There is nothing at that address',
+  not_subscribed: 'Alerts do not go to that address',
   payload_too_large: 'The request was too large',
   release_manager_required: 'Only a release manager can do this',
   revoke_incomplete: 'The revocation did not finish',
@@ -3093,6 +3283,46 @@ export const REFUSAL_WORDS = {
   invalid_device: 'Not a board’s device ID',
   unexpected_field: 'The request held more than the command, the device ID and the version',
   rate_limited: 'More serial console commands in a minute than are recorded for one person',
+  // The fleet (docs/fleet.md): board types, groups, staged rollouts, sightings and notes.
+  incompatible_board: 'The release is for another type of board',
+  incompatible_layout: 'The release is built for another flash layout',
+  invalid_layout_tlv: 'The flash layout in the image was not a positive whole number',
+  invalid_layout: 'The flash layout was not a whole number from 1',
+  bluetooth_only: 'The board has no Wi-Fi and updates over Bluetooth from a phone',
+  invalid_type: 'Not a board type this console knows',
+  unknown_board: 'The image is for a board type this console does not know',
+  invalid_board_tlv: 'The board type in the image was not one short word',
+  invalid_notes: 'The note was not one line of up to 500 characters',
+  unknown_group: 'There is no such group',
+  invalid_group: 'Not the id of a group',
+  name_taken: 'Another group already has that name',
+  too_many_groups: 'There can be at most 50 groups',
+  group_changed: 'Someone changed the group at the same moment',
+  nothing_to_change: 'The request named nothing to change',
+  unknown_rollout: 'There is no such staged rollout',
+  invalid_rollout: 'Not the id of a staged rollout',
+  invalid_target: 'Not a target of a rollout: boards, a group, a type or the fleet',
+  invalid_types: 'The list of board types and their releases was not valid',
+  invalid_canary: 'The canary was not a whole number from 1 to 5',
+  invalid_wave: 'The first wave was not a whole number from 1 to 50 boards',
+  invalid_abortPercent: 'The share of failures to stop at was not a whole number from 1 to 100',
+  nothing_to_deploy: 'No board would take the release',
+  too_many_boards: 'A rollout takes at most 100 boards',
+  plan_changed: 'The plan had changed since it was shown',
+  no_older_release: 'There is no older release of that type to go back to',
+  rollout_changed: 'The rollout moved on while it was being cancelled',
+  rollout_unrecorded: 'The rollout could not be recorded, so its canary was withdrawn',
+  partly_started: 'Only some of the rollouts could be started',
+  // The phone apps (cloud/api/src/handlers/apps.mjs): publishing the Android app, and its download links.
+  version_code_not_higher: 'Its versionCode is not higher than the newest Android app’s',
+  apk_missing: 'No APK had arrived in S3 for that version',
+  size_mismatch: 'The APK that arrived was of another size',
+  checksum_missing: 'The APK that arrived had no SHA-256 of its own',
+  publish_conflict: 'Another release of the app was being published at the same moment',
+  invalid_via: 'Not a way to hand out a link: a QR code, or none',
+  invalid_version_code: 'The versionCode was not a whole number',
+  invalid_size: 'The size was not a whole number of bytes, up to 100 MB',
+  unversioned: 'The bucket kept no version of the APK',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */
@@ -3148,8 +3378,30 @@ const AUDIT_DETAILS = {
   from: { label: 'From', say: (value) => (value === 'phone' ? 'the phone app' : value) },
   client: { label: 'On', say: (value) => ({ web: 'the website', phone: 'the phone app' })[value] ?? value },
   name: { label: 'Named', sentence: true },
+  // A command sent to a board, and an e-mail subscription (docs/fleet.md).
+  cmd: { label: 'Command', code: true },
+  seconds: { label: 'For', say: (value) => (/^\d+$/.test(value) ? `${value} s` : value) },
+  id: { label: 'Command id', code: true },
+  subscription: { label: 'Now', say: (value) => (value === 'pending' ? 'waiting for the address to confirm' : value) },
   days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
   withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },
+  // The fleet.
+  kind: { label: 'To', say: (value) => ({ boards: 'boards named one by one', group: 'a group', type: 'a board type', fleet: 'the whole fleet' })[value] ?? value },
+  canary: { label: 'Canary', code: true },
+  rollouts: { label: 'Rollouts', code: true },
+  versions: { label: 'Releases' },
+  group: { label: 'Group' },
+  job: { label: 'Deployment', code: true },
+  renamedFrom: { label: 'Was called', sentence: true },
+  added: { label: 'Boards added' },
+  removed: { label: 'Boards removed' },
+  notes: { label: 'New note', sentence: true },
+  oldLength: { label: 'Old note', say: (value) => (value === '0' ? 'none' : `${value} characters`) },
+  type: { label: 'Board type', say: boardTypeLabel },
+  layout: { label: 'Flash layout' },
+  // The phone apps: an APK's versionCode, and where a download link went.
+  versionCode: { label: 'versionCode', code: true },
+  via: { label: 'As', say: (value) => ({ link: 'a link', qr: 'a QR code for a phone' })[value] ?? value },
 };
 
 function auditFact(entry, key, value) {
@@ -3186,14 +3438,19 @@ export function describeAudit(entry) {
   const ok = entry.outcome === 'ok';
   const other = { tone: 'idle', icon: 'minus', label: entry.outcome || 'Unknown' };
   const deployment = isDeploymentId(entry.target) ? entry.target : null;
-  const label = deployment ? versionOfDeployment(deployment) ?? deployment : entry.target ?? '';
   const details = new Map(entry.detail ?? []);
+  // A staged rollout is told by its release, and a group by its name; the entry keeps their ids.
+  let label = deployment ? versionOfDeployment(deployment) ?? deployment : entry.target ?? '';
+  if (isRolloutId(entry.target) && isVersion(details.get('version'))) label = details.get('version');
+  else if (/^group\.(?:create|update|delete)$/.test(entry.action) && details.get('name')) label = details.get('name');
+  else if (entry.action === 'group.rollback' && details.get('group')) label = details.get('group');
   // A revocation that completed what an earlier request had begun.
   const resumed = entry.action === 'firmware.revoke' && ok && details.get('resumed') === 'true';
   let words = entry.action || 'did something';
   if (resumed) words = 'finished revoking firmware';
   else if (entry.action === 'account.sign_in' && ok) words = entryOf(SIGNED_IN_ON, details.get('client')) ?? action.done;
   else if (entry.action === 'serial.command' && ok) words = entryOf(SERIAL_WORDS, details.get('command')) ?? action.done;
+  else if (entry.action === 'board.command' && ok) words = entryOf(COMMAND_WORDS, details.get('cmd')) ?? action.done;
   else if (action && ok) words = label ? action.done : action.doneAlone ?? action.done;
   else if (action) words = label ? action.tried : action.triedAlone;
 
@@ -3226,8 +3483,8 @@ export function describeAudit(entry) {
     if (!details.has(key) || said.has(key)) continue;
     // Said by the sentence already: the version of a deployment, and that a revocation was finished.
     if ((key === 'version' && details.get(key) === label) || (key === 'resumed' && resumed)) continue;
-    // And the name of the file that an upload is told by.
-    if (key === 'filename' && details.get(key) === label) continue;
+    // And the name of the file that an upload is told by, and of the group a change is told by.
+    if (['filename', 'name', 'group'].includes(key) && details.get(key) === label) continue;
     facts.push(auditFact(entry, key, details.get(key)));
   }
   if (deployment) {
@@ -3240,7 +3497,7 @@ export function describeAudit(entry) {
     label,
     tail,
     outcome: ok ? null : entryOf(AUDIT_OUTCOMES, entry.outcome) ?? other,
-    href: deploymentHref(entry.target) ?? (isVersion(entry.target) ? '#/firmware' : null),
+    href: deploymentHref(entry.target) ?? rolloutHref(entry.target) ?? (isVersion(entry.target) ? '#/firmware' : null),
     facts,
     scripted: String(entry.requestId ?? '').startsWith(SCRIPTED_REQUEST),
     boards,
@@ -3264,6 +3521,168 @@ export function auditBoards(description, devices = []) {
 /** A whole line of the activity log in words, for where it is plain text: "a@b deployed 1.12.0+0 to CRVIHAAN01". */
 export function auditSentence(entry, devices = []) {
   const description = describeAudit(entry);
-  return [nameOf(entry.actor), description.verb, description.label, description.tail, auditBoards(description, devices)]
+  return [actorOf(entry), description.verb, description.label, description.tail, auditBoards(description, devices)]
     .filter(Boolean).join(' ');
 }
+
+// The map, commands and alerts (docs/fleet.md). Where each board is, from the Wi-Fi it hears
+// (cloud/api/src/lib/position.mjs), why a board is not on the map, the commands a release manager
+// can send a board and how its answer is found in its log, and a person's own e-mail alerts.
+
+export const COMMANDS = Object.freeze(['identify', 'report']);
+export const IDENTIFY_SECONDS = 15;
+// How long the page looks in the board's log for its answer to a command.
+export const COMMAND_ANSWER_MS = 45_000;
+const LOCATION_STATUSES = ['none', 'ok', 'too_few', 'unsolved', 'failed', 'unknown'];
+const COMMAND_ID = /^[0-9a-f]{16}$/;
+
+/** A position, or null: { lat, lon, accuracy (m), at }. */
+function readPosition(raw) {
+  if (!anObject(raw)) return null;
+  const { lat, lon } = raw;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  const accuracy = whole(raw.accuracy, 1, 1e7);
+  const at = instant(raw.at);
+  return accuracy === null || at === null ? null : { lat, lon, accuracy, at };
+}
+
+/** What the server knows of a board's location: { status, at, apCount, checkedAt, bluetoothOnly }. */
+function readLocation(raw) {
+  const item = anObject(raw) ? raw : {};
+  return {
+    status: LOCATION_STATUSES.includes(item.status) ? item.status : 'none',
+    at: instant(item.at),
+    apCount: whole(item.apCount, 0, 10),
+    checkedAt: instant(item.checkedAt),
+    bluetoothOnly: item.bluetoothOnly === true,
+  };
+}
+
+function readPositions(body) {
+  const reply = record(body);
+  return {
+    thing: text(reply.thing, 64),
+    location: readLocation(reply.location),
+    positions: list(reply.positions).map(readPosition).filter((position) => position !== null).slice(0, 20),
+  };
+}
+
+function readCommand(raw) {
+  const item = record(raw);
+  if (typeof item.id !== 'string' || !COMMAND_ID.test(item.id) || !COMMANDS.includes(item.cmd)) throw unreadable();
+  return {
+    id: item.id,
+    cmd: item.cmd,
+    seconds: whole(item.seconds, 1, 60),
+    thing: text(item.thing, 64),
+    sentAt: instant(item.sentAt),
+    online: item.online === true,
+  };
+}
+
+function readSentAlert(raw) {
+  if (!anObject(raw) || instant(raw.at) === null) return null;
+  return {
+    at: raw.at,
+    kind: text(raw.kind, 16),
+    thing: isThing(raw.thing) ? raw.thing : null,
+    deployment: isDeploymentId(raw.deployment) ? raw.deployment : null,
+    subject: boardText(raw.subject, 100),
+    count: whole(raw.count, 1, 1000) ?? 1,
+  };
+}
+
+function readAlerts(body) {
+  const reply = record(body);
+  const rules = anObject(reply.rules) ? reply.rules : {};
+  return {
+    email: text(reply.email, 254),
+    subscription: ['none', 'pending', 'confirmed'].includes(reply.subscription) ? reply.subscription : 'none',
+    canSubscribe: reply.canSubscribe === true,
+    subscribers: whole(reply.subscribers, 0, 10_000) ?? 0,
+    recent: list(reply.recent).map(readSentAlert).filter((item) => item !== null),
+    rules: {
+      offlineMinutes: whole(rules.offlineMinutes, 1, 1440) ?? 15,
+      everyMinutes: whole(rules.everyMinutes, 1, 1440) ?? 60,
+      movedMetres: whole(rules.movedMetres, 1, 1e6) ?? 1000,
+    },
+  };
+}
+
+/** "40 m", "1.3 km". */
+export function distanceWords(metres) {
+  if (!Number.isFinite(metres)) return '';
+  if (metres < 1000) return `${Math.round(metres)} m`;
+  return metres < 10_000 ? `${(metres / 1000).toFixed(1)} km` : `${Math.round(metres / 1000)} km`;
+}
+
+/**
+ * Why a board has no place on the map, or null if it has one: { code, title, text }. A board with
+ * Bluetooth only has no Wi-Fi to place it by; a board on older firmware never sends a scan.
+ */
+export function unplacedReason(device) {
+  if (device?.position) return null;
+  const location = device?.location ?? { status: 'none' };
+  if (location.bluetoothOnly) {
+    return { code: 'bluetooth', title: 'Bluetooth only', text: 'An nRF5340 DK has no Wi-Fi, so nothing places it.' };
+  }
+  switch (location.status) {
+    case 'too_few':
+      return {
+        code: 'too_few',
+        title: 'Too few access points',
+        text: `It heard ${location.apCount === 1 ? 'one' : location.apCount === 0 ? 'none' : 'too few'} it could use; ` +
+          'two are needed. Hotspots and other moving networks do not count.',
+      };
+    case 'unsolved':
+      return { code: 'unsolved', title: 'Not found', text: 'AWS could not place the access points it heard.' };
+    case 'failed':
+      return { code: 'failed', title: 'Not placed yet', text: 'AWS could not be asked; it tries again with the next scan.' };
+    case 'unknown':
+      return { code: 'unknown', title: 'Not read', text: 'The positions could not be read just now.' };
+    default:
+      return {
+        code: 'no_scan',
+        title: 'No scan yet',
+        text: 'Boards send what they hear of the Wi-Fi from firmware 1.13.0, a minute after they connect.',
+      };
+  }
+}
+
+/** The colour a board's marker takes: as its state reads on the Devices page. */
+export function markerTone(device) {
+  if (device?.location?.bluetoothOnly) return 'idle';
+  if (deviceActivity(device) !== null) return 'act';
+  if (device?.ota?.last === 'failed' || device?.ota?.last === 'rolled_back') return 'warn';
+  return device?.online ? 'good' : 'idle';
+}
+
+/** Whether the console can send a board a command at all: it connects to AWS IoT, and has reported. */
+export function canCommand(device) {
+  return Boolean(device) && !device.location?.bluetoothOnly && (device.lastSeen !== null || device.online);
+}
+
+/** The board's answer to a command, from its log (tag CMD, with the command's id in it), or null. */
+export function commandAnswer(lines, id) {
+  if (!COMMAND_ID.test(String(id ?? ''))) return null;
+  const line = (lines ?? []).find((item) => item.tag === 'CMD' && item.text.includes(`(${id})`));
+  return line ? { text: line.text, at: line.at, ignored: line.text.startsWith('ignored') } : null;
+}
+
+/** The positions of a board, newest first, each with how far it moved from the one before it. */
+export function positionSteps(positions) {
+  const radians = Math.PI / 180;
+  return (positions ?? []).map((position, index, all) => {
+    const before = all[index + 1];
+    if (!before) return { ...position, moved: null };
+    const dLat = (position.lat - before.lat) * radians;
+    const dLon = (position.lon - before.lon) * radians;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(before.lat * radians) * Math.cos(position.lat * radians) * Math.sin(dLon / 2) ** 2;
+    return { ...position, moved: 2 * 6_371_008.8 * Math.asin(Math.min(1, Math.sqrt(h))) };
+  });
+}
+
+export const ALERT_KIND_WORDS = Object.freeze({
+  offline: 'Offline', online: 'Back online', update: 'Update failed', stuck: 'Restarted, stuck', moved: 'Moved',
+  deployment: 'Deployment stopped',
+});

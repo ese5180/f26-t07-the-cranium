@@ -60,7 +60,25 @@
  * Diagnostics pages have a history to show. The "fleet" scenario has one of each kind, and its
  * board on firmware 1.12.0 also sends lines of its board log (AWS IoT's third rule), a sign-in
  * of the release manager and a change made at that board's serial console are in its activity log.
+ * It also has the Android app's last two versions on the Apps page, published as a build publishes
+ * them: the presigned URLs the API hands out for an APK point at a stand-in for S3 on the console's own
+ * address (/local-s3/, api/test/fake-apps.mjs), which checks them as S3 does. In every scenario the
+ * console's version and the changelogs are this checkout's (web/build-versions.mjs), served as
+ * versions.json where the site has none, as cloud/deploy.sh would write it.
  * A sign-in on the preview's own page is recorded as one, as it is when deployed.
+ *
+ * The fleet scenario also puts boards on the Map page: the boards on 1.13.0 send what they hear of the
+ * Wi-Fi, and a stand-in for AWS IoT Core Device Location that knows where the access points of a campus
+ * are (made-up addresses, of the range kept for documentation) places them; one is carried 1.6 km to a
+ * demo, and one hears too few. The boards on 1.13.0 answer the console's commands in their log. The
+ * e-mail alerts are made as when deployed, and listed on the Account page; none is sent anywhere.
+ *
+ * The fleet scenario also has two nRF5340 DKs, which have no Wi-Fi and are only ever seen by a phone,
+ * groups of boards, and a staged rollout whose canary has confirmed and whose waves are under way.
+ * Its images are made by api/test/images.mjs for either board type and signed with a key made for
+ * the run, which that scenario's console trusts in place of the fixtures' key: the fixtures' own
+ * key is gone, and an image for the nRF5340 DK has to be signed. The schedule that moves staged
+ * rollouts on (api/src/tick.mjs) runs every minute, as EventBridge runs it when deployed.
  *
  * The page is the one that is deployed. Nothing in web/ knows about the preview. With
  * --home the requests carry a host name that is on the web function's list of home page
@@ -78,9 +96,13 @@ import { fileURLToPath } from 'node:url';
 
 import { createApp } from '../api/src/app.mjs';
 import { loadConfig } from '../api/src/config.mjs';
+import { createRolloutTick } from '../api/src/tick.mjs';
 import { compareVersions, parseVersion } from '../api/src/lib/mcuboot.mjs';
 import { withConsoleScope } from '../api/src/signin-scope.mjs';
+import { parseBundledVersions } from '../api/src/lib/versions.mjs';
 import { accessClaims, createFakeAws, fakeEnv, fixture } from '../api/test/fake-aws.mjs';
+import { buildImage, imageKey, keyEnv } from '../api/test/images.mjs';
+import { buildVersions } from '../web/build-versions.mjs';
 import { createWebHandler } from '../web/src/server.mjs';
 import { createCognito } from '../web/test/cognito.mjs';
 
@@ -103,6 +125,13 @@ const API_WRITE = 'POST /api/{proxy+}';
 // API tokens: no authorizer; the function checks the token (api/src/handlers/tokens.mjs).
 const API_TOKEN_READ = 'GET /api/t/{proxy+}';
 const API_TOKEN_WRITE = 'POST /api/t/{proxy+}';
+// A release's note is replaced with PUT, through a route of each kind (infra/template.yaml).
+const API_PUT = 'PUT /api/{proxy+}';
+const API_TOKEN_PUT = 'PUT /api/t/{proxy+}';
+// How often the schedule moves staged rollouts on, as deployed.
+const ROLLOUT_TICK_MS = 60_000;
+// The key the fleet scenario's images are signed with (see the top of this file).
+const FLEET_KEY = imageKey();
 
 // What the requests of --home are addressed to. A reserved domain: it can never exist.
 const HOME_HOST = 'home.preview.invalid';
@@ -110,6 +139,8 @@ const HOME_HOST = 'home.preview.invalid';
 // The largest request an HTTP API accepts, and far more than a sign-in form needs.
 const MAX_REQUEST_BYTES = 10 * 1024 * 1024;
 const MAX_FORM_BYTES = 16 * 1024;
+// What S3 takes in one PUT is far more; the Android app's APK is about 12 MB (cloud/api/src/lib/apps.mjs).
+const MAX_APK_BYTES = 100 * 1024 * 1024;
 
 // API Gateway hands a body to the function as text when its content type is a text
 // type, and base64 encoded otherwise. The API reads both.
@@ -138,6 +169,8 @@ const HEARTBEAT_MS = 30_000;
 const LIVE_TICK_MS = 1000;
 // While a scenario's time goes by: a heartbeat a minute, a diagnostics report every five.
 const PASSING_HEARTBEAT_MS = 60_000;
+// How often the alerts are checked, as EventBridge runs the check when deployed (AlertCheckRule).
+const ALERT_CHECK_MS = 5 * 60_000;
 const DIAG_MS = 5 * 60_000;
 const LIVE_SECONDS_PER_STEP = 2;
 const LIVE_RESTART_SECONDS = 12;
@@ -887,7 +920,7 @@ function duration(text) {
  * release manager's requests to the real API. A request that does not end the way
  * the scenario expects stops the preview from starting.
  */
-function createStage({ fake, clock, boards, callApi, say }) {
+function createStage({ fake, clock, boards, callApi, tick, say }) {
   const begun = clock.now();
   // Up to when the boards that are on have reported while the scenario's time went by.
   let passed = null;
@@ -949,10 +982,15 @@ function createStage({ fake, clock, boards, callApi, say }) {
       await request('POST', '/api/serial/commands', { command, device: board.diag?.id, version: board.version }, 'ok');
     },
 
-    /** What tools/provision_device.py does: a thing in the group, with its certificate. */
-    provision(number, version) {
+    /**
+     * What tools/provision_device.py does: a thing in the group, with its certificate, and for a
+     * board without Wi-Fi (--board nrf5340dk) the attribute that says so.
+     */
+    provision(number, version, { type = null } = {}) {
       const thing = `cranium-${previewId(`board ${number}`, 16)}`;
-      fake.addThing(thing, { certificates: [previewId(`certificate ${number}`, 64)] });
+      fake.addThing(thing, {
+        certificates: [previewId(`certificate ${number}`, 64)], attributes: type === null ? {} : { board: type },
+      });
       const board = createBoard(fake, thing, version, say);
       boards.push(board);
       return board;
@@ -960,6 +998,43 @@ function createStage({ fake, clock, boards, callApi, say }) {
 
     async upload(file, notes) {
       await request('POST', '/api/firmware', image(file, notes), 'ok');
+    },
+
+    /**
+     * What apps/android/publish.sh does (docs/mobile-apps.md): a URL for the APK, the APK to S3 with it,
+     * then the check that publishes it. The APK is made up: its bytes say what it stands for.
+     */
+    async publishApp(version, versionCode, notes) {
+      const bytes = Buffer.from(`PK\u0003\u0004 A stand-in for cranium-android-${version}.apk, made by the preview.\n`);
+      const described = { versionCode, sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, notes };
+      const { upload } = await request('POST', '/api/apps/android/uploads', { version, ...described }, 'ok');
+      const sent = fake.s3Request({ method: 'PUT', url: upload.url, headers: upload.headers, body: bytes });
+      if (sent.status !== 200) throw new Error(`The scenario could not be built: S3 answered ${sent.status} for ${version}`);
+      await request('POST', `/api/apps/android/releases/${version}`, described, 'ok');
+    },
+
+    /** An image made for the scenario (api/test/images.mjs), for a board type, signed with its key. */
+    async uploadBuilt(version, board, notes) {
+      const data = buildImage({ version, key: FLEET_KEY, board, fill: Number.parseInt(previewId(version, 2), 16) });
+      await request('POST', '/api/firmware', { filename: 'zephyr.signed.bin', notes, data: data.toString('base64') }, 'ok');
+    },
+
+    /** What a phone app posts once it has connected to a board over Bluetooth. */
+    async seen(board, version, name) {
+      await request('POST', `/api/devices/${board.thing}/seen`, { version, name }, 'ok');
+    },
+
+    async group(name, members) {
+      return (await request('POST', '/api/groups', { name, things: members.map((board) => board.thing) }, 'ok')).group;
+    },
+
+    async rollout(version, target, note) {
+      return (await request('POST', '/api/rollouts', { version, target, note }, 'ok')).rollout;
+    },
+
+    /** The schedule's minute: open staged rollouts move on if they are due to. */
+    async tick() {
+      await tick();
     },
 
     /** An upload that the server has to refuse with the given code. */
@@ -999,6 +1074,31 @@ function createStage({ fake, clock, boards, callApi, say }) {
 
     async revoke(version, reason) {
       await request('POST', `/api/firmware/${version}/revoke`, { reason }, 'ok');
+    },
+
+    // The map and the alerts (docs/fleet.md).
+
+    /** Where AWS IoT Core Device Location, in the stand-in, finds each access point: { mac: { lat, lon } }. */
+    placeAccessPoints(table) {
+      fake.placeAccessPoints(table);
+    },
+
+    /** A board on 1.13.0 publishes what it hears of the Wi-Fi, and the location function places it. */
+    async locate(board, aps) {
+      board.aps = aps;
+      return fake.locate(board.thing, { aps, boot: 1, t: 61_000 });
+    },
+
+    /** A release manager asks for the e-mail alerts and follows the link that AWS Notifications sends. */
+    async subscribeAlerts(user = USERS.manager) {
+      await fake.subscribeAlerts(user.email);
+      fake.confirmSubscription(user.email);
+    },
+
+    /** The check of the alerts that EventBridge runs every 5 minutes when deployed. */
+    async checkAlerts() {
+      await fake.alertsSettled();
+      return fake.checkAlerts();
     },
   };
 }
@@ -1080,7 +1180,10 @@ function wobble(at, periodMs, phase = 0) {
 /**
  * Three boards over two days, for the Events and Diagnostics pages: every kind of event, a
  * board with diagnostics and a name of its own (its device ID, from firmware 1.11.4), one on
- * firmware too old for either that went offline, and an update through the console.
+ * firmware too old for either that went offline, and an update through the console. And for the
+ * Fleet page: two nRF5340 DKs that only a phone sees, a release for each board type, two groups,
+ * and a staged rollout to one of them whose canary has confirmed and whose wave waits for a board
+ * that is offline.
  */
 async function fleet(stage) {
   stage.ago('2d');
@@ -1111,6 +1214,9 @@ async function fleet(stage) {
   third.wander = (board, at) => {
     board.rssi = Math.round(-49 + 3 * wobble(at, 7 * 3_600_000, 3));
   };
+  // Two nRF5340 DKs: no Wi-Fi, so they never connect; provisioned with --board nrf5340dk.
+  const fourth = stage.provision(4, '1.12.0+3', { type: 'nrf5340dk' });
+  const fifth = stage.provision(5, '1.12.0+3', { type: 'nrf5340dk' });
   for (const board of [first, second, third]) board.connect(40);
   // Firmware 1.12.0 sends what it printed while it was coming up, once it is connected.
   first.log('app', 'Network is up', { waitedMs: 12_000, boot: 40, seq: 1 });
@@ -1119,7 +1225,7 @@ async function fleet(stage) {
   first.log('app', 'Connected to AWS IoT', { waitedMs: 5_000 });
   stage.ago('1d23h');
   stage.signIn();
-  await stage.upload('valid-1.2.3+4.signed.bin', 'The build the boards were flashed with over USB.');
+  await stage.uploadBuilt('1.2.3+4', null, 'The build the boards were flashed with over USB.');
 
   // The watchdog: the connection drops, and the board is back 20 s later.
   stage.ago('1d6h');
@@ -1153,7 +1259,7 @@ async function fleet(stage) {
   second.closeBluetooth({ from: '1.9.0+0', to: '1.9.1+0', result: 'not_installed', proof: 'none', count: 2 });
 
   stage.ago('3h');
-  await stage.upload('valid-1.2.3+5.signed.bin', 'Reconnects faster after the Wi-Fi drops out.');
+  await stage.uploadBuilt('1.2.3+5', null, 'Reconnects faster after the Wi-Fi drops out.');
   stage.ago('2h50m');
   await stage.deploy('1.2.3+5', [third], 'The oldest board first.');
   stage.ago('2h49m');
@@ -1165,8 +1271,141 @@ async function fleet(stage) {
   third.install();
   stage.ago('2h37m');
   third.comeBack({ kept: true });
+
+  // A release for each board type, and what a phone saw of the two boards without Wi-Fi.
+  stage.ago('2h20m');
+  await stage.uploadBuilt('1.13.0+0', 'nrf7002dk', 'Reconnects to AWS IoT within seconds of the Wi-Fi coming back.');
+  stage.ago('2h15m');
+  await stage.uploadBuilt('1.13.0+1', 'nrf5340dk', 'The first build for the nRF5340 DK: Bluetooth only, updated from the phone app.');
+  stage.ago('2h10m');
+  await stage.seen(fourth, '1.13.0+1', 'Cranium-4D21');
+  stage.ago('1h50m');
+  await stage.seen(fifth, '1.12.0+3', 'Cranium-9B07');
+  stage.ago('1h40m');
+  await stage.group('Lab bench', [first, fourth]);
+  const demo = await stage.group('Demo', [second, third, fifth]);
   stage.ago('1h');
   second.disconnect('CONNECTION_LOST');
+
+  // A staged rollout to the Demo group: its canary takes it and confirms it, and the schedule
+  // then starts the wave, which waits for the board that is offline. The nRF5340 DK is left out.
+  stage.ago('50m');
+  await stage.rollout('1.13.0+0', { kind: 'group', group: demo.id }, 'Demo boards first.');
+  stage.ago('49m');
+  third.lookForJob();
+  stage.ago('48m');
+  third.pressButton1();
+  stage.ago('47m');
+  third.download(100);
+  third.install();
+  stage.ago('45m');
+  third.comeBack({ kept: true });
+  stage.ago('44m');
+  await stage.tick();
+
+  await campusMap(stage, third);
+  await androidReleases(stage);
+}
+
+/**
+ * The Android app on the Apps page (docs/mobile-apps.md): its last two versions, published as a release
+ * manager's build publishes them, with their notes from apps/android/CHANGELOG.md.
+ */
+async function androidReleases(stage) {
+  const notes = new Map((versionsOfRepository()?.changelogs.android ?? []).map((entry) => [entry.version, entry.note.slice(0, 500)]));
+  stage.ago('4m');
+  await stage.publishApp('0.3.0', 3, notes.get('0.3.0') ?? '');
+  stage.ago('2m');
+  await stage.publishApp('0.4.0', 4, notes.get('0.4.0') ?? '');
+}
+
+const REPOSITORY = fileURLToPath(new URL('../../', import.meta.url));
+
+/**
+ * What cloud/deploy.sh would write as versions.json, from this checkout's cloud/VERSION and changelogs
+ * (web/build-versions.mjs), or null if they cannot be read.
+ */
+function versionsOfRepository() {
+  try {
+    return buildVersions({ repo: REPOSITORY });
+  } catch {
+    return null;
+  }
+}
+
+// The map (docs/fleet.md). Access points of a campus, at addresses of the range that RFC 7042 keeps
+// for documentation (00-00-5E-EF-10-00 to -FF: unicast and globally administered, and never a real
+// access point's), placed around Penn's engineering buildings and at Pennovation Works, 1.6 km away.
+const CAMPUS = Object.freeze({
+  levine: [39.95222, -75.19072],
+  towne: [39.95184, -75.19028],
+  singh: [39.95262, -75.18888],
+  pennovation: [39.94063, -75.20178],
+});
+const CAMPUS_APS = Object.freeze(Object.fromEntries(Object.entries(CAMPUS).flatMap(([, [lat, lon]], building) =>
+  [[0, 0], [0.00018, -0.00022], [-0.00014, 0.00025]].map(([dLat, dLon], index) =>
+    [`00:00:5e:ef:10:${(building * 16 + index).toString(16).padStart(2, '0')}`, { lat: lat + dLat, lon: lon + dLon }]))));
+
+/** What a board hears in a building: its three access points, strongest first. */
+function heard(building, rss = [-48, -61, -70]) {
+  const at = Object.keys(CAMPUS).indexOf(building) * 16;
+  return rss.map((value, index) => ({ mac: `00:00:5e:ef:10:${(at + index).toString(16).padStart(2, '0')}`, rss: value }));
+}
+
+/**
+ * Boards around a campus, for the Map page: the board that took 1.13.0 in the rollout above places
+ * itself, and of three more on 1.13.0 two do too, one of which is carried to a demo at Pennovation
+ * Works (a move of more than 1 km, and an alert), and one hears too few access points. The release
+ * manager gets the e-mail alerts, so the Account page has them.
+ */
+async function campusMap(stage, third) {
+  stage.placeAccessPoints(CAMPUS_APS);
+  await stage.subscribeAlerts();
+  stage.ago('43m');
+  const bench = stage.provision(6, '1.13.0+0');
+  const demo = stage.provision(7, '1.13.0+0');
+  const basement = stage.provision(8, '1.13.0+0');
+  bench.rssi = -55;
+  demo.rssi = -63;
+  basement.rssi = -78;
+  for (const board of [bench, demo, basement]) board.connect(30);
+  stage.ago('42m');
+  await stage.locate(third, heard('towne'));
+  await stage.locate(bench, heard('levine'));
+  stage.ago('41m');
+  await stage.locate(demo, heard('singh'));
+  stage.ago('40m');
+  await stage.locate(basement, heard('levine', [-88]));
+  await stage.checkAlerts();
+  stage.ago('30m');
+  await stage.locate(bench, heard('levine', [-52, -58, -74]).slice(0, 2).concat(heard('towne', [-80]).slice(0, 1)));
+  await stage.checkAlerts();
+  stage.ago('15m');
+  await stage.locate(demo, heard('pennovation', [-45, -57, -69]));
+  await stage.checkAlerts();
+  stage.ago('5m');
+  await stage.locate(third, heard('towne', [-50, -60, -71]));
+  await stage.checkAlerts();
+}
+
+/**
+ * A board's side of cranium/<thing>/commands (docs/fleet.md, "Commands"): from 1.13.0 a board that is
+ * online answers in its log, with tag CMD; an older one does not subscribe, and an offline one misses it.
+ */
+function answerCommand(fake, board, payload, say) {
+  if (!board?.powered || compareVersions(parseVersion(board.version), parseVersion('1.13.0+0')) < 0) return;
+  if (payload.cmd === 'identify') {
+    const seconds = Number.isInteger(payload.seconds) && payload.seconds >= 1 && payload.seconds <= 60 ? payload.seconds : 15;
+    board.log('CMD', `identify for ${seconds} s (${payload.id})`);
+    say(`${board.thing}: blinks LED1 and LED2 for ${seconds} s`);
+  } else if (payload.cmd === 'report') {
+    board.heartbeat();
+    board.log('CMD', `report: heartbeat, diagnostics and a location scan (${payload.id})`);
+    if (board.aps) fake.locate(board.thing, { aps: board.aps, boot: 1, t: 61_000 }).catch(() => {});
+    say(`${board.thing}: reports at once`);
+  } else {
+    board.log('CMD', `ignored: unknown command (${payload.id})`);
+  }
 }
 
 export const SCENARIOS = Object.freeze({
@@ -1252,8 +1491,11 @@ export const SCENARIOS = Object.freeze({
     },
   },
   fleet: {
-    summary: 'Three boards over two days, an event of every kind and diagnostics: for the Events and Diagnostics pages.',
+    summary: 'Five boards over two days, two of them nRF5340 DKs: every kind of event, diagnostics, groups and a ' +
+      'staged rollout. For the Events, Diagnostics and Fleet pages.',
     build: fleet,
+    // Its images are built and signed with a key of the run (api/test/images.mjs), which this console trusts.
+    env: keyEnv(FLEET_KEY),
   },
   revoked: {
     summary: 'Three boards and a longer history: 2.0.0+0 was revoked while it was being rolled out.',
@@ -1355,10 +1597,17 @@ export async function createPreview({
   const user = viewer ? USERS.viewer : USERS.manager;
   const clock = createClock(now);
   const fake = createFakeAws({ now: clock.now, repeatedCancel });
-  const config = loadConfig(fakeEnv());
+  // The e-mail alerts are made as EventsFn makes them (api/src/alerts.mjs); none is sent anywhere.
+  fake.enableAlerts('https://console.preview.invalid/');
+  // A scenario may sign its images with a key of its own, which its console then trusts.
+  const config = loadConfig(fakeEnv(SCENARIOS[scenario].env ?? {}));
+  // The versions the deployment would be built with: the console's own and the iPhone app's (versions.json).
+  const versions = versionsOfRepository();
   const app = createApp({
-    aws: fake, config, now: clock.now, log: (line) => log({ function: 'api', ...line }),
+    aws: fake, config, now: clock.now, log: (line) => log({ function: 'api', ...line }), versions: parseBundledVersions(versions),
   });
+  // The schedule that moves staged rollouts on (api/src/tick.mjs): every minute, and when a scenario says.
+  const tick = createRolloutTick({ aws: fake, config, now: clock.now, log: (line) => log({ function: 'rollouts', ...line }) });
   for (const { sub, email, groups } of Object.values(USERS)) {
     fake.addUser({ sub, email, groups: [...groups] });
   }
@@ -1392,7 +1641,7 @@ export async function createPreview({
       authTime,
     });
     return app(gatewayEvent({
-      routeKey: method === 'GET' ? API_READ : API_WRITE, method, path, query, headers, host: consoleHost, body, claims,
+      routeKey: { GET: API_READ, PUT: API_PUT }[method] ?? API_WRITE, method, path, query, headers, host: consoleHost, body, claims,
     }));
   }
 
@@ -1409,6 +1658,19 @@ export async function createPreview({
     const [path, query] = splitTarget(request.url ?? '');
     const { method, headers } = request;
 
+    // S3, for the Android app's APKs (api/test/fake-apps.mjs): the presigned URLs the API hands out for an
+    // upload and a download point here, and the stand-in checks them as S3 would.
+    if (path.startsWith('/local-s3/')) {
+      const body = await readBody(request, MAX_APK_BYTES);
+      if (body === null) {
+        sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
+        return;
+      }
+      const answer = fake.s3Request({ method, url: `http://${consoleHost}${request.url}`, headers, body });
+      send(response, answer.status, answer.headers, answer.body);
+      return;
+    }
+
     // The routes of the HTTP API. As deployed, {proxy+} also matches nothing at all
     // after the slash: /api/ reaches the authorizer, /api does not. The API takes only
     // these two methods, and what no route claims goes to the web function. The most
@@ -1418,10 +1680,12 @@ export async function createPreview({
     else if (method === 'GET' && path.startsWith('/assets/')) routeKey = WEB_ASSETS;
     else if (method === 'GET' && path.startsWith('/api/t/')) routeKey = API_TOKEN_READ;
     else if (method === 'POST' && path.startsWith('/api/t/')) routeKey = API_TOKEN_WRITE;
+    else if (method === 'PUT' && path.startsWith('/api/t/')) routeKey = API_TOKEN_PUT;
     else if (method === 'GET' && path.startsWith('/api/')) routeKey = API_READ;
     else if (method === 'POST' && path.startsWith('/api/')) routeKey = API_WRITE;
+    else if (method === 'PUT' && path.startsWith('/api/')) routeKey = API_PUT;
 
-    if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE) {
+    if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE || routeKey === API_TOKEN_PUT) {
       // No authorizer: the request goes to the function as it came, token and all.
       const body = await readBody(request, MAX_REQUEST_BYTES);
       if (body === null) {
@@ -1429,9 +1693,16 @@ export async function createPreview({
         return;
       }
       sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, body })));
-    } else if (routeKey !== API_READ && routeKey !== API_WRITE) {
+    } else if (routeKey !== API_READ && routeKey !== API_WRITE && routeKey !== API_PUT) {
       const event = gatewayEvent({ routeKey, method, path, query, headers, host: home ? HOME_HOST : consoleHost });
-      sendResult(response, await web(event));
+      const result = await web(event);
+      // versions.json, which cloud/deploy.sh writes into the site when it deploys: where this checkout has
+      // none, the one it would write.
+      if (result.statusCode === 404 && !home && versions !== null && /^\/assets\/[0-9a-f]{12}\/versions\.json$/.test(path)) {
+        send(response, 200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, JSON.stringify(versions));
+        return;
+      }
+      sendResult(response, result);
     } else {
       // The JWT authorizer: a valid token that carries the scope of the route. The
       // token may come with or without the word Bearer.
@@ -1494,8 +1765,10 @@ export async function createPreview({
 
   try {
     consoleHost = `${host}:${await listen(consoleServer, port)}`;
+    // Where the API's presigned URLs for the APKs point: the local S3 above.
+    fake.setS3Endpoint(`http://${consoleHost}/local-s3`);
     loginHost = `${host}:${await listen(loginServer, port === 0 ? 0 : port + 1)}`;
-    const stage = createStage({ fake, clock, boards, callApi, say: (text) => narrate(text) });
+    const stage = createStage({ fake, clock, boards, callApi, tick, say: (text) => narrate(text) });
     await SCENARIOS[scenario].build(stage);
     stage.catchUp();
   } catch (error) {
@@ -1531,11 +1804,23 @@ export async function createPreview({
     // The stand-in keeps every call for tests to look at. Nobody looks here.
     fake.calls.length = 0;
   }, HEARTBEAT_MS));
+  timers.push(setInterval(() => {
+    tick().catch((error) => log({ level: 'error', event: 'rollouts_not_advanced', error: String(error?.stack ?? error) }));
+  }, ROLLOUT_TICK_MS));
   if (live) {
     timers.push(setInterval(() => {
       for (const board of boards) board.tick();
     }, LIVE_TICK_MS));
   }
+  // The boards answer the console's commands, and the alerts are checked every 5 minutes, as when deployed.
+  fake.onCommand((thing, payload) => answerCommand(fake, boards.find((board) => board.thing === thing), payload, narrate));
+  let mailed = fake.alertEmails.length;
+  timers.push(setInterval(() => {
+    fake.checkAlerts().then(() => {
+      for (const mail of fake.alertEmails.slice(mailed)) say(`e-mail alert (not sent): ${mail.subject}`);
+      mailed = fake.alertEmails.length;
+    }, () => {});
+  }, ALERT_CHECK_MS));
 
   return {
     consoleUrl: `http://${consoleHost}/`,

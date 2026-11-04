@@ -464,10 +464,11 @@ test('what a board reports never decides whether it is deployed to', async () =>
   fake.calls.length = 0;
   const response = await context.create({ version: '1.2.3+4', things: [BOARD_A] });
   assert.equal(response.status, 201);
-  // No shadow was read before the job existed.
-  const order = fake.methodsCalled();
+  // Before the job existed the shadow was read for one thing only: the board's type (lib/boards.mjs),
+  // which this one does not report, so that it is a nrf7002dk. Its update, its job and its version
+  // decided nothing.
   assert.equal(before, 0);
-  assert.ok(order.indexOf('createJob') < order.indexOf('getShadow'));
+  assert.equal(fake.calls.filter((call) => call.method === 'getShadow').length >= 1, true);
   // It is shown, and that is all.
   assert.equal(response.body.deployment.executions[0].reported, '99.0.0+0');
   assert.equal(response.body.deployment.executions[0].phase, 'waiting_for_device');

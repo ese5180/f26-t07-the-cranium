@@ -1051,7 +1051,10 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(devices.length, 2, 'a row without a name is dropped');
   const [bad, good] = devices;
   assert.deepEqual(Object.keys(bad).sort(),
-    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'name', 'online', 'ota', 'rssi', 'stuck', 'thing', 'uptime']);
+    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'location', 'name', 'online', 'ota', 'position', 'rssi', 'stuck', 'thing', 'uptime']);
+  // No position, and nothing said of where it is (docs/fleet.md).
+  assert.deepEqual([bad.position, bad.location],
+    [null, { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false }]);
   assert.deepEqual([bad.name, bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null, null]);
   assert.equal(bad.online, false);
   assert.equal(bad.lastSeen, null);
@@ -1064,7 +1067,10 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(bad.ota.last, 'none?evil');
   assert.equal(bad.ota.error.length, 64);
   assert.match(bad.ota.error, /^[\x20-\x7e]*$/);
-  assert.deepEqual(good, { ...honest, name: null, stuck: null, diag: null, diary: null, bt: null });
+  assert.deepEqual(good, {
+    ...honest, name: null, stuck: null, diag: null, diary: null, bt: null, position: null,
+    location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
+  });
 
   // From firmware 1.11.4 a board reports its own name; only letters and digits, at most 32, are one.
   const names = ['CRVIHAAN01', 'A'.repeat(33), 'CR 01', 'CR\u202e01', 7, null];
@@ -1263,7 +1269,11 @@ test('releases, the audit log and the caller are read field by field', async () 
   assert.deepEqual(audit.entries[0].detail, [['size', '815284'], ['code', 'x']]);
   assert.equal(audit.next, null);
 
-  assert.deepEqual(await api.me(), { sub: 's', email: 'e', groups: ['release-managers'], canWrite: false });
+  assert.deepEqual(await api.me(), {
+    sub: 's', email: 'e', groups: ['release-managers'], canWrite: false,
+    // The console's own version and commit (docs/versions.md): none in this answer.
+    console: { version: null, commit: null },
+  });
 });
 
 test('uploading reports progress and returns the release', async () => {

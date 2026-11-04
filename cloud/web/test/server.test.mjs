@@ -20,7 +20,8 @@ const POOL = 'xx-test-1_Pool0Tests';
 const USER_POOL_API = 'https://cognito-idp.xx-test-1.amazonaws.com';
 const SETTINGS = { clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console', userPoolId: POOL };
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+// Images also from OpenStreetMap's tile server, for the map (assets/map.js), and from nowhere else.
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; " +
   `connect-src 'self' ${LOGIN} ${USER_POOL_API}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 /** An event as API Gateway sends it. A value given as undefined stays undefined. */
@@ -202,7 +203,11 @@ test('a login origin that could alter the security policy is refused when the ha
 
 test('every file of the site is served under the build id and may be cached for ever', async () => {
   const build = await currentBuild();
-  const types = { css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json; charset=utf-8' };
+  const types = {
+    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json; charset=utf-8',
+    // Leaflet's licence, beside it.
+    txt: 'text/plain; charset=utf-8',
+  };
   const names = readdirSync(new URL('assets/', SITE)).filter(ofConsole);
   assert.equal(names.length > 0, true);
 

@@ -1,7 +1,8 @@
 /**
- * The history page: the project's commits, newest first, and what this deployment was
- * built from. The data is history.json next to this script, written at deployment by
- * cloud/web/build-history.mjs. A checkout that was never deployed does not have it.
+ * The history page: what is new in the console, version by version, the project's commits,
+ * newest first, and what this deployment was built from. The data is history.json and
+ * versions.json next to this script, written at deployment by cloud/web/build-history.mjs and
+ * cloud/web/build-versions.mjs. A checkout that was never deployed has neither.
  *
  * Loaded when the page is first opened, so a cold load of the console stays as it was.
  *
@@ -74,6 +75,93 @@ export async function readHistory(fetch, address = new URL('history.json', impor
   } catch {
     return { failed: NOT_READABLE };
   }
+}
+
+// What is new: versions.json (cloud/web/build-versions.mjs), read here and on the Apps page (apps.js).
+
+const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,6}$/;
+const NOTE_MAX = 1000;
+const CHANGELOGS = Object.freeze(['console', 'firmware', 'ios', 'android']);
+// The console's newest versions shown at once; the rest are folded away.
+const NEW_SHOWN = 4;
+
+function changelogEntry(raw) {
+  if (!VERSION.test(raw?.version ?? '') || typeof raw.note !== 'string') return null;
+  return {
+    version: raw.version,
+    note: raw.note.slice(0, NOTE_MAX),
+    commit: /^[0-9a-f]{7,40}$/.test(raw.commit ?? '') ? raw.commit : null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(raw.date ?? '') ? raw.date : null,
+  };
+}
+
+/** versions.json with only what the pages use, or null if it is not what was written. */
+export function parseVersions(data) {
+  if (data === null || typeof data !== 'object' || typeof data.changelogs !== 'object' || data.changelogs === null) return null;
+  const changelogs = {};
+  for (const name of CHANGELOGS) {
+    const entries = data.changelogs[name];
+    changelogs[name] = Array.isArray(entries) ? entries.map(changelogEntry).filter(Boolean) : [];
+  }
+  return {
+    console: {
+      version: VERSION.test(data.console?.version ?? '') ? data.console.version : null,
+      commit: HASH.test(data.console?.commit ?? '') ? data.console.commit : null,
+    },
+    changelogs,
+  };
+}
+
+/** Fetch versions.json from beside this script, as readHistory fetches its file. */
+export async function readVersions(fetch, address = new URL('versions.json', import.meta.url).href) {
+  let response;
+  try {
+    response = await fetch(address);
+  } catch {
+    return { failed: 'The versions could not be fetched. Check the connection and reload the page.' };
+  }
+  if (response.status === 404) return { missing: true };
+  if (!response.ok) return { failed: 'The versions file could not be read.' };
+  try {
+    return parseVersions(await response.json()) ?? { failed: 'The versions file could not be read.' };
+  } catch {
+    return { failed: 'The versions file could not be read.' };
+  }
+}
+
+function newEntry(entry, current) {
+  return h('li', { key: entry.version, class: `whats-new-row ${entry.version === current ? 'is-current' : ''}`.trim() },
+    h('p', { class: 'whats-new-version' },
+      mono(entry.version),
+      entry.date ? h('span', { class: 'quiet' }, ` · ${new Date(`${entry.date}T12:00:00Z`).toLocaleDateString(undefined, {
+        day: 'numeric', month: 'short', year: 'numeric',
+      })}`) : null,
+      entry.version === current ? [' ', badge('idle', 'package', 'This console')] : null),
+    h('p', { class: 'whats-new-note' }, entry.note));
+}
+
+/** The console's versions, newest first, each with its note: the first paragraph of cloud/CHANGELOG.md's entry. */
+function whatsNew(ctx) {
+  const data = ctx.state.versions?.value;
+  if (!data) return ctx.state.versions ? h('p', { class: 'loading', key: 'whats-new' }, 'Loading what is new…') : null;
+  if (data.missing || data.failed || data.changelogs.console.length === 0) {
+    return h('section', { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+      h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
+      h('p', { class: 'quiet' }, data.failed ?? 'This copy of the console was never deployed, so it has no list of its versions: ' +
+        'cloud/CHANGELOG.md has them.'));
+  }
+  const entries = data.changelogs.console;
+  const current = data.console.version;
+  return h('section', { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+    h('header', { class: 'card-head' },
+      h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
+      current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null),
+    h('ol', { class: 'whats-new-list' }, entries.slice(0, NEW_SHOWN).map((entry) => newEntry(entry, current))),
+    entries.length > NEW_SHOWN
+      ? h('details', { class: 'whats-new-more' },
+        h('summary', null, `Earlier versions (${entries.length - NEW_SHOWN})`),
+        h('ol', { class: 'whats-new-list' }, entries.slice(NEW_SHOWN).map((entry) => newEntry(entry, current))))
+      : null);
 }
 
 // The filter is the reader's only choice here. It is not worth an address of its own.
@@ -207,5 +295,6 @@ export function historyView(ctx) {
       title: 'History',
       lede: h('span', null, 'Every change to the project, newest first, as ', mono('git log'), ' had it when this console was deployed.'),
     }),
+    whatsNew(ctx),
     historyBody(ctx));
 }

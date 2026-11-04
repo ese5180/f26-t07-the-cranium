@@ -11,6 +11,10 @@ const BOARD_B = 'cranium-00000000000000bb';
 const BOARD_C = 'cranium-00000000000000cc';
 const CERT_1 = `${'1a2b3c4d5e6f7081'}${'9'.repeat(48)}`;
 const CERT_2 = `${'0f0e0d0c0b0a0908'}${'7'.repeat(48)}`;
+// What a board with no position from Wi-Fi has beside its Device (handlers/location.mjs).
+const UNPLACED = Object.freeze({
+  position: null, location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
+});
 
 const reported = (version = '1.0.0+3') => ({
   fw: { version, confirmed: true },
@@ -52,15 +56,15 @@ test('boards are listed by name with what their shadows say', async () => {
       thing: BOARD_A, name: null, online: true, lastSeen: reportedAt,
       fw: { version: '1.0.0+3', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -61, uptime: 4321, stuck: null, diag: null, diary: null, bt: null,
+      rssi: -61, uptime: 4321, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
     },
     // Registered, but it has never connected: there is no shadow.
-    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
+    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED },
     {
       thing: BOARD_C, name: null, online: true, lastSeen: reportedAt,
       fw: { version: '1.2.3+4', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -80, uptime: 12, stuck: null, diag: null, diary: null, bt: null,
+      rssi: -80, uptime: 12, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
     },
   ]);
 });
@@ -162,9 +166,9 @@ test('a hostile shadow shows as little as it deserves', async () => {
     {
       thing: BOARD_A, name: null, online: false, lastSeen: null, fw: null,
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' }, rssi: null, uptime: null,
-      stuck: null, diag: null, diary: null, bt: null,
+      stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
     },
-    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null },
+    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED },
   ]);
 });
 

@@ -93,6 +93,10 @@
  *                                  | { ok: false, reason: "not_pending" }  no such release, it is
  *                                    not revoked, or the time is on record already
  *                                    records revoked.enforcedAt = at (an ISO time), once
+ *   setReleaseNotes({ sk, notes })
+ *                                 -> { ok: true, release }  the item after the change
+ *                                  | { ok: false, reason: "not_found" }  no such release
+ *                                    replaces the note of a release, active or revoked; nothing else
  *
  * API tokens (state table, pk "TOK"; sk is the SHA-256 of the token in hex, never the token)
  *   getToken(sk)                  -> object | null   consistent read
@@ -137,6 +141,28 @@
  * Users (Cognito user pool; the username is the token's sub)
  *   getUser(sub)                  -> { enabled: boolean, status: string, email: string } | null
  *   listUserGroups(sub)           -> string[]   [] for an unknown user
+ *
+ * The fleet (docs/fleet.md: board types, groups, staged rollouts)
+ *   describeThing(thing)          -> { attributes: { [name]: string } } | null for an unknown thing
+ *   createJob takes two more, optional, for a wave of a staged rollout, passed to AWS as they are:
+ *     rollout                     jobExecutionsRolloutConfig: { maximumPerMinute, exponentialRate:
+ *                                 { baseRatePerMinute, incrementFactor, rateIncreaseCriteria:
+ *                                   { numberOfSucceededThings } } }
+ *     abort                       abortConfig: { criteriaList: [{ failureType, action: "CANCEL",
+ *                                   thresholdPercentage, minNumberOfExecutedThings }] }
+ *   Fleet records in the state table, in three partitions only: "GRP" (groups), "ROL" (staged
+ *   rollouts) and "SEEN" (what a phone last saw of a board). Any other pk is a TypeError, so that
+ *   these can never touch a release or a token. Items hold plain data, as releases do.
+ *   getFleetItem({ pk, sk })      -> object | null   consistent read
+ *   listFleetItems(pk)            -> object[]        the partition, highest sk first; consistent read
+ *   putFleetItem({ pk, sk, item, replace })
+ *                                 -> { ok: true } | { ok: false, reason: "exists" }  an item with
+ *                                    that key is kept unless `replace` is true
+ *   updateFleetItem({ pk, sk, rev, set })
+ *                                 -> { ok: true, item }   the item after the change
+ *                                  | { ok: false, reason: "changed" }  no such item, or its rev is
+ *                                    not `rev`: someone changed it in the meantime
+ *                                    sets every field of `set` and rev = rev + 1, in one write
  */
 
 import { createRequire } from 'node:module';
@@ -150,7 +176,7 @@ import {
   UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import {
-  CancelJobCommand, CreateJobCommand, DescribeJobCommand, DescribeJobExecutionCommand, IoTClient,
+  CancelJobCommand, CreateJobCommand, DescribeJobCommand, DescribeJobExecutionCommand, DescribeThingCommand, IoTClient,
   ListJobExecutionsForJobCommand, ListJobExecutionsForThingCommand, ListJobsCommand,
   ListThingPrincipalsCommand, ListThingsInThingGroupCommand,
 } from '@aws-sdk/client-iot';
@@ -180,6 +206,8 @@ const MAX_KINDS = 16;
 const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PK = 'AUD';
 const TOKEN_PK = 'TOK';
+// The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
 
 const THROTTLING = new Set([
   'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException',
@@ -611,7 +639,9 @@ export function createAws(env) {
       }
     },
 
-    async createJob({ jobId, things, document, description, urlExpiresInSec, inProgressTimeoutMinutes }) {
+    async createJob({
+      jobId, things, document, description, urlExpiresInSec, inProgressTimeoutMinutes, rollout = null, abort = null,
+    }) {
       try {
         await iot.send(new CreateJobCommand({
           jobId,
@@ -621,6 +651,9 @@ export function createAws(env) {
           description,
           presignedUrlConfig: { roleArn: presignRoleArn, expiresInSec: urlExpiresInSec },
           timeoutConfig: { inProgressTimeoutInMinutes: inProgressTimeoutMinutes },
+          // A wave of a staged rollout: how fast AWS offers it, and when it stops by itself.
+          ...(rollout === null ? {} : { jobExecutionsRolloutConfig: rollout }),
+          ...(abort === null ? {} : { abortConfig: abort }),
         }));
         return { ok: true };
       } catch (cause) {
@@ -821,6 +854,25 @@ export function createAws(env) {
       }
     },
 
+    async setReleaseNotes({ sk, notes }) {
+      try {
+        const out = await dynamo.send(new UpdateItemCommand({
+          TableName: stateTable,
+          Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+          UpdateExpression: 'SET #notes = :notes',
+          // Never makes an item: only a release that is registered.
+          ConditionExpression: 'attribute_exists(#pk)',
+          ExpressionAttributeNames: { '#notes': 'notes', '#pk': 'pk' },
+          ExpressionAttributeValues: { ':notes': { S: notes } },
+          ReturnValues: 'ALL_NEW',
+        }));
+        return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_found' };
+        throw failure('UpdateItem', cause);
+      }
+    },
+
     async getToken(sk) {
       try {
         const out = await dynamo.send(new GetItemCommand({
@@ -968,7 +1020,96 @@ export function createAws(env) {
         throw nameOf(cause) === 'AwsError' ? cause : failure('AdminListGroupsForUser', cause);
       }
     },
+
+    // The fleet: board types, groups, staged rollouts, sightings (see the top of this file).
+
+    async describeThing(thing) {
+      let out;
+      try {
+        out = await iot.send(new DescribeThingCommand({ thingName: thing }));
+      } catch (cause) {
+        if (nameOf(cause) === 'ResourceNotFoundException') return null;
+        throw failure('DescribeThing', cause);
+      }
+      const attributes = {};
+      for (const [name, value] of Object.entries(out?.attributes ?? {})) {
+        if (typeof value === 'string') attributes[name] = value;
+      }
+      return { attributes };
+    },
+
+    async getFleetItem({ pk, sk }) {
+      fleetPartition(pk);
+      try {
+        const out = await dynamo.send(new GetItemCommand({
+          TableName: stateTable, Key: { pk: { S: pk }, sk: { S: sk } }, ConsistentRead: true,
+        }));
+        return out.Item === undefined || out.Item === null ? null : fromItem(out.Item);
+      } catch (cause) {
+        throw failure('GetItem', cause);
+      }
+    },
+
+    async listFleetItems(pk) {
+      fleetPartition(pk);
+      try {
+        return await queryDescending(stateTable, pk);
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+    },
+
+    async putFleetItem({ pk, sk, item, replace = false }) {
+      fleetPartition(pk);
+      const stored = toItem({ ...item, pk, sk });
+      try {
+        await dynamo.send(new PutItemCommand({
+          TableName: stateTable,
+          Item: stored,
+          ...(replace ? {} : { ConditionExpression: 'attribute_not_exists(#pk)', ExpressionAttributeNames: { '#pk': 'pk' } }),
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
+        throw failure('PutItem', cause);
+      }
+    },
+
+    async updateFleetItem({ pk, sk, rev, set }) {
+      fleetPartition(pk);
+      const names = { '#rev': 'rev' };
+      const values = { ':rev': { N: String(rev) }, ':next': { N: String(rev + 1) } };
+      const parts = [];
+      Object.entries(set).forEach(([field, value], index) => {
+        if (field === 'pk' || field === 'sk' || field === 'rev') throw new TypeError(`${field} cannot be set`);
+        names[`#f${index}`] = field;
+        values[`:v${index}`] = toAttribute(value);
+        parts.push(`#f${index} = :v${index}`);
+      });
+      parts.push('#rev = :next');
+      try {
+        const out = await dynamo.send(new UpdateItemCommand({
+          TableName: stateTable,
+          Key: { pk: { S: pk }, sk: { S: sk } },
+          UpdateExpression: `SET ${parts.join(', ')}`,
+          // False for an item that does not exist, too.
+          ConditionExpression: '#rev = :rev',
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: 'ALL_NEW',
+        }));
+        return { ok: true, item: out.Attributes ? fromItem(out.Attributes) : null };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'changed' };
+        throw failure('UpdateItem', cause);
+      }
+    },
   });
+}
+
+/** Refuse a partition that is not one of the fleet's. */
+function fleetPartition(pk) {
+  if (!FLEET_PKS.includes(pk)) throw new TypeError(`${String(pk)} is not a partition of the fleet`);
 }
 
 /**

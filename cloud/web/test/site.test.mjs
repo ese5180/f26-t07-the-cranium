@@ -5,6 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
@@ -17,12 +18,31 @@ function visible(directory) {
 // The console's files. The home page's own two are checked in home.test.mjs. history.json
 // is only there once something wrote it, and is checked in history.test.mjs.
 const HISTORY_DATA = 'history.json';
+// The same for versions.json (build-versions.mjs), checked in versions.test.mjs.
+const VERSIONS_DATA = 'versions.json';
+// Leaflet 1.9.4, the map's library (map.js), as its npm package has it, and its licence: not the
+// console's own code, so checked by their digests below and kept out of the checks of the console's.
+const VENDORED = Object.freeze({
+  'leaflet.js': 'db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a',
+  'leaflet.css': 'a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6',
+  'leaflet-license.txt': '53e8dc25862014e4324741ca18fbe3611e11d42ef69f59f86ea8c5389647d4cb',
+  // The licence of the QR encoder of the Apps page (qrcode.js, which is held to the console's rules
+  // and checked in apps.test.mjs).
+  'qrcode-license.txt': 'fe42702c5e3361d1e14ae4b46faf85da6e4522f63405e3673e3ddabecb79054d',
+});
 const assets = visible(new URL('assets/', SITE)).map((entry) => entry.name)
-  .filter((name) => !name.startsWith('home.') && name !== HISTORY_DATA).sort();
+  .filter((name) => !name.startsWith('home.') && name !== HISTORY_DATA && name !== VERSIONS_DATA && !Object.hasOwn(VENDORED, name))
+  .sort();
 const scripts = assets.filter((name) => name.endsWith('.js'));
 // Each belongs to one page and is fetched when that page is opened.
-const ON_DEMAND = ['history.js', 'serial.js', 'telemetry.js'];
-const atOnce = assets.filter((name) => !ON_DEMAND.includes(name));
+// fleet.js: board types, groups and staged rollouts, fetched once the console is shown (app.js). In order:
+// the test compares this list with the sorted imports of app.js.
+// account.js and map.js: the Account page, and the Map page with the map on a board's page (docs/fleet.md).
+// apps.js: the Apps page, with the QR encoder it imports (qrcode.js).
+const ON_DEMAND = ['account.js', 'apps.js', 'fleet.js', 'history.js', 'map.js', 'serial.js', 'telemetry.js'];
+// Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder.
+const WITH_THEIR_PAGE = ['qrcode.js'];
+const atOnce = assets.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));
 const styles = assets.filter((name) => name.endsWith('.css'));
 const read = (name) => readFileSync(new URL(name, SITE), 'utf8');
 const page = read('index.html');
@@ -38,7 +58,7 @@ test('a cold load is at most five requests: the page, one stylesheet, three scri
   assert.deepEqual(visible(SITE).map((entry) => entry.name).sort(), ['assets', 'home.html', 'index.html']);
   assert.equal(visible(new URL('assets/', SITE)).every((entry) => entry.isFile()), true);
   assert.equal(styles.length, 1);
-  const coldScripts = scripts.filter((name) => !ON_DEMAND.includes(name));
+  const coldScripts = scripts.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));
   assert.equal(coldScripts.length >= 1 && coldScripts.length <= 3, true, `${coldScripts.length} scripts`);
   assert.equal(assets.length, styles.length + scripts.length,
     `only stylesheets and scripts: ${assets.join(', ')}`);
@@ -134,8 +154,18 @@ test('nothing is fetched from anywhere else', () => {
   const namespaces = /http:\/\/www\.w3\.org\/2000\/svg/g;
   // The one exception is a link for a person to follow: a commit on GitHub.
   const commitLinks = /'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium\/commit\/'/g;
+  // And the map's: OpenStreetMap's tiles, the one other origin the page shows images from (server.mjs
+  // TILE_ORIGIN), and the link to its copyright that the tile usage policy asks for.
+  const tiles = /'https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png'/g;
+  const copyright = /'https:\/\/www\.openstreetmap\.org\/copyright'/g;
   for (const [name, text] of [...sources, ['index.html', page], [styles[0], css]]) {
-    const others = name === 'history.js' ? text.replace(commitLinks, '') : text;
+    let others = name === 'history.js' ? text.replace(commitLinks, '') : text;
+    if (name === 'map.js') others = others.replace(tiles, '');
+    if (name === 'views.js') others = others.replace(copyright, '');
+    // The Apps page's two, for a person to follow or copy: the repository to clone, and the setup guide.
+    if (name === 'apps.js') {
+      others = others.replace(/'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium(?:\.git|\/blob\/main\/docs\/new-board-setup\.md#the-phone-apps)'/g, '');
+    }
     assert.doesNotMatch(others.replace(namespaces, ''), /https?:\/\/[a-z0-9]/i, `${name} names another site`);
   }
   assert.doesNotMatch(css, /@import/);
@@ -523,4 +553,28 @@ test('the place of an arrow is set for the row it belongs to', () => {
   assert.doesNotMatch(stylesheet, /(?:^|\n)\s*\.row-chevron \{[^}]*grid-(?:column|row)/);
   assert.match(stylesheet, /\.deployment-row > \.row-chevron \{[^}]*grid-column: 2/);
   assert.match(stylesheet, /\.rows > \.history-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto 18px/);
+});
+
+test('Leaflet is the pinned 1.9.4 of its npm package, with its licence, fetched by the map alone', () => {
+  // The digests of the files of leaflet@1.9.4 (registry.npmjs.org, integrity sha512-nxS1ynzJ…FA74PA==).
+  for (const [name, digest] of Object.entries(VENDORED)) {
+    const bytes = readFileSync(new URL(`assets/${name}`, SITE));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), digest, name);
+  }
+  assert.match(read('assets/leaflet.js'), /^\/\* @preserve\n \* Leaflet 1\.9\.4,/);
+  // As the package has it, with CRLF line ends.
+  assert.match(read('assets/leaflet-license.txt'), /^BSD 2-Clause License\r?\n\r?\nCopyright \(c\) 2010-2023, Volodymyr Agafonkin/);
+  // The map's script fetches it from beside itself, from this site, and no other script names it.
+  const map = code(sources.get('map.js'));
+  assert.match(map, /new URL\('leaflet\.js', import\.meta\.url\)/);
+  assert.match(map, /new URL\('leaflet\.css', import\.meta\.url\)/);
+  for (const [name, source] of sources) {
+    if (name !== 'map.js') assert.equal(/leaflet\.(?:js|css)/.test(code(source)), false, name);
+  }
+  // Nothing is handed to Leaflet as markup: popups are elements, and its own credit line is off.
+  assert.match(map, /attributionControl: false/);
+  assert.doesNotMatch(map, /bindTooltip|setContent\(['`"]|bindPopup\(['`"]/);
+  assert.equal(/<a\s/.test(map), false);
+  // The tiles are OpenStreetMap's, as the policy names them, asked for with the page's origin as Referer.
+  assert.match(map, /referrerPolicy: 'strict-origin-when-cross-origin'/);
 });

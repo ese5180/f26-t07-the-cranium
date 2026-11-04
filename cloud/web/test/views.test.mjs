@@ -1469,7 +1469,7 @@ test('a name that is not one is never shown, and a name is only ever text', asyn
 test('the sections keep their place: each link holds the room its name takes in bold', async () => {
   const nav = draw(views.navView({ state: { route: { view: 'overview' } } }));
   assert.deepEqual(all(nav, 'a').map((link) => link.getAttribute('data-label')),
-    ['Overview', 'Devices', 'Diagnostics', 'Events', 'Firmware', 'Deployments', 'Activity', 'Developer']);
+    ['Overview', 'Devices', 'Map', 'Diagnostics', 'Events', 'Firmware', 'Deployments', 'Fleet', 'Activity', 'Apps', 'Developer']);
 });
 
 test('the Developer section leads to what the account can use, and is current on both of its pages', () => {

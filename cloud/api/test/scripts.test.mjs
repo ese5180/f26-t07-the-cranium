@@ -253,6 +253,10 @@ test('deploy.sh tells the commit and which deployed files differ from it', () =>
   const before = state('source_changes').out;
   place('cloud/web/src/site/assets/history.json', '{}\n');
   assert.equal(state('source_changes').out, before);
+  // And the two versions files (web/build-versions.mjs), written from cloud/VERSION and the changelogs.
+  place('cloud/web/src/site/assets/versions.json', '{}\n');
+  place('cloud/api/src/versions.json', '{}\n');
+  assert.equal(state('source_changes').out, before);
   // And none of this looked at the checkout in a way that changes it.
   assert.equal(git('rev-parse', 'HEAD'), head);
 });

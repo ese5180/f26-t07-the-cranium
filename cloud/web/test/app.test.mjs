@@ -19,6 +19,8 @@ import {
   CORE, HISTORY, NEIGHBOURS, SERIAL, TELEMETRY, VIEWS, all, click, controls, createDocument, descendants, one, scriptAddress,
   textOf,
 } from './page.mjs';
+// The Map and Account pages (docs/fleet.md).
+import { ACCOUNT, MAP } from './page.mjs';
 import {
   INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
   execution, release, repliesFor, revoked,
@@ -217,6 +219,7 @@ async function openTab(t, options = {}) {
   copies += 1;
   await import(scriptAddress('app.js', {
     'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY, 'telemetry.js': TELEMETRY,
+    'map.js': MAP, 'account.js': ACCOUNT,
   }, `tab ${copies}`));
   await settle();
 
@@ -2023,4 +2026,97 @@ test('a refused token is said in the dialog, which keeps what was typed', async 
   assert.match(textOf(one(tab.dialog(), 'div.dialog-error')), /No token was made\. You have 10 API tokens that are still valid\./);
   assert.equal(all(tab.dialog(), 'input')[0].value, 'eleventh');
   assert.equal(all(tab.dialog(), 'code.token-value').length, 0);
+});
+
+// The map, commands and alerts (docs/fleet.md).
+
+const COMMAND_ID = '3f9c2a1b7d4e6f80';
+
+test('Identify sends the command, and the page shows the board\'s answer when its log brings it', async (t) => {
+  let answered = false;
+  const posted = [];
+  const tab = await openTab(t, {
+    hash: '#/devices',
+    answer(method, url, body) {
+      if (method === 'POST' && url === `/api/devices/${WAITING}/commands`) {
+        posted.push(body);
+        return Response.json({ command: { id: COMMAND_ID, cmd: 'identify', seconds: 15, thing: WAITING, sentAt: ago(0), online: true } },
+          { status: 202 });
+      }
+      if (method === 'GET' && url.startsWith('/api/events/log?')) {
+        const lines = answered
+          ? [{ thing: WAITING, at: ago(0), id: '42.9', kind: 'setting', tag: 'CMD', level: 'info', text: `identify for 15 s (${COMMAND_ID})`, boot: 42, seq: 9 }]
+          : [];
+        return Response.json({ lines, cursor: null, from: ago(60), to: ago(0) });
+      }
+      return null;
+    },
+  });
+  const row = one(tab.main, 'article.device', WAITING);
+  await tab.press(row, 'button.identify-button');
+  assert.deepEqual(posted, [{ cmd: 'identify', seconds: 15 }]);
+  assert.deepEqual(tab.toasts().filter((text) => text.startsWith('Sent:')).length, 1);
+  // The page looks in the board's log, for its CMD lines only, until the answer is there.
+  await tab.wait(3000);
+  const looked = tab.requests.filter((request) => request.url.startsWith('/api/events/log?'));
+  assert.equal(looked.length, 1);
+  assert.match(looked[0].url, new RegExp(`thing=${WAITING}.*tags=CMD|tags=CMD.*thing=${WAITING}`));
+  answered = true;
+  await tab.wait(3000);
+  assert.ok(tab.toasts().some((text) => text.includes(`identify for 15 s (${COMMAND_ID})`)));
+  await tab.goto(`#/devices/${WAITING}`);
+  assert.match(textOf(one(tab.main, 'div.notice', 'answered')), /Identify: the board answered “identify for 15 s/);
+  // No more looking once it has answered.
+  const after = tab.requests.length;
+  await tab.wait(10_000);
+  assert.equal(tab.requests.slice(after).filter((request) => request.url.startsWith('/api/events/log?')).length, 0);
+});
+
+test('a viewer has no Identify, and the Map and Account pages open from the masthead', async (t) => {
+  const tab = await openTab(t, {
+    hash: '#/devices',
+    viewer: true,
+    answer(method, url) {
+      if (method === 'GET' && url === '/api/alerts') {
+        return Response.json({
+          email: MANAGER.email, subscription: 'none', canSubscribe: false, subscribers: 1, recent: [],
+          rules: { offlineMinutes: 15, everyMinutes: 60, movedMetres: 1000 },
+        });
+      }
+      return null;
+    },
+  });
+  assert.equal(all(tab.main, 'button.identify-button').length, 0);
+  assert.equal(one(tab.nav, 'a', 'Map').getAttribute('href'), '#/map');
+  await tab.goto('#/map');
+  assert.equal(textOf(one(tab.main, 'h1')), 'Map');
+  assert.equal(tab.document.title, 'Map · Cranium');
+  assert.equal(one(tab.account, 'a.account-link').getAttribute('href'), '#/account');
+  await tab.goto('#/account');
+  assert.equal(textOf(one(tab.main, 'h1')), 'Account');
+  assert.match(textOf(tab.main), /Release managers can ask for them, at their own address\./);
+});
+
+test('a release manager asks for the e-mail alerts and is told to confirm them', async (t) => {
+  let subscription = 'none';
+  const tab = await openTab(t, {
+    hash: '#/account',
+    answer(method, url) {
+      if (method === 'GET' && url === '/api/alerts') {
+        return Response.json({
+          email: MANAGER.email, subscription, canSubscribe: true, subscribers: 0, recent: [],
+          rules: { offlineMinutes: 15, everyMinutes: 60, movedMetres: 1000 },
+        });
+      }
+      if (method === 'POST' && url === '/api/alerts/subscribe') {
+        subscription = 'pending';
+        return Response.json({ subscription }, { status: 202 });
+      }
+      return null;
+    },
+  });
+  await tab.press(tab.main, 'button', `Send alerts to ${MANAGER.email}`);
+  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => request.url), ['/api/alerts/subscribe']);
+  assert.ok(tab.toasts().some((text) => /AWS Notifications is sending you an e-mail with a link/.test(text)));
+  assert.match(textOf(tab.main), /Waiting for you to confirm/);
 });

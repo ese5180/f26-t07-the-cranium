@@ -32,7 +32,7 @@ test('each source has a kind: the existing ones where they fit, setting and log 
   const kinds = Object.fromEntries(TAGS.map((tag) => [tag, made({ tag, text: 'something happened' }).items[0].kind]));
   assert.deepEqual(kinds, {
     BT: 'bluetooth', bt_ota: 'bluetooth', ota: 'update', STUCK: 'restart', stuck: 'restart', boot_diary: 'restart',
-    WIFI: 'health', net: 'health', health: 'health', CONSOLE: 'setting', factory: 'setting',
+    WIFI: 'health', net: 'health', health: 'health', CONSOLE: 'setting', factory: 'setting', CMD: 'setting',
     app: 'log', cloud: 'log', identity: 'log', store: 'log', ui: 'log',
   });
   assert.equal(Object.values(kinds).includes('connection'), false);

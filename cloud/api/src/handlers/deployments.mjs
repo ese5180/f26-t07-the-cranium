@@ -6,9 +6,15 @@
  * drift from what AWS holds. Results are cached for a moment in this module's memory
  * to keep polling browsers within the request limits of AWS IoT.
  *
- * What a board reports never decides anything here. Whether a release may be deployed
- * is decided by its record; whether a board is free is decided by its executions in
- * AWS IoT Jobs. The shadow only adds the live step and progress to the picture.
+ * What a board reports decides one thing here, and only about itself: its board type
+ * (lib/boards.mjs), which a release has to match (400 incompatible_board), and which keeps a
+ * board that updates over Bluetooth only from being made the target of a job at all (400
+ * bluetooth_only). Whether a release may be deployed is decided by its record; whether a
+ * board is free is decided by its executions in AWS IoT Jobs. The shadow otherwise only adds
+ * the live step and progress to the picture.
+ *
+ * A staged rollout (handlers/rollouts.mjs) is made of deployments too: its canary and its
+ * waves are each a job started by launch() below, the same way as one made here.
  *
  * Cancelling is asked of AWS and then read back. AWS applies a cancellation a few
  * seconds after it accepted it, and a job that was cancelled without force keeps the
@@ -26,6 +32,7 @@ import { unknownDevice } from '../lib/shadow.mjs';
 import { deriveTimeline } from '../lib/timeline.mjs';
 import {
   MAX_NOTE, isThing, parseJobId, requireBoolean, requireJobId, requireText, requireThings, requireVersion,
+  strictVersion,
 } from '../lib/validate.mjs';
 import { releaseFromItem, releaseKey } from './firmware.mjs';
 
@@ -151,7 +158,7 @@ function queuedRow(thing, createdAt) {
   };
 }
 
-export function createDeploymentHandlers({ aws, config, now, randomHex, log }, { devices }) {
+export function createDeploymentHandlers({ aws, config, now, randomHex, log }, { devices, fleet = null }) {
   let listing = null;            // { jobs, at }: the result of ListJobs
   const summaries = new Map();   // id -> { summary, settled, at }
   const details = new Map();     // id -> { detail, at }
@@ -431,8 +438,113 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     return { cancelled: cancelled.sort(), failed: failed.sort() };
   }
 
+  /**
+   * Create the job of a deployment on boards that were checked already: free, registered and of
+   * the release's type. Returns { id, detail }. `rollout` and `abort` are the pacing and the
+   * stop of a wave of a staged rollout (lib/fleet.mjs rolloutConfigs), null for a deployment
+   * made here. `onCreated` hears the id as soon as the job exists, before the checks that may
+   * withdraw it again.
+   */
+  async function launch({ release, things, description, actorSub, rollout = null, abort = null, onCreated = () => {} }) {
+    const { parts } = strictVersion(release.version);
+    const sortKey = releaseKey(parts);
+    const document = buildJobDocument({
+      version: release.version, size: release.size, sha256: release.sha256,
+      region: config.region, bucket: config.firmwareBucket,
+    });
+
+    let id = null;
+    for (let attempt = 0; attempt < 3 && id === null; attempt += 1) {
+      const candidate = buildJobId(parts, now(), String(randomHex(4)).slice(0, 4));
+      const created = await aws.createJob({
+        jobId: candidate, things, document, description,
+        urlExpiresInSec: URL_EXPIRES_SEC, inProgressTimeoutMinutes: IN_PROGRESS_TIMEOUT_MIN,
+        // A wave of a staged rollout: AWS IoT paces it and stops it by itself (lib/fleet.mjs).
+        ...(rollout === null ? {} : { rollout }),
+        ...(abort === null ? {} : { abort }),
+      });
+      if (created.ok) {
+        id = candidate;
+      } else if (created.reason === 'target_not_found') {
+        throw unprocessable('unknown_device', 'One of the chosen boards is no longer registered.');
+      } else if (created.reason !== 'exists') {
+        throw new Error(`The job could not be created: ${String(created.reason)}`);
+      } else {
+        // The id is taken. Either by another job, and another id is drawn; or by
+        // this very request: a call whose answer got lost is sent again, and the
+        // second attempt then finds the job that the first one made.
+        const taken = await aws.describeJob(candidate);
+        if (taken !== null && taken.description === description && sameThings(taken.things ?? [], things)) {
+          id = candidate;
+        }
+      }
+    }
+    if (id === null) throw new Error('No free job id after three attempts');
+    onCreated(id);
+    forget(id);
+
+    // The release may have been revoked while this request was running. Revoking
+    // cancels the deployments it can see; this one may have appeared too late for that.
+    let current = release;
+    try {
+      current = releaseFromItem(await aws.getRelease(sortKey));
+    } catch (error) {
+      // It was active a moment ago, and the bucket refuses a revoked image anyway.
+      warn('release_recheck_failed', { deployment: id }, error);
+    }
+    if (current === null || current.status !== 'active') {
+      await aws.cancelJob({ jobId: id, force: true, reasonCode: 'RELEASE_REVOKED', comment: actorSub });
+      forget(id);
+      throw conflict('release_revoked',
+        `Release ${release.version} was revoked just now; the deployment was cancelled.`);
+    }
+
+    // Another deployment to one of these boards may have been created in the same
+    // moment: neither request could see the other's job when it checked. Look again
+    // now that this job exists, and withdraw it if it is the one to give way.
+    let rivals = [];
+    try {
+      rivals = await rivalsOf(id, things);
+    } catch (error) {
+      // The boards were free a moment ago; this second look only narrows a race.
+      warn('busy_recheck_failed', { deployment: id }, error);
+    }
+    // The lists were read for a decision; the next reader gets fresh ones.
+    forget(id);
+    if (rivals.length > 0) {
+      await aws.cancelJob({ jobId: id, force: true, reasonCode: 'DEVICE_BUSY', comment: actorSub });
+      forget(id);
+      throw deviceBusy(rivals, true);
+    }
+
+    // The job exists from here on, so the answer is 201 even if it cannot be read
+    // back right now: then it is described from what was just sent to AWS.
+    let detail = null;
+    try {
+      detail = await detailOf(id, { fresh: true });
+    } catch (error) {
+      warn('deployment_unreadable', { deployment: id }, error);
+    }
+    if (detail === null) {
+      const createdAt = now();
+      const summary = summarizeJob({
+        jobId: id, status: 'IN_PROGRESS', description, things, createdAt, lastUpdatedAt: createdAt,
+        completedAt: null, counts: {},
+      });
+      const executions = things.map((thing) =>
+        present(summary, queuedRow(thing, createdAt), unknownDevice(thing)));
+      detail = { ...summary, counts: countExecutions(executions), executions };
+    }
+    return { id, detail };
+  }
+
   return {
     cancelUnfinished,
+    // For staged rollouts (handlers/rollouts.mjs).
+    launch,
+    unfinishedOn,
+    summary: summaryOf,
+    detail: (id) => detailOf(id, { fresh: true }),
 
     async list() {
       const newest = [...await listedJobs()]
@@ -480,94 +592,19 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
           : `These are not registered boards: ${strangers.join(', ')}.`);
       }
 
+      // Of the release's board type, and able to take a job at all (docs/fleet.md, Board types).
+      if (fleet !== null) await fleet.requireJobTargets(things, release);
+
       const busy = await unfinishedOn(things);
       if (busy.length > 0) throw deviceBusy(busy);
 
-      const document = buildJobDocument({
-        version: release.version, size: release.size, sha256: release.sha256,
-        region: config.region, bucket: config.firmwareBucket,
-      });
       const description = buildJobDescription({ email: actor.email, sub: actor.sub, note });
-
-      let id = null;
-      for (let attempt = 0; attempt < 3 && id === null; attempt += 1) {
-        const candidate = buildJobId(version.parts, now(), String(randomHex(4)).slice(0, 4));
-        const created = await aws.createJob({
-          jobId: candidate, things, document, description,
-          urlExpiresInSec: URL_EXPIRES_SEC, inProgressTimeoutMinutes: IN_PROGRESS_TIMEOUT_MIN,
-        });
-        if (created.ok) {
-          id = candidate;
-        } else if (created.reason === 'target_not_found') {
-          throw unprocessable('unknown_device', 'One of the chosen boards is no longer registered.');
-        } else if (created.reason !== 'exists') {
-          throw new Error(`The job could not be created: ${String(created.reason)}`);
-        } else {
-          // The id is taken. Either by another job, and another id is drawn; or by
-          // this very request: a call whose answer got lost is sent again, and the
-          // second attempt then finds the job that the first one made.
-          const taken = await aws.describeJob(candidate);
-          if (taken !== null && taken.description === description && sameThings(taken.things ?? [], things)) {
-            id = candidate;
-          }
-        }
-      }
-      if (id === null) throw new Error('No free job id after three attempts');
-      entry.target = id;
-      forget(id);
-
-      // The release may have been revoked while this request was running. Revoking
-      // cancels the deployments it can see; this one may have appeared too late for that.
-      let current = release;
-      try {
-        current = releaseFromItem(await aws.getRelease(sortKey));
-      } catch (error) {
-        // It was active a moment ago, and the bucket refuses a revoked image anyway.
-        warn('release_recheck_failed', { deployment: id }, error);
-      }
-      if (current === null || current.status !== 'active') {
-        await aws.cancelJob({ jobId: id, force: true, reasonCode: 'RELEASE_REVOKED', comment: actor.sub });
-        forget(id);
-        throw conflict('release_revoked',
-          `Release ${version.text} was revoked just now; the deployment was cancelled.`);
-      }
-
-      // Another deployment to one of these boards may have been created in the same
-      // moment: neither request could see the other's job when it checked. Look again
-      // now that this job exists, and withdraw it if it is the one to give way.
-      let rivals = [];
-      try {
-        rivals = await rivalsOf(id, things);
-      } catch (error) {
-        // The boards were free a moment ago; this second look only narrows a race.
-        warn('busy_recheck_failed', { deployment: id }, error);
-      }
-      // The lists were read for a decision; the next reader gets fresh ones.
-      forget(id);
-      if (rivals.length > 0) {
-        await aws.cancelJob({ jobId: id, force: true, reasonCode: 'DEVICE_BUSY', comment: actor.sub });
-        forget(id);
-        throw deviceBusy(rivals, true);
-      }
-
-      // The job exists from here on, so the answer is 201 even if it cannot be read
-      // back right now: then it is described from what was just sent to AWS.
-      let detail = null;
-      try {
-        detail = await detailOf(id, { fresh: true });
-      } catch (error) {
-        warn('deployment_unreadable', { deployment: id }, error);
-      }
-      if (detail === null) {
-        const createdAt = now();
-        const summary = summarizeJob({
-          jobId: id, status: 'IN_PROGRESS', description, things, createdAt, lastUpdatedAt: createdAt,
-          completedAt: null, counts: {},
-        });
-        const executions = things.map((thing) =>
-          present(summary, queuedRow(thing, createdAt), unknownDevice(thing)));
-        detail = { ...summary, counts: countExecutions(executions), executions };
-      }
+      const { detail } = await launch({
+        release, things, description, actorSub: actor.sub,
+        onCreated: (id) => {
+          entry.target = id;
+        },
+      });
       return { status: 201, body: { deployment: detail } };
     },
 

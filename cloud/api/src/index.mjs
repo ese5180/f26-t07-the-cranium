@@ -12,9 +12,16 @@
  */
 
 import { createApp } from './app.mjs';
+import { createAppsAws } from './aws-apps.mjs';
+import { createMapAws } from './aws-map.mjs';
 import { createAws } from './aws.mjs';
 import { loadConfig } from './config.mjs';
 
 const config = loadConfig(process.env);
 
-export const handler = createApp({ aws: createAws(process.env), config });
+// The adapter: aws.mjs, the calls of the map, the commands and the alerts (aws-map.mjs), and those of the
+// phone apps' releases (aws-apps.mjs).
+export const handler = createApp({
+  aws: { ...createAws(process.env), ...createMapAws(process.env), ...createAppsAws(process.env) },
+  config,
+});

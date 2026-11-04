@@ -100,6 +100,9 @@ test('a correctly signed image becomes a release', async () => {
       headerSize: 512,
       loadAddress: 196608,
       filename: 'zephyr.signed.bin',
+      // The fixture names no board type and no layout: nrf7002dk and layout 1, as every release before them.
+      board: 'nrf7002dk',
+      layout: 1,
       notes: 'first build with Wi-Fi',
       uploadedBy: { sub: manager.sub, email: manager.email },
       uploadedAt: new Date(clock.ms).toISOString(),

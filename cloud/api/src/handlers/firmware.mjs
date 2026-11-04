@@ -17,6 +17,12 @@
  * overwritten. Revoking a release tags that object; the bucket policy then refuses
  * every download of it, including through URLs that were already handed out.
  *
+ * Every release is for one board type and one flash layout (lib/boards.mjs): the ones its image
+ * names in its protected TLVs 0xA1 and 0xA2, which the signature covers, or nrf7002dk and layout 1
+ * for an image that names none, as every release up to 1.12.0. Versions are one sequence across all
+ * board types: one version is one image. A release's note can be changed later (PUT .../notes);
+ * nothing else of it.
+ *
  * Revoking is three steps: mark the record, tag the object, cancel the deployments.
  * The mark comes first, so that nothing new can start, which also means that a request
  * that fails or is cut off after it leaves a release that reads "revoked" with work
@@ -26,11 +32,14 @@
 
 import { createHash } from 'node:crypto';
 
-import { HttpError, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
+import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
+import {
+  BOARD_TYPES, BoardTlvError, boardOfImage, isBoardType, isLayout, layoutOfImage, releaseBoard, releaseLayout,
+} from '../lib/boards.mjs';
 import { ImageError, compareVersions, formatVersion, validateImage } from '../lib/mcuboot.mjs';
 import {
   MAX_NOTES, MAX_REASON, requireBase64, requireBluetoothName, requireFilename, requireSha256, requireText,
-  requireVersion, strictVersion,
+  requireThing, requireVersion, strictVersion,
 } from '../lib/validate.mjs';
 
 // Enough for an image that fills the slot, base64 encoded, with its notes.
@@ -109,6 +118,10 @@ export function releaseFromItem(item) {
     headerSize: count(item.headerSize),
     loadAddress: count(item.loadAddress),
     filename: text(item.filename, 64),
+    // The board type and flash layout the image is for (lib/boards.mjs); nrf7002dk and 1 for every
+    // release from before them.
+    board: releaseBoard(item),
+    layout: releaseLayout(item),
     notes: text(item.notes, MAX_NOTES),
     uploadedBy: person(item.uploadedBy),
     uploadedAt,
@@ -165,7 +178,7 @@ function revokeIncomplete(version, steps, unconfirmed) {
     'Revoke it again to finish.');
 }
 
-export function createFirmwareHandlers({ aws, config, now, log }, { deployments }) {
+export function createFirmwareHandlers({ aws, config, now, log }, { deployments, fleet = null }) {
   async function findRelease(version) {
     return releaseFromItem(await aws.getRelease(releaseKey(version.parts)));
   }
@@ -240,6 +253,21 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
       entry.detail.sha256 = sha256;
       const board = requireBluetoothName(field(body, 'board'));
       if (board !== null) entry.detail.board = board;
+      // Which board it is, by its thing name, and the type it told the phone it is: either one lets
+      // the console refuse a release of another type (400 incompatible_board). Both are optional.
+      const thing = field(body, 'thing') === undefined ? null : requireThing(field(body, 'thing'));
+      if (thing !== null) entry.detail.thing = thing;
+      const type = field(body, 'type');
+      if (type !== undefined && !isBoardType(type)) {
+        throw badRequest('invalid_type', `"type" is the board type the board gave: ${BOARD_TYPES.join(' or ')}.`);
+      }
+      if (type !== undefined) entry.detail.type = type;
+      // And the flash layout it gave, a whole number from 1.
+      const layout = field(body, 'layout');
+      if (layout !== undefined && !isLayout(layout)) {
+        throw badRequest('invalid_layout', '"layout" is the flash layout the board gave: a whole number from 1.');
+      }
+      if (layout !== undefined) entry.detail.layout = String(layout);
 
       const release = await findRelease(version);
       if (release === null || release.version !== version.text) {
@@ -252,6 +280,7 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
         throw conflict('sha256_mismatch', `That image is not the one of release ${version.text}: ` +
           'its SHA-256 is different. Do not send it to a board.');
       }
+      if (fleet !== null) await fleet.requireBluetoothBoard({ thing, type: type ?? null, layout: layout ?? null }, release);
       return { body: { version: release.version, sha256: release.sha256, status: 'active' } };
     },
 
@@ -271,10 +300,22 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
         if (error instanceof ImageError) throw unprocessable(error.code, error.message);
         throw error;
       }
-      // From here on the version is known, and it comes from the signed header only.
+      // From here on the version is known, and it comes from the signed header only. So does the
+      // board type: from the protected TLVs, which the signature that was just checked covers.
       entry.target = info.version;
       entry.detail.sha256 = info.sha256;
       entry.detail.size = String(info.size);
+      let board;
+      let layout;
+      try {
+        board = boardOfImage(info.protectedTlvs);
+        layout = layoutOfImage(info.protectedTlvs);
+      } catch (error) {
+        if (error instanceof BoardTlvError) throw unprocessable(error.code, error.message);
+        throw error;
+      }
+      entry.detail.board = board;
+      entry.detail.layout = String(layout);
       if (info.version === '0.0.0+0') {
         throw unprocessable('version_zero',
           'The image has version 0.0.0+0. Set a version when you build the firmware.');
@@ -306,6 +347,8 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
         headerSize: info.headerSize,
         loadAddress: info.loadAddress,
         filename,
+        board,
+        layout,
         notes,
         uploadedBy: { sub: actor.sub, email: actor.email },
         uploadedAt: new Date(now()).toISOString(),
@@ -320,6 +363,29 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments 
           'Another upload was being registered at the same moment. Try again.');
       }
       return { status: 201, body: { release } };
+    },
+
+    /**
+     * PUT /api/firmware/{version}/notes, body { "notes": "..." }: what the release changed, in up to
+     * MAX_NOTES characters of one line, as on upload. Active and revoked releases alike; nothing else
+     * of the release changes. On record as firmware.notes, with the old note's length and the new
+     * note as far as a detail holds it.
+     */
+    async notes({ params, json, entry }) {
+      const version = versionInPath(params.version);
+      entry.target = version.text;
+      const given = field(json(), 'notes');
+      // The whole note, every time: "" clears it, and leaving it out is no way to say so.
+      if (given === undefined) throw badRequest('invalid_notes', '"notes" is required: the new note, or "" for none.');
+      const notes = requireText(given, 'notes', { max: MAX_NOTES });
+      entry.detail.notes = notes.slice(0, 200);
+      const existing = await findRelease(version);
+      if (existing === null) throw notFound('unknown_version', `There is no release ${version.text}.`);
+      entry.detail.oldLength = String(existing.notes.length);
+      const changed = await aws.setReleaseNotes({ sk: releaseKey(version.parts), notes });
+      if (!changed.ok) throw notFound('unknown_version', `There is no release ${version.text}.`);
+      const release = releaseFromItem(changed.release) ?? { ...existing, notes };
+      return { body: { release } };
     },
 
     async revoke({ actor, params, json, entry }) {

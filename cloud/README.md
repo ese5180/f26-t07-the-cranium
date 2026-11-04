@@ -523,6 +523,72 @@ that is deployed on its own), the trail with its log files (`infra/trail.yaml`),
 log group `AWSIotLogsV2`, which belongs to AWS IoT in this account and not to the stack.
 Its entries expire with its retention period.
 
+## The fleet
+
+Board types, groups and staged rollouts ([docs/fleet.md](../docs/fleet.md); how the console does them is in
+[docs/aws-iot.md](../docs/aws-iot.md#the-fleet-board-types-groups-and-staged-rollouts)). All of it is on the **Fleet**
+page, and some of it on the others.
+
+- **Compatibility.** A release shows what its image is built for, "For nRF7002 DK · layout 1": the board type and the
+  flash layout, read from its signed TLVs (`0xA1`, `0xA2`), which the build sets from `CONFIG_APP_BOARD_TYPE` and
+  `CONFIG_APP_IMAGE_LAYOUT`. An image without them is for the `nrf7002dk`, layout 1. One version is one image:
+  versions are one sequence for all types, so a build for another type takes the next number. Provision a board
+  without Wi-Fi with `tools/provision_device.py --board nrf5340dk` so that its thing says what it is; a board on
+  1.13.0 or later says its type and layout itself. A board's page has its Compatibility; the New deployment dialog
+  only offers a release to the boards of its type and layout, and the API refuses any other
+  (`incompatible_board`, `incompatible_layout`). The Devices page marks a board without Wi-Fi as "Bluetooth only",
+  with the version a phone last saw on it, and the Overview counts it apart from boards that never connected.
+- **Groups.** Release managers make, rename, change and delete them on the Fleet page or the Devices page. A board
+  can be in several. Every board is also in the group of its type.
+- **Staged rollouts.** A deployment of more than one board from the website, a rollout to a group (its "Roll out"
+  button), and each type of "Update everything" start with a canary, one board unless you ask for more. Its page
+  (`#/rollouts/<id>`) shows the canary, then the waves once the canary has confirmed, what was left out and why, and
+  why it stopped. The waves are started by `RolloutTickFn` within a minute of the canary's confirmation; a
+  deployment to one board, and every deployment from the API (`POST /api/deployments`), is one job as before.
+- **Update everything** reviews, by type, the newest release, the boards it goes to and the ones it leaves out, and
+  starts one staged rollout per type.
+- **Roll back** (on a group, when an older release of one of its types is active) reviews the release before the
+  newest. A board refuses firmware that is not newer than what it runs, so it reaches only boards behind both
+  releases, and the review marks the others "Would refuse it". A real roll-back is a rebuild of the old source under
+  a newer version, released and rolled out like any other.
+- **A release's note.** "Edit note" on any release, revoked ones too. Scripts set it with an API token:
+  `curl -X PUT -H "Authorization: Bearer $CRANIUM_TOKEN" -H 'content-type: application/json'
+  -d '{"notes":"…"}' "$CONSOLE/api/t/firmware/1.11.3%2B0/notes"`.
+
+Limits: at most 50 groups of up to 100 boards each; a rollout takes at most 100 boards and a canary at most 5;
+the first wave is 1 to 50 boards a minute; the abort threshold is 1 to 100% (default 20%); 60 sightings a minute
+per person. The function that moves rollouts on logs to `/aws/lambda/<stack>-rollouts`.
+
+## The map, commands and alerts
+
+The rest of [docs/fleet.md](../docs/fleet.md); how the console does it is in
+[docs/aws-iot.md](../docs/aws-iot.md#the-fleet-the-map-commands-and-alerts).
+
+- **Map.** The **Map** page shows every board where the Wi-Fi it hears puts it, from firmware 1.13.0: a marker in
+  the colour of its state, a shaded circle for how sure the position is, and a popup with its name, thing,
+  firmware, whether it is online, when it was placed and how closely. Beside it, the same boards as a list, and the
+  boards that are not on the map with why (Bluetooth only, no scan yet, too few access points, AWS could not place
+  it). A board's page has a small map of its last 20 positions. The map's tiles come from OpenStreetMap: opening it
+  fetches them from `tile.openstreetmap.org`, which learns the viewer's address and roughly where the boards are.
+  Positions cost US$1.00 per 1,000 (the first 1,000 free in an account's first year); a board makes a few a day.
+- **Identify** (a button on every board's row and page) makes the board blink LED1 and LED2 for 15 s; **Report now**
+  (the menu on its page) makes it send its heartbeat, diagnostics and a Wi-Fi scan at once. Release managers only,
+  at most 10 a minute each, on record as `board.command`. The board's answer shows on its page when its log brings
+  it (tag `CMD`). An offline board misses the command; firmware before 1.13.0 does not hear it at all. From a script:
+  `curl -X POST -H "Authorization: Bearer $CRANIUM_TOKEN" -H 'content-type: application/json' -d '{"cmd":"identify"}'
+  "$CONSOLE/api/t/devices/<thing>/commands"`.
+- **Alerts by e-mail.** On the **Account** page (the address in the masthead), a release manager asks for alerts at
+  their own address and confirms the e-mail from AWS Notifications; "Stop the alerts" there, or the link in any
+  alert, stops them. An alert for a board offline for more than 15 minutes and back, an update that failed or rolled
+  back, a restart for being stuck, and a board that moved more than 1 km; at most one e-mail per board and kind an
+  hour, with what happened in between in the next one. The page lists the e-mails sent lately. Removing someone from
+  `release-managers` does not stop their alerts: unsubscribe them too (`aws sns list-subscriptions-by-topic
+  --topic-arn <AlertTopicArn>`, the stack output of `cranium-ota`, then `aws sns unsubscribe --subscription-arn <arn>`).
+
+The first deployment with these makes a new topic, a rule and a function, and changes the device policy in place
+(a new version of `cranium-device`: see docs/aws-iot.md, "What a board may do"). The location function logs to
+`/aws/lambda/<stack>-location` (`cloud/logs.sh location`), one line per scan, never what the scan held.
+
 ## Try it without AWS
 
 ```sh
@@ -542,7 +608,15 @@ function as one of its home page names.
 While a scenario is built the boards that are on report every minute, and every report and
 connection goes through the recorder's own code, so the Events and Diagnostics pages have a
 history. `--scenario fleet` has two days of three boards with an event of every kind and a
-board on firmware 1.10.0 with its diagnostics.
+board on firmware 1.10.0 with its diagnostics, and for the Fleet page two nRF5340 DKs that a phone has seen, a
+release of each type, two groups and a staged rollout whose wave waits for a board that is offline. Its images
+are built for the run and signed with a key the preview makes (`api/test/images.mjs`), so in that scenario a
+fixture image is refused as signed with another key. The preview runs the rollouts' schedule every minute.
+The same scenario puts boards on the Map page: the boards on 1.13.0 send scans of made-up access points of a campus
+(addresses of the range kept for documentation), which a stand-in for AWS IoT Core Device Location places around
+Penn's engineering buildings; one is carried 1.6 km to Pennovation Works, and one hears too few. Those boards answer
+Identify and Report now in their log. The e-mail alerts are made as when deployed and listed on the Account page,
+and the terminal prints each one; none is sent anywhere.
 
 The stand-in refuses a forced cancellation of a deployment that is cancelled already
 (see "A board at work on a cancelled deployment" above). `--repeated-cancel accepted`

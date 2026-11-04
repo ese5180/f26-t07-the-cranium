@@ -49,6 +49,10 @@ into `apps/config/cranium.json`, which git ignores, and each app reads that file
 
 `apps/config/cranium.example.json` has this shape with made-up values, for building without a stack.
 
+Without `cloud/.deploy/outputs.json`, a signed-in person gets the same file from the console: **Download the
+configuration** on the Apps page (`GET /api/apps/config`, [The Apps page](#the-apps-page)) saves `cranium.json`
+for `apps/config/`.
+
 ## Signing in
 
 The apps sign in on their own screen, as the console's website does: the e-mail address and the
@@ -131,7 +135,8 @@ HTTP status; show the message.
 
 | Call | Who | Answer |
 | --- | --- | --- |
-| `GET /api/me` | Anyone signed in | `{"email", "groups": [...], "canWrite": bool, "expiresAt"}`. `canWrite` is true for a release manager |
+| `GET /api/me` | Anyone signed in | `{"email", "groups": [...], "canWrite": bool, "expiresAt", "console": {"version": "1.10.0", "commit"}}`. `canWrite` is true for a release manager. `console` is the console's own version and the commit it was built from, `null` each where the deployment does not say: show it under Help, About |
+| `GET /api/apps` | Anyone signed in | The apps on the console's Apps page: `{"android": {"latest": "0.4.0", "releases": [...]}, "ios": {"version": "0.4.0", "notes"}, "console"}`. An app older than its platform's newest here says so, once a day at most: "A newer app is on the console's Apps page" ([The Apps page](#the-apps-page)) |
 | `GET /api/firmware` | Anyone signed in | `{"releases": [{"version": "1.8.0+0", "size", "sha256", "status": "active" or "revoked", "uploadedAt", "notes", ...}], "slotSize"}`, newest first |
 | `GET /api/firmware/{version}/image` | Release managers | The signed image itself, `application/octet-stream`. 403 for anyone else, 404 for a revoked or unknown version. Recorded in the activity log |
 | `GET /api/pairing/{name}` | Release managers | `{"thing", "name", "passkey": "123456", "reportedAt"}` for the board advertising as `{name}`, while a phone is pairing with it. 404 when no online board has one yet. A passkey handed out, and a refused caller, are recorded in the activity log; a 404 is not, because the app asks again |
@@ -271,9 +276,54 @@ new version, but the board's own LEDs and console are the real answer.
 | The console cannot be reached at the send | No connection | Nothing was sent: the image on the phone is only sent once the console says the release is still active |
 | 403 from the API | Not a release manager | Ask an administrator for the role |
 
+## The Apps page
+
+The console's Apps page (`#/apps`, in the masthead) is where the team gets the apps.
+
+- **Android**: the newest release on the console with its note, size and SHA-256, a **Download** button, and on
+  request a QR code for a phone to scan; how to install it ("Install unknown apps", open the APK, the first
+  sign-in); the older releases, folded away.
+- **iPhone**: its version and note, from `apps/ios/CHANGELOG.md` as this deployment was built, and how to install it
+  with a Mac: `git clone`, **Download the configuration** for `apps/config/`, `apps/ios/scripts/phone.sh`, Trust,
+  Run, and the 7-day renewal with `renew.sh`. An iPhone without a Mac needs the paid Apple Developer Program and
+  TestFlight.
+- **Build the Android app yourself**: `git clone`, the configuration, `./gradlew assembleDebug`.
+
+**The download link and the QR code.** A download is a presigned S3 link, good for 15 minutes, made when somebody
+asks for one and recorded as `app.download`. The QR code holds such a link, so that the phone that scans it downloads
+the APK without signing in to the console: a phone that would first have to sign in to the website (password and code,
+on a phone) is the step the QR code is there to save. That makes the code a key for 15 minutes to whoever sees it, so
+it is drawn only when asked for, says until when it is good, is gone from the page after that, and goes on record with
+`via: qr`. The APK holds nothing secret: the console's address and its public client IDs, and it signs nobody in by
+itself. The code is drawn by the page from Project Nayuki's QR Code generator (MIT), vendored and pinned in
+`cloud/web/src/site/assets/qrcode.js` with its licence beside it; nothing comes from a CDN. A presigned URL is about
+1,500 characters, mostly the role's session token, so the code is a large one (version 28 or so, 129 modules), at the
+lowest error correction, and 3 px a module where the page is wide enough: scan it from a computer's screen.
+
+**Publishing the Android app.** `apps/android/build-release.sh` builds the signed APK and then runs
+`apps/android/publish.sh` (`--no-publish` skips it), which takes an API token as `scripts/upload-to-console.sh` does
+(`CRANIUM_TOKEN`, or `~/.cranium/console-token` with mode 600; its owner a release manager). The version is the one in
+the APK's name, the `versionCode` `craniumVersionCode`, both checked against the APK with the SDK's `aapt2` where it is
+installed, and the note the first paragraph of the version's entry in `apps/android/CHANGELOG.md`. An APK is bigger
+than API Gateway takes, so it goes to S3 directly:
+
+| Step | Request |
+| --- | --- |
+| A URL | `POST /api/t/apps/android/uploads`, body `{"version": "0.4.0", "versionCode": 4, "sha256": "<hex>", "size": 12027314, "notes": "..."}`. 201 `{"upload": {"method": "PUT", "url", "headers": {"content-length", "x-amz-checksum-sha256"}, "expiresAt"}}`: a presigned PUT, good for 15 minutes, for exactly that size and SHA-256 |
+| The file | `PUT` to that URL with those headers: `curl --upload-file`. S3 refuses other bytes (400 `BadDigest`) and another size (403) |
+| The check | `POST /api/t/apps/android/releases/0.4.0`, the same body without `version`. 201 `{"release"}` once S3's size and SHA-256 of what arrived are the ones described |
+| A download | `GET /api/apps/android/0.4.0/download` (`?via=qr` for the QR code), any member: `{"download": {"url", "expiresAt", "filename", "size", "sha256"}}` |
+| The configuration | `GET /api/apps/config`, any member: `apps/config/cranium.json` as above |
+
+A version is published once and only upward, by its version and its `versionCode`. `publish.sh` exits 0 when it has
+published the APK or the console has that version with the same bytes, 1 when it was refused (with the console's or
+S3's words), 2 without a token. From a phone, a download and the configuration are reads; starting and finishing a
+publish are changes, which need a sign-in in the last 15 minutes. More, with the bucket and the API role's three S3
+actions: [`docs/aws-iot.md`](aws-iot.md#the-phone-apps-on-the-console).
+
 ## Building and shipping
 
 See `apps/ios/README.md` and `apps/android/README.md`. The iPhone app goes to TestFlight with an
-App Store Connect API key kept in `~/.cranium`, never in git. The Android app is a signed APK,
-shared with the team directly and not attached to a public release, because it holds the values
-in the configuration above.
+App Store Connect API key kept in `~/.cranium`, never in git. The Android app is a signed APK, published on the
+console's Apps page by `apps/android/build-release.sh` (above) for the team to download, and never attached to a
+public release, because it holds the values in the configuration above.

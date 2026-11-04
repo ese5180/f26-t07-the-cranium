@@ -10,16 +10,20 @@
 import {
   ApiError, CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, boardName, boardOf,
   cancelNotice, codeComplete, createApi, createAuth, createClock, describeExecution, deviceActivity, enterCode, executionActivity,
-  isUnderWay, isUnfinished, keyInCode, onlyChoice, parseRoute,
+  isUnderWay, isUnfinished, keyInCode, offeredBoards, onlyChoice, parseRoute,
   pollInterval, readConfig, readImageHeader, recordedFilename, refreshPlan, revocationInPlace, revocationNotice,
   routeHash, sha256Hex, shouldRenew, singleLine, staleAfter, stillFinishing, stillRunning, stillSettling, summaryActivity,
   TOKEN_DAYS, toBase64, tokenDays, uploadInHand, versionOfDeployment,
 } from './core.js';
 import {
   accountView, activityView, cancelDialog, createTokenDialog, deployDialog, deploymentView, deploymentsView, deviceView,
-  devicesView, firmwareView, gateView, navView, overviewView, render, revokeDialog, revokeTokenDialog, scriptPending,
-  signInView, toastView, tokensView,
+  devicesView, firmwareView, gateView, navView, notesDialog, overviewView, render, revokeDialog, revokeTokenDialog,
+  scriptPending, signInView, toastView, tokensView,
 } from './views.js';
+// The foot of every page: the console's own version (docs/versions.md).
+import { footView } from './views.js';
+// The map, commands and alerts (docs/fleet.md).
+import { COMMAND_ANSWER_MS, IDENTIFY_SECONDS, commandAnswer } from './core.js';
 
 // Board lists, and the lists that another person can change at any time, are also
 // refreshed when nothing is being installed, so that they do not go stale. Deployments
@@ -43,6 +47,8 @@ const main = document.getElementById('main');
 const nav = document.getElementById('nav');
 const account = document.getElementById('account');
 const toasts = document.getElementById('toasts');
+// Not in a page from before the footer, or in a test's stand-in for one: then there is none to draw.
+const foot = document.getElementById('foot') ?? null;
 const announcer = document.getElementById('announcer');
 
 function resource() {
@@ -72,6 +78,14 @@ const state = {
   deviceDetails: new Map(),
   deploymentDetails: new Map(),
   upload: { stage: 'idle', over: false },
+  // The map, commands and alerts (docs/fleet.md): each board's last positions, by thing; the last
+  // command sent to each board from this tab and what became of it; the caller's own e-mail alerts.
+  positions: new Map(),
+  commands: new Map(),
+  alerts: { ...resource(), busy: false },
+  // The phone apps (apps.js): what GET /api/apps says, and versions.json, which the History page reads too.
+  apps: resource(),
+  versions: resource(),
 };
 
 const clock = createClock();
@@ -117,17 +131,23 @@ function paint() {
   if (state.gate) {
     nav.hidden = true;
     account.hidden = true;
+    if (foot) foot.hidden = true;
     const node = state.gate.signIn ? signInView(signInModel()) : gateView(state.gate);
     node.key = state.gate.signIn ? 'sign-in' : 'gate';
     render(main, node);
     return;
   }
   state.sessionLeft = auth.secondsLeft();
-  const ctx = { state, actions };
+  // `fleet` is fleet.js once it is here: board types, groups and staged rollouts on every page.
+  const ctx = { state, actions, fleet: fleetScript };
   nav.hidden = false;
   account.hidden = false;
   render(nav, navView(ctx));
   render(account, accountView(ctx));
+  if (foot) {
+    foot.hidden = false;
+    render(foot, footView(ctx));
+  }
   let node;
   try {
     node = pages[state.route.view].view(ctx);
@@ -148,6 +168,8 @@ function paint() {
   const title = pageTitle(state.route);
   if (document.title !== title) document.title = title;
   pages[state.route.view].painted?.();
+  // The maps of the Map page and of a board's page, once map.js is here (Leaflet keeps its own DOM).
+  mapScript?.sync(state);
   announceBoards();
   if (dialogOpen()) dialog.redraw();
 }
@@ -521,9 +543,73 @@ const pages = {
       if (historyScript && !state.commits.value) {
         await load(state.commits, () => historyScript.readHistory(window.fetch.bind(window)));
       }
+      // What's new: the console's versions with their notes, from versions.json beside history.json.
+      if (historyScript && !state.versions.value) {
+        await load(state.versions, () => historyScript.readVersions(window.fetch.bind(window)));
+      }
       draw();
     },
     interval: () => 0,
+  },
+  // The phone apps: the Android app to download, the iPhone app to build, and how (apps.js).
+  apps: {
+    title: 'Apps',
+    view: (ctx) => (appsScript ? appsScript.appsView(ctx) : scriptPending(ctx, 'apps', 'Apps', { tabs: false })),
+    resources: () => appsScript?.appsResources(state) ?? [],
+    async refresh() {
+      if (await appsReady()) await appsScript.refreshApps();
+      draw();
+    },
+    interval: () => appsScript?.appsInterval() ?? 0,
+  },
+  // Board types, groups, staged rollouts and "Update everything" (fleet.js).
+  fleet: {
+    title: 'Fleet',
+    view: (ctx) => (fleetScript ? fleetScript.fleetView(ctx) : scriptPending(ctx, 'fleet', 'Fleet', { tabs: false })),
+    resources: () => fleetScript?.fleetResources(state) ?? [],
+    async refresh(full) {
+      if (await fleetReady()) await fleetScript.refreshFleet(full);
+      draw();
+    },
+    interval: () => fleetScript?.fleetInterval(state) ?? 0,
+    holdStill: () => dialogOpen(),
+  },
+  rollout: {
+    title: (route) => fleetScript?.rolloutTitle(route, state) ?? 'Staged rollout',
+    view: (ctx) => (fleetScript ? fleetScript.rolloutView(ctx) : scriptPending(ctx, 'rollout', 'Staged rollout', { tabs: false })),
+    resources: () => fleetScript?.rolloutResources(state) ?? [],
+    async refresh(full) {
+      if (await fleetReady()) await fleetScript.refreshRollout(full);
+      draw();
+    },
+    interval: () => fleetScript?.rolloutInterval(state) ?? 0,
+    holdStill: () => dialogOpen(),
+  },
+  // Every board where the Wi-Fi it hears puts it (map.js, with Leaflet, fetched when the page opens).
+  map: {
+    title: 'Map',
+    view: (ctx) => (mapScript ? mapScript.mapView(ctx) : scriptPending(ctx, 'map', 'Map', { tabs: false })),
+    resources: () => [state.devices],
+    async refresh() {
+      await Promise.all([mapReady(), load(state.devices, api.devices)]);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+  },
+  // Who is signed in, and their e-mail alerts (account.js).
+  account: {
+    title: 'Account',
+    view: (ctx) => (accountScript
+      ? accountScript.accountPageView(ctx)
+      : scriptPending(ctx, 'account', 'Account', { tabs: false })),
+    resources: () => [state.alerts],
+    async refresh() {
+      accountScript ??= await pageScript(() => import('./account.js'));
+      await load(state.alerts, api.alerts);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => state.alerts.busy,
   },
   // Read again now and then, so that a token that runs out reads as expired.
   tokens: {
@@ -539,6 +625,60 @@ const pages = {
 let serialScript = null;
 let historyScript = null;
 let telemetryScript = null;
+let mapScript = null;
+let accountScript = null;
+let appsScript = null;
+
+/** apps.js, fetched once, when the Apps page is first opened, and handed what it needs. */
+async function appsReady() {
+  if (!appsScript) {
+    appsScript = await pageScript(() => import('./apps.js'));
+    appsScript?.connect({ state, api, load, draw, notify });
+  }
+  return appsScript;
+}
+
+/** map.js, fetched once: the Map page, and the map on a board's page. */
+async function mapReady() {
+  if (!mapScript) {
+    mapScript = await pageScript(() => import('./map.js'));
+    mapScript?.connect({ draw });
+  }
+  return mapScript;
+}
+
+/** A board's page, for a board with a position: its last positions, and the script that draws them. */
+async function boardLocation(full) {
+  if (state.route.view !== 'device' || !knownBoard(state.route.thing)?.position) return;
+  const { thing } = state.route;
+  const target = entry(state.positions, thing);
+  await Promise.all([mapReady(), due(target, full) ? load(target, () => api.positions(thing)) : null]);
+}
+let fleetScript = null;
+let fleetLoading = null;
+
+/**
+ * fleet.js, fetched once, when the console first shows a page, and handed what it needs. Every page
+ * shows something of the fleet: a board's type and groups, the fleet's health, the staged
+ * rollouts. Until it is here, or if it cannot be fetched, the pages are as they were without it.
+ */
+function fleetReady() {
+  fleetLoading ??= import('./fleet.js').then((module) => {
+    fleetScript = module;
+    module.connect({
+      state, api, load, draw, clock, refresh: () => refreshNow(true), notify, keep,
+      dialogs: { open: openDialog, submit: submitFrom, isOpen: dialogOpen, signIn: beginSignIn },
+      go: (route) => { location.hash = routeHash(route); },
+    });
+    draw();
+    return module;
+  }).catch((error) => {
+    console.error(error);
+    fleetLoading = null;
+    return null;
+  });
+  return fleetLoading;
+}
 
 /** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */
 async function telemetry() {
@@ -586,6 +726,10 @@ async function refreshNow(full) {
   const mine = turn;
   clearTimeout(timer);
   await pages[state.route.view].refresh(full);
+  // What the page shows of the fleet: once fleet.js is here, it reads that itself.
+  if (fleetScript && !['fleet', 'rollout'].includes(state.route.view)) await fleetScript.refreshFor(state.route.view, full);
+  // A board's page also shows where the board was (map.js).
+  await boardLocation(full);
   if (mine === turn) arm();
 }
 
@@ -1008,9 +1152,12 @@ function openDeploy(version) {
   };
   // With a single board to choose from, it is ticked when the boards come up. From the
   // first tick by hand on, the selection is the user's own.
+  // The boards of the chosen release's type: the only ones the dialog offers it to.
+  const offered = () => offeredBoards(model.devices ?? [], model.types,
+    (model.releases ?? []).find((release) => release.version === model.version) ?? null);
   const suggest = () => {
     if (model.chosenByHand || model.step !== 1 || model.devices === null) return;
-    const only = onlyChoice(model.devices, model.busy, model.version);
+    const only = onlyChoice(offered(), model.busy, model.version);
     model.things = new Set(only === null ? [] : [only]);
   };
   const model = {
@@ -1028,11 +1175,23 @@ function openDeploy(version) {
     error: null,
     // The release that was asked for and has been revoked since.
     gone: null,
+    // Each board's type, from the fleet (fleet.js): thing -> { type, bluetoothOnly }. Null until
+    // known, and then the dialog offers a release only to the boards of its type.
+    types: null,
+    // A staged rollout, for more than one board: how many boards go first, and at which share of
+    // failures the rest is stopped.
+    canary: 1,
+    abortPercent: 20,
+    setCanary: change((value) => { model.canary = value; }),
+    setAbortPercent: change((value) => { model.abortPercent = value; }),
     close: () => self.close(),
     signIn: beginSignIn,
     choose: change((picked) => {
       model.version = picked;
       model.gone = null;
+      // A board of another type is not offered the new choice.
+      const fits = new Set(offered().map((device) => device.thing));
+      model.things = new Set([...model.things].filter((thing) => fits.has(thing)));
     }),
     next: change(() => {
       model.step += 1;
@@ -1050,7 +1209,7 @@ function openDeploy(version) {
     toggleAll: change(() => {
       model.chosenByHand = true;
       // Not the boards that would only refuse: those take a tick of their own.
-      const free = model.devices.filter((device) =>
+      const free = offered().filter((device) =>
         !model.busy.has(device.thing) && !alreadyRuns(device, model.version));
       const all = free.every((device) => model.things.has(device.thing));
       model.things = new Set(all ? [] : [...model.things, ...free.map((device) => device.thing)]);
@@ -1060,7 +1219,10 @@ function openDeploy(version) {
       model.loadError = null;
       self.redraw();
       try {
-        const [firmware, fleet] = await Promise.all([api.firmware(), api.devices()]);
+        const [firmware, fleet, types] = await Promise.all([
+          api.firmware(), api.devices(), fleetScript ? fleetScript.boardTypes().catch(() => null) : null,
+        ]);
+        model.types = types;
         // What this has found out is true of the page behind the dialog as well.
         Object.assign(state.firmware, { value: firmware, error: null, loadedAt: clock.now() });
         draw();
@@ -1099,6 +1261,17 @@ function openDeploy(version) {
     submit: () => submitFrom(self, model, async () => {
       let deployment;
       try {
+        // More than one board: a staged rollout, a canary first (docs/fleet.md).
+        if (model.things.size > 1 && fleetScript) {
+          const rollout = await fleetScript.startRollout({
+            version: model.version, things: [...model.things].sort(), note: singleLine(model.note),
+            canary: model.canary, abortPercent: model.abortPercent,
+          });
+          self.close(true);
+          notify(`Staged rollout of ${rollout.version} started: ${rollout.canary.things.length === 1 ? 'one board' : `${rollout.canary.things.length} boards`} first.`);
+          location.hash = routeHash({ view: 'rollout', id: rollout.id });
+          return;
+        }
         deployment = await api.deploy({
           version: model.version,
           things: [...model.things].sort(),
@@ -1120,7 +1293,7 @@ function openDeploy(version) {
       location.hash = routeHash({ view: 'deployment', id: deployment.id });
     }),
   };
-  self = openDialog(() => deployDialog(model, { state, actions }));
+  self = openDialog(() => deployDialog(model, { state, actions, fleet: fleetScript }));
   model.reload();
 }
 
@@ -1220,6 +1393,34 @@ function openRevoke(release) {
     }),
   };
   self = openDialog(() => revokeDialog(model, { state, actions }));
+}
+
+// A release's note, changed after its upload: what the release changed, for everyone who reads it.
+
+function openNotes(release) {
+  if (!state.me.canWrite || dialogOpen()) return;
+  let self = null;
+  const model = {
+    release,
+    notes: release.notes ?? '',
+    sending: false,
+    error: null,
+    close: () => self.close(),
+    signIn: beginSignIn,
+    setNotes(text) {
+      model.notes = text;
+      self.redraw();
+    },
+    submit: () => submitFrom(self, model, async () => {
+      const changed = await api.setNotes(release.version, singleLine(model.notes));
+      const firmware = state.firmware.value;
+      if (firmware) firmware.releases = firmware.releases.map((item) => (item.version === changed.version ? changed : item));
+      self.close(true);
+      notify(changed.notes ? `The note of ${changed.version} is saved.` : `The note of ${changed.version} is cleared.`);
+      draw();
+    }),
+  };
+  self = openDialog(() => notesDialog(model, { state, actions }));
 }
 
 // API tokens. A new token is shown once, in the dialog that made it, and is gone with
@@ -1367,8 +1568,89 @@ async function startUpload() {
   }
 }
 
+// Commands to a board (docs/fleet.md): identify and report, and the board's answer from its log.
+
+/** Look in the board's log for its answer to a command, every few seconds, for a while. */
+function watchForAnswer(thing, command) {
+  const started = clock.now();
+  const from = new Date(started - 60_000).toISOString();
+  const look = async () => {
+    const current = state.commands.get(thing);
+    // Another command was sent since: this one is no longer what the page shows.
+    if (current?.id !== command.id) return;
+    try {
+      const read = await api.boardLog({ from, to: new Date(clock.now()).toISOString(), thing, tags: ['CMD'] });
+      const answer = commandAnswer(read.lines, command.id);
+      if (answer !== null && state.commands.get(thing)?.id === command.id) {
+        state.commands.set(thing, { ...current, status: 'answered', answer });
+        notify(`${boardName(knownBoard(thing), { short: true })}: ${answer.text}`, answer.ignored ? 'warn' : 'good');
+        draw();
+        return;
+      }
+    } catch {
+      // The next look may get through.
+    }
+    if (clock.now() - started >= COMMAND_ANSWER_MS) {
+      if (state.commands.get(thing)?.id === command.id) state.commands.set(thing, { ...current, status: 'unanswered' });
+      draw();
+      return;
+    }
+    setTimeout(look, 3000);
+  };
+  setTimeout(look, 3000);
+}
+
+async function sendCommand(thing, cmd) {
+  if (!state.me?.canWrite || state.commands.get(thing)?.status === 'sending') return;
+  const name = boardName(knownBoard(thing), { short: true });
+  state.commands.set(thing, { cmd, status: 'sending', id: null, answer: null, error: null });
+  draw();
+  try {
+    const command = await api.command(thing, cmd, cmd === 'identify' ? IDENTIFY_SECONDS : null);
+    state.commands.set(thing, { cmd, status: 'sent', id: command.id, answer: null, error: null, online: command.online });
+    notify(cmd === 'identify'
+      ? `Sent: ${name} should blink its two lights for ${command.seconds ?? IDENTIFY_SECONDS} s.`
+      : `Sent: ${name} reports at once.`);
+    watchForAnswer(thing, command);
+  } catch (error) {
+    const problem = asProblem(error);
+    state.commands.set(thing, { cmd, status: 'failed', id: null, answer: null, error: problem.message });
+    notify(problem.message, 'bad');
+    if (problem.status === 401) return;
+  }
+  draw();
+}
+
+/** Ask for e-mail alerts at the caller's own address, or stop them. */
+async function changeAlerts(subscribe) {
+  if (!state.me?.canWrite || state.alerts.busy) return;
+  state.alerts.busy = true;
+  draw();
+  try {
+    if (subscribe) {
+      const now = await api.subscribeAlerts();
+      notify(now === 'pending'
+        ? 'AWS Notifications is sending you an e-mail with a link. Alerts start once you follow it.'
+        : 'Alerts already go to your address.');
+    } else {
+      await api.unsubscribeAlerts();
+      notify('No more alerts will be sent to your address.');
+    }
+  } catch (error) {
+    notify(asProblem(error).message, 'bad');
+  } finally {
+    state.alerts.busy = false;
+  }
+  await load(state.alerts, api.alerts);
+}
+
 const actions = {
+  identify: (thing) => sendCommand(thing, 'identify'),
+  reportNow: (thing) => sendCommand(thing, 'report'),
+  subscribeAlerts: () => changeAlerts(true),
+  unsubscribeAlerts: () => changeAlerts(false),
   refresh: () => refreshNow(true),
+  openNotes,
   redraw: draw,
   signOut: () => auth.signOut(),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
@@ -1506,6 +1788,9 @@ async function start() {
   setInterval(checkSession, SESSION_CHECK_MS);
 
   showRoute();
+  fleetReady().then((module) => {
+    if (module && !['fleet', 'rollout'].includes(state.route.view)) refreshNow(true);
+  });
 }
 
 async function boot() {

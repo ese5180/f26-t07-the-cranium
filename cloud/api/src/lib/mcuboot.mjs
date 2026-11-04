@@ -11,7 +11,8 @@
  *
  *   image_header (32 bytes) ... padding up to ih_hdr_size
  *   payload (ih_img_size bytes)
- *   optional protected TLV area (ih_protect_tlv_size bytes, magic 0x6908)
+ *   optional protected TLV area (ih_protect_tlv_size bytes, magic 0x6908): for this
+ *     product a security counter, and from 1.13.0 the board type (tag 0xA1, lib/boards.mjs)
  *   TLV area (magic 0x6907): SHA256, KEYHASH, ECDSA signature
  *
  * The hash and the signature cover everything before the unprotected TLV area.
@@ -230,13 +231,16 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
     }
   }
 
+  // The entries of the protected area, which the hash and the signature below cover: the only
+  // TLVs whose values can be believed (lib/boards.mjs reads the board type from them).
+  let protectedTlvs = [];
   if (header.protectedTlvSize !== 0) {
     if (header.protectedTlvSize < TLV_INFO_SIZE ||
         image.readUInt16LE(protectedStart) !== TLV_PROT_INFO_MAGIC ||
         image.readUInt16LE(protectedStart + 2) !== header.protectedTlvSize) {
       fail('malformed_tlv', 'The protected TLV area is malformed');
     }
-    walkTlvs(image, protectedStart + TLV_INFO_SIZE, tlvStart, 'protected TLV');
+    protectedTlvs = walkTlvs(image, protectedStart + TLV_INFO_SIZE, tlvStart, 'protected TLV');
   }
 
   if (image.readUInt16LE(tlvStart) !== TLV_INFO_MAGIC) {
@@ -307,5 +311,7 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
     headerSize: header.headerSize,
     payloadSize: header.imageSize,
     flags: flagNames,
+    // Copies, so that nothing kept from them holds on to the upload.
+    protectedTlvs: protectedTlvs.map(({ type, data }) => ({ type, data: Buffer.from(data) })),
   };
 }

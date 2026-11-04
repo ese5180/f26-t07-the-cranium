@@ -43,6 +43,8 @@ const ASSET_TYPES = new Map([
   ['css', 'text/css; charset=utf-8'],
   ['js', 'text/javascript; charset=utf-8'],
   ['json', 'application/json; charset=utf-8'],
+  // The licence of Leaflet, served beside it (leaflet-license.txt): the map's attribution links to it.
+  ['txt', 'text/plain; charset=utf-8'],
 ]);
 const HTML = 'text/html; charset=utf-8';
 const PLAIN = 'text/plain; charset=utf-8';
@@ -164,10 +166,14 @@ function requireText(name, value) {
   }
 }
 
+// The map's tiles (the Map page and a board's page, assets/map.js): OpenStreetMap's, as images only.
+export const TILE_ORIGIN = 'https://tile.openstreetmap.org';
+
 /**
  * The page may talk to its own origin, to the managed login pages (the token and the
  * revocation of the refresh token) and to Cognito's user pool API (the console's own
- * sign-in page). Nowhere else.
+ * sign-in page). Nowhere else. It may show images from itself and from OpenStreetMap's tile
+ * server, for the map, and from nowhere else.
  */
 function consolePolicy(loginOrigin, idpOrigin) {
   const connect = [...new Set(["'self'", loginOrigin, idpOrigin])].join(' ');
@@ -175,7 +181,7 @@ function consolePolicy(loginOrigin, idpOrigin) {
     "default-src 'none'",
     "script-src 'self'",
     "style-src 'self'",
-    "img-src 'self' data:",
+    `img-src 'self' data: ${TILE_ORIGIN}`,
     `connect-src ${connect}`,
     "base-uri 'none'",
     "form-action 'none'",

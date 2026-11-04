@@ -71,13 +71,20 @@ import { randomBytes } from 'node:crypto';
 import {
   RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireFreshSignIn, requireMember,
 } from './auth.mjs';
+import { createAlertHandlers } from './handlers/alerts.mjs';
+import { createAppHandlers } from './handlers/apps.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
+import { createCommandHandlers } from './handlers/commands.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
+import { createFleetHandlers } from './handlers/fleet.mjs';
+import { createGroupHandlers } from './handlers/groups.mjs';
+import { createLocationHandlers } from './handlers/location.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
+import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import {
@@ -236,6 +243,8 @@ function guarded(aws, requests) {
  * @param {(line: object) => void} [options.log]       receives each log line as an object
  * @param {{set: Function, clear: Function}} [options.timers]  setTimeout and clearTimeout,
  *                                  or stand-ins for them
+ * @param {object} [options.versions]  what versions.json says (lib/versions.mjs parseBundledVersions);
+ *                                  left out, the file beside the code, as deployed
  * @returns {(event: object, invocation?: object) => Promise<object>} the Lambda handler
  */
 export function createApp({
@@ -245,6 +254,7 @@ export function createApp({
   randomHex = (count) => randomBytes(count).toString('hex'),
   log = (line) => console.log(JSON.stringify(line)),
   timers = { set: setTimeout, clear: clearTimeout },
+  versions,
 }) {
   if (aws === undefined || aws === null) throw new TypeError('createApp needs an AWS adapter');
   if (config === undefined || config === null) throw new TypeError('createApp needs a configuration');
@@ -260,13 +270,25 @@ export function createApp({
 
   const audit = createAuditHandlers(context);
   const devices = createDeviceHandlers(context);
-  const deployments = createDeploymentHandlers(context, { devices });
+  // Board types, groups and staged rollouts (docs/fleet.md). Deployments and the check before a
+  // Bluetooth send ask the fleet for each board's type.
+  const fleet = createFleetHandlers(context, { devices });
+  const deployments = createDeploymentHandlers(context, { devices, fleet });
   const events = createEventHandlers(context, { devices });
-  const firmware = createFirmwareHandlers(context, { deployments });
+  const firmware = createFirmwareHandlers(context, { deployments, fleet });
+  const groups = createGroupHandlers(context, { devices, fleet });
+  const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
   const serial = createSerialHandlers(context);
   const tokens = createTokenHandlers(context);
+  // The map, commands and alerts (docs/fleet.md): positions on the boards, commands to them, e-mail alerts.
+  const location = createLocationHandlers(context, { devices });
+  const commands = createCommandHandlers(context, { devices, fleet });
+  const alerts = createAlertHandlers(context);
+  // The phone apps on the Apps page (docs/mobile-apps.md): the Android app's releases, the iPhone app's
+  // version, the apps' configuration, and the console's own version beside who is signed in.
+  const apps = createAppHandlers(context, { versions });
   // Tokens from the console and from the phone apps are both tokens of this console; which
   // routes take the phone apps' is up to each route (`phone`).
   const clientIds = [config.userPoolClientId, config.mobileClientId];
@@ -280,9 +302,10 @@ export function createApp({
   const websiteOnly = { token: false };
 
   const routes = Object.freeze([
-    route('GET', '/api/me', me.get),
-    route('GET', '/api/devices', devices.list),
-    route('GET', '/api/devices/{thing}', devices.get),
+    route('GET', '/api/me', apps.withConsole(me.get)),
+    // Each board with its position from Wi-Fi, if it has one (handlers/location.mjs).
+    route('GET', '/api/devices', location.listed(devices.list)),
+    route('GET', '/api/devices/{thing}', location.detailed(devices.get)),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/events', events.list),
@@ -325,6 +348,55 @@ export function createApp({
     // off the record. A post over the limit leaves no entry (handlers/serial.mjs).
     route('POST', '/api/serial/commands', serial.record,
       { action: 'serial.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    // A board's last 20 positions from Wi-Fi (handlers/location.mjs).
+    route('GET', '/api/devices/{thing}/positions', location.positions),
+    // A command to a board, now: identify (blink) or report (handlers/commands.mjs). Release managers
+    // only. From a phone, identify is like the calls at a board, with no fresh sign-in asked for: it
+    // blinks two LEDs and changes nothing. The handler asks one of report, which can be sent from
+    // anywhere and costs a position estimate. A command over the limit leaves no entry.
+    route('POST', '/api/devices/{thing}/commands', commands.send,
+      { action: 'board.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    // E-mail alerts, on the Account page (handlers/alerts.mjs): a release manager's own address.
+    route('GET', '/api/alerts', alerts.get),
+    route('POST', '/api/alerts/subscribe', alerts.subscribe, { action: 'alert.subscribe', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/alerts/unsubscribe', alerts.unsubscribe, { action: 'alert.unsubscribe', maxBody: SMALL_BODY_LIMIT }),
+    // The fleet (docs/fleet.md): board types and groups, staged rollouts, and how the fleet is doing.
+    // Reads for every member; every change for release managers, on record, and from a phone only
+    // with a sign-in in the last 15 minutes, as every change is.
+    route('GET', '/api/fleet', fleet.overview),
+    route('GET', '/api/fleet/health', fleet.health),
+    route('GET', '/api/groups', groups.list),
+    route('POST', '/api/groups', groups.create, { action: 'group.create', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/groups/{id}', groups.update, { action: 'group.update', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/groups/{id}/delete', groups.remove, { action: 'group.delete', maxBody: SMALL_BODY_LIMIT }),
+    route('GET', '/api/rollouts', rollouts.list),
+    route('POST', '/api/rollouts', rollouts.create, { action: 'rollout.create', maxBody: SMALL_BODY_LIMIT }),
+    route('GET', '/api/rollouts/{id}', rollouts.get),
+    route('POST', '/api/rollouts/{id}/cancel', rollouts.cancel, { action: 'rollout.cancel', maxBody: SMALL_BODY_LIMIT }),
+    // "Update everything": for each board type its newest release, to every board of the type not on it.
+    route('GET', '/api/fleet/update-everything', rollouts.everythingPlan),
+    route('POST', '/api/fleet/update-everything', rollouts.everything,
+      { action: 'fleet.update_everything', maxBody: SMALL_BODY_LIMIT }),
+    // A group back to the release before the newest of each of its types, for the boards that can take it.
+    route('GET', '/api/groups/{id}/rollback', rollouts.rollbackPlan),
+    route('POST', '/api/groups/{id}/rollback', rollouts.rollback, { action: 'group.rollback', maxBody: SMALL_BODY_LIMIT }),
+    // What a phone saw of a board over Bluetooth: how a board without Wi-Fi shows at all. Like the other
+    // calls of a person at a board, no fresh sign-in; at most 60 a minute, and one over that leaves no entry.
+    route('POST', '/api/devices/{thing}/seen', fleet.seen,
+      { action: 'device.seen', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    // A release's note, changed after its upload: release managers, with a session or an API token
+    // (scripts/release-notes.sh). Active and revoked releases alike (handlers/firmware.mjs).
+    route('PUT', '/api/firmware/{version}/notes', firmware.notes, { action: 'firmware.notes', maxBody: SMALL_BODY_LIMIT }),
+    // The phone apps (handlers/apps.mjs). Reads for every member. Publishing an APK is two writes, for
+    // release managers, with a session or an API token (apps/android/publish.sh): the URL to send it to
+    // S3 with, then the check of what arrived. A download link is for every member, viewers too, and
+    // goes on record; from a phone it is a read, with no fresh sign-in asked for.
+    route('GET', '/api/apps', apps.list),
+    route('GET', '/api/apps/config', apps.config),
+    route('POST', '/api/apps/android/uploads', apps.startUpload, { action: 'app.upload', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/apps/android/releases/{version}', apps.publish, { action: 'app.publish', maxBody: SMALL_BODY_LIMIT }),
+    route('GET', '/api/apps/android/{version}/download', apps.download,
+      { action: 'app.download', maxBody: 0, member: true, read: true }),
   ]);
 
   /**
@@ -410,7 +482,10 @@ export function createApp({
       result = await withinDeadline(request, async () => {
         const known = await identify(found, event, request);
         const { caller } = known;
-        if (caller.clientId === config.mobileClientId && !found.route.atTheBoard) requireFreshSignIn(caller, clock());
+        // A read that goes on record (`read`) is no change: it needs no fresh sign-in either.
+        if (caller.clientId === config.mobileClientId && !found.route.atTheBoard && found.route.write.read !== true) {
+          requireFreshSignIn(caller, clock());
+        }
         actor.email = await liveWriter(found, request, known);
         if (!request.viaToken) request.signIn = signInOf(caller, request.id);
         return found.route.run({

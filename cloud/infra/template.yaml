@@ -227,6 +227,28 @@ Resources:
       AuthorizationType: NONE
       Target: !Sub 'integrations/${ApiIntegration}'
 
+  # PUT replaces one thing that exists: a release's note (PUT /api/firmware/{version}/notes), with a
+  # session or, as an upload is, with an API token (scripts/release-notes.sh). The same token, the
+  # same function and the same limits as POST; the function decides which paths take it.
+  ApiPutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'PUT /api/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref Authorizer
+      AuthorizationScopes:
+        - cranium/console
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  ApiTokenPutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'PUT /api/t/{proxy+}'
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${ApiIntegration}'
+
   AccessLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -302,6 +324,8 @@ Resources:
       - ApiWriteRoute
       - ApiTokenReadRoute
       - ApiTokenWriteRoute
+      - ApiPutRoute
+      - ApiTokenPutRoute
     Properties:
       ApiId: !Ref Api
       StageName: '$default'
@@ -334,6 +358,13 @@ Resources:
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
         'POST /api/t/{proxy+}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        # A release's note: a write like any other, and no more often.
+        'PUT /api/{proxy+}':
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+        'PUT /api/t/{proxy+}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
       AccessLogSettings:
@@ -611,7 +642,10 @@ Resources:
       Description: Read only.
 
   # ---------------------------------------------------------------------------------
-  # Firmware storage. Objects are firmware/<sha256 of the file>.bin, written once.
+  # Firmware storage. Objects are firmware/<sha256 of the file>.bin, written once. The
+  # Android app's APKs are here too, under apps/android/ (docs/mobile-apps.md): a bucket
+  # that is already private, TLS only, encrypted, versioned and kept when the stack goes.
+  # A download of one names the S3 version that was checked when it was published.
   # ---------------------------------------------------------------------------------
 
   FirmwareBucket:
@@ -778,7 +812,11 @@ Resources:
   #
   # cranium/<thing>/events is where firmware 1.12.0 publishes the lines of its console
   # (BoardLogRule below). Publish only: nothing subscribes to it but the rule, and a board
-  # gets nothing back on it. A change to the document is an update in place: AWS IoT keeps
+  # gets nothing back on it. From firmware 1.13.0 (docs/fleet.md): cranium/<thing>/location,
+  # publish only, what the board hears of the Wi-Fi around it (LocationRule); and
+  # cranium/<thing>/commands, subscribe and receive only, where the console's commands arrive
+  # (identify, report). A board can neither send itself a command nor hear another board's.
+  # A change to the document is an update in place: AWS IoT keeps
   # the policy and its name, makes the new document its default version, and every
   # certificate it is attached to has the new rights at once (AWS::IoT::Policy,
   # PolicyDocument: "Update requires: No interruption"; only PolicyName replaces it).
@@ -802,18 +840,21 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/location'
           - Effect: Allow
             Action: iot:Subscribe
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/notify-next'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get/*'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update/*'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/cranium/${!iot:Connection.Thing.ThingName}/commands'
           - Effect: Allow
             Action: iot:Receive
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/notify-next'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get/*'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update/*'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/commands'
 
   # AWS IoT Jobs assumes this role to sign the short-lived download URL it puts into
   # a job document. It can read firmware and nothing else, and only AWS IoT acting for
@@ -941,7 +982,8 @@ Resources:
           - Lambda:
               FunctionArn: !GetAtt EventsFn.Arn
 
-  # AWS IoT may invoke the recorder for these three rules of this account, and for nothing else.
+  # AWS IoT may invoke the recorder for these three rules of this account, EventBridge for the
+  # check of the alerts (AlertCheckPermission, below), and nothing else may.
   ShadowEventsPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -968,6 +1010,87 @@ Resources:
       Principal: iot.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !GetAtt BoardLogRule.Arn
+
+  # ---------------------------------------------------------------------------------
+  # The map, commands and alerts (docs/fleet.md).
+  # ---------------------------------------------------------------------------------
+
+  # What a board on firmware 1.13.0 hears of the Wi-Fi around it, to the location function
+  # (LocationFn), on the topic only that board may publish on. As for BoardLogRule: the thing
+  # name from the topic and the time from AWS IoT, and a message that brings either of its own is
+  # not passed on at all. The location function holds the rest to the contract.
+  LocationRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      TopicRulePayload:
+        Description: What a Cranium board hears of the Wi-Fi around it, for its position on the map.
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: >-
+          SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/location'
+          WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt LocationFn.Arn
+
+  LocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LocationFn
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt LocationRule.Arn
+
+  # Every 5 minutes the recorder looks for alerts that are due: a board disconnected for 15
+  # minutes, and alerts held back that may go now (cloud/api/src/alerts.mjs). No message of a
+  # board can stand in for it: the recorder tells it by the shape EventBridge gives it.
+  AlertCheckRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Every 5 minutes, the Cranium recorder sends the e-mail alerts that are due.
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Id: recorder
+          Arn: !GetAtt EventsFn.Arn
+
+  AlertCheckPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EventsFn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AlertCheckRule.Arn
+
+  # The e-mail alerts. A release manager subscribes their own address on the console's Account
+  # page (the API may subscribe e-mail addresses and nothing else); SNS asks the address to
+  # confirm first, and every e-mail carries a link to stop them. Only the recorder and the
+  # location function publish. The messages hold no secret (cloud/api/src/lib/alerts.mjs), so the
+  # topic is not encrypted with a key of its own.
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Cranium console
+
+  AlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref AlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyRequestsWithoutTls
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - sns:Publish
+              - sns:Subscribe
+            Resource: !Ref AlertTopic
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
 
   # Account-level setting: there is one per account and Region, and it must not be
   # enabled already when this stack is created (deploy.sh checks).
@@ -1104,6 +1227,26 @@ Resources:
                   ForAllValues:StringEquals:
                     s3:RequestObjectTagKeys:
                       - revoked
+              # The Android app's APKs, in the same bucket under apps/android/ (docs/mobile-apps.md),
+              # and only objects named like one: cranium-android-<version>.apk. Three actions, each
+              # for one step of handlers/apps.mjs, and no list, no delete, no tagging. PutObject:
+              # the URL a release manager's build sends an APK with, which the role signs; it carries
+              # the size and the SHA-256, and S3 refuses other bytes. GetObject: HeadObject, to check
+              # what arrived before it is published. GetObjectVersion: the download link, which names
+              # the version that was checked. Nothing under firmware/ is reachable this way, and a
+              # board, which only takes URLs under firmware/, can never be handed an APK.
+              - Sid: SendAndroidApks
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/android/cranium-android-*.apk'
+              - Sid: CheckAndroidApks
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/android/cranium-android-*.apk'
+              - Sid: ServeAndroidApks
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/android/cranium-android-*.apk'
               # Releases (pk REL and META) and API tokens (pk TOK, keyed by the digest of
               # the token). A token is looked up with GetItem, a person's tokens are read
               # with Query, and revoking one sets its revokedAt with UpdateItem, as revoking
@@ -1162,9 +1305,11 @@ Resources:
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
                   - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              # DescribeThing: a board's attribute `board`, for its type (docs/fleet.md).
               - Sid: ReadBoards
                 Effect: Allow
                 Action:
+                  - iot:DescribeThing
                   - iot:ListJobExecutionsForThing
                   - iot:GetThingShadow
                   - iot:ListThingPrincipals
@@ -1194,6 +1339,28 @@ Resources:
                   - cognito-idp:AdminGetUser
                   - cognito-idp:AdminListGroupsForUser
                 Resource: !GetAtt UserPool.Arn
+              # A command to one board, now (docs/fleet.md): on the commands topic of a board of this
+              # project, and on no other topic.
+              - Sid: CommandBoards
+                Effect: Allow
+                Action: iot:Publish
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/cranium-*/commands'
+              # A release manager's own e-mail alerts: subscribe an e-mail address (SNS asks it to
+              # confirm), see who is subscribed, and remove a subscription. Nothing else of SNS, and
+              # no other topic; the API never publishes.
+              - Sid: SubscribeToAlerts
+                Effect: Allow
+                Action: sns:Subscribe
+                Resource: !Ref AlertTopic
+                Condition:
+                  StringEquals:
+                    sns:Protocol: email
+              - Sid: ListAndRemoveAlertSubscriptions
+                Effect: Allow
+                Action:
+                  - sns:ListSubscriptionsByTopic
+                  - sns:Unsubscribe
+                Resource: !Ref AlertTopic
 
   ApiFn:
     Type: AWS::Lambda::Function
@@ -1225,6 +1392,11 @@ Resources:
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
           SLOT_SIZE: !Ref SlotSize
           LOAD_ADDRESS: !Ref LoadAddress
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          # The phone apps' configuration, which the Apps page hands out (GET /api/apps/config): the
+          # console's address and the host of its login pages, as apps/configure.sh takes them.
+          CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
+          LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
 
   EventsLogGroup:
     Type: AWS::Logs::LogGroup
@@ -1232,8 +1404,9 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-events'
       RetentionInDays: 90
 
-  # The recorder may write to its log and put items in the events table, and nothing else:
-  # no read, no update, no delete, and no other table.
+  # The recorder may write to its log and put items in the events table; read the alerts' own part
+  # of that table and publish to the alert topic, for the e-mail alerts; and nothing else: no read of
+  # the boards' events, no update, no delete, and no other table.
   EventsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1259,6 +1432,20 @@ Resources:
                 Effect: Allow
                 Action: dynamodb:PutItem
                 Resource: !GetAtt EventsTable.Arn
+              # The alerts' own part of the table (pk ALERTS: what each board's alerts last sent),
+              # and nothing else of it: the boards' events stay unread by the recorder.
+              - Sid: ReadAlerts
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ALERTS
+              - Sid: SendAlerts
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertTopic
 
   # The recorder: turns the messages of the three rules above into events and readings. It
   # is the API's code with another entry point (cloud/api/src/events.mjs), and is given
@@ -1282,6 +1469,9 @@ Resources:
       Environment:
         Variables:
           EVENTS_TABLE: !Ref EventsTable
+          # The e-mail alerts: where they go, and the address they link to.
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
 
   # A message that cannot be recorded is tried once more, and given up after an hour: the
   # event log is a view of the boards, and a backlog of old messages is worth less than
@@ -1293,6 +1483,312 @@ Resources:
       Qualifier: $LATEST
       MaximumRetryAttempts: 1
       MaximumEventAgeInSeconds: 3600
+
+  # The location function (cloud/api/src/locator.mjs): from what a board hears of the Wi-Fi around
+  # it to a position, through AWS IoT Core Device Location, at most once per board every 10
+  # minutes. It is a function of its own, not a part of the recorder, because it is the one piece
+  # that spends money for each message (a position estimate) and sends what a board heard out of
+  # AWS IoT, to the solver's provider: only its role may call GetPositionEstimate, so nothing that
+  # handles the boards' other messages can, and its log counts the estimates.
+  LocationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-location'
+      RetentionInDays: 90
+
+  # It may write to its log; read and write its own two parts of the events table, the positions
+  # (pk LOC) and the alerts (pk ALERTS), and put a board's events there; ask for position estimates;
+  # and publish to the alert topic, for a board that moved. Nothing else.
+  LocationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: locate-boards
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt LocationLogGroup.Arn
+              - Sid: ReadPositionsAndAlerts
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - LOC
+                      - ALERTS
+              # Its two parts, and a board's own events ("found", "moved").
+              - Sid: RecordPositions
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys:
+                      - LOC
+                      - ALERTS
+                      - cranium-*
+              # GetPositionEstimate has no resource type: IAM can only allow it on every resource.
+              - Sid: EstimatePositions
+                Effect: Allow
+                Action: iotwireless:GetPositionEstimate
+                Resource: '*'
+              - Sid: SendAlerts
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertTopic
+
+  LocationFn:
+    Type: AWS::Lambda::Function
+    DependsOn: LocationLogGroup
+    Properties:
+      LoggingConfig:
+        LogGroup: !Ref LocationLogGroup
+      Description: !Sub 'Cranium firmware console - location from Wi-Fi - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: location.handler
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt LocationRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          EVENTS_TABLE: !Ref EventsTable
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
+
+  # A scan that cannot be solved is not tried again: a second try of a paid estimate is worth less
+  # than the next scan, which comes within 6 hours, or at once on "Report now".
+  LocationFnInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref LocationFn
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 600
+
+  # ---------------------------------------------------------------------------------
+  # Staged rollouts (docs/fleet.md, cloud/api/src/handlers/rollouts.mjs). A rollout starts with a
+  # canary, and its waves follow once the canary has confirmed the update. AWS IoT Jobs paces a
+  # job and stops it by itself (jobExecutionsRolloutConfig, abortConfig), but it has no way to
+  # wait for one job before it starts another. This function does that: every minute it reads
+  # the open rollouts and starts the waves of those whose canary has confirmed, or marks one
+  # stopped, and says so in the activity log as the console's own doing. It serves no request
+  # and nothing on the internet reaches it; invoked by anything else, it only does what is due.
+  # ---------------------------------------------------------------------------------
+
+  RolloutTickLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-rollouts'
+      RetentionInDays: 90
+
+  # What starting a wave takes and no more: the releases and the fleet's records, written only for
+  # a rollout (pk ROL); an entry added to the activity log, never changed; the jobs of this
+  # console, the boards' shadows and attributes, and handing the presign role to AWS IoT; and, for
+  # the alert of a rollout that stopped by itself, the alerts' own part of the events table (pk
+  # ALERTS) and the alert topic. No S3, no Cognito, none of the boards' events.
+  RolloutTickRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: advance-rollouts
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt RolloutTickLogGroup.Arn
+              - Sid: ReadReleasesAndFleet
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - REL
+                      - ROL
+                      - GRP
+                      - SEEN
+              - Sid: WriteRollouts
+                Effect: Allow
+                Action: dynamodb:UpdateItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ROL
+              - Sid: AppendAudit
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt AuditTable.Arn
+              - Sid: StartAndReadDeployments
+                Effect: Allow
+                Action: iot:CreateJob
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              - Sid: CancelAndReadJobs
+                Effect: Allow
+                Action:
+                  - iot:CancelJob
+                  - iot:DescribeJob
+                  - iot:ListJobExecutionsForJob
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+              - Sid: ReadOneExecution
+                Effect: Allow
+                Action: iot:DescribeJobExecution
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:job/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              - Sid: ReadBoards
+                Effect: Allow
+                Action:
+                  - iot:DescribeThing
+                  - iot:ListJobExecutionsForThing
+                  - iot:GetThingShadow
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              - Sid: ListBoards
+                Effect: Allow
+                Action: iot:ListThingsInThingGroup
+                Resource: !GetAtt DeviceGroup.Arn
+              # ListJobs cannot be limited to a resource.
+              - Sid: ListDeployments
+                Effect: Allow
+                Action: iot:ListJobs
+                Resource: '*'
+              - Sid: PassPresignRoleToIot
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt PresignRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: iot.amazonaws.com
+              # The alert of a rollout that stopped by itself (src/alerts.mjs): what the alerts last
+              # sent, and the e-mail. Only the alerts' part of the events table.
+              - Sid: ReadAlerts
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ALERTS
+              - Sid: WriteAlerts
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ALERTS
+              - Sid: SendAlerts
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertTopic
+              - Sid: NeverChangeAuditEntries
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:DeleteTable
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:UpdateItem
+                  - dynamodb:UpdateTable
+                Resource: !GetAtt AuditTable.Arn
+
+  # The API's code with another entry point (cloud/api/src/rollouts-tick.mjs). It reads the same
+  # configuration as the API, because it builds the same handlers; its role is what it may do.
+  RolloutTickFn:
+    Type: AWS::Lambda::Function
+    DependsOn: RolloutTickLogGroup
+    Properties:
+      LoggingConfig:
+        LogGroup: !Ref RolloutTickLogGroup
+      Description: !Sub 'Cranium firmware console - staged rollouts - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: rollouts-tick.handler
+      MemorySize: 256
+      Timeout: 50
+      Role: !GetAtt RolloutTickRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          STATE_TABLE: !Ref StateTable
+          AUDIT_TABLE: !Ref AuditTable
+          EVENTS_TABLE: !Ref EventsTable
+          FIRMWARE_BUCKET: !Ref FirmwareBucket
+          THING_GROUP: !Ref DeviceGroup
+          PRESIGN_ROLE_ARN: !GetAtt PresignRole.Arn
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
+          SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
+          SLOT_SIZE: !Ref SlotSize
+          LOAD_ADDRESS: !Ref LoadAddress
+          # The alert of a rollout that stopped by itself: the topic, and the console's address for
+          # the e-mail's link.
+          ALERT_TOPIC_ARN: !Ref AlertTopic
+          CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
+
+  # One run at a time is enough, and a run that fails is not tried again: the next minute's is.
+  RolloutTickInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref RolloutTickFn
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+
+  RolloutTickRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Every minute, the Cranium console moves its staged rollouts on.
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: rollouts
+          Arn: !GetAtt RolloutTickFn.Arn
+
+  RolloutTickPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RolloutTickFn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RolloutTickRule.Arn
 
   # ---------------------------------------------------------------------------------
   # The sign-in trigger: Cognito's pre token generation trigger (UserPool, LambdaConfig).
@@ -1432,6 +1928,14 @@ Outputs:
     Value: !Ref WebFn
   EventsFunctionName:
     Value: !Ref EventsFn
+  RolloutsFunctionName:
+    Description: The function that moves staged rollouts on, every minute.
+    Value: !Ref RolloutTickFn
+  LocationFunctionName:
+    Value: !Ref LocationFn
+  AlertTopicArn:
+    Description: Where the e-mail alerts go. Release managers subscribe on the console's Account page.
+    Value: !Ref AlertTopic
   DeployedCommit:
     Description: The git commit this deployment was built from.
     Value: !Ref DeployedCommit

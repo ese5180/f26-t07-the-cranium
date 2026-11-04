@@ -9,8 +9,25 @@
 #
 # The APK holds the console URL, login domain and client ID of the stack in
 # apps/config/cranium.json. Share it with the team directly. Never attach it to a public release.
+#
+# It is then published on the console's Apps page, where the team downloads it, with your API token
+# (apps/android/publish.sh). Without a token it says how to make one, and the APK stays in apps/dist/.
+#
+#   apps/android/build-release.sh                 build, then publish on the console
+#   apps/android/build-release.sh --no-publish    build only
+#
+# Exit status 3: built, but the publish failed.
 
 set -euo pipefail
+
+publish=true
+for argument in "$@"; do
+  case "$argument" in
+    --no-publish) publish=false ;;
+    -h|--help) sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "error: unknown option $argument (see --help)" >&2; exit 1 ;;
+  esac
+done
 
 ANDROID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPS_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
@@ -101,3 +118,26 @@ if [ "$EXAMPLE_CONFIG" = 1 ]; then
   echo "warning: this APK has the example configuration and cannot sign in." >&2
 fi
 echo "It holds this stack's console URL and client ID: share it privately, never in a public release."
+
+# On the console's Apps page, as scripts/build.sh puts a firmware build on its Firmware page. Never an APK that
+# cannot sign in: a version is published once.
+if [ "$publish" = false ]; then
+  echo "Next: publish it on the console's Apps page with apps/android/publish.sh."
+  exit 0
+fi
+if [ "$EXAMPLE_CONFIG" = 1 ]; then
+  echo "Not published: it has the example configuration. Run apps/configure.sh, then build again." >&2
+  exit 0
+fi
+echo
+set +e
+"$ANDROID_DIR/publish.sh" "$OUT"
+published=$?
+set -e
+case "$published" in
+  0) ;;
+  2) echo "The APK is in apps/dist/: publish it later with apps/android/publish.sh." ;;
+  *)
+    echo "warning: built, but not published: see above. The APK is in apps/dist/." >&2
+    exit 3 ;;
+esac

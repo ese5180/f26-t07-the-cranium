@@ -27,6 +27,7 @@
  *   STUCK, stuck, boot_diary        restart
  *   WIFI, net, health               health (the Events page's "Wi-Fi and memory")
  *   CONSOLE, factory                setting: a setting of the board changed, at its serial console
+ *   CMD                             setting: the board's answer to a command from the console (1.13.0)
  *   app, cloud, identity, store, ui log
  *
  * `connection` is left to AWS IoT's own word that a board connected or disconnected (the presence
@@ -56,6 +57,8 @@ import { isThing } from './validate.mjs';
 
 export const TAGS = Object.freeze([
   'BT', 'WIFI', 'STUCK', 'CONSOLE',
+  // A board's answer to a command from the console (docs/fleet.md, cranium/<thing>/commands), from 1.13.0.
+  'CMD',
   'app', 'boot_diary', 'bt_ota', 'cloud', 'factory', 'health', 'identity', 'net', 'ota', 'store', 'stuck', 'ui',
 ]);
 
@@ -71,6 +74,7 @@ export const KIND_OF_TAG = Object.freeze({
   health: 'health',
   CONSOLE: 'setting',
   factory: 'setting',
+  CMD: 'setting',
   app: 'log',
   cloud: 'log',
   identity: 'log',

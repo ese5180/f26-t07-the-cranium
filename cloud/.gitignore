@@ -1,0 +1,3 @@
+# Written at deployment by web/build-versions.mjs (cloud/deploy.sh), as history.json is beside it.
+/web/src/site/assets/versions.json
+/api/src/versions.json

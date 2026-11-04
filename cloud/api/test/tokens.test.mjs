@@ -180,6 +180,8 @@ test('a request to /api/t/ is the request to /api/, made with the token in its o
   assert.deepEqual(me.body, {
     sub: manager.sub, email: manager.email, groups: ['release-managers'], canWrite: true,
     expiresAt: Math.floor(Date.parse(fake.tokens.get(sha256(token)).expiresAt) / 1000),
+    // The console's own version and commit (handlers/apps.mjs): none in a test console.
+    console: { version: null, commit: null },
   });
 
   const before = fake.auditLog().length;

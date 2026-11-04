@@ -420,13 +420,14 @@ test('the template sends what no route claims to the web function, and opens not
   // Open, and to the web function: the page, its files and what no route claims.
   const web = open.filter((text) => text.includes('integrations/${WebIntegration}'));
   assert.deepEqual(web.map(keyOf).sort(), ['$default', 'GET /', 'GET /assets/{proxy+}']);
-  // Open, and to the API function: only the two routes whose API token the function checks.
+  // Open, and to the API function: only the routes whose API token the function checks. PUT changes a
+  // release's note (docs/fleet.md).
   const tokens = open.filter((text) => !text.includes('integrations/${WebIntegration}'));
-  assert.deepEqual(tokens.map(keyOf).sort(), ['GET /api/t/{proxy+}', 'POST /api/t/{proxy+}']);
+  assert.deepEqual(tokens.map(keyOf).sort(), ['GET /api/t/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
   for (const text of tokens) assert.ok(text.includes('integrations/${ApiIntegration}'), keyOf(text));
 
   const guarded = routes.filter((text) => !text.includes('AuthorizationType: NONE'));
-  assert.deepEqual(guarded.map(keyOf).sort(), ['GET /api/{proxy+}', 'POST /api/{proxy+}']);
+  assert.deepEqual(guarded.map(keyOf).sort(), ['GET /api/{proxy+}', 'POST /api/{proxy+}', 'PUT /api/{proxy+}']);
   for (const text of guarded) {
     assert.ok(text.includes('AuthorizationType: JWT'), keyOf(text));
     assert.ok(text.includes('integrations/${ApiIntegration}'), keyOf(text));

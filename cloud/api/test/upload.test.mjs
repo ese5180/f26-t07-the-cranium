@@ -22,11 +22,22 @@ const skip = !hasTools && 'needs curl and python3';
 const work = mkdtempSync(join(tmpdir(), 'cranium-upload-'));
 after(() => rmSync(work, { recursive: true, force: true }));
 
+// The script takes the release's note from the repository it is in: its firmware/CHANGELOG.md, else
+// the firmware commits since the last version. So it runs here from a copy in a folder of its own,
+// outside git, with a changelog the test writes: what the real repository holds never decides a test.
+const repo = join(work, 'repo');
+mkdirSync(join(repo, 'scripts'), { recursive: true });
+mkdirSync(join(repo, 'firmware'));
+const SCRIPT = join(repo, 'scripts', 'upload-to-console.sh');
+copyFileSync(UPLOAD, SCRIPT);
+const CHANGELOG = join(repo, 'firmware', 'CHANGELOG.md');
+writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.\n');
+
 function run(args, env) {
   return new Promise((resolve) => {
     const clean = Object.fromEntries(Object.entries(process.env)
       .filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('CRANIUM_')));
-    const child = spawn('bash', [UPLOAD, ...args], { env: { ...clean, ...env } });
+    const child = spawn('bash', [SCRIPT, ...args], { env: { ...clean, ...env } });
     let out = '';
     let err = '';
     child.stdout.on('data', (chunk) => { out += chunk; });
@@ -73,6 +84,19 @@ test('an image is uploaded, and only uploaded: nothing is deployed', { skip }, a
   const [release] = console_.fake.releases.values();
   assert.equal(release.notes, 'Built by scripts/build.sh from commit abc1234');
   for (const text of [out, err]) assert.equal(text.includes(managerToken.slice(4)), false);
+});
+
+test("the note is the version's changelog entry, with the given note after it in brackets", { skip }, async (t) => {
+  const { console_, url, managerToken } = await consoleServer(t);
+  const home = mkdtempSync(join(work, 'home-'));
+  writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.2.3\n\nThe board blinks\nfaster.\n\nMore detail that is not\nthe note.\n\n'
+    + '## 1.0.0\n\nThe first release.\n');
+  t.after(() => writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.\n'));
+  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'],
+    { HOME: home, CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
+  assert.equal(status, 0, `${out}\n${err}`);
+  const [release] = console_.fake.releases.values();
+  assert.equal(release.notes, 'The board blinks faster. (Built by scripts/build.sh from commit abc1234)');
 });
 
 test('the same image again counts as uploaded', { skip }, async (t) => {

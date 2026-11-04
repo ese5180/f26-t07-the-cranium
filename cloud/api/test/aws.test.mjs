@@ -108,6 +108,11 @@ const REFERENCE = {
           'executionNumber',
         ],
       },
+      // A board's attributes, for its type (handlers/fleet.mjs).
+      DescribeThingCommand: {
+        required: ['thingName'],
+        optional: [],
+      },
       ListJobExecutionsForJobCommand: {
         required: ['jobId'],
         optional: [
@@ -150,6 +155,14 @@ const REFERENCE = {
           'shadowName',
         ],
       },
+      // src/aws-map.mjs: a command to a board (map-aws.test.mjs tests it).
+      PublishCommand: {
+        required: ['topic'],
+        optional: [
+          'qos', 'retain', 'payload', 'userProperties', 'payloadFormatIndicator', 'contentType', 'responseTopic',
+          'correlationData', 'messageExpiry',
+        ],
+      },
     },
   },
   '@aws-sdk/client-s3': {
@@ -186,12 +199,40 @@ const REFERENCE = {
           'SSECustomerKeyMD5', 'RequestPayer', 'PartNumber', 'ExpectedBucketOwner', 'ChecksumMode',
         ],
       },
+      // The check of an APK that arrived (src/aws-apps.mjs, which index.mjs loads too; apps-aws.test.mjs).
+      HeadObjectCommand: {
+        required: ['Bucket', 'Key'],
+        optional: [
+          'IfMatch', 'IfModifiedSince', 'IfNoneMatch', 'IfUnmodifiedSince', 'Range', 'ResponseCacheControl',
+          'ResponseContentDisposition', 'ResponseContentEncoding', 'ResponseContentLanguage', 'ResponseContentType',
+          'ResponseExpires', 'VersionId', 'SSECustomerAlgorithm', 'SSECustomerKey', 'SSECustomerKeyMD5', 'RequestPayer',
+          'PartNumber', 'ExpectedBucketOwner', 'ChecksumMode',
+        ],
+      },
     },
   },
 };
 
+// The two packages only src/aws-map.mjs imports, which the entry points load too. They are stand-ins
+// here so that the entry points can be loaded; map-aws.test.mjs holds that adapter to them.
+const MAP_PACKAGES = {
+  '@aws-sdk/client-sns': {
+    client: 'SNSClient',
+    commands: {
+      ListSubscriptionsByTopicCommand: { required: ['TopicArn'], optional: ['NextToken'] },
+      PublishCommand: { required: ['Message'], optional: ['TopicArn', 'Subject'] },
+      SubscribeCommand: { required: ['TopicArn', 'Protocol'], optional: ['Endpoint', 'Attributes', 'ReturnSubscriptionArn'] },
+      UnsubscribeCommand: { required: ['SubscriptionArn'], optional: [] },
+    },
+  },
+  '@aws-sdk/client-iot-wireless': {
+    client: 'IoTWirelessClient',
+    commands: { GetPositionEstimateCommand: { required: [], optional: ['WiFiAccessPoints'] } },
+  },
+};
+
 const hooks = `
-const REFERENCE = ${JSON.stringify(REFERENCE)};
+const REFERENCE = ${JSON.stringify({ ...REFERENCE, ...MAP_PACKAGES })};
 const PREFIX = 'sdk-stand-in:';
 
 export async function resolve(specifier, context, nextResolve) {
@@ -268,7 +309,7 @@ globalThis[Symbol.for('cranium.sdk-stand-in')] = {
   },
   async send(name, command) {
     const commandName = command.constructor.name;
-    const spec = REFERENCE[name].commands[commandName];
+    const spec = (REFERENCE[name] ?? MAP_PACKAGES[name]).commands[commandName];
     assert.ok(spec, `${commandName} is not a command of ${name} in the reference`);
     const input = serialized(command.input);
     for (const member of Object.keys(input)) {
@@ -404,7 +445,9 @@ test('the adapter and the in-memory fake have the same methods', () => {
     'listReleases', 'listThingPrincipals', 'listTokens', 'listUserGroups', 'markReleaseRevoked', 'markRevocationEnforced',
     'markTokenRevoked', 'putAudit', 'putFirmwareObject', 'putToken', 'queryAudit', 'queryEvents', 'querySamples',
     'registerRelease', 'tagFirmwareRevoked',
-  ]);
+    // The fleet (docs/fleet.md).
+    'describeThing', 'getFleetItem', 'listFleetItems', 'putFleetItem', 'setReleaseNotes', 'updateFleetItem',
+  ].sort());
   for (const method of methods) {
     assert.equal(typeof real[method], 'function');
     assert.equal(typeof fake[method], 'function', `the fake lacks ${method}`);
@@ -1426,7 +1469,9 @@ test('the recorder\'s adapter has one client, one table and one operation: PutIt
 });
 
 test('the recorder\'s entry point records a board\'s report through its adapter', async () => {
-  Object.assign(process.env, { AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table' });
+  Object.assign(process.env, {
+    AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table', ALERT_TOPIC_ARN: 'arn:aws:sns:eu-west-1:000000000000:alerts',
+  });
   const lines = [];
   const realLog = console.log;
   console.log = (line) => lines.push(JSON.parse(line));
@@ -1656,7 +1701,9 @@ test('the Lambda entry point serves a viewer\'s reads through the adapter', asyn
     sdk.reset();
     sdk.reply('ListThingsInThingGroupCommand', { things: [THING] });
     sdk.reply('GetThingShadowCommand', fails('ResourceNotFoundException', { status: 404 }));
-    sdk.reply('QueryCommand', { Items: [] }, { Items: [] });
+    // The positions of the boards (src/aws-map.mjs), and what the board that never reported is.
+    sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] });
+    sdk.reply('DescribeThingCommand', { attributes: {} });
     sdk.reply('ListJobsCommand', { jobs: [] });
     sdk.reply('AdminGetUserCommand', {
       Enabled: true, UserStatus: 'CONFIRMED', UserAttributes: [{ Name: 'email', Value: 'viewer@example.org' }],
@@ -1672,7 +1719,11 @@ test('the Lambda entry point serves a viewer\'s reads through the adapter', asyn
   }
   assert.deepEqual(responses.map((response) => response.statusCode), [200, 200, 200, 200]);
   assert.deepEqual(JSON.parse(responses[0].body).devices,
-    [{ thing: THING, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null }]);
+    [{
+      thing: THING, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null,
+      diary: null, bt: null, position: null,
+      location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
+    }]);
   assert.deepEqual(JSON.parse(responses[1].body).releases, []);
   assert.deepEqual(JSON.parse(responses[2].body), { deployments: [] });
   assert.deepEqual(JSON.parse(responses[3].body), { entries: [], next: null });
@@ -1680,11 +1731,104 @@ test('the Lambda entry point serves a viewer\'s reads through the adapter', asyn
   // What a viewer's reads ask of AWS: nothing that writes, and Cognito once for all four.
   assert.deepEqual(sdk.sent.map((entry) => entry.command), [
     'AdminGetUserCommand', 'AdminListGroupsForUserCommand', 'ListThingsInThingGroupCommand', 'GetThingShadowCommand',
-    'QueryCommand', 'ListJobsCommand', 'QueryCommand',
+    'QueryCommand', 'DescribeThingCommand', 'QueryCommand', 'ListJobsCommand', 'QueryCommand',
   ]);
-  assert.deepEqual(sdk.inputs('QueryCommand').map((input) => input.TableName), ['local-state', 'local-audit']);
+  assert.deepEqual(sdk.inputs('QueryCommand').map((input) => input.TableName), ['local-events', 'local-state', 'local-audit']);
   assert.deepEqual(sdk.inputs('ListThingsInThingGroupCommand')[0].thingGroupName, 'cranium-devices');
   assert.deepEqual(lines.map((line) => [line.route, line.status]), [
     ['GET /api/devices', 200], ['GET /api/firmware', 200], ['GET /api/deployments', 200], ['GET /api/audit', 200],
   ]);
+});
+
+// The fleet: a thing's attributes, the records of groups, rollouts and sightings, a release's note,
+// and a job's pacing and stop (docs/fleet.md).
+
+test('describeThing reads a thing\'s attributes, and nothing for an unknown thing', async () => {
+  const aws = adapter();
+  sdk.reply('DescribeThingCommand', { thingName: THING, attributes: { board: 'nrf5340dk', other: 7 } },
+    fails('ResourceNotFoundException', { status: 404 }), fails('ThrottlingException'));
+  assert.deepEqual(await aws.describeThing(THING), { attributes: { board: 'nrf5340dk' } });
+  assert.deepEqual(sdk.inputs('DescribeThingCommand'), [{ thingName: THING }]);
+  assert.equal(await aws.describeThing(THING), null);
+  await rejectsWith(aws.describeThing(THING), { code: 'throttled', operation: 'DescribeThing' });
+});
+
+test('createJob passes a wave\'s pacing and its stop on to AWS as they are', async () => {
+  const aws = adapter();
+  const rollout = { maximumPerMinute: 50, exponentialRate: { baseRatePerMinute: 1, incrementFactor: 2, rateIncreaseCriteria: { numberOfSucceededThings: 1 } } };
+  const abort = { criteriaList: [{ failureType: 'ALL', action: 'CANCEL', thresholdPercentage: 20, minNumberOfExecutedThings: 1 }] };
+  sdk.reply('CreateJobCommand', {});
+  await aws.createJob({
+    jobId: JOB, things: [THING], document: '{}', description: '{}', urlExpiresInSec: 600, inProgressTimeoutMinutes: 30, rollout, abort,
+  });
+  const [input] = sdk.inputs('CreateJobCommand');
+  assert.deepEqual(input.jobExecutionsRolloutConfig, rollout);
+  assert.deepEqual(input.abortConfig, abort);
+});
+
+test('the fleet\'s records stay in their three partitions, written once or only if unchanged', async () => {
+  const aws = adapter();
+  for (const call of [() => aws.getFleetItem({ pk: 'REL', sk: SK }), () => aws.listFleetItems('TOK'),
+    () => aws.putFleetItem({ pk: 'META', sk: 'HIGHEST', item: {} }), () => aws.updateFleetItem({ pk: 'AUD', sk: 'x', rev: 0, set: {} })]) {
+    await assert.rejects(call(), TypeError);
+  }
+  assert.equal(sdk.sent.length, 0);
+
+  sdk.reply('GetItemCommand', { Item: { pk: { S: 'GRP' }, sk: { S: 'grp-0a0b0c0d' }, name: { S: 'Bench' }, rev: { N: '2' } } }, {});
+  assert.deepEqual(await aws.getFleetItem({ pk: 'GRP', sk: 'grp-0a0b0c0d' }), { pk: 'GRP', sk: 'grp-0a0b0c0d', name: 'Bench', rev: 2 });
+  assert.equal(await aws.getFleetItem({ pk: 'GRP', sk: 'grp-0a0b0c0d' }), null);
+  assert.deepEqual(sdk.inputs('GetItemCommand')[0],
+    { TableName: 'state-table', Key: { pk: { S: 'GRP' }, sk: { S: 'grp-0a0b0c0d' } }, ConsistentRead: true });
+
+  sdk.reply('QueryCommand', { Items: [{ pk: { S: 'ROL' }, sk: { S: 'rol-2' } }], LastEvaluatedKey: { pk: { S: 'ROL' } } },
+    { Items: [{ pk: { S: 'ROL' }, sk: { S: 'rol-1' } }] });
+  assert.deepEqual((await aws.listFleetItems('ROL')).map((item) => item.sk), ['rol-2', 'rol-1']);
+  assert.equal(sdk.inputs('QueryCommand')[0].ScanIndexForward, false);
+  assert.equal(sdk.inputs('QueryCommand')[0].ConsistentRead, true);
+
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'), {});
+  assert.deepEqual(await aws.putFleetItem({ pk: 'GRP', sk: 'grp-1', item: { name: 'A', pk: 'x' } }), { ok: true });
+  assert.deepEqual(await aws.putFleetItem({ pk: 'GRP', sk: 'grp-1', item: { name: 'A' } }), { ok: false, reason: 'exists' });
+  assert.deepEqual(await aws.putFleetItem({ pk: 'SEEN', sk: THING, item: { version: '1.0.0+0' }, replace: true }), { ok: true });
+  const puts = sdk.inputs('PutItemCommand');
+  assert.deepEqual(puts[0], {
+    TableName: 'state-table', Item: { name: { S: 'A' }, pk: { S: 'GRP' }, sk: { S: 'grp-1' } },
+    ConditionExpression: 'attribute_not_exists(#pk)', ExpressionAttributeNames: { '#pk': 'pk' },
+  });
+  // A sighting replaces the one before it: the last one is what is kept.
+  assert.equal(puts[2].ConditionExpression, undefined);
+
+  sdk.reply('UpdateItemCommand', { Attributes: { pk: { S: 'GRP' }, sk: { S: 'grp-1' }, name: { S: 'B' }, rev: { N: '4' } } },
+    fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await aws.updateFleetItem({ pk: 'GRP', sk: 'grp-1', rev: 3, set: { name: 'B' } }),
+    { ok: true, item: { pk: 'GRP', sk: 'grp-1', name: 'B', rev: 4 } });
+  assert.deepEqual(await aws.updateFleetItem({ pk: 'GRP', sk: 'grp-1', rev: 3, set: { name: 'B' } }), { ok: false, reason: 'changed' });
+  assert.deepEqual(sdk.inputs('UpdateItemCommand')[0], {
+    TableName: 'state-table',
+    Key: { pk: { S: 'GRP' }, sk: { S: 'grp-1' } },
+    UpdateExpression: 'SET #f0 = :v0, #rev = :next',
+    ConditionExpression: '#rev = :rev',
+    ExpressionAttributeNames: { '#rev': 'rev', '#f0': 'name' },
+    ExpressionAttributeValues: { ':rev': { N: '3' }, ':next': { N: '4' }, ':v0': { S: 'B' } },
+    ReturnValues: 'ALL_NEW',
+  });
+  await assert.rejects(aws.updateFleetItem({ pk: 'GRP', sk: 'grp-1', rev: 3, set: { rev: 9 } }), TypeError);
+});
+
+test('setReleaseNotes changes the note of a registered release and nothing else', async () => {
+  const aws = adapter();
+  sdk.reply('UpdateItemCommand', { Attributes: { ...RELEASE_ITEM, notes: { S: 'Faster reconnects' } } },
+    fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await aws.setReleaseNotes({ sk: SK, notes: 'Faster reconnects' }),
+    { ok: true, release: { ...RELEASE, pk: 'REL', sk: SK, notes: 'Faster reconnects' } });
+  assert.deepEqual(sdk.inputs('UpdateItemCommand'), [{
+    TableName: 'state-table',
+    Key: { pk: { S: 'REL' }, sk: { S: SK } },
+    UpdateExpression: 'SET #notes = :notes',
+    ConditionExpression: 'attribute_exists(#pk)',
+    ExpressionAttributeNames: { '#notes': 'notes', '#pk': 'pk' },
+    ExpressionAttributeValues: { ':notes': { S: 'Faster reconnects' } },
+    ReturnValues: 'ALL_NEW',
+  }]);
+  assert.deepEqual(await aws.setReleaseNotes({ sk: SK, notes: '' }), { ok: false, reason: 'not_found' });
 });

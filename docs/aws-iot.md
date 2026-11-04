@@ -75,13 +75,16 @@ its own thing and its own topics. `T` stands for that thing name.
 | Action | Resource |
 | --- | --- |
 | Connect | client ID `T`, and only while the certificate is attached to thing `T` |
-| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update`, `cranium/T/events` |
-| Subscribe, receive | `$aws/things/T/jobs/notify-next`, `$aws/things/T/jobs/$next/get/*`, `$aws/things/T/jobs/<job>/update/*` |
+| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update`, `cranium/T/events`, `cranium/T/location` |
+| Subscribe, receive | `$aws/things/T/jobs/notify-next`, `$aws/things/T/jobs/$next/get/*`, `$aws/things/T/jobs/<job>/update/*`, `cranium/T/commands` |
 
 A board cannot read or write another board's shadow or jobs, cannot publish to any other
 topic, and has no last-will message. `cranium/T/events` is where firmware 1.12.0 and later publish the lines of
 the board's console ([The board log](#the-board-log)): publish only, nobody subscribes to it but a rule, and the board
-gets nothing back on it.
+gets nothing back on it. From 1.13.0 ([The map, commands and alerts](#the-fleet-the-map-commands-and-alerts)):
+`cranium/T/location`, publish only, what the board hears of the Wi-Fi around it, which only a rule reads; and
+`cranium/T/commands`, subscribe (as a topic filter) and receive only, where the console's commands arrive. A board
+can neither send itself a command nor hear another board's or anyone's scans.
 
 The policy has a fixed name, `cranium-device`, because provisioning attaches it by name. Changing its document is an
 update in place: CloudFormation's `AWS::IoT::Policy` says "Update requires: No interruption" for `PolicyDocument` and
@@ -342,6 +345,17 @@ USB", "… signed in on the phone app".
 | `token.create`, `token.revoke` | An API token made or ended | its name, its lifetime |
 | `account.sign_in` | A sign-in with password and code | `client`: `web` or `phone` |
 | `serial.command` | A command that changed a board at its serial console, sent over USB from the console | `command`, the board's device ID as the target, the firmware `version` it gave, `from: phone` |
+| `firmware.notes` | A release's note changed after its upload ("changed the note of 1.11.3+0") | the new note, cut to 200 characters; the old note's length |
+| `group.create`, `group.update`, `group.delete` | A group of boards made, renamed or changed, deleted | its name, `renamedFrom`, boards added and removed, their thing names |
+| `rollout.create` | A staged rollout started | version, `kind` of target, `group`, boards, `canary` |
+| `rollout.cancel` | A staged rollout cancelled | force, jobs cancelled |
+| `fleet.update_everything` | "Update everything": one staged rollout per board type | the rollouts, the releases by type, how many boards |
+| `group.rollback` | A group rolled back to the release before the newest | the group, the rollouts |
+| `rollout.advance`, `rollout.stop` | The console's own, by the schedule: the waves started after a canary confirmed, or a rollout stopped by itself | version, the waves' job, why it stopped. No person: the actor is empty |
+| `device.seen` | A phone saw a board over Bluetooth and said so | the version it saw, the board's Bluetooth name, `from: phone` |
+| `app.upload` | A URL handed out to send an Android APK to S3 with ([The phone apps](#the-phone-apps-on-the-console)) | the app's version as the target, SHA-256, size, `versionCode` |
+| `app.publish` | An APK checked and published on the Apps page | the same |
+| `app.download` | A download link to an APK handed out, to anyone signed in | `via`: `link`, or `qr` for the QR code a phone scans; SHA-256 |
 
 A refused request also carries the `code` it was refused with.
 
@@ -558,6 +572,287 @@ few as they were.
 would be of the order of 30 US dollars a month for one board flooding all day (messages, rule, Lambda, two puts).
 A board that is well says far less: a few dozen lines when it starts and connects, and a few an hour after that. The
 recorder has no limit of its own beyond the firmware's.
+
+## The fleet: board types, groups and staged rollouts
+
+What [fleet.md](fleet.md) agrees for the firmware and the console, as the console does it. The map, the commands
+and the alerts are in the same document and are described with them.
+
+**Compatibility: board type and flash layout.** A release is for one board type, `nrf7002dk` (Wi-Fi, updated by
+AWS IoT Jobs or a phone) or `nrf5340dk` (Bluetooth only, updated by a phone or over USB), and for one flash layout,
+a positive whole number that goes up whenever the partitions change. The upload reads both from the image's
+protected TLVs, which the image's hash and signature cover: `0xA1`, the type in ASCII (1 to 16 lower-case letters
+and digits), and `0xA2`, the layout in ASCII (the build sets them from `CONFIG_APP_BOARD_TYPE` and
+`CONFIG_APP_IMAGE_LAYOUT`). The same tags in the unprotected area are never read: anyone can add one there without
+breaking the signature, and the console refuses such an image (`unexpected_tlv`). An image without them is a
+`nrf7002dk` image for layout 1, as every release up to 1.12.0 is; a value that is not a known type or a positive
+whole number is refused (`unknown_board`, `invalid_board_tlv`, `invalid_layout_tlv`). The release shows what it is
+built for ("For nRF7002 DK · layout 1"). A board's type and layout are what it says in its diagnostics from 1.13.0
+(`diag.board`, `diag.layout`), else its thing's attributes `board` and `layout` (`tools/provision_device.py
+--board nrf5340dk`, read with `DescribeThing` at most once a minute per board, and only for a board that has not
+said both), else `nrf7002dk` and 1. A board can only write its own shadow, so a board that lies about itself keeps
+releases from itself and from nothing else, and the board checks an image's TLVs again before it installs it.
+
+**One version is one image.** Versions are one sequence across all board types and layouts: a new release of any
+type must be newer than every release ever registered, so `1.13.0` names exactly one file, and a build for another
+type takes the next number (`1.13.0+0` for one, `1.13.0+1` or `1.13.1` for the other).
+
+**The guard.** A deployment, a staged rollout that names its boards, "Update everything" and a rollback (for the
+boards their reviewed plan names), and the check before a Bluetooth send refuse a board of another type
+(`400 incompatible_board`) or another flash layout (`400 incompatible_layout`), on record; a deployment refuses a
+board without Wi-Fi as a job target (`400 bluetooth_only`). The check before a Bluetooth send takes the board's
+thing name (`thing`), or the type and layout the board told the phone (`type`, `layout`); without any of them it has
+nothing to check, as before types, so the phone apps send `thing`. A rollout to a group, a type or the fleet, and the
+plans of "Update everything" and a rollback, leave such boards out instead, each with why (`other_type`,
+`other_layout`, `bluetooth_only`). "Update everything" takes the newest release of each type: a board of that type
+on another layout is left out until a release is built for its layout.
+
+**Groups** are stored in the state table (pk `GRP`), not as AWS IoT thing groups: a rollout has to check every
+board's type and version anyway, so it names its boards one by one, and a thing group as a job's target (let alone
+a continuous job, which takes every board that joins later, unchecked) would hand a release to boards of another
+type. A group can be renamed, which a thing group cannot, and one conditional write changes its name and its boards
+together. A board that joins a group later is taken by the next rollout to it; one under way does not take it, and
+the Overview shows the board as behind until "Update everything" does. A deleted group is marked, never removed:
+the API role may not delete from that table.
+
+**Staged rollouts** (pk `ROL`). A rollout starts with a canary (one board unless asked for up to 5; online boards
+first), as a job of its own. A board reports `SUCCEEDED` only from the new firmware, once that has started, reached
+AWS IoT and confirmed itself (`ota.c`, `send_final_report`), so a canary that has succeeded has confirmed. AWS IoT
+Jobs cannot make one job wait for another, so a function of its own, `RolloutTickFn`, runs every minute
+(EventBridge `rate(1 minute)`): for each open rollout it reads the canary's job, and once every canary board has
+succeeded it looks at the rest again (a board that got the release meanwhile, has another update open, or left the
+project is left out then) and starts the waves as one job that AWS IoT paces and stops itself:
+
+```json
+"jobExecutionsRolloutConfig": { "maximumPerMinute": 50,
+  "exponentialRate": { "baseRatePerMinute": 1, "incrementFactor": 2, "rateIncreaseCriteria": { "numberOfSucceededThings": 1 } } },
+"abortConfig": { "criteriaList": [{ "failureType": "ALL", "action": "CANCEL", "thresholdPercentage": 20, "minNumberOfExecutedThings": 1 }] }
+```
+
+That is: one board a minute to start with (`wave`, up to 50), twice as many each time as many more have succeeded,
+and once failures, rejections and timeouts reach 20% of the boards that have finished (`abortPercent`, from the
+first board on), the job is cancelled: what has not started never does, and a board that has started finishes. A
+canary that fails, a release revoked, a job cancelled on its deployment's page, or a job stopped by AWS: the
+rollout is `stopped`, and says why; cancelled on its own page, `cancelled`. The change of stage is a conditional
+write on the rollout, so two runs at the same moment start the waves once; a cancellation that comes while the
+waves are being started is seen right after their job exists, which is then cancelled. The function's role can
+read the releases and the fleet's records, write rollouts only, add to the activity log, and start, read and
+cancel this console's jobs; it serves no request.
+
+**"Update everything"** plans, for each board type, its newest active release to every board of that type that is
+not on it, leaving out the Bluetooth-only boards, those offline for more than a day, those already current, those
+on something newer and those busy with another update; it starts one staged rollout per type, after checking the
+reviewed plan against the plan as it is then (`409 plan_changed`). **Rolling a group back** plans the release
+before the newest of each type in the group. A board takes only firmware newer than what it runs
+(`ota_job.c`, `ota_job_check`: equal versions are refused too), so a board on the newest would refuse it: the plan
+leaves such a board out, marked "Would refuse it", and a rollback reaches only boards that are behind both
+releases. That is settled. A real roll-back is a rebuild of the old source under a newer version, released and
+rolled out like any other; the review says so.
+
+**What a phone saw** (`POST /api/devices/{thing}/seen`, pk `SEEN`): the version a phone read from a board over
+Bluetooth, when, and who; the last one per board is kept. It is how a board without Wi-Fi shows on the console.
+Release managers only, with no fresh sign-in asked of a phone (it changes no board), at most 60 a minute per person.
+
+**Fleet health** (`GET /api/fleet/health`, the Overview): versions by board type and how many run the newest;
+the last 7 days' update results from the event log (over the air and over Bluetooth); and the boards that need
+looking at: offline for more than an hour, restarted for being stuck, a last update that failed or rolled back,
+memory down below 15% free, a Wi-Fi signal below −75 dBm, and a board without Wi-Fi no phone has seen.
+
+**A release's note** (`PUT /api/firmware/{version}/notes`, body `{ "notes": "..." }`): the whole note, one line of
+at most 500 characters, `""` for none, for active and revoked releases alike, by release managers with a session
+or an API token. It is the one write of the API on `PUT`, through two gateway routes of its own (`PUT /api/{proxy+}`
+with the authorizer, `PUT /api/t/{proxy+}` for tokens) with the limits of `POST`.
+
+**Cost.** The schedule is 43,200 invocations a month of a 256 MB function that makes one query when nothing is
+open: within Lambda's free tier, and of the order of a cent a month beyond it. A rollout adds a few calls a
+minute while it is open. `DescribeThing` is asked at most once a minute per board without `diag.board`.
+
+## The fleet: the map, commands and alerts
+
+The other half of [fleet.md](fleet.md): where each board is, by the Wi-Fi it hears; commands to a board, now; and
+e-mail alerts. The code is `cloud/api/src/locator.mjs` and `lib/position.mjs` (positions), `handlers/commands.mjs`,
+`alerts.mjs` and `lib/alerts.mjs`, and `aws-map.mjs` (its AWS calls, kept apart from `aws.mjs`), and on the website
+`map.js` and `account.js`.
+
+### Commands
+
+`POST /api/devices/{thing}/commands` with `{"cmd": "identify", "seconds": 15}` (1 to 60, 15 if left out) or
+`{"cmd": "report"}` answers `202 {"command": {id, cmd, seconds?, thing, sentAt, online}}`. The API publishes
+`{"id", "cmd", "seconds"?}` with the IoT data plane's `Publish`, QoS 1, to `cranium/<thing>/commands`; its role may
+publish on `topic/cranium/cranium-*/commands` and on no other topic. `id` is 16 hex digits from the server's CSPRNG.
+The board answers in its own log with tag `CMD`, which the recorder files as kind `setting`
+(`identify for 15 s (3f9c2a1b7d4e6f80)`); the website looks for that line every 3 s for 45 s after it sent the
+command and shows it on the board's page. A board that is offline misses the command, as the contract means:
+`online: false` in the answer says so, and an offline board's Identify button is greyed out. A Bluetooth-only board
+(`nrf5340dk`) is refused (`409 bluetooth_only`).
+
+Release managers only, on record as `board.command` with the command, its length and its id. At most 10 a minute
+per person, counted from the activity log as the serial console's records are; one over that is refused with 429
+and leaves no entry. From a phone, `identify` needs no sign-in in the last 15 minutes, like the calls a person makes
+at a board: it blinks two LEDs for at most a minute, changes nothing and costs nothing, and its use is a person at
+a bench of boards finding which one is which; a fresh sign-in would add a password and a code to that and protect
+nothing. `report` does need one: it is sent from anywhere, and makes the board send a scan that costs a position
+estimate (the route is marked `atTheBoard` and the handler asks the fresh sign-in of `report`).
+
+### Location by Wi-Fi
+
+A board on 1.13.0 publishes, QoS 0, on `cranium/<thing>/location`, and `LocationRule` hands it to `LocationFn`:
+
+```sql
+SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/location'
+WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)
+```
+
+As for the board log, a message that carries its own `thing` or `received` is not passed on. `LocationFn` is a
+function of its own and not a part of the recorder: it is the one piece that spends money for a message and that
+sends what a board heard out of AWS IoT, so its role alone may call `GetPositionEstimate`, and nothing that handles
+the boards' other messages can; it is not retried (a second try of a paid estimate is worth less than the next
+scan); and its log (`/aws/lambda/<stack>-location`) counts the estimates.
+
+**What a scan may hold** is checked whole, and a scan that breaks any of it is not solved: exactly the fields `aps`,
+`boot`, `t` (and the rule's two); 2 to 10 access points, each exactly `{mac, rss}`; `mac` six pairs of hex digits
+with colons (either case, compared in lower case), unicast and globally administered (the two lowest bits of the
+first byte clear: a randomised or hotspot address is refused, and so is a group address and all zeros), no BSSID
+twice; `rss` a whole number from −120 to 0; `boot` and `t` whole numbers. Fewer than 2 is kept as "too few" (with
+the count), so that the map can say why the board has no position.
+
+**The estimate.** `GetPositionEstimate` of AWS IoT Wireless (API version 2020-11-22: `POST /position-estimate`), as its
+API reference has it: the request is
+
+```json
+{ "WiFiAccessPoints": [ { "MacAddress": "a4:2b:b0:12:34:56", "Rss": -51 }, { "MacAddress": "f0:9f:c2:65:43:21", "Rss": -70 } ] }
+```
+
+`MacAddress` a string of 12 to 17 characters matching `([0-9A-Fa-f]{2}[:-]?){5}([0-9A-Fa-f]{2})`, `Rss` an integer
+from −128 to 0 (dBm), both required; `Timestamp`, cellular, IP and GNSS data are not sent. The answer is the
+`GeoJsonPayload`, a blob of GeoJSON:
+
+```json
+{ "coordinates": [13.376077, 52.51823, 80.1], "type": "Point",
+  "properties": { "verticalAccuracy": 45, "verticalConfidenceLevel": 0.68, "horizontalAccuracy": 303,
+                  "horizontalConfidenceLevel": 0.68, "timestamp": "2026-04-07T01:16:39.971767716Z" } }
+```
+
+longitude first, then latitude (WGS84); `horizontalAccuracy` in metres, at a 68% confidence by default. A 404
+(`ResourceNotFoundException`) means AWS found no position for those access points ("unsolved"); 400 is a request it
+does not accept, 403 a permission, 429 its limit (10 requests a second by default, adjustable), 500 its own fault
+("failed", tried again with the next scan). The IAM action is `iotwireless:GetPositionEstimate`, which has no
+resource type: IAM can only allow it on `*`. The API is in us-east-1, us-west-2, eu-west-1, eu-central-1,
+ap-northeast-1, ap-southeast-2 and sa-east-1 (endpoints `api.iotwireless.<region>.amazonaws.com`); the function
+calls it in its own Region, so a stack in any other Region has no positions. AWS says it may send the request to
+the third-party provider of the solver it picks (HERE's Wi-Fi solver), which may be outside the Region (AWS Service
+Terms): that is what leaves the board, BSSIDs and signals, and nothing else.
+
+**Throttle.** At most one estimate per board in 10 minutes, and any write at most once in that time, so a board
+that sends too often costs a read and nothing more; and none while the board hears the same set of access points as
+the last estimate was asked about, unless that one failed or never finished (then "Still there" is noted instead).
+The estimate is claimed first by a write conditional on the item as it was read, so two copies of a message solve
+once.
+
+**What is kept** (events table, pk `LOC`, sk the thing name): the position (`lat`, `lon` to six places, `accuracy` in
+whole metres, `at` the time AWS IoT received the scan), the last 20, the status, the number of access points and a
+64-bit hash of the board's thing name and the sorted BSSIDs, to tell a new set from the same one; never a BSSID or a
+signal, in the table or the log. A board's first position is an event (`health`, `located`), and so is a move
+(`health`, `moved`, a warning) of more than 1 km that is also further than the two positions' uncertainties together,
+so that two fuzzy fixes do not make one; neither has a coordinate in its text. The API adds `position` and
+`location` (`status`: `none`, `ok`, `too_few`, `unsolved`, `failed`, `unknown`; `apCount`; `checkedAt`;
+`bluetoothOnly`, from the thing's attribute for a board that has never reported) to every board, and
+`GET /api/devices/{thing}/positions` gives the last 20.
+
+**The map.** The website's Map page and the map on a board's page are drawn with Leaflet 1.9.4, the files of its npm
+package (integrity `sha512-nxS1ynzJ…FA74PA==`) as they are, served from the console's own assets with its licence
+(`leaflet-license.txt`), and fetched only when a map is shown. The content security policy allows images from
+`https://tile.openstreetmap.org` and nowhere else new. The tiles follow OpenStreetMap's tile usage policy: the exact
+tile URL, the attribution on the map, the browser's cache as the tile server sets it, nothing fetched beyond the
+view, and the console's origin as the tiles' Referer (`referrerPolicy: strict-origin-when-cross-origin` on the tiles;
+the page sends no Referer anywhere else). A person who opens a map asks OpenStreetMap for the tiles around the boards:
+OpenStreetMap learns that person's address and roughly where the boards are. Popups are built as elements by the
+console's renderer, never as markup. In the dark scheme the tiles are darkened by a CSS filter.
+
+### Alerts
+
+An SNS topic (`AlertTopic`, output `AlertTopicArn`), whose policy refuses publishing and subscribing without TLS.
+On the Account page a release manager asks for the alerts at their own address (`POST /api/alerts/subscribe`, on
+record as `alert.subscribe`; at most 3 an hour, each sends an e-mail) and stops them (`POST /api/alerts/unsubscribe`,
+`alert.unsubscribe`); `GET /api/alerts` says whether the caller's address gets them, how many addresses do (never
+which), and the last 20 e-mails that went out. SNS sends the confirmation, and nothing goes to an address until its
+link is followed. A subscription that waits for its confirmation has no ARN, so the console cannot remove it; its
+link works for two days. The API's role may `sns:Subscribe` with `sns:Protocol` `email` only, `sns:ListSubscriptionsByTopic`
+and `sns:Unsubscribe`, on that topic, and never publishes.
+
+The recorder (EventsFn) and the location function make the alerts:
+
+| Alert | From |
+| --- | --- |
+| Offline for more than 15 minutes, and back | AWS IoT's presence messages (the presence rule). Kept per board; a message counts only if it is newer than the one kept: by time when they are more than a minute apart, else by AWS's `versionNumber` (which a connection's connect and disconnect share), and within one connection the disconnect comes last. AWS says these messages may come out of order and twice. An EventBridge rule (`AlertCheckRule`, `rate(5 minutes)`) runs the recorder, which raises "offline" for a board disconnected for 15 minutes, and "back" when it connects after that |
+| An update that failed or rolled back | A shadow report's update result `failed` or `rolled_back`, and a Bluetooth update record `rolled_back`, `trial_lost`, `not_installed` or `flash_error` |
+| A deployment that stopped by itself | An event `{kind: "update", what: "stopped", job: <deployment>}`, keyed by the deployment. Nothing records one yet: see the note below |
+| A restart for being stuck | The event `restart` / `stuck` |
+| A move of more than 1 km | The location function |
+
+At most one e-mail per board (or deployment) and kind an hour; an alert within the hour is folded (at most 20 and a
+count of the rest) and goes with the next e-mail of its kind, or with the 5-minute check once the hour is up. Each
+change to the alerts' state is a write conditional on what was read, so two invocations never both send; the state is
+written before the e-mail is sent, and an e-mail that cannot be sent has its lines put back for the next. A failure of
+the alerts never fails the recording of an event. The e-mail is plain ASCII text: the board's name (its device ID, or
+its thing name), its thing name, the alerts with their times in UTC, a link to the board (or deployment) on the console
+(`CONSOLE_URL`) and to the Events page; no secret, no network name, no BSSID and no coordinate. The state lives in the
+events table, pk `ALERTS` (per board `B#<thing>`, per deployment `D#<id>`, and each e-mail sent `S#…`, kept 30 days).
+The recorder's role may also query that partition and nothing else of the table (`dynamodb:LeadingKeys`), and publish
+to the topic; the location function's may query `LOC` and `ALERTS`, put items under `LOC`, `ALERTS` and `cranium-*`,
+call `GetPositionEstimate`, and publish to the topic.
+
+A deployment that stops by itself is noticed by the staged rollouts' schedule (RolloutTickFn), not by the recorder:
+when a canary does not confirm, or AWS IoT aborts the waves, it raises the "deployment" alert through `alerts.mjs` for
+the job that failed (a revocation or a cancellation by a person is no alert). For that its role may also query and put
+items under `ALERTS` only, and publish to the topic.
+
+**Cost.** A board that sends a scan after each boot and every 6 hours, and on "Report now", makes about 4 to 6
+estimates a day, fewer when it hears the same access points (those are not asked again): of the order of 150 a month,
+US$0.15 a board at the published price of US$1.00 per 1,000 solved locations up to a million a month in us-east-1
+(US$0.80 per 1,000 to 5 million, US$0.70 beyond), with 1,000 free in an account's first 12 months. The 10-minute floor
+caps a board at 4,320 a month, US$4.32. The location function and the 5-minute check (8,640 runs of the recorder a
+month) are within Lambda's free tier; SNS bills e-mail deliveries by its own price list.
+
+## The phone apps on the console
+
+The Apps page ([`docs/mobile-apps.md`](mobile-apps.md#the-apps-page)) hands out the Android app and says how to build
+the iPhone app. Five routes of the API (`cloud/api/src/handlers/apps.mjs`), all under the gateway's existing `GET` and
+`POST` routes, with a session or, as `/api/t/...`, an API token:
+
+| Route | Who | On record | What |
+| --- | --- | --- | --- |
+| `GET /api/apps` | every member | no | The Android releases, newest first (version, `versionCode`, size, SHA-256, note, who published it, when), and the iPhone app's version and note from the changelog this deployment was built with |
+| `GET /api/apps/config` | every member | no | The phone apps' configuration, exactly `apps/config/cranium.json`, from the stack's own values: `CONSOLE_URL` and `LOGIN_DOMAIN` (new environment of the API function), the region, the pool and the phone apps' client |
+| `POST /api/apps/android/uploads` | release managers | `app.upload` | Body `{ version, versionCode, sha256, size, notes }`. A presigned `PUT` for `apps/android/cranium-android-<version>.apk`, good for 15 minutes, that signs `content-length` and `x-amz-checksum-sha256`: S3 takes exactly that size and those bytes |
+| `POST /api/apps/android/releases/{version}` | release managers | `app.publish` | The same body without the version. `HeadObject` with `ChecksumMode: ENABLED`: the size, the full-object SHA-256 and the S3 version of what arrived. Registered only if they match |
+| `GET /api/apps/android/{version}/download` | every member, viewers too (with an API token, release managers, as for every request on record) | `app.download` | A presigned `GET` of the S3 version that was checked, good for 15 minutes, served as `application/vnd.android.package-archive` with `Content-Disposition: attachment; filename="cranium-android-<version>.apk"`. `?via=qr` for the QR code |
+
+An APK is about 12 MB, more than the 10 MB API Gateway takes, so it never passes through the API. A version is
+accepted once and only upward, by its version and by its `versionCode`, which Android needs to be higher for an
+update: both calls refuse a taken version (`409 version_exists`), a lower one (`422 version_not_newer`) and a
+`versionCode` that is not higher (`422 version_code_not_higher`), and the release and the pointer to the highest
+(state table, pk `APP` and `META`/`APP#android`) are written in one transaction. What arrived is refused if it is
+missing (`409 apk_missing`), of another size (`422 size_mismatch`), of another SHA-256 (`422 sha256_mismatch`) or
+without a SHA-256 of the whole file (`422 checksum_missing`, as after a multipart upload). From a phone, the download
+and the configuration are reads; the two calls of a publish are changes and need a sign-in in the last 15 minutes.
+
+**The bucket.** The APKs are in the firmware bucket, under `apps/android/`, rather than in a bucket of their own: it is
+already private, TLS only, encrypted, versioned and kept when the stack is deleted, and a second bucket would need all
+of that again, and teardown with it. Nothing a board uses reaches them: a board takes download URLs under `firmware/`
+only, and AWS IoT presigns with a role that reads `firmware/*` alone. The bucket keeps every version of an object; a
+release records the S3 version it was checked against and a download names it, so whatever is put under the same key
+afterwards is never handed out for that release.
+
+**The role.** Three statements, one action each, on `apps/android/cranium-android-*.apk` only: `s3:PutObject` (the
+upload URL, which the role signs), `s3:GetObject` (the `HeadObject` of the check) and `s3:GetObjectVersion` (the
+download link). No list, no delete, no tagging, nothing under `firmware/` this way. The URLs are signed in the
+function (`cloud/api/src/lib/presign.mjs`, Signature Version 4 in the query string, checked against AWS's published
+example) with the role's credentials from the environment; a URL is good until it expires or they do.
+
+**The console's own version.** `GET /api/me` also says `console: { version, commit }`: the version in `cloud/VERSION`
+and the commit this deployment was built from, from the `versions.json` that `cloud/deploy.sh` writes beside the
+function's code ([`docs/versions.md`](versions.md)), `null` where it has none.
 
 ## The Raspberry Pi (planned)
 

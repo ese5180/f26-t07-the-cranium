@@ -171,10 +171,13 @@ test('GET /api/me reports the token\'s groups and the address from Cognito', asy
   assert.deepEqual(first.body, {
     sub: manager.sub, email: manager.email, groups: ['release-managers', 'viewers'], canWrite: true,
     expiresAt: 4102444800,
+    // The console's own version and commit (handlers/apps.mjs): none in a test console.
+    console: { version: null, commit: null },
   });
   const second = await console_.call('GET', '/api/me', { as: viewer });
   assert.deepEqual(second.body, {
     sub: viewer.sub, email: viewer.email, groups: ['viewers'], canWrite: false, expiresAt: 4102444800,
+    console: { version: null, commit: null },
   });
 
   // The address comes with the live check on reads, once a minute for each user.

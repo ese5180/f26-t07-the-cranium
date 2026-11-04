@@ -50,6 +50,18 @@
 // the board, or accept it and leave the board alone. The console has to tell the
 // truth in all three cases.
 //
+// The fleet (docs/fleet.md). A thing may carry attributes (addThing(thing, { attributes })), which
+// describeThing reads, as provisioning sets `board`. The fleet's records live in three partitions
+// of the stand-in's state table (GRP, ROL, SEEN). A job may be paced and stopped as AWS IoT does
+// with jobExecutionsRolloutConfig and abortConfig: its boards are offered a few a minute, more as
+// they succeed, and the job is cancelled by itself once the share of failures reaches the
+// threshold. How AWS counts its minutes is not documented to the second: here the first boards
+// are offered when the job is created and the next at each whole minute after, judged by the
+// successes there are when the stand-in next looks. A job stopped that way has no reason code.
+//
+// The map, the commands and the alerts (src/aws-map.mjs) are test/fake-map.mjs, merged in here: its
+// adapter methods and its helpers (commands, locate, enableAlerts, ...) are this stand-in's too.
+//
 // Also exported: fixture and fakeEnv (the fixture images and a configuration that
 // accepts them), accessClaims and apiEvent (a request as API Gateway delivers it),
 // manualTimers (timers that a test fires by hand), and createTestConsole (the real
@@ -64,6 +76,9 @@ import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { recordsOf } from '../src/lib/events.mjs';
 import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
+import { parseBundledVersions } from '../src/lib/versions.mjs';
+import { createFakeApps } from './fake-apps.mjs';
+import { createFakeMap } from './fake-map.mjs';
 
 const THING_NAME = /^[a-zA-Z0-9:_-]{1,128}$/;
 const JOB_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -73,6 +88,11 @@ const DETAIL_KEY = /^[a-zA-Z0-9:_-]{1,128}$/;
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED']);
 const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED']);
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
+const FAILURE_TYPES = Object.freeze({
+  FAILED: ['FAILED'], REJECTED: ['REJECTED'], TIMED_OUT: ['TIMED_OUT'], ALL: ['FAILED', 'REJECTED', 'TIMED_OUT'],
+});
+const EXECUTED = new Set(['SUCCEEDED', 'FAILED', 'REJECTED', 'TIMED_OUT']);
 const ACCOUNT = '000000000000';
 const REGION = 'us-east-1';
 
@@ -159,7 +179,8 @@ export function createFakeAws({
   if (!REPEATED_CANCEL.includes(repeatedCancel)) {
     throw new TypeError(`repeatedCancel must be one of: ${REPEATED_CANCEL.join(', ')}`);
   }
-  const things = new Map();     // name -> { inGroup, principals }
+  const things = new Map();     // name -> { inGroup, principals, attributes }
+  const fleetItems = new Map(); // "pk sk" -> item: the fleet's partitions of the state table
   const shadows = new Map();    // name -> shadow document
   const booted = new Map();     // name -> when the board's uptime started, in ms
   const jobs = new Map();       // jobId -> job
@@ -199,15 +220,63 @@ export function createFakeAws({
     execution.versionNumber += 1;
   }
 
+  /**
+   * Offer a paced job to the boards that are due by now (jobExecutionsRolloutConfig): `base` at
+   * the start, and at each whole minute after as many as the rate then is. The rate grows by the
+   * factor each time as many more boards as the criterion says have succeeded, up to the maximum.
+   */
+  function pace(job, at) {
+    const plan = job.rollout;
+    const minutes = Math.floor((at - job.rolloutAt) / 60_000);
+    while (job.paced.minute < minutes && job.paced.offered < job.things.length && job.status === 'IN_PROGRESS') {
+      job.paced.minute += 1;
+      const succeeded = [...job.executions.values()].filter((execution) => execution.status === 'SUCCEEDED').length;
+      const step = plan.exponentialRate.rateIncreaseCriteria.numberOfSucceededThings;
+      while (succeeded - job.paced.counted >= step) {
+        job.paced.counted += step;
+        job.paced.rate = Math.min(plan.maximumPerMinute,
+          Math.max(job.paced.rate + 1, Math.floor(job.paced.rate * plan.exponentialRate.incrementFactor)));
+      }
+      const when = job.rolloutAt + job.paced.minute * 60_000;
+      for (const thing of job.things.slice(job.paced.offered, job.paced.offered + job.paced.rate)) {
+        job.executions.set(thing, newExecution(when));
+      }
+      job.paced.offered = Math.min(job.things.length, job.paced.offered + job.paced.rate);
+    }
+  }
+
+  /** Cancel a job by its abortConfig once its failures reach the threshold: what has not started stops. */
+  function abortIfDue(job, at) {
+    if (job.abort === null || job.status !== 'IN_PROGRESS') return;
+    const executions = [...job.executions.values()];
+    const executed = executions.filter((execution) => EXECUTED.has(execution.status)).length;
+    for (const criterion of job.abort.criteriaList) {
+      const failed = executions.filter((execution) => FAILURE_TYPES[criterion.failureType].includes(execution.status)).length;
+      if (executed >= criterion.minNumberOfExecutedThings && executed > 0 &&
+          (100 * failed) / executed >= criterion.thresholdPercentage) {
+        job.status = 'CANCELED';
+        job.lastUpdatedAt = at;
+        job.aborted = true;
+        for (const execution of executions) cancelExecution(execution, false, at);
+        return;
+      }
+    }
+  }
+
   /** Bring a job up to the current time: roll out, cancel, time out, complete. */
   function settle(job) {
     const at = clock();
     if (!job.rolledOut && at >= job.rolloutAt) {
       job.rolledOut = true;
-      if (job.status === 'IN_PROGRESS') {
+      if (job.status === 'IN_PROGRESS' && job.rollout === null) {
         for (const thing of job.things) job.executions.set(thing, newExecution(job.rolloutAt));
+      } else if (job.status === 'IN_PROGRESS') {
+        const first = job.rollout.exponentialRate.baseRatePerMinute;
+        job.paced = { minute: 0, rate: first, counted: 0, offered: Math.min(first, job.things.length) };
+        for (const thing of job.things.slice(0, first)) job.executions.set(thing, newExecution(job.rolloutAt));
       }
     }
+    if (job.rolledOut && job.paced !== null) pace(job, at);
     // Cancellations that were accepted earlier and are due by now, oldest first.
     while (job.cancellations.length > 0 && at >= job.cancellations[0].at) {
       const due = job.cancellations.shift();
@@ -220,7 +289,9 @@ export function createFakeAws({
         execution.versionNumber += 1;
       }
     }
-    if (job.status === 'IN_PROGRESS' && job.rolledOut &&
+    abortIfDue(job, at);
+    const allOffered = job.rollout === null || (job.paced !== null && job.paced.offered >= job.things.length);
+    if (job.status === 'IN_PROGRESS' && job.rolledOut && allOffered &&
         [...job.executions.values()].every((execution) => TERMINAL.has(execution.status))) {
       job.status = 'COMPLETED';
       job.completedAt = Math.max(job.createdAt, ...[...job.executions.values()].map((e) => e.lastUpdatedAt));
@@ -292,6 +363,8 @@ export function createFakeAws({
       },
     });
     for (const item of made.items ?? []) putEventItem(item);
+    // What the recorder then tells the alerter, if the alerts are on (test/fake-map.mjs).
+    if (made.items !== undefined) map.helpers.recorded(message, made.items);
     return made;
   }
 
@@ -370,8 +443,12 @@ export function createFakeAws({
       return found;
     },
 
-    async createJob({ jobId, things: targets, document, description, urlExpiresInSec, inProgressTimeoutMinutes }) {
+    async createJob({
+      jobId, things: targets, document, description, urlExpiresInSec, inProgressTimeoutMinutes, rollout = null, abort = null,
+    }) {
       checkJobId('CreateJob', jobId);
+      checkRollout(rollout);
+      checkAbort(abort);
       if (!Array.isArray(targets) || targets.length === 0) throw invalid('CreateJob', 'targets');
       targets.forEach((thing) => checkThingName('CreateJob', thing));
       if (typeof document !== 'string' || document.length > 32768) throw invalid('CreateJob', 'document');
@@ -397,6 +474,7 @@ export function createFakeAws({
         lastUpdatedAt: at, completedAt: null, forceCanceled: false, reasonCode: null, comment: null,
         urlExpiresInSec, timeoutMs: inProgressTimeoutMinutes * 60_000, executions: new Map(),
         rolloutAt: at + rolloutDelayMs, rolledOut: false, cancellations: [],
+        rollout: copy(rollout) ?? null, abort: copy(abort) ?? null, paced: null, aborted: false,
       }));
       return { ok: true };
     },
@@ -510,6 +588,14 @@ export function createFakeAws({
       return { ok: true, release: copy(item) };
     },
 
+    async setReleaseNotes({ sk, notes }) {
+      if (typeof notes !== 'string') throw new TypeError('notes must be text');
+      const item = releases.get(sk);
+      if (item === undefined) return { ok: false, reason: 'not_found' };
+      item.notes = notes;
+      return { ok: true, release: copy(item) };
+    },
+
     async getToken(sk) {
       if (typeof sk !== 'string' || sk === '') throw new TypeError('sk is required');
       return tokens.has(sk) ? copy(tokens.get(sk)) : null;
@@ -584,7 +670,89 @@ export function createFakeAws({
       const user = users.get(sub);
       return user === undefined ? [] : [...user.groups];
     },
+
+    // The fleet.
+
+    async describeThing(thing) {
+      checkThingName('DescribeThing', thing);
+      return things.has(thing) ? { attributes: { ...things.get(thing).attributes } } : null;
+    },
+
+    async getFleetItem({ pk, sk }) {
+      checkFleetKey(pk, sk);
+      return fleetItems.has(`${pk} ${sk}`) ? copy(fleetItems.get(`${pk} ${sk}`)) : null;
+    },
+
+    async listFleetItems(pk) {
+      checkFleetKey(pk, 'x');
+      return [...fleetItems.values()].filter((item) => item.pk === pk)
+        .sort((a, b) => (a.sk < b.sk ? 1 : -1)).map(copy);
+    },
+
+    async putFleetItem({ pk, sk, item, replace = false }) {
+      checkFleetKey(pk, sk);
+      assertStorable(item, 'item');
+      if (!replace && fleetItems.has(`${pk} ${sk}`)) return { ok: false, reason: 'exists' };
+      fleetItems.set(`${pk} ${sk}`, { ...copy(item), pk, sk });
+      return { ok: true };
+    },
+
+    async updateFleetItem({ pk, sk, rev, set }) {
+      checkFleetKey(pk, sk);
+      assertStorable(set, 'set');
+      if (!Number.isInteger(rev)) throw new TypeError('rev must be an integer');
+      for (const field of Object.keys(set)) {
+        if (['pk', 'sk', 'rev'].includes(field)) throw new TypeError(`${field} cannot be set`);
+      }
+      const item = fleetItems.get(`${pk} ${sk}`);
+      if (item === undefined || item.rev !== rev) return { ok: false, reason: 'changed' };
+      Object.assign(item, copy(set), { rev: rev + 1 });
+      return { ok: true, item: copy(item) };
+    },
   };
+
+  function checkFleetKey(pk, sk) {
+    if (!FLEET_PKS.includes(pk)) throw new TypeError(`${String(pk)} is not a partition of the fleet`);
+    if (typeof sk !== 'string' || sk === '') throw new TypeError('sk is required');
+  }
+
+  /** jobExecutionsRolloutConfig within the limits AWS IoT documents. */
+  function checkRollout(rollout) {
+    if (rollout === null) return;
+    const rate = rollout?.exponentialRate;
+    const criteria = rate?.rateIncreaseCriteria;
+    const whole = (value, low, high) => Number.isInteger(value) && value >= low && value <= high;
+    if (!whole(rollout.maximumPerMinute, 1, 1000) || !whole(rate?.baseRatePerMinute, 1, 1000) ||
+        !(rate.incrementFactor >= 1.1 && rate.incrementFactor <= 5) ||
+        !whole(criteria?.numberOfSucceededThings, 1, 2 ** 31) || rate.baseRatePerMinute > rollout.maximumPerMinute) {
+      throw invalid('CreateJob', 'jobExecutionsRolloutConfig');
+    }
+  }
+
+  /** abortConfig within the limits AWS IoT documents. */
+  function checkAbort(abort) {
+    if (abort === null) return;
+    const list = abort?.criteriaList;
+    const fine = Array.isArray(list) && list.length >= 1 && list.every((criterion) =>
+      Object.hasOwn(FAILURE_TYPES, criterion.failureType) && criterion.action === 'CANCEL' &&
+      typeof criterion.thresholdPercentage === 'number' && criterion.thresholdPercentage > 0 &&
+      criterion.thresholdPercentage <= 100 && Number.isInteger(criterion.minNumberOfExecutedThings) &&
+      criterion.minNumberOfExecutedThings >= 1);
+    if (!fine) throw invalid('CreateJob', 'abortConfig');
+  }
+
+  // The map, the commands and the alerts (docs/fleet.md, src/aws-map.mjs): test/fake-map.mjs, whose
+  // items live in this events table, as the real ones do.
+  const map = createFakeMap({
+    clock,
+    put: putEventItem,
+    get: (pk, sk) => eventItems.get(pk)?.get(sk) ?? null,
+    list: (pk, prefix) => eventPart(pk, prefix, `${prefix}\uffff`),
+  });
+  Object.assign(adapter, map.adapter);
+  // The phone apps' releases and their APKs (docs/mobile-apps.md, src/aws-apps.mjs): test/fake-apps.mjs.
+  const apps = createFakeApps({ clock });
+  Object.assign(adapter, apps.adapter);
 
   const fake = {};
   for (const [method, run] of Object.entries(adapter)) {
@@ -617,12 +785,19 @@ export function createFakeAws({
     },
 
     /** What the provisioning tool does: register a board and attach its certificate. */
-    addThing(thing, { certificates = [], inGroup = true } = {}) {
+    addThing(thing, { certificates = [], inGroup = true, attributes = {} } = {}) {
       if (typeof thing !== 'string' || !THING_NAME.test(thing)) throw new TypeError('Not a thing name');
       things.set(thing, {
         inGroup,
         principals: certificates.map((id) => `arn:aws:iot:${REGION}:${ACCOUNT}:cert/${id}`),
+        attributes: { ...attributes },
       });
+    },
+
+    /** What `aws iot update-thing --attribute-payload` does to a thing's attributes. */
+    setThingAttributes(thing, attributes) {
+      if (!things.has(thing)) throw new TypeError(`No thing ${thing}`);
+      things.get(thing).attributes = { ...attributes };
     },
 
     removeThing(thing) {
@@ -825,6 +1000,7 @@ export function createFakeAws({
     releases,
     jobs,
     tokens,
+    fleetItems,
     auditLog() {
       return [...auditItems.keys()].sort().map((sk) => copy(auditItems.get(sk)));
     },
@@ -832,6 +1008,9 @@ export function createFakeAws({
       return highest ?? null;
     },
   });
+
+  Object.assign(fake, map.helpers);
+  Object.assign(fake, apps.helpers);
 
   return fake;
 }
@@ -861,6 +1040,11 @@ export function fakeEnv(overrides = {}) {
     SIGNING_PUBLIC_KEY_B64: der.toString('base64'),
     SLOT_SIZE: '933888',
     LOAD_ADDRESS: '196608',
+    // Where the e-mail alerts go (src/aws-map.mjs): read by the adapter, not by loadConfig.
+    ALERT_TOPIC_ARN: `arn:aws:sns:${REGION}:${ACCOUNT}:local-alerts`,
+    // The console's address and its login pages, for the phone apps' configuration (GET /api/apps/config).
+    CONSOLE_URL: 'https://console.example.invalid',
+    LOGIN_DOMAIN: `local.auth.${REGION}.amazoncognito.com`,
     ...overrides,
   };
 }
@@ -974,7 +1158,7 @@ const MAIL_DOMAIN = 'example.invalid';
  */
 export function createTestConsole({
   rolloutDelayMs = 0, cancelDelayMs = 0, repeatedCancel, timers, env = {},
-  startMs = Date.UTC(2026, 9, 10, 22, 15, 0),
+  startMs = Date.UTC(2026, 9, 10, 22, 15, 0), versions,
 } = {}) {
   const clock = { ms: startMs };
   const now = () => clock.ms;
@@ -987,6 +1171,9 @@ export function createTestConsole({
     config,
     now,
     timers,
+    // What versions.json would hold (src/lib/versions.mjs). Left out, none: a test does not depend on
+    // whether this checkout was ever deployed.
+    versions: versions ?? parseBundledVersions(null),
     log: (line) => logs.push(line),
     // Repeatable, so that ids in a test are the same on every run.
     randomHex: (count) => {

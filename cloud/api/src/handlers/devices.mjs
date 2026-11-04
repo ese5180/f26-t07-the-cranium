@@ -87,9 +87,24 @@ export function createDeviceHandlers({ aws, now, log }) {
     return [...new Set((await aws.listGroupThings()).filter(isThing))].sort();
   }
 
+  /**
+   * The shadow documents of the given things, in the same order, from the same cache as
+   * loadDevices: null for a board that never reported, or whose shadow cannot be read. For the
+   * fleet (handlers/fleet.mjs), which reads the board type a board reports beside its Device.
+   */
+  async function loadShadows(things, maxAgeMs = SHADOW_CACHE_MS) {
+    const settled = await Promise.allSettled(things.map((thing) => readShadow(thing, maxAgeMs)));
+    return settled.map((result, index) => {
+      if (result.status === 'fulfilled') return result.value;
+      log({ level: 'warn', event: 'shadow_unreadable', thing: things[index], error: describeError(result.reason).message });
+      return null;
+    });
+  }
+
   return {
     loadDevices,
     groupThings,
+    loadShadows,
 
     async list() {
       const devices = await loadDevices(await groupThings());

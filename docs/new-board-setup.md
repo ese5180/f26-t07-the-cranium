@@ -253,6 +253,10 @@ themselves.
 The iPhone app and the Android app do what the console's website does, and also update a board over Bluetooth.
 [`docs/mobile-apps.md`](mobile-apps.md) says what they do and how. You need the board only for Bluetooth.
 
+**Start on the console's Apps page** (Apps, in the masthead, once you can sign in): it has the team's Android app to
+download, with a QR code for the phone to scan, the iPhone app's version, and the configuration to download for a build
+of your own. What follows is the same, with the details.
+
 ### An account
 
 Each person needs a console account. An administrator makes it, signed in to AWS as for step 5 (`cloud/users.sh` is a
@@ -282,10 +286,11 @@ Both apps read `apps/config/cranium.json` when they are built. `apps/configure.s
 apps/configure.sh
 ```
 
-It names the AWS account, so git ignores it. Without it, a build uses `apps/config/cranium.example.json`, whose values
-are made up, and can't sign in: an iPhone Debug build shows an orange banner, an iPhone Release build stops, and the
-Android build warns. On Windows, run `configure.sh` in WSL, or in Git Bash if `python3` works there, or copy
-`cranium.json` from a teammate.
+It names the AWS account, so git ignores it. Without `outputs.json`, sign in to the console and use **Download the
+configuration** on its Apps page, and put `cranium.json` in `apps/config/`. Without it, a build uses
+`apps/config/cranium.example.json`, whose values are made up, and can't sign in: an iPhone Debug build shows an orange
+banner, an iPhone Release build stops, and the Android build warns. On Windows, run `configure.sh` in WSL, or in Git
+Bash if `python3` works there, use the Apps page, or copy `cranium.json` from a teammate.
 
 ### iPhone
 
@@ -341,10 +346,12 @@ TestFlight needs the paid Apple Developer Program: `apps/ios/scripts/testflight.
 
 Android 8.0 or later, with Bluetooth LE. It works from Windows, Linux or macOS, in one of two ways.
 
-**A. The team's signed APK.** Whoever holds the release key, in `~/.cranium/android`, builds it with
-`apps/android/build-release.sh`, which writes `apps/dist/cranium-android-<version>.apk`. Only that person: on a
-computer without the key, the script makes a new one, and its APKs can't update the team's. It is shared privately,
-never in a public release.
+**A. The team's signed APK.** Download it from the console's Apps page: on the phone, signed in to the console, tap
+**Download**; or on the computer press **Show a QR code for a phone** and scan it with the phone's camera, which
+downloads it without signing in, for 15 minutes. Whoever holds the release key, in `~/.cranium/android`, builds it with
+`apps/android/build-release.sh`, which writes `apps/dist/cranium-android-<version>.apk` and publishes it there with an
+API token. Only that person: on a computer without the key, the script makes a new one, and its APKs can't update the
+team's. It is never put in a public release.
 
 On the phone, open the APK from Files or the browser, and allow "Install unknown apps" for that app when Android asks.
 Or, with USB debugging on (Settings > About phone, tap Build number seven times, then Developer options):

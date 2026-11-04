@@ -279,7 +279,7 @@ test('the gateway has the routes of the HTTP API, and the rest goes to the web f
   const unclaimed = [['GET', '/assets', 404], ['GET', '/api', 404], ['GET', '/index.html', 404],
     ['GET', '/favicon.ico', 404], ['GET', '/oauth2/authorize', 404], ['POST', '/', 405],
     ['HEAD', '/', 405], ['HEAD', '/assets/app.css', 405], ['DELETE', '/assets/app.css', 405],
-    ['DELETE', '/api/me', 405], ['PUT', '/api/firmware', 405]];
+    ['DELETE', '/api/me', 405], ['PUT', '/firmware', 405]];
   for (const [method, path, status] of unclaimed) {
     const answer = await fetch(`${origin}${path}`, { method });
     assert.equal(answer.status, status, `${method} ${path}`);
@@ -294,8 +294,10 @@ test('the gateway has the routes of the HTTP API, and the rest goes to the web f
     assert.equal(unknown.status, 404, path);
     assert.equal(await unknown.text(), 'Not found\n');
   }
-  // A route of the API: the authorizer comes first, then the function says what it has not.
+  // A route of the API: the authorizer comes first, then the function says what it has not. PUT is
+  // one of its methods too, for a release's note.
   assert.equal((await fetch(`${origin}/api/`)).status, 401);
+  assert.equal((await fetch(`${origin}/api/firmware/1.0.0%2B0/notes`, { method: 'PUT' })).status, 401);
   const missing = await call(origin, await accessToken(origin), 'GET', '/api/');
   assert.deepEqual([missing.status, missing.body.error.code], [404, 'not_found']);
 });
@@ -464,6 +466,8 @@ test('the console signs in with its own code and leaves no refresh token behind'
 
   assert.deepEqual(await api.me(), {
     sub: preview.user.sub, email: preview.user.email, groups: ['release-managers'], canWrite: true,
+    // The console's own version, from this checkout's cloud/VERSION; a preview is built from no commit.
+    console: { version: readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim(), commit: null },
   });
   // The page may talk to the sign-in origin, and to no other: there the stand-in answers
   // for the managed login and for the user pool API alike.
@@ -658,13 +662,15 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   const withDiag = devices.filter((device) => device.diag !== null);
   assert.equal(withDiag.length, 1);
   // The board with diagnostics reports its own name with them; the others are their thing names alone.
-  assert.deepEqual(devices.map((device) => device.name).sort(), ['CRVIHAAN01', null, null]);
+  // Two of the five are nRF5340 DKs, which never connect (the Fleet page has them). Three more, on 1.13.0,
+  // are on the Map page with the board that took 1.13.0 in the staged rollout (campusMap in preview.mjs).
+  assert.deepEqual(devices.map((device) => device.name).sort(), ['CRVIHAAN01', null, null, null, null, null, null, null]);
   assert.equal(withDiag[0].name, 'CRVIHAAN01');
   assert.ok(events.some((event) => event.what === 'named' && event.text === 'Reported its name CRVIHAAN01'));
   assert.equal(withDiag[0].diag.channel, 11);
   assert.ok(withDiag[0].diag.heap.least < withDiag[0].diag.heap.size * 0.15);
   assert.equal(devices.filter((device) => device.diary !== null).length, 2);
-  assert.equal(devices.filter((device) => device.online).length, 2);
+  assert.equal(devices.filter((device) => device.online).length, 5);
   const readings = await api.samples(withDiag[0].thing, 24);
   // A minute apart for a day: over 600 readings, thinned for the chart.
   assert.equal(readings.samples.length <= 600, true);
@@ -1169,4 +1175,81 @@ test('through a real restart the page keeps saying Restarting, and keeps asking 
   const { device, words } = at(240);
   assert.equal(device.online, false);
   assert.match(words, /^Was restarting into 1\.7\.1\+0 when last seen/);
+});
+
+test('fleet: boards around a campus are on the map, one moved, one heard too few, and the alerts went out', async (t) => {
+  const { origin, clock, preview } = await start(t, { scenario: 'fleet' });
+  const { api } = await consoleClient(origin, clock, []);
+  const { devices } = await api.devices();
+  const placed = devices.filter((device) => device.position !== null);
+  // The board that took 1.13.0 in the rollout, and two of the three new ones.
+  assert.equal(placed.length, 3, JSON.stringify(devices.map((device) => [device.thing, device.fw?.version, device.location])));
+  for (const device of placed) {
+    // On Penn's campus or at Pennovation Works, within tens of metres.
+    assert.ok(Math.abs(device.position.lat - 39.95) < 0.02 && Math.abs(device.position.lon + 75.195) < 0.02, device.thing);
+    assert.ok(device.position.accuracy >= 12 && device.position.accuracy < 200, String(device.position.accuracy));
+  }
+  const reasons = devices.filter((device) => device.position === null).map((device) => core.unplacedReason(device).code).sort();
+  // CRVIHAAN01 and the board on 1.9.0 send no scan; the two nRF5340 DKs have no Wi-Fi; one board heard one access point.
+  assert.deepEqual(reasons, ['bluetooth', 'bluetooth', 'no_scan', 'no_scan', 'too_few']);
+
+  const moved = placed.find((device) => device.position.lon < -75.2);
+  const history = await api.positions(moved.thing);
+  assert.equal(history.positions.length, 2);
+  const to = new Date(clock.ms).toISOString();
+  const from = new Date(clock.ms - 86_400_000).toISOString();
+  const { events } = await api.events({ from, to, thing: moved.thing });
+  assert.deepEqual(events.filter((event) => event.kind === 'health').map((event) => event.what), ['moved', 'located']);
+
+  // The release manager gets the alerts: the board offline for an hour, the stuck restart, the move.
+  const alerts = await api.alerts();
+  assert.equal(alerts.subscription, 'confirmed');
+  const kinds = alerts.recent.map((item) => item.kind);
+  for (const kind of ['offline', 'moved']) assert.ok(kinds.includes(kind), kind);
+  // No access point is in what the console keeps or shows.
+  assert.equal(JSON.stringify([devices, history, alerts]).includes('00:00:5e:ef'), false);
+
+  // A board on 1.13.0 answers Identify in its log; one on older firmware does not hear it.
+  const command = await api.command(placed[0].thing, 'identify', 15);
+  const { lines } = await api.boardLog({ from: new Date(clock.ms - 60_000).toISOString(), to: new Date(clock.ms + 1000).toISOString(),
+    thing: placed[0].thing, tags: ['CMD'] });
+  assert.deepEqual(lines.map((line) => line.text), [`identify for 15 s (${command.id})`]);
+  assert.equal(preview.fake.commands.length, 1);
+});
+
+test('the Apps page: the fleet has the Android app\'s last two versions, a link downloads one, and the versions are the checkout\'s', async (t) => {
+  const { origin } = await start(t, { scenario: 'fleet' });
+  const token = await accessToken(origin);
+  const { body: listed } = await call(origin, token, 'GET', '/api/apps');
+  assert.deepEqual(listed.android.releases.map((release) => [release.version, release.versionCode]), [['0.4.0', 4], ['0.3.0', 3]]);
+  assert.equal(listed.android.latest, '0.4.0');
+  assert.match(listed.android.releases[0].notes, /fingerprint/);
+  const version = readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
+  assert.equal(listed.console.version, version);
+  assert.match(listed.ios.version, /^\d+\.\d+\.\d+$/);
+  const me = (await call(origin, token, 'GET', '/api/me')).body;
+  assert.equal(me.console.version, version);
+
+  // The download link points at the preview's own stand-in for S3, and gives the APK under its name.
+  const { body: { download } } = await call(origin, token, 'GET', '/api/apps/android/0.4.0/download');
+  assert.ok(download.url.startsWith(`${origin}/local-s3/apps/android/cranium-android-0.4.0.apk?`), download.url);
+  const apk = await fetch(download.url);
+  assert.equal(apk.status, 200);
+  assert.equal(apk.headers.get('content-disposition'), 'attachment; filename="cranium-android-0.4.0.apk"');
+  assert.equal(apk.headers.get('content-type'), 'application/vnd.android.package-archive');
+  assert.equal((await apk.arrayBuffer()).byteLength, download.size);
+  // Changed, it is refused, as S3 refuses it.
+  assert.equal((await fetch(download.url.replace('X-Amz-Expires=900', 'X-Amz-Expires=901'))).status, 403);
+
+  // The site's versions.json, as deploy.sh would write it, where this checkout has none.
+  const page = await (await fetch(`${origin}/`)).text();
+  const build = /\/assets\/([0-9a-f]{12})\/app\.js/.exec(page)[1];
+  const versions = await (await fetch(`${origin}/assets/${build}/versions.json`)).json();
+  assert.equal(versions.console.version, version);
+  assert.ok(versions.changelogs.console.length > 0);
+  assert.deepEqual(Object.keys(versions.changelogs), ['console', 'firmware', 'ios', 'android']);
+
+  const { entries } = (await call(origin, token, 'GET', '/api/audit?limit=100')).body;
+  const published = entries.filter((entry) => entry.action === 'app.publish').map((entry) => entry.target);
+  assert.deepEqual(published, ['0.4.0', '0.3.0']);
 });

@@ -6,6 +6,19 @@ it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), somethin
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 1.10.0
+
+Fleet tools: board types, groups, staged rollouts with a canary that stop by themselves, Update everything, and the
+right image only on a board of its type and flash layout. A map of the boards from Wi-Fi, Identify and Report now,
+e-mail alerts, editable release notes, the Apps page to install the phone apps, and the console's version at the foot
+of every page.
+
+Fleet page: each board's type, health and groups, and deployments to a group, a type or the whole fleet. A release
+says which board type and flash layout it is for, read from its signed image, and is never offered to another. The
+staged rollouts' schedule sends an e-mail alert when a canary does not confirm or AWS IoT stops the waves.
+
+The version commit, 2026-11-04.
+
 ## 1.9.1
 
 Phone sessions can last 30 days behind Face ID or a fingerprint; without them, an hour as before. The website's own

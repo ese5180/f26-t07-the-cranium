@@ -25,6 +25,11 @@ const PATTERNS = Object.freeze({
   SIGNING_PUBLIC_KEY_B64: /^[A-Za-z0-9+/]+={0,2}$/,
   SLOT_SIZE: /^[1-9]\d{0,9}$/,
   LOAD_ADDRESS: /^(?:0|[1-9]\d{0,9})$/,
+  ALERT_TOPIC_ARN: /^arn:aws[a-z-]*:sns:[a-z]{2}(?:-[a-z]+)+-\d{1,2}:\d{12}:[A-Za-z0-9_-]{1,256}$/,
+  // The console's address, as the stack's output ConsoleUrl has it, and the host of its login pages: what
+  // the phone apps are configured with (GET /api/apps/config, apps/config/cranium.json).
+  CONSOLE_URL: /^https:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::\d{1,5})?\/?$/,
+  LOGIN_DOMAIN: /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/,
 });
 
 function read(env, name) {
@@ -75,5 +80,11 @@ export function loadConfig(env = process.env) {
     signingKeyFingerprint: signingKey.keyHash.toString('hex'),
     slotSize,
     loadAddress,
+    // Where the e-mail alerts go (docs/fleet.md). aws-map.mjs subscribes to it; nothing here publishes.
+    alertTopicArn: read(env, 'ALERT_TOPIC_ARN'),
+    // For the phone apps' configuration (handlers/apps.mjs). Public, as the client IDs are.
+    // Without the slash at the end, as apps/configure.sh writes it.
+    consoleUrl: read(env, 'CONSOLE_URL').replace(/\/$/, ''),
+    loginDomain: read(env, 'LOGIN_DOMAIN'),
   });
 }
