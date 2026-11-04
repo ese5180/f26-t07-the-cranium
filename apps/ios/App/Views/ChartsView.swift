@@ -166,12 +166,25 @@ struct KindGlyph: View {
             case "up": Triangle().fill(color).frame(width: size, height: size * 0.85)
             case "down": Triangle().fill(color).frame(width: size, height: size * 0.85).rotationEffect(.degrees(180))
             case "ring": Circle().strokeBorder(color, lineWidth: 2).frame(width: size * 0.8, height: size * 0.8)
+            case "plus": PlusShape().fill(color).frame(width: size * 0.85, height: size * 0.85)
+            case "dot": Circle().fill(color).frame(width: size * 0.5, height: size * 0.5)
             case "bar": Capsule().fill(color).frame(width: size * 0.28, height: size * 1.1)
             default: Circle().fill(color).frame(width: size * 0.85, height: size * 0.85)
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+/// A plus: the mark of a setting changed at a board's serial console.
+struct PlusShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let bar = rect.width * 0.3
+        var path = Path()
+        path.addRect(CGRect(x: rect.midX - bar / 2, y: rect.minY, width: bar, height: rect.height))
+        path.addRect(CGRect(x: rect.minX, y: rect.midY - bar / 2, width: rect.width, height: bar))
+        return path
     }
 }
 
@@ -207,6 +220,22 @@ struct TimelineChart: View {
                         RectangleMark(xStart: .value("From", band.from), xEnd: .value("To", band.to),
                                       y: .value("Lane", lane.id), height: 22)
                             .foregroundStyle(theme.bandOnline.opacity(band.inferred ? 0.6 : 1))
+                    }
+                }
+            }
+            // The board log's lines, as ticks at the foot of each board's lane, in their kind's hue,
+            // red-tinged for a warning. Not read out: the Board log below lists every one.
+            ForEach(lanes) { lane in
+                ForEach(lane.lines) { line in
+                    if let at = line.date {
+                        PointMark(x: .value("Time", at), y: .value("Lane", lane.id))
+                            .symbol {
+                                Capsule()
+                                    .fill(line.warn ? theme.warn : theme.kind(Telemetry.kind(line.kind).hue))
+                                    .frame(width: 1.5, height: 6)
+                            }
+                            .offset(y: 14)
+                            .accessibilityHidden(true)
                     }
                 }
             }
@@ -254,7 +283,7 @@ struct TimelineChart: View {
         .frame(height: CGFloat(max(lanes.count, 1)) * 46 + 30)
         .accessibilityElement()
         .accessibilityLabel("Timeline")
-        .accessibilityValue("\(shown.reduce(0) { $0 + $1.1.count }) events on \(lanes.count) lanes. The list below has every one.")
+        .accessibilityValue("\(shown.reduce(0) { $0 + $1.1.count }) events on \(lanes.count) lanes. The list below has every one\(lanes.contains { !$0.lines.isEmpty } ? ", and the Board log every line of the boards’ own logs" : "").")
     }
 
     private func label(_ id: String) -> String {

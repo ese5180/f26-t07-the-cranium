@@ -7,11 +7,12 @@ public enum Telemetry {
     // MARK: Kinds of event
 
     /// The look of each kind of event: a family hue (a: the update path, b: people, c: the board's
-    /// health, quiet: connections) and a shape. In the order of the legend.
+    /// health, quiet: connections) and a shape. In the order of the legend. `setting` and `log` are
+    /// kinds of the board log's lines only.
     public struct Kind: Equatable, Sendable, Identifiable {
         public let id: String
         public let label: String
-        /// circle, square, diamond, down, up, ring, bar
+        /// circle, square, diamond, down, up, ring, plus, dot, bar
         public let shape: String
         /// a, b, c or quiet
         public let hue: String
@@ -24,6 +25,9 @@ public enum Telemetry {
         Kind(id: "health", label: "Wi-Fi and memory", shape: "down", hue: "c"),
         Kind(id: "bluetooth", label: "Bluetooth", shape: "up", hue: "b"),
         Kind(id: "console", label: "Console", shape: "ring", hue: "b"),
+        // Lines of the board log only: a setting changed at a board's serial console, and the rest.
+        Kind(id: "setting", label: "Settings", shape: "plus", hue: "b"),
+        Kind(id: "log", label: "Other lines", shape: "dot", hue: "quiet"),
         Kind(id: "connection", label: "Connection", shape: "bar", hue: "quiet"),
     ]
 
@@ -121,7 +125,7 @@ public enum Telemetry {
         guard let at = ConsoleTime.date(entry.at) else { return nil }
         let words = Words.describeAudit(entry)
         return Marker(id: "console-\(entry.at ?? "")-\(entry.requestId)", thing: nil, at: at, kind: "console",
-                      what: entry.action, warn: entry.outcome != "ok", text: Words.auditSentence(entry), job: nil,
+                      what: entry.action, warn: entry.outcome != "ok", text: Words.auditSpoken(entry), job: nil,
                       link: words.link)
     }
 
@@ -131,18 +135,22 @@ public enum Telemetry {
         public let label: String
         public let device: Device?
         public let markers: [Marker]
+        /// The board's own log in the range, as ticks at the foot of its lane: where it was talking,
+        /// without a marker for each. Not read out; the Board log lists every one.
+        public var lines: [BoardLine] = []
     }
 
     /// One lane per board, in the order of their names, and the Console lane last. Every board of
-    /// the group has one, also without events; a board that has events and is no longer in the list
-    /// keeps its lane for them.
-    public static func lanes(events: [Marker], devices: [Device], thing: String = "", console: [Marker]?) -> [Lane] {
+    /// the group has one, also without events; a board that has events or lines and is no longer in
+    /// the list keeps its lane for them.
+    public static func lanes(events: [Marker], devices: [Device], thing: String = "", console: [Marker]?,
+                             lines: [BoardLine] = []) -> [Lane] {
         let names = thing.isEmpty
-            ? Array(Set(devices.map(\.thing) + events.compactMap(\.thing))).filter(BoardName.isThing).sorted()
+            ? Array(Set(devices.map(\.thing) + events.compactMap(\.thing) + lines.map(\.thing))).filter(BoardName.isThing).sorted()
             : [thing]
         var lanes = names.map { name in
             Lane(id: name, label: name, device: devices.first { $0.thing == name },
-                 markers: events.filter { $0.thing == name })
+                 markers: events.filter { $0.thing == name }, lines: lines.filter { $0.thing == name })
         }
         if let console { lanes.append(Lane(id: "console", label: "Console", device: nil, markers: console)) }
         return lanes

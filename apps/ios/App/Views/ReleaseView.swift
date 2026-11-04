@@ -7,6 +7,7 @@ struct ReleaseView: View {
     @Environment(\.theme) private var theme
     let version: String
     @State private var revoking = false
+    @State private var editingNote = false
 
     var body: some View {
         let release = app.releases?.first { $0.version == version }
@@ -30,6 +31,9 @@ struct ReleaseView: View {
         .sheet(isPresented: $revoking) {
             if let release { RevokeSheet(release: release) }
         }
+        .sheet(isPresented: $editingNote) {
+            if let release { NoteSheet(release: release) }
+        }
         .navigationTitle(version)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -43,6 +47,9 @@ struct ReleaseView: View {
                 Button { app.openBluetooth(release: release.version) } label: {
                     Label("Send over Bluetooth", systemImage: "dot.radiowaves.left.and.right")
                 }
+            }
+            if app.canWrite {
+                Button { editingNote = true } label: { Label("Edit note", systemImage: "square.and.pencil") }
             }
             CopyMenuItem(value: release.sha256, label: "Copy the SHA-256")
             NavigationLink(value: Route.help("firmware-and-signing")) { Label("Help", systemImage: "questionmark.circle") }
@@ -69,13 +76,19 @@ struct ReleaseView: View {
                     Spacer()
                     StatusText(release.isActive ? Look(.good, "check-circle", "Active") : Look(.bad, "ban", "Revoked"))
                 }
-                if let notes = release.notes {
-                    Text(verbatim: notes).font(.subheadline)
-                }
                 Text("Uploaded \(Words.timeAgo(release.uploadedAt, now: Date())) by \(Words.nameOf(release.uploadedBy))")
                     .font(.footnote).foregroundStyle(theme.ink3)
             }
             .padding(.vertical, 2)
+        }
+        // The release's note, in full: what changed, from firmware/CHANGELOG.md.
+        if let notes = release.notes {
+            Section("What changed") {
+                Text(verbatim: notes)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
         }
         if let mark = release.revoked {
             Section {
@@ -174,6 +187,77 @@ struct ReleaseDetailsView: View {
             }
             Text(verbatim: value).font(Typeface.hash).foregroundStyle(theme.ink2).textSelection(.enabled)
             Text(note).font(.caption).foregroundStyle(theme.ink3)
+        }
+    }
+}
+
+/// A release's note, changed after its upload (`PUT /api/firmware/{version}/notes`): what changed in it,
+/// for someone choosing a release. Release managers only; as every change from the phone, it needs a
+/// sign-in in the last 15 minutes, which the sheet asks for when the console does.
+struct NoteSheet: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.theme) private var theme
+    let release: FirmwareRelease
+    @StateObject private var change = ChangeRunner()
+    @State private var note: String
+
+    init(release: FirmwareRelease) {
+        self.release = release
+        _note = State(initialValue: release.notes ?? "")
+    }
+
+    var body: some View {
+        let limit = ConsoleAPI.notesLimit
+        let cleaned = UploadCheck.singleLine(note)
+        NavigationStack {
+            ListScreen {
+                Section {
+                    TextField("What changed in this release", text: $note, axis: .vertical)
+                        .lineLimit(4...12)
+                        .disabled(change.busy)
+                        .onChange(of: note) { value in
+                            if value.count > limit { note = String(value.prefix(limit)) }
+                        }
+                } header: {
+                    Text("Note of \(release.version)")
+                } footer: {
+                    Text("One paragraph, at most \(limit) characters\(cleaned.count >= 400 ? " (\(cleaned.count) now)" : ""). Empty takes the note away. The change goes in the activity log.")
+                }
+                if let error = change.error {
+                    Section { StateRow(kind: .failed, text: error) }
+                }
+                if change.asking || change.signingIn {
+                    Section { FreshSignInPrompt(change: change, what: "note") }
+                }
+                Section {
+                    PrimaryButton(change.busy ? "Saving…" : "Save the note", systemImage: "checkmark", busy: change.busy) {
+                        Task { await save(cleaned) }
+                    }
+                    .disabled(cleaned == UploadCheck.singleLine(release.notes ?? "") || change.busy || change.asking)
+                }
+            }
+            .navigationTitle("Edit note")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(change.busy)
+                }
+            }
+        }
+        .interactiveDismissDisabled(change.busy || change.asking)
+    }
+
+    private func save(_ text: String) async {
+        let version = release.version
+        if await change.run(app, refusal: "The note was not changed.", { api in
+            try await api.setNotes(version: version, notes: text)
+        }) != nil {
+            await app.loadFirmware()
+            app.say(text.isEmpty ? "Note taken away." : "Note saved.")
+            dismiss()
         }
     }
 }

@@ -11,6 +11,8 @@ public enum SearchTarget: Hashable, Sendable {
     case deployment(String)
     /// An event: its board.
     case event(thing: String)
+    /// A line of a board's log: that board's lines, under Events.
+    case boardLog(thing: String)
     /// An entry of the activity log: what it is about, if that has a page, else the log.
     case activity(AuditWords.Link?)
     /// One of the app's screens or actions, by its id in `SearchCatalog.screens`.
@@ -21,7 +23,7 @@ public enum SearchTarget: Hashable, Sendable {
 /// Something that can be found.
 public struct SearchItem: Sendable, Identifiable, Equatable {
     public enum Kind: String, Sendable, CaseIterable {
-        case screen, board, release, deployment, event, activity, help
+        case screen, board, release, deployment, event, line, activity, help
 
         /// The heading of a group of results.
         public var heading: String {
@@ -31,6 +33,7 @@ public struct SearchItem: Sendable, Identifiable, Equatable {
             case .release: return "Releases"
             case .deployment: return "Deployments"
             case .event: return "Events"
+            case .line: return "Board log"
             case .activity: return "Activity"
             case .help: return "Help"
             }
@@ -233,6 +236,16 @@ public enum Search {
             return SearchItem(kind: .event, key: event.id, title: event.text,
                               subtitle: "\(board) · \(Telemetry.kind(event.kind).label) · \(Words.dateAndTime(event.at))",
                               keywords: [event.thing, event.what], target: .event(thing: event.thing))
+        }
+    }
+
+    /// The lines of the board log that were read: what a board printed, by its board, source and time.
+    public static func items(lines: [BoardLine], devices: [Device]) -> [SearchItem] {
+        lines.map { line in
+            let board = devices.first { $0.thing == line.thing }?.label ?? line.thing
+            return SearchItem(kind: .line, key: line.id, title: line.text,
+                              subtitle: "\(board) · \(line.tag) · \(Words.dateAndTime(line.at))\(line.warn ? " · Warning" : "")",
+                              keywords: [line.thing, line.tag, Telemetry.kind(line.kind).label], target: .boardLog(thing: line.thing))
         }
     }
 

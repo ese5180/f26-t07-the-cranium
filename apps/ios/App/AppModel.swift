@@ -49,6 +49,8 @@ enum Route: Hashable {
     case boardsList
     case firmwareList
     case eventsList
+    /// Events narrowed to one board, with its board log: a board page's "All lines", and Search.
+    case boardLog(String)
 }
 
 /// The signed-in console: who, the configuration, the API, and what several screens share (the

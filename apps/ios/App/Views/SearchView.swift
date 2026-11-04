@@ -9,6 +9,8 @@ final class SearchModel: ObservableObject {
     @Published private(set) var recent: [String] = RecentSearches().all
     @Published private(set) var audit: [AuditEntry] = []
     @Published private(set) var events: [BoardEvent] = []
+    /// The board log of the same range as the events: the last day, or the last week on request.
+    @Published private(set) var lines: [BoardLine] = []
     @Published private(set) var eventsWeek = false
     @Published private(set) var loadingEvents = false
     private var prepared = false
@@ -30,6 +32,7 @@ final class SearchModel: ObservableObject {
         if app.deployments.value == nil { await app.loadDeployments() }
         audit = (try? await api.audit(limit: 100).entries) ?? []
         events = (try? await api.events(from: Date().addingTimeInterval(-86_400), to: Date()).events) ?? []
+        lines = (try? await api.boardLog(from: Date().addingTimeInterval(-86_400), to: Date()).lines) ?? []
     }
 
     /// The events of the last 7 days, up to two pages: the API has no search of its own.
@@ -46,6 +49,7 @@ final class SearchModel: ObservableObject {
             all += next.events
         }
         events = all
+        if let week = try? await api.boardLog(from: from, to: to) { lines = week.lines }
         eventsWeek = true
     }
 
@@ -70,6 +74,7 @@ final class SearchModel: ObservableObject {
         items += Search.items(releases: app.releases ?? [])
         items += Search.items(deployments: app.deployments.value ?? [], devices: devices)
         items += Search.items(events: events, devices: devices)
+        items += Search.items(lines: lines, devices: devices)
         items += Search.items(activity: audit)
         if let help = HelpLibrary.book { items += Search.items(help: help) }
         return items
@@ -118,12 +123,12 @@ struct SearchResults: View {
                             Task { await model.searchWeek(app) }
                         } label: {
                             HStack {
-                                Label("Search events of the last 7 days", systemImage: "magnifyingglass")
+                                Label("Search events and lines of the last 7 days", systemImage: "magnifyingglass")
                                 if model.loadingEvents { Spacer(); ProgressView() }
                             }
                         }
                     } footer: {
-                        Text("Events of the last 24 hours are searched already.")
+                        Text("Events and board log lines of the last 24 hours are searched already.")
                     }
                 }
             }
@@ -184,6 +189,7 @@ struct SearchResults: View {
     private func destination(_ target: SearchTarget) -> Destination {
         switch target {
         case .board(let thing), .event(let thing): return .route(.board(thing))
+        case .boardLog(let thing): return .route(.boardLog(thing))
         case .release(let version): return .route(.release(version))
         case .deployment(let id): return .route(.deployment(id))
         case .activity: return .route(.activity)
@@ -242,6 +248,7 @@ struct HitLabel: View {
         case .release: return "shippingbox"
         case .deployment: return "paperplane"
         case .event: return "chart.xyaxis.line"
+        case .line: return "text.alignleft"
         case .activity: return "list.bullet"
         case .help: return "questionmark.circle"
         }

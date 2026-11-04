@@ -176,7 +176,7 @@ struct Stack<Root: View>: View {
         switch UserDefaults.standard.string(forKey: "CraniumRoute") {
         case "board": return [.board(Demo.boards[0])]
         case "deployment": return [.deployment(Demo.newDeployment)]
-        case "release": return [.release("1.11.4+0")]
+        case "release": return [.release("1.12.0+0")]
         case "deployments": return [.deployments]
         case "activity": return [.activity]
         case "tokens": return [.tokens]
@@ -187,6 +187,7 @@ struct Stack<Root: View>: View {
         case "help-topic": return [.help(nil), .help("bluetooth-update")]
         case "upload": return [.upload]
         case "events": return [.eventsList]
+        case "board-log": return [.boardLog(Demo.boards[0])]
         default: return []
         }
         #else
@@ -231,6 +232,7 @@ struct Stack<Root: View>: View {
         case .boardsList: BoardsView()
         case .firmwareList: FirmwareView()
         case .eventsList: EventsView()
+        case .boardLog(let thing): EventsView(thing: thing)
         }
     }
 }

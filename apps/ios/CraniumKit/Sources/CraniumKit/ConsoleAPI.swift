@@ -90,6 +90,19 @@ public final class ConsoleAPI: Sendable {
         return try decode(EventPage.self, from: try await send(["api", "events"], query: query))
     }
 
+    /// `GET /api/events/log`: what the boards printed on their serial consoles (firmware 1.12.0 and
+    /// later), newest first, at most 500 a page; `tags` keeps the lines of those sources only.
+    public func boardLog(from: Date, to: Date, thing: String? = nil, kinds: [String]? = nil, tags: [String]? = nil,
+                         limit: Int? = nil, cursor: String? = nil) async throws -> LinePage {
+        var query = [("from", ConsoleTime.text(from)), ("to", ConsoleTime.text(to))]
+        if let thing, !thing.isEmpty { query.append(("thing", thing)) }
+        if let kinds, !kinds.isEmpty { query.append(("kinds", kinds.joined(separator: ","))) }
+        if let tags, !tags.isEmpty { query.append(("tags", tags.joined(separator: ","))) }
+        if let limit { query.append(("limit", String(min(max(limit, 1), 500)))) }
+        if let cursor { query.append(("cursor", cursor)) }
+        return try decode(LinePage.self, from: try await send(["api", "events", "log"], query: query))
+    }
+
     // MARK: Firmware
 
     /// `GET /api/firmware`: every release, active and revoked, newest first.
@@ -112,6 +125,17 @@ public final class ConsoleAPI: Sendable {
 
     /// `POST /api/firmware/{version}/revoke` with a reason: withdraws a release for good, refuses its
     /// image and cancels its open deployments. Returns the release and the deployments it cancelled.
+    /// `PUT /api/firmware/{version}/notes`: a release's note, changed after its upload, active or revoked.
+    /// The whole note every time: "" clears it. One line, at most 500 characters. Release managers; a change.
+    public func setNotes(version: String, notes: String) async throws -> FirmwareRelease {
+        struct Answer: Decodable { let release: FirmwareRelease }
+        let body = try JSONSerialization.data(withJSONObject: ["notes": String(UploadCheck.singleLine(notes).prefix(Self.notesLimit))])
+        return try decode(Answer.self, from: try await send(["api", "firmware", version, "notes"], method: "PUT", body: body)).release
+    }
+
+    /// The longest note the server keeps.
+    public static let notesLimit = 500
+
     public func revoke(version: String, reason: String) async throws -> (release: FirmwareRelease, cancelled: [String]) {
         struct Answer: Decodable {
             let release: FirmwareRelease

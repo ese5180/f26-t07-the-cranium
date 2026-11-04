@@ -82,14 +82,86 @@ struct BoardRow: View {
 
 /// A board's page: who it is and what it runs at the top, the update while there is one, then
 /// sections; the long parts are a tap away.
+/// A board's newest lines of its own log (firmware 1.12.0 and later), and the way to all of them
+/// under Events. Read every 30 s while the page is open.
+@MainActor
+final class BoardLogModel: ObservableObject {
+    @Published private(set) var lines: [BoardLine]?
+    @Published private(set) var more = false
+    @Published private(set) var error: Error?
+
+    func refresh(_ app: AppModel, thing: String) async {
+        guard let api = app.api else { return }
+        let to = Date()
+        do {
+            let page = try await api.boardLog(from: to.addingTimeInterval(-86_400), to: to, thing: thing, limit: BoardLog.recentCount)
+            lines = page.lines
+            more = page.cursor != nil
+            error = nil
+        } catch {
+            if !(error is CancellationError) { self.error = error }
+            await app.handle(error)
+        }
+    }
+}
+
+struct BoardLogSection: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.theme) private var theme
+    @StateObject private var model = BoardLogModel()
+    let thing: String
+
+    var body: some View {
+        Section {
+            if let lines = model.lines {
+                if lines.isEmpty {
+                    Text(BoardLog.recentEmpty).font(.footnote).foregroundStyle(theme.ink3)
+                } else {
+                    ForEach(lines) { line in
+                        BoardLineRow(line: line, board: app.device(thing), showsBoard: false)
+                    }
+                }
+            } else if let error = model.error {
+                StateRow(kind: .failed, text: "\(BoardLog.failed) \(Words.plainMessage(error))")
+            } else {
+                StateRow(kind: .loading, text: "Loading its lines…")
+            }
+            // The one row that is always there carries the reading, once for the section.
+            NavigationLink(value: Route.boardLog(thing)) { Text(BoardLog.allLines) }
+                .poll(every: { 30 }) { _ in await model.refresh(app, thing: thing) }
+        } header: {
+            Text(BoardLog.recentTitle)
+        }
+        .id(Self.anchor)
+    }
+
+    static let anchor = "latest-lines"
+}
+
 struct BoardView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
     let thing: String
 
     var body: some View {
+        ScrollViewReader { proxy in
+            page
+                #if DEBUG
+                // Demo mode: `-CraniumScroll lines` brings the latest lines into view, for a screenshot.
+                .onChange(of: app.deviceDetails[thing]?.loadedAt) { _ in
+                    guard Demo.isOn, UserDefaults.standard.string(forKey: "CraniumScroll") == "lines" else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 800_000_000)
+                        proxy.scrollTo(BoardLogSection.anchor, anchor: UnitPoint(x: 0.5, y: 0.12))
+                    }
+                }
+                #endif
+        }
+    }
+
+    private var page: some View {
         let resource = app.deviceDetails[thing] ?? Loadable()
-        ListScreen {
+        return ListScreen {
             if let detail = resource.value {
                 content(detail, resource: resource)
             } else if let error = resource.error as? APIError, error.status == 404 {
@@ -158,6 +230,7 @@ struct BoardView: View {
         }
         firmware(device)
         diagnostics(detail)
+        BoardLogSection(thing: device.thing)
         bluetooth(device)
         history(detail)
     }

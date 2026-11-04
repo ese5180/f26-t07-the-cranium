@@ -62,7 +62,9 @@ resets.
 A Debug build started with the launch argument `-CraniumDemo` signs nobody in and makes no network
 request: every answer comes from `App/DemoData.swift`. `-CraniumTab 0` to `4` opens a tab, and
 `-CraniumRoute board`, `deployment`, `release`, `deployments`, `activity`, `tokens`, `history`,
-`serial`, `account`, `help`, `help-topic`, `upload` or `events` a screen on it, and `-CraniumSearch <text>` a search. A Release build has none of this.
+`serial`, `account`, `help`, `help-topic`, `upload`, `events` or `board-log` (Events at one board's log) a screen on it,
+`-CraniumScroll lines` scrolls a board's page to its latest lines, and `-CraniumSearch <text>` a search. A Release
+build has none of this.
 
 ```sh
 xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \

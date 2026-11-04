@@ -316,7 +316,7 @@ struct PrimaryButton: View {
     }
 }
 
-/// A release in a list: its version, and its notes or when it was uploaded.
+/// A release in a list: its version, and its note (two lines at most) or when it was uploaded.
 struct ReleaseLine: View {
     @Environment(\.theme) private var theme
     let release: FirmwareRelease
@@ -337,7 +337,7 @@ struct ReleaseLine: View {
                 }
             }
             Text(release.notes ?? "Uploaded \(Words.timeAgo(release.uploadedAt, now: Date()))")
-                .font(.footnote).foregroundStyle(theme.ink3).lineLimit(1)
+                .font(.footnote).foregroundStyle(theme.ink3).lineLimit(2).truncationMode(.tail)
         }
         .accessibilityElement(children: .combine)
     }

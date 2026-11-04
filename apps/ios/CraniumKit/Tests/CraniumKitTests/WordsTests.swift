@@ -296,6 +296,8 @@ import Testing
         #expect(Words.describeAudit(alone).verb == "tried to cancel a deployment")
         let resumed = AuditEntry(at: nil, actor: nil, action: "firmware.revoke", target: "1.8.0+0", detail: [.init("resumed", "true")])
         #expect(Words.describeAudit(resumed).verb == "finished revoking firmware")
-        #expect(Words.auditSentence(refused) == "an unknown account tried to deploy 1.8.0+0 (refused)")
+        // The plain sentence, as the website's, says nothing of how it ended; what VoiceOver hears does.
+        #expect(Words.auditSentence(refused) == "an unknown account tried to deploy 1.8.0+0")
+        #expect(Words.auditSpoken(refused) == "an unknown account tried to deploy 1.8.0+0 (refused)")
     }
 }

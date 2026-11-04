@@ -121,13 +121,23 @@ public struct AuditWords: Equatable, Sendable {
     }
 
     public let icon: String
+    /// Before the label.
     public let verb: String
+    /// What the entry is about: a version, a board, a token.
     public let label: String
+    /// After the label: "over USB", "to a phone".
+    public let tail: String
     public let outcome: Look?
     public let link: Link?
     public let facts: [Fact]
     /// Sent by a script with AWS credentials, directly to the API function.
     public let scripted: Bool
+    /// The thing names of the boards a deployment went to, as far as the entry names them, and how
+    /// many there were. `Words.auditBoards` puts them into words.
+    public let boards: [String]
+    public let boardCount: Int
+    /// The label is a board's own name, its device ID (a command at its serial console).
+    public let byName: Bool
 }
 
 public enum Words {
@@ -1022,25 +1032,61 @@ public enum Words {
 
     struct AuditAction {
         let done: String
+        /// The whole sentence for an entry that has no label.
+        var doneAlone: String? = nil
         let tried: String
         let triedAlone: String
         let icon: String
     }
 
+    // What each action of the activity log is called (core.js, `AUDIT_ACTIONS`). `done` and `tried`
+    // read on into the entry's label: a version, a board, a token. Where `{}` stands in them the label
+    // goes there, and the words after it follow it. A deployment is named by the version it installs,
+    // and the boards it went to follow the sentence (`auditBoards`).
     static let auditActions: [String: AuditAction] = [
         "firmware.upload": AuditAction(done: "uploaded firmware", tried: "tried to upload", triedAlone: "tried to upload a file", icon: "upload"),
         "firmware.revoke": AuditAction(done: "revoked firmware", tried: "tried to revoke firmware", triedAlone: "tried to revoke a release", icon: "ban"),
-        "deployment.create": AuditAction(done: "started a deployment of", tried: "tried to deploy", triedAlone: "tried to start a deployment", icon: "send"),
+        "deployment.create": AuditAction(done: "deployed", doneAlone: "started a deployment", tried: "tried to deploy",
+                                         triedAlone: "tried to start a deployment", icon: "send"),
         "deployment.cancel": AuditAction(done: "cancelled the deployment of", tried: "tried to cancel the deployment of",
                                          triedAlone: "tried to cancel a deployment", icon: "stop"),
-        "firmware.download": AuditAction(done: "downloaded firmware to a phone", tried: "tried to download firmware",
-                                         triedAlone: "tried to download firmware", icon: "download"),
+        // From the phone apps, for an update over Bluetooth.
+        "firmware.download": AuditAction(done: "downloaded {} to a phone", doneAlone: "downloaded firmware to a phone",
+                                         tried: "tried to download", triedAlone: "tried to download firmware", icon: "download"),
         "pairing.read": AuditAction(done: "read the Bluetooth passkey of", tried: "tried to read the Bluetooth passkey of",
                                     triedAlone: "tried to read a Bluetooth passkey", icon: "shield"),
-        "firmware.bluetooth_send": AuditAction(done: "was cleared to send over Bluetooth", tried: "tried to send over Bluetooth",
-                                               triedAlone: "tried to send firmware over Bluetooth", icon: "chip"),
+        // The check a phone makes right before it sends a release over Bluetooth.
+        "firmware.bluetooth_send": AuditAction(done: "was cleared to send {} over Bluetooth", doneAlone: "was cleared to send firmware over Bluetooth",
+                                               tried: "tried to send {} over Bluetooth", triedAlone: "tried to send firmware over Bluetooth", icon: "chip"),
         "token.create": AuditAction(done: "made API token", tried: "tried to make API token", triedAlone: "tried to make an API token", icon: "key"),
         "token.revoke": AuditAction(done: "revoked API token", tried: "tried to revoke API token", triedAlone: "tried to revoke an API token", icon: "key"),
+        // A sign-in with password and code, on the website or a phone app (`signedInOn`).
+        "account.sign_in": AuditAction(done: "signed in", tried: "tried to sign in", triedAlone: "tried to sign in", icon: "user"),
+        // A command that changed a board at its serial console, over USB, named by the board's device ID.
+        "serial.command": AuditAction(done: "ran a command on {} over USB", doneAlone: "ran a command on a board over USB",
+                                      tried: "tried to put on record a command on {} over USB",
+                                      triedAlone: "tried to put on record a command run over USB", icon: "chip"),
+    ]
+
+    static let signedInOn = ["web": "signed in on the website", "phone": "signed in on the phone app"]
+
+    /// What a command at a board's serial console did, with the board where {} stands. What was typed
+    /// after the command is never recorded, so never said.
+    public static let serialWords: [String: String] = [
+        "INIT": "set up {} from factory mode over USB",
+        "SET_ID": "changed the device ID of {} over USB",
+        "RESET_CONFIG": "cleared the cloud settings of {} over USB",
+        "FACTORY_RESET": "erased {} back to factory mode over USB",
+        "WIFI": "set the Wi-Fi network of {} over USB",
+        "WIFI_SEC": "set the Wi-Fi network and its security mode of {} over USB",
+        "CLEAR_WIFI": "erased the Wi-Fi network of {} over USB",
+        "CLOUD": "set the AWS IoT endpoint and download address of {} over USB",
+        "KEYGEN": "made a new device key on {} over USB",
+        "MQTT_HOST": "set the AWS IoT endpoint of {} over USB",
+        "MQTT_RECONNECT": "reconnected {} to AWS IoT over USB",
+        "BUTTON": "pressed a button of {} over USB",
+        "REBOOT": "restarted {} over USB",
+        "ENTER_BOOTLOADER": "restarted {} into its bootloader over USB",
     ]
 
     static let auditOutcomes: [String: Look] = [
@@ -1120,6 +1166,11 @@ public enum Words {
         "invalid_range": "The time range was empty, backwards or longer than 31 days",
         "invalid_kinds": "The list of kinds of event was not valid",
         "invalid_hours": "The number of hours was not a whole number from 1 to 168",
+        "invalid_tags": "The list of sources of the board log was not valid",
+        "invalid_command": "Not a command that changes a board at its serial console",
+        "invalid_device": "Not a board’s device ID",
+        "unexpected_field": "The request held more than the command, the device ID and the version",
+        "rate_limited": "More serial console commands in a minute than are recorded for one person",
     ]
 
     struct AuditDetail {
@@ -1132,7 +1183,8 @@ public enum Words {
     /// What the API records with an entry, in the words of the console and in the order in which a
     /// line reads best.
     static let auditDetailOrder = ["code", "incomplete", "filename", "version", "things", "force", "reason", "cancelled",
-                                   "size", "sha256", "token", "tokenState", "board", "name", "days", "withdrawn"]
+                                   "size", "sha256", "token", "tokenState", "board", "thing", "boards", "command", "from",
+                                   "client", "name", "days", "withdrawn"]
     static let revocationSteps = ["tag": "refusing the image", "cancel": "cancelling the deployments",
                                   "record": "recording that it is done"]
     static let auditDetails: [String: AuditDetail] = [
@@ -1155,6 +1207,13 @@ public enum Words {
         "token": AuditDetail(label: "With API token", code: true),
         "tokenState": AuditDetail(label: "The token had", say: { $0 == "revoked" ? "been revoked" : $0 }),
         "board": AuditDetail(label: "To board", code: true),
+        // The board whose Bluetooth passkey was read, by its thing name.
+        "thing": AuditDetail(label: "Board", code: true),
+        // The boards of a deployment of more than two, by thing name; up to two, the sentence names them.
+        "boards": AuditDetail(label: "To"),
+        "command": AuditDetail(label: "Command", code: true),
+        "from": AuditDetail(label: "From", say: { $0 == "phone" ? "the phone app" : $0 }),
+        "client": AuditDetail(label: "On", say: { ["web": "the website", "phone": "the phone app"][$0] ?? $0 }),
         "name": AuditDetail(label: "Named", sentence: true),
         "days": AuditDetail(label: "Valid for", say: { value in
             value.allSatisfy(\.isNumber) && !value.isEmpty ? plural(Int(value) ?? 0, "day") : value
@@ -1167,24 +1226,60 @@ public enum Words {
     public static let scriptedTag = "Script, no sign-in"
     public static let scriptedNote = "Sent by a script (the test bench, or scripts/ota.sh without an API token) with AWS credentials, directly to the API function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, so the entry does not show that this person did it."
 
-    /// One line of the activity log: what was done, to what, and how it ended if not well.
+    /// One line of the activity log: what was done, to what, and how it ended if not well (core.js,
+    /// `describeAudit`). `verb` comes before the label and `tail` after it. A deployment is called by its
+    /// version; its id goes to `facts`, the details of the entry in words.
     public static func describeAudit(_ entry: AuditEntry) -> AuditWords {
         let action = auditActions[entry.action]
         let ok = entry.outcome == "ok"
         let deployment = DeploymentId.isValid(entry.target) ? entry.target : nil
         let label = deployment.map { DeploymentId.version(of: $0) ?? $0 } ?? entry.target
         let details = Dictionary(entry.detail.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        // A revocation that completed what an earlier request had begun.
         let resumed = entry.action == "firmware.revoke" && ok && details["resumed"] == "true"
         var words = entry.action.isEmpty ? "did something" : entry.action
-        if resumed { words = "finished revoking firmware" }
-        else if let action, ok { words = action.done }
-        else if let action { words = label.isEmpty ? action.triedAlone : action.tried }
+        if resumed {
+            words = "finished revoking firmware"
+        } else if entry.action == "account.sign_in", ok, let action {
+            words = signedInOn[details["client"] ?? ""] ?? action.done
+        } else if entry.action == "serial.command", ok, let action {
+            words = serialWords[details["command"] ?? ""] ?? action.done
+        } else if let action, ok {
+            words = label.isEmpty ? action.doneAlone ?? action.done : action.done
+        } else if let action {
+            words = label.isEmpty ? action.triedAlone : action.tried
+        }
 
-        var keys = auditDetailOrder.filter { details[$0] != nil }
-        keys += entry.detail.map(\.key).filter { !auditDetailOrder.contains($0) }
+        var verb = words
+        var tail = ""
+        if let slot = words.range(of: "{}") {
+            if !label.isEmpty {
+                verb = String(words[..<slot.lowerBound]).trimmingCharacters(in: .whitespaces)
+                tail = String(words[slot.upperBound...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                verb = words.replacingOccurrences(of: "{}", with: "a board")
+            }
+        }
+        if label.isEmpty, verb.hasSuffix(" of") { verb = String(verb.dropLast(3)) }
+
+        // The boards of a deployment: by name where the entry has them, else how many.
+        let boards = entry.action == "deployment.create"
+            ? (details["boards"] ?? "").split(separator: " ").map(String.init).filter(BoardName.isThing) : []
+        let things = details["things"] ?? ""
+        let counted = entry.action == "deployment.create" && things.range(of: "^[1-9][0-9]{0,3}$", options: .regularExpression) != nil
+            ? Int(things) ?? 0 : 0
+        let boardCount = max(counted, boards.count)
+
+        // What the sentence says already is not said again as a fact.
+        var said: Set<String> = []
+        if entry.action == "account.sign_in" { said.insert("client") }
+        if entry.action == "deployment.create" && boardCount > 0 { said.insert("things") }
+        if boards.count <= 2 { said.insert("boards") }
+        var keys: [String] = []
+        for key in auditDetailOrder + entry.detail.map(\.key) where !keys.contains(key) { keys.append(key) }
         var facts: [AuditWords.Fact] = []
         for key in keys {
-            guard let value = details[key] else { continue }
+            guard let value = details[key], !said.contains(key) else { continue }
             if key == "version" && value == label { continue }
             if key == "resumed" && resumed { continue }
             if key == "filename" && value == label { continue }
@@ -1195,6 +1290,8 @@ public enum Words {
             var factLabel = known.label
             if key == "cancelled" && entry.action == "firmware.revoke" { factLabel = "Deployments cancelled" }
             if key == "code" && entry.outcome == "error" { factLabel = "Failed with" }
+            // The firmware a board ran when a command was given at its serial console.
+            if key == "version" && entry.action == "serial.command" { factLabel = "Running" }
             facts.append(AuditWords.Fact(key: key, label: factLabel, value: known.say?(value) ?? value, code: known.code,
                                          phrase: !known.sentence, words: key == "code" ? refusalWords[value] : nil))
         }
@@ -1207,18 +1304,46 @@ public enum Words {
         else { link = nil }
         return AuditWords(
             icon: action?.icon ?? "list",
-            verb: label.isEmpty && words.hasSuffix(" of") ? String(words.dropLast(3)) : words,
+            verb: verb,
             label: label,
+            tail: tail,
             outcome: ok ? nil : auditOutcomes[entry.outcome] ?? Look(.idle, "minus", entry.outcome.isEmpty ? "Unknown" : entry.outcome),
             link: link,
             facts: facts,
-            scripted: entry.requestId.hasPrefix(scriptedRequest))
+            scripted: entry.requestId.hasPrefix(scriptedRequest),
+            boards: boards,
+            boardCount: boardCount,
+            byName: entry.action == "serial.command" && label.range(of: "^[A-Za-z0-9]{1,32}$", options: .regularExpression) != nil)
     }
 
-    /// The whole line as one sentence, for a screen reader and the Console lane of the timeline.
-    public static func auditSentence(_ entry: AuditEntry) -> String {
-        let words = describeAudit(entry)
-        let what = [nameOf(entry.actor), words.verb, words.label].filter { !$0.isEmpty }.joined(separator: " ")
-        return words.outcome.map { "\(what) (\($0.label.lowercased()))" } ?? what
+    /// Where a deployment went, in words, each board by what it is called in `devices`: "to
+    /// CRVIHAAN01", "to CRVIHAAN01 and cranium-0123…", "to 3 boards"; "" when the entry does not say.
+    public static func auditBoards(_ words: AuditWords, devices: [Device] = []) -> String {
+        if !words.boards.isEmpty && words.boards.count <= 2 {
+            return "to " + words.boards.map { thing in devices.first { $0.thing == thing }?.name ?? thing }.joined(separator: " and ")
+        }
+        return words.boardCount > 0 ? "to \(plural(words.boardCount, "board"))" : ""
+    }
+
+    /// The words after the person's name: "deployed 1.11.4+0 to CRVIHAAN01".
+    public static func auditWhat(_ words: AuditWords, devices: [Device] = []) -> String {
+        [words.verb, words.label, words.tail, auditBoards(words, devices: devices)].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// A whole line of the activity log in words, for where it is plain text (core.js, `auditSentence`):
+    /// "a@b deployed 1.12.0+0 to CRVIHAAN01".
+    public static func auditSentence(_ entry: AuditEntry, devices: [Device] = []) -> String {
+        [nameOf(entry.actor), auditWhat(describeAudit(entry), devices: devices)].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// The same for VoiceOver and the Console lane, with how it ended when not well: "… (refused)".
+    public static func auditSpoken(_ entry: AuditEntry, devices: [Device] = []) -> String {
+        let what = auditSentence(entry, devices: devices)
+        return describeAudit(entry).outcome.map { "\(what) (\($0.label.lowercased()))" } ?? what
+    }
+
+    /// A sign-in was asked for by no request: its request id is made of the sign-in itself, and not shown.
+    public static func showsRequestId(_ entry: AuditEntry) -> Bool {
+        !entry.requestId.isEmpty && entry.action != "account.sign_in"
     }
 }

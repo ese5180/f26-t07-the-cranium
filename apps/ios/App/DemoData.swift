@@ -97,8 +97,8 @@ enum Demo {
     }()
 
     static let boards = ["cranium-3f2a9c1e5b7d4a60", "cranium-8b1d6e0f2c4a9e73", "cranium-c05e7a1b3d9f2468"]
-    static let newDeployment = "cranium-1-11-4-b0-\(stamp(-600))-4c2b"
-    static let oldDeployment = "cranium-1-11-3-b0-\(stamp(-2 * 86_400))-9a1f"
+    static let newDeployment = "cranium-1-12-0-b0-\(stamp(-600))-4c2b"
+    static let oldDeployment = "cranium-1-11-4-b0-\(stamp(-2 * 86_400))-9a1f"
 
     static func iso(_ seconds: TimeInterval) -> String { ConsoleTime.text(Date().addingTimeInterval(seconds)) }
 
@@ -117,20 +117,20 @@ enum Demo {
         switch index {
         case 0:
             return ["thing": boards[0], "name": "CRVIHAAN01", "online": true, "lastSeen": iso(-12),
-                    "fw": ["version": "1.11.3+0", "confirmed": true],
-                    "ota": ["state": "downloading", "job": newDeployment, "progress": 64, "last": "succeeded", "error": ""],
+                    "fw": ["version": "1.12.0+0", "confirmed": true],
+                    "ota": ["state": "idle", "job": NSNull(), "progress": 0, "last": "succeeded", "error": ""],
                     "rssi": -58, "uptime": 15_840, "stuck": ["count": 0, "reason": "none"],
                     "diag": ["mac": "f4:ce:36:12:34:56", "channel": 6, "heap": ["free": 21_312, "least": 9_840, "size": 44_240], "at": iso(-140)],
                     "diary": ["boots": 42, "entries": [
-                        ["version": "1.11.3+0", "cause": "2", "causes": ["software"], "stage": 4],
-                        ["version": "1.11.2+0", "cause": "10", "causes": ["watchdog"], "stage": 4],
-                        ["version": "1.11.2+0", "cause": "0", "causes": ["power_on"], "stage": 3],
+                        ["version": "1.12.0+0", "cause": "2", "causes": ["software"], "stage": 4],
+                        ["version": "1.11.4+0", "cause": "10", "causes": ["watchdog"], "stage": 4],
+                        ["version": "1.11.4+0", "cause": "0", "causes": ["power_on"], "stage": 3],
                     ]],
-                    "bt": ["from": "1.11.2+0", "to": "1.11.3+0", "result": "succeeded", "proof": "person", "count": 3]]
+                    "bt": ["from": "1.11.4+0", "to": "1.12.0+0", "result": "succeeded", "proof": "person", "count": 3]]
         case 1:
             return ["thing": boards[1], "name": "CRLAB02", "online": true, "lastSeen": iso(-25),
-                    "fw": ["version": "1.11.3+0", "confirmed": false],
-                    "ota": ["state": "idle", "job": NSNull(), "progress": 0, "last": "succeeded", "error": ""],
+                    "fw": ["version": "1.11.4+0", "confirmed": true],
+                    "ota": ["state": "downloading", "job": newDeployment, "progress": 64, "last": "succeeded", "error": ""],
                     "rssi": -71, "uptime": 420, "stuck": ["count": 1, "reason": "no_cloud"],
                     "diag": ["mac": "f4:ce:36:ab:cd:ef", "channel": 11, "heap": ["free": 8_200, "least": 5_100, "size": 44_240], "at": iso(-200)]]
         default:
@@ -155,18 +155,20 @@ enum Demo {
 
     static var firmware: [String: Any] {
         ["releases": [
-            release("1.11.4+0", ago: 1200, notes: "Device ID in the diagnostics report."),
-            release("1.11.3+0", ago: 2 * 86_400, notes: "Bluetooth window stays open for 3 minutes."),
-            release("1.11.2+1", ago: 4 * 86_400, notes: "Faster reconnect.", revoked: true),
-            release("1.11.2+0", ago: 6 * 86_400, notes: "Idle link timeout of 120 s."),
+            // The notes are the first paragraphs of firmware/CHANGELOG.md, as upload-to-console.sh sends them.
+            release("1.12.0+0", ago: 1200, notes: "Every line the board prints from its own code now also goes to the console's Board log, never a passkey or a secret, with network names and links replaced. Lines wait in memory while offline. A change in what the heartbeat carries (version, update step, stuck restarts, Wi-Fi) is reported at once instead of at the next 30 s heartbeat. Needs the console's device policy from 662e305 or later."),
+            release("1.11.4+0", ago: 2 * 86_400, notes: "The board now tells the console its own device ID, the name given with INIT or SET_ID, so the console shows it as the board's name. It goes out in the diagnostics report as soon as it changes, and every five minutes."),
+            release("1.11.3+0", ago: 4 * 86_400, notes: "Bluetooth updates hold: the board no longer asks the phone for other connection timing while it pairs, which dropped an iPhone's link (reason 0x22). The phone's timing is kept. This is the version the first Bluetooth update installed from."),
+            release("1.11.2+1", ago: 5 * 86_400, notes: "Faster reconnect.", revoked: true),
+            release("1.11.2+0", ago: 6 * 86_400, notes: "More time for a person over Bluetooth: a paired but quiet link lasts 120 s instead of 30, and the Bluetooth window 180 s instead of 120. The serial console also explains the link: its timing, PHY and packet sizes, and why it ended."),
          ],
          "signingKey": ["fingerprint": sha("key")], "slotSize": 794_624]
     }
 
     static var deploymentList: [[String: Any]] {
-        [["id": newDeployment, "version": "1.11.4+0", "status": "IN_PROGRESS", "createdAt": iso(-600), "createdBy": alice,
-          "note": "Roll out the device ID", "things": [boards[0], boards[2]], "counts": ["inProgress": 1, "queued": 1]],
-         ["id": oldDeployment, "version": "1.11.3+0", "status": "COMPLETED", "createdAt": iso(-2 * 86_400),
+        [["id": newDeployment, "version": "1.12.0+0", "status": "IN_PROGRESS", "createdAt": iso(-600), "createdBy": alice,
+          "note": "Roll out the board log", "things": [boards[1], boards[2]], "counts": ["inProgress": 1, "queued": 1]],
+         ["id": oldDeployment, "version": "1.11.4+0", "status": "COMPLETED", "createdAt": iso(-2 * 86_400),
           "completedAt": iso(-2 * 86_400 + 900), "createdBy": alice, "note": "",
           "things": [boards[0], boards[1]], "counts": ["succeeded": 2]]]
     }
@@ -175,15 +177,15 @@ enum Demo {
         var detail = deploymentList.first { $0["id"] as? String == id } ?? deploymentList[0]
         if id == newDeployment {
             detail["executions"] = [
-                ["thing": boards[0], "status": "IN_PROGRESS", "phase": "downloading", "progress": 64, "online": true,
-                 "queuedAt": iso(-600), "startedAt": iso(-540), "lastUpdatedAt": iso(-540), "secondsLeft": 1_260, "reported": "1.11.3+0"],
+                ["thing": boards[1], "status": "IN_PROGRESS", "phase": "downloading", "progress": 64, "online": true,
+                 "queuedAt": iso(-600), "startedAt": iso(-540), "lastUpdatedAt": iso(-540), "secondsLeft": 1_260, "reported": "1.11.4+0"],
                 ["thing": boards[2], "status": "QUEUED", "phase": "waiting_for_device", "online": false, "queuedAt": iso(-600),
                  "lastUpdatedAt": iso(-600), "reported": "1.10.1+0"],
             ]
         } else {
             detail["executions"] = boards.prefix(2).map { thing in
                 ["thing": thing, "status": "SUCCEEDED", "phase": "succeeded", "online": true, "queuedAt": iso(-2 * 86_400),
-                 "startedAt": iso(-2 * 86_400 + 60), "lastUpdatedAt": iso(-2 * 86_400 + 600), "ranAtEnd": "1.11.3+0"] as [String: Any]
+                 "startedAt": iso(-2 * 86_400 + 60), "lastUpdatedAt": iso(-2 * 86_400 + 600), "ranAtEnd": "1.11.4+0"] as [String: Any]
             }
         }
         return ["deployment": detail]
@@ -191,19 +193,81 @@ enum Demo {
 
     static var audit: [String: Any] {
         ["entries": [
+            // A command at a board's serial console, over USB from the Android app.
+            ["at": iso(-120), "actor": alice, "action": "serial.command", "target": "CRVIHAAN01", "outcome": "ok",
+             "detail": ["command": "WIFI", "version": "1.12.0+0", "from": "phone"], "requestId": "Kq3xYh4AoAMEf2Q="],
+            ["at": iso(-300), "actor": alice, "action": "account.sign_in", "target": "", "outcome": "ok",
+             "detail": ["client": "phone"], "requestId": "signin.4c1e8a5e.phone.1793700000"],
             ["at": iso(-600), "actor": alice, "action": "deployment.create", "target": newDeployment, "outcome": "ok",
-             "detail": ["version": "1.11.4+0", "things": "2", "from": "phone"], "requestId": "Kq3vZh1AoAMEb5Q="],
-            ["at": iso(-1200), "actor": alice, "action": "firmware.upload", "target": "1.11.4+0", "outcome": "ok",
-             "detail": ["filename": "latest.signed.bin", "size": "612480", "sha256": sha("1.11.4+0")], "requestId": "Kq3tWh2AoAMEb7w="],
+             "detail": ["version": "1.12.0+0", "things": "2", "boards": "\(boards[1]) \(boards[2])", "from": "phone"],
+             "requestId": "Kq3vZh1AoAMEb5Q="],
+            ["at": iso(-1200), "actor": alice, "action": "firmware.upload", "target": "1.12.0+0", "outcome": "ok",
+             "detail": ["filename": "latest.signed.bin", "size": "612480", "sha256": sha("1.12.0+0")], "requestId": "Kq3tWh2AoAMEb7w="],
             ["at": iso(-1500), "actor": alice, "action": "firmware.upload", "target": "", "outcome": "rejected",
              "detail": ["code": "version_not_newer", "filename": "old.signed.bin"], "requestId": "Kq3sQh0AoAMEa1A="],
-            ["at": iso(-86_400), "actor": alice, "action": "firmware.bluetooth_send", "target": "1.11.3+0", "outcome": "ok",
-             "detail": ["board": "Cranium-1A2B"], "requestId": "Kq1aBh0AoAMEc3Q="],
+            ["at": iso(-1800), "actor": alice, "action": "account.sign_in", "target": "", "outcome": "ok",
+             "detail": ["client": "web"], "requestId": "signin.4c1e8a5e.web.1793698000"],
+            ["at": iso(-9 * 3600 - 300), "actor": alice, "action": "firmware.download", "target": "1.12.0+0", "outcome": "ok",
+             "detail": ["sha256": sha("1.12.0+0")], "requestId": "Kq1aAh0AoAMEc1Q="],
+            ["at": iso(-9 * 3600 - 240), "actor": alice, "action": "firmware.bluetooth_send", "target": "1.12.0+0", "outcome": "ok",
+             "detail": ["board": "Cranium-1A2B", "sha256": sha("1.12.0+0")], "requestId": "Kq1aBh0AoAMEc3Q="],
             ["at": iso(-2 * 86_400 + 3600), "actor": alice, "action": "firmware.revoke", "target": "1.11.2+1", "outcome": "ok",
              "detail": ["reason": "Drops the Wi-Fi after a restart.", "cancelled": "0"], "requestId": "Kp9aBh0AoAMEc9Q="],
             ["at": iso(-2 * 86_400), "actor": alice, "action": "deployment.create", "target": oldDeployment, "outcome": "ok",
-             "detail": ["version": "1.11.3+0", "things": "2"], "requestId": "Kp8aBh0AoAMEd1Q="],
+             "detail": ["version": "1.11.4+0", "things": "2", "boards": "\(boards[0]) \(boards[1])"], "requestId": "Kp8aBh0AoAMEd1Q="],
          ], "next": NSNull()]
+    }
+
+    /// What CRVIHAAN01, on 1.12.0, printed on its serial console: as the API sends it, newest first.
+    static var boardLines: [[String: Any]] {
+        var lines: [[String: Any]] = []
+        var seq = 60
+        func add(_ ago: TimeInterval, _ tag: String, _ kind: String, _ text: String, boot: Int = 42, dropped: Int? = nil) {
+            let warn = text.hasPrefix("WRN: ") || text.hasPrefix("ERR: ") || tag == "STUCK"
+            var line: [String: Any] = ["thing": boards[0], "at": iso(-ago), "id": "\(boot).\(seq)", "kind": kind, "tag": tag,
+                                       "level": warn ? "warn" : "info", "text": text, "boot": boot, "seq": seq]
+            if let dropped { line["dropped"] = dropped }
+            lines.append(line)
+            seq -= 1
+        }
+        add(35, "health", "health", "Heap 21312 of 44240 bytes free, 9840 at its lowest")
+        add(95, "CONSOLE", "setting", "Wi-Fi network set; joining it now")
+        add(110, "cloud", "log", "Connected to AWS IoT")
+        add(116, "cloud", "log", "Connecting to AWS IoT as cranium-3f2a9c1e5b7d4a60", dropped: 2)
+        add(118, "net", "health", "Network is up")
+        add(120, "net", "health", "Network is down")
+        add(900, "WIFI", "health", "WRN: Connection request failed: -116")
+        add(3 * 3600, "health", "health", "Heap 20480 of 44240 bytes free, 9840 at its lowest")
+        add(9 * 3600 - 190, "identity", "log", "Device ID CRVIHAAN01")
+        add(9 * 3600 - 200, "ota", "update", "Confirmed 1.12.0+0")
+        add(9 * 3600 - 260, "app", "log", "Cranium 1.12.0+0 running, on trial")
+        add(9 * 3600 - 270, "boot_diary", "restart", "Boot 42: software reset after an update")
+        seq = 31
+        add(9 * 3600 - 280, "ota", "update", "Installing 1.12.0+0 on trial; restarting", boot: 41)
+        add(9 * 3600 - 300, "bt_ota", "bluetooth", "Image 1.12.0+0 received, 611900 bytes; press Button 1 to install", boot: 41)
+        add(9 * 3600 - 420, "BT", "bluetooth", "Paired with a phone; link 7.5 ms, 2M PHY", boot: 41)
+        add(9 * 3600, "BT", "bluetooth", "Bluetooth window open for 180 s", boot: 41)
+        add(12 * 3600, "STUCK", "restart", "No cloud for 300 s: restarting", boot: 41)
+        add(12 * 3600 + 5, "ui", "log", "LED1 blinking: offline", boot: 41)
+        return lines
+    }
+
+    /// `GET /api/events/log`, filtered as the API filters it.
+    static func boardLog(_ query: [URLQueryItem]) -> [String: Any] {
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        let from = value("from").flatMap(ConsoleTime.date) ?? .distantPast
+        let to = value("to").flatMap(ConsoleTime.date) ?? .distantFuture
+        let kinds = value("kinds").map { Set($0.split(separator: ",").map(String.init)) }
+        let tags = value("tags").map { Set($0.split(separator: ",").map(String.init)) }
+        let limit = value("limit").flatMap(Int.init) ?? 500
+        let lines = boardLines.filter { line in
+            guard let at = ConsoleTime.date(line["at"] as? String) else { return false }
+            return at >= from && at <= to
+                && (value("thing") == nil || value("thing") == line["thing"] as? String)
+                && (kinds?.contains(line["kind"] as? String ?? "") ?? true)
+                && (tags?.contains(line["tag"] as? String ?? "") ?? true)
+        }
+        return ["lines": Array(lines.prefix(limit)), "cursor": NSNull(), "from": iso(-86_400), "to": iso(0)]
     }
 
     static var events: [String: Any] {
@@ -215,14 +279,14 @@ enum Demo {
             event.merge(extra) { $1 }
             list.append(event)
         }
-        add(boards[0], 540, "update", "started", "Started the update to 1.11.4+0", extra: ["job": newDeployment])
+        add(boards[1], 540, "update", "started", "Started the update to 1.12.0+0", extra: ["job": newDeployment])
         add(boards[1], 3 * 3600, "health", "heap_low", "Free memory ran low: 5 KiB of 43 KiB", warn: true)
         add(boards[2], 3 * 3600, "connection", "disconnected", "Disconnected from AWS IoT")
         add(boards[1], 4 * 3600, "restart", "booted", "Restarted after the stuck timer (no cloud)", warn: true)
         add(boards[1], 4 * 3600 - 60, "connection", "connected", "Connected to AWS IoT")
         add(boards[1], 4 * 3600 + 30, "connection", "disconnected", "Disconnected from AWS IoT")
         add(boards[0], 9 * 3600, "bluetooth", "opened", "Bluetooth window opened at the board")
-        add(boards[0], 9 * 3600 - 200, "firmware", "confirmed", "Confirmed 1.11.3+0", extra: ["version": "1.11.3+0"])
+        add(boards[0], 9 * 3600 - 200, "firmware", "confirmed", "Confirmed 1.12.0+0", extra: ["version": "1.12.0+0"])
         add(boards[2], 14 * 3600, "connection", "connected", "Connected to AWS IoT")
         add(boards[0], 20 * 3600, "connection", "connected", "Connected to AWS IoT")
         return ["events": list.sorted { ($0["at"] as? String ?? "") > ($1["at"] as? String ?? "") }, "cursor": NSNull()]
@@ -274,6 +338,8 @@ enum Demo {
             return (200, samples(hours: Int(query.first { $0.name == "hours" }?.value ?? "24") ?? 24))
         case ["api", "events"]:
             return (200, events)
+        case ["api", "events", "log"]:
+            return (200, boardLog(query))
         case ["api", "firmware"]:
             return (200, firmware)
         case ["api", "deployments"]:

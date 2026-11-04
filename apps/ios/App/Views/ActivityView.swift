@@ -23,8 +23,10 @@ final class ActivityModel: ObservableObject {
         guard let api = app.api else { return }
         loading = true
         defer { loading = false }
-        // How a deployment ended is not in the log: it follows from the deployment.
+        // How a deployment ended is not in the log: it follows from the deployment. A board is called by
+        // the name it has now, from the list of boards.
         if app.deployments.due(full) { await app.loadDeployments() }
+        if app.devices.due(full) { await app.loadDevices() }
         do {
             let page = try await api.audit(limit: Self.page)
             entries = page.entries
@@ -76,7 +78,7 @@ struct ActivityView: View {
                                 NavigationLink {
                                     ActivityEntryView(entry: entry)
                                 } label: {
-                                    ActivityRow(entry: entry, timeOfDay: true)
+                                    ActivityRow(entry: entry, timeOfDay: true, details: true)
                                 }
                             }
                         }
@@ -128,6 +130,9 @@ struct ActivityRow: View {
     @Environment(\.theme) private var theme
     let entry: AuditEntry
     var timeOfDay = false
+    /// The entry's details under it, as the website's full log has them ("From the phone app"); the
+    /// Overview's short form leaves them out.
+    var details = false
 
     var body: some View {
         let words = Words.describeAudit(entry)
@@ -138,11 +143,16 @@ struct ActivityRow: View {
                 .frame(width: 20)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(Words.nameOf(entry.actor)) \(words.verb)\(words.label.isEmpty ? "" : " \(words.label)")")
+                Text(Words.auditSentence(entry, devices: app.deviceList ?? []))
                     .font(.subheadline)
-                    .lineLimit(2)
+                    .lineLimit(details ? 4 : 2)
                 if let outcome = words.outcome {
                     Text(outcome.label).font(.caption.weight(.semibold)).foregroundStyle(theme.tone(outcome.tone))
+                }
+                if details, !words.facts.isEmpty {
+                    // A refusal by its words alone; anything else by its label and value.
+                    Text(words.facts.map { $0.words ?? "\($0.label)\($0.phrase ? "" : ":") \($0.value)" }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(theme.ink3).lineLimit(2).truncationMode(.middle)
                 }
             }
             Spacer(minLength: 8)
@@ -161,9 +171,10 @@ struct ActivityEntryView: View {
 
     var body: some View {
         let words = Words.describeAudit(entry)
+        let devices = app.deviceList ?? []
         ListScreen {
             Section {
-                Text("\(Words.nameOf(entry.actor)) \(words.verb)\(words.label.isEmpty ? "" : " \(words.label)")")
+                Text(Words.auditSentence(entry, devices: devices))
                 if let outcome = words.outcome { StatusText(outcome) }
                 if words.scripted {
                     Text("\(Words.scriptedTag): \(Words.scriptedNote)").font(.footnote).foregroundStyle(theme.ink3)
@@ -195,11 +206,24 @@ struct ActivityEntryView: View {
                         Text(verbatim: Words.shortAccount(sub)).font(Typeface.hash).foregroundStyle(theme.ink2)
                     }
                 }
-                if !entry.requestId.isEmpty {
+                // A sign-in was asked for by no request: its id is made of the sign-in itself.
+                if Words.showsRequestId(entry) {
                     HStack {
                         Text("Request")
                         Spacer()
                         Text(verbatim: entry.requestId).font(Typeface.hash).foregroundStyle(theme.ink2).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            }
+            // The boards it is about, by the name each has now: a deployment's, or the board a command
+            // at its serial console was given to, found by its device ID.
+            let boards = boardsOf(words, devices: devices)
+            if !boards.isEmpty {
+                Section {
+                    ForEach(boards, id: \.self) { thing in
+                        NavigationLink(value: Route.board(thing)) {
+                            Text(verbatim: devices.first { $0.thing == thing }?.label ?? Words.shortThing(thing))
+                        }
                     }
                 }
             }
@@ -213,6 +237,11 @@ struct ActivityEntryView: View {
             }
         }
         .screenTitle("Entry", large: false)
+    }
+
+    private func boardsOf(_ words: AuditWords, devices: [Device]) -> [String] {
+        if words.byName, let board = devices.first(where: { $0.name == words.label }) { return [board.thing] }
+        return words.boards
     }
 }
 
