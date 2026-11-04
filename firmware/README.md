@@ -1,7 +1,8 @@
 # Firmware
 
 Zephyr / nRF Connect SDK **v3.4.0** project for the nRF7002 DK
-(`nrf7002dk/nrf5340/cpuapp/ns`). One `west build` produces three images:
+(`nrf7002dk/nrf5340/cpuapp/ns`), and for the nRF5340 DK (`nrf5340dk/nrf5340/cpuapp/ns`), which has Bluetooth and
+no Wi-Fi: see [The nRF5340 DK (Bluetooth only)](#the-nrf5340-dk-bluetooth-only). One `west build` produces three images:
 
 | Image | Runs on | Role |
 | --- | --- | --- |
@@ -47,7 +48,10 @@ a path, build through a symbolic link that has none.
 
 ```
 app/                     application-core image and the sysbuild configuration
-  boards/                Kconfig and devicetree for the nRF7002 DK
+  boards/                Kconfig and devicetree for the nRF7002 DK, and for the nRF5340 DK
+  prj_bt_only.conf       the nRF5340 DK's configuration in place of prj.conf: no Wi-Fi, no cloud
+  Kconfig.bt_only        the board type, the flash layout, and a board with Bluetooth only
+  bt_only_check.py       after the link of such a board's image: nothing of the cloud is in it
   src/                   the application: Wi-Fi, AWS IoT, updates, the serial console
   no_bt_sysbuild.conf    a build without firmware update over Bluetooth, which is on from 1.9.0
   bt_ota_sysbuild.conf   the old switch that turned it on; it now changes nothing
@@ -1474,6 +1478,253 @@ network core waits two seconds at the first press, says `the network core does n
 controller`, and goes on, and does everything else as usual. An image without it on the `hci_ipc`
 network core, the golden image for one, never starts the host, so the radio stays off and LED2 stays
 dark.
+
+## The nRF5340 DK (Bluetooth only)
+
+The nRF5340 DK is the board type `nrf5340dk` of [`docs/fleet.md`](../docs/fleet.md). It is the nRF7002 DK's SoC
+with no nRF7002 next to it: no Wi-Fi, so no AWS IoT, no jobs, no shadow, no events and no location. It updates over
+Bluetooth from a phone, or over USB, and it never reaches the cloud by itself: a phone that updates it tells the
+console what it saw. The bootloader, TF-M, the signing key, the slot size and the load address are the nRF7002 DK's,
+so the console's checks of an image hold for both.
+
+**None of this has run on a board.** It builds, its host tests pass, and the image is checked, as below. What a person
+has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
+
+| | nRF7002 DK | nRF5340 DK |
+| --- | --- | --- |
+| Main loop | `src/main.c` | `src/bt_only_main.c` |
+| Update manager | `src/ota.c`: jobs, downloads, the trial | `src/bt_only_ota.c`: the trial only |
+| Wi-Fi, AWS IoT, shadow, heartbeat, jobs, events | yes | none of it is in the image: the build fails if it is |
+| Passkey for Bluetooth | a new one for each attempt, on the console and in the shadow | [its own](#the-boards-own-passkey), from provisioning; a new one each time only without it |
+| Keeping an image installed over Bluetooth | it reaches the cloud, or with no Wi-Fi a person proves it | a person proves it |
+| The board's status for the phone | the shadow | [a status characteristic](#what-a-phone-reads) |
+| Stuck timers | `wifi_silent`, `no_cloud`, `update_stall` | none: each watches Wi-Fi, the cloud or a cloud update |
+| Golden image | 1.5.0, frozen | none frozen: MCUboot has it off |
+| LEDs | LED1, LED2 | [LED1 to LED4](#leds-and-buttons) |
+| Console commands | all | no Wi-Fi, cloud or certificate commands; `BT_PASSKEY` |
+| Image TLVs 0xA1, 0xA2 | none up to 1.12.0 | `nrf5340dk`, `1` |
+
+`CONFIG_APP_BT_ONLY` is what makes the difference, and nothing in the nRF7002 DK's build changes with it. `sysbuild.cmake`
+gives this board `prj_bt_only.conf` in place of `prj.conf`, which is about Wi-Fi and the cloud, and
+`boards/nrf5340dk_nrf5340_cpuapp_ns.conf` after it. `Kconfig.sysbuild` leaves the nRF70 driver out for it. What the code
+every board shares asks of Wi-Fi and the cloud, `src/bt_only_stubs.c` answers with "there is none". The shadow, the
+jobs and the events have no function in this image at all, so code that used them would not link, and after the link
+`bt_only_check.py` looks at the symbol table and the bytes of the image for anything of the cloud: the heartbeat's
+JSON, `$aws/things/`, MQTT, AWS IoT, the downloader, Wi-Fi, the network stack, cJSON. It found nothing.
+
+### Build
+
+```sh
+scripts/build.sh --board nrf5340dk --keep --no-upload
+```
+
+or by hand, from an nRF Connect SDK terminal:
+
+```sh
+west build -b nrf5340dk/nrf5340/cpuapp/ns --sysbuild firmware/app -d build-nrf5340dk
+```
+
+`scripts/build.sh --board nrf5340dk` builds in `build-nrf5340dk/`, and leaves
+`binaries/cranium-nrf5340dk-<version>-0.signed.bin`, with `binaries/latest-nrf5340dk.signed.bin` and its `.json`, whose
+record says `"board": "nrf5340dk"`. The nRF7002 DK's names, `build/` and `latest.signed.bin` stay what they were.
+It takes the next version above the images of the same type; to give both types the same version, build the second
+with `--keep`. It does not upload an nRF5340 DK's image without `--upload`: a console that does not read the image's
+TLVs would take it for an nRF7002 DK's.
+
+The image carries what it is compatible with ("Compatibility" in [`docs/fleet.md`](../docs/fleet.md)), as protected TLVs
+inside the signed area: `0xA1` = `nrf5340dk` and `0xA2` = `1`, this board's first flash layout.
+`CONFIG_APP_BOARD_TYPE` and `CONFIG_APP_IMAGE_LAYOUT` say them in the board's `.conf`, `CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS`
+asks the signing step for them, and the build stops if the two differ.
+
+The 1.12.0 build, with the console and Bluetooth, in bytes:
+
+| Image | Used | Of |
+| --- | --- | --- |
+| Application, flash | 194,236 | 794,474 |
+| Application, RAM | 108,344 | 409,600 |
+| TF-M, flash | 80,852 | 130,560 |
+| TF-M, RAM | 29,836 | 49,152 |
+| MCUboot, flash | 43,520 | 65,536 |
+| Network core (`hci_ipc`), flash | 133,232 | 262,144 |
+| Network core, RAM | 35,168 | 65,536 |
+| Signed image | 325,481 | 933,888 |
+
+The application has no link-time optimisation here, which the nRF7002 DK needs to fit, and most of its RAM is the heap
+that `bt_ota.conf` sizes for an nRF7002 DK's Wi-Fi and TLS. MCUboot is 6,804 bytes smaller than the nRF7002 DK's,
+because it has no golden image.
+
+### Flash it the first time, over USB
+
+The board has no image of ours, and its network core needs the Bluetooth controller, which only the debug port can put
+there. Plug the DK in by its USB port (J2, the debug port), close any serial terminal on it, and from an nRF Connect SDK
+terminal:
+
+```sh
+west flash -d build-nrf5340dk --recover
+```
+
+That erases both cores, TF-M storage included, and writes MCUboot, TF-M with the application, and `hci_ipc` on the
+network core. The board starts in factory mode: LED1 flashes long every 2 seconds. From then on the application updates
+over Bluetooth, or through serial recovery (`tools/recover.py`, as on the nRF7002 DK). The network core only ever
+changes over the debug port, from a build of this board:
+
+```sh
+nrfutil device program --serial-number <probe> --core Network \
+  --firmware build-nrf5340dk/hci_ipc/zephyr/zephyr.hex \
+  --options chip_erase_mode=ERASE_RANGES_TOUCHED_BY_FIRMWARE,verify=VERIFY_READ
+```
+
+**The serial ports.** The console is on `uart0` (P0.20, P0.22), the pins it has on the nRF7002 DK. Nordic's documentation
+says that an nRF5340 DK v2.0.0 has two virtual COM ports, the first for the network core's pins (P1.00, P1.01) and the
+second for the application's `uart0`; a v1.0.0 has three, with the console the last. `tools/board.py` takes the last
+port, so it finds the console either way. MCUboot logs on `uart1`, P1.00 and P1.01, which this firmware does not hand to
+the network core: the first port. TF-M logs on P0.25 and P0.26, which are on no virtual COM port of this DK.
+
+### Provision it
+
+```sh
+python tools/provision_device.py --board nrf5340dk
+```
+
+1. In factory mode, `INIT` with its SoC's identifier, or `--id <name>`. The board restarts.
+2. It checks that the board says `board nrf5340dk` in `STATUS`, and stops if not.
+3. AWS IoT: a thing `cranium-<SoC id>` with the attribute `board=nrf5340dk`, in the device group, so that the console
+   lists it as Bluetooth only. No key and no certificate: it never connects.
+4. [The board's own passkey](#the-boards-own-passkey): six digits drawn at random and four hex digits for its name,
+   registered with the console first (`PUT /api/devices/{thing}/bluetooth-pairing`), then sent with `BT_PASSKEY`, with the
+   console's echo off. The tool never prints the passkey. A board that has one keeps it; `--new-passkey` gives it a new
+   one.
+
+It needs the AWS CLI signed in, `cloud/.deploy/outputs.json` and a console token (`CRANIUM_TOKEN` or
+`~/.cranium/console-token`). **The console has no such route yet**, and the tool stops at step 4 with nothing sent to the
+board. Until it has, `--no-register` provisions the board with no passkey of its own: each pairing then shows a new
+passkey on its serial console, as on an offline nRF7002 DK.
+
+### The board's own passkey
+
+On an nRF7002 DK the phone gets the passkey from the shadow, for 150 s. This board has no shadow, and nobody need be at
+its serial port, so it keeps one 6-digit passkey, which provisioning draws and the console keeps for the phone:
+
+- It is in TF-M's protected storage, encrypted with a key derived from the hardware unique key, as the other secrets of a
+  board are. It is read out for a window, and wiped from memory when the window closes. Nothing shows it: `STATUS|bluetooth`
+  says `set`, the console says `pairing with the board's own passkey, which the console has`, and a factory reset or
+  `BT_PASSKEY|CLEAR` erases it.
+- The board advertises as `Cranium-` and the four hex digits stored with it, in every window, so that the phone knows
+  which board it has found, and asks the console's pairing route for that name, before it pairs.
+- The Bluetooth host is handed it for LE Secure Connections pairing with MITM protection (`CONFIG_BT_APP_PASSKEY`, only
+  with `CONFIG_APP_BT_STATIC_PASSKEY`: `bt_ota.c` stops the build otherwise). Everything else is as on the nRF7002 DK: a
+  window only from a held Button 1, three failed pairings close it, no bond is kept.
+- A pairing that fails on the passkey (`BT_SECURITY_ERR_AUTH_FAIL`) is counted, in storage, across windows and restarts.
+  After 3 (`CONFIG_APP_BT_PASSKEY_FAILURE_BUDGET`) the passkey is locked: the board goes back to a new passkey for each
+  attempt, on the console, and advertises a new name each window, until `provision_device.py --board nrf5340dk
+  --new-passkey` stores a new one. LED4 lights when that happens.
+
+**What it costs, against a new passkey for each attempt.** A passkey that does not change can be learnt. Passkey entry
+commits to it one bit at a time and reveals each round's nonces as it goes, so whoever records one whole pairing, with a
+sniffer in range during a window, can work out all 20 bits afterwards: a fresh passkey is worthless by then, this one is
+good for the next window. A guess that fails gives away the bit it failed on and every bit it got right before that, two on
+average: with a fresh passkey that is worth nothing, and three guesses pair with a chance of 0.0003%; with this one the bits
+add up, which is why failures are counted for good, and why 3 lock it: an attacker who guesses from the start pairs before
+the lock with a chance of 0.02%, against 2% with a budget of 6. And the console holds a copy, so whoever can read the
+console's pairing route can pair with any of these boards while a person has a window open on it.
+
+What does not change: no window without a person holding Button 1 for 5 s, and it closes after 3 minutes; nothing but a
+newer image signed with this project's key, for this board type and layout, can be uploaded; nothing installs without a
+second press; the image runs on trial and reverts unless a person proves it. A passkey that got out lets someone in
+range during a window upload a signed newer image, which a person still has to choose to install, or read the board's
+status. Store a new one whenever that may have happened. `src/bt_passkey.h` has all of this, and the arithmetic.
+
+### Update it from a phone
+
+1. At the board, hold **Button 1** for 5 s and let go. LED1 flashes four times: Bluetooth is open for 3 minutes.
+2. The phone finds `Cranium-3F9C`, asks the console for its passkey (`GET /api/pairing/Cranium-3F9C`), and pairs with it.
+   LED3 lights while it is connected, and LED1 double-flashes once it is paired.
+3. The phone reads [the status characteristic](#what-a-phone-reads) and tells the console it saw the board.
+4. It uploads the image, as **Image Upload** in nRF Connect Device Manager does, not Firmware Upgrade, whose test command the
+   board refuses. LED3 blinks fast while it arrives. As the image's protected TLVs go past, the upload hook refuses an image
+   for another board type or flash layout, whatever tool sent it (`refused an upload: it is for nrf7002dk, layout 1, and
+   this board is nrf5340dk, layout 1 (incompatible_board)`), and the rest of it; the board reads the same TLVs back from
+   flash before it offers the image, too.
+5. When it has arrived LED1 blinks fast: **Button 1** installs it, **Button 2** erases it. The board restarts, and the
+   bootloader swaps it in, about a minute and a half with every LED dark.
+6. The new image runs on trial, LED1 flashing three times. **To keep it**, once it has run 60 s, hold Button 1 again, pair,
+   and have the phone read the image list (`image list` in SMP). The board confirms it: `succeeded, proof person`. There is
+   no Wi-Fi stack to have answered and no cloud to wait for, so that is all a proof takes here. With nobody doing that, the
+   trial's deadline restarts it at 5 minutes, unconfirmed, and the bootloader puts the old image back: `rolled_back` at the
+   next boot, and LED4.
+
+Without our apps, nRF Connect Device Manager does the same, with the passkey from the console or, with none stored, from
+the serial console. An image on trial with no record of how it got there, which only a failed write can leave, cannot be
+proved by anyone here, and reverts.
+
+### What a phone reads
+
+After it has paired, a phone reads one GATT characteristic, read-only and only over an authenticated link with a window
+open (`src/bt_status.h`):
+
+```text
+service         c7a1e000-5f2d-4b9a-9e43-6f1d2c8b3a50
+characteristic  c7a1e001-5f2d-4b9a-9e43-6f1d2c8b3a50
+```
+
+```json
+{"thing":"cranium-fe5b26c0c5b1dcd7","id":"CRVIHAAN01","board":"nrf5340dk","layout":1,
+ "fw":{"version":"1.12.0+0","confirmed":true},
+ "bt":{"from":"1.11.0+0","to":"1.12.0+0","result":"succeeded","proof":"person","count":3},
+ "diary":{"boots":42,"log":["1.11.0+0/1/2","1.12.0+0/2/2"]}}
+```
+
+`thing` is the board's AWS IoT name, `id` its device ID, `board` and `layout` what images it takes, `fw` what it runs and
+whether that is confirmed, `bt` the [record](#the-record) of the last update over Bluetooth and `diary` the
+[boot diary](#boot-diary), in the shapes the shadow has them. It is at most 512 bytes, so a phone reads it with a long
+read. The phone checks that `thing` is the board it asked the console about, and sends this to the console as it is, as
+`POST /api/devices/{thing}/seen` in [`docs/fleet.md`](../docs/fleet.md). SMP's own commands did not suffice: `image list`
+gives the slots but no device ID, board type or diary, and the OS group, which could carry those in its `info`, is not in
+this firmware, which has the image group and nothing else. `image list` is still what proves an image on trial.
+
+On an nRF7002 DK this characteristic is off (`CONFIG_APP_BT_STATUS`), because the shadow says all of it.
+
+### LEDs and buttons
+
+| LED | Shows |
+| --- | --- |
+| LED1, LED2 | What `ui.c` shows on an nRF7002 DK, where the state exists here: a long flash every 2 s, factory mode; a short flash every 2 s, set up but no passkey of its own, so a phone cannot pair without the serial console; LED1 and LED2 taking turns, ready; four flashes, Bluetooth open; double flash, a phone paired; fast blink, an image has arrived; triple flash, on trial |
+| LED3 | The phone: on while one is connected, blinking fast while an image arrives |
+| LED4 | Trouble: on for 30 s after a failed pairing, a refused command or upload, an image that cannot be installed, a controller that did not start, a locked passkey, or, at boot, an update that did not stay |
+
+The buttons are the nRF7002 DK's: **Button 1** held 5 s opens Bluetooth, and in a window installs what has arrived;
+**Button 2** closes a window or erases what has arrived, and held 5 s is a factory reset, which erases the passkey too.
+Button 3 and Button 4 do nothing. `src/bt_only.h` has the LEDs, and `src/bt_only_leds.c` drives LED3 and LED4.
+
+### The console
+
+The same console, on the same pins. The Wi-Fi, cloud and certificate commands (`WIFI`, `WIFI_SEC`, `CLEAR_WIFI`, `NET`,
+`CLOUD`, `KEYGEN`, `MQTT`, `MQTT_HOST`, `MQTT_RECONNECT`, `RESET_CONFIG`, `STREAM_*`) are still in its table and each
+says `ERR not on this board: an nrf5340dk has Bluetooth only, no Wi-Fi and no cloud`, in factory mode too, and before it
+could look at what was typed after the name. HELP leaves them out. `STATUS` has the sections `device`, `bluetooth` and
+`update`; `device` says `board nrf5340dk` and `layout 1`, as it says `nrf7002dk` and `1` on the other board, and
+`bluetooth` has `bt passkey` (`set`, `unset`, `locked`, `unreadable`), `bt failures 0 of 3`, `bt name` and `bt window`.
+The status box says `Board nrf5340dk, Bluetooth only` where the nRF7002 DK's says what its Wi-Fi is doing.
+
+| Command | |
+| --- | --- |
+| `BT_PASSKEY\|<6 digits>\|<4 hex digits>` | store the board's own passkey and the name it advertises, with no failures; refused while a window is open or an update is under way, and for a pattern such as `123456` or `000000` |
+| `BT_PASSKEY\|CLEAR` | erase them: each pairing then shows a new passkey here |
+
+### Not run on a board yet
+
+Everything above has run only as a build and as host tests. On the first bring-up, with a serial monitor on the console,
+the debug port, and nRF Connect Device Manager:
+
+- That the board boots at all: TF-M, the QSPI flash from the non-secure side, the network core's controller, and the LEDs
+  on P0.28 to P0.31.
+- Which virtual COM port is which, on this DK's revision.
+- Protected storage: `BT_PASSKEY`, a restart, `STATUS|bluetooth` still `set`, and a factory reset that clears it.
+- That a phone pairs with the stored passkey, with a wrong one fails and counts, and that three lock it.
+- An upload, a refused one for an nRF7002 DK image, the install, the swap from QSPI, the trial, and a proof by a person;
+  and the revert with nobody there.
+- Reading the status characteristic with a phone, and that it refuses before pairing.
+- The stack sizes and the heap, as under [Before relying on it](#before-relying-on-it).
 
 ## Golden image
 
