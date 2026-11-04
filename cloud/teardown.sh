@@ -11,7 +11,8 @@
 #   4. turns off the deletion protection of the user pool and the tables,
 #   5. deletes the stacks cranium-ota and cranium-ota-bootstrap,
 #   6. deletes what the stack keeps on purpose: the user pool with its accounts, the
-#      firmware bucket and the three tables.
+#      customer pool with the customer site's accounts, the firmware bucket and the three
+#      tables.
 #
 # It can be run again if it stops halfway. Boards keep their key and certificate in
 # flash, but AWS IoT no longer knows them: provision them again after a new deployment.
@@ -148,6 +149,7 @@ check_name() {
 
 discover() {
   POOL="$(resolve "$STACK" UserPoolId)"
+  CUSTOMER_POOL="$(resolve "$STACK" CustomerUserPoolId)"
   FIRMWARE_BUCKET="$(resolve "$STACK" FirmwareBucketName)"
   STATE_TABLE="$(resolve "$STACK" StateTableName)"
   AUDIT_TABLE="$(resolve "$STACK" AuditTableName)"
@@ -155,6 +157,7 @@ discover() {
   ARTIFACTS_BUCKET="$(resolve "$BOOTSTRAP_STACK" ArtifactsBucketName)"
   # CloudFormation derives these names from the stack name.
   check_name "user pool" "$POOL" '^[A-Za-z0-9-]+_[A-Za-z0-9]+$'
+  check_name "customer pool" "$CUSTOMER_POOL" '^[A-Za-z0-9-]+_[A-Za-z0-9]+$'
   check_name "firmware bucket" "$FIRMWARE_BUCKET" '^cranium-ota-[a-z0-9-]+$'
   check_name "release table" "$STATE_TABLE" '^cranium-ota-[A-Za-z0-9-]+$'
   check_name "audit table" "$AUDIT_TABLE" '^cranium-ota-[A-Za-z0-9-]+$'
@@ -167,6 +170,7 @@ save_state() {
   mkdir -p "$DEPLOY_DIR"
   {
     printf 'UserPoolId=%s\n' "$POOL"
+    printf 'CustomerUserPoolId=%s\n' "$CUSTOMER_POOL"
     printf 'FirmwareBucketName=%s\n' "$FIRMWARE_BUCKET"
     printf 'StateTableName=%s\n' "$STATE_TABLE"
     printf 'AuditTableName=%s\n' "$AUDIT_TABLE"
@@ -182,6 +186,7 @@ confirm() {
   echo "This removes the Cranium firmware console from account $account, Region $AWS_REGION:"
   echo "  - the stacks $STACK ($(stack_status "$STACK")) and $BOOTSTRAP_STACK ($(stack_status "$BOOTSTRAP_STACK"))"
   echo "  - the user pool with every account: ${POOL:-not found}"
+  echo "  - the customer pool with every customer's account: ${CUSTOMER_POOL:-not found}"
   echo "  - the firmware bucket with every stored image: ${FIRMWARE_BUCKET:-not found}"
   echo "  - the release table and the audit table: ${STATE_TABLE:-not found}, ${AUDIT_TABLE:-not found}"
   echo "  - the boards' event log: ${EVENTS_TABLE:-not found}"
@@ -404,17 +409,18 @@ delete_stack() {
   die "$stack could not be deleted; see the reasons above, then run this script again"
 }
 
+# delete_user_pool [<what> <pool id>]: the staff pool unless told another.
 delete_user_pool() {
-  local protection
-  if [ -z "$POOL" ]; then
-    echo "  the user pool is not known; skipped"
+  local protection what="${1:-user pool}" pool="${2-$POOL}"
+  if [ -z "$pool" ]; then
+    echo "  the $what is not known; skipped"
     return 0
   fi
-  if ! protection="$(aws cognito-idp describe-user-pool --user-pool-id "$POOL" \
+  if ! protection="$(aws cognito-idp describe-user-pool --user-pool-id "$pool" \
       --query 'UserPool.DeletionProtection' --output text 2>&1)"; then
     case "$protection" in
       *ResourceNotFoundException*)
-        echo "  the user pool is already gone"
+        echo "  the $what is already gone"
         return 0
         ;;
     esac
@@ -423,10 +429,10 @@ delete_user_pool() {
   if [ "$protection" = ACTIVE ]; then
     # This call resets every setting it does not name. That is acceptable only
     # because the pool is deleted in the next line and its app client is gone.
-    aws cognito-idp update-user-pool --user-pool-id "$POOL" --deletion-protection INACTIVE
+    aws cognito-idp update-user-pool --user-pool-id "$pool" --deletion-protection INACTIVE
   fi
-  aws cognito-idp delete-user-pool --user-pool-id "$POOL"
-  echo "  deleted the user pool"
+  aws cognito-idp delete-user-pool --user-pool-id "$pool"
+  echo "  deleted the $what"
 }
 
 delete_firmware_bucket() {
@@ -516,6 +522,7 @@ main() {
 
   step "6/6 What the stack kept"
   delete_user_pool
+  delete_user_pool "customer pool" "$CUSTOMER_POOL"
   delete_firmware_bucket
   delete_table "release table" "$STATE_TABLE"
   delete_table "audit table" "$AUDIT_TABLE"
