@@ -33,6 +33,28 @@ const REFERENCE = {
           'Limit', 'NextToken',
         ],
       },
+      // The customer pool's (src/customer/aws.mjs).
+      AdminCreateUserCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: [
+          'UserAttributes', 'ValidationData', 'TemporaryPassword', 'ForceAliasCreation', 'MessageAction',
+          'DesiredDeliveryMediums', 'ClientMetadata',
+        ],
+      },
+      AdminDisableUserCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: [],
+      },
+      AdminEnableUserCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: [],
+      },
+      ListUsersCommand: {
+        required: ['UserPoolId'],
+        optional: [
+          'AttributesToGet', 'Limit', 'PaginationToken', 'Filter',
+        ],
+      },
     },
   },
   '@aws-sdk/client-dynamodb': {
@@ -1831,4 +1853,136 @@ test('setReleaseNotes changes the note of a registered release and nothing else'
     ReturnValues: 'ALL_NEW',
   }]);
   assert.deepEqual(await aws.setReleaseNotes({ sk: SK, notes: '' }), { ok: false, reason: 'not_found' });
+});
+
+// The customer site's adapters (src/customer/aws.mjs), held to the same reference.
+
+const { createBoardReader, createCustomerStore } = await import('../src/customer/aws.mjs');
+const { createFakeCustomers } = await import('./fake-customers.mjs');
+const CUSTOMER_ENV = Object.freeze({ ...ENV, CUSTOMER_POOL_ID: 'eu-west-1_Customers' });
+const CUSTOMER_SUB = '7ec17d2e-9ee4-4734-8901-33c8fec73372';
+const cognitoUser = (status = 'CONFIRMED', enabled = true) => ({
+  Username: CUSTOMER_SUB, Enabled: enabled, UserStatus: status, UserCreateDate: new Date(T0),
+  Attributes: [{ Name: 'sub', Value: CUSTOMER_SUB }, { Name: 'email', Value: 'ada@example.invalid' }, { Name: 'name', Value: 'Ada' }],
+});
+
+test('the customer store invites, lists and switches customers in the customer pool, and in no other', async () => {
+  sdk.reset();
+  const store = createCustomerStore(CUSTOMER_ENV);
+  const customer = { sub: CUSTOMER_SUB, email: 'ada@example.invalid', name: 'Ada', enabled: true, status: 'CONFIRMED', createdAt: T0 };
+
+  sdk.reply('ListUsersCommand', { Users: [cognitoUser()], PaginationToken: 'next' }, { Users: [cognitoUser('FORCE_CHANGE_PASSWORD')] });
+  assert.deepEqual(await store.listCustomers(), [customer, { ...customer, status: 'FORCE_CHANGE_PASSWORD' }]);
+  assert.deepEqual(sdk.inputs('ListUsersCommand').map((input) => input.PaginationToken), [undefined, 'next']);
+
+  sdk.reply('AdminGetUserCommand', { ...cognitoUser(), UserAttributes: cognitoUser().Attributes }, fails('UserNotFoundException'));
+  assert.deepEqual(await store.getCustomer(CUSTOMER_SUB), customer);
+  assert.equal(await store.getCustomer('nobody'), null);
+
+  sdk.reply('AdminCreateUserCommand', { User: cognitoUser('FORCE_CHANGE_PASSWORD') }, fails('UsernameExistsException'));
+  assert.deepEqual(await store.inviteCustomer({ email: 'ada@example.invalid', name: 'Ada' }),
+    { ok: true, customer: { ...customer, status: 'FORCE_CHANGE_PASSWORD' } });
+  assert.deepEqual(await store.inviteCustomer({ email: 'ada@example.invalid', name: '' }), { ok: false, reason: 'exists' });
+  const [invited, unnamed] = sdk.inputs('AdminCreateUserCommand');
+  assert.deepEqual(invited, {
+    UserPoolId: 'eu-west-1_Customers', Username: 'ada@example.invalid', DesiredDeliveryMediums: ['EMAIL'],
+    UserAttributes: [{ Name: 'email', Value: 'ada@example.invalid' }, { Name: 'email_verified', Value: 'true' }, { Name: 'name', Value: 'Ada' }],
+  });
+  assert.equal(unnamed.UserAttributes.length, 2);
+  // Cognito makes the temporary password: none is ever sent from here.
+  assert.equal(Object.hasOwn(invited, 'TemporaryPassword'), false);
+
+  sdk.reply('AdminCreateUserCommand', {}, fails('UnsupportedUserStateException'), fails('UserNotFoundException'));
+  assert.deepEqual(await store.resendInvitation('ada@example.invalid'), { ok: true });
+  assert.deepEqual(await store.resendInvitation('ada@example.invalid'), { ok: false, reason: 'not_invited' });
+  assert.deepEqual(await store.resendInvitation('nobody@example.invalid'), { ok: false, reason: 'not_found' });
+  assert.equal(sdk.inputs('AdminCreateUserCommand')[2].MessageAction, 'RESEND');
+
+  sdk.reply('AdminDisableUserCommand', {}, fails('UserNotFoundException'));
+  sdk.reply('AdminEnableUserCommand', {});
+  assert.deepEqual(await store.setCustomerEnabled(CUSTOMER_SUB, false), { ok: true });
+  assert.deepEqual(await store.setCustomerEnabled('nobody', false), { ok: false, reason: 'not_found' });
+  assert.deepEqual(await store.setCustomerEnabled(CUSTOMER_SUB, true), { ok: true });
+
+  // Every call names the customer pool.
+  for (const entry of sdk.sent) assert.equal(entry.input.UserPoolId, 'eu-west-1_Customers', entry.command);
+  sdk.reply('ListUsersCommand', fails('ThrottlingException', { status: 400 }));
+  await rejectsWith(store.listCustomers(), { code: 'throttled', operation: 'ListUsers' });
+});
+
+test('who owns which board: one owner, conditional writes, and the fake agrees with the store', async () => {
+  sdk.reset();
+  const store = createCustomerStore(CUSTOMER_ENV);
+  const fake = createFakeCustomers({ now: () => T0 });
+  const at = new Date(T0).toISOString();
+  const assignment = { thing: THING, owner: CUSTOMER_SUB, ref: '0123456789abcdef', label: 'Deck', at, by: 'admin' };
+
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await store.assignBoard(assignment), await fake.assignBoard(assignment));
+  assert.deepEqual(await store.assignBoard({ ...assignment, owner: 'someone else' }), await fake.assignBoard({ ...assignment, owner: 'someone else' }));
+  const put = sdk.inputs('PutItemCommand')[0];
+  assert.equal(put.TableName, 'state-table');
+  assert.deepEqual(put.Item.pk, { S: 'OWN' });
+  assert.deepEqual(put.Item.sk, { S: THING });
+  assert.equal(put.ConditionExpression, 'attribute_not_exists(#sk) OR attribute_not_exists(#owner)');
+
+  sdk.reply('QueryCommand', {
+    Items: [
+      { pk: { S: 'OWN' }, sk: { S: THING }, owner: { S: CUSTOMER_SUB }, ref: { S: '0123456789abcdef' }, label: { S: 'Deck' },
+        assignedAt: { S: at }, assignedBy: { S: 'admin' } },
+      // Given back: no owner, so not listed.
+      { pk: { S: 'OWN' }, sk: { S: 'cranium-00000000000000bb' }, unassignedAt: { S: at } },
+    ],
+  });
+  assert.deepEqual(await store.listOwnership(), await fake.listOwnership());
+  const query = sdk.inputs('QueryCommand')[0];
+  assert.deepEqual([query.KeyConditionExpression, query.ExpressionAttributeValues, query.ConsistentRead],
+    ['#pk = :pk', { ':pk': { S: 'OWN' } }, true]);
+
+  sdk.reply('UpdateItemCommand', fails('ConditionalCheckFailedException'), {});
+  assert.deepEqual(await store.unassignBoard({ thing: THING, owner: 'someone else', at }),
+    await fake.unassignBoard({ thing: THING, owner: 'someone else', at }));
+  assert.deepEqual(await store.unassignBoard({ thing: THING, owner: CUSTOMER_SUB, at }), await fake.unassignBoard({ thing: THING, owner: CUSTOMER_SUB, at }));
+  const update = sdk.inputs('UpdateItemCommand')[1];
+  assert.equal(update.ConditionExpression, '#owner = :owner');
+  assert.match(update.UpdateExpression, /^REMOVE #owner, #ref, #label/);
+  // The API's role has no DeleteItem on the state table, and the store never asks for one.
+  assert.equal(sdk.sent.some((entry) => /Delete/.test(entry.command)), false);
+});
+
+test('the customer API\'s board reader reads a shadow and a board\'s events, and nothing else', async () => {
+  sdk.reset();
+  const reader = createBoardReader({ AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table' });
+  assert.deepEqual(Object.keys(reader).sort(), ['getShadow', 'queryEvents']);
+  sdk.reply('GetThingShadowCommand', { payload: new TextEncoder().encode('{"state":{"reported":{"uptime":5}}}') },
+    fails('ResourceNotFoundException', { status: 404 }));
+  assert.deepEqual(await reader.getShadow(THING), { state: { reported: { uptime: 5 } } });
+  assert.equal(await reader.getShadow(THING), null);
+  sdk.reply('QueryCommand', { Items: [{ pk: { S: THING }, sk: { S: 'E#2026-10-10T22:15:00.000Z#abcdef' }, kind: { S: 'connection' } }] });
+  const events = await reader.queryEvents({ thing: THING, low: 'E#2026-10-10', high: 'E#2026-10-11', kinds: ['connection'], limit: 5 });
+  assert.deepEqual(events, [{ pk: THING, sk: 'E#2026-10-10T22:15:00.000Z#abcdef', kind: 'connection' }]);
+  assert.equal(sdk.inputs('QueryCommand')[0].TableName, 'events-table');
+  // Its own entry point needs only its own settings.
+  assert.throws(() => createCustomerStore({ AWS_REGION: 'eu-west-1', STATE_TABLE: 'state-table' }), /CUSTOMER_POOL_ID/);
+});
+
+test('the customer API\'s Lambda entry point starts with its own settings, and turns away a request with no token', async () => {
+  Object.assign(process.env, {
+    AWS_REGION: 'eu-west-1', STATE_TABLE: 'state-table', EVENTS_TABLE: 'events-table',
+    CUSTOMER_POOL_ID: 'eu-west-1_Customers', CUSTOMER_CLIENT_ID: 'customerclient',
+  });
+  const lines = [];
+  console.log = (line) => lines.push(JSON.parse(line));
+  let response;
+  try {
+    const { handler } = await import('../src/customer.mjs');
+    sdk.reset();
+    const { customerEvent } = await import('./fake-customers.mjs');
+    response = await handler(customerEvent('/api/c/boards'));
+  } finally {
+    console.log = realLog;
+  }
+  assert.equal(response.statusCode, 401);
+  assert.deepEqual(sdk.sent, [], 'nothing is asked of AWS for a request with no token');
+  assert.deepEqual(lines.map((line) => [line.api, line.route, line.status]), [['customer', 'boards', 401]]);
 });
