@@ -567,11 +567,16 @@ Resources:
       AuthSessionValidity: 15
       AccessTokenValidity: 60
       IdTokenValidity: 60
-      RefreshTokenValidity: 60
+      # 30 days, for the apps' Face ID, Touch ID or fingerprint unlock (docs/mobile-apps.md): an app
+      # keeps the refresh token only behind the phone's biometrics, and without them forgets it an hour
+      # after the sign-in, as before. A change still needs a sign-in with password and code in the
+      # last 15 minutes (auth_time), and every request checks the account live, so a removed or
+      # disabled person's refresh token reads nothing.
+      RefreshTokenValidity: 30
       TokenValidityUnits:
         AccessToken: minutes
         IdToken: minutes
-        RefreshToken: minutes
+        RefreshToken: days
 
   # Managed login serves no page for an app client that has no branding style, so
   # without this resource nobody can sign in.

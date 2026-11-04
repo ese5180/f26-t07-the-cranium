@@ -234,6 +234,20 @@ test('the phone apps have their own client, which only signs in back into the ap
   assert.ok(template.includes('MOBILE_CLIENT_ID: !Ref MobileUserPoolClient'));
 });
 
+test('a phone keeps its session up to 30 days, for the biometric unlock; the website for an hour', () => {
+  const lifetimes = (name) => {
+    const client = block(template, name);
+    const units = block(client, 'TokenValidityUnits', 6);
+    return {
+      access: [/AccessTokenValidity: (\d+)/.exec(client)[1], /AccessToken: (\w+)/.exec(units)[1]],
+      refresh: [/RefreshTokenValidity: (\d+)/.exec(client)[1], /RefreshToken: (\w+)/.exec(units)[1]],
+    };
+  };
+  // Access tokens stay an hour everywhere: what API Gateway accepts offline after a sign-out.
+  assert.deepEqual(lifetimes('MobileUserPoolClient'), { access: ['60', 'minutes'], refresh: ['30', 'days'] });
+  assert.deepEqual(lifetimes('UserPoolClient'), { access: ['60', 'minutes'], refresh: ['60', 'minutes'] });
+});
+
 test('the API role may only add to and read the audit table', () => {
   const role = block(template, 'ApiRole');
   const allowed = statement(role, 'AppendAndReadAudit');

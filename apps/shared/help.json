@@ -2,7 +2,7 @@
   "version": 1,
   "about": "Help for the Cranium phone apps. Every fact here comes from the repository; each topic lists where. Blocks: heading, text, steps, list, rows (label and text), note, see (other topics), links.",
   "sections": [
-    { "title": "Start here", "topics": ["getting-started", "sign-in-again", "keep-the-app"] },
+    { "title": "Start here", "topics": ["getting-started", "sign-in-again", "biometric-sign-in", "keep-the-app"] },
     { "title": "Updates", "topics": ["wifi-update", "bluetooth-update", "deployments"] },
     { "title": "Boards", "topics": ["board-states", "leds", "buttons", "boards-and-diagnostics"] },
     { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity", "api-tokens", "serial-console"] },
@@ -42,6 +42,29 @@
           "Reading never asks.",
           "The three calls made while standing at a board for an update over Bluetooth do not ask either: the image, the passkey and the check before a send."
         ] }
+      ]
+    },
+    {
+      "id": "biometric-sign-in",
+      "title": "Unlocking with Face ID or your fingerprint",
+      "summary": "Face ID on an iPhone, your fingerprint on Android, instead of the password and code, for up to 30 days.",
+      "keywords": ["Face ID", "Touch ID", "fingerprint", "biometric", "unlock", "stay signed in", "30 days"],
+      "sources": ["docs/mobile-apps.md"],
+      "blocks": [
+        { "text": "After you sign in with your password and code, the app can keep your session behind Face ID on an iPhone (Touch ID on an iPhone with a Home button) or your fingerprint on Android. Then opening the app asks for that instead, for up to 30 days." },
+        { "steps": [
+          "Sign in with your password and code.",
+          "Say yes when the app offers Face ID or your fingerprint, or turn it on later under More, Account.",
+          "From then on the app asks for Face ID or your fingerprint when it opens, and again after 5 minutes away."
+        ] },
+        { "heading": "What still asks for the password and code" },
+        { "list": [
+          "A change: uploading, deploying, revoking, cancelling, API tokens. The console needs a sign-in with password and code in the last 15 minutes, and it cannot see your phone's Face ID.",
+          "Face ID set up again, a new fingerprint added, or the phone's passcode turned off: the saved session cannot be opened any more.",
+          "Signing out, or 30 days after the last full sign-in."
+        ] },
+        { "note": "With it off, the app keeps you signed in for an hour after a sign-in, as before." },
+        { "see": ["sign-in-again", "trouble-sign-in"] }
       ]
     },
     {

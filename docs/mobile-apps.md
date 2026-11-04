@@ -104,6 +104,26 @@ and is the same sign-in. The Android app also reads the access token's
 `auth_time`, the claim the console checks, and asks for the sign-in before it tries a change once that is
 more than 14 minutes old, so that a change is not refused on its way and logged as such.
 
+### Unlocking with Face ID (iPhone) or a fingerprint (Android)
+
+After a full sign-in (password and code), an app offers to keep the session behind the phone's biometrics. With that
+on, opening the app asks for **Face ID on the iPhone** (Touch ID on an iPhone with a Home button, which has no Face ID)
+or **a fingerprint on Android** (`BIOMETRIC_STRONG`, which a fingerprint sensor is; face unlock on most Android phones
+is not) instead of the password and code, for up to 30 days, the phone client's refresh token lifetime:
+
+| | Without biometrics (as before) | With biometrics on |
+| --- | --- | --- |
+| Where the refresh token is | The Keychain or `EncryptedSharedPreferences`, as today | iOS: a Keychain item with `SecAccessControl` `.biometryCurrentSet`, `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`. Android: encrypted with an AES key in the Android Keystore that needs the user's biometric for every use (`setUserAuthenticationRequired`, `setInvalidatedByBiometricEnrollment`), opened through `BiometricPrompt` with that key's `CryptoObject` |
+| How long a session lasts | The app forgets the refresh token 60 minutes after the sign-in | Up to 30 days; each time the app opens, or comes back after 5 minutes in the background, it asks for the biometric before it shows anything |
+| A new fingerprint or face is enrolled, or the passcode is removed | — | The item can no longer be opened: the app forgets it and asks for the password and code |
+| Sign-out | Forgets the tokens, revokes the refresh token | The same, and deletes the item and the key |
+
+Nothing biometric reaches the console: the phone only decides whether to release the refresh token. So the
+15-minute rule above still holds: **a change asks for the password and code**, however the app was unlocked, because
+a refresh keeps the first sign-in's `auth_time`. Three failed biometric attempts, or Cancel, offer the password
+and code. The setting is per phone and per person, and is in the Account screen, with the phone's own name for it
+(Face ID, or Touch ID on the iPhones that have it; fingerprint on Android).
+
 ## The API
 
 All under `{consoleUrl}`. Errors are JSON `{"error": {"code": "...", "message": "..."}}` with an
