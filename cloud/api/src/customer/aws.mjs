@@ -1,0 +1,276 @@
+/**
+ * The AWS adapters of the customer site (docs/customer-site.md). Like src/aws.mjs, the only
+ * place here that imports the AWS SDK, and with its helpers: the same timeouts, the same
+ * errors (name "AwsError", code "throttled" | "failed") and the same plain values.
+ * test/fake-customers.mjs implements both interfaces in memory; keep the three in step.
+ *
+ * createCustomerStore(env): the customer pool and who owns which board. Used by the console's
+ * API (the Customers page, release managers only) and by the customer API (each customer's
+ * own record). It reads AWS_REGION, STATE_TABLE and CUSTOMER_POOL_ID.
+ *
+ *   Customers (the customer user pool, apart from the staff pool; a customer's id is its sub)
+ *     listCustomers()           -> [{ sub, email, name, enabled, status, createdAt }]  every one,
+ *                                  any order; createdAt in epoch ms or null
+ *     getCustomer(sub)          -> the same shape | null
+ *     inviteCustomer({ email, name })
+ *                               -> { ok: true, customer } | { ok: false, reason: "exists" }
+ *                                  Cognito makes the account and e-mails the invitation, with a
+ *                                  temporary password this code never sees
+ *     resendInvitation(email)   -> { ok: true } | { ok: false, reason: "not_found" | "not_invited" }
+ *     setCustomerEnabled(sub, enabled)
+ *                               -> { ok: true } | { ok: false, reason: "not_found" }
+ *
+ *   Ownership (state table, pk "OWN", sk = the thing name; a board has one owner at most)
+ *     listOwnership()           -> [{ thing, owner, ref, label, assignedAt, assignedBy }]  the owned
+ *                                  boards only, any order; consistent read
+ *     assignBoard({ thing, owner, ref, label, at, by })
+ *                               -> { ok: true } | { ok: false, reason: "taken" }  only a board
+ *                                  that nobody owns; `at` is an ISO time, `by` the admin's sub
+ *     unassignBoard({ thing, owner, at })
+ *                               -> { ok: true } | { ok: false, reason: "not_owner" }  only while
+ *                                  `owner` owns it. The item stays, with no owner: the API role may
+ *                                  not delete from the state table
+ *
+ * createBoardReader(env): what the customer API reads about a board, and nothing more. It reads
+ * AWS_REGION and EVENTS_TABLE.
+ *
+ *     getShadow(thing)          -> as in src/aws.mjs
+ *     queryEvents({ thing, low, high, kinds, limit })
+ *                               -> as in src/aws.mjs, without tags
+ */
+
+import {
+  AdminCreateUserCommand, AdminDisableUserCommand, AdminEnableUserCommand, AdminGetUserCommand,
+  CognitoIdentityProviderClient, ListUsersCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
+import { DynamoDBClient, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
+
+import {
+  clientSettings, everyPage, failure, fromItem, millis, nameOf, queryEventTable, required, statusOf, toItem,
+} from '../aws.mjs';
+
+export const OWNERSHIP_PK = 'OWN';
+// The largest page of ListUsers.
+const USER_PAGE_SIZE = 60;
+const MAX_KINDS = 16;
+
+/** The value of one attribute of a Cognito user, or ''. */
+function attribute(attributes, name) {
+  const value = (attributes ?? []).find((item) => item?.Name === name)?.Value;
+  return typeof value === 'string' ? value : '';
+}
+
+/** A Cognito user, as AdminGetUser, ListUsers and AdminCreateUser describe one, in plain values. */
+function customerOf({ attributes, enabled, status, created, username }) {
+  return {
+    sub: attribute(attributes, 'sub') || (typeof username === 'string' ? username : ''),
+    email: attribute(attributes, 'email'),
+    name: attribute(attributes, 'name'),
+    enabled: enabled === true,
+    status: typeof status === 'string' ? status : '',
+    createdAt: millis(created),
+  };
+}
+
+/** An item of the ownership partition, or null if it is not an owned board. */
+function ownershipOf(item) {
+  if (typeof item?.sk !== 'string' || typeof item.owner !== 'string' || item.owner === '') return null;
+  return {
+    thing: item.sk,
+    owner: item.owner,
+    ref: typeof item.ref === 'string' ? item.ref : '',
+    label: typeof item.label === 'string' ? item.label : '',
+    assignedAt: typeof item.assignedAt === 'string' ? item.assignedAt : null,
+    assignedBy: typeof item.assignedBy === 'string' ? item.assignedBy : '',
+  };
+}
+
+/**
+ * @param {Record<string, string|undefined>} env  the Lambda environment
+ */
+export function createCustomerStore(env) {
+  const region = required(env, 'AWS_REGION');
+  const stateTable = required(env, 'STATE_TABLE');
+  const poolId = required(env, 'CUSTOMER_POOL_ID');
+  const cognito = new CognitoIdentityProviderClient(clientSettings(region));
+  const dynamo = new DynamoDBClient(clientSettings(region));
+
+  return Object.freeze({
+    async listCustomers() {
+      try {
+        return await everyPage('ListUsers', async (PaginationToken) => {
+          const out = await cognito.send(new ListUsersCommand({ UserPoolId: poolId, Limit: USER_PAGE_SIZE, PaginationToken }));
+          const items = (out.Users ?? []).map((user) => customerOf({
+            attributes: user?.Attributes, enabled: user?.Enabled, status: user?.UserStatus,
+            created: user?.UserCreateDate, username: user?.Username,
+          })).filter((customer) => customer.sub !== '');
+          return { items, next: out.PaginationToken };
+        });
+      } catch (cause) {
+        throw nameOf(cause) === 'AwsError' ? cause : failure('ListUsers', cause);
+      }
+    },
+
+    async getCustomer(sub) {
+      try {
+        const out = await cognito.send(new AdminGetUserCommand({ UserPoolId: poolId, Username: sub }));
+        return customerOf({
+          attributes: out.UserAttributes, enabled: out.Enabled, status: out.UserStatus,
+          created: out.UserCreateDate, username: out.Username,
+        });
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return null;
+        throw failure('AdminGetUser', cause);
+      }
+    },
+
+    async inviteCustomer({ email, name }) {
+      const attributes = [{ Name: 'email', Value: email }, { Name: 'email_verified', Value: 'true' }];
+      if (name) attributes.push({ Name: 'name', Value: name });
+      try {
+        const out = await cognito.send(new AdminCreateUserCommand({
+          UserPoolId: poolId, Username: email, UserAttributes: attributes, DesiredDeliveryMediums: ['EMAIL'],
+        }));
+        const user = out.User ?? {};
+        return {
+          ok: true,
+          customer: customerOf({
+            attributes: user.Attributes, enabled: user.Enabled, status: user.UserStatus,
+            created: user.UserCreateDate, username: user.Username,
+          }),
+        };
+      } catch (cause) {
+        if (nameOf(cause) === 'UsernameExistsException' || nameOf(cause) === 'AliasExistsException') {
+          return { ok: false, reason: 'exists' };
+        }
+        throw failure('AdminCreateUser', cause);
+      }
+    },
+
+    async resendInvitation(email) {
+      try {
+        await cognito.send(new AdminCreateUserCommand({
+          UserPoolId: poolId, Username: email, MessageAction: 'RESEND', DesiredDeliveryMediums: ['EMAIL'],
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
+        if (nameOf(cause) === 'UnsupportedUserStateException') return { ok: false, reason: 'not_invited' };
+        throw failure('AdminCreateUser', cause);
+      }
+    },
+
+    async setCustomerEnabled(sub, enabled) {
+      const Command = enabled ? AdminEnableUserCommand : AdminDisableUserCommand;
+      try {
+        await cognito.send(new Command({ UserPoolId: poolId, Username: sub }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
+        throw failure(enabled ? 'AdminEnableUser' : 'AdminDisableUser', cause);
+      }
+    },
+
+    async listOwnership() {
+      try {
+        const items = [];
+        let start;
+        for (let pages = 0; pages < 40; pages += 1) {
+          const out = await dynamo.send(new QueryCommand({
+            TableName: stateTable,
+            KeyConditionExpression: '#pk = :pk',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+            ExpressionAttributeValues: { ':pk': { S: OWNERSHIP_PK } },
+            ConsistentRead: true,
+            ExclusiveStartKey: start,
+          }));
+          for (const item of out.Items ?? []) items.push(fromItem(item));
+          if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) {
+            return items.map(ownershipOf).filter((item) => item !== null);
+          }
+          start = out.LastEvaluatedKey;
+        }
+        throw new Error('more than 40 pages');
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+    },
+
+    async assignBoard({ thing, owner, ref, label, at, by }) {
+      const item = { pk: OWNERSHIP_PK, sk: thing, owner, ref, assignedAt: at, assignedBy: by };
+      if (label) item.label = label;
+      try {
+        await dynamo.send(new PutItemCommand({
+          TableName: stateTable,
+          Item: toItem(item),
+          // A board nobody owns: never seen, or given back. Never one somebody owns.
+          ConditionExpression: 'attribute_not_exists(#sk) OR attribute_not_exists(#owner)',
+          ExpressionAttributeNames: { '#sk': 'sk', '#owner': 'owner' },
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'taken' };
+        throw failure('PutItem', cause);
+      }
+    },
+
+    async unassignBoard({ thing, owner, at }) {
+      try {
+        await dynamo.send(new UpdateItemCommand({
+          TableName: stateTable,
+          Key: toItem({ pk: OWNERSHIP_PK, sk: thing }),
+          UpdateExpression: 'REMOVE #owner, #ref, #label, #assignedAt, #assignedBy SET #unassignedAt = :at',
+          ConditionExpression: '#owner = :owner',
+          ExpressionAttributeNames: {
+            '#owner': 'owner', '#ref': 'ref', '#label': 'label', '#assignedAt': 'assignedAt',
+            '#assignedBy': 'assignedBy', '#unassignedAt': 'unassignedAt',
+          },
+          ExpressionAttributeValues: { ':owner': { S: owner }, ':at': { S: at } },
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_owner' };
+        throw failure('UpdateItem', cause);
+      }
+    },
+  });
+}
+
+/**
+ * @param {Record<string, string|undefined>} env  the Lambda environment
+ */
+export function createBoardReader(env) {
+  const region = required(env, 'AWS_REGION');
+  const eventsTable = required(env, 'EVENTS_TABLE');
+  const iotData = new IoTDataPlaneClient(clientSettings(region));
+  const dynamo = new DynamoDBClient(clientSettings(region));
+
+  return Object.freeze({
+    async getShadow(thing) {
+      let payload;
+      try {
+        ({ payload } = await iotData.send(new GetThingShadowCommand({ thingName: thing })));
+      } catch (cause) {
+        if (nameOf(cause) === 'ResourceNotFoundException' || statusOf(cause) === 404) return null;
+        throw failure('GetThingShadow', cause);
+      }
+      try {
+        return JSON.parse(Buffer.from(payload ?? []).toString('utf8'));
+      } catch {
+        throw failure('GetThingShadow', new Error('the shadow is not valid JSON'), 'failed');
+      }
+    },
+
+    async queryEvents({ thing, low, high, kinds = null, limit }) {
+      if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > MAX_KINDS)) {
+        throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
+      }
+      try {
+        return await queryEventTable(dynamo, eventsTable, { thing, low, high, kinds, limit, forward: false });
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+    },
+  });
+}

@@ -101,6 +101,7 @@ test('an audit item carries who, what, when and how it ended', () => {
     'group.create', 'group.update', 'group.delete', 'rollout.create', 'rollout.cancel', 'rollout.advance', 'rollout.stop',
     'fleet.update_everything', 'group.rollback', 'device.seen', 'firmware.notes',
     'app.upload', 'app.publish', 'app.download',
+    'customer.create', 'customer.resend', 'customer.assign', 'customer.unassign', 'customer.disable', 'customer.enable',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });
