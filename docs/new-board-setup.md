@@ -2,7 +2,8 @@
 
 How to take an nRF7002 DK from nothing to a board that runs our firmware, has the golden image as its way back,
 and shows up online in the console. It takes about 20 minutes. The iPhone and Android apps come after it, in
-[The phone apps](#the-phone-apps).
+[The phone apps](#the-phone-apps). An nRF5340 DK, which has Bluetooth and no Wi-Fi, differs in places:
+[An nRF5340 DK](#an-nrf5340-dk).
 
 **Only for a blank board, or one you mean to wipe.** Step 3 erases the whole chip, including TF-M storage, where a
 board keeps its ID, Wi-Fi network, private key and certificates. Never run it on a working board: to update one,
@@ -247,6 +248,32 @@ themselves.
 - Don't hold Button 2 for 5 seconds while the board is running. That's a factory reset.
 - Don't commit anything from `~/.cranium`, `cloud/.deploy` or `apps/config/cranium.json`, and don't publish an app
   built with it. They name the AWS account.
+
+## An nRF5340 DK
+
+The nRF5340 DK has no Wi-Fi chip. It runs a build with Bluetooth only, never reaches AWS by itself, and updates from a
+phone or over USB: [`firmware/README.md`](../firmware/README.md#the-nrf5340-dk-bluetooth-only) has all of it. **Nobody
+has set one up yet**: these steps come from the build and the host tests, not from a board. What differs from the steps
+above:
+
+| Step | On an nRF5340 DK |
+| --- | --- |
+| What you need | No Wi-Fi secrets and no golden image. The AWS sign-in and `cloud/.deploy/outputs.json` as above, and a console token (`CRANIUM_TOKEN` or `~/.cranium/console-token`, from the console's Tokens page) for its passkey |
+| 1. Check the key | `python tools/keys.py check` only. There is no golden image for this board, so skip `golden.py check` |
+| 2. Build | `scripts/build.sh --board nrf5340dk --keep --no-upload`. It builds in `build-nrf5340dk/` and leaves `binaries/cranium-nrf5340dk-<version>-0.signed.bin` |
+| 3. Flash, erasing the chip | `west flash -d build-nrf5340dk --recover`, by the DK's USB port (J2). It writes the bootloader, TF-M with the application, and the Bluetooth controller on the network core, the one part that only USB can ever change. LED1 then flashes long every 2 seconds: factory mode |
+| 4. Golden image | Skip it. This board's bootloader is built without one, and the nRF7002 DK's 1.5.0 is not for it. The gesture does nothing here |
+| 5. Provision | `python tools/provision_device.py --board nrf5340dk`: `INIT`, a thing in AWS IoT with `board=nrf5340dk` and no certificate, and the board's own Bluetooth passkey, registered with the console before it is stored on the board. The console has no route for that yet: until it has, add `--no-register`, and the board shows a new passkey on its serial console for each pairing |
+| 6. Update it | From a phone, over Bluetooth: hold Button 1 for 5 s, pair, send the release. The console never sends it a job. After the restart, once the new image has run 60 s, hold Button 1 again and pair: the phone reads the image list and the board keeps the image. Without that it goes back after 5 minutes |
+| 7. Check it | `STATUS` says `board nrf5340dk`, `layout 1` and `bt passkey set`. The console shows it as Bluetooth only, with what a phone last saw of it, once a phone has updated it |
+
+| What you see | What to do |
+| --- | --- |
+| `provision_device.py` says the board is a `nrf7002dk` | It runs the nRF7002 DK's firmware: build and flash the nRF5340 DK's, step 2 and 3 |
+| `the console does not take a board's passkey yet` | As above: `--no-register` for now |
+| LED4 stays lit after pairings, and `STATUS` says `bt passkey locked` | Three pairings failed on its passkey. `python tools/provision_device.py --board nrf5340dk --new-passkey` |
+| A Bluetooth upload says `incompatible_board` | The release is an nRF7002 DK's. Send the nRF5340 DK's release |
+| `WIFI`, `CLOUD` or `KEYGEN` says `not on this board` | As it should: this board has none of them |
 
 ## The phone apps
 
