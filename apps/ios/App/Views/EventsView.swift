@@ -60,6 +60,10 @@ final class EventsModel: ObservableObject {
     func refresh(_ app: AppModel, full: Bool) async {
         guard let api = app.api else { return }
         let span = Telemetry.span(range, now: Date())
+        // Copies taken once, before any use: a closure may not capture a local declared after it.
+        let hidden = self.hidden
+        let log = self.log
+        let tag = self.tag
         // Connections are read even while their markers are hidden: the online bands are drawn from them.
         let kinds = BoardEvent.kinds.filter { $0 == "connection" || !hidden.contains($0) }
         let thing = self.thing
@@ -70,9 +74,6 @@ final class EventsModel: ObservableObject {
         if full || app.devices.due(false, every: 25) {
             await app.loadDevices()
         }
-        let log = self.log
-        let hidden = self.hidden
-        let tag = self.tag
         do {
             async let page = api.events(from: span.from, to: span.to, thing: thing, kinds: wanted)
             async let entries = console ? Self.consoleEntries(api, from: span.from, to: span.to) : nil
