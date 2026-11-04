@@ -86,7 +86,28 @@ static struct {
 	/* What the next job update answers, and who the last one was for. */
 	int update_result;
 	char last_job[OTA_JOB_ID_MAX + 1];
+
+	/* What image_compat.c finds in the secondary slot, and how often it was asked. */
+	enum image_compat_verdict compat;
+	struct image_compat compat_found;
+	int compat_checks;
+	/* The check at that count gives this instead, for a slot that changed in between. */
+	int compat_changes_at;
+	enum image_compat_verdict compat_then;
 } fake;
+
+/* ---- image_compat_slot.c, which test_image_compat.c tests ---------------------------------- */
+
+enum image_compat_verdict image_compat_check_slot(uint8_t area_id, struct image_compat *found)
+{
+	CHECK(area_id == SECONDARY_SLOT_ID);
+	*found = fake.compat_found;
+	fake.compat_checks++;
+	if (fake.compat_changes_at != 0 && fake.compat_checks >= fake.compat_changes_at) {
+		return fake.compat_then;
+	}
+	return fake.compat;
+}
 
 /* ---- the bootloader and the flash ---------------------------------------------------- */
 
@@ -745,6 +766,101 @@ static bool last_update_says(const char *text)
 /* ---- the option off, which is the default: a job starts by itself ------------------------------ */
 
 #if defined(TEST_NO_CONSENT)
+static void a_download_running(const char *id);
+
+/* From 1.13.0: an image for another board type or flash layout is never marked to test. */
+static void test_an_image_for_another_board_or_layout_is_refused(void)
+{
+	static const struct {
+		enum image_compat_verdict verdict;
+		const char *board;
+		uint32_t layout;
+		const char *reason;
+		const char *detail;
+	} cases[] = {
+		{ IMAGE_COMPAT_OTHER_BOARD, "nrf5340dk", 1, "incompatible_board",
+		  "\"detail\":\"image is for nrf5340dk\"" },
+		{ IMAGE_COMPAT_OTHER_LAYOUT, "nrf7002dk", 2, "incompatible_layout",
+		  "\"detail\":\"image is for flash layout 2\"" },
+		{ IMAGE_COMPAT_MALFORMED, "", 0, "header_mismatch",
+		  "\"detail\":\"image metadata malformed\"" },
+		{ IMAGE_COMPAT_UNREADABLE, "", 0, "flash_error",
+		  "\"detail\":\"image metadata unreadable\"" },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(cases); i++) {
+		char reason[48];
+
+		a_board_on_the_cloud();
+		fake.compat = cases[i].verdict;
+		strcpy(fake.compat_found.board, cases[i].board);
+		fake.compat_found.layout = cases[i].layout;
+		a_download_running("job-2");
+
+		/* Looked at once the download is verified, and refused there. */
+		fake.download_is_good = true;
+		ota_on_download(APP_DOWNLOAD_FINISHED, 0);
+		CHECK(fake.compat_checks == 1);
+		CHECK(ota_state() == OTA_IDLE);
+		CHECK(fake.swap_requests == 0);
+		CHECK(fake.erases == 1);
+		CHECK(!fake.job_record);
+		CHECK(last_update_says("\"status\":\"FAILED\""));
+		snprintf(reason, sizeof(reason), "\"reason\":\"%s\"", cases[i].reason);
+		CHECK(last_update_says(reason));
+		CHECK(last_update_says(cases[i].detail));
+		CHECK(strcmp(ota_last_result(), "failed") == 0);
+		CHECK(strcmp(ota_last_error(), cases[i].reason) == 0);
+		/* And it asks for what is next, as after any failure. */
+		CHECK(fake.next_requests >= 1);
+	}
+
+	/* A digest that is wrong is said first: the image is not the job's, whatever it says. */
+	a_board_on_the_cloud();
+	fake.compat = IMAGE_COMPAT_OTHER_BOARD;
+	a_download_running("job-2");
+	ota_on_download(APP_DOWNLOAD_FINISHED, 0);
+	CHECK(fake.compat_checks == 0);
+	CHECK(ota_state() == OTA_IDLE);
+	CHECK(fake.swap_requests == 0);
+}
+
+static void test_the_slot_is_looked_at_again_right_before_the_swap(void)
+{
+	a_board_on_the_cloud();
+	a_download_running("job-2");
+	fake.download_is_good = true;
+	ota_on_download(APP_DOWNLOAD_FINISHED, 0);
+	CHECK(ota_state() == OTA_COMMITTING);
+	CHECK(fake.compat_checks == 1);
+	ota_on_job_ack(TOKEN_COMMIT, ota.commit_sequence, true, false);
+	ticks(SETTLE_SECONDS);
+
+	/* What is there by then is for another layout: no record, no swap, no restart. */
+	fake.compat_changes_at = 2;
+	fake.compat_then = IMAGE_COMPAT_OTHER_LAYOUT;
+	fake.compat_found.layout = 3;
+	job_listed("job-2", "IN_PROGRESS", "9.0.0");
+	CHECK(fake.compat_checks == 2);
+	CHECK(fake.swap_requests == 0);
+	CHECK(fake.reboots == 0);
+	CHECK(!fake.job_record);
+	CHECK(fake.erases == 1);
+	CHECK(last_update_says("\"reason\":\"incompatible_layout\""));
+	CHECK(ota_state() == OTA_IDLE);
+
+	/* For this board all the way: it is looked at twice, and installed. */
+	a_board_on_the_cloud();
+	a_download_running("job-3");
+	fake.download_is_good = true;
+	ota_on_download(APP_DOWNLOAD_FINISHED, 0);
+	ota_on_job_ack(TOKEN_COMMIT, ota.commit_sequence, true, false);
+	ticks(SETTLE_SECONDS);
+	job_listed("job-3", "IN_PROGRESS", "9.0.0");
+	CHECK(fake.compat_checks == 2);
+	CHECK(fake.swap_requests == 1);
+}
+
 /* A job on the board, up to where the cloud has agreed that it starts and the download runs. */
 static void a_download_running(const char *id)
 {
@@ -1366,6 +1482,8 @@ int main(void)
 	test_a_job_that_failed_is_not_tried_for_ever();
 	test_a_version_that_is_not_newer_is_refused();
 	test_a_second_job_while_one_runs();
+	test_an_image_for_another_board_or_layout_is_refused();
+	test_the_slot_is_looked_at_again_right_before_the_swap();
 #else
 	test_the_option_offers_and_waits();
 #endif

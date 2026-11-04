@@ -39,10 +39,31 @@ set(mcuboot_EXTRA_ZEPHYR_MODULES "${CMAKE_CURRENT_LIST_DIR}/sysbuild/mcuboot/gol
 # and the console's upload page can find it. See tools/store_binary.py.
 get_filename_component(cranium_repo "${APP_DIR}/../.." ABSOLUTE)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+# From 1.13.0 the image says its flash layout (TLV 0xa2, CONFIG_APP_IMAGE_LAYOUT), and a board
+# refuses an image of another. flash_layout.py describes the partitions that the application and
+# the bootloader were built with, from their final devicetrees, and stops the build unless they are
+# the ones firmware/app/flash_layouts.json holds for that number: a change of partitions has to come
+# with a new number. Before the image is kept, so that binaries/ never gets one that says wrong.
+if(SB_CONFIG_PARTITION_MANAGER)
+  message(FATAL_ERROR "The flash layout check reads the devicetree's partitions, and Partition "
+                      "Manager would place them elsewhere: see firmware/app/flash_layout.py")
+endif()
+add_custom_target(cranium_flash_layout ALL
+  COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_CURRENT_LIST_DIR}/flash_layout.py" check
+          --zephyr-base "${ZEPHYR_BASE}"
+          --config "${CMAKE_BINARY_DIR}/${DEFAULT_IMAGE}/zephyr/.config"
+          --dts "${DEFAULT_IMAGE}=${CMAKE_BINARY_DIR}/${DEFAULT_IMAGE}/zephyr/zephyr.dts"
+          --dts "mcuboot=${CMAKE_BINARY_DIR}/mcuboot/zephyr/zephyr.dts"
+          --layouts "${CMAKE_CURRENT_LIST_DIR}/flash_layouts.json"
+  COMMENT "Checking the flash layout number against the partitions"
+  VERBATIM)
+add_dependencies(cranium_flash_layout ${DEFAULT_IMAGE} mcuboot)
+
 add_custom_target(cranium_store_binary ALL
   # -I: tools/ holds a secrets.py, which must not hide the standard library's module.
   COMMAND ${Python3_EXECUTABLE} -I "${cranium_repo}/tools/store_binary.py"
           --build "${CMAKE_BINARY_DIR}" --repo "${cranium_repo}"
   COMMENT "Keeping the signed image in binaries/"
   VERBATIM)
-add_dependencies(cranium_store_binary ${DEFAULT_IMAGE})
+add_dependencies(cranium_store_binary ${DEFAULT_IMAGE} cranium_flash_layout)

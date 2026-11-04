@@ -21,7 +21,8 @@ WARNINGS := -Wall -Wextra -Werror
 # What the console's code expects from Kconfig.
 CONSOLE_DEFINES := -D_GNU_SOURCE -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_CLOUD_EVENTS=1 -DCONFIG_APP_LOG_LEVEL=0 \
 	-DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" -DCONFIG_MQTT_HELPER_SEC_TAG=201 \
-	-DCONFIG_APP_DOWNLOAD_SEC_TAG=202 -DCONFIG_MQTT_HELPER_PORT=8883 -DCONFIG_MQTT_KEEPALIVE=120
+	-DCONFIG_APP_DOWNLOAD_SEC_TAG=202 -DCONFIG_MQTT_HELPER_PORT=8883 -DCONFIG_MQTT_KEEPALIVE=120 \
+	-DCONFIG_APP_LOCATION=1 -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
 CONSOLE_SOURCES := $(SRC)/console_cmd.c $(SRC)/console_parser.c $(SRC)/console_stream.c \
 	$(SRC)/device.c $(SRC)/factory.c $(SRC)/identity.c $(SRC)/version.c console_fakes.c
 CONSOLE_HEADERS := $(wildcard $(SRC)/*.h) console_fakes.h
@@ -33,7 +34,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/console_bt_tests $(BUILD)/app_bt_tests $(BUILD)/ui_bt_tests \
 		$(BUILD)/stuck_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
 		$(BUILD)/fault_wifi_tests $(BUILD)/fault_wifi_command_tests $(BUILD)/app_fault_tests \
-		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests
+		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests \
+		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -56,6 +58,10 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/app_fault_tests
 	./$(BUILD)/cloud_tests
 	./$(BUILD)/cloud_events_tests
+	./$(BUILD)/command_tests
+	./$(BUILD)/location_tests
+	./$(BUILD)/location_bt_tests
+	./$(BUILD)/image_compat_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -85,7 +91,8 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 # cloud.c, included by its test to get at the AWS IoT library's callback and the connection's work,
 # against a fake of that library: what the console's MQTT command counts, and the topics it lists.
 $(BUILD)/cloud_tests: test_cloud.c $(SRC)/cloud.c $(SRC)/cloud.h $(SRC)/app_events.h $(SRC)/identity.h \
-		$(SRC)/cloud_events.h stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h stubs/zephyr/kernel.h
+		$(SRC)/cloud_events.h $(SRC)/command.h $(SRC)/location.h stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h \
+		stubs/zephyr/kernel.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN=4096 \
 		-DCONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE=512 -DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" \
@@ -100,7 +107,38 @@ $(BUILD)/cloud_events_tests: test_cloud_events.c $(SRC)/cloud_events.c $(SRC)/cl
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_CLOUD_EVENTS=1 -DCONFIG_APP_BOOT_DIARY=1 \
 		-o $@ test_cloud_events.c $(BUILD)/cJSON.o -lm
 
-# ui.c, included by its test to get at its input callback.
+# The console's commands (src/command.c), included by its test, against fakes of the main loop's queue,
+# the LEDs, the reports and the location: reading a message strictly, hostile ones above all, and what
+# each command does and answers.
+$(BUILD)/command_tests: test_command.c $(SRC)/command.c $(SRC)/command.h $(SRC)/location.h $(SRC)/ui.h \
+		$(SRC)/app_events.h $(SRC)/console.h stubs/zephyr/kernel.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_LOCATION=1 \
+		-o $@ test_command.c
+
+# Location by Wi-Fi (src/location.c), included by its test, against fakes of the Wi-Fi stack's scan, the
+# cloud, the update and the main loop's queue: what is kept, the JSON, when a scan happens and what holds
+# one. The second has CONFIG_APP_BT_OTA on, for the Bluetooth window.
+LOCATION_DEPS := test_location.c $(SRC)/location.c $(SRC)/location.h $(SRC)/cloud.h $(SRC)/ota.h \
+	$(SRC)/app_events.h $(SRC)/boot_diary.h $(SRC)/bt_ota.h stubs/host_net.h stubs/zephyr/kernel.h $(BUILD)/cJSON.o
+$(BUILD)/location_tests: $(LOCATION_DEPS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_LOCATION=1 -DCONFIG_APP_BOOT_DIARY=1 \
+		-o $@ test_location.c $(BUILD)/cJSON.o -lm
+
+$(BUILD)/location_bt_tests: $(LOCATION_DEPS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_LOCATION=1 -DCONFIG_APP_BOOT_DIARY=1 \
+		$(BT_DEFINES) -o $@ test_location.c $(BUILD)/cJSON.o -lm
+
+# What an image is compatible with (src/image_compat.c and src/image_compat_slot.c), against a fake slot
+# in flash: good images, legacy ones, the wrong type or layout, and every kind of broken TLV area.
+$(BUILD)/image_compat_tests: test_image_compat.c $(SRC)/image_compat.c $(SRC)/image_compat_slot.c \
+		$(SRC)/image_compat.h stubs/host_bt.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_image_compat.c
+
+# ui.c, included by its test to get at its input callback and its timers.
 $(BUILD)/ui_tests: test_ui.c $(SRC)/ui.c $(SRC)/ui.h $(SRC)/app_events.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -o $@ test_ui.c
@@ -122,32 +160,33 @@ $(BUILD)/bt_ota_policy_tests: test_bt_ota_policy.c $(SRC)/bt_ota_policy.c $(SRC)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_ota_policy.c $(SRC)/bt_ota_policy.c $(SRC)/version.c
 
+# The board's own type and flash layout, for what image_compat.c compares an image with.
+COMPAT_DEFINES := -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
 $(BUILD)/bt_ota_tests: test_bt_ota.c $(SRC)/bt_ota.c $(SRC)/bt_ota.h $(SRC)/bt_ota_policy.c $(SRC)/bt_ota_policy.h \
-		$(SRC)/ota_job.c $(SRC)/version.c stubs/host_bt.h stubs/zephyr/kernel.h $(BUILD)/cJSON.o
+		$(SRC)/ota_job.c $(SRC)/version.c $(SRC)/image_compat.c $(SRC)/image_compat.h stubs/host_bt.h \
+		stubs/zephyr/kernel.h $(BUILD)/cJSON.o
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_ota.c $(SRC)/bt_ota_policy.c $(SRC)/ota_job.c $(SRC)/version.c \
-		$(BUILD)/cJSON.o -lm
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_bt_ota.c $(SRC)/bt_ota_policy.c $(SRC)/ota_job.c \
+		$(SRC)/version.c $(SRC)/image_compat.c $(BUILD)/cJSON.o -lm
 
 # What it adds to ota.c, which is compiled for this and for nothing else here, and how a job goes
 # through it. The first has CONFIG_APP_OTA_REQUIRE_USER_CONSENT on, and the second has it off, as a
 # build gets it by default, so that a job starts with no button. The third is a test image that never
 # confirms itself.
-$(BUILD)/ota_bt_tests: test_ota_bt.c $(SRC)/ota.c $(SRC)/ota.h $(SRC)/ota_job.c $(SRC)/version.c stubs/host_ota.h \
-		stubs/host_bt.h $(BUILD)/cJSON.o
+OTA_DEPS := test_ota_bt.c $(SRC)/ota.c $(SRC)/ota.h $(SRC)/ota_job.c $(SRC)/version.c $(SRC)/image_compat.c \
+	$(SRC)/image_compat.h stubs/host_ota.h stubs/host_bt.h $(BUILD)/cJSON.o
+OTA_SOURCES := test_ota_bt.c $(SRC)/ota_job.c $(SRC)/version.c $(SRC)/image_compat.c $(BUILD)/cJSON.o -lm
+$(BUILD)/ota_bt_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_ota_bt.c $(SRC)/ota_job.c $(SRC)/version.c $(BUILD)/cJSON.o -lm
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ $(OTA_SOURCES)
 
-$(BUILD)/ota_bt_no_consent_tests: test_ota_bt.c $(SRC)/ota.c $(SRC)/ota.h $(SRC)/ota_job.c $(SRC)/version.c \
-		stubs/host_ota.h stubs/host_bt.h $(BUILD)/cJSON.o
+$(BUILD)/ota_bt_no_consent_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -DTEST_NO_CONSENT=1 -o $@ test_ota_bt.c $(SRC)/ota_job.c \
-		$(SRC)/version.c $(BUILD)/cJSON.o -lm
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -o $@ $(OTA_SOURCES)
 
-$(BUILD)/ota_bt_no_confirm_tests: test_ota_bt.c $(SRC)/ota.c $(SRC)/ota.h $(SRC)/ota_job.c $(SRC)/version.c \
-		stubs/host_ota.h stubs/host_bt.h $(BUILD)/cJSON.o
+$(BUILD)/ota_bt_no_confirm_tests: $(OTA_DEPS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_TEST_FAULT_NO_CONFIRM=1 -o $@ test_ota_bt.c $(SRC)/ota_job.c \
-		$(SRC)/version.c $(BUILD)/cJSON.o -lm
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DCONFIG_APP_TEST_FAULT_NO_CONFIRM=1 -o $@ $(OTA_SOURCES)
 
 $(BUILD)/console_bt_tests: test_console.c $(CONSOLE_SOURCES) $(BUILD)/base64.o $(CONSOLE_HEADERS)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) $(BT_DEFINES) -o $@ $(filter %.c %.o,$^)

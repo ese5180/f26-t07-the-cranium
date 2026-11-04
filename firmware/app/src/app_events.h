@@ -97,4 +97,10 @@ int app_event_post_simple(enum app_event_type type);
  */
 int app_cloud_retry_in(void);
 
+/*
+ * The heartbeat and the diagnostics report, now, if the board is connected: for the console's
+ * report command (command.h). Only on the main loop.
+ */
+void app_send_reports(void);
+
 #endif /* APP_EVENTS_H_ */

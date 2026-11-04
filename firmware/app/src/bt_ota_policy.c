@@ -376,6 +376,10 @@ const char *bt_ota_result_text(enum bt_ota_result result)
 		return "trial_lost";
 	case BT_OTA_RESULT_SUPERSEDED:
 		return "superseded";
+	case BT_OTA_RESULT_INCOMPATIBLE_BOARD:
+		return "incompatible_board";
+	case BT_OTA_RESULT_INCOMPATIBLE_LAYOUT:
+		return "incompatible_layout";
 	default:
 		return "flash_error";
 	}

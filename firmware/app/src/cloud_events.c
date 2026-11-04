@@ -61,6 +61,8 @@ static const struct source sources[] = {
 	{ "WIFI", RULE_QUOTES_HOLD_A_NETWORK, NULL },
 	{ "STUCK", RULE_AS_IS, NULL },
 	{ "CONSOLE", RULE_AS_IS, NULL },
+	/* command.c's answers to the console's commands, from 1.13.0. */
+	{ "CMD", RULE_AS_IS, NULL },
 	/* LOG_*() of this application's modules, by the name each one registers. */
 	{ "app", RULE_AS_IS, NULL },
 	{ "boot_diary", RULE_AS_IS, NULL },
@@ -69,6 +71,8 @@ static const struct source sources[] = {
 	{ "factory", RULE_AS_IS, NULL },
 	{ "health", RULE_AS_IS, NULL },
 	{ "identity", RULE_AS_IS, NULL },
+	/* From 1.13.0. It prints counts of access points, and never an address or a network's name. */
+	{ "location", RULE_AS_IS, NULL },
 	{ "net", RULE_QUOTES_HOLD_A_NETWORK, NULL },
 	{ "ota", RULE_AS_IS, NULL },
 	{ "store", RULE_AS_IS, NULL },

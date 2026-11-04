@@ -14,6 +14,8 @@
  * before "tag" when N lines are missing right before this one, for a full ring or for the rate limit,
  * and seq skips over them. text is at most CLOUD_EVENTS_TEXT_MAX characters of printable ASCII.
  *
+ * The answers to the console's commands are console_event() lines with the tag CMD (command.h).
+ *
  * Never sent: a line from anywhere else (Zephyr, the SDK, the Wi-Fi supplicant, MQTT, the
  * downloader), the Bluetooth passkey, a debug line, and a line with anything that looks like a
  * password, a key or a certificate in it. A network's name becomes "the network", and a URL "a URL".

@@ -3,14 +3,16 @@
  * the device shadow as its own report, when the board reaches the cloud and every
  * CONFIG_APP_DIAG_INTERVAL_SECONDS after:
  *
- *   {"diag":{"id":"CRVIHAAN01","mac":"f4:ce:36:12:34:56","channel":6,"heap":{"free":21312,"least":9840,"size":44240}}}
+ *   {"diag":{"id":"CRVIHAAN01","mac":"f4:ce:36:12:34:56","channel":6,"heap":{"free":21312,"least":9840,"size":44240},"board":"nrf7002dk","layout":1}}
  *
  * id is the board's own device ID, which a person sets with INIT or SET_ID (from 1.11.4; left out when
  * there is none), and which the console shows as the board's name: the thing name stays its AWS
  * identity. It is also sent as soon as it changes. mac is the Wi-Fi interface's address, for networks that admit devices by address. channel is the
  * Wi-Fi channel, 0 when not associated. heap is the system heap: what is free now, the least it has
- * been since the board started, and its size, in bytes. Nothing here is secret, and nothing names
- * the network.
+ * been since the board started, and its size, in bytes. board and layout, from 1.13.0, are the
+ * board type and the flash layout number (CONFIG_APP_BOARD_TYPE, CONFIG_APP_IMAGE_LAYOUT,
+ * docs/fleet.md), the same as its image carries. Nothing here is secret, and nothing names the
+ * network.
  */
 
 #ifndef DIAG_H_
@@ -21,6 +23,11 @@
 
 #include "device.h"
 
+/* The longest board type that goes into the report: lower-case letters and digits. */
+#define DIAG_BOARD_MAX 16
+/* What main.c holds the report in: the longest, with every number at its largest, fits. */
+#define DIAG_REPORT_MAX 224
+
 struct diag_values {
 	char id[DEVICE_ID_MAX + 1];
 	char mac[18];
@@ -28,6 +35,8 @@ struct diag_values {
 	uint32_t heap_free;
 	uint32_t heap_least;
 	uint32_t heap_size;
+	char board[DIAG_BOARD_MAX + 1];
+	uint32_t layout;
 };
 
 /* Fill in what can be read now; what cannot is left as "unknown" or 0. */

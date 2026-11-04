@@ -714,16 +714,21 @@ static void test_the_record_in_the_shadow(void)
 	/* The longest there can be fits the buffer bt_ota.c gives it. */
 	record.from = (struct fw_version){ 255, 255, 65535, 4294967295U };
 	record.target = record.from;
-	record.result = BT_OTA_RESULT_NOT_INSTALLED;
+	record.result = BT_OTA_RESULT_INCOMPATIBLE_LAYOUT;
 	record.count = 4294967295U;
 	CHECK(bt_ota_record_json(&record, json, sizeof(json)) > 0);
+	CHECK(strstr(json, "\"result\":\"incompatible_layout\"") != NULL);
 }
 
 static void test_every_result_has_a_word(void)
 {
-	for (int result = BT_OTA_RESULT_PENDING; result <= BT_OTA_RESULT_FLASH_ERROR; result++) {
+	for (int result = BT_OTA_RESULT_PENDING; result <= BT_OTA_RESULT_INCOMPATIBLE_LAYOUT; result++) {
 		CHECK(bt_ota_result_text((enum bt_ota_result)result)[0] != '\0');
 	}
+	CHECK(strcmp(bt_ota_result_text(BT_OTA_RESULT_INCOMPATIBLE_BOARD), "incompatible_board") == 0);
+	CHECK(strcmp(bt_ota_result_text(BT_OTA_RESULT_INCOMPATIBLE_LAYOUT), "incompatible_layout") == 0);
+	/* The stored record keeps its numbers: the new ones come after the last there was. */
+	CHECK(BT_OTA_RESULT_FLASH_ERROR == 6 && BT_OTA_RESULT_INCOMPATIBLE_BOARD == 7);
 
 	CHECK(strcmp(bt_ota_proof_by_text(BT_OTA_PROOF_BY_NONE), "none") == 0);
 	CHECK(strcmp(bt_ota_proof_by_text(BT_OTA_PROOF_BY_CLOUD), "cloud") == 0);

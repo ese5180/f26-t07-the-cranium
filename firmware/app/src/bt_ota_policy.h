@@ -250,6 +250,9 @@ enum bt_ota_result {
 	/* A cloud job installed something else after this one. */
 	BT_OTA_RESULT_SUPERSEDED,
 	BT_OTA_RESULT_FLASH_ERROR,
+	/* From 1.13.0: refused before it was marked, for another board type or flash layout. */
+	BT_OTA_RESULT_INCOMPATIBLE_BOARD,
+	BT_OTA_RESULT_INCOMPATIBLE_LAYOUT,
 };
 
 enum bt_ota_proof_by {

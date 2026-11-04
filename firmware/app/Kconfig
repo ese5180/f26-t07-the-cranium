@@ -4,6 +4,47 @@
 
 menu "Cranium application"
 
+# The tags of the protected TLVs in every signed image that say what it is compatible with: see
+# "Board type and compatibility" in firmware/README.md and docs/fleet.md. MCUboot leaves 0x00a0 to
+# 0x00ff to vendors.
+CRANIUM_BOARD_TLV := 0xa1
+CRANIUM_LAYOUT_TLV := 0xa2
+
+# Each board's flash layout number. It goes up whenever its partitions change, and
+# firmware/app/flash_layouts.json holds what its partitions are for each number: the build stops if
+# they are not those (sysbuild.cmake). The nRF5340 DK has none until its partitions are drawn.
+CRANIUM_NRF7002DK_LAYOUT := 1
+
+config APP_BOARD_TYPE
+	string
+	default "nrf7002dk" if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default "nrf5340dk" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
+	help
+	  From 1.13.0. The kind of board this image is for, as the console knows it (docs/fleet.md):
+	  in the image's protected TLV, through MCUBOOT_EXTRA_IMGTOOL_ARGS below, and in the
+	  diagnostics report. It follows from the board and cannot be set: CMakeLists.txt stops a build
+	  for a board that has none, and one whose image would not say it.
+
+config APP_IMAGE_LAYOUT
+	int
+	default $(CRANIUM_NRF7002DK_LAYOUT) if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default 0
+	help
+	  From 1.13.0. The number of this board's flash layout: its partitions, its slot sizes and the
+	  golden area. In the image's protected TLV 0xa2 and in the diagnostics report, and the board
+	  refuses an image of another layout. It follows from the board and cannot be set, since an
+	  assignment in a .conf file has no effect on a symbol with no prompt: the number lives above,
+	  next to the board's type. 0 means none, and CMakeLists.txt stops the build.
+
+if BOOTLOADER_MCUBOOT
+
+# Before Zephyr's own definition, which defaults to "", so these defaults come first.
+config MCUBOOT_EXTRA_IMGTOOL_ARGS
+	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf7002dk --custom-tlv $(CRANIUM_LAYOUT_TLV) $(CRANIUM_NRF7002DK_LAYOUT)" if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf5340dk" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
+
+endif # BOOTLOADER_MCUBOOT
+
 config APP_THING_NAME_PREFIX
 	string "Prefix of the AWS IoT thing name"
 	default "cranium-"
@@ -145,6 +186,17 @@ config APP_CLOUD_EVENTS
 	  in RAM while the board is offline, the last 32 of them, and at most 5 a second (20 at once)
 	  get in. The device policy in AWS IoT has to allow publishing there: see "Events to the console"
 	  in firmware/README.md.
+
+config APP_LOCATION
+	bool "Send what Wi-Fi access points the board hears, for a position"
+	depends on WIFI
+	default y
+	help
+	  From 1.13.0. Up to 10 access points, by address and signal and never by name, to
+	  cranium/<thing name>/location: once a boot, every 6 hours and when the console asks, never
+	  more often than every 10 minutes, and never during an update or while Bluetooth is open.
+	  The device policy in AWS IoT has to allow publishing there. See "Location" in
+	  firmware/README.md and docs/fleet.md.
 
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"

@@ -11,24 +11,33 @@
 
 #include "app_events.h"
 #include "cloud_events.h"
+#include "command.h"
 #include "identity.h"
+#include "location.h"
 
 LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 
 #define TOPIC_MAX        128
 #define SHADOW_MAX       512
 /*
- * An event's topic is "cranium/<thing name>/events", where the thing name is the prefix and 16
- * hexadecimal digits. Its PUBLISH at QoS 0 has a fixed header of 3 bytes (up to 16383 bytes in all)
- * and the topic's length in 2. The library sends the payload from where it is and only puts the rest
- * into its buffer; all of it fits there all the same, as the shadow report does.
+ * The board's own topics are "cranium/<thing name>/<what>", where the thing name is the prefix
+ * and 16 hexadecimal digits. A PUBLISH at QoS 0 has a fixed header of 3 bytes (up to 16383 bytes
+ * in all) and the topic's length in 2. The library sends the payload from where it is and only puts
+ * the rest into its buffer; all of it fits there all the same, as the shadow report does.
  */
-#define EVENTS_TOPIC_LENGTH (sizeof("cranium//events") - 1 + sizeof(CONFIG_APP_THING_NAME_PREFIX) - 1 + 16)
+#define OWN_TOPIC_LENGTH(what)                                                                     \
+	(sizeof("cranium//" what) - 1 + sizeof(CONFIG_APP_THING_NAME_PREFIX) - 1 + 16)
+#define EVENTS_TOPIC_LENGTH   OWN_TOPIC_LENGTH("events")
+#define COMMANDS_TOPIC_LENGTH OWN_TOPIC_LENGTH("commands")
+#define LOCATION_TOPIC_LENGTH OWN_TOPIC_LENGTH("location")
 #define PUBLISH_QOS0_HEADER 5
 BUILD_ASSERT(EVENTS_TOPIC_LENGTH < TOPIC_MAX, "the events topic must fit its buffer");
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX - 1 <=
 		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
 	     "the longest event must fit the MQTT buffer with its topic");
+BUILD_ASSERT(PUBLISH_QOS0_HEADER + LOCATION_TOPIC_LENGTH + LOCATION_JSON_MAX - 1 <=
+		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
+	     "the longest location must fit the MQTT buffer with its topic");
 #define CONNECT_STACK    4096
 #define CONNECT_PRIORITY K_PRIO_PREEMPT(10)
 
@@ -39,16 +48,32 @@ static char topic_update_accepted[TOPIC_MAX];
 static char topic_update_rejected[TOPIC_MAX];
 static char topic_get_next[TOPIC_MAX];
 static char topic_events[TOPIC_MAX];
+/* Only as long as they can be: RAM is short. */
+static char topic_commands[COMMANDS_TOPIC_LENGTH + 1];
+static char topic_location[LOCATION_TOPIC_LENGTH + 1];
 
-/* What is subscribed to, in this order. The console lists them from here as well. */
+/*
+ * What is subscribed to, in this order. The console lists them from here as well. The commands
+ * topic is the last, so that a connection without it takes one fewer: see cloud_subscription().
+ */
 static char *const subscribed[] = {
 	topic_notify_next, topic_get_accepted, topic_get_rejected, topic_update_accepted,
-	topic_update_rejected,
+	topic_update_rejected, topic_commands,
 };
 
 static struct mqtt_topic subscriptions[ARRAY_SIZE(subscribed)];
 /* The topics are complete: before that the console must not read them. */
 static atomic_t topics_ready;
+
+/*
+ * The commands topic's guard, from 1.13.0. AWS IoT may end a connection that subscribes where its
+ * device policy does not allow, and the jobs topics are in that SUBSCRIBE too: see
+ * cloud_subscription() in cloud.h. The strikes are the connection thread's alone.
+ */
+static atomic_t commands_off;
+static uint8_t commands_strikes;
+/* AWS_IOT_EVT_ERROR came during the attempt under way: the broker refused its CONNECT. */
+static atomic_t attempt_refused;
 
 static K_THREAD_STACK_DEFINE(connect_stack, CONNECT_STACK);
 static struct k_work_q connect_queue;
@@ -240,6 +265,9 @@ static void on_message(const char *topic, size_t topic_len, const char *payload,
 		on_update_reply(true, payload, len);
 	} else if (ends_with(topic, topic_len, "/update/rejected")) {
 		on_update_reply(false, payload, len);
+	} else if (topic_commands[0] != '\0' && topic_len == strlen(topic_commands) &&
+		   memcmp(topic, topic_commands, topic_len) == 0) {
+		command_received(payload, len);
 	}
 }
 
@@ -277,6 +305,9 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 		 */
 		LOG_WRN("AWS IoT library error %d", event->data.err);
 		stats_note_error(CLOUD_ERROR_LIBRARY, event->data.err);
+		if (atomic_get(&connecting)) {
+			atomic_set(&attempt_refused, 1);
+		}
 		if (atomic_set(&connected, 0)) {
 			stats_note_down();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
@@ -287,12 +318,37 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 	}
 }
 
+/*
+ * After an attempt that subscribed to the commands topic. aws_iot_connect() waits for the SUBACK,
+ * and returns -EAGAIN when it has not come in CONFIG_AWS_IOT_CONNECT_TIMEOUT_SECONDS: the broker
+ * ended the connection or said nothing, after a CONNACK that did not refuse it, since a refusal is
+ * AWS_IOT_EVT_ERROR. A failure before that (DNS, TLS) says nothing either way.
+ */
+static void judge_commands_subscription(int err)
+{
+	if (err == 0) {
+		commands_strikes = 0;
+		return;
+	}
+
+	if (err != -EAGAIN || atomic_get(&attempt_refused) ||
+	    ++commands_strikes < CLOUD_COMMANDS_REFUSALS_MAX) {
+		return;
+	}
+
+	atomic_set(&commands_off, 1);
+	LOG_WRN("AWS IoT ended the connection while it subscribed, %d times: no commands until a "
+		"restart. Its device policy must allow cranium/<thing>/commands",
+		CLOUD_COMMANDS_REFUSALS_MAX);
+}
+
 static void connect_work_handler(struct k_work *work)
 {
 	struct aws_iot_config aws_config = {
 		.client_id = (char *)identity_thing_name(),
 		.host_name = connect_host,
 	};
+	bool with_commands = !atomic_get(&commands_off);
 	k_spinlock_key_t key;
 	int err;
 
@@ -304,12 +360,21 @@ static void connect_work_handler(struct k_work *work)
 	connection_stats.attempts++;
 	k_spin_unlock(&stats_lock, key);
 
+	/* Every topic, or all but the last, the commands topic, which the guard has given up on. */
+	(void)aws_iot_application_topics_set(subscriptions,
+					     ARRAY_SIZE(subscriptions) - (with_commands ? 0 : 1));
+	atomic_set(&attempt_refused, 0);
+
 	/* Blocks until the broker has acknowledged the subscriptions, or fails. */
 	err = aws_iot_connect(&aws_config);
 
 	/* Counted before the flag goes: whoever sees the attempt over sees its error as well. */
 	if (err) {
 		stats_note_error(CLOUD_ERROR_CONNECT, err);
+	}
+
+	if (with_commands) {
+		judge_commands_subscription(err);
 	}
 
 	atomic_set(&connecting, 0);
@@ -355,6 +420,18 @@ int cloud_init(void)
 	written = snprintk(topic_events, sizeof(topic_events), "cranium/%s/events",
 			   identity_thing_name());
 	if (written < 0 || written >= (int)sizeof(topic_events)) {
+		return -ENOSPC;
+	}
+
+	written = snprintk(topic_commands, sizeof(topic_commands), "cranium/%s/commands",
+			   identity_thing_name());
+	if (written < 0 || written >= (int)sizeof(topic_commands)) {
+		return -ENOSPC;
+	}
+
+	written = snprintk(topic_location, sizeof(topic_location), "cranium/%s/location",
+			   identity_thing_name());
+	if (written < 0 || written >= (int)sizeof(topic_location)) {
 		return -ENOSPC;
 	}
 
@@ -428,11 +505,18 @@ void cloud_stats_get(struct cloud_stats *out)
 
 const char *cloud_subscription(size_t index)
 {
-	if (!atomic_get(&topics_ready) || index >= ARRAY_SIZE(subscribed)) {
+	size_t count = ARRAY_SIZE(subscribed) - (atomic_get(&commands_off) ? 1 : 0);
+
+	if (!atomic_get(&topics_ready) || index >= count) {
 		return NULL;
 	}
 
 	return subscribed[index];
+}
+
+bool cloud_commands_given_up(void)
+{
+	return atomic_get(&commands_off) != 0;
 }
 
 static int publish_at(enum mqtt_qos qos, const char *topic,
@@ -493,6 +577,16 @@ int cloud_event_publish(const char *json)
 	}
 
 	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic_events, AWS_IOT_SHADOW_TOPIC_NONE, json);
+}
+
+/* QoS 0, as the events: a location that did not get there is no use later. */
+int cloud_location_publish(const char *json)
+{
+	if (topic_location[0] == '\0') {
+		return -ENOTCONN;
+	}
+
+	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic_location, AWS_IOT_SHADOW_TOPIC_NONE, json);
 }
 
 int cloud_jobs_request_next(void)

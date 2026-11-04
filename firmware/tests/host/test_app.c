@@ -103,7 +103,7 @@ static struct {
 	char last_report[420];
 	/* The diagnostics report goes through the same call, and is counted apart. */
 	int diag_reports;
-	char last_diag[200];
+	char last_diag[DIAG_REPORT_MAX];
 	int fault_ticks;
 	bool ota_changed;
 	int up_requests;
@@ -572,6 +572,28 @@ void cloud_events_send(void)
 	events.sends++;
 }
 
+/* src/location.h, which test_location.c tests: when the main loop calls it. */
+static struct {
+	int inits;
+	int ticks;
+	int downs;
+} location;
+
+void location_init(void)
+{
+	location.inits++;
+}
+
+void location_on_tick(void)
+{
+	location.ticks++;
+}
+
+void location_on_cloud_down(void)
+{
+	location.downs++;
+}
+
 int cloud_shadow_report(const char *reported_json)
 {
 	if (strncmp(reported_json, "{\"diag\":", 8) == 0) {
@@ -770,6 +792,7 @@ static void run_main(enum device_boot result, bool factory, bool network, bool s
 	reported_status[0] = '\0';
 	report_due = false;
 	memset(&events, 0, sizeof(events));
+	memset(&location, 0, sizeof(location));
 
 	board.boot_result = result;
 	board.factory = factory;
@@ -3131,9 +3154,12 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	char text[160];
 
 	strcpy(values.mac, "f4:ce:36:12:34:56");
+	strcpy(values.board, "nrf7002dk");
+	values.layout = 1;
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
 	CHECK(strcmp(text, "{\"diag\":{\"mac\":\"f4:ce:36:12:34:56\",\"channel\":6,"
-			   "\"heap\":{\"free\":21312,\"least\":9840,\"size\":44240}}}") == 0);
+			   "\"heap\":{\"free\":21312,\"least\":9840,\"size\":44240},"
+			   "\"board\":\"nrf7002dk\",\"layout\":1}}") == 0);
 
 	/* Anything that is not an address does not go into the JSON. */
 	strcpy(values.mac, "\"},\"x\":\"1");
@@ -3149,16 +3175,106 @@ static void test_the_diagnostics_report_says_only_what_it_should(void)
 	CHECK(diag_format(&values, text, sizeof(text)) > 0);
 	CHECK(strstr(text, "\"id\"") == NULL);
 
+	/* The board type, from 1.13.0: only what one looks like, or "unknown". */
+	static const char *const not_a_type[] = {
+		"", "nRF7002DK", "nrf7002dk\"}", "nrf-7002", "nrf7002 nrf5340",
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(not_a_type); i++) {
+		strcpy(values.board, not_a_type[i]);
+		CHECK(diag_format(&values, text, sizeof(text)) > 0);
+		CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1}}") != NULL);
+	}
+	/* With no end inside it: nothing past the field is read. */
+	memset(values.board, 'z', sizeof(values.board));
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strstr(text, ",\"board\":\"unknown\",\"layout\":1}}") != NULL);
+	strcpy(values.board, "nrf5340dk");
+	values.layout = 2;
+	CHECK(diag_format(&values, text, sizeof(text)) > 0);
+	CHECK(strstr(text, ",\"board\":\"nrf5340dk\",\"layout\":2}}") != NULL);
+
 	/* The longest one fits the buffer main.c gives it, and a short buffer is refused. */
-	char longest[200];
+	char longest[DIAG_REPORT_MAX + 32];
 
 	memset(values.id, 'Z', 32);
 	values.id[32] = '\0';
 	strcpy(values.mac, "ff:ff:ff:ff:ff:ff");
 	values.channel = 4294967295U;
 	values.heap_free = values.heap_least = values.heap_size = 4294967295U;
-	CHECK(diag_format(&values, longest, 192) > 0);
+	memset(values.board, 'z', DIAG_BOARD_MAX);
+	values.board[DIAG_BOARD_MAX] = '\0';
+	values.layout = 4294967295U;
+	CHECK(diag_format(&values, longest, DIAG_REPORT_MAX) > 0);
+	CHECK(strstr(longest, "\"board\":\"zzzzzzzzzzzzzzzz\",\"layout\":4294967295}}") != NULL);
 	CHECK(diag_format(&values, longest, 40) == -ENOSPC);
+
+	/* As it goes into the shadow, with what main.c's buffer gives the rest. */
+	CHECK(sizeof("{\"state\":{\"reported\":}}") - 1 + strlen(longest) < 512);
+}
+
+static void test_the_diagnostics_report_says_the_board_type(void)
+{
+	struct diag_values values;
+
+	diag_collect(&values);
+	CHECK(strcmp(values.board, CONFIG_APP_BOARD_TYPE) == 0);
+	CHECK(strcmp(values.board, "nrf7002dk") == 0);
+	CHECK(values.layout == CONFIG_APP_IMAGE_LAYOUT && values.layout == 1);
+
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
+	run_loop();
+	CHECK(board.diag_reports == 1);
+	CHECK(strstr(board.last_diag, "},\"board\":\"nrf7002dk\",\"layout\":1}}") != NULL);
+}
+
+/* The console's report command (command.c) calls this: the heartbeat and the diagnostics, now. */
+static void test_reports_on_request(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	CHECK(app_event_post_simple(APP_EVENT_CLOUD_UP) == 0);
+	run_loop();
+	CHECK(board.shadow_reports == 1 && board.diag_reports == 1);
+
+	ticks(3);
+	CHECK(board.shadow_reports == 1 && board.diag_reports == 1);
+	app_send_reports();
+	CHECK(board.shadow_reports == 2 && board.diag_reports == 2);
+	CHECK(strncmp(board.last_diag, "{\"diag\":", 8) == 0);
+	CHECK(strstr(board.last_report, "\"uptime\":") != NULL);
+
+	/* Each starts its own interval again. */
+	ticks(CONFIG_APP_SHADOW_INTERVAL_SECONDS - 1);
+	CHECK(board.shadow_reports == 2);
+	ticks(1);
+	CHECK(board.shadow_reports == 3);
+
+	/* Offline: nothing. */
+	board.cloud_up = false;
+	app_send_reports();
+	CHECK(board.shadow_reports == 3 && board.diag_reports == 2);
+}
+
+static void test_the_main_loop_gives_the_location_its_turn(void)
+{
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	CHECK(location.inits == 1);
+	ticks(4);
+	CHECK(location.ticks == 4);
+
+	link_comes_up();
+	cloud_attempt_comes_up();
+	CHECK(location.downs == 0);
+	cloud_connection_ends();
+	CHECK(location.downs == 1);
+
+	/* In factory mode as well: it holds itself, offline. */
+	boot(DEVICE_BOOT_OPERATING, true, false, false);
+	ticks(2);
+	CHECK(location.ticks == 2);
 }
 
 static void test_a_new_device_id_goes_to_the_console_at_once(void)
@@ -3269,6 +3385,9 @@ int main(void)
 	test_the_longest_report_fits();
 	test_diagnostics_go_on_connecting_and_every_five_minutes();
 	test_the_diagnostics_report_says_only_what_it_should();
+	test_the_diagnostics_report_says_the_board_type();
+	test_reports_on_request();
+	test_the_main_loop_gives_the_location_its_turn();
 	test_a_new_device_id_goes_to_the_console_at_once();
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 	test_the_main_loop_gives_the_fault_its_ticks();

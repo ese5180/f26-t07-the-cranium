@@ -2,7 +2,9 @@
  * Connection to AWS IoT Core: MQTT over TLS with mutual authentication.
  *
  * The device talks only to its own shadow and its own jobs topics, and from 1.12.0 publishes its
- * events to cranium/<thing name>/events. The endpoint and the client ID (the thing name) are
+ * events to cranium/<thing name>/events. From 1.13.0 it also takes the console's commands on
+ * cranium/<thing name>/commands (command.h) and publishes what it hears of Wi-Fi to
+ * cranium/<thing name>/location (location.h). The endpoint and the client ID (the thing name) are
  * provisioned per device.
  */
 
@@ -85,8 +87,19 @@ void cloud_stats_get(struct cloud_stats *out);
  * The topics the board subscribes to at every connection, one by one from 0: NULL after the
  * last one, and before cloud_init(). The library adds none of its own here: no shadow topic
  * is subscribed to (CONFIG_AWS_IOT_TOPIC_*_SUBSCRIBE are all off). From any thread.
+ *
+ * The commands topic comes last, in the same SUBSCRIBE as the jobs topics. If AWS IoT ends
+ * CLOUD_COMMANDS_REFUSALS_MAX connection attempts in a row while they wait for that SUBACK, and
+ * not with a refusal of the CONNECT, the board gives up on commands until a restart, says so, and
+ * connects without them, so that updates go on. A SUBACK that refuses only the commands topic
+ * cannot be seen through the library: the board then connects as before and gets no commands.
  */
 const char *cloud_subscription(size_t index);
+
+#define CLOUD_COMMANDS_REFUSALS_MAX 2
+
+/* The commands topic is left out until a restart: see cloud_subscription(). From any thread. */
+bool cloud_commands_given_up(void);
 
 /* Publish the reported state. json is the object that goes under state.reported. */
 int cloud_shadow_report(const char *reported_json);
@@ -97,6 +110,12 @@ int cloud_shadow_report(const char *reported_json);
  * where it may not.
  */
 int cloud_event_publish(const char *json);
+
+/*
+ * Publish what the board hears of Wi-Fi (src/location.h) to cranium/<thing name>/location, at
+ * QoS 0. The device policy has to allow that topic, as it has to allow the events topic.
+ */
+int cloud_location_publish(const char *json);
 
 /* Ask for the next pending job execution, including a fresh job document. */
 int cloud_jobs_request_next(void);

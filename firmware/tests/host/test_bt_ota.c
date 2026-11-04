@@ -127,7 +127,26 @@ static struct {
 	int shadow_reports;
 	struct mgmt_callback *hooks[4];
 	int hook_count;
+
+	/* What image_compat.c finds in the secondary slot, and how often it was asked. */
+	enum image_compat_verdict compat;
+	struct image_compat compat_found;
+	int compat_checks;
+	int compat_changes_at;
+	enum image_compat_verdict compat_then;
 } fake;
+
+/* image_compat_slot.c, which test_image_compat.c tests. */
+enum image_compat_verdict image_compat_check_slot(uint8_t area_id, struct image_compat *found)
+{
+	CHECK(area_id == SECONDARY_SLOT_ID);
+	*found = fake.compat_found;
+	fake.compat_checks++;
+	if (fake.compat_changes_at != 0 && fake.compat_checks >= fake.compat_changes_at) {
+		return fake.compat_then;
+	}
+	return fake.compat;
+}
 
 static struct bt_conn phone;
 
@@ -597,12 +616,17 @@ static int read_list(void)
 	return command(MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_STATE, MGMT_OP_READ);
 }
 
+/* An image's header, as imgtool writes it: 0x200 bytes of header and 1000 of body, no TLVs. */
 static void image_header(uint8_t *data, uint8_t major, uint8_t minor)
 {
 	const uint32_t magic = BT_OTA_IMAGE_MAGIC;
+	const uint16_t header_size = 0x200;
+	const uint32_t body_size = 1000;
 
 	memset(data, 0, BT_OTA_IMAGE_HEADER_LEN);
 	memcpy(data, &magic, sizeof(magic));
+	memcpy(data + 8, &header_size, sizeof(header_size));
+	memcpy(data + 12, &body_size, sizeof(body_size));
 	data[20] = major;
 	data[21] = minor;
 }
@@ -1385,6 +1409,242 @@ static void test_a_piece_that_got_past_the_gate_stops_at_the_upload_hook(void)
 	CHECK(piece((const uint8_t *)"x", 1, 4096, 700000, 0) == MGMT_ERR_EACCESSDENIED);
 }
 
+/*
+ * A whole image, from 1.13.0: header, body, a protected area with these type and layout values
+ * (NULL for none, and no area if both are), and a TLV area. Returns its length.
+ */
+static size_t whole_image(uint8_t *data, const char *board, const char *layout)
+{
+	const uint16_t header_size = 0x200;
+	const uint32_t body_size = 1000;
+	size_t at = header_size + body_size;
+	size_t prot = at;
+	uint16_t value;
+
+	memset(data, 0x5a, at + 300);
+	image_header(data, RUNNING_MAJOR, RUNNING_MINOR + 1);
+
+	if (board != NULL || layout != NULL) {
+		at += 4;
+		for (int i = 0; i < 2; i++) {
+			const char *text = i == 0 ? board : layout;
+
+			if (text == NULL) {
+				continue;
+			}
+			value = i == 0 ? IMAGE_COMPAT_TLV_BOARD : IMAGE_COMPAT_TLV_LAYOUT;
+			memcpy(data + at, &value, 2);
+			value = (uint16_t)strlen(text);
+			memcpy(data + at + 2, &value, 2);
+			memcpy(data + at + 4, text, strlen(text));
+			at += 4 + strlen(text);
+		}
+		value = IMAGE_COMPAT_PROT_MAGIC;
+		memcpy(data + prot, &value, 2);
+		value = (uint16_t)(at - prot);
+		memcpy(data + prot + 2, &value, 2);
+		memcpy(data + 10, &value, 2);
+	}
+
+	/* The TLV area: its info header and a SHA-256 that is only its size. */
+	value = IMAGE_COMPAT_TLV_MAGIC;
+	memcpy(data + at, &value, 2);
+	value = 4 + 4 + 32;
+	memcpy(data + at + 2, &value, 2);
+	return at + 40;
+}
+
+/*
+ * An upload: its header first, as every tool sends it, then pieces of this size. The offset of the
+ * first one refused, or the length if none was.
+ */
+static size_t upload_in_pieces(const uint8_t *data, size_t length, size_t size, int *rc)
+{
+	size_t next;
+
+	*rc = piece(data, BT_OTA_IMAGE_HEADER_LEN, 0, length, 0);
+	if (*rc != 0) {
+		return 0;
+	}
+
+	for (size_t off = BT_OTA_IMAGE_HEADER_LEN; off < length; off = next) {
+		next = off + MIN(size, length - off);
+		*rc = piece(data + off, next - off, off, length, 0);
+		if (*rc != 0) {
+			return off;
+		}
+	}
+	return length;
+}
+
+static void offered_but_no_good(int swap_type_by_then);
+
+static void test_an_upload_for_another_board_or_layout_is_refused_as_it_comes(void)
+{
+	static uint8_t data[2048];
+	static const struct {
+		const char *board;
+		const char *layout;
+		const char *line;
+	} refused[] = {
+		{ "nrf5340dk", "1", "refused an upload: it is for nrf5340dk, and this board is nrf7002dk" },
+		{ "nrf5340dk", NULL, "refused an upload: it is for nrf5340dk" },
+		{ "nrf7002dk", "2", "refused an upload: it is for flash layout 2, and this board has 1" },
+		{ NULL, "2", "refused an upload: it is for flash layout 2" },
+		{ "NRF7002DK", "1", "refused an upload: its signed metadata is malformed" },
+		{ "nrf7002dk", "01", "refused an upload: its signed metadata is malformed" },
+	};
+	static const size_t sizes[] = { 1, 3, 7, 64, 400, 1517, 4096 };
+
+	for (size_t i = 0; i < ARRAY_SIZE(refused); i++) {
+		size_t length = whole_image(data, refused[i].board, refused[i].layout);
+		size_t end_of_area = 0x200 + 1000 + (size_t)(data[10] | (data[11] << 8));
+
+		for (size_t s = 0; s < ARRAY_SIZE(sizes); s++) {
+			size_t stopped;
+			int rc;
+
+			fresh_board();
+			open_by_hand();
+			phone_pairs();
+			bt_ota_on_tick();
+			stopped = upload_in_pieces(data, length, sizes[s], &rc);
+
+			/*
+			 * At the piece that completes the protected area, before it is written, or for
+			 * an area that is bad, at the first piece that shows it.
+			 */
+			CHECK(rc == MGMT_ERR_EBADSTATE);
+			CHECK(stopped < end_of_area);
+			CHECK(stopped + sizes[s] >= end_of_area || strstr(refused[i].line, "malformed"));
+			CHECK(strstr(fake.console, refused[i].line) != NULL);
+
+			/* That piece again, as a tool would send it: the same. */
+			CHECK(piece(data + stopped, MIN(sizes[s], length - stopped), stopped, length, 0) ==
+			      MGMT_ERR_EBADSTATE);
+
+			/* Nothing arrived, so nothing is offered, and nothing can mark it over SMP. */
+			bt_ota_on_tick();
+			CHECK(window.phase != BT_OTA_READY);
+			CHECK(command(MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_STATE, MGMT_OP_WRITE) ==
+			      MGMT_ERR_EACCESSDENIED);
+			CHECK(fake.requests == 0);
+		}
+	}
+}
+
+/* MCUmgr takes pieces in order. If bytes of the area ever went by unread, nothing is believed. */
+static void test_an_upload_that_skips_the_protected_area_is_refused(void)
+{
+	static uint8_t data[2048];
+	size_t length = whole_image(data, "nrf7002dk", "1");
+	size_t start = 0x200 + 1000;
+
+	fresh_board();
+	open_by_hand();
+	phone_pairs();
+	CHECK(piece(data, BT_OTA_IMAGE_HEADER_LEN, 0, length, 0) == 0);
+	CHECK(piece(data + start + 30, length - start - 30, start + 30, length, 0) == MGMT_ERR_EBADSTATE);
+	CHECK(strstr(fake.console, "refused an upload: its signed metadata is malformed") != NULL);
+}
+
+static void test_an_upload_for_this_board_goes_all_the_way(void)
+{
+	static uint8_t data[2048];
+	static const struct {
+		const char *board;
+		const char *layout;
+	} good[] = {
+		{ "nrf7002dk", "1" }, { "nrf7002dk", NULL }, { NULL, "1" }, { NULL, NULL },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(good); i++) {
+		size_t length = whole_image(data, good[i].board, good[i].layout);
+
+		for (size_t size = 1; size <= 64; size += 9) {
+			int rc;
+
+			fresh_board();
+			open_by_hand();
+			phone_pairs();
+			CHECK(upload_in_pieces(data, length, size, &rc) == length);
+			CHECK(rc == 0);
+			CHECK(strstr(fake.console, "refused") == NULL);
+		}
+	}
+}
+
+static void test_what_the_slot_says_is_looked_at_before_it_is_offered(void)
+{
+	static const enum image_compat_verdict verdicts[] = {
+		IMAGE_COMPAT_OTHER_BOARD, IMAGE_COMPAT_OTHER_LAYOUT,
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(verdicts); i++) {
+		fresh_board();
+		fake.compat = verdicts[i];
+		strcpy(fake.compat_found.board, i == 0 ? "nrf5340dk" : "nrf7002dk");
+		fake.compat_found.layout = i == 0 ? 1 : 2;
+		open_by_hand();
+		phone_pairs();
+		bt_ota_on_tick();
+		CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR + 1, 700000, 0) == 0);
+		upload_finishes();
+		bt_ota_on_tick();
+
+		/* Never offered, never marked: erased, and the update ends with what it was. */
+		CHECK(fake.compat_checks == 1);
+		CHECK(window.phase == BT_OTA_CLOSED);
+		CHECK(fake.erases == 1);
+		CHECK(fake.requests == 0);
+		CHECK(fake.reboots == 0);
+		CHECK(strstr(fake.console, "has arrived") == NULL);
+		CHECK(strstr(fake.console, i == 0 ? "refused the image: it is for nrf5340dk, and this board "
+						    "is nrf7002dk"
+						  : "refused the image: it is for flash layout 2, and this "
+						    "board has 1") != NULL);
+		CHECK(fake.stored);
+		CHECK(fake.stored_record.phase == BT_OTA_RECORD_DONE);
+		CHECK(fake.stored_record.result == (i == 0 ? BT_OTA_RESULT_INCOMPATIBLE_BOARD
+							     : BT_OTA_RESULT_INCOMPATIBLE_LAYOUT));
+		CHECK(fake.stored_record.count == 1);
+		CHECK(fake.stored_record.target.minor == RUNNING_MINOR + 1);
+		CHECK(strstr(fake.console, i == 0 ? "incompatible_board" : "incompatible_layout") != NULL);
+		CHECK(strcmp(bt_ota_result_text((enum bt_ota_result)fake.stored_record.result),
+			     i == 0 ? "incompatible_board" : "incompatible_layout") == 0);
+	}
+
+	/* A slot that cannot be read, or a TLV area that is not one: not offered either. */
+	fresh_board();
+	fake.compat = IMAGE_COMPAT_MALFORMED;
+	offered_but_no_good(BOOT_SWAP_TYPE_NONE);
+	CHECK(!fake.stored);
+	fresh_board();
+	fake.compat = IMAGE_COMPAT_UNREADABLE;
+	offered_but_no_good(BOOT_SWAP_TYPE_NONE);
+}
+
+static void test_button_1_looks_at_the_slot_once_more_before_it_marks_it(void)
+{
+	fresh_board();
+	image_on_offer();
+	CHECK(fake.compat_checks == 1);
+
+	fake.compat_changes_at = 2;
+	fake.compat_then = IMAGE_COMPAT_OTHER_LAYOUT;
+	fake.compat_found.layout = 5;
+	strcpy(fake.compat_found.board, "nrf7002dk");
+	fake.ops[0] = '\0';
+	CHECK(bt_ota_on_button(APP_BUTTON_1, false, true));
+	CHECK(fake.compat_checks == 2);
+	CHECK(fake.requests == 0);
+	CHECK(fake.reboots == 0);
+	CHECK(strstr(fake.ops, "request_swap") == NULL);
+	CHECK(fake.stored_record.result == BT_OTA_RESULT_INCOMPATIBLE_LAYOUT);
+	CHECK(window.phase == BT_OTA_CLOSED);
+	CHECK(fake.erases == 1);
+}
+
 static void test_when_it_has_arrived_nothing_more_goes_in(void)
 {
 	fresh_board();
@@ -2054,8 +2314,13 @@ int main(void)
 	test_a_later_piece_is_not_taken_for_a_header();
 	test_a_piece_that_got_past_the_gate_stops_at_the_upload_hook();
 	test_when_it_has_arrived_nothing_more_goes_in();
+	test_an_upload_for_another_board_or_layout_is_refused_as_it_comes();
+	test_an_upload_for_this_board_goes_all_the_way();
+	test_an_upload_that_skips_the_protected_area_is_refused();
 	test_it_is_offered_and_says_what_it_is();
 	test_what_arrived_is_looked_at_again_before_it_is_offered();
+	test_what_the_slot_says_is_looked_at_before_it_is_offered();
+	test_button_1_looks_at_the_slot_once_more_before_it_marks_it();
 
 	test_button_1_records_then_asks_for_a_trial_then_restarts();
 	test_the_count_goes_on();

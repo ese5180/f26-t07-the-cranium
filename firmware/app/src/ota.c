@@ -19,6 +19,7 @@
 #endif
 #include "identity.h"
 #include "health.h"
+#include "image_compat.h"
 #include "ota_job.h"
 #include "store.h"
 #include "version.h"
@@ -485,9 +486,40 @@ static int verify_download(const char **reason)
 	return 0;
 }
 
+/*
+ * The image in the secondary slot against this board, from its protected TLVs (image_compat.h):
+ * NULL if it is for this board type and flash layout, or else the reason to fail with, and what
+ * the image says, in detail.
+ */
+static const char *incompatible(char *detail, size_t len)
+{
+	struct image_compat found;
+	enum image_compat_verdict verdict = image_compat_check_slot(SECONDARY_SLOT_ID, &found);
+
+	switch (verdict) {
+	case IMAGE_COMPAT_OK:
+		return NULL;
+	case IMAGE_COMPAT_OTHER_BOARD:
+		(void)snprintk(detail, len, "image is for %s", found.board);
+		break;
+	case IMAGE_COMPAT_OTHER_LAYOUT:
+		(void)snprintk(detail, len, "image is for flash layout %u", (unsigned int)found.layout);
+		break;
+	case IMAGE_COMPAT_MALFORMED:
+		(void)snprintk(detail, len, "image metadata malformed");
+		break;
+	default:
+		(void)snprintk(detail, len, "image metadata unreadable");
+		break;
+	}
+
+	return image_compat_reason(verdict);
+}
+
 /* The download is complete: check it, then ask the cloud whether to go on. */
 static void check_download(void)
 {
+	char detail[40];
 	const char *reason;
 
 	enter(OTA_VERIFYING);
@@ -495,6 +527,14 @@ static void check_download(void)
 	if (verify_download(&reason) != 0) {
 		discard_download();
 		fail_job(reason, "image in secondary slot rejected");
+		return;
+	}
+
+	/* What the job announced, and for another board or flash layout: never installed. */
+	reason = incompatible(detail, sizeof(detail));
+	if (reason != NULL) {
+		discard_download();
+		fail_job(reason, detail);
 		return;
 	}
 
@@ -520,7 +560,17 @@ static void begin_settling(void)
  */
 static void install_download(void)
 {
+	char detail[40];
+	const char *reason;
 	int err;
+
+	/* Looked at again right before the bootloader is asked: nothing else marks an image. */
+	reason = incompatible(detail, sizeof(detail));
+	if (reason != NULL) {
+		discard_download();
+		fail_job(reason, detail);
+		return;
+	}
 
 	/* Remember the job across the restart before anything irreversible happens. */
 	memset(&ota.record, 0, sizeof(ota.record));

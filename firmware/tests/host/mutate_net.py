@@ -19,7 +19,8 @@ SOURCE = HOST.parents[1] / "app/src"
 CJSON = Path(os.environ.get("ZEPHYR_BASE", "/opt/nordic/ncs/v3.4.0/zephyr")) / "../modules/lib/cjson"
 DEFINES = ["-D_GNU_SOURCE", "-DCONFIG_APP_CONSOLE=1", "-DCONFIG_APP_CLOUD_EVENTS=1", "-DCONFIG_APP_LOG_LEVEL=0",
            '-DCONFIG_APP_THING_NAME_PREFIX="cranium-"', "-DCONFIG_MQTT_HELPER_SEC_TAG=201",
-           "-DCONFIG_APP_DOWNLOAD_SEC_TAG=202"]
+           "-DCONFIG_APP_DOWNLOAD_SEC_TAG=202", "-DCONFIG_APP_LOCATION=1", '-DCONFIG_APP_BOARD_TYPE="nrf7002dk"',
+           "-DCONFIG_APP_IMAGE_LAYOUT=1"]
 RUN_SECONDS = 60
 
 # What it is, the text as it is in net.c, and what it becomes.

@@ -47,6 +47,11 @@ static const uint16_t second_patterns[] = {
 /* LED1's pattern in the low 16 bits, LED2's in the next 16. */
 static atomic_t current_pattern = ATOMIC_INIT(0x0001);
 static int64_t pressed_at[2];
+/*
+ * Identify's steps still to come, and one more for its end: while there are any, identify_step()
+ * has the LEDs and led_step() does not touch them.
+ */
+static atomic_t identify_steps;
 
 static void led_step(struct k_timer *timer)
 {
@@ -55,12 +60,35 @@ static void led_step(struct k_timer *timer)
 
 	ARG_UNUSED(timer);
 
-	(void)gpio_pin_set_dt(&status_led, (both >> step) & 1U);
-	(void)gpio_pin_set_dt(&second_led, (both >> (16 + step)) & 1U);
+	/* The pattern goes on counting under identify, so that it takes up where it would be. */
+	if (atomic_get(&identify_steps) <= 0) {
+		(void)gpio_pin_set_dt(&status_led, (both >> step) & 1U);
+		(void)gpio_pin_set_dt(&second_led, (both >> (16 + step)) & 1U);
+	}
 	step = (step + 1) % STEPS;
 }
 
 K_TIMER_DEFINE(led_timer, led_step, NULL);
+
+/*
+ * Both LEDs on at an odd count of steps left, off at an even one: on first, off last. The step
+ * with one left is the end: it gives the LEDs back to led_step(), whose next step shows the state.
+ */
+static void identify_step(struct k_timer *timer)
+{
+	atomic_val_t left = atomic_dec(&identify_steps);
+
+	if (left <= 1) {
+		atomic_set(&identify_steps, 0);
+		k_timer_stop(timer);
+		return;
+	}
+
+	(void)gpio_pin_set_dt(&status_led, (left % 2) == 1);
+	(void)gpio_pin_set_dt(&second_led, (left % 2) == 1);
+}
+
+K_TIMER_DEFINE(identify_timer, identify_step, NULL);
 
 static void on_input(struct input_event *event, void *user_data)
 {
@@ -160,4 +188,22 @@ void ui_set_state(enum ui_state state)
 	}
 
 	atomic_set(&current_pattern, (atomic_val_t)((second << 16) | patterns[state]));
+}
+
+void ui_identify(unsigned int seconds)
+{
+	const unsigned int steps_per_second = MSEC_PER_SEC / UI_IDENTIFY_STEP_MS;
+
+	/* The command allows 60 s at most: this keeps the count far from overflowing, whatever comes. */
+	if (seconds > 3600U) {
+		seconds = 3600U;
+	}
+
+	atomic_set(&identify_steps, (atomic_val_t)(seconds == 0U ? 0 : seconds * steps_per_second + 1));
+	if (seconds == 0U) {
+		k_timer_stop(&identify_timer);
+		return;
+	}
+
+	k_timer_start(&identify_timer, K_NO_WAIT, K_MSEC(UI_IDENTIFY_STEP_MS));
 }

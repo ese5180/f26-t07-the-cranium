@@ -91,8 +91,9 @@ jobs:
         run: make -C firmware/tests/host build/console_sim build/console_sim_fault
       - name: Run the tests, and fail on any skip that is not listed here
         run: |
-          # The one skip: test_golden.py checks the kept image of firmware 1.3.0 if binaries/ has it,
-          # and binaries/ is not in git.
+          # The two skips: test_golden.py checks the kept image of firmware 1.3.0 if binaries/ has it,
+          # and binaries/ is not in git; test_flash_layout.py checks the last build's partitions if
+          # build/ has one, and nothing is built here (the firmware jobs check their own build).
           run_test() {
             local log
             log=$(mktemp)
@@ -113,6 +114,7 @@ jobs:
           run_test test_golden.py 'OK (skipped=1)'
           run_test test_build_report.py 'OK'
           run_test test_check_image.py 'OK'
+          run_test test_flash_layout.py 'OK (skipped=1)'
 
   cloud-tests:
     name: Cloud tests

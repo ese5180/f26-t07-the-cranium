@@ -9,11 +9,15 @@
 #   scripts/build.sh --no-upload       build, and do not upload it to the console
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
-# binaries/latest.signed.bin and binaries/latest.json. It then checks the image's signature with
-# the same code the console uses, and uploads it to the console's Firmware page with your API token
-# (scripts/upload-to-console.sh): only uploads, so no board gets it until it is deployed. Without a
-# token it says how to make one, and the image stays in binaries/. A version can be uploaded only
-# once, which is why each build takes a new one. Exit status 3: built, but the upload failed.
+# binaries/latest.signed.bin and binaries/latest.json. From 1.13.0 the image says its board type and
+# flash layout in protected TLVs (firmware/README.md, "Board type and compatibility"): this reads them
+# back with tools/check_image.py, stops if they are missing or not this build's, and writes them into
+# both records as "board" and "layout". It then
+# checks the image's signature with the same code the console uses, and uploads it to the console's
+# Firmware page with your API token (scripts/upload-to-console.sh): only uploads, so no board gets it
+# until it is deployed. Without a token it says how to make one, and the image stays in binaries/. A
+# version can be uploaded only once, which is why each build takes a new one. Exit status 3: built,
+# but the upload failed.
 #
 # The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/. This
 # checkout cannot see what else has been uploaded, so the console may still refuse a number. A
@@ -28,6 +32,8 @@ NCS_VERSION=v3.4.0
 # Where nrfutil sdk-manager puts it on macOS; elsewhere, set NCS_DIR (docs/new-board-setup.md).
 NCS_DIR="${NCS_DIR:-/opt/nordic/ncs/$NCS_VERSION}"
 BOARD=nrf7002dk/nrf5340/cpuapp/ns
+# What the image and the console call that board (docs/fleet.md, CONFIG_APP_BOARD_TYPE).
+BOARD_TYPE=nrf7002dk
 VERSION_FILE="$REPO_DIR/firmware/app/VERSION"
 KEY="$HOME/.cranium/mcuboot_signing_key.pem"
 
@@ -38,7 +44,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -159,6 +165,40 @@ file="$REPO_DIR/binaries/$name"
 cmp -s "$file" "$REPO_DIR/binaries/latest.signed.bin" \
   || die "binaries/latest.signed.bin is not the image that was just built"
 
+# The board type and the flash layout, as the image itself says them, under its signature.
+# tools/store_binary.py, which the build runs, does not write them: this adds them to both records of
+# this image. The layout the build was configured with is in its .config.
+board="$(python3 -I "$REPO_DIR/tools/check_image.py" --board "$file")" \
+  || die "the image does not say its board type, or its protected TLV area does not verify" \
+    "Every image from 1.13.0 carries it: see \"Board type and compatibility\" in firmware/README.md."
+[ "$board" = "$BOARD_TYPE" ] || die "the image says it is for $board, and this build is for $BOARD_TYPE"
+layout="$(python3 -I "$REPO_DIR/tools/check_image.py" --layout "$file")" \
+  || die "the image does not say its flash layout, or its protected TLV area does not verify"
+configured="$(awk -F= '$1 == "CONFIG_APP_IMAGE_LAYOUT" { print $2 }' "$REPO_DIR/build/app/zephyr/.config")"
+[ "$layout" = "$configured" ] \
+  || die "the image says flash layout $layout, and the build was configured for ${configured:-none}"
+record="binaries/${name%.signed.bin}.json"
+python3 -I - "$board" "$layout" "$REPO_DIR/binaries/latest.json" "$REPO_DIR/$record" <<'EOF' \
+  || die "the board type and layout could not be written into binaries/latest.json and $record"
+import json, sys
+board, layout = sys.argv[1], int(sys.argv[2])
+for path in sys.argv[3:]:
+    with open(path) as source:
+        record = json.load(source)
+    # After "bluetooth", where store_binary.py puts what the image can do.
+    updated = {}
+    for key, value in record.items():
+        if key not in ("board", "layout"):
+            updated[key] = value
+        if key == "bluetooth":
+            updated["board"] = board
+            updated["layout"] = layout
+    updated.setdefault("board", board)
+    updated.setdefault("layout", layout)
+    with open(path, "w") as target:
+        target.write(json.dumps(updated, indent=2) + "\n")
+EOF
+
 python3 -I - "$REPO_DIR/binaries/latest.json" "$expected" <<'EOF' || die "binaries/latest.json does not match this build"
 import json, sys
 info = json.load(open(sys.argv[1]))
@@ -166,6 +206,7 @@ if info.get("version") != sys.argv[2]:
     sys.exit(f"it says {info.get('version')}, and this build is {sys.argv[2]}")
 print()
 print(f"Version   {info['version']}")
+print(f"Board     {info.get('board', 'not recorded')}, flash layout {info.get('layout', 'not recorded')}")
 print(f"File      binaries/{info['file']}")
 print(f"Size      {info['size']:,} bytes, of a 933,888 byte slot")
 print(f"SHA-256   {info['sha256']}")

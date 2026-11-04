@@ -33,6 +33,7 @@
 #include "identity.h"
 #include "factory.h"
 #include "health.h"
+#include "location.h"
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
@@ -248,7 +249,7 @@ static char reported_id[DEVICE_ID_MAX + 1];
 static void publish_diag(void)
 {
 	struct diag_values values;
-	char reported[192];
+	char reported[DIAG_REPORT_MAX];
 
 	if (!cloud_is_connected()) {
 		return;
@@ -259,6 +260,12 @@ static void publish_diag(void)
 		strncpy(reported_id, values.id, sizeof(reported_id) - 1);
 	}
 	seconds_since_diag = 0;
+}
+
+void app_send_reports(void)
+{
+	publish_report();
+	publish_diag();
 }
 
 static void on_tick(void)
@@ -307,6 +314,7 @@ static void on_tick(void)
 		publish_diag();
 	}
 
+	location_on_tick();
 	stuck_on_tick();
 	report_changes();
 	cloud_events_send();
@@ -448,6 +456,7 @@ static void handle(const struct app_event *event)
 	case APP_EVENT_CLOUD_DOWN:
 		LOG_INF("Disconnected from AWS IoT");
 		cloud_events_on_cloud_down();
+		location_on_cloud_down();
 		if (cloud_reconnect_asked) {
 			cloud_reconnect_asked = false;
 			connect_cloud_now();
@@ -652,6 +661,8 @@ int main(void)
 	if (net_init() != 0) {
 		LOG_ERR("Networking could not start");
 	}
+
+	location_init();
 
 	/*
 	 * Whatever came of that. net_init() does not wait for the Wi-Fi stack, so this runs on a chip

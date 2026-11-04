@@ -3,7 +3,7 @@
  *
  * LED1 shows what the security domain is doing. From 1.8.0, LED2 is driven here too: it
  * lights only when the board is online, taking turns with LED1. Before 1.8.0 it belonged
- * to the network core.
+ * to the network core. From 1.13.0 the console's identify command blinks both for a while.
  */
 
 #ifndef UI_H_
@@ -32,7 +32,17 @@ enum ui_state {
 #endif
 };
 
+/* One step of identify: both LEDs on for one, off for the next, which is a blink at 5 Hz. */
+#define UI_IDENTIFY_STEP_MS 100
+
 int ui_init(void);
 void ui_set_state(enum ui_state state);
+
+/*
+ * From 1.13.0, the console's identify command: LED1 and LED2 blink together, on and off every
+ * UI_IDENTIFY_STEP_MS, for this many seconds, and then show the state again as it is by then. The
+ * state goes on being kept meanwhile. Another call starts the time again. 0 ends it at once.
+ */
+void ui_identify(unsigned int seconds);
 
 #endif /* UI_H_ */

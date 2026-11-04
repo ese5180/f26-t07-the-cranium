@@ -71,6 +71,7 @@ struct k_timer {
 };
 #define K_TIMER_DEFINE(name, on_expiry, on_stop) static struct k_timer name = { on_expiry }
 void k_timer_start(struct k_timer *timer, k_timeout_t duration, k_timeout_t period);
+void k_timer_stop(struct k_timer *timer);
 
 struct k_work;
 typedef void (*k_work_handler_t)(struct k_work *work);
@@ -116,6 +117,11 @@ static inline bool atomic_cas(atomic_t *target, atomic_val_t expected, atomic_va
 static inline atomic_val_t atomic_inc(atomic_t *target)
 {
 	return (*target)++;
+}
+
+static inline atomic_val_t atomic_dec(atomic_t *target)
+{
+	return (*target)--;
 }
 
 static inline atomic_val_t atomic_or(atomic_t *target, atomic_val_t value)

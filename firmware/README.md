@@ -60,7 +60,8 @@ netcore/                 network-core image
 certs/AmazonRootCA1.pem  root CA that tools/provision_device.py loads onto each board
 keys/fw_signing_pub.pem  public half of the signing key
 golden.json              the frozen golden image, firmware 1.5.0, written by tools/golden.py
-tests/host/              host tests of the job parser, the version code, the console and Bluetooth updates
+tests/host/              host tests of the job parser, the version code, the console, Bluetooth updates,
+                         and from 1.13.0 the console's commands and location by Wi-Fi
 tests/hil/               hardware test benches, and tests of the tools that talk to a board
 tests/fetch-sdk-files.sh the files of the SDK that those tests read, for running them without it
 ```
@@ -313,6 +314,7 @@ subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/accepted
 subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/$next/get/rejected
 subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/accepted
 subscribed     $aws/things/cranium-fe5b26c0c5b1dcd7/jobs/+/update/rejected
+subscribed     cranium/cranium-fe5b26c0c5b1dcd7/commands
 OK
 ```
 
@@ -334,10 +336,12 @@ OK
   certificate that AWS IoT does not know, or a policy that does not fit, gets. 1 to 4 are the other
   refusals of MQTT's CONNACK, and 0 a message too large for the board's buffer.
 * `published` counts what the library took to send, `received` what arrived on a subscription.
-* The topics are the jobs topics that the board subscribes to at every connection. The library adds
-  no shadow topic of its own: the board only publishes to its shadow and never subscribes to it. From
-  1.12.0 it also publishes [its events](#events-to-the-console) to `cranium/<thing name>/events`, which
-  is not listed either: nothing comes back on it.
+* The topics are the jobs topics that the board subscribes to at every connection, and from 1.13.0
+  [its commands topic](#commands), last, unless the board has [given up on it](#the-device-policy-for-commands-and-location)
+  until a restart. The library adds no shadow topic of its own: the board only publishes to its shadow
+  and never subscribes to it. From 1.12.0 it also publishes [its events](#events-to-the-console) to
+  `cranium/<thing name>/events`, and from 1.13.0 [its location](#location-by-wi-fi) to
+  `cranium/<thing name>/location`, which are not listed: nothing comes back on them.
 
 `MQTT_HOST|<endpoint>` changes the endpoint and keeps the download prefix, which `CLOUD` would ask
 for again. The endpoint has to be a host name, as for `CLOUD`: at most 127 letters, digits, dots and
@@ -412,6 +416,9 @@ nothing: one failed read must not take it off the network.
   that blink, but it no longer has the pin, so it doesn't show.
 * In a build for [firmware update over Bluetooth](#firmware-update-over-bluetooth), LED1 also shows
   four short flashes while Bluetooth is open.
+* From 1.13.0, the console's [identify command](#commands) blinks **LED1 and LED2 together** at 5 Hz,
+  a tenth of a second on and a tenth off, for as long as it asks (15 s unless it says otherwise), and
+  nothing else does that. Then they show the board's state again, as it is by then.
 * LED1 and LED2 are the only LEDs wired to the nRF5340. No firmware here can change the board's
   other LEDs.
 
@@ -720,20 +727,22 @@ From firmware 1.10.0 the board also sends a `diag` report to its device shadow, 
 minutes after (`CONFIG_APP_DIAG_INTERVAL_SECONDS`), apart from the heartbeat so that the heartbeat stays short:
 
 ```json
-{"diag": {"id": "CRVIHAAN01", "mac": "f4:ce:36:12:34:56", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}}}
+{"diag": {"id": "CRVIHAAN01", "mac": "f4:ce:36:12:34:56", "channel": 6, "heap": {"free": 21312, "least": 9840, "size": 44240}, "board": "nrf7002dk", "layout": 1}}
 ```
 
 `id`, from 1.11.4, is the board's own device ID, set with `INIT` or `SET_ID`, which the console shows as the board's name; it
 is sent again as soon as it changes, and left out when there is none. The thing name stays the board's AWS identity. `mac` is the Wi-Fi address, for networks that admit devices by address. `channel` is the Wi-Fi channel, 0 when not
 associated. `heap` is the system heap in bytes: free now, the least it has been since the board started, and its size.
-Nothing in it is secret, and nothing names the network. The console's diagnostics page shows it.
+`board` and `layout`, from 1.13.0, are the [board type and flash layout](#board-type-and-compatibility). Nothing in it is secret, and nothing names the network. The
+console's diagnostics page shows it.
 
 ## Events to the console
 
 From firmware 1.12.0 the board tells the console in the cloud what it tells its serial console. Each line
-that `console_event()` prints (`[BT]`, `[WIFI]`, `[STUCK]`, `[CONSOLE]`), and each log line of the
-application's own modules (`[app]`, `[ota]`, `[net]`, `[cloud]`, `[stuck]` and the rest), also goes to AWS
-IoT as one MQTT message, at QoS 0, on
+that `console_event()` prints (`[BT]`, `[WIFI]`, `[STUCK]`, `[CONSOLE]`, and from 1.13.0 `[CMD]`, the
+answers to [commands](#commands)), and each log line of the application's own modules (`[app]`, `[ota]`,
+`[net]`, `[cloud]`, `[stuck]`, from 1.13.0 `[location]`, and the rest), also goes to AWS IoT as one MQTT
+message, at QoS 0, on
 
 ```text
 cranium/<thing name>/events
@@ -772,9 +781,12 @@ events, with a new `boot`.
 `tests/host/test_cloud_events.c` has a line for every `console_event()` call in the firmware, and for every log
 line that prints a value from outside, with what becomes of it.
 
-- Only the sources it lists go: `console_event()`'s four tags and this application's log modules. Nothing
-  from Zephyr or the SDK, whose Wi-Fi supplicant, MQTT library and downloader are where network names, host
-  names and URLs get printed. No debug line (`DBG: `).
+- Only the sources it lists go: `console_event()`'s five tags (`BT`, `WIFI`, `STUCK`, `CONSOLE` and, from
+  1.13.0, `CMD`) and this application's log modules, `location` among them from 1.13.0. Nothing from Zephyr
+  or the SDK, whose Wi-Fi supplicant, MQTT library and downloader are where network names, host names and
+  URLs get printed. No debug line (`DBG: `). A `[CMD]` line has only fixed words in it and a command's id,
+  and only an id of 16 hexadecimal digits; a `[location]` line has counts, never an access point's address
+  or name. Every rule below holds for both, as for any source.
 - The Bluetooth passkey: `[BT] passkey 012345` never goes, nor does any `[BT]` or `[bt_ota]` line with the
   word in it. A release manager's phone gets the passkey from the shadow, for 150 s, as
   [firmware update over Bluetooth](#firmware-update-over-bluetooth) says.
@@ -826,6 +838,196 @@ and reason, and whether Wi-Fi is up. Never sooner than 2 s after the last report
 `src/main.c`), so that a state that flaps sends one report every 2 s at most, and the last change goes when
 the 2 s are up. The signal strength and the uptime change all the time, and do not count. Offline, nothing is
 said: the first report of the next connection says how it stands.
+
+## Board type and compatibility
+
+From firmware 1.13.0 every image says what it is compatible with: the kind of board and the flash layout it is built
+for. The board says the same of itself, refuses an image for another, and the console offers a release only to the
+boards it fits. [`docs/fleet.md`](../docs/fleet.md), under Board types and Compatibility, has the types and what the
+console and the apps do with them. This board is `nrf7002dk`, flash layout `1`.
+
+| Protected TLV | Value, in ASCII, with no NUL | From | An image without it |
+| --- | --- | --- | --- |
+| `0xa1` | the board type, 1 to 16 lower-case letters and digits: `nrf7002dk` | `CONFIG_APP_BOARD_TYPE` | `nrf7002dk` |
+| `0xa2` | the flash layout, a positive whole number with no leading zero: `1` | `CONFIG_APP_IMAGE_LAYOUT` | `1` |
+
+- **In the image.** Protected means inside the area that the image's SHA-256 covers, which the signature signs, so
+  neither can be changed without the key. `firmware/app/Kconfig` sets both, through MCUboot's
+  `CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS="--custom-tlv 0xa1 nrf7002dk --custom-tlv 0xa2 1"`, which the build's signing
+  step (`nrf/cmake/sysbuild/image_signing.cmake` in the SDK) hands to `imgtool sign`. imgtool puts every
+  `--custom-tlv` in the protected area and takes tags from 0x00a0 to 0xfffe that are none of its own; MCUboot leaves
+  0x00a0 to 0x00ff to vendors and skips a TLV it does not know, so the bootloader on every board takes these images
+  as it took the ones before. The image grows by 22 bytes. Every image before 1.13.0 has neither, and is for
+  `nrf7002dk`, layout `1`.
+- **In the configuration.** Both values follow from the board and cannot be set: an assignment in a `.conf` file has
+  no effect on a symbol with no prompt, so each board's type and layout number are defaults in `firmware/app/Kconfig`,
+  next to each other (`CRANIUM_NRF7002DK_LAYOUT`). `firmware/app/CMakeLists.txt` stops a build for a board with no
+  type or no layout, and one whose imgtool arguments would not carry them.
+- **The layout number moves with the partitions.** `firmware/app/flash_layout.py`, which `firmware/app/sysbuild.cmake`
+  runs after every build and before the image is kept in `binaries/`, describes the partitions as the application and
+  the bootloader were built with them, from their final devicetrees (`zephyr.dts`): one line for each partition, with
+  its flash device, the partitions it is inside, its offset and its size, and one for the chosen code partition.
+  Comments, the order of nodes and properties that place nothing change no line. The SHA-256 of the sorted lines has
+  to be the one `firmware/app/flash_layouts.json` holds for this board type and layout number, or the build stops and
+  prints what changed. So a change of partitions, the golden area's among them, needs a new number: add it to
+  `flash_layouts.json` with the lines and SHA-256 that `flash_layout.py show` prints, and make it the board's
+  default in `Kconfig`. A layout that has shipped is never changed. With Partition Manager on, the build stops,
+  since the devicetree would not hold the partitions.
+- **On the board.** The [diagnostics report](#diagnostics) says `"board": "nrf7002dk"` and `"layout": 1`.
+- **The board refuses an image for another board or flash layout, before it marks it to test.** `src/image_compat.c`
+  reads the image in the secondary slot, strictly and within bounds: the header's sizes, added in 64 bits, must place
+  the protected area and the unprotected TLV area's info header inside the slot; the protected area's info header
+  must have its magic (0x6908) and the size the image header gives; its entries must fill it exactly; each of
+  `0xa1` and `0xa2` may come once, with a value as above. A TLV outside the protected area is never read, so an `0xa1`
+  there counts for nothing. Whether the SHA-256 and the signature hold is the bootloader's check, which it makes
+  before any swap. A missing `0xa1` is `nrf7002dk` and a missing `0xa2` is `1`.
+  - **Over the internet**, once the download's digest is verified and again right before the bootloader is asked for
+    the trial swap: an image for another board type or layout is erased, never marked, and the job fails with reason
+    `incompatible_board` or `incompatible_layout`, with `[ota] ERR: Update <job> failed: incompatible_board (image is
+    for nrf5340dk)`. A protected area that is not well formed fails as `header_mismatch`.
+  - **Over Bluetooth**, three times. As the upload comes in, MCUmgr's upload check hook
+    (`CONFIG_MCUMGR_GRP_IMG_UPLOAD_CHECK_HOOK`) passes each piece's bytes of the protected area through the same
+    reader, and refuses the piece that completes it, before it is written, with an SMP error that the phone's tool
+    shows: `[BT] refused an upload: it is for nrf5340dk, and this board is nrf7002dk`. Once it has all arrived, the
+    slot is read again before it is offered, and again before Button 1 marks it: refused there, it is erased, the
+    window closes, and the record says `incompatible_board` or `incompatible_layout`. No SMP command can mark an image
+    in any case: the image state write, which is what test and confirm are, is refused with `EACCESSDENIED` to every
+    phone and tool, so only Button 1 can, after these checks.
+- `tools/check_image.py` (`scripts/check-image.sh`) shows the type and the layout, and refuses an image from 1.13.0
+  without them, one whose protected TLV area is malformed or not under the image's SHA-256, one with them outside that
+  area, one of a type the console does not know, and one of a layout that `flash_layouts.json` does not have for its
+  type. `--board <image>` and `--layout <image>` print each alone. `scripts/build.sh` reads both back from the image
+  it built, stops if they are not this build's, and writes them into `binaries/latest.json` and the image's own
+  record as `"board"` and `"layout"`. A plain `west build` leaves them out of those records: `tools/store_binary.py`
+  does not write them yet.
+- **Tests.** `tests/host/test_image_compat.c` reads good, legacy and incompatible images, every kind of broken or cut
+  TLV area, and 100,000 mutated ones, from a slot in memory whose reads must stay inside it, and the protected area
+  in pieces of every size. `tests/host/test_ota_bt.c` and `tests/host/test_bt_ota.c` check both refusals, the upload
+  in pieces of many sizes among them. `tests/hil/test_flash_layout.py` checks the layout check, and
+  `tests/hil/test_check_image.py` signs an image with the SDK's imgtool where it can and reads both TLVs back.
+
+## Commands
+
+From firmware 1.13.0 a release manager can send a board two commands from the console, which publishes them on
+
+```text
+cranium/<thing name>/commands
+```
+
+at QoS 1, where the board subscribes at every connection, with the jobs topics. A board that is offline misses
+them: they are for now. [`docs/fleet.md`](../docs/fleet.md), under Commands, has the contract.
+
+```json
+{"id": "3f9c2a1b7d4e6f80", "cmd": "identify", "seconds": 15}
+{"id": "a01b2c3d4e5f6789", "cmd": "report"}
+```
+
+- **identify** blinks LED1 and LED2 together at 5 Hz for `seconds`, then shows the state again, as it is by then:
+  see [What the LEDs show](#what-the-leds-show). Another identify starts the time again.
+- **report** sends the heartbeat and the diagnostics report at once, and asks for a
+  [location scan](#location-by-wi-fi), which that section's rules can hold: the 10-minute floor, an update, the
+  Bluetooth window.
+
+`src/command.c` reads a message strictly, on the MQTT library's thread, into a struct of 20 bytes, and hands it to
+the main loop, which carries it out. A message is one JSON object, of at most 256 bytes, with `id`, `cmd` and, for
+identify, `seconds`, each at most once and nothing else; strings without escapes or control characters; values that
+are strings, numbers, `true`, `false` or `null`, and nothing nested. `id` is 16 hexadecimal digits. `cmd` is
+`identify` or `report`, as written. `seconds` is a whole number from 1 to 60; anything else, or none, is 15. One
+command waits for the main loop at a time.
+
+The board answers each one on its [events topic](#events-to-the-console) with the tag `CMD`, which the console files
+as kind `setting`, and prints the same line on the serial console:
+
+```text
+[CMD] identify for 15 s (3f9c2a1b7d4e6f80)
+[CMD] report: heartbeat, diagnostics and a location scan (a01b2c3d4e5f6789)
+[CMD] report: heartbeat and diagnostics, no location scan: an update is under way (a01b2c3d4e5f6789)
+[CMD] ignored: unknown cmd (3f9c2a1b7d4e6f80)
+[CMD] ignored: not a command
+```
+
+An ignored one says why: `too long`, `not a command` (not JSON of that kind), `unknown member`, `repeated member`,
+`no id`, `no cmd`, `unknown cmd`, or `the board is busy` (another was still waiting). The id is in the answer only
+when the message was well formed and its id good, and nothing else of the message ever is. A build without the
+serial console sends no events, and so no answers, and still carries out the commands.
+
+## Location by Wi-Fi
+
+From firmware 1.13.0 the board tells the console what Wi-Fi access points it hears, on
+
+```text
+cranium/<thing name>/location
+```
+
+at QoS 0, and the console asks AWS IoT Core Device Location for a position, for its map.
+[`docs/fleet.md`](../docs/fleet.md), under Location by Wi-Fi, has what the console does with it.
+`src/location.c` does this, with `CONFIG_APP_LOCATION`, which is on wherever there is Wi-Fi.
+
+```json
+{"aps": [{"mac": "a4:2b:b0:12:34:56", "rss": -51}, {"mac": "f0:9f:c2:65:43:21", "rss": -70}], "boot": 42, "t": 61234}
+```
+
+- **What is sent:** the 10 strongest access points at most, strongest first, each once with its strongest signal, by
+  its address (BSSID) and its signal in dBm. Never a network's name: the board does not even keep one. Only
+  globally administered addresses (the second-lowest bit of the first byte clear) count, since a phone's hotspot and
+  other randomised addresses move with whoever carries them; nor a group address, nor one with no signal. With fewer
+  than 2 left, nothing is sent. `boot` is the [boot diary](#boot-diary)'s count of boots, and `t` the uptime in
+  milliseconds when the scan ended. The longest message is 441 bytes, which with its 41-byte topic fits the
+  512-byte MQTT buffer: `src/cloud.c` asserts it.
+- **When:** once a boot, when a connection has lasted 60 s; then 6 hours after the last scan began; and when the
+  console's [report command](#commands) asks, at once. Never sooner than 10 minutes after the last scan began, for
+  any of these. Never while an update is under way (any update state but idle: on offer, downloading, checking,
+  installing, on trial, or over Bluetooth), while the Bluetooth window is open, or while the board is not connected:
+  a scan that was due waits for those to end. A scan whose result could not be sent, because the connection went,
+  leaves the boot's first one still to do, after the 10 minutes.
+- **How:** an active scan of the 2.4 GHz band, with the driver's own dwell times, through Zephyr's
+  `NET_REQUEST_WIFI_SCAN`. The results come one by one, and only the best 10 are kept, in 71 bytes. The nRF70's
+  firmware also leaves out locally administered addresses itself (`CONFIG_WIFI_NRF70_SKIP_LOCAL_ADMIN_MAC`, in this
+  board's configuration), so that fewer results crowd the network management queue. If the Wi-Fi stack refuses
+  the scan (it does while it scans for itself), the board tries again a minute later. A scan whose end never
+  comes is ended after 40 s; the driver ends its own after 30.
+- **What a scan does to the link.** The association stays: the driver sends the scan to the nRF70's firmware and
+  changes nothing of the connection, and no Wi-Fi event comes of it for `src/net.c`. The chip has one radio, so it
+  leaves its access point's channel for a short dwell on each channel it scans and comes back: Nordic gives about
+  50 ms on each active 2.4 GHz channel and 130 ms on a passive one, about a second for the band. What it does about
+  frames during a dwell is in the chip's firmware, which is not in the SDK's source: a station normally tells its
+  access point that it is asleep, and the access point keeps them. MQTT's keep-alive is 120 s and TCP retries for
+  far longer than a second, so the connection to AWS IoT sees a delay at most. The driver does one scan at a time,
+  the board's or the supplicant's: while the board's runs, the driver refuses the supplicant's own scan for a lost
+  network, and the supplicant tries again. Not tested on a board yet.
+
+### The device policy for commands and location
+
+The device policy (`cranium-device` in `cloud/infra/template.yaml`) has to allow, before a board runs 1.13.0,
+`iot:Subscribe` on `topicfilter/cranium/${iot:Connection.Thing.ThingName}/commands`, `iot:Receive` on
+`topic/cranium/${iot:Connection.Thing.ThingName}/commands`, and `iot:Publish` on
+`topic/cranium/${iot:Connection.Thing.ThingName}/location`. On a cloud whose policy does not yet:
+
+- **Commands.** The commands topic is in the same SUBSCRIBE as the jobs topics. AWS IoT answers a subscription its
+  policy does not allow with a SUBACK that refuses that one topic, and the connection stays: the board cannot see
+  that refusal, since the AWS IoT library passes on nothing of a SUBACK's codes, so it connects as before, updates as
+  before, and gets no commands. In case AWS IoT closes the connection instead: `aws_iot_connect()` waits up to 30 s
+  for the SUBACK and gives up with -11. After two of those, with no refusal of the CONNECT before them, the board
+  connects without the commands topic until a restart, and says so on the serial console and in its events:
+  `[cloud] WRN: AWS IoT ended the connection while it subscribed, 2 times: no commands until a restart. Its device
+  policy must allow cranium/<thing>/commands`. With the back-off (30 s, then 60 s), that costs about three minutes of
+  a boot before the board is connected, inside the 5 minutes an image on trial has to reach the cloud. A connection that
+  had the subscription acknowledged starts the count again.
+- **Location.** AWS IoT closes the connection of a board that publishes where its policy does not allow. A
+  connection that ends within 5 s of a location is counted, as for [events](#the-device-policy), and after two of
+  those the board makes no scan until a restart, with `[location] WRN: AWS IoT closed the connection right after a
+  location, 2 times: ...`. The first is a minute into the boot's first connection and the second 6 hours later, so
+  such a cloud costs a board two reconnections a boot. Updates and the shadow go on as before, and no scan, and so
+  no location, is ever made during an update.
+
+### Tests of commands and location
+
+`tests/host/test_command.c` reads every kind of message that is not a command, cut at every length, and 200,000
+random and mutated ones, under the address and undefined-behaviour sanitizers, and checks what each command does and
+answers. `tests/host/test_location.c` checks what is kept against a plain reference for 20,000 random scans, the
+JSON and its longest, and every rule of when, on a fake of the Wi-Fi stack; built twice, the second time for the
+Bluetooth window. `tests/host/test_ui.c` runs identify on the timers, and `tests/host/test_cloud.c` the topics and
+the guard. What a real scan does to a real link is for a board.
 
 ## Firmware update over Bluetooth
 
@@ -1018,7 +1220,9 @@ option. It goes on the console at every boot, and into the device shadow wheneve
 ```
 
 `result` is `pending`, `succeeded`, `rolled_back`, `not_installed`, `trial_lost`, `superseded` (a
-cloud job has installed something else since) or `flash_error`. It is a report of its own, sent
+cloud job has installed something else since), `flash_error`, or from 1.13.0 `incompatible_board` or
+`incompatible_layout` (the image was for another board type or flash layout, and was refused before it
+was marked: see [Board type and compatibility](#board-type-and-compatibility)). It is a report of its own, sent
 again at every connection, so that it cannot make the regular report too long for its buffer and so
 that nothing depends on it arriving.
 

@@ -6,8 +6,9 @@
 #   firmware/tests/fetch-sdk-files.sh <empty folder>
 #   ZEPHYR_BASE=<that folder>/zephyr make -C firmware/tests/host
 #
-# It takes cJSON and the base64 library that the firmware builds against, MCUboot's imgtool, and
-# the headers and sources that test_golden.py holds the bench against. This is no substitute for
+# It takes cJSON and the base64 library that the firmware builds against, MCUboot's imgtool, the
+# devicetree library that test_flash_layout.py reads partitions with, and the headers and sources
+# that test_golden.py holds the bench against. This is no substitute for
 # the SDK: nothing can be built for a board with it.
 #
 # Each revision is the one that the manifest of sdk-nrf v3.4.0 names, as a commit id, so a tag that
@@ -50,7 +51,8 @@ fetch nrfconnect/sdk-nrf 99553055607b2e9885fbc80ccd11fa9da81c2df0 nrf \
 
 fetch nrfconnect/sdk-zephyr bf801e4e3d19e1ffa76164346480cb7734dd2800 zephyr \
   lib/utils/base64.c \
-  boards/nordic/nrf7002dk/nrf5340_cpuapp_common.dtsi
+  boards/nordic/nrf7002dk/nrf5340_cpuapp_common.dtsi \
+  scripts/dts/python-devicetree/src/devicetree
 
 fetch nrfconnect/sdk-cjson c6af068b7f05207b28d68880740e4b9ec1e4b50a modules/lib/cjson \
   cJSON.c \

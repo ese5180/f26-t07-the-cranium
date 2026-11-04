@@ -29,6 +29,7 @@
 #include "console.h"
 #include "device.h"
 #include "identity.h"
+#include "image_compat.h"
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
@@ -159,6 +160,20 @@ static atomic_t link_latency;
 static atomic_t link_phy;         /* tx << 8 | rx */
 static atomic_t link_data_len;    /* tx bytes << 16 | rx bytes */
 
+/*
+ * What the upload under way says it is for, from its protected TLVs as their bytes go by
+ * (image_compat.h). An image for another board type or flash layout is refused at the piece that
+ * completes that area, before the piece is written, with an SMP error that the tool shows. MCUmgr's
+ * thread alone, under img_mgmt's lock. The main loop reads the slot again before anything is
+ * offered, and again before it is marked (offer_image(), install_image()).
+ */
+static struct {
+	struct image_compat_reader reader;
+	uint64_t protected_at;
+	bool judged;
+	enum image_compat_verdict verdict;
+} upload_compat;
+
 /* ---- the threads that serve a phone: only what the atomics hold ---------------------- */
 
 static void say_what_happened(void);
@@ -209,6 +224,55 @@ static enum mgmt_cb_return on_command(uint32_t event, enum mgmt_cb_return prev_s
 	return MGMT_CB_OK;
 }
 
+/* The bytes of this piece that are of the protected area, and the verdict once it is all there. */
+static bool upload_compat_ok(uint64_t off, const uint8_t *data, size_t len)
+{
+	struct image_compat_reader *reader = &upload_compat.reader;
+	uint64_t next = upload_compat.protected_at + reader->at;
+	uint64_t end = upload_compat.protected_at + reader->total;
+	struct image_compat found;
+
+	if (upload_compat.judged) {
+		return upload_compat.verdict == IMAGE_COMPAT_OK;
+	}
+
+	if (next < end && off + len > next) {
+		/* MCUmgr takes pieces in order only: a gap would be bytes of the area never read. */
+		if (off > next) {
+			reader->bad = true;
+		} else {
+			size_t from = (size_t)(next - off);
+
+			image_compat_feed(reader, data + from, (size_t)(MIN(off + len, end) - next));
+		}
+	}
+
+	if (!image_compat_complete(reader)) {
+		return true;
+	}
+
+	upload_compat.judged = true;
+	upload_compat.verdict =
+		image_compat_finish(reader, CONFIG_APP_BOARD_TYPE, CONFIG_APP_IMAGE_LAYOUT, &found);
+
+	switch (upload_compat.verdict) {
+	case IMAGE_COMPAT_OK:
+		return true;
+	case IMAGE_COMPAT_OTHER_BOARD:
+		console_event("BT", "refused an upload: it is for %s, and this board is %s", found.board,
+			      CONFIG_APP_BOARD_TYPE);
+		break;
+	case IMAGE_COMPAT_OTHER_LAYOUT:
+		console_event("BT", "refused an upload: it is for flash layout %u, and this board has %u",
+			      (unsigned int)found.layout, (unsigned int)CONFIG_APP_IMAGE_LAYOUT);
+		break;
+	default:
+		console_event("BT", "refused an upload: its signed metadata is malformed");
+		break;
+	}
+	return false;
+}
+
 static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_status, int32_t *rc,
 				     uint16_t *group, bool *abort_more, void *data,
 				     size_t data_size)
@@ -240,6 +304,13 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 		enum bt_ota_upload verdict = bt_ota_check_upload(
 			check->req->img_data.value, check->req->img_data.len, check->action->size,
 			check->req->image, fw_version_running(), MAX_UPLOAD);
+		struct image_compat_header header;
+
+		if (verdict == BT_OTA_UPLOAD_OK &&
+		    image_compat_parse_header(check->req->img_data.value, check->req->img_data.len,
+					      &header) != 0) {
+			verdict = BT_OTA_UPLOAD_NO_HEADER;
+		}
 
 		if (verdict != BT_OTA_UPLOAD_OK) {
 			console_event("BT", "refused an upload: %s", bt_ota_upload_text(verdict));
@@ -247,7 +318,16 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 			return MGMT_CB_ERROR_RC;
 		}
 
+		upload_compat.protected_at = (uint64_t)header.header_size + header.image_size;
+		upload_compat.judged = false;
+		image_compat_begin(&upload_compat.reader, header.protected_size);
 		console_event("BT", "upload started, %u bytes", (unsigned int)check->action->size);
+	}
+
+	if (!upload_compat_ok(check->req->off, check->req->img_data.value,
+			      check->req->img_data.len)) {
+		*rc = MGMT_ERR_EBADSTATE;
+		return MGMT_CB_ERROR_RC;
 	}
 
 	return MGMT_CB_OK;
@@ -776,6 +856,48 @@ static void close_window(bool discard)
 	ota_bt_leave();
 }
 
+/*
+ * The image in the slot against this board, from flash (image_compat.h), right before it is
+ * offered and right before it is marked. One for another board type or flash layout ends the
+ * update with that as its result, in the record, and the window closes, which erases it.
+ */
+static bool slot_compatible(const struct fw_version *target, const uint8_t *hash)
+{
+	struct image_compat found;
+	enum image_compat_verdict verdict = image_compat_check_slot(SECONDARY_SLOT_ID, &found);
+
+	if (verdict == IMAGE_COMPAT_OK) {
+		return true;
+	}
+
+	if (verdict != IMAGE_COMPAT_OTHER_BOARD && verdict != IMAGE_COMPAT_OTHER_LAYOUT) {
+		console_event("BT", "what arrived cannot be installed");
+		apply(bt_ota_window_offer_failed(&window));
+		return false;
+	}
+
+	if (verdict == IMAGE_COMPAT_OTHER_BOARD) {
+		console_event("BT", "refused the image: it is for %s, and this board is %s", found.board,
+			      CONFIG_APP_BOARD_TYPE);
+	} else {
+		console_event("BT", "refused the image: it is for flash layout %u, and this board has %u",
+			      (unsigned int)found.layout, (unsigned int)CONFIG_APP_IMAGE_LAYOUT);
+	}
+	LOG_ERR("Update over Bluetooth refused: %s", image_compat_reason(verdict));
+
+	record.magic = BT_OTA_RECORD_MAGIC;
+	record.count++;
+	record.from = *fw_version_running();
+	record.target = *target;
+	memcpy(record.hash, hash, sizeof(record.hash));
+	have_record = true;
+	finish_record(verdict == IMAGE_COMPAT_OTHER_BOARD ? BT_OTA_RESULT_INCOMPATIBLE_BOARD
+							  : BT_OTA_RESULT_INCOMPATIBLE_LAYOUT,
+		      BT_OTA_PROOF_BY_NONE);
+	apply(bt_ota_window_offer_failed(&window));
+	return false;
+}
+
 static void offer_image(void)
 {
 	struct mcuboot_img_header header;
@@ -803,6 +925,10 @@ static void offer_image(void)
 		return;
 	}
 
+	if (!slot_compatible(&target, hash)) {
+		return;
+	}
+
 	memset(&offered, 0, sizeof(offered));
 	offered.magic = BT_OTA_RECORD_MAGIC;
 	offered.phase = BT_OTA_RECORD_ARMED;
@@ -823,6 +949,10 @@ static void offer_image(void)
 /* The way a cloud update ends: the record, then the swap, for a trial, then the restart. */
 static void install_image(void)
 {
+	if (!slot_compatible(&offered.target, offered.hash)) {
+		return;
+	}
+
 	/* A file long enough to bring a swap request of its own: see verify_download(). */
 	if (mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ||
 	    store_write(STORE_BT_OTA_RECORD, &offered, sizeof(offered)) != 0) {

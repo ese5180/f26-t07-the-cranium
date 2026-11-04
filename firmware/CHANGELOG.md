@@ -7,6 +7,19 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.13.0
+
+The image now says which board and flash layout it is for, and the board refuses one for another board or layout,
+over the internet or Bluetooth. From the console, Identify blinks both LEDs fast so you can find the board, and Report
+now sends its status at once. The board also sends the Wi-Fi access points it hears, never network names, for the
+console's map. Needs the console's device policy for the commands and location topics first.
+
+Board type and flash layout in protected TLVs 0xa1 and 0xa2, and in the diagnostics report; an incompatible image fails
+as `incompatible_board` or `incompatible_layout` before it is marked, and the build stops if the partitions change
+without a new layout number. Commands on `cranium/<thing>/commands`, answered as `[CMD]` events; location on
+`cranium/<thing>/location`, a 2.4 GHz scan once a boot, every 6 hours and on Report, never within 10 minutes of the last
+or during an update. RAM estimated at about 0.9 KB above 1.12.0; not yet built.
+
 ## 1.12.0
 
 Every line the board prints from its own code now also goes to the console's Board log, never a passkey or a secret, with

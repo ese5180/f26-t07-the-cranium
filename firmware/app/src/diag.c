@@ -7,6 +7,11 @@
 
 #include "net.h"
 
+#include <zephyr/toolchain.h>
+
+BUILD_ASSERT(sizeof(CONFIG_APP_BOARD_TYPE) - 1 <= DIAG_BOARD_MAX,
+	     "the board type must fit the diagnostics report");
+
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS)
 #include <zephyr/kernel.h>
 #include <zephyr/sys/sys_heap.h>
@@ -26,6 +31,23 @@ static bool is_mac_text(const char *text)
 	return text[17] == '\0';
 }
 
+/* Only what a board type looks like goes into the report: 1 to DIAG_BOARD_MAX lower-case letters
+ * and digits.
+ */
+static bool is_board_type(const char *text)
+{
+	size_t length = 0;
+
+	for (; text[length] != '\0'; length++) {
+		char c = text[length];
+
+		if (length == DIAG_BOARD_MAX || !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z'))) {
+			return false;
+		}
+	}
+	return length > 0;
+}
+
 void diag_collect(struct diag_values *values)
 {
 	memset(values, 0, sizeof(*values));
@@ -36,6 +58,8 @@ void diag_collect(struct diag_values *values)
 		strcpy(values->mac, "unknown");
 	}
 	values->channel = net_channel();
+	strncpy(values->board, CONFIG_APP_BOARD_TYPE, sizeof(values->board) - 1);
+	values->layout = CONFIG_APP_IMAGE_LAYOUT;
 
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS)
 	extern struct k_heap _system_heap;
@@ -57,12 +81,15 @@ int diag_format(const struct diag_values *values, char *buf, size_t len)
 	const char *mac = is_mac_text(values->mac) ? values->mac : "unknown";
 	/* Letters and digits only (device_id_valid), so it can go into the JSON as it is. */
 	bool has_id = values->id[0] != '\0' && device_id_valid(values->id);
+	const char *board = is_board_type(values->board) ? values->board : "unknown";
 	int written = snprintf(buf, len,
 			       "{\"diag\":{%s%s%s\"mac\":\"%s\",\"channel\":%u,"
-			       "\"heap\":{\"free\":%u,\"least\":%u,\"size\":%u}}}",
+			       "\"heap\":{\"free\":%u,\"least\":%u,\"size\":%u},\"board\":\"%s\","
+			       "\"layout\":%u}}",
 			       has_id ? "\"id\":\"" : "", has_id ? values->id : "", has_id ? "\"," : "",
 			       mac, values->channel, (unsigned int)values->heap_free,
-			       (unsigned int)values->heap_least, (unsigned int)values->heap_size);
+			       (unsigned int)values->heap_least, (unsigned int)values->heap_size, board,
+			       (unsigned int)values->layout);
 
 	return (written < 0 || (size_t)written >= len) ? -ENOSPC : written;
 }

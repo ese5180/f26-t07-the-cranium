@@ -1,6 +1,7 @@
 /*
  * Host-side tests of cloud.c: what it counts about the MQTT connection for the console's MQTT
- * command, and the topics that it subscribes to and lists. The real file is compiled here, against
+ * command, the topics that it subscribes to and lists, where a command and a location go, and the
+ * guard that gives up on the commands topic. The real file is compiled here, against
  * a fake of the AWS IoT library that answers each call as the test says and sends the events the
  * library sends. The connection's work runs when a test runs it, as the connection thread would.
  *
@@ -50,6 +51,10 @@ static struct {
 	int connect_result;
 	/* aws_iot_connect() reports the connection before it returns, as the library does. */
 	bool connect_comes_up;
+	/* Or the broker's refusal of the CONNECT, as AWS_IOT_EVT_ERROR with this, 0 for none. */
+	int connect_refused_with;
+	/* How many topics the attempts subscribed to, the last one. */
+	size_t topics_at_connect;
 	char connect_host[IDENTITY_ENDPOINT_MAX];
 	char connect_client[64];
 	/* What the statistics said while aws_iot_connect() was running. */
@@ -70,6 +75,10 @@ static struct {
 	int ups;
 	int downs;
 	int job_messages;
+
+	/* command.c */
+	int commands;
+	char command[64];
 } lib;
 
 static struct identity_settings settings = { .endpoint = ENDPOINT,
@@ -130,6 +139,12 @@ const char *identity_thing_name(void)
 	return THING;
 }
 
+void command_received(const char *payload, size_t len)
+{
+	lib.commands++;
+	snprintf(lib.command, sizeof(lib.command), "%.*s", (int)len, payload);
+}
+
 const struct identity_settings *identity_settings_get(void)
 {
 	return &settings;
@@ -172,6 +187,11 @@ int aws_iot_connect(const struct aws_iot_config *const config)
 	snprintf(lib.connect_host, sizeof(lib.connect_host), "%s", config->host_name);
 	snprintf(lib.connect_client, sizeof(lib.connect_client), "%s", config->client_id);
 	cloud_stats_get(&lib.during_connect);
+	lib.topics_at_connect = lib.topic_count;
+
+	if (lib.connect_refused_with != 0) {
+		library_event(AWS_IOT_EVT_ERROR, lib.connect_refused_with);
+	}
 
 	if (lib.connect_result == 0 && lib.connect_comes_up) {
 		library_event(AWS_IOT_EVT_CONNECTED, 0);
@@ -244,6 +264,7 @@ static void test_the_topics_listed_are_the_ones_subscribed_to(void)
 		"$aws/things/" THING "/jobs/$next/get/rejected",
 		"$aws/things/" THING "/jobs/+/update/accepted",
 		"$aws/things/" THING "/jobs/+/update/rejected",
+		"cranium/" THING "/commands",
 	};
 
 	CHECK(cloud_init() == 0);
@@ -258,6 +279,11 @@ static void test_the_topics_listed_are_the_ones_subscribed_to(void)
 
 	CHECK(cloud_subscription(ARRAY_SIZE(expected)) == NULL);
 	CHECK(cloud_subscription((size_t)-1) == NULL);
+	CHECK(!cloud_commands_given_up());
+
+	/* The library takes eight at most in one SUBSCRIBE, and AWS IoT as many. */
+	CHECK(ARRAY_SIZE(expected) <= 8);
+	CHECK(strlen(topic_commands) == COMMANDS_TOPIC_LENGTH);
 }
 
 static void test_a_connection_is_counted_as_it_happens(void)
@@ -383,6 +409,58 @@ static void test_an_event_goes_to_the_events_topic(void)
 	      CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE);
 }
 
+/* A command goes to command.c as it came, from its own topic and from no other. */
+static void test_a_command_goes_to_command_c(void)
+{
+	static const char json[] = "{\"id\":\"3f9c2a1b7d4e6f80\",\"cmd\":\"identify\"}";
+	int jobs = lib.job_messages;
+
+	library_message("cranium/" THING "/commands", json);
+	CHECK(lib.commands == 1);
+	CHECK_TEXT(lib.command, json);
+
+	/* Another board's, a topic that only ends the same way, and the jobs topics are not commands. */
+	library_message("cranium/cranium-0000000000000000/commands", json);
+	library_message("cranium/" THING "/commands/x", json);
+	library_message("x/cranium/" THING "/commands", json);
+	library_message("$aws/things/" THING "/jobs/commands", json);
+	library_message("cranium/" THING "/command", json);
+	CHECK(lib.commands == 1);
+	CHECK(lib.job_messages == jobs);
+}
+
+/* A location goes to the board's own location topic, at QoS 0, and its longest fits the buffer. */
+static void test_a_location_goes_to_the_location_topic(void)
+{
+	const char json[] = "{\"aps\":[{\"mac\":\"a4:2b:b0:12:34:56\",\"rss\":-51},"
+			    "{\"mac\":\"f0:9f:c2:65:43:21\",\"rss\":-70}],\"boot\":42,\"t\":61234}";
+	uint32_t published = now_stats().published;
+
+	lib.uptime_ms = 9800;
+	CHECK(cloud_location_publish(json) == 0);
+	CHECK_TEXT(lib.sent_topic, "cranium/" THING "/location");
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_NONE);
+	CHECK(lib.sent_qos == MQTT_QOS_0_AT_MOST_ONCE);
+	CHECK_TEXT(lib.sent_payload, json);
+	CHECK(now_stats().published == published + 1);
+
+	/* What the library does not take was not published. */
+	lib.send_result = -EAGAIN;
+	CHECK(cloud_location_publish(json) == -EAGAIN);
+	CHECK(now_stats().published == published + 1);
+	lib.send_result = 0;
+
+	/* The topic is no subscription. */
+	for (size_t i = 0; cloud_subscription(i) != NULL; i++) {
+		CHECK(strstr(cloud_subscription(i), "/location") == NULL);
+	}
+
+	/* What cloud.c asserts at build time, with the topic it made. */
+	CHECK(strlen(topic_location) == LOCATION_TOPIC_LENGTH);
+	CHECK(PUBLISH_QOS0_HEADER + strlen(topic_location) + LOCATION_JSON_MAX - 1 <=
+	      CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE);
+}
+
 static void test_a_connection_that_ends(void)
 {
 	struct cloud_stats stats;
@@ -405,7 +483,8 @@ static void test_a_connection_that_ends(void)
 	/* Not connected: nothing goes out, and nothing is counted. */
 	CHECK(cloud_shadow_report("{}") == -ENOTCONN);
 	CHECK(cloud_event_publish("{}") == -ENOTCONN);
-	CHECK(now_stats().published == 4);
+	CHECK(cloud_location_publish("{}") == -ENOTCONN);
+	CHECK(now_stats().published == 5);
 }
 
 static void test_errors_say_where_they_came_from(void)
@@ -456,7 +535,53 @@ static void test_errors_say_where_they_came_from(void)
 	library_event(AWS_IOT_EVT_PUBACK, 0);
 	library_event(AWS_IOT_EVT_CONNECTING, 0);
 	stats = now_stats();
-	CHECK(stats.errors == 3 && stats.connects == 2 && stats.received == 2);
+	CHECK(stats.errors == 3 && stats.connects == 2 && stats.received == 2 + 6);
+}
+
+/*
+ * A cloud whose device policy ends a connection on the commands subscription. The attempt waits
+ * for the SUBACK, and the library gives up on it with -EAGAIN. Twice of those, and the board
+ * connects without the commands topic until a restart, so that updates go on. Last: it stays so.
+ */
+static void test_a_cloud_that_ends_the_connection_on_the_commands_subscription(void)
+{
+	/* A refusal of the CONNECT says nothing about the subscription, nor does DNS or TLS. */
+	lib.connect_refused_with = 5;
+	attempt(-EAGAIN, false);
+	attempt(-EAGAIN, false);
+	lib.connect_refused_with = 0;
+	attempt(-ECONNREFUSED, false);
+	attempt(-ETIMEDOUT, false);
+	attempt(-EAGAIN, false);
+	CHECK(lib.topics_at_connect == 6);
+	CHECK(!cloud_commands_given_up());
+
+	/* A connection with the subscription is proof: the count starts again. */
+	attempt(0, true);
+	CHECK(cloud_is_connected());
+	cloud_disconnect();
+	attempt(-EAGAIN, false);
+	CHECK(!cloud_commands_given_up());
+	CHECK(lib.topics_at_connect == 6);
+
+	/* The second in a row: given up, and the next attempt has the jobs topics alone. */
+	attempt(-EAGAIN, false);
+	CHECK(cloud_commands_given_up());
+	CHECK(cloud_subscription(4) != NULL);
+	CHECK(cloud_subscription(5) == NULL);
+	attempt(0, true);
+	CHECK(lib.topics_at_connect == 5);
+	for (size_t i = 0; i < lib.topics_at_connect; i++) {
+		CHECK(strstr((const char *)lib.topics[i].topic.utf8, "/jobs/") != NULL);
+	}
+	CHECK(cloud_is_connected());
+
+	/* Until a restart: a good connection does not bring it back, nor do more failures change it. */
+	cloud_disconnect();
+	attempt(-EAGAIN, false);
+	attempt(0, true);
+	CHECK(lib.topics_at_connect == 5);
+	CHECK(cloud_commands_given_up());
 }
 
 int main(void)
@@ -466,8 +591,11 @@ int main(void)
 	test_a_connection_is_counted_as_it_happens();
 	test_messages_in_and_out();
 	test_an_event_goes_to_the_events_topic();
+	test_a_command_goes_to_command_c();
+	test_a_location_goes_to_the_location_topic();
 	test_a_connection_that_ends();
 	test_errors_say_where_they_came_from();
+	test_a_cloud_that_ends_the_connection_on_the_commands_subscription();
 
 	printf("%d cloud checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

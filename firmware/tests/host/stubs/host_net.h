@@ -20,6 +20,8 @@
 #define NET_EVENT_SUPPLICANT_READY     (1ULL << 7)
 #define NET_EVENT_WIFI_DISCONNECT_RESULT   (1ULL << 8)
 #define NET_EVENT_WIFI_DISCONNECT_COMPLETE (1ULL << 9)
+#define NET_EVENT_WIFI_SCAN_RESULT     (1ULL << 10)
+#define NET_EVENT_WIFI_SCAN_DONE       (1ULL << 11)
 
 struct net_if {
 	int unused;
@@ -55,6 +57,7 @@ struct net_mgmt_event_static_handler {
 enum net_request {
 	NET_REQUEST_WIFI_IFACE_STATUS,
 	NET_REQUEST_WIFI_DISCONNECT,
+	NET_REQUEST_WIFI_SCAN,
 };
 int net_mgmt(enum net_request request, struct net_if *iface, void *data, size_t length);
 
@@ -121,6 +124,40 @@ struct wifi_iface_status {
 	enum wifi_security_type security;
 	int rssi;
 	unsigned int channel;
+};
+
+/* What location.c asks of a scan, and gets of each access point, with the members it uses. */
+enum wifi_frequency_bands {
+	WIFI_FREQ_BAND_2_4_GHZ = 0,
+	WIFI_FREQ_BAND_5_GHZ,
+	WIFI_FREQ_BAND_6_GHZ,
+};
+
+enum wifi_scan_type {
+	WIFI_SCAN_TYPE_ACTIVE = 0,
+	WIFI_SCAN_TYPE_PASSIVE,
+};
+
+#define WIFI_MAC_ADDR_LEN 6
+
+struct wifi_scan_params {
+	enum wifi_scan_type scan_type;
+	uint8_t bands;
+	uint16_t dwell_time_active;
+	uint16_t dwell_time_passive;
+	const char *ssids[2];
+	uint16_t max_bss_cnt;
+};
+
+struct wifi_scan_result {
+	uint8_t ssid[WIFI_SSID_MAX_LEN + 1];
+	uint8_t ssid_length;
+	uint8_t band;
+	uint8_t channel;
+	enum wifi_security_type security;
+	int8_t rssi;
+	uint8_t mac[WIFI_MAC_ADDR_LEN];
+	uint8_t mac_length;
 };
 
 #define WIFI_CREDENTIALS_FLAG_MFP_REQUIRED 1

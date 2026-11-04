@@ -4,11 +4,20 @@
     scripts/check-image.sh                                     binaries/latest.signed.bin
     scripts/check-image.sh binaries/cranium-1.9.0-0.signed.bin  that image
     scripts/check-image.sh --strict ...                        anything not checked fails too
+    python3 tools/check_image.py --board <image>               print its board type, and nothing else
+    python3 tools/check_image.py --layout <image>              print its flash layout, and nothing else
 
 The console checks the signature and the layout itself. This also checks where the image came from:
 
   Console's checks   the console's own code (cloud/api/verify-image.mjs): MCUboot header, flash
                      layout, slot size, SHA-256, and the signature with this project's public key
+  Board              the board type the image is for (docs/fleet.md): from 1.13.0 a protected TLV,
+                     tag 0xa1, whose value is the type in ASCII. Its protected TLV area has to be
+                     well formed and under the image's SHA-256, which the signature covers. An image
+                     before 1.13.0 has none, and is for nrf7002dk
+  Layout             the flash layout it is for: from 1.13.0 the protected TLV 0xa2, a positive whole
+                     number in ASCII, one that firmware/app/flash_layouts.json knows for its board
+                     type. An image before 1.13.0 has none, and is for layout 1
   Build record       the record tools/store_binary.py kept for this image: the same bytes, the same
                      version, built from a commit with nothing uncommitted in firmware/, and no -D
                      settings, which change an image without anything in git saying so
@@ -42,6 +51,21 @@ REPO = Path(__file__).resolve().parent.parent
 MCUBOOT_MAGIC = 0x96F3B83D
 TOKEN_FILE = Path.home() / ".cranium" / "console-token"
 
+# MCUboot's image metadata (bootutil/image.h), and the project's board type TLV (docs/fleet.md).
+TLV_INFO_MAGIC = 0x6907
+TLV_PROT_INFO_MAGIC = 0x6908
+TLV_SHA256 = 0x10
+BOARD_TLV = 0xA1
+LAYOUT_TLV = 0xA2
+BOARD_TYPES = ("nrf7002dk", "nrf5340dk")
+# Every image from this version on says its board type and flash layout. One before it is for these.
+FIRST_WITH_BOARD = (1, 13, 0)
+BOARD_BEFORE = "nrf7002dk"
+LAYOUT_BEFORE = 1
+BOARD_MAX = 16
+LAYOUT_DIGITS = 9
+LAYOUTS = REPO / "firmware/app/flash_layouts.json"
+
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 
 
@@ -50,6 +74,156 @@ def header_version(data: bytes):
     if len(data) < 32 or int.from_bytes(data[0:4], "little") != MCUBOOT_MAGIC:
         return None
     return (data[20], data[21], int.from_bytes(data[22:24], "little"), int.from_bytes(data[24:28], "little"))
+
+
+class ImageError(ValueError):
+    """What makes an image's metadata unreadable, or not what it says."""
+
+
+def tlv_entries(data: bytes, start: int, end: int, what: str):
+    """[(type, value)] of the TLV area's entries from start to end, which they must fill exactly."""
+    entries = []
+    at = start
+    while at < end:
+        if at + 4 > end:
+            raise ImageError(f"the {what} ends inside an entry")
+        kind = int.from_bytes(data[at:at + 2], "little")
+        length = int.from_bytes(data[at + 2:at + 4], "little")
+        if at + 4 + length > end:
+            raise ImageError(f"an entry of the {what} is longer than the area")
+        entries.append((kind, data[at + 4:at + 4 + length]))
+        at += 4 + length
+    return entries
+
+
+def tlv_areas(data: bytes):
+    """(protected, unprotected) TLV entries of an MCUboot image, after checking that the protected
+    area is well formed and is covered by the image's SHA-256, which is what the signature signs."""
+    if len(data) < 32 or int.from_bytes(data[0:4], "little") != MCUBOOT_MAGIC:
+        raise ImageError("not an MCUboot image")
+    header_size = int.from_bytes(data[8:10], "little")
+    protected_size = int.from_bytes(data[10:12], "little")
+    body_size = int.from_bytes(data[12:16], "little")
+    protected_at = header_size + body_size
+    tlv_at = protected_at + protected_size
+    if header_size < 32 or tlv_at + 4 > len(data):
+        raise ImageError("the file is shorter than its header says")
+
+    protected = []
+    if protected_size:
+        magic = int.from_bytes(data[protected_at:protected_at + 2], "little")
+        total = int.from_bytes(data[protected_at + 2:protected_at + 4], "little")
+        if protected_size < 4 or magic != TLV_PROT_INFO_MAGIC or total != protected_size:
+            raise ImageError("the protected TLV area is malformed")
+        protected = tlv_entries(data, protected_at + 4, tlv_at, "protected TLV area")
+
+    if int.from_bytes(data[tlv_at:tlv_at + 2], "little") != TLV_INFO_MAGIC:
+        raise ImageError("there is no TLV area after the protected one")
+    total = int.from_bytes(data[tlv_at + 2:tlv_at + 4], "little")
+    if total < 4 or tlv_at + total > len(data):
+        raise ImageError("the TLV area is malformed")
+    unprotected = tlv_entries(data, tlv_at + 4, tlv_at + total, "TLV area")
+
+    digests = [value for kind, value in unprotected if kind == TLV_SHA256]
+    if len(digests) != 1:
+        raise ImageError("the image has no single SHA-256 to cover its protected TLV area")
+    if hashlib.sha256(data[:tlv_at]).digest() != digests[0]:
+        raise ImageError("the image's SHA-256 does not match its header, body and protected TLV area")
+    return protected, unprotected
+
+
+def board_of(data: bytes):
+    """The board type in the image's protected TLV, or None if it has none. ImageError if the
+    protected area does not verify, or if what is there cannot be a board type."""
+    protected, unprotected = tlv_areas(data)
+    if any(kind == BOARD_TLV for kind, _ in unprotected):
+        raise ImageError("a board type outside the protected TLV area, where the signature does not cover it")
+    values = [value for kind, value in protected if kind == BOARD_TLV]
+    if not values:
+        return None
+    if len(values) > 1:
+        raise ImageError("more than one board type")
+    value = values[0]
+    if not (0 < len(value) <= BOARD_MAX and all(c in b"abcdefghijklmnopqrstuvwxyz0123456789" for c in value)):
+        raise ImageError(f"the board type {value!r} is not lower-case letters and digits")
+    return value.decode("ascii")
+
+
+def layout_of(data: bytes):
+    """The flash layout number in the image's protected TLV, or None if it has none. ImageError as
+    for board_of(), and for a value that is not a positive whole number with no leading zero."""
+    protected, unprotected = tlv_areas(data)
+    if any(kind == LAYOUT_TLV for kind, _ in unprotected):
+        raise ImageError("a flash layout outside the protected TLV area, where the signature does not cover it")
+    values = [value for kind, value in protected if kind == LAYOUT_TLV]
+    if not values:
+        return None
+    if len(values) > 1:
+        raise ImageError("more than one flash layout")
+    value = values[0]
+    if not (0 < len(value) <= LAYOUT_DIGITS and value[:1] != b"0" and all(c in b"0123456789" for c in value)):
+        raise ImageError(f"the flash layout {value!r} is not a positive whole number")
+    return int(value)
+
+
+def known_layouts(board: str, layouts_file: Path = LAYOUTS):
+    """The flash layout numbers firmware/app/flash_layouts.json has for a board type, or None if it
+    cannot be read."""
+    try:
+        layouts = json.loads(layouts_file.read_text())
+    except (OSError, ValueError):
+        return None
+    entry = layouts.get(board, {}) if isinstance(layouts, dict) else {}
+    return sorted(int(number) for number in entry if str(number).isdigit())
+
+
+def check_layout(data: bytes, record, layouts_file: Path = LAYOUTS):
+    """The flash layout: [(status, title, detail)]."""
+    try:
+        board = board_of(data) or BOARD_BEFORE
+        layout = layout_of(data)
+    except ImageError as error:
+        return [(FAIL, "Layout", f"the protected TLV area does not verify: {error}")]
+    parts = header_version(data)
+    recorded = (record or {}).get("layout")
+    if layout is None:
+        if parts is not None and parts[:3] >= FIRST_WITH_BOARD:
+            return [(FAIL, "Layout", "no flash layout, which every image from 1.13.0 carries: it was not built "
+                     "with this project's Kconfig")]
+        layout, detail = LAYOUT_BEFORE, f"{LAYOUT_BEFORE}: an image before 1.13.0, which has no layout in it"
+    else:
+        detail = f"{layout}, in the protected TLV area (0x{LAYOUT_TLV:02x}), under the signature"
+    known = known_layouts(board, layouts_file)
+    if known is not None and layout not in known:
+        return [(FAIL, "Layout", f"{layout}, a flash layout that firmware/app/flash_layouts.json does not have "
+                 f"for {board}: no board of that type has it")]
+    if recorded is not None and recorded != layout:
+        return [(FAIL, "Layout", f"the image says {layout}, and its build record {recorded}")]
+    return [(PASS, "Layout", detail)]
+
+
+def check_board(data: bytes, record):
+    """The board type: [(status, title, detail)]."""
+    try:
+        board = board_of(data)
+    except ImageError as error:
+        return [(FAIL, "Board", f"the protected TLV area does not verify: {error}")]
+    parts = header_version(data)
+    recorded = (record or {}).get("board")
+    if board is None:
+        if parts is not None and parts[:3] >= FIRST_WITH_BOARD:
+            first = ".".join(map(str, FIRST_WITH_BOARD))
+            return [(FAIL, "Board", f"no board type, which every image from {first} carries: it was not "
+                     "built with this project's Kconfig")]
+        board, detail = BOARD_BEFORE, f"{BOARD_BEFORE}: an image before 1.13.0, which has no board type in it"
+    elif board not in BOARD_TYPES:
+        known = ", ".join(BOARD_TYPES)
+        return [(FAIL, "Board", f"{board}, a board type the console does not know ({known})")]
+    else:
+        detail = f"{board}, in the protected TLV area (0x{BOARD_TLV:02x}), under the signature"
+    if recorded is not None and recorded != board:
+        return [(FAIL, "Board", f"the image says {board}, and its build record {recorded}")]
+    return [(PASS, "Board", detail)]
 
 
 def version_text(parts) -> str:
@@ -244,7 +418,8 @@ def check_console(parts):
     except (urllib.error.URLError, ValueError, OSError) as error:
         reason = getattr(error, "code", None) or type(error).__name__
         return [(SKIP, "Newer", f"the console could not be asked ({reason})")]
-    return [newer_than_releases(parts, releases)]
+    status, detail = newer_than_releases(parts, releases)
+    return [(status, "Newer", detail)]
 
 
 def check_console_code(image: Path):
@@ -263,6 +438,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("image", nargs="?", type=Path, default=REPO / "binaries/latest.signed.bin")
     parser.add_argument("--strict", action="store_true", help="fail on anything that could not be checked")
+    parser.add_argument("--board", action="store_true",
+                        help="print the board type in the image's protected TLV and exit: status 1 if it has "
+                             "none, or if its protected TLV area does not verify")
+    parser.add_argument("--layout", action="store_true",
+                        help="print the flash layout in the image's protected TLV and exit: status 1 as for "
+                             "--board")
     args = parser.parse_args()
 
     try:
@@ -273,12 +454,29 @@ def main():
     if parts is None:
         sys.exit(f"check-image: {args.image} is not an MCUboot image")
 
+    if args.board or args.layout:
+        what = "board type" if args.board else "flash layout"
+        try:
+            value = board_of(data) if args.board else layout_of(data)
+        except ImageError as error:
+            sys.exit(f"check-image: {args.image}: the protected TLV area does not verify: {error}")
+        if value is None:
+            sys.exit(f"check-image: {args.image} has no {what} in it")
+        print(value)
+        return
+
+    try:
+        shown_board = board_of(data) or f"{BOARD_BEFORE} (none in it)"
+        shown_layout = layout_of(data) or f"{LAYOUT_BEFORE} (none in it)"
+    except ImageError:
+        shown_board, shown_layout = "unreadable", "unreadable"
     shown = os.path.relpath(args.image, Path.cwd())
-    print(f"Checking {shown}: firmware {version_text(parts)}, {len(data):,} bytes\n")
+    print(f"Checking {shown}: firmware {version_text(parts)} for {shown_board}, flash layout {shown_layout}, "
+          f"{len(data):,} bytes\n")
 
     _, record = find_record(args.image.resolve(), data, REPO / "binaries")
-    results = (check_console_code(args.image) + check_record(record, data) + check_source(record)
-               + check_console(parts))
+    results = (check_console_code(args.image) + check_board(data, record) + check_layout(data, record)
+               + check_record(record, data) + check_source(record) + check_console(parts))
     width = max(len(title) for _, title, _ in results)
     for status, title, detail in results:
         print(f"  {status}  {title:<{width}}  {detail}")

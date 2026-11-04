@@ -424,11 +424,31 @@ static const struct line firmware_lines[] = {
 	{ "BT", "the image could not be installed", NULL },
 	{ "BT", "trial: waiting for a minute of running", NULL },
 	{ "BT", "not opening: an update is under way", NULL },
+	/* From 1.13.0: an image for another board type or flash layout. */
+	{ "BT", "refused an upload: it is for nrf5340dk, and this board is nrf7002dk", NULL },
+	{ "BT", "refused an upload: it is for flash layout 2, and this board has 1", NULL },
+	{ "BT", "refused an upload: its signed metadata is malformed", NULL },
+	{ "BT", "refused the image: it is for nrf5340dk, and this board is nrf7002dk", NULL },
+	{ "BT", "update over Bluetooth: 1.13.0+0 from 1.12.0+0, incompatible_board, proof none, update 4 of this board",
+	  NULL },
+	{ "bt_ota", "ERR: Update over Bluetooth refused: incompatible_layout", NULL },
+	{ "ota", "ERR: Update cranium-1-13-0 failed: incompatible_board (image is for nrf5340dk)", NULL },
+	{ "ota", "ERR: Update cranium-1-13-0 failed: incompatible_layout (image is for flash layout 2)", NULL },
 	/* console.c, console_cmd.c, main.c */
 	{ "CONSOLE", "test image: losing power before the init flag", NULL },
 	{ "CONSOLE", "stream aborted: idle timeout", NULL },
 	{ "CONSOLE", "migrated: device id set to ABC123", NULL },
 	{ "CONSOLE", "WIFI done on the serial console: save a WPA2 network and join it", NULL },
+	/* command.c, from 1.13.0: the answers to the console's commands */
+	{ "CMD", "identify for 15 s (3f9c2a1b7d4e6f80)", NULL },
+	{ "CMD", "report: heartbeat, diagnostics and a location scan (a01b2c3d4e5f6789)", NULL },
+	{ "CMD", "report: heartbeat and diagnostics, no location scan: the last was less than 10 minutes "
+		 "ago (a01b2c3d4e5f6789)", NULL },
+	{ "CMD", "report: heartbeat and diagnostics, no location scan: an update is under way "
+		 "(a01b2c3d4e5f6789)", NULL },
+	{ "CMD", "ignored: unknown cmd (3f9c2a1b7d4e6f80)", NULL },
+	{ "CMD", "ignored: not a command", NULL },
+	{ "CMD", "ignored: the board is busy (3f9c2a1b7d4e6f80)", NULL },
 	/* fault_wifi.c, net.c */
 	{ "WIFI", "test image: chip power cut", NULL },
 	{ "WIFI", "test image: no trailer, so no revert could show: the chip stays on", NULL },
@@ -454,6 +474,16 @@ static const struct line firmware_lines[] = {
 	{ "app", "Thing name: " THING, NULL },
 	{ "app", "Connected to AWS IoT", NULL },
 	{ "factory", "WRN: Factory reset: erasing all provisioned data", NULL },
+	/* location.c and cloud.c, from 1.13.0: counts, never an address or a network's name. */
+	{ "location", "Location: 7 access points sent", NULL },
+	{ "location", "Location: 1 access points that say where the board is, too few to send", NULL },
+	{ "location", "WRN: Location: 3 access points, not sent: not connected", NULL },
+	{ "location", "WRN: Location: the Wi-Fi stack did not start a scan: -16", NULL },
+	{ "location", "WRN: Location: the scan had not ended after 40 s", NULL },
+	{ "location", "WRN: AWS IoT closed the connection right after a location, 2 times: no location "
+		      "until a restart. Its device policy must allow cranium/<thing>/location", NULL },
+	{ "cloud", "WRN: AWS IoT ended the connection while it subscribed, 2 times: no commands until a "
+		   "restart. Its device policy must allow cranium/<thing>/commands", NULL },
 	/* What no source in the firmware may send, and every module of Zephyr and the SDK. */
 	{ "wpa_supp", "wlan0: CTRL-EVENT-CONNECTED - Connection to MyNetwork completed", "" },
 	{ "net_mqtt_helper", "Publishing to topic: cranium/" THING "/events", "" },
@@ -510,6 +540,10 @@ static void test_every_line_of_the_firmware(void)
 	CHECK_TEXT(becomes("BT", "PASSKEY 012345"), "");
 	CHECK_TEXT(becomes("BT", "the passkey is 012345"), "");
 	CHECK_TEXT(becomes("BT", ""), "");
+	/* A CMD line goes by every rule there is for any line, as any source's does. */
+	CHECK_TEXT(becomes("CMD", "ignored: the passkey is 012345"), "");
+	CHECK_TEXT(becomes("CMD", "DBG: id 3f9c2a1b7d4e6f80"), "");
+	CHECK_TEXT(becomes("cmd", "identify for 15 s (3f9c2a1b7d4e6f80)"), "");
 	CHECK(fake.sends == 0);
 	CHECK(next_seq == 1);
 }
