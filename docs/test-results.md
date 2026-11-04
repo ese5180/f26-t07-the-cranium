@@ -50,6 +50,14 @@ board's local address and signal as it printed them and nothing withheld. The de
 let the board publish; the topic guard had nothing to do. Not measured yet: how soon a status change reaches the console
 (the steps above were reported by 1.11.4, which waits for its heartbeat), lines held while offline, and the rate limit.
 
+The same afternoon the board lost its connection to AWS IoT by itself, at 18:29:40, while on its USB power and Wi-Fi.
+Its serial console showed every new connection timing out (`mqtt_connect` error -116), while this Mac reached the same
+AWS IoT endpoint on 8883 and 443, so the fault was on the board's side of the network. **The stuck timer from 1.7.0
+brought it back:** after 15 minutes with no cloud it restarted itself (18:45:01, reason `no_cloud`, the first time),
+joined Wi-Fi on channel 64 instead of 132 at 18:45:06, and was connected at 18:45:09. The console recorded the
+disconnection, the restart for being stuck and its reason, and the board log carried the board's own warning line. Why
+the connection was lost is not known: the channel change suggests a different access point.
+
 The same day, the iPhone app (19226de) signed in on its own screen for the first time: e-mail, password, then the code in
 six boxes, against the live user pool after the deploy that allowed SRP for the phone client. It went straight through.
 
