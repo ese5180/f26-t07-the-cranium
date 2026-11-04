@@ -102,7 +102,7 @@ public struct CountLine: Equatable, Sendable, Identifiable {
 
 /// One line of the activity log, in words (`Words.describeAudit`).
 public struct AuditWords: Equatable, Sendable {
-    public enum Link: Equatable, Sendable {
+    public enum Link: Hashable, Sendable {
         case deployment(String)
         case firmware
     }

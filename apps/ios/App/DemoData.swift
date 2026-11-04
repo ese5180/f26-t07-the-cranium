@@ -4,8 +4,10 @@ import Foundation
 
 /// A Debug build started with the launch argument `-CraniumDemo` shows the console with made-up
 /// boards, releases and deployments, answered here without any network: for screenshots and the
-/// Simulator, where nobody signs in. A Release build has none of this. `-CraniumTab 0…4` opens a
-/// tab, and `-CraniumRoute board|deployment|release|activity|tokens|account` a screen on it.
+/// Simulator, where nobody signs in. A Release build has none of this. `-CraniumTab 0…5` opens a
+/// tab, `-CraniumRoute …` a screen on it (RootView, `Stack.firstRoute`), `-CraniumSearch` types a
+/// search, `-CraniumSignedOut YES` starts at the app's own sign-in, `-CraniumDemoPassword` goes on
+/// to its code step, and `-CraniumSheet signin-again` opens the sign-in again.
 enum Demo {
     static var isOn: Bool { ProcessInfo.processInfo.arguments.contains("-CraniumDemo") }
 
@@ -202,6 +204,35 @@ enum Demo {
         default:
             return (403, ["error": ["code": "phone_sign_in_again", "message": FreshSignIn.ask, "requestId": "demo"]])
         }
+    }
+}
+
+/// Cognito's sign-in, answered with no network: any password, then any six digits. Only for
+/// screenshots of the app's own sign-in in demo mode (`-CraniumSignedOut YES`).
+struct DemoCognito: HTTPClient {
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard let url = request.url else { throw URLError(.badURL) }
+        let target = request.value(forHTTPHeaderField: "X-Amz-Target") ?? ""
+        let body = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        func hex(_ count: Int) -> String { (0..<count).map { _ in String(format: "%02x", UInt8.random(in: 1...255)) }.joined() }
+        let answer: [String: Any]
+        if target.hasSuffix("InitiateAuth") {
+            answer = ["ChallengeName": "PASSWORD_VERIFIER", "ChallengeParameters": [
+                "SALT": hex(16), "SECRET_BLOCK": Data(hex(48).utf8).base64EncodedString(), "SRP_B": hex(32),
+                "USERNAME": "demo-user", "USER_ID_FOR_SRP": "demo-user",
+            ]]
+        } else if body["ChallengeName"] as? String == "PASSWORD_VERIFIER" {
+            answer = ["ChallengeName": "SOFTWARE_TOKEN_MFA", "Session": Data(hex(24).utf8).base64EncodedString(),
+                      "ChallengeParameters": [String: String]()]
+        } else {
+            answer = ["AuthenticationResult": ["TokenType": "Bearer", "AccessToken": "demo", "ExpiresIn": 3600,
+                                               "RefreshToken": "demo-refresh", "IdToken": "demo-id"] as [String: Any],
+                      "ChallengeParameters": [String: String]()]
+        }
+        let headers = ["Content-Type": "application/x-amz-json-1.1"]
+        return (try JSONSerialization.data(withJSONObject: answer),
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers)!)
     }
 }
 

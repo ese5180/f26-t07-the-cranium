@@ -28,6 +28,26 @@ enum Route: Hashable {
     case history
     case serial
     case account
+    /// Help: every topic, or one.
+    case help(String?)
+    /// A board's sub-screens.
+    case boardHistory(String)
+    case boardBoots(String)
+    case boardCharts(String)
+    case boardSlots(String)
+    case boardCertificates(String)
+    /// A release's digests and sizes.
+    case releaseDetails(String)
+    /// One board's part in a deployment: the deployment's id and the board.
+    case execution(String, String)
+    case token(String)
+    case upload
+    case signingKey
+    /// The tabs' own screens, for a link from Search.
+    case overview
+    case boardsList
+    case firmwareList
+    case eventsList
 }
 
 /// The signed-in console: who, the configuration, the API, and what several screens share (the
@@ -73,6 +93,9 @@ final class AppModel: ObservableObject {
 
     private(set) var api: ConsoleAPI?
     private var auth: AuthSession?
+    /// The app's own sign-in (SignInScreen): the e-mail address, the password, then the code in six
+    /// boxes. Nil when the configuration names no user pool: then the AWS sign-in page is the only way.
+    private(set) var passwordSignIn: PasswordSignIn?
     private var callbackScheme = "cranium"
     /// Application Support/firmware, out of the iCloud backup (docs/mobile-apps.md, "Cache").
     let cache = FirmwareCache.standard()
@@ -99,16 +122,24 @@ final class AppModel: ObservableObject {
         #if DEBUG
         if Demo.isOn {
             // Made-up data, with no network at all: see DemoData.swift.
-            let demo = AuthSession(config: loaded.config, http: DemoHTTP(), store: MemoryTokenStore(Demo.tokens))
+            let signedOut = UserDefaults.standard.bool(forKey: "CraniumSignedOut")
+            let demo = AuthSession(config: loaded.config, http: DemoHTTP(),
+                                   store: MemoryTokenStore(signedOut ? nil : Demo.tokens))
             auth = demo
+            passwordSignIn = PasswordSignIn(config: loaded.config, http: DemoCognito(), session: demo)
             api = ConsoleAPI(config: loaded.config, http: DemoHTTP(), tokens: demo)
-            stage = .signedIn
-            await loadMe()
+            if signedOut {
+                stage = .signedOut
+            } else {
+                stage = .signedIn
+                await loadMe()
+            }
             return
         }
         #endif
         let auth = AuthSession(config: loaded.config, http: URLSession.shared, store: KeychainTokenStore())
         self.auth = auth
+        passwordSignIn = PasswordSignIn(config: loaded.config, http: URLSession.shared, session: auth)
         api = ConsoleAPI(config: loaded.config, http: URLSession.shared, tokens: auth)
         if await auth.isSignedIn {
             stage = .signedIn
@@ -136,6 +167,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The app's own sign-in screen kept the tokens: open the console.
+    func signedInHere() async {
+        signInMessage = nil
+        stage = .signedIn
+        await loadMe()
+    }
+
     /// The managed login in the system's web sheet, with `prompt=login`: password and code each time.
     private func webSignIn(_ auth: AuthSession) async throws {
         let pending = await auth.beginSignIn()
@@ -147,10 +185,22 @@ final class AppModel: ObservableObject {
     /// A sign-in again for a change (docs/mobile-apps.md: a change from the phone needs a sign-in
     /// in the last 15 minutes). Throws when it was cancelled, and when another account signed in:
     /// then nothing is changed in that account's name, and the app starts over as that account.
-    func signInAgain() async throws {
+    ///
+    /// `ask` shows the app's own sign-in (password and code) and says how it ended. Without it, or
+    /// when it ends with "Use the AWS sign-in page", the AWS sign-in page signs in.
+    func signInAgain(asking ask: (() async -> SignInEnding)? = nil) async throws {
         guard let auth, let api else { throw AuthError.notSignedIn }
         let before = me?.sub
-        try await webSignIn(auth)
+        switch await ask?() ?? .awsPage(reason: nil) {
+        case .signedIn:
+            break
+        case .cancelled:
+            throw AuthError.cancelled
+        case .awsPage:
+            // Let the sign-in sheet go first: the web sheet opens over the window.
+            if ask != nil { try? await Task.sleep(nanoseconds: 600_000_000) }
+            try await webSignIn(auth)
+        }
         let now = try await api.me()
         if let before, !before.isEmpty, now.sub != before {
             forgetData()
@@ -434,6 +484,12 @@ final class ChangeRunner: ObservableObject {
     /// The console asked for a fresh sign-in, and the person is being asked.
     @Published private(set) var asking = false
     private var answer: CheckedContinuation<Bool, Never>?
+    /// The app's own sign-in is open in a sheet (FreshSignInPrompt), and the change waits for it.
+    @Published private(set) var signingIn = false
+    /// What that sheet signs in with, and whose address it is.
+    private(set) var signInFlow: PasswordSignIn?
+    private(set) var signInEmail: String?
+    private var signInEnd: CheckedContinuation<SignInEnding, Never>?
 
     /// Runs `change`. Returns its value, or nil when it did not go through (the reason is in `error`).
     /// `refusal` is what did not happen: "Not revoked.", "No token was made."
@@ -447,7 +503,7 @@ final class ChangeRunner: ObservableObject {
         do {
             return try await FreshSignIn.run({ try await change(api) }, signInAgain: { [weak self] in
                 guard let self, await self.ask() else { return false }
-                try await app.signInAgain()
+                try await app.signInAgain(asking: app.passwordSignIn == nil ? nil : { await self.signInHere(app) })
                 return true
             })
         } catch AuthError.cancelled {
@@ -469,6 +525,24 @@ final class ChangeRunner: ObservableObject {
         }
     }
 
+    /// Opens the sign-in sheet and waits for how it ends.
+    private func signInHere(_ app: AppModel) async -> SignInEnding {
+        signInFlow = app.passwordSignIn
+        signInEmail = app.me?.email
+        signingIn = true
+        return await withCheckedContinuation { continuation in
+            signInEnd = continuation
+        }
+    }
+
+    /// How the sign-in sheet ended: signed in, closed, or "Use the AWS sign-in page".
+    func endSignIn(_ ending: SignInEnding) {
+        guard signingIn else { return }
+        signingIn = false
+        signInEnd?.resume(returning: ending)
+        signInEnd = nil
+    }
+
     /// The person's answer to "sign in again first".
     func answer(_ yes: Bool) {
         asking = false
@@ -478,6 +552,7 @@ final class ChangeRunner: ObservableObject {
 
     func reset() {
         if asking { answer(false) }
+        if signingIn { endSignIn(.cancelled) }
         error = nil
         errorRef = nil
         lastError = nil

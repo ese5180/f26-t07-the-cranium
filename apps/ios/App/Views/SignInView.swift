@@ -84,6 +84,14 @@ struct SignInScreen: View {
             // After the screen has settled, or the keyboard does not come up.
             try? await Task.sleep(nanoseconds: 350_000_000)
             focus(on: model.focus.field)
+            #if DEBUG
+            // Demo mode only (DemoData.swift): `-CraniumDemoPassword` goes on to the code step, for screenshots.
+            if Demo.isOn, let demo = UserDefaults.standard.string(forKey: "CraniumDemoPassword"), model.step == .password {
+                if !model.emailIsFixed { model.email = "vihaan@cranium.test" }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await model.submitPassword(demo)
+            }
+            #endif
         }
         .onChange(of: model.focus) { request in focus(on: request.field) }
         .onChange(of: model.tries) { _ in announceProblem() }

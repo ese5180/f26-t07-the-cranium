@@ -13,13 +13,21 @@ It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator wi
 
 ## What is where
 
+The screens are iOS's own grouped lists, on the console's paper, with the console's colours kept for
+states. Each has at most one prominent action; the rest are in its menu (…), destructive ones last
+and confirmed. Explanations are in Help, behind the (?) button.
+
 | Tab | What | The website's |
 | --- | --- | --- |
-| Overview | Updates in progress, board by board; the fleet online; firmware in the fleet; the newest release; the boards; recent activity; an unfinished revocation, said on top | Overview |
-| Boards | Every board as it last reported; a board's page: heartbeat ticking every second, uptime, firmware, update, signal, flash slots, stuck restarts, Wi-Fi channel and MAC, memory, certificates, the last boots decoded, the last update over Bluetooth, its update history, and charts of signal and free memory. Live every 10 s | Devices, Diagnostics |
-| Firmware | Every release on AWS, active and revoked; upload a signed `.bin` from Files (its MCUboot header checked here first); a release's page: details, deploy over the internet, send over Bluetooth, revoke or finish revoking | Firmware |
-| Events | What the boards did: range presets or a custom range, board and kind filters, a timeline with a lane per board and the console's, online bands, and the list. Live every 15 s while the range ends now | Events |
-| More | Deployments (list; a deployment with each board's steps, live; cancel; new deployment), Activity, Update over Bluetooth, API tokens, History, Serial console (an iPhone has no USB serial: it says so), Account | Deployments, Activity, Developer |
+| Overview | Updates in progress, one row per board with its download; boards online; the newest release; the last few changes | Overview |
+| Boards | Every board; a board's page: name, thing name, online, firmware; the update while there is one; firmware and flash slots, diagnostics (heartbeat and uptime ticking, signal, Wi-Fi, memory, stuck restarts), Bluetooth, history. The last boots, certificates, all updates, and the signal and memory charts are a tap away. Live every 10 s | Devices, Diagnostics |
+| Firmware | Every release on AWS, active and revoked; Upload (+) checks the file's MCUboot header first; a release's page: Deploy, and in its menu Send over Bluetooth and Revoke | Firmware |
+| Search | From iOS 26, the system's search button: boards, releases, deployments, events, activity, the app's screens and actions, and Help, grouped, with the match in bold. Recent searches are kept on the phone (10 at most) until sign-out. Before iOS 26 the search field is on More | — |
+| More | Events (a tab of its own before iOS 26), Deployments, Activity, Update over Bluetooth, API tokens, History, Serial console, Help, Account | Events, Deployments, Activity, Developer |
+
+Help is `apps/shared/help.json`, which the build puts in the app and the Android app can read too.
+Every topic names the files of the repository its facts come from; a test checks that they exist.
+Search's matching and ranking are in `CraniumKit/Sources/CraniumKit/Search.swift`.
 
 A board is shown by its device ID (`CRVIHAAN01`, from firmware 1.11.4) with its thing name under it,
 or by its thing name until it has reported one. Every call uses the thing name.
@@ -41,6 +49,7 @@ account signs in, nothing is changed in its name.
 | `scripts/testflight.sh` | Archives a Release build and uploads it to TestFlight |
 | `scripts/check.sh` | Everything that can be checked without a phone |
 | `scripts/colors.sh` | Makes the colour sets from the website's stylesheet again |
+| `scripts/stamp-commit.sh` | Build phase: writes the commit the app was built from into it, for Help, About |
 | `scripts/copy-config.sh` | Build phase: copies the configuration into the built app |
 
 For Bluetooth, the app only lists the board's image slots and uploads to image 0. It never sends
@@ -53,7 +62,7 @@ resets.
 A Debug build started with the launch argument `-CraniumDemo` signs nobody in and makes no network
 request: every answer comes from `App/DemoData.swift`. `-CraniumTab 0` to `4` opens a tab, and
 `-CraniumRoute board`, `deployment`, `release`, `deployments`, `activity`, `tokens`, `history`,
-`serial` or `account` a screen on it. A Release build has none of this.
+`serial`, `account`, `help`, `help-topic`, `upload` or `events` a screen on it, and `-CraniumSearch <text>` a search. A Release build has none of this.
 
 ```sh
 xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -destination 'platform=iOS Simulator,name=iPhone 18 Pro' \
@@ -153,7 +162,7 @@ apps/ios/scripts/check.sh
 apps/ios/scripts/phone.sh --check
 ```
 
-`check.sh` builds the package, runs its tests (164 of them, Swift Testing: 155 in CraniumKitTests,
+`check.sh` builds the package, runs its tests (179 of them, Swift Testing: 170 in CraniumKitTests,
 9 in CraniumBLETests; the firmware cache's on real files in a temporary folder), type-checks the
 app's sources against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only
 the Command Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.

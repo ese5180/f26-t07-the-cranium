@@ -34,7 +34,6 @@ struct ReadingChart: View {
                         .monospacedDigit()
                 }
             }
-            Text("\(unit), \(describe)").font(Typeface.tiny).foregroundStyle(theme.ink3)
             if points.isEmpty {
                 Text(emptyText).font(Typeface.small).foregroundStyle(theme.ink3)
                     .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)

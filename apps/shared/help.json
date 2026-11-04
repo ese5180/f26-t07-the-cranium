@@ -5,7 +5,7 @@
     { "title": "Start here", "topics": ["getting-started", "sign-in-again", "keep-the-app"] },
     { "title": "Updates", "topics": ["wifi-update", "bluetooth-update", "deployments"] },
     { "title": "Boards", "topics": ["board-states", "leds", "buttons", "boards-and-diagnostics"] },
-    { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity", "api-tokens"] },
+    { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity", "api-tokens", "serial-console"] },
     { "title": "Troubleshooting", "topics": ["trouble-offline", "trouble-bluetooth", "trouble-upload", "trouble-sign-in"] },
     { "title": "About", "topics": ["about"] }
   ],
@@ -325,6 +325,31 @@
           "A token cannot make or revoke tokens, or read a board's Bluetooth passkey.",
           "It is shown once, when it is made. Valid for 1 to 90 days; it cannot be extended."
         ] }
+      ]
+    },
+    {
+      "id": "serial-console",
+      "title": "The serial console",
+      "summary": "Driving a board on its USB cable: where it works, and how the commands look.",
+      "keywords": ["serial", "usb", "cable", "terminal", "uart", "115200", "web serial", "commands", "otg"],
+      "sources": ["cloud/web/src/site/assets/serial.js", "firmware/README.md", "apps/android/app/src/main/java/com/craniumiot/cranium/usb/UsbConsole.kt", "apps/ios/App/Views/MoreView.swift"],
+      "blocks": [
+        { "text": "The serial console drives a board on its USB cable, one command per line. What you type goes over the cable to the board, never to the server, and nothing is saved." },
+        { "heading": "Where it works" },
+        { "rows": [
+          ["The console's Serial console", "In Chrome or Edge on a computer: Web Serial exists only there. For release managers: it drives a board directly and can erase it."],
+          ["The Android app", "On a phone that can be a USB host (USB OTG). Android asks you to allow the app to use the board."],
+          ["A plain serial monitor", "The board's second virtual COM port, at 115200 baud: screen /dev/cu.usbmodem<port> 115200"],
+          ["The iPhone app", "iOS gives apps no way to open a USB serial port, so it has no serial console."]
+        ] },
+        { "heading": "Commands" },
+        { "list": [
+          "One command per line, like COMMAND|arg1|arg2. HELP or ? lists them, with the firmware version.",
+          "Every command ends with one final line: OK, or ERR and the reason.",
+          "Lines that start with a [TAG] are logs and events, such as [BT] passkey 123456 while a phone pairs."
+        ] },
+        { "note": "A release build can leave the console out (-Dapp_CONFIG_APP_CONSOLE=n): then no serial command exists at all." },
+        { "see": ["bluetooth-update"] }
       ]
     },
     {

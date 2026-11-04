@@ -54,184 +54,165 @@ final class ActivityModel: ObservableObject {
     }
 }
 
-/// The website's Activity page.
+/// Who changed what, and when, by day.
 struct ActivityView: View {
     @EnvironmentObject private var app: AppModel
-    @Environment(\.theme) private var theme
     @StateObject private var model = ActivityModel()
 
     var body: some View {
-        Page {
-            PageHead(lede: "Every upload, deployment, cancellation and revocation made through this console’s API, with who asked for it and whether it went through. A job made directly in AWS IoT does not pass through that API, so it is not in this log, though its board’s page lists it. A deployment that is over shows how it ended. This console has no way to change an entry.")
-            Freshness(loadedAt: model.loadedAt, interval: model.interval, loading: model.loading)
-            if let error = model.error {
-                LoadProblem(what: "the activity log", error: error, loadedAt: model.loadedAt) {
-                    Task { await model.refresh(app, full: true) }
+        ListScreen {
+            if StaleNote.shows(loadedAt: model.loadedAt, error: model.error) {
+                Section {
+                    StaleNote(loadedAt: model.loadedAt, error: model.error) { Task { await model.refresh(app, full: true) } }
                 }
             }
             if let entries = model.entries {
                 if entries.isEmpty {
-                    Card {
-                        EmptyState(icon: "list", title: "Nothing has been recorded yet.",
-                                   text: "Uploads, deployments, cancellations and revocations made through this console’s API will appear here, including attempts that were refused.")
-                    }
+                    Section { StateRow(kind: .empty, text: "Nothing has been recorded yet.") }
                 } else {
-                    summary(entries)
-                    if entries.contains(where: { Words.describeAudit($0).scripted }) {
-                        Text("\(Words.scriptedTag): \(Words.scriptedNote)").font(Typeface.tiny).foregroundStyle(theme.ink3)
+                    ForEach(days(entries), id: \.day) { group in
+                        Section(group.day) {
+                            ForEach(group.entries) { entry in
+                                NavigationLink {
+                                    ActivityEntryView(entry: entry)
+                                } label: {
+                                    ActivityRow(entry: entry, timeOfDay: true)
+                                }
+                            }
+                        }
                     }
-                    days(entries)
-                    if model.next != nil {
-                        Button(model.loadingMore ? "Loading…" : "Load more") { Task { await model.loadMore(app) } }
-                            .consoleButton(wide: true)
+                    Section {
+                        if model.next != nil {
+                            Button {
+                                Task { await model.loadMore(app) }
+                            } label: {
+                                HStack {
+                                    Text(model.loadingMore ? "Loading…" : "Load more")
+                                    if model.loadingMore { Spacer(); ProgressView() }
+                                }
+                            }
                             .disabled(model.loadingMore)
-                    } else {
-                        Text("That is every entry in this log.").font(Typeface.small).foregroundStyle(theme.ink3)
-                    }
-                    if let error = model.moreError {
-                        Notice(.bad, "x-circle", Words.failure("Could not load more.", error))
+                        } else {
+                            Text("That is every entry.").foregroundStyle(Theme.page.ink3)
+                        }
+                        if let error = model.moreError {
+                            StateRow(kind: .failed, text: Words.plainMessage(error))
+                        }
                     }
                 }
             } else if model.error == nil {
-                Loading(what: "activity")
+                Section { StateRow(kind: .loading, text: "Loading activity…") }
             }
         }
         .poll(every: { model.interval }) { full in await model.refresh(app, full: full) }
-        .consoleTitle("Activity")
+        .helpButton("activity")
+        .screenTitle("Activity")
     }
 
-    /// What the entries on this page are about. It only counts what has been loaded, and says so.
-    private func summary(_ entries: [AuditEntry]) -> some View {
-        func count(_ action: String) -> Int { entries.filter { $0.action == action }.count }
-        let refused = entries.filter { $0.outcome != "ok" }.count
-        let said = [
-            (count("firmware.upload"), "upload", "uploads"),
-            (count("deployment.create"), "deployment", "deployments"),
-            (count("deployment.cancel"), "cancellation", "cancellations"),
-            (count("firmware.revoke"), "revocation", "revocations"),
-            (count("firmware.bluetooth_send"), "send over Bluetooth", "sends over Bluetooth"),
-        ].filter { $0.0 > 0 }.map { Words.plural($0.0, $0.1, $0.2) }
-        let scope = model.next != nil ? "The latest \(Words.plural(entries.count, "entry", "entries"))"
-            : entries.count == 1 ? "The only entry" : "All \(entries.count) entries"
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(([scope] + said).joined(separator: " · ")).font(Typeface.small).foregroundStyle(theme.ink2)
-            if refused > 0 {
-                StatusLine(tone: .warn, icon: "alert", title: "\(refused) refused or failed").font(Typeface.small)
-            }
-        }
-    }
-
-    private func days(_ entries: [AuditEntry]) -> some View {
+    private func days(_ entries: [AuditEntry]) -> [(day: String, entries: [AuditEntry])] {
         let now = Date()
         var order: [String] = []
         var grouped: [String: [AuditEntry]] = [:]
         for entry in entries {
             let day = Words.dayLabel(entry.at, now: now)
-            if order.last != day && grouped[day] == nil { order.append(day) }
+            if grouped[day] == nil { order.append(day) }
             grouped[day, default: []].append(entry)
         }
-        return LazyVStack(alignment: .leading, spacing: 22) {
-            ForEach(order, id: \.self) { day in
-                Card(day) {
-                    VStack(spacing: 0) {
-                        ForEach(grouped[day] ?? []) { entry in
-                            ActivityLine(entry: entry, compact: false).padding(.vertical, 10)
-                            RowRule()
+        return order.map { ($0, grouped[$0] ?? []) }
+    }
+}
+
+/// One entry of the log, in a row: who did what, how it ended if not well, and when.
+struct ActivityRow: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.theme) private var theme
+    let entry: AuditEntry
+    var timeOfDay = false
+
+    var body: some View {
+        let words = Words.describeAudit(entry)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: Icon.symbol(words.icon))
+                .font(.footnote)
+                .foregroundStyle(words.outcome.map { theme.tone($0.tone) } ?? theme.ink3)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(Words.nameOf(entry.actor)) \(words.verb)\(words.label.isEmpty ? "" : " \(words.label)")")
+                    .font(.subheadline)
+                    .lineLimit(2)
+                if let outcome = words.outcome {
+                    Text(outcome.label).font(.caption.weight(.semibold)).foregroundStyle(theme.tone(outcome.tone))
+                }
+            }
+            Spacer(minLength: 8)
+            Text(timeOfDay ? Words.timeOfDay(entry.at) : Words.timeAgo(entry.at, now: Date()))
+                .font(.caption).foregroundStyle(theme.ink3)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One entry of the log, with everything it records.
+struct ActivityEntryView: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.theme) private var theme
+    let entry: AuditEntry
+
+    var body: some View {
+        let words = Words.describeAudit(entry)
+        ListScreen {
+            Section {
+                Text("\(Words.nameOf(entry.actor)) \(words.verb)\(words.label.isEmpty ? "" : " \(words.label)")")
+                if let outcome = words.outcome { StatusText(outcome) }
+                if words.scripted {
+                    Text("\(Words.scriptedTag): \(Words.scriptedNote)").font(.footnote).foregroundStyle(theme.ink3)
+                }
+            }
+            if !words.facts.isEmpty {
+                Section {
+                    ForEach(words.facts) { fact in
+                        if let refusal = fact.words {
+                            ValueRow(fact.label, refusal)
+                        } else if fact.code {
+                            HStack {
+                                Text(fact.label)
+                                Spacer()
+                                Text(verbatim: fact.value).font(Typeface.hash).foregroundStyle(theme.ink2).lineLimit(1).truncationMode(.middle)
+                            }
+                        } else {
+                            ValueRow(fact.label, fact.value)
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-/// One line of the activity log: who did what, to what, and how it ended if not well.
-struct ActivityLine: View {
-    @EnvironmentObject private var app: AppModel
-    @Environment(\.theme) private var theme
-    let entry: AuditEntry
-    let compact: Bool
-
-    var body: some View {
-        let words = Words.describeAudit(entry)
-        // How a deployment that it started ended follows from the deployment as it is now.
-        let run = entry.action == "deployment.create" && entry.outcome == "ok"
-            ? (app.deployments.value ?? []).first { $0.id == entry.target } : nil
-        let ending = run.flatMap { Words.isUnderWay($0) ? nil : Words.describeDeployment($0) }
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: Icon.symbol(words.icon))
-                .font(.footnote)
-                .foregroundStyle(words.outcome.map { theme.tone($0.tone) } ?? theme.ink2)
-                .frame(width: 22)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 6) {
-                (Text(Words.nameOf(entry.actor)).fontWeight(.semibold) + Text(" \(words.verb) ")
-                 + Text(words.label).font(Typeface.mono))
-                    .font(Typeface.body)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    if let outcome = words.outcome { Badge(outcome) }
-                    if let ending { Badge(ending) }
-                    if words.scripted { Tag(text: Words.scriptedTag, tone: .warn) }
-                }
-                if !compact {
-                    ForEach(words.facts) { fact in
-                        factLine(fact)
-                    }
-                    let refs = [entry.actor.map { $0.sub.isEmpty ? nil : "Account \(Words.shortAccount($0.sub))" } ?? nil,
-                                entry.requestId.isEmpty ? nil : "Request \(entry.requestId)"].compactMap { $0 }
-                    if !refs.isEmpty {
-                        Text(refs.joined(separator: " · ")).font(Typeface.tiny).foregroundStyle(theme.ink3).textSelection(.enabled)
+            Section {
+                ValueRow("When", Words.exactTime(entry.at))
+                if let sub = entry.actor?.sub, !sub.isEmpty {
+                    HStack {
+                        Text("Account")
+                        Spacer()
+                        Text(verbatim: Words.shortAccount(sub)).font(Typeface.hash).foregroundStyle(theme.ink2)
                     }
                 }
-                link(words)
+                if !entry.requestId.isEmpty {
+                    HStack {
+                        Text("Request")
+                        Spacer()
+                        Text(verbatim: entry.requestId).font(Typeface.hash).foregroundStyle(theme.ink2).lineLimit(1).truncationMode(.middle)
+                    }
+                }
             }
-            Spacer(minLength: 0)
-            Text(compact ? Words.timeAgo(entry.at, now: Date()) : Words.timeOfDay(entry.at))
-                .font(Typeface.tiny).foregroundStyle(theme.ink3)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder
-    private func factLine(_ fact: AuditWords.Fact) -> some View {
-        if fact.key == "sha256" {
-            HStack(spacing: 4) {
-                Text("\(fact.label) ").font(Typeface.small).foregroundStyle(theme.ink2)
-                CopyRow(value: fact.value, label: "the SHA-256", shown: "\(fact.value.prefix(12))…")
-            }
-        } else if let words = fact.words {
-            Text("\(words).").font(Typeface.small).foregroundStyle(theme.ink2)
-        } else {
-            (Text(fact.phrase ? "\(fact.label) " : "\(fact.label): ") + Text(fact.value).font(fact.code ? Typeface.mono : Typeface.small))
-                .font(Typeface.small).foregroundColor(theme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private func link(_ words: AuditWords) -> some View {
-        switch words.link {
-        case .deployment(let id)?:
-            NavigationLink(value: Route.deployment(id)) { open("Open the deployment") }.buttonStyle(.plain)
-        case .firmware?:
-            if Lenient.isVersion(entry.target) {
-                NavigationLink(value: Route.release(entry.target)) { open("Open the release") }.buttonStyle(.plain)
-            }
-        case nil:
-            if entry.action == "pairing.read", let thing = entry.detail.first(where: { $0.key == "thing" })?.value, BoardName.isThing(thing) {
-                NavigationLink(value: Route.board(thing)) { open("Open the board") }.buttonStyle(.plain)
+            switch words.link {
+            case .deployment(let id)?:
+                Section { NavigationLink("Open the deployment", value: Route.deployment(id)) }
+            case .firmware? where Lenient.isVersion(entry.target):
+                Section { NavigationLink("Open the release", value: Route.release(entry.target)) }
+            default:
+                EmptyView()
             }
         }
-    }
-
-    private func open(_ text: String) -> some View {
-        HStack(spacing: 3) {
-            Text(text)
-            Image(systemName: "chevron.right").font(.caption2.weight(.bold))
-        }
-        .font(Typeface.small.weight(.semibold))
-        .foregroundStyle(theme.ink)
+        .screenTitle("Entry", large: false)
     }
 }
 
@@ -253,106 +234,134 @@ final class TokensModel: ObservableObject {
     }
 }
 
-/// The website's API tokens page.
+/// Your API tokens; New token is the one action, Revoke is on a token's own page.
 struct TokensView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
     @StateObject private var model = TokensModel()
     @State private var creating = false
-    @State private var revoking: APIToken?
 
     var body: some View {
         let listing = model.list.value
         let full = listing.map { $0.active >= $0.limit } ?? false
-        Page {
-            PageHead(lede: "A token lets a script use this console’s API as you, without signing in, until it expires or you revoke it. Each person makes and sees only their own.")
-            Freshness(loadedAt: model.list.loadedAt, interval: 0, loading: model.list.loading)
+        ListScreen {
             if let error = model.list.error {
-                LoadProblem(what: "your API tokens", error: error, loadedAt: model.list.loadedAt) { Task { await model.refresh(app) } }
+                Section { StateRow(kind: .failed, text: Words.plainMessage(error), action: ("Retry", { Task { await model.refresh(app) } })) }
             }
-            Card("Your tokens") {
-                if let listing {
-                    Text("\(Words.plural(listing.active, "token")) in use, of the \(listing.limit) you may have.\(app.canWrite ? "" : " You are a viewer, so your tokens can only read.")")
-                        .font(Typeface.small).foregroundStyle(theme.ink2)
-                }
-                Button { creating = true } label: { Label("New token", systemImage: "plus") }
-                    .consoleButton(.primary, wide: true)
-                    .disabled(listing == nil || full)
-                if full { Text("Revoke a token you no longer use first.").font(Typeface.tiny).foregroundStyle(theme.ink3) }
-                if let listing {
-                    if listing.tokens.isEmpty {
-                        EmptyState(icon: "key", title: "You have no API tokens.",
-                                   text: "Make one for a script that should use the console as you, such as scripts/ota.sh.")
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(listing.tokens) { token in
-                                TokenRow(token: token) { revoking = token }
-                                RowRule()
-                            }
+            if let listing {
+                if listing.tokens.isEmpty {
+                    Section { StateRow(kind: .empty, text: "You have no API tokens.", action: ("New token", { creating = true })) }
+                } else {
+                    Section {
+                        ForEach(listing.tokens) { token in
+                            NavigationLink(value: Route.token(token.id)) { TokenLine(token: token) }
                         }
+                    } header: {
+                        Text("\(listing.active) of \(listing.limit) in use")
+                    } footer: {
+                        if full { Text("Revoke a token you no longer use first.") }
                     }
-                } else if model.list.error == nil {
-                    Loading(what: "your API tokens")
                 }
-            }
-            Card("Using a token") {
-                VStack(alignment: .leading, spacing: 8) {
-                    point("Send it as Authorization: Bearer crn_… to the API under /api/t/: GET /api/t/firmware answers what GET /api/firmware does for you here.")
-                    point("scripts/ota.sh uses the token in ~/.cranium/console-token (readable by you alone: chmod 600), or in CRANIUM_TOKEN.")
-                    point("It acts as you, with what you may do at that moment: a viewer’s token only reads, and if your account loses a role or is disabled, its tokens lose it at once.")
-                    point("A change made with a token is in the activity log under your name, with the token’s ID. A token cannot make or revoke tokens, or read a board’s Bluetooth passkey.")
-                }
+            } else if model.list.error == nil {
+                Section { StateRow(kind: .loading, text: "Loading your tokens…") }
             }
         }
         .poll(every: { Words.idleRefresh }) { _ in await model.refresh(app) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { creating = true } label: { Image(systemName: "plus").accessibilityLabel("New token") }
+                    .disabled(listing == nil || full)
+            }
+        }
+        .helpButton("api-tokens")
         .sheet(isPresented: $creating) {
             NewTokenSheet(limitDays: listing?.maxDays ?? TokenRules.mostDays) { await model.refresh(app) }
         }
-        .sheet(item: $revoking) { token in
-            RevokeTokenSheet(token: token) { await model.refresh(app) }
-        }
-        .consoleTitle("API tokens")
-    }
-
-    private func point(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("·").foregroundStyle(theme.ink3)
-            Text(text).font(Typeface.small).fixedSize(horizontal: false, vertical: true)
-        }
+        .screenTitle("API tokens")
     }
 }
 
-struct TokenRow: View {
+/// A token in a list: its name, and how long it has.
+struct TokenLine: View {
     @Environment(\.theme) private var theme
     let token: APIToken
-    let revoke: () -> Void
 
     var body: some View {
-        let look: Look = token.status == "active" ? Look(.good, "check-circle", "Active")
-            : token.status == "revoked" ? Look(.bad, "ban", "Revoked") : Look(.idle, "clock", "Expired")
-        let now = Date()
-        let life: String = {
-            if token.status == "revoked" { return "Revoked \(Words.timeAgo(token.revokedAt, now: now))" }
-            if token.status == "expired" { return "Expired \(Words.timeAgo(token.expiresAt, now: now))" }
-            let left = (ConsoleTime.date(token.expiresAt)?.timeIntervalSince(now)) ?? 0
-            return "Expires in \(Words.duration(max(0, left))) (\(Words.dateAndTime(token.expiresAt)))"
-        }()
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(verbatim: token.name).font(Typeface.body.weight(.semibold))
-                Badge(look)
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: token.name)
+                Text(life).font(.footnote).foregroundStyle(theme.ink3)
             }
-            Text("ID \(token.id) · Made \(Words.timeAgo(token.createdAt, now: now)) · \(life)")
-                .font(Typeface.small).foregroundStyle(theme.ink3)
-                .fixedSize(horizontal: false, vertical: true)
-            if token.status == "active" {
-                Button(action: revoke) { Label("Revoke", systemImage: "nosign") }
-                    .consoleButton()
-                    .accessibilityLabel("Revoke the token \(token.name)")
+            Spacer()
+            StatusText(look)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    var look: Look {
+        token.status == "active" ? Look(.good, "check-circle", "Active")
+            : token.status == "revoked" ? Look(.bad, "ban", "Revoked") : Look(.idle, "clock", "Expired")
+    }
+
+    var life: String {
+        let now = Date()
+        if token.status == "revoked" { return "Revoked \(Words.timeAgo(token.revokedAt, now: now))" }
+        if token.status == "expired" { return "Expired \(Words.timeAgo(token.expiresAt, now: now))" }
+        let left = (ConsoleTime.date(token.expiresAt)?.timeIntervalSince(now)) ?? 0
+        return "Expires in \(Words.duration(max(0, left)))"
+    }
+}
+
+/// One token, and revoking it.
+struct TokenView: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.theme) private var theme
+    let id: String
+    @StateObject private var model = TokensModel()
+    @State private var revoking = false
+
+    var body: some View {
+        let token = model.list.value?.tokens.first { $0.id == id }
+        ListScreen {
+            if let token {
+                Section {
+                    HStack {
+                        Text(verbatim: token.name).font(.headline)
+                        Spacer()
+                        StatusText(TokenLine(token: token).look)
+                    }
+                    HStack {
+                        Text("ID")
+                        Spacer()
+                        Text(verbatim: token.id).font(Typeface.hash).foregroundStyle(theme.ink2)
+                    }
+                    ValueRow("Made", Words.dateAndTime(token.createdAt))
+                    ValueRow(token.status == "revoked" ? "Revoked" : token.status == "expired" ? "Expired" : "Expires",
+                             Words.dateAndTime(token.status == "revoked" ? token.revokedAt : token.expiresAt))
+                }
+            } else if model.list.value != nil {
+                Section { StateRow(kind: .empty, text: "You have no token with this ID.") }
+            } else {
+                Section { StateRow(kind: .loading, text: "Loading…") }
             }
         }
-        .padding(.vertical, 10)
-        .opacity(token.status == "active" ? 1 : 0.75)
+        .task { await model.refresh(app) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    NavigationLink(value: Route.help("api-tokens")) { Label("Help", systemImage: "questionmark.circle") }
+                    if token?.status == "active" {
+                        Button(role: .destructive) { revoking = true } label: { Label("Revoke…", systemImage: "nosign") }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").accessibilityLabel("More")
+                }
+            }
+        }
+        .sheet(isPresented: $revoking) {
+            if let token { RevokeTokenSheet(token: token) { await model.refresh(app) } }
+        }
+        .screenTitle(token?.name ?? "Token", large: false)
     }
 }
 
@@ -370,14 +379,14 @@ struct NewTokenSheet: View {
 
     var body: some View {
         NavigationStack {
-            Page {
+            ListScreen {
                 if let token {
                     shown(token)
                 } else {
                     form
                 }
             }
-            .navigationTitle(token == nil ? "New API token" : "Your new API token")
+            .navigationTitle(token == nil ? "New token" : "Your new token")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -394,138 +403,121 @@ struct NewTokenSheet: View {
     @ViewBuilder private var form: some View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let lifetime = TokenRules.days(days)
-        let hint = trimmed.isEmpty ? "Give it a name first." : lifetime == nil ? "Choose \(TokenRules.leastDays) to \(TokenRules.mostDays) days." : nil
-        Text("A script that has this token can use the console’s API as you, with what you may do at that moment.")
-            .font(Typeface.body).fixedSize(horizontal: false, vertical: true)
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Name (required)").font(Typeface.small.weight(.semibold))
-            TextField("The computer or script that uses it", text: $name)
-                .padding(10)
-                .background(theme.surface, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(theme.lineField, lineWidth: 1))
+        Section {
+            TextField("Name", text: $name)
                 .onChange(of: name) { value in if value.count > TokenRules.nameLimit { name = String(value.prefix(TokenRules.nameLimit)) } }
                 .disabled(change.busy)
-            Text("What it is for: the computer or the script that uses it. Up to \(TokenRules.nameLimit) characters.")
-                .font(Typeface.tiny).foregroundStyle(theme.ink3)
+            HStack {
+                Text("Valid for")
+                TextField("30", text: $days)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    #endif
+                    .multilineTextAlignment(.trailing)
+                    .disabled(change.busy)
+                Text("days").foregroundStyle(theme.ink3)
+            }
+        } footer: {
+            Text("What it is for, and \(TokenRules.leastDays) to \(min(limitDays, TokenRules.mostDays)) days. It cannot be extended.")
         }
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Valid for, in days").font(Typeface.small.weight(.semibold))
-            TextField("30", text: $days)
-                #if os(iOS)
-                .keyboardType(.numberPad)
-                #endif
-                .padding(10)
-                .frame(maxWidth: 120)
-                .background(theme.surface, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(theme.lineField, lineWidth: 1))
-                .disabled(change.busy)
-            Text("From \(TokenRules.leastDays) to \(min(limitDays, TokenRules.mostDays)). A token cannot be extended: make a new one when it runs out.")
-                .font(Typeface.tiny).foregroundStyle(theme.ink3)
+        if let error = change.error {
+            Section { StateRow(kind: .failed, text: error) }
         }
-        if let error = change.error { Notice(.bad, "x-circle", error, more: change.errorRef) }
-        FreshSignInPrompt(change: change, what: "new token")
-        if let hint { Text(hint).font(Typeface.tiny).foregroundStyle(theme.ink3) }
-        Button {
-            guard let lifetime else { return }
-            Task {
-                if let made = await change.run(app, refusal: "No token was made.", { api in
-                    try await api.createToken(name: trimmed, days: lifetime)
-                }) {
-                    token = made
-                    await self.made()
+        if change.asking || change.signingIn {
+            Section { FreshSignInPrompt(change: change, what: "new token") }
+        }
+        Section {
+            PrimaryButton(change.busy ? "Making…" : "Make token", systemImage: "key", busy: change.busy) {
+                guard let lifetime else { return }
+                Task {
+                    if let made = await change.run(app, refusal: "No token was made.", { api in
+                        try await api.createToken(name: trimmed, days: lifetime)
+                    }) {
+                        token = made
+                        await self.made()
+                    }
                 }
             }
-        } label: {
-            Label(change.busy ? "Making…" : "Make token", systemImage: "key")
+            .disabled(trimmed.isEmpty || lifetime == nil || change.busy || change.asking)
         }
-        .consoleButton(.primary, wide: true)
-        .disabled(hint != nil || change.busy || change.asking)
     }
 
     @ViewBuilder
     private func shown(_ token: NewToken) -> some View {
-        Notice(.warn, "alert", "Copy it now: you won’t see this token again. The console keeps only a digest of it, from which it cannot be read back.")
-        HStack(alignment: .top) {
-            Text(verbatim: token.token)
-                .font(Typeface.mono)
-                .textSelection(.enabled)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(theme.well, in: RoundedRectangle(cornerRadius: 4))
-            CopyButton(value: token.token, label: "the token")
-        }
-        VStack(spacing: 0) {
-            Fact("Name") { Text(verbatim: token.name) }
-            Fact("ID") {
-                Mono(token.id)
-                FactNote("How the list and the activity log name it.")
+        Section {
+            HStack(alignment: .top) {
+                Text(verbatim: token.token).font(Typeface.hash).textSelection(.enabled)
+                Spacer()
+                CopyButton(value: token.token, label: "the token")
             }
-            Fact("Expires") { Text(token.expiresAt.map(Words.dateAndTime) ?? "—") }
+        } footer: {
+            Text("Copy it now: you won't see it again.").foregroundStyle(theme.warn)
         }
-        Text("Keep it like a password. For scripts/ota.sh, put it in ~/.cranium/console-token and make that file readable by you alone, for example on a Mac after copying:")
-            .font(Typeface.small).fixedSize(horizontal: false, vertical: true)
-        Mono("mkdir -p ~/.cranium && (umask 077 && pbpaste > ~/.cranium/console-token)", font: Typeface.mono)
-            .padding(8)
-            .background(theme.well, in: RoundedRectangle(cornerRadius: 4))
+        Section {
+            ValueRow("Name", token.name)
+            HStack {
+                Text("ID")
+                Spacer()
+                Text(verbatim: token.id).font(Typeface.hash).foregroundStyle(theme.ink2)
+            }
+            ValueRow("Expires", token.expiresAt.map(Words.dateAndTime) ?? "—")
+        }
+        Section {
+            NavigationLink("How to use it", value: Route.help("api-tokens"))
+        }
     }
 }
 
 struct RevokeTokenSheet: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.theme) private var theme
     let token: APIToken
     let done: () async -> Void
     @StateObject private var change = ChangeRunner()
 
     var body: some View {
         NavigationStack {
-            Page {
-                VStack(spacing: 0) {
-                    Fact("ID") { Mono(token.id) }
-                    Fact("Made") { Text(Words.timeAgo(token.createdAt, now: Date())) }
-                    Fact("Expires") { Text(Words.dateAndTime(token.expiresAt)) }
+            ListScreen {
+                Section {
+                    Text("A script that uses it is refused from its next request on.")
+                    Text("What it has done stays done, and stays in the activity log.")
+                    Text("This cannot be undone.")
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(["A script that uses it is refused from its next request on.",
-                             "What it has done stays done, and stays in the activity log.",
-                             "This cannot be undone. A script that still needs access needs a new token."], id: \.self) { line in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("·").foregroundStyle(theme.ink3)
-                            Text(line).font(Typeface.body).fixedSize(horizontal: false, vertical: true)
+                .font(.subheadline)
+                if let error = change.error {
+                    Section { StateRow(kind: .failed, text: error) }
+                }
+                if change.asking || change.signingIn {
+                    Section { FreshSignInPrompt(change: change, what: "revocation") }
+                }
+                Section {
+                    PrimaryButton(change.busy ? "Revoking…" : "Revoke token", systemImage: "nosign", role: .destructive,
+                                  busy: change.busy) {
+                        let id = token.id
+                        Task {
+                            if await change.run(app, refusal: "Not revoked.", { api in try await api.revokeToken(id: id) }) != nil {
+                                app.say("Revoked “\(token.name)”.")
+                                await done()
+                                dismiss()
+                            }
                         }
                     }
+                    .disabled(change.busy || change.asking)
                 }
-                if let error = change.error { Notice(.bad, "x-circle", error, more: change.errorRef) }
-                FreshSignInPrompt(change: change, what: "revocation")
-                Button(role: .destructive) {
-                    let id = token.id
-                    Task {
-                        if await change.run(app, refusal: "Not revoked.", { api in try await api.revokeToken(id: id) }) != nil {
-                            app.say("Revoked the token “\(token.name)”.")
-                            await done()
-                            dismiss()
-                        }
-                    }
-                } label: {
-                    Label(change.busy ? "Revoking…" : "Revoke token", systemImage: "nosign")
-                }
-                .consoleButton(.danger, wide: true)
-                .disabled(change.busy || change.asking)
             }
-            .navigationTitle("Revoke the token “\(token.name)”?")
+            .navigationTitle("Revoke “\(token.name)”")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Keep the token") { dismiss() }.disabled(change.busy) }
+                ToolbarItem(placement: .cancellationAction) { Button("Keep it") { dismiss() }.disabled(change.busy) }
             }
         }
         .interactiveDismissDisabled(change.busy || change.asking)
     }
 }
 
-/// The website's History page: the project's commits, and what the console was built from.
+/// The project's commits, newest first.
 struct HistoryView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
@@ -534,34 +526,65 @@ struct HistoryView: View {
     @State private var tag = "all"
 
     var body: some View {
-        Page {
-            PageHead(lede: "The project’s commits, newest first, and what this deployment of the console was built from.")
+        ListScreen {
             if let error = history.error {
-                LoadProblem(what: "the history", error: error) { Task { await load() } }
+                Section { StateRow(kind: .failed, text: Words.plainMessage(error), action: ("Retry", { Task { await load() } })) }
             }
             if let value = history.value {
                 if let value {
-                    built(value)
-                    Picker("Show", selection: $tag) {
-                        Text("All").tag("all")
-                        ForEach(CommitHistory.tags, id: \.id) { Text($0.label).tag($0.id) }
+                    Section {
+                        if let commit = value.builtFrom {
+                            HStack {
+                                Text("Console built from")
+                                Spacer()
+                                Text(verbatim: String(commit.prefix(7))).font(Typeface.hash).foregroundStyle(theme.ink2)
+                            }
+                        }
+                        if let deployed = value.deployedAt { ValueRow("Deployed", Words.timeAgo(deployed, now: Date())) }
                     }
-                    .pickerStyle(.menu)
-                    let shown = value.commits.filter { tag == "all" || $0.tags.contains(tag) }
-                    Card(Words.plural(shown.count, "commit")) {
-                        commits(shown)
+                    ForEach(days(value.commits.filter { tag == "all" || $0.tags.contains(tag) }), id: \.day) { group in
+                        Section(group.day) {
+                            ForEach(group.commits) { commit in
+                                Button {
+                                    if let link = commit.link { openURL(link) }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(verbatim: commit.subject).foregroundStyle(theme.ink).multilineTextAlignment(.leading)
+                                        HStack(spacing: 8) {
+                                            Text(verbatim: commit.short).font(Typeface.hash)
+                                            Text(commit.tags.compactMap(CommitHistory.tagLabel).joined(separator: ", "))
+                                        }
+                                        .font(.caption)
+                                        .foregroundStyle(theme.ink3)
+                                    }
+                                }
+                                .accessibilityHint("Opens the commit on GitHub")
+                            }
+                        }
                     }
                 } else {
-                    Card { EmptyState(icon: "list", title: "No history in this deployment.",
-                                      text: "The console was deployed without its history file.") }
+                    Section { StateRow(kind: .empty, text: "This console was deployed without its history.") }
                 }
             } else if history.error == nil {
-                Loading(what: "the history")
+                Section { StateRow(kind: .loading, text: "Loading the history…") }
             }
         }
         .task { await load() }
         .refreshable { await load() }
-        .consoleTitle("History")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Show", selection: $tag) {
+                        Text("All").tag("all")
+                        ForEach(CommitHistory.tags, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                } label: {
+                    Image(systemName: tag == "all" ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                        .accessibilityLabel("Filter")
+                }
+            }
+        }
+        .screenTitle("History")
     }
 
     private func load() async {
@@ -575,47 +598,15 @@ struct HistoryView: View {
         }
     }
 
-    private func built(_ value: CommitHistory) -> some View {
-        Notice(.idle, "package", value.builtFrom.map { "This console was built from \($0.prefix(7))\(value.tree == "dirty" ? ", with changes that were not committed" : "")." }
-               ?? "Which commit this console was built from is not recorded.",
-               more: value.deployedAt.map { "Deployed \(Words.timeAgo($0, now: Date()))." })
-    }
-
-    private func commits(_ shown: [CommitHistory.Commit]) -> some View {
+    private func days(_ commits: [CommitHistory.Commit]) -> [(day: String, commits: [CommitHistory.Commit])] {
         let now = Date()
         var order: [String] = []
         var grouped: [String: [CommitHistory.Commit]] = [:]
-        for commit in shown {
+        for commit in commits {
             let day = Words.dayLabel(commit.date, now: now)
             if grouped[day] == nil { order.append(day) }
             grouped[day, default: []].append(commit)
         }
-        return LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(order, id: \.self) { day in
-                Text(day).font(Typeface.small.weight(.semibold)).foregroundStyle(theme.ink2)
-                    .padding(.top, 12).padding(.bottom, 4)
-                ForEach(grouped[day] ?? []) { commit in
-                    Button {
-                        if let link = commit.link { openURL(link) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(verbatim: commit.subject).font(Typeface.body).multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                            HStack(spacing: 6) {
-                                Mono(commit.short, font: Typeface.mono).underline()
-                                Text(Words.timeOfDay(commit.date)).font(Typeface.tiny).foregroundStyle(theme.ink3)
-                                ForEach(commit.tags, id: \.self) { Tag(text: CommitHistory.tagLabel($0) ?? $0) }
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Opens the commit on GitHub")
-                    RowRule()
-                }
-            }
-        }
+        return order.map { ($0, grouped[$0] ?? []) }
     }
 }

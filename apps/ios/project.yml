@@ -32,6 +32,9 @@ targets:
       - path: App
         excludes:
           - Info.plist
+      # The Help topics, which the Android app can read too.
+      - path: ../shared/help.json
+        buildPhase: resources
     dependencies:
       - package: CraniumKit
         product: CraniumKit
@@ -64,6 +67,11 @@ targets:
         # account. Without it, a Debug build takes cranium.example.json and the app says so on
         # every screen; a Release build stops.
         script: '"${SRCROOT}/scripts/copy-config.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+      - name: Record the commit
+        # CraniumCommit in the built Info.plist, for Help, About. Never fails the build.
+        script: '"${SRCROOT}/scripts/stamp-commit.sh"'
         basedOnDependencyAnalysis: false
         showEnvVars: false
     # A shared scheme named Cranium, which xcodebuild -scheme needs.

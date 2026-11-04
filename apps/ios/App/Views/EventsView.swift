@@ -103,7 +103,8 @@ final class EventsModel: ObservableObject {
     }
 }
 
-/// The website's Events page.
+
+/// What every board did, as it reported it.
 struct EventsView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
@@ -111,27 +112,77 @@ struct EventsView: View {
     @State private var customOpen = false
 
     var body: some View {
-        Page {
-            PageHead(lede: "What every board did, as it reported it: connections, updates, restarts, Bluetooth and its health, with what people did in this console alongside. Events are kept for 90 days.")
-            Freshness(loadedAt: model.loadedAt, interval: model.interval, loading: model.loading)
-            toolbar
-            if let error = model.error {
-                LoadProblem(what: "the events", error: error, loadedAt: model.loadedAt) { reload() }
+        ListScreen {
+            Section {
+                Picker("Range", selection: rangeChoice) {
+                    ForEach(Telemetry.presets) { Text($0.label).tag($0.id) }
+                    if !model.live { Text("Custom").tag("custom") }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            } footer: {
+                Text(filterWords)
+            }
+            if StaleNote.shows(loadedAt: model.loadedAt, error: model.error, every: Telemetry.eventsRefresh) {
+                Section {
+                    StaleNote(loadedAt: model.loadedAt, error: model.error, every: Telemetry.eventsRefresh) { reload() }
+                }
             }
             if let data = model.data {
                 content(data)
             } else if model.error == nil {
-                Loading(what: "events")
+                Section { StateRow(kind: .loading, text: "Loading events…") }
             }
         }
         .poll(every: { model.interval }) { full in await model.refresh(app, full: full) }
         .onChange(of: model.range) { _ in reload() }
         .onChange(of: model.thing) { _ in reload() }
         .onChange(of: model.hidden) { _ in reload() }
-        .sheet(isPresented: $customOpen) {
-            CustomRangeSheet(model: model)
+        .sheet(isPresented: $customOpen) { CustomRangeSheet(model: model) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { filterMenu }
         }
-        .consoleTitle("Events")
+        .screenTitle("Events")
+    }
+
+    private var rangeChoice: Binding<String> {
+        Binding(get: {
+            if case .preset(let id) = model.range { return id }
+            return "custom"
+        }, set: { id in
+            if id != "custom" { model.range = .preset(id) }
+        })
+    }
+
+    private var filterWords: String {
+        let board = model.thing.isEmpty ? "All boards" : (app.name(of: model.thing) ?? Words.shortThing(model.thing))
+        let hidden = model.hidden.count
+        return hidden == 0 ? board : "\(board) · \(Words.plural(hidden, "kind")) hidden"
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker("Board", selection: $model.thing) {
+                Text("All boards").tag("")
+                ForEach(app.deviceList ?? []) { device in
+                    Text(device.label).tag(device.thing)
+                }
+            }
+            Menu("Kinds") {
+                ForEach(Telemetry.kinds) { kind in
+                    Toggle(kind.label, isOn: Binding(get: { !model.hidden.contains(kind.id) }, set: { on in
+                        if on { model.hidden.remove(kind.id) } else { model.hidden.insert(kind.id) }
+                    }))
+                }
+            }
+            Button { customOpen = true } label: { Label("Custom range…", systemImage: "calendar") }
+            NavigationLink(value: Route.help("events")) { Label("Help", systemImage: "questionmark.circle") }
+        } label: {
+            Image(systemName: model.thing.isEmpty && model.hidden.isEmpty
+                  ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                .accessibilityLabel("Filter")
+        }
     }
 
     private func reload() {
@@ -139,213 +190,101 @@ struct EventsView: View {
         Task { await model.refresh(app, full: false) }
     }
 
-    @ViewBuilder private var toolbar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Telemetry.presets) { preset in
-                        chip(preset.label, on: model.range == .preset(preset.id)) { model.range = .preset(preset.id) }
-                    }
-                    chip(model.live ? "Custom…" : "Custom", on: !model.live) { customOpen = true }
-                }
-            }
-            Text(Telemetry.rangeWords(model.range, now: Date()))
-                .font(Typeface.small).foregroundStyle(theme.ink3)
-            Menu {
-                Button("All boards") { model.thing = "" }
-                ForEach(app.deviceList ?? []) { device in
-                    Button(device.name.map { "\($0) (\(Words.shortThing(device.thing)))" } ?? device.thing) { model.thing = device.thing }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text(model.thing.isEmpty ? "All boards" : (app.name(of: model.thing) ?? model.thing))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down").font(.caption2.weight(.bold))
-                }
-                .font(Typeface.body.weight(.semibold))
-            }
-            .consoleButton()
-        }
-    }
-
-    private func chip(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(Typeface.small.weight(.semibold))
-                .padding(.horizontal, 12)
-                .frame(minHeight: 34)
-                .foregroundStyle(on ? theme.onAccent : theme.ink)
-                .background(on ? theme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(on ? theme.accent : theme.lineField, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-
     @ViewBuilder
     private func content(_ data: EventsModel.Data) -> some View {
         let devices = app.deviceList ?? []
         let span = Telemetry.span(model.range, now: Date())
-        let from = data.query.from
         let to = model.live ? max(data.query.to, span.to) : data.query.to
         let lanes = Telemetry.lanes(events: data.events, devices: devices, thing: model.thing, console: data.console)
         let shown = Telemetry.shown(lanes, hidden: model.hidden)
-        let warnings = shown.filter(\.warn).count
         if lanes.isEmpty || (app.deviceList != nil && devices.isEmpty && data.events.isEmpty) {
-            Card { EmptyState.noBoards }
+            Section { StateRow(kind: .empty, text: "No boards are registered yet.") }
         } else {
-            kindChips(shown)
-            Card("Timeline") {
-                TimelineChart(lanes: lanes, from: from, to: to, live: model.live, hidden: model.hidden, selected: $model.selected)
+            Section {
+                TimelineChart(lanes: lanes, from: data.query.from, to: to, live: model.live, hidden: model.hidden,
+                              selected: $model.selected)
+                    .padding(.vertical, 6)
                 if let id = model.selected, let marker = shown.first(where: { $0.id == id }) {
-                    EventRow(marker: marker, label: laneLabel(marker, lanes: lanes), dayShown: true)
-                        .padding(10)
-                        .background(theme.well, in: RoundedRectangle(cornerRadius: 6))
-                }
-                Text("A band is a board online. Tap an event on the timeline for what happened." +
-                     (data.consoleCut ? " The Console lane shows the newest 500 entries of the activity log in this range." : ""))
-                    .font(Typeface.small).foregroundStyle(theme.ink3)
-            }
-            Card("All events", more: {
-                Text([Words.plural(shown.count, "event"), warnings > 0 ? Words.plural(warnings, "warning") : nil,
-                      data.cursor != nil ? "more in this range" : nil].compactMap { $0 }.joined(separator: " · "))
-                    .font(Typeface.tiny).foregroundStyle(theme.ink3)
-            }) {
-                if shown.isEmpty {
-                    EmptyState(icon: "list", title: "No events in this range.",
-                               text: !model.hidden.isEmpty || !model.thing.isEmpty
-                               ? "Some kinds or boards are left out: show them all, or choose a longer range."
-                               : "Boards record events when they connect, update, restart or change state. Choose a longer range.")
-                } else {
-                    EventList(markers: shown, lanes: lanes, label: { laneLabel($0, lanes: lanes) })
-                }
-                if data.cursor != nil {
-                    Button(model.loadingMore ? "Loading…" : "Load 500 more") { Task { await model.loadMore(app) } }
-                        .consoleButton()
-                        .disabled(model.loadingMore)
-                }
-                if let error = model.moreError {
-                    Notice(.bad, "x-circle", Words.failure("Could not load more.", error))
+                    EventLine(marker: marker, label: label(marker, lanes: lanes), withDay: true)
                 }
             }
-        }
-    }
-
-    private func laneLabel(_ marker: Telemetry.Marker, lanes: [Telemetry.Lane]) -> String {
-        guard let thing = marker.thing else { return "Console" }
-        return lanes.first { $0.id == thing }?.device?.name ?? thing
-    }
-
-    private func kindChips(_ shown: [Telemetry.Marker]) -> some View {
-        let counts = Dictionary(grouping: shown, by: \.kind).mapValues(\.count)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Telemetry.kinds) { kind in
-                    let on = !model.hidden.contains(kind.id)
-                    Button {
-                        if on { model.hidden.insert(kind.id) } else { model.hidden.remove(kind.id) }
-                    } label: {
-                        HStack(spacing: 6) {
-                            KindGlyph(kind: kind.id)
-                            Text(kind.label)
-                            if on, let count = counts[kind.id] { Text("\(count)").foregroundStyle(theme.ink3).monospacedDigit() }
-                        }
-                        .font(Typeface.small.weight(.medium))
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 32)
-                        .opacity(on ? 1 : 0.45)
-                        .overlay(RoundedRectangle(cornerRadius: 16).stroke(on ? theme.lineField : theme.line, lineWidth: 1))
+            if shown.isEmpty {
+                Section { StateRow(kind: .empty, text: "No events in this range.") }
+            }
+            ForEach(days(shown), id: \.day) { group in
+                Section(group.day) {
+                    ForEach(group.markers) { marker in
+                        EventLine(marker: marker, label: label(marker, lanes: lanes))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(kind.label)\(on ? ", shown" : ", hidden")")
-                    .accessibilityHint(on ? "Hides this kind of event" : "Shows this kind of event")
+                }
+            }
+            if data.cursor != nil || model.moreError != nil {
+                Section {
+                    if data.cursor != nil {
+                        Button {
+                            Task { await model.loadMore(app) }
+                        } label: {
+                            HStack {
+                                Text(model.loadingMore ? "Loading…" : "Load 500 more")
+                                if model.loadingMore { Spacer(); ProgressView() }
+                            }
+                        }
+                        .disabled(model.loadingMore)
+                    }
+                    if let error = model.moreError {
+                        StateRow(kind: .failed, text: Words.plainMessage(error))
+                    }
                 }
             }
         }
     }
-}
 
-/// Every event shown, newest first, under its day.
-struct EventList: View {
-    @Environment(\.theme) private var theme
-    let markers: [Telemetry.Marker]
-    let lanes: [Telemetry.Lane]
-    let label: (Telemetry.Marker) -> String
+    private func label(_ marker: Telemetry.Marker, lanes: [Telemetry.Lane]) -> String {
+        guard let thing = marker.thing else { return "Console" }
+        return lanes.first { $0.id == thing }?.device?.name ?? Words.shortThing(thing)
+    }
 
-    var body: some View {
+    private func days(_ markers: [Telemetry.Marker]) -> [(day: String, markers: [Telemetry.Marker])] {
         let now = Date()
-        let days = Dictionary(grouping: markers) { Words.dayLabel(ConsoleTime.text($0.at), now: now) }
-        let order = markers.reduce(into: [String]()) { order, marker in
+        var order: [String] = []
+        var grouped: [String: [Telemetry.Marker]] = [:]
+        for marker in markers {
             let day = Words.dayLabel(ConsoleTime.text(marker.at), now: now)
-            if order.last != day { order.append(day) }
+            if grouped[day] == nil { order.append(day) }
+            grouped[day, default: []].append(marker)
         }
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(order, id: \.self) { day in
-                Text(day).font(Typeface.small.weight(.semibold)).foregroundStyle(theme.ink2)
-                    .padding(.top, 14).padding(.bottom, 4)
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(days[day] ?? []) { marker in
-                    EventRow(marker: marker, label: label(marker))
-                        .padding(.vertical, 8)
-                    RowRule()
-                }
-            }
-        }
+        return order.map { ($0, grouped[$0] ?? []) }
     }
 }
 
-/// One event: when, which board, what kind, and what happened.
-struct EventRow: View {
+/// One event: its kind's mark, what happened, the board, and when. Tapping goes to the board, or
+/// to what a console entry is about.
+struct EventLine: View {
     @Environment(\.theme) private var theme
     let marker: Telemetry.Marker
     let label: String
-    var dayShown = false
+    var withDay = false
 
     var body: some View {
-        let kind = Telemetry.kind(marker.kind)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(dayShown ? Words.dateAndTime(ConsoleTime.text(marker.at)) : Words.timeOfDay(ConsoleTime.text(marker.at)))
-                    .font(Typeface.small.weight(.semibold)).monospacedDigit()
-                KindGlyph(kind: marker.kind)
-                Text(kind.label).font(Typeface.small).foregroundStyle(theme.ink2)
-                Spacer(minLength: 4)
-                if marker.warn { Badge(.warn, "alert", "Warning") }
+        let row = HStack(alignment: .firstTextBaseline, spacing: 12) {
+            KindGlyph(kind: marker.kind)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(marker.text).font(.subheadline).lineLimit(2)
+                Text("\(marker.thing == nil ? "Console" : "\(label) · \(Telemetry.kind(marker.kind).label)")\(marker.warn ? " · Warning" : "")")
+                    .font(.caption).foregroundStyle(marker.warn ? theme.warn : theme.ink3)
             }
-            if let thing = marker.thing {
-                NavigationLink(value: Route.board(thing)) {
-                    Text(label).font(label == thing ? Typeface.mono : Typeface.small.weight(.semibold)).underline()
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("Console").font(Typeface.small.weight(.semibold))
-            }
-            Text(marker.text).font(Typeface.body).fixedSize(horizontal: false, vertical: true)
-            if let job = marker.job, DeploymentId.isValid(job) {
-                NavigationLink(value: Route.deployment(job)) { linkWords("Deployment") }.buttonStyle(.plain)
-            }
-            switch marker.link {
-            case .deployment(let id)?:
-                NavigationLink(value: Route.deployment(id)) { linkWords("Open") }.buttonStyle(.plain)
-            case .firmware?:
-                if let version = marker.text.split(separator: " ").last.map(String.init), Lenient.isVersion(version) {
-                    NavigationLink(value: Route.release(version)) { linkWords("Open") }.buttonStyle(.plain)
-                }
-            case nil:
-                EmptyView()
-            }
+            Spacer(minLength: 8)
+            Text(withDay ? Words.dateAndTime(ConsoleTime.text(marker.at)) : Words.timeOfDay(ConsoleTime.text(marker.at)))
+                .font(.caption).foregroundStyle(theme.ink3)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    private func linkWords(_ text: String) -> some View {
-        HStack(spacing: 3) {
-            Text(text)
-            Image(systemName: "chevron.right").font(.caption2.weight(.bold))
+        if let thing = marker.thing {
+            NavigationLink(value: Route.board(thing)) { row }
+        } else if case .deployment(let id)? = marker.link {
+            NavigationLink(value: Route.deployment(id)) { row }
+        } else {
+            row
         }
-        .font(Typeface.small.weight(.semibold))
-        .foregroundStyle(theme.ink)
     }
 }
 

@@ -9,7 +9,9 @@ struct CraniumApp: App {
 
     init() {
         #if canImport(UIKit)
-        // The console's ink for titles, on its paper.
+        // From iOS 26 the system's own bars, which an opaque appearance would break: a list's large
+        // title went missing under one. Before that, the console's ink for titles, on its paper.
+        if #available(iOS 26, *) { return }
         let ink = UIColor(named: "PageInk") ?? .label
         let bar = UINavigationBarAppearance()
         bar.configureWithOpaqueBackground()
