@@ -10,39 +10,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.PathParser
@@ -53,8 +42,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,24 +51,24 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.Tone
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
-/** The app: the sign-in page, or the console with its sections. */
+/** The app: the sign-in screen, or the console with its sections. */
 @Composable
 fun CraniumApp(vm: ConsoleViewModel) {
     val gate by vm.gate.collectAsStateWithLifecycle()
-    val signIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    val form by vm.signIn.collectAsStateWithLifecycle()
+    val awsPage = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         vm.onSignInResult(result.data)
     }
-    // The fresh sign-in a change waits for: the console asks for it, the screen opens it.
-    LaunchedEffect(Unit) { vm.signInPages.collect { signIn.launch(it) } }
+    // The AWS sign-in page, when the app's own screen sends the person there.
+    LaunchedEffect(Unit) { vm.signInPages.collect { awsPage.launch(it) } }
 
     Surface(Modifier.fillMaxSize(), color = console.paper, contentColor = console.ink) {
         when (val current = gate) {
             Gate.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = console.accent)
             }
-            is Gate.SignIn -> SignInPage(current, vm.exampleConfig, onSignIn = { vm.signInIntent()?.let(signIn::launch) }, onRetry = vm::retryStart)
+            is Gate.SignIn -> SignInGate(vm, current, form)
             Gate.Ready -> ConsoleFrame(vm)
         }
     }
@@ -87,7 +76,7 @@ fun CraniumApp(vm: ConsoleViewModel) {
 
 /** The mark of the console: a dome cut with the grooves of a record. */
 @Composable
-fun BrandMark(size: androidx.compose.ui.unit.Dp = 30.dp) {
+fun BrandMark(size: Dp = 30.dp) {
     val colors = console
     val dome = remember { PathParser().parsePathString("M2 18a14 14 0 0 1 28 0v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3z").toPath() }
     val grooves = remember { PathParser().parsePathString("M7 30V18a9 9 0 0 1 18 0v12M12 30V18a4 4 0 0 1 8 0v12").toPath() }
@@ -99,80 +88,19 @@ fun BrandMark(size: androidx.compose.ui.unit.Dp = 30.dp) {
     }
 }
 
-@Composable
-private fun SignInPage(gate: Gate.SignIn, example: Boolean, onSignIn: () -> Unit, onRetry: () -> Unit) {
-    val colors = console
-    Column(
-        Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(Gutter),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            BrandMark()
-            Column {
-                Text("Cranium", style = ConsoleType.sectionTitle.copy(fontSize = 19.sp), color = colors.ink)
-                Text("Firmware console", style = ConsoleType.eyebrow.copy(letterSpacing = 0.sp, fontWeight = FontWeight.Normal), color = colors.ink3)
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-        InkPanel {
-            Eyebrow("Sign in")
-            Spacer(Modifier.height(10.dp))
-            Text("The console, on this phone", style = ConsoleType.pageTitle, color = console.ink)
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "With your e-mail address, your password and the code from your authenticator app. Everything the website " +
-                    "does is here: the boards, their events, firmware, deployments, the activity log, API tokens, updates " +
-                    "over Bluetooth and the serial console over USB.",
-                style = ConsoleType.lede, color = console.ink2,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "A change made from the phone, such as a deployment or a revocation, asks for the password and code again " +
-                    "when the last sign-in is older than 15 minutes.",
-                style = ConsoleType.note, color = console.ink3,
-            )
-            Spacer(Modifier.height(20.dp))
-            if (gate.busy != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = console.accent)
-                    Text(gate.busy, color = console.ink2)
-                }
-            } else {
-                ConsoleButton("Sign in", onSignIn, Modifier.fillMaxWidth(), kind = ButtonKind.PRIMARY, glyph = Glyph.LOCK)
-            }
-        }
-        if (example) {
-            Notice(
-                Tone.WARN, Glyph.ALERT,
-                "This build has the example configuration, so sign-in will not work. Run apps/configure.sh and build again.",
-            )
-        }
-        gate.notice?.let { notice ->
-            Notice(Tone.BAD, Glyph.ALERT, notice, action = if (notice.startsWith("Signed in, but")) {
-                { ConsoleButton("Try again", onRetry, small = true) }
-            } else {
-                null
-            })
-        }
-    }
-}
-
-/** The console: a masthead, the page, the bottom bar, the dialogs and the messages. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** The console: the page of the route, the bottom bar, the dialogs and the messages. */
 @Composable
 private fun ConsoleFrame(vm: ConsoleViewModel) {
     val nav by vm.nav.collectAsStateWithLifecycle()
     val store by vm.store.collectAsStateWithLifecycle()
     val dialog by vm.dialog.collectAsStateWithLifecycle()
     val toasts by vm.toasts.collectAsStateWithLifecycle()
+    val fresh by vm.fresh.collectAsStateWithLifecycle()
     val colors = console
     val route = nav.route
     // Every second where seconds are counted (a board's heartbeat and uptime), else as the website redraws.
-    val now = rememberNow(if (route is Route.Board) 1_000 else 15_000)
+    val now = rememberNow(if (route is Route.BoardPage || route is Route.Board) 1_000 else 15_000)
+    val deep = nav.stacks.getValue(nav.tab).size > 1
 
     BackHandler(enabled = nav.canGoBack) { vm.back() }
     Polling(vm, route)
@@ -180,7 +108,7 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
     Scaffold(
         containerColor = colors.paper,
         contentColor = colors.ink,
-        topBar = { Masthead(nav, onBack = { vm.back() }, onAccount = { vm.open(Route.Account) }) },
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar(containerColor = colors.surface, contentColor = colors.ink, tonalElevation = 0.dp) {
                 for (tab in Tab.entries) {
@@ -203,38 +131,17 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            var refreshing by remember { mutableStateOf(false) }
-            val scope = rememberCoroutineScope()
-            PullToRefreshBox(
-                isRefreshing = refreshing,
-                onRefresh = {
-                    scope.launch {
-                        refreshing = true
-                        vm.refresh(route, full = true)
-                        refreshing = false
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-            ) {
+            val chrome = remember(deep, nav.tab) {
+                Chrome(
+                    canGoBack = deep,
+                    onBack = { vm.back() },
+                    onSearch = { vm.open(Route.SearchPage) },
+                    onHelp = { topic -> vm.open(Route.HelpPage(topic)) },
+                )
+            }
+            CompositionLocalProvider(LocalChrome provides chrome) {
                 // Keyed by the page, so that each page starts at its top.
-                androidx.compose.runtime.key(route.key) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = Gutter)
-                            .padding(bottom = 32.dp),
-                    ) {
-                        if (vm.exampleConfig) {
-                            Notice(
-                                Tone.WARN, Glyph.ALERT,
-                                "This build has the example configuration, so the console cannot be reached. Run apps/configure.sh and build again.",
-                                Modifier.padding(top = 12.dp),
-                            )
-                        }
-                        Page(vm, route, store, now)
-                    }
-                }
+                key(route.key) { Page(vm, route, store, now) }
             }
             Toasts(toasts, onDismiss = vm::dismissToast, modifier = Modifier.align(Alignment.BottomCenter))
         }
@@ -248,6 +155,7 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
         is DialogState.RevokeToken -> RevokeTokenDialog(vm, open, now)
         null -> Unit
     }
+    fresh?.let { FreshSignInDialog(vm, it) }
 }
 
 /** The page of a route. */
@@ -257,17 +165,25 @@ private fun Page(vm: ConsoleViewModel, route: Route, store: Store, now: Long) {
         Route.Overview -> OverviewScreen(vm, store, now)
         Route.Boards -> BoardsScreen(vm, store, now)
         is Route.Board -> BoardScreen(vm, store, route.thing, now)
+        is Route.BoardPage -> BoardPartScreen(vm, store, route.thing, route.part, now)
         Route.Firmware -> FirmwareScreen(vm, store, now)
+        is Route.Release -> ReleaseScreen(vm, store, route.version, now)
+        Route.Upload -> UploadScreen(vm, store)
         Route.Events -> EventsScreen(vm, store, now)
         Route.More -> MoreScreen(vm, store)
         Route.Deployments -> DeploymentsScreen(vm, store, now)
         is Route.DeploymentPage -> DeploymentScreen(vm, store, route.id, now)
+        is Route.ExecutionPage -> ExecutionScreen(vm, store, route.id, route.thing, now)
         Route.Activity -> ActivityScreen(vm, store, now)
+        is Route.ActivityEntry -> ActivityEntryScreen(vm, store, route.id, now)
         Route.Tokens -> TokensScreen(vm, store, now)
+        is Route.TokenPage -> TokenScreen(vm, store, route.id, now)
         Route.History -> HistoryScreen(vm, store, now)
         Route.Serial -> SerialScreen(vm, store.me)
         Route.Account -> AccountScreen(vm, store, now)
         is Route.Bluetooth -> BluetoothScreen(vm, store)
+        Route.SearchPage -> SearchScreen(vm, store)
+        is Route.HelpPage -> HelpScreen(vm, route.topic)
     }
 }
 
@@ -289,58 +205,12 @@ private fun Polling(vm: ConsoleViewModel, route: Route) {
     }
 }
 
-/** The masthead: the way back, the mark, and who is signed in. */
-@Composable
-private fun Masthead(nav: Nav, onBack: () -> Unit, onAccount: () -> Unit) {
-    val colors = console
-    val deep = nav.stacks.getValue(nav.tab).size > 1
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.paper)
-            .statusBarsPadding()
-            .drawBehind { drawLine(colors.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (deep) {
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .clickable(role = Role.Button, onClickLabel = "Back", onClick = onBack)
-                    .semantics { contentDescription = "Back" },
-                contentAlignment = Alignment.Center,
-            ) { GlyphIcon(Glyph.ARROW_LEFT, tint = colors.ink2) }
-        } else {
-            Spacer(Modifier.size(8.dp))
-        }
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BrandMark(26.dp)
-            Column {
-                Text("Cranium", style = ConsoleType.body.copy(fontWeight = FontWeight.Bold, fontSize = 17.sp), color = colors.ink)
-                Text("Firmware console", style = ConsoleType.eyebrow.copy(letterSpacing = 0.sp, fontWeight = FontWeight.Normal), color = colors.ink3)
-            }
-        }
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .clickable(role = Role.Button, onClickLabel = "Account", onClick = onAccount)
-                .semantics { contentDescription = "Account" },
-            contentAlignment = Alignment.Center,
-        ) { GlyphIcon(Glyph.USER, tint = colors.ink2) }
-    }
-}
-
 /** The messages at the foot of the screen (`.toasts`). */
 @Composable
 private fun Toasts(toasts: List<Toast>, onDismiss: (Long) -> Unit, modifier: Modifier = Modifier) {
     val colors = console
     Column(modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (toast in toasts.takeLast(3)) {
-            InkToast(toast, onDismiss, colors.dark)
-        }
+        for (toast in toasts.takeLast(3)) InkToast(toast, onDismiss, colors.dark)
     }
 }
 

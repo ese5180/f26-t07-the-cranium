@@ -64,7 +64,7 @@ class ApiModelsTest {
         assertEquals(Stuck(0, "none"), board.stuck)
         assertEquals(Diag("f4:ce:36:12:34:56", 6, Heap(21312, 9840, 44240), "2026-11-02T11:55:00.000Z"), board.diag)
         assertEquals(42L, board.diary!!.boots)
-        assertEquals(listOf(DiaryEntry("1.11.4+0", "1", listOf("pin"), 4)), board.diary!!.entries)
+        assertEquals(listOf(DiaryEntry("1.11.4+0", "1", listOf("pin"), 4)), board.diary.entries)
         assertEquals(BtRecord("1.9.0+0", "1.10.0+0", "succeeded", "person", 3), board.bt)
     }
 

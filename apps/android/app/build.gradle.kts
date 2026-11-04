@@ -43,6 +43,38 @@ val consoleUrl = configValue("consoleUrl", httpsUrl)
 val loginDomain = configValue("loginDomain", httpsUrl)
 val mobileClientId = configValue("mobileClientId", Regex("^[A-Za-z0-9]{1,128}$"))
 val redirectUri = configValue("redirectUri", Regex("^cranium://signin$"))
+// The app's own sign-in screen talks to the user pool itself (SRP), as the console's page does.
+val region = configValue("region", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$"))
+val userPoolId = configValue("userPoolId", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}_[0-9A-Za-z]{1,64}$"))
+if (!userPoolId.startsWith("${region}_")) {
+    throw GradleException("Cranium: \"userPoolId\" in apps/config/${configFile.name} is not in its \"region\" (the values are not printed)")
+}
+
+// Help: apps/shared/help.json, the topics both phone apps show, goes into the app as an asset when
+// it is there. Without it the Help screen says that this build has none.
+val helpFile: File = rootDir.resolve("../shared/help.json").canonicalFile
+
+abstract class CopyHelp : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val help: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.mkdirs()
+        help.files.filter { it.isFile }.forEach { it.copyTo(out.resolve("help.json"), overwrite = true) }
+    }
+}
+
+val copyHelp = tasks.register<CopyHelp>("copyHelp") {
+    help.from(helpFile)
+    outputDir.set(layout.buildDirectory.dir("generated/helpAssets"))
+}
 
 // ---------------------------------------------------------------------------------------------
 // Release signing. The keystore and its passwords live outside the repository, in
@@ -68,6 +100,8 @@ android {
         buildConfigField("String", "LOGIN_DOMAIN", "\"$loginDomain\"")
         buildConfigField("String", "MOBILE_CLIENT_ID", "\"$mobileClientId\"")
         buildConfigField("String", "REDIRECT_URI", "\"$redirectUri\"")
+        buildConfigField("String", "REGION", "\"$region\"")
+        buildConfigField("String", "USER_POOL_ID", "\"$userPoolId\"")
         buildConfigField("boolean", "EXAMPLE_CONFIG", usingExampleConfig.toString())
         // AppAuth's redirect receiver listens for this scheme: cranium://signin.
         manifestPlaceholders["appAuthRedirectScheme"] = redirectUri.substringBefore("://")
@@ -103,6 +137,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyHelp, CopyHelp::outputDir)
     }
 }
 

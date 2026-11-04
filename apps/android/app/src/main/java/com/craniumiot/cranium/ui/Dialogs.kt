@@ -41,8 +41,6 @@ private fun titled(vararg parts: Pair<String, Boolean>): AnnotatedString = build
     }
 }
 
-private const val FRESH_NOTE = "This is a change: if you signed in more than 15 minutes ago, the app asks for your password and code again first, and keeps what you entered here."
-
 /** A busy board's deployment, in words: where its update is held up. */
 private fun heldBy(error: Throwable?, devices: List<Device>?): String? {
     val busy = (error as? ApiError)?.details.orEmpty()
@@ -284,7 +282,6 @@ private fun DeployReview(vm: ConsoleViewModel, model: DialogState.Deploy, releas
             ),
         )
     }
-    Note(FRESH_NOTE)
 }
 
 @Composable
@@ -358,8 +355,7 @@ fun CancelDialog(vm: ConsoleViewModel, model: DialogState.Cancel, store: Store) 
                 "A cancellation takes a few seconds to reach every board’s record. It cannot be undone; to try again, start a new deployment.",
                 style = ConsoleType.note,
             )
-            Note(FRESH_NOTE)
-        }
+            }
     }
 }
 
@@ -408,8 +404,7 @@ fun RevokeDialog(vm: ConsoleViewModel, model: DialogState.Revoke, store: Store, 
                 Note("Revoked ${Words.timeAgo(mark.at, now)} by ${Words.nameOf(mark.by)}${if (mark.reason.isNotEmpty()) ": ${mark.reason}" else ""}")
             }
             Quiet("That record stays as it is: who revoked the release, when and why.", style = ConsoleType.note)
-            Note(FRESH_NOTE)
-        }
+            }
         return
     }
     val reason = Words.singleLine(model.reason)
@@ -443,7 +438,6 @@ fun RevokeDialog(vm: ConsoleViewModel, model: DialogState.Revoke, store: Store, 
             maxLength = ConsoleViewModel.REASON_LIMIT,
         )
         if (reason.isEmpty()) Note("Give a reason first.")
-        Note(FRESH_NOTE)
     }
 }
 
@@ -521,7 +515,6 @@ fun CreateTokenDialog(vm: ConsoleViewModel, model: DialogState.CreateToken, now:
             hint = "From 1 to 90. A token cannot be extended: make a new one when it runs out.",
         )
         if (hint != null) Note(hint)
-        Note(FRESH_NOTE)
     }
 }
 
@@ -556,7 +549,6 @@ fun RevokeTokenDialog(vm: ConsoleViewModel, model: DialogState.RevokeToken, now:
                 prose("This cannot be undone. A script that still needs access needs a new token."),
             ),
         )
-        Note(FRESH_NOTE)
     }
 }
 

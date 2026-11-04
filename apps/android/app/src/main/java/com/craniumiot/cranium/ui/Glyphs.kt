@@ -75,6 +75,9 @@ object Glyphs {
         Glyph.BLUETOOTH to listOf(polyline("7 7.5 17 16.5 12 21 12 3 17 7.5 7 16.5")),
         Glyph.USB to listOf("M12 3v14", polyline("9 6 12 3 15 6"), "M12 13l-4-2.5V8M12 15.5l4-2.5V10.5", circle(12f, 19f, 2f)),
         Glyph.TERMINAL to listOf(rect(3.5f, 5f, 17f, 14f, 2f), polyline("7.5 10 10 12.5 7.5 15"), "M12.5 15h4"),
+        Glyph.SEARCH to listOf(circle(10.5f, 10.5f, 6f), "M15 15l5 5"),
+        Glyph.HELP to listOf(RING, "M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6M12 17v.1"),
+        Glyph.MORE_VERT to listOf("M12 5.5v.1M12 12v.1M12 18.5v.1"),
         Glyph.HISTORY to listOf("M4.5 12a7.5 7.5 0 1 0 2.2-5.3", polyline("4.5 3.5 4.5 7.5 8.5 7.5"), polyline("12 8 12 12 14.5 13.5")),
     )
 

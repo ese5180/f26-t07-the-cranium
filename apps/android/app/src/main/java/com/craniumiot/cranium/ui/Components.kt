@@ -304,31 +304,6 @@ fun Failure(refusal: String, error: Throwable, modifier: Modifier = Modifier, ex
 
 // Layout.
 
-/** The head of a page: an eyebrow, the title, a lede and what goes with them. */
-@Composable
-fun PageHead(
-    title: String,
-    modifier: Modifier = Modifier,
-    eyebrow: String? = null,
-    lede: String? = null,
-    titleMono: Boolean = false,
-    meta: (@Composable ColumnScope.() -> Unit)? = null,
-    tools: (@Composable RowScope.() -> Unit)? = null,
-) {
-    Column(modifier.fillMaxWidth().padding(top = 8.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (eyebrow != null) Eyebrow(eyebrow)
-        Text(
-            title,
-            Modifier.semantics { heading() },
-            style = if (titleMono) ConsoleType.pageTitle.copy(fontFamily = ConsoleType.Mono, fontSize = 22.sp, lineHeight = 28.sp) else ConsoleType.pageTitle,
-            color = console.ink,
-        )
-        if (lede != null) Text(prose(lede), style = ConsoleType.lede, color = console.ink2)
-        if (meta != null) Column(verticalArrangement = Arrangement.spacedBy(2.dp), content = meta)
-        if (tools != null) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), content = tools)
-    }
-}
-
 /** A section of a page: a heavy rule and a heading, no box (`.card`). Inside a panel, a quiet eyebrow (`.is-zone`). */
 @Composable
 fun Section(
@@ -466,19 +441,6 @@ fun Segments(parts: List<CountWords>, label: String, modifier: Modifier = Modifi
             ) {
                 if (!thin) Text(part.count.toString(), style = ConsoleType.badge, color = colors.onToneBar(part.tone))
             }
-        }
-    }
-}
-
-/** The counts of a deployment's boards in words, each with its icon. */
-@Composable
-fun CountList(counts: List<CountWords>, modifier: Modifier = Modifier, percent: Int? = null) {
-    Wrap(modifier) {
-        for (entry in counts) {
-            StatusLine(
-                entry.tone, entry.glyph, "${entry.count} ${entry.label}",
-                trailing = if (percent != null && entry.name == "inProgress") "· $percent%" else null,
-            )
         }
     }
 }
@@ -657,31 +619,6 @@ fun copyToClipboard(context: Context, value: String, label: String, sensitive: B
 
 // What a page says about its data.
 
-/** How fresh a page is: live while it is polled often, otherwise when it was loaded; and Refresh. */
-@Composable
-fun Freshness(loadedAt: Long, loading: Boolean, intervalMs: Long, now: Long, onRefresh: () -> Unit) {
-    val colors = console
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (intervalMs in 1..10_000) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(colors.barLive))
-            Text("Live · every ${intervalMs / 1000} s", style = ConsoleType.note.copy(fontWeight = FontWeight.SemiBold), color = colors.ink2)
-        } else if (loadedAt > 0) {
-            Text("Updated ${Words.timeAgo(com.craniumiot.cranium.core.Times.iso(loadedAt), now)}", style = ConsoleType.note, color = colors.ink3)
-        }
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .clickable(role = Role.Button, onClickLabel = "Refresh now", onClick = onRefresh)
-                .semantics { contentDescription = "Refresh now" },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.ink2)
-            else GlyphIcon(Glyph.RESTART, tint = colors.ink2)
-        }
-    }
-}
-
 /** Nothing here yet: what that means, and what to do next. */
 @Composable
 fun EmptyState(glyph: Glyph, title: String, text: String? = null, command: String? = null, action: Pair<String, () -> Unit>? = null) {
@@ -723,22 +660,6 @@ fun Loading(what: String, modifier: Modifier = Modifier) {
         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = console.ink2)
         Text("Loading $what…", style = ConsoleType.small, color = console.ink2)
     }
-}
-
-/** What could not be read, with the age of what is shown instead, and Try again. */
-@Composable
-fun LoadProblem(error: Throwable?, what: String, hasValue: Boolean, loadedAt: Long, now: Long, onRetry: () -> Unit) {
-    if (error == null) return
-    Notice(
-        Tone.BAD, Glyph.ALERT,
-        lead(if (hasValue) "Could not refresh $what." else "Could not load $what.", messageOf(error)),
-        Modifier.padding(bottom = 16.dp),
-        more = listOfNotNull(
-            if (hasValue && loadedAt > 0) "Showing what was loaded ${Words.timeAgo(com.craniumiot.cranium.core.Times.iso(loadedAt), now)}." else null,
-            problemRef(error),
-        ).joinToString(" ").ifEmpty { null },
-        action = { ConsoleButton("Try again", onRetry, small = true) },
-    )
 }
 
 // Forms.

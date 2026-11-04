@@ -9,17 +9,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -45,9 +46,9 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -60,85 +61,105 @@ import com.craniumiot.cranium.core.Me
 import com.craniumiot.cranium.core.SerialRules
 import com.craniumiot.cranium.core.SerialSession
 import com.craniumiot.cranium.core.Tone
-import com.craniumiot.cranium.core.Words
 import com.craniumiot.cranium.usb.UsbConsole
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
  * The serial console over the USB cable (the website's serial.js serialView): the connection and
- * the transcript on the ink panel, a free command line, and a form for each command by group.
+ * the transcript, a free command line, and the commands by group, one group open at a time.
  * Nothing here talks to the API. A Wi-Fi password lives only in the field it is typed in, held
- * with `remember` and never in saved state, and is cleared as soon as it is sent; the transcript
- * holds the masked command only.
+ * with `remember` and never in saved state, and is cleared as soon as it is sent, or when its
+ * group is closed; the transcript holds the masked command only.
  */
 @Composable
 fun SerialScreen(vm: ConsoleViewModel, me: Me?) {
     if (me?.canWrite != true) {
-        Explained(
-            Glyph.LOCK,
-            "The serial console is for release managers.",
-            "It drives a board directly and can erase it, so a viewer does not get its controls. " +
-                "Ask a release manager to do what you need, or to add you to their group.",
-        )
+        ConsoleScreen(title = "Serial console", help = "serial") {
+            item(key = "viewer") { OneLine("The serial console is for release managers.", glyph = Glyph.LOCK) }
+        }
         return
     }
     val usbState by vm.usb.usb.collectAsStateWithLifecycle()
     val state by vm.usb.session.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.usb.look() }
     if (!usbState.usbHost) {
-        Explained(
-            Glyph.USB,
-            "This phone cannot be a USB host.",
-            "The serial console needs a phone that supports USB OTG, so that the board's J-Link can be plugged into it. " +
-                "On a computer, a plain serial monitor at 115200 baud works:",
-            command = "screen /dev/cu.usbmodem<port> 115200",
-        )
+        ConsoleScreen(title = "Serial console", help = "serial") {
+            item(key = "host") { OneLine("This phone cannot be a USB host, so it cannot reach the board's cable.", glyph = Glyph.USB) }
+        }
         return
     }
 
     val scope = rememberCoroutineScope()
-    val session = vm.usb.session
-    val ready = state.phase == SerialSession.Phase.READY
+    val usb = vm.usb
+    val session = usb.session
+    val phase = state.phase
+    val ready = phase == SerialSession.Phase.READY
+    val open = phase != SerialSession.Phase.IDLE && phase != SerialSession.Phase.OPENING
+    val form = remember { FormState() }
+    var openGroup by remember { mutableStateOf<String?>(null) }
 
-    Column(Modifier.fillMaxWidth()) {
-        PageHead(
-            "Serial console",
-            lede = "Drive a board on its USB cable from this phone. What you type here goes only over the cable to the " +
-                "board, never to the server, and nothing is saved.",
-        )
-        InkPanel {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ConnectionState(state, usbState)
-                ConnectionTools(vm.usb, state, usbState, scope)
-                state.problem?.let { problem ->
-                    val warn = state.phase == SerialSession.Phase.SILENT ||
-                        problem.startsWith("No board found") || problem.startsWith("The app was not allowed")
-                    Notice(if (warn) Tone.WARN else Tone.BAD, Glyph.ALERT, problem)
+    val primary = when {
+        phase == SerialSession.Phase.IDLE -> ScreenAction("Connect a board", Glyph.USB) { usb.connect() }
+        open && phase != SerialSession.Phase.CLOSING -> ScreenAction("Disconnect", Glyph.X, onClick = usb::disconnect)
+        else -> null
+    }
+    val actions = buildList {
+        if (phase == SerialSession.Phase.SILENT) {
+            add(ScreenAction("Ask again", Glyph.RESTART) { scope.launch { session.probe() } })
+            if (usbState.ports >= 2) add(ScreenAction("Try the other port", Glyph.SWAP, onClick = usb::tryOtherPort))
+        }
+        if (state.lines.isNotEmpty()) add(ScreenAction("Clear", Glyph.MINUS_CIRCLE, onClick = session::clear))
+    }
+
+    ConsoleScreen(title = "Serial console", help = "serial", actions = actions, primary = primary) {
+        item(key = "state") { ConnectionRow(state, usbState) }
+        state.problem?.let { problem ->
+            val warn = phase == SerialSession.Phase.SILENT || problem.startsWith("No board found") || problem.startsWith("The app was not allowed")
+            item(key = "problem") { OneLine(problem, tone = if (warn) Tone.WARN else Tone.BAD, glyph = Glyph.ALERT) }
+        }
+        item(key = "transcript") {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 8.dp)) { Transcript(state) }
+        }
+        item(key = "typed") {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 8.dp)) { TypedInput(session, state, ready, scope) }
+        }
+        header("Commands")
+        if (!ready) item(key = "locked") { OneLine("Connect a board to use these.", glyph = Glyph.LOCK) }
+        for ((group, title) in SerialRules.GROUPS) {
+            val expanded = openGroup == group
+            item(key = "group-$group") {
+                GroupRow(group, title, expanded) {
+                    // A password typed and not sent does not wait in a closed group.
+                    form.forgetSecrets()
+                    openGroup = if (expanded) null else group
                 }
-                if (state.phase == SerialSession.Phase.IDLE) ProbeHint(usbState)
-                Transcript(state, onClear = session::clear)
-                TypedInput(session, state, ready, scope)
+            }
+            if (expanded) {
+                item(key = "forms-$group") {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                    ) {
+                        if (group == "mqtt") {
+                            MqttPanel(session, state, ready, scope, form)
+                        } else {
+                            for (command in SerialRules.COMMANDS.filter { it.group == group }) {
+                                CommandRow(command, session, state, ready, scope, form)
+                            }
+                        }
+                    }
+                }
             }
         }
-        Spacer(Modifier.height(28.dp))
-        CommandForms(session, state, ready, scope)
-    }
-}
-
-/** A page that says why the console is not offered here. */
-@Composable
-private fun Explained(glyph: Glyph, title: String, text: String, command: String? = null) {
-    Column(Modifier.fillMaxWidth()) {
-        PageHead("Serial console", lede = "Drive a board on its USB cable from this phone.")
-        Section { EmptyState(glyph, title, text, command) }
     }
 }
 
 // The connection.
 
+/** Where the connection stands, the board and its firmware, and the port, in one row. */
 @Composable
-private fun ConnectionState(state: SerialSession.State, usb: UsbConsole.UsbState) {
+private fun ConnectionRow(state: SerialSession.State, usb: UsbConsole.UsbState) {
     val colors = console
     val (tone, glyph, words) = when (state.phase) {
         SerialSession.Phase.IDLE -> Triple(Tone.IDLE, Glyph.MINUS_CIRCLE, "Not connected")
@@ -149,80 +170,39 @@ private fun ConnectionState(state: SerialSession.State, usb: UsbConsole.UsbState
         SerialSession.Phase.READY -> Triple(Tone.GOOD, Glyph.CHECK_CIRCLE, "Connected")
         SerialSession.Phase.CLOSING -> Triple(Tone.IDLE, Glyph.HOURGLASS, "Disconnecting…")
     }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        StatusLine(
-            tone, glyph, words,
-            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            quiet = state.phase == SerialSession.Phase.IDLE || state.phase == SerialSession.Phase.CLOSING,
-        )
-        val board = state.board
+    val board = state.board
+    val port = usb.port
+    val details = buildList {
         if (state.phase == SerialSession.Phase.READY && board != null) {
-            Text(
-                buildAnnotatedString {
-                    if (board.id.isNotEmpty()) {
-                        withStyle(SpanStyle(fontFamily = ConsoleType.Mono)) { append(board.id) }
-                    } else {
-                        append("No ID yet")
-                    }
-                    if (board.version.isNotEmpty()) {
-                        append(" · firmware ")
-                        withStyle(SpanStyle(fontFamily = ConsoleType.Mono)) { append(board.version) }
-                    }
-                },
-                style = ConsoleType.small,
-                color = colors.ink2,
-            )
+            add(board.id.ifEmpty { "No ID yet" } + if (board.version.isNotEmpty()) " · firmware ${board.version}" else "")
         }
-        val port = usb.port
-        if (port != null && state.phase != SerialSession.Phase.IDLE) {
-            Text("Port VCOM$port of ${usb.ports}", style = ConsoleType.note, color = colors.ink3)
+        if (port != null && state.phase != SerialSession.Phase.IDLE) add("VCOM$port of ${usb.ports}")
+        if (state.phase == SerialSession.Phase.IDLE) {
+            val probe = usb.probes.firstOrNull()
+            add(if (probe == null) "Plug the DK's J-Link USB port into this phone." else "${probe.name} is plugged in.")
         }
     }
-}
-
-@Composable
-private fun ConnectionTools(usb: UsbConsole, state: SerialSession.State, usbState: UsbConsole.UsbState, scope: CoroutineScope) {
-    val phase = state.phase
-    val open = phase != SerialSession.Phase.IDLE && phase != SerialSession.Phase.OPENING
-    Wrap {
-        if (open) {
-            if (phase == SerialSession.Phase.SILENT) {
-                ConsoleButton("Ask again", { scope.launch { usb.session.probe() } }, small = true, glyph = Glyph.RESTART)
-                if (usbState.ports >= 2) ConsoleButton("Try the other port", usb::tryOtherPort, small = true, glyph = Glyph.SWAP)
+    val busy = state.phase == SerialSession.Phase.OPENING || state.phase == SerialSession.Phase.PROBING ||
+        state.phase == SerialSession.Phase.CLOSING
+    ListRow(
+        headline = words,
+        supporting = details.joinToString(" · ").ifEmpty { null },
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        leading = {
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
+            } else {
+                GlyphIcon(glyph, tint = colors.toneInk(tone))
             }
-            ConsoleButton("Disconnect", usb::disconnect, small = true, enabled = phase != SerialSession.Phase.CLOSING)
-        } else {
-            ConsoleButton(
-                "Connect a board",
-                { usb.connect() },
-                kind = ButtonKind.PRIMARY,
-                small = true,
-                glyph = Glyph.USB,
-                enabled = phase != SerialSession.Phase.OPENING,
-                busy = phase == SerialSession.Phase.OPENING,
-            )
-        }
-    }
-}
-
-/** What is plugged in, or how to plug it in. */
-@Composable
-private fun ProbeHint(usb: UsbConsole.UsbState) {
-    val probe = usb.probes.firstOrNull()
-    if (probe == null) {
-        Note("Connect the DK's J-Link USB port to this phone with a USB OTG cable, and switch the DK on.")
-    } else {
-        Note(
-            "Found ${probe.name}, with ${Words.plural(probe.ports, "virtual COM port")}. " +
-                if (probe.ports >= 2) "The console is on the second, VCOM1." else "The console is on it.",
-        )
-    }
+        },
+        chevron = false,
+    )
 }
 
 // The transcript.
 
 @Composable
-private fun Transcript(state: SerialSession.State, onClear: () -> Unit) {
+private fun Transcript(state: SerialSession.State) {
     val colors = console
     val listState = rememberLazyListState()
     var pinned by remember { mutableStateOf(true) }
@@ -248,35 +228,17 @@ private fun Transcript(state: SerialSession.State, onClear: () -> Unit) {
     val unseen = state.lines.count { it.id > seenId }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Eyebrow("Transcript", Modifier.weight(1f))
-            ConsoleButton(
-                "Clear",
-                {
-                    onClear()
-                    pinned = true
-                },
-                kind = ButtonKind.QUIET,
-                small = true,
-                enabled = state.lines.isNotEmpty(),
-            )
-        }
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(360.dp)
+                .height(320.dp)
                 .clip(RoundedCornerShape(5.dp))
                 .border(1.dp, colors.line, RoundedCornerShape(5.dp))
-                .background(colors.paper)
+                .background(colors.surface)
                 .semantics { contentDescription = "Transcript of what was sent and what the board said" },
         ) {
             if (state.lines.isEmpty()) {
-                Text(
-                    "What is sent and what the board says will appear here.",
-                    Modifier.padding(12.dp),
-                    style = ConsoleType.note,
-                    color = colors.ink3,
-                )
+                Text("What is sent and what the board says appears here.", Modifier.padding(12.dp), style = ConsoleType.note, color = colors.ink3)
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize().nestedScroll(connection),
@@ -286,11 +248,7 @@ private fun Transcript(state: SerialSession.State, onClear: () -> Unit) {
                 ) {
                     if (dropped) {
                         item(key = "dropped") {
-                            Text(
-                                "${state.linesDropped} earlier lines are no longer kept.",
-                                style = ConsoleType.note,
-                                color = colors.ink3,
-                            )
+                            Text("${state.linesDropped} earlier lines are no longer kept.", style = ConsoleType.note, color = colors.ink3)
                         }
                     }
                     items(state.lines, key = { it.id }) { line -> TranscriptLine(line) }
@@ -330,7 +288,7 @@ private fun TranscriptLine(line: SerialSession.Line) {
                     Text(">", Modifier.clearAndSetSemantics { contentDescription = "Sent:" }, style = TRANSCRIPT, color = colors.accent)
                     Column {
                         Text(line.text, style = TRANSCRIPT, color = colors.ink)
-                        if (line.auto) Text("sent by the page", style = ConsoleType.note.copy(fontSize = 11.5.sp), color = colors.ink3)
+                        if (line.auto) Text("sent by the app", style = ConsoleType.note.copy(fontSize = 11.5.sp), color = colors.ink3)
                     }
                 }
                 SerialSession.Kind.OK, SerialSession.Kind.ERR -> {
@@ -387,12 +345,8 @@ private fun TypedInput(session: SerialSession, state: SerialSession.State, ready
     val hidden = SerialRules.holdsSecret(typed)
     fun submit() {
         when (val result = SerialRules.checkTyped(typed)) {
-            SerialRules.Typed.Empty -> {
-                problem = null
-            }
-            is SerialRules.Typed.Refused -> {
-                problem = result.why
-            }
+            SerialRules.Typed.Empty -> problem = null
+            is SerialRules.Typed.Refused -> problem = result.why
             is SerialRules.Typed.Send -> {
                 // Out of the field before anything else can happen to it.
                 typed = ""
@@ -406,30 +360,27 @@ private fun TypedInput(session: SerialSession, state: SerialSession.State, ready
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ConsoleField(
-            value = typed,
-            onValueChange = {
-                typed = it
-                problem = null
-            },
-            label = "Command",
-            mono = true,
-            secret = hidden,
-            enabled = ready,
-            placeholder = "COMMAND|arg1|arg2",
-            hint = if (hidden) {
-                "This line holds a password, so it stays hidden and will not be kept."
-            } else {
-                "Earlier commands: tap one below to bring it back. Wi-Fi commands are never kept."
-            },
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ConsoleField(
+                value = typed,
+                onValueChange = {
+                    typed = it
+                    problem = null
+                },
+                label = "Command",
+                modifier = Modifier.weight(1f),
+                mono = true,
+                secret = hidden,
+                enabled = ready,
+                placeholder = "COMMAND|arg1|arg2",
+                hint = if (hidden) "Holds a password: hidden, and not kept." else null,
+            )
             ConsoleButton("Send", { submit() }, kind = ButtonKind.PRIMARY, glyph = Glyph.SEND, small = true, enabled = ready)
         }
         problem?.let { ErrorLine(it) }
         val recalled = state.typed.asReversed().take(10)
         if (recalled.isNotEmpty()) {
-            Wrap {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (command in recalled) {
                     Text(
                         command,
@@ -477,6 +428,14 @@ private class FormState {
 
     fun value(command: SerialRules.Command, field: SerialRules.Field): String =
         values[fieldKey(command, field.key)] ?: field.choices?.firstOrNull() ?: ""
+
+    /** Every password field emptied, and every typed confirmation. */
+    fun forgetSecrets() {
+        for (command in SerialRules.COMMANDS) {
+            for (field in command.fields) if (field.secret) values.remove(fieldKey(command, field.key))
+            if (command.confirm != null) values.remove(fieldKey(command, "confirm"))
+        }
+    }
 }
 
 /** Send a line from a form, and keep its problem if it is not sent. */
@@ -504,45 +463,27 @@ private fun submitForm(command: SerialRules.Command, form: FormState, session: S
     sendFrom(form, session, scope, command.name, checked.line)
 }
 
+/** A group of commands, opened in place; one at a time. */
 @Composable
-private fun CommandForms(session: SerialSession, state: SerialSession.State, ready: Boolean, scope: CoroutineScope) {
-    val colors = console
-    val form = remember { FormState() }
-    Column(Modifier.fillMaxWidth()) {
-        if (!ready) {
-            Row(
-                Modifier.padding(bottom = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                GlyphIcon(Glyph.LOCK, size = 14.dp, tint = colors.ink2)
-                Text("Connect a board to use these.", style = ConsoleType.small, color = colors.ink2)
-            }
-        }
-        for ((group, title) in SerialRules.GROUPS) {
-            Section(title = title) {
-                if (group == "mqtt") {
-                    MqttPanel(session, state, ready, scope, form)
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                        for (command in SerialRules.COMMANDS.filter { it.group == group }) {
-                            CommandRow(command, session, state, ready, scope, form)
-                        }
-                    }
-                }
-            }
-        }
+private fun GroupRow(group: String, title: String, expanded: Boolean, onClick: () -> Unit) {
+    val names = if (group == "mqtt") {
+        "MQTT, MQTT_HOST, MQTT_RECONNECT"
+    } else {
+        SerialRules.COMMANDS.filter { it.group == group }.joinToString(", ") { it.name }
     }
+    ListRow(
+        headline = title,
+        supporting = names,
+        modifier = Modifier.semantics { stateDescription = if (expanded) "Open" else "Closed" },
+        trailing = { GlyphIcon(if (expanded) Glyph.MINUS else Glyph.PLUS, size = 18.dp, tint = console.ink2) },
+        onClick = onClick,
+        chevron = false,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChoiceField(
-    command: SerialRules.Command,
-    field: SerialRules.Field,
-    form: FormState,
-    ready: Boolean,
-) {
+private fun ChoiceField(command: SerialRules.Command, field: SerialRules.Field, form: FormState, ready: Boolean) {
     val colors = console
     val chosen = form.value(command, field)
     val error = form.errors[command.name]?.get(field.key)
@@ -567,6 +508,7 @@ private fun ChoiceField(
     }
 }
 
+/** One command: a button for one that takes nothing, else its fields and its button. */
 @Composable
 private fun CommandRow(
     command: SerialRules.Command,
@@ -580,16 +522,13 @@ private fun CommandRow(
     val plain = command.fields.isEmpty() && command.confirm == null
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (plain) {
-            ConsoleButton(command.name, { sendFrom(form, session, scope, command.name, command.name) }, small = true, enabled = ready)
-            Note(command.text)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ConsoleButton(command.name, { sendFrom(form, session, scope, command.name, command.name) }, small = true, enabled = ready)
+                Text(command.text, Modifier.weight(1f), style = ConsoleType.note, color = colors.ink2)
+            }
         } else {
-            Text(
-                command.name,
-                Modifier.semantics { heading() },
-                style = ConsoleType.mono.copy(fontWeight = FontWeight.SemiBold),
-                color = colors.ink,
-            )
-            Note(command.text)
+            Text(command.name, style = ConsoleType.mono.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
+            Text(command.text, style = ConsoleType.note, color = colors.ink2)
             val errors = form.errors[command.name].orEmpty()
             for (field in command.fields) {
                 if (field.choices != null) {
@@ -668,14 +607,14 @@ private fun ReplyLine(name: String, state: SerialSession.State, form: FormState)
     }
 }
 
-// The MQTT panel: what MQTT says, a new server, and a new connection.
+// The MQTT group: what MQTT says, a new server, and a new connection.
 
 @Composable
 private fun MqttReply(name: String, state: SerialSession.State, form: FormState) {
     ReplyLine(name, state, form)
     val reply = state.reply
     if (reply != null && reply.form == name && reply.kind == SerialSession.ReplyKind.ERR && reply.text.startsWith("unknown command")) {
-        Note(SerialRules.OLD_FIRMWARE)
+        Text(SerialRules.OLD_FIRMWARE, style = ConsoleType.note, color = console.ink2)
     }
 }
 
@@ -690,117 +629,113 @@ private fun MqttPanel(session: SerialSession, state: SerialSession.State, ready:
     val hostKey = fieldKey(host, "host")
     val current = state.mqtt?.facts?.firstOrNull { it.key == "endpoint" }?.values?.firstOrNull()
 
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ConsoleButton("Check MQTT", { sendFrom(form, session, scope, check.name, check.name) }, small = true, glyph = Glyph.PULSE, enabled = ready)
-            Note(check.text)
-            MqttReply(check.name, state, form)
-            val mqtt = state.mqtt
-            if (mqtt != null) {
-                val rows = mqtt.facts.map { fact ->
-                    Fact(fact.label) {
-                        for (value in fact.values) {
-                            Text(
-                                value,
-                                style = when {
-                                    fact.key in SerialRules.MONO_FACTS -> ConsoleType.mono.copy(fontSize = 13.sp)
-                                    fact.key == "state" -> ConsoleType.body.copy(fontWeight = FontWeight.SemiBold)
-                                    else -> ConsoleType.small
-                                },
-                                color = colors.ink,
-                            )
-                        }
-                    }
-                }
-                Facts(rows)
-                Note(
-                    if (mqtt.stale) {
-                        "As of ${mqtt.at}, before the last change: check again to see how it stands now."
-                    } else {
-                        "As of ${mqtt.at}."
-                    },
-                )
-            }
+            Text(check.text, Modifier.weight(1f), style = ConsoleType.note, color = colors.ink2)
         }
-
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Set server", Modifier.semantics { heading() }, style = ConsoleType.body.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
-            Note("${host.text} Sends MQTT_HOST|<endpoint>.")
-            val error = form.errors[host.name]?.get("host")
-            ConsoleField(
-                value = form.values[hostKey] ?: "",
-                onValueChange = {
-                    form.values[hostKey] = it
-                    // What is being confirmed is what was in the field: a change takes the question back.
-                    confirming = null
-                },
-                label = SerialRules.HOST_FIELD.label,
-                hint = SerialRules.HOST_FIELD.hint + (current?.let { " Now: $it." } ?: ""),
-                error = error,
-                mono = true,
-                enabled = ready,
-                placeholder = current ?: "xxxxxxxxxxxxxx-ats.iot.us-east-1.amazonaws.com",
-            )
-            val asking = confirming
-            if (asking == null) {
-                ConsoleButton(
-                    "Set server",
-                    {
-                        val value = form.values[hostKey] ?: ""
-                        val checked = SerialRules.checkCommand(host, mapOf("host" to value))
-                        form.problems.remove(host.name)
-                        if (checked.errors.isNotEmpty()) {
-                            form.errors[host.name] = checked.errors
-                            confirming = null
-                        } else {
-                            form.errors.remove(host.name)
-                            confirming = value
-                        }
-                    },
-                    small = true,
-                    enabled = ready,
-                )
-            } else {
-                Column(
-                    Modifier.semantics(mergeDescendants = false) { liveRegion = LiveRegionMode.Polite },
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        buildAnnotatedString {
-                            append("Set the server to ")
-                            withStyle(SpanStyle(fontFamily = ConsoleType.Mono)) { append(asking) }
-                            append("? The board drops its MQTT connection and connects to this one.")
-                        },
-                        style = ConsoleType.small,
-                        color = colors.ink,
-                    )
-                    Wrap {
-                        ConsoleButton(
-                            "Yes, set the server",
-                            {
-                                val checked = SerialRules.checkCommand(host, mapOf("host" to asking))
-                                confirming = null
-                                if (checked.errors.isNotEmpty()) {
-                                    form.errors[host.name] = checked.errors
-                                } else {
-                                    sendFrom(form, session, scope, host.name, checked.line)
-                                }
+        MqttReply(check.name, state, form)
+        val mqtt = state.mqtt
+        if (mqtt != null) {
+            val rows = mqtt.facts.map { fact ->
+                Fact(fact.label) {
+                    for (value in fact.values) {
+                        Text(
+                            value,
+                            style = when {
+                                fact.key in SerialRules.MONO_FACTS -> ConsoleType.mono.copy(fontSize = 13.sp)
+                                fact.key == "state" -> ConsoleType.body.copy(fontWeight = FontWeight.SemiBold)
+                                else -> ConsoleType.small
                             },
-                            kind = ButtonKind.PRIMARY,
-                            small = true,
-                            enabled = ready,
+                            color = colors.ink,
                         )
-                        ConsoleButton("Cancel", { confirming = null }, kind = ButtonKind.QUIET, small = true)
                     }
                 }
             }
-            MqttReply(host.name, state, form)
+            Facts(rows)
+            Text(
+                if (mqtt.stale) "As of ${mqtt.at}, before the last change: check again." else "As of ${mqtt.at}.",
+                style = ConsoleType.note,
+                color = colors.ink3,
+            )
         }
+    }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ConsoleButton("Reconnect", { sendFrom(form, session, scope, reconnect.name, reconnect.name) }, small = true, glyph = Glyph.RESTART, enabled = ready)
-            Note(reconnect.text)
-            MqttReply(reconnect.name, state, form)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Set server", style = ConsoleType.body.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
+        val error = form.errors[host.name]?.get("host")
+        ConsoleField(
+            value = form.values[hostKey] ?: "",
+            onValueChange = {
+                form.values[hostKey] = it
+                // What is being confirmed is what was in the field: a change takes the question back.
+                confirming = null
+            },
+            label = SerialRules.HOST_FIELD.label,
+            hint = current?.let { "Now: $it" },
+            error = error,
+            mono = true,
+            enabled = ready,
+            placeholder = current ?: "xxxxxxxxxxxxxx-ats.iot.us-east-1.amazonaws.com",
+        )
+        val asking = confirming
+        if (asking == null) {
+            ConsoleButton(
+                "Set server",
+                {
+                    val value = form.values[hostKey] ?: ""
+                    val checked = SerialRules.checkCommand(host, mapOf("host" to value))
+                    form.problems.remove(host.name)
+                    if (checked.errors.isNotEmpty()) {
+                        form.errors[host.name] = checked.errors
+                        confirming = null
+                    } else {
+                        form.errors.remove(host.name)
+                        confirming = value
+                    }
+                },
+                small = true,
+                enabled = ready,
+            )
+        } else {
+            Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    buildAnnotatedString {
+                        append("Set the server to ")
+                        withStyle(SpanStyle(fontFamily = ConsoleType.Mono)) { append(asking) }
+                        append("? The board drops its MQTT connection and connects to this one.")
+                    },
+                    style = ConsoleType.small,
+                    color = colors.ink,
+                )
+                Wrap {
+                    ConsoleButton(
+                        "Yes, set the server",
+                        {
+                            val checked = SerialRules.checkCommand(host, mapOf("host" to asking))
+                            confirming = null
+                            if (checked.errors.isNotEmpty()) {
+                                form.errors[host.name] = checked.errors
+                            } else {
+                                sendFrom(form, session, scope, host.name, checked.line)
+                            }
+                        },
+                        kind = ButtonKind.PRIMARY,
+                        small = true,
+                        enabled = ready,
+                    )
+                    ConsoleButton("Cancel", { confirming = null }, kind = ButtonKind.QUIET, small = true)
+                }
+            }
         }
+        MqttReply(host.name, state, form)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ConsoleButton("Reconnect", { sendFrom(form, session, scope, reconnect.name, reconnect.name) }, small = true, glyph = Glyph.RESTART, enabled = ready)
+            Text(reconnect.text, Modifier.weight(1f), style = ConsoleType.note, color = colors.ink2)
+        }
+        MqttReply(reconnect.name, state, form)
     }
 }

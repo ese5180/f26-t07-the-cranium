@@ -3,9 +3,9 @@ package com.craniumiot.cranium.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +17,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -44,7 +45,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
@@ -70,9 +70,6 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
-
-private const val LEDE = "What every board did, as it reported it: connections, updates, restarts, Bluetooth and its health, " +
-    "with what people did in this console alongside. Events are kept for 90 days."
 
 private val LOCAL_INPUT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
@@ -137,9 +134,22 @@ private fun boardChoices(things: List<String>, devices: List<Device>): List<Pair
     }
 }
 
+/** Where an event's link leads in the app: its deployment, or what a console entry is about. */
+private fun eventTarget(event: BoardEvent): Route? {
+    event.job?.let { return Route.DeploymentPage(it) }
+    if (event.kind != "console") return null
+    val href = event.href ?: return null
+    return when {
+        href.startsWith("deployment:") -> Route.DeploymentPage(href.removePrefix("deployment:"))
+        href == "firmware" -> Route.Firmware
+        else -> null
+    }
+}
+
 /**
  * The Events page (the website's telemetry.js): what every board did over time, as a timeline
- * with a lane per board and one for the console, and as a list.
+ * with a lane per board and one for the console, and as a list. The range presets and the kinds
+ * stand above the timeline; a custom range, zooming out and the board go in the menu.
  */
 @Composable
 fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
@@ -147,149 +157,128 @@ fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val data = page.data.value
     val span = data?.span ?: Telemetry.rangeOf(page.range, now)
     val devices = store.deviceList.orEmpty()
+    val colors = console
+    var customOpen by remember { mutableStateOf(false) }
+    var boardOpen by remember { mutableStateOf(false) }
 
-    PageHead(
-        "Events",
-        lede = LEDE,
-        tools = {
-            Freshness(page.data.loadedAt, page.data.loading, vm.intervalOf(Route.Events), now, onRefresh = vm::refreshNow)
-        },
-    )
-    RangeTools(vm, page, span)
-    BoardFilter(vm, page, devices)
-    LoadProblem(page.data.error, "the events", hasValue = data != null, loadedAt = page.data.loadedAt, now = now, onRetry = vm::refreshNow)
+    val things = devices.map { it.thing }.toMutableList()
+    if (page.thing.isNotEmpty() && page.thing !in things) things += page.thing
+    val choices = boardChoices(things, devices)
+    val allBoards = "All boards (${things.size})"
+    val boardLabel = choices.firstOrNull { it.first == page.thing }?.second ?: "All boards"
 
-    if (data == null) {
-        if (page.data.error == null) Loading("events")
-        return
+    val actions = buildList {
+        add(ScreenAction("Custom range…", Glyph.CLOCK) { customOpen = true })
+        if (page.zooms.isNotEmpty()) add(ScreenAction("Zoom out", Glyph.ARROW_LEFT, onClick = vm::zoomOut))
+        add(ScreenAction("Board: $boardLabel", Glyph.CHIP) { boardOpen = true })
     }
 
-    val consoleEvents = data.audit?.mapNotNull(Telemetry::consoleEvent)
-    val lanes = Telemetry.lanesOf(data.events, devices, page.thing, consoleEvents)
+    val consoleEvents = data?.audit?.mapNotNull(Telemetry::consoleEvent)
+    val lanes = if (data != null) Telemetry.lanesOf(data.events, devices, page.thing, consoleEvents) else emptyList()
     val shownByLane = lanes.associate { it.id to Telemetry.shownEvents(listOf(it), page.hidden) }
-    val shown = Telemetry.shownEvents(lanes, page.hidden)
-    val counts = shown.groupingBy { it.kind }.eachCount()
-    val warnings = shown.count { it.level == "warn" }
-
-    // No board at all, and none that was ever heard of in this range: the way to get one first.
-    if (lanes.isEmpty() || (store.devices.value != null && devices.isEmpty() && data.events.isEmpty())) {
-        Section {
-            EmptyState(
-                Glyph.CHIP, "No boards are registered yet.", "Provision one with",
-                command = "python3 tools/provision_device.py",
-            )
-        }
-        return
-    }
-
-    KindChips(vm, page.hidden, counts)
-
+    val shown = Telemetry.shownEvents(lanes, page.hidden).distinctBy { Telemetry.eventKey(it) }
     val rangeText = Telemetry.rangeWords(span)
-    Section(Modifier.padding(top = 16.dp), title = "Timeline") {
-        Text(rangeText, Modifier.padding(bottom = 10.dp), style = ConsoleType.note, color = console.ink2)
-        Timeline(vm, lanes, shownByLane, span, data, page.selected, rangeText)
-        SelectedEvent(lanes, shownByLane, span, page.selected, devices)
-        Text(
-            "A band is a board online. Tap an event for what happened; drag across the timeline to zoom in." +
-                if (data.auditCut) " The Console lane shows the newest 500 entries of the activity log in this range." else "",
-            Modifier.padding(top = 10.dp),
-            style = ConsoleType.note,
-            color = console.ink2,
-        )
-    }
+    val noBoards = data != null && (lanes.isEmpty() || (store.devices.value != null && devices.isEmpty() && data.events.isEmpty()))
 
-    Section(title = "All events") {
-        Wrap(Modifier.padding(bottom = 10.dp)) {
-            Text(Words.plural(shown.size, "event"), style = ConsoleType.note, color = console.ink2)
-            if (warnings > 0) StatusLine(Tone.WARN, Glyph.ALERT, Words.plural(warnings, "warning"))
-            if (data.cursor != null) Text("more in this range", style = ConsoleType.note, color = console.ink2)
+    ConsoleScreen(
+        title = "Events",
+        subtitle = rangeText,
+        help = "events",
+        actions = actions,
+        stale = staleOf(listOf(page.data, store.devices), vm.intervalOf(Route.Events), now, vm::refreshNow),
+        onRefresh = { vm.refresh(Route.Events, full = true) },
+    ) {
+        item(key = "ranges") { RangeRow(vm, page, span) }
+        problem(page.data.error, "the events", data != null, vm::refreshNow)
+        if (data == null) {
+            if (page.data.error == null) loading("events")
+            return@ConsoleScreen
+        }
+        if (noBoards) {
+            item(key = "none") { OneLine("No boards are registered yet.", glyph = Glyph.CHIP) }
+            return@ConsoleScreen
+        }
+        item(key = "kinds") { KindChips(vm, page.hidden) }
+        item(key = "timeline") {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 8.dp)) {
+                Timeline(vm, lanes, shownByLane, span, data, page.selected, rangeText)
+                SelectedEvent(lanes, shownByLane, span, page.selected, devices)
+                if (data.auditCut) {
+                    Text(
+                        "The Console lane holds the newest 500 entries of the log in this range.",
+                        Modifier.padding(top = 8.dp),
+                        style = ConsoleType.note,
+                        color = colors.ink3,
+                    )
+                }
+            }
         }
         if (shown.isEmpty()) {
-            EmptyState(
-                Glyph.LIST,
-                "No events in this range.",
-                if (page.hidden.isNotEmpty() || page.thing.isNotEmpty()) {
-                    "Some kinds or boards are left out: show them all, or choose a longer range."
-                } else {
-                    "Boards record events when they connect, update, restart or change state. Choose a longer range."
-                },
-            )
-        } else {
-            EventList(vm, shown, page.selected, devices, now)
-        }
-        Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (data.cursor != null) {
-                ConsoleButton(
-                    if (page.moreLoading) "Loading…" else "Load 500 more",
-                    vm::loadMoreEvents,
-                    enabled = !page.moreLoading,
-                )
+            val action: Pair<String, () -> Unit>? = when {
+                page.thing.isNotEmpty() -> "All boards" to { vm.chooseEventBoard("") }
+                page.hidden.isNotEmpty() -> "Show every kind" to { page.hidden.forEach(vm::toggleKind) }
+                span.preset?.id != "30d" -> "Last 30 days" to { vm.choosePreset("30d") }
+                else -> null
             }
-            page.moreError?.let { Failure("Could not load more.", it) }
+            item(key = "empty") { OneLine("No events in this range.", action) }
+        } else {
+            var day: String? = null
+            for (event in shown) {
+                val label = Words.dayLabel(event.at, now)
+                if (label != day) {
+                    day = label
+                    header(label, key = "day-$label")
+                }
+                val key = Telemetry.eventKey(event)
+                item(key = "event-$key") { EventRow(vm, event, key == page.selected, devices) }
+            }
         }
+        if (data.cursor != null) {
+            item(key = "more") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 12.dp)) {
+                    ConsoleButton(
+                        if (page.moreLoading) "Loading…" else "Load 500 more",
+                        vm::loadMoreEvents,
+                        enabled = !page.moreLoading,
+                        small = true,
+                    )
+                }
+            }
+        }
+        page.moreError?.let { error ->
+            item(key = "more-error") { OneLine("Could not load more. ${messageOf(error)}", "Try again" to vm::loadMoreEvents, Tone.BAD, Glyph.ALERT) }
+        }
+    }
+
+    if (customOpen) CustomRangeDialog(vm, span) { customOpen = false }
+    if (boardOpen) {
+        BoardDialog(
+            all = allBoards,
+            chosen = page.thing,
+            choices = choices,
+            onChoose = { thing ->
+                boardOpen = false
+                vm.chooseEventBoard(thing)
+            },
+            onClose = { boardOpen = false },
+        )
     }
 }
 
-/** The range: the presets, a custom range, and the way back out of a zoom. */
+/** The presets of the range, as one compact row. */
 @Composable
-private fun RangeTools(vm: ConsoleViewModel, page: EventsPage, span: Telemetry.TimeSpan) {
+private fun RangeRow(vm: ConsoleViewModel, page: EventsPage, span: Telemetry.TimeSpan) {
     val colors = console
-    var custom by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var customError by remember { mutableStateOf<String?>(null) }
-
-    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Wrap {
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(5.dp))
-                    .border(1.dp, colors.lineField, RoundedCornerShape(5.dp))
-                    .semantics { contentDescription = "Time range" },
-            ) {
-                for (preset in Telemetry.PRESETS) {
-                    val pressed = span.preset?.id == preset.id && page.zooms.isEmpty()
-                    Segment(preset.label, pressed, "Show ${preset.name}") {
-                        custom = null
-                        customError = null
-                        vm.choosePreset(preset.id)
-                    }
-                }
-                Segment("Custom…", span.preset == null || custom != null, "Choose a range") {
-                    custom = localInput(span.fromMs) to localInput(span.toMs)
-                    customError = null
-                }
-            }
-            if (page.zooms.isNotEmpty()) ConsoleButton("Zoom out", vm::zoomOut, small = true, glyph = Glyph.ARROW_LEFT)
-        }
-
-        val form = custom
-        if (form != null) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ConsoleField(
-                    form.first, { custom = it to form.second; customError = null }, "From",
-                    mono = true, placeholder = "2026-11-02 14:30",
-                )
-                ConsoleField(
-                    form.second, { custom = form.first to it; customError = null }, "To",
-                    mono = true, placeholder = "2026-11-02 18:00",
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ConsoleButton("Show", {
-                        val error = vm.applyCustomRange(readLocal(form.first), readLocal(form.second))
-                        if (error == null) custom = null
-                        customError = error
-                    }, kind = ButtonKind.PRIMARY, small = true)
-                    ConsoleButton("Cancel", {
-                        custom = null
-                        customError = null
-                    }, kind = ButtonKind.QUIET, small = true)
-                }
-                customError?.let { Text(it, Modifier.semantics { }, style = ConsoleType.note, color = colors.bad) }
-                Text(
-                    "Local times, at most 31 days. You can also drag across the timeline to zoom in.",
-                    style = ConsoleType.note,
-                    color = colors.ink2,
-                )
-            }
+    Row(
+        Modifier
+            .padding(horizontal = Gutter, vertical = 4.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .border(1.dp, colors.lineField, RoundedCornerShape(5.dp))
+            .semantics { contentDescription = "Time range" },
+    ) {
+        for (preset in Telemetry.PRESETS) {
+            val pressed = span.preset?.id == preset.id && page.zooms.isEmpty()
+            Segment(preset.label, pressed, "Show ${preset.name}") { vm.choosePreset(preset.id) }
         }
     }
 }
@@ -303,7 +292,7 @@ private fun Segment(label: String, pressed: Boolean, description: String, onClic
             .background(if (pressed) colors.ink else Color.Transparent)
             .selectable(selected = pressed, role = Role.Button, onClick = onClick)
             .heightIn(min = 40.dp)
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = 14.dp)
             .semantics {
                 contentDescription = description
                 stateDescription = if (pressed) "Shown" else "Not shown"
@@ -314,53 +303,81 @@ private fun Segment(label: String, pressed: Boolean, description: String, onClic
     }
 }
 
+/** A range of local times, asked for only when wanted. */
+@Composable
+private fun CustomRangeDialog(vm: ConsoleViewModel, span: Telemetry.TimeSpan, onClose: () -> Unit) {
+    val colors = console
+    var from by remember { mutableStateOf(localInput(span.fromMs)) }
+    var to by remember { mutableStateOf(localInput(span.toMs)) }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = colors.surface,
+        title = { Text("Custom range", style = ConsoleType.sectionTitle, color = colors.ink) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ConsoleField(from, { from = it; error = null }, "From", mono = true, placeholder = "2026-11-02 14:30")
+                ConsoleField(to, { to = it; error = null }, "To", mono = true, placeholder = "2026-11-02 18:00", hint = "Local times, at most 31 days.")
+                error?.let { Text(it, style = ConsoleType.note, color = colors.bad) }
+            }
+        },
+        confirmButton = {
+            ConsoleButton("Show", {
+                val wrong = vm.applyCustomRange(readLocal(from), readLocal(to))
+                if (wrong == null) onClose() else error = wrong
+            }, kind = ButtonKind.PRIMARY, small = true)
+        },
+        dismissButton = { ConsoleButton("Cancel", onClose, kind = ButtonKind.QUIET, small = true) },
+    )
+}
+
 /** Which boards the page is about: all of them, or one. */
 @Composable
-private fun BoardFilter(vm: ConsoleViewModel, page: EventsPage, devices: List<Device>) {
+private fun BoardDialog(all: String, chosen: String, choices: List<Pair<String, String>>, onChoose: (String) -> Unit, onClose: () -> Unit) {
     val colors = console
-    var open by remember { mutableStateOf(false) }
-    val things = devices.map { it.thing }.toMutableList()
-    if (page.thing.isNotEmpty() && page.thing !in things) things += page.thing
-    val choices = boardChoices(things, devices)
-    val all = "All boards (${things.size})"
-    val current = choices.firstOrNull { it.first == page.thing }?.second ?: all
-    Row(
-        Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text("Board", style = ConsoleType.note, color = colors.ink3)
-        Box {
-            ConsoleButton(current, { open = true }, small = true, glyph = Glyph.CHIP)
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(
-                    text = { Text(all, style = ConsoleType.small) },
-                    onClick = {
-                        open = false
-                        vm.chooseEventBoard("")
-                    },
-                    leadingIcon = { if (page.thing.isEmpty()) GlyphIcon(Glyph.CHECK) else Spacer(Modifier.width(18.dp)) },
-                )
-                for ((thing, label) in choices) {
-                    DropdownMenuItem(
-                        text = { Text(label, style = ConsoleType.mono) },
-                        onClick = {
-                            open = false
-                            vm.chooseEventBoard(thing)
-                        },
-                        leadingIcon = { if (page.thing == thing) GlyphIcon(Glyph.CHECK) else Spacer(Modifier.width(18.dp)) },
-                    )
-                }
+    AlertDialog(
+        onDismissRequest = onClose,
+        containerColor = colors.surface,
+        title = { Text("Board", style = ConsoleType.sectionTitle, color = colors.ink) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                BoardOption(all, chosen.isEmpty(), mono = false) { onChoose("") }
+                for ((thing, label) in choices) BoardOption(label, chosen == thing, mono = true) { onChoose(thing) }
             }
-        }
+        },
+        confirmButton = { ConsoleButton("Close", onClose, kind = ButtonKind.QUIET, small = true) },
+    )
+}
+
+@Composable
+private fun BoardOption(label: String, selected: Boolean, mono: Boolean, onClick: () -> Unit) {
+    val colors = console
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (selected) GlyphIcon(Glyph.CHECK, tint = colors.accent) else Spacer(Modifier.width(18.dp))
+        Text(label, style = if (mono) ConsoleType.mono else ConsoleType.body, color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /** The kinds of event shown, each a chip that switches it on or off, and the key to the online band. */
 @Composable
-private fun KindChips(vm: ConsoleViewModel, hidden: Set<String>, counts: Map<String, Int>) {
+private fun KindChips(vm: ConsoleViewModel, hidden: Set<String>) {
     val colors = console
-    Wrap(Modifier.fillMaxWidth().semantics { contentDescription = "Kinds of event shown" }) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = Gutter, vertical = 4.dp)
+            .semantics { contentDescription = "Kinds of event shown" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         for (kind in Telemetry.KINDS) {
             val on = kind.id !in hidden
             val shape = RoundedCornerShape(16.dp)
@@ -376,10 +393,6 @@ private fun KindChips(vm: ConsoleViewModel, hidden: Set<String>, counts: Map<Str
             ) {
                 KindSwatch(kind.id, if (on) 1f else 0.35f)
                 Text(kind.label, style = ConsoleType.note, color = if (on) colors.ink else colors.ink3)
-                val count = counts[kind.id]
-                if (on && count != null) {
-                    Text(count.toString(), style = ConsoleType.note.copy(fontWeight = FontWeight.SemiBold), color = colors.ink2)
-                }
             }
         }
         Row(
@@ -620,84 +633,33 @@ private fun SelectedEvent(
     }
 }
 
-/** Every event shown on the timeline, newest first, under the day it happened. */
-@Composable
-private fun EventList(vm: ConsoleViewModel, shown: List<BoardEvent>, selected: String?, devices: List<Device>, now: Long) {
-    val colors = console
-    var day: String? = null
-    Column(Modifier.fillMaxWidth()) {
-        for (event in shown) {
-            val label = Words.dayLabel(event.at, now)
-            if (label != day) {
-                day = label
-                Text(
-                    label,
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp, bottom = 4.dp)
-                        .semantics { heading() },
-                    style = ConsoleType.small.copy(fontWeight = FontWeight.Bold),
-                    color = colors.ink,
-                )
-            }
-            EventRow(vm, event, Telemetry.eventKey(event) == selected, devices)
-        }
-    }
-}
-
+/** One event of the list: tapping it picks it on the timeline; the arrow opens what it is about. */
 @Composable
 private fun EventRow(vm: ConsoleViewModel, event: BoardEvent, selected: Boolean, devices: List<Device>) {
     val colors = console
     val key = Telemetry.eventKey(event)
     val kind = Telemetry.kindOf(event.kind)
-    val board = event.thing?.let { Boards.of(it, devices) }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .drawBehind { drawLine(colors.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-            .background(if (selected) colors.accentWash else Color.Transparent)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                Words.timeOfDay(event.at),
-                Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .clickable(role = Role.Button, onClickLabel = "Show it on the timeline") { vm.selectEvent(key) }
-                    .heightIn(min = 32.dp)
-                    .padding(horizontal = 4.dp, vertical = 6.dp)
-                    .semantics {
-                        contentDescription = "${Words.exactTime(event.at)}. Show it on the timeline."
-                        stateDescription = if (selected) "Picked" else "Not picked"
-                    },
-                style = ConsoleType.note.copy(fontWeight = FontWeight.SemiBold),
-                color = colors.ink,
-            )
-            if (board != null) {
-                Text(Boards.name(board), Modifier.weight(1f, fill = false), style = ConsoleType.mono.copy(fontSize = 13.sp), color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            } else {
-                Text("Console", style = ConsoleType.note, color = colors.ink)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                KindSwatch(event.kind)
-                Text(kind.label, style = ConsoleType.note, color = colors.ink2)
-            }
-        }
-        Text(event.text, style = ConsoleType.small, color = colors.ink)
-        if (event.level == "warn" || event.job != null || (event.kind == "console" && event.href != null)) {
-            Wrap {
+    val board = event.thing?.let { Boards.name(Boards.of(it, devices)) } ?: "Console"
+    val target = eventTarget(event)
+    ListRow(
+        headline = event.text,
+        supporting = "$board · ${kind.label} · ${Words.timeOfDay(event.at)}",
+        modifier = Modifier.semantics { stateDescription = if (selected) "Picked on the timeline" else "Not picked" },
+        leading = { KindSwatch(event.kind) },
+        trailing = if (event.level == "warn" || target != null) {
+            {
                 if (event.level == "warn") Badge(Tone.WARN, Glyph.ALERT, "Warning")
-                event.job?.let { job -> MoreLink("Deployment") { vm.open(Route.DeploymentPage(job)) } }
-                if (event.kind == "console") {
-                    val href = event.href
-                    when {
-                        href == null -> Unit
-                        href.startsWith("deployment:") -> MoreLink("Open") { vm.open(Route.DeploymentPage(href.removePrefix("deployment:"))) }
-                        href == "firmware" -> MoreLink("Open") { vm.open(Route.Firmware) }
+                if (target != null) {
+                    IconButton(onClick = { vm.open(target) }) {
+                        GlyphIcon(Glyph.ARROW_RIGHT, size = 18.dp, tint = colors.ink2, description = "Open")
                     }
                 }
             }
-        }
-    }
+        } else {
+            null
+        },
+        onClick = { vm.selectEvent(key) },
+        chevron = false,
+        headlineColor = if (selected) colors.accent else null,
+    )
 }

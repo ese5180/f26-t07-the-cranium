@@ -52,7 +52,45 @@ sealed interface Route {
     data object Serial : Route { override val key = "serial" }
     data object Account : Route { override val key = "account" }
     data class Bluetooth(val version: String?) : Route { override val key = "bluetooth" }
+    data class Release(val version: String) : Route { override val key = "release/$version" }
+    data object Upload : Route { override val key = "upload" }
+    data class BoardPage(val thing: String, val part: BoardPart) : Route { override val key = "device/$thing/${part.name}" }
+    data class ExecutionPage(val id: String, val thing: String) : Route { override val key = "deployment/$id/$thing" }
+    data class ActivityEntry(val id: String) : Route { override val key = "activity/$id" }
+    data class TokenPage(val id: String) : Route { override val key = "token/$id" }
+    data object SearchPage : Route { override val key = "search" }
+    data class HelpPage(val topic: String?) : Route { override val key = "help/${topic.orEmpty()}" }
 }
+
+/** The parts of a board's page, each a screen of its own. */
+enum class BoardPart(val title: String) {
+    FIRMWARE("Firmware and slots"),
+    DIAGNOSTICS("Diagnostics"),
+    CHARTS("Charts"),
+    BLUETOOTH("Bluetooth"),
+    HISTORY("Update history"),
+}
+
+/** The app's own sign-in screen: the e-mail address and password, then the code. Never the password. */
+enum class SignInPhase { PASSWORD, CODE }
+
+data class SignInForm(
+    val phase: SignInPhase = SignInPhase.PASSWORD,
+    val email: String = "",
+    /** The digits of the code so far, at most six. */
+    val code: String = "",
+    val busy: Boolean = false,
+    /** A key of SignInWords.WORDS. */
+    val problem: String? = null,
+    /** Counts the answers, so that the same problem twice is said twice. */
+    val tries: Int = 0,
+    /** For a change that needs a fresh sign-in, over the console. */
+    val fresh: Boolean = false,
+    /** The address of the account that is signed in, which a fresh sign-in keeps. */
+    val emailFixed: Boolean = false,
+    /** On the way to the AWS sign-in page, and why ("" for no reason given). */
+    val leaving: String? = null,
+)
 
 /** Where the person is: a tab, and in each tab the pages they went through. */
 data class Nav(

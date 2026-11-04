@@ -26,7 +26,13 @@ import com.craniumiot.cranium.core.Deployment
 import com.craniumiot.cranium.core.DeploymentSummary
 import com.craniumiot.cranium.core.EventPage
 import com.craniumiot.cranium.core.FirmwareCache
+import com.craniumiot.cranium.core.CodeEntry
 import com.craniumiot.cranium.core.FreshSignIn
+import com.craniumiot.cranium.core.HelpLoad
+import com.craniumiot.cranium.core.HelpReader
+import com.craniumiot.cranium.core.RecentSearches
+import com.craniumiot.cranium.core.SignInStep
+import com.craniumiot.cranium.core.SignInWords
 import com.craniumiot.cranium.core.ImageCheck
 import com.craniumiot.cranium.core.Outcomes
 import com.craniumiot.cranium.core.ReleaseList
@@ -98,13 +104,32 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     val toasts: StateFlow<List<Toast>> = _toasts.asStateFlow()
     private var toastId = 0L
 
-    /** Sign-in pages the screen is to open: the first sign-in, and the fresh one before a change. */
+    /** The AWS sign-in pages the screen is to open: for a step the app's own screen does not do, or when asked for. */
     private val signInRequests = Channel<Intent>(Channel.BUFFERED)
     val signInPages: Flow<Intent> = signInRequests.receiveAsFlow()
+
+    /** The app's own sign-in screen, at the start. */
+    private val _signIn = MutableStateFlow(SignInForm())
+    val signIn: StateFlow<SignInForm> = _signIn.asStateFlow()
+
+    /** The same screen over the console, for a change that needs a fresh sign-in; null while it is not shown. */
+    private val _fresh = MutableStateFlow<SignInForm?>(null)
+    val fresh: StateFlow<SignInForm?> = _fresh.asStateFlow()
 
     /** A change waiting for a fresh sign-in: what to do after it, and what to do if it does not come. */
     private var freshThen: (() -> Unit)? = null
     private var freshFailed: ((Throwable) -> Unit)? = null
+
+    /** The address last typed on this phone while the app runs, for the next sign-in. Never the password. */
+    private var lastEmail = ""
+
+    /** The last searches, newest first; kept with the session and gone with a sign-out. */
+    private val _recent = MutableStateFlow<List<String>>(emptyList())
+    val recentSearches: StateFlow<List<String>> = _recent.asStateFlow()
+
+    /** The Help topics of this build (apps/shared/help.json), read once. */
+    private val _help = MutableStateFlow<HelpLoad>(HelpLoad.Missing)
+    val help: StateFlow<HelpLoad> = _help.asStateFlow()
 
     private val lastRefresh = mutableMapOf<String, Long>()
 
@@ -140,11 +165,18 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         usb.start()
+        viewModelScope.launch {
+            _help.value = withContext(Dispatchers.IO) {
+                runCatching { app.assets.open("help.json").use { it.readBytes().decodeToString() } }
+                    .map { HelpReader.parse(it) }
+                    .getOrDefault(HelpLoad.Missing)
+            }
+        }
     }
 
     // Signing in and out.
 
-    /** The sign-in page, or null (with a notice) if there is no browser to show it in. */
+    /** The AWS sign-in page, or null (with a notice) if there is no browser to show it in. */
     fun signInIntent(): Intent? {
         val manager = auth ?: return null
         return try {
@@ -155,18 +187,142 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** What the sign-in page returned: the first sign-in, or the fresh one a change waits for. */
+    private fun form(fresh: Boolean): SignInForm? = if (fresh) _fresh.value else _signIn.value
+
+    private fun updateForm(fresh: Boolean, change: (SignInForm) -> SignInForm) {
+        if (fresh) _fresh.update { it?.let(change) } else _signIn.update(change)
+    }
+
+    fun signInEmail(fresh: Boolean, text: String) {
+        if (form(fresh)?.emailFixed == true) return
+        updateForm(fresh) { it.copy(email = text.take(320), problem = null) }
+    }
+
+    /**
+     * The e-mail address and the password, on the app's own screen. The password goes from the
+     * field to the proof and nowhere else: it is not kept here, not logged and not sent.
+     */
+    fun submitPassword(fresh: Boolean, password: String) {
+        val manager = auth ?: return
+        val current = form(fresh) ?: return
+        if (current.busy || current.phase != SignInPhase.PASSWORD) return
+        if (!fresh) lastEmail = current.email.trim()
+        updateForm(fresh) { it.copy(busy = true, problem = null) }
+        viewModelScope.launch {
+            val step = try {
+                manager.passwordSignIn(current.email, password)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing of what went wrong is logged: it might hold what was typed.
+                SignInStep.Password("failed")
+            }
+            after(fresh, step)
+        }
+    }
+
+    /** What the one field behind the six boxes holds now. The sixth digit sends the code, once. */
+    fun codeChanged(fresh: Boolean, text: String) {
+        val current = form(fresh) ?: return
+        if (current.busy) return
+        val digits = CodeEntry.digits(text)
+        updateForm(fresh) { it.copy(code = digits, problem = null) }
+        if (!CodeEntry.complete(current.code) && CodeEntry.complete(digits)) submitCode(fresh)
+    }
+
+    fun submitCode(fresh: Boolean) {
+        val manager = auth ?: return
+        val current = form(fresh) ?: return
+        if (current.busy || current.phase != SignInPhase.CODE) return
+        if (!CodeEntry.complete(current.code)) {
+            updateForm(fresh) { it.copy(problem = "short-code", tries = it.tries + 1) }
+            return
+        }
+        updateForm(fresh) { it.copy(busy = true, problem = null) }
+        viewModelScope.launch {
+            val step = try {
+                manager.sendCode(current.code)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SignInStep.CodeProblem("failed")
+            }
+            after(fresh, step)
+        }
+    }
+
+    /** Where an answer of Cognito leaves the sign-in screen. */
+    private suspend fun after(fresh: Boolean, step: SignInStep) {
+        if (form(fresh) == null) return
+        when (step) {
+            is SignInStep.Done -> if (fresh) {
+                _fresh.value = null
+                afterFreshSignIn()
+            } else {
+                _signIn.value = SignInForm(email = lastEmail)
+                startConsole()
+            }
+            SignInStep.Code -> updateForm(fresh) {
+                it.copy(phase = SignInPhase.CODE, busy = false, problem = null, code = "", tries = it.tries + 1)
+            }
+            is SignInStep.CodeProblem -> {
+                // The boxes clear for the next code, and one line says why.
+                updateForm(fresh) {
+                    it.copy(phase = SignInPhase.CODE, busy = false, problem = step.problem, code = "", tries = it.tries + 1)
+                }
+            }
+            is SignInStep.Password -> updateForm(fresh) {
+                it.copy(phase = SignInPhase.PASSWORD, busy = false, problem = step.problem, code = "", tries = it.tries + 1)
+            }
+            is SignInStep.Elsewhere -> toAwsPage(fresh, step.challenge)
+        }
+    }
+
+    /** Back to the password, dropping the sign-in that waits for its code. */
+    fun startOver(fresh: Boolean) {
+        val current = form(fresh) ?: return
+        if (current.busy) return
+        auth?.cancelPasswordSignIn()
+        updateForm(fresh) { it.copy(phase = SignInPhase.PASSWORD, code = "", problem = null) }
+    }
+
+    /** "Use the AWS sign-in page", and "Forgot your password?". */
+    fun useAwsPage(fresh: Boolean) = toAwsPage(fresh, null)
+
+    /** Leave for the AWS sign-in page: asked for, or a step that only that page does. */
+    private fun toAwsPage(fresh: Boolean, challenge: String?) {
+        auth?.cancelPasswordSignIn()
+        val intent = signInIntent()
+        if (intent == null) {
+            updateForm(fresh) { it.copy(busy = false, problem = "failed") }
+            return
+        }
+        val reason = challenge?.takeIf { it.isNotEmpty() }?.let { SignInWords.ELSEWHERE[it] ?: SignInWords.ELSEWHERE_OTHER }
+        updateForm(fresh) { it.copy(busy = true, problem = null, leaving = reason ?: "") }
+        viewModelScope.launch { signInRequests.send(intent) }
+    }
+
+    /** What the AWS sign-in page returned: for the first sign-in, or for a change that waits. */
     fun onSignInResult(data: Intent?) {
         val manager = auth ?: return
-        val then = freshThen
-        val failed = freshFailed
-        freshThen = null
-        freshFailed = null
         viewModelScope.launch {
-            if (then != null && failed != null) {
-                finishFreshSignIn(manager, data, then, failed)
+            if (freshThen != null) {
+                _fresh.value = null
+                try {
+                    manager.completeSignIn(data)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val failed = freshFailed
+                    freshThen = null
+                    freshFailed = null
+                    failed?.invoke(SignInException("${Messages.describe(e).removeSuffix(".")}, so nothing was changed."))
+                    return@launch
+                }
+                afterFreshSignIn()
                 return@launch
             }
+            _signIn.update { it.copy(busy = false, leaving = null) }
             _gate.value = Gate.SignIn(busy = "Signing in…")
             try {
                 manager.completeSignIn(data)
@@ -181,10 +337,11 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
 
     private suspend fun startConsole() {
         val client = api ?: return
-        _gate.value = Gate.SignIn(busy = "Loading…")
+        _gate.value = Gate.SignIn(busy = "Loading the console…")
         try {
             val me = client.me()
             _store.update { it.copy(me = me) }
+            _recent.value = withContext(Dispatchers.IO) { auth?.recentSearches().orEmpty() }
             _gate.value = Gate.Ready
             showCache()
         } catch (e: CancellationException) {
@@ -208,7 +365,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         if (manager != null) viewModelScope.launch { manager.signOut() }
     }
 
-    /** The console no longer takes this sign-in: back to the sign-in page, keeping nothing. */
+    /** The console no longer takes this sign-in: back to the sign-in screen, keeping nothing. */
     private fun toSignIn(message: String?) {
         resetEverything()
         _gate.value = Gate.SignIn(notice = message)
@@ -217,11 +374,15 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     private fun resetEverything() {
         bluetooth.reset()
         viewModelScope.launch { usb.session.disconnect() }
+        auth?.cancelPasswordSignIn()
         _store.value = Store()
         _dialog.value = null
         _upload.value = UploadState()
         uploadBytes = null
         _nav.value = Nav()
+        _fresh.value = null
+        _signIn.value = SignInForm(email = lastEmail)
+        _recent.value = emptyList()
         freshThen = null
         freshFailed = null
         lastRefresh.clear()
@@ -260,27 +421,31 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun askFreshSignIn(fail: (Throwable) -> Unit, then: () -> Unit) {
-        val intent = signInIntent()
-        if (intent == null) {
-            fail(SignInException("There is no web browser on this phone to sign in with, so nothing was changed."))
-            return
-        }
+    /** The app's sign-in screen over the console, with the address of the account that is signed in. */
+    private fun askFreshSignIn(fail: (Throwable) -> Unit, then: () -> Unit) {
+        auth?.cancelPasswordSignIn()
         freshThen = then
         freshFailed = fail
-        signInRequests.send(intent)
+        val email = _store.value.me?.email.orEmpty()
+        _fresh.value = SignInForm(email = email.ifEmpty { lastEmail }, fresh = true, emailFixed = email.isNotEmpty())
     }
 
-    private suspend fun finishFreshSignIn(manager: AuthManager, data: Intent?, then: () -> Unit, fail: (Throwable) -> Unit) {
+    /** The fresh sign-in was not given: nothing is changed, and the dialog says so. */
+    fun cancelFresh() {
+        if (_fresh.value?.busy == true && _fresh.value?.leaving == null) return
+        auth?.cancelPasswordSignIn()
+        _fresh.value = null
+        val failed = freshFailed
+        freshThen = null
+        freshFailed = null
+        failed?.invoke(SignInException("Sign-in was cancelled, so nothing was changed."))
+    }
+
+    private suspend fun afterFreshSignIn() {
+        val then = freshThen ?: return
+        freshThen = null
+        freshFailed = null
         val before = _store.value.me?.sub
-        try {
-            manager.completeSignIn(data)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            fail(SignInException("${Messages.describe(e).removeSuffix(".")}, so nothing was changed. A change from the phone needs a sign-in in the last 15 minutes."))
-            return
-        }
         val me = try {
             api?.me()
         } catch (e: CancellationException) {
@@ -300,6 +465,22 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
         if (me != null) _store.update { it.copy(me = me) }
         then()
+    }
+
+    // Search.
+
+    /** Keep a search in the recent ones (at most 10, newest first). */
+    fun rememberSearch(query: String) {
+        val list = RecentSearches.add(_recent.value, query)
+        if (list == _recent.value) return
+        _recent.value = list
+        viewModelScope.launch(Dispatchers.IO) { auth?.saveRecentSearches(list) }
+    }
+
+    fun forgetSearch(query: String) {
+        val list = RecentSearches.remove(_recent.value, query)
+        _recent.value = list
+        viewModelScope.launch(Dispatchers.IO) { auth?.saveRecentSearches(list) }
     }
 
     // Where the person is.
@@ -492,12 +673,13 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 }
                 readActiveDeployments()
             }
-            is Route.Board -> coroutineScope {
-                launch { loadDetail(route.thing) }
+            is Route.Board, is Route.BoardPage -> coroutineScope {
+                val thing = if (route is Route.Board) route.thing else (route as Route.BoardPage).thing
+                launch { loadDetail(thing) }
                 if (due(store.devices, full, Telemetry.DIAGNOSTICS_REFRESH_MS)) launch { loadDevices() }
                 if (due(store.firmware, full)) launch { loadFirmware() }
                 if (due(store.deployments, full)) launch { loadDeployments() }
-                if (due(store.samples[route.thing] ?: Resource(), full, Telemetry.SAMPLES_REFRESH_MS)) launch { loadSamples(route.thing) }
+                if (due(store.samples[thing] ?: Resource(), full, Telemetry.SAMPLES_REFRESH_MS)) launch { loadSamples(thing) }
             }
             Route.Firmware -> coroutineScope {
                 launch { loadFirmware() }
@@ -512,6 +694,22 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 if (_store.value.deployments.value.orEmpty().any(Updates::isUnderWay) || _store.value.devices.loadedAt == 0L) loadDevices()
             }
             is Route.DeploymentPage -> refreshDeployment(route.id, full)
+            is Route.ExecutionPage -> refreshDeployment(route.id, full)
+            is Route.Release, Route.Upload -> coroutineScope {
+                if (due(store.firmware, full)) launch { loadFirmware() }
+                if (store.devices.loadedAt == 0L) launch { loadDevices() }
+                if (store.deployments.loadedAt == 0L) launch { loadDeployments() }
+            }
+            is Route.ActivityEntry -> if (store.audit.loadedAt == 0L) loadAudit()
+            is Route.TokenPage -> if (store.tokens.loadedAt == 0L) loadTokens()
+            Route.SearchPage -> coroutineScope {
+                // What there is to find: whatever has not been read yet.
+                if (store.devices.loadedAt == 0L) launch { loadDevices() }
+                if (store.firmware.loadedAt == 0L) launch { loadFirmware() }
+                if (store.deployments.loadedAt == 0L) launch { loadDeployments() }
+                if (store.audit.loadedAt == 0L) launch { loadAudit() }
+            }
+            is Route.HelpPage -> Unit
             Route.Activity -> {
                 coroutineScope {
                     launch { loadAudit() }
@@ -556,8 +754,9 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         return when (route) {
             Route.Overview -> Updates.pollInterval(fleetActivity()).takeIf { it > 0 } ?: IDLE_REFRESH_MS
             Route.Boards -> minOf(Updates.pollInterval(fleetActivity()).takeIf { it > 0 } ?: IDLE_REFRESH_MS, Telemetry.DIAGNOSTICS_REFRESH_MS)
-            is Route.Board -> {
-                val device = store.deviceDetails[route.thing]?.value?.device
+            is Route.Board, is Route.BoardPage -> {
+                val thing = if (route is Route.Board) route.thing else (route as Route.BoardPage).thing
+                val device = store.deviceDetails[thing]?.value?.device
                 val active = device?.let { Updates.pollInterval(listOf(Updates.deviceActivity(it))) } ?: 0
                 if (active > 0) minOf(active, Telemetry.DIAGNOSTICS_REFRESH_MS) else Telemetry.DIAGNOSTICS_REFRESH_MS
             }
@@ -566,8 +765,9 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 val devices = store.deviceList.orEmpty()
                 Updates.pollInterval(store.deployments.value.orEmpty().map { Updates.summaryActivity(it, devices) })
             }
-            is Route.DeploymentPage -> {
-                val detail = store.deploymentDetails[route.id]?.value ?: return 0
+            is Route.DeploymentPage, is Route.ExecutionPage -> {
+                val id = if (route is Route.DeploymentPage) route.id else (route as Route.ExecutionPage).id
+                val detail = store.deploymentDetails[id]?.value ?: return 0
                 val statuses = detail.executions.map(Updates::executionActivity).toMutableList<String?>()
                 if (settling(detail)) statuses += "IN_PROGRESS"
                 Updates.pollInterval(statuses).takeIf { it > 0 } ?: if (canBeOfferedAgain(detail)) IDLE_REFRESH_MS else 0
@@ -761,6 +961,11 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             s.copy(events = s.events.copy(hidden = if (id in hidden) hidden - id else hidden + id, selected = null))
         }
         viewModelScope.launch { refresh(Route.Events, full = true) }
+    }
+
+    /** Pick an event on the Events page, as a search result leads there. */
+    fun showEvent(key: String) {
+        _store.update { it.copy(events = it.events.copy(selected = key)) }
     }
 
     fun selectEvent(key: String?) {

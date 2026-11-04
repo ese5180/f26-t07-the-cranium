@@ -8,23 +8,55 @@ updates over Bluetooth, and the board's serial console over a USB cable. It foll
 
 ## What is in it
 
-The bottom bar has the website's sections, with the rest under More:
+The bottom bar has the website's sections, with the rest under More. Every screen is a Material 3
+list: short section headers, standard rows, details one tap further, one primary action (the
+button at the bottom right), the rest in the top bar's menu, and anything that destroys only on a
+detail screen.
 
 | Section | What it does |
 | --- | --- |
-| Overview | Updates in progress, board by board with their steps, or how the last deployment ended; the fleet online; firmware in the fleet; the newest release; the boards; recent activity |
-| Boards | Every board, with its name first and its thing name (`cranium-…`) second; firmware, update, signal, uptime and memory. A board's page adds its flash map, heartbeat to the second, Wi-Fi channel and MAC, heap, stuck restarts, certificates, the last boots, the Bluetooth record, charts of signal and free memory over 24 h, and its update history. Read again every 10 s |
-| Firmware | Every release, active and revoked. Upload a signed `.bin` from the phone's files: the header and size are checked on the phone, then the server verifies the signature. Revoke with a reason, finish an incomplete revocation, deploy over the internet, or send over Bluetooth |
+| Overview | Updates in progress, or how the last one ended; boards online; the newest release; boards on unregistered firmware; the last five entries of the activity log |
+| Boards | Every board, name first and thing name second, online or not, with its signal. A board's page has a header (name, thing, online, firmware), the update card only while an update is under way, and sub-pages: Firmware and slots (the flash map), Diagnostics (heartbeat to the second, uptime, signal, Wi-Fi, MAC, memory, stuck restarts, certificates, the last boots), Charts (signal and free memory over 24 h), Bluetooth, and Update history |
+| Firmware | Every release, active and revoked. A release's page deploys it; send over Bluetooth, copy the SHA-256 and revoke are in its menu. Upload a signed `.bin` from the phone's files: the header and size are checked on the phone, then the server verifies the signature |
 | Events | The boards' events with the console's activity as its own lane: ranges, a custom range, drag to zoom, a board filter, kinds on and off, online bands, and the list by day |
-| More | Deployments (list, a deployment's boards step by step, cancel, offer again), Activity (the log in the website's words, page by page), Serial console, History, API tokens (make, shown once; revoke), Update over Bluetooth, Account (who, role, sign out) |
+| More | Deployments (a deployment's boards step by step; offer again; cancel in its menu), Activity (the log by day; an entry's page), Update over Bluetooth, Serial console, API tokens, History, Help, Account |
+
+When what a page shows is out of date (the last read failed, or it is much older than the page's
+schedule), a clock shows in the top bar; tap it to read again, or pull the list down.
 
 A viewer sees all of it and changes nothing; the serial console and Bluetooth are for release
 managers, as on the website.
 
+## Sign-in
+
+The app has its own sign-in, as the website does: e-mail and password, then the six-digit code of
+the authenticator app, in six boxes that fill from the keyboard, a paste or the code autofill, and
+send themselves at the sixth digit. It is Cognito's SRP sign-in (`core/Srp.kt`,
+`core/CognitoSignIn.kt`): the password goes into the proof and nowhere else; it is never sent,
+kept or logged. Any other step Cognito asks for (a new password, setting up the authenticator)
+opens the AWS sign-in page instead, with one line saying why; "Use the AWS sign-in page" does the
+same at any time.
+
+Tokens are kept as before, encrypted on the phone. They are renewed with `REFRESH_TOKEN_AUTH`,
+whichever way the session began: the console's scope is added to renewed tokens too, and the time
+of the sign-in stays the same.
+
 A change from the phone (upload, revoke, deploy, cancel, make or revoke a token) needs a sign-in in
 the last 15 minutes. The app reads the sign-in's time from the access token and asks for the
-password and code first when it is older than 14 minutes; if the console still answers
-`403 phone_sign_in_again`, it asks and makes the change once more. What was entered stays.
+password and code first when it is older than 14 minutes, on the same screen with the e-mail
+fixed; if the console still answers `403 phone_sign_in_again`, it asks and makes the change once
+more. What was entered stays.
+
+## Search and Help
+
+Search, in every top-level screen's top bar, finds boards, releases, deployments, the events in
+the loaded range, the activity log, the app's own screens and actions, and Help, grouped by kind
+with the match in bold. Matching ignores case and accents and matches the start of words
+(`core/Search.kt`). The last 10 searches are kept until sign-out.
+
+Help is `apps/shared/help.json`, shared with the iPhone app and copied into the APK at build time.
+It is under More, and the (?) in a screen's top bar opens its topic. The app writes no help text
+of its own.
 
 ## The serial console over USB
 
@@ -70,8 +102,11 @@ nothing without that yes, offline included (`core/SendCheck.kt`).
   echo "sdk.dir=$SDK" > apps/android/local.properties
   ```
 
-- The configuration: `apps/configure.sh` writes `apps/config/cranium.json` from the deployed stack.
-  Without it the build uses `apps/config/cranium.example.json`, says so, and the app cannot sign in.
+- The configuration: `apps/configure.sh` writes `apps/config/cranium.json` from the deployed stack;
+  the build reads the console URL, the login domain, the client ID, the region and the user pool
+  from it. Without it the build uses `apps/config/cranium.example.json`, says so, and the app cannot
+  sign in.
+- `apps/shared/help.json`, the help, if there is one; without it the Help screen says so.
 
 ## Build
 
@@ -109,27 +144,39 @@ USB host.
 
 ## Do not publish the APK
 
-The APK holds the console URL, the login domain and the client ID of the account it was built for.
-Never attach it to a public GitHub release and never commit it: git ignores `*.apk` and
-`apps/dist/` for that reason. The same goes for `apps/config/cranium.json` and the keystore.
+The APK holds the console URL, the login domain, the client ID and the user pool of the account it
+was built for. Never attach it to a public GitHub release and never commit it: git ignores `*.apk`
+and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` and the keystore.
 
 ## How it is built
 
 - `core/`: everything that needs no phone, with JVM tests: reading every answer of the API field by
   field (`ApiModels.kt`), the website's words for updates, deployments, the activity log, events and
   diagnostics (`Updates.kt`, `Audit.kt`, `Telemetry.kt`, `Text.kt`), the serial console's rules and
-  session (`Serial.kt`), the fresh sign-in rule (`FreshSignIn.kt`), image checks and the firmware cache.
+  session (`Serial.kt`), the fresh sign-in rule (`FreshSignIn.kt`), the sign-in (`Srp.kt`,
+  `CognitoSignIn.kt`), search and help (`Search.kt`, `Help.kt`), image checks and the firmware cache.
+- `auth/`: the session on the phone (`TokenStore.kt`), Cognito over HTTPS (`CognitoHttp.kt`), and
+  renewing and ending it (`AuthManager.kt`).
 - `api/ApiClient.kt`: every route, with the access token, a refresh on 401, and the website's retries.
 - `ui/`: Compose with Material 3, themed with the console's colour tokens for light and dark
-  (`Theme.kt`) and its own icons (`Glyphs.kt`). Pages are read when they open and again on the
+  (`Theme.kt`) and its own icons (`Glyphs.kt`). `Screen.kt` is the frame of every screen and its
+  rows. Pages are read when they open and again on the
   website's schedule, and nothing is read while the app is in the background.
 - `ble/` and `usb/`: Bluetooth with Nordic's mcumgr-ble, USB serial with usb-serial-for-android.
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (238 of them) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (292 of them) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
-sign-in request, and the firmware cache. Sign-in against Cognito, the API calls, Bluetooth and the
-USB serial console take a phone, a deployed stack and a board, and have not been tried yet.
+firmware cache, search, and reading the help file (`apps/shared/help.json` itself too, when it is
+there).
+
+The sign-in's arithmetic is checked against the website's own code: `app/src/test/resources/srp/make-vectors.mjs`
+runs the website's SRP in Node with a fixed secret, salt, B, user, password and time and writes
+`vectors.json`; `SrpTest` gets the same A, u, k, x, S, key and signature from them. The steps of the
+sign-in, renewing and ending a session run against a fake Cognito (`CognitoSignInTest`).
+
+Sign-in against the real Cognito, the API calls, Bluetooth and the USB serial console take a phone,
+a deployed stack and a board, and have not been tried yet.

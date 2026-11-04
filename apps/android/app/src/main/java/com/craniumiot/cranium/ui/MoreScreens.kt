@@ -1,35 +1,23 @@
 package com.craniumiot.cranium.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.craniumiot.cranium.BuildConfig
-import com.craniumiot.cranium.core.ApiToken
 import com.craniumiot.cranium.core.CommitHistory
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.HistoryRead
@@ -37,138 +25,111 @@ import com.craniumiot.cranium.core.Times
 import com.craniumiot.cranium.core.Tone
 import com.craniumiot.cranium.core.Words
 
-/** The rest of the website's sections, and what only the phone does. */
+/** The rest of the console's sections, and what only the phone does. */
 @Composable
 fun MoreScreen(vm: ConsoleViewModel, store: Store) {
     val canWrite = store.me?.canWrite == true
-    PageHead("More", lede = "The rest of the console, and what only the phone does: updates over Bluetooth and the serial console over USB.")
-    Section(title = "Console") {
-        MoreRow(Glyph.SEND, "Deployments", "Every deployment, with each board’s steps.") { vm.open(Route.Deployments) }
-        MoreRow(Glyph.LIST, "Activity", "Every change made through the console’s API, and who asked for it.") { vm.open(Route.Activity) }
-    }
-    Section(title = "Developer") {
-        MoreRow(Glyph.TERMINAL, "Serial console", if (canWrite) "Drive a board on its USB cable from this phone." else "For release managers.") {
-            vm.open(Route.Serial)
-        }
-        MoreRow(Glyph.HISTORY, "History", "Every change to the project, newest first.") { vm.open(Route.History) }
-        MoreRow(Glyph.KEY, "API tokens", "Tokens for scripts that use the console as you.") { vm.open(Route.Tokens) }
-    }
-    Section(title = "This phone") {
+    ConsoleScreen(title = "More") {
+        header("Console")
+        item(key = "deployments") { ListRow("Deployments", leading = { GlyphIcon(Glyph.SEND, tint = console.ink2) }, onClick = { vm.open(Route.Deployments) }) }
+        item(key = "activity") { ListRow("Activity", leading = { GlyphIcon(Glyph.LIST, tint = console.ink2) }, onClick = { vm.open(Route.Activity) }) }
+        header("This phone")
         if (canWrite) {
-            MoreRow(Glyph.BLUETOOTH, "Update over Bluetooth", "Send a release to a board in reach, after a press of Button 1 at the board.") {
-                vm.open(Route.Bluetooth(null))
-            }
+            item(key = "bluetooth") { ListRow("Update over Bluetooth", leading = { GlyphIcon(Glyph.BLUETOOTH, tint = console.ink2) }, onClick = { vm.open(Route.Bluetooth(null)) }) }
         }
-        MoreRow(Glyph.USER, "Account", "Who is signed in, the role, and signing out.") { vm.open(Route.Account) }
-    }
-}
-
-@Composable
-private fun MoreRow(glyph: Glyph, title: String, text: String, onClick: () -> Unit) {
-    val colors = console
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .drawBehind { drawLine(colors.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.size(36.dp).clip(CircleShape).background(colors.well), contentAlignment = Alignment.Center) {
-            GlyphIcon(glyph, tint = colors.ink)
+        item(key = "serial") {
+            ListRow(
+                "Serial console", supporting = if (canWrite) null else "For release managers",
+                leading = { GlyphIcon(Glyph.TERMINAL, tint = console.ink2) }, onClick = { vm.open(Route.Serial) },
+            )
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = ConsoleType.body.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
-            Text(text, style = ConsoleType.note, color = colors.ink2)
+        header("Developer")
+        item(key = "tokens") { ListRow("API tokens", leading = { GlyphIcon(Glyph.KEY, tint = console.ink2) }, onClick = { vm.open(Route.Tokens) }) }
+        item(key = "history") { ListRow("History", leading = { GlyphIcon(Glyph.HISTORY, tint = console.ink2) }, onClick = { vm.open(Route.History) }) }
+        header("You")
+        item(key = "help") { ListRow("Help", leading = { GlyphIcon(Glyph.HELP, tint = console.ink2) }, onClick = { vm.open(Route.HelpPage(null)) }) }
+        item(key = "account") {
+            ListRow("Account", supporting = store.me?.email, leading = { GlyphIcon(Glyph.USER, tint = console.ink2) }, onClick = { vm.open(Route.Account) })
         }
-        GlyphIcon(Glyph.ARROW_RIGHT, tint = colors.ink3)
     }
 }
 
 // API tokens.
+
+private fun tokenTone(status: String): Tone = when (status) {
+    "active" -> Tone.GOOD
+    "revoked" -> Tone.BAD
+    else -> Tone.IDLE
+}
+
+private fun tokenLife(token: com.craniumiot.cranium.core.ApiToken, now: Long): String = when (token.status) {
+    "revoked" -> "Revoked ${Words.timeAgo(token.revokedAt, now)}"
+    "expired" -> "Expired ${Words.timeAgo(token.expiresAt, now)}"
+    else -> "Expires ${until(token.expiresAt, now)}"
+}
 
 @Composable
 fun TokensScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val listing = store.tokens.value
     val active = listing?.tokens?.count { it.status == "active" } ?: 0
     val full = listing != null && active >= listing.limit
-    val viewer = store.me?.canWrite == false
-    PageHead(
-        "API tokens",
-        eyebrow = "Developer",
-        lede = "A token lets a script use this console’s API as you, without signing in, until it expires or you revoke it. " +
-            "Each person makes and sees only their own.",
-        tools = { Freshness(store.tokens.loadedAt, store.tokens.loading, vm.intervalOf(Route.Tokens), now, vm::refreshNow) },
-    )
-    LoadProblem(store.tokens.error, "your API tokens", listing != null, store.tokens.loadedAt, now, vm::refreshNow)
-    Section(title = "Your tokens") {
-        Text(
-            (if (listing != null) "${Words.plural(active, "token", "tokens")} in use, of the ${listing.limit} you may have." else "") +
-                if (viewer) " You are a viewer, so your tokens can only read." else "",
-            style = ConsoleType.small, color = console.ink2,
-        )
-        Row(Modifier.padding(vertical = 12.dp)) {
-            ConsoleButton("New token", vm::openCreateToken, kind = ButtonKind.PRIMARY, glyph = Glyph.PLUS, enabled = listing != null && !full)
-        }
-        if (full) Note("Revoke a token you no longer use first.")
+    ConsoleScreen(
+        title = "API tokens",
+        subtitle = listing?.let { "$active in use, of the ${it.limit} you may have" + if (store.me?.canWrite == false) "; yours only read" else "" },
+        help = "api-tokens",
+        primary = if (listing != null && !full) ScreenAction("New token", Glyph.PLUS) { vm.openCreateToken() } else null,
+        stale = staleOf(listOf(store.tokens), vm.intervalOf(Route.Tokens), now, vm::refreshNow),
+        onRefresh = { vm.refresh(Route.Tokens, full = true) },
+    ) {
+        problem(store.tokens.error, "your API tokens", listing != null, vm::refreshNow)
         when {
-            listing == null -> if (store.tokens.error == null) Loading("your API tokens")
-            listing.tokens.isEmpty() -> EmptyState(
-                Glyph.KEY, "You have no API tokens.",
-                "Make one for a script that should use the console as you, such as scripts/ota.sh.",
-            )
-            else -> for (token in listing.tokens) TokenRow(vm, token, now)
+            listing == null -> if (store.tokens.error == null) loading("your API tokens")
+            listing.tokens.isEmpty() -> item(key = "none") { OneLine("You have no API tokens.", "New token" to vm::openCreateToken) }
+            else -> {
+                if (full) item(key = "full") { OneLine("As many as you may have: revoke one you no longer use first.", tone = Tone.WARN, glyph = Glyph.ALERT) }
+                for (token in listing.tokens) {
+                    item(key = token.id) {
+                        ListRow(
+                            token.name,
+                            supporting = tokenLife(token, now),
+                            leading = { StateDot(tokenTone(token.status)) },
+                            onClick = { vm.open(Route.TokenPage(token.id)) },
+                            headlineColor = if (token.status == "active") null else console.ink2,
+                        )
+                    }
+                }
+            }
         }
-    }
-    Section(title = "Using a token") {
-        Consequences(
-            listOf(
-                prose("Send it as Authorization: Bearer crn_… to the API under /api/t/: GET /api/t/firmware answers what GET /api/firmware does for you here."),
-                prose("scripts/ota.sh uses the token in ~/.cranium/console-token (readable by you alone: chmod 600), or in CRANIUM_TOKEN."),
-                prose(
-                    "It acts as you, with what you may do at that moment: a viewer’s token only reads, and if your account loses a " +
-                        "role or is disabled, its tokens lose it at once.",
-                ),
-                prose(
-                    "A change made with a token is in the activity log under your name, with the token’s ID. A token cannot make or " +
-                        "revoke tokens, or read a board’s Bluetooth passkey.",
-                ),
-            ),
-        )
-        Code("curl -H \"Authorization: Bearer \$CRANIUM_TOKEN\" ${BuildConfig.CONSOLE_URL.trimEnd('/')}/api/t/me", Modifier.padding(top = 12.dp))
     }
 }
 
+/** One token: what it is, and, only here, revoking it. */
 @Composable
-private fun TokenRow(vm: ConsoleViewModel, token: ApiToken, now: Long) {
-    val colors = console
-    val (tone, glyph, label) = when (token.status) {
-        "active" -> Triple(Tone.GOOD, Glyph.CHECK_CIRCLE, "Active")
-        "revoked" -> Triple(Tone.BAD, Glyph.BAN, "Revoked")
-        else -> Triple(Tone.IDLE, Glyph.CLOCK, "Expired")
-    }
-    val life = when (token.status) {
-        "revoked" -> "Revoked ${Words.timeAgo(token.revokedAt, now)}"
-        "expired" -> "Expired ${Words.timeAgo(token.expiresAt, now)}"
-        else -> "Expires ${until(token.expiresAt, now)} (${Words.dateAndTime(token.expiresAt)})"
-    }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .drawBehind { drawLine(colors.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+fun TokenScreen(vm: ConsoleViewModel, store: Store, id: String, now: Long) {
+    val token = store.tokens.value?.tokens?.firstOrNull { it.id == id }
+    ConsoleScreen(
+        title = token?.name ?: "API token",
+        help = "api-tokens",
+        actions = if (token?.status == "active") listOf(ScreenAction("Revoke", Glyph.BAN, danger = true) { vm.openRevokeToken(token) }) else emptyList(),
     ) {
-        Wrap {
-            Text(token.name, style = ConsoleType.body.copy(fontWeight = FontWeight.SemiBold), color = if (token.status == "active") colors.ink else colors.ink2)
-            Badge(tone, glyph, label)
+        if (token == null) {
+            item(key = "missing") { OneLine("This token is no longer listed.", "API tokens" to { vm.open(Route.Tokens) }) }
+            return@ConsoleScreen
         }
-        Note("ID ${token.id} · Made ${Words.timeAgo(token.createdAt, now)} · $life")
-        if (token.status == "active") {
-            ConsoleButton("Revoke", { vm.openRevokeToken(token) }, small = true, glyph = Glyph.BAN)
+        item(key = "status") {
+            ListRow(
+                when (token.status) {
+                    "active" -> "Active"
+                    "revoked" -> "Revoked"
+                    else -> "Expired"
+                },
+                overline = "Status",
+                leading = { StateDot(tokenTone(token.status)) },
+            )
         }
+        item(key = "id") { ValueRow("ID", token.id, mono = true, supporting = "How the list and the activity log name it") }
+        item(key = "made") { ValueRow("Made", Words.timeAgo(token.createdAt, now), supporting = Words.exactTime(token.createdAt)) }
+        item(key = "life") { ValueRow(if (token.status == "active") "Expires" else "Ended", tokenLife(token, now), supporting = Words.exactTime(token.expiresAt)) }
     }
 }
 
@@ -177,126 +138,72 @@ private fun TokenRow(vm: ConsoleViewModel, token: ApiToken, now: Long) {
 @Composable
 fun HistoryScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val uri = LocalUriHandler.current
-    PageHead(
-        "History",
-        eyebrow = "Developer",
-        lede = "Every change to the project, newest first, as git log had it when this console was deployed.",
-        tools = { Freshness(store.history.loadedAt, store.history.loading, 0, now, vm::refreshNow) },
-    )
-    LoadProblem(store.history.error, "the history", store.history.value != null, store.history.loadedAt, now, vm::refreshNow)
-    when (val read = store.history.value) {
-        null -> if (store.history.error == null) Loading("the history")
-        HistoryRead.Missing -> Section {
-            EmptyState(
-                Glyph.LIST, "There is no history in this copy of the console.",
-                "The list of commits is written when the console is deployed, and this copy never was. To see the page here, " +
-                    "write the file by hand:",
-                command = "node cloud/web/build-history.mjs",
-            )
-        }
-        is HistoryRead.Failed -> Notice(Tone.BAD, Glyph.ALERT, read.why, action = { ConsoleButton("Try again", vm::refreshNow, small = true) })
-        is HistoryRead.Read -> HistoryBody(read.history, now) { uri.openUri(it) }
-    }
-}
-
-@Composable
-private fun HistoryBody(history: CommitHistory, now: Long, open: (String) -> Unit) {
-    val colors = console
     var shownTag by rememberSaveable { mutableStateOf("all") }
-    val built = history.commits.firstOrNull { it.hash == history.builtFrom }
-    InkPanel(Modifier.padding(bottom = 24.dp)) {
-        Eyebrow("This deployment was built from")
-        if (history.builtFrom != null) {
-            Text(
-                built?.short ?: history.builtFrom.take(7),
-                Modifier.clickable(role = Role.Button, onClickLabel = "Open the commit on GitHub") { open(CommitHistory.COMMIT_BASE + history.builtFrom) },
-                style = ConsoleType.pageTitle.copy(fontFamily = ConsoleType.Mono),
-                color = colors.ink,
-            )
-        } else {
-            Text("An unknown commit", style = ConsoleType.sectionTitle, color = colors.ink)
-        }
-        built?.let { Text(it.subject, style = ConsoleType.small, color = colors.ink2) }
-        Eyebrow("Its files", Modifier.padding(top = 14.dp))
-        when (history.tree) {
-            "clean" -> {
-                StatusLine(Tone.GOOD, Glyph.CHECK_CIRCLE, "Clean")
-                Note("The files that went out matched this commit.")
-            }
-            "dirty" -> {
-                StatusLine(Tone.WARN, Glyph.ALERT, "Not clean")
-                Note("Some of the files that went out differed from this commit.")
-            }
-            else -> {
-                StatusLine(Tone.IDLE, Glyph.MINUS_CIRCLE, "Not known")
-                Note("This deployment did not record it.")
-            }
-        }
-        Eyebrow("Deployed", Modifier.padding(top = 14.dp))
-        if (history.deployedAt != null && Times.parse(history.deployedAt) != null) {
-            Text(Words.timeAgo(history.deployedAt, now), style = ConsoleType.small.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
-            Note(Words.exactTime(history.deployedAt))
-        } else {
-            Text("Not known", style = ConsoleType.small, color = colors.ink)
-        }
-    }
-    val choices = listOf("all" to "All") + CommitHistory.TAGS
-    Wrap(Modifier.padding(bottom = 12.dp)) {
-        for ((tag, label) in choices) {
-            val count = if (tag == "all") history.commits.size else history.commits.count { tag in it.tags }
-            val on = shownTag == tag
-            ConsoleButton(
-                "$label $count", { shownTag = tag }, small = true,
-                kind = if (on) ButtonKind.PRIMARY else ButtonKind.PLAIN,
-                glyph = if (on) Glyph.CHECK else null,
-                modifier = Modifier.semantics { selected = on },
-            )
-        }
-    }
-    val shown = if (shownTag == "all") history.commits else history.commits.filter { shownTag in it.tags }
-    Note(
-        (if (shownTag == "all") {
-            "${if (history.commits.size >= 300) "The newest " else ""}${Words.plural(history.commits.size, "commit")}"
-        } else {
-            "${shown.size} of ${Words.plural(history.commits.size, "commit")} touched ${CommitHistory.tagLabel(shownTag)?.lowercase()}"
-        }) + ". Each hash opens the commit on GitHub.",
-    )
-    if (shown.isEmpty()) {
-        Quiet("No commit here touched that.")
-        return
-    }
-    var day: String? = null
-    for (commit in shown) {
-        val label = Words.dayLabel(commit.date, now)
-        if (label != day) {
-            day = label
-            Text(label, Modifier.padding(top = 18.dp, bottom = 4.dp), style = ConsoleType.sectionTitle, color = colors.ink)
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .drawBehind { drawLine(colors.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                .padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(Words.timeOfDay(commit.date), style = ConsoleType.note, color = colors.ink3)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(commit.subject, style = ConsoleType.small, color = colors.ink)
-                if (commit.tags.isNotEmpty() || commit.hash == history.builtFrom) {
-                    Wrap {
-                        if (commit.hash == history.builtFrom) Badge(Tone.IDLE, Glyph.PACKAGE, "This deployment")
-                        for (tag in commit.tags) Tag(CommitHistory.tagLabel(tag) ?: tag)
+    val read = store.history.value
+    val history = (read as? HistoryRead.Read)?.history
+    val built = history?.commits?.firstOrNull { it.hash == history.builtFrom }
+    ConsoleScreen(
+        title = "History",
+        subtitle = history?.let {
+            listOfNotNull(
+                "Built from ${built?.short ?: it.builtFrom?.take(7) ?: "an unknown commit"}",
+                when (it.tree) {
+                    "clean" -> "clean"
+                    "dirty" -> "not clean"
+                    else -> null
+                },
+                it.deployedAt?.takeIf { at -> Times.parse(at) != null }?.let { at -> "deployed ${Words.timeAgo(at, now)}" },
+            ).joinToString(" · ")
+        },
+        help = "about",
+        onRefresh = { vm.refresh(Route.History, full = true) },
+    ) {
+        problem(store.history.error, "the history", read != null, vm::refreshNow)
+        when (read) {
+            null -> if (store.history.error == null) loading("the history")
+            HistoryRead.Missing -> item(key = "missing") { OneLine("This deployment of the console has no history file.") }
+            is HistoryRead.Failed -> item(key = "failed") { OneLine(read.why, "Try again" to vm::refreshNow, Tone.BAD, Glyph.ALERT) }
+            is HistoryRead.Read -> {
+                val commits = read.history.commits
+                item(key = "filter") {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Gutter),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for ((tag, label) in listOf("all" to "All") + CommitHistory.TAGS) {
+                            val count = if (tag == "all") commits.size else commits.count { tag in it.tags }
+                            FilterChip(
+                                selected = shownTag == tag,
+                                onClick = { shownTag = tag },
+                                label = { Text("$label $count") },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = console.accentWash, selectedLabelColor = console.ink),
+                            )
+                        }
+                    }
+                }
+                val shown = if (shownTag == "all") commits else commits.filter { shownTag in it.tags }
+                if (shown.isEmpty()) item(key = "none") { OneLine("No commit here touched that.") }
+                var day: String? = null
+                for (commit in shown) {
+                    val label = Words.dayLabel(commit.date, now)
+                    if (label != day) {
+                        day = label
+                        header(label, key = "day-$label")
+                    }
+                    item(key = commit.hash) {
+                        ListRow(
+                            commit.subject,
+                            supporting = listOfNotNull(
+                                commit.short,
+                                Words.timeOfDay(commit.date),
+                                if (commit.hash == read.history.builtFrom) "this deployment" else null,
+                                commit.tags.mapNotNull(CommitHistory::tagLabel).joinToString(", ").ifEmpty { null },
+                            ).joinToString(" · "),
+                            onClick = { uri.openUri(commit.link) },
+                        )
                     }
                 }
             }
-            Text(
-                commit.short,
-                Modifier
-                    .clickable(role = Role.Button, onClickLabel = "Open commit ${commit.short} on GitHub") { open(commit.link) }
-                    .padding(4.dp),
-                style = ConsoleType.mono.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
-                color = colors.ink2,
-            )
         }
     }
 }
@@ -306,59 +213,29 @@ private fun HistoryBody(history: CommitHistory, now: Long, open: (String) -> Uni
 @Composable
 fun AccountScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val me = store.me
-    PageHead("Account", lede = "Who is signed in on this phone, and what that account may do.")
-    if (me == null) {
-        Loading("the account")
-        return
-    }
-    val left = me.expiresAt?.let { it - now / 1000 }
-    Section(title = "Signed in") {
-        Facts(
-            listOf(
-                Fact("E-mail") { Text(me.email.ifEmpty { "Signed in" }, style = ConsoleType.body.copy(fontWeight = FontWeight.SemiBold)) },
-                Fact("Account") {
-                    Mono(me.sub)
-                    Note("What the activity log files this person’s actions under.")
-                },
-                Fact("Role") {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        GlyphIcon(if (me.canWrite) Glyph.KEY else Glyph.USER, size = 14.dp)
-                        Text(if (me.canWrite) "Release manager" else "Viewer", style = ConsoleType.small)
-                    }
-                    Note(
-                        if (me.canWrite) {
-                            "May upload, deploy, cancel and revoke, send firmware over Bluetooth and use the serial console."
-                        } else {
-                            "Sees everything, and changes nothing. Ask an administrator for the release manager role."
-                        },
-                    )
-                },
-                Fact("Session") {
-                    Text(
-                        when {
-                            left == null -> "Renewed by itself while the app is used."
-                            left > 0 -> "This sign-in's token ends in ${Words.duration(left)}; the app renews it by itself."
-                            else -> "The token has ended; the app renews it by itself, or asks you to sign in again."
-                        },
-                        style = ConsoleType.small,
-                    )
-                    Note("A change from the phone asks for your password and code again when the last sign-in is older than 15 minutes.")
-                },
-            ),
-        )
-    }
-    Section(title = "This phone") {
-        Note(Messages.firmwareOnPhone(store.cache))
-        if (store.cache.count > 0) {
-            ConsoleButton("Clear downloaded firmware", vm::clearFirmware, small = true, modifier = Modifier.padding(top = 8.dp))
+    ConsoleScreen(
+        title = "Account",
+        help = "sign-in-again",
+        actions = if (store.cache.count > 0) listOf(ScreenAction("Clear downloaded firmware", Glyph.X) { vm.clearFirmware() }) else emptyList(),
+        onRefresh = { vm.refresh(Route.Account, full = true) },
+    ) {
+        if (me == null) {
+            loading("the account")
+            return@ConsoleScreen
         }
-        Note("App version ${BuildConfig.VERSION_NAME}", Modifier.padding(top = 12.dp))
-    }
-    Section {
-        Text(
-            "Signing out forgets the sign-in and every firmware image kept on this phone, and ends the session with the sign-in service.",
-            style = ConsoleType.small, color = console.ink2,
-        )
-        ConsoleButton("Sign out", vm::signOut, glyph = Glyph.SIGN_OUT, modifier = Modifier.padding(top = 12.dp))
+        item(key = "email") { ValueRow("E-mail", me.email.ifEmpty { "Signed in" }) }
+        item(key = "role") { ValueRow("Role", if (me.canWrite) "Release manager" else "Viewer", supporting = if (me.canWrite) null else "Sees everything, changes nothing") }
+        if (me.sub.isNotEmpty()) item(key = "sub") { ValueRow("Account", me.sub, mono = true) }
+        me.expiresAt?.let { expires ->
+            item(key = "session") {
+                val left = expires - now / 1000
+                ValueRow("Session", if (left > 0) "Token renews in ${Words.duration(left)}" else "Token renews on the next request")
+            }
+        }
+        item(key = "cache") { ValueRow("Firmware on this phone", Messages.firmwareOnPhone(store.cache).removeSuffix(".")) }
+        item(key = "version") { ValueRow("App version", BuildConfig.VERSION_NAME) }
+        block("sign-out") {
+            ConsoleButton("Sign out", vm::signOut, Modifier.fillMaxWidth().padding(top = 16.dp), glyph = Glyph.SIGN_OUT)
+        }
     }
 }
