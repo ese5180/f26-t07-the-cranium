@@ -25,7 +25,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 NCS_VERSION=v3.4.0
-NCS_DIR="/opt/nordic/ncs/$NCS_VERSION"
+# Where nrfutil sdk-manager puts it on macOS; elsewhere, set NCS_DIR (docs/new-board-setup.md).
+NCS_DIR="${NCS_DIR:-/opt/nordic/ncs/$NCS_VERSION}"
 BOARD=nrf7002dk/nrf5340/cpuapp/ns
 VERSION_FILE="$REPO_DIR/firmware/app/VERSION"
 KEY="$HOME/.cranium/mcuboot_signing_key.pem"
@@ -109,7 +110,7 @@ if [ -n "$version" ] && ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 [ -x "$NRFUTIL" ] || die "nrfutil was not found at $NRFUTIL" "Set NRFUTIL to where it is."
-[ -d "$NCS_DIR" ] || die "nRF Connect SDK $NCS_VERSION was not found at $NCS_DIR"
+[ -d "$NCS_DIR" ] || die "nRF Connect SDK $NCS_VERSION was not found at $NCS_DIR" "Set NCS_DIR to where it is."
 [ -f "$KEY" ] || die "the signing key was not found at $KEY" \
   "See secrets/README.md. An image signed with another key will not install on a board."
 

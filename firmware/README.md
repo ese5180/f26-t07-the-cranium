@@ -16,7 +16,8 @@ files derived from it keep Nordic's copyright notice and licence identifier.
 ## Build
 
 1. Install nRF Connect SDK v3.4.0 and its toolchain (nRF Connect for VS Code or
-   `nrfutil toolchain-manager`).
+   `nrfutil sdk-manager install v3.4.0`). On Windows and Linux, see
+   [`docs/new-board-setup.md`](../docs/new-board-setup.md#windows-linux-and-macos).
 2. Create the firmware signing key with `python tools/keys.py generate`, or put the
    team key at `~/.cranium/mcuboot_signing_key.pem`
    (see [`secrets/README.md`](../secrets/README.md)). The build stops with an
@@ -833,9 +834,11 @@ for a person standing next to it. The phone apps in `apps/` take the release fro
 it: see [`docs/mobile-apps.md`](../docs/mobile-apps.md). From 1.9.0 every build has it. The network
 core needs one debug-port flash to have the controller, after which every update can go either way.
 
-**None of this has been on the air.** It has been built, its logic has been tested on a host against
-fakes, and nothing else: see [Testing it](#testing-it). Whether a phone pairs, how fast an upload goes
-and how it gets along with Wi-Fi are what a person still has to find out.
+**It has worked on the air once.** On 2026-11-03 a board went from 1.11.3 to 1.11.4 from an iPhone with
+nRF Connect Device Manager ("Upload only"): paired with the passkey relayed through the console, 844,762
+bytes in 57 s, Button 1, a 91 s swap, and the image confirmed itself on reaching AWS IoT (proof cloud).
+See [`docs/test-results.md`](../docs/test-results.md#the-first-update-over-bluetooth-1113-to-1114). Not
+tried yet: our own phone apps, an update with no Wi-Fi (proof person), and the failure cases below.
 
 `sysbuild.conf` sets `SB_CONFIG_APP_BT_OTA`, which applies `bt_ota.conf` to the application, and
 `SB_CONFIG_NETCORE_HCI_IPC`, which puts Zephyr's `hci_ipc` with the SoftDevice Controller on the
@@ -1103,7 +1106,9 @@ It also runs the console's, the main loop's and the buttons' tests a second time
 `test_golden.py` checks that `tools/store_binary.py` keeps such a build out of `binaries/`.
 
 Everything else takes a person, with [nRF Connect Device Manager](https://www.nordicsemi.com/Products/Development-tools/nRF-Connect-Device-Manager)
-on a phone, a serial monitor on the console, and the debug port. **None of this has been run.**
+on a phone, a serial monitor on the console, and the debug port. **Only the first install, with Wi-Fi up,
+has been run** ([`docs/test-results.md`](../docs/test-results.md#the-first-update-over-bluetooth-1113-to-1114));
+the rest has not.
 
 **Set up.** Build image A, what runs to begin with, and for each install below an image newer than
 what runs by then, with the switch. `KIND` keeps their build directories apart:

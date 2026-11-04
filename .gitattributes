@@ -1,0 +1,13 @@
+# Line endings for a checkout on Windows, where Git otherwise turns text into CRLF. Bash and
+# make refuse or misread a script with CRLF, and scripts/build.sh reads firmware/app/VERSION with
+# awk, so these stay LF on every checkout. Everything is stored with LF in git already.
+*.sh                        text eol=lf
+*.py                        text eol=lf
+*.mjs                       text eol=lf
+Makefile                    text eol=lf
+firmware/app/VERSION        text eol=lf
+apps/android/gradlew        text eol=lf
+
+# Stored with CRLF on purpose; left exactly as they are.
+apps/android/gradlew.bat    -text
+README.md                   -text

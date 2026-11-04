@@ -39,12 +39,17 @@ class ShellFirmware(BoardError):
     """The board runs firmware from before the console: it has a Zephyr shell there."""
 
 
+def _port_order(name: str) -> list:
+    """Sort key that puts COM9 before COM10 and ttyACM2 before ttyACM10."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
 def find_console_port() -> str:
     """Return the nRF7002 DK's application console (its second virtual COM port)."""
-    ports = sorted(p.device for p in list_ports.comports()
-                   if p.vid == 0x1366 and "usbmodem" in p.device.lower())
+    ports = sorted((p.device for p in list_ports.comports()
+                    if p.vid == 0x1366 and "usbmodem" in p.device.lower()), key=_port_order)
     if not ports:
-        ports = sorted(p.device for p in list_ports.comports() if p.vid == 0x1366)
+        ports = sorted((p.device for p in list_ports.comports() if p.vid == 0x1366), key=_port_order)
     if not ports:
         raise BoardError("no J-Link virtual COM port found: is the board connected?")
     # VCOM1 carries the application console; VCOM0 carries TF-M's log.
