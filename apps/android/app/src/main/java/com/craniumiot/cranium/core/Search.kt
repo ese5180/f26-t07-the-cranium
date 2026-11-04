@@ -15,6 +15,7 @@ enum class SearchKind(val heading: String) {
     RELEASE("Releases"),
     DEPLOYMENT("Deployments"),
     EVENT("Events"),
+    LINE("Board log"),
     ACTIVITY("Activity"),
     HELP("Help"),
 }
@@ -27,6 +28,9 @@ sealed class SearchTarget {
 
     /** An event: its board, and the event itself, to pick it on the timeline. */
     data class Event(val thing: String?, val key: String) : SearchTarget()
+
+    /** A line of a board's log: that board's lines, under Events. */
+    data class BoardLog(val thing: String) : SearchTarget()
 
     /** An entry of the activity log: what it is about, if that has a page, else the log. */
     data class Activity(val link: LogLink?) : SearchTarget()
@@ -270,12 +274,26 @@ object Search {
         )
     }
 
-    fun activity(entries: List<AuditEntry>): List<SearchItem> = entries.map { entry ->
+    /** The lines of the board log that were read: what a board printed, by its board, source and time. */
+    fun lines(lines: List<BoardLine>, devices: List<Device>): List<SearchItem> = lines.map { line ->
+        SearchItem(
+            kind = SearchKind.LINE,
+            key = line.key,
+            title = line.text,
+            subtitle = listOfNotNull(
+                Boards.name(Boards.of(line.thing, devices)), line.tag, Words.dateAndTime(line.at), if (line.warn) "Warning" else null,
+            ).joinToString(" · "),
+            keywords = listOf(line.thing, line.tag, Telemetry.kindOf(line.kind).label),
+            target = SearchTarget.BoardLog(line.thing),
+        )
+    }
+
+    fun activity(entries: List<AuditEntry>, devices: List<Device>? = null): List<SearchItem> = entries.map { entry ->
         val words = AuditText.describe(entry)
         SearchItem(
             kind = SearchKind.ACTIVITY,
             key = "${entry.at.orEmpty()}#${entry.requestId}",
-            title = AuditText.sentence(entry),
+            title = AuditText.sentence(entry, devices),
             subtitle = Words.dateAndTime(entry.at),
             keywords = listOf(entry.action, entry.target, entry.actor?.sub.orEmpty()) + words.facts.map { it.value },
             target = SearchTarget.Activity(words.link),

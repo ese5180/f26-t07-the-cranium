@@ -620,6 +620,31 @@ object ApiJson {
         )
     }
 
+    /** `GET /api/events/log`: the boards' own lines; one that cannot be shown is left out. */
+    fun lines(text: String): LinePage {
+        val root = root(text)
+        return LinePage(
+            lines = list(root["lines"], "list of lines").mapNotNull(BoardLog::read),
+            cursor = J.str(root["cursor"])?.takeIf { CURSOR.matches(it) },
+            from = J.instant(root["from"]),
+            to = J.instant(root["to"]),
+        )
+    }
+
+    /** `PUT /api/firmware/{version}/notes`: the release as it is now. */
+    fun noted(text: String): Release = release(root(text)["release"]) ?: throw IllegalArgumentException("The answer has no release")
+
+    /** `POST /api/serial/commands`: what was put on record. */
+    fun recorded(text: String): SerialRecord? {
+        val item = J.obj(root(text)["recorded"]) ?: return null
+        val command = J.str(item["command"])?.takeIf { it in SerialRules.RECORDED } ?: return null
+        return SerialRecord(
+            command = command,
+            device = J.str(item["device"])?.takeIf { Boards.isBoardName(it) },
+            version = J.str(item["version"])?.takeIf { FirmwareVersion.parseStrict(it) != null },
+        )
+    }
+
     fun samples(text: String): Samples {
         val root = root(text)
         return Samples(

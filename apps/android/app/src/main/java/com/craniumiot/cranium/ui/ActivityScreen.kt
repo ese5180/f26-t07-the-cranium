@@ -1,6 +1,7 @@
 package com.craniumiot.cranium.ui
 
 import androidx.compose.runtime.Composable
+import com.craniumiot.cranium.core.ApiJson
 import com.craniumiot.cranium.core.AuditText
 import com.craniumiot.cranium.core.Boards
 import com.craniumiot.cranium.core.Glyph
@@ -37,7 +38,7 @@ fun ActivityScreen(vm: ConsoleViewModel, store: Store, now: Long) {
                         day = label
                         header(label, key = "day-$label")
                     }
-                    item(key = "entry-${activityKey(entry)}") { ActivityRow(vm, entry, now, compact = false) }
+                    item(key = "entry-${activityKey(entry)}") { ActivityRow(vm, entry, now, compact = false, store = store) }
                 }
                 item(key = "more") {
                     when {
@@ -63,19 +64,29 @@ fun ActivityScreen(vm: ConsoleViewModel, store: Store, now: Long) {
 fun ActivityEntryScreen(vm: ConsoleViewModel, store: Store, id: String, now: Long) {
     val entry = (store.audit.value?.entries.orEmpty() + store.recent.value?.entries.orEmpty()).firstOrNull { activityKey(it) == id }
     val words = entry?.let { AuditText.describe(it) }
+    // A command at a board's serial console names the board by its device ID: the page finds it in the list.
     val target = routeOf(words?.link)
+        ?: words?.takeIf { it.byName }?.let { w -> store.deviceList?.firstOrNull { it.name == w.label }?.let { Route.Board(it.thing) } }
     ConsoleScreen(
         title = "Activity",
         help = "activity",
-        primary = target?.let { ScreenAction(if (it is Route.DeploymentPage) "Open the deployment" else "Open the release", Glyph.ARROW_RIGHT) { vm.open(it) } },
+        primary = target?.let {
+            val label = when (it) {
+                is Route.DeploymentPage -> "Open the deployment"
+                is Route.Board -> "Open the board"
+                else -> "Open the release"
+            }
+            ScreenAction(label, Glyph.ARROW_RIGHT) { vm.open(it) }
+        },
     ) {
         if (entry == null || words == null) {
             item(key = "missing") { OneLine("This entry is no longer loaded.", "Activity" to { vm.open(Route.Activity) }) }
             return@ConsoleScreen
         }
-        block("sentence") { androidx.compose.material3.Text(prose(AuditText.sentence(entry)), style = ConsoleType.body, color = console.ink) }
+        val run = store.deployments.value?.firstOrNull { it.id == entry.target }
+        block("sentence") { androidx.compose.material3.Text(prose(AuditText.line(entry, store.deviceList, run)), style = ConsoleType.body, color = console.ink) }
         item(key = "when") { ValueRow("When", Words.timeAgo(entry.at, now), supporting = Words.exactTime(entry.at)) }
-        item(key = "who") { ValueRow("Who", Words.nameOf(entry.actor), supporting = entry.actor?.sub?.takeIf { it.isNotEmpty() }?.let { "Account $it" }) }
+        item(key = "who") { ValueRow("Who", AuditText.actorOf(entry), supporting = entry.actor?.sub?.takeIf { it.isNotEmpty() }?.let { "Account $it" }) }
         item(key = "outcome") {
             val outcome = words.outcome
             ListRow(
@@ -94,10 +105,16 @@ fun ActivityEntryScreen(vm: ConsoleViewModel, store: Store, id: String, now: Lon
                         val board = Boards.of(fact.value, store.deviceList)
                         ValueRow(fact.label, Boards.name(board), supporting = if (Boards.hasOwnName(board)) board.thing else null, onClick = { vm.open(Route.Board(fact.value)) })
                     }
+                    // The boards of a deployment of more than two, each by what it is called now.
+                    fact.key == "boards" -> ValueRow(
+                        fact.label,
+                        fact.value.split(' ').filter { ApiJson.isThing(it) }.joinToString(", ") { Boards.name(Boards.of(it, store.deviceList)) },
+                    )
                     else -> ValueRow(fact.label, fact.value, mono = fact.code)
                 }
             }
         }
-        if (entry.requestId.isNotEmpty()) item(key = "request") { ValueRow("Request", entry.requestId, mono = true) }
+        // A sign-in was asked for by no request: its id is made of the sign-in itself.
+        if (entry.requestId.isNotEmpty() && entry.action != "account.sign_in") item(key = "request") { ValueRow("Request", entry.requestId, mono = true) }
     }
 }

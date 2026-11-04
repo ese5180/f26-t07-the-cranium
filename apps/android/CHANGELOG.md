@@ -4,6 +4,18 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.5.0
+
+The board log under Events and on each board's page, the activity log in the website's sentences (who signed in, changes
+made over USB, deployments by board name), each release's note, which release managers can edit, and the serial
+console's changes to a board put in the activity log.
+
+Events gains the Board log: each line to the second with its board, source, kind, warnings and lines lost, a source
+filter, Hide and Show, the new kinds Settings and Other lines, and a tick for each line on its board's lane. A board's
+page shows its latest lines. Search covers the board log.
+
+The version commit, 2026-11-04.
+
 ## 0.4.0
 
 Open the app with your fingerprint instead of the password and code, for up to 30 days.

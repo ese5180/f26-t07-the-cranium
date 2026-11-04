@@ -18,39 +18,155 @@ sealed class LogLink {
     data object ToFirmware : LogLink()
 }
 
-/** One line of the activity log: what was done, to what, and how it ended if not well. */
+/**
+ * One line of the activity log (core.js describeAudit): what was done, to what, and how it ended
+ * if not well. [verb] comes before the [label] and [tail] after it. A deployment is called by its
+ * version; its id goes to [facts]. [boards] are the thing names of the boards a deployment went to,
+ * as far as the entry names them, and [boardCount] how many there were ([AuditText.boards] puts them
+ * into words). [byName] says that the label is a board's own name, its device ID.
+ */
 data class AuditWords(
     val glyph: Glyph,
     val verb: String,
     val label: String,
+    val tail: String,
     val outcome: StateWords?,
     val link: LogLink?,
     val facts: List<AuditFact>,
     val scripted: Boolean,
+    val boards: List<String> = emptyList(),
+    val boardCount: Int = 0,
+    val byName: Boolean = false,
 )
 
-/** The activity log in the console's words (core.js describeAudit and its tables). */
+/** The activity log in the console's words: a port of core.js describeAudit, auditBoards and auditSentence. */
 object AuditText {
-    private data class Action(val done: String, val tried: String, val triedAlone: String, val glyph: Glyph)
+    /**
+     * What each action is called. `done` and `tried` read on into the entry's label; where `{}`
+     * stands in them the label goes there, and the words after it follow it. `doneAlone` and
+     * `triedAlone` are the whole sentence for an entry without a label.
+     */
+    private data class Action(
+        val done: String,
+        val tried: String,
+        val triedAlone: String,
+        val glyph: Glyph,
+        val doneAlone: String? = null,
+    )
 
-    private val ACTIONS = mapOf(
+    private val ACTIONS: Map<String, Action> = mapOf(
         "firmware.upload" to Action("uploaded firmware", "tried to upload", "tried to upload a file", Glyph.UPLOAD),
         "firmware.revoke" to Action("revoked firmware", "tried to revoke firmware", "tried to revoke a release", Glyph.BAN),
-        "deployment.create" to Action("started a deployment of", "tried to deploy", "tried to start a deployment", Glyph.SEND),
+        "deployment.create" to Action(
+            "deployed", "tried to deploy", "tried to start a deployment", Glyph.SEND, doneAlone = "started a deployment",
+        ),
         "deployment.cancel" to Action(
             "cancelled the deployment of", "tried to cancel the deployment of", "tried to cancel a deployment", Glyph.STOP,
         ),
+        // From the phone apps, for an update over Bluetooth.
         "firmware.download" to Action(
-            "downloaded firmware to a phone", "tried to download firmware", "tried to download firmware", Glyph.DOWNLOAD,
+            "downloaded {} to a phone", "tried to download", "tried to download firmware", Glyph.DOWNLOAD,
+            doneAlone = "downloaded firmware to a phone",
         ),
         "pairing.read" to Action(
             "read the Bluetooth passkey of", "tried to read the Bluetooth passkey of", "tried to read a Bluetooth passkey", Glyph.SHIELD,
         ),
+        // The check a phone makes right before it sends a release to a board over Bluetooth.
         "firmware.bluetooth_send" to Action(
-            "was cleared to send over Bluetooth", "tried to send over Bluetooth", "tried to send firmware over Bluetooth", Glyph.CHIP,
+            "was cleared to send {} over Bluetooth", "tried to send {} over Bluetooth", "tried to send firmware over Bluetooth",
+            Glyph.CHIP, doneAlone = "was cleared to send firmware over Bluetooth",
         ),
         "token.create" to Action("made API token", "tried to make API token", "tried to make an API token", Glyph.KEY),
         "token.revoke" to Action("revoked API token", "tried to revoke API token", "tried to revoke an API token", Glyph.KEY),
+        // A sign-in with password and code, on the website or a phone app (SIGNED_IN_ON).
+        "account.sign_in" to Action("signed in", "tried to sign in", "tried to sign in", Glyph.USER),
+        // A command that changed a board at its serial console, named by the board's device ID (SERIAL_WORDS).
+        "serial.command" to Action(
+            "ran a command on {} over USB", "tried to put on record a command on {} over USB",
+            "tried to put on record a command run over USB", Glyph.CHIP, doneAlone = "ran a command on a board over USB",
+        ),
+        // A command sent to a board over the internet (COMMAND_WORDS), and a person's own e-mail alerts.
+        "board.command" to Action("sent a command to", "tried to send a command to", "tried to send a command to a board", Glyph.LOCATE),
+        "alert.subscribe" to Action(
+            "asked for e-mail alerts at", "tried to ask for e-mail alerts at", "tried to ask for e-mail alerts", Glyph.BELL,
+        ),
+        "alert.unsubscribe" to Action(
+            "stopped the e-mail alerts to", "tried to stop the e-mail alerts to", "tried to stop e-mail alerts", Glyph.BELL,
+        ),
+        // The fleet (docs/fleet.md): groups, staged rollouts, a phone's sighting, a release's note.
+        "group.create" to Action("made the group", "tried to make the group", "tried to make a group", Glyph.LIST),
+        "group.update" to Action("changed the group", "tried to change the group", "tried to change a group", Glyph.LIST),
+        "group.delete" to Action("deleted the group", "tried to delete the group", "tried to delete a group", Glyph.LIST),
+        "group.rollback" to Action("rolled back the group", "tried to roll back the group", "tried to roll back a group", Glyph.RESTART),
+        "rollout.create" to Action(
+            "started a staged rollout of", "tried to start a staged rollout of", "tried to start a staged rollout", Glyph.SEND,
+            doneAlone = "started a staged rollout",
+        ),
+        "rollout.cancel" to Action(
+            "cancelled the staged rollout", "tried to cancel the staged rollout", "tried to cancel a staged rollout", Glyph.STOP,
+        ),
+        // The console's own, when a canary has confirmed or a rollout stopped.
+        "rollout.advance" to Action(
+            "went on with the staged rollout", "could not go on with the staged rollout", "could not go on with a staged rollout",
+            Glyph.SEND,
+        ),
+        "rollout.stop" to Action(
+            "stopped the staged rollout", "could not stop the staged rollout", "could not stop a staged rollout", Glyph.STOP,
+        ),
+        "fleet.update_everything" to Action(
+            "started updating everything", "tried to update everything", "tried to update everything", Glyph.SEND,
+            doneAlone = "started updating everything",
+        ),
+        "device.seen" to Action(
+            "saw {} over Bluetooth", "tried to say a phone saw {}", "tried to say a phone saw a board", Glyph.CHIP,
+            doneAlone = "saw a board over Bluetooth",
+        ),
+        "firmware.notes" to Action(
+            "changed the note of", "tried to change the note of", "tried to change the note of a release", Glyph.FILE,
+        ),
+        // The console's Apps page: publishing the Android app, and a download of it.
+        "app.upload" to Action(
+            "started publishing the Android app", "tried to start publishing the Android app",
+            "tried to start publishing the Android app", Glyph.UPLOAD,
+        ),
+        "app.publish" to Action(
+            "published the Android app", "tried to publish the Android app", "tried to publish the Android app", Glyph.PACKAGE,
+        ),
+        "app.download" to Action(
+            "downloaded the Android app", "tried to download the Android app", "tried to download the Android app", Glyph.DOWNLOAD,
+        ),
+    )
+
+    /** What the schedule that moves staged rollouts on did is the console's own: no person asked for it. */
+    private val CONSOLE_ACTIONS = setOf("rollout.advance", "rollout.stop")
+
+    val SIGNED_IN_ON = mapOf("web" to "signed in on the website", "phone" to "signed in on the phone app")
+
+    /** What a command sent to a board asked of it, with the board where {} stands. */
+    val COMMAND_WORDS = mapOf(
+        "identify" to "asked {} to blink its lights",
+        "report" to "asked {} to report now",
+    )
+
+    /**
+     * What a command at a board's serial console did, with the board where {} stands. What was
+     * typed after the command is never recorded, so never said.
+     */
+    val SERIAL_WORDS = mapOf(
+        "INIT" to "set up {} from factory mode over USB",
+        "SET_ID" to "changed the device ID of {} over USB",
+        "RESET_CONFIG" to "cleared the cloud settings of {} over USB",
+        "FACTORY_RESET" to "erased {} back to factory mode over USB",
+        "WIFI" to "set the Wi-Fi network of {} over USB",
+        "WIFI_SEC" to "set the Wi-Fi network and its security mode of {} over USB",
+        "CLEAR_WIFI" to "erased the Wi-Fi network of {} over USB",
+        "CLOUD" to "set the AWS IoT endpoint and download address of {} over USB",
+        "KEYGEN" to "made a new device key on {} over USB",
+        "MQTT_HOST" to "set the AWS IoT endpoint of {} over USB",
+        "MQTT_RECONNECT" to "reconnected {} to AWS IoT over USB",
+        "BUTTON" to "pressed a button of {} over USB",
+        "REBOOT" to "restarted {} over USB",
+        "ENTER_BOOTLOADER" to "restarted {} into its bootloader over USB",
     )
 
     // What scripts/ota.sh without an API token, and the test bench, call their requests.
@@ -73,6 +189,7 @@ object AuditText {
         "already_cancelled" to "That deployment was already cancelled",
         "already_finished" to "That deployment had already finished",
         "already_revoked" to "That release was already revoked",
+        "already_subscribed" to "Alerts already go to that address",
         "audit_failed" to "The change could not be written to this log",
         "bad_header" to "The image header cannot be read",
         "bad_signing_key" to "The server’s signing key cannot be read",
@@ -83,10 +200,14 @@ object AuditText {
         "invalid_deployment" to "Not a valid deployment ID",
         "invalid_filename" to "The file name has characters the server does not accept, or is too long",
         "invalid_json" to "The request could not be read",
+        "invalid_seconds" to "A board blinks for 1 to 60 seconds",
         "invalid_thing" to "Not a valid board name",
         "invalid_things" to "The list of boards is not valid",
         "invalid_version" to "Not a valid version number",
+        "no_email" to "The account has no e-mail address",
+        "not_confirmed" to "The subscription waits for its e-mail to be confirmed",
         "not_found" to "There is nothing at that address",
+        "not_subscribed" to "Alerts do not go to that address",
         "payload_too_large" to "The request was too large",
         "release_manager_required" to "Only a release manager can do this",
         "revoke_incomplete" to "The revocation did not finish",
@@ -138,6 +259,50 @@ object AuditText {
         "invalid_range" to "The time range was empty, backwards or longer than 31 days",
         "invalid_kinds" to "The list of kinds of event was not valid",
         "invalid_hours" to "The number of hours was not a whole number from 1 to 168",
+        "invalid_tags" to "The list of sources of the board log was not valid",
+        "invalid_command" to "Not a command that changes a board at its serial console",
+        "invalid_device" to "Not a board’s device ID",
+        "unexpected_field" to "The request held more than the command, the device ID and the version",
+        "rate_limited" to "More serial console commands in a minute than are recorded for one person",
+        "incompatible_board" to "The release is for another type of board",
+        "incompatible_layout" to "The release is built for another flash layout",
+        "invalid_layout_tlv" to "The flash layout in the image was not a positive whole number",
+        "invalid_layout" to "The flash layout was not a whole number from 1",
+        "bluetooth_only" to "The board has no Wi-Fi and updates over Bluetooth from a phone",
+        "invalid_type" to "Not a board type this console knows",
+        "unknown_board" to "The image is for a board type this console does not know",
+        "invalid_board_tlv" to "The board type in the image was not one short word",
+        "invalid_notes" to "The note was not one line of up to 500 characters",
+        "unknown_group" to "There is no such group",
+        "invalid_group" to "Not the id of a group",
+        "name_taken" to "Another group already has that name",
+        "too_many_groups" to "There can be at most 50 groups",
+        "group_changed" to "Someone changed the group at the same moment",
+        "nothing_to_change" to "The request named nothing to change",
+        "unknown_rollout" to "There is no such staged rollout",
+        "invalid_rollout" to "Not the id of a staged rollout",
+        "invalid_target" to "Not a target of a rollout: boards, a group, a type or the fleet",
+        "invalid_types" to "The list of board types and their releases was not valid",
+        "invalid_canary" to "The canary was not a whole number from 1 to 5",
+        "invalid_wave" to "The first wave was not a whole number from 1 to 50 boards",
+        "invalid_abortPercent" to "The share of failures to stop at was not a whole number from 1 to 100",
+        "nothing_to_deploy" to "No board would take the release",
+        "too_many_boards" to "A rollout takes at most 100 boards",
+        "plan_changed" to "The plan had changed since it was shown",
+        "no_older_release" to "There is no older release of that type to go back to",
+        "rollout_changed" to "The rollout moved on while it was being cancelled",
+        "rollout_unrecorded" to "The rollout could not be recorded, so its canary was withdrawn",
+        "partly_started" to "Only some of the rollouts could be started",
+        // The phone apps (the API's handlers/apps.mjs): publishing the Android app, and its download links.
+        "version_code_not_higher" to "Its versionCode is not higher than the newest Android app’s",
+        "apk_missing" to "No APK had arrived in S3 for that version",
+        "size_mismatch" to "The APK that arrived was of another size",
+        "checksum_missing" to "The APK that arrived had no SHA-256 of its own",
+        "publish_conflict" to "Another release of the app was being published at the same moment",
+        "invalid_via" to "Not a way to hand out a link: a QR code, or none",
+        "invalid_version_code" to "The versionCode was not a whole number",
+        "invalid_size" to "The size was not a whole number of bytes, up to 100 MB",
+        "unversioned" to "The bucket kept no version of the APK",
     )
 
     private val REVOCATION_STEPS = mapOf(
@@ -146,6 +311,9 @@ object AuditText {
         "record" to "recording that it is done",
     )
 
+    /** The board types (core.js BOARD_LABELS). */
+    val BOARD_LABELS = mapOf("nrf7002dk" to "nRF7002 DK", "nrf5340dk" to "nRF5340 DK")
+
     private data class Detail(
         val label: String,
         val code: Boolean = false,
@@ -153,7 +321,9 @@ object AuditText {
         val say: ((String) -> String)? = null,
     )
 
-    // In the order in which a line reads best.
+    private val WHOLE = Regex("^\\d+$")
+
+    // In the order in which a line reads best (core.js AUDIT_DETAILS).
     private val DETAILS: LinkedHashMap<String, Detail> = linkedMapOf(
         "code" to Detail("Refused with", code = true),
         "incomplete" to Detail("Left undone", sentence = true, say = { value ->
@@ -177,22 +347,48 @@ object AuditText {
                 else -> value
             }
         }),
-        "size" to Detail("Size", say = { value -> value.toLongOrNull()?.let { Words.exactBytes(it) } ?: value }),
+        "size" to Detail("Size", say = { value -> value.toLongOrNull()?.let { Words.exactBytes(it) }?.takeIf { it.isNotEmpty() } ?: value }),
         "sha256" to Detail("SHA-256", code = true),
         "token" to Detail("With API token", code = true),
         "tokenState" to Detail("The token had", say = { value -> if (value == "revoked") "been revoked" else value }),
         "board" to Detail("To board", code = true),
         "thing" to Detail("Board", code = true),
+        "boards" to Detail("To"),
+        "command" to Detail("Command", code = true),
+        "from" to Detail("From", say = { value -> if (value == "phone") "the phone app" else value }),
+        "client" to Detail("On", say = { value -> mapOf("web" to "the website", "phone" to "the phone app")[value] ?: value }),
         "name" to Detail("Named", sentence = true),
-        "days" to Detail("Valid for", say = { value -> value.toLongOrNull()?.let { Words.plural(it, "day") } ?: value }),
+        "cmd" to Detail("Command", code = true),
+        "seconds" to Detail("For", say = { value -> if (WHOLE.matches(value)) "$value s" else value }),
+        "id" to Detail("Command id", code = true),
+        "subscription" to Detail("Now", say = { value -> if (value == "pending") "waiting for the address to confirm" else value }),
+        "days" to Detail("Valid for", say = { value -> if (WHOLE.matches(value)) Words.plural(value.toLong(), "day") else value }),
         "withdrawn" to Detail("Withdrawn", say = { value -> if (value == "true") "at once, to stay within the limit" else value }),
+        "kind" to Detail("To", say = { value ->
+            mapOf("boards" to "boards named one by one", "group" to "a group", "type" to "a board type", "fleet" to "the whole fleet")[value]
+                ?: value
+        }),
+        "canary" to Detail("Canary", code = true),
+        "rollouts" to Detail("Rollouts", code = true),
+        "versions" to Detail("Releases"),
+        "group" to Detail("Group"),
+        "job" to Detail("Deployment", code = true),
+        "renamedFrom" to Detail("Was called", sentence = true),
+        "added" to Detail("Boards added"),
+        "removed" to Detail("Boards removed"),
+        "notes" to Detail("New note", sentence = true),
+        "oldLength" to Detail("Old note", say = { value -> if (value == "0") "none" else "$value characters" }),
+        "type" to Detail("Board type", say = { value -> BOARD_LABELS[value] ?: value }),
     )
 
     private fun fact(entry: AuditEntry, key: String, value: String): AuditFact {
         val known = DETAILS[key] ?: return AuditFact(key, key, value, code = false, phrase = false)
         var label = known.label
+        // A revocation counts the deployments it cancelled; a failure that is not a refusal did not refuse anything.
         if (key == "cancelled" && entry.action == "firmware.revoke") label = "Deployments cancelled"
         if (key == "code" && entry.outcome == "error") label = "Failed with"
+        // The firmware a board ran when a command was given at its serial console.
+        if (key == "version" && entry.action == "serial.command") label = "Running"
         return AuditFact(
             key = key,
             label = label,
@@ -203,6 +399,8 @@ object AuditText {
         )
     }
 
+    private val BOARD_COUNT = Regex("^[1-9]\\d{0,3}$")
+
     /** One line of the activity log. A deployment is called by its version; its id goes to the facts. */
     fun describe(entry: AuditEntry): AuditWords {
         val action = ACTIONS[entry.action]
@@ -210,12 +408,40 @@ object AuditText {
         val deployment = entry.target.takeIf { ApiJson.isDeploymentId(it) }
         val label = if (deployment != null) Updates.versionOfDeployment(deployment) ?: deployment else entry.target
         val details = entry.detail.toMap()
+        // A revocation that completed what an earlier request had begun.
         val resumed = entry.action == "firmware.revoke" && ok && details["resumed"] == "true"
-        var words = entry.action.ifEmpty { "did something" }
-        when {
-            resumed -> words = "finished revoking firmware"
-            action != null && ok -> words = action.done
-            action != null -> words = if (label.isNotEmpty()) action.tried else action.triedAlone
+        val words = when {
+            resumed -> "finished revoking firmware"
+            entry.action == "account.sign_in" && ok && action != null -> SIGNED_IN_ON[details["client"]] ?: action.done
+            entry.action == "serial.command" && ok && action != null -> SERIAL_WORDS[details["command"]] ?: action.done
+            entry.action == "board.command" && ok && action != null -> COMMAND_WORDS[details["cmd"]] ?: action.done
+            action != null && ok -> if (label.isNotEmpty()) action.done else action.doneAlone ?: action.done
+            action != null -> if (label.isNotEmpty()) action.tried else action.triedAlone
+            else -> entry.action.ifEmpty { "did something" }
+        }
+
+        var verb = words
+        var tail = ""
+        val slot = words.indexOf("{}")
+        if (slot >= 0 && label.isNotEmpty()) {
+            verb = words.substring(0, slot).trimEnd()
+            tail = words.substring(slot + 2).trimStart()
+        } else if (slot >= 0) {
+            verb = words.replace("{}", "a board")
+        }
+        if (label.isEmpty()) verb = verb.removeSuffix(" of")
+
+        // The boards of a deployment: by name where the entry has them, else how many.
+        val creates = entry.action == "deployment.create"
+        val boards = if (creates) details["boards"].orEmpty().split(' ').filter { ApiJson.isThing(it) } else emptyList()
+        val counted = if (creates) details["things"]?.takeIf { BOARD_COUNT.matches(it) }?.toInt() ?: 0 else 0
+        val boardCount = maxOf(counted, boards.size)
+
+        // What the sentence says already is not said again as a fact.
+        val said = buildSet {
+            if (entry.action == "account.sign_in") add("client")
+            if (creates && boardCount > 0) add("things")
+            if (boards.size <= 2) add("boards")
         }
         val order = LinkedHashSet<String>().apply {
             addAll(DETAILS.keys)
@@ -224,6 +450,7 @@ object AuditText {
         val facts = mutableListOf<AuditFact>()
         for (key in order) {
             val value = details[key] ?: continue
+            if (key in said) continue
             if (key == "version" && value == label) continue
             if (key == "resumed" && resumed) continue
             if (key == "filename" && value == label) continue
@@ -237,20 +464,60 @@ object AuditText {
         }
         return AuditWords(
             glyph = action?.glyph ?: Glyph.LIST,
-            verb = if (label.isNotEmpty()) words else words.removeSuffix(" of"),
+            verb = verb,
             label = label,
+            tail = tail,
             outcome = if (ok) null else OUTCOMES[entry.outcome] ?: StateWords(Tone.IDLE, Glyph.MINUS, entry.outcome.ifEmpty { "Unknown" }),
             link = link,
             facts = facts,
             scripted = entry.requestId.startsWith(SCRIPTED_REQUEST),
+            boards = boards,
+            boardCount = boardCount,
+            byName = entry.action == "serial.command" && Boards.isBoardName(label),
         )
     }
 
-    /** The whole line as one sentence, for a lane of the timeline or a screen reader. */
-    fun sentence(entry: AuditEntry): String {
+    /** Who did what an entry says: a person, or for what the schedule did, the console. */
+    fun actorOf(entry: AuditEntry): String =
+        if (entry.action in CONSOLE_ACTIONS && entry.actor?.sub.isNullOrEmpty()) "The console" else Words.nameOf(entry.actor)
+
+    /**
+     * Where a deployment went, each board by what it is called in [devices]: "to CRVIHAAN01",
+     * "to CRVIHAAN01 and cranium-0123…", "to 3 boards"; "" when the entry does not say.
+     */
+    fun boards(words: AuditWords, devices: List<Device>? = null): String = when {
+        words.boards.isNotEmpty() && words.boards.size <= 2 ->
+            "to " + words.boards.joinToString(" and ") { Boards.name(Boards.of(it, devices)) }
+        words.boardCount > 0 -> "to ${Words.plural(words.boardCount, "board")}"
+        else -> ""
+    }
+
+    /** A whole line in words, for where it is plain text: "a@b deployed 1.12.0+0 to CRVIHAAN01". */
+    fun sentence(entry: AuditEntry, devices: List<Device>? = null): String {
         val words = describe(entry)
-        val what = listOf(Words.nameOf(entry.actor), words.verb, words.label).filter { it.isNotEmpty() }.joinToString(" ")
-        return if (words.outcome != null) "$what (${words.outcome.label.lowercase()})" else what
+        return listOf(actorOf(entry), words.verb, words.label, words.tail, boards(words, devices))
+            .filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    /**
+     * A line of the log as a page shows it (views.js activityLine): an entry of a deployment from
+     * before the log named its boards says where it went as the deployment, [run], does now.
+     */
+    fun line(entry: AuditEntry, devices: List<Device>?, run: DeploymentSummary?): String {
+        var words = describe(entry)
+        if (words.boards.isEmpty() && run != null && entry.action == "deployment.create" && entry.outcome == "ok") {
+            val things = run.things.filter { ApiJson.isThing(it) }
+            words = words.copy(boards = things, boardCount = maxOf(words.boardCount, things.size))
+        }
+        return listOf(actorOf(entry), words.verb, words.label, words.tail, boards(words, devices))
+            .filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    /** The sentence with how it ended when not well: the Console lane, and a screen reader. */
+    fun spoken(entry: AuditEntry, devices: List<Device>? = null): String {
+        val what = sentence(entry, devices)
+        val outcome = describe(entry).outcome
+        return if (outcome != null) "$what (${outcome.label.lowercase()})" else what
     }
 }
 

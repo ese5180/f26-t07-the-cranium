@@ -78,6 +78,8 @@ object Glyphs {
         Glyph.SEARCH to listOf(circle(10.5f, 10.5f, 6f), "M15 15l5 5"),
         Glyph.HELP to listOf(RING, "M9.6 9.4a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.1-2.4 3.6M12 17v.1"),
         Glyph.MORE_VERT to listOf("M12 5.5v.1M12 12v.1M12 18.5v.1"),
+        Glyph.LOCATE to listOf("M2 12h3M19 12h3M12 2v3M12 19v3", circle(12f, 12f, 7f), circle(12f, 12f, 2.5f)),
+        Glyph.BELL to listOf("M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0"),
         Glyph.FINGERPRINT to listOf(
             "M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4", "M14 13.12c0 2.38 0 6.38-1 8.88", "M17.29 21.02c.12-.6.43-2.3.5-3.02",
             "M2 12a10 10 0 0 1 18-6", "M21.8 16c.2-2 .131-5.354 0-6", "M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2",

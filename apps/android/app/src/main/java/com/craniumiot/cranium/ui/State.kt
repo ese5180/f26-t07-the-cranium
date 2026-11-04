@@ -16,6 +16,8 @@ import com.craniumiot.cranium.core.Me
 import com.craniumiot.cranium.core.NewToken
 import com.craniumiot.cranium.core.Release
 import com.craniumiot.cranium.core.ReleaseList
+import com.craniumiot.cranium.core.BoardLine
+import com.craniumiot.cranium.core.LinePage
 import com.craniumiot.cranium.core.Samples
 import com.craniumiot.cranium.core.Telemetry
 import com.craniumiot.cranium.core.TokenList
@@ -172,6 +174,20 @@ data class EventsData(
     val audit: List<AuditEntry>?,
     val auditCut: Boolean,
     val pages: Int,
+    /** The board log of the range; null while it is hidden. */
+    val log: LogData? = null,
+)
+
+/** What the board log was asked for, a page at a time. */
+data class LogQuery(val from: String, val to: String, val thing: String?, val kinds: List<String>?, val tags: List<String>?)
+
+/** The board log of the range: its lines, or why it could not be read, which leaves the events as they are. */
+data class LogData(
+    val lines: List<BoardLine> = emptyList(),
+    val cursor: String? = null,
+    val query: LogQuery? = null,
+    val pages: Int = 1,
+    val error: Throwable? = null,
 )
 
 data class EventsPage(
@@ -183,6 +199,11 @@ data class EventsPage(
     val moreLoading: Boolean = false,
     val moreError: Throwable? = null,
     val selected: String? = null,
+    /** The board log: shown or not, and the one source it is narrowed to ("" for all of them). */
+    val log: Boolean = true,
+    val tag: String = "",
+    val linesMoreLoading: Boolean = false,
+    val linesMoreError: Throwable? = null,
 )
 
 /** Everything read from the console, as the website's state holds it. */
@@ -200,6 +221,8 @@ data class Store(
     val deviceDetails: Map<String, Resource<DeviceDetail>> = emptyMap(),
     val deploymentDetails: Map<String, Resource<Deployment>> = emptyMap(),
     val samples: Map<String, Resource<Samples>> = emptyMap(),
+    /** Each board's newest lines of its own log, for its page. */
+    val boardLines: Map<String, Resource<LinePage>> = emptyMap(),
     val events: EventsPage = EventsPage(),
     /** The checked images kept on the phone (docs/mobile-apps.md, "Cache"). */
     val cache: CacheSummary = CacheSummary.EMPTY,
@@ -243,6 +266,14 @@ sealed interface DialogState {
     data class Revoke(
         val version: String,
         val reason: String = "",
+        override val sending: Boolean = false,
+        override val error: Throwable? = null,
+    ) : DialogState
+
+    /** A release's note: one line of up to 500 characters, empty for none. */
+    data class Notes(
+        val version: String,
+        val notes: String,
         override val sending: Boolean = false,
         override val error: Throwable? = null,
     ) : DialogState

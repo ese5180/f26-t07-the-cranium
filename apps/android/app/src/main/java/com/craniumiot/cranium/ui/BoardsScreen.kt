@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.ApiJson
+import com.craniumiot.cranium.core.BoardLog
 import com.craniumiot.cranium.core.Boards
 import com.craniumiot.cranium.core.Device
 import com.craniumiot.cranium.core.DeviceDetail
@@ -132,7 +133,23 @@ fun BoardScreen(vm: ConsoleViewModel, store: Store, thing: String, now: Long) {
                 ListRow(part.title, supporting = partSummary(part, device, detail, store), onClick = { vm.open(Route.BoardPage(thing, part)) })
             }
         }
+        latestLines(vm, store, thing)
     }
+}
+
+/** A board's newest lines of its own log, from the last 24 hours, and the way to all of them under Events. */
+private fun androidx.compose.foundation.lazy.LazyListScope.latestLines(vm: ConsoleViewModel, store: Store, thing: String) {
+    header(BoardLog.RECENT_TITLE, key = "lines-head")
+    val recent = store.boardLines[thing]
+    val lines = recent?.value?.lines
+    val error = recent?.error
+    when {
+        lines != null && lines.isEmpty() -> item(key = "lines-none") { OneLine(BoardLog.RECENT_EMPTY) }
+        lines != null -> for (line in lines) item(key = "line-${line.key}") { BoardLineRow(line, store.deviceList, showsBoard = false) }
+        error != null -> item(key = "lines-failed") { OneLine("${BoardLog.FAILED} ${messageOf(error)}", tone = Tone.BAD, glyph = Glyph.ALERT) }
+        else -> loading("its lines")
+    }
+    item(key = "lines-all") { ListRow(BoardLog.ALL_LINES, onClick = { vm.openBoardLog(thing) }) }
 }
 
 /** The board at a glance: its thing name, whether it is online, and its firmware. */

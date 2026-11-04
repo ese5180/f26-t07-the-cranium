@@ -108,7 +108,7 @@ fun OverviewScreen(vm: ConsoleViewModel, store: Store, now: Long) {
             recent == null -> if (store.recent.error == null) loading("activity")
             recent.isEmpty() -> item(key = "recent-none") { OneLine("Nothing recorded yet.") }
             else -> for (entry in recent.take(5)) {
-                item(key = "recent-${entry.at}-${entry.requestId}") { ActivityRow(vm, entry, now, compact = true) }
+                item(key = "recent-${entry.at}-${entry.requestId}") { ActivityRow(vm, entry, now, compact = true, store = store) }
             }
         }
         item(key = "all-activity") { ListRow("All activity", onClick = { vm.open(Route.Activity) }) }
@@ -197,14 +197,22 @@ private fun ActiveRow(vm: ConsoleViewModel, store: Store, deployment: Deployment
 
 /** One entry of the activity log as a row; the short form is for the overview. */
 @Composable
-fun ActivityRow(vm: ConsoleViewModel, entry: com.craniumiot.cranium.core.AuditEntry, now: Long, compact: Boolean) {
+fun ActivityRow(vm: ConsoleViewModel, entry: com.craniumiot.cranium.core.AuditEntry, now: Long, compact: Boolean, store: Store) {
     val words = AuditText.describe(entry)
     val tone = words.outcome?.tone
+    // The line says that a deployment was started; how it ended follows from the deployment as it is now, once it is over.
+    val run = if (entry.action == "deployment.create" && entry.outcome == "ok") {
+        store.deployments.value?.firstOrNull { it.id == entry.target }
+    } else {
+        null
+    }
+    val ending = run?.takeIf { !Updates.isUnderWay(it) }?.let { Updates.describeDeployment(it).label }
     ListRow(
-        AuditText.sentence(entry),
+        AuditText.line(entry, store.deviceList, run),
         supporting = listOfNotNull(
             if (compact) Words.timeAgo(entry.at, now) else Words.timeOfDay(entry.at),
             words.outcome?.label,
+            ending,
             if (words.scripted) AuditText.SCRIPTED_TAG else null,
         ).joinToString(" · "),
         leading = {

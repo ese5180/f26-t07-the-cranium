@@ -13,6 +13,8 @@ enum class Glyph {
     LOCK, PLUS, SWAP, FILE, SIGN_OUT,
     // The app's own: the sections of its navigation, Bluetooth and the USB cable.
     HOME, MORE, BLUETOOTH, USB, TERMINAL, HISTORY, SEARCH, HELP, MORE_VERT, FINGERPRINT,
+    // The website's, for the fleet's entries of the activity log: a command to a board, an e-mail alert.
+    LOCATE, BELL,
 }
 
 /** One step of an update, as the step list draws it. */

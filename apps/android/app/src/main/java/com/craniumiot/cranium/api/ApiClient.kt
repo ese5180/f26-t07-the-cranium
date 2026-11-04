@@ -1,6 +1,5 @@
 package com.craniumiot.cranium.api
 
-import com.craniumiot.cranium.auth.AuthManager
 import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiJson
 import com.craniumiot.cranium.core.ApiPaths
@@ -14,6 +13,7 @@ import com.craniumiot.cranium.core.DeviceDetail
 import com.craniumiot.cranium.core.DeviceList
 import com.craniumiot.cranium.core.EventPage
 import com.craniumiot.cranium.core.HistoryRead
+import com.craniumiot.cranium.core.LinePage
 import com.craniumiot.cranium.core.Me
 import com.craniumiot.cranium.core.NewToken
 import com.craniumiot.cranium.core.Pairing
@@ -22,7 +22,9 @@ import com.craniumiot.cranium.core.ReleaseList
 import com.craniumiot.cranium.core.Revoked
 import com.craniumiot.cranium.core.Samples
 import com.craniumiot.cranium.core.SendCheck
+import com.craniumiot.cranium.core.SerialRecord
 import com.craniumiot.cranium.core.TokenList
+import com.craniumiot.cranium.core.Words
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -40,13 +42,22 @@ import java.util.Base64
 /** An upload's progress: the share of the body sent, then the server checking it. */
 enum class UploadStage { SENDING, CHECKING }
 
+/** Where the client gets its access token (AuthManager; a fake in the tests). */
+interface AccessTokens {
+    /** A current access token; with [forceRefresh], renewed first. */
+    suspend fun accessToken(forceRefresh: Boolean = false): String
+
+    /** The console no longer takes this sign-in: forget it. */
+    suspend fun forget()
+}
+
 /**
  * The console's API, with the access token: every route the website uses. On a 401 the tokens
  * are refreshed once and the call made again; a second 401 signs the person out. A read that the
  * gateway throttles or cannot answer is tried up to three times, as the website does. Nothing here
  * is logged.
  */
-class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
+class ApiClient(private val paths: ApiPaths, private val auth: AccessTokens) {
 
     // Reads.
 
@@ -70,6 +81,17 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
     suspend fun deployment(id: String): Deployment = ApiJson.deployment(getJson(paths.deployment(id)))
 
     suspend fun audit(limit: Int = 50, before: String? = null): AuditPage = ApiJson.audit(getJson(paths.audit(limit, before)))
+
+    /** The boards' own log between two times (ISO), newest first; `thing` names one board, `tags` keeps those sources. */
+    suspend fun boardLog(
+        from: String,
+        to: String,
+        thing: String? = null,
+        kinds: List<String>? = null,
+        tags: List<String>? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): LinePage = ApiJson.lines(getJson(paths.boardLog(from, to, thing, kinds, tags, limit, cursor)))
 
     suspend fun tokens(): TokenList = ApiJson.tokens(getJson(paths.tokens))
 
@@ -120,6 +142,27 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
         ApiJson.newToken(postJson(paths.tokens, buildJsonObject { put("name", name); put("days", days) }.toString()))
 
     suspend fun revokeToken(id: String): ApiToken = ApiJson.revokedToken(postJson(paths.revokeToken(id), "{}"))
+
+    /**
+     * A release's note, changed after its upload, active or revoked: the whole note every time, on
+     * one line and at most 500 characters; "" removes it. Returns the release as it is now.
+     */
+    suspend fun setNotes(version: String, notes: String): Release {
+        val body = buildJsonObject { put("notes", Words.singleLine(notes).take(NOTES_LIMIT)) }.toString()
+        val answer = call("PUT", paths.notes(version), "application/json", MAX_JSON_BYTES, body)
+        return ApiJson.noted(answer.decodeToString())
+    }
+
+    /**
+     * Put on record a command that changed a board at its serial console: its name, and the board's
+     * device ID and version as it gave them. Never a value. Tried once: a refusal for too many is
+     * not one to wait out, and the board has done it either way. Not a change in the sense of the
+     * fresh sign-in rule: the route is exempt.
+     */
+    suspend fun recordSerialCommand(record: SerialRecord): SerialRecord? {
+        val answer = call("POST", paths.serialCommands, "application/json", MAX_JSON_BYTES, record.toJson(), once = true)
+        return ApiJson.recorded(answer.decodeToString())
+    }
 
     /**
      * Upload a signed image: `POST /api/firmware` with `{filename, notes, data}`, the file in
@@ -184,9 +227,13 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
         return body.decodeToString()
     }
 
-    /** A GET, or a POST of [jsonBody]. Retries what the website retries. */
-    private suspend fun call(method: String, url: String, accept: String, maxBytes: Long, jsonBody: String?): ByteArray {
-        val retry = if (method == "GET") RETRY_GET else RETRY_POST
+    /** A GET, or a POST or PUT of [jsonBody]. Retries what the website retries, unless [once]. */
+    private suspend fun call(method: String, url: String, accept: String, maxBytes: Long, jsonBody: String?, once: Boolean = false): ByteArray {
+        val retry = when {
+            once -> emptySet()
+            method == "GET" -> RETRY_GET
+            else -> RETRY_POST
+        }
         for (attempt in 1..MAX_TRIES) {
             var answer = fetch(method, url, accept, maxBytes, auth.accessToken(), jsonBody)
             if (answer.status == 401) {
@@ -311,5 +358,6 @@ class ApiClient(private val paths: ApiPaths, private val auth: AuthManager) {
         const val UPLOAD_CHUNK = 16 * 1024
         val RETRY_GET = setOf(429, 502, 503, 504)
         val RETRY_POST = setOf(429)
+        const val NOTES_LIMIT = 500
     }
 }

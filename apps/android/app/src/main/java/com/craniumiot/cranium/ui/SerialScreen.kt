@@ -605,6 +605,28 @@ private fun ReplyLine(name: String, state: SerialSession.State, form: FormState)
             color = colors.ink,
         )
     }
+    RecordLine(reply)
+}
+
+/** Whether the command a form sent is in the activity log, said under the board's own answer (serial.js recordOf). */
+@Composable
+private fun RecordLine(reply: SerialSession.Reply) {
+    val colors = console
+    val (glyph, text, tint) = when (reply.record ?: return) {
+        SerialSession.Record.SENDING -> Triple(Glyph.HOURGLASS, "Putting it in the activity log…", colors.ink2)
+        SerialSession.Record.DONE -> Triple(Glyph.CHECK, "In the activity log.", colors.good)
+        SerialSession.Record.FAILED -> Triple(Glyph.ALERT, reply.recordProblem ?: "Done on the board, but not in the activity log.", colors.warn)
+    }
+    Row(
+        Modifier.semantics(mergeDescendants = true) {
+            liveRegion = if (reply.record == SerialSession.Record.FAILED) LiveRegionMode.Assertive else LiveRegionMode.Polite
+        },
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        GlyphIcon(glyph, Modifier.padding(top = 2.dp), size = 14.dp, tint = tint)
+        Text(text, style = ConsoleType.note, color = if (reply.record == SerialSession.Record.FAILED) colors.ink else colors.ink2)
+    }
 }
 
 // The MQTT group: what MQTT says, a new server, and a new connection.

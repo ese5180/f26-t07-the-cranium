@@ -153,6 +153,7 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
         is DialogState.Deploy -> DeployDialog(vm, open, store, now)
         is DialogState.Cancel -> CancelDialog(vm, open, store)
         is DialogState.Revoke -> RevokeDialog(vm, open, store, now)
+        is DialogState.Notes -> NotesDialog(vm, open)
         is DialogState.CreateToken -> CreateTokenDialog(vm, open, now)
         is DialogState.RevokeToken -> RevokeTokenDialog(vm, open, now)
         null -> Unit

@@ -128,7 +128,7 @@ class TelemetryTest {
         assertNull(made.thing)
         assertEquals("console", made.kind)
         assertEquals("info", made.level)
-        assertEquals("manager@example.invalid started a deployment of 1.2.3+5", made.text)
+        assertEquals("manager@example.invalid deployed 1.2.3+5", made.text)
         assertEquals("deployment:$deployment", made.href)
         assertEquals("req-1", made.id)
         val refused = Telemetry.consoleEvent(entry.copy(outcome = "rejected"))!!

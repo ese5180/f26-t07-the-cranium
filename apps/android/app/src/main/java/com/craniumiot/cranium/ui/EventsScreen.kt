@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +41,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -59,6 +63,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.craniumiot.cranium.core.BoardEvent
+import com.craniumiot.cranium.core.BoardLine
+import com.craniumiot.cranium.core.BoardLog
 import com.craniumiot.cranium.core.Boards
 import com.craniumiot.cranium.core.Device
 import com.craniumiot.cranium.core.Glyph
@@ -107,6 +113,17 @@ private fun DrawScope.drawKindMark(shape: Telemetry.Shape, center: Offset, color
         Telemetry.Shape.UP -> drawPath(polygon(center, unit, listOf(0f to -6f, 5.8f to 4.6f, -5.8f to 4.6f)), color)
         Telemetry.Shape.DOWN -> drawPath(polygon(center, unit, listOf(0f to 6f, 5.8f to -4.6f, -5.8f to -4.6f)), color)
         Telemetry.Shape.RING -> drawCircle(color, 4.4f * unit, center, style = Stroke(width = 2f * unit))
+        Telemetry.Shape.PLUS -> drawPath(
+            polygon(
+                center, unit,
+                listOf(
+                    -1.8f to -6f, 1.8f to -6f, 1.8f to -1.8f, 6f to -1.8f, 6f to 1.8f, 1.8f to 1.8f,
+                    1.8f to 6f, -1.8f to 6f, -1.8f to 1.8f, -6f to 1.8f, -6f to -1.8f, -1.8f to -1.8f,
+                ),
+            ),
+            color,
+        )
+        Telemetry.Shape.DOT -> drawCircle(color, 3.2f * unit, center)
         Telemetry.Shape.BAR -> drawRoundRect(
             color, topLeft = center - Offset(1.6f * unit, 7f * unit), size = Size(3.2f * unit, 14f * unit),
             cornerRadius = CornerRadius(1.6f * unit),
@@ -116,7 +133,7 @@ private fun DrawScope.drawKindMark(shape: Telemetry.Shape, center: Offset, color
 
 /** A kind's mark on its own, for a chip, a row or the details of an event. */
 @Composable
-private fun KindSwatch(kindId: String, alpha: Float = 1f) {
+internal fun KindSwatch(kindId: String, alpha: Float = 1f) {
     val colors = console
     val kind = Telemetry.kindOf(kindId)
     val color = hueColor(kind.hue, colors).copy(alpha = alpha)
@@ -173,8 +190,10 @@ fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
         add(ScreenAction("Board: $boardLabel", Glyph.CHIP) { boardOpen = true })
     }
 
-    val consoleEvents = data?.audit?.mapNotNull(Telemetry::consoleEvent)
-    val lanes = if (data != null) Telemetry.lanesOf(data.events, devices, page.thing, consoleEvents) else emptyList()
+    val consoleEvents = data?.audit?.mapNotNull { Telemetry.consoleEvent(it, devices) }
+    val log = data?.log
+    val lines = if (page.log && log != null && log.error == null) BoardLog.shown(log.lines, page.hidden) else emptyList()
+    val lanes = if (data != null) Telemetry.lanesOf(data.events, devices, page.thing, consoleEvents, lines) else emptyList()
     val shownByLane = lanes.associate { it.id to Telemetry.shownEvents(listOf(it), page.hidden) }
     val shown = Telemetry.shownEvents(lanes, page.hidden).distinctBy { Telemetry.eventKey(it) }
     val rangeText = Telemetry.rangeWords(span)
@@ -210,6 +229,9 @@ fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
                         style = ConsoleType.note,
                         color = colors.ink3,
                     )
+                }
+                if (lines.isNotEmpty()) {
+                    Text(BoardLog.TICKS_NOTE, Modifier.padding(top = 8.dp), style = ConsoleType.note, color = colors.ink3)
                 }
             }
         }
@@ -248,6 +270,7 @@ fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
         page.moreError?.let { error ->
             item(key = "more-error") { OneLine("Could not load more. ${messageOf(error)}", "Try again" to vm::loadMoreEvents, Tone.BAD, Glyph.ALERT) }
         }
+        boardLog(vm, page, log, lines, devices, now)
     }
 
     if (customOpen) CustomRangeDialog(vm, span) { customOpen = false }
@@ -262,6 +285,106 @@ fun EventsScreen(vm: ConsoleViewModel, store: Store, now: Long) {
             },
             onClose = { boardOpen = false },
         )
+    }
+}
+
+/**
+ * The Board log (telemetry.js boardLogCard): every line a board on firmware 1.12.0 or later printed
+ * on its serial console in the range, newest first, by day, with a source to narrow it to, or hidden.
+ */
+private fun LazyListScope.boardLog(
+    vm: ConsoleViewModel,
+    page: EventsPage,
+    log: LogData?,
+    lines: List<BoardLine>,
+    devices: List<Device>,
+    now: Long,
+) {
+    header(BoardLog.TITLE, key = "log-head")
+    item(key = "log-tools") { LogTools(vm, page, log, lines) }
+    val error = log?.error
+    when {
+        !page.log -> item(key = "log-hidden") { OneLine(BoardLog.HIDDEN_NOTE) }
+        error != null -> item(key = "log-failed") {
+            OneLine("${BoardLog.FAILED} ${messageOf(error)}", "Try again" to vm::refreshNow, Tone.BAD, Glyph.ALERT)
+        }
+        log == null -> loading("the board log")
+        lines.isEmpty() -> item(key = "log-empty") {
+            OneLine("${BoardLog.EMPTY_TITLE} ${BoardLog.emptyText(page.tag, page.thing, page.hidden)}", glyph = Glyph.LIST)
+        }
+        else -> {
+            var day: String? = null
+            for (line in lines) {
+                val label = Words.dayLabel(line.at, now)
+                if (label != day) {
+                    day = label
+                    header("${BoardLog.TITLE} · $label", key = "log-day-$label")
+                }
+                item(key = "line-${line.key}") { BoardLineRow(line, devices) }
+            }
+        }
+    }
+    if (page.log && log?.cursor != null && error == null) {
+        item(key = "log-more") {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 12.dp)) {
+                ConsoleButton(
+                    if (page.linesMoreLoading) "Loading…" else BoardLog.LOAD_MORE,
+                    vm::loadMoreLines,
+                    enabled = !page.linesMoreLoading,
+                    small = true,
+                )
+            }
+        }
+    }
+    page.linesMoreError?.let { problem ->
+        item(key = "log-more-error") { OneLine("Could not load more. ${messageOf(problem)}", "Try again" to vm::loadMoreLines, Tone.BAD, Glyph.ALERT) }
+    }
+}
+
+/** Above the lines: how many, the source they are narrowed to, and Hide or Show. */
+@Composable
+private fun LogTools(vm: ConsoleViewModel, page: EventsPage, log: LogData?, lines: List<BoardLine>) {
+    var choosing by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (page.log && log != null && log.error == null && lines.isNotEmpty()) {
+            Text(BoardLog.count(lines, more = log.cursor != null), style = ConsoleType.small, color = console.ink2)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (page.log) {
+                Box {
+                    ConsoleButton(
+                        "${BoardLog.SOURCE}: ${page.tag.ifEmpty { BoardLog.ALL_SOURCES }}",
+                        { choosing = true },
+                        small = true,
+                        glyph = Glyph.LIST,
+                    )
+                    DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }, containerColor = console.surface) {
+                        for (tag in listOf("") + BoardLog.TAGS) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        tag.ifEmpty { BoardLog.ALL_SOURCES },
+                                        style = if (tag.isEmpty()) ConsoleType.body else ConsoleType.mono,
+                                        color = console.ink,
+                                    )
+                                },
+                                leadingIcon = if (tag == page.tag) ({ GlyphIcon(Glyph.CHECK, tint = console.accent) }) else null,
+                                onClick = {
+                                    choosing = false
+                                    vm.chooseTag(tag)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            ConsoleButton(
+                if (page.log) BoardLog.HIDE else BoardLog.SHOW,
+                vm::toggleLog,
+                Modifier.semantics { stateDescription = if (page.log) "Shown" else "Hidden" },
+                small = true,
+            )
+        }
     }
 }
 
@@ -434,8 +557,9 @@ private fun Timeline(
     // Where the loaded events of a range with more pages begin.
     val oldestLoaded = if (data.cursor != null && data.events.isNotEmpty()) data.events.last().atMs else null
     val hasConsole = lanes.any { it.id == "console" }
+    val hasLines = lanes.any { it.lines.isNotEmpty() }
     val description = "Timeline of events, $rangeText. One lane per board${if (hasConsole) " and one for the console" else ""}. " +
-        "The list below has every event."
+        "The list below has every event${if (hasLines) ", and the board log under it every line of the boards’ own logs" else ""}."
 
     Canvas(
         Modifier
@@ -548,6 +672,19 @@ private fun Timeline(
                         size = Size((x(band.toMs) - from).coerceAtLeast(unit), trackPx),
                     )
                 }
+            }
+
+            // The board's own log, as ticks at the foot of the lane: part of the drawing only, never read out.
+            for (line in item.lines) {
+                val at = x(line.atMs)
+                val warn = line.warn
+                drawLine(
+                    if (warn) colors.warn else hueColor(Telemetry.kindOf(line.kind).hue, colors).copy(alpha = 0.8f),
+                    Offset(at, trackTop + trackPx - 7 * unit),
+                    Offset(at, trackTop + trackPx - 1 * unit),
+                    strokeWidth = (if (warn) 2f else 1.5f) * unit,
+                    cap = StrokeCap.Round,
+                )
             }
 
             // The events, oldest first, so that the newest lies on top.

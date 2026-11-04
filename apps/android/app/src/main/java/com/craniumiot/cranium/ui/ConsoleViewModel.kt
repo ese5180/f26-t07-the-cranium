@@ -23,6 +23,7 @@ import com.craniumiot.cranium.core.ApiToken
 import com.craniumiot.cranium.core.AuditEntry
 import com.craniumiot.cranium.core.AuditPage
 import com.craniumiot.cranium.core.BiometricPolicy
+import com.craniumiot.cranium.core.BoardLog
 import com.craniumiot.cranium.core.CacheSummary
 import com.craniumiot.cranium.core.Deployment
 import com.craniumiot.cranium.core.DeploymentSummary
@@ -37,6 +38,7 @@ import com.craniumiot.cranium.core.HelpLoad
 import com.craniumiot.cranium.core.HelpReader
 import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.core.RecentSearches
+import com.craniumiot.cranium.core.SerialRecord
 import com.craniumiot.cranium.core.SignInStep
 import com.craniumiot.cranium.core.SignInWords
 import com.craniumiot.cranium.core.ImageCheck
@@ -400,6 +402,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         try {
             val me = client.me()
             _store.update { it.copy(me = me) }
+            recordSerialCommands(me.canWrite)
             _recent.value = withContext(Dispatchers.IO) { auth?.recentSearches().orEmpty() }
             _gate.value = Gate.Ready
             showCache()
@@ -639,7 +642,29 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         _gate.value = Gate.SignIn(notice = message)
     }
 
+    /**
+     * A release manager's commands that change a board at its serial console go on record, once the
+     * board said OK (serial.js RECORDED): by name, with the board as it gave itself, never a value.
+     */
+    private fun recordSerialCommands(canWrite: Boolean) {
+        usb.session.recorder = if (canWrite) ::recordSerialCommand else null
+    }
+
+    /** Null once it is in the activity log, else why not, in words. The route needs no fresh sign-in. */
+    private suspend fun recordSerialCommand(record: SerialRecord): String? {
+        val client = api ?: return "The app is not signed in."
+        return try {
+            client.recordSerialCommand(record)
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Messages.describe(e)
+        }
+    }
+
     private fun resetEverything() {
+        usb.session.recorder = null
         bluetooth.reset()
         viewModelScope.launch { usb.session.disconnect() }
         auth?.cancelPasswordSignIn()
@@ -951,6 +976,10 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 if (due(store.firmware, full)) launch { loadFirmware() }
                 if (due(store.deployments, full)) launch { loadDeployments() }
                 if (due(store.samples[thing] ?: Resource(), full, Telemetry.SAMPLES_REFRESH_MS)) launch { loadSamples(thing) }
+                // The board's latest lines, on its own page only: every 30 s.
+                if (route is Route.Board && due(store.boardLines[thing] ?: Resource(), full, BoardLog.RECENT_REFRESH_MS)) {
+                    launch { loadBoardLines(thing) }
+                }
             }
             Route.Firmware -> coroutineScope {
                 launch { loadFirmware() }
@@ -1056,7 +1085,8 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         return when (route) {
             Route.Firmware -> _dialog.value != null || _upload.value.inHand
             Route.Activity -> store.auditMoreLoading || (store.audit.value?.entries?.size ?: 0) > ACTIVITY_PAGE
-            Route.Events -> store.events.moreLoading || (store.events.data.value?.pages ?: 1) > 1
+            Route.Events -> store.events.moreLoading || store.events.linesMoreLoading || (store.events.data.value?.pages ?: 1) > 1 ||
+                (store.events.data.value?.log?.pages ?: 1) > 1
             Route.Tokens -> _dialog.value != null
             else -> false
         }
@@ -1152,17 +1182,102 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         val devicesDue = full || _store.value.devices.loadedAt == 0L || now() - _store.value.devices.loadedAt > 25_000
         coroutineScope {
             launch {
-                load({ it.events.data }, { copy(events = events.copy(data = it, moreLoading = false, moreError = null)) }) { client ->
+                load({ it.events.data }, {
+                    copy(events = events.copy(data = it, moreLoading = false, moreError = null, linesMoreLoading = false, linesMoreError = null))
+                }) { client ->
                     coroutineScope {
                         val read = async { client.events(query.from, query.to, query.thing, query.kinds, null) }
                         val audit = async { if ("console" in page.hidden) null else consoleEntries(client, span.fromMs, span.toMs) }
+                        val log = async { boardLogOf(client, page, span) }
                         val events: EventPage = read.await()
                         val console = audit.await()
-                        EventsData(events.events, events.cursor, span, query, console?.first, console?.second ?: false, 1)
+                        EventsData(events.events, events.cursor, span, query, console?.first, console?.second ?: false, 1, log.await())
                     }
                 }
             }
             if (devicesDue) launch { loadDevices() }
+        }
+    }
+
+    /**
+     * The board log of the range, as the page shows it (telemetry.js boardLogOf): null while it is
+     * hidden, and its error, which leaves the events as they are, when it could not be read.
+     */
+    private suspend fun boardLogOf(client: ApiClient, page: EventsPage, span: Telemetry.TimeSpan): LogData? {
+        if (!page.log) return null
+        val asked = BoardLog.query(page.hidden, page.tag)
+        val query = LogQuery(Times.iso(span.fromMs), Times.iso(span.toMs), page.thing.ifEmpty { null }, asked.kinds, asked.tags)
+        if (asked.none) return LogData(query = query)
+        return try {
+            val read = client.boardLog(query.from, query.to, query.thing, query.kinds, query.tags)
+            LogData(read.lines, read.cursor, query)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SignedOutException) {
+            throw e
+        } catch (e: Exception) {
+            LogData(query = query, error = e)
+        }
+    }
+
+    fun loadMoreLines() {
+        val page = _store.value.events
+        val log = page.data.value?.log ?: return
+        val cursor = log.cursor ?: return
+        val query = log.query ?: return
+        if (page.linesMoreLoading) return
+        val client = api ?: return
+        _store.update { it.copy(events = it.events.copy(linesMoreLoading = true, linesMoreError = null)) }
+        viewModelScope.launch {
+            try {
+                val next = client.boardLog(query.from, query.to, query.thing, query.kinds, query.tags, cursor = cursor)
+                _store.update { s ->
+                    val data = s.events.data.value ?: return@update s
+                    val now = data.log ?: return@update s
+                    s.copy(
+                        events = s.events.copy(
+                            data = s.events.data.copy(
+                                value = data.copy(log = now.copy(lines = now.lines + next.lines, cursor = next.cursor, pages = now.pages + 1)),
+                            ),
+                            linesMoreLoading = false,
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SignedOutException) {
+                toSignIn(Messages.describe(e))
+            } catch (e: Exception) {
+                _store.update { it.copy(events = it.events.copy(linesMoreLoading = false, linesMoreError = e)) }
+            }
+        }
+    }
+
+    /** "Show the board log" and "Hide the board log". */
+    fun toggleLog() {
+        _store.update { it.copy(events = it.events.copy(log = !it.events.log)) }
+        viewModelScope.launch { refresh(Route.Events, full = true) }
+    }
+
+    /** The one source the board log is narrowed to, "" for all of them. */
+    fun chooseTag(tag: String) {
+        _store.update { it.copy(events = it.events.copy(tag = if (tag in BoardLog.TAGS) tag else "")) }
+        viewModelScope.launch { refresh(Route.Events, full = true) }
+    }
+
+    /** "All lines" on a board's page: Events, for that board, with its log shown. */
+    fun openBoardLog(thing: String) {
+        _store.update {
+            it.copy(events = it.events.copy(thing = if (ApiJson.isThing(thing)) thing else "", log = true, selected = null))
+        }
+        open(Route.Events)
+    }
+
+    /** A board's newest lines of its own log, from the last 24 hours, for its page. */
+    private suspend fun loadBoardLines(thing: String) {
+        val to = now()
+        load({ it.boardLines[thing] ?: Resource() }, { copy(boardLines = boardLines + (thing to it)) }) { client ->
+            client.boardLog(Times.iso(to - BoardLog.RECENT_MS), Times.iso(to), thing = thing, limit = BoardLog.RECENT_COUNT)
         }
     }
 
@@ -1510,6 +1625,34 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // A release's note, changed after its upload (core.js setNotes): one line, at most 500 characters.
+
+    fun openNotes(version: String) {
+        if (_store.value.me?.canWrite != true || _dialog.value != null) return
+        val release = _store.value.releases?.firstOrNull { it.version == version } ?: return
+        _dialog.value = DialogState.Notes(version, release.notes)
+    }
+
+    fun notesText(text: String) = _dialog.update { d ->
+        if (d is DialogState.Notes) d.copy(notes = text.take(NOTES_LIMIT), error = null) else d
+    }
+
+    fun submitNotes() {
+        val d = _dialog.value as? DialogState.Notes ?: return
+        if (d.sending) return
+        val notes = Words.singleLine(d.notes).take(NOTES_LIMIT)
+        _dialog.value = d.copy(sending = true, error = null)
+        change(fail = { e -> _dialog.update { if (it is DialogState.Notes) it.copy(sending = false, error = e) else it } }) { client ->
+            val changed = client.setNotes(d.version, notes)
+            _store.update { s ->
+                val list = s.firmware.value ?: return@update s
+                s.copy(firmware = s.firmware.copy(value = list.copy(releases = list.releases.map { if (it.version == changed.version) changed else it })))
+            }
+            _dialog.value = null
+            notify(if (changed.notes.isNotEmpty()) "The note of ${changed.version} is saved." else "The note of ${changed.version} is cleared.")
+        }
+    }
+
     // API tokens.
 
     fun openCreateToken() {
@@ -1581,6 +1724,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         const val REQUESTS_AT_ONCE = 4
         const val LARGEST_FILE_READ = 8 * 1024 * 1024
         const val REASON_LIMIT = 200
+        const val NOTES_LIMIT = 500
         const val REPEATED_REASON = "Revocation applied again."
 
         /** A number of days the server takes for a token's life: 1 to 90. */

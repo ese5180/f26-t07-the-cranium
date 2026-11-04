@@ -26,7 +26,8 @@ class AuditTextTest {
     private fun describe(action: String, target: String, outcome: String = "ok", detail: List<Pair<String, String>> = emptyList()) =
         AuditText.describe(entry(action, target, outcome, detail))
 
-    private fun said(words: AuditWords) = "${words.verb} ${words.label}".trim()
+    private fun said(words: AuditWords) =
+        listOf(words.verb, words.label, words.tail, AuditText.boards(words)).filter { it.isNotEmpty() }.joinToString(" ")
 
     private fun facts(words: AuditWords) = words.facts.map { "${it.label}${if (it.phrase) "" else ":"} ${it.value}" }
 
@@ -60,9 +61,9 @@ class AuditTextTest {
     @Test
     fun `a deployment is called by the version it installs, its id one of the details`() {
         val started = describe("deployment.create", deployment, detail = listOf("version" to "1.1.0+7", "things" to "2"))
-        assertEquals("started a deployment of 1.1.0+7", said(started))
+        assertEquals("deployed 1.1.0+7 to 2 boards", said(started))
         assertEquals(LogLink.ToDeployment(deployment), started.link)
-        assertEquals(listOf(Triple("Boards", "2", false), Triple("Deployment", deployment, true)), started.facts.map { Triple(it.label, it.value, it.code) })
+        assertEquals(listOf(Triple("Deployment", deployment, true)), started.facts.map { Triple(it.label, it.value, it.code) })
         assertEquals("cancelled the deployment of 1.1.0+7", said(describe("deployment.cancel", deployment)))
         assertEquals("tried to cancel the deployment of 1.1.0+7", said(describe("deployment.cancel", deployment, "rejected")))
         assertEquals("tried to deploy 1.1.0+7", said(describe("deployment.create", "1.1.0+7", "rejected")))
@@ -109,7 +110,8 @@ class AuditTextTest {
             facts(describe("deployment.cancel", "1.1.0+7", "error", listOf("force" to "false", "cancelled" to "true", "code" to "internal"))),
         )
         assertEquals(
-            listOf("Refused with device_busy", "Boards 2"),
+            // The sentence says how many boards ("to 2 boards"), so the details do not again.
+            listOf("Refused with device_busy"),
             facts(describe("deployment.create", "1.1.0+7", "rejected", listOf("version" to "1.1.0+7", "things" to "2", "code" to "device_busy"))),
         )
         assertEquals(listOf("Version 9.9.9+9"), facts(describe("deployment.create", "1.1.0+7", detail = listOf("version" to "9.9.9+9"))))
@@ -155,7 +157,7 @@ class AuditTextTest {
     fun `the phone's calls read as what they were, with their board and why they were refused`() {
         val cleared = describe("firmware.bluetooth_send", "1.1.0+7", detail = listOf("sha256" to digest, "board" to "Cranium-1A2B"))
         assertEquals(Glyph.CHIP, cleared.glyph)
-        assertEquals("was cleared to send over Bluetooth 1.1.0+7", said(cleared))
+        assertEquals("was cleared to send 1.1.0+7 over Bluetooth", said(cleared))
         assertEquals(LogLink.ToFirmware, cleared.link)
         assertEquals(listOf(Triple("SHA-256", digest, true), Triple("To board", "Cranium-1A2B", true)), cleared.facts.map { Triple(it.label, it.value, it.code) })
         assertEquals(
@@ -173,7 +175,7 @@ class AuditTextTest {
         val read = describe("pairing.read", "Cranium-1A2B", detail = listOf("thing" to thing))
         assertEquals("read the Bluetooth passkey of Cranium-1A2B", said(read))
         assertEquals(listOf(listOf("thing", "Board", thing, "true")), read.facts.map { listOf(it.key, it.label, it.value, it.code.toString()) })
-        assertEquals("downloaded firmware to a phone 1.1.0+7", said(describe("firmware.download", "1.1.0+7")))
+        assertEquals("downloaded 1.1.0+7 to a phone", said(describe("firmware.download", "1.1.0+7")))
     }
 
     @Test
@@ -215,9 +217,11 @@ class AuditTextTest {
 
     @Test
     fun `the whole line as one sentence`() {
-        assertEquals("rm@example.com started a deployment of 1.1.0+7", AuditText.sentence(entry("deployment.create", deployment)))
-        assertEquals("rm@example.com tried to deploy 1.1.0+7 (refused)", AuditText.sentence(entry("deployment.create", "1.1.0+7", "rejected")))
-        assertEquals("an unknown account tried to upload a file (not allowed)", AuditText.sentence(entry("firmware.upload", "", "denied", actor = null)))
+        assertEquals("rm@example.com deployed 1.1.0+7", AuditText.sentence(entry("deployment.create", deployment)))
+        // The sentence is the website's auditSentence; the Console lane adds how it ended.
+        assertEquals("rm@example.com tried to deploy 1.1.0+7", AuditText.sentence(entry("deployment.create", "1.1.0+7", "rejected")))
+        assertEquals("rm@example.com tried to deploy 1.1.0+7 (refused)", AuditText.spoken(entry("deployment.create", "1.1.0+7", "rejected")))
+        assertEquals("an unknown account tried to upload a file (not allowed)", AuditText.spoken(entry("firmware.upload", "", "denied", actor = null)))
     }
 
     // The server's checks of an image.

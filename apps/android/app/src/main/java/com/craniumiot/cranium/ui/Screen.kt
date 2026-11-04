@@ -253,6 +253,8 @@ fun ListRow(
     headlineColor: Color? = null,
     headlineText: AnnotatedString? = null,
     supportingText: AnnotatedString? = null,
+    /** More words under the supporting line, cut at two lines: a release's note. */
+    note: String? = null,
 ) {
     val colors = console
     ListItem(
@@ -265,10 +267,20 @@ fun ListRow(
         },
         modifier = modifier.then(if (onClick != null) Modifier.clickableRow(onClick) else Modifier),
         overlineContent = overline?.let { { Text(it, style = ConsoleType.note, color = colors.ink3) } },
-        supportingContent = when {
-            supportingText != null -> ({ Text(supportingText, style = ConsoleType.small, color = colors.ink2) })
-            supporting != null -> ({ Text(prose(supporting), style = ConsoleType.small, color = colors.ink2) })
-            else -> null
+        supportingContent = if (supportingText != null || supporting != null || note != null) {
+            {
+                Column {
+                    when {
+                        supportingText != null -> Text(supportingText, style = ConsoleType.small, color = colors.ink2)
+                        supporting != null -> Text(prose(supporting), style = ConsoleType.small, color = colors.ink2)
+                    }
+                    if (note != null) {
+                        Text(note, style = ConsoleType.small, color = colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        } else {
+            null
         },
         leadingContent = leading,
         trailingContent = if (trailing != null || trailingText != null || chevron) {

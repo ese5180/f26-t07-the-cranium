@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
 import com.craniumiot.cranium.CraniumConfig
+import com.craniumiot.cranium.api.AccessTokens
 import com.craniumiot.cranium.core.AuthorizeRequest
 import com.craniumiot.cranium.core.BiometricPolicy
 import com.craniumiot.cranium.core.BiometricVault
@@ -73,7 +74,7 @@ class AuthManager(
     private val config: CraniumConfig,
     private val store: TokenStore,
     private val vault: BiometricVault,
-) {
+) : AccessTokens {
     private val service = AuthorizationService(context.applicationContext)
     private val endpoints = CognitoEndpoints(config.loginDomain)
     private val serviceConfig = AuthorizationServiceConfiguration(endpoints.authorize.toUri(), endpoints.token.toUri())
@@ -177,7 +178,7 @@ class AuthManager(
      * A current access token. With [forceRefresh], as after a 401, the tokens are refreshed even if
      * they look current. A refresh token that Cognito no longer takes signs the person out.
      */
-    suspend fun accessToken(forceRefresh: Boolean = false): String = mutex.withLock {
+    override suspend fun accessToken(forceRefresh: Boolean): String = mutex.withLock {
         enforceKeepRuleLocked()
         val current = session ?: throw SignedOutException("Sign in to continue.")
         val now = nowS()
@@ -225,7 +226,7 @@ class AuthManager(
     suspend fun authTime(): Long? = mutex.withLock { FreshSignIn.authTime(session?.accessToken) }
 
     /** Forget the tokens here, without telling Cognito: the console no longer takes them. */
-    suspend fun forget() {
+    override suspend fun forget() {
         mutex.withLock { forgetLocked() }
     }
 

@@ -46,6 +46,33 @@ class ApiPaths(consoleUrl: String) {
             ),
         )
 
+    /** The boards' own log between two times (ISO), newest first, a page at a time (`thing` is one board). */
+    fun boardLog(
+        from: String,
+        to: String,
+        thing: String? = null,
+        kinds: List<String>? = null,
+        tags: List<String>? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): String = "$base/api/events/log?" + formEncode(
+        listOfNotNull(
+            "from" to from,
+            "to" to to,
+            thing?.let { "thing" to it },
+            kinds?.let { "kinds" to it.joinToString(",") },
+            tags?.let { "tags" to it.joinToString(",") },
+            limit?.let { "limit" to it.coerceIn(1, BoardLog.PAGE).toString() },
+            cursor?.let { "cursor" to it },
+        ),
+    )
+
+    /** A release's note, changed after its upload. */
+    fun notes(version: String): String = "$base/api/firmware/${encodeSegment(version)}/notes"
+
+    /** The record of a command that changed a board at its serial console. */
+    val serialCommands: String get() = "$base/api/serial/commands"
+
     /** The website's history of commits, beside its scripts under the build id. */
     fun history(build: String): String = "$base/assets/${encodeSegment(build)}/history.json"
 

@@ -152,11 +152,17 @@ object Words {
      */
     fun singleLine(text: String?): String {
         val spaced = text.orEmpty().replace(Regex("[\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+"), " ")
-        return spaced.filter { ch ->
-            val type = Character.getType(ch)
-            type != Character.CONTROL.toInt() && type != Character.FORMAT.toInt() && type != Character.PRIVATE_USE.toInt() &&
+        // By code point, as the website's /\p{C}/u: an emoji is one, a lone half of a pair is not kept.
+        val kept = StringBuilder()
+        spaced.codePoints().forEach { point ->
+            val type = Character.getType(point)
+            if (type != Character.CONTROL.toInt() && type != Character.FORMAT.toInt() && type != Character.PRIVATE_USE.toInt() &&
                 type != Character.UNASSIGNED.toInt() && type != Character.SURROGATE.toInt()
-        }.trim()
+            ) {
+                kept.appendCodePoint(point)
+            }
+        }
+        return kept.toString().trim()
     }
 
     /** The name recorded for an upload: the file's name in the characters the API accepts. */

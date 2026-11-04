@@ -16,10 +16,10 @@ detail screen.
 | Section | What it does |
 | --- | --- |
 | Overview | Updates in progress, or how the last one ended; boards online; the newest release; boards on unregistered firmware; the last five entries of the activity log |
-| Boards | Every board, name first and thing name second, online or not, with its signal. A board's page has a header (name, thing, online, firmware), the update card only while an update is under way, and sub-pages: Firmware and slots (the flash map), Diagnostics (heartbeat to the second, uptime, signal, Wi-Fi, MAC, memory, stuck restarts, certificates, the last boots), Charts (signal and free memory over 24 h), Bluetooth, and Update history |
-| Firmware | Every release, active and revoked. A release's page deploys it; send over Bluetooth, copy the SHA-256 and revoke are in its menu. Upload a signed `.bin` from the phone's files: the header and size are checked on the phone, then the server verifies the signature |
-| Events | The boards' events with the console's activity as its own lane: ranges, a custom range, drag to zoom, a board filter, kinds on and off, online bands, and the list by day |
-| More | Deployments (a deployment's boards step by step; offer again; cancel in its menu), Activity (the log by day; an entry's page), Update over Bluetooth, Serial console, API tokens, History, Help, Account |
+| Boards | Every board, name first and thing name second, online or not, with its signal. A board's page has a header (name, thing, online, firmware), the update card only while an update is under way, and sub-pages: Firmware and slots (the flash map), Diagnostics (heartbeat to the second, uptime, signal, Wi-Fi, MAC, memory, stuck restarts, certificates, the last boots), Charts (signal and free memory over 24 h), Bluetooth, and Update history; then its latest lines (its newest 5 of the last 24 h) and All lines |
+| Firmware | Every release, active and revoked, with its note in two lines. A release's page has the whole note under What changed and deploys it; send over Bluetooth, copy the SHA-256, Edit note (release managers; a change, so the fresh sign-in rule holds) and revoke are in its menu. Upload a signed `.bin` from the phone's files: the header and size are checked on the phone, then the server verifies the signature |
+| Events | The boards' events with the console's activity as its own lane: ranges, a custom range, drag to zoom, a board filter, kinds on and off (Settings and Other lines among them), online bands, and the list by day. Then the Board log (`GET /api/events/log`, firmware 1.12.0 and later): each line to the second with its board, source, kind, a warning badge and the lines lost before it; a Source filter, Hide and Show, 500 lines a page; each line is also a tick at the foot of its board's lane, which TalkBack does not read |
+| More | Deployments (a deployment's boards step by step; offer again; cancel in its menu), Activity (the log by day, in the website's sentences: sign-ins, the commands given at a board's serial console, deployments by board name, downloads to a phone and Bluetooth sends; an entry's page), Update over Bluetooth, Serial console, API tokens, History, Help, Account |
 
 When what a page shows is out of date (the last read failed, or it is much older than the page's
 schedule), a clock shows in the top bar; tap it to read again, or pull the list down.
@@ -95,6 +95,13 @@ line, and the transcript. If the board does not answer within 2 s, the page says
 other port. The Wi-Fi password is masked in the transcript, never kept in the history, held only in
 its field until it is sent, and the bytes sent are overwritten afterwards; the board is told to stop
 echoing before any line that holds one. Commands that erase the board need their name typed.
+
+For a release manager, a command that changes the board (the 14 of `SerialRules.RECORDED`, the
+website's list) goes on record in the activity log once the board answered OK:
+`POST /api/serial/commands` with the command's name and the board's device ID and firmware version
+as it gave them (`GET_ID`), and nothing else, never a network, password, endpoint or certificate.
+It is tried once and needs no fresh sign-in. Under the board's answer the page says "In the activity
+log." or "Done on the board, but not in the activity log." with why.
 
 It uses [usb-serial-for-android](https://github.com/mik3y/usb-serial-for-android) 3.11.0 (MIT
 licence), from JitPack, the only thing taken from there (`settings.gradle.kts`).
@@ -194,13 +201,21 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (307 of them) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (337 of them) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
 firmware cache, search, reading the help file (`apps/shared/help.json` itself too, when it is
 there), and fingerprint unlock: its rules, and every answer of the key and the prompt, with a
 software key standing in for the Keystore's (`FingerprintTest`).
+
+The activity log's sentences are the website's own examples from `cloud/web/test/core.test.mjs`,
+one for one (`AuditParityTest`), and `WebsiteListsTest` reads `core.js`, `serial.js` and the API's
+`serial.mjs` and `lines.mjs` in this checkout, so that the refusal words, the words of the serial
+commands, sign-ins and actions, the recorded commands and the board log's sources and kinds cannot
+drift from them. The note, serial record and board log requests run against a fake console on
+localhost (`ApiClientTest`), and the record a serial command leaves against a fake cable
+(`SerialRecordTest`).
 
 The sign-in's arithmetic is checked against the website's own code: `app/src/test/resources/srp/make-vectors.mjs`
 runs the website's SRP in Node with a fixed secret, salt, B, user, password and time and writes

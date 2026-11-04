@@ -37,7 +37,7 @@ object Telemetry {
     private const val TIGHT_HEAP_SHARE = 0.3
 
     /** The kinds of event: a family hue (a, b, c, quiet) and a shape, in the order of the legend. */
-    enum class Shape { CIRCLE, SQUARE, DIAMOND, DOWN, UP, RING, BAR }
+    enum class Shape { CIRCLE, SQUARE, DIAMOND, DOWN, UP, RING, PLUS, DOT, BAR }
 
     enum class Hue { A, B, C, QUIET }
 
@@ -50,6 +50,9 @@ object Telemetry {
         Kind("health", "Wi-Fi and memory", Shape.DOWN, Hue.C),
         Kind("bluetooth", "Bluetooth", Shape.UP, Hue.B),
         Kind("console", "Console", Shape.RING, Hue.B),
+        // Lines of the board log only: a setting changed at a board's serial console, and the rest.
+        Kind("setting", "Settings", Shape.PLUS, Hue.B),
+        Kind("log", "Other lines", Shape.DOT, Hue.QUIET),
         Kind("connection", "Connection", Shape.BAR, Hue.QUIET),
     )
 
@@ -145,7 +148,7 @@ object Telemetry {
     }
 
     /** An entry of the activity log as an event of the Console lane. */
-    fun consoleEvent(entry: AuditEntry): BoardEvent? {
+    fun consoleEvent(entry: AuditEntry, devices: List<Device>? = null): BoardEvent? {
         val at = entry.at ?: return null
         val words = AuditText.describe(entry)
         val link = when (val target = words.link) {
@@ -160,22 +163,45 @@ object Telemetry {
             kind = "console",
             what = entry.action,
             level = if (entry.outcome == "ok") "info" else "warn",
-            text = AuditText.sentence(entry),
+            text = AuditText.spoken(entry, devices),
             href = link,
         )
     }
 
-    data class Lane(val id: String, val thing: String?, val label: String, val device: Device?, val events: List<BoardEvent>)
+    /**
+     * A lane of the timeline. [lines] are its board's own log in the range, drawn as ticks at the
+     * foot of the lane: where it was talking, not read out (the Board log lists every one).
+     */
+    data class Lane(
+        val id: String,
+        val thing: String?,
+        val label: String,
+        val device: Device?,
+        val events: List<BoardEvent>,
+        val lines: List<BoardLine> = emptyList(),
+    )
 
-    /** The lanes of the timeline: one per board, in the order of their thing names, and the Console lane last. */
-    fun lanesOf(events: List<BoardEvent>, devices: List<Device>, thing: String = "", consoleEvents: List<BoardEvent>?): List<Lane> {
+    /**
+     * The lanes of the timeline: one per board, in the order of their thing names, and the Console
+     * lane last. A board that has events or lines and is no longer in the list keeps its lane.
+     */
+    fun lanesOf(
+        events: List<BoardEvent>,
+        devices: List<Device>,
+        thing: String = "",
+        consoleEvents: List<BoardEvent>?,
+        lines: List<BoardLine> = emptyList(),
+    ): List<Lane> {
         val names = if (thing.isNotEmpty()) {
             listOf(thing)
         } else {
-            (devices.map { it.thing } + events.mapNotNull { it.thing }).toSortedSet().filter { ApiJson.isThing(it) }
+            (devices.map { it.thing } + events.mapNotNull { it.thing } + lines.map { it.thing }).toSortedSet().filter { ApiJson.isThing(it) }
         }
         val lanes = names.map { name ->
-            Lane(name, name, Boards.name(Boards.of(name, devices)), devices.firstOrNull { it.thing == name }, events.filter { it.thing == name })
+            Lane(
+                name, name, Boards.name(Boards.of(name, devices)), devices.firstOrNull { it.thing == name },
+                events.filter { it.thing == name }, lines.filter { it.thing == name },
+            )
         }.toMutableList()
         if (consoleEvents != null) lanes += Lane("console", null, "Console", null, consoleEvents)
         return lanes

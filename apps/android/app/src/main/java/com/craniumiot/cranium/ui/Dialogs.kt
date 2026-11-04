@@ -441,6 +441,37 @@ fun RevokeDialog(vm: ConsoleViewModel, model: DialogState.Revoke, store: Store, 
     }
 }
 
+/** A release's note (views.js notesDialog): what it changed, one line of up to 500 characters, empty for none. */
+@Composable
+fun NotesDialog(vm: ConsoleViewModel, model: DialogState.Notes) {
+    val left = ConsoleViewModel.NOTES_LIMIT - model.notes.length
+    ConsoleDialog(
+        title = titled("The note of " to false, model.version to true),
+        onClose = vm::closeDialog,
+        busy = model.sending,
+        error = if (model.error != null) { { Failure("The note was not saved.", model.error) } } else null,
+        foot = {
+            ConsoleButton("Cancel", vm::closeDialog, enabled = !model.sending, small = true)
+            Spacer(Modifier.weight(1f))
+            ConsoleButton(
+                if (model.sending) "Saving…" else "Save note", vm::submitNotes,
+                kind = ButtonKind.PRIMARY, glyph = Glyph.CHECK, small = true, busy = model.sending,
+            )
+        },
+    ) {
+        Text(
+            "What this release changed, in a sentence or two. It is shown with the release on the Firmware page and in the " +
+                "phone apps. Leave it empty for no note.",
+            style = ConsoleType.small,
+        )
+        ConsoleField(
+            model.notes, vm::notesText, "Note", singleLine = false, minLines = 3, enabled = !model.sending,
+            hint = "$left characters left",
+            maxLength = ConsoleViewModel.NOTES_LIMIT,
+        )
+    }
+}
+
 @Composable
 fun CreateTokenDialog(vm: ConsoleViewModel, model: DialogState.CreateToken, now: Long) {
     val made = model.made

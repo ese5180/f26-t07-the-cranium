@@ -191,9 +191,9 @@ class SearchTest {
             target = "cranium-1-11-4-b0-20261102T030405Z-abcd", outcome = "ok", detail = listOf("things" to "1"), requestId = "req-1",
         )
         val item = Search.activity(listOf(entry)).single()
-        assertEquals("rm@example.invalid started a deployment of 1.11.4+0", item.title)
+        assertEquals("rm@example.invalid deployed 1.11.4+0 to 1 board", item.title)
         assertEquals(SearchTarget.Activity(LogLink.ToDeployment("cranium-1-11-4-b0-20261102T030405Z-abcd")), item.target)
-        assertEquals(SearchKind.ACTIVITY, Search.rank("started deployment", listOf(item)).single().item.kind)
+        assertEquals(SearchKind.ACTIVITY, Search.rank("deployed 1.11", listOf(item)).single().item.kind)
     }
 
     @Test

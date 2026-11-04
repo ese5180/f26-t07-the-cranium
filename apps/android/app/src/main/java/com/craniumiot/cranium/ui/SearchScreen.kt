@@ -126,7 +126,8 @@ private fun searchItems(store: Store, help: HelpLoad): List<SearchItem> {
         Search.releases(store.releases.orEmpty()) +
         Search.deployments(store.deployments.value.orEmpty(), devices) +
         Search.events(store.events.data.value?.events.orEmpty(), devices) +
-        Search.activity(audit) +
+        Search.lines(store.events.data.value?.log?.lines.orEmpty(), devices) +
+        Search.activity(audit, devices) +
         ((help as? HelpLoad.Ok)?.let { Search.help(it.book) } ?: emptyList())
 }
 
@@ -148,6 +149,7 @@ private fun glyphOf(hit: SearchHit): Glyph = when (hit.item.kind) {
     SearchKind.RELEASE -> Glyph.PACKAGE
     SearchKind.DEPLOYMENT -> Glyph.SEND
     SearchKind.EVENT -> Glyph.PULSE
+    SearchKind.LINE -> Glyph.TERMINAL
     SearchKind.ACTIVITY -> Glyph.LIST
     SearchKind.HELP -> Glyph.HELP
 }
@@ -162,6 +164,7 @@ private fun openTarget(vm: ConsoleViewModel, target: SearchTarget) {
             vm.showEvent(target.key)
             vm.open(Route.Events)
         }
+        is SearchTarget.BoardLog -> vm.openBoardLog(target.thing)
         is SearchTarget.Activity -> vm.open(routeOf(target.link) ?: Route.Activity)
         is SearchTarget.Help -> vm.open(Route.HelpPage(target.id))
         is SearchTarget.Screen -> when (target.id) {

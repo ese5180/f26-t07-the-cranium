@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
@@ -25,8 +27,44 @@ import java.nio.charset.CodingErrorAction
  * command, the history leaves such a command out, and the bytes that went to the board are
  * overwritten once they are written.
  */
+/**
+ * A command that changed a board at its serial console, for the activity log
+ * (`POST /api/serial/commands`, cloud/api/src/handlers/serial.mjs): its name, and the board's own
+ * device ID and firmware version as it gave them over the cable (GET_ID). Never a value: no
+ * network name, password, endpoint, key or certificate. Nothing else goes in the body.
+ */
+data class SerialRecord(val command: String, val device: String? = null, val version: String? = null) {
+    fun toJson(): String = buildJsonObject {
+        put("command", command)
+        if (device != null) put("device", device)
+        if (version != null) put("version", version)
+    }.toString()
+}
+
 object SerialRules {
     const val BAUD_RATE = 115_200
+
+    /**
+     * The commands that change a board, which the activity log hears of once the board said OK
+     * (serial.js RECORDED, serial.mjs SERIAL_COMMANDS): those firmware 1.12.0 also reports itself,
+     * the two that erase it, and the two that restart it, one of them into its bootloader.
+     */
+    val RECORDED = setOf(
+        "INIT", "SET_ID", "RESET_CONFIG", "FACTORY_RESET", "WIFI", "WIFI_SEC", "CLEAR_WIFI", "CLOUD", "KEYGEN",
+        "MQTT_HOST", "MQTT_RECONNECT", "BUTTON", "REBOOT", "ENTER_BOOTLOADER",
+    )
+    private val RECORD_DEVICE = Regex("^[0-9A-Za-z]{1,32}$")
+    private val RECORD_VERSION = Regex("^(0|[1-9]\\d{0,2})\\.(0|[1-9]\\d{0,2})\\.(0|[1-9]\\d{0,4})\\+(0|[1-9]\\d{0,9})$")
+
+    /** What goes on record for a command the board answered OK to, or null for one that is not recorded. */
+    fun record(name: String, board: SerialSession.BoardId?): SerialRecord? {
+        if (name !in RECORDED) return null
+        return SerialRecord(
+            command = name,
+            device = board?.id?.takeIf { RECORD_DEVICE.matches(it) },
+            version = board?.version?.takeIf { RECORD_VERSION.matches(it) },
+        )
+    }
     const val SEGGER_VENDOR_ID = 0x1366
     const val PROBE_MS = 2_000L
     const val REPLY_MS = 10_000L
@@ -402,7 +440,16 @@ class SerialSession(private val scope: CoroutineScope, private val clock: () -> 
 
     enum class ReplyKind { WAIT, OK, ERR, NONE }
 
-    data class Reply(val form: String, val kind: ReplyKind, val text: String)
+    /** Whether the command a form sent is in the activity log. */
+    enum class Record { SENDING, DONE, FAILED }
+
+    data class Reply(
+        val form: String,
+        val kind: ReplyKind,
+        val text: String,
+        val record: Record? = null,
+        val recordProblem: String? = null,
+    )
 
     data class BoardId(val id: String, val version: String)
 
@@ -439,6 +486,7 @@ class SerialSession(private val scope: CoroutineScope, private val clock: () -> 
         val form: String?,
         val result: CompletableDeferred<SerialRules.Received.Final?>,
         val lines: MutableList<String>?,
+        val auto: Boolean,
     ) {
         var echoed = false
         var timer: Job? = null
@@ -447,6 +495,38 @@ class SerialSession(private val scope: CoroutineScope, private val clock: () -> 
     private val waiting = ArrayDeque<Waiting>()
 
     val isOpen: Boolean get() = link != null
+
+    /**
+     * Puts a command the board answered OK to on record, and answers null when that went through,
+     * else what went wrong in words. Set for a release manager only; without it nothing is recorded.
+     */
+    var recorder: (suspend (SerialRecord) -> String?)? = null
+
+    /** The record of a form's command, while the form's reply is still the one about it. */
+    private fun markRecord(form: String?, record: Record, problem: String? = null) {
+        if (form == null) return
+        _state.update { s ->
+            val reply = s.reply
+            if (reply?.form == form) s.copy(reply = reply.copy(record = record, recordProblem = problem)) else s
+        }
+    }
+
+    /** Put on record a command the board did: by name, with the board as it said it is. Never a value. */
+    private fun recordCommand(name: String, form: String?, record: suspend (SerialRecord) -> String?) {
+        val entry = SerialRules.record(name, _state.value.board) ?: return
+        markRecord(form, Record.SENDING)
+        scope.launch {
+            val problem = record(entry)
+            if (problem == null) {
+                note("$name is in the activity log, under your name.")
+                markRecord(form, Record.DONE)
+            } else {
+                val why = if (problem.isNotEmpty()) " $problem" else ""
+                note("$name was done on the board, but it could not be put in the activity log.$why", NoteTone.WARN)
+                markRecord(form, Record.FAILED, "Done on the board, but not in the activity log.$why")
+            }
+        }
+    }
 
     private fun add(line: Line) {
         _state.update { s ->
@@ -491,7 +571,7 @@ class SerialSession(private val scope: CoroutineScope, private val clock: () -> 
         val name = SerialRules.commandName(command)
         add(line(Kind.SENT, shown, auto = auto))
         if (form != null) _state.update { it.copy(reply = Reply(form, ReplyKind.WAIT, "Sent, waiting for the board.")) }
-        val entry = Waiting(shown, name, form, CompletableDeferred(), if (name == "MQTT") mutableListOf() else null)
+        val entry = Waiting(shown, name, form, CompletableDeferred(), if (name == "MQTT") mutableListOf() else null, auto)
         entry.timer = scope.launch {
             delay(wait)
             if (waiting.remove(entry)) {
@@ -581,6 +661,10 @@ class SerialSession(private val scope: CoroutineScope, private val clock: () -> 
                 }
                 next
             }
+        }
+        val record = recorder
+        if (entry != null && record != null && final.ok && !entry.auto && entry.name in SerialRules.RECORDED) {
+            recordCommand(entry.name, entry.form, record)
         }
         add(line(if (final.ok) Kind.OK else Kind.ERR, final.text))
         _state.update {

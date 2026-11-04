@@ -62,6 +62,8 @@ private fun ReleaseRow(vm: ConsoleViewModel, release: Release, newest: Boolean, 
         } else {
             "Revoked ${Words.timeAgo(release.revoked?.at, now)}" + (release.revoked?.reason?.takeIf { it.isNotEmpty() }?.let { ": $it" } ?: "")
         },
+        // What changed, in two lines; the whole note is on the release's page.
+        note = release.notes.ifEmpty { null },
         leading = { StateDot(if (release.isActive) Tone.GOOD else Tone.BAD) },
         trailing = {
             when {
@@ -102,6 +104,8 @@ fun ReleaseScreen(vm: ConsoleViewModel, store: Store, version: String, now: Long
                     vm.notify("Copied the SHA-256 of $version.")
                 }
             },
+            // A release manager changes the note of any release, revoked ones too.
+            if (canWrite && release != null) ScreenAction("Edit note", Glyph.FILE) { vm.openNotes(version) } else null,
             if (canWrite && revocation == Updates.RevocationState.UNKNOWN) ScreenAction("Apply the revocation again", Glyph.BAN) { vm.openRevoke(version) } else null,
             if (canWrite && release?.isActive == true) ScreenAction("Revoke", Glyph.BAN, danger = true) { vm.openRevoke(version) } else null,
         ),
@@ -117,9 +121,14 @@ fun ReleaseScreen(vm: ConsoleViewModel, store: Store, version: String, now: Long
             item(key = "missing") { OneLine("There is no release $version.", "All releases" to { vm.open(Route.Firmware) }) }
             return@ConsoleScreen
         }
-        block("status") {
-            Wrap { ReleaseBadges(release) }
-            if (release.notes.isNotEmpty()) Text(release.notes, style = ConsoleType.body, color = console.ink)
+        block("status") { Wrap { ReleaseBadges(release) } }
+        header("What changed", key = "notes-head")
+        if (release.notes.isNotEmpty()) {
+            block("notes") { Text(release.notes, style = ConsoleType.body, color = console.ink) }
+        } else {
+            item(key = "notes-none") {
+                OneLine("No note.", if (canWrite) "Add a note" to { vm.openNotes(version) } else null)
+            }
         }
         if (revocation == Updates.RevocationState.INCOMPLETE) {
             item(key = "incomplete") {
