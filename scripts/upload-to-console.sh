@@ -8,6 +8,10 @@
 #   scripts/upload-to-console.sh binaries/cranium-1.11.4-0.signed.bin  that image
 #   scripts/upload-to-console.sh <image> "notes for the release"
 #
+# The release's note is the first paragraph of the version's entry in firmware/CHANGELOG.md, with the
+# note given here after it in brackets (scripts/build.sh gives the commit it built from). A version with
+# no entry there gets the subjects of the firmware commits since the version before it instead.
+#
 # The token comes from CRANIUM_TOKEN, or else from ~/.cranium/console-token, which must be a plain file
 # of your own with mode 600. Make one on the console under Developer > API tokens; an upload-only token
 # is enough and is the safest. Its owner must be a release manager. The console's address comes from
@@ -54,6 +58,39 @@ def load(path):
     except (OSError, ValueError):
         return None
 
+def entry(repo, version):
+    """The first paragraph of the version's entry in firmware/CHANGELOG.md, on one line, or ''."""
+    try:
+        with open(os.path.join(repo, 'firmware', 'CHANGELOG.md'), encoding='utf-8') as file:
+            text = file.read()
+    except OSError:
+        return ''
+    found = re.search(r'^## ' + re.escape(version) + r'\s*\n\s*\n(.*?)(?:\n\s*\n|\Z)', text, re.S | re.M)
+    return ' '.join(found.group(1).split()) if found else ''
+
+def since_last(repo, version):
+    """The subjects of the firmware commits since the commit that set the version before this one."""
+    import subprocess
+    def git(*words):
+        return subprocess.run(['git', '-C', repo, *words], capture_output=True, text=True, timeout=20).stdout
+    try:
+        previous = None
+        for commit in git('log', '--format=%H', '--', 'firmware/app/VERSION').split():
+            fields = dict(re.findall(r'^(VERSION_MAJOR|VERSION_MINOR|PATCHLEVEL) = (\d+)',
+                                     git('show', f'{commit}:firmware/app/VERSION'), re.M))
+            if len(fields) == 3 and f"{fields['VERSION_MAJOR']}.{fields['VERSION_MINOR']}.{fields['PATCHLEVEL']}" != version:
+                previous = commit
+                break
+        if previous is None:
+            return ''
+        subjects = [line for line in git('log', '--format=%s', f'{previous}..HEAD', '--', 'firmware').splitlines() if line]
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return ('Changes: ' + '; '.join(subjects))[:440] if subjects else ''
+
+def changed(repo, version):
+    return entry(repo, version) or since_last(repo, version)
+
 command, *args = sys.argv[1:]
 if command == 'stat':
     info = os.lstat(args[0])
@@ -64,15 +101,20 @@ elif command == 'outputs':
     print(value if isinstance(value, str) else '')
 elif command == 'body':
     # The version in the MCUboot header, the file's SHA-256, and the body of the upload.
-    path, notes, out = args
+    path, notes, out, repo = args
     with open(path, 'rb') as file:
         data = file.read()
     if len(data) < 32 or int.from_bytes(data[0:4], 'little') != 0x96F3B83D:
         sys.exit(2)
     version = f"{data[20]}.{data[21]}.{int.from_bytes(data[22:24], 'little')}+{int.from_bytes(data[24:28], 'little')}"
     name = re.sub(r'[^A-Za-z0-9._-]', '-', os.path.basename(path))[:64] or 'cranium.signed.bin'
+    what = changed(repo, version.split('+')[0])
+    note = f"{what} ({notes})" if what and notes else (what or notes)
+    if len(note) > 500 and what:
+        # The entry is what matters; the bracketed note is cut first.
+        note = what[:500] if len(what) + 4 > 500 else f"{what} ({notes[:500 - len(what) - 4]})"
     with open(out, 'w', encoding='utf-8') as file:
-        json.dump({'filename': name, 'notes': say(notes, 500),
+        json.dump({'filename': name, 'notes': say(note, 500),
                    'data': base64.b64encode(data).decode('ascii')}, file)
     print(version, hashlib.sha256(data).hexdigest())
 elif command == 'sha256':
@@ -140,7 +182,7 @@ trap 'rm -rf "$work"' EXIT
 token=""
 reply="$work/reply.json"
 
-read -r version sha256 <<< "$(py body "$image" "$notes" "$work/body.json")" \
+read -r version sha256 <<< "$(py body "$image" "$notes" "$work/body.json" "$REPO_DIR")" \
   || die "$image is not an MCUboot image"
 
 api() {
