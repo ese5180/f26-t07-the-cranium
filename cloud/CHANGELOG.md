@@ -6,6 +6,20 @@ it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), somethin
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.0.0
+
+A customer website on a name of its own: customers sign in to see their own boards (online, firmware, last report,
+updates, what they did), and the team signs in once with Admin sign-in to open the console as admin mode at /admin. A
+new Customers page invites customers and gives them boards, each change in the activity log.
+
+A second Cognito pool for customers, apart from the staff pool, and a customer API with its own function, role and
+authorizer, so that neither kind of token opens the other's API. The site's sign-in is the console's own (SRP, the code
+in six boxes), which now also works without managed login pages and takes a first sign-in's new password. New
+parameters `CustomerDomainName`, `CustomerCertificateArn` and `CustomerSelfSignUp`, all off by default; see
+[docs/customer-site.md](../docs/customer-site.md). The local preview has `--customer` and `--scenario customers`.
+
+Not released yet: branch feature/customer-site, 2026-11-04.
+
 ## 1.10.0
 
 Fleet tools: board types, groups, staged rollouts with a canary that stop by themselves, Update everything, and the
