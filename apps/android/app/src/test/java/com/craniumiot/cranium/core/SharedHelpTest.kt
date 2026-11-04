@@ -25,10 +25,12 @@ class SharedHelpTest {
         val book = (load as HelpLoad.Ok).book
         assertTrue(book.topics.isNotEmpty())
         // The topics the app's screens open with their (?) button.
-        for (id in listOf("overview", "events", "activity", "deployments", "api-tokens", "firmware-and-signing", "bluetooth-update")) {
+        for (id in listOf("overview", "events", "activity", "deployments", "api-tokens", "firmware-and-signing", "bluetooth-update", "biometric-sign-in")) {
             assertTrue("no topic $id", book.topic(id) != null)
         }
         val items = Search.help(book)
         assertTrue(Search.rank("passkey", items).isNotEmpty())
+        // The lock screen's and the Account switch's (?) (ui/LockScreen.kt, FINGERPRINT_HELP).
+        assertTrue(Search.rank("fingerprint", items).any { it.item.target == SearchTarget.Help("biometric-sign-in") })
     }
 }

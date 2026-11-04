@@ -37,9 +37,12 @@ private val ALIASES = mapOf(
 
 private fun HelpBook.find(id: String?): HelpTopic? = id?.let { topic(it) ?: ALIASES[it]?.let(::topic) }
 
-/** Help: the topics of apps/shared/help.json, by section, and one topic at a time. */
+/**
+ * Help: the topics of apps/shared/help.json, by section, and one topic at a time. [onTopic] opens
+ * another topic: a page of the console, or, over the lock screen, the next topic in its window.
+ */
 @Composable
-fun HelpScreen(vm: ConsoleViewModel, topicId: String?) {
+fun HelpScreen(vm: ConsoleViewModel, topicId: String?, onTopic: (String) -> Unit = { vm.open(Route.HelpPage(it)) }) {
     val load by vm.help.collectAsStateWithLifecycle()
     val book = (load as? HelpLoad.Ok)?.book
     val topic = book?.find(topicId)
@@ -47,22 +50,22 @@ fun HelpScreen(vm: ConsoleViewModel, topicId: String?) {
         when (val current = load) {
             HelpLoad.Missing -> item(key = "missing") { OneLine("This build has no help.") }
             is HelpLoad.Broken -> item(key = "broken") { OneLine("The help in this build could not be read: ${current.why}", tone = Tone.BAD, glyph = Glyph.ALERT) }
-            is HelpLoad.Ok -> if (topic == null) index(vm, current.book) else topicPage(vm, current.book, topic)
+            is HelpLoad.Ok -> if (topic == null) index(onTopic, current.book) else topicPage(onTopic, current.book, topic)
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.index(vm: ConsoleViewModel, book: HelpBook) {
+private fun androidx.compose.foundation.lazy.LazyListScope.index(onTopic: (String) -> Unit, book: HelpBook) {
     for (section in book.sections) {
         header(section.title, key = "section-${section.title}")
         for (id in section.topics) {
             val topic = book.topic(id) ?: continue
-            item(key = "topic-$id") { ListRow(topic.title, supporting = topic.summary, onClick = { vm.open(Route.HelpPage(id)) }) }
+            item(key = "topic-$id") { ListRow(topic.title, supporting = topic.summary, onClick = { onTopic(id) }) }
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.topicPage(vm: ConsoleViewModel, book: HelpBook, topic: HelpTopic) {
+private fun androidx.compose.foundation.lazy.LazyListScope.topicPage(onTopic: (String) -> Unit, book: HelpBook, topic: HelpTopic) {
     block("summary") { Text(topic.summary, style = ConsoleType.lede, color = console.ink2) }
     topic.blocks.forEachIndexed { index, part ->
         val key = "block-$index"
@@ -93,7 +96,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.topicPage(vm: Console
                 header("See also", key = "$key-head")
                 for (id in part.ids) {
                     val other = book.topic(id) ?: continue
-                    item(key = "$key-$id") { ListRow(other.title, supporting = other.summary, onClick = { vm.open(Route.HelpPage(id)) }) }
+                    item(key = "$key-$id") { ListRow(other.title, supporting = other.summary, onClick = { onTopic(id) }) }
                 }
             }
             is HelpBlock.Links -> part.links.forEachIndexed { link, (title, url) ->

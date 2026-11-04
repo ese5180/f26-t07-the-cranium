@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws everything; this only covers the window before it does. -->
-    <style name="Theme.Cranium" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Compose draws everything; this only covers the window before it does. AppCompat, because
+         androidx.biometric shows its own fingerprint dialog with it on phones without a system prompt. -->
+    <style name="Theme.Cranium" parent="Theme.AppCompat.Light.NoActionBar" />
 </resources>

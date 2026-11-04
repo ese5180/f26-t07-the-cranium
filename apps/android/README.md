@@ -47,6 +47,33 @@ password and code first when it is older than 14 minutes, on the same screen wit
 fixed; if the console still answers `403 phone_sign_in_again`, it asks and makes the change once
 more. What was entered stays.
 
+## Unlocking with a fingerprint
+
+After a full sign-in (password and code, on the app's screen or the AWS page), the app offers once:
+"Use your fingerprint to open Cranium?" It is also a switch under More, Account. It is offered only
+when `BiometricManager.canAuthenticate(BIOMETRIC_STRONG)` succeeds, which on nearly every phone means
+the fingerprint sensor; the device PIN is never a way in, the app's own sign-in is.
+
+With it on:
+
+- The refresh token is encrypted with an AES-256-GCM key in the Android Keystore (StrongBox if the
+  phone has one, otherwise the TEE) that needs a strong biometric for every single use and is
+  invalidated when a fingerprint is added or all are removed (`auth/KeystoreVault.kt`). Only the
+  ciphertext and its IV are stored, in `EncryptedSharedPreferences`; no session is kept in the clear.
+- When the app starts, and when it comes back after 5 minutes or more in the background, nothing of
+  the console is shown until the fingerprint opens the token; the app then refreshes as usual.
+- The lock screen is `FLAG_SECURE`. While the console shows, recents has no thumbnail of it
+  (Android 13 and later without blocking screenshots, older versions with `FLAG_SECURE`).
+- Cancel or "Sign in with password" goes to the sign-in; too many attempts says so and offers it. A
+  new fingerprint, a missing key or a ciphertext that does not open turns it off, with one line why.
+- A new full sign-in is kept behind the fingerprint with one more touch; a fresh sign-in for a
+  change leaves the kept one as it is. Changes still need the password and code in the last 15
+  minutes: the fingerprint only releases the token, and a refresh keeps the first sign-in's time.
+
+With it off, the app forgets the refresh token an hour after the sign-in, so a 30-day token is
+never kept without the fingerprint. Sign-out deletes the key and the ciphertext. The rules are in
+`core/Fingerprint.kt`, with their tests.
+
 ## Search and Help
 
 Search, in every top-level screen's top bar, finds boards, releases, deployments, the events in
@@ -154,9 +181,10 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
   field (`ApiModels.kt`), the website's words for updates, deployments, the activity log, events and
   diagnostics (`Updates.kt`, `Audit.kt`, `Telemetry.kt`, `Text.kt`), the serial console's rules and
   session (`Serial.kt`), the fresh sign-in rule (`FreshSignIn.kt`), the sign-in (`Srp.kt`,
-  `CognitoSignIn.kt`), search and help (`Search.kt`, `Help.kt`), image checks and the firmware cache.
-- `auth/`: the session on the phone (`TokenStore.kt`), Cognito over HTTPS (`CognitoHttp.kt`), and
-  renewing and ending it (`AuthManager.kt`).
+  `CognitoSignIn.kt`), fingerprint unlock (`Fingerprint.kt`), search and help (`Search.kt`,
+  `Help.kt`), image checks and the firmware cache.
+- `auth/`: the session on the phone (`TokenStore.kt`), Cognito over HTTPS (`CognitoHttp.kt`),
+  renewing and ending it (`AuthManager.kt`), and the fingerprint's key (`KeystoreVault.kt`).
 - `api/ApiClient.kt`: every route, with the access token, a refresh on 401, and the website's retries.
 - `ui/`: Compose with Material 3, themed with the console's colour tokens for light and dark
   (`Theme.kt`) and its own icons (`Glyphs.kt`). `Screen.kt` is the frame of every screen and its
@@ -166,17 +194,19 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (292 of them) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (307 of them) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
-firmware cache, search, and reading the help file (`apps/shared/help.json` itself too, when it is
-there).
+firmware cache, search, reading the help file (`apps/shared/help.json` itself too, when it is
+there), and fingerprint unlock: its rules, and every answer of the key and the prompt, with a
+software key standing in for the Keystore's (`FingerprintTest`).
 
 The sign-in's arithmetic is checked against the website's own code: `app/src/test/resources/srp/make-vectors.mjs`
 runs the website's SRP in Node with a fixed secret, salt, B, user, password and time and writes
 `vectors.json`; `SrpTest` gets the same A, u, k, x, S, key and signature from them. The steps of the
 sign-in, renewing and ending a session run against a fake Cognito (`CognitoSignInTest`).
 
-Sign-in against the real Cognito, the API calls, Bluetooth and the USB serial console take a phone,
-a deployed stack and a board, and have not been tried yet.
+Sign-in against the real Cognito, the API calls, the fingerprint prompt and the Keystore key,
+Bluetooth and the USB serial console take a phone, a deployed stack and a board, and have not been
+tried yet.

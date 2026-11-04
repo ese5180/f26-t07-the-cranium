@@ -12,7 +12,7 @@ enum class Glyph {
     PULSE, PRESS, STOP, HOURGLASS, OFFLINE, ONLINE, CHIP, PACKAGE, SEND, LIST, USER, COPY, ARROW_RIGHT, ARROW_LEFT, KEY,
     LOCK, PLUS, SWAP, FILE, SIGN_OUT,
     // The app's own: the sections of its navigation, Bluetooth and the USB cable.
-    HOME, MORE, BLUETOOTH, USB, TERMINAL, HISTORY, SEARCH, HELP, MORE_VERT,
+    HOME, MORE, BLUETOOTH, USB, TERMINAL, HISTORY, SEARCH, HELP, MORE_VERT, FINGERPRINT,
 }
 
 /** One step of an update, as the step list draws it. */

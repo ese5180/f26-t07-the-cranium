@@ -175,6 +175,7 @@ private fun openTarget(vm: ConsoleViewModel, target: SearchTarget) {
             "history" -> vm.open(Route.History)
             "serial" -> vm.open(Route.Serial)
             "account" -> vm.open(Route.Account)
+            "fingerprint" -> vm.open(Route.Account)
             "help" -> vm.open(Route.HelpPage(null))
             "deploy" -> vm.openDeploy(null)
             "upload" -> vm.open(Route.Upload)

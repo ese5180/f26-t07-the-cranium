@@ -111,8 +111,51 @@ data class Nav(
 sealed interface Gate {
     data object Starting : Gate
     data class SignIn(val busy: String? = null, val notice: String? = null) : Gate
+
+    /** A sign-in is kept behind the fingerprint: nothing of the console until it passes. */
+    data class Locked(val line: String? = null, val busy: Boolean = false) : Gate
     data object Ready : Gate
 }
+
+/** What a fingerprint prompt is for. */
+enum class PromptPurpose {
+    /** Open the sign-in kept behind the fingerprint. */
+    UNLOCK,
+
+    /** Turn fingerprint unlock on: from the offer, or the Account screen. */
+    ENROL,
+
+    /** Keep a new full sign-in behind the fingerprint, which was on already. */
+    REKEY,
+}
+
+/** A BiometricPrompt the screen is to show, with the cipher it authorises. */
+class PromptRequest(val id: Long, val purpose: PromptPurpose, val cipher: javax.crypto.Cipher) {
+    val title: String get() = when (purpose) {
+        PromptPurpose.UNLOCK -> "Unlock Cranium"
+        PromptPurpose.ENROL -> "Use your fingerprint for Cranium"
+        PromptPurpose.REKEY -> "Keep this sign-in behind your fingerprint"
+    }
+    val subtitle: String get() = when (purpose) {
+        PromptPurpose.UNLOCK -> "Touch the fingerprint sensor"
+        PromptPurpose.ENROL, PromptPurpose.REKEY -> "For up to 30 days, instead of your password and code"
+    }
+    val negative: String get() = when (purpose) {
+        PromptPurpose.UNLOCK -> "Sign in with password"
+        PromptPurpose.ENROL -> "Cancel"
+        PromptPurpose.REKEY -> "Not now"
+    }
+}
+
+/** Fingerprint unlock, for the Account screen. */
+data class FingerprintUi(
+    val state: com.craniumiot.cranium.core.BiometricState = com.craniumiot.cranium.core.BiometricState.UNAVAILABLE,
+    val on: Boolean = false,
+    val busy: Boolean = false,
+)
+
+/** What the window hides: nothing; the recents thumbnail; or everything, screenshots included (FLAG_SECURE). */
+enum class WindowGuard { NONE, NO_RECENTS, SECURE }
 
 /** A message at the foot of the screen, for as long as it takes to read it. */
 data class Toast(val id: Long, val text: String, val tone: Tone = Tone.GOOD)

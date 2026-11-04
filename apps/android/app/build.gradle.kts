@@ -159,6 +159,9 @@ dependencies {
     implementation(libs.serialization.json)
     implementation(libs.appauth)
     implementation(libs.security.crypto)
+    implementation(libs.biometric)
+    implementation(libs.fragment)
+    implementation(libs.appcompat)
     implementation(libs.mcumgr.ble)
     implementation(libs.usb.serial)
 

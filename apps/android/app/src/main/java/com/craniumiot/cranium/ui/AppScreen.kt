@@ -52,7 +52,7 @@ import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.Tone
 import kotlinx.coroutines.delay
 
-/** The app: the sign-in screen, or the console with its sections. */
+/** The app: the sign-in screen, the lock screen, or the console with its sections. */
 @Composable
 fun CraniumApp(vm: ConsoleViewModel) {
     val gate by vm.gate.collectAsStateWithLifecycle()
@@ -69,6 +69,7 @@ fun CraniumApp(vm: ConsoleViewModel) {
                 CircularProgressIndicator(color = console.accent)
             }
             is Gate.SignIn -> SignInGate(vm, current, form)
+            is Gate.Locked -> LockScreen(vm, current)
             Gate.Ready -> ConsoleFrame(vm)
         }
     }
@@ -96,6 +97,7 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
     val dialog by vm.dialog.collectAsStateWithLifecycle()
     val toasts by vm.toasts.collectAsStateWithLifecycle()
     val fresh by vm.fresh.collectAsStateWithLifecycle()
+    val offer by vm.offer.collectAsStateWithLifecycle()
     val colors = console
     val route = nav.route
     // Every second where seconds are counted (a board's heartbeat and uptime), else as the website redraws.
@@ -156,6 +158,7 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
         null -> Unit
     }
     fresh?.let { FreshSignInDialog(vm, it) }
+    if (offer && dialog == null && fresh == null) FingerprintOffer(vm)
 }
 
 /** The page of a route. */

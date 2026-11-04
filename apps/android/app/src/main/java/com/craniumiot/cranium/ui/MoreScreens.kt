@@ -6,8 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,9 +20,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.craniumiot.cranium.BuildConfig
+import com.craniumiot.cranium.core.BiometricState
 import com.craniumiot.cranium.core.CommitHistory
+import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.HistoryRead
 import com.craniumiot.cranium.core.Times
@@ -210,6 +219,44 @@ fun HistoryScreen(vm: ConsoleViewModel, store: Store, now: Long) {
 
 // The account.
 
+/** Fingerprint unlock: on or off, with a (?) for its Help topic. */
+@Composable
+private fun FingerprintRow(vm: ConsoleViewModel) {
+    val fingerprint by vm.fingerprint.collectAsStateWithLifecycle()
+    val chrome = LocalChrome.current
+    val ready = fingerprint.state == BiometricState.READY
+    val enabled = !fingerprint.busy && (fingerprint.on || ready)
+    ListRow(
+        FingerprintWords.SETTING,
+        modifier = Modifier.toggleable(
+            value = fingerprint.on,
+            enabled = enabled,
+            role = Role.Switch,
+            onValueChange = vm::setFingerprint,
+        ),
+        supporting = when {
+            fingerprint.on -> "Asked when the app opens, and after 5 minutes away"
+            !ready -> FingerprintWords.state(fingerprint.state)
+            else -> "Instead of your password and code, for up to 30 days"
+        },
+        leading = { GlyphIcon(Glyph.FINGERPRINT, tint = console.ink2) },
+        trailing = {
+            IconButton(onClick = { chrome.onHelp(FINGERPRINT_HELP) }) {
+                GlyphIcon(Glyph.HELP, size = 20.dp, tint = console.ink2, description = "Help on fingerprint unlock")
+            }
+            // The row is the switch for TalkBack; this one only shows it.
+            Switch(
+                checked = fingerprint.on,
+                onCheckedChange = null,
+                enabled = enabled,
+                modifier = Modifier.clearAndSetSemantics {},
+                colors = SwitchDefaults.colors(checkedTrackColor = console.accent, checkedThumbColor = console.onAccent),
+            )
+        },
+        chevron = false,
+    )
+}
+
 @Composable
 fun AccountScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val me = store.me
@@ -232,6 +279,8 @@ fun AccountScreen(vm: ConsoleViewModel, store: Store, now: Long) {
                 ValueRow("Session", if (left > 0) "Token renews in ${Words.duration(left)}" else "Token renews on the next request")
             }
         }
+        header("This phone")
+        item(key = "fingerprint") { FingerprintRow(vm) }
         item(key = "cache") { ValueRow("Firmware on this phone", Messages.firmwareOnPhone(store.cache).removeSuffix(".")) }
         item(key = "version") { ValueRow("App version", BuildConfig.VERSION_NAME) }
         block("sign-out") {

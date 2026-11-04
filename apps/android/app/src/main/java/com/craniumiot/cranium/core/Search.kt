@@ -314,6 +314,7 @@ object SearchCatalog {
         Screen("deploy", "Deploy a release", "Offer a release to boards over the internet", listOf("new deployment", "update", "ota", "wifi"), true),
         Screen("upload", "Upload firmware", "Register a signed image", listOf("new release", "signed.bin", "image"), true),
         Screen("bluetooth", "Update over Bluetooth", "Send a release to a board in the room", listOf("ble", "passkey", "phone"), true),
+        Screen("fingerprint", "Unlock with fingerprint", "Open the app with your fingerprint, for up to 30 days", listOf("biometric", "fingerprint", "stay signed in", "unlock"), false),
         Screen("signout", "Sign out", "Forget the sign-in and the firmware on this phone", listOf("log out", "logout"), false),
     )
 

@@ -56,11 +56,11 @@ import kotlinx.coroutines.launch
 /** An action of a screen: its one primary action, or one of its menu. */
 data class ScreenAction(val label: String, val glyph: Glyph? = null, val danger: Boolean = false, val onClick: () -> Unit)
 
-/** What the frame gives every screen: going back, Search and Help. */
+/** What the frame gives every screen: going back, Search and Help. Search only over the console. */
 class Chrome(
     val canGoBack: Boolean,
     val onBack: () -> Unit,
-    val onSearch: () -> Unit,
+    val onSearch: (() -> Unit)?,
     val onHelp: (String?) -> Unit,
 )
 
@@ -129,7 +129,7 @@ fun ConsoleScreen(
                     if (stale != null) {
                         IconButton(onClick = stale.onRefresh) { GlyphIcon(Glyph.CLOCK, size = 20.dp, tint = colors.warn, description = stale.words) }
                     }
-                    IconButton(onClick = chrome.onSearch) { GlyphIcon(Glyph.SEARCH, size = 22.dp, description = "Search") }
+                    chrome.onSearch?.let { search -> IconButton(onClick = search) { GlyphIcon(Glyph.SEARCH, size = 22.dp, description = "Search") } }
                     if (help != null) {
                         IconButton(onClick = { chrome.onHelp(help) }) { GlyphIcon(Glyph.HELP, size = 22.dp, description = "Help") }
                     }

@@ -9,6 +9,12 @@ coroutines = "1.11.0"
 serialization = "1.12.0"
 appauth = "0.11.1"
 securityCrypto = "1.1.0"
+# Fingerprint unlock: the newest stable androidx.biometric. It shows its own dialog through AppCompat
+# where the phone has no system prompt for a CryptoObject, so the theme is an AppCompat one, and
+# fragment and appcompat are pinned to current releases over the 2020 ones it asks for.
+biometric = "1.1.0"
+fragment = "1.9.1"
+appcompat = "1.8.0"
 mcumgr = "3.4.1"
 # USB host serial for the board's J-Link virtual COM ports (MIT licence, from JitPack).
 usbSerial = "3.11.0"
@@ -27,6 +33,9 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
+appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 mcumgr-ble = { group = "no.nordicsemi.android", name = "mcumgr-ble", version.ref = "mcumgr" }
 usb-serial = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usbSerial" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

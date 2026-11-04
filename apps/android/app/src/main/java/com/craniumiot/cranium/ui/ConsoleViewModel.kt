@@ -11,6 +11,7 @@ import com.craniumiot.cranium.CraniumConfig
 import com.craniumiot.cranium.api.ApiClient
 import com.craniumiot.cranium.api.UploadStage
 import com.craniumiot.cranium.auth.AuthManager
+import com.craniumiot.cranium.auth.KeystoreVault
 import com.craniumiot.cranium.auth.SignInException
 import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.auth.TokenStore
@@ -21,15 +22,20 @@ import com.craniumiot.cranium.core.ApiPaths
 import com.craniumiot.cranium.core.ApiToken
 import com.craniumiot.cranium.core.AuditEntry
 import com.craniumiot.cranium.core.AuditPage
+import com.craniumiot.cranium.core.BiometricPolicy
 import com.craniumiot.cranium.core.CacheSummary
 import com.craniumiot.cranium.core.Deployment
 import com.craniumiot.cranium.core.DeploymentSummary
+import com.craniumiot.cranium.core.EnrolNext
 import com.craniumiot.cranium.core.EventPage
+import com.craniumiot.cranium.core.FingerprintLock
+import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.FirmwareCache
 import com.craniumiot.cranium.core.CodeEntry
 import com.craniumiot.cranium.core.FreshSignIn
 import com.craniumiot.cranium.core.HelpLoad
 import com.craniumiot.cranium.core.HelpReader
+import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.core.RecentSearches
 import com.craniumiot.cranium.core.SignInStep
 import com.craniumiot.cranium.core.SignInWords
@@ -39,11 +45,13 @@ import com.craniumiot.cranium.core.ReleaseList
 import com.craniumiot.cranium.core.Telemetry
 import com.craniumiot.cranium.core.Times
 import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.UnlockNext
 import com.craniumiot.cranium.core.UploadReview
 import com.craniumiot.cranium.core.Updates
 import com.craniumiot.cranium.core.Words
 import com.craniumiot.cranium.usb.UsbConsole
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -52,9 +60,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -127,6 +138,42 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     private val _recent = MutableStateFlow<List<String>>(emptyList())
     val recentSearches: StateFlow<List<String>> = _recent.asStateFlow()
 
+    /** The fingerprint prompt the screen is to show, if any (MainActivity shows it). */
+    private val _prompt = MutableStateFlow<PromptRequest?>(null)
+    val prompt: StateFlow<PromptRequest?> = _prompt.asStateFlow()
+    private var promptId = 0L
+    private var promptShown = 0L
+
+    /** "Use your fingerprint to open Cranium?", after a full sign-in. */
+    private val _offer = MutableStateFlow(false)
+    val offer: StateFlow<Boolean> = _offer.asStateFlow()
+
+    private val _fingerprint = MutableStateFlow(FingerprintUi())
+    val fingerprint: StateFlow<FingerprintUi> = _fingerprint.asStateFlow()
+
+    /**
+     * What the window hides. The lock screen (and the moment before the app knows whether to show
+     * it): FLAG_SECURE. The console with fingerprint unlock on: no thumbnail in recents. Otherwise
+     * nothing, as before.
+     */
+    val windowGuard: StateFlow<WindowGuard> = combine(_gate, _fingerprint) { gate, fingerprint ->
+        when {
+            gate is Gate.Locked || gate == Gate.Starting -> WindowGuard.SECURE
+            gate == Gate.Ready && fingerprint.on -> WindowGuard.NO_RECENTS
+            else -> WindowGuard.NONE
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, WindowGuard.SECURE)
+
+    /** When the app went to the background (elapsedRealtime), and the lock that waits for 5 minutes of it. */
+    private var awaySince: Long? = null
+    private var relockJob: Job? = null
+
+    /** A full sign-in on the sign-in screen whose console has not loaded yet: then the offer, or keeping it behind the fingerprint. */
+    private var pendingFullSignIn = false
+
+    /** The lock came over a console that was loaded, which comes back as it was. */
+    private var lockedFromConsole = false
+
     /** The Help topics of this build (apps/shared/help.json), read once. */
     private val _help = MutableStateFlow<HelpLoad>(HelpLoad.Missing)
     val help: StateFlow<HelpLoad> = _help.asStateFlow()
@@ -148,7 +195,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     init {
         viewModelScope.launch {
             val manager = try {
-                withContext(Dispatchers.IO) { AuthManager(app, config, TokenStore(app)) }
+                withContext(Dispatchers.IO) { AuthManager(app, config, TokenStore(app), KeystoreVault(app)) }
             } catch (e: Exception) {
                 _gate.value = Gate.SignIn(notice = "The app could not open its secure storage: ${e.message}")
                 forgetFirmware()
@@ -156,7 +203,10 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             }
             auth = manager
             api = ApiClient(ApiPaths(config.consoleUrl), manager)
-            if (manager.isSignedIn) {
+            showFingerprint()
+            if (manager.needsUnlock) {
+                lock(fromConsole = false)
+            } else if (manager.isSignedIn) {
                 startConsole()
             } else {
                 // A signed-out phone keeps nothing from the console, even after a sign-out cut short.
@@ -165,6 +215,13 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         usb.start()
+        // Without fingerprint unlock, the refresh token goes an hour after the sign-in.
+        viewModelScope.launch {
+            while (true) {
+                delay(KEEP_RULE_EVERY_MS)
+                auth?.enforceKeepRule()
+            }
+        }
         viewModelScope.launch {
             _help.value = withContext(Dispatchers.IO) {
                 runCatching { app.assets.open("help.json").use { it.readBytes().decodeToString() } }
@@ -260,7 +317,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 afterFreshSignIn()
             } else {
                 _signIn.value = SignInForm(email = lastEmail)
-                startConsole()
+                startConsole(fullSignIn = true)
             }
             SignInStep.Code -> updateForm(fresh) {
                 it.copy(phase = SignInPhase.CODE, busy = false, problem = null, code = "", tries = it.tries + 1)
@@ -326,7 +383,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             _gate.value = Gate.SignIn(busy = "Signing in…")
             try {
                 manager.completeSignIn(data)
-                startConsole()
+                startConsole(fullSignIn = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -335,8 +392,10 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun startConsole() {
+    /** Load the console. After a full sign-in ([fullSignIn]), then offer fingerprint unlock, or keep the sign-in behind it. */
+    private suspend fun startConsole(fullSignIn: Boolean = false) {
         val client = api ?: return
+        if (fullSignIn) pendingFullSignIn = true
         _gate.value = Gate.SignIn(busy = "Loading the console…")
         try {
             val me = client.me()
@@ -344,6 +403,10 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             _recent.value = withContext(Dispatchers.IO) { auth?.recentSearches().orEmpty() }
             _gate.value = Gate.Ready
             showCache()
+            if (pendingFullSignIn) {
+                pendingFullSignIn = false
+                afterFullSignIn()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: SignedOutException) {
@@ -362,8 +425,213 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         val manager = auth
         resetEverything()
         _gate.value = Gate.SignIn()
-        if (manager != null) viewModelScope.launch { manager.signOut() }
+        if (manager != null) {
+            viewModelScope.launch {
+                manager.signOut()
+                showFingerprint()
+            }
+        }
     }
+
+    // Fingerprint unlock (docs/mobile-apps.md; the rules are core/Fingerprint.kt).
+
+    private fun showFingerprint() {
+        _fingerprint.update { it.copy(state = KeystoreVault.state(app), on = auth?.fingerprintOn == true) }
+    }
+
+    /** Whether MainActivity is to show this prompt: once, even across a rotation. */
+    fun takePrompt(request: PromptRequest): Boolean {
+        if (request.id <= promptShown) return false
+        promptShown = request.id
+        return true
+    }
+
+    /** How the prompt ended. */
+    fun onPrompt(result: PromptResult) {
+        val request = _prompt.value ?: return
+        _prompt.value = null
+        viewModelScope.launch {
+            when (request.purpose) {
+                PromptPurpose.UNLOCK -> unlockNext(auth?.finishUnlock(result) ?: return@launch)
+                PromptPurpose.ENROL, PromptPurpose.REKEY -> afterEnrol(request.purpose, result)
+            }
+        }
+    }
+
+    private fun ask(purpose: PromptPurpose, cipher: javax.crypto.Cipher) {
+        _prompt.value = PromptRequest(++promptId, purpose, cipher)
+    }
+
+    /** Show the lock screen, and ask for the fingerprint at once. */
+    private fun lock(fromConsole: Boolean) {
+        lockedFromConsole = fromConsole
+        _offer.value = false
+        _gate.value = Gate.Locked()
+        unlock()
+    }
+
+    /** "Unlock with fingerprint". */
+    fun unlock() {
+        val manager = auth ?: return
+        val gate = _gate.value as? Gate.Locked ?: return
+        if (gate.busy || _prompt.value != null) return
+        viewModelScope.launch {
+            when (val begin = manager.beginUnlock()) {
+                is FingerprintLock.Begin.Prompt -> ask(PromptPurpose.UNLOCK, begin.cipher)
+                is FingerprintLock.Begin.Done -> unlockNext(begin.next)
+            }
+        }
+    }
+
+    private suspend fun unlockNext(next: UnlockNext) {
+        when (next) {
+            is UnlockNext.Open -> opened()
+            is UnlockNext.Locked -> _gate.value = Gate.Locked(line = next.line)
+            UnlockNext.Password -> signInWithPassword()
+            is UnlockNext.Forget -> {
+                // The key, the ciphertext and the setting are gone already; nothing of the sign-in stays.
+                auth?.forget()
+                showFingerprint()
+                lockedFromConsole = false
+                resetEverything()
+                _gate.value = Gate.SignIn(notice = next.line)
+            }
+        }
+    }
+
+    /** The fingerprint opened the refresh token: refresh as usual, then the console. */
+    private suspend fun opened() {
+        val manager = auth ?: return
+        _gate.value = Gate.Locked(busy = true)
+        if (lockedFromConsole && _store.value.me != null) {
+            lockedFromConsole = false
+            try {
+                manager.accessToken(forceRefresh = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SignedOutException) {
+                showFingerprint()
+                toSignIn(FingerprintWords.ENDED)
+                return
+            } catch (e: Exception) {
+                // Not reached: what is loaded stays, and the next request tries again.
+            }
+            _gate.value = Gate.Ready
+            refreshNow()
+        } else {
+            lockedFromConsole = false
+            startConsole()
+            showFingerprint()
+        }
+    }
+
+    /** "Sign in with password" on the lock screen: what is kept stays for the next time. */
+    fun signInWithPassword() {
+        _prompt.value = null
+        lockedFromConsole = false
+        resetEverything()
+        _gate.value = Gate.SignIn()
+        viewModelScope.launch { auth?.closeSession() }
+    }
+
+    /** After a full sign-in: keep it behind the fingerprint if that is on, or offer it once. */
+    private suspend fun afterFullSignIn() {
+        val manager = auth ?: return
+        showFingerprint()
+        if (manager.fingerprintOn) {
+            enrol(PromptPurpose.REKEY)
+            return
+        }
+        val sub = _store.value.me?.sub.orEmpty()
+        val declined = sub.isNotEmpty() && manager.declinedOffer(sub)
+        _offer.value = BiometricPolicy.offer(fullSignIn = true, _fingerprint.value.state, on = false, declined = declined)
+    }
+
+    /** Yes, or Not now (kept for this person on this phone). */
+    fun answerOffer(yes: Boolean) {
+        if (!_offer.value) return
+        _offer.value = false
+        val manager = auth ?: return
+        val sub = _store.value.me?.sub.orEmpty()
+        viewModelScope.launch {
+            if (yes) enrol(PromptPurpose.ENROL) else if (sub.isNotEmpty()) manager.declineOffer(sub)
+        }
+    }
+
+    /** The Account screen's switch. */
+    fun setFingerprint(on: Boolean) {
+        val manager = auth ?: return
+        if (_fingerprint.value.busy || _prompt.value != null) return
+        viewModelScope.launch {
+            if (on) {
+                showFingerprint()
+                if (_fingerprint.value.state == com.craniumiot.cranium.core.BiometricState.READY) enrol(PromptPurpose.ENROL)
+            } else {
+                manager.turnOffFingerprint()
+                showFingerprint()
+                notify(if (manager.keepsRefreshToken) FingerprintWords.OFF else FingerprintWords.OFF_SOON)
+            }
+        }
+    }
+
+    private suspend fun enrol(purpose: PromptPurpose) {
+        val manager = auth ?: return
+        _fingerprint.update { it.copy(busy = true) }
+        when (val begin = manager.beginEnrol()) {
+            is FingerprintLock.Begin.Prompt -> ask(purpose, begin.cipher)
+            is FingerprintLock.Begin.Done -> afterEnrolled(purpose, begin.next)
+        }
+    }
+
+    private suspend fun afterEnrol(purpose: PromptPurpose, result: PromptResult) {
+        val manager = auth ?: return
+        afterEnrolled(purpose, manager.finishEnrol(result))
+    }
+
+    private fun afterEnrolled(purpose: PromptPurpose, next: EnrolNext) {
+        showFingerprint()
+        _fingerprint.update { it.copy(busy = false) }
+        when (next) {
+            is EnrolNext.On -> notify(FingerprintWords.ON)
+            is EnrolNext.Off -> when {
+                purpose == PromptPurpose.REKEY -> notify(FingerprintWords.OFF_AGAIN, Tone.WARN)
+                next.line != null -> notify(next.line, Tone.BAD)
+                else -> Unit
+            }
+        }
+    }
+
+    /** The app went to the background (SystemClock.elapsedRealtime). */
+    fun wentToBackground(nowMs: Long) {
+        awaySince = nowMs
+        relockJob?.cancel()
+        relockJob = null
+        if (auth?.fingerprintOn != true || _gate.value != Gate.Ready) return
+        relockJob = viewModelScope.launch {
+            delay(BiometricPolicy.RELOCK_AFTER_MS)
+            if (_gate.value == Gate.Ready && auth?.fingerprintOn == true && !onAwsPage()) lock(fromConsole = true)
+        }
+    }
+
+    /** Back in the foreground: after 5 minutes or more away, the fingerprint again. */
+    fun cameToForeground(nowMs: Long) {
+        relockJob?.cancel()
+        relockJob = null
+        val since = awaySince
+        awaySince = null
+        showFingerprint()
+        viewModelScope.launch { auth?.enforceKeepRule() }
+        val gate = _gate.value
+        if (gate == Gate.Ready && !onAwsPage() && BiometricPolicy.relock(auth?.fingerprintOn == true, since, nowMs)) {
+            lock(fromConsole = true)
+        } else if (gate is Gate.Locked && gate.line == null && since != null) {
+            // Back to the lock screen, whose prompt the system closed: ask again.
+            unlock()
+        }
+    }
+
+    /** A fresh sign-in on the AWS page is under way: its answer is a sign-in of its own. */
+    private fun onAwsPage(): Boolean = _fresh.value?.leaving != null
 
     /** The console no longer takes this sign-in: back to the sign-in screen, keeping nothing. */
     private fun toSignIn(message: String?) {
@@ -385,6 +653,9 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         _recent.value = emptyList()
         freshThen = null
         freshFailed = null
+        pendingFullSignIn = false
+        _offer.value = false
+        _prompt.value = null
         lastRefresh.clear()
         viewModelScope.launch { forgetFirmware() }
     }
@@ -1303,6 +1574,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         const val IDLE_REFRESH_MS = 30_000L
+        const val KEEP_RULE_EVERY_MS = 60_000L
         const val RECENT_ENTRIES = 6
         const val ACTIVITY_PAGE = 50
         const val DEPLOYMENTS_ON_OVERVIEW = 4

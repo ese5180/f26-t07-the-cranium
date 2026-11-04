@@ -5,13 +5,21 @@ import android.content.Intent
 import androidx.core.net.toUri
 import com.craniumiot.cranium.CraniumConfig
 import com.craniumiot.cranium.core.AuthorizeRequest
+import com.craniumiot.cranium.core.BiometricPolicy
+import com.craniumiot.cranium.core.BiometricVault
 import com.craniumiot.cranium.core.CognitoEndpoints
 import com.craniumiot.cranium.core.CognitoSignIn
 import com.craniumiot.cranium.core.CognitoTokens
+import com.craniumiot.cranium.core.EnrolNext
+import com.craniumiot.cranium.core.FingerprintLock
+import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.FreshSignIn
 import com.craniumiot.cranium.core.Pkce
+import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.core.Refreshed
+import com.craniumiot.cranium.core.Sealed
 import com.craniumiot.cranium.core.SignInStep
+import com.craniumiot.cranium.core.UnlockNext
 import com.craniumiot.cranium.core.revokeForm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -53,19 +61,50 @@ class SignInException(message: String) : Exception(message)
  * (cloud/api/src/signin-scope.mjs, TokenGeneration_RefreshTokens), so one way covers both. A
  * refresh keeps the `auth_time` of the sign-in, which the rule of a fresh sign-in reads.
  *
+ * Fingerprint unlock (docs/mobile-apps.md): with it on, the refresh token is kept only sealed with
+ * the [vault]'s key, and no session is stored in the clear; the app holds the tokens in memory
+ * once the fingerprint has opened them. With it off, the refresh token is forgotten an hour after
+ * the sign-in (BiometricPolicy), however long Cognito would take it.
+ *
  * Construct it off the main thread; call the rest from the main thread.
  */
-class AuthManager(context: Context, private val config: CraniumConfig, private val store: TokenStore) {
+class AuthManager(
+    context: Context,
+    private val config: CraniumConfig,
+    private val store: TokenStore,
+    private val vault: BiometricVault,
+) {
     private val service = AuthorizationService(context.applicationContext)
     private val endpoints = CognitoEndpoints(config.loginDomain)
     private val serviceConfig = AuthorizationServiceConfiguration(endpoints.authorize.toUri(), endpoints.token.toUri())
     private val cognito = CognitoSignIn(CognitoHttp(config.region), config.mobileClientId, config.userPoolId)
     private val mutex = Mutex()
+    private val lock = FingerprintLock(vault)
+
+    /** Fingerprint unlock is on: the refresh token is kept only behind it. */
+    @Volatile
+    var fingerprintOn: Boolean = store.fingerprintOn()
+        private set
 
     @Volatile
-    private var session: Session? = store.load()
+    private var sealed: Sealed? = if (fingerprintOn) store.vault() else null
+
+    @Volatile
+    private var session: Session? = if (fingerprintOn) {
+        // Nothing in the clear with it on, even if an older version left something.
+        store.clearSession()
+        null
+    } else {
+        store.load()?.let { kept -> withoutStaleRefresh(kept, nowS()).also { if (it != kept) store.save(it) } }
+    }
 
     val isSignedIn: Boolean get() = session != null
+
+    /** The session can still be refreshed: false once the hour without fingerprint unlock is over. */
+    val keepsRefreshToken: Boolean get() = session?.refreshToken != null
+
+    /** A sign-in is kept behind the fingerprint, and none is open: the lock screen. */
+    val needsUnlock: Boolean get() = fingerprintOn && sealed != null && session == null
 
     /** The last searches, which go with a sign-out (TokenStore). */
     fun recentSearches(): List<String> = store.recentSearches()
@@ -88,11 +127,16 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
         return step
     }
 
+    /**
+     * A full sign-in, with password and code. With fingerprint unlock on, it stays in memory: the
+     * sign-in screen then asks to keep it behind the fingerprint ([beginEnrol]), and a fresh
+     * sign-in for a change leaves the one kept as it is.
+     */
     private suspend fun keep(tokens: CognitoTokens, via: String) {
-        val now = System.currentTimeMillis() / 1000
-        val fresh = Session(tokens.accessToken, tokens.idToken, tokens.refreshToken, now + tokens.expiresIn, via)
+        val now = nowS()
+        val fresh = Session(tokens.accessToken, tokens.idToken, tokens.refreshToken, now + tokens.expiresIn, via, signedInAt = now)
         mutex.withLock {
-            withContext(Dispatchers.IO) { store.save(fresh) }
+            if (!fingerprintOn) withContext(Dispatchers.IO) { store.save(fresh) }
             session = fresh
         }
     }
@@ -134,8 +178,9 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
      * they look current. A refresh token that Cognito no longer takes signs the person out.
      */
     suspend fun accessToken(forceRefresh: Boolean = false): String = mutex.withLock {
+        enforceKeepRuleLocked()
         val current = session ?: throw SignedOutException("Sign in to continue.")
-        val now = System.currentTimeMillis() / 1000
+        val now = nowS()
         val due = forceRefresh || current.expiresAt - now <= RENEW_BEFORE_S
         if (!due) return@withLock current.accessToken
         val refreshToken = current.refreshToken
@@ -149,9 +194,11 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
                 val tokens = refreshed.tokens
                 val renewed = Session(
                     tokens.accessToken, tokens.idToken ?: current.idToken, tokens.refreshToken ?: refreshToken,
-                    System.currentTimeMillis() / 1000 + tokens.expiresIn, current.via,
+                    nowS() + tokens.expiresIn, current.via,
+                    // An opened sign-in learns its time from the token: a refresh keeps auth_time.
+                    signedInAt = current.signedInAt.takeIf { it > 0 } ?: FreshSignIn.authTime(tokens.accessToken) ?: 0,
                 )
-                withContext(Dispatchers.IO) { store.save(renewed) }
+                if (!fingerprintOn) withContext(Dispatchers.IO) { store.save(renewed) }
                 session = renewed
                 renewed.accessToken
             }
@@ -182,12 +229,136 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
         mutex.withLock { forgetLocked() }
     }
 
+    /**
+     * With fingerprint unlock off, an hour after the sign-in the refresh token goes: the session
+     * then lasts as long as its access token. Called on every use and every minute while the app
+     * runs, and when it starts.
+     */
+    suspend fun enforceKeepRule() {
+        mutex.withLock { enforceKeepRuleLocked() }
+    }
+
+    private suspend fun enforceKeepRuleLocked() {
+        val current = session ?: return
+        if (fingerprintOn) return
+        val kept = withoutStaleRefresh(current, nowS())
+        if (kept != current) {
+            session = kept
+            withContext(Dispatchers.IO) { store.save(kept) }
+        }
+    }
+
+    // Fingerprint unlock.
+
+    /** Whether this person said "Not now" to the offer on this phone. */
+    suspend fun declinedOffer(sub: String): Boolean = withContext(Dispatchers.IO) { store.declined(BiometricPolicy.personKey(sub)) }
+
+    suspend fun declineOffer(sub: String) = withContext(Dispatchers.IO) { store.decline(BiometricPolicy.personKey(sub)) }
+
+    /**
+     * Turning it on, or keeping a new sign-in behind it: the cipher for the prompt. A new key is
+     * made for it, so what was sealed before no longer opens; if no key can be made, it is off.
+     */
+    suspend fun beginEnrol(): FingerprintLock.Begin<EnrolNext> {
+        val begin = withContext(Dispatchers.IO) { lock.beginEnrol() }
+        mutex.withLock {
+            when {
+                begin is FingerprintLock.Begin.Done && fingerprintOn -> turnOffLocked()
+                // The old key is gone, so what it sealed is of no use, even if this prompt never answers.
+                fingerprintOn -> {
+                    sealed = null
+                    withContext(Dispatchers.IO) { store.clearVault() }
+                }
+            }
+        }
+        return begin
+    }
+
+    /**
+     * The prompt answered. On: the refresh token is sealed and no session is kept in the clear. Not:
+     * with it on before (a new sign-in that was to be kept), it is turned off, and the session is
+     * kept as without it.
+     */
+    suspend fun finishEnrol(result: PromptResult): EnrolNext = mutex.withLock {
+        val next = lock.finishEnrol(result, session?.refreshToken)
+        when (next) {
+            is EnrolNext.On -> {
+                withContext(Dispatchers.IO) { store.saveVault(next.sealed) }
+                sealed = next.sealed
+                fingerprintOn = true
+            }
+            is EnrolNext.Off -> if (fingerprintOn) turnOffLocked()
+        }
+        next
+    }
+
+    /** Unlocking: the cipher for the prompt, or what to do without one. */
+    suspend fun beginUnlock(): FingerprintLock.Begin<UnlockNext> {
+        val kept = sealed
+        val begin = withContext(Dispatchers.IO) { lock.beginUnlock(kept) }
+        if (begin is FingerprintLock.Begin.Done && begin.next is UnlockNext.Forget) mutex.withLock { turnOffLocked() }
+        return begin
+    }
+
+    /**
+     * The prompt answered. Opened: the refresh token goes into the session in memory, to be
+     * refreshed as usual. Forget: the key, the ciphertext and the setting go.
+     */
+    suspend fun finishUnlock(result: PromptResult): UnlockNext = mutex.withLock {
+        val kept = sealed
+        if (kept == null) {
+            turnOffLocked()
+            return@withLock UnlockNext.Forget(FingerprintWords.MISSING)
+        }
+        val next = withContext(Dispatchers.IO) { lock.finishUnlock(result, kept) }
+        when (next) {
+            is UnlockNext.Open -> {
+                val current = session
+                session = current?.copy(refreshToken = next.refreshToken)
+                    ?: Session("", null, next.refreshToken, 0, Session.FINGERPRINT)
+            }
+            is UnlockNext.Forget -> turnOffLocked()
+            else -> Unit
+        }
+        next
+    }
+
+    /** Turn it off: the key and the ciphertext go; the session is kept as without it, for the hour after the sign-in. */
+    suspend fun turnOffFingerprint() {
+        mutex.withLock { turnOffLocked() }
+    }
+
+    /** Leave the lock screen for the password: drop the open session, keep what is sealed for next time. */
+    suspend fun closeSession() {
+        mutex.withLock { session = null }
+    }
+
+    private suspend fun turnOffLocked() {
+        vault.delete()
+        sealed = null
+        fingerprintOn = false
+        val current = session
+        withContext(Dispatchers.IO) {
+            store.fingerprintOff()
+            if (current != null) {
+                val kept = withoutStaleRefresh(current, nowS())
+                session = kept
+                if (kept.accessToken.isNotEmpty()) store.save(kept)
+            }
+        }
+    }
+
     /** Forget the tokens and the last searches, then revoke the refresh token (docs/mobile-apps.md, "Sign out"). */
     suspend fun signOut() {
         cognito.cancel()
         val refreshToken = mutex.withLock {
             val token = session?.refreshToken
             forgetLocked()
+            // Sign-out ends fingerprint unlock too: the key and the ciphertext go with the rest.
+            vault.delete()
+            sealed = null
+            fingerprintOn = false
+            withContext(Dispatchers.IO) { store.clear() }
             token
         }
         if (refreshToken != null) {
@@ -201,10 +372,34 @@ class AuthManager(context: Context, private val config: CraniumConfig, private v
         service.dispose()
     }
 
+    /**
+     * The tokens no longer work. Without fingerprint unlock, everything goes, as before. With it,
+     * the ciphertext goes (it held the same refresh token) and the setting stays, so that the next
+     * full sign-in is kept behind the fingerprint again.
+     */
     private suspend fun forgetLocked() {
         session = null
-        withContext(Dispatchers.IO) { store.clear() }
+        if (fingerprintOn) {
+            vault.delete()
+            sealed = null
+            withContext(Dispatchers.IO) {
+                store.clearVault()
+                store.clearSession()
+            }
+        } else {
+            withContext(Dispatchers.IO) { store.clear() }
+        }
     }
+
+    private fun nowS() = System.currentTimeMillis() / 1000
+
+    /** The session without its refresh token once the hour after the sign-in is over, without fingerprint unlock. */
+    private fun withoutStaleRefresh(current: Session, now: Long): Session =
+        if (current.refreshToken != null && !BiometricPolicy.keepsRefreshToken(false, current.signedIn, now)) {
+            current.copy(refreshToken = null)
+        } else {
+            current
+        }
 
     private suspend fun tokenRequest(request: TokenRequest): TokenResponse =
         suspendCancellableCoroutine { continuation ->
