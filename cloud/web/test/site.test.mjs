@@ -39,7 +39,8 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // the test compares this list with the sorted imports of app.js.
 // account.js and map.js: the Account page, and the Map page with the map on a board's page (docs/fleet.md).
 // apps.js: the Apps page, with the QR encoder it imports (qrcode.js).
-const ON_DEMAND = ['account.js', 'apps.js', 'fleet.js', 'history.js', 'map.js', 'serial.js', 'telemetry.js'];
+// customers.js: the Customers page, the customer site's customers and their boards (docs/customer-site.md).
+const ON_DEMAND = ['account.js', 'apps.js', 'customers.js', 'fleet.js', 'history.js', 'map.js', 'serial.js', 'telemetry.js'];
 // Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder.
 const WITH_THEIR_PAGE = ['qrcode.js'];
 const atOnce = assets.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));

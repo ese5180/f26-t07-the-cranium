@@ -109,6 +109,7 @@ const SECTIONS = [
   'map', 'account',
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   'apps',
+  'customers',
 ];
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
 const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
@@ -1449,6 +1450,9 @@ export const SIGN_IN_WORDS = Object.freeze({
   failed: 'Signing in did not work. Try again, or use the AWS sign-in page.',
   missing: 'Enter your e-mail address and your password.',
   'short-code': 'Type all six digits of the code.',
+  // A new password chosen on the page itself (the customer site, docs/customer-site.md).
+  'weak-password': 'That password is not accepted. Choose one of at least 10 characters.',
+  'missing-new': 'Choose a new password and type it twice.',
 });
 
 /** What Cognito's error answer is called, such as NotAuthorizedException; '' if it does not say. */
@@ -1467,7 +1471,9 @@ export function signInProblem(name, step) {
   switch (name) {
     case 'NotAuthorizedException':
     case 'UserNotFoundException':
-      return step === 'code' ? 'expired' : 'wrong-password';
+      return step === 'code' || step === 'new-password' ? 'expired' : 'wrong-password';
+    case 'InvalidPasswordException':
+      return step === 'new-password' ? 'weak-password' : 'failed';
     case 'CodeMismatchException':
       return step === 'code' ? 'wrong-code' : 'failed';
     case 'ExpiredCodeException':
@@ -1523,6 +1529,8 @@ export function readConfig(json) {
   }
   const origin = /^https?:\/\/[^/?#\s]+$/;
   const address = /^https?:\/\/[^?#\s]+$/;
+  // Served as admin mode of the customer site (docs/customer-site.md): the site is at the root.
+  if (value.customerSite === '/') config.customerSite = '/';
   return origin.test(config.loginOrigin) && origin.test(config.idpOrigin) && address.test(config.redirectUri) &&
     USER_POOL_ID.test(config.userPoolId) ? config : null;
 }
@@ -1532,15 +1540,54 @@ function form(fields) {
 }
 
 /**
+ * One call of Cognito's user pool API at `idpOrigin`: { reply, date }, { error } with the name of
+ * Cognito's error, or { problem: 'network' | 'failed' }. Never throws. The sign-in below uses it,
+ * and so does the customer site's account page, for the calls a signed-in person makes about
+ * their own account.
+ */
+export async function cognitoCall(fetch, idpOrigin, operation, body) {
+  let response;
+  try {
+    response = await fetch(`${idpOrigin}/`, {
+      method: 'POST',
+      headers: { 'content-type': IDP_JSON, 'x-amz-target': `${IDP_TARGET}${operation}` },
+      body: JSON.stringify(body),
+      credentials: 'omit',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+      signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
+    });
+  } catch {
+    return { problem: 'network' };
+  }
+  let reply;
+  try {
+    reply = parseJson(await response.text());
+  } catch {
+    return { problem: 'network' };
+  }
+  if (!response.ok) return { error: cognitoErrorName(reply, response.headers.get('x-amzn-errortype')) };
+  if (reply === null || typeof reply !== 'object' || Array.isArray(reply)) return { problem: 'failed' };
+  return { reply, date: response.headers.get('date') };
+}
+
+/**
  * The pieces of the browser the flow uses are passed in, so that the tests can stand
  * in for them: storage (sessionStorage), location, history, fetch and crypto.
  *
  * The session is timed with this computer's own clock from start to end (`now`), so a
  * clock that is wrong changes nothing: the token's lifetime is a length of time. The
  * time in the proof of the password goes by Cognito's clock where its answer says it.
+ *
+ * The customer site (docs/customer-site.md) signs in with this same code. Its configuration
+ * has no `loginOrigin`, because it uses no managed login pages: the refresh token is then
+ * revoked through the user pool API, and a sign-out goes back to `redirectUri`. With
+ * `newPasswordHere`, a first sign-in's new password is asked for on the page itself
+ * (step 'new-password', then sendNewPassword) instead of being left to those pages.
  */
 export function createAuth({
   config, storage, location, history, fetch, crypto, now = () => Date.now(), tellOtherTabs = () => {},
+  newPasswordHere = false,
 }) {
   const seconds = () => Math.floor(now() / 1000);
 
@@ -1596,6 +1643,12 @@ export function createAuth({
   }
 
   async function revoke(refreshToken) {
+    // No managed login pages: the user pool API revokes it (RevokeToken).
+    if (!config.loginOrigin) {
+      const answer = await askCognito('RevokeToken', { Token: refreshToken, ClientId: config.clientId });
+      if (answer.reply) return 'revoked';
+      return answer.error !== undefined ? 'refused' : 'failed';
+    }
     const url = `${config.loginOrigin}/oauth2/revoke`;
     const request = {
       method: 'POST',
@@ -1685,30 +1738,8 @@ export function createAuth({
   let challenge = null;
 
   /** One call of Cognito's user pool API: { reply, date }, { error } or { problem }. */
-  async function askCognito(operation, body) {
-    let response;
-    try {
-      response = await fetch(`${config.idpOrigin}/`, {
-        method: 'POST',
-        headers: { 'content-type': IDP_JSON, 'x-amz-target': `${IDP_TARGET}${operation}` },
-        body: JSON.stringify(body),
-        credentials: 'omit',
-        cache: 'no-store',
-        referrerPolicy: 'no-referrer',
-        signal: AbortSignal.timeout(LOGIN_TIMEOUT_MS),
-      });
-    } catch {
-      return { problem: 'network' };
-    }
-    let reply;
-    try {
-      reply = parseJson(await response.text());
-    } catch {
-      return { problem: 'network' };
-    }
-    if (!response.ok) return { error: cognitoErrorName(reply, response.headers.get('x-amzn-errortype')) };
-    if (reply === null || typeof reply !== 'object' || Array.isArray(reply)) return { problem: 'failed' };
-    return { reply, date: response.headers.get('date') };
+  function askCognito(operation, body) {
+    return cognitoCall(fetch, config.idpOrigin, operation, body);
   }
 
   /** Where a refusal leaves the sign-in. */
@@ -1737,6 +1768,10 @@ export function createAuth({
     if (name === 'SOFTWARE_TOKEN_MFA' && typeof reply.Session === 'string' && reply.Session !== '') {
       challenge = { session: reply.Session, userId };
       return { step: 'code' };
+    }
+    if (name === 'NEW_PASSWORD_REQUIRED' && newPasswordHere && typeof reply.Session === 'string' && reply.Session !== '') {
+      challenge = { session: reply.Session, userId, newPassword: true };
+      return { step: 'new-password' };
     }
     challenge = null;
     // A new password, an authenticator app to set up, or anything else this page does not do.
@@ -1811,7 +1846,7 @@ export function createAuth({
    *   {step: 'code', problem: string} | {step: 'password', problem: string}>}
    */
   async function sendCode(code) {
-    if (challenge === null) return { step: 'password', problem: 'expired' };
+    if (challenge === null || challenge.newPassword) return { step: 'password', problem: 'expired' };
     if (!CODE.test(code)) return { step: 'code', problem: 'wrong-code' };
     const { session, userId } = challenge;
     const answered = await askCognito('RespondToAuthChallenge', {
@@ -1822,6 +1857,27 @@ export function createAuth({
     });
     if (!answered.reply) return refused(answered, 'code');
     return following(answered.reply, 'code', userId);
+  }
+
+  /**
+   * The new password of a first sign-in, for the sign-in that asked for it (newPasswordHere).
+   * What follows is the code, if the account has an authenticator app, or the session.
+   *
+   * @returns {Promise<{step: 'done'} | {step: 'code'} | {step: 'elsewhere', challenge: string} |
+   *   {step: 'new-password', problem: string} | {step: 'password', problem: string}>}
+   */
+  async function sendNewPassword(password) {
+    if (challenge === null || !challenge.newPassword) return { step: 'password', problem: 'expired' };
+    if (typeof password !== 'string' || password === '') return { step: 'new-password', problem: 'missing-new' };
+    const { session, userId } = challenge;
+    const answered = await askCognito('RespondToAuthChallenge', {
+      ChallengeName: 'NEW_PASSWORD_REQUIRED',
+      ClientId: config.clientId,
+      Session: session,
+      ChallengeResponses: { USERNAME: userId, NEW_PASSWORD: password },
+    });
+    if (!answered.reply) return refused(answered, 'new-password');
+    return following(answered.reply, 'new-password', userId);
   }
 
   /**
@@ -1886,6 +1942,11 @@ export function createAuth({
   function signOut() {
     forgetSession();
     tellOtherTabs();
+    // No managed login pages, so nothing to end there: back to the site's own page.
+    if (!config.loginOrigin) {
+      location.assign(config.redirectUri);
+      return;
+    }
     location.assign(`${config.loginOrigin}/logout?${form({
       client_id: config.clientId,
       logout_uri: config.redirectUri,
@@ -1898,6 +1959,7 @@ export function createAuth({
     signIn,
     passwordSignIn,
     sendCode,
+    sendNewPassword,
     /** Drop a sign-in on the console's own page that waits for its code. */
     cancelPasswordSignIn() {
       challenge = null;
@@ -2166,7 +2228,24 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     alerts: async () => readAlerts(await get('/api/alerts')),
     subscribeAlerts: async () => text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
     unsubscribeAlerts: async () => text(record(await post('/api/alerts/unsubscribe', {})).subscription, 16),
+    // The customer site's customers (docs/customer-site.md). customers.js reads the replies.
+    customers: async () => record(await get('/api/customers')),
+    inviteCustomer: async ({ email, name }) => record(await post('/api/customers', name ? { email, name } : { email })),
+    resendInvitation: async (id) => record(await post(`/api/customers/${checked(isCustomerId, id)}/resend`, {})),
+    assignBoard: async (id, { thing, label }) => record(await post(`/api/customers/${checked(isCustomerId, id)}/boards`,
+      label ? { thing: checked(isThing, thing), label } : { thing: checked(isThing, thing) })),
+    unassignBoard: async (id, thing) =>
+      record(await post(`/api/customers/${checked(isCustomerId, id)}/boards/${checked(isThing, thing)}/remove`, {})),
+    setCustomerEnabled: async (id, enabled) =>
+      record(await post(`/api/customers/${checked(isCustomerId, id)}/${enabled ? 'enable' : 'disable'}`, {})),
   };
+}
+
+// A customer of the customer site: the sub of their account in the customer pool.
+const CUSTOMER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function isCustomerId(value) {
+  return typeof value === 'string' && CUSTOMER_ID.test(value);
 }
 
 // How often to ask again. A deployment is polled every 3 s while a board is installing
@@ -3151,6 +3230,38 @@ const AUDIT_ACTIONS = {
     done: 'downloaded the Android app', tried: 'tried to download the Android app', triedAlone: 'tried to download the Android app',
     icon: 'download',
   },
+  // The customer site's accounts, from the Customers page (docs/customer-site.md): a customer by
+  // their e-mail address, a board by its name with the customer's address after it (CUSTOMER_BOARD).
+  'customer.create': {
+    done: 'invited the customer', tried: 'tried to invite the customer', triedAlone: 'tried to invite a customer', icon: 'user',
+  },
+  'customer.resend': {
+    done: 'sent the invitation again to',
+    tried: 'tried to send the invitation again to',
+    triedAlone: 'tried to send an invitation again',
+    icon: 'send',
+  },
+  'customer.assign': {
+    done: 'gave {} to', tried: 'tried to give {} to', triedAlone: 'tried to give a board to a customer', icon: 'chip',
+  },
+  'customer.unassign': {
+    done: 'took {} back from',
+    tried: 'tried to take {} back from',
+    triedAlone: 'tried to take a board back from a customer',
+    icon: 'undo',
+  },
+  'customer.disable': {
+    done: 'switched off the customer account of',
+    tried: 'tried to switch off the customer account of',
+    triedAlone: 'tried to switch off a customer account',
+    icon: 'ban',
+  },
+  'customer.enable': {
+    done: 'switched on the customer account of',
+    tried: 'tried to switch on the customer account of',
+    triedAlone: 'tried to switch on a customer account',
+    icon: 'check',
+  },
 };
 
 // What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
@@ -3160,6 +3271,9 @@ const CONSOLE_ACTIONS = Object.freeze(['rollout.advance', 'rollout.stop']);
 export function actorOf(entry) {
   return CONSOLE_ACTIONS.includes(entry?.action) && !entry.actor?.sub ? 'The console' : nameOf(entry?.actor);
 }
+
+// The two customer actions whose target is a board, and whose sentence ends with the customer.
+const CUSTOMER_BOARD = new Set(['customer.assign', 'customer.unassign']);
 
 const SIGNED_IN_ON = { web: 'signed in on the website', phone: 'signed in on the phone app' };
 
@@ -3323,6 +3437,19 @@ export const REFUSAL_WORDS = {
   invalid_version_code: 'The versionCode was not a whole number',
   invalid_size: 'The size was not a whole number of bytes, up to 100 MB',
   unversioned: 'The bucket kept no version of the APK',
+  // The customer site's customers (cloud/api/src/handlers/customers.mjs) and its own API.
+  customers_not_set_up: 'This deployment has no customer pool',
+  customer_site_has_no_address: 'The customer site has no address yet, so an invitation would lead nowhere',
+  invalid_customer: 'Not a valid customer ID',
+  invalid_email: 'Not an e-mail address',
+  unknown_customer: 'There is no customer with that ID',
+  customer_exists: 'There is a customer with that address already',
+  customer_not_invited: 'That customer has signed in already, so there was no invitation to send again',
+  already_assigned: 'That board was that customer’s already',
+  board_taken: 'That board belongs to another customer',
+  not_assigned: 'That board was not that customer’s',
+  not_your_board: 'That customer has no such board',
+  unavailable: 'The account could not be checked just then',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */
@@ -3402,6 +3529,10 @@ const AUDIT_DETAILS = {
   // The phone apps: an APK's versionCode, and where a download link went.
   versionCode: { label: 'versionCode', code: true },
   via: { label: 'As', say: (value) => ({ link: 'a link', qr: 'a QR code for a phone' })[value] ?? value },
+  // A customer of the customer site: their address, their account id, and what a board was called for them.
+  email: { label: 'E-mail' },
+  customer: { label: 'Customer', code: true },
+  label: { label: 'Called', sentence: true },
 };
 
 function auditFact(entry, key, value) {
@@ -3444,6 +3575,10 @@ export function describeAudit(entry) {
   if (isRolloutId(entry.target) && isVersion(details.get('version'))) label = details.get('version');
   else if (/^group\.(?:create|update|delete)$/.test(entry.action) && details.get('name')) label = details.get('name');
   else if (entry.action === 'group.rollback' && details.get('group')) label = details.get('group');
+  // A customer is told by their address, where the entry has it, not by the id of their account.
+  const customerEmail = String(entry.action ?? '').startsWith('customer.') ? details.get('email') ?? '' : '';
+  const byAddress = customerEmail !== '' && !CUSTOMER_BOARD.has(entry.action);
+  if (byAddress) label = customerEmail;
   // A revocation that completed what an earlier request had begun.
   const resumed = entry.action === 'firmware.revoke' && ok && details.get('resumed') === 'true';
   let words = entry.action || 'did something';
@@ -3464,6 +3599,9 @@ export function describeAudit(entry) {
     verb = words.replace('{}', 'a board');
   }
   if (!label) verb = verb.replace(/ of$/, '');
+  // "gave CRVIHAAN01 to <the customer's address>": the board, then whose it is now.
+  if (CUSTOMER_BOARD.has(entry.action) && slot >= 0 && label) tail = `${tail} ${customerEmail || 'a customer'}`.trim();
+  if (!label) verb = verb.replace(/ (?:to|from)$/, '');
 
   // The boards of a deployment: by name where the entry has them, else how many.
   const boards = entry.action === 'deployment.create' ? (details.get('boards') ?? '').split(' ').filter(isThing) : [];
@@ -3475,6 +3613,7 @@ export function describeAudit(entry) {
   // What the sentence says already is not said again as a fact.
   const said = new Set();
   if (entry.action === 'account.sign_in') said.add('client');
+  if (customerEmail !== '' && (byAddress || label)) said.add('email');
   if (entry.action === 'deployment.create' && boardCount > 0) said.add('things');
   if (boards.length <= 2) said.add('boards');
   const order = [...Object.keys(AUDIT_DETAILS), ...details.keys()];
@@ -3503,6 +3642,8 @@ export function describeAudit(entry) {
     boards,
     boardCount,
     byName: entry.action === 'serial.command' && isBoardName(label),
+    // A board given to a customer or taken back, by its thing name: the page shows its own name.
+    ...(CUSTOMER_BOARD.has(entry.action) && isThing(label) ? { thing: label } : {}),
   };
 }
 

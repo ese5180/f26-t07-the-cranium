@@ -21,13 +21,22 @@
  * The query string is never read and never logged: after sign-in it carries the
  * authorization code.
  *
+ * A third site, the customer website (customer-site.mjs, docs/customer-site.md), answers on the
+ * names in CUSTOMER_HOSTS: the first serves it at / and the console at /admin, as admin mode, so
+ * that an admin signs in once; the others send the browser to the first. Only there.
+ *
  * No dependencies: only node:crypto and node:fs.
  */
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 
+import { customerPolicy, loadCustomerSite } from './customer-site.mjs';
+
 const SITE = new URL('./site/', import.meta.url);
+const CUSTOMER = new URL('./customer/', import.meta.url);
+// Where the customer site serves the console, for admins.
+const ADMIN_PATH = '/admin';
 const BUILD_ID_LENGTH = 12;
 const BUILD_MARK = '%BUILD%';
 const CONFIG_MARK = '%CONFIG%';
@@ -152,6 +161,7 @@ export function loadSite(base) {
 }
 
 const site = loadSite(SITE);
+const customerSite = loadCustomerSite(CUSTOMER, SITE);
 
 const ATTRIBUTE_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -239,10 +249,13 @@ function writeLog(entry) {
  * @param {string[]} [options.homeHosts] the host names that get the home page, exactly as
  *                                       API Gateway reports them. Every other name gets
  *                                       the console.
+ * @param {object} [options.customer]    the customer site: { hosts, userPoolId, clientId }, its
+ *                                       names (the first is the one it is served on) and the
+ *                                       customer pool's sign-in settings. Left out, no name gets it.
  * @param {(entry: object) => void} [options.log]  receives one entry per request
  */
 export function createWebHandler({
-  clientId, loginOrigin, scope, userPoolId, idpOrigin, redirectUri, homeHosts = [], log = writeLog,
+  clientId, loginOrigin, scope, userPoolId, idpOrigin, redirectUri, homeHosts = [], customer = null, log = writeLog,
 } = {}) {
   requireText('clientId', clientId);
   requireText('scope', scope);
@@ -266,6 +279,24 @@ export function createWebHandler({
   const consoleHeaders = securityHeaders(consolePolicy(loginOrigin, userPoolApi), '(self)');
   const homeHeaders = securityHeaders(HOME_POLICY, '()');
 
+  // The customer site. Its pool is in the Region of the staff pool, so both talk to one user pool API.
+  const customerNames = new Set();
+  let customerHeaders = null;
+  if (customer !== null) {
+    const { hosts, userPoolId: customerPoolId, clientId: customerClientId } = customer ?? {};
+    if (!Array.isArray(hosts) || hosts.length === 0 || !hosts.every((host) => typeof host === 'string' && HOST.test(host))) {
+      throw new TypeError('customer.hosts must be a list of host names in lower case');
+    }
+    if (hosts.some((host) => homeNames.has(host))) throw new TypeError('a name cannot be the home page and the customer site');
+    requireText('customer.clientId', customerClientId);
+    const customerPool = USER_POOL_ID.exec(String(customerPoolId ?? ''));
+    if (!customerPool || customerPool[1] !== pool[1]) {
+      throw new TypeError('customer.userPoolId must be a user pool ID in the Region of the staff pool');
+    }
+    for (const host of hosts) customerNames.add(host);
+    customerHeaders = securityHeaders(customerPolicy(userPoolApi), '()');
+  }
+
   function respond(headers, statusCode, type, cacheControl, body, extra) {
     return {
       statusCode,
@@ -275,7 +306,8 @@ export function createWebHandler({
     };
   }
 
-  function page(event) {
+  /** The console's page; with `admin`, as admin mode of the customer site, at /admin. */
+  function page(event, admin = false) {
     let returnTo = redirectUri;
     if (returnTo === undefined) {
       const host = event?.requestContext?.domainName;
@@ -285,13 +317,53 @@ export function createWebHandler({
       returnTo = `https://${host}/`;
     }
     const config = JSON.stringify({
-      clientId, loginOrigin, scope, redirectUri: returnTo, userPoolId, idpOrigin: userPoolApi,
+      clientId, loginOrigin, scope, redirectUri: admin ? `${returnTo}${ADMIN_PATH.slice(1)}` : returnTo, userPoolId,
+      idpOrigin: userPoolApi, ...(admin ? { customerSite: '/' } : {}),
     });
     const { pageHead, pageTail } = site.console;
     return respond(consoleHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
   }
 
+  /** The customer site's page, with both pools' public sign-in settings. */
+  function customerPage(event) {
+    const host = event?.requestContext?.domainName;
+    const home = redirectUri ?? `https://${host}/`;
+    const config = JSON.stringify({
+      customer: { clientId: customer.clientId, userPoolId: customer.userPoolId },
+      admin: { clientId, userPoolId },
+      idpOrigin: userPoolApi,
+      home,
+      adminPath: ADMIN_PATH,
+    });
+    const { pageHead, pageTail } = customerSite;
+    return respond(customerHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
+  }
+
+  /**
+   * A request to a name of the customer site. The first name serves the site, the console at
+   * /admin and the files of both; any other, such as www., sends the browser to the first, so
+   * that a sign-in is kept in one origin and the staff client has one more return address, not two.
+   */
+  function customerAnswer(event, host) {
+    const path = event.rawPath;
+    const [canonical] = customer.hosts;
+    if (host !== canonical) {
+      const to = path === ADMIN_PATH ? ADMIN_PATH : '/';
+      return respond(customerHeaders, 308, PLAIN, CACHE_NEVER, 'Moved\n', { location: `https://${canonical}${to}` });
+    }
+    if (event?.requestContext?.http?.method !== 'GET') {
+      return respond(customerHeaders, 405, PLAIN, CACHE_NEVER, 'Method not allowed\n', { allow: 'GET' });
+    }
+    if (path === '/') return customerPage(event);
+    if (path === ADMIN_PATH) return page(event, true);
+    const asset = typeof path === 'string' ? customerSite.assets.get(path) ?? site.console.assets.get(path) : undefined;
+    if (asset) return respond(customerHeaders, 200, asset.type, CACHE_ASSET, asset.body);
+    return respond(customerHeaders, 404, PLAIN, CACHE_NEVER, 'Not found\n');
+  }
+
   function answer(event) {
+    const host = event?.requestContext?.domainName;
+    if (customerNames.has(host)) return customerAnswer(event, host);
     const home = homeNames.has(event?.requestContext?.domainName);
     const headers = home ? homeHeaders : consoleHeaders;
     if (event?.requestContext?.http?.method !== 'GET') {
@@ -330,6 +402,14 @@ function settingsFromEnvironment(env) {
     // Left out or empty, every name gets the console. Commas, no spaces: a name that is
     // not a host name is refused when the handler is made.
     homeHosts: (env.HOME_HOSTS ?? '').split(',').filter((name) => name !== ''),
+    // The same for the customer site, whose first name is the one it is served on.
+    customer: env.CUSTOMER_HOSTS
+      ? {
+        hosts: env.CUSTOMER_HOSTS.split(',').filter((name) => name !== ''),
+        userPoolId: env.CUSTOMER_POOL_ID,
+        clientId: env.CUSTOMER_CLIENT_ID,
+      }
+      : null,
   };
 }
 

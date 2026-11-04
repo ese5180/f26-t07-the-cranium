@@ -9086,3 +9086,122 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .release-figure.is-small {
   font-size: 1.5rem;
 }
+
+/* The Customers page (customers.js): the customer site's accounts and their boards. */
+
+.customers-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  align-items: start;
+  gap: clamp(24px, 3vw, 44px);
+}
+
+.customers-side {
+  display: grid;
+  gap: 28px;
+}
+
+.customers {
+  display: grid;
+}
+
+.customer {
+  display: grid;
+  gap: 14px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.customer:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.customer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.customer-who {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.customer-email {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.customer-meta {
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.customer-id {
+  font-size: 0.75rem;
+}
+
+.customer-boards {
+  display: grid;
+  gap: 8px;
+}
+
+.customer-board {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 12px;
+  border-radius: var(--radius-small);
+  background: var(--well);
+}
+
+.customer-board-name {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.customer-board-since {
+  font-size: 0.8125rem;
+}
+
+.customer-assign,
+.customer-invite {
+  display: grid;
+  gap: 12px;
+}
+
+.customer-assign {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.customer-actions .card-note {
+  flex-basis: 100%;
+}
+
+.customer-invite + .card-note {
+  margin-top: 12px;
+}
+
+.customers-free {
+  display: grid;
+  gap: 6px;
+}
+
+@media (max-width: 1000px) {
+  .customers-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .customer-assign {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

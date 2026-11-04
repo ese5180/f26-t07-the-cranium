@@ -1250,6 +1250,8 @@ const SECTIONS = [
   ['activity', 'Activity'],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   ['apps', 'Apps'],
+  // The customer site's customers: for release managers only (cloud/api/src/handlers/customers.mjs).
+  ['customers', 'Customers'],
   ['developer', 'Developer'],
 ];
 const SECTION_OF = {
@@ -1265,7 +1267,8 @@ function sectionHref(view, ctx) {
 
 export function navView(ctx) {
   const current = SECTION_OF[ctx.state.route.view] ?? ctx.state.route.view;
-  return h('ul', { class: 'nav-list' }, SECTIONS.map(([view, label]) =>
+  const shown = SECTIONS.filter(([view]) => view !== 'customers' || ctx.state.me?.canWrite === true);
+  return h('ul', { class: 'nav-list' }, shown.map(([view, label]) =>
     h('li', { key: view }, h('a', {
       class: 'nav-link',
       href: sectionHref(view, ctx),
@@ -1300,6 +1303,8 @@ export function footView(ctx) {
       h('a', { href: '#/history' }, 'What\u2019s new'),
       h('a', { href: '#/apps' }, 'Phone apps')));
 }
+// For the customer site (customer/assets/customer-views.js), which draws with the same pieces.
+export { domeArt };
 
 export function developerTabs(current) {
   return h('nav', { class: 'dev-tabs', key: 'tabs', 'aria-label': 'Developer pages' },
@@ -1344,6 +1349,10 @@ export function accountView(ctx) {
       h('span', { class: 'account-meta' },
         h('span', { class: 'account-role' }, icon(me.canWrite ? 'key' : 'user', 'is-small'), role),
         h('span', { class: 'account-session', title: session.title }, session.text))),
+    // As admin mode of the customer site (docs/customer-site.md): the way back to it, still signed in.
+    ctx.state.customerSite
+      ? h('a', { class: 'btn is-small is-quiet', href: ctx.state.customerSite }, icon('arrow-left'), 'Leave admin mode')
+      : null,
     button('is-small', ctx.actions.signOut, icon('sign-out'), 'Sign out'));
 }
 
@@ -1376,6 +1385,7 @@ function auditTarget(description, devices) {
     const board = (devices ?? []).find((device) => device.name === description.label);
     if (board) return boardLabel(board, 'log-target');
   }
+  if (description.thing) return boardLabel(boardOf(description.thing, devices ?? []), 'log-target');
   return linkTo(description.href, { class: 'mono log-target' }, description.label);
 }
 
