@@ -220,9 +220,10 @@ function failure(promise) {
 
 test('the command line: defaults, both spellings of an option, nothing unknown', () => {
   assert.deepEqual(parseArguments([]), {
-    scenario: 'empty', viewer: false, live: false, home: false, verbose: false, help: false, host: '127.0.0.1', port: 8787,
-    repeatedCancel: 'refused',
+    scenario: 'empty', viewer: false, live: false, home: false, customer: false, verbose: false, help: false,
+    host: '127.0.0.1', port: 8787, repeatedCancel: 'refused',
   });
+  assert.equal(parseArguments(['--customer']).customer, true);
   assert.equal(parseArguments(['--scenario', 'revoked']).scenario, 'revoked');
   const options = parseArguments(['--scenario=downloading', '--viewer', '--live', '--port=9000']);
   assert.deepEqual(pick(options, 'scenario', 'viewer', 'live', 'port'),

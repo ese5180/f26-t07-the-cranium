@@ -148,6 +148,19 @@ export function createFakeCustomers({ now = Date.now } = {}) {
     ownership(thing) {
       return copy(owned.get(thing));
     },
+    /**
+     * The accounts as the stand-in for Cognito's user pool API (web/test/customer-cognito.mjs)
+     * reads them, so that both agree on whether an account is on and has set its password.
+     */
+    directory() {
+      return {
+        find: (email) => copy(byEmail(String(email ?? ''))),
+        bySub: (sub) => copy(accounts.get(sub) ?? null),
+        confirm: (sub) => {
+          if (accounts.has(sub)) accounts.get(sub).status = 'CONFIRMED';
+        },
+      };
+    },
   });
 }
 

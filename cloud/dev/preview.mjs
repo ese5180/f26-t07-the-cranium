@@ -8,7 +8,7 @@
  * at the console and trying its flows.
  *
  *   node cloud/dev/preview.mjs [--scenario <name>] [--viewer] [--live] [--port <number>]
- *                              [--repeated-cancel <refused|accepted|ignored>] [--home]
+ *                              [--repeated-cancel <refused|accepted|ignored>] [--home] [--customer]
  *
  * What stands in for the parts that are AWS in production:
  *
@@ -82,7 +82,11 @@
  *
  * The page is the one that is deployed. Nothing in web/ knows about the preview. With
  * --home the requests carry a host name that is on the web function's list of home page
- * names, so that the public home page is served by the same routing as when deployed.
+ * names, so that the public home page is served by the same routing as when deployed. With
+ * --customer they carry the customer site's name instead (docs/customer-site.md): the site at
+ * /, the console as admin mode at /admin, the customer API behind a stand-in for the customer
+ * pool's authorizer, and a stand-in for the customer pool beside the staff pool's
+ * (web/test/customer-cognito.mjs). The "customers" scenario gives it customers and boards.
  *
  * No dependencies.
  */
@@ -97,14 +101,20 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from '../api/src/app.mjs';
 import { loadConfig } from '../api/src/config.mjs';
 import { createRolloutTick } from '../api/src/tick.mjs';
+import { createCustomerApp } from '../api/src/customer/app.mjs';
+import { issuerOf } from '../api/src/customer/config.mjs';
 import { compareVersions, parseVersion } from '../api/src/lib/mcuboot.mjs';
 import { withConsoleScope } from '../api/src/signin-scope.mjs';
 import { parseBundledVersions } from '../api/src/lib/versions.mjs';
 import { accessClaims, createFakeAws, fakeEnv, fixture } from '../api/test/fake-aws.mjs';
+import {
+  CUSTOMER_CLIENT_ID, CUSTOMER_POOL_ID, createFakeCustomers, customerClaims,
+} from '../api/test/fake-customers.mjs';
 import { buildImage, imageKey, keyEnv } from '../api/test/images.mjs';
 import { buildVersions } from '../web/build-versions.mjs';
 import { createWebHandler } from '../web/src/server.mjs';
 import { createCognito } from '../web/test/cognito.mjs';
+import { createCustomerCognito } from '../web/test/customer-cognito.mjs';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8787;
@@ -128,6 +138,8 @@ const API_TOKEN_WRITE = 'POST /api/t/{proxy+}';
 // A release's note is replaced with PUT, through a route of each kind (infra/template.yaml).
 const API_PUT = 'PUT /api/{proxy+}';
 const API_TOKEN_PUT = 'PUT /api/t/{proxy+}';
+// The customer API: its own function, behind the authorizer of the customer pool (docs/customer-site.md).
+const API_CUSTOMER_READ = 'GET /api/c/{proxy+}';
 // How often the schedule moves staged rollouts on, as deployed.
 const ROLLOUT_TICK_MS = 60_000;
 // The key the fleet scenario's images are signed with (see the top of this file).
@@ -135,6 +147,8 @@ const FLEET_KEY = imageKey();
 
 // What the requests of --home are addressed to. A reserved domain: it can never exist.
 const HOME_HOST = 'home.preview.invalid';
+// And those of --customer: the customer site, with the console as admin mode under /admin.
+const CUSTOMER_HOST = 'customer.preview.invalid';
 
 // The largest request an HTTP API accepts, and far more than a sign-in form needs.
 const MAX_REQUEST_BYTES = 10 * 1024 * 1024;
@@ -155,6 +169,10 @@ const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
 // for the preview, printed when it starts, and good nowhere else.
 export const PREVIEW_PASSWORD = 'preview-password';
 export const PREVIEW_CODE = '123456';
+// The customers' of the "customers" scenario: the password of the two who have signed in before,
+// and the temporary one in the third's invitation, which works once.
+export const PREVIEW_CUSTOMER_PASSWORD = 'preview-customer';
+export const PREVIEW_TEMPORARY_PASSWORD = 'preview-temporary';
 // Cognito's user pool API: one address, the operation in a header.
 const IDP_JSON = 'application/x-amz-json-1.1';
 const IDP_TARGET = /^AWSCognitoIdentityProviderService\.(\w+)$/;
@@ -328,8 +346,11 @@ function gatewayEvent({ routeKey, method, path, query, headers, host, body = nul
  * @param {() => string} options.consoleOrigin  the origin that may read the replies
  * @param {() => string} options.redirectUri    the registered callback and sign-out address
  * @param {() => number} options.now       the clock, epoch milliseconds
+ * @param {object} [options.customerPool]  the customer pool's user pool API (web/test/customer-cognito.mjs):
+ *                                         Cognito answers both pools at one address, told apart by the
+ *                                         client, or by the access token of a customer's own call
  */
-function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirectUri, now }) {
+function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirectUri, now, customerPool = null }) {
   const codes = new Map();          // code -> { challenge, scopes, expiresAt }
   const sessions = new Map();       // access token -> { scopes, expiresAt, user }
   const refreshTokens = new Set();
@@ -525,9 +546,22 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     } catch {
       call = null;
     }
-    const { status, body: answer } = call !== null && typeof call === 'object'
-      ? userPool.answer(target[1], call)
-      : { status: 400, body: { __type: 'SerializationException', message: 'Unreadable request.' } };
+    const operation = target?.[1];
+    const ofCustomer = customerPool !== null && call !== null && typeof call === 'object' &&
+      (call.ClientId === CUSTOMER_CLIENT_ID || (call.ClientId === undefined && typeof call.AccessToken === 'string'));
+    let reply;
+    if (call === null || typeof call !== 'object') {
+      reply = { status: 400, body: { __type: 'SerializationException', message: 'Unreadable request.' } };
+    } else if (ofCustomer) {
+      reply = customerPool.answer(operation, call);
+    } else if (operation === 'RevokeToken' && call.ClientId === clientId) {
+      // The admin sign-in of the customer site revokes its refresh token through this API.
+      refreshTokens.delete(String(call.Token ?? ''));
+      reply = { status: 200, body: {} };
+    } else {
+      reply = userPool.answer(operation, call);
+    }
+    const { status, body: answer } = reply;
     // Its own clock in the Date header, as Cognito's answers carry Cognito's.
     send(response, status, {
       ...sealed, ...crossOrigin(), 'content-type': IDP_JSON, date: new Date(now()).toUTCString(),
@@ -920,7 +954,7 @@ function duration(text) {
  * release manager's requests to the real API. A request that does not end the way
  * the scenario expects stops the preview from starting.
  */
-function createStage({ fake, clock, boards, callApi, tick, say }) {
+function createStage({ fake, clock, boards, callApi, tick, say, customers = null }) {
   const begun = clock.now();
   // Up to when the boards that are on have reported while the scenario's time went by.
   let passed = null;
@@ -1099,6 +1133,29 @@ function createStage({ fake, clock, boards, callApi, tick, say }) {
     async checkAlerts() {
       await fake.alertsSettled();
       return fake.checkAlerts();
+    },
+
+    // The customer site (docs/customer-site.md): what the console's Customers page sends, and what a
+    // customer does with the invitation.
+
+    /** Invite a customer, as the Customers page does: the account waits for its first sign-in. */
+    async invite(email, name = '') {
+      return (await request('POST', '/api/customers', name ? { email, name } : { email }, 'ok')).customer;
+    },
+
+    async assign(customer, board, label = '') {
+      await request('POST', `/api/customers/${customer.id}/boards`, label ? { thing: board.thing, label } : { thing: board.thing }, 'ok');
+    },
+
+    /** The temporary password the invitation's e-mail would have carried. */
+    invitationPassword(customer, password = PREVIEW_TEMPORARY_PASSWORD) {
+      customers.pool.addCredentials({ sub: customer.id, password, code: PREVIEW_CODE });
+    },
+
+    /** The customer's first sign-in, as if it were done: their own password from then on. */
+    signedInOnce(customer, password = PREVIEW_CUSTOMER_PASSWORD) {
+      customers.store.confirm(customer.id);
+      customers.pool.addCredentials({ sub: customer.id, password, code: PREVIEW_CODE });
     },
   };
 }
@@ -1305,6 +1362,28 @@ async function fleet(stage) {
 
   await campusMap(stage, third);
   await androidReleases(stage);
+  return [first, second, third];
+}
+
+/**
+ * The fleet, and the customer site on top of it: two customers who have signed in before, one
+ * whose invitation is still unused, three boards given out, and the rest that nobody has.
+ */
+async function customerSite(stage) {
+  const [first, second, third] = await fleet(stage);
+  stage.ago('1m50s');
+  stage.signIn();
+  const ada = await stage.invite(`ada@${MAIL_DOMAIN}`, 'Ada');
+  const ben = await stage.invite(`ben@${MAIL_DOMAIN}`);
+  const cleo = await stage.invite(`cleo@${MAIL_DOMAIN}`, 'Cleo');
+  stage.ago('1m40s');
+  await stage.assign(ada, first, 'Living room deck');
+  await stage.assign(ada, second);
+  await stage.assign(ben, third, 'Studio');
+  stage.ago('1m30s');
+  stage.signedInOnce(ada);
+  stage.signedInOnce(ben);
+  stage.invitationPassword(cleo);
 }
 
 /**
@@ -1497,6 +1576,11 @@ export const SCENARIOS = Object.freeze({
     // Its images are built and signed with a key of the run (api/test/images.mjs), which this console trusts.
     env: keyEnv(FLEET_KEY),
   },
+  customers: {
+    summary: 'The fleet, with customers: Ada has two boards, Ben one, Cleo an unused invitation, and the rest nobody has.',
+    build: customerSite,
+    env: keyEnv(FLEET_KEY),
+  },
   revoked: {
     summary: 'Three boards and a longer history: 2.0.0+0 was revoked while it was being rolled out.',
     async build(stage) {
@@ -1568,6 +1652,7 @@ export const SCENARIOS = Object.freeze({
  * @param {boolean} [options.viewer]    sign in as the local viewer, not the release manager
  * @param {boolean} [options.live]      let the boards act by themselves
  * @param {boolean} [options.home]      serve the public home page instead of the console
+ * @param {boolean} [options.customer]  serve the customer site, with the console as admin mode at /admin
  * @param {string} [options.repeatedCancel]  what the stand-in does with a forced
  *                                      cancellation of a deployment that is cancelled
  *                                      already: "refused", "accepted" or "ignored"
@@ -1579,8 +1664,8 @@ export const SCENARIOS = Object.freeze({
  * @param {() => number} [options.now]  the clock, epoch milliseconds
  */
 export async function createPreview({
-  scenario = 'empty', viewer = false, live = false, home = false, repeatedCancel = 'refused', host = DEFAULT_HOST,
-  port = DEFAULT_PORT, log = () => {}, say = () => {}, now = Date.now,
+  scenario = 'empty', viewer = false, live = false, home = false, customer = false, repeatedCancel = 'refused',
+  host = DEFAULT_HOST, port = DEFAULT_PORT, log = () => {}, say = () => {}, now = Date.now,
 } = {}) {
   requireLoopback(host);
   if (!Object.hasOwn(SCENARIOS, scenario)) {
@@ -1599,12 +1684,40 @@ export async function createPreview({
   const fake = createFakeAws({ now: clock.now, repeatedCancel });
   // The e-mail alerts are made as EventsFn makes them (api/src/alerts.mjs); none is sent anywhere.
   fake.enableAlerts('https://console.preview.invalid/');
+  let consoleHost = null;
+  // The customer site's half (docs/customer-site.md): the customer pool and who owns which board,
+  // beside the console's. Its address is the preview's own.
+  const customers = createFakeCustomers({ now: clock.now });
   // A scenario may sign its images with a key of its own, which its console then trusts.
-  const config = loadConfig(fakeEnv(SCENARIOS[scenario].env ?? {}));
+  const config = Object.freeze({
+    ...loadConfig(fakeEnv(SCENARIOS[scenario].env ?? {})),
+    customers: Object.freeze({
+      customerPoolId: CUSTOMER_POOL_ID,
+      get siteUrl() {
+        return consoleHost === null ? '' : `http://${consoleHost}/`;
+      },
+    }),
+  });
   // The versions the deployment would be built with: the console's own and the iPhone app's (versions.json).
   const versions = versionsOfRepository();
   const app = createApp({
-    aws: fake, config, now: clock.now, log: (line) => log({ function: 'api', ...line }), versions: parseBundledVersions(versions),
+    aws: { ...fake, ...customers },
+    config,
+    now: clock.now,
+    log: (line) => log({ function: 'api', ...line }),
+    versions: parseBundledVersions(versions),
+  });
+  const customerApp = createCustomerApp({
+    aws: { getShadow: fake.getShadow, queryEvents: fake.queryEvents, ...customers },
+    config: Object.freeze({
+      region: 'us-east-1', stateTable: 'local-state', eventsTable: 'local-events', customerPoolId: CUSTOMER_POOL_ID,
+      customerClientId: CUSTOMER_CLIENT_ID, issuer: issuerOf(CUSTOMER_POOL_ID),
+    }),
+    now: clock.now,
+    log: (line) => log({ function: 'customer-api', ...line }),
+  });
+  const customerPool = createCustomerCognito({
+    userPoolId: CUSTOMER_POOL_ID, clientId: CUSTOMER_CLIENT_ID, directory: customers.directory(), now,
   });
   // The schedule that moves staged rollouts on (api/src/tick.mjs): every minute, and when a scenario says.
   const tick = createRolloutTick({ aws: fake, config, now: clock.now, log: (line) => log({ function: 'rollouts', ...line }) });
@@ -1614,7 +1727,6 @@ export async function createPreview({
 
   const boards = [];
   const timers = [];
-  let consoleHost = null;
   let loginHost = null;
   let web = null;
   let terminal = null;
@@ -1627,8 +1739,10 @@ export async function createPreview({
     user,
     host: () => loginHost,
     consoleOrigin: () => `http://${consoleHost}`,
-    redirectUri: () => `http://${consoleHost}/`,
+    // As the customer site's admin mode, the console is at /admin, and the sign-in pages return there.
+    redirectUri: () => (customer ? `http://${consoleHost}/admin` : `http://${consoleHost}/`),
     now,
+    customerPool,
   });
 
   /** Hand a request to the API function, as the gateway does once its authorizer is satisfied. */
@@ -1678,6 +1792,7 @@ export async function createPreview({
     let routeKey = WEB_DEFAULT;
     if (method === 'GET' && path === '/') routeKey = WEB_ROOT;
     else if (method === 'GET' && path.startsWith('/assets/')) routeKey = WEB_ASSETS;
+    else if (method === 'GET' && path.startsWith('/api/c/')) routeKey = API_CUSTOMER_READ;
     else if (method === 'GET' && path.startsWith('/api/t/')) routeKey = API_TOKEN_READ;
     else if (method === 'POST' && path.startsWith('/api/t/')) routeKey = API_TOKEN_WRITE;
     else if (method === 'PUT' && path.startsWith('/api/t/')) routeKey = API_TOKEN_PUT;
@@ -1685,7 +1800,17 @@ export async function createPreview({
     else if (method === 'POST' && path.startsWith('/api/')) routeKey = API_WRITE;
     else if (method === 'PUT' && path.startsWith('/api/')) routeKey = API_PUT;
 
-    if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE || routeKey === API_TOKEN_PUT) {
+    if (routeKey === API_CUSTOMER_READ) {
+      // The customer pool's authorizer: an access token that the customer pool issued, and nothing
+      // else. A staff token is unknown to it, as a token of another issuer is to API Gateway.
+      const held = customerPool.session(String(headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
+      if (held === null) {
+        sendGateway(response, 401, 'Unauthorized', { 'www-authenticate': 'Bearer' });
+        return;
+      }
+      const event = gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, claims: customerClaims({ sub: held.sub }) });
+      sendResult(response, await customerApp(event));
+    } else if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE || routeKey === API_TOKEN_PUT) {
       // No authorizer: the request goes to the function as it came, token and all.
       const body = await readBody(request, MAX_REQUEST_BYTES);
       if (body === null) {
@@ -1694,7 +1819,8 @@ export async function createPreview({
       }
       sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, body })));
     } else if (routeKey !== API_READ && routeKey !== API_WRITE && routeKey !== API_PUT) {
-      const event = gatewayEvent({ routeKey, method, path, query, headers, host: home ? HOME_HOST : consoleHost });
+      const named = customer ? CUSTOMER_HOST : home ? HOME_HOST : consoleHost;
+      const event = gatewayEvent({ routeKey, method, path, query, headers, host: named });
       const result = await web(event);
       // versions.json, which cloud/deploy.sh writes into the site when it deploys: where this checkout has
       // none, the one it would write.
@@ -1768,7 +1894,9 @@ export async function createPreview({
     // Where the API's presigned URLs for the APKs point: the local S3 above.
     fake.setS3Endpoint(`http://${consoleHost}/local-s3`);
     loginHost = `${host}:${await listen(loginServer, port === 0 ? 0 : port + 1)}`;
-    const stage = createStage({ fake, clock, boards, callApi, tick, say: (text) => narrate(text) });
+    const stage = createStage({
+      fake, clock, boards, callApi, tick, say: (text) => narrate(text), customers: { store: customers, pool: customerPool },
+    });
     await SCENARIOS[scenario].build(stage);
     stage.catchUp();
   } catch (error) {
@@ -1790,6 +1918,7 @@ export async function createPreview({
     idpOrigin: `http://${loginHost}`,
     redirectUri: `http://${consoleHost}/`,
     homeHosts: home ? [HOME_HOST] : [],
+    customer: { hosts: [CUSTOMER_HOST], userPoolId: CUSTOMER_POOL_ID, clientId: CUSTOMER_CLIENT_ID },
     log: (line) => log({ function: 'web', ...line }),
   });
 
@@ -1801,8 +1930,10 @@ export async function createPreview({
       if (beats % 10 === 0) board.passTime(clock.now());
       else board.heartbeat();
     }
-    // The stand-in keeps every call for tests to look at. Nobody looks here.
+    // The stand-ins keep every call for tests to look at. Nobody looks here.
     fake.calls.length = 0;
+    customers.calls.length = 0;
+    customerPool.calls.length = 0;
   }, HEARTBEAT_MS));
   timers.push(setInterval(() => {
     tick().catch((error) => log({ level: 'error', event: 'rollouts_not_advanced', error: String(error?.stack ?? error) }));
@@ -1829,7 +1960,10 @@ export async function createPreview({
     user,
     live,
     home,
+    customer,
     fake,
+    customers,
+    customerPool,
     boards,
     signIn,
     stop,
@@ -1854,6 +1988,8 @@ const USAGE = `Usage: node cloud/dev/preview.mjs [options]
                       manager (the console's own page signs in whoever's address is typed)
   --live              let the boards act by themselves; type 1 or 2 to press a button
   --home              serve the public home page instead of the console
+  --customer          serve the customer site, with the console as admin mode at /admin
+                      (try it with --scenario customers)
   --port <number>     port of the console (default ${DEFAULT_PORT}); sign-in uses the next one
   --host <address>    a loopback address (default ${DEFAULT_HOST}); any other is refused
   --repeated-cancel <how>
@@ -1871,7 +2007,7 @@ ${Object.entries(SCENARIOS).map(([name, { summary }]) => `  ${name.padEnd(20)}${
 /** The options the preview was started with. Throws a UsageError for anything else. */
 export function parseArguments(argv) {
   const options = {
-    scenario: 'empty', viewer: false, live: false, home: false, verbose: false, help: false,
+    scenario: 'empty', viewer: false, live: false, home: false, customer: false, verbose: false, help: false,
     host: DEFAULT_HOST, port: DEFAULT_PORT, repeatedCancel: REPEATED_CANCEL[0],
   };
   // "--port=8000" is "--port 8000".
@@ -1902,6 +2038,8 @@ export function parseArguments(argv) {
       options.live = true;
     } else if (word === '--home') {
       options.home = true;
+    } else if (word === '--customer') {
+      options.customer = true;
     } else if (word === '--verbose') {
       options.verbose = true;
     } else if (word === '--help' || word === '-h') {
@@ -1913,7 +2051,28 @@ export function parseArguments(argv) {
   return options;
 }
 
-function banner({ consoleUrl, loginOrigin, user, scenario, live, home }) {
+function banner({ consoleUrl, loginOrigin, user, scenario, live, home, customer }) {
+  if (customer) {
+    return `
+  Cranium customer site: LOCAL PREVIEW
+
+    Customer site  ${consoleUrl}
+    Admin mode     ${consoleUrl}admin  (the console, signed in with the admin sign-in)
+    Sign-in        emulated at ${loginOrigin}
+                   customers of the "customers" scenario: ada@${MAIL_DOMAIN}, ben@${MAIL_DOMAIN},
+                   password ${PREVIEW_CUSTOMER_PASSWORD}; cleo@${MAIL_DOMAIN} has the invitation's
+                   password ${PREVIEW_TEMPORARY_PASSWORD} and chooses her own
+                   admins on "Admin sign-in": ${USERS.manager.email} or ${USERS.viewer.email},
+                   password ${PREVIEW_PASSWORD}, code ${PREVIEW_CODE}
+    Scenario       ${scenario}
+                   ${SCENARIOS[scenario].summary}
+
+  The pages are served by the real web function, as the host name ${CUSTOMER_HOST}, and the
+  customer API is the real one, behind a stand-in for the customer pool's authorizer.
+
+  Stop with Ctrl+C.
+`;
+  }
   if (home) {
     return `
   Cranium home page: LOCAL PREVIEW
