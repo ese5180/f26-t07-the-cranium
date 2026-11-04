@@ -75,6 +75,7 @@ import { createAlertHandlers } from './handlers/alerts.mjs';
 import { createAppHandlers } from './handlers/apps.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createCommandHandlers } from './handlers/commands.mjs';
+import { createCustomerHandlers } from './handlers/customers.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
@@ -289,6 +290,8 @@ export function createApp({
   // The phone apps on the Apps page (docs/mobile-apps.md): the Android app's releases, the iPhone app's
   // version, the apps' configuration, and the console's own version beside who is signed in.
   const apps = createAppHandlers(context, { versions });
+  // The customer site's customers and their boards (docs/customer-site.md).
+  const customers = createCustomerHandlers(context, { devices });
   // Tokens from the console and from the phone apps are both tokens of this console; which
   // routes take the phone apps' is up to each route (`phone`).
   const clientIds = [config.userPoolClientId, config.mobileClientId];
@@ -300,6 +303,10 @@ export function createApp({
   // not turn into a token of ninety days. Not with an API token, and, as on every route
   // without `phone`, not with a phone app's session.
   const websiteOnly = { token: false };
+  // The customer site's accounts and who owns which board (docs/customer-site.md): for release
+  // managers on the website, never from a phone app or with an API token.
+  const customerAdmin = { token: false, phone: false };
+  const customerChange = (action) => ({ action, maxBody: SMALL_BODY_LIMIT });
 
   const routes = Object.freeze([
     route('GET', '/api/me', apps.withConsole(me.get)),
@@ -397,6 +404,15 @@ export function createApp({
     route('POST', '/api/apps/android/releases/{version}', apps.publish, { action: 'app.publish', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/apps/android/{version}/download', apps.download,
       { action: 'app.download', maxBody: 0, member: true, read: true }),
+    // Customers of the customer site. The customer API itself is another function (customer/app.mjs).
+    route('GET', '/api/customers', customers.list, null, customerAdmin),
+    route('POST', '/api/customers', customers.create, customerChange('customer.create'), customerAdmin),
+    route('POST', '/api/customers/{id}/resend', customers.resend, customerChange('customer.resend'), customerAdmin),
+    route('POST', '/api/customers/{id}/boards', customers.assign, customerChange('customer.assign'), customerAdmin),
+    route('POST', '/api/customers/{id}/boards/{thing}/remove', customers.unassign, customerChange('customer.unassign'),
+      customerAdmin),
+    route('POST', '/api/customers/{id}/disable', customers.disable, customerChange('customer.disable'), customerAdmin),
+    route('POST', '/api/customers/{id}/enable', customers.enable, customerChange('customer.enable'), customerAdmin),
   ]);
 
   /**

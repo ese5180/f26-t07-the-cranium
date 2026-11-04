@@ -1153,3 +1153,6 @@ export function createEventStore(env) {
     },
   });
 }
+
+// For the customer site's adapters (customer/aws.mjs), so that they talk to AWS the same way.
+export { clientSettings, everyPage, failure, fromItem, millis, nameOf, queryEventTable, required, statusOf, toItem };

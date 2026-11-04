@@ -53,6 +53,9 @@ export const ACTIONS = Object.freeze([
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once
   // what arrived is checked, and each download link handed out, for a person or a QR code.
   'app.upload', 'app.publish', 'app.download',
+  // The customer site's accounts and their boards, from the console's Customers page
+  // (handlers/customers.mjs). A customer's own reads are not recorded.
+  'customer.create', 'customer.resend', 'customer.assign', 'customer.unassign', 'customer.disable', 'customer.enable',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 

@@ -211,6 +211,7 @@ test('a board with its Bluetooth window open says so, and the console passes it 
 const PHONE_CLIENT = 'localmobile';
 const V = encodeURIComponent(VERSION);
 const SOME_DEPLOYMENT = 'cranium-1-2-3-b4-20261102T180000Z-abcd';
+const CUSTOMER = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 
 /**
  * Every route of the API, with a request that a release manager of the console may make in
@@ -287,6 +288,17 @@ const ROUTES = [
   { route: 'POST /api/apps/android/releases/{version}', path: '/api/apps/android/releases/0.4.0', status: 409, phone: true,
     body: { versionCode: 4, sha256: 'a'.repeat(64), size: 4096 } },
   { route: 'GET /api/apps/android/{version}/download', path: '/api/apps/android/0.4.0/download', status: 404, phone: true },
+  // The customer site's Customers page: the website's alone. This console has no customer pool,
+  // so a release manager is told so (customers.test.mjs has them with one).
+  { route: 'GET /api/customers', status: 200, phone: false },
+  { route: 'POST /api/customers', status: 409, phone: false, body: { email: 'dee@example.invalid' } },
+  { route: 'POST /api/customers/{id}/resend', path: `/api/customers/${CUSTOMER}/resend`, status: 409, phone: false, body: {} },
+  { route: 'POST /api/customers/{id}/boards', path: `/api/customers/${CUSTOMER}/boards`, status: 409, phone: false,
+    body: { thing: THING } },
+  { route: 'POST /api/customers/{id}/boards/{thing}/remove', path: `/api/customers/${CUSTOMER}/boards/${THING}/remove`,
+    status: 409, phone: false, body: {} },
+  { route: 'POST /api/customers/{id}/disable', path: `/api/customers/${CUSTOMER}/disable`, status: 409, phone: false, body: {} },
+  { route: 'POST /api/customers/{id}/enable', path: `/api/customers/${CUSTOMER}/enable`, status: 409, phone: false, body: {} },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */
