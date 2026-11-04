@@ -24,6 +24,11 @@ It is two CloudFormation stacks, deployed with the AWS CLI:
     sign-in, on its own sign-in page or on the AWS sign-in page. A small function, the
     sign-in trigger, gives the tokens of the console's own page the console's scope
     ([docs/aws-iot.md](../docs/aws-iot.md#sign-in)).
+  - The customer site ([docs/customer-site.md](../docs/customer-site.md)): a second Cognito
+    user pool for customers, apart from the staff pool, and a fourth function, the customer
+    API, behind an authorizer of its own. Customers see their own boards; admins invite them
+    and hand out boards on the console's Customers page, and use the console as the site's
+    admin mode at `/admin`.
   - A bucket for firmware images. An image is written once and never overwritten.
   - Three DynamoDB tables: the releases, the audit log, and the boards' event log (events
     kept 90 days, readings 7), which the Events and Diagnostics pages read.
@@ -131,6 +136,22 @@ Three things to know before pointing a name here:
   function. Heavy traffic on the home page can make console pages answer 429, and the other
   way round. Open console pages keep working, because they use the API routes.
 
+### The customer site
+
+A third name, `CustomerDomainName` with `CustomerCertificateArn`, serves the customer
+website, with the console as admin mode at `/admin` of that name, and `www.` sending the
+browser to the name itself. Both are empty by default, and nothing changes until they are
+set. The certificate, the deployment and the DNS records (an ALIAS or a flattened CNAME on
+the bare name) are in [docs/customer-site.md](../docs/customer-site.md#setting-up-the-name):
+
+```sh
+cloud/deploy.sh CustomerDomainName=example.com CustomerCertificateArn=<arn>
+```
+
+The customer pool and the customer API exist whether or not the name is set, so that
+customers and boards can be prepared first; no invitation goes out until the site has an
+address. `CustomerSelfSignUp` stays `false`: customers are invited from the Customers page.
+
 ## Deploy
 
 ```sh
@@ -212,6 +233,11 @@ Removing only the authenticator app would leave the password as the only factor 
 the next sign-in, and whoever signed in first would register an app of their own. The
 new account has a new account id, and earlier entries in the activity log keep the old
 one. It refuses a disabled account, because the new one would be enabled.
+
+The customer site's admins are these same accounts: a release manager signs in with
+**Admin sign-in** on the customer site and opens admin mode. Customers are not made here but
+on the console's Customers page, in a pool of their own
+([docs/customer-site.md](../docs/customer-site.md#accounts)).
 
 `remove` on an address that has no account fails and lists the accounts there are,
 because the person may be listed under another address. An address can only be changed
@@ -603,7 +629,9 @@ never deployed. Add `--live` to let the boards act and press their buttons from 
 terminal, as firmware before 1.7.2 has them do, which is what these boards run. To see the
 console as a viewer does, sign in with the viewer's address, or add `--viewer` for "Use the
 AWS sign-in page". `--home` shows the public home page instead, served by the real web
-function as one of its home page names.
+function as one of its home page names. `--customer` shows the customer site, with the
+console as admin mode at `/admin`; `--scenario customers` gives it customers and boards
+([docs/customer-site.md](../docs/customer-site.md#trying-it-without-aws)).
 
 While a scenario is built the boards that are on report every minute, and every report and
 connection goes through the recorder's own code, so the Events and Diagnostics pages have a
@@ -633,9 +661,10 @@ infra/budget.yaml      cost alert, separate stack
 infra/trail.yaml       record of what is done in the account, separate stack
 api/                   the API function (src/) and its tests (test/); verify-audit.mjs,
                        which compares the activity log with its digests, and verify-image.mjs,
-                       which makes the console's check on an image, are not deployed
-web/                   the function that serves the console and the home page (src/), and
-                       its tests (test/)
+                       which makes the console's check on an image, are not deployed;
+                       src/customer/ is the customer site's API, a function of its own
+web/                   the function that serves the console, the home page and the customer
+                       site (src/, src/customer/), and its tests (test/)
 dev/                   local preview and its tests, never deployed
 ```
 

@@ -30,7 +30,8 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | DynamoDB tables | The list of releases, the audit log, and the boards' event log. The API's role may put and query audit entries, and nothing else; it may only query the event log. What that does and does not guarantee is under [Security decisions](#security-decisions). |
 | IoT rules and the recorder | Three AWS IoT rules hand each shadow report, each connection and each line a board prints on its console to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
 | Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. A small Lambda function, the sign-in trigger, gives the console's own sign-in page its scope: [Sign-in](#sign-in). |
-| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. |
+| Cognito customer pool | The customer site's accounts, apart from the staff pool: invited from the console's Customers page, password of 10 characters, an authenticator app if the customer wants one: [docs/customer-site.md](customer-site.md). |
+| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. The same page function serves the customer site, and a fifth function, the customer API, answers `GET /api/c/` behind the customer pool's own authorizer. |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
 
 ## A board's identity
@@ -228,6 +229,14 @@ password works for 3 days. A session lasts 60 minutes. The console keeps no refr
 asks for the password and the code again. *Viewers* can look; *release managers* can upload, deploy,
 cancel and revoke. [`cloud/README.md`](../cloud/README.md#add-users) has the details.
 
+**The customer site** ([docs/customer-site.md](customer-site.md)) is a website for customers on a name of its own
+(`CustomerDomainName`), with accounts in a second user pool. A customer sees their own boards, by an id of the
+board's assignment, never by its thing name; a token of the customer pool opens only the customer API, and a staff token
+only the console's, at the gateway and again in each function. Release managers invite customers and give them boards
+on the console's Customers page, each change in the activity log. On that name the console is the site's **admin
+mode**, at `/admin`: an admin signs in once, with the staff account's password and code, on the site's Admin sign-in,
+and the console opens with that session.
+
 ### Sign-in
 
 **What a person sees.** The console signs people in on a page of its own, in its own design. First
@@ -356,8 +365,12 @@ USB", "… signed in on the phone app".
 | `app.upload` | A URL handed out to send an Android APK to S3 with ([The phone apps](#the-phone-apps-on-the-console)) | the app's version as the target, SHA-256, size, `versionCode` |
 | `app.publish` | An APK checked and published on the Apps page | the same |
 | `app.download` | A download link to an APK handed out, to anyone signed in | `via`: `link`, or `qr` for the QR code a phone scans; SHA-256 |
+| `customer.create`, `customer.resend` | A customer invited to the customer site, or their invitation sent again ([docs/customer-site.md](customer-site.md)) | the customer's account id as the target, `email` |
+| `customer.assign`, `customer.unassign` | A board given to a customer, or taken back | the board's thing name as the target, `customer`, `email`, `label` |
+| `customer.disable`, `customer.enable` | A customer's account switched off or on | the customer's account id as the target, `email` |
 
-A refused request also carries the `code` it was refused with.
+A refused request also carries the `code` it was refused with. A customer's own reads on the customer site are not
+recorded.
 
 **Sign-ins.** The API records a sign-in when it sees the first request of it: a sign-in is the token's `sub`, its
 `auth_time` (when the person gave the password and code) and its client, `web` for the console's app client and
