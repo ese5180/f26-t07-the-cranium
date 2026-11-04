@@ -46,6 +46,16 @@ public actor AuthSession: AccessTokenProvider {
         tokens = fresh
     }
 
+    /// Keeps the tokens of a sign-in on the app's own screen (`PasswordSignIn`) as
+    /// `completeSignIn(callback:pending:)` keeps those of the AWS sign-in page: in the store, in
+    /// place of any before. Both are refreshed the same way, at the token endpoint (`refresh()`),
+    /// which Cognito documents for tokens from the user pool API too, as long as the pool does not
+    /// remember devices (it does not).
+    public func completeSignIn(tokens fresh: Tokens) throws {
+        try store.save(fresh)
+        tokens = fresh
+    }
+
     public func accessToken() async throws -> String {
         guard let current = tokens else { throw AuthError.notSignedIn }
         if current.expiresAt.timeIntervalSince(now()) > Self.margin {
@@ -80,10 +90,14 @@ public actor AuthSession: AccessTokenProvider {
         defer { refreshing = nil }
         do {
             let fresh = try await task.value
+            // A sign-in that finished while this refresh was on its way wins: its tokens are newer,
+            // and its auth_time is the one a change from the phone needs.
+            if let current = tokens, current.refreshToken != refreshToken { return current }
             try store.save(fresh)
             tokens = fresh
             return fresh
         } catch AuthError.sessionExpired {
+            if let current = tokens, current.refreshToken != refreshToken { return current }
             forget()
             throw AuthError.sessionExpired
         }

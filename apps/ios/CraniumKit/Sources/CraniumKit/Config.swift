@@ -1,6 +1,6 @@
 import Foundation
 
-/// The four values the app needs from the deployed stack. See docs/mobile-apps.md, "Configuration".
+/// The values the app needs from the deployed stack. See docs/mobile-apps.md, "Configuration".
 ///
 /// They name the AWS account, so they are not in git: `apps/configure.sh` writes them to
 /// `apps/config/cranium.json`, and the build copies that file into the app. Nothing here prints
@@ -14,6 +14,10 @@ public struct CraniumConfig: Equatable, Sendable {
     public let mobileClientId: String
     /// `cranium://signin`, the client's only redirect URI.
     public let redirectURI: String
+    /// The user pool, for the app's own sign-in screen (`PasswordSignIn`). Nil for a
+    /// `cranium.json` written before it had `userPoolId` and `region`: then the app signs in on
+    /// the AWS sign-in page only.
+    public let userPool: CognitoUserPool?
 
     /// The only redirect URI the mobile app client allows.
     public static let expectedRedirectURI = "cranium://signin"
@@ -22,11 +26,52 @@ public struct CraniumConfig: Equatable, Sendable {
     public var callbackScheme: String { "cranium" }
 
     public init(consoleURL: URL, loginDomain: URL, mobileClientId: String,
-                redirectURI: String = CraniumConfig.expectedRedirectURI) {
+                redirectURI: String = CraniumConfig.expectedRedirectURI, userPool: CognitoUserPool? = nil) {
         self.consoleURL = consoleURL
         self.loginDomain = loginDomain
         self.mobileClientId = mobileClientId
         self.redirectURI = redirectURI
+        self.userPool = userPool
+    }
+}
+
+/// A Cognito user pool: its ID and its Region, from `userPoolId` and `region` in the configuration.
+public struct CognitoUserPool: Equatable, Sendable {
+    /// For example `us-east-1_AbCdEf123`: the Region, an underscore, and letters and digits.
+    public let id: String
+    /// For example `us-east-1`. Always the part of the ID before the underscore.
+    public let region: String
+
+    /// Nil unless the two are well formed and agree.
+    public init?(id: String, region: String) {
+        guard Self.isRegion(region), id.hasPrefix(region + "_") else { return nil }
+        let name = id.dropFirst(region.count + 1)
+        guard (1...64).contains(name.count), name.unicodeScalars.allSatisfy(Self.isLetterOrDigit) else { return nil }
+        self.id = id
+        self.region = region
+    }
+
+    /// `https://cognito-idp.{region}.amazonaws.com/`: Cognito's user pool API, one address for
+    /// every operation, which goes in a header.
+    public var endpoint: URL {
+        // The Region is checked above, so this cannot fail.
+        URL(string: "https://cognito-idp.\(region).amazonaws.com/")!
+    }
+
+    static let contentType = "application/x-amz-json-1.1"
+    static let targetPrefix = "AWSCognitoIdentityProviderService."
+
+    /// /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/, as the website checks the Region in a pool ID.
+    static func isRegion(_ text: String) -> Bool {
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 3, let first = parts.first, let last = parts.last else { return false }
+        let lower = { (part: Substring) in !part.isEmpty && part.unicodeScalars.allSatisfy { ("a"..."z").contains($0) } }
+        return first.count == 2 && lower(first) && parts.dropFirst().dropLast().allSatisfy(lower)
+            && (1...2).contains(last.count) && last.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+    }
+
+    private static func isLetterOrDigit(_ scalar: Unicode.Scalar) -> Bool {
+        ("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar) || ("0"..."9").contains(scalar)
     }
 }
 
@@ -106,6 +151,8 @@ extension CraniumConfig {
         let loginDomain: String
         let mobileClientId: String
         let redirectUri: String
+        let userPoolId: String?
+        let region: String?
     }
 
     /// Parses and checks the JSON that `apps/configure.sh` writes.
@@ -127,7 +174,28 @@ extension CraniumConfig {
             throw ConfigError.invalid(key: "redirectUri", reason: "is not \(expectedRedirectURI), the only one the app client allows")
         }
         return CraniumConfig(consoleURL: console, loginDomain: login, mobileClientId: clientId,
-                             redirectURI: raw.redirectUri)
+                             redirectURI: raw.redirectUri, userPool: try userPool(id: raw.userPoolId, region: raw.region))
+    }
+
+    /// Both or neither. A value that is there but wrong is an error, as for the other keys: falling
+    /// back to the AWS sign-in page would hide it.
+    private static func userPool(id: String?, region: String?) throws -> CognitoUserPool? {
+        switch (id, region) {
+        case (nil, nil):
+            return nil
+        case (nil, _):
+            throw ConfigError.invalid(key: "userPoolId", reason: "is missing, though region is there")
+        case (_, nil):
+            throw ConfigError.invalid(key: "region", reason: "is missing, though userPoolId is there")
+        case (let id?, let region?):
+            guard CognitoUserPool.isRegion(region) else {
+                throw ConfigError.invalid(key: "region", reason: "is not an AWS Region")
+            }
+            guard let pool = CognitoUserPool(id: id, region: region) else {
+                throw ConfigError.invalid(key: "userPoolId", reason: "is not a user pool ID in that Region")
+            }
+            return pool
+        }
     }
 
     /// An https URL with a host and nothing after it but slashes, which are dropped.
