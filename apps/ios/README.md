@@ -39,7 +39,7 @@ account signs in, nothing is changed in its name.
 
 | Path | What |
 | --- | --- |
-| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain), every route of the console API, the console's wording (`Words.swift`, `Telemetry.swift`, `OverviewWords.swift`, from the website's `core.js` and `telemetry.js`), the upload's checks, the fresh sign-in rule, image checks, the firmware cache, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
+| `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain, Face ID: `BiometricLock.swift`, `Biometrics.swift`), every route of the console API, the console's wording (`Words.swift`, `Telemetry.swift`, `OverviewWords.swift`, from the website's `core.js` and `telemetry.js`), the upload's checks, the fresh sign-in rule, image checks, the firmware cache, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
 | `App/` | The SwiftUI app. `Theme.swift` names the console's colours; `Views/` has the screens |
 | `App/Assets.xcassets/Console/` | The console's colour tokens, light and dark, made from `cloud/web/src/site/assets/app.css` by `scripts/colors.sh` |
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
@@ -69,6 +69,20 @@ xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -destination 'pla
   -derivedDataPath apps/ios/build/sim CODE_SIGNING_ALLOWED=NO -jobs 4 build
 xcrun simctl install booted apps/ios/build/sim/Build/Products/Debug-iphonesimulator/Cranium.app
 xcrun simctl launch booted com.craniumiot.cranium -CraniumDemo -CraniumTab 1 -CraniumRoute board
+```
+
+Face ID, with nothing asked: `-CraniumBiometric lock` opens on the lock screen, `offer` shows "Use Face ID
+to open Cranium?", `on` has it on (`-CraniumTab 4 -CraniumRoute account` for the switch), and `relock`
+keeps the lock on screen after 5 minutes away. `-CraniumBiometry touchID` says Touch ID. To try the
+real Keychain item and Face ID in the Simulator, enrol a face, run with `-CraniumBiometricCheck YES`,
+and answer each prompt with a face; the console log lines start with `[faceid-check]` and never hold
+the token:
+
+```sh
+xcrun simctl spawn booted notifyutil -s com.apple.BiometricKit.enrollmentChanged 1
+xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit.enrollmentChanged
+xcrun simctl launch --console-pty booted com.craniumiot.cranium -CraniumDemo -CraniumBiometricCheck YES
+xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.pearl.match     # or .nomatch
 ```
 
 ## Firmware on the phone

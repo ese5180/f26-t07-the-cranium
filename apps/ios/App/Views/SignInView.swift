@@ -136,7 +136,7 @@ struct SignInScreen: View {
             .padding(.bottom, 8)
         } else {
             HStack(spacing: 12) {
-                SignInMark()
+                CraniumMark()
                     .frame(width: 36, height: 36)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Cranium")
@@ -334,8 +334,9 @@ struct SignInScreen: View {
     }
 }
 
-/// The console's mark (views.js `brandMark`): a rust dome cut with the grooves of a record.
-private struct SignInMark: View {
+/// The console's mark (views.js `brandMark`): a rust dome cut with the grooves of a record. Also on
+/// the lock screen (LockScreen.swift).
+struct CraniumMark: View {
     @Environment(\.theme) private var theme
 
     var body: some View {

@@ -84,7 +84,8 @@ import Testing
 
         // The same session as the AWS sign-in page leaves, in the same store.
         let kept = try #require(try phone.store.load())
-        #expect(kept == Tokens(accessToken: "SRP-ACCESS-1", refreshToken: "SRP-REFRESH-1", expiresAt: Self.now.addingTimeInterval(3600)))
+        #expect(kept == Tokens(accessToken: "SRP-ACCESS-1", refreshToken: "SRP-REFRESH-1", expiresAt: Self.now.addingTimeInterval(3600),
+                               signedInAt: Self.now))
         let stored = String(decoding: try JSONEncoder().encode(kept), as: UTF8.self)
         #expect(!stored.contains(Self.password) && !stored.contains("SRP-ID-1"))
         #expect(try await phone.session.accessToken() == "SRP-ACCESS-1")
@@ -296,7 +297,7 @@ import Testing
         try await session.completeSignIn(tokens: fresh)
         gate.continuation.yield()
         #expect(try await refreshed == "new")
-        #expect(try store.load() == fresh)
+        #expect(try store.load()?.accessToken == fresh.accessToken && store.load()?.refreshToken == fresh.refreshToken)
         #expect(try await session.accessToken() == "new")
 
         // And a refused refresh of the old session does not sign the new one out.
@@ -312,6 +313,6 @@ import Testing
         try await session2.completeSignIn(tokens: fresh)
         gate2.continuation.yield()
         #expect(try await refused == "new")
-        #expect(try store2.load() == fresh)
+        #expect(try store2.load()?.refreshToken == fresh.refreshToken)
     }
 }

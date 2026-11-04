@@ -1,5 +1,6 @@
 import CraniumKit
 import Foundation
+import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -60,10 +61,32 @@ final class AppModel: ObservableObject {
         /// The configuration in the app cannot be used. Nothing works until it is rebuilt.
         case broken(String)
         case signedOut
+        /// Face ID is on: nothing of the console until it passes (LockScreen).
+        case locked
         case signedIn
     }
 
+    /// What covers the console while it runs (in its own window, over every sheet): the mark while the
+    /// app is in the app switcher, and the lock screen when it is back after 5 minutes or more.
+    enum Cover: Equatable {
+        case privacy
+        case lock
+    }
+
     @Published private(set) var stage: Stage = .loading
+    @Published private(set) var cover: Cover?
+    /// Face ID is being asked.
+    @Published private(set) var unlocking = false
+    /// One line on the lock screen: why it did not open.
+    @Published private(set) var lockMessage: String?
+    /// After a full sign-in: "Use Face ID to open Cranium?" (BiometricOfferSheet).
+    @Published var offeringBiometrics = false
+    /// Face ID is on for the person signed in (the Account screen's switch).
+    @Published private(set) var biometricOn = false
+    /// It is being turned on or off.
+    @Published private(set) var biometricBusy = false
+    /// Turning it on needs a sign-in with password and code first: the sheet for it is open.
+    @Published private(set) var biometricSignInOpen = false
     @Published private(set) var configSource: ConfigSource?
     @Published private(set) var me: Me?
     @Published private(set) var signingIn = false
@@ -101,6 +124,14 @@ final class AppModel: ObservableObject {
     let cache = FirmwareCache.standard()
     private let webSignIn = WebSignIn()
     private var toastTask: Task<Void, Never>?
+    /// When to ask for Face ID, and the item behind it (BiometricLock, in CraniumKit).
+    private(set) var lock: BiometricLock?
+    private var biometricSignInEnd: CheckedContinuation<SignInEnding, Never>?
+
+    /// The phone's Face ID or Touch ID; nil with neither, and then nothing about it is shown.
+    var biometry: Biometry? { lock?.biometry }
+    /// Whether it can be used now (enrolled, allowed for the app, not locked out).
+    var biometryUsable: Bool { lock?.gate.isUsable() ?? false }
 
     var canWrite: Bool { me?.canWrite == true }
     var deviceList: [Device]? { devices.value?.devices }
@@ -123,32 +154,198 @@ final class AppModel: ObservableObject {
         if Demo.isOn {
             // Made-up data, with no network at all: see DemoData.swift.
             let signedOut = UserDefaults.standard.bool(forKey: "CraniumSignedOut")
+            let settings = Demo.biometricSettings
             let demo = AuthSession(config: loaded.config, http: DemoHTTP(),
-                                   store: MemoryTokenStore(signedOut ? nil : Demo.tokens))
+                                   store: MemoryTokenStore(signedOut ? nil : Demo.sessionTokens),
+                                   refreshTokenBehindBiometrics: BiometricLock.refreshTokenBehindBiometrics(settings))
             auth = demo
             passwordSignIn = PasswordSignIn(config: loaded.config, http: DemoCognito(), session: demo)
             api = ConsoleAPI(config: loaded.config, http: DemoHTTP(), tokens: demo)
-            if signedOut {
-                stage = .signedOut
-            } else {
-                stage = .signedIn
-                await loadMe()
+            let lock = BiometricLock(gate: Demo.biometricGate, settings: settings, session: demo)
+            self.lock = lock
+            await open(await lock.launch())
+            if Demo.biometric == "offer", lock.biometry != nil, stage == .signedIn {
+                offeringBiometrics = true
+            }
+            if UserDefaults.standard.string(forKey: "CraniumBiometricCheck") != nil {
+                Task { await Demo.checkBiometricGate() }
             }
             return
         }
         #endif
-        let auth = AuthSession(config: loaded.config, http: URLSession.shared, store: KeychainTokenStore())
+        let settings = DefaultsBiometricSettings()
+        let auth = AuthSession(config: loaded.config, http: URLSession.shared, store: KeychainTokenStore(),
+                               refreshTokenBehindBiometrics: BiometricLock.refreshTokenBehindBiometrics(settings))
         self.auth = auth
         passwordSignIn = PasswordSignIn(config: loaded.config, http: URLSession.shared, session: auth)
         api = ConsoleAPI(config: loaded.config, http: URLSession.shared, tokens: auth)
-        if await auth.isSignedIn {
-            stage = .signedIn
-            await loadMe()
-        } else {
+        let lock = BiometricLock(gate: KeychainBiometricGate(), settings: settings, session: auth)
+        self.lock = lock
+        await open(await lock.launch())
+    }
+
+    /// Where the app opens: the sign-in screen, the console, or the lock screen.
+    private func open(_ launch: BiometricLock.Launch) async {
+        switch launch {
+        case .signedOut:
             stage = .signedOut
             // A signed-out phone keeps nothing from the console, even after a sign-out cut short.
             await forgetFirmware()
+        case .open:
+            stage = .signedIn
+            await loadMe()
+        case .locked:
+            // LockScreen asks for Face ID as soon as it shows.
+            stage = .locked
+        case .signIn(let reason):
+            signInMessage = reason
+            stage = .signedOut
+            await forgetFirmware()
         }
+    }
+
+    // MARK: Face ID
+
+    /// Asks for Face ID: on the lock screen as it shows, and from its button.
+    func unlock() async {
+        guard let lock, !unlocking, stage == .locked || cover == .lock else { return }
+        unlocking = true
+        lockMessage = nil
+        defer { unlocking = false }
+        switch await lock.unlock() {
+        case .unlocked:
+            #if DEBUG
+            if Demo.isOn, Demo.biometric == "relock" { (lock.gate as? MemoryBiometricGate)?.releaseAnswer = .cancelled }
+            #endif
+            cover = nil
+            if stage == .locked {
+                stage = .signedIn
+                await loadMe()
+            }
+        case .stay(let message):
+            lockMessage = message
+        case .password:
+            await signInWithPassword()
+        case .signIn(let reason):
+            // The saved sign-in is forgotten (BiometricLock): the rest of the session goes too.
+            await signOut(message: reason)
+        }
+    }
+
+    /// "Sign in with password" on the lock screen: the sign-in screen, with nothing of the console
+    /// behind it. The saved sign-in stays until a new sign-in replaces it.
+    func signInWithPassword() async {
+        await bluetooth?.leaveBoard()
+        cover = nil
+        lockMessage = nil
+        me = nil
+        forgetData()
+        stage = .signedOut
+    }
+
+    /// The app went to the background: the 5 minutes start, and the console is covered for the app
+    /// switcher.
+    func enteredBackground() async {
+        guard let lock else { return }
+        lock.enteredBackground()
+        await auth?.forgetRefreshTokenIfDue()
+        if stage == .signedIn, lock.isOn, cover == nil { cover = .privacy }
+    }
+
+    /// Control Centre, a call, the app switcher, Face ID's own prompt: covered, not locked.
+    func becameInactive() {
+        guard let lock, stage == .signedIn, lock.isOn, cover == nil else { return }
+        cover = .privacy
+    }
+
+    /// Back: after 5 minutes or more the lock screen asks for Face ID before anything shows.
+    func becameActive() async {
+        guard let lock else { return }
+        await auth?.forgetRefreshTokenIfDue()
+        let ask = lock.becameActive()
+        guard stage == .signedIn else {
+            cover = nil
+            return
+        }
+        if ask {
+            cover = .lock
+        } else if cover == .privacy {
+            cover = nil
+        }
+    }
+
+    /// After a full sign-in with password and code: a new refresh token goes behind Face ID while it
+    /// is on for this person, and it is offered, once, to someone it is not on for.
+    private func afterFullSignIn(offer: Bool) async {
+        guard let lock, let account = me?.sub, !account.isEmpty else { return }
+        await lock.afterFullSignIn(account: account)
+        if offer, lock.shouldOffer(account: account) {
+            lock.markOffered(account: account)
+            offeringBiometrics = true
+        }
+        noteBiometrics()
+    }
+
+    /// The offer's answer.
+    func answerBiometricOffer(_ yes: Bool) async {
+        offeringBiometrics = false
+        if yes { await turnOnBiometrics() }
+    }
+
+    /// From the offer, or the Account screen's switch. Asks for Face ID once; without a refresh token
+    /// left to protect (after its 60 minutes), asks for the password and code first.
+    func turnOnBiometrics() async {
+        guard let lock, let account = me?.sub, let biometry = lock.biometry, !biometricBusy else { return }
+        biometricBusy = true
+        defer {
+            biometricBusy = false
+            noteBiometrics()
+        }
+        var outcome = await lock.turnOn(account: account)
+        if outcome == .needsSignIn {
+            do {
+                try await signInAgain(asking: passwordSignIn == nil ? nil : { await self.askBiometricSignIn() })
+            } catch AuthError.cancelled {
+                return
+            } catch {
+                say(UserMessage.text(for: error))
+                return
+            }
+            outcome = await lock.turnOn(account: me?.sub ?? account)
+        }
+        switch outcome {
+        case .on: say(BiometricWords.turnedOn(biometry))
+        case .notNow, .needsSignIn: break
+        case .failed(let text): say(text)
+        }
+    }
+
+    func turnOffBiometrics() async {
+        guard let lock, let biometry = lock.biometry, !biometricBusy else { return }
+        biometricBusy = true
+        await lock.turnOff()
+        biometricBusy = false
+        noteBiometrics()
+        say(BiometricWords.turnedOff(biometry))
+    }
+
+    /// The sign-in again that turning it on needs (AccountView shows it).
+    private func askBiometricSignIn() async -> SignInEnding {
+        biometricSignInOpen = true
+        return await withCheckedContinuation { continuation in
+            biometricSignInEnd = continuation
+        }
+    }
+
+    func endBiometricSignIn(_ ending: SignInEnding) {
+        guard biometricSignInOpen else { return }
+        biometricSignInOpen = false
+        biometricSignInEnd?.resume(returning: ending)
+        biometricSignInEnd = nil
+    }
+
+    private func noteBiometrics() {
+        biometricOn = me.map { lock?.isOn(for: $0.sub) ?? false } ?? false
     }
 
     func signIn() async {
@@ -160,6 +357,7 @@ final class AppModel: ObservableObject {
             try await webSignIn(auth)
             stage = .signedIn
             await loadMe()
+            await afterFullSignIn(offer: true)
         } catch AuthError.cancelled {
             // The person closed the sheet: nothing to say.
         } catch {
@@ -172,6 +370,7 @@ final class AppModel: ObservableObject {
         signInMessage = nil
         stage = .signedIn
         await loadMe()
+        await afterFullSignIn(offer: true)
     }
 
     /// The managed login in the system's web sheet, with `prompt=login`: password and code each time.
@@ -202,18 +401,27 @@ final class AppModel: ObservableObject {
             try await webSignIn(auth)
         }
         let now = try await api.me()
+        // A full sign-in: its refresh token goes behind Face ID if that is on for this person.
+        await lock?.afterFullSignIn(account: now.sub)
         if let before, !before.isEmpty, now.sub != before {
             forgetData()
             me = now
             await refreshAfterAccountChange()
+            noteBiometrics()
             throw FreshSignInError.otherAccount
         }
         me = now
+        noteBiometrics()
     }
 
     func signOut(message: String? = nil) async {
         await bluetooth?.leaveBoard()
         await auth?.signOut()
+        // The item behind Face ID goes with the tokens.
+        lock?.signedOut()
+        cover = nil
+        lockMessage = nil
+        offeringBiometrics = false
         await forgetFirmware()
         me = nil
         forgetData()
@@ -241,6 +449,7 @@ final class AppModel: ObservableObject {
         guard let api else { return }
         do {
             me = try await api.me()
+            noteBiometrics()
             if me?.canWrite != true { await forgetFirmware() }
         } catch {
             await handle(error)

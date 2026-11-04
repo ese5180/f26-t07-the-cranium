@@ -105,6 +105,9 @@ struct AccountView: View {
                 } footer: {
                     Text(me.canWrite ? "You can upload, deploy, cancel and revoke." : "You can see everything; changes are for release managers.")
                 }
+                if let biometry = app.biometry {
+                    biometricSection(biometry)
+                }
             }
             Section {
                 ValueRow("Firmware on this phone", UserMessage.firmwareOnPhone(app.firmwareOnPhone)
@@ -126,8 +129,32 @@ struct AccountView: View {
             Text("The sign-in and the firmware kept on this phone are forgotten.")
         }
         .task { await app.noteFirmwareOnPhone() }
+        // Turning Face ID on after the refresh token's 60 minutes: the password and code first.
+        .sheet(isPresented: Binding(get: { app.biometricSignInOpen }, set: { if !$0 { app.endBiometricSignIn(.cancelled) } })) {
+            SignInScreen(flow: app.passwordSignIn, again: true, email: app.me?.email) { ending in
+                app.endBiometricSignIn(ending)
+            }
+        }
         .helpButton("getting-started")
         .screenTitle("Account")
+    }
+
+    /// Face ID (or Touch ID): on or off for this person on this phone. Not shown on a phone with neither.
+    private func biometricSection(_ biometry: Biometry) -> some View {
+        let usable = app.biometryUsable
+        return Section {
+            Toggle(isOn: Binding(get: { app.biometricOn }, set: { on in
+                Task { on ? await app.turnOnBiometrics() : await app.turnOffBiometrics() }
+            })) {
+                Label(biometry.name, systemImage: biometry.symbol)
+            }
+            .disabled(app.biometricBusy || (!app.biometricOn && !usable))
+            NavigationLink(value: Route.help("biometric-sign-in")) {
+                Text("About \(biometry.name)")
+            }
+        } footer: {
+            Text(usable || app.biometricOn ? BiometricWords.toggleFooter(biometry) : BiometricWords.cannotUse(biometry))
+        }
     }
 }
 

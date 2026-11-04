@@ -1,6 +1,9 @@
 #if DEBUG
 import CraniumKit
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A Debug build started with the launch argument `-CraniumDemo` shows the console with made-up
 /// boards, releases and deployments, answered here without any network: for screenshots and the
@@ -8,10 +11,90 @@ import Foundation
 /// tab, `-CraniumRoute …` a screen on it (RootView, `Stack.firstRoute`), `-CraniumSearch` types a
 /// search, `-CraniumSignedOut YES` starts at the app's own sign-in, `-CraniumDemoPassword` goes on
 /// to its code step, and `-CraniumSheet signin-again` opens the sign-in again.
+///
+/// Face ID, with no Face ID asked: `-CraniumBiometric lock` opens on the lock screen (the prompt is
+/// "cancelled", so it stays), `-CraniumBiometric offer` shows "Use Face ID to open Cranium?", and
+/// `-CraniumBiometric on` has it on (More, Account), and `-CraniumBiometric relock` too, with every ask
+/// after the first cancelled, so that the lock stays after 5 minutes away. `-CraniumBiometry touchID`
+/// says Touch ID instead.
+/// `-CraniumBiometric real` uses the real Keychain item and LocalAuthentication, for the Simulator
+/// with Features > Face ID > Enrolled: turn it on in Account, then launch again.
 enum Demo {
     static var isOn: Bool { ProcessInfo.processInfo.arguments.contains("-CraniumDemo") }
 
     static let tokens = Tokens(accessToken: "demo", refreshToken: nil, expiresAt: Date().addingTimeInterval(365 * 86_400))
+
+    static var biometric: String? { UserDefaults.standard.string(forKey: "CraniumBiometric") }
+    static var biometry: Biometry { UserDefaults.standard.string(forKey: "CraniumBiometry") == "touchID" ? .touchID : .faceID }
+
+    /// With a refresh token when Face ID is shown, so that it has something to keep.
+    static var sessionTokens: Tokens {
+        guard biometric != nil else { return tokens }
+        return Tokens(accessToken: "demo", refreshToken: "demo-refresh", expiresAt: tokens.expiresAt, signedInAt: Date())
+    }
+
+    static let biometricSettings: BiometricSettingsStore = {
+        switch biometric {
+        case "lock", "on", "relock": return MemoryBiometricSettings(BiometricSettings(owner: BiometricSettings.key(for: alice["sub"]!)))
+        case "real": return DefaultsBiometricSettings()
+        default: return MemoryBiometricSettings()
+        }
+    }()
+
+    /// `-CraniumBiometricCheck YES`: the real Keychain item and Face ID, step by step, for the
+    /// Simulator (Features > Face ID > Enrolled, then Matching Face or Non-matching Face when it asks).
+    /// Prints what each step answered, never the token.
+    @MainActor
+    static func checkBiometricGate() async {
+        func say(_ line: String) { print("[faceid-check] \(line)") }
+        let gate = KeychainBiometricGate()
+        if UserDefaults.standard.string(forKey: "CraniumBiometricCheck") == "changed" {
+            // Turned on (with a match), then the enrolled faces change, then asked again.
+            gate.forget()
+            say("turning on: \(await gate.enroll("probe-token", reason: "Check Face ID").map { "no, \($0)" } ?? "yes")")
+            say("change the enrolled faces now")
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            say("asking after the change…")
+            switch await gate.release(reason: "Check Face ID") {
+            case .success: say("released after the change (not expected)")
+            case .failure(let failure): say("not released after the change: \(failure)")
+            }
+            gate.forget()
+            say("done")
+            return
+        }
+        say("biometry: \(gate.biometry()?.name ?? "none"), usable now: \(gate.isUsable())")
+        gate.forget()
+        say("before: item there: \(gate.hasRefreshToken())")
+        say("kept without asking: \(gate.replace("probe-token").map { "no, \($0)" } ?? "yes")")
+        say("after: item there: \(gate.hasRefreshToken())")
+        // As the lock screen does: a prompt asked for before the app is active comes back cancelled.
+        #if canImport(UIKit)
+        for _ in 0..<50 where UIApplication.shared.applicationState != .active {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        say("app active: \(UIApplication.shared.applicationState == .active)")
+        #endif
+        for attempt in 1...2 {
+            say("asking (\(attempt))…")
+            switch await gate.release(reason: "Check Face ID") {
+            case .success(let token): say("released (\(attempt)): \(token == "probe-token" ? "the token that was kept" : "another token")")
+            case .failure(let failure): say("not released (\(attempt)): \(failure)")
+            }
+        }
+        gate.forget()
+        say("forgotten: item there: \(gate.hasRefreshToken())")
+        say("done")
+    }
+
+    static let biometricGate: BiometricGate = {
+        switch biometric {
+        case "lock": return MemoryBiometricGate(biometry: biometry, kept: "demo-refresh", releaseAnswer: .cancelled)
+        case "on", "relock": return MemoryBiometricGate(biometry: biometry, kept: "demo-refresh")
+        case "real": return KeychainBiometricGate()
+        default: return MemoryBiometricGate(biometry: biometry)
+        }
+    }()
 
     static let boards = ["cranium-3f2a9c1e5b7d4a60", "cranium-8b1d6e0f2c4a9e73", "cranium-c05e7a1b3d9f2468"]
     static let newDeployment = "cranium-1-11-4-b0-\(stamp(-600))-4c2b"

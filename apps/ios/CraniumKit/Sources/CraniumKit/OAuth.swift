@@ -4,13 +4,20 @@ import Foundation
 /// descriptions below leave the tokens out.
 public struct Tokens: Codable, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public var accessToken: String
+    /// Nil once it is forgotten, and in the Keychain item while it is kept behind Face ID instead
+    /// (`AuthSession`, `BiometricLock`).
     public var refreshToken: String?
     public var expiresAt: Date
+    /// When the person signed in with password and code: the access token's `auth_time`, or the
+    /// phone's clock at the sign-in where the token does not say. A refresh keeps it. Nil in an item
+    /// kept before it was recorded.
+    public var signedInAt: Date?
 
-    public init(accessToken: String, refreshToken: String?, expiresAt: Date) {
+    public init(accessToken: String, refreshToken: String?, expiresAt: Date, signedInAt: Date? = nil) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
+        self.signedInAt = signedInAt
     }
 
     public var description: String {

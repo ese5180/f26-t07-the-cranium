@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +36,23 @@ struct RootView: View {
         .onChange(of: app.stage) { stage in
             if stage == .signedOut { RecentSearches().clear() }
         }
+        // Face ID: covered in the app switcher, asked again after 5 minutes away.
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background: Task { await app.enteredBackground() }
+            case .inactive: app.becameInactive()
+            case .active: Task { await app.becameActive() }
+            @unknown default: break
+            }
+        }
+        .lockCover(app)
+        .sheet(isPresented: $app.offeringBiometrics) {
+            if let biometry = app.biometry {
+                BiometricOfferSheet(biometry: biometry) { yes in
+                    Task { await app.answerBiometricOffer(yes) }
+                }
+            }
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -44,6 +62,8 @@ struct RootView: View {
         case .broken(let text):
             Notice(.bad, "alert", "This build cannot be used. \(text)")
                 .padding(24)
+        case .locked:
+            LockScreen()
         case .signedOut:
             SignInScreen(flow: app.passwordSignIn, message: app.signInMessage, awsPageOpen: app.signingIn) { ending in
                 switch ending {
