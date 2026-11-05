@@ -172,6 +172,11 @@ struct AboutRows: View {
             if let console {
                 ValueRow("Console", console.config.consoleURL.host ?? console.config.consoleURL.absoluteString)
             }
+            // Where new versions come from (docs/mobile-apps.md, "Updates on every phone").
+            Text("Updates come from SideStore, with your own source from the console's Apps page, or from a Mac " +
+                 "with apps/ios/scripts/renew.sh.")
+                .font(.footnote)
+                .foregroundStyle(theme.ink2)
         }
     }
 }
