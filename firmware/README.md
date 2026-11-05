@@ -811,7 +811,10 @@ line that prints a value from outside, with what becomes of it.
 
 Lines wait in RAM, the last 32 of them, and go out oldest first, with their own `t` and `seq`, once the board
 is connected: from the main loop only, 8 at a time, and the rest after whatever else the main loop has to
-do. When the ring is full the oldest goes, and the one after it says how many did. At most 5 lines a second get
+do. When the ring is full the oldest goes, and the one after it says how many did. From 1.14.0 that is the oldest
+line that is not about an update (tags `BT`, `bt_ota` and `ota`), unless every line is: the lines of an update
+across a restart are what a person follows it by. Right before a restart that a person asked for at the board,
+everything that waits goes at once (`cloud_events_flush()`): see [What happens](#what-happens). At most 5 lines a second get
 into the ring, after a first 20 at once, online or not, so that a failure that prints in a loop cannot flood
 MQTT, the ring or the bill: 432,000 messages a day at the very most. The next line that gets in says how many
 did not. What waits is lost when the board restarts.
@@ -1161,7 +1164,13 @@ image group as the only group, and Bluetooth as the only transport.
    ignores it, and the only way to one is to upload the image again and press Button 1.
 6. Button 1 writes the record, asks the bootloader for a **trial** swap, and restarts: the same call
    as a cloud update, in the same order. MCUboot checks the signature and the version, as it always
-   does. An image it does not like is not installed.
+   does. An image it does not like is not installed. From 1.14.0 the board first tells the phone (the
+   [status](#the-status-a-phone-can-read) says `installing`, and it waits up to half a second for that to go
+   out), then sends the console what waits, `restarting into the bootloader: …` among it, and a report with
+   the update's state as `rebooting`, and restarts once AWS IoT has acknowledged that report (its PUBACK),
+   or after 2 s without one, or at once when offline (`app_restart()` in `src/main.c`). Before 1.14.0 that
+   line never left the board. Button 2 and the 2 minutes running out send their line the usual way, and
+   tell the phone before its link goes.
 7. The image runs on trial. See [The trial](#the-trial).
 
 Button 2 closes the window at any point, and advertising stops at the end of the window or when a
@@ -1178,10 +1187,35 @@ test's drop on reason 0x22. From 1.11.2 the console also says what the link nego
 4000 ms`, `[BT] link: PHY 2M out, 2M in` and `[BT] link: packets up to 251 bytes out, 251 in`; why a security level
 was not accepted; and why a link ended, in words: `reason 0x22 (a link-layer exchange got no answer within 40 s)`.
 
+### The status a phone can read
+
+From 1.14.0 the board has a second GATT service, of its own, with one characteristic that says how an update over
+Bluetooth stands: the window and its seconds, the image that is arriving or waiting and its version, a refusal and
+its reason, how the window ended (installing, discarded, timed out, closed), the version that runs, on trial or
+not, the swap the bootloader has to do, and the last update's version, how it came and how it ended, as the record
+has it. Read and notify, 64 bytes; the layout is in [`docs/mobile-apps.md`](../docs/mobile-apps.md#the-status-characteristic)
+and `src/bt_status.h`.
+
+It needs **no pairing**, because nothing in it is secret: never the passkey or a key, nothing that names the board
+or its network. It writes nothing. Everything else is as it was: pairing as before for SMP, whose characteristic
+needs an authenticated link, with the image group only, and the same build-time guards in `src/bt_ota.c`. In a
+window, the board still asks a phone to pair as soon as it connects.
+
+**After the restart** that an update over Bluetooth asked for, into the new image on trial or back into the old one
+(not after a cloud job came in between, and not at a normal boot), the board starts Bluetooth once it has reached the
+cloud, or 30 s after the boot, and advertises the status service for 2 minutes, as `Cranium-` and four new hex
+digits, so that the phone that sent the image can come back and see how it went. The console says so: `[BT] status
+advertised for 120 s after the update over Bluetooth: …`. A link made then is for the status alone: the board asks
+for no pairing and refuses one, so no SMP command gets through. It stays while the image is on trial, 5 s after the
+trial is over, and 6 minutes at most. Holding Button 1 opens a window as before, which lets such a phone go; it
+cannot pair in that window. Wi-Fi and TLS have taken their share of the heap by the time Bluetooth starts, in the
+order a person's Button 1 has always found them in.
+
 ### What a phone can do
 
 | Command | |
 | --- | --- |
+| Read the status (from 1.14.0) | Allowed on any link, with no pairing. It carries no secret, and writes nothing |
 | `image list` | Allowed on an authenticated link. It is the last step of a proof |
 | `image upload` | Allowed on an authenticated link, in a window that takes uploads, until one has arrived |
 | `image test`, `image confirm` | **Refused** |
@@ -1205,7 +1239,9 @@ Nothing that lasts:
 
 - It does not advertise, and its host does not even run, until someone has held the button. The
   cloud, the console, a restart and a stuck button cannot change that: a press only counts when it is
-  let go, and one that was already down at boot does not count at all.
+  let go, and one that was already down at boot does not count at all. From 1.14.0 the one exception is
+  the restart that a person's Button 1 asked for at the end of an update over Bluetooth: after it the
+  board advertises its status for 2 minutes, which any phone may read, and nothing else.
 - With the window open and nobody there, an attacker within range needs a passkey that only comes out
   on the serial port. Three wrong tries close it, and it closes by itself anyway.
 - Nothing installs without a second press, and nothing a phone sends can ask for a swap.

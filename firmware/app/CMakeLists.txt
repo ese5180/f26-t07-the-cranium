@@ -68,6 +68,7 @@ target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE
 target_sources_ifdef(CONFIG_APP_BT_OTA app PRIVATE
   src/bt_ota.c
   src/bt_ota_policy.c
+  src/bt_status.c
 )
 
 # MCUmgr's image header needs MCUboot's.

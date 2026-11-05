@@ -90,6 +90,12 @@ static const char *const never_anywhere[] = {
 	"secret", "-----begin", "private key", "x-amz-",
 };
 
+/*
+ * Lines about an update, which a full ring keeps over any other (cloud_events.h). From 1.14.0: the
+ * lines of a restart into a new image are what a person follows it by.
+ */
+static const char *const update_tags[] = { "BT", "bt_ota", "ota" };
+
 struct event {
 	int64_t t;
 	uint32_t seq;
@@ -97,6 +103,8 @@ struct event {
 	uint32_t dropped;
 	char tag[CLOUD_EVENTS_TAG_MAX + 1];
 	char text[CLOUD_EVENTS_TEXT_MAX + 1];
+	/* A line about an update. */
+	bool keep;
 };
 
 /* Lines come from every thread: the ring and the numbers that go with it are under this lock. */
@@ -344,13 +352,47 @@ static void lose_locked(const struct event *event)
 	}
 }
 
-static void drop_oldest_locked(void)
+static bool is_update_tag(const char *tag)
 {
-	const struct event *dropped = &ring[oldest];
+	for (size_t i = 0; i < ARRAY_SIZE(update_tags); i++) {
+		if (strcmp(tag, update_tags[i]) == 0) {
+			return true;
+		}
+	}
 
+	return false;
+}
+
+/*
+ * Room for one more in a full ring: the oldest line that is not about an update goes, or the oldest of
+ * all if every one is. The lines before it move up one, so the order stays, and the line after it says
+ * that one is missing.
+ */
+static void drop_one_locked(void)
+{
+	size_t at = 0;
+	uint32_t lost;
+
+	while (at < waiting && ring[(oldest + at) % CLOUD_EVENTS_RING].keep) {
+		at++;
+	}
+	if (at == waiting) {
+		at = 0;
+	}
+
+	lost = ring[(oldest + at) % CLOUD_EVENTS_RING].dropped + 1;
+	for (size_t i = at; i > 0; i--) {
+		ring[(oldest + i) % CLOUD_EVENTS_RING] = ring[(oldest + i - 1) % CLOUD_EVENTS_RING];
+	}
 	oldest = (oldest + 1) % CLOUD_EVENTS_RING;
 	waiting--;
-	lose_locked(dropped);
+
+	/* What came right after it is at the same place now. */
+	if (at < waiting) {
+		ring[(oldest + at) % CLOUD_EVENTS_RING].dropped += lost;
+	} else {
+		missing += lost;
+	}
 }
 
 static bool nothing_waiting(void)
@@ -434,7 +476,7 @@ void cloud_events_add(const char *tag, const char *text, size_t length)
 	tokens -= MILLI;
 
 	if (waiting == CLOUD_EVENTS_RING) {
-		drop_oldest_locked();
+		drop_one_locked();
 	}
 
 	slot = &ring[(oldest + waiting) % CLOUD_EVENTS_RING];
@@ -444,6 +486,7 @@ void cloud_events_add(const char *tag, const char *text, size_t length)
 	slot->dropped = missing;
 	missing = 0;
 	strcpy(slot->tag, source->tag);
+	slot->keep = is_update_tag(source->tag);
 	keep_text(slot->text, text, length, source->rule);
 	k_spin_unlock(&lock, key);
 
@@ -546,9 +589,11 @@ static const char *network_name(void)
 	return kept;
 }
 
+/* What goes out, one at a time, off the main loop's stack. */
+static struct event sent;
+
 void cloud_events_send(void)
 {
-	static struct event sent;
 	int64_t now = k_uptime_get();
 	const char *network;
 
@@ -582,6 +627,22 @@ void cloud_events_send(void)
 
 	/* More may be waiting: after whatever else the main loop has to do. */
 	wake_main_loop();
+}
+
+void cloud_events_flush(void)
+{
+	int64_t now = k_uptime_get();
+	const char *network;
+
+	atomic_set(&wake_posted, 0);
+
+	if (!link.up || link.refused || !cloud_is_connected()) {
+		return;
+	}
+
+	network = network_name();
+	for (int i = 0; i < CLOUD_EVENTS_RING && send_oldest(network, now, &sent); i++) {
+	}
 }
 
 void cloud_events_on_cloud_up(void)

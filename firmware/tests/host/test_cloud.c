@@ -72,6 +72,14 @@ static struct {
 	char sent_payload[CLOUD_EVENTS_JSON_MAX];
 	uint8_t sent_bytes[CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE];
 	size_t sent_len;
+	uint16_t sent_message_id;
+
+	/* The MQTT helper's message IDs, and the PUBACK that the broker sends while the main loop waits. */
+	uint16_t next_id;
+	bool acks;
+	uint16_t ack_id;
+	int waits;
+	int32_t waited_ms;
 
 	/* The connection thread. */
 	k_work_handler_t work;
@@ -244,9 +252,43 @@ int aws_iot_send(const struct aws_iot_data *const tx_data)
 	lib.sent_qos = tx_data->qos;
 	snprintf(lib.sent_payload, sizeof(lib.sent_payload), "%.*s", (int)tx_data->len, tx_data->ptr);
 	lib.sent_len = tx_data->len;
+	lib.sent_message_id = tx_data->message_id;
 	CHECK(tx_data->len <= sizeof(lib.sent_bytes));
 	memcpy(lib.sent_bytes, tx_data->ptr, MIN(tx_data->len, sizeof(lib.sent_bytes)));
 	return lib.send_result;
+}
+
+uint16_t mqtt_helper_msg_id_get(void)
+{
+	return ++lib.next_id;
+}
+
+/* A wait that would block: the broker's PUBACK, if it sends one, comes on the MQTT thread meanwhile. */
+int k_sem_take(struct k_sem *sem, k_timeout_t timeout)
+{
+	if (timeout != K_NO_WAIT) {
+		lib.waits++;
+		lib.waited_ms = timeout;
+		if (lib.acks) {
+			struct aws_iot_evt event = { .type = AWS_IOT_EVT_PUBACK };
+
+			event.data.message_id = lib.ack_id != 0 ? lib.ack_id : lib.sent_message_id;
+			lib.handler(&event);
+		}
+	}
+
+	if (sem->count > 0) {
+		sem->count--;
+		return 0;
+	}
+	return -EAGAIN;
+}
+
+void k_sem_give(struct k_sem *sem)
+{
+	if (sem->count < 1) {
+		sem->count++;
+	}
 }
 
 /* ---- helpers ------------------------------------------------------------------------ */
@@ -751,6 +793,56 @@ static void test_a_jobs_reply_is_read_where_it_arrives(void)
 	strcpy(settings.download_url_prefix, "https://b.example.com/fw/");
 }
 
+/*
+ * From 1.14.0, the last report before a restart: its own message ID, from the helper's counter, at
+ * QoS 1 to the shadow, and a wait that only the PUBACK with that ID ends.
+ */
+static void test_a_report_waits_for_its_own_acknowledgement(void)
+{
+	struct aws_iot_evt late = { .type = AWS_IOT_EVT_PUBACK };
+	int waits;
+
+	if (!cloud_is_connected()) {
+		attempt(0, true);
+	}
+	lib.send_result = 0;
+	lib.waits = 0;
+
+	lib.acks = true;
+	lib.ack_id = 0;
+	CHECK(cloud_shadow_report_acked("{\"ota\":{\"state\":\"rebooting\"}}", 2000) == 0);
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_UPDATE);
+	CHECK(lib.sent_qos == MQTT_QOS_1_AT_LEAST_ONCE);
+	CHECK(lib.sent_message_id != 0 && lib.sent_message_id == lib.next_id);
+	CHECK(lib.waits == 1);
+	CHECK(lib.waited_ms == 2000);
+	CHECK_TEXT(lib.sent_payload, "{\"state\":{\"reported\":{\"ota\":{\"state\":\"rebooting\"}}}}");
+
+	/* Another message's PUBACK does not end it. */
+	lib.ack_id = (uint16_t)(lib.next_id + 7);
+	CHECK(cloud_shadow_report_acked("{}", 2000) == -ETIMEDOUT);
+	CHECK(lib.waits == 2);
+
+	/* No answer at all, and that one's PUBACK comes too late to end the next wait. */
+	lib.acks = false;
+	CHECK(cloud_shadow_report_acked("{}", 2000) == -ETIMEDOUT);
+	late.data.message_id = lib.sent_message_id;
+	lib.handler(&late);
+	CHECK(cloud_shadow_report_acked("{}", 2000) == -ETIMEDOUT);
+
+	/* What could not be sent is not waited for. */
+	waits = lib.waits;
+	lib.send_result = -EAGAIN;
+	CHECK(cloud_shadow_report_acked("{}", 2000) == -EAGAIN);
+	CHECK(lib.waits == waits);
+	lib.send_result = 0;
+
+	/* A report that does not wait leaves the ID to the library, as before. */
+	CHECK(cloud_shadow_report("{}") == 0);
+	CHECK(lib.sent_message_id == 0);
+	CHECK(lib.waits == waits);
+}
+
 int main(void)
 {
 	test_before_anything_happened();
@@ -766,6 +858,7 @@ int main(void)
 	test_a_memfault_frame_goes_to_the_memfault_topic();
 	test_memfault_hears_of_the_connection_and_the_reports();
 	test_a_jobs_reply_is_read_where_it_arrives();
+	test_a_report_waits_for_its_own_acknowledgement();
 
 	printf("%d cloud checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

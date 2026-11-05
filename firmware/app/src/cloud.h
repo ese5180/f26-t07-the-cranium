@@ -108,6 +108,14 @@ bool cloud_commands_given_up(void);
 int cloud_shadow_report(const char *reported_json);
 
 /*
+ * The same, and then wait for AWS IoT to acknowledge it (its PUBACK), for at most wait_ms: for the
+ * last word before a restart. What was published before it went first on the same connection, so its
+ * acknowledgement says that those got to AWS IoT as well. Returns 0 once acknowledged, -ETIMEDOUT
+ * without that, or the error of the publish. From 1.14.0, on the main loop only: it blocks.
+ */
+int cloud_shadow_report_acked(const char *reported_json, int32_t wait_ms);
+
+/*
  * Publish one event for the console (src/cloud_events.h) to cranium/<thing name>/events, at QoS 0.
  * The device policy has to allow that topic: AWS IoT closes the connection of a board that publishes
  * where it may not.

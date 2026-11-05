@@ -111,6 +111,12 @@ static struct {
 	char last_result[12];
 	char last_error[24];
 	bool changed;
+
+#if defined(CONFIG_APP_BT_OTA)
+	/* The cloud update that this boot found installed, or on trial: for the Bluetooth status. */
+	struct fw_version installed;
+	enum bt_status_outcome installed_outcome;
+#endif
 } ota;
 
 /* See ota_stuck_progress(). The downloader's thread adds to it as well. */
@@ -190,6 +196,17 @@ static int job_update(const char *job_id, const char *status, char token, uint16
 	}
 
 	return cloud_jobs_update(job_id, body);
+}
+
+/* What the Bluetooth status says of the last cloud update (ota_bt_cloud_update()). */
+static void note_installed(enum bt_status_outcome outcome)
+{
+#if defined(CONFIG_APP_BT_OTA)
+	ota.installed = ota.record.target;
+	ota.installed_outcome = outcome;
+#else
+	ARG_UNUSED(outcome);
+#endif
 }
 
 static void record_clear(void)
@@ -844,11 +861,13 @@ int ota_init(void)
 			ota.record.phase = RECORD_TESTING;
 			(void)store_write(STORE_OTA_RECORD, &ota.record, sizeof(ota.record));
 			enter(OTA_TESTING);
+			note_installed(BT_STATUS_OUTCOME_PENDING);
 			break;
 		case OTA_RESTART_CONFIRMED:
 			/* Confirmed earlier, but the report did not get out. */
 			ota.report = REPORT_SUCCEEDED;
 			set_last("succeeded", "");
+			note_installed(BT_STATUS_OUTCOME_KEPT);
 			break;
 		case OTA_RESTART_TRIAL_LOST:
 			LOG_ERR("This image runs with no trailer: its trial was lost, and it proved nothing");
@@ -857,6 +876,7 @@ int ota_init(void)
 			set_last("failed", "trial_lost");
 			mflt_note_update_end(MFLT_UPDATE_ROLLED_BACK, "trial_lost",
 					     fw_version_running_string());
+			note_installed(BT_STATUS_OUTCOME_TRIAL_LOST);
 			break;
 		case OTA_RESTART_ROLLED_BACK:
 			LOG_ERR("The updated firmware was not confirmed: the bootloader reverted it");
@@ -865,6 +885,7 @@ int ota_init(void)
 			set_last("rolled_back", "not confirmed");
 			mflt_note_update_end(MFLT_UPDATE_ROLLED_BACK, "rolled_back",
 					     fw_version_running_string());
+			note_installed(BT_STATUS_OUTCOME_ROLLED_BACK);
 			break;
 		default:
 			LOG_ERR("The bootloader did not install the downloaded image");
@@ -873,6 +894,7 @@ int ota_init(void)
 			set_last("failed", "not_installed");
 			mflt_note_update_end(MFLT_UPDATE_FAILED, "not_installed",
 					     fw_version_running_string());
+			note_installed(BT_STATUS_OUTCOME_NOT_INSTALLED);
 			break;
 		}
 	} else if (on_trial) {
@@ -918,6 +940,7 @@ void ota_on_cloud_up(void)
 
 		if (ota.have_record) {
 			ota.report = REPORT_SUCCEEDED;
+			note_installed(BT_STATUS_OUTCOME_KEPT);
 		}
 #if defined(CONFIG_APP_BT_OTA)
 		bt_ota_on_cloud_proof();
@@ -1251,5 +1274,11 @@ int ota_bt_confirm(void)
 	set_last("succeeded", "");
 	go_idle();
 	return 0;
+}
+
+enum bt_status_outcome ota_bt_cloud_update(struct fw_version *target)
+{
+	*target = ota.installed;
+	return ota.installed_outcome;
 }
 #endif /* CONFIG_APP_BT_OTA */

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <net/aws_iot.h>
+#include <net/mqtt_helper.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/mqtt.h>
@@ -102,6 +103,13 @@ static char connect_url_prefix[IDENTITY_URL_PREFIX_MAX];
 
 static atomic_t connected;
 static atomic_t connecting;
+
+/*
+ * The report that cloud_shadow_report_acked() waits for: its message ID plus one, 0 for none. Set by
+ * the main loop, and taken by the MQTT helper's thread with the PUBACK that has that ID.
+ */
+static atomic_t awaited_ack;
+static K_SEM_DEFINE(ack_arrived, 0, 1);
 
 /*
  * Written by the connection thread, the MQTT helper's thread and whoever publishes, and read by
@@ -318,6 +326,11 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 			stats_note_down();
 			mflt_note_cloud_lost();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
+		}
+		break;
+	case AWS_IOT_EVT_PUBACK:
+		if (atomic_cas(&awaited_ack, (atomic_val_t)event->data.message_id + 1, 0)) {
+			k_sem_give(&ack_arrived);
 		}
 		break;
 	case AWS_IOT_EVT_DATA_RECEIVED:
@@ -555,11 +568,14 @@ bool cloud_commands_given_up(void)
 	return atomic_get(&commands_off) != 0;
 }
 
+/* message_id 0 lets the library pick one. */
 static int publish_bytes(enum mqtt_qos qos, const char *topic,
-			 enum aws_iot_shadow_topic_type shadow_topic, const void *payload, size_t len)
+			 enum aws_iot_shadow_topic_type shadow_topic, const void *payload, size_t len,
+			 uint16_t message_id)
 {
 	struct aws_iot_data message = {
 		.qos = qos,
+		.message_id = message_id,
 		.topic.type = shadow_topic,
 		.topic.str = topic,
 		.topic.len = topic ? strlen(topic) : 0,
@@ -589,7 +605,7 @@ static int publish_bytes(enum mqtt_qos qos, const char *topic,
 static int publish_at(enum mqtt_qos qos, const char *topic,
 		      enum aws_iot_shadow_topic_type shadow_topic, const char *payload)
 {
-	return publish_bytes(qos, topic, shadow_topic, payload, strlen(payload));
+	return publish_bytes(qos, topic, shadow_topic, payload, strlen(payload), 0);
 }
 
 static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topic,
@@ -598,7 +614,8 @@ static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topi
 	return publish_at(MQTT_QOS_1_AT_LEAST_ONCE, topic, shadow_topic, payload);
 }
 
-int cloud_shadow_report(const char *reported_json)
+/* With message_id 0, the library picks one. */
+static int shadow_report(const char *reported_json, uint16_t message_id)
 {
 	static char document[SHADOW_MAX];
 	int written = snprintk(document, sizeof(document), "{\"state\":{\"reported\":%s}}",
@@ -608,10 +625,36 @@ int cloud_shadow_report(const char *reported_json)
 		return -ENOSPC;
 	}
 
-	written = publish(NULL, AWS_IOT_SHADOW_TOPIC_UPDATE, document);
+	written = publish_bytes(MQTT_QOS_1_AT_LEAST_ONCE, NULL, AWS_IOT_SHADOW_TOPIC_UPDATE, document,
+				strlen(document), message_id);
 	/* Memfault's sync success rate: the reports that got out, and those that did not. */
 	mflt_note_report(written == 0);
 	return written;
+}
+
+int cloud_shadow_report(const char *reported_json)
+{
+	return shadow_report(reported_json, 0);
+}
+
+int cloud_shadow_report_acked(const char *reported_json, int32_t wait_ms)
+{
+	/* The library's own counter, so that the ID is none that it has in flight. */
+	uint16_t id = mqtt_helper_msg_id_get();
+	int err;
+
+	/* A PUBACK that came after an earlier wait gave up is not this one's. */
+	atomic_set(&awaited_ack, 0);
+	(void)k_sem_take(&ack_arrived, K_NO_WAIT);
+	atomic_set(&awaited_ack, (atomic_val_t)id + 1);
+
+	err = shadow_report(reported_json, id);
+	if (err == 0 && k_sem_take(&ack_arrived, K_MSEC(wait_ms)) != 0) {
+		err = -ETIMEDOUT;
+	}
+
+	atomic_set(&awaited_ack, 0);
+	return err;
 }
 
 /* QoS 0: nothing here would send it again, and the shadow is what the board's state is kept in. */
@@ -643,7 +686,7 @@ int cloud_memfault_publish(const uint8_t *frame, size_t len)
 	}
 
 	return publish_bytes(MQTT_QOS_0_AT_MOST_ONCE, topic_memfault, AWS_IOT_SHADOW_TOPIC_NONE,
-			     frame, len);
+			     frame, len, 0);
 }
 #endif
 

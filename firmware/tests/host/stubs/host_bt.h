@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include <zephyr/kernel.h>
 
@@ -130,6 +131,80 @@ int bt_conn_set_security(struct bt_conn *conn, bt_security_t level);
 int bt_conn_get_info(const struct bt_conn *conn, struct bt_conn_info *info);
 void bt_conn_foreach(int type, void (*func)(struct bt_conn *conn, void *data), void *data);
 
+/* ---- GATT, as far as the status characteristic uses it ------------------------------ */
+
+struct bt_uuid {
+	uint8_t type;
+};
+
+struct bt_uuid_128 {
+	struct bt_uuid uuid;
+	uint8_t val[16];
+};
+
+#define BT_UUID_TYPE_128 2
+#define BT_UUID_DECLARE_128(value...)                                                          \
+	((const struct bt_uuid *)((const struct bt_uuid_128[]){ { { BT_UUID_TYPE_128 }, { value } } }))
+
+struct bt_gatt_attr;
+
+typedef ssize_t (*bt_gatt_attr_read_func_t)(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+					    void *buf, uint16_t len, uint16_t offset);
+typedef void (*bt_gatt_ccc_changed_func_t)(const struct bt_gatt_attr *attr, uint16_t value);
+
+/*
+ * The real ones keep the CCC's callback in its user data. Here it has a field of its own, and the
+ * service is the primary service, the characteristic's declaration, its value and its CCC, as there.
+ */
+struct bt_gatt_attr {
+	const struct bt_uuid *uuid;
+	bt_gatt_attr_read_func_t read;
+	void *write;
+	void *user_data;
+	bt_gatt_ccc_changed_func_t ccc_changed;
+	uint16_t perm;
+	uint8_t props;
+};
+
+struct bt_gatt_service_static {
+	const struct bt_gatt_attr *attrs;
+	size_t attr_count;
+};
+
+#define BT_GATT_CHRC_READ   0x02
+#define BT_GATT_CHRC_NOTIFY 0x10
+#define BT_GATT_PERM_READ   0x01
+#define BT_GATT_PERM_WRITE  0x02
+#define BT_GATT_CCC_NOTIFY  0x0001
+
+#define BT_GATT_PRIMARY_SERVICE(_service) { .user_data = (void *)(_service) }
+#define BT_GATT_CHARACTERISTIC(_uuid, _props, _perm, _read, _write, _user_data)                  \
+	{ .props = (_props) },                                                                    \
+	{ .uuid = (_uuid), .read = (_read), .write = (_write), .user_data = (_user_data),         \
+	  .perm = (_perm), .props = (_props) }
+#define BT_GATT_CCC(_changed, _perm) { .ccc_changed = (_changed), .perm = (_perm) }
+#define BT_GATT_SERVICE_DEFINE(_name, ...)                                                       \
+	static const struct bt_gatt_attr attr_##_name[] = { __VA_ARGS__ };                       \
+	static const struct bt_gatt_service_static _name = { attr_##_name, ARRAY_SIZE(attr_##_name) }
+
+typedef void (*bt_gatt_complete_func_t)(struct bt_conn *conn, void *user_data);
+
+struct bt_gatt_notify_params {
+	const struct bt_uuid *uuid;
+	const struct bt_gatt_attr *attr;
+	const void *data;
+	uint16_t len;
+	bt_gatt_complete_func_t func;
+	void *user_data;
+};
+
+ssize_t bt_gatt_attr_read(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
+			  uint16_t buf_len, uint16_t offset, const void *value, uint16_t value_len);
+int bt_gatt_notify_cb(struct bt_conn *conn, struct bt_gatt_notify_params *params);
+bool bt_gatt_is_subscribed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			   uint16_t ccc_type);
+uint16_t bt_gatt_get_mtu(struct bt_conn *conn);
+
 /* ---- MCUmgr --------------------------------------------------------------------- */
 
 #define MGMT_OP_READ         0
@@ -211,7 +286,9 @@ int img_mgmt_read_info(int image_slot, struct image_version *ver, uint8_t *hash,
 #define PARTITION_SIZE(label) 0xe4000
 #define BOOT_SWAP_TYPE_NONE   1
 #define BOOT_SWAP_TYPE_TEST   2
+#define BOOT_SWAP_TYPE_PERM   3
 #define BOOT_SWAP_TYPE_REVERT 4
+#define BOOT_SWAP_TYPE_FAIL   5
 #define BOOT_UPGRADE_TEST     0
 #define BOOT_UPGRADE_PERMANENT 1
 

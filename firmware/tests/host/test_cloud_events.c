@@ -922,6 +922,118 @@ static void test_the_main_loop_is_woken_once(void)
 	CHECK(seq_adds_up(0, 1));
 }
 
+/*
+ * From 1.14.0: a full ring lets a line that is not about an update go first, so the lines of an update
+ * across a restart get to the console after a long time offline. In order, with what is missing said.
+ */
+static void test_a_full_ring_keeps_the_lines_of_an_update(void)
+{
+	char text[32];
+
+	start_over();
+	fake.now_ms += 300;
+	add_line("BT", "on trial: 1.14.1+0 from 1.14.0+0, pending, proof none, update 2 of this board");
+	fake.now_ms += 300;
+	add_line("ota", "Running new firmware 1.14.1+0 on trial");
+	for (int i = 1; i <= 40; i++) {
+		fake.now_ms += 300;
+		snprintf(text, sizeof(text), "line %d", i);
+		add_line("app", text);
+	}
+	fake.now_ms += 300;
+	add_line("bt_ota", "ERR: Update over Bluetooth refused");
+
+	CHECK(waiting == CLOUD_EVENTS_RING);
+	proven_connection();
+	seconds_pass(1);
+	CHECK(fake.sends == CLOUD_EVENTS_RING);
+	CHECK_TEXT(fake.sent[0].text, "on trial: 1.14.1+0 from 1.14.0+0, pending, proof none, update 2 of this board");
+	CHECK(fake.sent[0].seq == 1 && fake.sent[0].dropped == 0);
+	CHECK_TEXT(fake.sent[1].text, "Running new firmware 1.14.1+0 on trial");
+	/* Lines 1 to 11 went to make room, and the first line after them says so. */
+	CHECK_TEXT(fake.sent[2].text, "line 12");
+	CHECK(fake.sent[2].dropped == 11);
+	CHECK_TEXT(fake.sent[CLOUD_EVENTS_RING - 2].text, "line 40");
+	CHECK_TEXT(fake.sent[CLOUD_EVENTS_RING - 1].text, "ERR: Update over Bluetooth refused");
+	CHECK(seq_adds_up(0, 1));
+
+	/* A ring of nothing but update lines: the oldest goes, as before. */
+	start_over();
+	for (int i = 1; i <= CLOUD_EVENTS_RING + 2; i++) {
+		fake.now_ms += 300;
+		snprintf(text, sizeof(text), "update %d", i);
+		add_line("BT", text);
+	}
+	proven_connection();
+	seconds_pass(1);
+	CHECK_TEXT(fake.sent[0].text, "update 3");
+	CHECK(fake.sent[0].dropped == 2);
+	CHECK(seq_adds_up(0, 1));
+
+	/* The newest line that is not about an update can be the one that goes. */
+	start_over();
+	for (int i = 1; i < CLOUD_EVENTS_RING; i++) {
+		fake.now_ms += 300;
+		add_line("BT", "update");
+	}
+	fake.now_ms += 300;
+	add_line("app", "the only other");
+	fake.now_ms += 300;
+	add_line("BT", "the last update");
+	fake.now_ms += 300;
+	add_line("BT", "one more");
+	proven_connection();
+	seconds_pass(1);
+	CHECK(fake.sends == CLOUD_EVENTS_RING);
+	/* The other line went, right before this one; then, with only updates left, the oldest. */
+	CHECK_TEXT(fake.sent[CLOUD_EVENTS_RING - 2].text, "the last update");
+	CHECK(fake.sent[CLOUD_EVENTS_RING - 2].dropped == 1);
+	CHECK_TEXT(fake.sent[CLOUD_EVENTS_RING - 1].text, "one more");
+	CHECK(fake.sent[CLOUD_EVENTS_RING - 1].dropped == 0);
+	CHECK(fake.sent[0].seq == 2 && fake.sent[0].dropped == 1);
+	CHECK(seq_adds_up(0, 1));
+}
+
+/* From 1.14.0, right before a restart: everything that waits, at once, also on a new connection. */
+static void test_a_flush_sends_everything_now(void)
+{
+	start_over();
+	for (int i = 0; i < 20; i++) {
+		fake.now_ms += 300;
+		add_line("BT", "waiting");
+	}
+
+	/* Offline: nothing, and nothing lost. */
+	cloud_events_flush();
+	CHECK(fake.sends == 0);
+	CHECK(waiting == 20);
+
+	/* Just connected, with nothing proven yet: all of it, not CLOUD_EVENTS_PER_CALL. */
+	fake.connected = true;
+	link.up = true;
+	link.up_at = fake.now_ms;
+	cloud_events_flush();
+	CHECK(fake.sends == 20);
+	CHECK(waiting == 0);
+	CHECK(seq_adds_up(0, 1));
+
+	/* A publish that fails stops it, and that line waits at the front. */
+	add_line("BT", "first");
+	add_line("BT", "second");
+	fake.fail_at = fake.sends;
+	cloud_events_flush();
+	CHECK(waiting == 2);
+
+	/* Not after the board has given up on events. */
+	start_over();
+	add_line("BT", "waiting");
+	fake.connected = true;
+	link.up = true;
+	link.refused = true;
+	cloud_events_flush();
+	CHECK(fake.sends == 0);
+}
+
 int main(void)
 {
 	test_the_message();
@@ -934,6 +1046,8 @@ int main(void)
 	test_a_connection_proves_the_topic_first();
 	test_a_topic_the_policy_refuses();
 	test_the_main_loop_is_woken_once();
+	test_a_full_ring_keeps_the_lines_of_an_update();
+	test_a_flush_sends_everything_now();
 
 	printf("%d cloud event checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

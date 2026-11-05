@@ -111,6 +111,10 @@ static struct {
 	struct fw_version slot_version;
 	int info_result;
 
+	/* What the last advertising said it was: the 16 bytes of its 128-bit UUID. */
+	uint8_t adv_uuid[16];
+	int security_requests;
+
 	/* Storage. */
 	bool stored;
 	struct bt_ota_record stored_record;
@@ -134,6 +138,20 @@ static struct {
 	int compat_checks;
 	int compat_changes_at;
 	enum image_compat_verdict compat_then;
+
+	/* The status characteristic: whether the phone asked for it, the link's MTU, and what it got. */
+	bool subscribed;
+	uint16_t mtu;
+	int notify_result;
+	int notifies;
+	uint8_t notified[BT_STATUS_LEN];
+	/* Notifications whose callback never comes: the link took them, and never sent them. */
+	bool notify_never_sent;
+	int sent_waits;
+
+	/* What ota.c says of a cloud update that this boot knows of. */
+	enum bt_status_outcome cloud_outcome;
+	struct fw_version cloud_target;
 } fake;
 
 /* image_compat_slot.c, which test_image_compat.c tests. */
@@ -328,11 +346,13 @@ int bt_le_adv_start(const void *param, const struct bt_data *ad, size_t ad_len,
 		    const struct bt_data *sd, size_t sd_len)
 {
 	ARG_UNUSED(param);
-	ARG_UNUSED(ad);
-	ARG_UNUSED(ad_len);
 	ARG_UNUSED(sd);
 	ARG_UNUSED(sd_len);
 
+	CHECK(ad_len == 2 && ad[1].type == BT_DATA_UUID128_ALL && ad[1].data_len == 16);
+	if (ad_len == 2 && ad[1].data_len == 16) {
+		memcpy(fake.adv_uuid, ad[1].data, 16);
+	}
 	fake.adv_starts++;
 	if (fake.advertising) {
 		return -EALREADY;
@@ -379,6 +399,7 @@ int bt_conn_disconnect(struct bt_conn *conn, uint8_t reason)
 	ARG_UNUSED(conn);
 	ARG_UNUSED(reason);
 	fake.disconnects++;
+	op("disconnect");
 	return fake.disconnect_result;
 }
 
@@ -386,6 +407,7 @@ int bt_conn_set_security(struct bt_conn *conn, bt_security_t level)
 {
 	ARG_UNUSED(conn);
 	CHECK(level == BT_SECURITY_L4);
+	fake.security_requests++;
 	return fake.set_security_result;
 }
 
@@ -402,6 +424,94 @@ void bt_conn_foreach(int type, void (*func)(struct bt_conn *conn, void *data), v
 	if (fake.connected) {
 		func(&phone, data);
 	}
+}
+
+/* ---- GATT, and what the main loop waits on ---------------------------------------------- */
+
+ssize_t bt_gatt_attr_read(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
+			  uint16_t buf_len, uint16_t offset, const void *value, uint16_t value_len)
+{
+	uint16_t len;
+
+	ARG_UNUSED(conn);
+	ARG_UNUSED(attr);
+
+	if (offset > value_len) {
+		return -7;
+	}
+
+	len = MIN(buf_len, (uint16_t)(value_len - offset));
+	memcpy(buf, (const uint8_t *)value + offset, len);
+	return len;
+}
+
+int bt_gatt_notify_cb(struct bt_conn *conn, struct bt_gatt_notify_params *params)
+{
+	CHECK(params->attr == STATUS_VALUE);
+	CHECK(params->len == BT_STATUS_LEN);
+	fake.notifies++;
+	op("notify");
+
+	if (fake.notify_result != 0) {
+		return fake.notify_result;
+	}
+
+	memcpy(fake.notified, params->data, BT_STATUS_LEN);
+	if (params->func != NULL && !fake.notify_never_sent) {
+		params->func(conn, params->user_data);
+	}
+	return 0;
+}
+
+bool bt_gatt_is_subscribed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			   uint16_t ccc_type)
+{
+	ARG_UNUSED(conn);
+	CHECK(attr == STATUS_VALUE);
+	CHECK(ccc_type == BT_GATT_CCC_NOTIFY);
+	return fake.subscribed;
+}
+
+uint16_t bt_gatt_get_mtu(struct bt_conn *conn)
+{
+	ARG_UNUSED(conn);
+	return fake.mtu;
+}
+
+/* One thread: a wait that would block ends at once, as if its time had run out. */
+int k_sem_take(struct k_sem *sem, k_timeout_t timeout)
+{
+	if (sem->count > 0) {
+		sem->count--;
+		return 0;
+	}
+
+	if (timeout != K_NO_WAIT) {
+		fake.sent_waits++;
+		op("waited");
+	}
+	return -EAGAIN;
+}
+
+void k_sem_give(struct k_sem *sem)
+{
+	if (sem->count < 1) {
+		sem->count++;
+	}
+}
+
+/* main.c's: the console's last word, then the restart. test_app.c tests it. */
+void app_restart(int why)
+{
+	CHECK(why == MFLT_REBOOT_UPDATE);
+	fake.reboots++;
+	op("restart");
+}
+
+enum bt_status_outcome ota_bt_cloud_update(struct fw_version *target)
+{
+	*target = fake.cloud_target;
+	return fake.cloud_outcome;
 }
 
 /* ---- MCUmgr and the bootloader ------------------------------------------------------ */
@@ -517,6 +627,16 @@ static void fresh_board(void)
 	last_proof = BT_OTA_PROVED;
 	name[0] = '\0';
 	pairing_reported = false;
+	memset(&track, 0, sizeof(track));
+	memset(&status_window, 0, sizeof(status_window));
+	status_due = false;
+	memset(status_payload, 0, sizeof(status_payload));
+	memset(status_told, 0, sizeof(status_told));
+	status_told_at = 0;
+	status_subscriber_new = false;
+	status_sent.count = 0;
+	fake.mtu = 247;
+	atomic_set(&status_link, 0);
 	atomic_set(&gate, 0);
 	atomic_set(&ready, 0);
 	atomic_set(&start_failed, 0);
@@ -1715,7 +1835,7 @@ static void test_button_1_records_then_asks_for_a_trial_then_restarts(void)
 
 	CHECK(bt_ota_on_button(APP_BUTTON_1, false, true));
 
-	CHECK(strcmp(fake.ops, "store_write request_swap cloud_disconnect log_panic reboot ") == 0);
+	CHECK(strcmp(fake.ops, "store_write request_swap restart ") == 0);
 	CHECK(fake.request_permanent == BOOT_UPGRADE_TEST);
 	CHECK(fake.stored);
 	CHECK(fake.stored_record.magic == BT_OTA_RECORD_MAGIC);
@@ -1991,8 +2111,11 @@ static void test_nothing_is_confirmed_on_boot_or_by_itself(void)
 	}
 
 	CHECK(fake.confirms == 0);
-	CHECK(fake.enables == 0);
 	CHECK(bluetooth_trial);
+	/* From 1.14.0 Bluetooth starts after this restart, for the status alone, and only for a while. */
+	CHECK(fake.enables == 1);
+	CHECK(!status_window.open);
+	CHECK(atomic_get(&gate) == 0);
 }
 
 static void test_a_cloud_trial_cannot_be_proved_by_hand(void)
@@ -2249,6 +2372,516 @@ static void test_no_record_no_report(void)
 
 /* ---- LED1 ------------------------------------------------------------------------------ */
 
+/* ---- the status characteristic ----------------------------------------------------------- */
+
+static const uint8_t smp_uuid[16] = { SMP_BT_SVC_UUID_VAL };
+static const uint8_t status_uuid[16] = { BT_STATUS_SERVICE_UUID_VAL };
+
+/* The status as a phone reads it: what read_status() hands over, in pieces as a long read does. */
+static void read_as_a_phone(uint8_t out[BT_STATUS_LEN])
+{
+	uint8_t piece[20];
+	uint16_t at = 0;
+
+	while (at < BT_STATUS_LEN) {
+		ssize_t got = read_status(&phone, STATUS_VALUE, piece, sizeof(piece), at);
+
+		CHECK(got > 0);
+		if (got <= 0) {
+			return;
+		}
+		memcpy(out + at, piece, (size_t)got);
+		at += (uint16_t)got;
+	}
+	CHECK(read_status(&phone, STATUS_VALUE, piece, sizeof(piece), at) == 0);
+}
+
+static uint16_t le16(const uint8_t *at)
+{
+	return (uint16_t)(at[0] | (at[1] << 8));
+}
+
+static uint32_t le32(const uint8_t *at)
+{
+	return le16(at) | ((uint32_t)le16(at + 2) << 16);
+}
+
+static void test_the_status_service_is_readable_without_pairing_and_writes_nothing(void)
+{
+	const struct bt_gatt_attr *value = STATUS_VALUE;
+	const struct bt_gatt_attr *ccc = &status_service.attrs[3];
+
+	CHECK(status_service.attr_count == 4);
+	CHECK(value->perm == BT_GATT_PERM_READ);
+	CHECK(value->props == (BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY));
+	CHECK(value->read == read_status);
+	CHECK(value->write == NULL);
+	CHECK(ccc->perm == (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE));
+	CHECK(ccc->ccc_changed == on_status_subscribed);
+	CHECK(memcmp(((const struct bt_uuid_128 *)value->uuid)->val + 1, status_uuid + 1, 11) == 0);
+}
+
+static void test_the_status_follows_the_window(void)
+{
+	uint8_t got[BT_STATUS_LEN];
+
+	fresh_board();
+	open_by_hand();
+	read_as_a_phone(got);
+	CHECK(got[0] == BT_STATUS_FORMAT);
+	CHECK(got[1] == BT_STATUS_WINDOW_OPEN);
+	CHECK(le16(got + 2) == CONFIG_APP_BT_OTA_WINDOW_SECONDS);
+	CHECK(got[4] == BT_STATUS_IMAGE_NONE);
+	CHECK(got[18] == BT_STATUS_RESULT_NONE);
+	CHECK(got[21] == RUNNING_MINOR);
+
+	/* A window for uploads advertises SMP, as before. */
+	bt_ota_on_tick();
+	CHECK(memcmp(fake.adv_uuid, smp_uuid, 16) == 0);
+
+	phone_pairs();
+	fake.subscribed = true;
+	on_status_subscribed(STATUS_VALUE, BT_GATT_CCC_NOTIFY);
+	run_what_was_posted();
+	bt_ota_on_tick();
+	/* It asked: it hears at once. */
+	CHECK(fake.notifies == 1);
+	CHECK(fake.notified[1] == BT_STATUS_WINDOW_LINKED);
+	CHECK(le16(fake.notified + 2) == CONFIG_APP_BT_OTA_WINDOW_SECONDS - 2);
+
+	CHECK(command(MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_UPLOAD, MGMT_OP_WRITE) == 0);
+	CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR + 1, 700000, 0) == 0);
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 2);
+	CHECK(fake.notified[4] == BT_STATUS_IMAGE_RECEIVING);
+	CHECK(le32(fake.notified + 6) == BT_OTA_IMAGE_HEADER_LEN);
+	CHECK(fake.notified[11] == RUNNING_MINOR + 1);
+
+	upload_finishes();
+	read_as_a_phone(got);
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 3);
+	CHECK(fake.notified[1] == BT_STATUS_WINDOW_OFFER);
+	CHECK(fake.notified[4] == BT_STATUS_IMAGE_VERIFIED);
+	CHECK(le16(fake.notified + 2) == BT_OTA_OFFER_SECONDS);
+	CHECK(le32(fake.notified + 6) == 700000);
+	CHECK(fake.notified[11] == RUNNING_MINOR + 1);
+
+	/* The countdown alone: told every 10 s, and read whenever the phone likes. */
+	for (int second = 0; second < 5; second++) {
+		fake.uptime_ms += 1000;
+		bt_ota_on_tick();
+	}
+	CHECK(fake.notifies == 3);
+	read_as_a_phone(got);
+	CHECK(le16(got + 2) == BT_OTA_OFFER_SECONDS - 5);
+	for (int second = 0; second < 5; second++) {
+		fake.uptime_ms += 1000;
+		bt_ota_on_tick();
+	}
+	CHECK(fake.notifies == 4);
+	CHECK(le16(fake.notified + 2) == BT_OTA_OFFER_SECONDS - 10);
+}
+
+static void test_button_2_is_told_to_the_phone_before_its_link_goes(void)
+{
+	fresh_board();
+	image_on_offer();
+	fake.subscribed = true;
+	fake.ops[0] = '\0';
+
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	CHECK(strstr(fake.ops, "erase notify disconnect") != NULL);
+	CHECK(fake.notified[1] == BT_STATUS_WINDOW_CLOSED);
+	CHECK(fake.notified[18] == BT_STATUS_RESULT_DISCARDED);
+	CHECK(fake.notified[19] == BT_OTA_CLOSED_BY_BUTTON + 1);
+	CHECK(fake.notified[4] == BT_STATUS_IMAGE_VERIFIED);
+	CHECK(strstr(fake.console, "closed: by Button 2") != NULL);
+
+	/* A link that took it but has not sent it yet holds the main loop up for half a second at most. */
+	fresh_board();
+	image_on_offer();
+	fake.subscribed = true;
+	fake.notify_never_sent = true;
+	fake.ops[0] = '\0';
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	CHECK(strstr(fake.ops, "notify waited disconnect") != NULL);
+	CHECK(fake.sent_waits == 1);
+}
+
+static void test_an_offer_nobody_takes_is_told_as_timed_out(void)
+{
+	fresh_board();
+	image_on_offer();
+	fake.subscribed = true;
+
+	for (int second = 0; second <= BT_OTA_OFFER_SECONDS; second++) {
+		fake.uptime_ms += 1000;
+		bt_ota_on_tick();
+	}
+
+	CHECK(window.phase == BT_OTA_CLOSED);
+	CHECK(fake.notified[18] == BT_STATUS_RESULT_TIMED_OUT);
+	CHECK(fake.notified[19] == BT_OTA_CLOSED_OFFER_EXPIRED + 1);
+	CHECK(fake.disconnects >= 1);
+
+	/* A window that runs out with no image says so too. */
+	fresh_board();
+	open_by_hand();
+	for (int second = 0; second <= CONFIG_APP_BT_OTA_WINDOW_SECONDS; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(window.phase == BT_OTA_CLOSED);
+	CHECK(status_payload[18] == BT_STATUS_RESULT_TIMED_OUT);
+	CHECK(status_payload[19] == BT_OTA_CLOSED_TIME_UP + 1);
+	CHECK(status_payload[4] == BT_STATUS_IMAGE_NONE);
+}
+
+static void test_button_1_is_told_to_the_phone_and_then_the_board_restarts(void)
+{
+	fresh_board();
+	image_on_offer();
+	fake.subscribed = true;
+	fake.ops[0] = '\0';
+
+	CHECK(bt_ota_on_button(APP_BUTTON_1, false, true));
+
+	/* The record and the swap, the phone, and only then the restart, which waits for the cloud. */
+	CHECK(strcmp(fake.ops, "store_write request_swap notify restart ") == 0);
+	CHECK(fake.notified[18] == BT_STATUS_RESULT_INSTALLING);
+	CHECK(fake.notified[1] == BT_STATUS_WINDOW_OFFER);
+	CHECK(fake.notified[29] == BT_STATUS_VIA_BLUETOOTH);
+	CHECK(fake.notified[30] == BT_STATUS_OUTCOME_PENDING);
+	CHECK(fake.notified[33] == RUNNING_MINOR + 1);
+	CHECK(le16(fake.notified + 56) == 1);
+	CHECK(fake.notified[48] == 0x5a);
+	/* Nothing more gets in. */
+	CHECK(atomic_get(&gate) == 0);
+	CHECK(read_list() != 0);
+	CHECK(strstr(fake.console, "restarting into the bootloader") != NULL);
+}
+
+static void test_a_refused_image_says_why(void)
+{
+	uint8_t got[BT_STATUS_LEN];
+
+	/* Not newer: refused at the first piece, and another may follow in the same window. */
+	fresh_board();
+	open_by_hand();
+	phone_pairs();
+	bt_ota_on_tick();
+	CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR, 700000, 0) != 0);
+	bt_ota_on_tick();
+	read_as_a_phone(got);
+	CHECK(got[4] == BT_STATUS_IMAGE_REFUSED);
+	CHECK(got[5] == BT_STATUS_REFUSAL_OLDER);
+	CHECK(got[11] == RUNNING_MINOR);
+	CHECK(got[18] == BT_STATUS_RESULT_NONE);
+	CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR + 1, 700000, 0) == 0);
+	bt_ota_on_tick();
+	read_as_a_phone(got);
+	CHECK(got[4] == BT_STATUS_IMAGE_RECEIVING);
+	CHECK(got[5] == BT_STATUS_REFUSAL_NONE);
+
+	/* For another board, as it was found in the slot before the offer: the window closes. */
+	fresh_board();
+	fake.compat = IMAGE_COMPAT_OTHER_BOARD;
+	strcpy(fake.compat_found.board, "nrf5340dk");
+	open_by_hand();
+	phone_pairs();
+	bt_ota_on_tick();
+	CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR + 1, 700000, 0) == 0);
+	upload_finishes();
+	bt_ota_on_tick();
+	CHECK(window.phase == BT_OTA_CLOSED);
+	CHECK(status_payload[4] == BT_STATUS_IMAGE_REFUSED);
+	CHECK(status_payload[5] == BT_STATUS_REFUSAL_INCOMPATIBLE_BOARD);
+	CHECK(status_payload[18] == BT_STATUS_RESULT_CLOSED);
+	CHECK(status_payload[29] == BT_STATUS_VIA_BLUETOOTH);
+	CHECK(status_payload[30] == BT_STATUS_OUTCOME_INCOMPATIBLE_BOARD);
+
+	/* A swap that something else asked for. */
+	fresh_board();
+	open_by_hand();
+	phone_pairs();
+	bt_ota_on_tick();
+	CHECK(first_piece(RUNNING_MAJOR, RUNNING_MINOR + 1, 700000, 0) == 0);
+	upload_finishes();
+	fake.swap_type = BOOT_SWAP_TYPE_TEST;
+	bt_ota_on_tick();
+	CHECK(status_payload[4] == BT_STATUS_IMAGE_REFUSED);
+	CHECK(status_payload[5] == BT_STATUS_REFUSAL_SWAP_PENDING);
+	CHECK(status_payload[28] == (BT_STATUS_SWAP_TEST << 1));
+}
+
+static void test_a_notification_waits_for_a_link_that_can_take_it(void)
+{
+	fresh_board();
+	open_by_hand();
+	phone_pairs();
+	bt_ota_on_tick();
+
+	/* Not asked for. */
+	fake.subscribed = false;
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	CHECK(fake.notifies == 0);
+
+	/* Asked for, on a link of the default MTU: the phone reads it instead. */
+	fresh_board();
+	open_by_hand();
+	phone_pairs();
+	fake.subscribed = true;
+	fake.mtu = 23;
+	on_status_subscribed(STATUS_VALUE, BT_GATT_CCC_NOTIFY);
+	run_what_was_posted();
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 0);
+
+	/* Out of buffers: the next tick tries again. */
+	fake.mtu = 247;
+	fake.notify_result = -ENOMEM;
+	on_status_subscribed(STATUS_VALUE, BT_GATT_CCC_NOTIFY);
+	run_what_was_posted();
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 1);
+	fake.notify_result = 0;
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 2);
+	bt_ota_on_tick();
+	CHECK(fake.notifies == 2);
+}
+
+/* The first boot of an image that came over Bluetooth, on trial. */
+static void restarted_on_trial(void)
+{
+	fresh_board();
+	stored_record(BT_OTA_RECORD_ARMED, RUNNING_MINOR);
+	memset(fake.stored_record.hash, 0x5a, sizeof(fake.stored_record.hash));
+	bt_ota_on_boot(true, true, false);
+	fake.ota = OTA_TESTING;
+	fake.swap_type = BOOT_SWAP_TYPE_REVERT;
+	fake.console[0] = '\0';
+}
+
+static void test_after_the_restart_the_status_is_advertised_for_two_minutes(void)
+{
+	uint8_t got[BT_STATUS_LEN];
+
+	restarted_on_trial();
+	CHECK(status_due);
+	CHECK(fake.enables == 0);
+
+	/* Not before the cloud, or half a minute. */
+	fake.uptime_ms = 12000;
+	bt_ota_on_tick();
+	CHECK(fake.enables == 0);
+	fake.cloud_up = true;
+	bt_ota_on_tick();
+	CHECK(fake.enables == 1);
+	fake.cloud_up = false;
+	fake.uptime_ms = 100000;
+	CHECK(atomic_get(&gate) == GATE_STATUS);
+	CHECK(strstr(fake.console, "status advertised for 120 s") != NULL);
+	CHECK(fake.adv_starts == 0);
+
+	on_bt_ready(0);
+	bt_ota_on_tick();
+	CHECK(fake.advertising);
+	CHECK(memcmp(fake.adv_uuid, status_uuid, 16) == 0);
+	CHECK(strstr(fake.console, "advertising as Cranium-ABAB") != NULL);
+
+	/* A phone connects and reads, with no pairing asked for. */
+	phone_connects();
+	run_what_was_posted();
+	CHECK(fake.security_requests == 0);
+	CHECK(atomic_get(&status_link) == 1);
+	CHECK(strstr(fake.console, "a phone connected to read the status") != NULL);
+	read_as_a_phone(got);
+	CHECK(got[1] == BT_STATUS_WINDOW_STATUS);
+	CHECK(le16(got + 2) == BT_OTA_STATUS_SECONDS - 2);
+	CHECK(got[21] == RUNNING_MINOR);
+	CHECK(got[28] == (1 | (BT_STATUS_SWAP_REVERT << 1)));
+	CHECK(got[29] == BT_STATUS_VIA_BLUETOOTH);
+	CHECK(got[30] == BT_STATUS_OUTCOME_PENDING);
+	CHECK(got[33] == RUNNING_MINOR);
+	CHECK(got[41] == RUNNING_MINOR);
+	CHECK(got[48] == 0x5a);
+	CHECK(le16(got + 56) == 1);
+
+	/* Everything else stays shut: no pairing, no SMP. */
+	CHECK(fake.auth->pairing_accept(&phone, NULL) == BT_SECURITY_ERR_PAIR_NOT_ALLOWED);
+	CHECK(read_list() != 0);
+	CHECK(command(MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_UPLOAD, MGMT_OP_WRITE) != 0);
+	connection_callbacks.security_changed(&phone, BT_SECURITY_L4, BT_SECURITY_ERR_SUCCESS);
+	CHECK(atomic_get(&secure) == 0);
+
+	/* It reaches the cloud: kept, and the phone hears it. */
+	fake.subscribed = true;
+	on_status_subscribed(STATUS_VALUE, BT_GATT_CCC_NOTIFY);
+	phone_connects();
+	fake.ota = OTA_IDLE;
+	fake.swap_type = BOOT_SWAP_TYPE_NONE;
+	bt_ota_on_cloud_proof();
+	bt_ota_on_tick();
+	CHECK(fake.notified[30] == BT_STATUS_OUTCOME_KEPT);
+	CHECK(fake.notified[31] == BT_STATUS_PROOF_CLOUD);
+	CHECK(fake.notified[28] == 0);
+
+	/* The two minutes, then a moment for the end of the trial to get there, then the link goes. */
+	for (int second = 0; second < BT_OTA_STATUS_SECONDS; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(status_window.open);
+	for (int second = 0; second <= BT_OTA_STATUS_LINGER_SECONDS; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(!status_window.open);
+	CHECK(atomic_get(&gate) == 0);
+	CHECK(fake.disconnects >= 1);
+	CHECK(fake.notified[1] == BT_STATUS_WINDOW_CLOSED);
+	CHECK(!fake.advertising);
+}
+
+static void test_a_status_link_stays_for_the_trial_and_no_longer_than_the_limit(void)
+{
+	restarted_on_trial();
+	bt_ota_on_tick();
+	on_bt_ready(0);
+	phone_connects();
+
+	for (int second = 0; second < BT_OTA_STATUS_LIMIT_SECONDS - 2; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(status_window.open);
+	CHECK(fake.disconnects == 0);
+
+	bt_ota_on_tick();
+	CHECK(!status_window.open);
+	CHECK(fake.disconnects == 1);
+
+	/* With no phone, it ends with the advertising. */
+	restarted_on_trial();
+	bt_ota_on_tick();
+	on_bt_ready(0);
+	for (int second = 0; second <= BT_OTA_STATUS_SECONDS; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(!status_window.open);
+	CHECK(!fake.advertising);
+	CHECK(fake.disconnects == 0);
+}
+
+static void test_the_boot_that_went_back_advertises_its_status_too(void)
+{
+	uint8_t got[BT_STATUS_LEN];
+
+	fresh_board();
+	stored_record(BT_OTA_RECORD_TESTING, RUNNING_MINOR + 1);
+	bt_ota_on_boot(false, true, false);
+	CHECK(status_due);
+	bt_ota_on_tick();
+	read_as_a_phone(got);
+	CHECK(got[1] == BT_STATUS_WINDOW_STATUS);
+	CHECK(got[30] == BT_STATUS_OUTCOME_ROLLED_BACK);
+	CHECK(got[33] == RUNNING_MINOR + 1);
+	CHECK(got[21] == RUNNING_MINOR);
+	CHECK((got[28] & 1) == 0);
+
+	/* And so does one that the bootloader did not install. */
+	fresh_board();
+	stored_record(BT_OTA_RECORD_ARMED, RUNNING_MINOR + 1);
+	bt_ota_on_boot(false, true, false);
+	CHECK(status_due);
+}
+
+static void test_a_normal_boot_does_not_advertise(void)
+{
+	/* No record. */
+	fresh_board();
+	bt_ota_on_boot(false, true, false);
+	bt_ota_on_tick();
+	CHECK(fake.enables == 0);
+
+	/* A record of an update that is over. */
+	fresh_board();
+	stored_record(BT_OTA_RECORD_DONE, RUNNING_MINOR);
+	fake.stored_record.result = BT_OTA_RESULT_SUCCEEDED;
+	bt_ota_on_boot(false, true, false);
+	bt_ota_on_tick();
+	CHECK(fake.enables == 0);
+
+	/* A cloud job came after it: the cloud tells that one. */
+	fresh_board();
+	stored_record(BT_OTA_RECORD_ARMED, RUNNING_MINOR);
+	bt_ota_on_boot(true, true, true);
+	bt_ota_on_tick();
+	CHECK(fake.enables == 0);
+}
+
+static void test_a_window_opened_first_takes_the_place_of_the_status(void)
+{
+	restarted_on_trial();
+	fake.uptime_ms = 10000;
+	hold_button_1();
+	CHECK(window.proof_only);
+	CHECK(!status_due);
+	fake.uptime_ms = 100000;
+	bt_ota_on_tick();
+	CHECK(!status_window.open);
+	CHECK((atomic_get(&gate) & GATE_STATUS) == 0);
+}
+
+static void test_a_status_phone_gives_way_to_a_window_and_cannot_pair_in_it(void)
+{
+	restarted_on_trial();
+	bt_ota_on_tick();
+	on_bt_ready(0);
+	phone_connects();
+	run_what_was_posted();
+
+	/* Button 1 held on a Bluetooth trial: a window for a proof, which the status phone does not block. */
+	hold_button_1();
+	CHECK(window.phase == BT_OTA_OPEN);
+	CHECK(window.proof_only);
+	CHECK(fake.disconnects == 1);
+	CHECK((atomic_get(&gate) & GATE_STATUS) == 0);
+	CHECK(fake.auth->pairing_accept(&phone, NULL) == BT_SECURITY_ERR_PAIR_NOT_ALLOWED);
+	connection_callbacks.security_changed(&phone, BT_SECURITY_L4, BT_SECURITY_ERR_SUCCESS);
+	CHECK(atomic_get(&secure) == 0);
+
+	/* Once it has gone, a phone that pairs gets the window as before. */
+	phone_leaves();
+	bt_ota_on_tick();
+	phone_pairs();
+	CHECK(fake.security_requests == 1);
+	CHECK(atomic_get(&secure) == 1);
+	bt_ota_on_tick();
+	CHECK(window.phase == BT_OTA_LINKED);
+	CHECK(status_payload[1] == BT_STATUS_WINDOW_LINKED);
+	CHECK(status_payload[30] == BT_STATUS_OUTCOME_PENDING);
+}
+
+static void test_a_cloud_update_this_boot_is_the_last_update(void)
+{
+	fresh_board();
+	stored_record(BT_OTA_RECORD_DONE, RUNNING_MINOR);
+	fake.stored_record.result = BT_OTA_RESULT_SUPERSEDED;
+	bt_ota_on_boot(false, true, false);
+	fake.cloud_outcome = BT_STATUS_OUTCOME_KEPT;
+	fake.cloud_target = (struct fw_version){ RUNNING_MAJOR, RUNNING_MINOR, 0, 0 };
+	open_by_hand();
+	CHECK(status_payload[29] == BT_STATUS_VIA_WIFI);
+	CHECK(status_payload[30] == BT_STATUS_OUTCOME_KEPT);
+	CHECK(status_payload[33] == RUNNING_MINOR);
+	CHECK(le16(status_payload + 56) == 0);
+
+	/* Without one, the record of the last over Bluetooth. */
+	fake.cloud_outcome = BT_STATUS_OUTCOME_NONE;
+	bt_ota_on_tick();
+	CHECK(status_payload[29] == BT_STATUS_VIA_BLUETOOTH);
+	CHECK(status_payload[30] == BT_STATUS_OUTCOME_SUPERSEDED);
+}
+
 static void test_what_led1_shows(void)
 {
 	fresh_board();
@@ -2354,6 +2987,21 @@ int main(void)
 
 	test_the_record_goes_to_the_shadow_when_the_cloud_is_there();
 	test_no_record_no_report();
+
+	test_the_status_service_is_readable_without_pairing_and_writes_nothing();
+	test_the_status_follows_the_window();
+	test_button_2_is_told_to_the_phone_before_its_link_goes();
+	test_an_offer_nobody_takes_is_told_as_timed_out();
+	test_button_1_is_told_to_the_phone_and_then_the_board_restarts();
+	test_a_refused_image_says_why();
+	test_a_notification_waits_for_a_link_that_can_take_it();
+	test_after_the_restart_the_status_is_advertised_for_two_minutes();
+	test_a_status_link_stays_for_the_trial_and_no_longer_than_the_limit();
+	test_the_boot_that_went_back_advertises_its_status_too();
+	test_a_normal_boot_does_not_advertise();
+	test_a_window_opened_first_takes_the_place_of_the_status();
+	test_a_status_phone_gives_way_to_a_window_and_cannot_pair_in_it();
+	test_a_cloud_update_this_boot_is_the_last_update();
 
 	test_what_led1_shows();
 

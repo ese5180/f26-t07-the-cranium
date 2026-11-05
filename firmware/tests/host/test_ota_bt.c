@@ -449,6 +449,44 @@ static void test_it_says_when_a_cloud_job_is_behind_this(void)
 	CHECK(!ota_bt_has_job());
 }
 
+/* From 1.14.0, for the Bluetooth status: the cloud update this boot knows of, and how it stands. */
+static void test_it_tells_bt_ota_of_the_last_cloud_update(void)
+{
+	struct fw_version target = { 0 };
+
+	/* None. */
+	fresh_fake();
+	restart();
+	CHECK(ota_bt_cloud_update(&target) == BT_STATUS_OUTCOME_NONE);
+
+	/* On trial, and then kept when it reaches the cloud. */
+	fresh_fake();
+	with_job_record();
+	fake.swap_type = BOOT_SWAP_TYPE_REVERT;
+	restart();
+	CHECK(ota_bt_cloud_update(&target) == BT_STATUS_OUTCOME_PENDING);
+	CHECK(fw_version_compare(&target, fw_version_running()) == 0);
+	ota_on_cloud_up();
+	CHECK(ota_bt_cloud_update(&target) == BT_STATUS_OUTCOME_KEPT);
+	CHECK(fw_version_compare(&target, fw_version_running()) == 0);
+
+	/* Gone back: the version it was for. */
+	fresh_fake();
+	with_job_record();
+	fake.stored.phase = RECORD_TESTING;
+	fake.stored.target = (struct fw_version){ .major = 9 };
+	restart();
+	CHECK(ota_bt_cloud_update(&target) == BT_STATUS_OUTCOME_ROLLED_BACK);
+	CHECK(target.major == 9);
+
+	/* Never installed. */
+	fresh_fake();
+	with_job_record();
+	fake.stored.target = (struct fw_version){ .major = 9 };
+	restart();
+	CHECK(ota_bt_cloud_update(&target) == BT_STATUS_OUTCOME_NOT_INSTALLED);
+}
+
 /* ---- a person's confirmation ---------------------------------------------------------------- */
 
 static void test_a_person_can_confirm_what_is_on_trial(void)
@@ -1471,6 +1509,7 @@ int main(void)
 #else
 	test_it_says_what_the_bootloader_did();
 	test_it_says_when_a_cloud_job_is_behind_this();
+	test_it_tells_bt_ota_of_the_last_cloud_update();
 	test_a_person_can_confirm_what_is_on_trial();
 	test_a_person_cannot_confirm_anything_else();
 	test_a_confirmation_that_fails_stays_on_trial();

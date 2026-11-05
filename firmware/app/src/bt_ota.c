@@ -25,6 +25,7 @@
 #include <zephyr/sys/reboot.h>
 
 #include "app_events.h"
+#include "bt_status.h"
 #include "cloud.h"
 #include "console.h"
 #include "device.h"
@@ -100,6 +101,11 @@ BUILD_ASSERT(BT_OTA_IMAGE_HEADER_LEN == IMAGE_HEADER_SIZE);
 #define KEY_SIZE_REQUIRED 16
 #define ADV_NAME_SIZE     (sizeof(CONFIG_BT_DEVICE_NAME) + 5)
 
+/* The status goes to a phone again after this long, if nothing but its counts has changed. */
+#define STATUS_REFRESH_MS 10000
+/* How long the main loop waits for a status to go out before it closes the link or restarts. */
+#define STATUS_SENT_MS    500
+
 /*
  * P1.10 picks the antenna of the network core's radio: low for its own, high for the one it
  * would share with Wi-Fi. It starts undriven, so it is driven low before anything is sent.
@@ -122,9 +128,40 @@ static char name[ADV_NAME_SIZE];
 /* A passkey went into the device shadow, and has not been taken out again. */
 static bool pairing_reported;
 
-/* Set by the main loop, read by the threads that serve a phone. */
+/*
+ * What the status characteristic says of this window (bt_status.h), as the main loop has seen it.
+ * A new window starts with none of it.
+ */
+static struct {
+	enum bt_status_image image;
+	enum bt_status_refusal refusal;
+	uint32_t bytes;
+	struct fw_version version;
+	enum bt_status_result result;
+	uint8_t closed;
+} track;
+
+/* After the restart that an update over Bluetooth asked for: see bt_ota_status_due(). */
+static struct bt_ota_status_window status_window;
+static bool status_due;
+
+/*
+ * The status as a phone reads it, which the Bluetooth host's thread copies under the lock, and as it
+ * was last told to a phone that asked for notifications.
+ */
+static struct k_spinlock status_lock;
+static uint8_t status_payload[BT_STATUS_LEN];
+static uint8_t status_told[BT_STATUS_LEN];
+static int64_t status_told_at;
+static K_SEM_DEFINE(status_sent, 0, 1);
+
+/*
+ * Set by the main loop, read by the threads that serve a phone. GATE_STATUS: a phone may connect
+ * to read the status, and do nothing else: no pairing, so no SMP.
+ */
 #define GATE_OPEN    BIT(0)
 #define GATE_UPLOADS BIT(1)
+#define GATE_STATUS  BIT(2)
 static atomic_t gate;
 
 /* Set by those threads, and read by the main loop once a second. */
@@ -136,6 +173,19 @@ static atomic_t failed_pairings;
 static atomic_t commands;
 static atomic_t list_reads;
 static atomic_t upload_done;
+/* The link that is up was made for the status alone: it can never pair. */
+static atomic_t status_link;
+
+/*
+ * What the upload under way has done, for the status: the image state and the refusal
+ * (state | refusal << 8), the bytes so far and in all, and the version from its header
+ * (major | minor << 8 | revision << 16, and the build number).
+ */
+static atomic_t upload_state;
+static atomic_t upload_bytes;
+static atomic_t upload_total;
+static atomic_t upload_version;
+static atomic_t upload_build;
 
 /*
  * What a phone did, for the main loop to say. A line takes more stack than the Bluetooth threads
@@ -150,6 +200,9 @@ static atomic_t upload_done;
 #define SAY_PARAMS    BIT(6)
 #define SAY_PHY       BIT(7)
 #define SAY_DATA_LEN  BIT(8)
+#define SAY_STATUS    BIT(9)
+/* A phone asked for notifications of the status: it gets the status at once. */
+#define SAY_SUBSCRIBED BIT(10)
 static atomic_t to_say;
 /* The passkey plus one, because 0 is a passkey too. */
 static atomic_t passkey_to_say;
@@ -226,6 +279,30 @@ static enum mgmt_cb_return on_command(uint32_t event, enum mgmt_cb_return prev_s
 	return MGMT_CB_OK;
 }
 
+static void upload_refused(enum bt_status_refusal refusal)
+{
+	(void)atomic_set(&upload_state,
+			 (atomic_val_t)(BT_STATUS_IMAGE_REFUSED | ((uint32_t)refusal << 8)));
+}
+
+/* The version in an image header, for the status, from a first piece that has one. */
+static void upload_header_seen(const uint8_t *data, size_t len, uint64_t total)
+{
+	uint16_t revision;
+	uint32_t build;
+
+	(void)atomic_set(&upload_total, (atomic_val_t)total);
+	if (data == NULL || len < BT_OTA_IMAGE_HEADER_LEN) {
+		return;
+	}
+
+	memcpy(&revision, data + 22, sizeof(revision));
+	memcpy(&build, data + 24, sizeof(build));
+	(void)atomic_set(&upload_version,
+			 (atomic_val_t)(data[20] | ((uint32_t)data[21] << 8) | ((uint32_t)revision << 16)));
+	(void)atomic_set(&upload_build, (atomic_val_t)build);
+}
+
 /* The bytes of this piece that are of the protected area, and the verdict once it is all there. */
 static bool upload_compat_ok(uint64_t off, const uint8_t *data, size_t len)
 {
@@ -263,13 +340,16 @@ static bool upload_compat_ok(uint64_t off, const uint8_t *data, size_t len)
 	case IMAGE_COMPAT_OTHER_BOARD:
 		console_event("BT", "refused an upload: it is for %s, and this board is %s", found.board,
 			      CONFIG_APP_BOARD_TYPE);
+		upload_refused(BT_STATUS_REFUSAL_INCOMPATIBLE_BOARD);
 		break;
 	case IMAGE_COMPAT_OTHER_LAYOUT:
 		console_event("BT", "refused an upload: it is for flash layout %u, and this board has %u",
 			      (unsigned int)found.layout, (unsigned int)CONFIG_APP_IMAGE_LAYOUT);
+		upload_refused(BT_STATUS_REFUSAL_INCOMPATIBLE_LAYOUT);
 		break;
 	default:
 		console_event("BT", "refused an upload: its signed metadata is malformed");
+		upload_refused(BT_STATUS_REFUSAL_MALFORMED);
 		break;
 	}
 	return false;
@@ -314,8 +394,13 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 			verdict = BT_OTA_UPLOAD_NO_HEADER;
 		}
 
+		upload_header_seen(check->req->img_data.value, check->req->img_data.len,
+				   check->action->size);
+		(void)atomic_set(&upload_bytes, 0);
+
 		if (verdict != BT_OTA_UPLOAD_OK) {
 			console_event("BT", "refused an upload: %s", bt_ota_upload_text(verdict));
+			upload_refused(bt_ota_status_refusal(verdict));
 			*rc = MGMT_ERR_EBADSTATE;
 			return MGMT_CB_ERROR_RC;
 		}
@@ -323,6 +408,7 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 		upload_compat.protected_at = (uint64_t)header.header_size + header.image_size;
 		upload_compat.judged = false;
 		image_compat_begin(&upload_compat.reader, header.protected_size);
+		(void)atomic_set(&upload_state, BT_STATUS_IMAGE_RECEIVING);
 		console_event("BT", "upload started, %u bytes", (unsigned int)check->action->size);
 	}
 
@@ -332,6 +418,7 @@ static enum mgmt_cb_return on_upload(uint32_t event, enum mgmt_cb_return prev_st
 		return MGMT_CB_ERROR_RC;
 	}
 
+	(void)atomic_set(&upload_bytes, (atomic_val_t)(check->req->off + check->req->img_data.len));
 	return MGMT_CB_OK;
 }
 
@@ -357,16 +444,28 @@ SYS_INIT(register_hooks, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
 
 static void on_connected(struct bt_conn *conn, uint8_t err)
 {
+	atomic_val_t now = atomic_get(&gate);
+
 	if (err != 0) {
 		return;
 	}
 
-	if ((atomic_get(&gate) & GATE_OPEN) == 0) {
+	/* After a restart: the status, and nothing else. No security is asked for, and none given. */
+	if ((now & GATE_OPEN) == 0 && (now & GATE_STATUS) != 0) {
+		(void)atomic_set(&secure, 0);
+		(void)atomic_set(&status_link, 1);
+		(void)atomic_set(&connected, 1);
+		tell_main_loop(SAY_STATUS);
+		return;
+	}
+
+	if ((now & GATE_OPEN) == 0) {
 		(void)bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 		return;
 	}
 
 	(void)atomic_set(&secure, 0);
+	(void)atomic_set(&status_link, 0);
 	(void)atomic_set(&connected, 1);
 	tell_main_loop(SAY_CONNECTED);
 
@@ -382,6 +481,7 @@ static void on_disconnected(struct bt_conn *conn, uint8_t reason)
 
 	(void)atomic_set(&secure, 0);
 	(void)atomic_set(&connected, 0);
+	(void)atomic_set(&status_link, 0);
 	/* A proof takes one link from start to finish. */
 	(void)atomic_set(&list_reads, 0);
 	(void)atomic_set(&gone_reason, reason);
@@ -393,7 +493,8 @@ static void on_security_changed(struct bt_conn *conn, bt_security_t level, enum 
 	struct bt_conn_info info;
 
 	if (err == BT_SECURITY_ERR_SUCCESS && level >= BT_SECURITY_L4 &&
-	    (atomic_get(&gate) & GATE_OPEN) != 0 && bt_conn_get_info(conn, &info) == 0 &&
+	    (atomic_get(&gate) & GATE_OPEN) != 0 && atomic_get(&status_link) == 0 &&
+	    bt_conn_get_info(conn, &info) == 0 &&
 	    (info.security.flags & BT_SECURITY_FLAG_SC) != 0 &&
 	    info.security.enc_key_size == KEY_SIZE_REQUIRED) {
 		(void)atomic_set(&secure, 1);
@@ -450,8 +551,10 @@ static enum bt_security_err on_pairing_accept(struct bt_conn *conn,
 	ARG_UNUSED(conn);
 	ARG_UNUSED(feat);
 
-	return (atomic_get(&gate) & GATE_OPEN) != 0 ? BT_SECURITY_ERR_SUCCESS
-						    : BT_SECURITY_ERR_PAIR_NOT_ALLOWED;
+	/* A link made for the status alone never pairs, also in a window that opened meanwhile. */
+	return (atomic_get(&gate) & GATE_OPEN) != 0 && atomic_get(&status_link) == 0
+		       ? BT_SECURITY_ERR_SUCCESS
+		       : BT_SECURITY_ERR_PAIR_NOT_ALLOWED;
 }
 
 /* A new one for every attempt: the Bluetooth host draws it, and it is never fixed. */
@@ -493,6 +596,51 @@ static struct bt_conn_auth_info_cb auth_info_callbacks = {
 static void on_bt_ready(int err)
 {
 	(void)atomic_set(err != 0 ? &start_failed : &ready, 1);
+}
+
+/* ---- the status characteristic ---------------------------------------------------------- */
+
+/* On the Bluetooth host's thread. Any phone that is connected may read it: nothing in it is secret. */
+static ssize_t read_status(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
+			   uint16_t len, uint16_t offset)
+{
+	uint8_t copy[BT_STATUS_LEN];
+	k_spinlock_key_t key = k_spin_lock(&status_lock);
+
+	memcpy(copy, status_payload, sizeof(copy));
+	k_spin_unlock(&status_lock, key);
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, copy, sizeof(copy));
+}
+
+static void on_status_subscribed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+	ARG_UNUSED(attr);
+
+	if (value == BT_GATT_CCC_NOTIFY) {
+		tell_main_loop(SAY_SUBSCRIBED);
+	}
+}
+
+/*
+ * A service of its own: the SMP service is MCUmgr's, and its one characteristic needs an
+ * authenticated link. Reading this one, and asking for its notifications, needs none.
+ */
+BT_GATT_SERVICE_DEFINE(status_service,
+	BT_GATT_PRIMARY_SERVICE(BT_UUID_DECLARE_128(BT_STATUS_SERVICE_UUID_VAL)),
+	BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(BT_STATUS_CHAR_UUID_VAL),
+			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY, BT_GATT_PERM_READ, read_status,
+			       NULL, NULL),
+	BT_GATT_CCC(on_status_subscribed, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+);
+
+#define STATUS_VALUE (&status_service.attrs[2])
+
+static void on_status_sent(struct bt_conn *conn, void *user_data)
+{
+	ARG_UNUSED(conn);
+	ARG_UNUSED(user_data);
+
+	k_sem_give(&status_sent);
 }
 
 /* ---- the main loop's side ---------------------------------------------------------- */
@@ -568,6 +716,9 @@ static const char *gone_reason_text(uint8_t reason)
 	}
 }
 
+/* A phone asked for the status's notifications since the last one went out. */
+static bool status_subscriber_new;
+
 static void say_what_happened(void)
 {
 	atomic_val_t what = atomic_set(&to_say, 0);
@@ -575,6 +726,14 @@ static void say_what_happened(void)
 
 	if (what & SAY_CONNECTED) {
 		console_event("BT", "a phone connected");
+	}
+
+	if (what & SAY_STATUS) {
+		console_event("BT", "a phone connected to read the status, with no pairing");
+	}
+
+	if (what & SAY_SUBSCRIBED) {
+		status_subscriber_new = true;
 	}
 
 	if (passkey != 0) {
@@ -664,14 +823,28 @@ static void finish_record(enum bt_ota_result result, enum bt_ota_proof_by proof)
 	say_record("update over Bluetooth");
 }
 
+static void decide_on_boot(bool on_trial, bool has_trailer, bool job_record);
+
 void bt_ota_on_boot(bool on_trial, bool has_trailer, bool job_record)
 {
+	uint8_t phase_found;
+
 	if (store_read(STORE_BT_OTA_RECORD, &record, sizeof(record)) != 0 ||
 	    record.magic != BT_OTA_RECORD_MAGIC) {
 		memset(&record, 0, sizeof(record));
 		return;
 	}
 
+	phase_found = record.phase;
+	decide_on_boot(on_trial, has_trailer, job_record);
+
+	/* Bluetooth starts on a tick, once Wi-Fi and TLS have what they need: see bt_ota_on_tick(). */
+	status_due = bt_ota_status_due(phase_found, record.result);
+}
+
+/* What became of the update that the record was about, if it was still under way. */
+static void decide_on_boot(bool on_trial, bool has_trailer, bool job_record)
+{
 	have_record = true;
 	report_waiting = true;
 
@@ -755,6 +928,223 @@ static void reset_link_state(void)
 	(void)atomic_set(&commands, 0);
 	(void)atomic_set(&list_reads, 0);
 	(void)atomic_set(&upload_done, 0);
+	(void)atomic_set(&upload_state, 0);
+	(void)atomic_set(&upload_bytes, 0);
+	(void)atomic_set(&upload_total, 0);
+	(void)atomic_set(&upload_version, 0);
+	(void)atomic_set(&upload_build, 0);
+}
+
+/* ---- the status, on the main loop -------------------------------------------------------- */
+
+static enum bt_status_swap swap_now(void)
+{
+	switch (mcuboot_swap_type_multi(0)) {
+	case BOOT_SWAP_TYPE_TEST:
+		return BT_STATUS_SWAP_TEST;
+	case BOOT_SWAP_TYPE_PERM:
+		return BT_STATUS_SWAP_PERMANENT;
+	case BOOT_SWAP_TYPE_REVERT:
+		return BT_STATUS_SWAP_REVERT;
+	case BOOT_SWAP_TYPE_FAIL:
+		return BT_STATUS_SWAP_FAIL;
+	default:
+		return BT_STATUS_SWAP_NONE;
+	}
+}
+
+/* What the threads that serve a phone have seen of the upload, while there can be one. */
+static void take_upload(void)
+{
+	atomic_val_t state = atomic_get(&upload_state);
+	uint32_t version = (uint32_t)atomic_get(&upload_version);
+
+	if (state == 0) {
+		return;
+	}
+
+	track.image = (enum bt_status_image)(state & 0xff);
+	track.refusal = (enum bt_status_refusal)((uint32_t)state >> 8);
+	if (track.image == BT_STATUS_IMAGE_RECEIVING && atomic_get(&upload_done) != 0) {
+		track.image = BT_STATUS_IMAGE_RECEIVED;
+	}
+	track.bytes = (uint32_t)(track.image == BT_STATUS_IMAGE_RECEIVING ? atomic_get(&upload_bytes)
+									    : atomic_get(&upload_total));
+	track.version = (struct fw_version){
+		.major = (uint8_t)version,
+		.minor = (uint8_t)(version >> 8),
+		.revision = (uint16_t)(version >> 16),
+		.build = (uint32_t)atomic_get(&upload_build),
+	};
+}
+
+static void collect_last_update(struct bt_status *status)
+{
+	struct fw_version cloud_target;
+	enum bt_status_outcome cloud = ota_bt_cloud_update(&cloud_target);
+
+	/* A cloud update that this boot knows of came after any update over Bluetooth. */
+	if (cloud != BT_STATUS_OUTCOME_NONE) {
+		status->last_via = BT_STATUS_VIA_WIFI;
+		status->last_outcome = cloud;
+		status->last_target = cloud_target;
+		return;
+	}
+
+	if (!have_record) {
+		return;
+	}
+
+	status->last_via = BT_STATUS_VIA_BLUETOOTH;
+	status->last_outcome = bt_ota_status_outcome((enum bt_ota_result)record.result);
+	status->last_proof = (enum bt_status_proof)record.proof;
+	status->last_target = record.target;
+	status->last_from = record.from;
+	memcpy(status->last_hash, record.hash, sizeof(status->last_hash));
+	status->last_count = (uint16_t)MIN(record.count, UINT16_MAX);
+}
+
+static void collect_status(struct bt_status *status)
+{
+	memset(status, 0, sizeof(*status));
+
+	switch (window.phase) {
+	case BT_OTA_OPEN:
+		status->window = BT_STATUS_WINDOW_OPEN;
+		status->seconds_left = window.window_left;
+		take_upload();
+		break;
+	case BT_OTA_LINKED:
+		status->window = BT_STATUS_WINDOW_LINKED;
+		status->seconds_left = window.window_left;
+		take_upload();
+		break;
+	case BT_OTA_READY:
+		status->window = BT_STATUS_WINDOW_OFFER;
+		status->seconds_left = window.offer_left;
+		break;
+	default:
+		if (status_window.open) {
+			status->window = BT_STATUS_WINDOW_STATUS;
+			status->seconds_left = status_window.left;
+		}
+		break;
+	}
+
+	status->image = track.image;
+	status->refusal = track.refusal;
+	status->image_bytes = track.bytes;
+	status->image_version = track.version;
+	status->result = track.result;
+	status->closed = track.closed;
+	status->running = *fw_version_running();
+	status->on_trial = ota_state() == OTA_TESTING;
+	status->swap = swap_now();
+	collect_last_update(status);
+	status->uptime_seconds = (uint32_t)(k_uptime_get() / MSEC_PER_SEC);
+}
+
+struct status_notification {
+	const uint8_t *payload;
+	int sent;
+	int failed;
+};
+
+/* A phone that asked for it, on a link that can carry all of it. One that cannot reads it instead. */
+static void notify_one(struct bt_conn *conn, void *data)
+{
+	struct status_notification *notification = data;
+	struct bt_gatt_notify_params params = {
+		.attr = STATUS_VALUE,
+		.data = notification->payload,
+		.len = BT_STATUS_LEN,
+		.func = on_status_sent,
+	};
+
+	if (!bt_gatt_is_subscribed(conn, STATUS_VALUE, BT_GATT_CCC_NOTIFY) ||
+	    bt_gatt_get_mtu(conn) < BT_STATUS_LEN + 3) {
+		return;
+	}
+
+	if (bt_gatt_notify_cb(conn, &params) == 0) {
+		notification->sent++;
+	} else {
+		notification->failed++;
+	}
+}
+
+/*
+ * The status as it is now, for the next phone that reads it, and to the phone that asked for
+ * notifications whenever something in it has changed, or every STATUS_REFRESH_MS for what counts
+ * by itself. wait: until it has gone out, for STATUS_SENT_MS at most, before the link closes.
+ */
+static void refresh_status(bool wait)
+{
+	struct status_notification notification = { 0 };
+	uint8_t now[BT_STATUS_LEN];
+	struct bt_status status;
+	k_spinlock_key_t key;
+
+	/* Nothing can read it before Bluetooth has started. */
+	if (!enabled) {
+		return;
+	}
+
+	collect_status(&status);
+	bt_status_encode(&status, now);
+
+	key = k_spin_lock(&status_lock);
+	memcpy(status_payload, now, sizeof(now));
+	k_spin_unlock(&status_lock, key);
+
+	if (!wait && !status_subscriber_new && !bt_status_news(now, status_told) &&
+	    k_uptime_get() - status_told_at < STATUS_REFRESH_MS) {
+		return;
+	}
+
+	(void)k_sem_take(&status_sent, K_NO_WAIT);
+	notification.payload = now;
+	if (atomic_get(&connected) != 0) {
+		bt_conn_foreach(BT_CONN_TYPE_LE, notify_one, &notification);
+	}
+
+	/* Out of buffers for now: the next tick tries again. */
+	if (notification.failed > 0) {
+		return;
+	}
+
+	status_subscriber_new = false;
+	memcpy(status_told, now, sizeof(now));
+	status_told_at = k_uptime_get();
+
+	if (wait && notification.sent > 0) {
+		(void)k_sem_take(&status_sent, K_MSEC(STATUS_SENT_MS));
+	}
+}
+
+static void disconnect_one(struct bt_conn *conn, void *data)
+{
+	ARG_UNUSED(data);
+
+	(void)bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+}
+
+/* Whether the policy closed it or a window is about to open. The gate says that it was open. */
+static void close_status_window(void)
+{
+	if ((atomic_get(&gate) & GATE_STATUS) == 0) {
+		return;
+	}
+
+	status_window.open = false;
+	(void)atomic_and(&gate, ~GATE_STATUS);
+	if (atomic_get(&ready)) {
+		(void)bt_le_adv_stop();
+	}
+	if (atomic_get(&status_link) != 0) {
+		bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
+	}
+	console_event("BT", "status no longer advertised");
 }
 
 static void open_window(bool proof_only)
@@ -764,7 +1154,14 @@ static void open_window(bool proof_only)
 		return;
 	}
 
+	/*
+	 * A phone that came for the status goes, and cannot pair in this window: see status_link. A
+	 * person who opened one before the status was advertised has no need of it any more.
+	 */
+	status_due = false;
+	close_status_window();
 	reset_link_state();
+	memset(&track, 0, sizeof(track));
 	name[0] = '\0';
 	last_proof = BT_OTA_PROVED;
 	bt_ota_window_open(&window, proof_only, CONFIG_APP_BT_OTA_WINDOW_SECONDS);
@@ -778,13 +1175,28 @@ static void open_window(bool proof_only)
 
 	console_event("BT", "open for %d s%s", CONFIG_APP_BT_OTA_WINDOW_SECONDS,
 		      proof_only ? ", to prove the image on trial" : "");
+	refresh_status(false);
 }
 
-static void disconnect_one(struct bt_conn *conn, void *data)
+/*
+ * The restart that an update over Bluetooth asked for is over, one way or the other: the board is
+ * connectable for BT_OTA_STATUS_SECONDS, for the status alone.
+ */
+static void open_status_window(void)
 {
-	ARG_UNUSED(data);
+	if (start_bluetooth() != 0) {
+		return;
+	}
 
-	(void)bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	reset_link_state();
+	memset(&track, 0, sizeof(track));
+	name[0] = '\0';
+	bt_ota_status_open(&status_window);
+	(void)atomic_or(&gate, GATE_STATUS);
+	console_event("BT", "status advertised for %d s after the update over Bluetooth: a phone can "
+			    "read how it went, with no pairing, and do nothing else",
+		      BT_OTA_STATUS_SECONDS);
+	refresh_status(false);
 }
 
 static const struct bt_data advertised[] = {
@@ -792,8 +1204,15 @@ static const struct bt_data advertised[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, SMP_BT_SVC_UUID_VAL),
 };
 
+/* After a restart: the status service, so that the phones' scan for boards to update leaves it out. */
+static const struct bt_data advertised_status[] = {
+	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_STATUS_SERVICE_UUID_VAL),
+};
+
 static void advertise(void)
 {
+	bool status_only = window.phase == BT_OTA_CLOSED;
 	struct bt_data sd[1];
 	uint16_t tag = 0;
 	int err;
@@ -814,7 +1233,8 @@ static void advertise(void)
 	sd[0].data = (const uint8_t *)name;
 
 	/* Already running, or the last link's connection object is not free yet: next tick. */
-	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, advertised, ARRAY_SIZE(advertised), sd,
+	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, status_only ? advertised_status : advertised,
+			      status_only ? ARRAY_SIZE(advertised_status) : ARRAY_SIZE(advertised), sd,
 			      ARRAY_SIZE(sd));
 	if (err != 0 && err != -EALREADY && err != -ENOMEM) {
 		LOG_WRN("Advertising did not start: %d", err);
@@ -838,7 +1258,6 @@ static void close_window(bool discard)
 	if (atomic_get(&ready)) {
 		(void)bt_le_adv_stop();
 	}
-	bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
 
 	/*
 	 * Or a later upload of the same file would carry on where this one stopped. This takes
@@ -854,8 +1273,23 @@ static void close_window(bool discard)
 	}
 
 	console_event("BT", "closed: %s", bt_ota_closed_text(window.closed));
+
+	/* The phone hears how it ended before its link goes. */
+	track.result = bt_ota_status_result(window.closed, discard,
+					    track.image == BT_STATUS_IMAGE_REFUSED);
+	track.closed = (uint8_t)(window.closed + 1);
+	refresh_status(true);
+	bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
+
 	unreport_pairing();
 	ota_bt_leave();
+}
+
+/* What arrived is refused, for the status. */
+static void refuse(enum bt_status_refusal refusal)
+{
+	track.image = BT_STATUS_IMAGE_REFUSED;
+	track.refusal = refusal;
 }
 
 /*
@@ -874,10 +1308,13 @@ static bool slot_compatible(const struct fw_version *target, const uint8_t *hash
 
 	if (verdict != IMAGE_COMPAT_OTHER_BOARD && verdict != IMAGE_COMPAT_OTHER_LAYOUT) {
 		console_event("BT", "what arrived cannot be installed");
+		refuse(BT_STATUS_REFUSAL_MALFORMED);
 		apply(bt_ota_window_offer_failed(&window));
 		return false;
 	}
 
+	refuse(verdict == IMAGE_COMPAT_OTHER_BOARD ? BT_STATUS_REFUSAL_INCOMPATIBLE_BOARD
+						   : BT_STATUS_REFUSAL_INCOMPATIBLE_LAYOUT);
 	if (verdict == IMAGE_COMPAT_OTHER_BOARD) {
 		console_event("BT", "refused the image: it is for %s, and this board is %s", found.board,
 			      CONFIG_APP_BOARD_TYPE);
@@ -920,9 +1357,18 @@ static void offer_image(void)
 		target.build = header.h.v1.sem_ver.build_num;
 	}
 
+	track.image = BT_STATUS_IMAGE_RECEIVED;
+	track.bytes = (uint32_t)atomic_get(&upload_total);
+	if (header_read) {
+		track.version = target;
+	}
+
 	if (!bt_ota_offer_ok(header_read, &target, fw_version_running(),
 			     mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE)) {
 		console_event("BT", "what arrived cannot be installed");
+		refuse(!header_read ? BT_STATUS_REFUSAL_MALFORMED
+		       : mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ? BT_STATUS_REFUSAL_SWAP_PENDING
+									    : BT_STATUS_REFUSAL_OLDER);
 		apply(bt_ota_window_offer_failed(&window));
 		return;
 	}
@@ -930,6 +1376,8 @@ static void offer_image(void)
 	if (!slot_compatible(&target, hash)) {
 		return;
 	}
+
+	track.image = BT_STATUS_IMAGE_VERIFIED;
 
 	memset(&offered, 0, sizeof(offered));
 	offered.magic = BT_OTA_RECORD_MAGIC;
@@ -959,6 +1407,8 @@ static void install_image(void)
 	if (mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ||
 	    store_write(STORE_BT_OTA_RECORD, &offered, sizeof(offered)) != 0) {
 		console_event("BT", "the image could not be installed");
+		refuse(mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE ? BT_STATUS_REFUSAL_SWAP_PENDING
+									 : BT_STATUS_REFUSAL_CANNOT_INSTALL);
 		apply(bt_ota_window_offer_failed(&window));
 		return;
 	}
@@ -968,15 +1418,20 @@ static void install_image(void)
 
 	if (boot_request_upgrade_multi(0, BOOT_UPGRADE_TEST) != 0) {
 		finish_record(BT_OTA_RESULT_FLASH_ERROR, BT_OTA_PROOF_BY_NONE);
+		refuse(BT_STATUS_REFUSAL_CANNOT_INSTALL);
 		apply(bt_ota_window_offer_failed(&window));
 		return;
 	}
 
+	/*
+	 * Nothing more comes in. The phone hears that Button 1 was pressed, and the console gets the
+	 * line and the board's last report before the restart: app_restart() waits for AWS IoT.
+	 */
+	atomic_set(&gate, 0);
 	say_record("restarting into the bootloader");
-	cloud_disconnect();
-	mflt_reboot_mark(MFLT_REBOOT_UPDATE);
-	LOG_PANIC();
-	sys_reboot(SYS_REBOOT_COLD);
+	track.result = BT_STATUS_RESULT_INSTALLING;
+	refresh_status(true);
+	app_restart(MFLT_REBOOT_UPDATE);
 }
 
 static void close_proof_window(void)
@@ -1061,6 +1516,7 @@ bool bt_ota_on_button(uint8_t button, bool long_press, bool physical)
 
 	if (window.phase != BT_OTA_CLOSED) {
 		apply(bt_ota_window_press(&window, button));
+		refresh_status(false);
 		return true;
 	}
 
@@ -1081,7 +1537,8 @@ bool bt_ota_on_button(uint8_t button, bool long_press, bool physical)
 		.bluetooth_trial = bluetooth_trial,
 		.job_record = ota_bt_has_job(),
 		.swap_pending = mcuboot_swap_type_multi(0) != BOOT_SWAP_TYPE_NONE,
-		.link_up = atomic_get(&connected) != 0,
+		/* A phone that came for the status never paired: open_window() lets it go. */
+		.link_up = atomic_get(&connected) != 0 && atomic_get(&status_link) == 0,
 	};
 	open = bt_ota_may_open(&board);
 
@@ -1095,6 +1552,28 @@ bool bt_ota_on_button(uint8_t button, bool long_press, bool physical)
 	default:
 		console_event("BT", "not opening: %s", bt_ota_open_text(open));
 		return true;
+	}
+}
+
+static void tick_status_window(void)
+{
+	uint32_t actions;
+
+	/* Its time counts from the restart, also while the controller starts. */
+	actions = bt_ota_status_tick(&status_window, atomic_get(&connected) != 0, bluetooth_trial);
+
+	if ((actions & BT_OTA_STATUS_DO_ADVERTISE) && atomic_get(&ready)) {
+		advertise();
+	}
+
+	if ((actions & BT_OTA_STATUS_DO_STOP) && atomic_get(&ready)) {
+		(void)bt_le_adv_stop();
+	}
+
+	if (actions & BT_OTA_STATUS_DO_CLOSE) {
+		/* Its last word first, as for a window: that it is closed. */
+		refresh_status(true);
+		close_status_window();
 	}
 }
 
@@ -1117,11 +1596,20 @@ void bt_ota_on_tick(void)
 		}
 	}
 
+	if (status_due && window.phase == BT_OTA_CLOSED &&
+	    bt_ota_status_may_start((uint32_t)(k_uptime_get() / MSEC_PER_SEC), cloud_is_connected())) {
+		status_due = false;
+		open_status_window();
+	}
+
 	if (window.phase == BT_OTA_CLOSED) {
-		/* A disconnection can fail: a phone from a closed window does not get to stay. */
-		if (atomic_get(&connected) != 0) {
+		if (status_window.open) {
+			tick_status_window();
+		} else if (atomic_get(&connected) != 0) {
+			/* A disconnection can fail: a phone from a closed window does not get to stay. */
 			bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
 		}
+		refresh_status(false);
 		return;
 	}
 
@@ -1135,6 +1623,7 @@ void bt_ota_on_tick(void)
 	};
 
 	apply(bt_ota_window_tick(&window, &link));
+	refresh_status(false);
 }
 
 void bt_ota_on_cloud_up(void)

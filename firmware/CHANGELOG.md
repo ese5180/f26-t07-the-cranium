@@ -9,10 +9,13 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.14.0
 
-The board now reports to Memfault: why it restarted each time, a coredump after a crash, and an hourly heartbeat of
-Wi-Fi, connection, memory and update counts, with an event for each update's result. It all goes over the board's own
-AWS IoT connection, and AWS passes it on, so nothing else goes on the network. Needs the console's device policy for
-the memfault topic first, and goes over the air as before.
+The board reports to Memfault over its own AWS IoT connection: why it restarted, a coredump after a crash, an hourly
+heartbeat, and each update's result. Over Bluetooth it now tells the phone how an update stands, with no pairing, also
+for 2 minutes after the restart, and Button 1's line reaches the console before the board restarts. Needs the
+console's device policy for the memfault topic first, and goes over the air as before.
+
+The heartbeat carries Wi-Fi, connection, memory and update counts. All of Memfault's data goes over the board's own AWS
+IoT connection, and AWS passes it on, so nothing else goes on the network.
 
 Memfault SDK 1.40.0 with no HTTP client and no project key in the image: chunks of at most 400 bytes on
 `cranium/<thing>/memfault`, one at a time, each answered by `memfault_ack` on the commands topic before the next goes,
@@ -22,6 +25,22 @@ reset cause has one reader now, src/reset_cause.c, so Memfault sees the real one
 and sends it at once. The jobs message is read where it arrives, which saves its 4 KB copy. Flash 740,816 of 794,474 bytes;
 RAM 403,972 of 405,504, and 4,032 for Memfault's regions: 1.5 KB free, from 6.1 KB (docs/memfault.md). Not yet run on
 a board.
+
+Bluetooth status: a GATT service of its own (9112B1B4-2A51-40F0-94D3-A76440F0E6CC) with one characteristic, read and
+notify, 64 bytes of format 1 (src/bt_status.h, docs/mobile-apps.md): the window and its seconds, the image, a
+refusal's reason, how the window ended, the running version, the trial and the swap, and the last update's version,
+path, outcome, proof, hash and count. No pairing for it, and it carries no secret; SMP needs the authenticated link as
+before, with the image group only and the same guards. Notified at once on a change, every 10 s for what counts by
+itself. After the restart that an update over Bluetooth asked for, Bluetooth starts once the cloud is up or 30 s after
+the boot, and the board advertises the status service for 2 minutes; such a link never pairs, and stays for the trial,
+6 minutes at most.
+
+Button 1 tells the phone (installing), then cloud_events_flush() sends what waits and the report goes with ota.state
+rebooting, at QoS 1 with its own message ID, and the board restarts on that PUBACK or after 2 s (app_restart(),
+cloud_shadow_report_acked()). Button 2 and the time running out tell the phone before its link goes. A full event ring
+lets go of a line that is not about an update first (tags BT, bt_ota, ota). With all of it: flash 745,184 of 794,474
+bytes, RAM 404,284 of 405,504 (1,220 free, 312 used by the status), signed image 876,429 bytes; the ring stays at 32
+lines. Host tests: 30 programs, 0 failures. Not yet run on a board.
 
 ## 1.13.0
 

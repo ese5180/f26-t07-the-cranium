@@ -105,6 +105,14 @@ static struct {
 	int diag_reports;
 	char last_diag[DIAG_REPORT_MAX];
 	int fault_ticks;
+	/* A report that waited for its PUBACK: app_restart()'s, from 1.14.0. */
+	int acked_reports;
+	int32_t ack_wait_ms;
+	int ack_result;
+	/* What had happened by the time of it: lines flushed, restarts, and the connection. */
+	int flushes_at_ack;
+	int reboots_at_ack;
+	int disconnects_at_ack;
 	bool ota_changed;
 	int up_requests;
 	int up_result;
@@ -555,6 +563,8 @@ static struct {
 	int ups;
 	int downs;
 	int sends;
+	int flushes;
+	int reports_at_flush;
 } events;
 
 void cloud_events_on_cloud_up(void)
@@ -570,6 +580,12 @@ void cloud_events_on_cloud_down(void)
 void cloud_events_send(void)
 {
 	events.sends++;
+}
+
+void cloud_events_flush(void)
+{
+	events.flushes++;
+	events.reports_at_flush = board.shadow_reports;
 }
 
 /* src/location.h, which test_location.c tests: when the main loop calls it. */
@@ -604,6 +620,18 @@ int cloud_shadow_report(const char *reported_json)
 	strncpy(board.last_report, reported_json, sizeof(board.last_report) - 1);
 	board.shadow_reports++;
 	return 0;
+}
+
+int cloud_shadow_report_acked(const char *reported_json, int32_t wait_ms)
+{
+	strncpy(board.last_report, reported_json, sizeof(board.last_report) - 1);
+	board.shadow_reports++;
+	board.acked_reports++;
+	board.ack_wait_ms = wait_ms;
+	board.flushes_at_ack = events.flushes;
+	board.reboots_at_ack = board.reboots;
+	board.disconnects_at_ack = board.cloud_disconnects;
+	return board.ack_result;
 }
 
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
@@ -3329,9 +3357,61 @@ static void test_the_main_loop_gives_the_fault_its_ticks(void)
 }
 #endif
 
+/*
+ * From 1.14.0, the restart after Button 1 on an image that came over Bluetooth (bt_ota.c): the lines
+ * that wait go first, then the report, which says `rebooting` and waits for AWS IoT, and only then the
+ * connection goes and the board restarts.
+ */
+static void test_a_restart_lets_the_console_have_its_last_word(void)
+{
+	int reports;
+
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	reports = board.shadow_reports;
+
+	app_restart(MFLT_REBOOT_UPDATE);
+	CHECK(events.flushes == 1);
+	CHECK(events.reports_at_flush == reports);
+	CHECK(board.acked_reports == 1);
+	CHECK(board.flushes_at_ack == 1);
+	CHECK(board.ack_wait_ms == 2000);
+	CHECK(strstr(board.last_report, "\"ota\":{\"state\":\"rebooting\"") != NULL);
+	CHECK(strstr(board.last_report, "\"fw\":{\"version\":") != NULL);
+	CHECK(board.reboots_at_ack == 0);
+	CHECK(board.disconnects_at_ack == 0);
+	CHECK(board.cloud_disconnects == 1);
+	CHECK(board.reboots == 1);
+	CHECK(board.panics_at_reboot == 1);
+
+	/* AWS IoT says nothing within the 2 s: the board restarts all the same. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	board.ack_result = -ETIMEDOUT;
+	app_restart(MFLT_REBOOT_UPDATE);
+	CHECK(board.acked_reports == 1);
+	CHECK(board.reboots == 1);
+
+	/* Offline: nothing to wait for. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = false;
+	app_restart(MFLT_REBOOT_UPDATE);
+	CHECK(events.flushes == 0);
+	CHECK(board.acked_reports == 0);
+	CHECK(board.reboots == 1);
+
+	/* The heartbeat itself still goes as it did, and waits for nothing. */
+	boot(DEVICE_BOOT_OPERATING, false, true, true);
+	board.cloud_up = true;
+	app_send_reports();
+	CHECK(board.acked_reports == 0);
+	CHECK(board.shadow_reports == 1);
+}
+
 int main(void)
 {
 	test_only_ipv4_counts_as_up();
+	test_a_restart_lets_the_console_have_its_last_word();
 	test_a_failed_join_is_reported_once_per_attempt();
 	test_silence_from_the_stack_is_a_failure_too();
 	test_clearing_the_network_disconnects();

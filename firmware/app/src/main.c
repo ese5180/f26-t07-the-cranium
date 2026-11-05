@@ -6,6 +6,7 @@
  * installs firmware updates. Everything is driven by one event loop.
  */
 
+#include <errno.h>
 #include <string.h>
 
 #include <cJSON_os.h>
@@ -59,6 +60,8 @@ LOG_MODULE_REGISTER(app, CONFIG_APP_LOG_LEVEL);
 #define CLOUD_BACKOFF_MAX       300
 /* A change goes to the shadow at once, but never sooner than this after the last report. */
 #define REPORT_FLOOR_MS         2000
+/* The most that app_restart() waits for AWS IoT to take the last report. */
+#define RESTART_ACK_MS          2000
 
 K_MSGQ_DEFINE(event_queue, sizeof(struct app_event), 32, 4);
 
@@ -176,14 +179,16 @@ static void status_text(char *buf, size_t len)
 /*
  * Publish what the console shows for this device. Nothing here is secret. AWS IoT stamps the time
  * that it gets the uptime, which is what the console calls the last heartbeat, and there is no other
- * message for that.
+ * message for that. state is the update's state as it goes out, which app_restart() says for itself.
+ * With ack_ms, wait that long at most for AWS IoT to take it.
  */
-static void publish_report(void)
+static void publish_report_as(const char *state, int32_t ack_ms)
 {
 	char job[OTA_JOB_ID_MAX + 3] = "null";
 	char reported[400];
 	const char *job_id = ota_job_id();
 	int written;
+	int err = -ENOSPC;
 
 	if (!cloud_is_connected()) {
 		return;
@@ -204,18 +209,47 @@ static void publish_report(void)
 			   "\"wifi\":{\"rssi\":%d},\"stuck\":{\"count\":%u,\"reason\":\"%s\"},"
 			   "\"uptime\":%lld}",
 			   fw_version_running_string(),
-			   ota_state() == OTA_TESTING ? "false" : "true", ota_state_name(), job,
+			   ota_state() == OTA_TESTING ? "false" : "true", state, job,
 			   ota_progress(), ota_last_result(), ota_last_error(), net_rssi(),
 			   (unsigned int)stuck_count(), stuck_reason_name(),
 			   k_uptime_get() / MSEC_PER_SEC);
 
-	if (written > 0 && written < (int)sizeof(reported) && cloud_shadow_report(reported) == 0) {
+	if (written > 0 && written < (int)sizeof(reported)) {
+		err = ack_ms > 0 ? cloud_shadow_report_acked(reported, ack_ms)
+				 : cloud_shadow_report(reported);
+	}
+
+	if (err == 0) {
 		status_text(reported_status, sizeof(reported_status));
 	} else {
 		reported_status[0] = '\0';
 	}
 
 	seconds_since_report = 0;
+}
+
+static void publish_report(void)
+{
+	publish_report_as(ota_state_name(), 0);
+}
+
+/*
+ * The console's last word from this boot, before a restart that a person asked for at the board:
+ * what is printed goes first, then the report, in the state of a board that restarts into the
+ * bootloader, and AWS IoT acknowledges that report, which it can only do after it has taken the lines
+ * before it on the same connection. At most RESTART_ACK_MS. Then the restart, whatever came of it.
+ */
+void app_restart(int why)
+{
+	if (cloud_is_connected()) {
+		cloud_events_flush();
+		publish_report_as("rebooting", RESTART_ACK_MS);
+	}
+
+	cloud_disconnect();
+	mflt_reboot_mark((enum mflt_reboot)why);
+	LOG_PANIC();
+	sys_reboot(SYS_REBOOT_COLD);
 }
 
 /*

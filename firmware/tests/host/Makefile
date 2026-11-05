@@ -29,7 +29,7 @@ CONSOLE_HEADERS := $(wildcard $(SRC)/*.h) console_fakes.h
 
 .PHONY: test clean
 test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $(BUILD)/app_tests $(BUILD)/console_sim \
-		$(BUILD)/ui_tests $(BUILD)/golden_policy_tests $(BUILD)/bt_ota_policy_tests \
+		$(BUILD)/ui_tests $(BUILD)/golden_policy_tests $(BUILD)/bt_ota_policy_tests $(BUILD)/bt_status_tests \
 		$(BUILD)/bt_ota_tests $(BUILD)/ota_bt_tests $(BUILD)/ota_bt_no_consent_tests $(BUILD)/ota_bt_no_confirm_tests \
 		$(BUILD)/console_bt_tests $(BUILD)/app_bt_tests $(BUILD)/ui_bt_tests \
 		$(BUILD)/stuck_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
@@ -44,6 +44,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/ui_tests
 	./$(BUILD)/golden_policy_tests
 	./$(BUILD)/bt_ota_policy_tests
+	./$(BUILD)/bt_status_tests
 	./$(BUILD)/bt_ota_tests
 	./$(BUILD)/ota_bt_tests
 	./$(BUILD)/ota_bt_no_consent_tests
@@ -100,7 +101,7 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 # told, and a jobs reply read where it arrives, by the real job parser.
 $(BUILD)/cloud_tests: test_cloud.c $(SRC)/cloud.c $(SRC)/cloud.h $(SRC)/app_events.h $(SRC)/identity.h \
 		$(SRC)/cloud_events.h $(SRC)/command.h $(SRC)/location.h $(SRC)/mflt.h $(SRC)/mflt_link.h \
-		$(SRC)/ota_job.c $(SRC)/ota_job.h $(SRC)/version.c stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h \
+		$(SRC)/ota_job.c $(SRC)/ota_job.h $(SRC)/version.c stubs/net/aws_iot.h stubs/net/mqtt_helper.h stubs/zephyr/net/mqtt.h \
 		stubs/zephyr/kernel.h $(BUILD)/cJSON.o
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN=4096 \
@@ -190,13 +191,20 @@ $(BUILD)/bt_ota_policy_tests: test_bt_ota_policy.c $(SRC)/bt_ota_policy.c $(SRC)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_ota_policy.c $(SRC)/bt_ota_policy.c $(SRC)/version.c
 
+# The status characteristic, from 1.14.0: its payload, byte by byte, and what the policy decides for it.
+# `build/bt_status_tests --print` gives the sample payload that the phone apps' tests parse.
+$(BUILD)/bt_status_tests: test_bt_status.c $(SRC)/bt_status.c $(SRC)/bt_status.h $(SRC)/bt_ota_policy.c \
+		$(SRC)/bt_ota_policy.h $(SRC)/version.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_status.c $(SRC)/bt_status.c $(SRC)/bt_ota_policy.c $(SRC)/version.c
+
 # The board's own type and flash layout, for what image_compat.c compares an image with.
 COMPAT_DEFINES := -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
-$(BUILD)/bt_ota_tests: test_bt_ota.c $(SRC)/bt_ota.c $(SRC)/bt_ota.h $(SRC)/bt_ota_policy.c $(SRC)/bt_ota_policy.h \
+$(BUILD)/bt_ota_tests: test_bt_ota.c $(SRC)/bt_ota.c $(SRC)/bt_ota.h $(SRC)/bt_ota_policy.c $(SRC)/bt_ota_policy.h $(SRC)/bt_status.c \
 		$(SRC)/ota_job.c $(SRC)/version.c $(SRC)/image_compat.c $(SRC)/image_compat.h stubs/host_bt.h \
 		stubs/zephyr/kernel.h $(BUILD)/cJSON.o
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_bt_ota.c $(SRC)/bt_ota_policy.c $(SRC)/ota_job.c \
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -o $@ test_bt_ota.c $(SRC)/bt_ota_policy.c $(SRC)/bt_status.c $(SRC)/ota_job.c \
 		$(SRC)/version.c $(SRC)/image_compat.c $(BUILD)/cJSON.o -lm
 
 # What it adds to ota.c, which is compiled for this and for nothing else here, and how a job goes

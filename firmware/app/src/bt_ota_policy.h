@@ -14,6 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "bt_status.h"
 #include "version.h"
 
 /* A phone that connects has this long to finish pairing. Pairing times out by itself at 30 s. */
@@ -281,6 +282,70 @@ struct bt_ota_record {
 
 const char *bt_ota_result_text(enum bt_ota_result result);
 const char *bt_ota_proof_by_text(enum bt_ota_proof_by proof);
+
+/* ---- what the status characteristic says (bt_status.h) ------------------------------- */
+
+/* A refusal at the start of an upload, in the status's words. */
+enum bt_status_refusal bt_ota_status_refusal(enum bt_ota_upload verdict);
+
+/* The record's result as the status has it. */
+enum bt_status_outcome bt_ota_status_outcome(enum bt_ota_result result);
+
+/*
+ * How a window ended, for a phone. image_waited: an image was on offer when it closed. refused: the
+ * image that arrived was refused, which closes the window too.
+ */
+enum bt_status_result bt_ota_status_result(enum bt_ota_closed closed, bool image_waited,
+					   bool refused);
+
+/* ---- after the restart: the status, and nothing else --------------------------------- */
+
+/*
+ * The restart that an update over Bluetooth asked for, into the new image on trial or back into the
+ * old one, ends with the board connectable for this long, so that the phone that sent it can come back
+ * and read how it went. With no pairing: the status is all such a link can get at.
+ */
+#define BT_OTA_STATUS_SECONDS        120
+/*
+ * A link made in that time stays while the image is on trial, and this long after the trial is
+ * over, so that the end of it gets to the phone.
+ */
+#define BT_OTA_STATUS_LINGER_SECONDS 5
+/* And never longer than this from the restart: the trial's five minutes, and one more. */
+#define BT_OTA_STATUS_LIMIT_SECONDS  360
+/*
+ * Bluetooth starts for it once the board has reached the cloud, or this long after the boot. Wi-Fi
+ * and TLS have then taken from the heap what they take at a normal boot, and the Bluetooth host
+ * takes its share after them, which is the order a person's Button 1 has always found them in.
+ */
+#define BT_OTA_STATUS_START_SECONDS  30
+
+struct bt_ota_status_window {
+	bool open;
+	uint16_t left;
+	uint16_t linger;
+	uint16_t age;
+};
+
+#define BT_OTA_STATUS_DO_ADVERTISE  (1U << 0)
+#define BT_OTA_STATUS_DO_STOP       (1U << 1)
+#define BT_OTA_STATUS_DO_DISCONNECT (1U << 2)
+#define BT_OTA_STATUS_DO_CLOSE      (1U << 3)
+
+/*
+ * Whether this boot took up a record of an update over Bluetooth that was under way, the record's
+ * phase as it was found and its result as this boot left it: then the board advertises its status.
+ * A cloud job that came after it is the cloud's to tell. A normal boot has nothing to say here.
+ */
+bool bt_ota_status_due(uint8_t phase_found, uint8_t result_now);
+
+/* Whether Bluetooth may start now for a status that is due: see BT_OTA_STATUS_START_SECONDS. */
+bool bt_ota_status_may_start(uint32_t uptime_seconds, bool cloud_up);
+
+void bt_ota_status_open(struct bt_ota_status_window *status);
+
+/* Once a second while it is open. trial: the image that runs is on a Bluetooth trial still. */
+uint32_t bt_ota_status_tick(struct bt_ota_status_window *status, bool connected, bool trial);
 
 /*
  * The record as a member of the device shadow's reported state. Only values this firmware

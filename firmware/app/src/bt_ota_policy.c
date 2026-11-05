@@ -397,6 +397,124 @@ const char *bt_ota_proof_by_text(enum bt_ota_proof_by proof)
 	}
 }
 
+enum bt_status_refusal bt_ota_status_refusal(enum bt_ota_upload verdict)
+{
+	switch (verdict) {
+	case BT_OTA_UPLOAD_OK:
+		return BT_STATUS_REFUSAL_NONE;
+	case BT_OTA_UPLOAD_NOT_IMAGE_0:
+		return BT_STATUS_REFUSAL_NOT_IMAGE_0;
+	case BT_OTA_UPLOAD_NOT_NEWER:
+		return BT_STATUS_REFUSAL_OLDER;
+	case BT_OTA_UPLOAD_TOO_LARGE:
+		return BT_STATUS_REFUSAL_TOO_LARGE;
+	case BT_OTA_UPLOAD_BAD_SIZES:
+		return BT_STATUS_REFUSAL_BAD_SIZES;
+	default:
+		return BT_STATUS_REFUSAL_NO_HEADER;
+	}
+}
+
+enum bt_status_outcome bt_ota_status_outcome(enum bt_ota_result result)
+{
+	switch (result) {
+	case BT_OTA_RESULT_PENDING:
+		return BT_STATUS_OUTCOME_PENDING;
+	case BT_OTA_RESULT_SUCCEEDED:
+		return BT_STATUS_OUTCOME_KEPT;
+	case BT_OTA_RESULT_ROLLED_BACK:
+		return BT_STATUS_OUTCOME_ROLLED_BACK;
+	case BT_OTA_RESULT_NOT_INSTALLED:
+		return BT_STATUS_OUTCOME_NOT_INSTALLED;
+	case BT_OTA_RESULT_TRIAL_LOST:
+		return BT_STATUS_OUTCOME_TRIAL_LOST;
+	case BT_OTA_RESULT_SUPERSEDED:
+		return BT_STATUS_OUTCOME_SUPERSEDED;
+	case BT_OTA_RESULT_INCOMPATIBLE_BOARD:
+		return BT_STATUS_OUTCOME_INCOMPATIBLE_BOARD;
+	case BT_OTA_RESULT_INCOMPATIBLE_LAYOUT:
+		return BT_STATUS_OUTCOME_INCOMPATIBLE_LAYOUT;
+	default:
+		return BT_STATUS_OUTCOME_FLASH_ERROR;
+	}
+}
+
+enum bt_status_result bt_ota_status_result(enum bt_ota_closed closed, bool image_waited,
+					   bool refused)
+{
+	switch (closed) {
+	case BT_OTA_CLOSED_BY_BUTTON:
+		return image_waited ? BT_STATUS_RESULT_DISCARDED : BT_STATUS_RESULT_CLOSED;
+	case BT_OTA_CLOSED_OFFER_EXPIRED:
+		/* The same reason closes a window on an image that could not be offered. */
+		return refused ? BT_STATUS_RESULT_CLOSED : BT_STATUS_RESULT_TIMED_OUT;
+	case BT_OTA_CLOSED_TIME_UP:
+		return BT_STATUS_RESULT_TIMED_OUT;
+	default:
+		return BT_STATUS_RESULT_CLOSED;
+	}
+}
+
+bool bt_ota_status_due(uint8_t phase_found, uint8_t result_now)
+{
+	return (phase_found == BT_OTA_RECORD_ARMED || phase_found == BT_OTA_RECORD_TESTING) &&
+	       result_now != BT_OTA_RESULT_SUPERSEDED;
+}
+
+bool bt_ota_status_may_start(uint32_t uptime_seconds, bool cloud_up)
+{
+	return cloud_up || uptime_seconds >= BT_OTA_STATUS_START_SECONDS;
+}
+
+void bt_ota_status_open(struct bt_ota_status_window *status)
+{
+	status->open = true;
+	status->left = BT_OTA_STATUS_SECONDS;
+	status->linger = BT_OTA_STATUS_LINGER_SECONDS;
+	status->age = 0;
+}
+
+static uint32_t status_close(struct bt_ota_status_window *status, bool connected)
+{
+	status->open = false;
+	status->left = 0;
+	return BT_OTA_STATUS_DO_STOP | BT_OTA_STATUS_DO_CLOSE |
+	       (connected ? BT_OTA_STATUS_DO_DISCONNECT : 0);
+}
+
+uint32_t bt_ota_status_tick(struct bt_ota_status_window *status, bool connected, bool trial)
+{
+	if (!status->open) {
+		return 0;
+	}
+
+	if (++status->age >= BT_OTA_STATUS_LIMIT_SECONDS) {
+		return status_close(status, connected);
+	}
+
+	if (status->left > 0) {
+		status->left--;
+		return connected ? 0 : BT_OTA_STATUS_DO_ADVERTISE;
+	}
+
+	/* No more advertising. A link that is up stays for the trial, and then a moment. */
+	if (!connected) {
+		return status_close(status, false);
+	}
+
+	if (trial) {
+		status->linger = BT_OTA_STATUS_LINGER_SECONDS;
+		return BT_OTA_STATUS_DO_STOP;
+	}
+
+	if (status->linger > 0) {
+		status->linger--;
+		return BT_OTA_STATUS_DO_STOP;
+	}
+
+	return status_close(status, true);
+}
+
 int bt_ota_record_json(const struct bt_ota_record *record, char *buf, size_t len)
 {
 	char from[FW_VERSION_STRING_MAX];

@@ -32,7 +32,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The lines that wait while the board is offline. When the ring is full, the oldest goes. */
+/*
+ * The lines that wait while the board is offline. When the ring is full, the oldest goes; from 1.14.0
+ * the oldest that is not about an update (tags BT, bt_ota and ota), unless every line is.
+ */
 #define CLOUD_EVENTS_RING            32
 /* At most this many lines a second get into the ring, after a first CLOUD_EVENTS_BURST at once. */
 #define CLOUD_EVENTS_PER_SECOND      5
@@ -75,6 +78,12 @@ void cloud_events_on_cloud_down(void);
 /* The main loop's, once a second and when a line has come in: send what waits, as far as it may. */
 void cloud_events_send(void);
 
+/*
+ * The main loop's, right before a restart: send everything that waits, now, also before AWS IoT has
+ * taken an event on this connection, unless the board has given up on events. From 1.14.0.
+ */
+void cloud_events_flush(void);
+
 #else
 
 static inline void cloud_events_add(const char *tag, const char *text, size_t length)
@@ -93,6 +102,10 @@ static inline void cloud_events_on_cloud_down(void)
 }
 
 static inline void cloud_events_send(void)
+{
+}
+
+static inline void cloud_events_flush(void)
 {
 }
 

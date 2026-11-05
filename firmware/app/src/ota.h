@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #include "app_events.h"
+#include "bt_status.h"
 #include "cloud.h"
 
 enum ota_state {
@@ -108,6 +109,11 @@ void ota_bt_enter(void);
 void ota_bt_leave(void);
 /* A person has proved the image on trial. Returns 0 if it has been confirmed. */
 int ota_bt_confirm(void);
+/*
+ * For the Bluetooth status (bt_status.h): the cloud update that this boot found installed or on
+ * trial, its version in *target and how it stands, or BT_STATUS_OUTCOME_NONE if there is none.
+ */
+enum bt_status_outcome ota_bt_cloud_update(struct fw_version *target);
 #endif
 
 #endif /* OTA_H_ */
