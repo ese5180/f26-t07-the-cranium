@@ -44,6 +44,15 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
     private var images: ImageManager?
     private var statusService: CBService?
     private var statusHandler: (@Sendable (BoardStatus) -> Void)?
+    private var payloadHandler: ((Data) -> Void)?
+
+    /// For the shell's bridge (0.8.0): the status characteristic's newest payload as it came, which the
+    /// page reads itself (docs/mobile-apps.md, "The bridge"). Main queue.
+    public private(set) var lastStatusPayload: Data?
+    /// The board has the status service (firmware 1.14.0 on); known once the services are found.
+    public var hasStatus: Bool { statusService != nil }
+    /// Called once, on the main queue, when the link closes for whatever reason, with the reason.
+    public var onClose: ((BoardError) -> Void)?
 
     init(name: String, peripheral: CBPeripheral, radio: BoardRadio) {
         self.name = name
@@ -98,6 +107,20 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
 
     public func observeStatus(_ handler: @escaping @Sendable (BoardStatus) -> Void) {
         DispatchQueue.main.async { self.statusHandler = handler }
+    }
+
+    /// Each payload of the status characteristic as it came, read or notified, on the main queue.
+    public func observeStatusPayload(_ handler: @escaping (Data) -> Void) {
+        DispatchQueue.main.async { self.payloadHandler = handler }
+    }
+
+    /// Stops an upload under way; the link stays. Main queue.
+    public func cancelUpload() {
+        DispatchQueue.main.async {
+            guard self.uploadDone != nil else { return }
+            self.finishUpload(with: BoardError.failed("The upload was stopped."))
+            self.images?.cancelUpload()
+        }
     }
 
     // MARK: Connecting and pairing
@@ -244,8 +267,12 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
         }
         smp?.close()
         statusHandler = nil
+        payloadHandler = nil
         radio.cancel(peripheral)
         peripheral.delegate = nil
+        let closed = onClose
+        onClose = nil
+        closed?(error)
     }
 
     private static func slot(_ slot: McuMgrImageStateResponse.ImageSlot) -> ImageSlot {
@@ -291,7 +318,10 @@ extension McuMgrBoardTransport: CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, characteristic.uuid == CBUUID(string: BoardStatus.characteristicUUID),
-              let value = characteristic.value, let status = BoardStatus.parse(value) else { return }
+              let value = characteristic.value else { return }
+        lastStatusPayload = value
+        payloadHandler?(value)
+        guard let status = BoardStatus.parse(value) else { return }
         statusHandler?(status)
     }
 

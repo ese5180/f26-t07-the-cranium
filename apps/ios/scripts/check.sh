@@ -43,7 +43,9 @@ swift build -j "$JOBS"
 echo "== swift test"
 swift test -j "$JOBS" ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
 
-echo "== the app's sources, type-checked for macOS 13 (the nearest to iOS 16 this Mac has)"
+# App/Shell/ (0.8.0: the web view, its scheme handler and the bridge's UIKit side) is iPhone only, and is
+# compiled by phone.sh --check and CI's build for iOS instead; its logic is in CraniumKit's Shell/, tested above.
+echo "== the app's sources, type-checked for macOS 13 (the nearest to iOS 16 this Mac has); App/Shell is iPhone only"
 BIN="$(swift build -j "$JOBS" --show-bin-path)"
 # Swift 6.3 kept the built modules in <bin>/Modules; the Command Line Tools for Xcode 27 build into
 # .build/out/Products/<configuration>, with the modules beside the products.

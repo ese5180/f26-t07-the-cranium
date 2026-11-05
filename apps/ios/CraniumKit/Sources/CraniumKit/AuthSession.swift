@@ -80,6 +80,10 @@ public actor AuthSession: AccessTokenProvider {
     /// Whether the session can be renewed: a refresh token is in memory.
     public var hasRefreshToken: Bool { tokens?.refreshToken != nil }
 
+    /// When the access token in memory runs out; nil when signed out. For the shell's bridge
+    /// (`ShellAuthPool`), which tells the page how long its token is good for.
+    public var accessTokenExpiresAt: Date? { tokens?.expiresAt }
+
     /// Whose session it is: the access token's `sub`, for the Face ID setting of a customer, whom no
     /// API call names. Nil when not signed in or not known.
     public var subject: String? { tokens.flatMap { JWTClaims.subject($0.accessToken) } }

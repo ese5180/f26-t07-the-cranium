@@ -28,6 +28,19 @@
 	<string>Cranium uses Bluetooth to find a board whose Bluetooth window is open, pair with it, and send it a firmware release.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Cranium uses Face ID to open your saved sign-in, so that you need your password and code only for changes.</string>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.craniumiot.cranium.classic</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Classic app</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>The screens of 0.7</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>rectangle.stack</string>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
