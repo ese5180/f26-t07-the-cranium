@@ -123,8 +123,10 @@ def port_order(name: str) -> list:
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
 
 
-def device_path(path: str, platform: str = sys.platform) -> str:
+def device_path(path: str, platform: str | None = None) -> str:
     """On macOS the callout device: opening /dev/tty.* waits for a carrier that a J-Link never raises."""
+    # Looked up at the call, not as a default argument, which Python fixes when the module loads.
+    platform = sys.platform if platform is None else platform
     if platform == "darwin" and path.startswith("/dev/tty."):
         return "/dev/cu." + path[len("/dev/tty."):]
     return path
@@ -190,7 +192,7 @@ def nrfutil_devices(text: str) -> list:
     return list(found.values())
 
 
-def board_from_device(device: dict, platform: str = sys.platform) -> Board | None:
+def board_from_device(device: dict, platform: str | None = None) -> Board | None:
     """A DK's debugger, or None for a device that has no J-Link (a dongle, say)."""
     traits = device.get("traits")
     if isinstance(traits, dict) and "jlink" in traits and not traits["jlink"]:
@@ -227,7 +229,7 @@ def serial_ports() -> list:
             for p in list_ports.comports()]
 
 
-def find_boards(nrfutil_text: str, ports: list, platform: str = sys.platform) -> list:
+def find_boards(nrfutil_text: str, ports: list, platform: str | None = None) -> list:
     """Each board once: what nrfutil sees of its debugger, with the J-Link serial ports added."""
     boards = [board for board in (board_from_device(d, platform) for d in nrfutil_devices(nrfutil_text)) if board]
     for port in ports:
