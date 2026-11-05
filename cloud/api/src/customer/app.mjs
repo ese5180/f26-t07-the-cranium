@@ -7,7 +7,8 @@
  *     the ownership partition of the state table and the customer pool's users, and nothing else:
  *     no firmware, no deployments, no activity log, no staff accounts (infra/template.yaml).
  *   - Its own route, GET /api/c/{proxy+}, behind its own authorizer, whose issuer is the customer
- *     pool and whose audience is the customer site's client. The console's authorizer keeps the
+ *     pool and whose audience is the customer site's client and the phone apps' client of the
+ *     customer pool (docs/mobile-apps.md, "Customers"). The console's authorizer keeps the
  *     staff pool and the staff clients, so a customer's token is refused there, and a staff
  *     token here, by the gateway before any code runs. This function checks it all again.
  *   - Read only. A customer changes nothing through it: their password and their authenticator
@@ -15,7 +16,8 @@
  *
  * Every request:
  *
- *   1. the token: an access token of the customer site's client, issued by the customer pool  (401)
+ *   1. the token: an access token of the customer site's client or of the phone apps' client,
+ *      issued by the customer pool                                                         (401)
  *   2. the account, asked of Cognito: enabled and confirmed. The answer is kept for a minute,
  *      so a disabled customer stops reading within a minute; when Cognito cannot be asked and
  *      there is no answer from the last minute, the request fails                          (403, 503)
@@ -62,15 +64,25 @@ function claimsOf(event) {
   return claims !== null && typeof claims === 'object' && !Array.isArray(claims) ? claims : null;
 }
 
-/** The customer the token names, or throw 401. Fails closed: anything unexpected is a refusal. */
+/** The clients whose access tokens this API takes: the customer site's, and the phone apps'. */
+function clientsOf(config) {
+  return [config.customerClientId, config.customerMobileClientId].filter((id) => typeof id === 'string' && id !== '');
+}
+
+/**
+ * The customer the token names, and which client it is of ('site' or 'phone'), or throw 401.
+ * Fails closed: anything unexpected is a refusal.
+ */
 export function authenticateCustomer(event, config) {
   const claims = claimsOf(event);
   if (claims === null) throw unauthorized();
-  if (claims.token_use !== 'access' || claims.client_id !== config.customerClientId) throw unauthorized();
+  if (claims.token_use !== 'access' || typeof claims.client_id !== 'string' || !clientsOf(config).includes(claims.client_id)) {
+    throw unauthorized();
+  }
   // The gateway checked the issuer; a token of another pool must not get this far even if it did not.
   if (claims.iss !== undefined && claims.iss !== config.issuer) throw unauthorized();
   if (typeof claims.sub !== 'string' || !SUB.test(claims.sub)) throw unauthorized();
-  return { sub: claims.sub };
+  return { sub: claims.sub, client: claims.client_id === config.customerClientId ? 'site' : 'phone' };
 }
 
 function pathSegments(event) {
@@ -205,10 +217,11 @@ export function createCustomerApp({
     const method = typeof event?.requestContext?.http?.method === 'string' ? event.requestContext.http.method : 'OTHER';
     const route = routeOf(method, pathSegments(event));
     let sub = null;
+    let client;
     let response;
     try {
       const body = await withinBudget(async () => {
-        ({ sub } = authenticateCustomer(event, config));
+        ({ sub, client } = authenticateCustomer(event, config));
         const customer = await liveCustomer(sub, requestId);
         if (route === null) throw notFound('not_found', 'There is nothing at this address.');
         return run(route, customer, sub);
@@ -220,7 +233,7 @@ export function createCustomerApp({
       response = failed.response;
     }
     log({
-      api: 'customer', requestId, sub, method, route: route === null ? 'unmatched' : route.name,
+      api: 'customer', requestId, sub, client, method, route: route === null ? 'unmatched' : route.name,
       status: response.statusCode, duration: now() - started,
     });
     return response;
