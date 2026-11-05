@@ -70,8 +70,8 @@ website (Releases > Draft a new release > Choose a tag > Create new tag on publi
 Actions > Release the apps > Run workflow:
 
 ```sh
-git tag -a android-v0.6.0 -m "<the first paragraph>" && git push origin main android-v0.6.0
-git tag -a ios-v0.6.0 -m "<the first paragraph>" && git push origin main ios-v0.6.0
+git tag -a android-v0.7.0 -m "<the first paragraph>" && git push origin main android-v0.7.0
+git tag -a ios-v0.7.0 -m "<the first paragraph>" && git push origin main ios-v0.7.0
 ```
 
 The workflow refuses a tag that is not the version in the app's files. It needs four repository secrets, which the
