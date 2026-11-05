@@ -285,8 +285,8 @@ The console's Apps page (`#/apps`, in the masthead) is where the team gets the a
   sign-in); the older releases, folded away.
 - **iPhone**: its version and note, from `apps/ios/CHANGELOG.md` as this deployment was built, and how to install it
   with a Mac: `git clone`, **Download the configuration** for `apps/config/`, `apps/ios/scripts/phone.sh`, Trust,
-  Run, and the 7-day renewal with `renew.sh`. An iPhone without a Mac needs the paid Apple Developer Program and
-  TestFlight.
+  Run, and `renew.sh --schedule`, which renews the 7-day profile and installs each newer app from `main` over the
+  Mac's Wi-Fi, with no cable. An iPhone without a Mac needs the paid Apple Developer Program and TestFlight.
 - **Build the Android app yourself**: `git clone`, the configuration, `./gradlew assembleDebug`.
 
 **The download link and the QR code.** A download is a presigned S3 link, good for 15 minutes, made when somebody

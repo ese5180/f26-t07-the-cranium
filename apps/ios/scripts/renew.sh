@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# Keep the Cranium app opening on your iPhone without pressing Run in Xcode every week.
+# Keep the Cranium app on your iPhone opening and up to date, without a cable and for free.
 #
 # An app signed by a free Personal Team stops opening when its provisioning profile ends, 7 days
-# after Xcode made it. This builds the app from the newest commit on main, with a new profile when
-# the old one has 36 hours or less left, and installs it on the iPhone by cable or over Wi-Fi.
-# What the app stored stays.
+# after Xcode made it, and TestFlight needs the paid Apple Developer Program. This builds the app
+# from the newest commit on main on GitHub, with a new profile when the old one has 36 hours or less
+# left, and installs it on the iPhone over Wi-Fi (or by cable). What the app stored stays.
 #
 #   apps/ios/scripts/renew.sh               build and install now
-#   apps/ios/scripts/renew.sh --if-due      only when the installed app has 36 hours or less left
+#   apps/ios/scripts/renew.sh --if-due      only when the installed app has 36 hours or less left, or
+#                                           main has a newer app (apps/ios, apps/shared, or cranium.json)
 #   apps/ios/scripts/renew.sh --schedule    run --if-due every hour from now on (a LaunchAgent: yours, not root's)
 #   apps/ios/scripts/renew.sh --unschedule  stop that
 #   apps/ios/scripts/renew.sh --status      when the app stops opening, and whether the iPhone is in reach
@@ -17,6 +18,8 @@
 # team, and has you trust the developer on the phone. Over Wi-Fi the iPhone has to be on the Mac's
 # network, unlocked at least once since it restarted, and ticked "Connect via network" in Xcode >
 # Window > Devices and Simulators. The Mac has to be awake; an hourly check catches up after sleep.
+# So a new version reaches the iPhone within the hour after it is on main, whenever the iPhone is on
+# the Mac's Wi-Fi; away from it, the app keeps working, and updates when it is back.
 #
 # Which iPhone: the one whose UDID is in ~/.cranium/iphone-udid, or else the only iPhone paired
 # with this Mac. A failure shows a notification. The log is ~/Library/Logs/cranium-renew.log.
@@ -28,6 +31,10 @@ REPO_DIR="$(cd "$IOS_DIR/../.." && pwd)"
 STATE_DIR="$HOME/.cranium"
 UDID_FILE="$STATE_DIR/iphone-udid"
 EXPIRES_FILE="$STATE_DIR/iphone-app-expires"   # when the installed app stops opening, in Unix seconds
+COMMIT_FILE="$STATE_DIR/iphone-app-commit"     # the commit the installed app was built from
+CONFIG_FILE="$STATE_DIR/iphone-app-config"     # the SHA-256 of the cranium.json it was built with
+APP_PATHS=(apps/ios apps/shared)               # what the app is built from, besides cranium.json
+HEAVY="$HOME/cranium-work/heavy.sh"            # if there, the build waits its turn with other heavy jobs
 OLD_PROFILES="$STATE_DIR/old-profiles"
 CACHE="$HOME/Library/Caches/cranium-renew"
 SRC="$CACHE/src"                                # a worktree of this repository, at main
@@ -69,6 +76,38 @@ fail() {
 
 when() {
   date -r "$1" '+%a %d %b %H:%M'
+}
+
+config_sum() {
+  shasum -a 256 "$REPO_DIR/apps/config/cranium.json" 2>/dev/null | cut -d' ' -f1
+}
+
+# The newest commit of main on GitHub, fetched over HTTPS (the repository is public, so no key is
+# needed from a LaunchAgent); this checkout's main if GitHub cannot be reached.
+newest_main() {
+  local url
+  url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null | sed -E 's#^git@github\.com:#https://github.com/#')"
+  if [ -n "$url" ] && git -C "$REPO_DIR" fetch -q "$url" main 2>/dev/null; then
+    git -C "$REPO_DIR" rev-parse FETCH_HEAD
+  else
+    git -C "$REPO_DIR" rev-parse main
+  fi
+}
+
+# Whether the app built from $1 differs from the installed one: its files, or the configuration.
+app_changed() {
+  local installed
+  [ -s "$COMMIT_FILE" ] || return 0
+  installed="$(tr -d '[:space:]' < "$COMMIT_FILE")"
+  git -C "$REPO_DIR" cat-file -e "$installed^{commit}" 2>/dev/null || return 0
+  [ "$(config_sum)" = "$(tr -d '[:space:]' < "$CONFIG_FILE" 2>/dev/null)" ] || return 0
+  ! git -C "$REPO_DIR" diff --quiet "$installed" "$1" -- "${APP_PATHS[@]}"
+}
+
+# The app's version at commit $1, as Xcode is given it.
+app_version() {
+  git -C "$REPO_DIR" show "$1:apps/ios/project.yml" 2>/dev/null \
+    | sed -n 's/^ *MARKETING_VERSION: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' | head -1
 }
 
 # "<expiry in Unix seconds> <devices>" for a provisioning profile, if it is this app's; else nothing.
@@ -161,7 +200,7 @@ status() {
     echo "The app: opens until $(when "$expiry"), $(( (expiry - now) / 3600 )) hours from now."
   fi
   if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
-    echo "Schedule: on, every hour (renews when 36 hours or less are left)."
+    echo "Schedule: on, every hour (renews when 36 hours or less are left, and installs a new app from main)."
   else
     echo "Schedule: off (renew.sh --schedule turns it on)."
   fi
@@ -173,6 +212,9 @@ status() {
     fi
   else
     echo "iPhone: $phone"
+  fi
+  if [ -s "$COMMIT_FILE" ]; then
+    echo "Installed: built from $(cut -c1-7 "$COMMIT_FILE")$(v="$(app_version "$(cat "$COMMIT_FILE")")"; [ -z "$v" ] || echo ", version $v")."
   fi
   [ ! -f "$LOG" ] || { echo "Last log lines:"; tail -3 "$LOG" | sed 's/^/  /'; }
 }
@@ -208,7 +250,8 @@ EOF
   plutil -lint -s "$PLIST"
   launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
-  echo "On: every hour this Mac is awake, it renews the app when 36 hours or less are left."
+  echo "On: every hour this Mac is awake, it renews the app when 36 hours or less are left, and"
+  echo "installs a newer app from main, whenever the iPhone is on this Mac's Wi-Fi or plugged in."
   echo "renew.sh --status says how it stands; renew.sh --unschedule stops it."
 }
 
@@ -228,14 +271,20 @@ put_back() {
 }
 
 renew() {
-  local if_due="$1" now expiry phone udid name commit app info new_expiry devices line file
+  local if_due="$1" now expiry phone udid name commit target version app info new_expiry devices line file
+  local renewing=true updating=false
 
   now="$(date +%s)"
   expiry="$(installed_expiry)"
+  target="$(newest_main)" || fail "could not find main's newest commit"
+  if app_changed "$target"; then updating=true; fi
   if [ "$if_due" = true ] && [ "$expiry" -gt $((now + MARGIN)) ]; then
-    exit 0
+    renewing=false
   fi
   if [ "$if_due" = true ] && [ -s "$NOT_BEFORE_FILE" ] && [ "$now" -lt "$(tr -d '[:space:]' < "$NOT_BEFORE_FILE")" ]; then
+    renewing=false
+  fi
+  if [ "$if_due" = true ] && [ "$renewing" = false ] && [ "$updating" = false ]; then
     exit 0
   fi
 
@@ -269,11 +318,12 @@ renew() {
 
   # The newest commit on main, in a worktree of its own, so that work in progress is never built.
   if [ ! -e "$SRC/.git" ]; then
-    git -C "$REPO_DIR" worktree add --detach "$SRC" main >/dev/null 2>&1 \
+    git -C "$REPO_DIR" worktree add --detach "$SRC" "$target" >/dev/null 2>&1 \
       || fail "could not make a copy of main in $SRC"
   fi
-  git -C "$SRC" checkout -q -f --detach main || fail "could not check out main in $SRC"
+  git -C "$SRC" checkout -q -f --detach "$target" || fail "could not check out main in $SRC"
   commit="$(git -C "$SRC" rev-parse --short HEAD)"
+  version="$(app_version "$target")"
   mkdir -p "$SRC/apps/config"
   cp "$REPO_DIR/apps/config/cranium.json" "$SRC/apps/config/cranium.json"
 
@@ -287,12 +337,18 @@ renew() {
     fi
   done <<< "$(our_profiles)"
 
-  say "building $commit for $name"
+  if [ "$updating" = true ]; then
+    say "building $commit${version:+ (version $version)} for $name: main has a newer app"
+  else
+    say "building $commit for $name"
+  fi
   if ! "$SRC/apps/ios/scripts/generate.sh" > "$CACHE/build.log" 2>&1; then
     put_back
     fail "the project could not be made; see $CACHE/build.log"
   fi
-  if ! nice -n 10 xcodebuild -project "$SRC/apps/ios/Cranium.xcodeproj" -scheme Cranium \
+  local runner=(nice -n 10)
+  [ ! -x "$HEAVY" ] || runner=("$HEAVY")
+  if ! "${runner[@]}" xcodebuild -project "$SRC/apps/ios/Cranium.xcodeproj" -scheme Cranium \
       -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath "$DERIVED" \
       -allowProvisioningUpdates -jobs 4 build >> "$CACHE/build.log" 2>&1; then
     put_back
@@ -313,20 +369,31 @@ renew() {
     if [ "$new_expiry" -gt "$now" ]; then
       # Apple gave back the profile it had made: it makes a new one only once that one ends.
       echo "$new_expiry" > "$NOT_BEFORE_FILE"
-      say "Apple kept the profile that ends $(when "$new_expiry"); trying again just after that"
-      exit 0
+      if [ "$updating" = false ]; then
+        say "Apple kept the profile that ends $(when "$new_expiry"); trying again just after that"
+        exit 0
+      fi
+      say "Apple kept the profile that ends $(when "$new_expiry"); installing the newer app until then"
+    else
+      fail "Xcode signed the app with a profile that has ended; open Xcode, check the account, and Run once"
     fi
-    fail "Xcode signed the app with a profile that has ended; open Xcode, check the account, and Run once"
+  else
+    rm -f "$NOT_BEFORE_FILE"
   fi
-  rm -f "$NOT_BEFORE_FILE"
 
   if ! xcrun devicectl --timeout 300 device install app --device "$udid" "$app" > "$CACHE/install.log" 2>&1; then
     fail "the install on $name failed (locked, or out of reach?); see $CACHE/install.log"
   fi
   umask 077
   echo "$new_expiry" > "$EXPIRES_FILE"
-  say "installed $commit on $name; it opens until $(when "$new_expiry")"
-  notify "Renewed on $name: it opens until $(when "$new_expiry")."
+  git -C "$SRC" rev-parse HEAD > "$COMMIT_FILE"
+  config_sum > "$CONFIG_FILE"
+  say "installed $commit${version:+ (version $version)} on $name; it opens until $(when "$new_expiry")"
+  if [ "$updating" = true ]; then
+    notify "Updated on $name${version:+ to $version}: it opens until $(when "$new_expiry")."
+  else
+    notify "Renewed on $name: it opens until $(when "$new_expiry")."
+  fi
 }
 
 case "${1:-}" in

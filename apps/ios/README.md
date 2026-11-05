@@ -45,7 +45,7 @@ account signs in, nothing is changed in its name.
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
 | `scripts/generate.sh` | Makes `Cranium.xcodeproj` |
 | `scripts/phone.sh` | Puts the app on your own iPhone with a free Personal Team; `--check` compiles it for iPhone without signing |
-| `scripts/renew.sh` | Builds main and installs it on the iPhone again before a free team's 7 days end; `--schedule` checks every hour |
+| `scripts/renew.sh` | Builds main and installs it on the iPhone over Wi-Fi: again before a free team's 7 days end, and whenever main has a newer app; `--schedule` checks every hour |
 | `scripts/testflight.sh` | Archives a Release build and uploads it to TestFlight |
 | `scripts/check.sh` | Everything that can be checked without a phone |
 | `scripts/colors.sh` | Makes the colour sets from the website's stylesheet again |
@@ -136,19 +136,26 @@ it as the destination, and press Run. Bluetooth does not work in the Simulator.
 
 Run `generate.sh` again after a pull or after changing `project.yml`. It replaces the project.
 
-### Keep it opening, with a free team
+### Keep it opening and up to date, with a free team, without a cable
 
-An app signed by a free Personal Team stops opening 7 days after Xcode made its profile. After the
-first Run from Xcode, the Mac can renew it by itself, by cable or over Wi-Fi:
+An app signed by a free Personal Team stops opening 7 days after Xcode made its profile, and
+TestFlight needs the paid Apple Developer Program. After the first Run from Xcode, the Mac does both
+by itself, over Wi-Fi (or by cable):
 
 ```sh
-apps/ios/scripts/renew.sh --schedule    # every hour; renews when 36 hours or less are left
-apps/ios/scripts/renew.sh --status      # when the app stops opening; whether the iPhone is in reach
-apps/ios/scripts/renew.sh               # renew now
+apps/ios/scripts/renew.sh --schedule    # every hour: renews when 36 hours or less are left, and
+                                        # installs a newer app when main has one
+apps/ios/scripts/renew.sh --status      # when the app stops opening, what it was built from, whether the iPhone is in reach
+apps/ios/scripts/renew.sh               # build and install now
 ```
 
-It builds the newest commit on `main` in a copy of its own (`~/Library/Caches/cranium-renew`), so
-work in progress is never installed, and keeps what the app stored. When the profile has 36 hours or
+It builds the newest commit on `main` on GitHub (fetched over HTTPS) in a copy of its own
+(`~/Library/Caches/cranium-renew`), so work in progress is never installed, and keeps what the app
+stored. A newer app is one whose `apps/ios` or `apps/shared` changed since the installed build, or a
+new `apps/config/cranium.json`: it reaches the iPhone within the hour, whenever the iPhone is on the
+Mac's Wi-Fi, and the Mac shows a notification saying the version. Away from that Wi-Fi the installed
+app keeps working; it updates when it is back. The build waits its turn behind other heavy jobs
+when `~/cranium-work/heavy.sh` is there. When the profile has 36 hours or
 less left it is moved to `~/.cranium/old-profiles` so that Xcode asks Apple for a new one; if Apple
 gives back the same one, it tries again just after that one ends. Over Wi-Fi, the iPhone has to be on
 the Mac's network, unlocked at least once since it restarted, and ticked "Connect via network" in
