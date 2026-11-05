@@ -21,7 +21,8 @@ scripts/new-board.sh           # set up the one board plugged in by USB
 
 It finds the boards plugged in, and goes on only if there is exactly one, or `--serial-number <n>` names one.
 It says which DK it is, from its debugger (an nRF7002 DK, or an nRF5340 DK with `--board nrf5340dk` where the
-debugger doesn't say), and asks for the last 4 digits of its serial number before it erases anything. Then:
+debugger doesn't say; [An nRF5340 DK](#an-nrf5340-dk) has what differs for it), and asks for the last 4 digits of
+its serial number before it erases anything. Then:
 
 | Step | What it does | By hand |
 | --- | --- | --- |

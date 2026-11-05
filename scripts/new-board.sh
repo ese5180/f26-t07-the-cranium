@@ -242,7 +242,7 @@ set_board_paths() {
   fi
 }
 
-# The nRF5340 DK's build and provisioning came with PR #5 (feature/nrf5340dk).
+# The nRF5340 DK came to main with PR #5: a checkout from before it builds and provisions none.
 has_nrf5340dk_support() {
   grep -q -- '--board nrf5340dk' scripts/build.sh && grep -q -- '--board nrf5340dk' tools/provision_device.py
 }
@@ -600,7 +600,7 @@ check_nrf5340dk_support() {
     pass "this checkout builds and provisions an nRF5340 DK"
   else
     failed "this checkout cannot build or provision an nRF5340 DK yet" \
-      "That came with PR #5 (feature/nrf5340dk): git pull, once it is on main"
+      "It is on main from PR #5: git pull"
   fi
 }
 
@@ -935,7 +935,7 @@ step_provision() {
   show_cmd python3 "${args[@]}"
   [ "$DRY_RUN" = false ] || return 0
   if [ "$BOARD_TYPE" = nrf5340dk ] && ! has_nrf5340dk_support; then
-    die "this checkout cannot provision an nRF5340 DK yet" "That came with PR #5 (feature/nrf5340dk)."
+    die "this checkout cannot provision an nRF5340 DK yet" "It is on main from PR #5: git pull."
   fi
   # What it prints goes through redact, which leaves out the network's name and anything that names the account.
   if ! python3 "${args[@]}" 2>&1 | helper redact --indent 4; then

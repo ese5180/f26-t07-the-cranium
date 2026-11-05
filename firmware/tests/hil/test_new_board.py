@@ -935,7 +935,7 @@ class ScriptTest(unittest.TestCase):
     def test_a_whole_setup_of_an_nrf5340dk(self):
         self.secrets(wifi=False, token=True)
         self.devices(device(pca="PCA10095"))
-        # A checkout with PR #5 in it: its build.sh and provision_device.py know the board.
+        # A checkout that has the nRF5340 DK: its build.sh, here a stand-in, and provision_device.py know it.
         with open(self.repo / "scripts/build.sh", "a") as file:
             file.write("# scripts/build.sh --board nrf5340dk\n")
         with open(self.repo / "tools/provision_device.py", "a") as file:
