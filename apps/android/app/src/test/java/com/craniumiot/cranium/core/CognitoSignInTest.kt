@@ -30,7 +30,15 @@ import javax.crypto.spec.SecretKeySpec
  */
 class CognitoSignInTest {
 
-    private data class User(val email: String, val userId: String, val password: String, val code: String, val next: String = "SOFTWARE_TOKEN_MFA")
+    /** [afterNew]: what follows a first sign-in's new password: the tokens (null), or the code. */
+    private data class User(
+        val email: String,
+        val userId: String,
+        val password: String,
+        val code: String,
+        val next: String = "SOFTWARE_TOKEN_MFA",
+        val afterNew: String? = null,
+    )
 
     /** Cognito, as far as the app's own sign-in uses it. */
     private class FakeCognito(
@@ -128,6 +136,7 @@ class CognitoSignInTest {
                 "RespondToAuthChallenge" -> when (s(body["ChallengeName"])) {
                     "PASSWORD_VERIFIER" -> verifyPassword(body)
                     "SOFTWARE_TOKEN_MFA" -> verifyCode(body)
+                    "NEW_PASSWORD_REQUIRED" -> verifyNewPassword(body)
                     else -> IdpAnswer.Refused("InvalidParameterException")
                 }
                 "RevokeToken" -> {
@@ -235,6 +244,36 @@ class CognitoSignInTest {
             sessions.remove(id)
             return ok(tokens(session.user))
         }
+
+        /** A first sign-in's new password: at least 10 characters, as the customer pool asks. */
+        val newPasswords = mutableListOf<String>()
+
+        private fun verifyNewPassword(body: JsonObject): IdpAnswer {
+            val id = s(body["Session"]).orEmpty()
+            val session = sessions[id]
+            if (session == null || session.expiresAt <= now() || session.user.next != "NEW_PASSWORD_REQUIRED") {
+                sessions.remove(id)
+                return IdpAnswer.Refused("NotAuthorizedException")
+            }
+            val answer = obj(body["ChallengeResponses"])
+            if (s(answer["USERNAME"]) != session.user.userId) return IdpAnswer.Refused("NotAuthorizedException")
+            val chosen = s(answer["NEW_PASSWORD"]).orEmpty()
+            if (chosen.length < 10) return IdpAnswer.Refused("InvalidPasswordException")
+            sessions.remove(id)
+            newPasswords += chosen
+            if (session.user.afterNew == "SOFTWARE_TOKEN_MFA") {
+                val next = "SESSION-${random.nextInt(1_000_000)}"
+                sessions[next] = Session(session.user.copy(next = "SOFTWARE_TOKEN_MFA"), now() + 15 * 60_000)
+                return ok(
+                    buildJsonObject {
+                        put("ChallengeName", "SOFTWARE_TOKEN_MFA")
+                        put("Session", next)
+                        putJsonObject("ChallengeParameters") {}
+                    },
+                )
+            }
+            return ok(tokens(session.user))
+        }
     }
 
     private val pool = "xx-test-1_Pool0Tests"
@@ -316,6 +355,54 @@ class CognitoSignInTest {
         assertFalse(signIn.waitingForCode)
         cognito.failNext = "PasswordResetRequiredException"
         assertEquals(SignInStep.Elsewhere("PASSWORD_RESET_REQUIRED"), signIn.passwordSignIn(user.email, user.password))
+    }
+
+    @Test
+    fun `a customer's first sign-in chooses the new password on the screen, then signs in`() = runTest {
+        val invited = user.copy(email = "ada@example.invalid", userId = "ada-id", next = "NEW_PASSWORD_REQUIRED")
+        val cognito = FakeCognito(pool, client, listOf(invited), { nowMs })
+        val signIn = CognitoSignIn(cognito, client, pool, now = { nowMs }, newPasswordHere = true)
+        assertEquals(SignInStep.NewPassword, signIn.passwordSignIn(invited.email, invited.password))
+        assertTrue(signIn.waitingForNewPassword)
+        assertFalse(signIn.waitingForCode)
+        // The code is not what this sign-in waits for.
+        assertEquals(SignInStep.Password("expired"), signIn.sendCode("123456"))
+        assertEquals(SignInStep.NewPassword, signIn.passwordSignIn(invited.email, invited.password))
+        assertEquals(SignInStep.NewPasswordProblem("missing-new"), signIn.sendNewPassword(""))
+        assertEquals(SignInStep.NewPasswordProblem("weak-password"), signIn.sendNewPassword("short"))
+        assertTrue(signIn.waitingForNewPassword)
+        val done = signIn.sendNewPassword("a good long password") as SignInStep.Done
+        assertTrue(done.tokens.accessToken.startsWith("ACCESS-"))
+        assertEquals(listOf("a good long password"), cognito.newPasswords)
+        val call = cognito.calls.last().second
+        assertEquals("NEW_PASSWORD_REQUIRED", (call["ChallengeName"] as JsonPrimitive).content)
+        assertEquals("ada-id", ((call["ChallengeResponses"] as JsonObject)["USERNAME"] as JsonPrimitive).content)
+        // The temporary password itself is never sent: only its proof.
+        for ((_, body) in cognito.calls) assertFalse(body.toString().contains(invited.password))
+        assertEquals(SignInStep.Password("expired"), signIn.sendNewPassword("a good long password"))
+    }
+
+    @Test
+    fun `a new password can be followed by the code, and the staff sign-in leaves it to the AWS page`() = runTest {
+        val invited = user.copy(email = "ben@example.invalid", userId = "ben-id", next = "NEW_PASSWORD_REQUIRED", afterNew = "SOFTWARE_TOKEN_MFA")
+        val cognito = FakeCognito(pool, client, listOf(invited), { nowMs })
+        val customer = CognitoSignIn(cognito, client, pool, now = { nowMs }, newPasswordHere = true)
+        assertEquals(SignInStep.NewPassword, customer.passwordSignIn(invited.email, invited.password))
+        assertEquals(SignInStep.Code, customer.sendNewPassword("another long password"))
+        assertTrue(customer.sendCode(invited.code) is SignInStep.Done)
+        val staff = CognitoSignIn(cognito, client, pool, now = { nowMs })
+        assertEquals(SignInStep.Elsewhere("NEW_PASSWORD_REQUIRED"), staff.passwordSignIn(invited.email, invited.password))
+        assertEquals(SignInStep.Password("expired"), staff.sendNewPassword("another long password"))
+    }
+
+    @Test
+    fun `at the new password, Cognito's answers are the website's signInProblem`() {
+        assertEquals("expired", SignInWords.problemAt("NotAuthorizedException", "new-password"))
+        assertEquals("weak-password", SignInWords.problemAt("InvalidPasswordException", "new-password"))
+        assertEquals("failed", SignInWords.problemAt("InvalidPasswordException", "password"))
+        assertEquals("wrong-password", SignInWords.problemAt("UserNotFoundException", "password"))
+        assertEquals("failed", SignInWords.problemAt("CodeMismatchException", "new-password"))
+        assertEquals("That password is not accepted. Choose one of at least 10 characters.", SignInWords.WORDS["weak-password"])
     }
 
     @Test

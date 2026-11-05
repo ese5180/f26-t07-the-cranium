@@ -35,6 +35,12 @@ sealed class SignInStep {
     /** The password checked out: the six digits from the authenticator app are next. */
     data object Code : SignInStep()
 
+    /**
+     * A first sign-in with the invitation's temporary password: a new password is next, chosen on
+     * the screen itself (the customer side only: CognitoSignIn's `newPasswordHere`).
+     */
+    data object NewPassword : SignInStep()
+
     data class Done(val tokens: CognitoTokens) : SignInStep()
 
     /** A step only the AWS sign-in page does, by Cognito's name for it. */
@@ -45,6 +51,9 @@ sealed class SignInStep {
 
     /** Still at the code, with a key of [SignInWords.WORDS]. */
     data class CodeProblem(val problem: String) : SignInStep()
+
+    /** Still at the new password, with a key of [SignInWords.WORDS]. */
+    data class NewPasswordProblem(val problem: String) : SignInStep()
 }
 
 /** What a refresh came to. [Ended]: the refresh token is no longer taken, so the person signs in again. */
@@ -60,6 +69,10 @@ sealed class Refreshed {
  * ([Srp]), then the code from the authenticator app. The password is used for the proof and
  * nothing else: it is not kept and not sent. Cognito's session for the step of the code is kept
  * in memory only, in this object. It also refreshes and revokes tokens through the same API.
+ *
+ * With [newPasswordHere] (the customer pool, as the customer site's createAuth has it), a first
+ * sign-in's NEW_PASSWORD_REQUIRED is answered on the screen ([sendNewPassword]) instead of being
+ * left to the AWS sign-in page, which the customer pool does not have.
  */
 class CognitoSignIn(
     private val transport: IdpTransport,
@@ -67,13 +80,17 @@ class CognitoSignIn(
     private val userPoolId: String,
     private val now: () -> Long = System::currentTimeMillis,
     private val random: SecureRandom = SecureRandom(),
+    private val newPasswordHere: Boolean = false,
 ) {
-    private class Challenge(val session: String, val userId: String)
+    private class Challenge(val session: String, val userId: String, val newPassword: Boolean = false)
 
-    // The step that waits for the code: Cognito's session for it, and whom it is for.
+    // The step that waits for the code or the new password: Cognito's session for it, and whom it is for.
     private var challenge: Challenge? = null
 
-    val waitingForCode: Boolean get() = challenge != null
+    val waitingForCode: Boolean get() = challenge?.let { !it.newPassword } == true
+
+    /** Whether a sign-in waits for its new password. */
+    val waitingForNewPassword: Boolean get() = challenge?.newPassword == true
 
     /** Drop a sign-in that waits for its code. */
     fun cancel() {
@@ -148,7 +165,7 @@ class CognitoSignIn(
      * that sign-in waiting for another; a sign-in that Cognito has ended starts again.
      */
     suspend fun sendCode(code: String): SignInStep {
-        val waiting = challenge ?: return SignInStep.Password("expired")
+        val waiting = challenge?.takeIf { !it.newPassword } ?: return SignInStep.Password("expired")
         if (!CODE.matches(code)) return SignInStep.CodeProblem("wrong-code")
         val answered = transport.call(
             "RespondToAuthChallenge",
@@ -164,6 +181,31 @@ class CognitoSignIn(
         )
         if (answered !is IdpAnswer.Reply) return refused(answered, atCode = true)
         return following(answered.body, atCode = true, userId = waiting.userId)
+    }
+
+    /**
+     * The new password of a first sign-in, for the sign-in that asked for it ([newPasswordHere]):
+     * RespondToAuthChallenge NEW_PASSWORD_REQUIRED, as core.js sendNewPassword. What follows is the
+     * code, if the account has an authenticator app, or the tokens. This is the new password itself,
+     * which Cognito has to be sent, as the website sends it; it is not kept.
+     */
+    suspend fun sendNewPassword(password: String): SignInStep {
+        val waiting = challenge?.takeIf { it.newPassword } ?: return SignInStep.Password("expired")
+        if (password.isEmpty()) return SignInStep.NewPasswordProblem("missing-new")
+        val answered = transport.call(
+            "RespondToAuthChallenge",
+            buildJsonObject {
+                put("ChallengeName", "NEW_PASSWORD_REQUIRED")
+                put("ClientId", clientId)
+                put("Session", waiting.session)
+                putJsonObject("ChallengeResponses") {
+                    put("USERNAME", waiting.userId)
+                    put("NEW_PASSWORD", password)
+                }
+            },
+        )
+        if (answered !is IdpAnswer.Reply) return refused(answered, STEP_NEW_PASSWORD)
+        return following(answered.body, STEP_NEW_PASSWORD, waiting.userId)
     }
 
     /** New tokens for a refresh token: InitiateAuth REFRESH_TOKEN_AUTH. */
@@ -198,10 +240,12 @@ class CognitoSignIn(
     ) is IdpAnswer.Reply
 
     /** Where a refusal leaves the sign-in. */
-    private fun refused(answer: IdpAnswer, atCode: Boolean): SignInStep {
+    private fun refused(answer: IdpAnswer, atCode: Boolean): SignInStep = refused(answer, if (atCode) STEP_CODE else STEP_PASSWORD)
+
+    private fun refused(answer: IdpAnswer, step: String): SignInStep {
         val problem = when (answer) {
-            is IdpAnswer.Problem -> return at(atCode, answer.problem)
-            is IdpAnswer.Refused -> SignInWords.problem(answer.name, atCode)
+            is IdpAnswer.Problem -> return at(step, answer.problem)
+            is IdpAnswer.Refused -> SignInWords.problemAt(answer.name, step)
             is IdpAnswer.Reply -> "failed"
         }
         if (problem == "elsewhere") return SignInStep.Elsewhere("PASSWORD_RESET_REQUIRED")
@@ -209,17 +253,23 @@ class CognitoSignIn(
             challenge = null
             return SignInStep.Password(problem)
         }
-        return at(atCode, problem)
+        return at(step, problem)
     }
 
-    private fun at(atCode: Boolean, problem: String): SignInStep =
-        if (atCode) SignInStep.CodeProblem(problem) else SignInStep.Password(problem)
+    private fun at(step: String, problem: String): SignInStep = when (step) {
+        STEP_CODE -> SignInStep.CodeProblem(problem)
+        STEP_NEW_PASSWORD -> SignInStep.NewPasswordProblem(problem)
+        else -> SignInStep.Password(problem)
+    }
 
-    /** What follows an answer: the code, the tokens, or a step for the AWS sign-in page. */
-    private fun following(reply: JsonObject, atCode: Boolean, userId: String?): SignInStep {
+    private fun following(reply: JsonObject, atCode: Boolean, userId: String?): SignInStep =
+        following(reply, if (atCode) STEP_CODE else STEP_PASSWORD, userId)
+
+    /** What follows an answer: the code, a new password, the tokens, or a step for the AWS sign-in page. */
+    private fun following(reply: JsonObject, step: String, userId: String?): SignInStep {
         val result = reply["AuthenticationResult"]
         if (result is JsonObject) {
-            val tokens = tokensOf(result) ?: return at(atCode, "failed")
+            val tokens = tokensOf(result) ?: return at(step, "failed")
             challenge = null
             return SignInStep.Done(tokens)
         }
@@ -229,12 +279,20 @@ class CognitoSignIn(
             challenge = Challenge(session, userId)
             return SignInStep.Code
         }
+        if (name == "NEW_PASSWORD_REQUIRED" && newPasswordHere && session.isNotEmpty() && userId != null) {
+            challenge = Challenge(session, userId, newPassword = true)
+            return SignInStep.NewPassword
+        }
         challenge = null
         // A new password, an authenticator app to set up, or anything else this screen does not do.
-        return if (name.isEmpty()) at(atCode, "failed") else SignInStep.Elsewhere(name)
+        return if (name.isEmpty()) at(step, "failed") else SignInStep.Elsewhere(name)
     }
 
     private companion object {
+        const val STEP_PASSWORD = "password"
+        const val STEP_CODE = "code"
+        const val STEP_NEW_PASSWORD = "new-password"
+
         val CODE = Regex("^\\d{6}$")
         val CHALLENGE_NAME = Regex("^[A-Z_]{1,40}$")
 
@@ -276,6 +334,9 @@ object SignInWords {
         "failed" to "Signing in did not work. Try again, or use the AWS sign-in page.",
         "missing" to "Enter your e-mail address and your password.",
         "short-code" to "Type all six digits of the code.",
+        // A new password chosen on the screen itself (the customer side, docs/customer-site.md).
+        "weak-password" to "That password is not accepted. Choose one of at least 10 characters.",
+        "missing-new" to "Choose a new password and type it twice.",
     )
 
     /** Why a sign-in goes to the AWS sign-in page (app.js ELSEWHERE_WORDS). */
@@ -301,9 +362,17 @@ object SignInWords {
      * [WORDS], or "elsewhere" for what only the AWS sign-in page can do. After the password,
      * NotAuthorizedException is Cognito ending the sign-in: its session is over.
      */
-    fun problem(name: String, atCode: Boolean): String = when (name) {
-        "NotAuthorizedException", "UserNotFoundException" -> if (atCode) "expired" else "wrong-password"
-        "CodeMismatchException" -> if (atCode) "wrong-code" else "failed"
+    fun problem(name: String, atCode: Boolean): String = problemAt(name, if (atCode) "code" else "password")
+
+    /**
+     * The same at a step by name, as core.js signInProblem(name, step): "password", "code" or
+     * "new-password". After the password NotAuthorizedException is a wrong password; after the code
+     * or a new password it is Cognito ending the sign-in.
+     */
+    fun problemAt(name: String, step: String): String = when (name) {
+        "NotAuthorizedException", "UserNotFoundException" -> if (step == "code" || step == "new-password") "expired" else "wrong-password"
+        "InvalidPasswordException" -> if (step == "new-password") "weak-password" else "failed"
+        "CodeMismatchException" -> if (step == "code") "wrong-code" else "failed"
         "ExpiredCodeException" -> "expired"
         "TooManyRequestsException", "LimitExceededException", "TooManyFailedAttemptsException" -> "too-many"
         "PasswordResetRequiredException" -> "elsewhere"
