@@ -6,6 +6,8 @@ import UIKit
 @main
 struct CraniumApp: App {
     @StateObject private var model = AppModel()
+    /// The customer side, and which side is on screen (docs/mobile-apps.md, "Customers").
+    @StateObject private var customer = CustomerModel()
 
     init() {
         #if canImport(UIKit)
@@ -36,6 +38,7 @@ struct CraniumApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .environmentObject(customer)
         }
     }
 }

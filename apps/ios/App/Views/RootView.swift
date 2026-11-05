@@ -1,23 +1,38 @@
 import CraniumKit
 import SwiftUI
 
+/// The app's two sides (docs/mobile-apps.md, "Customers"), as the customer site and its admin mode:
+/// the customer side (CustomerRoot), and admin mode, which is the console's own screens as before
+/// (AdminRoot). One of them is on screen; each has its own session, Face ID and lock.
 struct RootView: View {
     @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var customer: CustomerModel
     @Environment(\.theme) private var theme
     @Environment(\.scenePhase) private var scenePhase
+    /// The admin's stage before its last change, to tell a sign-out from "Sign in with password".
+    @State private var adminStage: AppModel.Stage = .loading
 
     var body: some View {
         VStack(spacing: 0) {
             if app.configSource == .example {
                 ExampleConfigBanner()
             }
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if case .broken(let text) = app.stage {
+                    Notice(.bad, "alert", "This build cannot be used. \(text)")
+                        .padding(24)
+                } else if customer.adminMode {
+                    AdminRoot()
+                } else {
+                    CustomerRoot()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(theme.paper.ignoresSafeArea())
         .tint(theme.accent)
         .overlay(alignment: .bottom) {
-            if let toast = app.toast {
+            if let toast = customer.adminMode ? app.toast : (customer.toast ?? app.toast) {
                 Text(toast)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.panel.ink)
@@ -31,47 +46,64 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: app.toast)
-        .task { await app.start() }
-        // Recent searches belong to whoever is signed in: they go at sign-out.
-        .onChange(of: app.stage) { stage in
-            if stage == .signedOut { RecentSearches().clear() }
+        .animation(.easeOut(duration: 0.2), value: customer.toast)
+        .task {
+            await app.start()
+            await customer.start(admin: app)
         }
-        // Face ID: covered in the app switcher, asked again after 5 minutes away.
+        .onChange(of: app.stage) { stage in
+            // Recent searches belong to whoever is signed in: they go at sign-out.
+            if stage == .signedOut {
+                RecentSearches().clear()
+                customer.adminEnded(from: adminStage, message: app.signInMessage)
+            }
+            adminStage = stage
+        }
+        // Face ID: each side covered in the app switcher, and asked again after 5 minutes away.
         .onChange(of: scenePhase) { phase in
             switch phase {
-            case .background: Task { await app.enteredBackground() }
-            case .inactive: app.becameInactive()
-            case .active: Task { await app.becameActive() }
+            case .background:
+                Task {
+                    await app.enteredBackground()
+                    await customer.enteredBackground()
+                }
+            case .inactive:
+                app.becameInactive()
+                customer.becameInactive()
+            case .active:
+                Task {
+                    await app.becameActive()
+                    await customer.becameActive()
+                }
             @unknown default: break
             }
         }
-        .lockCover(app)
-        .sheet(isPresented: $app.offeringBiometrics) {
-            if let biometry = app.biometry {
-                BiometricOfferSheet(biometry: biometry) { yes in
-                    Task { await app.answerBiometricOffer(yes) }
+    }
+}
+
+/// Admin mode: the console, as the app was before the customer side.
+struct AdminRoot: View {
+    @EnvironmentObject private var app: AppModel
+
+    var body: some View {
+        content
+            .lockCover(app)
+            .sheet(isPresented: $app.offeringBiometrics) {
+                if let biometry = app.biometry {
+                    BiometricOfferSheet(biometry: biometry) { yes in
+                        Task { await app.answerBiometricOffer(yes) }
+                    }
                 }
             }
-        }
     }
 
     @ViewBuilder private var content: some View {
         switch app.stage {
-        case .loading:
+        case .loading, .signedOut, .broken:
+            // Signed out, admin mode closes (RootView): nothing of it in between.
             ProgressView()
-        case .broken(let text):
-            Notice(.bad, "alert", "This build cannot be used. \(text)")
-                .padding(24)
         case .locked:
-            LockScreen()
-        case .signedOut:
-            SignInScreen(flow: app.passwordSignIn, message: app.signInMessage, awsPageOpen: app.signingIn) { ending in
-                switch ending {
-                case .signedIn: Task { await app.signedInHere() }
-                case .awsPage: Task { await app.signIn() }
-                case .cancelled: break
-                }
-            }
+            LockScreen(model: app)
         case .signedIn:
             ConsoleTabs()
         }

@@ -4,6 +4,20 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.6.0
+
+Customers can sign in to see their own boards, as on the customer website: an overview, their devices and each board's
+page, the mixes to come, their account with a password change and two-step sign-in, and help. The team signs in with
+Admin sign-in, as before, into Admin mode, which is the whole app as it was, and can leave it again.
+
+The customer side signs in to the customer pool with its own phone client, on the app's own screen: the password with
+SRP, the code in six boxes if the customer turned it on, a new password at the first sign-in, and a reset with a code
+sent by e-mail. Its session is kept apart from the admin's, in Keychain items of its own, and opens with Face ID by the
+same rules. A board is named only by the id of its assignment. Every word is the customer site's, and the tests hold
+the two to each other.
+
+Not released yet: branch feature/customer-apps, 2026-11-05.
+
 ## 0.5.2
 
 Plain words for the console's newer refusals: the fleet's (a release for another board type or flash layout, groups,

@@ -4,6 +4,7 @@ import SwiftUI
 /// The rest of the website's sections. Before iOS 26 it also holds the search field.
 struct MoreView: View {
     @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var customer: CustomerModel
     @Environment(\.theme) private var theme
     let searchHere: Bool
     var eventsHere = false
@@ -53,6 +54,16 @@ struct MoreView: View {
                         Image(systemName: "person.crop.circle")
                     }
                 }
+            }
+            // Admin mode is the console; the customer side is where it was opened from
+            // (docs/mobile-apps.md, "Customers"). The admin stays signed in.
+            Section {
+                Button {
+                    customer.leaveAdminMode()
+                } label: {
+                    Label(CustomerWords.leaveAdminMode, systemImage: "arrow.left")
+                }
+                .foregroundStyle(theme.ink)
             }
         }
     }
