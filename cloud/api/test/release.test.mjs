@@ -995,7 +995,12 @@ test('the job that checks a release runs on publishing, and nothing else runs th
   const jobs = WORKFLOW.slice(WORKFLOW.indexOf('\njobs:\n')).split(/\n(?= {2}[\w-]+:\n)/).slice(1);
   assert.equal(jobs.length, 8);
   for (const job of jobs) {
-    const expected = job.startsWith('  release-assets:') ? "github.event_name == 'release'" : "github.event_name != 'release'";
-    assert.ok(job.includes(`if: ${expected}`), job.split('\n')[0]);
+    if (job.startsWith('  release-assets:')) {
+      // A firmware release only: a release made for a phone app's tag is release-apps.yml's (docs/ci.md).
+      assert.ok(job.includes("if: >-\n      github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'android-v') &&\n" +
+        "      !startsWith(github.event.release.tag_name, 'ios-v')\n"), job.split('\n')[0]);
+    } else {
+      assert.ok(job.includes("if: github.event_name != 'release'"), job.split('\n')[0]);
+    }
   }
 });

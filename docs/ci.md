@@ -25,7 +25,9 @@ because no release has been published, and `scripts/github-release.sh` has not b
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass and the app compiles for iPhone. Nothing is signed or installed |
 | Check the release's files | A release is published | `scripts/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
 
-The last job is the only one that runs for a release, and it runs for nothing else.
+The last job is the only one that runs for a release, and it runs for nothing else: not for a release made for a phone
+app's tag (`android-v…`, `ios-v…`), which has no files. The phone apps are released by a workflow of their own,
+[`release-apps.yml`](#releasing-the-apps), which holds secrets; this one holds none.
 
 The host tests and the Python tests need neither the SDK nor its toolchain. They need cJSON, Zephyr's
 base64 code, imgtool and a few of the SDK's headers and sources, and
@@ -218,6 +220,86 @@ build what the commit says.
 
 A release on GitHub installs nothing by itself. To install it, follow
 [`binaries/README.md`](../binaries/README.md).
+
+## Releasing the apps
+
+[`.github/workflows/release-apps.yml`](../.github/workflows/release-apps.yml) releases the phone apps from anywhere: a
+tag pushed from any clone, or **Run workflow** on GitHub's website, from any device. Both jobs end on the console,
+and every phone takes the new version from there ([`docs/mobile-apps.md`](mobile-apps.md#updates-on-every-phone)).
+
+| Job | Runs for | What it does |
+| --- | --- | --- |
+| Android app | A tag `android-v<version>`, or Run workflow with app `android` | Ubuntu, JDK 17: `apps/android/build-release.sh --no-publish` with the release key restored from the secrets, then `apps/android/publish.sh` with the API token |
+| iPhone app | A tag `ios-v<version>`, or Run workflow with app `ios` | macOS, the runner's newest Xcode: `apps/ios/scripts/build-ipa.sh`, an unsigned IPA, then `apps/ios/scripts/publish.sh` |
+
+Before anything is built, a job checks that the version in the app's files (`craniumVersionName`, `MARKETING_VERSION`)
+is the one in the tag, that the tag names the commit being built (for Run workflow, whose `ref` may be the tag or a
+branch whose newest commit it names), that the changelog has the version's entry, and that every secret it needs is
+set; then that the keystore opens with its password. It runs only in this repository, never in a fork; one release of
+each app at a time, and one under way is never cancelled; with a read-only token (`contents: read`), and its actions
+pinned by commit as in `ci.yml`. The jobs run with `environment: release`, so the owner can put the secrets behind
+that environment's rules (below). Nothing is uploaded as an artifact: an APK or an IPA holds the stack's console address
+and client IDs, and anybody can read this repository's artifacts. The job summary says the version, size and
+SHA-256 that were published. A last step, run whatever happened, removes the key, the passwords, the configuration
+and the build from the runner.
+
+**The secrets.** Four repository secrets, each a file the owner already has. Every value is masked in the log before
+anything could print it: the keystore's passwords, and the configuration's console address, login domain, client ID
+and pool ID, which name the AWS account. A job fails at once, naming the missing secret, when one is not set.
+
+| Secret | Holds | From | Used by |
+| --- | --- | --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | The Android release keystore, in base64 | `~/.cranium/android/cranium-release.jks` | Android: restored to a temporary `$HOME/.cranium/android/` |
+| `ANDROID_KEYSTORE_PROPERTIES` | Its passwords and alias; the job points `storeFile` at the restored keystore | `~/.cranium/android/keystore.properties` | Android |
+| `CRANIUM_CONFIG_JSON` | `apps/config/cranium.json`: what the apps are built with, and the console the job publishes to (its `consoleUrl`) | `apps/config/cranium.json` (from `apps/configure.sh`, or **Download the configuration** on the Apps page) | Both |
+| `CRANIUM_CONSOLE_TOKEN` | A release manager's API token (`crn_…`), for `publish.sh` | `~/.cranium/console-token` | Both |
+
+The owner sets them once, from a clone, with the GitHub CLI signed in as an admin of the repository. `gh secret set`
+reads the value from standard input, so none of them is echoed or left in the shell's history:
+
+```sh
+REPO=ese5180/f26-t07-the-cranium
+base64 -i ~/.cranium/android/cranium-release.jks | gh secret set ANDROID_KEYSTORE_BASE64 --repo "$REPO"
+gh secret set ANDROID_KEYSTORE_PROPERTIES --repo "$REPO" < ~/.cranium/android/keystore.properties
+gh secret set CRANIUM_CONFIG_JSON --repo "$REPO" < apps/config/cranium.json
+gh secret set CRANIUM_CONSOLE_TOKEN --repo "$REPO" < ~/.cranium/console-token
+gh secret list --repo "$REPO"
+```
+
+(`base64 -i` is macOS's; on Linux, `base64 -w 0 ~/.cranium/android/cranium-release.jks`.) An API token lasts at most
+90 days: make one for the workflow alone on the console (Developer > API tokens, named "release workflow", 90 days),
+keep it in a file of its own rather than reusing `~/.cranium/console-token` if you like, and set the secret again before
+it runs out; a job with a dead token fails with the console's 401. After a new deployment of the stack under another
+address, set `CRANIUM_CONFIG_JSON` again.
+
+**Making a release.** As in [`docs/versions.md`](versions.md): bump the version, add the changelog entry, commit, then
+tag that commit and push the tag, which starts the job:
+
+```sh
+git tag -a ios-v0.6.0 -m "<the first paragraph>"
+git push origin main ios-v0.6.0
+```
+
+From a phone or any browser: on GitHub, Releases > Draft a new release > Choose a tag, type `ios-v0.6.0`, **Create new
+tag on publish**, target `main`, then Publish release. The tag starts the job; the release itself has no files and
+needs none. To run a release again (after setting a secret, say): Actions > Release the apps > Run workflow, with the
+app and the tag as `ref`. Publishing the same build twice is refused as other bytes under a published version, which
+is harmless: the first one stands.
+
+**What this risks, and how to narrow it.** Unlike the firmware key ([above](#why-the-signing-key-stays-out)), these
+secrets are in Actions. Anyone with push access could write a workflow that reads them. The Android key can sign an APK
+that installs over the team's app, though only someone who can publish on the console gets it onto the team's phones;
+the token can do, for up to 90 days, whatever a release manager can with an API token, which includes deploying
+firmware. The configuration names the AWS account and is no credential. To narrow it, the owner can make the
+`release` environment (Settings > Environments) with **Deployment branches and tags** set to the tags `android-v*` and
+`ios-v*` and the branch `main`, and a required reviewer if wanted, and set the four secrets there instead
+(`gh secret set NAME --env release --repo "$REPO"`, then `gh secret delete NAME --repo "$REPO"`): a workflow on any
+other branch then cannot read them. Revoke the token on the console whenever in doubt, and set a new one.
+
+**Not run yet.** The workflow has not run on GitHub: it needs the secrets above, which only the owner can set. Its
+pieces have: the restore step with a throwaway keystore, `build-ipa.sh` on a Mac with Xcode 27 (an unsigned
+`cranium-ios-0.5.2.ipa` that the console's reader takes), and `publish.sh` for both apps against the console's own code
+in `cloud/api/test/`.
 
 ## The check on a release
 

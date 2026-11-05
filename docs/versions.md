@@ -8,7 +8,7 @@ so `git checkout <tag>` gives exactly that source.
 | --- | --- | --- | --- | --- |
 | Firmware | `firmware/app/VERSION` (`scripts/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | `firmware-v1.12.0` | On the console's Firmware page, each release with its note from the changelog |
 | Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | `console-v1.10.0` | At the foot of every page of the console ("Console 1.10.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | `ios-v0.5.1` | More, Help, About in the app; the console's Apps page, from the changelog as deployed |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | `ios-v0.5.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | `android-v0.5.0` | More, Help, About in the app; the console's Apps page, each version as it was published |
 
 The two phone apps keep the same number for the same features.
@@ -35,8 +35,8 @@ first, each its version and first paragraph (and its commit and date where the e
 - **The console's version** is at the foot of every page, "Console 1.10.0 · 1a2b3c4", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
-- **The iPhone app** on the Apps page has the version and note of the newest entry in `apps/ios/CHANGELOG.md`, as
-  deployed: it is built from the repository and never uploaded. A new iPhone version shows after the next deployment.
+- **The iPhone app** on the Apps page is the newest version published as an IPA, with its note (below). Before any is
+  published, the page has the version and note of the newest entry in `apps/ios/CHANGELOG.md`, as deployed.
 
 A checkout that was never deployed has no `versions.json`: the foot says the version is not known, and What's new
 points to `cloud/CHANGELOG.md`. The local preview (`cloud/dev/preview.mjs`) makes it from the checkout.
@@ -52,3 +52,39 @@ a version once and only upward, by `craniumVersionName` and by `craniumVersionCo
 fine, other bytes under a published version are refused. To publish an APK built earlier, give its `versionCode`:
 `apps/android/publish.sh apps/dist/cranium-android-0.4.0.apk --version-code 4`. How it goes, step by step:
 [`docs/mobile-apps.md`](mobile-apps.md#the-apps-page).
+
+## Publishing an iPhone version
+
+`apps/ios/scripts/build-ipa.sh` builds the unsigned IPA, `apps/dist/cranium-ios-<version>.ipa`, and
+`apps/ios/scripts/publish.sh` publishes it on the console with your API token (`build-ipa.sh --publish` does both),
+where every member's SideStore source lists it. The note is the first paragraph of the version's entry in
+`apps/ios/CHANGELOG.md`; the build is `CURRENT_PROJECT_VERSION`, read from the IPA's own Info.plist. The console takes
+a version once and only upward, by `MARKETING_VERSION` and by `CURRENT_PROJECT_VERSION`, so raise both. How it goes:
+[`docs/mobile-apps.md`](mobile-apps.md#updates-on-every-phone).
+
+## Releasing from anywhere
+
+A tag does it all: `.github/workflows/release-apps.yml` builds and publishes the app the tag names, on GitHub Actions,
+once the commit has the new version and its changelog entry. Push the tag from any clone, or make it on GitHub's
+website (Releases > Draft a new release > Choose a tag > Create new tag on publish), or run the workflow again from
+Actions > Release the apps > Run workflow:
+
+```sh
+git tag -a android-v0.6.0 -m "<the first paragraph>" && git push origin main android-v0.6.0
+git tag -a ios-v0.6.0 -m "<the first paragraph>" && git push origin main ios-v0.6.0
+```
+
+The workflow refuses a tag that is not the version in the app's files. It needs four repository secrets, which the
+owner sets once from a clone (each read from standard input, none echoed; [`docs/ci.md`](ci.md#releasing-the-apps) has
+what each holds and what they risk):
+
+```sh
+REPO=ese5180/f26-t07-the-cranium
+base64 -i ~/.cranium/android/cranium-release.jks | gh secret set ANDROID_KEYSTORE_BASE64 --repo "$REPO"
+gh secret set ANDROID_KEYSTORE_PROPERTIES --repo "$REPO" < ~/.cranium/android/keystore.properties
+gh secret set CRANIUM_CONFIG_JSON --repo "$REPO" < apps/config/cranium.json
+gh secret set CRANIUM_CONSOLE_TOKEN --repo "$REPO" < ~/.cranium/console-token
+```
+
+The token is a release manager's and lasts at most 90 days: set `CRANIUM_CONSOLE_TOKEN` again with a new one before it
+runs out.
