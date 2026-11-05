@@ -26,10 +26,11 @@ shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run
 | --- | --- | --- | --- |
 | No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
 | Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
+| Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi or cloud code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, as for the default |
 | Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass and it builds. It cannot sign in: the real configuration is never in git |
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass and the app compiles for iPhone. Nothing is signed or installed |
 | Check the release's files | A release is published | `scripts/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
@@ -71,7 +72,7 @@ its tests. The Python job builds both first, so on Actions it does not.
   reachable by its commit id. An admin of the repository can turn on GitHub's secret scanning and push
   protection, which look at pushes to every branch. What those recognize is GitHub's list, not this
   script's.
-- **Not every build.** Only the two configurations in the table are compiled. The build with the serial
+- **Not every build.** Only the three configurations in the table are compiled. The build with the serial
   console off, `-Dapp_CONFIG_APP_CONSOLE=n`, is not, so a commit that breaks it still shows green.
 - **The checks are advice for now.** Nothing stops a merge when one fails. See
   [Requiring these checks](#requiring-these-checks-on-main).
@@ -136,8 +137,9 @@ change `NCS_VERSION`, `NCS_COMMIT` and the image in the workflow, and the commit
 `firmware/tests/fetch-sdk-files.sh`. A test in `cloud/api/test/release.test.mjs` fails if they disagree
 about the commit of `sdk-nrf`.
 
-The default build writes a table to the job summary, from `tools/build_report.py`: the version and
-commit, flash and RAM of MCUboot, the application and TF-M, and the length of the signed image. Each
+The default build and the nRF5340 DK's each write a table to the job summary, from
+`tools/build_report.py`: the version and commit, flash and RAM of MCUboot, the application and TF-M,
+and the length of the signed image. Each
 size is shown against its limit. The limits come from the build itself: the region table in the
 linker's map file, and `slot0_partition` in the devicetree. The used sizes are what the linker reports,
 from the start of a region to the end of what is in it, so TF-M's flash looks nearly full, because its
@@ -148,7 +150,9 @@ veneers sit at a fixed place near the end. The job fails if anything is over its
 Each default build uploads an artifact named
 `firmware-<version>-<commit>-ci-key-not-installable`, which is kept for 30 days. It holds the image,
 named so that nobody takes it for a release, with `latest.json`, the size table, and
-`NOT-INSTALLABLE.txt`, which says what this section says. On a pull request the commit is the merge
+`NOT-INSTALLABLE.txt`, which says what this section says. The nRF5340 DK's is
+`firmware-nrf5340dk-<version>-<commit>-ci-key-not-installable`, with `latest-nrf5340dk.json`, named
+as `binaries/` names that board type's files. On a pull request the commit is the merge
 commit that GitHub made to test it.
 
 Open a run in the Actions tab and go to Artifacts at the bottom of its summary, or:
@@ -367,6 +371,8 @@ python3 firmware/tests/hil/test_build_report.py
 python3 firmware/tests/hil/test_check_image.py
 python3 firmware/tests/hil/test_flash_layout.py
 python3 firmware/tests/hil/test_memfault_upload.py
+python3 firmware/tests/hil/test_provision.py
+python3 firmware/tests/hil/test_bt_only_check.py
 (cd cloud/api && node --test); (cd cloud/web && node --test); (cd cloud/dev && node --test)
 ```
 

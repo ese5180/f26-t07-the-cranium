@@ -36,7 +36,6 @@ env:
   NCS_COMMIT: 99553055607b2e9885fbc80ccd11fa9da81c2df0
   # Raise this to start from an empty cache.
   NCS_CACHE_GENERATION: 1
-  BOARD: nrf7002dk/nrf5340/cpuapp/ns
 
 jobs:
   scan:
@@ -116,6 +115,8 @@ jobs:
           run_test test_check_image.py 'OK'
           run_test test_flash_layout.py 'OK (skipped=1)'
           run_test test_memfault_upload.py 'OK'
+          run_test test_provision.py 'OK'
+          run_test test_bt_only_check.py 'OK'
 
   cloud-tests:
     name: Cloud tests
@@ -200,10 +201,18 @@ jobs:
       matrix:
         include:
           - configuration: default
+            board: nrf7002dk/nrf5340/cpuapp/ns
             cmake-args: ''
           - configuration: no Bluetooth
+            board: nrf7002dk/nrf5340/cpuapp/ns
             cmake-args: -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf
+          # Bluetooth only and no Wi-Fi. firmware/app/sysbuild.cmake picks its configuration by the
+          # board, so it needs no arguments of its own.
+          - configuration: nRF5340 DK
+            board: nrf5340dk/nrf5340/cpuapp/ns
+            cmake-args: ''
     env:
+      BOARD: ${{ matrix.board }}
       CMAKE_ARGS: ${{ matrix.cmake-args }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -328,15 +337,53 @@ jobs:
             echo "It compiled and linked, with the blinky on the network core. No artifact is kept."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The default's checks, on the files that tools/store_binary.py keeps for this board type, and
+      # what makes it an nRF5340 DK's image: Bluetooth only, the Bluetooth controller on the network
+      # core, and its board type and flash layout in the signed TLVs, which a board and the console
+      # check before they take it. The link has already been checked for Wi-Fi and cloud code
+      # (firmware/app/bt_only_check.py).
+      - name: Check the nRF5340 DK's image and report its size
+        id: report_nrf5340dk
+        if: matrix.configuration == 'nRF5340 DK'
+        run: |
+          image=binaries/latest-nrf5340dk.signed.bin
+          config=build/app/zephyr/.config
+          imgtool="$ZEPHYR_BASE/../bootloader/mcuboot/scripts/imgtool.py"
+          python3 "$imgtool" verify -k "$HOME/.cranium/mcuboot_signing_key.pem" "$image"
+          if python3 "$imgtool" verify -k firmware/keys/fw_signing_pub.pem "$image"; then
+            echo "::error::This image verifies against the project's own key. CI must never have that key."
+            exit 1
+          fi
+          for setting in CONFIG_APP_BT_ONLY=y CONFIG_APP_BT_OTA=y CONFIG_APP_BT_STATIC_PASSKEY=y; do
+            if ! grep -qx "$setting" "$config"; then
+              echo "::error::The nRF5340 DK's build does not have $setting."
+              exit 1
+            fi
+          done
+          if grep -qE '^CONFIG_(WIFI|AWS_IOT|APP_LOCATION)=y$' "$config"; then
+            echo "::error::The nRF5340 DK's build has Wi-Fi, AWS IoT or the location in it."
+            exit 1
+          fi
+          test -s build/hci_ipc/zephyr/zephyr.hex
+          board=$(python3 -I tools/check_image.py --board "$image")
+          layout=$(python3 -I tools/check_image.py --layout "$image")
+          if [ "$board" != nrf5340dk ] || [ "$layout" != 1 ]; then
+            echo "::error::The image says board type \"$board\" and flash layout \"$layout\" (TLVs 0xA1 and 0xA2), not nrf5340dk and 1."
+            exit 1
+          fi
+          echo "Board type $board and flash layout $layout, from TLVs 0xA1 and 0xA2."
+          python3 -I tools/build_report.py --build build --repo . \
+            --summary "$GITHUB_STEP_SUMMARY" --artifact ci-artifact --output "$GITHUB_OUTPUT"
+
       - name: Remove the throwaway key
         if: always()
         run: rm -f "$HOME/.cranium/mcuboot_signing_key.pem"
 
       - name: Upload the image, which cannot be installed
-        if: matrix.configuration == 'default'
+        if: matrix.configuration != 'no Bluetooth'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ steps.report.outputs.artifact }}
+          name: ${{ steps.report.outputs.artifact || steps.report_nrf5340dk.outputs.artifact }}
           path: ci-artifact/
           if-no-files-found: error
           retention-days: 30

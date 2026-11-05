@@ -8,6 +8,10 @@ file, and the signed image's from slot0_partition in the devicetree. It reads th
 the ELF files. It fails if anything is over its limit, or if what binaries/ holds is not what this
 build made from this commit, so that a stale file cannot pass for this build.
 
+The board type is the build's CONFIG_APP_BOARD_TYPE, and what binaries/ holds is named as
+tools/store_binary.py names it: latest.signed.bin for an nRF7002 DK, latest-nrf5340dk.signed.bin for an
+nRF5340 DK, whose record also has to say "board": "nrf5340dk".
+
 --summary appends the table to that file, as Markdown. --artifact puts the image, latest.json, the
 table and a note in that folder. Images built on GitHub Actions are signed with a throwaway key, so
 that folder is named and marked as not installable. --output appends artifact=<name> to that file.
@@ -28,6 +32,8 @@ from pathlib import Path
 
 MCUBOOT_MAGIC = 0x96f3b83d
 PT_LOAD = 1
+# As in tools/store_binary.py: the board type whose files have no type in their names.
+DEFAULT_BOARD = "nrf7002dk"
 
 NOT_INSTALLABLE = """\
 This image cannot be installed on a board.
@@ -143,17 +149,30 @@ def head_commit(repo: Path) -> str:
         raise ReportError(f"git cannot say what {repo} is: {error}") from error
 
 
-def check_kept_image(build: Path, repo: Path) -> tuple[bytes, dict]:
+def board_type(build: Path) -> str:
+    """The board type the build was for, as tools/store_binary.py reads it."""
+    config = build / "app" / "zephyr" / ".config"
+    text = config.read_text() if config.is_file() else ""
+    found = re.search(r'^CONFIG_APP_BOARD_TYPE="([a-z0-9]+)"$', text, re.MULTILINE)
+    return found.group(1) if found else DEFAULT_BOARD
+
+
+def latest_name(board: str) -> str:
+    return "latest" if board == DEFAULT_BOARD else f"latest-{board}"
+
+
+def check_kept_image(build: Path, repo: Path, board: str = DEFAULT_BOARD) -> tuple[bytes, dict]:
     """What binaries/ holds has to be this build of this commit, and nothing older."""
+    latest_stem = latest_name(board)
     built = build / "app" / "zephyr" / "zephyr.signed.bin"
-    kept = repo / "binaries" / "latest.signed.bin"
-    latest_file = repo / "binaries" / "latest.json"
+    kept = repo / "binaries" / f"{latest_stem}.signed.bin"
+    latest_file = repo / "binaries" / f"{latest_stem}.json"
     for path in (built, kept, latest_file):
         if not path.is_file():
             raise ReportError(f"{path} is missing: did the build keep its image?")
     data = built.read_bytes()
     if kept.read_bytes() != data:
-        raise ReportError("binaries/latest.signed.bin is not the image this build made")
+        raise ReportError(f"binaries/{latest_stem}.signed.bin is not the image this build made")
     latest = json.loads(latest_file.read_text())
     version = header_version(data)
     expected = {
@@ -163,18 +182,22 @@ def check_kept_image(build: Path, repo: Path) -> tuple[bytes, dict]:
         "commit": head_commit(repo),
         "command_line": [],
     }
+    # An nRF7002 DK's record has no "board", as before board types; any other's names its type.
+    if board != DEFAULT_BOARD:
+        expected["board"] = board
     for key, value in expected.items():
         if latest.get(key) != value:
-            raise ReportError(f"binaries/latest.json says {key} is {latest.get(key)!r}, and this build's is {value!r}")
+            raise ReportError(f"binaries/{latest_stem}.json says {key} is {latest.get(key)!r}, "
+                              f"and this build's is {value!r}")
     wanted = version_file(repo / "firmware" / "app" / "VERSION")
     if version != wanted:
         raise ReportError(f"the image's header says {version}, and firmware/app/VERSION says {wanted}")
     return data, latest
 
 
-def table(version: str, commit: str, rows: list[Row]) -> str:
+def table(version: str, commit: str, rows: list[Row], board: str = DEFAULT_BOARD) -> str:
     lines = [
-        "## Firmware build",
+        "## Firmware build" if board == DEFAULT_BOARD else f"## Firmware build, {board}",
         "",
         f"Version `{version}`, commit `{commit}`. Signed with a throwaway key: this image cannot be installed.",
         "",
@@ -186,19 +209,24 @@ def table(version: str, commit: str, rows: list[Row]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_artifact(folder: Path, version: str, commit: str, image: bytes, latest: dict, report: str) -> str:
-    """The folder that gets uploaded, with nothing in it but what is named here. Returns its name."""
+def write_artifact(folder: Path, version: str, commit: str, image: bytes, latest: dict, report: str,
+                   board: str = DEFAULT_BOARD) -> str:
+    """The folder that gets uploaded, with nothing in it but what is named here. Returns its name.
+    Another board type than an nRF7002 DK is in the names, as in binaries/."""
     name = version.replace("+", "-")
+    if board != DEFAULT_BOARD:
+        name = f"{board}-{name}"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"cranium-{name}-ci-key-not-installable.signed.bin").write_bytes(image)
-    (folder / "latest.json").write_text(json.dumps(latest, indent=2) + "\n")
+    (folder / f"{latest_name(board)}.json").write_text(json.dumps(latest, indent=2) + "\n")
     (folder / "sizes.md").write_text(report)
     (folder / "NOT-INSTALLABLE.txt").write_text(NOT_INSTALLABLE.format(commit=commit))
     return f"firmware-{name}-{commit}-ci-key-not-installable"
 
 
 def report(build: Path, repo: Path, summary: Path | None, artifact: Path | None, output: Path | None) -> int:
-    image, latest = check_kept_image(build, repo)
+    board = board_type(build)
+    image, latest = check_kept_image(build, repo, board)
     version, commit = latest["version"], latest["commit"]
     rows = [
         *image_rows("MCUboot", build / "mcuboot/zephyr/zephyr.elf", build / "mcuboot/zephyr/zephyr.map"),
@@ -206,13 +234,13 @@ def report(build: Path, repo: Path, summary: Path | None, artifact: Path | None,
         *image_rows("TF-M", build / "app/tfm/bin/tfm_s.elf", build / "app/tfm/bin/tfm_s.map"),
         Row("Signed image", len(image), slot_size(build / "app/zephyr/zephyr.dts")),
     ]
-    text = table(version, commit, rows)
+    text = table(version, commit, rows, board)
     print(text)
     if summary is not None:
         with summary.open("a") as file:
             file.write(text)
     if artifact is not None:
-        name = write_artifact(artifact, version, commit, image, latest, text)
+        name = write_artifact(artifact, version, commit, image, latest, text, board)
         if output is not None:
             with output.open("a") as file:
                 file.write(f"artifact={name}\n")
