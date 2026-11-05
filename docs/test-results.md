@@ -6,14 +6,17 @@ came from are in the table below.
 **Which firmware.** The golden image, the one a person can always go back to, is firmware 1.5.0. It is
 frozen: [`firmware/golden.json`](../firmware/golden.json) names it, and the bootloader holds its digest.
 The first release with [what restarts a stuck board](../firmware/README.md#when-the-board-is-stuck) is
-1.7.0. From 1.7.2 an update starts with no button. The latest is 1.12.0, on the board since 2026-11-04. Test images
-for the bench are numbered around them.
+1.7.0. From 1.7.2 an update starts with no button. The latest is 1.14.0, on the board since 2026-11-05, sent over
+Bluetooth from the iPhone app. Test images for the bench are numbered around them.
 
 Every run below was on one nRF7002 DK. The benches write one line per run to a local
 `results.jsonl`, which is not in git. A result is about the firmware and the bootloader it ran on:
 
 | Result | Firmware | Bootloader | Date |
 | --- | --- | --- | --- |
+| [Firmware 1.14.0 over Bluetooth, and the first data in Memfault](#firmware-1140-over-bluetooth-and-the-first-data-in-memfault) | 1.13.0 to 1.14.0 | The one that holds the pin | 2026-11-05 |
+| [Firmware 1.13.0 over Bluetooth from the iPhone app](#firmware-1130-over-bluetooth-from-the-iphone-app) | 1.12.0 to 1.13.0 | The one that holds the pin | 2026-11-05 |
+| [The phone apps over Wi-Fi, and released from GitHub](#the-phone-apps-over-wi-fi-and-released-from-github) | (no board) | (no board) | 2026-11-05 |
 | [Golden image tests](#the-golden-image-on-firmware-150), by the debug port and by a person | 1.5.0, the frozen file. G13 also 1.5.40 | The one that holds the pin | 2026-11-01 |
 | [Getting into the bootloader](#getting-into-the-bootloader-on-firmware-150) | 1.5.0 | The one that holds the pin | 2026-11-01 |
 | [Signing in to the console](#signing-in-to-the-console) | 1.5.0 | The one that holds the pin | 2026-11-01 |
@@ -26,7 +29,61 @@ Every run below was on one nRF7002 DK. The benches write one line per run to a l
 | [The serial console, and a real hang](#the-serial-console-and-a-real-hang-on-firmware-170) | 1.7.0 | The one that holds the pin | 2026-11-01 |
 | [One update to 1.7.0](#over-the-air-on-the-final-firmware) | 1.5.0 to 1.7.0 | The one that holds the pin | 2026-11-01 |
 
-<!-- OVER-THE-AIR REGRESSION: the section under this comment is the one place that says whether the over-the-air regression on the final firmware has run. Other documents link to it. When it has run, replace its text with the date, the firmware, the bootloader, the results and what failed on the way, and add a row to the table above. -->
+## Firmware 1.14.0 over Bluetooth, and the first data in Memfault
+
+On 2026-11-05 the owner sent 1.14.0 to the board over Bluetooth from the iPhone app, from 1.13.0, with the console at
+2.1.0. From the board's own log on the console, and the Memfault forwarder's log (UTC):
+
+| When (UTC) | What |
+| --- | --- |
+| 19:30:34 | `firmware 1.14.0+0 has arrived …: press Button 1 to install it` |
+| 19:32:20 | `on trial: 1.14.0+0 from 1.13.0+0` |
+| 19:32:31 | `update over Bluetooth: 1.14.0+0 from 1.13.0+0, succeeded, proof cloud, update 3 of this board` |
+| 19:32:31 | `status advertised for 120 s after the update over Bluetooth` |
+| 19:32:34 | The forwarder posted the board's first two Memfault chunks; Memfault answered 202, and the board was acknowledged |
+| 19:34:31 | The status no longer advertised |
+
+**1.14.0 is on the board, confirmed, and online.** Its new status window works on hardware: after the update over
+Bluetooth the board advertised its status service for 2 minutes and then stopped. **Memfault, as far as it went:** the
+chunks went over the board's AWS IoT connection, the forwarder (console 2.1.0) posted them, and Memfault lists the
+board with hardware `nrf7002dk` and software `1.14.0+0`.
+
+As expected, Button 1's line from before the restart did not reach the console this time: the install ran on 1.13.0,
+which does not have that fix. It counts for updates sent to a board that runs 1.14.0, which has not been seen yet.
+
+Not yet shown: a coredump (it needs the crash demonstration build, [`memfault.md`](memfault.md#showing-311-on-the-board)),
+and the first hourly heartbeat's metrics in Memfault.
+
+## Firmware 1.13.0 over Bluetooth from the iPhone app
+
+On 2026-11-05, at about 12:14 local time (17:14 UTC), the owner sent 1.13.0 to the board from the iPhone app 0.6.2,
+from 1.12.0. The app put the board's passkey on the clipboard (0.6.2's change) for pasting into the iPhone's pairing
+box. After Button 1 the board restarted at about 12:14:50 and was online at 12:15:00, and 1.13.0 confirmed itself on
+reaching AWS IoT. The first update over Bluetooth from our own app recorded here; the one before it (1.11.4, below) was
+from nRF Connect Device Manager.
+
+On 1.12.0 the board had dropped off the cloud several times, for a reason not known (one of them is below, on
+2026-11-04). No drop was seen on 1.13.0 between its update and 1.14.0's, about two hours later: too short to say the
+cause is gone.
+
+## The phone apps over Wi-Fi, and released from GitHub
+
+**Over Wi-Fi, no cable.** On 2026-11-05 `apps/ios/scripts/renew.sh` built the iPhone app from c0925a0 and installed it
+on the owner's iPhone over the Mac's Wi-Fi, with no cable, in 2 min 15 s; `--if-due` then found nothing newer and did
+nothing (commit baff264).
+
+**The release workflow's first runs** (`.github/workflows/release-apps.yml`, from tags, on 2026-11-05):
+
+| Tag | Result |
+| --- | --- |
+| `ios-v0.7.0` | Passed: built the unsigned IPA and published it on the console |
+| `android-v0.7.0` | Failed at "Build the signed APK", exit code 2 and no message: `build-release.sh` read the SDK's path from `apps/android/local.properties`, which only a developer's machine has. Fixed in 0e3545e |
+| `ios-v0.7.1`, `android-v0.7.1` | Passed |
+| `ios-v0.7.2`, `android-v0.7.2` | Passed |
+
+`apps/fetch-builds.sh` then put the published 0.7.2 builds in `apps/dist/`, each checked against the SHA-256 the
+console recorded. Not recorded here yet: an Android phone installing an update by itself, and SideStore on another
+member's iPhone.
 
 ## Firmware 1.12.0 over Wi-Fi, the board log, and the phone's own sign-in
 
@@ -127,6 +184,8 @@ password and then the six-box code. Cognito accepted the exchange and the consol
 
 **Not run yet:** the `MQTT` commands on the board itself (they are tested on the simulator), either phone app on a
 phone, and the iPhone app built for iOS.
+
+<!-- OVER-THE-AIR REGRESSION: the section under this comment is the one place that says whether the over-the-air regression on the final firmware has run. Other documents link to it. When it has run, replace its text with the date, the firmware, the bootloader, the results and what failed on the way, and add a row to the table above. -->
 
 ## Over the air on the final firmware
 

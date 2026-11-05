@@ -1080,8 +1080,10 @@ the trial is over before the first chunk goes.
 connection: in order, each after its answer, the same one again without one, the waits, the sizes, the sequence
 number's wrap and the device policy's guard. `tests/host/test_reset_cause.c` reads the cause once and clears it once,
 and checks what each set of bits comes down to. `tests/host/test_command.c` is built a second time with Memfault for
-the two commands, and `tests/host/test_cloud.c` checks the topic and the jobs message read where it arrives. What the
-SDK does on a crash, and the chunks reaching Memfault, are for a board.
+the two commands, and `tests/host/test_cloud.c` checks the topic and the jobs message read where it arrives. On the
+board, on 2026-11-05, 1.14.0's first two chunks reached Memfault and were acknowledged
+([`docs/test-results.md`](../docs/test-results.md#firmware-1140-over-bluetooth-and-the-first-data-in-memfault)). What
+the SDK does on a crash, and the hourly heartbeat, have not been seen on a board yet.
 
 ## Firmware update over Bluetooth
 
@@ -1090,11 +1092,14 @@ for a person standing next to it. The phone apps in `apps/` take the release fro
 it: see [`docs/mobile-apps.md`](../docs/mobile-apps.md). From 1.9.0 every build has it. The network
 core needs one debug-port flash to have the controller, after which every update can go either way.
 
-**It has worked on the air once.** On 2026-11-03 a board went from 1.11.3 to 1.11.4 from an iPhone with
+**It has worked on the air three times.** On 2026-11-03 a board went from 1.11.3 to 1.11.4 from an iPhone with
 nRF Connect Device Manager ("Upload only"): paired with the passkey relayed through the console, 844,762
 bytes in 57 s, Button 1, a 91 s swap, and the image confirmed itself on reaching AWS IoT (proof cloud).
-See [`docs/test-results.md`](../docs/test-results.md#the-first-update-over-bluetooth-1113-to-1114). Not
-tried yet: our own phone apps, an update with no Wi-Fi (proof person), and the failure cases below.
+See [`docs/test-results.md`](../docs/test-results.md#the-first-update-over-bluetooth-1113-to-1114). On
+2026-11-05 our own iPhone app sent 1.13.0 (app 0.6.2, the passkey pasted from the clipboard) and then 1.14.0, each
+confirmed with proof cloud; after 1.14.0's restart the board advertised its status for 2 minutes
+([`docs/test-results.md`](../docs/test-results.md#firmware-1140-over-bluetooth-and-the-first-data-in-memfault)). Not
+recorded yet: the Android app sending one, an update with no Wi-Fi (proof person), and the failure cases below.
 
 `sysbuild.conf` sets `SB_CONFIG_APP_BT_OTA`, which applies `bt_ota.conf` to the application, and
 `SB_CONFIG_NETCORE_HCI_IPC`, which puts Zephyr's `hci_ipc` with the SoftDevice Controller on the

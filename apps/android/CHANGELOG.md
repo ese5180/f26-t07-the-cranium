@@ -65,7 +65,7 @@ sent by e-mail. Its session is kept apart from the admin's, in its own encrypted
 with a fingerprint by the same rules. A board is named only by the id of its assignment. Every word is the customer
 site's, and the tests hold the two to each other.
 
-Not released yet: branch feature/customer-apps, 2026-11-05.
+Commit e05e272, 2026-11-05.
 
 ## 0.5.0
 

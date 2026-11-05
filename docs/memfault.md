@@ -1,9 +1,10 @@
 # Memfault: crashes, reboots and fleet metrics, over AWS IoT
 
-Course manual 3.11, from firmware 1.14.0 and the console's next version (`cloud/CHANGELOG.md`, Unreleased). AWS IoT
-stays the board's only cloud connection and its only way to be updated: Memfault gets a copy of what the board knows
-about itself, through AWS. Nothing here has run on a board yet, and nothing of the cloud part is deployed: see
-[What has not been run](#what-has-not-been-run).
+Course manual 3.11, from firmware 1.14.0 and console 2.1.0. AWS IoT stays the board's only cloud connection, and the
+console (or the phone app over Bluetooth) its only way to be updated: Memfault gets a copy of what the board knows about
+itself, through AWS. The Memfault project is the team's, in nRF Cloud. Console 2.1.0 is deployed with the project key
+in its secret, and the board runs 1.14.0: its first chunks reached Memfault on 2026-11-05. What has been shown and what
+has not: [What has run](#what-has-run).
 
 ## How it works
 
@@ -140,12 +141,15 @@ Memfault turns a coredump into a backtrace only with the symbols of the build th
 ID. `scripts/build.sh` runs `tools/memfault_upload.py` after each build, before the console upload:
 
 ```sh
-memfault upload-mcu-symbols build/app/zephyr/zephyr.elf
+memfault upload-mcu-symbols --software-type app --software-version 1.14.0+0 build/app/zephyr/zephyr.elf
 memfault upload-ota-payload --hardware-version nrf7002dk --software-type app --software-version 1.14.0+0 \
   build/app/zephyr/zephyr.signed.bin
 ```
 
-The second puts the version in Memfault's releases, as a record: boards are never updated from Memfault. A test
+The symbols go with the software type and version as well (0f02652): memfault-cli 1.12 does not find the GNU build ID
+in this ELF and refuses symbols with neither. The board reports the same version string. The second command puts the
+version in Memfault's releases, as a record: boards are never updated from Memfault. 1.14.0's symbols and release are
+there. A test
 image, or one built with `--symbols-only`, gets its symbols and no release. Without `~/.cranium/memfault_org_token`,
 the organization and project, or the `memfault` command, it says so in one line and does nothing; it never fails a
 build. The token goes to the command in its environment, never on its command line, and is never printed.
@@ -154,7 +158,8 @@ still holds that image.
 
 ## Setting it up
 
-What only the owner can do, in this order:
+What only the owner can do, in this order. All seven are done for the team's project; they are here for a new project
+or a new machine. Never put the project key, the token or the slugs in the repository:
 
 1. **A Memfault project.** Sign in to nRF Cloud and open Memfault from it (or sign up at memfault.com), and make a
    project. Its **project key** is under Project settings. Save it, and nothing else, in
@@ -171,13 +176,16 @@ What only the owner can do, in this order:
    says so.
 6. **Commit, then build:** `scripts/build.sh --version 1.14.0`. It uploads the image to the console, and the symbols and
    the release to Memfault.
-7. **Deploy 1.14.0** on the console, as any release: over the air, through AWS IoT Jobs.
+7. **Deploy 1.14.0** on the console, as any release: over the air, through AWS IoT Jobs, or send it from the phone app
+   over Bluetooth, as was done on 2026-11-05.
 
 ## Showing 3.11 on the board
 
-1. **Updates with version information.** Deploy 1.14.0 with a staged rollout (below). In Memfault each board shows
+1. **Updates with version information.** Deploy a release with a staged rollout (below). In Memfault each board shows
    its software version, `1.14.0+0`, the reboot before it as `FirmwareUpdate`, and an `update_succeeded` trace event
-   once it is confirmed. The release is under Software. The console shows the same job, as before.
+   once it is confirmed. The release is under Software. The console shows the same job, as before. 1.14.0 is on the
+   board already (sent over Bluetooth), and Memfault shows its software version. 1.13.0, which installed it, had no
+   Memfault to mark its restart as `FirmwareUpdate`, so the next update, from 1.14.0, is the one to watch end to end.
 2. **A coredump.** Build the demonstration, one build number above, with its own build directory, and give Memfault its
    symbols. It is a test image: it is never a GitHub release, and it gets no release in Memfault:
 
@@ -202,31 +210,36 @@ What only the owner can do, in this order:
    the previous image in the second slot and puts it back unless the new one confirms itself, and the coredump and the
    reboot reason of a new image that crashed on trial outlive that revert, so Memfault sees why B was given up.
 
-## What has not been run
+## What has run
 
-- Nothing here has run on a board: the image is built and measured, and the host tests pass, and that is all. The
-  coredump surviving a reset and a revert, MCUboot leaving the regions alone, the chunks reaching Memfault, the answers
-  coming back, and the metrics' values are for a board.
-- Nothing of the cloud part is deployed. Not known until it is: whether CloudFormation takes a secret made with no
-  value, whether the rule's `encode(*, 'base64')` works on these binary messages, whether the error log's role works,
-  and what Memfault's chunks API answers in each case.
+- **Shown, on 2026-11-05** ([`test-results.md`](test-results.md#firmware-1140-over-bluetooth-and-the-first-data-in-memfault)):
+  console 2.1.0 deployed with the project key stored; 1.14.0 sent to the board over Bluetooth from the iPhone app,
+  confirmed and online; the board's first two chunks posted by the forwarder at 19:32:34 UTC, Memfault answering 202,
+  and the board acknowledged; Memfault listing the board with hardware `nrf7002dk` and software `1.14.0+0`. So the
+  rule's `encode(*, 'base64')` hands these binary messages over, the function reads the key, and the answers reach the
+  board.
+- **Not shown yet:** a coredump (it needs the crash demonstration above on the board), and so the coredump surviving a
+  reset and a revert and MCUboot leaving the regions alone; the first hourly heartbeat's metrics and their values; a
+  staged rollout watched in Memfault; and what Memfault's chunks API answers other than 202.
 - A chunk that Memfault got and whose answer was lost goes twice. The SDK deletes a message once its last chunk is
   taken, so a board that restarts after that and before the answer loses that one message.
 - A coredump that does not fit 3,968 bytes is cut short at the end: some threads that did not crash are left out.
 
 ## Flash and RAM
 
-The application image of the nRF7002 DK, from `west build` of the same sources before and after:
+The application image of the nRF7002 DK, from `west build` of the same sources before and after Memfault, and the
+1.14.0 release, which also has the Bluetooth status (`firmware/CHANGELOG.md`):
 
-| | 1.13.0 sources | 1.14.0 |
-| --- | --- | --- |
-| Flash (application, of 794,474 bytes) | 724,836 bytes (91.2 %) | 740,816 bytes (93.2 %): 15,980 more |
-| Signed image (of a 933,888-byte slot) | 856,082 bytes | 872,061 bytes: 15,979 more, 61,827 left |
-| RAM, the application's region | 403,508 of 409,600 bytes: 6,092 free | 403,972 of 405,504 bytes: 1,532 free |
-| RAM for Memfault's two regions | none | 4,032 of 4,096 bytes |
+| | 1.13.0 sources | With Memfault | 1.14.0 release (da27f3a) |
+| --- | --- | --- | --- |
+| Flash (application, of 794,474 bytes) | 724,836 bytes (91.2 %) | 740,816 bytes (93.2 %): 15,980 more | 745,168 bytes (93.8 %) |
+| Signed image (of a 933,888-byte slot) | 856,082 bytes | 872,061 bytes: 15,979 more | 876,412 bytes: 57,476 left |
+| RAM, the application's region | 403,508 of 409,600 bytes: 6,092 free | 403,972 of 405,504 bytes: 1,532 free | 404,284 of 405,504 bytes: 1,220 free |
+| RAM for Memfault's two regions | none | 4,032 of 4,096 bytes | 4,032 of 4,096 bytes |
 
 Memfault costs 4,560 bytes of RAM in all: the 4 KiB of its regions, and 464 bytes more in the application, after the
 3,425 bytes that reading the jobs message where it arrives gave back (its 4,097-byte copy, less a copy of the download
-URL prefix and 512 bytes more of the MQTT thread's stack). MCUboot, TF-M and the network core's image are
-unchanged. Measured with `west build` of a copy of `firmware/`, the way `firmware/tests/hil/build_image.sh` builds, so
-that neither `firmware/app/VERSION` nor `binaries/` changed.
+URL prefix and 512 bytes more of the MQTT thread's stack). The Bluetooth status takes 312 bytes more. MCUboot, TF-M and
+the network core's image are unchanged. The first two columns were measured with `west build` of a copy of
+`firmware/`, the way `firmware/tests/hil/build_image.sh` builds, so that neither `firmware/app/VERSION` nor
+`binaries/` changed; the third is the release build of `scripts/build.sh`.

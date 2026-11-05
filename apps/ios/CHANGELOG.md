@@ -62,7 +62,7 @@ sent by e-mail. Its session is kept apart from the admin's, in Keychain items of
 same rules. A board is named only by the id of its assignment. Every word is the customer site's, and the tests hold
 the two to each other.
 
-Not released yet: branch feature/customer-apps, 2026-11-05.
+Commit ee4e200, 2026-11-05.
 
 ## 0.5.2
 

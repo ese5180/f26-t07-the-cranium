@@ -3,13 +3,17 @@
 The web console on a phone: every page of the website, in its colours and its words, talking
 directly to the console's API on AWS. A release manager can upload a signed image, revoke a release,
 deploy a release over the internet to one or more boards, cancel a deployment, make and revoke API
-tokens, and send a release to an nRF7002 DK over Bluetooth LE; a viewer sees everything, read-only,
+tokens, and send a release to an nRF7002 DK over Bluetooth LE and follow the board through the
+update (from 0.7.2 with the board's own status over Bluetooth); a viewer sees everything, read-only,
 as on the website. [`docs/mobile-apps.md`](../../docs/mobile-apps.md) is the contract this app
 follows: sign-in, the API, Bluetooth, what the board refuses, and what the app says when something
 goes wrong.
 
 It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator with made-up data
-(below). It has not yet been run against the real console, on a phone, or with a board.
+(below). On the owner's iPhone it has signed in to the real console (2026-11-04), and on 2026-11-05 it sent
+firmware 1.13.0 and then 1.14.0 to the board over Bluetooth, each confirmed
+([`docs/test-results.md`](../../docs/test-results.md)). The newest version is 0.7.2; installing it on a phone is in
+[`apps/README.md`](../README.md).
 
 From 0.6.0 that console is **admin mode**, and the app has a customer side too, as the customer
 website has ([`docs/customer-site.md`](../../docs/customer-site.md)).
@@ -62,8 +66,10 @@ account signs in, nothing is changed in its name.
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
 | `scripts/generate.sh` | Makes `Cranium.xcodeproj` |
 | `scripts/phone.sh` | Puts the app on your own iPhone with a free Personal Team; `--check` compiles it for iPhone without signing |
-| `scripts/renew.sh` | Builds main and installs it on the iPhone over Wi-Fi: again before a free team's 7 days end, and whenever main has a newer app; `--schedule` checks every hour |
-| `scripts/testflight.sh` | Archives a Release build and uploads it to TestFlight |
+| `scripts/renew.sh` | Builds main and installs it on the iPhone over Wi-Fi: again before a free team's 7 days end, and whenever main has a newer app; `--schedule` checks every hour (`--if-due`) |
+| `scripts/build-ipa.sh` | Builds the unsigned IPA for SideStore, `apps/dist/cranium-ios-<version>.ipa`; `--publish` also publishes it |
+| `scripts/publish.sh` | Publishes an IPA on the console's Apps page with an API token, where every member's SideStore source lists it |
+| `scripts/testflight.sh` | Archives a Release build and uploads it to TestFlight (paid Apple Developer Program only) |
 | `scripts/check.sh` | Everything that can be checked without a phone |
 | `scripts/colors.sh` | Makes the colour sets from the website's stylesheet again |
 | `scripts/stamp-commit.sh` | Build phase: writes the commit the app was built from into it, for Help, About |
@@ -129,11 +135,12 @@ included (`SendCheck.swift`).
   It names the AWS account, so it is not in git, and the build copies it into the app, never into
   the source tree. Without it a Debug build uses `cranium.example.json`: an orange banner says so,
   and sign-in cannot work. A Release build stops.
-- An Apple Developer Program membership.
-- The app record in App Store Connect, with bundle ID `com.craniumiot.cranium`. Register the
-  bundle ID first, at developer.apple.com under Certificates, Identifiers & Profiles, or let
-  Xcode register it the first time it signs the app.
-- For TestFlight, an App Store Connect API key with the App Manager role (Users and Access,
+- An Apple ID. A free one is enough for your own iPhone (Xcode's Personal Team) and for SideStore.
+- For TestFlight only: an Apple Developer Program membership, and the app record in App Store
+  Connect, with bundle ID `com.craniumiot.cranium`. Register the bundle ID first, at
+  developer.apple.com under Certificates, Identifiers & Profiles, or let Xcode register it the first
+  time it signs the app.
+- For TestFlight only, an App Store Connect API key with the App Manager role (Users and Access,
   Integrations). Keep it outside the repository:
 
   ```
@@ -204,8 +211,8 @@ apps/ios/scripts/check.sh
 apps/ios/scripts/phone.sh --check
 ```
 
-`check.sh` builds the package, runs its tests (179 of them, Swift Testing: 170 in CraniumKitTests,
-9 in CraniumBLETests; the firmware cache's on real files in a temporary folder), type-checks the
+`check.sh` builds the package, runs its tests (Swift Testing: 319 `@Test` functions, 310 in
+CraniumKitTests and 9 in CraniumBLETests; the firmware cache's on real files in a temporary folder), type-checks the
 app's sources against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only
 the Command Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.
 `phone.sh --check` compiles the app for iPhone, without signing.

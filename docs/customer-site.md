@@ -2,16 +2,21 @@
 
 The website customers sign in to, on the name the team bought for it, with an **admin mode** for the team that opens
 the firmware console. Customers see their own boards and nothing else; admins hand out the accounts and the boards from
-the console's new **Customers** page. It is part of the console's stack (`cloud/`), and nothing of it is live until the
-stack is deployed with the site's name (below). Console version 2.0.0.
+the console's new **Customers** page. It is part of the console's stack (`cloud/`), from console 2.0.0.
 
-Below, `example.com` stands for the customer site's name: the domain the owner bought.
+**It is live at https://craniumiot.com**, deployed with console 2.1.0 (bcc5a19): the customer sign-in, and **Admin
+sign-in**, which leads to admin mode, the console at https://craniumiot.com/admin. https://www.craniumiot.com sends the
+browser to the bare name. The team's console also stays on its own name, https://console.craniumiot.com. The public home
+page that used to be on craniumiot.com is no longer deployed (`HomeDomainName` is empty), and the customer site uses
+the certificate it had, which covers both names. DNS is at Cloudflare, with "DNS only" CNAMEs.
+
+Below, `example.com` stands for the customer site's name, so that the steps fit any name.
 
 ## What a visitor sees
 
 | Address | Who | What |
 | --- | --- | --- |
-| `https://example.com/` | anybody | The home page: what Cranium is, what an account shows, how updates work, what is coming, where the project stands. Plain HTML, readable without JavaScript |
+| `https://example.com/` | anybody | The site's own front page: what Cranium is, what an account shows, how updates work, what is coming, where the project stands. Plain HTML, readable without JavaScript |
 | `#/sign-in` | customers | E-mail and password; the code of an authenticator app, in six boxes, if the customer turned one on; a new password at the first sign-in |
 | `#/forgot` | customers | A password reset with a code e-mailed by Cognito |
 | `#/admin-sign-in` | the team | The staff account of the console: e-mail, password and code, always |
@@ -51,7 +56,8 @@ and **updates started by a customer**: the mockup has none, so updates stay with
 
 ## Accounts
 
-Two Cognito user pools, kept apart on purpose:
+Two Cognito user pools, kept apart on purpose. One sign-in for everybody, with roles deciding what each person sees,
+is planned and not built: today a customer and a team member sign in to different pools.
 
 | | Staff pool (`UserPool`) | Customer pool (`CustomerUserPool`) |
 | --- | --- | --- |
@@ -88,8 +94,8 @@ A customer's token never opens the console's API, and a staff token never opens 
 
 ## Admin mode
 
-Admins are the staff pool's people, today's release managers (a viewer who signs in sees admin mode too, read only, as on
-the console). On the customer site, **Admin sign-in** asks for the staff account's e-mail, password and code, always. A
+Admins are the staff pool's people. All four of the team are release managers, the console's top role (a viewer who
+signs in would see admin mode too, read only, as on the console). On the customer site, **Admin sign-in** asks for the staff account's e-mail, password and code, always. A
 signed-in admin sees **Admin mode** (in the sidebar, the top bar on a phone, and the admin overview), which opens the
 console at `/admin` of the same name, signed in already. The console's account box then has **Leave admin mode**.
 
@@ -153,7 +159,8 @@ recorded. An invitation waits for the site to have an address: until `CustomerDo
 
 The customer site needs a certificate for the name and `www.`, a deployment with the name, and two DNS records. Nothing
 changes until both parameters are set: with them empty there is no customer site, no invitation goes out, and every
-other name answers as before.
+other name answers as before. For craniumiot.com this is done: the certificate is the one the old home page had, and
+the two records are at Cloudflare.
 
 1. **Request one certificate for both names**, in the stack's Region (`us-east-1` unless `AWS_REGION` says otherwise),
    and read the two records that prove you own them:
@@ -207,8 +214,8 @@ other name answers as before.
 
 `Strict-Transport-Security` with `includeSubDomains` is sent on these pages too, for two years: once a browser has been
 to the bare name, it refuses plain HTTP on every name under it, names added later included. The customer site shares the
-page routes' request limit and the web function with the console and the home page (cloud/README.md, "The home page");
-the customer API has a request limit of its own (`GET /api/c/{proxy+}`: 20 at once, 10 a second).
+page routes' request limit and the web function with the console (cloud/README.md, "Request limits"); the customer API
+has a request limit of its own (`GET /api/c/{proxy+}`: 20 at once, 10 a second).
 
 ## The admins' accounts
 
@@ -245,7 +252,7 @@ they can be taken back.
   password again: whoever holds an open session can do it.
 - **The masthead.** The console's Customers item means the account box takes a second row at 1440 px wide; below
   1280 px it did already.
-- **The phone apps** (0.6.0) have the customer side: a customer signs in on the app and sees the same pages in the
+- **The phone apps** (from 0.6.0) have the customer side: a customer signs in on the app and sees the same pages in the
   same words, and an admin opens admin mode there ([docs/mobile-apps.md](mobile-apps.md#customers)). They do not have
   the Customers page: inviting customers and giving them boards stays on the website. Their activity log reads the
   new entries in the website's words (Android `Audit.kt`, iOS `Words.swift`, held to it by `WebsiteListsTest`,
@@ -254,8 +261,10 @@ they can be taken back.
 - **On a stack that exists, the customer pool is created with deletion protection on**, like the events table was; if
   that update failed and rolled back, CloudFormation could not delete the new pool, and it would have to be removed by
   hand. `cloud/teardown.sh` deletes it with the rest.
-- **Not tried on AWS.** Everything above runs in the tests and the local preview (below); the gateway's authorizers, the
-  certificate, the DNS and Cognito's e-mail are checked only by a deployment.
+- **What the deployment has shown.** The site answers on craniumiot.com with the certificate and the DNS above, and
+  `www.` sends the browser to it. Everything else above runs in the tests and the local preview (below); no result of a
+  customer's sign-in, an invitation e-mail or the gateway's refusals on AWS is recorded in
+  [`test-results.md`](test-results.md) yet.
 
 ## Trying it without AWS
 

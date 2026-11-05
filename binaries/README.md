@@ -1,8 +1,10 @@
 # binaries
 
 `scripts/build.sh` builds the firmware with the next unused version, and its signed image lands
-here, named by that version. Any `west build` of this checkout stores its image here too. Git ignores
-everything in this folder except this file.
+here, named by that version. It then uploads the image to the console as a release, and its symbols
+and release to Memfault ([`docs/memfault.md`](../docs/memfault.md#symbols-and-releases)). Any
+`west build` of this checkout stores its image here too. Git ignores everything in this folder except
+this file.
 
 | File | What it is |
 | --- | --- |
@@ -13,17 +15,21 @@ everything in this folder except this file.
 | `golden/cranium-<version>-<build>.signed.bin` | The frozen golden image. Only `tools/golden.py freeze` puts it there, and nothing removes it: a build never touches this folder |
 | `golden/mcuboot-before-golden.hex` | The bootloader that was on the board before the golden image, kept as the way back |
 
-Two ways to put an image on a board over the air:
+Three ways to put an image on a board over the air:
 
 - **From the command line:** `scripts/ota.sh` installs the newest build, and
   `scripts/ota.sh binaries/cranium-1.7.0-0.signed.bin` installs that one.
 - **From the website:** on the console's Firmware page, choose the file here. The server
   checks its signature against the project's public key before it stores anything, and
   then offers to deploy it.
+- **Over Bluetooth, from the phone app:** once a release is on the console, a release manager
+  sends it from the app to a board nearby, and a person presses Button 1 there
+  ([`docs/mobile-apps.md`](../docs/mobile-apps.md)). 1.13.0 and 1.14.0 reached the board this way.
 
 A release must be newer than every release uploaded before it. `scripts/build.sh` takes care of that,
-or set a new version in `firmware/app/VERSION` before a plain `west build`. Images built by the test bench, images with a
-test fault built in and images built for Bluetooth are not kept here.
+or set a new version in `firmware/app/VERSION` before a plain `west build`. Images built by the test bench
+and images with a test fault built in are not kept here. Every build from 1.9.0 has Bluetooth, and
+`latest.json` says so (`"bluetooth": true`).
 
 **Before a demo on the website.** A file dropped on the console's Firmware page must be newer than
 every release ever registered, revoked ones included. Otherwise the console refuses it and names the
@@ -36,7 +42,8 @@ uploaded twice, so it is refused once it has been uploaded, or once anything hig
 
 A published release on [GitHub](https://github.com/ese5180/f26-t07-the-cranium/releases) holds a signed
 image, its `latest.json` and `SHA256SUMS`, made by whoever holds the signing key with
-`scripts/github-release.sh`. None has been published yet at the time of this writing. A board and the
+`scripts/github-release.sh`. None has been published as of 2026-11-05: the firmware's releases are on the
+console, and its git tags (`firmware-v<version>`) mark their source. A board and the
 console take such an image like one from this folder. To fetch one, for example `v1.7.0`:
 
 ```sh

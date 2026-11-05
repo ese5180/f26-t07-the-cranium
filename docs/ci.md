@@ -9,7 +9,16 @@ are free, anybody can read the logs, and anybody signed in to GitHub can downloa
 the pull request: the scan, the host tests, the Python tests, the cloud tests, and both firmware builds, on
 Linux, in about six minutes. The run before it failed only the Python job, on 24 tests that skipped because
 `console_sim_fault` was not built, which this job refuses. The job that checks a published release has not run,
-because no release has been published, and `scripts/github-release.sh` has not been run for real.
+because no firmware release has been published on GitHub (none as of 2026-11-05), and `scripts/github-release.sh` has
+not been run for real. The phone apps' release workflow has run: [Releasing the apps](#releasing-the-apps).
+
+**A cancelled run is usually not a failure.** Two things cancel jobs. A newer push to the same branch cancels the run
+before it (`concurrency` in `ci.yml`), which is meant: the newer run checks the newer commit. And GitHub's macOS
+runners are often short of capacity, so the iPhone app's job, the only one on macOS, can be cancelled with "The job was
+not acquired by Runner of type hosted even after multiple attempts" while every other job passed, and the run then
+shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run's page (Re-run jobs) or with
+`gh run rerun <run id>`; nothing in the commit needs changing. The same can happen to the iPhone job of
+`release-apps.yml`.
 
 ## What runs
 
@@ -17,7 +26,7 @@ because no release has been published, and `scripts/github-release.sh` has not b
 | --- | --- | --- | --- |
 | No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
 | Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
@@ -39,6 +48,7 @@ Tests that skip themselves:
 | Test | Why | On Actions |
 | --- | --- | --- |
 | `test_golden.py`: `test_the_frozen_key_verifies_the_kept_image_if_there_is_one` | It needs `binaries/cranium-1.3.0-0.signed.bin`, which is not in git | Skipped. The Python job fails if any other test skips |
+| `test_flash_layout.py`: `test_the_last_build_is_layout_1` | It needs a build in `build/`, and the Python job builds nothing (the firmware jobs check their own build's partitions) | Skipped |
 | `cloud/web`: `the file on disk, where this checkout has one, holds what it may` | It needs `history.json`, which only a deployment writes | Skipped |
 
 Without `firmware/tests/host/build/console_sim` and `console_sim_fault`, `test_board.py` skips most of
@@ -276,11 +286,12 @@ address, set `CRANIUM_CONFIG_JSON` again.
 tag that commit and push the tag, which starts the job:
 
 ```sh
-git tag -a ios-v0.7.0 -m "<the first paragraph>"
-git push origin main ios-v0.7.0
+git tag -a ios-v0.7.3 -m "<the first paragraph>"
+git push origin main ios-v0.7.3
 ```
 
-From a phone or any browser: on GitHub, Releases > Draft a new release > Choose a tag, type `ios-v0.7.0`, **Create new
+`apps/release.sh <version>` does all of it for both apps ([`apps/README.md`](../apps/README.md#release-a-new-version-team)).
+From a phone or any browser: on GitHub, Releases > Draft a new release > Choose a tag, type `ios-v0.7.3`, **Create new
 tag on publish**, target `main`, then Publish release. The tag starts the job; the release itself has no files and
 needs none. To run a release again (after setting a secret, say): Actions > Release the apps > Run workflow, with the
 app and the tag as `ref`. Publishing the same build twice is refused as other bytes under a published version, which
@@ -296,10 +307,16 @@ firmware. The configuration names the AWS account and is no credential. To narro
 (`gh secret set NAME --env release --repo "$REPO"`, then `gh secret delete NAME --repo "$REPO"`): a workflow on any
 other branch then cannot read them. Revoke the token on the console whenever in doubt, and set a new one.
 
-**Not run yet.** The workflow has not run on GitHub: it needs the secrets above, which only the owner can set. Its
-pieces have: the restore step with a throwaway keystore, `build-ipa.sh` on a Mac with Xcode 27 (an unsigned
-`cranium-ios-0.5.2.ipa` that the console's reader takes), and `publish.sh` for both apps against the console's own code
-in `cloud/api/test/`.
+**It has run.** The owner set the four secrets, and on 2026-11-05 the tags released the apps from GitHub:
+
+| Tag | Result |
+| --- | --- |
+| `ios-v0.7.0` | Passed |
+| `android-v0.7.0` | Failed at "Build the signed APK", exit code 2 and no message. `build-release.sh` read the SDK's path from `apps/android/local.properties`, which exists only on a developer's machine; under `set -o pipefail` the failed read ended the script before it looked at `ANDROID_HOME`, which the runner sets. `publish.sh` had the same lookup for `aapt2`. Both now fall back when the file is missing (0e3545e) |
+| `ios-v0.7.1`, `android-v0.7.1` | Passed |
+| `ios-v0.7.2`, `android-v0.7.2` | Passed |
+
+A tag made this way is only a tag: no GitHub Release is made, and none is needed.
 
 ## The check on a release
 
@@ -347,6 +364,9 @@ python3 firmware/tests/hil/test_board.py
 python3 firmware/tests/hil/test_recover.py
 python3 firmware/tests/hil/test_golden.py
 python3 firmware/tests/hil/test_build_report.py
+python3 firmware/tests/hil/test_check_image.py
+python3 firmware/tests/hil/test_flash_layout.py
+python3 firmware/tests/hil/test_memfault_upload.py
 (cd cloud/api && node --test); (cd cloud/web && node --test); (cd cloud/dev && node --test)
 ```
 

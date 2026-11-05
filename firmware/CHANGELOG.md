@@ -23,8 +23,8 @@ again after 20 s without an answer and then backing off to an hour (src/mflt_lin
 reboot reason sit in two RAM regions at the same address in every image from this one, so they outlive a revert. The
 reset cause has one reader now, src/reset_cause.c, so Memfault sees the real one. A `memfault` command takes a heartbeat
 and sends it at once. The jobs message is read where it arrives, which saves its 4 KB copy. Flash 740,816 of 794,474 bytes;
-RAM 403,972 of 405,504, and 4,032 for Memfault's regions: 1.5 KB free, from 6.1 KB (docs/memfault.md). Not yet run on
-a board.
+RAM 403,972 of 405,504, and 4,032 for Memfault's regions: 1.5 KB free, from 6.1 KB (docs/memfault.md), before the
+Bluetooth status below.
 
 Bluetooth status: a GATT service of its own (9112B1B4-2A51-40F0-94D3-A76440F0E6CC) with one characteristic, read and
 notify, 64 bytes of format 1 (src/bt_status.h, docs/mobile-apps.md): the window and its seconds, the image, a
@@ -40,7 +40,12 @@ rebooting, at QoS 1 with its own message ID, and the board restarts on that PUBA
 cloud_shadow_report_acked()). Button 2 and the time running out tell the phone before its link goes. A full event ring
 lets go of a line that is not about an update first (tags BT, bt_ota, ota). With all of it: flash 745,168 of 794,474
 bytes, RAM 404,284 of 405,504 (1,220 free, 312 used by the status), signed image 876,412 bytes; the ring stays at 32
-lines. Host tests: 30 programs, 0 failures. Not yet run on a board.
+lines. Host tests: 30 programs, 0 failures.
+
+Commit da27f3a. On the board from 2026-11-05, sent over Bluetooth from the iPhone app: confirmed, its status advertised
+for 2 minutes after the restart, and its first Memfault chunks taken by Memfault (docs/test-results.md). Not yet seen:
+a coredump, the hourly heartbeat in Memfault, and Button 1's line reaching the console before a restart, which needs an
+update sent to a board that already runs 1.14.0.
 
 ## 1.13.0
 
@@ -53,7 +58,10 @@ Board type and flash layout in protected TLVs 0xa1 and 0xa2, and in the diagnost
 as `incompatible_board` or `incompatible_layout` before it is marked, and the build stops if the partitions change
 without a new layout number. Commands on `cranium/<thing>/commands`, answered as `[CMD]` events; location on
 `cranium/<thing>/location`, a 2.4 GHz scan once a boot, every 6 hours and on Report, never within 10 minutes of the last
-or during an update. RAM estimated at about 0.9 KB above 1.12.0; not yet built.
+or during an update. RAM estimated at about 0.9 KB above 1.12.0 before it was built.
+
+Commit 8e96b39; signed image 856,081 bytes. On the board from 2026-11-05, sent over Bluetooth from the iPhone app
+0.6.2, and confirmed on reaching AWS IoT (docs/test-results.md).
 
 ## 1.12.0
 

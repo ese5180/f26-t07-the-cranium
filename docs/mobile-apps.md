@@ -20,10 +20,12 @@ This file is the contract both apps follow. The board's side is in
 3. At the board, hold **Button 1** for 5 s and let go. LED1 flashes four times: Bluetooth is open
    for 3 minutes (2 before firmware 1.11.2).
 4. In the app, pick the board, `Cranium-` and four hex digits.
-5. Type the 6-digit passkey into the phone's pairing prompt. The app shows it, fetched from the
+5. Enter the 6-digit passkey in the phone's pairing prompt. The app shows it, fetched from the
    cloud, when the board is online, with the board the console gave it for ("Board in the console:
-   cranium-…"), so that a mix-up between two boards shows. Otherwise it is on the board's serial
-   console, `[BT] passkey`.
+   cranium-…"), so that a mix-up between two boards shows. From app 0.6.2 it is also on the clipboard
+   as soon as it arrives, for 2 minutes (on the iPhone for this phone only; on Android marked sensitive),
+   and the top of the screen says so: in the pairing box, tap the field, **Paste**, **Pair**. Otherwise it
+   is on the board's serial console, `[BT] passkey`.
 6. The app sends the image: the one on the phone if it has it (see [Cache](#cache)), else one it
    downloads from AWS first. Right before it sends, whatever the image came from, it asks the console
    whether the release is still active and the image is still its own
@@ -562,7 +564,9 @@ the app as an **unsigned IPA** (`apps/ios/scripts/build-ipa.sh`) and publishes i
 4. SideStore renews the app on the iPhone every 7 days, over Wi-Fi, by itself, and shows each new version under
    Updates. If it has not refreshed for a week, open SideStore once.
 
-A free Apple ID can have three apps signed at a time, SideStore itself among them, and ten new app IDs a week. The app
+Whether SideStore works on iOS 26.4 and later is not certain: recent iOS releases have broken its refresh before, so
+check [sidestore.io](https://sidestore.io) for your iOS version first. A free Apple ID can have three apps signed at a
+time, SideStore itself among them, and ten new app IDs a week. The app
 is signed with the person's team, so it keeps its own sign-in and settings from one update to the next, but not across
 a change of Apple ID. Nothing in the app uses App Groups, iCloud or push notifications, which a free team cannot sign.
 
@@ -599,6 +603,9 @@ A version is published once and only upward, by its version and its build (`CURR
 ## Building and shipping
 
 See `apps/ios/README.md` and `apps/android/README.md`. The iPhone app reaches the team through SideStore (above), and
-can still go to TestFlight with an App Store Connect API key kept in `~/.cranium`, never in git, for a paid team. The Android app is a signed APK, published on the
-console's Apps page by `apps/android/build-release.sh` (above) for the team to download, and never attached to a
-public release, because it holds the values in the configuration above.
+can still go to TestFlight with an App Store Connect API key kept in `~/.cranium`, never in git, for a paid team. The
+Android app is a signed APK, published on the console's Apps page by `apps/android/build-release.sh` (above) for the
+team to download. The newest published build of each app is also in git, in `apps/dist/` with `SHA256SUMS`, byte for
+byte what the console serves (`apps/fetch-builds.sh`; [`apps/README.md`](../apps/README.md)). Those builds hold the
+configuration above: the console's address and its public client and pool IDs, which the console's own website serves
+to every visitor, and no password, key or token. Local builds stay out of git.

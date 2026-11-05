@@ -31,7 +31,9 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | IoT rules and the recorder | Three AWS IoT rules hand each shadow report, each connection and each line a board prints on its console to a small Lambda function that writes the boards' events: [The event log](#the-event-log). |
 | Cognito user pool | Console accounts: created by an administrator, password plus authenticator app. A small Lambda function, the sign-in trigger, gives the console's own sign-in page its scope: [Sign-in](#sign-in). |
 | Cognito customer pool | The customer site's accounts, apart from the staff pool: invited from the console's Customers page, password of 10 characters, an authenticator app if the customer wants one: [docs/customer-site.md](customer-site.md). |
-| HTTP API and two Lambda functions | The console and the public home page: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. The same page function serves the customer site, and a fifth function, the customer API, answers `GET /api/c/` behind the customer pool's own authorizer. |
+| HTTP API and two Lambda functions | The console: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. The same page function serves the customer site, and a fifth function, the customer API, answers `GET /api/c/` behind the customer pool's own authorizer. The page function can also serve a public home page on a name of its own (`HomeDomainName`), which is not deployed now: craniumiot.com is the customer site. |
+| Fleet functions | The staged rollouts' schedule, the location function and the e-mail alerts' topic: [The fleet](#the-fleet-board-types-groups-and-staged-rollouts). |
+| Memfault forwarder | From console 2.1.0: `MemfaultRule` hands each chunk a board publishes on `cranium/<thing>/memfault` to `MemfaultFn`, which posts it to Memfault with the project key from Secrets Manager and answers the board: [`memfault.md`](memfault.md). |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
 
 ## A board's identity
@@ -76,7 +78,7 @@ its own thing and its own topics. `T` stands for that thing name.
 | Action | Resource |
 | --- | --- |
 | Connect | client ID `T`, and only while the certificate is attached to thing `T` |
-| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update`, `cranium/T/events`, `cranium/T/location` |
+| Publish | `$aws/things/T/shadow/update`, `$aws/things/T/jobs/$next/get`, `$aws/things/T/jobs/<job>/update`, `cranium/T/events`, `cranium/T/location`, `cranium/T/memfault` |
 | Subscribe, receive | `$aws/things/T/jobs/notify-next`, `$aws/things/T/jobs/$next/get/*`, `$aws/things/T/jobs/<job>/update/*`, `cranium/T/commands` |
 
 A board cannot read or write another board's shadow or jobs, cannot publish to any other
@@ -85,7 +87,9 @@ the board's console ([The board log](#the-board-log)): publish only, nobody subs
 gets nothing back on it. From 1.13.0 ([The map, commands and alerts](#the-fleet-the-map-commands-and-alerts)):
 `cranium/T/location`, publish only, what the board hears of the Wi-Fi around it, which only a rule reads; and
 `cranium/T/commands`, subscribe (as a topic filter) and receive only, where the console's commands arrive. A board
-can neither send itself a command nor hear another board's or anyone's scans.
+can neither send itself a command nor hear another board's or anyone's scans. From 1.14.0 (console 2.1.0):
+`cranium/T/memfault`, publish only, the Memfault SDK's chunks, which only the Memfault rule reads; the answers come
+on `cranium/T/commands` ([`memfault.md`](memfault.md)).
 
 The policy has a fixed name, `cranium-device`, because provisioning attaches it by name. Changing its document is an
 update in place: CloudFormation's `AWS::IoT::Policy` says "Update requires: No interruption" for `PolicyDocument` and
@@ -93,7 +97,8 @@ update in place: CloudFormation's `AWS::IoT::Policy` says "Update requires: No i
 default, so every certificate it is attached to has the new topic at once, and no board has to be provisioned again.
 AWS IoT keeps at most five versions of a policy; whether CloudFormation deletes the oldest by itself once there are five
 is not stated on that page. This policy had never changed since it was created on 2026-10-10 (git history of
-`cloud/infra/template.yaml`), so the `events` topic is its first change: if a deployment fails on the version limit,
+`cloud/infra/template.yaml`), so the `events` topic was its first change; the commands and location topics (console
+1.10.0) and the memfault topic (2.1.0) changed it again. If a deployment fails on the version limit,
 `aws iot list-policy-versions --policy-name cranium-device` shows them and `aws iot delete-policy-version` removes one
 that is not the default.
 
@@ -222,15 +227,18 @@ to send shorter records.
 
 ## The console
 
-The console is at https://console.craniumiot.com. The public home page, which signs nobody in, is at
-https://craniumiot.com. Sign-in is through Cognito: accounts are created by an administrator, and every
+The console is at https://console.craniumiot.com, and also at https://craniumiot.com/admin, as the customer site's
+admin mode. https://craniumiot.com is the customer site (below), and https://www.craniumiot.com sends the browser
+there; the public home page that was on that name is no longer deployed. Sign-in is through Cognito: accounts are created by an administrator, and every
 account needs a password of at least 12 characters and a code from an authenticator app. A temporary
 password works for 3 days. A session lasts 60 minutes. The console keeps no refresh token, so it then
 asks for the password and the code again. *Viewers* can look; *release managers* can upload, deploy,
-cancel and revoke. [`cloud/README.md`](../cloud/README.md#add-users) has the details.
+cancel and revoke. All four of the team are release managers. [`cloud/README.md`](../cloud/README.md#add-users) has the
+details.
 
 **The customer site** ([docs/customer-site.md](customer-site.md)) is a website for customers on a name of its own
-(`CustomerDomainName`), with accounts in a second user pool. A customer sees their own boards, by an id of the
+(`CustomerDomainName`, craniumiot.com), with accounts in a second user pool. One sign-in for both pools, with roles, is
+planned and not built. A customer sees their own boards, by an id of the
 board's assignment, never by its thing name; a token of the customer pool opens only the customer API, and a staff token
 only the console's, at the gateway and again in each function. Release managers invite customers and give them boards
 on the console's Customers page, each change in the activity log. On that name the console is the site's **admin
@@ -305,12 +313,11 @@ open the API to every client of the pool that can sign in through the API. The a
 out, because the console never needs it and a token without it is worth less to a thief. The managed
 login pages stay, for the steps above and as a way in if this page fails.
 
-**What only a deployment shows.** All of this has run against the stand-in and in the local preview,
-not against Cognito. Still to see with a real account: that Cognito accepts the claim; that the token
-from the console's page carries `cranium/console`, not the admin scope, and still has the groups; that
-the user pool API answers the browser across origins; that `/oauth2/revoke` revokes a refresh token
-made this way; how Cognito answers repeated wrong codes; and that the managed login pages and the phone
-apps sign in as before. While the trigger cannot be called nobody gets a token, by either page or app:
+**What a deployment has shown.** This page has been deployed since 22e9c37. On 2026-11-02 the owner signed in on it
+with the password and the six-box code: Cognito accepted the exchange, so it takes the claim, and the console's API
+accepted the token, which it does only with `cranium/console`. On 2026-11-04 the iPhone app signed in the same way
+([`test-results.md`](test-results.md)). Not checked one by one yet: that the token lacks the admin scope and still has
+the groups, that `/oauth2/revoke` revokes a refresh token made this way, and how Cognito answers repeated wrong codes. While the trigger cannot be called nobody gets a token, by either page or app:
 on the first deployment with it, for the moments between the update of the pool and the creation of the
 function. `cloud/logs.sh signin` shows its invocations.
 
@@ -829,8 +836,8 @@ month) are within Lambda's free tier; SNS bills e-mail deliveries by its own pri
 
 ## The phone apps on the console
 
-The Apps page ([`docs/mobile-apps.md`](mobile-apps.md#the-apps-page)) hands out the Android app and says how to build
-the iPhone app. Five routes of the API (`cloud/api/src/handlers/apps.mjs`), all under the gateway's existing `GET` and
+The Apps page ([`docs/mobile-apps.md`](mobile-apps.md#the-apps-page)) hands out the Android app, and the iPhone app
+through each member's SideStore source or a build from a Mac. Five routes of the API (`cloud/api/src/handlers/apps.mjs`), all under the gateway's existing `GET` and
 `POST` routes, with a session or, as `/api/t/...`, an API token:
 
 | Route | Who | On record | What |
@@ -924,7 +931,7 @@ sign-in (see [Known limits](#known-limits)).
 After a new signing key, run `cloud/deploy.sh --replace-signing-key`, so that the console
 trusts its public half. `secrets/README.md` covers the rest.
 
-`cloud/logs.sh api|web|events|signin|access|iot` follows the logs. `cloud/teardown.sh` removes the console and
+`cloud/logs.sh api|web|events|location|memfault|memfault-errors|signin|access|iot` follows the logs. `cloud/teardown.sh` removes the console and
 what it stored. It leaves the budget stack, the `cranium-trail` stack with its log files, and the
 log group `AWSIotLogsV2`.
 
@@ -1071,14 +1078,14 @@ Stated plainly. What has been measured, and on which firmware, is in the
   error, unless the browser tries HTTPS by itself or has been here before and remembers
   `Strict-Transport-Security`. On a first visit on a hostile network, an attacker could answer on port
   80 instead. The invitation mail links to the `https://` address.
-- The home page's names are not a separate site. The stack maps them to the same API and stage as the
+- The home page's names, when `HomeDomainName` is set (it is empty now), are not a separate site. The stack maps them to the same API and stage as the
   console's name, so `/api/me` on the home host is the console's API, behind the same token check. With
   no token it gets the same 401 from the gateway, and `/api/t/` on the home host gets the API function's
   401 for a missing API token. The web function's 404 for that path, which
   `cloud/web/test/home.test.mjs` checks, is not what a `GET` there meets, because the API's route claims
   it first. No page on those names calls the API, and a token is good for nothing there that it was not
-  good for already. This is from `cloud/infra/template.yaml`, and was not tried on the deployed home
-  page.
+  good for already. This is from `cloud/infra/template.yaml`, and was not tried while the home page was
+  deployed. The customer site's names map to the same API too, on purpose (`/api/c/`, and the console at `/admin`).
 - The event log is a view of what the boards reported, not a record anyone can rely on: a board writes
   its own shadow, a message that the rule or the recorder loses is a missing event with no error to say so
   (the rules have no error action), and AWS IoT can deliver a presence message twice or out of order. The

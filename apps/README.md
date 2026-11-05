@@ -1,8 +1,9 @@
 # The Cranium phone apps
 
 Two apps, one for iPhone (`ios/`, Swift) and one for Android (`android/`, Kotlin), with the same screens: sign in, the
-boards, firmware, deployments, the activity log, and updating a board over Bluetooth. The newest published build of each
-is in [`dist/`](dist/), with its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
+boards, firmware, deployments, the activity log, and updating a board over Bluetooth, for the team in admin mode; and a
+customer side, as on the customer website. The newest published build of each (0.7.2 now) is in [`dist/`](dist/), with
+its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
 [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
 ## Get the app on your phone
@@ -50,7 +51,8 @@ Then keep it opening and up to date, with no cable: `apps/install.sh iphone --sc
 ### iPhone, without a Mac (SideStore)
 
 Free, open source, and nothing to do with Apple's paid programme; each person uses their own Apple ID. Check
-[sidestore.io](https://sidestore.io) first for your iOS version: recent iOS releases have broken its refresh before.
+[sidestore.io](https://sidestore.io) first for your iOS version: recent iOS releases have broken its refresh before, and
+whether it works on iOS 26.4 and later is not certain.
 
 1. On the iPhone: **LocalDevVPN** from the App Store, and Developer Mode on (above).
 2. On any computer (Mac, Windows, Linux), with the iPhone on USB: get **iloader** only from

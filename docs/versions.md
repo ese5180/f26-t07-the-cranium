@@ -1,15 +1,15 @@
 # Versions
 
-Four things have their own version number, changelog and git tags. A small change or a fix is a patch (1.11.0 to
-1.11.1); something new is a minor version (1.11.x to 1.12.0). Each version is a git tag on the commit it was built from,
-so `git checkout <tag>` gives exactly that source.
+Four things have their own version number, changelog and git tags. The rule is the same for all four: the last number
+for a small change or a fix (1.11.0 to 1.11.1), the middle one for a larger update (1.11.x to 1.12.0), and never the
+first. Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
 
-| What | Version lives in | Changelog | Tag | Shown |
+| What | Version lives in | Changelog | Now (2026-11-05) | Shown |
 | --- | --- | --- | --- | --- |
-| Firmware | `firmware/app/VERSION` (`scripts/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | `firmware-v1.12.0` | On the console's Firmware page, each release with its note from the changelog |
-| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | `console-v1.10.0` | At the foot of every page of the console ("Console 1.10.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | `ios-v0.5.1` | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | `android-v0.5.0` | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Firmware | `firmware/app/VERSION` (`scripts/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.14.0, tag `firmware-v1.14.0` (da27f3a): on the console, in Memfault, and on the board | On the console's Firmware page, each release with its note from the changelog |
+| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.1.0, tag `console-v2.1.0` (bcc5a19): deployed | At the foot of every page of the console ("Console 2.1.0"), What's new on its History page, and `GET /api/me` |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.7.2, tag `ios-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.7.2, tag `android-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page, each version as it was published |
 
 The two phone apps keep the same number for the same features.
 
@@ -17,13 +17,16 @@ The two phone apps keep the same number for the same features.
 
 1. Change the code, and bump the version in its file. Firmware: `scripts/build.sh` takes the next unused one by itself.
 2. Add the entry at the top of its changelog. The first paragraph is what people see, at most 440 characters.
-3. Commit both with the change, and tag that commit: `git tag -a console-v1.11.0 -m "<the first paragraph>"`, then
-   `git push origin main console-v1.11.0`. Tags are only ever added, never moved or deleted.
+3. Commit both with the change, and tag that commit: `git tag -a console-v2.1.1 -m "<the first paragraph>"`, then
+   `git push origin main console-v2.1.1`. Tags are only ever added, never moved or deleted.
 
 Every version listed in a changelog with a commit has its tag. A few early firmware numbers (1.0.1, 1.0.2, 1.1.6, 1.7.3,
 1.7.5, 1.7.6) were earlier code built under a newer number and have no commit of their own, so no tag.
 
 The console's versions before 1.9.1, and the apps' before 0.4.0, were given afterwards from the history.
+
+The console's 2.0.0 (the customer site) broke the rule: it should have been 1.11.0. Its tag stays, because tags are
+never moved, so the console goes on from 2.x (2.0.1, 2.1.0, ...) under the same rule.
 
 ## How the console shows them
 
@@ -32,7 +35,7 @@ The console's versions before 1.9.1, and the apps' before 0.4.0, were given afte
 from `cloud/VERSION`, the commit and whether the files matched it, and every entry of the four changelogs, newest
 first, each its version and first paragraph (and its commit and date where the entry names them). So:
 
-- **The console's version** is at the foot of every page, "Console 1.10.0 · 1a2b3c4", from `GET /api/me`, which says
+- **The console's version** is at the foot of every page, "Console 2.1.0 · bcc5a19", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
 - **The iPhone app** on the Apps page is the newest version published as an IPA, with its note (below). Before any is
@@ -70,13 +73,15 @@ website (Releases > Draft a new release > Choose a tag > Create new tag on publi
 Actions > Release the apps > Run workflow:
 
 ```sh
-git tag -a android-v0.7.0 -m "<the first paragraph>" && git push origin main android-v0.7.0
-git tag -a ios-v0.7.0 -m "<the first paragraph>" && git push origin main ios-v0.7.0
+git tag -a android-v0.7.3 -m "<the first paragraph>" && git push origin main android-v0.7.3
+git tag -a ios-v0.7.3 -m "<the first paragraph>" && git push origin main ios-v0.7.3
 ```
 
-The workflow refuses a tag that is not the version in the app's files. It needs four repository secrets, which the
-owner sets once from a clone (each read from standard input, none echoed; [`docs/ci.md`](ci.md#releasing-the-apps) has
-what each holds and what they risk):
+`apps/release.sh <version>` does the same for both apps, the version numbers and the commit included
+([`apps/README.md`](../apps/README.md#release-a-new-version-team)). The workflow released both apps' 0.7.1 and 0.7.2, and
+the iPhone app's 0.7.0, this way ([`docs/ci.md`](ci.md#releasing-the-apps)), and it refuses a tag that is not the version in the app's files. It needs
+four repository secrets, all set now. The owner sets them from a clone (each read from standard input, none echoed;
+[`docs/ci.md`](ci.md#releasing-the-apps) has what each holds and what they risk):
 
 ```sh
 REPO=ese5180/f26-t07-the-cranium

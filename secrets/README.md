@@ -3,14 +3,28 @@
 No secret is stored in this repository's folder, not even in an ignored file. Each
 developer's secrets live in `~/.cranium/` on their own machine, where they cannot be
 committed by accident and are not picked up by a synchronised Desktop or Documents folder.
-The tools and the build read the two files below from that folder, and nothing else.
+The firmware tools and the build read the two files below from that folder.
 
 | File in `~/.cranium/` | What it is | How it gets there |
 | --- | --- | --- |
-| `mcuboot_signing_key.pem` | ECDSA P-256 private key that signs every firmware image. The boards only run images signed with it. | `python tools/keys.py generate`, or from the key custodian over a secure channel. The custodian today is the release manager. |
+| `mcuboot_signing_key.pem` | ECDSA P-256 private key that signs every firmware image. The boards only run images signed with it. | `python tools/keys.py generate`, or from the key custodian over a secure channel. The custodian today is the owner. |
 | `wifi_secrets.h` | Wi-Fi network name and passphrase used when provisioning a board. Owned by root, mode 600: reading it needs an administrator password. With `--unlocked` it stays yours, mode 600. | `python tools/secrets.py wifi` |
 
 `wifi_secrets.h.example` in this directory shows the format of the second file.
+
+Other secrets in `~/.cranium/`, each mode 600, for whoever does that job. Where each is used, and how
+it is made, is in the document named:
+
+| File in `~/.cranium/` | What it is | Used by |
+| --- | --- | --- |
+| `console-token` | A release manager's API token for the console (`crn_…`, at most 90 days) | `scripts/upload-to-console.sh`, `scripts/build.sh`, the apps' `publish.sh` ([`docs/aws-iot.md`](../docs/aws-iot.md#api-tokens)) |
+| `memfault_project_key` | The Memfault project key, which `cloud/deploy.sh` stores in the stack's secret; never in an image | [`docs/memfault.md`](../docs/memfault.md#setting-it-up) |
+| `memfault_org_token` | A Memfault organization token, for uploading symbols and releases | `tools/memfault_upload.py` ([`docs/memfault.md`](../docs/memfault.md#symbols-and-releases)) |
+| `android/cranium-release.jks`, `android/keystore.properties` | The Android app's release key and its passwords. A phone only takes an update signed with the same key: back them up | `apps/android/build-release.sh` ([`apps/android/README.md`](../apps/android/README.md#build)) |
+
+`memfault.json` there holds the Memfault organization's and project's names, which are not secret but
+stay out of the repository too. The release workflow on GitHub has four repository secrets of its own,
+copied from the Android files, the token and the apps' configuration: [`docs/ci.md`](../docs/ci.md#releasing-the-apps).
 `python tools/secrets.py status` lists what exists and who can read it.
 
 The test benches' logs are not secrets, but keep them private too. `build-hil/` and the other `build-*`

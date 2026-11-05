@@ -1,8 +1,9 @@
 # Console changes
 
-The console is the website at console.craniumiot.com, its API and its AWS stack: everything in `cloud/`. One entry per
-version, newest first; the version is in `cloud/VERSION`, and each version is tagged `console-v<version>` on the commit
-it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), something new a minor version. The first
+The console is the website at console.craniumiot.com (and the customer site at craniumiot.com), its API and its AWS
+stack: everything in `cloud/`. One entry per version, newest first; the version is in `cloud/VERSION`, and each version
+is tagged `console-v<version>` on the commit it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), a
+larger update the middle number, never the first; 2.0.0 should have been 1.11.0 (docs/versions.md). The first
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
@@ -33,6 +34,8 @@ the lowest limits; a key is used at most 30 times a minute, and its owner must s
 app.ios_upload, app.ios_publish, app.ios_download, app.source_create and app.source_revoke; the API role may put, read
 and serve apps/ios/cranium-ios-*.ipa. The Android app may ask for its own update link (`via=app`).
 
+Commit bcc5a19, 2026-11-05. Deployed, with the Memfault project key stored.
+
 ## 2.0.1
 
 The phone apps can sign customers in: a client of the customer pool of their own, whose sign-in an app keeps behind
@@ -43,7 +46,7 @@ The customer authorizer's audience and the customer API both name it, the API's 
 from, and the output `CustomerMobileClientId` goes into the apps' configuration (`apps/configure.sh`, and the Apps
 page's Download the configuration). See [docs/mobile-apps.md](../docs/mobile-apps.md#customers).
 
-Not released yet: branch feature/customer-apps, 2026-11-05.
+Commit d5a9093, 2026-11-05.
 
 ## 2.0.0
 
@@ -57,7 +60,7 @@ in six boxes), which now also works without managed login pages and takes a firs
 parameters `CustomerDomainName`, `CustomerCertificateArn` and `CustomerSelfSignUp`, all off by default; see
 [docs/customer-site.md](../docs/customer-site.md). The local preview has `--customer` and `--scenario customers`.
 
-Not released yet: branch feature/customer-site, 2026-11-04.
+Commit 552d4d9, 2026-11-05. By the rule above this should have been 1.11.0; the tag stays.
 
 ## 1.10.0
 

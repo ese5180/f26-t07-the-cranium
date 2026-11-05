@@ -9,13 +9,20 @@ Today it updates the nRF boards. Updating the Raspberry Pi through the same cons
 planned; [docs/raspberry-pi-ota.md](../docs/raspberry-pi-ota.md#decision) describes what
 that needs here.
 
+Console 2.1.0 is deployed (bcc5a19, `cloud/CHANGELOG.md`). The team's console is at
+https://console.craniumiot.com. https://craniumiot.com is the customer site, whose Admin
+sign-in opens the same console at https://craniumiot.com/admin, and
+https://www.craniumiot.com sends the browser to the bare name. All four of the team are
+release managers.
+
 It is two CloudFormation stacks, deployed with the AWS CLI:
 
 - `cranium-ota-bootstrap` (`infra/bootstrap.yaml`): the bucket that the Lambda code is
   uploaded to.
 - `cranium-ota` (`infra/template.yaml`): everything else.
-  - An HTTP API with two Lambda functions: one serves the console and the public home
-    page, one is the console's API. A third, the recorder, has no route: three AWS IoT rules
+  - An HTTP API with two Lambda functions: one serves the console's pages (and the
+    customer site's, and a public home page when one is configured, which it is not now),
+    one is the console's API. A third, the recorder, has no route: three AWS IoT rules
     hand it every shadow report, every connection and, from firmware 1.12.0, every console
     line of a board, and it writes the boards' event log
     ([docs/aws-iot.md](../docs/aws-iot.md#the-event-log)).
@@ -34,6 +41,11 @@ It is two CloudFormation stacks, deployed with the AWS CLI:
     kept 90 days, readings 7), which the Events and Diagnostics pages read.
   - In AWS IoT: the thing group `cranium-devices`, the device policy `cranium-device`,
     and the role AWS IoT Jobs uses to sign short-lived download links.
+  - For the fleet ([docs/fleet.md](../docs/fleet.md)): the staged rollouts' schedule, the
+    location function and the e-mail alerts' topic.
+  - From 2.1.0, the Memfault forwarder ([docs/memfault.md](../docs/memfault.md)): an AWS IoT
+    rule and a function that post each chunk a board publishes to Memfault, with the project
+    key from a Secrets Manager secret that only this function can read, and answer the board.
 
 No file here holds an account ID, an endpoint, a secret or an e-mail address. What a
 deployment produces is written to `cloud/.deploy/`, which git ignores.
@@ -85,7 +97,11 @@ The address API Gateway assigned goes on working and stays a valid place to sign
 
 ### The home page
 
-The same stack serves the public home page (`web/src/site/home.html`) on a name and on
+**Not deployed now.** craniumiot.com, which had the home page, is the customer site
+(below), and the customer site uses the certificate the home page had. `HomeDomainName`
+is empty, so no name gets the home page. The steps stay for another name.
+
+The same stack can serve the public home page (`web/src/site/home.html`) on a name and on
 `www.` in front of it, such as `example.com` and `www.example.com`. The web function looks
 at the host name of each request: a name in its setting `HOME_HOSTS` gets the home page,
 and every other name gets the console as before. Nothing about the home page goes into
@@ -141,7 +157,8 @@ Three things to know before pointing a name here:
 A third name, `CustomerDomainName` with `CustomerCertificateArn`, serves the customer
 website, with the console as admin mode at `/admin` of that name, and `www.` sending the
 browser to the name itself. Both are empty by default, and nothing changes until they are
-set. The certificate, the deployment and the DNS records (an ALIAS or a flattened CNAME on
+set. The deployed stack has them set, for craniumiot.com, with DNS-only CNAMEs at
+Cloudflare. The certificate, the deployment and the DNS records (an ALIAS or a flattened CNAME on
 the bare name) are in [docs/customer-site.md](../docs/customer-site.md#setting-up-the-name):
 
 ```sh
@@ -190,8 +207,8 @@ Run it again after any change: it only changes what differs.
   git): the newest 300 commits with their dates, subjects and what they touched, for the
   console's History page, and what this deployment was built from. No authors and no
   message bodies. The page is for signed-in users. The file itself is served like every
-  other file of the console, to anyone who asks for its address; the home page has no
-  way to it. Because it holds the time of the deployment, every run changes the console's
+  other file of the console, to anyone who asks for its address; the home page, where one
+  is deployed, has no way to it. Because it holds the time of the deployment, every run changes the console's
   build id.
 
   ```sh
@@ -235,9 +252,10 @@ new account has a new account id, and earlier entries in the activity log keep t
 one. It refuses a disabled account, because the new one would be enabled.
 
 The customer site's admins are these same accounts: a release manager signs in with
-**Admin sign-in** on the customer site and opens admin mode. Customers are not made here but
-on the console's Customers page, in a pool of their own
-([docs/customer-site.md](../docs/customer-site.md#accounts)).
+**Admin sign-in** on the customer site and opens admin mode. All four of the team have
+`release-manager`, the top role. Customers are not made here but on the console's Customers
+page, in a pool of their own ([docs/customer-site.md](../docs/customer-site.md#accounts)).
+One sign-in for both, with roles, is planned and not built.
 
 `remove` on an address that has no account fails and lists the accounts there are,
 because the person may be listed under another address. An address can only be changed
@@ -256,7 +274,8 @@ the controls of the old role.
 cloud/smoke.sh          # the console answers, the API refuses anonymous calls and
                         # accounts that do not exist, the sign-in page loads, the API
                         # function can reach its data
-cloud/logs.sh api       # or: web, events, signin, access, iot
+cloud/logs.sh api       # or: web, events, location, memfault, memfault-errors, signin,
+                        # access, iot
 ```
 
 | What you see | Where to look |

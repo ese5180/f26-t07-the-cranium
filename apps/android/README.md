@@ -140,9 +140,13 @@ licence), from JitPack, the only thing taken from there (`settings.gradle.kts`).
 ## Updates over Bluetooth
 
 From a release on the Firmware page, or More, Update over Bluetooth: pick the release, open the
-board's window (hold Button 1 for 5 s), pick `Cranium-` and four hex digits, type the passkey the app
-shows, and the app sends the image with MCUmgr. It only uploads: no test, confirm, erase or reset,
-which the board refuses. A person installs it by pressing Button 1 at the board.
+board's window (hold Button 1 for 5 s), pick `Cranium-` and four hex digits, enter the passkey the app
+shows (from 0.6.2 it is also on the clipboard for 2 minutes, marked sensitive: tap the field, Paste,
+Pair), and the app sends the image with MCUmgr. It only uploads: no test, confirm, erase or reset,
+which the board refuses. A person installs it by pressing Button 1 at the board. From 0.7.1 the app
+then follows the board step by step until the image is kept or rolled back, and from 0.7.2, with
+firmware 1.14.0 or later, it reads the board's own status over Bluetooth through the restart
+([`docs/mobile-apps.md`](../../docs/mobile-apps.md#following-the-board-after-a-send)).
 
 Each connection still shows `[BT] refused a command: group 0, id 6, op 0` on the board's console.
 That is mcumgr-ble asking for the board's SMP buffer sizes as it connects; it does no harm.
@@ -201,18 +205,26 @@ Gradle is held to 1.5 GB and two workers (`gradle.properties`). Run `./gradlew -
 
 ## Install on a phone
 
-- Over USB, with USB debugging on: `adb install -r apps/dist/cranium-android-<version>.apk`.
-- Or share the APK privately with the team (a direct message, a drive folder only the team can
-  open). The phone has to allow installing apps from wherever it was opened.
+- From the console's **Apps** page on the phone: Download, open the file, allow installs from the
+  browser. [`apps/README.md`](../README.md) has this and the other ways.
+- Over USB or Wireless debugging: `apps/install.sh android` (Windows: `apps\install.ps1`), which checks
+  the APK in `apps/dist/` against `SHA256SUMS` first; or by hand,
+  `adb install -r apps/dist/cranium-android-<version>.apk`.
+
+From 0.7.0 the app updates itself: it checks the console when it opens and once a day, and installs a
+newer version, after checking its size, SHA-256 and signing key, with a tap
+([`docs/mobile-apps.md`](../../docs/mobile-apps.md#updates-on-every-phone)).
 
 Android 8.0 (API 26) or later, with Bluetooth LE. The serial console needs a phone that can be a
 USB host.
 
-## Do not publish the APK
+## What the APK holds
 
 The APK holds the console URL, the login domain, the client ID and the user pool of the account it
-was built for. Never attach it to a public GitHub release and never commit it: git ignores `*.apk`
-and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` and the keystore.
+was built for: no password, key or token, and nothing the console's own website does not serve to
+every visitor. Git ignores `*.apk` and `apps/dist/` for local builds; only the newest published build is
+committed there, on purpose, by `apps/fetch-builds.sh`, byte for byte what the console serves. Never
+commit `apps/config/cranium.json`, the keystore or its passwords.
 
 ## How it is built
 
@@ -239,7 +251,7 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (361 of them) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (412 `@Test` methods) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
@@ -271,5 +283,7 @@ found there (but for the few the phone has of its own), and a board's words are 
 website's tests.
 
 Sign-in against the real Cognito, the API calls, the fingerprint prompt and the Keystore key,
-Bluetooth and the USB serial console take a phone, a deployed stack and a board, and have not been
-tried yet; nor has the customer side, whose pool is not deployed yet.
+Bluetooth, the self-update and the USB serial console take a phone, a deployed stack and a board.
+The stack is deployed (console 2.1.0, with the customer pool), and the release workflow builds and
+publishes the app; no result of the app on an Android phone is recorded in
+[`docs/test-results.md`](../../docs/test-results.md) yet.

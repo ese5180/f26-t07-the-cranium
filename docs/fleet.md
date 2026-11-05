@@ -1,8 +1,9 @@
 # Fleet: board types, groups, rollouts, the map, commands and alerts
 
 What the firmware (from 1.13.0) and the console agree on, so that a fleet of boards of more than one kind can be
-updated, found and watched together. Each part says who does what. Nothing here is built until the commit that
-builds it says so; [`test-results.md`](test-results.md) says what has run on a board.
+updated, found and watched together. Each part says who does what. The board's side is built in firmware 1.13.0
+(Memfault in 1.14.0), and the console's in console 1.10.0 (Memfault in 2.1.0); what the phone apps do not have yet
+is said where it comes up. [`test-results.md`](test-results.md) says what has run on a board.
 
 ## Board types
 
@@ -110,7 +111,7 @@ position. Only `nrf7002dk` boards can do this.
 - **The console** asks AWS IoT Core Device Location (`iotwireless:GetPositionEstimate`) for a position, at most once per
   board per 10 minutes, and not again while the set of access points has not changed. It keeps the position (latitude,
   longitude, accuracy in metres, when) and the last 20 of them, and not the access points.
-- **The map** (the console's Map page, and the apps later) shows each board at its position, with its name, state and
+- **The map** (the console's Map page; the phone apps have none yet) shows each board at its position, with its name, state and
   how sure the position is. The tiles are OpenStreetMap's, with its attribution.
 - What leaves the board: the BSSIDs of nearby access points and their signal, to AWS, and from AWS to the location
   solver it uses. That is the price of a position from Wi-Fi.
@@ -130,5 +131,6 @@ At most one e-mail per board and kind per hour; the rest go into the next one.
 ## Bluetooth-only boards and the phone
 
 A phone that connects to a board over Bluetooth tells the console what it saw: the board, its version, and when
-(`POST /api/devices/{thing}/seen`). That is how a `nrf5340dk` shows on the console at all. The apps also gain "Update
-all nearby": every board in Bluetooth range that is behind its type's newest release, one after another.
+(`POST /api/devices/{thing}/seen`). That is how a `nrf5340dk` shows on the console at all. Planned for the apps, and
+not in them yet: sending that sighting, and "Update all nearby", every board in Bluetooth range that is behind its
+type's newest release, one after another.

@@ -93,18 +93,18 @@ We are developing a mounted attachment to beginner DJ controllers in order to re
 
 On every reset, MCUboot checks the image's SHA-256 and ECDSA P-256 signature, and only boots it if both are valid. The image contains TF-M (secure world: crypto and encrypted storage) and our application (non-secure world). The network core runs the Bluetooth controller, which is flashed over the debug port and isn't updated over the air.
 
-To update, a release manager deploys a signed image from our console, which creates an AWS IoT job. The application downloads the image into the secondary slot, checks it and resets. MCUboot verifies the signature, swaps the slots and starts the new image on trial. If it can't reconnect to AWS IoT, the next reset swaps the old image back.
+To update, a release manager deploys a signed image from our console, which creates an AWS IoT job. The application downloads the image into the secondary slot, checks it and resets. MCUboot verifies the signature, swaps the slots and starts the new image on trial. If it can't reconnect to AWS IoT, the next reset swaps the old image back. A release manager can also send the image from our phone app over Bluetooth: it lands in the same slot, a person presses Button 1 at the board to install it, and the same signature check and trial follow.
 
 <!-- SIZES: all image sizes are in the first two rows below. Update them, their label and "pics/Boot Process.png" for each release. -->
 
 | Question | Answer |
 | --- | --- |
-| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.11.2 build). |
-| How large is your existing application code? | The application is 713,532 bytes of flash and uses 394,676 of 409,600 bytes of RAM. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 844,755 bytes in a 933,888-byte slot. The network core's Bluetooth controller is another 133,232 bytes (1.11.2 build). |
+| How large is your bootloader? | MCUboot is 50,324 bytes of flash in a 64 KB partition, and uses 22,408 bytes of RAM (1.14.0 build). |
+| How large is your existing application code? | The application is 745,168 of 794,474 bytes of flash and uses 404,284 of 405,504 bytes of RAM, with 4,032 more kept for Memfault's crash data. TF-M is 130,008 bytes of flash and uses 36,620 bytes of RAM. Signed together, they're 876,412 bytes in a 933,888-byte slot. The network core's Bluetooth controller is another 133,232 bytes (1.14.0 build, which the board runs). |
 | Does the bootloader or application code handle the firmware image download? | The application. MCUboot has no network stack. |
-| What wireless communication is used to download the images? | Wi-Fi (nRF7002). The job arrives over MQTT with mutual TLS, and the image comes over HTTPS from a signed S3 link. |
-| Why this method? | A signed image is about 760 KB. Wi-Fi reaches the server directly and downloads it in about a minute. Bluetooth would need a phone as a relay, and we're saving it for audio. |
-| Where are the downloaded firmware images stored? | In the secondary slot on the DK's external flash (MX25R64, 8 MB). The running image stays in internal flash until the swap. |
+| What wireless communication is used to download the images? | Wi-Fi (nRF7002). The job arrives over MQTT with mutual TLS, and the image comes over HTTPS from a signed S3 link. Bluetooth LE is the second way: our phone app uploads the image over a paired, authenticated link. |
+| Why this method? | A signed image is about 860 KB. Wi-Fi reaches the server directly and downloads it in about a minute, with nobody at the board, so it's the main path. Bluetooth needs a phone next to the board and a press of Button 1, so it's for a board with no Wi-Fi in reach. |
+| Where are the downloaded firmware images stored? | In the secondary slot on the DK's external flash (MX25R64, 8 MB), whichever way they came. The running image stays in internal flash until the swap. |
 
 **Features that handle update failures**
 
@@ -114,6 +114,7 @@ To update, a release manager deploys a signed image from our console, which crea
 | Faulty code with a valid signature | The new image runs on trial and has 5 minutes to reach AWS IoT and confirm itself. A 120-second watchdog covers a hang. If it doesn't confirm, the next reset swaps the old image back. |
 | Corrupted download | The application checks the SHA-256 against the job and erases the image on a mismatch. It retries with a fresh link, up to five attempts. |
 | Older firmware | The console, the application and MCUboot each refuse a version that isn't newer. |
+| Image for another board | From 1.13.0 every image names its board type and flash layout in its signed area. The console won't offer it to another board, and the board refuses it before installing. |
 | Reset or power loss | During a download, the running image isn't touched. During a swap, MCUboot continues on the next boot. |
 | No update can reach the board | [Serial recovery](#serial-recovery-extra-credit), below. A person can also hold Button 2 through a reset to restore a frozen [golden image](firmware/README.md#golden-image). |
 
@@ -124,7 +125,7 @@ To update, a release manager deploys a signed image from our console, which crea
 | MCUboot support in Zephyr | `SB_CONFIG_BOOTLOADER_MCUBOOT=y` in [`firmware/app/sysbuild.conf`](firmware/app/sysbuild.conf), with settings in `firmware/app/sysbuild/mcuboot/`. |
 | Firmware image in external flash | The secondary slot is on the MX25R64. |
 | Signed images from our own keys | ECDSA P-256 over SHA-256, with a key from `tools/keys.py`. Boards hold only the public half. See [`secrets/README.md`](secrets/README.md). |
-| FOTA over a wireless protocol | Wi-Fi, through AWS IoT jobs: [`ota.c`](firmware/app/src/ota.c) and [`ota_job.c`](firmware/app/src/ota_job.c). |
+| FOTA over a wireless protocol | Wi-Fi, through AWS IoT jobs: [`ota.c`](firmware/app/src/ota.c) and [`ota_job.c`](firmware/app/src/ota_job.c). Bluetooth LE from the phone apps: [`bt_ota.c`](firmware/app/src/bt_ota.c). |
 
 #### Serial recovery (extra credit)
 
@@ -137,4 +138,17 @@ python tools/recover.py upload <image>          # after holding Button 1 and pre
 
 MCUboot checks the signature at the restart and won't start an image that fails. This path has no version check or revert.
 
-More detail: [test results](docs/test-results.md), [firmware](firmware/README.md), [cloud](docs/aws-iot.md), [binaries](binaries/README.md) and [Raspberry Pi updates](docs/raspberry-pi-ota.md).
+More detail: [test results](docs/test-results.md), [firmware](firmware/README.md), [cloud](docs/aws-iot.md), [phone apps](docs/mobile-apps.md), [binaries](binaries/README.md) and [Raspberry Pi updates](docs/raspberry-pi-ota.md).
+
+## 3.11 Fleet Management
+
+From firmware 1.14.0 the boards report to Memfault, in our project in nRF Cloud. The board opens no connection of its own for it: it sends Memfault's data over the AWS IoT connection it already has, on `cranium/<thing>/memfault`, and a function in AWS posts each piece to Memfault with the project key, which never leaves AWS, and acknowledges it so the board sends the next. Updates still come only from our console or the phone app. How it works: [docs/memfault.md](docs/memfault.md).
+
+| Feature | What is built | Shown on a board |
+| --- | --- | --- |
+| OTA firmware updates with version info | Each signed image carries its version (now `1.14.0+0`), which the board reports to the console and to Memfault as its software version, with `nrf7002dk` as its hardware version. A restart for an update is marked `FirmwareUpdate`, and each update that ends sends an event (`update_succeeded`, `update_failed`, `update_rolled_back` and others). `scripts/build.sh` uploads each release and its symbols to Memfault | Yes, on 2026-11-05: 1.14.0 went to the board over Bluetooth from our iPhone app, ran on trial and confirmed itself, and Memfault lists the board with software `1.14.0+0` and hardware `nrf7002dk` |
+| Core dump | After a crash the board keeps the registers, the stack that crashed and the other threads' stacks (3,968 bytes) in RAM that outlives a reset and a revert, and sends them once it's connected. A demonstration build (`CONFIG_APP_CRASH_DEMO`) crashes once, 60 s after it confirms itself | Not yet: it needs the demonstration build on the board |
+| Forward critical device information to Memfault | Why each boot ended (power-on, watchdog, crash, update, a restart for being stuck), and an hourly heartbeat: Wi-Fi signal, connected time and disconnects, AWS IoT reconnects, free heap, and update attempts, failures and refusals. "Send Memfault data now" on the console sends a heartbeat at once | Partly: on 2026-11-05 the board's first two chunks reached Memfault at 19:32:34 UTC, Memfault accepted them, and the board got both acknowledgements. Not yet shown: the hourly heartbeat's metrics |
+| Extra credit: staged rollout and A/B | The console's staged rollouts send an update to a canary board first and to the rest in waves, and stop by themselves when the canary doesn't confirm or too many boards fail. Each board has A and B slots: MCUboot keeps the previous image and puts it back unless the new one confirms itself, and a crash's core dump outlives that revert, so Memfault shows why the new image was given up | Not yet run on boards |
+
+The code: [`mflt.c`](firmware/app/src/mflt.c) and [`mflt_link.c`](firmware/app/src/mflt_link.c) on the board, and [`memfault.mjs`](cloud/api/src/memfault.mjs) with [`forwarder.mjs`](cloud/api/src/forwarder.mjs) in AWS.
