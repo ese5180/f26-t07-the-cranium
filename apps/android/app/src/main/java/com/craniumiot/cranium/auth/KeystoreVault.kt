@@ -12,6 +12,7 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import com.craniumiot.cranium.core.BiometricState
 import com.craniumiot.cranium.core.BiometricVault
 import com.craniumiot.cranium.core.Sealed
+import com.craniumiot.cranium.core.SessionKeys
 import com.craniumiot.cranium.core.VaultCrypto
 import com.craniumiot.cranium.core.VaultException
 import com.craniumiot.cranium.core.VaultProblem
@@ -28,8 +29,10 @@ import javax.crypto.spec.GCMParameterSpec
  * strong biometric for each single use (no device PIN, no time window), and invalidated when a
  * fingerprint is added or all are removed. The token itself never leaves the cipher the prompt
  * authorised; the ciphertext and its IV go to EncryptedSharedPreferences (TokenStore).
+ *
+ * The staff session and a customer's each have a key of their own, under [alias] (SessionKeys).
  */
-class KeystoreVault(context: Context) : BiometricVault {
+class KeystoreVault(context: Context, private val alias: String = ALIAS) : BiometricVault {
     private val strongBox = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
 
@@ -55,7 +58,7 @@ class KeystoreVault(context: Context) : BiometricVault {
 
     override fun decrypter(sealed: Sealed): Cipher {
         val key = try {
-            keyStore().getKey(ALIAS, null) as? SecretKey
+            keyStore().getKey(alias, null) as? SecretKey
         } catch (e: GeneralSecurityException) {
             throw VaultException(VaultProblem.BROKEN, e)
         } ?: throw VaultException(VaultProblem.MISSING)
@@ -71,7 +74,7 @@ class KeystoreVault(context: Context) : BiometricVault {
     }
 
     override fun delete() {
-        runCatching { keyStore().deleteEntry(ALIAS) }
+        runCatching { keyStore().deleteEntry(alias) }
     }
 
     private fun generateOrFail(inStrongBox: Boolean): SecretKey = try {
@@ -81,7 +84,7 @@ class KeystoreVault(context: Context) : BiometricVault {
     }
 
     private fun generate(inStrongBox: Boolean): SecretKey {
-        val spec = KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+        val spec = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setKeySize(KEY_BITS)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -116,7 +119,10 @@ class KeystoreVault(context: Context) : BiometricVault {
 
     companion object {
         const val PROVIDER = "AndroidKeyStore"
-        const val ALIAS = "cranium_refresh_token_fingerprint_v1"
+        const val ALIAS = SessionKeys.STAFF_FINGERPRINT
+
+        /** A customer's key, apart from the staff session's. */
+        const val CUSTOMER_ALIAS = SessionKeys.CUSTOMER_FINGERPRINT
         const val KEY_BITS = 256
 
         /** BiometricManager.canAuthenticate(BIOMETRIC_STRONG): only a strong biometric, never the device PIN. */

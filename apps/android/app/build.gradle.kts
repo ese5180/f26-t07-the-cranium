@@ -8,7 +8,7 @@ plugins {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Configuration: the four values of the deployed stack (docs/mobile-apps.md, "Configuration").
+// Configuration: the values of the deployed stack (docs/mobile-apps.md, "Configuration").
 // apps/config/cranium.json is written by apps/configure.sh and ignored by git, because it names
 // the AWS account. Without it the build uses the example file, whose values are made up, and
 // says so. The values themselves are never printed.
@@ -48,6 +48,26 @@ val region = configValue("region", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$"))
 val userPoolId = configValue("userPoolId", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}_[0-9A-Za-z]{1,64}$"))
 if (!userPoolId.startsWith("${region}_")) {
     throw GradleException("Cranium: \"userPoolId\" in apps/config/${configFile.name} is not in its \"region\" (the values are not printed)")
+}
+
+// The customer side (docs/mobile-apps.md, "Customers"): the customer pool, its phone client, its Region
+// and the customer API's address. All four or none: a configuration written before the stack had the
+// customer pool has none, and then the app has the admin sign-in only and says so.
+val customerKeys = listOf("customerApiUrl", "customerClientId", "customerRegion", "customerUserPoolId")
+val customerGiven = customerKeys.filter { craniumConfig[it] != null }
+if (customerGiven.isNotEmpty() && customerGiven.size != customerKeys.size) {
+    throw GradleException(
+        "Cranium: apps/config/${configFile.name} has ${customerGiven.joinToString()} but not " +
+            "${(customerKeys - customerGiven.toSet()).joinToString()}: all four or none. Run apps/configure.sh",
+    )
+}
+val hasCustomer = customerGiven.isNotEmpty()
+val customerApiUrl = if (hasCustomer) configValue("customerApiUrl", httpsUrl) else ""
+val customerClientId = if (hasCustomer) configValue("customerClientId", Regex("^[A-Za-z0-9]{1,128}$")) else ""
+val customerRegion = if (hasCustomer) configValue("customerRegion", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")) else ""
+val customerUserPoolId = if (hasCustomer) configValue("customerUserPoolId", Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}_[0-9A-Za-z]{1,64}$")) else ""
+if (hasCustomer && !customerUserPoolId.startsWith("${customerRegion}_")) {
+    throw GradleException("Cranium: \"customerUserPoolId\" in apps/config/${configFile.name} is not in its \"customerRegion\" (the values are not printed)")
 }
 
 // Help: apps/shared/help.json, the topics both phone apps show, goes into the app as an asset when
@@ -102,6 +122,11 @@ android {
         buildConfigField("String", "REDIRECT_URI", "\"$redirectUri\"")
         buildConfigField("String", "REGION", "\"$region\"")
         buildConfigField("String", "USER_POOL_ID", "\"$userPoolId\"")
+        // Empty strings when the configuration has no customer pool.
+        buildConfigField("String", "CUSTOMER_API_URL", "\"$customerApiUrl\"")
+        buildConfigField("String", "CUSTOMER_CLIENT_ID", "\"$customerClientId\"")
+        buildConfigField("String", "CUSTOMER_REGION", "\"$customerRegion\"")
+        buildConfigField("String", "CUSTOMER_USER_POOL_ID", "\"$customerUserPoolId\"")
         buildConfigField("boolean", "EXAMPLE_CONFIG", usingExampleConfig.toString())
         // AppAuth's redirect receiver listens for this scheme: cranium://signin.
         manifestPlaceholders["appAuthRedirectScheme"] = redirectUri.substringBefore("://")

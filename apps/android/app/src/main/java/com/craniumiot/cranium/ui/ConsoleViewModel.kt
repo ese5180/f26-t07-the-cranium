@@ -11,6 +11,7 @@ import com.craniumiot.cranium.CraniumConfig
 import com.craniumiot.cranium.api.ApiClient
 import com.craniumiot.cranium.api.UploadStage
 import com.craniumiot.cranium.auth.AuthManager
+import com.craniumiot.cranium.auth.AuthSettings
 import com.craniumiot.cranium.auth.KeystoreVault
 import com.craniumiot.cranium.auth.SignInException
 import com.craniumiot.cranium.auth.SignedOutException
@@ -182,6 +183,22 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
 
     private val lastRefresh = mutableMapOf<String, Long>()
 
+    /**
+     * Whether a staff session is kept on this phone (open, or behind the fingerprint): what the
+     * customer side needs to offer Admin mode. Null until the app has opened its storage.
+     */
+    private val _held = MutableStateFlow<Boolean?>(null)
+    val held: StateFlow<Boolean?> = _held.asStateFlow()
+
+    /** The person signed out of admin mode: the app goes back to the customer side. */
+    private val signOuts = Channel<Unit>(Channel.CONFLATED)
+    val signedOut: Flow<Unit> = signOuts.receiveAsFlow()
+
+    private fun noteHeld() {
+        val manager = auth
+        _held.value = manager != null && (manager.isSignedIn || manager.needsUnlock)
+    }
+
     val bluetooth = BluetoothFlow(
         app = app,
         scope = viewModelScope,
@@ -197,15 +214,17 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     init {
         viewModelScope.launch {
             val manager = try {
-                withContext(Dispatchers.IO) { AuthManager(app, config, TokenStore(app), KeystoreVault(app)) }
+                withContext(Dispatchers.IO) { AuthManager(app, AuthSettings.staff(config), TokenStore(app), KeystoreVault(app)) }
             } catch (e: Exception) {
                 _gate.value = Gate.SignIn(notice = "The app could not open its secure storage: ${e.message}")
+                _held.value = false
                 forgetFirmware()
                 return@launch
             }
             auth = manager
             api = ApiClient(ApiPaths(config.consoleUrl), manager)
             showFingerprint()
+            noteHeld()
             if (manager.needsUnlock) {
                 lock(fromConsole = false)
             } else if (manager.isSignedIn) {
@@ -334,6 +353,8 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 it.copy(phase = SignInPhase.PASSWORD, busy = false, problem = step.problem, code = "", tries = it.tries + 1)
             }
             is SignInStep.Elsewhere -> toAwsPage(fresh, step.challenge)
+            // Only a customer's sign-in answers a new password on the screen; the staff pool's is the AWS page's.
+            SignInStep.NewPassword, is SignInStep.NewPasswordProblem -> toAwsPage(fresh, "NEW_PASSWORD_REQUIRED")
         }
     }
 
@@ -399,6 +420,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         val client = api ?: return
         if (fullSignIn) pendingFullSignIn = true
         _gate.value = Gate.SignIn(busy = "Loading the console…")
+        noteHeld()
         try {
             val me = client.me()
             _store.update { it.copy(me = me) }
@@ -425,13 +447,24 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun signOut() {
+        signOutHere()
+        signOuts.trySend(Unit)
+    }
+
+    /**
+     * Sign the admin out without leaving where the app is: the customer side's Sign out, which ends
+     * both sessions as the customer site's does.
+     */
+    fun signOutHere() {
         val manager = auth
         resetEverything()
         _gate.value = Gate.SignIn()
+        _held.value = false
         if (manager != null) {
             viewModelScope.launch {
                 manager.signOut()
                 showFingerprint()
+                noteHeld()
             }
         }
     }
@@ -495,6 +528,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 // The key, the ciphertext and the setting are gone already; nothing of the sign-in stays.
                 auth?.forget()
                 showFingerprint()
+                noteHeld()
                 lockedFromConsole = false
                 resetEverything()
                 _gate.value = Gate.SignIn(notice = next.line)
@@ -640,6 +674,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     private fun toSignIn(message: String?) {
         resetEverything()
         _gate.value = Gate.SignIn(notice = message)
+        noteHeld()
     }
 
     /**

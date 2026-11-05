@@ -131,8 +131,11 @@ enum class PromptPurpose {
     REKEY,
 }
 
-/** A BiometricPrompt the screen is to show, with the cipher it authorises. */
-class PromptRequest(val id: Long, val purpose: PromptPurpose, val cipher: javax.crypto.Cipher) {
+/**
+ * A BiometricPrompt the screen is to show, with the cipher it authorises. [customer]: for a
+ * customer's sign-in, which has a password and perhaps no code.
+ */
+class PromptRequest(val id: Long, val purpose: PromptPurpose, val cipher: javax.crypto.Cipher, val customer: Boolean = false) {
     val title: String get() = when (purpose) {
         PromptPurpose.UNLOCK -> "Unlock Cranium"
         PromptPurpose.ENROL -> "Use your fingerprint for Cranium"
@@ -140,7 +143,11 @@ class PromptRequest(val id: Long, val purpose: PromptPurpose, val cipher: javax.
     }
     val subtitle: String get() = when (purpose) {
         PromptPurpose.UNLOCK -> "Touch the fingerprint sensor"
-        PromptPurpose.ENROL, PromptPurpose.REKEY -> "For up to 30 days, instead of your password and code"
+        PromptPurpose.ENROL, PromptPurpose.REKEY -> if (customer) {
+            com.craniumiot.cranium.core.CustomerText.PROMPT_SUBTITLE
+        } else {
+            "For up to 30 days, instead of your password and code"
+        }
     }
     val negative: String get() = when (purpose) {
         PromptPurpose.UNLOCK -> "Sign in with password"
