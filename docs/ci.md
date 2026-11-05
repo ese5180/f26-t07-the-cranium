@@ -276,11 +276,11 @@ address, set `CRANIUM_CONFIG_JSON` again.
 tag that commit and push the tag, which starts the job:
 
 ```sh
-git tag -a ios-v0.6.0 -m "<the first paragraph>"
-git push origin main ios-v0.6.0
+git tag -a ios-v0.7.0 -m "<the first paragraph>"
+git push origin main ios-v0.7.0
 ```
 
-From a phone or any browser: on GitHub, Releases > Draft a new release > Choose a tag, type `ios-v0.6.0`, **Create new
+From a phone or any browser: on GitHub, Releases > Draft a new release > Choose a tag, type `ios-v0.7.0`, **Create new
 tag on publish**, target `main`, then Publish release. The tag starts the job; the release itself has no files and
 needs none. To run a release again (after setting a secret, say): Actions > Release the apps > Run workflow, with the
 app and the tag as `ref`. Publishing the same build twice is refused as other bytes under a published version, which

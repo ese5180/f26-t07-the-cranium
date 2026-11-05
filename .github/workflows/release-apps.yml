@@ -26,7 +26,7 @@ on:
           - android
           - ios
       ref:
-        description: The tag to release, such as ios-v0.6.0 (or a branch whose newest commit that tag names)
+        description: The tag to release, such as ios-v0.7.0 (or a branch whose newest commit that tag names)
         required: true
         type: string
 
