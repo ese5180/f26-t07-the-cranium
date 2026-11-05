@@ -11,6 +11,15 @@ history; each names its commit.
 
 The phone apps from 0.8.0 show the console's own pages: the console serves them as a bundle at /app/manifest.json, each file with its SHA-256, and the apps keep it on the phone, so a console deploy updates every phone the next time its app opens. In the apps, the console gains a Bluetooth update page. API calls from the two app origins are allowed.
 
+Fixes in the same version, which reach the apps too, as they show these pages: on the customer site, Devices and Account no
+longer fall back to Overview for an admin without a customer account (each is a page of its own, pointing to admin mode),
+and a test opens every link of the side panel and tab bar for a customer and an admin. The Events timeline has taller lanes,
+groups events within a few pixels into one marker with their number, lists each event with its time on hover, tap or Tab,
+has a 6 h range that this browser remembers, and a key of what the marks mean. The Deployments page leads with every
+update, newest first and however it came, with sums that count them (the deployments' own figures are labelled as theirs),
+and the Overview's Updates card says the same sums. An update names its person by the account's given name or name where
+the user pool has one, else by the first part of the address without its trailing digits ("Vihaan", not "Vihaan1").
+
 The phone apps' copy of the console and the customer site, for the app shell of 0.8.0: a manifest at /app/manifest.json with every file's path, size and SHA-256 and an id that hashes them, and each file at /app/files/<sha256>. The pages gain a bridge to the app, its sign-in kept by the app, and an update over Bluetooth; the API takes calls from the apps' two origins.
 
 The bundle (web/src/bundle.mjs) is built by the web function when it starts, from the files it serves: the customer

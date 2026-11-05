@@ -146,7 +146,8 @@
  *                                                  SAME_LINE_MS of `at` and not equal to it
  *
  * Users (Cognito user pool; the username is the token's sub)
- *   getUser(sub)                  -> { enabled: boolean, status: string, email: string } | null
+ *   getUser(sub)                  -> { enabled: boolean, status: string, email: string, name: string } | null
+ *                                    (name: the first word of its given name or name, '' if it has none)
  *   listUserGroups(sub)           -> string[]   [] for an unknown user
  *
  * The fleet (docs/fleet.md: board types, groups, staged rollouts)
@@ -191,7 +192,7 @@ import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-d
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
 
 import { SAME_LINE_MS } from './lib/lines.mjs';
-import { FACT_PARTITION, factPartition } from './lib/updates.mjs';
+import { FACT_PARTITION, accountName, factPartition } from './lib/updates.mjs';
 
 // The largest page the list operations of AWS IoT allow, and of Cognito for groups.
 const PAGE_SIZE = 250;
@@ -1051,11 +1052,13 @@ export function createAws(env) {
     async getUser(sub) {
       try {
         const out = await cognito.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: sub }));
-        const email = (out.UserAttributes ?? []).find((attribute) => attribute?.Name === 'email')?.Value;
+        const attribute = (name) => (out.UserAttributes ?? []).find((entry) => entry?.Name === name)?.Value;
+        const email = attribute('email');
         return {
           enabled: out.Enabled === true,
           status: typeof out.UserStatus === 'string' ? out.UserStatus : '',
           email: typeof email === 'string' ? email : '',
+          name: accountName(attribute('given_name'), attribute('name')),
         };
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return null;

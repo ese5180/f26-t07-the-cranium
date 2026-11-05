@@ -687,6 +687,34 @@ const UPDATE_OUTCOME_WORDS = Object.freeze({
   pending: { tone: 'idle', icon: 'clock', label: 'Pending' },
 });
 
+/**
+ * What a list of updates adds up to: { total, how: { deployment, bluetooth, usb_or_other },
+ * outcome: { kept, rolled_back, not_installed, pending } }. The same sums the Deployments page and the Overview say.
+ */
+export function updateTotals(updates) {
+  const totals = {
+    total: updates.length,
+    how: Object.fromEntries(UPDATE_HOWS.map((how) => [how, 0])),
+    outcome: Object.fromEntries(UPDATE_OUTCOMES.map((outcome) => [outcome, 0])),
+  };
+  for (const update of updates) {
+    totals.how[update.how] += 1;
+    totals.outcome[update.outcome] += 1;
+  }
+  return totals;
+}
+
+/** The sums as a sentence: "12 updates: 9 by deployment, 2 over Bluetooth, 1 by USB or another tool; 10 kept, 1 rolled back." */
+export function updateSummary(updates, cut = false) {
+  const { total, how, outcome } = updateTotals(updates);
+  if (total === 0) return 'No update has been reported yet.';
+  const ways = [[how.deployment, 'by deployment'], [how.bluetooth, 'over Bluetooth'], [how.usb_or_other, 'by USB or another tool']]
+    .filter(([count]) => count > 0).map(([count, words]) => `${count} ${words}`);
+  const ends = [[outcome.kept, 'kept'], [outcome.rolled_back, 'rolled back'], [outcome.not_installed, 'not installed'],
+    [outcome.pending, 'pending']].filter(([count]) => count > 0).map(([count, words]) => `${count} ${words}`);
+  return `${cut ? 'The newest ' : ''}${total} ${total === 1 ? 'update' : 'updates'}: ${ways.join(', ')}; ${ends.join(', ')}.`;
+}
+
 /** How an update ended, as a badge says it: { tone, icon, label }. */
 export function describeOutcome(update) {
   return { ...(UPDATE_OUTCOME_WORDS[update.outcome] ?? UPDATE_OUTCOME_WORDS.pending) };

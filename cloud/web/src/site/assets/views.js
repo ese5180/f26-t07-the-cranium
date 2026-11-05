@@ -29,7 +29,7 @@ import {
 // The map, commands and alerts (docs/fleet.md).
 import { canCommand, distanceWords, positionSteps, unplacedReason } from './core.js';
 // The update history (GET /api/updates): every update however it came.
-import { describeOutcome, updateHow, updateTime } from './core.js';
+import { describeOutcome, updateHow, updateSummary, updateTime, updateTotals } from './core.js';
 
 // Drawing.
 
@@ -2162,7 +2162,11 @@ function updatesCard(ctx, devices) {
     title: active.length > 0 ? 'Updates in progress' : 'Updates',
     className: `is-zone updates overview-updates ${active.length > 0 ? 'is-active' : ''}`.trim(),
     more: { href: '#/deployments', label: history !== null && history.length > 0 ? 'All updates' : 'All deployments' },
-  }, body);
+  }, body,
+  // The same sums as the top of the Deployments page.
+  history !== null && history.length > 0
+    ? h('p', { class: 'card-note update-summary', key: 'summary' }, updateSummary(history, Boolean(state.updates.value.cursor)))
+    : null);
 }
 
 function activityCard(ctx) {
@@ -3284,7 +3288,36 @@ function deploymentRow(deployment, ctx) {
     h('span', { class: 'row-chevron' }, icon('arrow-right')));
 }
 
-/** Every board of every deployment, by how it went, at the top of the Deployments page. */
+/**
+ * The top of the Deployments page: every update of every board, however it came, and how each ended
+ * (GET /api/updates, the newest of them); with the deployments' own figure that matters, how many are under way.
+ */
+function updatesPanel(updates, cut, deployments, ctx) {
+  const totals = updateTotals(updates);
+  const parts = [
+    ['kept', 'good', 'Kept'], ['rolled_back', 'bad', 'Rolled back'], ['not_installed', 'warn', 'Not installed'], ['pending', 'wait', 'Pending'],
+  ].map(([name, tone, label]) => ({ key: name, amount: totals.outcome[name], tone, name: label }));
+  const shown = parts.filter((part) => part.amount > 0);
+  const underWay = deployments.filter(isUnderWay).length;
+  return h('section', { class: 'panel on-ink deployments-panel updates-panel', key: 'panel', 'aria-label': 'Every update at a glance' },
+    stats([
+      ['Updates', `${totals.total}${cut ? '+' : ''}`, cut ? `the newest ${totals.total}` : 'of every board'],
+      ['Deployments under way', underWay, `of ${deployments.length} deployments, AWS IoT jobs`],
+      ['Over Bluetooth', totals.how.bluetooth, 'from a phone'],
+      ['By USB or another tool', totals.how.usb_or_other],
+    ]),
+    h('div', { class: 'outcomes' },
+      h('p', { class: 'eyebrow' }, 'How each update ended'),
+      totals.total > 1
+        ? h('div', { key: 'bar' }, segments(parts, updateSummary(updates, cut)))
+        : null,
+      h('ul', { class: 'legend', key: 'legend' }, shown.map((part) =>
+        h('li', { key: part.key, class: 'legend-item' },
+          totals.total > 1 ? h('span', { class: `swatch is-${part.tone}` }) : null,
+          h('span', null, `${part.amount} ${part.name.toLowerCase()}`))))));
+}
+
+/** Every board of every deployment, by how it went: what the deployments' own records say, under the list's heading. */
 function deploymentsPanel(deployments, ctx) {
   const total = {};
   for (const { counts } of deployments) {
@@ -3297,13 +3330,13 @@ function deploymentsPanel(deployments, ctx) {
   const boards = parts.reduce((sum, part) => sum + part.amount, 0);
   const underWay = deployments.filter(isUnderWay).length;
   const percent = onePercent(devices, ids, total.inProgress);
-  return h('section', { class: 'panel on-ink deployments-panel', key: 'panel', 'aria-label': 'All deployments at a glance' },
+  return h('section', { class: 'deployments-panel jobs-panel', key: 'jobs-panel', 'aria-label': 'All deployments at a glance' },
     stats([
-      ['Deployments', deployments.length],
-      ['Under way', underWay],
+      ['Deployments', deployments.length, 'AWS IoT jobs'],
+      ['Under way', underWay, 'deployments'],
     ]),
     h('div', { class: 'outcomes' },
-      h('p', { class: 'eyebrow' }, 'Where each board’s update stands'),
+      h('p', { class: 'eyebrow' }, 'Where each board’s update stands in a deployment'),
       boards > 0
         ? [
           // One update is not a share of anything: the words below it say all there is.
@@ -3330,7 +3363,7 @@ function everyUpdateCard(ctx) {
   const updates = resource?.value?.updates ?? null;
   if (updates === null) return resource?.error ? loadProblem(resource, 'the update history', ctx) : null;
   return [
-    h('h2', { class: 'section-title', key: 'every-title' }, 'Every update'),
+    h('h2', { class: 'section-title', key: 'every-title' }, 'Every update, newest first'),
     card({ key: 'every', className: 'every-update' },
       updates.length === 0
         ? h('p', { class: 'quiet' }, 'No board has reported an update yet.')
@@ -3341,9 +3374,17 @@ function everyUpdateCard(ctx) {
             : null,
         ],
       h('p', { class: 'card-note', key: 'note' },
-        'Deployments board by board, and what the boards reported themselves: updates over Bluetooth from the phone app, ',
-        'and by USB or another tool.')),
+        'Each says how it came: a deployment (its row opens the deployment), over Bluetooth from someone\u2019s phone, ',
+        'or by USB or another tool.')),
   ];
+}
+
+/** The top of the page: every update when the history has come, else the deployments' own figures. */
+function deploymentsTop(deployments, ctx) {
+  const resource = ctx.state.updates;
+  const updates = resource?.value?.updates ?? null;
+  if (updates === null) return deployments.length > 0 ? deploymentsPanel(deployments, ctx) : null;
+  return updatesPanel(updates, Boolean(resource.value.cursor), deployments, ctx);
 }
 
 export function deploymentsView(ctx) {
@@ -3364,15 +3405,24 @@ export function deploymentsView(ctx) {
       text = ['Upload a signed image on the ', h('a', { href: '#/firmware' }, 'Firmware page'),
         ' first; then it can be offered to boards here.'];
     }
-    body = [card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text })), everyUpdateCard(ctx)];
-  } else {
     body = [
-      deploymentsPanel(deployments, ctx),
+      deploymentsTop(deployments, ctx),
+      everyUpdateCard(ctx),
+      h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
+      card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text })),
+    ];
+  } else {
+    const leads = ctx.state.updates?.value?.updates != null;
+    body = [
+      deploymentsTop(deployments, ctx),
       // Staged rollouts: a canary, then waves (fleet.js).
       ctx.fleet?.rolloutsPanel(ctx) ?? null,
+      everyUpdateCard(ctx),
+      h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
+      // With the history at the top, the deployments' own figures lead their list.
+      leads ? deploymentsPanel(deployments, ctx) : null,
       card({ key: 'list', className: 'is-flush' },
         h('ul', { class: 'rows' }, deployments.map((deployment) => deploymentRow(deployment, ctx)))),
-      everyUpdateCard(ctx),
     ];
   }
 
@@ -3387,11 +3437,11 @@ export function deploymentsView(ctx) {
   return h('div', { class: 'page' },
     pageHead({
       title: 'Deployments',
-      lede: 'A deployment sends one release to a set of boards. ' +
+      lede: 'Every update of every board, newest first, however it came: a deployment, over Bluetooth from a phone, or by ' +
+        'USB or another tool. A deployment sends one release to a set of boards. ' +
         `A board on firmware ${FIRST_WITH_NO_BUTTON} or newer starts as soon as it sees it, and older firmware ` +
         'waits for someone to press Button 1 on the board. ' +
-        'A job made directly in AWS IoT is not listed here; Every update below has it, with the updates the boards ' +
-        'reported themselves: over Bluetooth, and by USB or another tool.',
+        'A job made directly in AWS IoT is not listed here as a deployment; its updates are in Every update, as the boards reported them.',
       tools: [freshness(state.deployments, ctx), start],
     }),
     loadProblem(state.deployments, 'the deployments', ctx),

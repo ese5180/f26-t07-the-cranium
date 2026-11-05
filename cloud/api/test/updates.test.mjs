@@ -11,7 +11,7 @@ import { eventKey } from '../src/lib/events.mjs';
 import { lineKey } from '../src/lib/lines.mjs';
 import {
   BACKFILL_KEY, CHECK_BEFORE_MS, decodeUpdateCursor, encodeUpdateCursor, factFromItem, factsFromItems, foldUpdates,
-  personName, pickCheck, presentUpdate, updateCounts,
+  accountName, personName, pickCheck, presentUpdate, updateCounts,
 } from '../src/lib/updates.mjs';
 import { createRecorder } from '../src/recorder.mjs';
 import { createFakeAws, createTestConsole, fixture } from './fake-aws.mjs';
@@ -245,6 +245,17 @@ test('who sent an update over Bluetooth is whoever\'s phone checked the image fo
   }
   assert.deepEqual(['vihaan.ravishankar@x.invalid', 'adam@x.invalid', 'j_smith+cranium@x.invalid', '..@x', '', null]
     .map(personName), ['Vihaan', 'Adam', 'J', '', '', '']);
+  // Digits at the end of the first part are not part of the name; an address of digits alone has nothing else.
+  assert.deepEqual(['vihaan1@x.invalid', 'adam42.smith@x.invalid', 'a1b2@x.invalid', '2026@x.invalid'].map(personName),
+    ['Vihaan', 'Adam', 'A1b', '2026']);
+});
+
+test('an account\'s own name is what an update calls its person: the given name, else the name, its first word', () => {
+  assert.equal(accountName('Vihaan', 'Vihaan Ravishankar'), 'Vihaan');
+  assert.equal(accountName('', 'ada lovelace'), 'Ada');
+  assert.equal(accountName(undefined, '  Zoë-Marie  Smith'), 'Zoë-Marie');
+  assert.equal(accountName('<b>Eve</b>', undefined), 'BEveb');
+  assert.deepEqual([accountName('', ''), accountName(undefined, undefined), accountName(7, null), accountName('1234', '')], ['', '', '', '']);
 });
 
 test('a page cursor is opaque, and only a cursor of this list is taken back', () => {
@@ -401,6 +412,33 @@ test('GET /api/updates: a deployment and an update over Bluetooth, with who star
   // Fleet health counts both: the deployment as the board reported its job's end, the other from the history.
   const health = await context.get('/api/fleet/health');
   assert.deepEqual(health.body.updates, { days: 7, succeeded: 2, failed: 0, rolledBack: 0 });
+});
+
+test('GET /api/updates names a person by their account\'s name where it has one, else by their address without its digits', async () => {
+  const context = setup();
+  const { fake, manager, call } = context;
+  const second = context.addUser('vihaan1', ['release-managers']);
+  const uploaded = await call('POST', '/api/firmware', {
+    as: manager, body: { filename: 'zephyr.signed.bin', data: IMAGE.toString('base64'), notes: '' },
+  });
+  assert.equal(uploaded.status, 201);
+  fake.device(OTHER).report({ fw: { version: '1.2.3+3', confirmed: true }, ota: { state: 'idle', progress: 0, last: 'none', error: '' } });
+  const created = await call('POST', '/api/deployments', { as: second, body: { version: '1.2.3+4', things: [OTHER] } });
+  assert.equal(created.status, 201);
+  const namedAs = async () => (await context.get('/api/updates')).body.updates.find((update) => update.how === 'deployment').who.name;
+  fake.nameUser(second.sub, 'Ada');
+  assert.equal(await namedAs(), 'Ada');
+});
+
+test('GET /api/updates names a person without a name in the pool by their address\'s first part, without its digits', async () => {
+  const context = setup();
+  const { fake, manager, call } = context;
+  const second = context.addUser('vihaan1', ['release-managers']);
+  await call('POST', '/api/firmware', { as: manager, body: { filename: 'zephyr.signed.bin', data: IMAGE.toString('base64'), notes: '' } });
+  fake.device(OTHER).report({ fw: { version: '1.2.3+3', confirmed: true }, ota: { state: 'idle', progress: 0, last: 'none', error: '' } });
+  await call('POST', '/api/deployments', { as: second, body: { version: '1.2.3+4', things: [OTHER] } });
+  const { body } = await context.get('/api/updates');
+  assert.equal(body.updates.find((update) => update.how === 'deployment').who.name, 'Vihaan');
 });
 
 test('GET /api/updates pages newest first, each update exactly once, and refuses what it cannot answer', async () => {

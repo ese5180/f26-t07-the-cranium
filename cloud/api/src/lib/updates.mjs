@@ -439,14 +439,31 @@ export function pickCheck(record, entries) {
 
 /**
  * What a person is called in "over Bluetooth from Vihaan’s phone": the first part of the address
- * before the @, up to a dot, a plus, a dash or an underscore, with a capital. "" if there is none.
+ * before the @, up to a dot, a plus, a dash or an underscore, without the digits at its end
+ * ("vihaan1" is Vihaan), with a capital. "" if there is none.
  */
 export function personName(email) {
   if (typeof email !== 'string') return '';
   const local = email.split('@')[0] ?? '';
   const first = local.split(/[._+-]/).find((part) => part !== '') ?? '';
-  const name = first.replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+  const letters = first.replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+  // An address that is all digits has nothing but them to go by.
+  const name = letters.replace(/\d+$/, '') || letters;
   return name === '' ? '' : `${name[0].toUpperCase()}${name.slice(1)}`;
+}
+
+/**
+ * The first word of the name an account has in the user pool (its given name, else its name), cleaned to
+ * what a name in a sentence may hold: letters, with accents, apostrophes and hyphens. "" if it has none.
+ */
+export function accountName(given, full) {
+  for (const candidate of [given, full]) {
+    if (typeof candidate !== 'string') continue;
+    const word = candidate.trim().split(/\s+/)[0] ?? '';
+    const name = word.replace(/[^\p{L}\p{M}'’-]/gu, '').slice(0, 32);
+    if (name !== '') return `${name[0].toUpperCase()}${name.slice(1)}`;
+  }
+  return '';
 }
 
 /** A person as an update names them, or null. */

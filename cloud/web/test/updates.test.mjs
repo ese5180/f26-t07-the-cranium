@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { CORE, VIEWS, all, createDocument, one, textOf } from './page.mjs';
+import { CORE, VIEWS, all, createDocument, descendants, one, textOf } from './page.mjs';
 import {
   FINISHED, MANAGER, NOW, WAITING, ago, deployment, device, execution, release, repliesFor,
 } from './world.mjs';
@@ -170,11 +170,34 @@ test('the Deployments page lists every update of every board, however it came', 
   const rows = all(one(drawn, 'section.every-update'), 'li.update-row');
   assert.deepEqual(rows.map((row) => textOf(one(row, '.row-title'))), ['1.2.4+0', '1.2.3+4', '1.2.3+4']);
   assert.match(textOf(rows[0]), /from 1\.2\.3\+5.*over Bluetooth from Vihaan’s phone.*Kept/);
+  // The page leads with them: the sums of every update first, the deployments' own figure labelled as theirs, and
+  // the list of updates before the list of deployments, which stay links to their detail.
+  const order = descendants(drawn).filter((el) => el.localName === 'section').map((el) => el.getAttribute('class') ?? '').join(' | ');
+  assert.ok(order.indexOf('updates-panel') < order.indexOf('every-update') && order.indexOf('every-update') < order.indexOf('jobs-panel'));
+  const top = one(drawn, 'section.updates-panel');
+  const stats = all(top, 'div.stat').map((stat) => textOf(stat).replace(/\s+/g, ' '));
+  assert.equal(stats[0], 'Updates 3 of every board');
+  assert.match(stats[1], /^Deployments under way \d+ of \d+ deployments, AWS IoT jobs$/);
+  assert.deepEqual(stats.slice(2), ['Over Bluetooth 1 from a phone', 'By USB or another tool 1']);
+  assert.equal(one(top, 'div.segments').getAttribute('aria-label'),
+    '3 updates: 1 by deployment, 1 over Bluetooth, 1 by USB or another tool; 2 kept, 1 rolled back.');
+  assert.match(textOf(one(drawn, 'section.jobs-panel')), /Deployments.*AWS IoT jobs.*Under way.*deployments/);
+  assert.ok(all(drawn, 'li.deployment-row').length >= 1);
+  // The Overview says the same sums.
+  const { state: overview } = await consoleState(CALM);
+  assert.equal(textOf(one(page(views.overviewView, overview), 'p.update-summary')),
+    '3 updates: 1 by deployment, 1 over Bluetooth, 1 by USB or another tool; 2 kept, 1 rolled back.');
   // With no deployment at all, the updates the boards reported are still there.
   const { state: bare } = await consoleState({ ...CALM, deployments: [], updates: [OVER_BLUETOOTH] });
   const alone = page(views.deploymentsView, bare);
   assert.match(textOf(alone), /No deployments yet\./);
   assert.equal(all(one(alone, 'section.every-update'), 'li.update-row').length, 1);
+});
+
+test('the sums of a list of updates, by how they came and how they ended', () => {
+  assert.deepEqual(core.updateTotals([OVER_BLUETOOTH, BY_USB, BY_DEPLOYMENT, BY_USB]).how, { deployment: 1, bluetooth: 1, usb_or_other: 2 });
+  assert.equal(core.updateSummary([]), 'No update has been reported yet.');
+  assert.equal(core.updateSummary([BY_USB], true), 'The newest 1 update: 1 by USB or another tool; 1 rolled back.');
 });
 
 test('a board\'s page shows its every update, and its jobs where the console has no history', async () => {

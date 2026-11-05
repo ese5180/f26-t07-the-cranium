@@ -9369,3 +9369,24 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     fill: Canvas;
   }
 }
+
+/* The deployments' own figures, under the list's heading, on paper: the ink panel above is for every update. */
+.jobs-panel {
+  margin-bottom: clamp(16px, 2vw, 24px);
+  padding: 14px 0 6px;
+  border-top: 2px solid var(--rule);
+}
+
+@media (min-width: 1001px) {
+  .updates-panel {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr);
+  }
+
+  .updates-panel .stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .updates-panel .stat:nth-child(n + 2) {
+    padding-left: 18px;
+  }
+}

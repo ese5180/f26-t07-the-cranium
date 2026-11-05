@@ -58,6 +58,7 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
   const lists = new Map();      // thing -> { records, at }
   const unwritten = new Map();  // thing -> { facts, at }: a backfill whose facts could not all be put
   const checks = new Map();     // update id + window -> the check before its send, or null
+  const names = new Map();      // sub -> the name its account has in the user pool, '' for none
   const creators = new Map();   // deployment id -> who started it, or null
 
   function warn(event, fields, error) {
@@ -115,6 +116,25 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
     return [...byKey.values()];
   }
 
+  /**
+   * A person as an update names them: by the name their account has in the user pool where it has one, else by
+   * their address. A pool that cannot say leaves the address's, for now.
+   */
+  async function named(person) {
+    if (person === null || person.sub === '') return person;
+    let name = names.get(person.sub);
+    if (name === undefined) {
+      try {
+        name = (await aws.getUser(person.sub))?.name ?? '';
+        remember(names, person.sub, name);
+      } catch (error) {
+        warn('person_unreadable', {}, error);
+        return person;
+      }
+    }
+    return name === '' ? person : { ...person, name };
+  }
+
   /** Who started each deployment among the records, from its job's description. */
   async function addCreators(records) {
     const ids = [...new Set(records.filter((record) => record.how === 'deployment' && parseJobId(record.deployment) !== null)
@@ -123,7 +143,7 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
       try {
         const summary = await deployments.summary(id);
         // A job that is gone says nobody, and stays so.
-        remember(creators, id, personOf(summary?.createdBy ?? null));
+        remember(creators, id, await named(personOf(summary?.createdBy ?? null)));
       } catch (error) {
         warn('deployment_unreadable', { deployment: id }, error);
       }
@@ -146,7 +166,7 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
             before: `${iso(window.toMs)}~`, after: iso(window.fromMs), limit: CHECK_ENTRIES,
           });
           const check = pickCheck(record, entries);
-          found = check === null ? null : { who: personOf(check.actor), at: Date.parse(check.at) };
+          found = check === null ? null : { who: await named(personOf(check.actor)), at: Date.parse(check.at) };
           // A window that is over cannot gain an entry: remember what it held.
           if (window.toMs < nowMs) remember(checks, key, found);
         } catch (error) {

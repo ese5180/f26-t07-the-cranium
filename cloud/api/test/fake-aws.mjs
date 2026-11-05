@@ -691,7 +691,7 @@ export function createFakeAws({
 
     async getUser(sub) {
       const user = users.get(sub);
-      return user === undefined ? null : { enabled: user.enabled, status: user.status, email: user.email };
+      return user === undefined ? null : { enabled: user.enabled, status: user.status, email: user.email, name: user.name ?? '' };
     },
 
     async listUserGroups(sub) {
@@ -988,6 +988,13 @@ export function createFakeAws({
     addUser({ sub, email, groups = [], enabled = true, status = 'CONFIRMED' }) {
       if (typeof sub !== 'string' || sub === '') throw new TypeError('sub is required');
       users.set(sub, { email, enabled, status, groups: new Set(groups) });
+    },
+
+    /** What the user pool holds as an account's name (getUser's `name`: the first word of its given name or name). */
+    nameUser(sub, name) {
+      const user = users.get(sub);
+      if (user === undefined) throw new TypeError(`No user ${sub}`);
+      user.name = name;
     },
 
     user(sub) {
