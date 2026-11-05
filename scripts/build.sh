@@ -6,7 +6,7 @@
 #   scripts/build.sh --version 1.8.0   that version instead
 #   scripts/build.sh --keep            the version already in firmware/app/VERSION
 #   scripts/build.sh --jobs 8          compile with that many jobs (default 4)
-#   scripts/build.sh --no-upload       build, and do not upload it to the console
+#   scripts/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. From 1.13.0 the image says its board type and
@@ -17,7 +17,8 @@
 # Firmware page with your API token (scripts/upload-to-console.sh): only uploads, so no board gets it
 # until it is deployed. Without a token it says how to make one, and the image stays in binaries/. A
 # version can be uploaded only once, which is why each build takes a new one. Exit status 3: built,
-# but the upload failed.
+# but the upload failed. From 1.14.0 it also gives Memfault the build's symbols and the image as a
+# release (tools/memfault_upload.py, docs/memfault.md), when ~/.cranium has a Memfault token.
 #
 # The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/. This
 # checkout cannot see what else has been uploaded, so the console may still refuse a number. A
@@ -44,7 +45,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -235,7 +236,17 @@ fi
 
 if [ "$upload" = false ]; then
   echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/upload-to-console.sh."
+  echo "Memfault gets nothing either: while build/ holds this image, run tools/memfault_upload.py --build build."
   exit 0
+fi
+
+# From 1.14.0 (docs/memfault.md): the ELF's symbols, without which Memfault cannot read a coredump of
+# this image, and the image as a release there. Only with an organization token and the project's
+# slugs; without them it says so in one line. A failure here leaves the console's upload as it is.
+echo
+if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$REPO_DIR/build"; then
+  echo "warning: Memfault did not get all of this build: see above. Run tools/memfault_upload.py --build build" \
+    "again while build/ holds it." >&2
 fi
 
 echo
