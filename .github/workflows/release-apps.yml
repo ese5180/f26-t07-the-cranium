@@ -1,0 +1,321 @@
+# Releases of the phone apps, from anywhere: push a tag android-v<version> or ios-v<version> from any clone
+# (or make it on GitHub's website), or press "Run workflow" under Actions > Release the apps, on any device.
+# The Android job builds the signed APK and publishes it on the console's Apps page, where every Android
+# phone with the app finds it; the iPhone job builds an unsigned IPA and publishes it on the console, where
+# every member's SideStore source lists it. What it needs, the owner's commands that set it up, and what it
+# does not do: docs/ci.md, "Releasing the apps".
+#
+# The secrets are restored into files under the runner's temporary folder, never printed (each value is also
+# masked in the log), and removed at the end, whatever happened. Nothing built here is uploaded as an
+# artifact: an APK or an IPA holds the stack's console address and client IDs, and this repository is public.
+
+name: Release the apps
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+      - 'ios-v*'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Which app to release
+        required: true
+        type: choice
+        options:
+          - android
+          - ios
+      ref:
+        description: The tag to release, such as ios-v0.6.0 (or a branch whose newest commit that tag names)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  android:
+    name: Android app
+    if: >-
+      github.repository == 'ese5180/f26-t07-the-cranium' && (
+      (github.event_name == 'push' && startsWith(github.ref_name, 'android-v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.app == 'android'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # One Android release at a time; one that is under way is never cancelled half published.
+    concurrency:
+      group: release-apps-android
+      cancel-in-progress: false
+    # The owner may put the secrets behind this environment's rules (docs/ci.md, "Releasing the apps").
+    environment: release
+    # The build has a HOME of its own, $RUNNER_TEMP/release-home: build-release.sh finds the key in
+    # $HOME/.cranium/android, and nothing of it is left in the runner's own home.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Check the version against the tag
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          version="$(sed -n 's/^craniumVersionName=//p' apps/android/gradle.properties | tail -n 1)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=apps/android/gradle.properties::craniumVersionName is not a version like 0.6.0."
+            exit 1
+          fi
+          tag="android-v$version"
+          if [ "$EVENT" = push ]; then
+            if [ "$REF_NAME" != "$tag" ]; then
+              echo "::error::The tag is $REF_NAME, but apps/android/gradle.properties says $version: tag $tag instead (docs/versions.md)."
+              exit 1
+            fi
+          else
+            if [[ "$INPUT_REF" == android-v* || "$INPUT_REF" == ios-v* ]] && [ "$INPUT_REF" != "$tag" ]; then
+              echo "::error::Asked for $INPUT_REF, but that commit's gradle.properties says $version."
+              exit 1
+            fi
+            # The commit built must be the one the tag names.
+            if ! git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"; then
+              echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
+              exit 1
+            fi
+            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::The tag $tag names another commit than the one checked out."
+              exit 1
+            fi
+          fi
+          if ! grep -q "^## $version[[:space:]]*$" apps/android/CHANGELOG.md; then
+            echo "::error file=apps/android/CHANGELOG.md::There is no entry for $version: its first paragraph is the note."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Android app $version, from $(git rev-parse --short HEAD)."
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Every value is masked before anything could print it, and the files are readable by this user alone.
+      - name: Restore the release key and the configuration from the secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PROPERTIES: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+          CRANIUM_CONFIG_JSON: ${{ secrets.CRANIUM_CONFIG_JSON }}
+          CRANIUM_CONSOLE_TOKEN: ${{ secrets.CRANIUM_CONSOLE_TOKEN }}
+        run: |
+          missing=()
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PROPERTIES CRANIUM_CONFIG_JSON CRANIUM_CONSOLE_TOKEN; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::These repository secrets are not set: ${missing[*]}. docs/ci.md, \"Releasing the apps\", has the commands that set them."
+            exit 1
+          fi
+          umask 077
+          keys="$RUNNER_TEMP/release-home/.cranium/android"
+          mkdir -p "$keys" apps/config
+          # The passwords, then the file with its storeFile pointing at the key restored here.
+          while IFS='=' read -r name value; do
+            case "$name" in
+              storePassword|keyPassword) [ -z "$value" ] || echo "::add-mask::$value" ;;
+            esac
+          done <<< "$ANDROID_KEYSTORE_PROPERTIES"
+          printf '%s\n' "$ANDROID_KEYSTORE_PROPERTIES" | sed "s#^storeFile=.*#storeFile=$keys/cranium-release.jks#" > "$keys/keystore.properties"
+          if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keys/cranium-release.jks" 2>/dev/null; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not base64. Set it again with the command in docs/ci.md."
+            exit 1
+          fi
+          for name in storeFile storePassword keyAlias keyPassword; do
+            if ! grep -q "^$name=." "$keys/keystore.properties"; then
+              echo "::error::ANDROID_KEYSTORE_PROPERTIES has no $name. Set it from ~/.cranium/android/keystore.properties."
+              exit 1
+            fi
+          done
+          store_password="$(sed -n 's/^storePassword=//p' "$keys/keystore.properties" | tail -n 1)"
+          if ! CRANIUM_STORE_PASSWORD="$store_password" keytool -list -keystore "$keys/cranium-release.jks" -storetype PKCS12 \
+              -storepass:env CRANIUM_STORE_PASSWORD > /dev/null 2>&1; then
+            echo "::error::The keystore does not open with the password in ANDROID_KEYSTORE_PROPERTIES."
+            exit 1
+          fi
+          unset store_password
+          # The configuration: every value masked, since they name the AWS account; then the console's address.
+          printf '%s\n' "$CRANIUM_CONFIG_JSON" > apps/config/cranium.json
+          if ! python3 -I -c '
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          keys = ["consoleUrl", "loginDomain", "mobileClientId", "redirectUri", "region", "userPoolId"]
+          assert isinstance(data, dict) and all(isinstance(data.get(key), str) and data[key] for key in keys)
+          # What names the AWS account; the redirect URI and the region are the same for every stack.
+          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId"]:
+              print("::add-mask::" + data[key])
+              if "://" in data[key]:
+                  print("::add-mask::" + data[key].split("://", 1)[1].rstrip("/"))
+          ' apps/config/cranium.json; then
+            echo "::error::CRANIUM_CONFIG_JSON is not apps/config/cranium.json as apps/configure.sh writes it."
+            exit 1
+          fi
+
+      - name: Build the signed APK
+        env:
+          HOME: ${{ runner.temp }}/release-home
+        run: apps/android/build-release.sh --no-publish
+
+      - name: Publish it on the console
+        env:
+          HOME: ${{ runner.temp }}/release-home
+          CRANIUM_TOKEN: ${{ secrets.CRANIUM_CONSOLE_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          CRANIUM_CONSOLE_URL="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["consoleUrl"])' apps/config/cranium.json)"
+          export CRANIUM_CONSOLE_URL
+          apk="apps/dist/cranium-android-$VERSION.apk"
+          apps/android/publish.sh "$apk"
+          {
+            echo "## Android app $VERSION"
+            echo
+            echo "Published on the console's Apps page: $(stat -c %s "$apk") bytes, SHA-256 \`$(sha256sum "$apk" | cut -d ' ' -f 1)\`."
+            echo "Every phone with the app offers the update within a day, and at once when the app is opened."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the secrets from the runner
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/release-home" apps/config/cranium.json apps/dist apps/android/app/build
+          echo "Removed the release key, its passwords, the configuration and the build."
+
+  ios:
+    name: iPhone app
+    if: >-
+      github.repository == 'ese5180/f26-t07-the-cranium' && (
+      (github.event_name == 'push' && startsWith(github.ref_name, 'ios-v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.app == 'ios'))
+    runs-on: macos-latest
+    timeout-minutes: 60
+    concurrency:
+      group: release-apps-ios
+      cancel-in-progress: false
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Check the version against the tag
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          setting() {
+            sed -n "s/^ *$1: *\"\{0,1\}\([0-9.]*\)\"\{0,1\} *$/\1/p" apps/ios/project.yml | head -n 1
+          }
+          version="$(setting MARKETING_VERSION)"
+          build="$(setting CURRENT_PROJECT_VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$build" =~ ^[1-9][0-9]{0,9}$ ]]; then
+            echo "::error file=apps/ios/project.yml::MARKETING_VERSION is not a version like 0.6.0, or CURRENT_PROJECT_VERSION not a whole number."
+            exit 1
+          fi
+          tag="ios-v$version"
+          if [ "$EVENT" = push ]; then
+            if [ "$REF_NAME" != "$tag" ]; then
+              echo "::error::The tag is $REF_NAME, but apps/ios/project.yml says $version: tag $tag instead (docs/versions.md)."
+              exit 1
+            fi
+          else
+            if [[ "$INPUT_REF" == android-v* || "$INPUT_REF" == ios-v* ]] && [ "$INPUT_REF" != "$tag" ]; then
+              echo "::error::Asked for $INPUT_REF, but that commit's project.yml says $version."
+              exit 1
+            fi
+            if ! git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"; then
+              echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
+              exit 1
+            fi
+            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::The tag $tag names another commit than the one checked out."
+              exit 1
+            fi
+          fi
+          if ! grep -q "^## $version[[:space:]]*$" apps/ios/CHANGELOG.md; then
+            echo "::error file=apps/ios/CHANGELOG.md::There is no entry for $version: its first paragraph is the note."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "iPhone app $version, build $build, from $(git rev-parse --short HEAD)."
+
+      - name: Use the newest Xcode on the runner
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Restore the configuration from the secrets
+        env:
+          CRANIUM_CONFIG_JSON: ${{ secrets.CRANIUM_CONFIG_JSON }}
+          CRANIUM_CONSOLE_TOKEN: ${{ secrets.CRANIUM_CONSOLE_TOKEN }}
+        run: |
+          missing=()
+          for name in CRANIUM_CONFIG_JSON CRANIUM_CONSOLE_TOKEN; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::These repository secrets are not set: ${missing[*]}. docs/ci.md, \"Releasing the apps\", has the commands that set them."
+            exit 1
+          fi
+          umask 077
+          mkdir -p apps/config
+          printf '%s\n' "$CRANIUM_CONFIG_JSON" > apps/config/cranium.json
+          if ! python3 -I -c '
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          keys = ["consoleUrl", "loginDomain", "mobileClientId", "redirectUri", "region", "userPoolId"]
+          assert isinstance(data, dict) and all(isinstance(data.get(key), str) and data[key] for key in keys)
+          # What names the AWS account; the redirect URI and the region are the same for every stack.
+          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId"]:
+              print("::add-mask::" + data[key])
+              if "://" in data[key]:
+                  print("::add-mask::" + data[key].split("://", 1)[1].rstrip("/"))
+          ' apps/config/cranium.json; then
+            echo "::error::CRANIUM_CONFIG_JSON is not apps/config/cranium.json as apps/configure.sh writes it."
+            exit 1
+          fi
+
+      # XcodeGen comes from Homebrew, unpinned, as in ci.yml. The IPA is checked by the console when it is published:
+      # its bundle ID, version, build and configuration.
+      - name: Build the unsigned IPA
+        run: |
+          brew install xcodegen
+          apps/ios/scripts/build-ipa.sh
+
+      - name: Publish it on the console
+        env:
+          CRANIUM_TOKEN: ${{ secrets.CRANIUM_CONSOLE_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          CRANIUM_CONSOLE_URL="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["consoleUrl"])' apps/config/cranium.json)"
+          export CRANIUM_CONSOLE_URL
+          ipa="apps/dist/cranium-ios-$VERSION.ipa"
+          apps/ios/scripts/publish.sh "$ipa"
+          {
+            echo "## iPhone app $VERSION"
+            echo
+            echo "Published on the console: $(stat -f %z "$ipa") bytes, SHA-256 \`$(shasum -a 256 "$ipa" | cut -d ' ' -f 1)\`."
+            echo "Every member's SideStore source lists it now; SideStore offers it under Updates."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the secrets from the runner
+        if: always()
+        run: |
+          rm -rf apps/config/cranium.json apps/dist apps/ios/build
+          echo "Removed the configuration and the build."

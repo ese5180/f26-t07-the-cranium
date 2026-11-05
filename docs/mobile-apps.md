@@ -283,10 +283,12 @@ The console's Apps page (`#/apps`, in the masthead) is where the team gets the a
 - **Android**: the newest release on the console with its note, size and SHA-256, a **Download** button, and on
   request a QR code for a phone to scan; how to install it ("Install unknown apps", open the APK, the first
   sign-in); the older releases, folded away.
-- **iPhone**: its version and note, from `apps/ios/CHANGELOG.md` as this deployment was built, and how to install it
-  with a Mac: `git clone`, **Download the configuration** for `apps/config/`, `apps/ios/scripts/phone.sh`, Trust,
-  Run, and `renew.sh --schedule`, which renews the 7-day profile and installs each newer app from `main` over the
-  Mac's Wi-Fi, with no cable. An iPhone without a Mac needs the paid Apple Developer Program and TestFlight.
+- **iPhone**: the newest version published as an IPA (else its version and note from `apps/ios/CHANGELOG.md` as this
+  deployment was built), with a download of the IPA; **On any iPhone, with SideStore**: the member's own source link
+  ([Updates on every phone](#updates-on-every-phone)); and how to install it with a Mac instead: `git clone`,
+  **Download the configuration** for `apps/config/`, `apps/ios/scripts/phone.sh`, Trust, Run, and
+  `renew.sh --schedule`, which renews the 7-day profile and installs each newer app from `main` over the Mac's Wi-Fi,
+  with no cable.
 - **Build the Android app yourself**: `git clone`, the configuration, `./gradlew assembleDebug`.
 
 **The download link and the QR code.** A download is a presigned S3 link, good for 15 minutes, made when somebody
@@ -321,9 +323,79 @@ S3's words), 2 without a token. From a phone, a download and the configuration a
 publish are changes, which need a sign-in in the last 15 minutes. More, with the bucket and the API role's three S3
 actions: [`docs/aws-iot.md`](aws-iot.md#the-phone-apps-on-the-console).
 
+## Updates on every phone
+
+A new version reaches every phone that has the app, from anywhere and for free. A release is made by the workflow
+`.github/workflows/release-apps.yml`, from a tag `android-v<version>` or `ios-v<version>` or from **Run workflow** on
+GitHub's website ([`docs/ci.md`](ci.md#releasing-the-apps)), or from a release manager's computer with the same scripts.
+Either way it ends on the console, and the phones take it from there.
+
+**Android: in the app.** The app asks the console's `GET /api/apps` when it opens and once a day in the background
+(WorkManager, on any network), and compares the highest `versionCode` published with its own. A newer one shows as
+**Update available: <version> — <note>** above every page, and as a notification (channel "App updates", once per
+version; Android 13 and later ask once whether the app may send notifications). A tap gets a download link
+(`GET /api/apps/android/<version>/download?via=app`, on record as `app.download` with `via: app`), downloads the APK
+into the app's cache, checks its size and SHA-256 against what the console said, and that Android reads it as this app
+with that `versionCode` and the same signing key, and only then hands it to Android's installer. The first time,
+Android asks to allow installs from Cranium ("Install unknown apps"): allow it, go back, and tap the banner again. A file
+that fails a check is deleted and the banner says why. The background check uses the saved sign-in only when
+fingerprint unlock is off and its token is still good; it never asks for anything and never signs anyone out, so on a
+phone with fingerprint unlock the check happens when the app opens. The code is in
+`apps/android/app/src/main/java/com/craniumiot/cranium/update/`.
+
+**iPhone: SideStore.** [SideStore](https://sidestore.io) is a free, open-source app that signs apps on the iPhone with
+the person's own Apple ID (a free account will do) and keeps them up to date from "sources". The release workflow builds
+the app as an **unsigned IPA** (`apps/ios/scripts/build-ipa.sh`) and publishes it on the console
+(`apps/ios/scripts/publish.sh`); each member has a source of their own that lists it. Once, for each member of the team:
+
+1. Install SideStore on the iPhone with a computer, by
+   [SideStore's own guide](https://docs.sidestore.io/docs/installation/prerequisites), and sign in to it with your own
+   Apple ID. This is the one step that needs a computer.
+2. On the console's Apps page, under iPhone, press **Make my SideStore link**. It is shown once: tap **Add to
+   SideStore** on the iPhone, or scan the QR code with the iPhone's camera, or copy the address into SideStore's
+   Sources. Keep it to yourself: it downloads the app without signing in.
+3. In SideStore, open the Cranium source and install **Cranium**. Open it and sign in with your console account. Face ID
+   works as it does in any app: the app's saved sign-in uses the keychain with biometry, which needs no entitlement.
+4. SideStore renews the app on the iPhone every 7 days, over Wi-Fi, by itself, and shows each new version under
+   Updates. If it has not refreshed for a week, open SideStore once.
+
+A free Apple ID can have three apps signed at a time, SideStore itself among them, and ten new app IDs a week. The app
+is signed with the person's team, so it keeps its own sign-in and settings from one update to the next, but not across
+a change of Apple ID. Nothing in the app uses App Groups, iCloud or push notifications, which a free team cannot sign.
+
+**How the source works.** The link is `<console>/api/sidestore/crs_<key>/source.json`: a capability URL, since
+SideStore signs in to nothing. The key is 32 random bytes, shown once; the console keeps its SHA-256, never the key, so
+it cannot show it again. **Make a new link** ends the old one at once, and **Turn it off** ends it. The source lists the
+published iPhone versions, newest first, each with its note (the first paragraph of its entry in
+`apps/ios/CHANGELOG.md`), its size and SHA-256, which SideStore checks, and a download address under the same key
+that answers `302` with a presigned S3 link made at that moment, good for 5 minutes: the source never goes stale, and
+the IPA has no public address. Every use asks Cognito whether the key's owner is still a member, so someone removed
+from the console takes their source with them; a key is used at most 30 times a minute, and the route at most 2 a
+second for everybody. A dead or guessed key gets the same `404` and leaves no entry in the activity log; a download
+through a live one goes on record as `app.ios_download` in its owner's name, with `via: sidestore`. Reading the
+source does not, since SideStore reads it every time it looks for updates.
+
+**The owner's iPhone, from the Mac.** `apps/ios/scripts/renew.sh --schedule` keeps building the app from `main` and
+installing it over the Mac's Wi-Fi with Xcode's free team, as before ([`apps/ios/README.md`](../apps/ios/README.md)).
+It does not need the console, and it works with SideStore on other phones.
+
+**Publishing the iPhone app by hand.** `apps/ios/scripts/build-ipa.sh --publish`, on a Mac with Xcode and
+`apps/config/cranium.json`, does what the workflow does. The two calls are the Android app's, for an IPA:
+
+| Step | Request |
+| --- | --- |
+| A URL | `POST /api/t/apps/ios/uploads`, body `{"version": "0.6.0", "buildVersion": "8", "sha256": "<hex>", "size": 15432100, "notes": "..."}`: a presigned PUT for exactly that size and SHA-256 |
+| The file | `PUT` to that URL with those headers |
+| The check | `POST /api/t/apps/ios/releases/0.6.0`, the same body without `version`. The size and SHA-256 must hold, and then the console reads `Payload/Cranium.app/Info.plist` out of the zip in S3: the bundle ID `com.craniumiot.cranium`, the version and the build described, and `cranium.json` this console's, with no example configuration (`422 ipa_mismatch`, or `ipa_unreadable` for a file that is not an IPA) |
+| A download | `GET /api/apps/ios/0.6.0/download`, any member |
+| The source link | `GET`, `POST /api/apps/sidestore` (a new one) and `POST /api/apps/sidestore/revoke`, a member's own, from the website only |
+
+A version is published once and only upward, by its version and its build (`CURRENT_PROJECT_VERSION`,
+`422 build_not_higher`).
+
 ## Building and shipping
 
-See `apps/ios/README.md` and `apps/android/README.md`. The iPhone app goes to TestFlight with an
-App Store Connect API key kept in `~/.cranium`, never in git. The Android app is a signed APK, published on the
+See `apps/ios/README.md` and `apps/android/README.md`. The iPhone app reaches the team through SideStore (above), and
+can still go to TestFlight with an App Store Connect API key kept in `~/.cranium`, never in git, for a paid team. The Android app is a signed APK, published on the
 console's Apps page by `apps/android/build-release.sh` (above) for the team to download, and never attached to a
 public release, because it holds the values in the configuration above.
