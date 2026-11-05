@@ -288,6 +288,15 @@ const ROUTES = [
   { route: 'POST /api/apps/android/releases/{version}', path: '/api/apps/android/releases/0.4.0', status: 409, phone: true,
     body: { versionCode: 4, sha256: 'a'.repeat(64), size: 4096 } },
   { route: 'GET /api/apps/android/{version}/download', path: '/api/apps/android/0.4.0/download', status: 404, phone: true },
+  // The iPhone app's IPAs, the same way; and a member's SideStore link, on the website alone (sidestore.test.mjs).
+  { route: 'POST /api/apps/ios/uploads', status: 201, phone: true,
+    body: { version: '0.6.0', buildVersion: '8', sha256: 'a'.repeat(64), size: 4096, notes: '' } },
+  { route: 'POST /api/apps/ios/releases/{version}', path: '/api/apps/ios/releases/0.6.0', status: 409, phone: true,
+    body: { buildVersion: '8', sha256: 'a'.repeat(64), size: 4096 } },
+  { route: 'GET /api/apps/ios/{version}/download', path: '/api/apps/ios/0.6.0/download', status: 404, phone: true },
+  { route: 'GET /api/apps/sidestore', status: 200, phone: false },
+  { route: 'POST /api/apps/sidestore', status: 201, phone: false, body: {} },
+  { route: 'POST /api/apps/sidestore/revoke', status: 404, phone: false, body: {} },
   // The customer site's Customers page: the website's alone. This console has no customer pool,
   // so a release manager is told so (customers.test.mjs has them with one).
   { route: 'GET /api/customers', status: 200, phone: false },

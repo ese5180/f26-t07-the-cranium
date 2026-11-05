@@ -1092,9 +1092,10 @@ export function apiEvent(method, path, { claims, body, query, requestId, base64 
     requestCount += 1;
     requestId = `local-${String(requestCount).padStart(6, '0')}`;
   }
-  const routeKey = typeof path === 'string' && path.startsWith('/api/t/')
-    ? `${method} /api/t/{proxy+}`
-    : `${method} /api/{proxy+}`;
+  let routeKey = `${method} /api/{proxy+}`;
+  if (typeof path === 'string' && path.startsWith('/api/t/')) routeKey = `${method} /api/t/{proxy+}`;
+  // SideStore's requests, with no authorizer either (src/handlers/sidestore.mjs).
+  if (typeof path === 'string' && method === 'GET' && path.startsWith('/api/sidestore/')) routeKey = 'GET /api/sidestore/{proxy+}';
   const event = {
     version: '2.0',
     routeKey,
@@ -1232,10 +1233,10 @@ export function createTestConsole({
         claims: claims ?? as?.claims, body, query, requestId, base64, headers,
       });
       const response = await app(event, invocation);
-      // A firmware image comes back as base64 bytes; everything else is JSON.
-      const decoded = response.isBase64Encoded === true
-        ? Buffer.from(response.body, 'base64')
-        : JSON.parse(response.body);
+      // A firmware image comes back as base64 bytes, a redirect with no body; everything else is JSON.
+      let decoded;
+      if (response.isBase64Encoded === true) decoded = Buffer.from(response.body, 'base64');
+      else decoded = response.body === '' ? null : JSON.parse(response.body);
       return { status: response.statusCode, headers: response.headers, body: decoded };
     },
   };

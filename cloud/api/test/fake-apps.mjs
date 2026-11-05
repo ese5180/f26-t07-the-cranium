@@ -1,8 +1,8 @@
-// An in-memory stand-in for src/aws-apps.mjs: the phone apps' releases (docs/mobile-apps.md), with
-// the same inputs, outputs and failure modes. test/fake-aws.mjs adds it to its own stand-in, so
+// An in-memory stand-in for src/aws-apps.mjs: the phone apps' releases and the SideStore sources
+// (docs/mobile-apps.md), with the same inputs, outputs and failure modes. test/fake-aws.mjs adds it to its own stand-in, so
 // that every test console and the preview have it.
 //
-// It also plays S3 for the APKs, as far as the console depends on it. The URLs it hands out are
+// It also plays S3 for the APKs and IPAs, as far as the console depends on it. The URLs it hands out are
 // real presigned URLs (src/lib/presign.mjs), signed with made-up credentials, and S3's side of
 // them is played by s3Request: it checks the signature, with the headers that came, the time,
 // and on a PUT the bytes against x-amz-checksum-sha256, and keeps every version of an object, as
@@ -16,21 +16,24 @@
 //   fake.storeApk(key, body, { checksum })   an object put some other way: with checksum false it
 //                                       has none of its own, as after a multipart upload
 //   fake.apkVersions(key)               the versions of an object, oldest first: { versionId, size, sha256 }
+//                                       (an IPA's too: storeApk and apkVersions take any key)
 //   fake.appItems                       the records, sk -> item
+//   fake.sourceItems                    the SideStore keys and members' items, sk -> item
 //
 // This file is test and preview code. It is never packaged with the function.
 
 import { createHash } from 'node:crypto';
 
-import { APK_TYPE, APP_PK } from '../src/lib/apps.mjs';
+import { APK_TYPE, APP_PK, APP_PLATFORMS } from '../src/lib/apps.mjs';
 import { presignUrl } from '../src/lib/presign.mjs';
+import { SOURCE_PK, sourceKeySk, sourceOwnerSk } from '../src/lib/sidestore.mjs';
 
 const CREDENTIALS = Object.freeze({
   accessKeyId: 'ASIAFAKEFAKEFAKEFAKE',
   secretAccessKey: 'made-up-secret-for-the-stand-in-only',
   sessionToken: 'made-up-session-token',
 });
-const PLATFORMS = Object.freeze(['android']);
+const PLATFORMS = APP_PLATFORMS;
 
 function copy(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -58,6 +61,7 @@ function s3Error(status, code) {
  */
 export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-east-1' }) {
   const items = new Map();      // sk -> item
+  const sources = new Map();    // sk -> item, pk SRC
   const pointers = new Map();   // platform -> { sk, versionCode }
   const objects = new Map();    // key -> [{ versionId, body, sha256Base64 | null }], oldest first
   let endpoint = { protocol: 'https', host: `${bucket}.s3.${region}.amazonaws.com`, pathPrefix: '' };
@@ -186,19 +190,94 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
       return { url: signed.url, headers, expiresAt: signed.expiresAt };
     },
 
-    async presignAppDownload({ key, versionId, filename, expiresIn }) {
+    async presignAppDownload({ key, versionId, filename, expiresIn, contentType = APK_TYPE }) {
       const signed = sign('GET', key, {
         expiresIn,
         query: {
-          versionId, 'response-content-disposition': `attachment; filename="${filename}"`, 'response-content-type': APK_TYPE,
+          versionId, 'response-content-disposition': `attachment; filename="${filename}"`, 'response-content-type': contentType,
         },
       });
       return { url: signed.url, expiresAt: signed.expiresAt };
+    },
+
+    async readAppObject({ key, versionId, start, end }) {
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+        throw new TypeError('Not a range the console reads');
+      }
+      const found = (objects.get(key) ?? []).find((version) => version.versionId === versionId);
+      if (found === undefined) {
+        const error = new Error('GetObject: NoSuchVersion');
+        error.name = 'AwsError';
+        error.code = 'failed';
+        error.operation = 'GetObject';
+        throw error;
+      }
+      // As S3 does: a range past the end is cut at the end.
+      return Buffer.from(found.body.subarray(start, Math.min(end + 1, found.body.length)));
+    },
+
+    async getSourceOwner(sub) {
+      const item = sources.get(sourceOwnerSk(sub));
+      return item === undefined ? null : copy(item);
+    },
+
+    async getSourceKey(digest) {
+      const item = sources.get(sourceKeySk(digest));
+      return item === undefined ? null : copy(item);
+    },
+
+    async replaceSourceKey({ sub, key, previous, at }) {
+      const newSk = sourceKeySk(key.digest);
+      const ownerSk = sourceOwnerSk(sub);
+      const owner = sources.get(ownerSk);
+      if (sources.has(newSk)) return { ok: false, reason: 'conflict' };
+      if (previous === null && owner !== undefined && owner.revokedAt === null) return { ok: false, reason: 'conflict' };
+      if (previous !== null && (owner?.digest !== previous || owner.revokedAt !== null)) return { ok: false, reason: 'conflict' };
+      const old = previous === null ? null : sources.get(sourceKeySk(previous));
+      if (previous !== null && (old === undefined || old.ownerSub !== sub || old.revokedAt !== null)) {
+        return { ok: false, reason: 'conflict' };
+      }
+      sources.set(newSk, {
+        pk: SOURCE_PK, sk: newSk, id: key.id, ownerSub: sub, createdAt: key.createdAt,
+        revokedAt: null, window: 0, uses: 0, lastUsedAt: null,
+      });
+      sources.set(ownerSk, { pk: SOURCE_PK, sk: ownerSk, digest: key.digest, id: key.id, createdAt: key.createdAt, revokedAt: null });
+      if (old) old.revokedAt = at;
+      return { ok: true };
+    },
+
+    async revokeSourceKey({ sub, digest, at }) {
+      const owner = sources.get(sourceOwnerSk(sub));
+      const item = sources.get(sourceKeySk(digest));
+      if (owner?.digest !== digest || owner.revokedAt !== null || item?.ownerSub !== sub || item.revokedAt !== null) {
+        return { ok: false, reason: 'not_active' };
+      }
+      owner.revokedAt = at;
+      item.revokedAt = at;
+      return { ok: true };
+    },
+
+    async useSourceKey({ digest, window, max, at }) {
+      const item = sources.get(sourceKeySk(digest));
+      if (item === undefined) return { ok: false, reason: 'unknown' };
+      if (item.revokedAt !== null) return { ok: false, reason: 'revoked' };
+      if (item.window === window) {
+        if (!(item.uses < max)) return { ok: false, reason: 'limit' };
+        item.uses += 1;
+      } else if (item.window < window) {
+        item.window = window;
+        item.uses = 1;
+      } else {
+        return { ok: false, reason: 'limit' };
+      }
+      item.lastUsedAt = at;
+      return { ok: true, key: copy(item) };
     },
   };
 
   const helpers = {
     appItems: items,
+    sourceItems: sources,
     s3Request,
     setS3Endpoint(base) {
       const address = new URL(base);

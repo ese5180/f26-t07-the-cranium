@@ -95,7 +95,8 @@ test('an APK is published in two calls with the file sent to S3 in between, and 
   assert.equal(listed.status, 200);
   assert.equal(listed.body.android.latest, '0.4.0');
   assert.deepEqual(listed.body.android.releases, [published.body.release]);
-  assert.deepEqual(listed.body.ios, { version: '0.4.0', notes: 'Open the app with Face ID.' });
+  // No IPA is published here: the iPhone app's published releases are in ios-apps.test.mjs.
+  assert.deepEqual(listed.body.ios, { version: '0.4.0', notes: 'Open the app with Face ID.', latest: null, releases: [] });
   assert.deepEqual(listed.body.console, { version: '1.9.1', commit: COMMIT });
 
   // Both calls are on record, with what the APK is; the note is on the release, not in the log.
@@ -348,7 +349,7 @@ test('GET /api/me carries the console\'s version and commit; without versions.js
   const bare = createTestConsole({ versions: parseBundledVersions(null) });
   const someone = bare.addUser('someone', ['viewers']);
   assert.deepEqual((await bare.call('GET', '/api/me', { as: someone })).body.console, { version: null, commit: null });
-  assert.deepEqual((await bare.call('GET', '/api/apps', { as: someone })).body.ios, { version: null, notes: '' });
+  assert.deepEqual((await bare.call('GET', '/api/apps', { as: someone })).body.ios, { version: null, notes: '', latest: null, releases: [] });
 });
 
 test('what versions.json says is taken only where it has the form it should', () => {

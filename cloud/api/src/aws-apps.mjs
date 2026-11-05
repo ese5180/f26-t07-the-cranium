@@ -10,7 +10,8 @@
  * URL, the function's own credentials: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
  * AWS_SESSION_TOKEN, which Lambda sets for its role.
  *
- * Releases (state table, pk "APP", sk "android#MMM.mmm.ppppp"; lib/apps.mjs)
+ * Releases (state table, pk "APP", sk "android#MMM.mmm.ppppp" or "ios#MMM.mmm.ppppp"; lib/apps.mjs).
+ * `platform` is "android" or "ios"; an iPhone release's versionCode is its build (CFBundleVersion).
  *   listAppReleases(platform)        -> object[]   that platform's items, highest sk first; consistent read
  *   getAppRelease(sk)                -> object | null   consistent read
  *   highestAppRelease(platform)      -> { sk, versionCode } | null   the highest ever published
@@ -23,24 +24,51 @@
  *                                     | { ok: false, reason: "conflict" }   a concurrent write
  *                                       one transaction: the release is stored and the pointer
  *                                       (pk "META", sk "APP#<platform>") moves up, or neither
- * APKs (the firmware bucket, apps/android/; the bucket keeps every version of an object)
+ * APKs and IPAs (the firmware bucket, apps/android/ and apps/ios/; the bucket keeps every version of an object)
  *   headAppObject(key)               -> null when there is no such object, else
  *                                       { size, sha256Base64: string | null, checksumType: string | null,
  *                                         versionId: string | null }   HeadObject with ChecksumMode
  *   presignAppUpload({ key, size, sha256Base64, expiresIn })
  *                                    -> { url, headers, expiresAt }   a PUT that S3 takes only with
  *                                       these headers: content-length and x-amz-checksum-sha256
- *   presignAppDownload({ key, versionId, filename, expiresIn })
+ *   presignAppDownload({ key, versionId, filename, expiresIn, contentType })
  *                                    -> { url, expiresAt }   a GET of that version of the object,
- *                                       served as an attachment named `filename`, as an APK
+ *                                       served as an attachment named `filename`, as `contentType`
+ *                                       (an APK's unless another is given)
+ *   readAppObject({ key, versionId, start, end })
+ *                                    -> Buffer   bytes start..end (inclusive) of that version: how
+ *                                       an IPA's Info.plist is read without the whole file (lib/ipa.mjs)
  *   expiresAt is epoch milliseconds.
+ *
+ * SideStore sources (state table, pk "SRC"; lib/sidestore.mjs). A member's source link carries a key
+ * whose SHA-256 is all that is stored: "key#<digest>" with id, ownerSub, createdAt, revokedAt (null
+ * until revoked), and a count of its uses in one minute (window, uses, lastUsedAt); and "owner#<sub>",
+ * which names the member's newest key: digest, id, createdAt, revokedAt. Nothing is deleted.
+ *   getSourceOwner(sub)              -> object | null   consistent read
+ *   getSourceKey(digest)             -> object | null   consistent read
+ *   replaceSourceKey({ sub, key: { digest, id, createdAt }, previous, at })
+ *                                    -> { ok: true } | { ok: false, reason: "conflict" }
+ *                                       one transaction: the new key is stored, the member's item
+ *                                       names it, and the key it named before (`previous`, its digest,
+ *                                       or null if it had none that counts) is revoked at `at`
+ *   revokeSourceKey({ sub, digest, at })
+ *                                    -> { ok: true } | { ok: false, reason: "not_active" }
+ *                                       the key and the member's item, both revoked, or neither
+ *   useSourceKey({ digest, window, max, at })
+ *                                    -> { ok: true, key } the key's item after one more use
+ *                                     | { ok: false, reason: "unknown" | "revoked" | "limit" }
+ *                                       counted per minute (`window`), at most `max` in one; `at`
+ *                                       is an ISO time, the key's lastUsedAt
  */
 
-import { DynamoDBClient, GetItemCommand, QueryCommand, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb';
-import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DynamoDBClient, GetItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand,
+} from '@aws-sdk/client-dynamodb';
+import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-import { APK_TYPE, APP_PK } from './lib/apps.mjs';
+import { APK_TYPE, APP_PK, APP_PLATFORMS } from './lib/apps.mjs';
 import { presignUrl } from './lib/presign.mjs';
+import { SOURCE_PK, sourceKeySk, sourceOwnerSk } from './lib/sidestore.mjs';
 
 // As in aws.mjs: no call may hang, and a call is tried twice at most.
 const CONNECT_TIMEOUT_MS = 1000;
@@ -48,7 +76,9 @@ const IDLE_TIMEOUT_MS = 3000;
 const CALL_TIMEOUT_MS = 4000;
 const MAX_ATTEMPTS = 2;
 const MAX_PAGES = 40;
-const PLATFORMS = Object.freeze(['android']);
+const PLATFORMS = APP_PLATFORMS;
+// The most a ranged read of an IPA asks for: its list of files and the end record (lib/ipa.mjs).
+const MAX_RANGE = 8 * 1024 * 1024 + 65_557;
 
 const THROTTLING = new Set([
   'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException', 'RequestLimitExceeded',
@@ -285,7 +315,7 @@ export function createAppsAws(env) {
       return { url: signed.url, headers, expiresAt: signed.expiresAt };
     },
 
-    async presignAppDownload({ key, versionId, filename, expiresIn }) {
+    async presignAppDownload({ key, versionId, filename, expiresIn, contentType = APK_TYPE }) {
       const signed = presignUrl({
         method: 'GET',
         host,
@@ -297,10 +327,177 @@ export function createAppsAws(env) {
         query: {
           versionId,
           'response-content-disposition': `attachment; filename="${filename}"`,
-          'response-content-type': APK_TYPE,
+          'response-content-type': contentType,
         },
       });
       return { url: signed.url, expiresAt: signed.expiresAt };
+    },
+
+    async readAppObject({ key, versionId, start, end }) {
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end - start + 1 > MAX_RANGE) {
+        throw new TypeError('Not a range the console reads');
+      }
+      try {
+        const out = await s3.send(new GetObjectCommand({
+          Bucket: bucket, Key: key, VersionId: versionId, Range: `bytes=${start}-${end}`,
+        }));
+        return Buffer.from(await out.Body.transformToByteArray());
+      } catch (cause) {
+        throw failure('GetObject', cause);
+      }
+    },
+
+    async getSourceOwner(sub) {
+      try {
+        const out = await dynamo.send(new GetItemCommand({
+          TableName: stateTable, Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } }, ConsistentRead: true,
+        }));
+        return out.Item === undefined ? null : fromItem(out.Item);
+      } catch (cause) {
+        throw failure('GetItem', cause);
+      }
+    },
+
+    async getSourceKey(digest) {
+      try {
+        const out = await dynamo.send(new GetItemCommand({
+          TableName: stateTable, Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } }, ConsistentRead: true,
+        }));
+        return out.Item === undefined ? null : fromItem(out.Item);
+      } catch (cause) {
+        throw failure('GetItem', cause);
+      }
+    },
+
+    async replaceSourceKey({ sub, key, previous, at }) {
+      const items = [
+        {
+          Put: {
+            TableName: stateTable,
+            Item: toItem({
+              pk: SOURCE_PK, sk: sourceKeySk(key.digest), id: key.id, ownerSub: sub, createdAt: key.createdAt,
+              revokedAt: null, window: 0, uses: 0, lastUsedAt: null,
+            }),
+            ConditionExpression: 'attribute_not_exists(#pk)',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+          },
+        },
+        {
+          Put: {
+            TableName: stateTable,
+            Item: toItem({
+              pk: SOURCE_PK, sk: sourceOwnerSk(sub), digest: key.digest, id: key.id, createdAt: key.createdAt, revokedAt: null,
+            }),
+            // Only over what the handler saw: the key it is replacing, or none that counts.
+            ConditionExpression: previous === null
+              ? 'attribute_not_exists(#pk) OR NOT attribute_type(#revokedAt, :null)'
+              : '#digest = :previous AND attribute_type(#revokedAt, :null)',
+            ExpressionAttributeNames: previous === null
+              ? { '#pk': 'pk', '#revokedAt': 'revokedAt' }
+              : { '#digest': 'digest', '#revokedAt': 'revokedAt' },
+            ExpressionAttributeValues: previous === null
+              ? { ':null': { S: 'NULL' } }
+              : { ':previous': { S: previous }, ':null': { S: 'NULL' } },
+          },
+        },
+      ];
+      if (previous !== null) {
+        items.push({
+          Update: {
+            TableName: stateTable,
+            Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(previous) } },
+            UpdateExpression: 'SET #revokedAt = :at',
+            ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+            ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+            ExpressionAttributeValues: { ':owner': { S: sub }, ':null': { S: 'NULL' }, ':at': { S: at } },
+          },
+        });
+      }
+      try {
+        await dynamo.send(new TransactWriteItemsCommand({ TransactItems: items }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'TransactionCanceledException') return { ok: false, reason: 'conflict' };
+        throw failure('TransactWriteItems', cause);
+      }
+    },
+
+    async revokeSourceKey({ sub, digest, at }) {
+      const values = { ':null': { S: 'NULL' }, ':at': { S: at } };
+      try {
+        await dynamo.send(new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: stateTable,
+                Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } },
+                UpdateExpression: 'SET #revokedAt = :at',
+                ConditionExpression: '#digest = :digest AND attribute_type(#revokedAt, :null)',
+                ExpressionAttributeNames: { '#digest': 'digest', '#revokedAt': 'revokedAt' },
+                ExpressionAttributeValues: { ...values, ':digest': { S: digest } },
+              },
+            },
+            {
+              Update: {
+                TableName: stateTable,
+                Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } },
+                UpdateExpression: 'SET #revokedAt = :at',
+                ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+                ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+                ExpressionAttributeValues: { ...values, ':owner': { S: sub } },
+              },
+            },
+          ],
+        }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'TransactionCanceledException') return { ok: false, reason: 'not_active' };
+        throw failure('TransactWriteItems', cause);
+      }
+    },
+
+    async useSourceKey({ digest, window, max, at }) {
+      const key = { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } };
+      const names = { '#pk': 'pk', '#revokedAt': 'revokedAt', '#window': 'window', '#uses': 'uses', '#last': 'lastUsedAt' };
+      const values = { ':null': { S: 'NULL' }, ':w': { N: String(window) }, ':one': { N: '1' }, ':at': { S: at } };
+      // One more use in this minute, or else the first of a new minute. Two requests that meet at the
+      // turn of a minute may each find the other's change: then the first step is tried again.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const out = await dynamo.send(new UpdateItemCommand({
+            TableName: stateTable,
+            Key: key,
+            UpdateExpression: 'SET #uses = #uses + :one, #last = :at',
+            ConditionExpression: 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window = :w AND #uses < :max',
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: { ...values, ':max': { N: String(max) } },
+            ReturnValues: 'ALL_NEW',
+            ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+          }));
+          return { ok: true, key: fromItem(out.Attributes) };
+        } catch (cause) {
+          if (nameOf(cause) !== 'ConditionalCheckFailedException') throw failure('UpdateItem', cause);
+          const old = cause.Item === undefined || cause.Item === null ? null : fromItem(cause.Item);
+          if (old === null || old.pk === undefined) return { ok: false, reason: 'unknown' };
+          if (old.revokedAt !== null) return { ok: false, reason: 'revoked' };
+          if (!(old.window < window)) return { ok: false, reason: 'limit' };
+        }
+        try {
+          const out = await dynamo.send(new UpdateItemCommand({
+            TableName: stateTable,
+            Key: key,
+            UpdateExpression: 'SET #window = :w, #uses = :one, #last = :at',
+            ConditionExpression: 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window < :w',
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
+            ReturnValues: 'ALL_NEW',
+          }));
+          return { ok: true, key: fromItem(out.Attributes) };
+        } catch (cause) {
+          if (nameOf(cause) !== 'ConditionalCheckFailedException') throw failure('UpdateItem', cause);
+        }
+      }
+      return { ok: false, reason: 'limit' };
     },
   });
 }
