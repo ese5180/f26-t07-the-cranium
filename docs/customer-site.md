@@ -64,7 +64,7 @@ Two Cognito user pools, kept apart on purpose:
 | Recovery | An admin only (`users.sh reset-mfa`) | A code to the verified address ("Forgot your password?") |
 | Temporary password | 3 days | 7 days |
 | Plan | Essentials | Essentials |
-| Clients | The console's and the phone apps' | `CustomerUserPoolClient`: SRP only, no OAuth, no managed login, `PreventUserExistenceErrors` on, token revocation on, access token 60 minutes, may write `name` only |
+| Clients | The console's and the phone apps' | `CustomerUserPoolClient`: SRP only, no OAuth, no managed login, `PreventUserExistenceErrors` on, token revocation on, access token 60 minutes, may write `name` only. `CustomerMobileUserPoolClient` (console 2.0.1), the phone apps' ([docs/mobile-apps.md](mobile-apps.md#customers)): the same, with a refresh token of 30 days that an app keeps only behind Face ID or a fingerprint |
 
 The customer site signs in on its own page with the console's own code, `createAuth` in
 `cloud/web/src/site/assets/core.js`, which the site serves byte for byte, not a copy: SRP, so the password never leaves
@@ -76,7 +76,8 @@ for on the page. The console itself works as before.
 A customer's token never opens the console's API, and a staff token never opens the customer API:
 
 - **At the gateway.** The console's authorizer keeps the staff pool as issuer and the staff clients as audience.
-  `GET /api/c/{proxy+}` has an authorizer of its own, issuer the customer pool, audience the customer site's client, and
+  `GET /api/c/{proxy+}` has an authorizer of its own, issuer the customer pool, audience the customer site's client and
+  the phone apps' client of the customer pool, and
   asks for the scope every access token of the user pool API carries (`aws.cognito.signin.user.admin`), so an ID token is
   refused. There is no `POST /api/c/`: a POST there meets the console's authorizer, which refuses a customer's token.
 - **In the functions.** The console's API checks `client_id` against the staff clients, as before. The customer API
@@ -244,8 +245,12 @@ they can be taken back.
   password again: whoever holds an open session can do it.
 - **The masthead.** The console's Customers item means the account box takes a second row at 1440 px wide; below
   1280 px it did already.
-- **The phone apps** do not have the Customers page. Their activity log reads the new entries in the website's words
-  (Android `Audit.kt`, iOS `Words.swift`, held to it by `WebsiteListsTest`, `AuditParityTest` and `ParityTests`).
+- **The phone apps** (0.6.0) have the customer side: a customer signs in on the app and sees the same pages in the
+  same words, and an admin opens admin mode there ([docs/mobile-apps.md](mobile-apps.md#customers)). They do not have
+  the Customers page: inviting customers and giving them boards stays on the website. Their activity log reads the
+  new entries in the website's words (Android `Audit.kt`, iOS `Words.swift`, held to it by `WebsiteListsTest`,
+  `AuditParityTest` and `ParityTests`), and their customer screens read the site's own (`CustomerWordsTest`,
+  `CustomerWordsTests`).
 - **On a stack that exists, the customer pool is created with deletion protection on**, like the events table was; if
   that update failed and rolled back, CloudFormation could not delete the new pool, and it would have to be removed by
   hand. `cloud/teardown.sh` deletes it with the rest.
@@ -273,4 +278,5 @@ boards, Ben with one, Cleo with an unused invitation, and a board nobody has; th
 | `cloud/web/src/site/assets/customers.js` | The console's Customers page |
 | `cloud/api/src/customer/` | The customer API (`app.mjs`, entry `customer.mjs`), what a customer is shown (`boards.mjs`), its adapters (`aws.mjs`) and settings |
 | `cloud/api/src/handlers/customers.mjs` | The console's Customers routes |
-| `cloud/infra/template.yaml` | `CustomerUserPool`, `CustomerUserPoolClient`, `CustomerAuthorizer`, `CustomerApiReadRoute`, `CustomerApiFn` and its role, `CustomerDomain`, `CustomerWwwDomain` |
+| `cloud/infra/template.yaml` | `CustomerUserPool`, `CustomerUserPoolClient`, `CustomerMobileUserPoolClient`, `CustomerAuthorizer`, `CustomerApiReadRoute`, `CustomerApiFn` and its role, `CustomerDomain`, `CustomerWwwDomain` |
+| `apps/ios`, `apps/android` | The phone apps' customer side (docs/mobile-apps.md, "Customers"): iOS `CustomerAPI.swift`, `CustomerAccount.swift`, `CustomerWords.swift`, `CustomerSignIn.swift` in CraniumKit and the screens in `App/Views/Customer*.swift`; Android `core/Customer*.kt`, `ui/CustomerViewModel.kt`, `ui/CustomerScreens.kt` |
