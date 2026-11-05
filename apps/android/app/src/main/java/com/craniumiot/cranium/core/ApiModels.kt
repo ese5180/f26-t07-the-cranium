@@ -6,8 +6,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Who did something: the account id (the token's sub) and the address it showed at the time. */
-data class Person(val sub: String = "", val email: String = "")
+/**
+ * Who did something: the account id (the token's sub) and the address it showed at the time. `name`
+ * is the server's short name for the person where the answer gives one (an update's `who`), else "".
+ */
+data class Person(val sub: String = "", val email: String = "", val name: String = "")
 
 /** How a release was revoked. `enforcedAt` is when the steps after the mark were done, or null. */
 data class Revocation(
@@ -106,12 +109,42 @@ data class ExecutionSummary(
     val lastUpdatedAt: String?,
 )
 
-/** `GET /api/devices/{thing}`. */
+/**
+ * One update of a board, from `GET /api/updates` (console 2.1.1): a deployment's execution on it, or an
+ * update the board reported itself, over Bluetooth or by USB or another tool. `how` and `outcome` are the
+ * console's words as it sent them ("" when missing); the words for them (Updates.howWords and
+ * Updates.outcomeWords) take a value they do not know for "usb_or_other" and "pending".
+ */
+data class Update(
+    val id: String,
+    val thing: String,
+    /** What the board ran before; null when not known. */
+    val from: String? = null,
+    /** What the update installs; null for a job some other tool made. */
+    val to: String? = null,
+    val how: String = "",
+    /** The job id, for a deployment. */
+    val deployment: String? = null,
+    /** Bluetooth: whose phone made the check before the send; a deployment: who started it. */
+    val who: Person? = null,
+    val outcome: String = "",
+    val startedAt: String? = null,
+    /** Null while the update is pending. */
+    val endedAt: String? = null,
+    /** The AWS IoT execution status, for a deployment only. */
+    val status: String? = null,
+)
+
+/** `GET /api/updates`: newest first, and the cursor of the next page (null: no more). */
+data class UpdatesPage(val updates: List<Update>, val cursor: String?, val generatedAt: String?)
+
+/** `GET /api/devices/{thing}`. `lastUpdate` is the board's newest update, from console 2.1.1. */
 data class DeviceDetail(
     val device: Device,
     val certificates: List<String>,
     val executions: List<ExecutionSummary>,
     val olderExecutions: Long,
+    val lastUpdate: Update? = null,
 )
 
 /** How many boards of a deployment are in each state. */
@@ -278,6 +311,7 @@ object ApiJson {
     private val MAC = Regex("^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$")
     private val HEX = Regex("^[0-9a-f]{1,8}$")
     private val WORD = Regex("^[a-z][a-z_]{0,31}$")
+    private val STATUS = Regex("^[A-Z][A-Z_]{0,23}$")
     private val TOKEN = Regex("^crn_[A-Za-z0-9_-]{43}$")
     private val TOKEN_ID = Regex("^[0-9a-f]{16}$")
     private val EVENT_ID = Regex("^[0-9a-f]{6}$")
@@ -498,6 +532,45 @@ object ApiJson {
                 )
             }).orEmpty(),
             olderExecutions = J.whole(root["olderExecutions"], 0, 1L shl 32) ?: 0,
+            lastUpdate = readUpdate(root["lastUpdate"]),
+        )
+    }
+
+    // Updates, of every kind.
+
+    /**
+     * One update, or null if it cannot be shown: no id, or no board. A value the app does not know
+     * (`how`, `outcome`) is kept as the console's word; one that is not a word becomes "".
+     */
+    fun readUpdate(value: JsonElement?): Update? {
+        val item = J.obj(value) ?: return null
+        val id = J.boardText(item["id"], 160).takeIf { it.isNotEmpty() } ?: return null
+        val thing = J.str(item["thing"])?.takeIf(::isThing) ?: return null
+        val who = J.obj(item["who"])?.let { raw ->
+            J.person(raw)?.copy(name = Words.singleLine(J.text(raw["name"], 64)).trim())
+        }
+        return Update(
+            id = id,
+            thing = thing,
+            from = versionOrNull(item["from"]),
+            to = versionOrNull(item["to"]),
+            how = J.str(item["how"])?.takeIf { WORD.matches(it) } ?: "",
+            deployment = J.boardText(item["deployment"], 64).ifEmpty { null },
+            who = who,
+            outcome = J.str(item["outcome"])?.takeIf { WORD.matches(it) } ?: "",
+            startedAt = J.instant(item["startedAt"]),
+            endedAt = J.instant(item["endedAt"]),
+            status = J.str(item["status"])?.takeIf { STATUS.matches(it) },
+        )
+    }
+
+    /** `GET /api/updates`: an update that cannot be shown is left out, and so is a second one with the same id. */
+    fun updates(text: String): UpdatesPage {
+        val root = root(text)
+        return UpdatesPage(
+            updates = list(root["updates"], "list of updates").mapNotNull(::readUpdate).distinctBy { it.id },
+            cursor = J.str(root["cursor"])?.takeIf { it.length in 1..1024 && it.all { c -> c in '!'..'~' } },
+            generatedAt = J.instant(root["generatedAt"]),
         )
     }
 

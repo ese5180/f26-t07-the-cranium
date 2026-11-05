@@ -191,6 +191,46 @@ enum Demo {
         return ["deployment": detail]
     }
 
+    /// Every update of every board, newest first, as `GET /api/updates` sends them.
+    static var updateList: [[String: Any]] {
+        let vihaan: [String: Any] = ["sub": alice["sub"]!, "email": alice["email"]!, "name": "Vihaan"]
+        func update(_ id: String, _ thing: String, from: String?, to: String?, how: String, deployment: String? = nil,
+                    who: [String: Any]? = nil, outcome: String, started: TimeInterval?, ended: TimeInterval?,
+                    status: String? = nil) -> [String: Any] {
+            func json(_ value: Any?) -> Any { value ?? NSNull() }
+            return ["id": id, "thing": thing, "from": json(from), "to": json(to), "how": how,
+                    "deployment": json(deployment), "who": json(who), "outcome": outcome,
+                    "startedAt": json(started.map { iso(-$0) }), "endedAt": json(ended.map { iso(-$0) }),
+                    "status": json(status)]
+        }
+        return [
+            update("deployment:\(newDeployment):\(boards[1])", boards[1], from: "1.11.4+0", to: "1.12.0+0", how: "deployment",
+                   deployment: newDeployment, who: vihaan, outcome: "pending", started: 540, ended: nil, status: "IN_PROGRESS"),
+            update("deployment:\(newDeployment):\(boards[2])", boards[2], from: "1.10.1+0", to: "1.12.0+0", how: "deployment",
+                   deployment: newDeployment, who: vihaan, outcome: "pending", started: 600, ended: nil, status: "QUEUED"),
+            update("bluetooth:\(boards[0]):3", boards[0], from: "1.11.4+0", to: "1.12.0+0", how: "bluetooth", who: vihaan,
+                   outcome: "kept", started: 9 * 3600 + 240, ended: 9 * 3600 - 200),
+            update("deployment:\(oldDeployment):\(boards[0])", boards[0], from: "1.11.3+0", to: "1.11.4+0", how: "deployment",
+                   deployment: oldDeployment, who: vihaan, outcome: "kept", started: 2 * 86_400 - 60, ended: 2 * 86_400 - 600,
+                   status: "SUCCEEDED"),
+            update("deployment:\(oldDeployment):\(boards[1])", boards[1], from: "1.11.3+0", to: "1.11.4+0", how: "deployment",
+                   deployment: oldDeployment, who: vihaan, outcome: "kept", started: 2 * 86_400 - 60, ended: 2 * 86_400 - 540,
+                   status: "SUCCEEDED"),
+            update("bluetooth:\(boards[0]):2", boards[0], from: "1.11.2+0", to: "1.11.3+0", how: "bluetooth",
+                   outcome: "rolled_back", started: 4 * 86_400, ended: 4 * 86_400 - 300),
+            update("usb_or_other:\(boards[2]):1", boards[2], from: nil, to: "1.10.1+0", how: "usb_or_other",
+                   outcome: "kept", started: nil, ended: 6 * 86_400),
+        ]
+    }
+
+    /// `GET /api/updates`, filtered as the API filters it.
+    static func updates(_ query: [URLQueryItem]) -> [String: Any] {
+        let thing = query.first { $0.name == "thing" }?.value
+        let limit = query.first { $0.name == "limit" }?.value.flatMap(Int.init) ?? 25
+        let list = updateList.filter { thing == nil || $0["thing"] as? String == thing }
+        return ["updates": Array(list.prefix(limit)), "cursor": NSNull(), "generatedAt": iso(0)]
+    }
+
     static var audit: [String: Any] {
         ["entries": [
             // A command at a board's serial console, over USB from the Android app.
@@ -333,7 +373,10 @@ enum Demo {
                               ["deployment": item["id"]!, "version": item["version"]!,
                                "status": item["status"] as? String == "COMPLETED" ? "SUCCEEDED" : (index == 0 ? "IN_PROGRESS" : "QUEUED"),
                                "queuedAt": item["createdAt"]!, "lastUpdatedAt": item["createdAt"]!]
-                          }, "olderExecutions": 0])
+                          }, "olderExecutions": 0,
+                          "lastUpdate": updateList.first(where: { $0["thing"] as? String == parts[2] }).map { $0 as Any } ?? NSNull()])
+        case ["api", "updates"]:
+            return (200, updates(query))
         case _ where parts.count == 4 && parts[3] == "samples":
             return (200, samples(hours: Int(query.first { $0.name == "hours" }?.value ?? "24") ?? 24))
         case ["api", "events"]:

@@ -388,6 +388,103 @@ class ApiModelsTest {
         assertFalse(ApiJson.me("""{"canWrite": "true"}""").canWrite)
     }
 
+    // Updates of every kind: GET /api/updates (console 2.1.1).
+
+    private val updates = """
+        {"updates": [
+          {"id": "bluetooth:$thing:6", "thing": "$thing", "from": "1.13.0+0", "to": "1.14.0+0", "how": "bluetooth",
+           "deployment": null, "who": {"sub": "s-1", "email": "vihaan@example.invalid", "name": "Vihaan"}, "outcome": "kept",
+           "startedAt": "2026-11-05T19:30:04.000Z", "endedAt": "2026-11-05T19:32:41.000Z", "status": null, "later": "ignored"},
+          {"id": "deployment:$deployment:$thing", "thing": "$thing", "from": null, "to": "1.12.0+0", "how": "deployment",
+           "deployment": "$deployment", "who": {"sub": "s-2", "email": "rm@example.com", "name": ""}, "outcome": "rolled_back",
+           "startedAt": "2026-11-02T11:00:00.000Z", "endedAt": null, "status": "FAILED"},
+          {"id": "usb:$other:2", "thing": "$other", "from": "1.11.0+0", "to": null, "how": "carrier_pigeon", "who": null,
+           "outcome": "exploded", "startedAt": "yesterday", "status": "made up"},
+          {"id": "odd:$other:1", "thing": "$other", "how": "Bluetooth!", "outcome": 3, "who": {"name": "Vi\nhaan"}},
+          {"id": "", "thing": "$thing", "how": "usb_or_other", "outcome": "kept"},
+          {"id": "no-board", "thing": "not-a-thing", "how": "usb_or_other", "outcome": "kept"},
+          {"id": "bluetooth:$thing:6", "thing": "$thing", "how": "usb_or_other", "outcome": "pending"},
+          "not an object"
+        ], "cursor": "eyJrIjoxfQ==", "generatedAt": "2026-11-05T21:30:00.000Z"}
+    """.trimIndent()
+
+    @Test
+    fun `every update of every board, as the console lists them`() {
+        val page = ApiJson.updates(updates)
+        assertEquals(4, page.updates.size)
+        assertEquals(
+            Update(
+                id = "bluetooth:$thing:6", thing = thing, from = "1.13.0+0", to = "1.14.0+0", how = "bluetooth", deployment = null,
+                who = Person("s-1", "vihaan@example.invalid", "Vihaan"), outcome = "kept",
+                startedAt = "2026-11-05T19:30:04.000Z", endedAt = "2026-11-05T19:32:41.000Z", status = null,
+            ),
+            page.updates[0],
+        )
+        assertEquals("eyJrIjoxfQ==", page.cursor)
+        assertEquals("2026-11-05T21:30:00.000Z", page.generatedAt)
+    }
+
+    @Test
+    fun `a deployment's update has its job, who started it and its execution status`() {
+        val update = ApiJson.updates(updates).updates[1]
+        assertEquals("deployment", update.how)
+        assertEquals(deployment, update.deployment)
+        assertNull("not known", update.from)
+        assertEquals("1.12.0+0", update.to)
+        assertEquals(Person("s-2", "rm@example.com", ""), update.who)
+        assertEquals("rolled_back", update.outcome)
+        assertNull("still pending", update.endedAt)
+        assertEquals("FAILED", update.status)
+    }
+
+    @Test
+    fun `unknown words are kept for the words to read, and what cannot be shown is left out`() {
+        val list = ApiJson.updates(updates).updates
+        val usb = list[2]
+        assertEquals("carrier_pigeon", usb.how)
+        assertEquals("exploded", usb.outcome)
+        assertNull("a job some other tool made", usb.to)
+        assertNull(usb.who)
+        assertNull("not a time", usb.startedAt)
+        assertNull(usb.endedAt)
+        assertNull("not a status", usb.status)
+        val odd = list[3]
+        assertEquals("not a word", "", odd.how)
+        assertEquals("", odd.outcome)
+        assertEquals("on one line", "Vi haan", odd.who?.name)
+        assertEquals("", odd.who?.email)
+        // No id, no board, and the same id twice (the first is kept).
+        assertEquals(listOf("bluetooth:$thing:6", "deployment:$deployment:$thing", "usb:$other:2", "odd:$other:1"), list.map { it.id })
+        assertEquals("bluetooth", list[0].how)
+
+        val last = ApiJson.updates("""{"updates": [], "cursor": null}""")
+        assertEquals(emptyList<Update>(), last.updates)
+        assertNull(last.cursor)
+        assertNull(last.generatedAt)
+        assertNull(ApiJson.updates("""{"updates": [], "cursor": "has a space"}""").cursor)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `an answer with no list of updates is an error`() {
+        ApiJson.updates("""{"error": {"code": "not_found", "message": "There is nothing at this address."}}""")
+    }
+
+    @Test
+    fun `a board's page names its newest update, from a console that lists updates`() {
+        val newer = ApiJson.deviceDetail(
+            """
+            {"device": {"thing": "$thing"}, "certificates": [], "executions": [], "olderExecutions": 0,
+             "lastUpdate": {"id": "usb:$thing:3", "thing": "$thing", "from": "1.13.0+0", "to": "1.14.0+0", "how": "usb_or_other",
+                            "deployment": null, "who": null, "outcome": "pending", "startedAt": "2026-11-05T19:30:04.000Z", "endedAt": null,
+                            "status": null}}
+            """.trimIndent(),
+        )
+        assertEquals("usb:$thing:3", newer.lastUpdate?.id)
+        assertEquals("pending", newer.lastUpdate?.outcome)
+        assertNull("none yet", ApiJson.deviceDetail("""{"device": {"thing": "$thing"}, "lastUpdate": null}""").lastUpdate)
+        assertNull("an older console", ApiJson.deviceDetail("""{"device": {"thing": "$thing"}, "executions": []}""").lastUpdate)
+    }
+
     @Test
     fun `thing names and deployment ids are told apart from anything else`() {
         assertTrue(ApiJson.isThing(thing))

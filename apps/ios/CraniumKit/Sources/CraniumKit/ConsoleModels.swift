@@ -338,15 +338,19 @@ public struct DeviceDetail: Decodable, Equatable, Sendable {
     public let executions: [ExecutionSummary]
     /// How many older updates the server left out.
     public let olderExecutions: Int
+    /// Its newest update of any kind (console 2.1.1 and later); nil from an older console, or when it has had none.
+    public let lastUpdate: BoardUpdate?
 
-    public init(device: Device, certificates: [String] = [], executions: [ExecutionSummary] = [], olderExecutions: Int = 0) {
+    public init(device: Device, certificates: [String] = [], executions: [ExecutionSummary] = [], olderExecutions: Int = 0,
+                lastUpdate: BoardUpdate? = nil) {
         self.device = device
         self.certificates = certificates
         self.executions = executions
         self.olderExecutions = olderExecutions
+        self.lastUpdate = lastUpdate
     }
 
-    private enum CodingKeys: String, CodingKey { case device, certificates, executions, olderExecutions }
+    private enum CodingKeys: String, CodingKey { case device, certificates, executions, olderExecutions, lastUpdate }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -354,6 +358,141 @@ public struct DeviceDetail: Decodable, Equatable, Sendable {
         certificates = c.texts(.certificates).map { Lenient.boardText($0) }
         executions = try c.decode(LenientList<ExecutionSummary>.self, forKey: .executions).items
         olderExecutions = c.whole(.olderExecutions, 0, 1 << 32) ?? 0
+        lastUpdate = c.lenient(BoardUpdate.self, .lastUpdate)
+    }
+}
+
+/// One update of one board (`GET /api/updates`, console 2.1.1 and later): a deployment's execution on
+/// it, or an update the board reported itself, over Bluetooth, or by USB or another tool.
+public struct BoardUpdate: Decodable, Equatable, Sendable, Identifiable {
+    /// How it came. Anything this app has no words for is taken for USB or another tool.
+    public enum How: String, Sendable, CaseIterable {
+        case deployment
+        case bluetooth
+        case usbOrOther = "usb_or_other"
+    }
+
+    /// How it ended. Anything this app has no words for is taken for not ended yet.
+    public enum Outcome: String, Sendable, CaseIterable {
+        case kept
+        case rolledBack = "rolled_back"
+        case notInstalled = "not_installed"
+        case pending
+    }
+
+    /// Over Bluetooth, the person whose phone made the check before the send; for a deployment, who
+    /// started it.
+    public struct Who: Decodable, Equatable, Sendable {
+        public let sub: String
+        public let email: String
+        /// The console's short name for the person; may be "".
+        public let name: String
+
+        public init(sub: String = "", email: String = "", name: String = "") {
+            self.sub = sub
+            self.email = email
+            self.name = name
+        }
+
+        private enum CodingKeys: String, CodingKey { case sub, email, name }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            sub = c.text(.sub, limit: 128)
+            email = c.text(.email, limit: 320)
+            name = c.text(.name, limit: 64).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// Stable and unique in the list.
+    public let id: String
+    public let thing: String
+    /// What the board ran before; nil when that is not known.
+    public let from: String?
+    /// What the update installs; nil for a job some other tool made.
+    public let to: String?
+    public let how: How
+    /// The AWS IoT job, for a deployment.
+    public let deployment: String?
+    public let who: Who?
+    public let outcome: Outcome
+    public let startedAt: String?
+    /// Nil while it is pending.
+    public let endedAt: String?
+    /// The AWS IoT execution status, for a deployment only.
+    public let status: String?
+
+    public init(id: String, thing: String, from: String? = nil, to: String? = nil, how: How, deployment: String? = nil,
+                who: Who? = nil, outcome: Outcome, startedAt: String? = nil, endedAt: String? = nil, status: String? = nil) {
+        self.id = id
+        self.thing = thing
+        self.from = from
+        self.to = to
+        self.how = how
+        self.deployment = deployment
+        self.who = who
+        self.outcome = outcome
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.status = status
+    }
+
+    /// The time its row shows: when it ended, else when it started.
+    public var time: String? { endedAt ?? startedAt }
+
+    /// The deployment its row opens: one of this console's. Any other row opens the board.
+    public var deploymentLink: String? {
+        guard how == .deployment, let deployment, DeploymentId.isValid(deployment) else { return nil }
+        return deployment
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, thing, from, to, how, deployment, who, outcome, startedAt, endedAt, status }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = c.text(.id, limit: 200)
+        let thing = c.text(.thing, limit: 64)
+        guard !id.isEmpty, BoardName.isThing(thing) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not an update"))
+        }
+        self.id = id
+        self.thing = thing
+        from = c.version(.from)
+        to = c.version(.to)
+        how = How(rawValue: c.text(.how, limit: 24)) ?? .usbOrOther
+        deployment = c.lenient(String.self, .deployment)
+            .flatMap { $0.range(of: "^[A-Za-z0-9_-]{1,64}$", options: .regularExpression) != nil ? $0 : nil }
+        who = c.lenient(Who.self, .who)
+        outcome = Outcome(rawValue: c.text(.outcome, limit: 24)) ?? .pending
+        startedAt = c.instant(.startedAt)
+        endedAt = c.instant(.endedAt)
+        status = c.lenient(String.self, .status)
+            .flatMap { $0.range(of: "^[A-Z_]{1,24}$", options: .regularExpression) != nil ? $0 : nil }
+    }
+}
+
+/// `GET /api/updates`: a page of updates, newest first, and the cursor of the next.
+public struct UpdatesPage: Decodable, Equatable, Sendable {
+    public let updates: [BoardUpdate]
+    /// Nil: there are no more.
+    public let cursor: String?
+    public let generatedAt: String?
+
+    public init(updates: [BoardUpdate], cursor: String? = nil, generatedAt: String? = nil) {
+        self.updates = updates
+        self.cursor = cursor
+        self.generatedAt = generatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey { case updates, cursor, generatedAt }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var seen = Set<String>()
+        // Each id once, as a list needs.
+        updates = try c.decode(LenientList<BoardUpdate>.self, forKey: .updates).items.filter { seen.insert($0.id).inserted }
+        cursor = c.lenient(String.self, .cursor).flatMap { Cursor.valid($0, limit: 2048) }
+        generatedAt = c.instant(.generatedAt)
     }
 }
 
@@ -612,7 +751,11 @@ public struct AuditPage: Decodable, Equatable, Sendable {
 
 enum Cursor {
     static func valid(_ text: String) -> String? {
-        text.range(of: "^[A-Za-z0-9_-]{1,512}$", options: .regularExpression) != nil ? text : nil
+        valid(text, limit: 512)
+    }
+
+    static func valid(_ text: String, limit: Int) -> String? {
+        text.range(of: "^[A-Za-z0-9_-]{1,\(limit)}$", options: .regularExpression) != nil ? text : nil
     }
 }
 

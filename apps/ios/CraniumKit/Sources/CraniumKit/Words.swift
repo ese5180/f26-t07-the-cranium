@@ -788,6 +788,55 @@ public enum Words {
         }
     }
 
+    // MARK: Every update of a board (GET /api/updates)
+
+    /// How an update came: "over Bluetooth from Vihaan’s phone", "deployment cranium-1-14-0-…", "USB or another tool".
+    public static func howWords(_ update: BoardUpdate) -> String {
+        switch update.how {
+        case .bluetooth:
+            let name = update.who?.name ?? ""
+            return name.isEmpty ? "over Bluetooth from a phone" : "over Bluetooth from \(name)\u{2019}s phone"
+        case .deployment:
+            return update.deployment.map { "deployment \($0)" } ?? "a deployment"
+        case .usbOrOther:
+            return "USB or another tool"
+        }
+    }
+
+    /// How an update ended, as a badge.
+    public static func updateOutcome(_ outcome: BoardUpdate.Outcome) -> Look {
+        switch outcome {
+        case .kept: return Look(.good, "check-circle", "Kept")
+        case .rolledBack: return Look(.bad, "undo", "Rolled back")
+        case .notInstalled: return Look(.warn, "minus-circle", "Not installed")
+        case .pending: return Look(.wait, "clock", "Pending")
+        }
+    }
+
+    /// An update's title: the version it installs.
+    public static func updateTitle(_ update: BoardUpdate) -> String {
+        update.to ?? "Unknown version"
+    }
+
+    /// The line under an update's title: "from 1.13.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago".
+    public static func updateDetail(_ update: BoardUpdate, now: Date) -> String {
+        var parts: [String] = []
+        if let from = update.from { parts.append("from \(from)") }
+        parts.append(howWords(update))
+        let time = timeAgo(update.time, now: now)
+        if !time.isEmpty { parts.append(time) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The Overview's line for the newest update, while none is in progress:
+    /// "Last: 1.14.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago".
+    public static func lastUpdateLine(_ update: BoardUpdate, now: Date) -> String {
+        var parts = [updateTitle(update), howWords(update)]
+        let time = timeAgo(update.time, now: now)
+        if !time.isEmpty { parts.append(time) }
+        return "Last: " + parts.joined(separator: " · ")
+    }
+
     static let lastUpdate: [String: UpdateWords] = [
         "none": UpdateWords(tone: .idle, icon: "minus", title: "No update in progress", quiet: true),
         "succeeded": UpdateWords(tone: .good, icon: "check-circle", title: "Last update succeeded"),

@@ -22,6 +22,7 @@ import com.craniumiot.cranium.core.Samples
 import com.craniumiot.cranium.core.Telemetry
 import com.craniumiot.cranium.core.TokenList
 import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.UpdatesPage
 import com.craniumiot.cranium.core.UploadReview
 
 /** Something read from the console: the last value, the last failure, when it was read, and whether it is being read. */
@@ -219,6 +220,13 @@ data class Store(
     val devices: Resource<DeviceList> = Resource(),
     val firmware: Resource<ReleaseList> = Resource(),
     val deployments: Resource<List<DeploymentSummary>> = Resource(),
+    /**
+     * The newest update of the fleet, of any kind (`GET /api/updates`, console 2.1.1), for the overview.
+     * No value (an older console, not read yet, or a failure): the overview goes by the deployments.
+     */
+    val updates: Resource<UpdatesPage> = Resource(),
+    /** Each board's updates, the first page, for its page; without a value its `executions` are shown. */
+    val boardUpdates: Map<String, Resource<UpdatesPage>> = emptyMap(),
     val recent: Resource<AuditPage> = Resource(),
     val audit: Resource<AuditPage> = Resource(),
     val auditMoreLoading: Boolean = false,

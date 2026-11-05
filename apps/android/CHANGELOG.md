@@ -4,6 +4,19 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.7.3
+
+The Overview's last update and a board's update history now show every update, not only deployments: over Bluetooth
+(with whose phone sent it) and by USB or another tool too, each with the version it came from and whether it was kept,
+rolled back or not installed. A board updated over Bluetooth no longer shows an older deployment as its last update.
+Against an older console the app shows what it showed before.
+
+The app reads `GET /api/updates` (console 2.1.1): the newest entry for the Overview, and `?thing=` for a board, its first
+page. A deployment's row opens the deployment; any other opens the board. A board's page also takes `lastUpdate` from
+`GET /api/devices/{thing}`, and reads the list again when that names a newer update. An older console answers 404
+`not_found`: then the app goes by the deployments and the board's `executions`, as before, and asks again only when
+the page is opened or pulled down. The words are the website's and the iPhone app's.
+
 ## 0.7.2
 
 From firmware 1.14.0 the app reads the board's own status over Bluetooth during the whole flow: Button 1 from the board,

@@ -268,6 +268,61 @@ import Testing
         #expect(UploadCheck.failedCheck("version_not_newer") == "Version")
     }
 
+    func update(_ how: BoardUpdate.How, from: String? = "1.13.0+0", to: String? = "1.14.0+0", deployment: String? = nil,
+                who: BoardUpdate.Who? = nil, outcome: BoardUpdate.Outcome = .kept, startedAt: String? = "2026-11-03T09:30:00.000Z",
+                endedAt: String? = "2026-11-03T09:32:41.000Z") -> BoardUpdate {
+        BoardUpdate(id: "u", thing: "cranium-0123456789abcdef", from: from, to: to, how: how, deployment: deployment, who: who,
+                    outcome: outcome, startedAt: startedAt, endedAt: endedAt)
+    }
+
+    /// GET /api/updates in the words of its contract, the same in the website and both apps.
+    @Test func howEachUpdateCame() {
+        let vihaan = BoardUpdate.Who(sub: "s", email: "vihaan@example.invalid", name: "Vihaan")
+        #expect(Words.howWords(update(.bluetooth, who: vihaan)) == "over Bluetooth from Vihaan\u{2019}s phone")
+        #expect(Words.howWords(update(.bluetooth, who: vihaan)) == "over Bluetooth from Vihaan’s phone")
+        #expect(Words.howWords(update(.bluetooth)) == "over Bluetooth from a phone")
+        #expect(Words.howWords(update(.bluetooth, who: .init(sub: "s", email: "a@b.test", name: ""))) == "over Bluetooth from a phone")
+        #expect(Words.howWords(update(.deployment, deployment: deployment)) == "deployment \(deployment)")
+        #expect(Words.howWords(update(.deployment, deployment: "AWS-job-1")) == "deployment AWS-job-1")
+        #expect(Words.howWords(update(.usbOrOther)) == "USB or another tool")
+        // A way this app has no words for reads as USB or another tool, from the decoding on.
+        let odd = try? JSONDecoder().decode(BoardUpdate.self, from: json(["id": "x", "thing": "cranium-0123456789abcdef",
+                                                                          "how": "carrier_pigeon", "outcome": "kept"]))
+        #expect(odd.map(Words.howWords) == "USB or another tool")
+    }
+
+    @Test func howEachUpdateEnded() {
+        #expect(Words.updateOutcome(.kept) == Look(.good, "check-circle", "Kept"))
+        #expect(Words.updateOutcome(.rolledBack) == Look(.bad, "undo", "Rolled back"))
+        #expect(Words.updateOutcome(.notInstalled) == Look(.warn, "minus-circle", "Not installed"))
+        #expect(Words.updateOutcome(.pending) == Look(.wait, "clock", "Pending"))
+        #expect(BoardUpdate.Outcome.allCases.map { Words.updateOutcome($0).label } == ["Kept", "Rolled back", "Not installed", "Pending"])
+    }
+
+    @Test func anUpdatesRowAndTheOverviewsLine() {
+        let vihaan = BoardUpdate.Who(sub: "s", email: "a@b.test", name: "Vihaan")
+        // The contract's example: 2 h after it ended.
+        let example = update(.bluetooth, from: "1.13.0+0", to: "1.14.0+0", who: vihaan)
+        let later = ConsoleTime.date("2026-11-03T11:32:41.000Z")!
+        #expect(Words.updateTitle(example) == "1.14.0+0")
+        #expect(Words.updateOutcome(example.outcome).label == "Kept")
+        #expect(Words.updateDetail(example, now: later) == "from 1.13.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago")
+        #expect(Words.lastUpdateLine(example, now: later) == "Last: 1.14.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago")
+
+        // Without what it ran before; with no version, for a job some other tool made.
+        let deployed = update(.deployment, from: nil, to: nil, deployment: "AWS-job-1", outcome: .notInstalled)
+        #expect(Words.updateTitle(deployed) == "Unknown version")
+        #expect(Words.updateDetail(deployed, now: now) == "deployment AWS-job-1 · 2 h ago")
+        #expect(Words.lastUpdateLine(deployed, now: now) == "Last: Unknown version · deployment AWS-job-1 · 2 h ago")
+
+        // Pending: when it started; and with no time at all, no time.
+        let pending = update(.usbOrOther, outcome: .pending, startedAt: "2026-11-03T11:57:00.000Z", endedAt: nil)
+        #expect(Words.updateDetail(pending, now: now) == "from 1.13.0+0 · USB or another tool · 3 min ago")
+        let timeless = update(.usbOrOther, startedAt: nil, endedAt: nil)
+        #expect(Words.updateDetail(timeless, now: now) == "from 1.13.0+0 · USB or another tool")
+        #expect(Words.lastUpdateLine(timeless, now: now) == "Last: 1.14.0+0 · USB or another tool")
+    }
+
     @Test func theActivityLogInWords() {
         let upload = AuditEntry(at: "2026-11-03T12:00:00.000Z", actor: Person(sub: "s", email: "a@b.test"), action: "firmware.upload",
                                 target: "1.8.0+0", outcome: "ok",

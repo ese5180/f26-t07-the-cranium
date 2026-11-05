@@ -527,6 +527,63 @@ object Updates {
         else -> describeStatus(status)
     }
 
+    // Every update of a board, from GET /api/updates (console 2.1.1), in the words of the website and both apps.
+
+    /**
+     * Whether a failed read of `GET /api/updates` says the console has no such route (2.1.0 and before
+     * answer 404 `not_found`): then the app shows what it showed before, from the deployments and a
+     * board's `executions`, and asks again only when the page is opened or pulled down. A 404
+     * `unknown_device` is about the board, not the console.
+     */
+    fun noUpdatesRoute(error: Throwable?): Boolean = error is ApiError && error.status == 404 && error.code == "not_found"
+
+    /** "over Bluetooth from Vihaan’s phone", "deployment <id>", "USB or another tool". */
+    fun howWords(update: Update): String = when (update.how) {
+        "bluetooth" -> update.who?.name?.trim()?.takeIf { it.isNotEmpty() }?.let { "over Bluetooth from $it’s phone" }
+            ?: "over Bluetooth from a phone"
+        "deployment" -> update.deployment?.let { "deployment $it" } ?: "a deployment"
+        else -> "USB or another tool"
+    }
+
+    /** How an update ended: kept, rolled back, not installed, or pending (also for a word the app does not know). */
+    fun outcomeWords(outcome: String): StateWords = when (outcome) {
+        "kept" -> StateWords(Tone.GOOD, Glyph.CHECK_CIRCLE, "Kept")
+        "rolled_back" -> StateWords(Tone.BAD, Glyph.UNDO, "Rolled back")
+        "not_installed" -> StateWords(Tone.WARN, Glyph.MINUS_CIRCLE, "Not installed")
+        else -> StateWords(Tone.WAIT, Glyph.CLOCK, "Pending")
+    }
+
+    /** The title of an update's row: the version it installs. */
+    fun updateTitle(update: Update): String = update.to ?: "Unknown version"
+
+    /** The time an update is told by: when it ended, else when it started. */
+    fun updateTime(update: Update): String? = update.endedAt ?: update.startedAt
+
+    /** The line under an update's title: "from 1.13.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago". */
+    fun updateDetail(update: Update, nowMs: Long): String = listOfNotNull(
+        update.from?.let { "from $it" },
+        howWords(update),
+        Words.timeAgo(updateTime(update), nowMs).ifEmpty { null },
+    ).joinToString(" · ")
+
+    /** The overview's line for the newest update: "Last: 1.14.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago". */
+    fun lastUpdateLine(update: Update, nowMs: Long): String = listOfNotNull(
+        "Last: ${updateTitle(update)}",
+        howWords(update),
+        Words.timeAgo(updateTime(update), nowMs).ifEmpty { null },
+    ).joinToString(" · ")
+
+    /** A board's page, in one line: "Last: 1.14.0+0 · Kept · 2 h ago". */
+    fun updateSummary(update: Update, nowMs: Long): String = listOfNotNull(
+        "Last: ${updateTitle(update)}",
+        outcomeWords(update.outcome).label,
+        Words.timeAgo(updateTime(update), nowMs).ifEmpty { null },
+    ).joinToString(" · ")
+
+    /** The deployment an update's row opens: one of this console's, for an update that came that way; else null (the board). */
+    fun deploymentOf(update: Update): String? =
+        update.deployment?.takeIf { update.how == "deployment" && ApiJson.isDeploymentId(it) }
+
     private val LAST_UPDATE = mapOf(
         "none" to StateWords(Tone.IDLE, Glyph.MINUS, "No update in progress", quiet = true),
         "succeeded" to StateWords(Tone.GOOD, Glyph.CHECK_CIRCLE, "Last update succeeded"),

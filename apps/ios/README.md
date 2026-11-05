@@ -12,7 +12,7 @@ goes wrong.
 It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator with made-up data
 (below). On the owner's iPhone it has signed in to the real console (2026-11-04), and on 2026-11-05 it sent
 firmware 1.13.0 and then 1.14.0 to the board over Bluetooth, each confirmed
-([`docs/test-results.md`](../../docs/test-results.md)). The newest version is 0.7.2; installing it on a phone is in
+([`docs/test-results.md`](../../docs/test-results.md)). The newest version is 0.7.3; installing it on a phone is in
 [`apps/README.md`](../README.md).
 
 From 0.6.0 that console is **admin mode**, and the app has a customer side too, as the customer

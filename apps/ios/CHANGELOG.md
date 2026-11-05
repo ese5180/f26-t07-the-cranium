@@ -4,6 +4,19 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.7.3
+
+The Overview's Updates and a board's History and Updates now list every update, as the console has them: deployments,
+and the updates the board reported itself, over Bluetooth or by USB or another tool, each with what it ran before, how
+it came, when, and whether it was kept. A board updated over Bluetooth no longer shows its last deployment as its last
+update. With an older console the app shows what it showed before.
+
+The app reads `GET /api/updates` (console 2.1.1): the newest update for the Overview, and a board's first 25 for its
+page and its Updates screen, which loads older ones on Load more. While a screen polls faster, they are read at most
+every 15 s. A deployment's row opens the deployment, any other the board. A console that answers 404 `not_found` has no
+such route: the rows come from the deployments again, as in 0.7.2, and the route is asked again only on a full refresh.
+The words are the same on the website and in both apps.
+
 ## 0.7.2
 
 With firmware 1.14.0 or later the app hears the board itself over Bluetooth through the whole update: Button 1 or 2 as

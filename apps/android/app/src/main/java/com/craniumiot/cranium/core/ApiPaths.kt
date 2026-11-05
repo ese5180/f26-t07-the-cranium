@@ -67,6 +67,19 @@ class ApiPaths(consoleUrl: String) {
         ),
     )
 
+    /**
+     * Every update of every board, or of the board `thing`, newest first, a page at a time (console
+     * 2.1.1): deployments and the updates the boards reported themselves. `limit` is 1 to 100.
+     */
+    fun updates(thing: String? = null, limit: Int? = null, cursor: String? = null): String {
+        val query = listOfNotNull(
+            thing?.let { "thing" to it },
+            limit?.let { "limit" to it.coerceIn(1, UPDATES_PAGE).toString() },
+            cursor?.let { "cursor" to it },
+        )
+        return "$base/api/updates" + if (query.isEmpty()) "" else "?" + formEncode(query)
+    }
+
     /** A release's note, changed after its upload. */
     fun notes(version: String): String = "$base/api/firmware/${encodeSegment(version)}/notes"
 
@@ -78,6 +91,9 @@ class ApiPaths(consoleUrl: String) {
 
     companion object {
         private const val HEX = "0123456789ABCDEF"
+
+        /** The most updates one page of `GET /api/updates` holds. */
+        const val UPDATES_PAGE = 100
 
         /**
          * One path segment, percent-encoded: everything but RFC 3986's unreserved characters, so

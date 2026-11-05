@@ -950,6 +950,20 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun loadDeployment(id: String) =
         load({ it.deploymentDetails[id] ?: Resource() }, { copy(deploymentDetails = deploymentDetails + (id to it)) }) { it.deployment(id) }
 
+    /** The fleet's newest update, for the overview. */
+    private suspend fun loadUpdates() = load({ it.updates }, { copy(updates = it) }) { it.updates(limit = UPDATES_ON_OVERVIEW) }
+
+    /** A board's updates: the first page is enough for its page. */
+    private suspend fun loadBoardUpdates(thing: String) =
+        load({ it.boardUpdates[thing] ?: Resource() }, { copy(boardUpdates = boardUpdates + (thing to it)) }) { it.updates(thing = thing) }
+
+    /**
+     * Whether to read a list of updates again: when due, but from a console that has no such route
+     * (2.1.0 and before) only when the page is opened or pulled down.
+     */
+    private fun <T> updatesDue(resource: Resource<T>, full: Boolean) =
+        if (Updates.noUpdatesRoute(resource.error)) full else due(resource, full)
+
     private suspend fun loadSamples(thing: String) =
         load({ it.samples[thing] ?: Resource() }, { copy(samples = samples + (thing to it)) }) { it.samples(thing, 24) }
 
@@ -1014,12 +1028,16 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         val store = _store.value
         when (route) {
             Route.Overview -> {
+                val wasActive = activeDeployments().isNotEmpty()
                 coroutineScope {
                     launch { loadDevices() }
                     launch { loadDeployments() }
                     if (due(store.firmware, full)) launch { loadFirmware() }
                     if (due(store.recent, full)) launch { loadRecent() }
+                    if (updatesDue(store.updates, full)) launch { loadUpdates() }
                 }
+                // The last update is shown once nothing is in progress: read it again when the last deployment ends.
+                if (wasActive && activeDeployments().isEmpty() && !Updates.noUpdatesRoute(_store.value.updates.error)) loadUpdates()
                 readActiveDeployments()
             }
             Route.Boards -> {
@@ -1030,16 +1048,18 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
                 }
                 readActiveDeployments()
             }
-            is Route.Board, is Route.BoardPage -> coroutineScope {
+            is Route.Board, is Route.BoardPage -> {
                 val thing = if (route is Route.Board) route.thing else (route as Route.BoardPage).thing
-                launch { loadDetail(thing) }
-                if (due(store.devices, full, Telemetry.DIAGNOSTICS_REFRESH_MS)) launch { loadDevices() }
-                if (due(store.firmware, full)) launch { loadFirmware() }
-                if (due(store.deployments, full)) launch { loadDeployments() }
-                if (due(store.samples[thing] ?: Resource(), full, Telemetry.SAMPLES_REFRESH_MS)) launch { loadSamples(thing) }
-                // The board's latest lines, on its own page only: every 30 s.
-                if (route is Route.Board && due(store.boardLines[thing] ?: Resource(), full, BoardLog.RECENT_REFRESH_MS)) {
-                    launch { loadBoardLines(thing) }
+                // Its updates of every kind, for the page's line about them and the update history.
+                val history = route is Route.Board || (route as? Route.BoardPage)?.part == BoardPart.HISTORY
+                refreshBoard(route, thing, history, full)
+                // The board's page names a newer update than the list holds (read more than a few seconds ago): read the list again now.
+                if (history) {
+                    val newest = _store.value.deviceDetails[thing]?.value?.lastUpdate
+                    val read = _store.value.boardUpdates[thing]
+                    val first = read?.value?.updates?.firstOrNull()
+                    val differs = first?.id != newest?.id || first?.outcome != newest?.outcome
+                    if (newest != null && read?.value != null && differs && now() - read.loadedAt > 5_000) loadBoardUpdates(thing)
                 }
             }
             Route.Firmware -> coroutineScope {
@@ -1085,6 +1105,21 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             is Route.Bluetooth -> if (due(store.firmware, full)) loadFirmware()
             Route.More, Route.Serial -> Unit
         }
+    }
+
+    /** A board's page or one of its parts: the board, and what the page shows of the fleet. */
+    private suspend fun refreshBoard(route: Route, thing: String, history: Boolean, full: Boolean) = coroutineScope {
+        val store = _store.value
+        launch { loadDetail(thing) }
+        if (due(store.devices, full, Telemetry.DIAGNOSTICS_REFRESH_MS)) launch { loadDevices() }
+        if (due(store.firmware, full)) launch { loadFirmware() }
+        if (due(store.deployments, full)) launch { loadDeployments() }
+        if (due(store.samples[thing] ?: Resource(), full, Telemetry.SAMPLES_REFRESH_MS)) launch { loadSamples(thing) }
+        // The board's latest lines, on its own page only: every 30 s.
+        if (route is Route.Board && due(store.boardLines[thing] ?: Resource(), full, BoardLog.RECENT_REFRESH_MS)) {
+            launch { loadBoardLines(thing) }
+        }
+        if (history && updatesDue(store.boardUpdates[thing] ?: Resource(), full)) launch { loadBoardUpdates(thing) }
     }
 
     private suspend fun refreshDeployment(id: String, full: Boolean) {
@@ -1782,6 +1817,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         const val RECENT_ENTRIES = 6
         const val ACTIVITY_PAGE = 50
         const val DEPLOYMENTS_ON_OVERVIEW = 4
+        const val UPDATES_ON_OVERVIEW = 1
         const val REQUESTS_AT_ONCE = 4
         const val LARGEST_FILE_READ = 8 * 1024 * 1024
         const val REASON_LIMIT = 200

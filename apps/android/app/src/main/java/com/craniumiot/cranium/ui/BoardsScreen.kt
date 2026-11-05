@@ -23,6 +23,7 @@ import com.craniumiot.cranium.core.Times
 import com.craniumiot.cranium.core.Tone
 import com.craniumiot.cranium.core.UpdateWatch
 import com.craniumiot.cranium.core.Updates
+import com.craniumiot.cranium.core.UpdatesPage
 import com.craniumiot.cranium.core.Words
 
 /** The tone of a board's dot: online, restarting, or quiet. */
@@ -135,7 +136,7 @@ fun BoardScreen(vm: ConsoleViewModel, store: Store, thing: String, now: Long) {
         header("Details")
         for (part in BoardPart.entries) {
             item(key = part.name) {
-                ListRow(part.title, supporting = partSummary(part, device, detail, store, followed), onClick = { vm.open(Route.BoardPage(thing, part)) })
+                ListRow(part.title, supporting = partSummary(part, device, detail, store, followed, now), onClick = { vm.open(Route.BoardPage(thing, part)) })
             }
         }
         latestLines(vm, store, thing)
@@ -191,7 +192,7 @@ private fun UpdateCard(vm: ConsoleViewModel, device: Device) {
 }
 
 /** One short line for each part of a board's page. */
-private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, store: Store, followed: UpdateWatch.Record?): String = when (part) {
+private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, store: Store, followed: UpdateWatch.Record?, now: Long): String = when (part) {
     BoardPart.FIRMWARE -> device.fw?.let { "${it.version}, ${if (it.confirmed) "confirmed" else "on trial"}" } ?: "Not reported"
     BoardPart.DIAGNOSTICS -> listOfNotNull(
         Words.signalQuality(device.rssi)?.let { "${it.label} · ${Words.signed(device.rssi!!)} dBm" },
@@ -200,11 +201,27 @@ private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, s
     ).joinToString(" · ").ifEmpty { "Nothing reported" }
     BoardPart.CHARTS -> "Signal and free memory, 24 h"
     BoardPart.BLUETOOTH -> bluetoothSummary(device, followed) ?: "No update over Bluetooth recorded"
-    BoardPart.HISTORY -> if (detail.executions.isEmpty()) "Not offered an update yet" else {
-        val last = detail.executions.first()
-        "${Words.plural(detail.executions.size + detail.olderExecutions, "update")} · last: ${Updates.describeHistory(last.status).label}"
+    BoardPart.HISTORY -> historySummary(detail, store.boardUpdates[device.thing]?.value, now)
+}
+
+/**
+ * The line for a board's update history: its newest update of any kind (the board's page, or the
+ * list of its updates, console 2.1.1); from an older console, its deployments as before.
+ */
+private fun historySummary(detail: DeviceDetail, updates: UpdatesPage?, now: Long): String {
+    val newest = detail.lastUpdate ?: updates?.updates?.firstOrNull()
+    return when {
+        newest != null -> Updates.updateSummary(newest, now)
+        updates != null -> NO_UPDATE_RECORDED
+        detail.executions.isEmpty() -> "Not offered an update yet"
+        else -> {
+            val last = detail.executions.first()
+            "${Words.plural(detail.executions.size + detail.olderExecutions, "update")} · last: ${Updates.describeHistory(last.status).label}"
+        }
     }
 }
+
+private const val NO_UPDATE_RECORDED = "No update recorded yet"
 
 // The parts of a board's page.
 
@@ -233,7 +250,11 @@ fun BoardPartScreen(vm: ConsoleViewModel, store: Store, thing: String, part: Boa
             BoardPart.DIAGNOSTICS -> diagnosticsPart(device, detail, now)
             BoardPart.CHARTS -> chartsPart(vm, store, device, now)
             BoardPart.BLUETOOTH -> bluetoothPart(device, bt.outcomes[thing])
-            BoardPart.HISTORY -> historyPart(vm, device, detail, now)
+            BoardPart.HISTORY -> {
+                // Every kind of update once the console lists them; until then, and from an older console, the deployments.
+                val updates = store.boardUpdates[thing]?.value
+                if (updates != null) updatesPart(vm, updates, now) else historyPart(vm, device, detail, now)
+            }
         }
     }
 }
@@ -375,6 +396,33 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bluetoothPart(device:
     item(key = "count") { ValueRow("Updates over Bluetooth", Words.plural(record.count, "update", "updates"), supporting = "On this board, in all") }
 }
 
+/**
+ * A board's updates of every kind, newest first (GET /api/updates?thing=, console 2.1.1): the version,
+ * how it ended, and where it came from. A deployment of this console opens that deployment.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.updatesPart(vm: ConsoleViewModel, page: UpdatesPage, now: Long) {
+    if (page.updates.isEmpty()) {
+        item(key = "none") { OneLine("$NO_UPDATE_RECORDED.") }
+        return
+    }
+    for (update in page.updates) {
+        item(key = "update-${update.id}") {
+            val outcome = Updates.outcomeWords(update.outcome)
+            val deployment = Updates.deploymentOf(update)
+            ListRow(
+                Updates.updateTitle(update),
+                mono = update.to != null,
+                supporting = Updates.updateDetail(update, now),
+                leading = { StateDot(outcome.tone) },
+                trailingText = outcome.label,
+                onClick = deployment?.let { id -> { vm.open(Route.DeploymentPage(id)) } },
+            )
+        }
+    }
+    if (page.cursor != null) item(key = "older") { OneLine("Older updates are not listed.") }
+}
+
+/** A board's deployments, from a console that does not list every update (2.1.0 and before), or until the list is read. */
 private fun androidx.compose.foundation.lazy.LazyListScope.historyPart(vm: ConsoleViewModel, device: Device, detail: DeviceDetail, now: Long) {
     if (detail.executions.isEmpty()) {
         item(key = "none") { OneLine("This board has not been offered an update yet.") }

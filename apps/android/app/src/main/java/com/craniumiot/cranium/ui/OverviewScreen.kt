@@ -15,6 +15,7 @@ import com.craniumiot.cranium.core.DeploymentSummary
 import com.craniumiot.cranium.core.Device
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.Update
 import com.craniumiot.cranium.core.Updates
 import com.craniumiot.cranium.core.Words
 
@@ -27,6 +28,8 @@ fun OverviewScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val newest = firmware?.releases?.firstOrNull { it.isActive }
     val active = deployments.orEmpty().filter { Updates.isUnderWay(it) || Updates.stillFinishing(it, devices, now) }
     val lastDone = deployments.orEmpty().firstOrNull { it !in active }
+    // The newest update of any kind, once the console lists them (2.1.1); until then, and from an older console, the deployments.
+    val lastUpdate = store.updates.value?.updates?.firstOrNull()
     val loaded = devices != null && firmware != null && deployments != null
     val blank = loaded && devices.isNullOrEmpty() && firmware.releases.isEmpty() && deployments.isNullOrEmpty()
     val resources = listOf(store.devices, store.firmware, store.deployments)
@@ -61,7 +64,9 @@ fun OverviewScreen(vm: ConsoleViewModel, store: Store, now: Long) {
 
         header("Updates")
         if (active.isEmpty()) {
-            item(key = "calm") { Calm(vm, store, lastDone, devices.orEmpty(), now) }
+            item(key = "calm") {
+                if (lastUpdate != null) LastUpdate(vm, lastUpdate, devices.orEmpty(), now) else Calm(vm, store, lastDone, devices.orEmpty(), now)
+            }
         } else {
             for (deployment in active) item(key = "run-${deployment.id}") { ActiveRow(vm, store, deployment) }
         }
@@ -141,7 +146,25 @@ private fun androidx.compose.foundation.lazy.LazyListScope.gettingStarted(vm: Co
     item(key = "help") { ListRow("How updates work", onClick = { vm.open(Route.HelpPage("getting-started")) }) }
 }
 
-/** No update under way: how the last one ended, in one row. */
+/**
+ * No update under way: the newest update of any kind (GET /api/updates), with how it ended. A
+ * deployment of this console opens that deployment; any other update opens the board.
+ */
+@Composable
+private fun LastUpdate(vm: ConsoleViewModel, update: Update, devices: List<Device>, now: Long) {
+    val work = devices.count { it.ota != null && it.ota.state != "idle" }
+    val outcome = Updates.outcomeWords(update.outcome)
+    val deployment = Updates.deploymentOf(update)
+    ListRow(
+        if (work > 0) "${Words.plural(work, "board reports", "boards report")} an update in progress" else "No update in progress",
+        supporting = Updates.lastUpdateLine(update, now),
+        leading = { StateDot(outcome.tone) },
+        trailingText = outcome.label,
+        onClick = { vm.open(if (deployment != null) Route.DeploymentPage(deployment) else Route.Board(update.thing)) },
+    )
+}
+
+/** No update under way, from a console that does not list every update: how the last deployment ended, in one row. */
 @Composable
 private fun Calm(vm: ConsoleViewModel, store: Store, lastDone: DeploymentSummary?, devices: List<Device>, now: Long) {
     val work = devices.count { it.ota != null && it.ota.state != "idle" }

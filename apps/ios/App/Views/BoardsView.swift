@@ -173,7 +173,7 @@ struct BoardView: View {
             }
         }
         .poll(every: { Telemetry.diagnosticsRefresh }) { full in
-            await app.loadDevice(thing)
+            await app.refreshBoard(thing, full: full)
             if app.firmware.due(full) { await app.loadFirmware() }
         }
         .toolbar {
@@ -365,7 +365,18 @@ struct BoardView: View {
     @ViewBuilder
     private func history(_ detail: DeviceDetail) -> some View {
         Section("History") {
-            if detail.executions.isEmpty {
+            // Every kind of update, from GET /api/updates; from an older console, or until it is read,
+            // the deployments it was offered, as before.
+            if let page = app.boardUpdates[detail.device.thing]?.value, !page.updates.isEmpty {
+                ForEach(page.updates.prefix(3)) { update in
+                    UpdateLine(update: update)
+                }
+                if page.updates.count > 3 || page.cursor != nil {
+                    NavigationLink(value: Route.boardHistory(detail.device.thing)) {
+                        Text("All updates").foregroundStyle(theme.accent)
+                    }
+                }
+            } else if detail.executions.isEmpty {
                 Text("Not offered an update yet").foregroundStyle(theme.ink3)
             } else {
                 ForEach(detail.executions.prefix(3)) { execution in
@@ -434,6 +445,35 @@ struct UpdateCard: View {
     }
 }
 
+/// One update of a board (`GET /api/updates`): the version it installs and how it ended, and under it
+/// what ran before, how it came and when. A deployment's row opens the deployment; any other stays
+/// here, on the board's own screens.
+struct UpdateLine: View {
+    @Environment(\.theme) private var theme
+    let update: BoardUpdate
+
+    var body: some View {
+        let row = HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                if update.to != nil {
+                    VersionText(Words.updateTitle(update))
+                } else {
+                    Text(Words.updateTitle(update))
+                }
+                Text(Words.updateDetail(update, now: Date()))
+                    .font(.footnote).foregroundStyle(theme.ink3)
+            }
+            Spacer()
+            StatusText(Words.updateOutcome(update.outcome))
+        }
+        if let id = update.deploymentLink {
+            NavigationLink(value: Route.deployment(id)) { row }
+        } else {
+            row
+        }
+    }
+}
+
 /// One update a board was offered.
 struct HistoryLine: View {
     @Environment(\.theme) private var theme
@@ -487,22 +527,104 @@ private struct BoardSubscreen<Content: View>: View {
     }
 }
 
+/// A board's older updates, a page at a time, after the first page that AppModel keeps.
+@MainActor
+final class OlderUpdates: ObservableObject {
+    @Published private(set) var updates: [BoardUpdate] = []
+    @Published private(set) var next: String?
+    @Published private(set) var read = false
+    @Published private(set) var loading = false
+    @Published private(set) var error: Error?
+
+    /// Where the next page starts: after the pages read here, else after the first.
+    func cursor(after first: UpdatesPage) -> String? {
+        read ? next : first.cursor
+    }
+
+    /// The first page, then the older ones, each update once.
+    func rows(_ first: UpdatesPage) -> [BoardUpdate] {
+        let shown = Set(first.updates.map(\.id))
+        return first.updates + updates.filter { !shown.contains($0.id) }
+    }
+
+    func loadMore(_ app: AppModel, thing: String, after first: UpdatesPage) async {
+        guard let api = app.api, let cursor = cursor(after: first), !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            guard let page = try await api.updates(thing: thing, cursor: cursor) else { return }
+            var seen = Set(updates.map(\.id))
+            updates += page.updates.filter { seen.insert($0.id).inserted }
+            next = page.cursor
+            read = true
+        } catch {
+            if !(error is CancellationError) { self.error = error }
+            await app.handle(error)
+        }
+    }
+}
+
+/// Every update of a board: from GET /api/updates, else, from an older console or until that is
+/// read, the deployments it was offered, as before.
 struct BoardHistoryView: View {
+    @EnvironmentObject private var app: AppModel
     @Environment(\.theme) private var theme
+    @StateObject private var older = OlderUpdates()
     let thing: String
 
     var body: some View {
-        BoardSubscreen(thing: thing, title: "Updates") { detail in
-            let ended = detail.executions.filter { !Words.isUnfinished($0.status) }
-                .max { (ConsoleTime.date($0.lastUpdatedAt) ?? .distantPast) < (ConsoleTime.date($1.lastUpdatedAt) ?? .distantPast) }
+        ListScreen {
+            if let first = app.boardUpdates[thing]?.value, !first.updates.isEmpty {
+                updates(first)
+            } else if let detail = app.deviceDetails[thing]?.value {
+                executions(detail)
+            } else {
+                Section { StateRow(kind: .loading, text: "Loading…") }
+            }
+        }
+        .poll(every: { 30 }) { full in await app.refreshBoard(thing, full: full) }
+        .screenTitle("Updates", large: false)
+    }
+
+    @ViewBuilder
+    private func updates(_ first: UpdatesPage) -> some View {
+        Section {
+            ForEach(older.rows(first)) { update in
+                UpdateLine(update: update)
+            }
+        }
+        if older.cursor(after: first) != nil || older.error != nil {
             Section {
-                ForEach(detail.executions) { execution in
-                    HistoryLine(execution: execution, last: execution.deployment == ended?.deployment ? detail.device.ota?.last : nil)
+                if older.cursor(after: first) != nil {
+                    Button {
+                        Task { await older.loadMore(app, thing: thing, after: first) }
+                    } label: {
+                        HStack {
+                            Text(older.loading ? "Loading…" : "Load more")
+                            if older.loading { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(older.loading)
                 }
-            } footer: {
-                if detail.olderExecutions > 0 {
-                    Text("\(Words.plural(detail.olderExecutions, "older update is", "older updates are")) not listed.")
+                if let error = older.error {
+                    StateRow(kind: .failed, text: Words.plainMessage(error))
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func executions(_ detail: DeviceDetail) -> some View {
+        let ended = detail.executions.filter { !Words.isUnfinished($0.status) }
+            .max { (ConsoleTime.date($0.lastUpdatedAt) ?? .distantPast) < (ConsoleTime.date($1.lastUpdatedAt) ?? .distantPast) }
+        Section {
+            ForEach(detail.executions) { execution in
+                HistoryLine(execution: execution, last: execution.deployment == ended?.deployment ? detail.device.ota?.last : nil)
+            }
+        } footer: {
+            if detail.olderExecutions > 0 {
+                Text("\(Words.plural(detail.olderExecutions, "older update is", "older updates are")) not listed.")
             }
         }
     }

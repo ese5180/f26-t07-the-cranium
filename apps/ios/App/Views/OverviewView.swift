@@ -108,7 +108,21 @@ struct OverviewView: View {
         let active = deployments.filter { Words.isUnderWay($0) || Words.stillFinishing($0, devices: devices, now: now) }
         if active.isEmpty {
             Section("Updates") {
-                if let last = deployments.first {
+                // Every kind of update, from GET /api/updates; from an older console, or until it is read,
+                // the newest deployment, as before.
+                if let newest = app.updates.value?.updates.first {
+                    NavigationLink(value: Route.of(newest)) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("No update in progress")
+                                Text(Words.lastUpdateLine(newest, now: now))
+                                    .font(.footnote).foregroundStyle(theme.ink3)
+                            }
+                            Spacer()
+                            StatusText(Words.updateOutcome(newest.outcome))
+                        }
+                    }
+                } else if let last = deployments.first {
                     let look = Words.describeDeployment(last, devices: devices)
                     NavigationLink(value: Route.deployment(last.id)) {
                         HStack {

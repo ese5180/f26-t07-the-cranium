@@ -24,6 +24,7 @@ import com.craniumiot.cranium.core.Samples
 import com.craniumiot.cranium.core.SendCheck
 import com.craniumiot.cranium.core.SerialRecord
 import com.craniumiot.cranium.core.TokenList
+import com.craniumiot.cranium.core.UpdatesPage
 import com.craniumiot.cranium.core.Words
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -92,6 +93,13 @@ class ApiClient(private val paths: ApiPaths, private val auth: AccessTokens) {
         limit: Int? = null,
         cursor: String? = null,
     ): LinePage = ApiJson.lines(getJson(paths.boardLog(from, to, thing, kinds, tags, limit, cursor)))
+
+    /**
+     * Every update of every board, or of one, newest first (console 2.1.1). An older console answers
+     * 404 `not_found`, which is thrown as any error is; Updates.noUpdatesRoute tells it apart.
+     */
+    suspend fun updates(thing: String? = null, limit: Int? = null, cursor: String? = null): UpdatesPage =
+        ApiJson.updates(getJson(paths.updates(thing, limit, cursor)))
 
     suspend fun tokens(): TokenList = ApiJson.tokens(getJson(paths.tokens))
 

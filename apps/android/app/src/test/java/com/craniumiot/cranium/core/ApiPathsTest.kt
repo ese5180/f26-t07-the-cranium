@@ -59,6 +59,15 @@ class ApiPathsTest {
     }
 
     @Test
+    fun `the updates of every board, or of one board, a page at a time`() {
+        assertEquals("$base/api/updates", paths.updates())
+        assertEquals("$base/api/updates?thing=$thing", paths.updates(thing))
+        assertEquals("$base/api/updates?limit=1", paths.updates(limit = 1))
+        assertEquals("$base/api/updates?thing=$thing&limit=100&cursor=eyJrIjoxfQ%3D%3D", paths.updates(thing, 500, "eyJrIjoxfQ=="))
+        assertEquals("$base/api/updates?limit=1", paths.updates(limit = 0))
+    }
+
+    @Test
     fun `the history file is beside the console's scripts, under its build`() {
         assertEquals("$base/assets/20261102-abc/history.json", paths.history("20261102-abc"))
         assertEquals(

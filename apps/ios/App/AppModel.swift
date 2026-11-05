@@ -51,6 +51,11 @@ enum Route: Hashable {
     case eventsList
     /// Events narrowed to one board, with its board log: a board page's "All lines", and Search.
     case boardLog(String)
+
+    /// Where an update's row leads: its deployment, else its board.
+    static func of(_ update: BoardUpdate) -> Route {
+        update.deploymentLink.map(Route.deployment) ?? .board(update.thing)
+    }
 }
 
 /// The signed-in console: who, the configuration, the API, and what several screens share (the
@@ -106,6 +111,13 @@ final class AppModel: ObservableObject {
     /// Each deployment's own record, where it has been read: who does what is only in there.
     @Published var deploymentDetails: [String: Loadable<Deployment>] = [:]
     @Published var deviceDetails: [String: Loadable<DeviceDetail>] = [:]
+    /// The newest update of any board (`GET /api/updates`, console 2.1.1 and later), for the Overview.
+    @Published var updates = Loadable<UpdatesPage>()
+    /// Each board's updates, the first page, where they have been read.
+    @Published var boardUpdates: [String: Loadable<UpdatesPage>] = [:]
+    /// The console has no `GET /api/updates` (2.1.0 and before): the screens show what they showed
+    /// before, from the deployments, and it is asked again only on a full refresh.
+    @Published private(set) var updatesMissing = false
     /// The newest page of the activity log, for who cancelled a deployment.
     @Published var audit = Loadable<AuditPage>()
 
@@ -445,6 +457,9 @@ final class AppModel: ObservableObject {
         audit = Loadable()
         deploymentDetails = [:]
         deviceDetails = [:]
+        updates = Loadable()
+        boardUpdates = [:]
+        updatesMissing = false
         deploying = nil
         bluetoothOpen = false
     }
@@ -588,6 +603,56 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// How often the updates are read again while a screen that shows them polls faster.
+    static let updatesRefresh: TimeInterval = 15
+
+    /// Whether to ask for updates now: on a full refresh always, else not from a console without the
+    /// route, and not more often than `updatesRefresh`.
+    private func updatesDue(_ known: Loadable<UpdatesPage>?, full: Bool) -> Bool {
+        full || (!updatesMissing && (known?.due(false, every: Self.updatesRefresh) ?? true))
+    }
+
+    /// The newest update of any board, for the Overview.
+    func loadUpdates(full: Bool) async {
+        guard let api, updatesDue(updates, full: full) else { return }
+        updates.loading = true
+        do {
+            let page = try await api.updates(limit: 1)
+            updates = Loadable(value: page, loadedAt: Date())
+            updatesMissing = page == nil
+        } catch {
+            updates.loading = false
+            if !(error is CancellationError) { updates.error = error }
+            await handle(error)
+        }
+    }
+
+    /// One board's updates, the first page: its page and its Updates screen.
+    func loadBoardUpdates(_ thing: String, full: Bool) async {
+        let known = boardUpdates[thing]
+        guard let api, updatesDue(known, full: full) else { return }
+        var entry = known ?? Loadable()
+        entry.loading = true
+        boardUpdates[thing] = entry
+        do {
+            let page = try await api.updates(thing: thing)
+            boardUpdates[thing] = Loadable(value: page, loadedAt: Date())
+            updatesMissing = page == nil
+        } catch {
+            entry.loading = false
+            if !(error is CancellationError) { entry.error = error }
+            boardUpdates[thing] = entry
+            await handle(error)
+        }
+    }
+
+    /// A board's page: the board, and its updates.
+    func refreshBoard(_ thing: String, full: Bool) async {
+        async let device: Void = loadDevice(thing)
+        async let updates: Void = loadBoardUpdates(thing, full: full)
+        _ = await (device, updates)
+    }
+
     /// The list says how many boards are in each state, not which board is doing what. That comes
     /// from each unfinished deployment's own record.
     func readActiveDeployments() async {
@@ -616,7 +681,8 @@ final class AppModel: ObservableObject {
         async let deployments: Void = loadDeployments()
         async let firmware: Void = self.firmware.due(full) ? loadFirmware() : ()
         async let recent: Void = self.recent.due(full) ? loadRecent() : ()
-        _ = await (devices, deployments, firmware, recent)
+        async let updates: Void = loadUpdates(full: full)
+        _ = await (devices, deployments, firmware, recent, updates)
         await readActiveDeployments()
     }
 

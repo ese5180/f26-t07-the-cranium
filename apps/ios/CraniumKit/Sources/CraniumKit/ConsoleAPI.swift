@@ -222,6 +222,31 @@ public final class ConsoleAPI: Sendable {
                                                             method: "POST", body: body)).deployment
     }
 
+    // MARK: Updates
+
+    /// `GET /api/updates` (console 2.1.1 and later): every update of every board, or of `thing`, newest
+    /// first: the deployments, and the updates the boards reported themselves, over Bluetooth or by USB
+    /// or another tool. `limit` is 1 to 100 (the console's default is 25). Nil from an older console,
+    /// which has no such route (`hasNoRoute`): then the app shows what it showed before.
+    public func updates(thing: String? = nil, limit: Int? = nil, cursor: String? = nil) async throws -> UpdatesPage? {
+        var query: [(String, String)] = []
+        if let thing, !thing.isEmpty { query.append(("thing", thing)) }
+        if let limit { query.append(("limit", String(min(max(limit, 1), 100)))) }
+        if let cursor { query.append(("cursor", cursor)) }
+        do {
+            return try decode(UpdatesPage.self, from: try await send(["api", "updates"], query: query))
+        } catch let error as APIError where Self.hasNoRoute(error) {
+            return nil
+        }
+    }
+
+    /// The console has no such route: 404 with the code `not_found`, as console 2.1.0 and before answer
+    /// `GET /api/updates`. A board that is not registered is 404 `unknown_device`, which is not this.
+    public static func hasNoRoute(_ error: Error) -> Bool {
+        guard let error = error as? APIError else { return false }
+        return error.status == 404 && error.code == "not_found"
+    }
+
     // MARK: Activity
 
     /// `GET /api/audit`: a page of the activity log, newest first.

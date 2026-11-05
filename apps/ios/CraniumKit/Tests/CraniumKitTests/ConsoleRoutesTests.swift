@@ -73,6 +73,119 @@ import Testing
         #expect(detail.device.name == "CRVIHAAN01")
     }
 
+    /// The contract's example (docs of GET /api/updates, console 2.1.1): today's board, over Bluetooth.
+    static var bluetoothUpdate: [String: Any] {
+        ["id": "bluetooth:cranium-0123456789abcdef:6", "thing": "cranium-0123456789abcdef", "from": "1.13.0+0",
+         "to": "1.14.0+0", "how": "bluetooth", "deployment": NSNull(),
+         "who": ["sub": "…", "email": "vihaan@example.invalid", "name": "Vihaan"], "outcome": "kept",
+         "startedAt": "2026-11-05T19:30:04.000Z", "endedAt": "2026-11-05T19:32:41.000Z", "status": NSNull()]
+    }
+
+    @Test func everyUpdateOfEveryBoardNewestFirst() async throws {
+        let deployment = "cranium-1-12-0-b0-20261104T110000Z-1a2b"
+        let (api, http) = api(200, ["updates": [
+            Self.bluetoothUpdate,
+            ["id": "deployment:\(deployment):cranium-0123456789abcdef", "thing": "cranium-0123456789abcdef", "from": "1.11.4+0",
+             "to": "1.12.0+0", "how": "deployment", "deployment": deployment, "who": ["sub": "s", "email": "a@b.test", "name": ""],
+             "outcome": "rolled_back", "startedAt": "2026-11-04T11:00:00.000Z", "endedAt": "2026-11-04T11:09:00.000Z",
+             "status": "FAILED", "somethingNew": 1],
+            // Values this app has no words for, and no who, no from, no to, no times.
+            ["id": "x:1", "thing": "cranium-0123456789abcdef", "from": NSNull(), "to": NSNull(), "how": "carrier_pigeon",
+             "deployment": NSNull(), "who": NSNull(), "outcome": "exploded", "startedAt": NSNull(), "endedAt": NSNull(),
+             "status": NSNull()],
+            ["id": "x:2", "thing": "cranium-0123456789abcdef", "how": "usb_or_other", "outcome": "not_installed"],
+            // Not an update: no id, a thing that is not a board, a repeated id.
+            ["thing": "cranium-0123456789abcdef", "how": "bluetooth", "outcome": "kept"],
+            ["id": "x:3", "thing": "not-a-board", "how": "bluetooth", "outcome": "kept"],
+            ["id": "x:1", "thing": "cranium-0123456789abcdef", "how": "bluetooth", "outcome": "kept"],
+            "nonsense",
+        ], "cursor": "bmV4dA", "generatedAt": "2026-11-05T21:00:00.000Z"])
+        let page = try #require(try await api.updates())
+        #expect(http.requests[0].url?.absoluteString == "https://console.test/api/updates")
+        #expect(page.updates.map(\.id) == ["bluetooth:cranium-0123456789abcdef:6", "deployment:\(deployment):cranium-0123456789abcdef",
+                                           "x:1", "x:2"])
+        #expect(page.cursor == "bmV4dA")
+        #expect(page.generatedAt == "2026-11-05T21:00:00.000Z")
+
+        let bluetooth = page.updates[0]
+        #expect(bluetooth == BoardUpdate(id: "bluetooth:cranium-0123456789abcdef:6", thing: "cranium-0123456789abcdef",
+                                         from: "1.13.0+0", to: "1.14.0+0", how: .bluetooth,
+                                         who: .init(sub: "…", email: "vihaan@example.invalid", name: "Vihaan"),
+                                         outcome: .kept, startedAt: "2026-11-05T19:30:04.000Z",
+                                         endedAt: "2026-11-05T19:32:41.000Z"))
+        #expect(bluetooth.time == "2026-11-05T19:32:41.000Z", "when it ended")
+        #expect(bluetooth.deploymentLink == nil, "a Bluetooth update opens the board")
+
+        let deployed = page.updates[1]
+        #expect(deployed.how == .deployment)
+        #expect(deployed.outcome == .rolledBack)
+        #expect(deployed.status == "FAILED")
+        #expect(deployed.who?.name == "")
+        #expect(deployed.deploymentLink == deployment, "a deployment opens the deployment")
+
+        let odd = page.updates[2]
+        #expect(odd.how == .usbOrOther, "an unknown way is taken for USB or another tool")
+        #expect(odd.outcome == .pending, "an unknown outcome is taken for not ended yet")
+        #expect(odd.who == nil && odd.from == nil && odd.to == nil && odd.time == nil && odd.status == nil)
+        #expect(page.updates[3].outcome == .notInstalled)
+        #expect(page.updates[3].deployment == nil)
+    }
+
+    @Test func oneBoardsUpdatesAPageAtATime() async throws {
+        let (api, http) = api(200, ["updates": [["id": "a", "thing": "cranium-0123456789abcdef", "how": "deployment",
+                                                 "deployment": "AWS-job-1", "outcome": "pending", "startedAt": "2026-11-05T19:30:04Z"]],
+                                    "cursor": NSNull()])
+        let page = try #require(try await api.updates(thing: "cranium-0123456789abcdef", limit: 500, cursor: "abc_DEF-1"))
+        #expect(http.requests[0].url?.absoluteString
+                == "https://console.test/api/updates?thing=cranium-0123456789abcdef&limit=100&cursor=abc_DEF-1")
+        #expect(page.cursor == nil, "no more")
+        #expect(page.updates[0].time == "2026-11-05T19:30:04Z", "while pending, when it started")
+        #expect(page.updates[0].deploymentLink == nil, "a job some other tool made is not one of this console's deployments")
+        #expect(page.updates[0].deployment == "AWS-job-1")
+
+        _ = try await api.updates(thing: "cranium-0123 &=?#/x", limit: 0)
+        #expect(http.requests[1].url?.absoluteString == "https://console.test/api/updates?thing=cranium-0123+%26%3D%3F%23/x&limit=1",
+                "what the thing name holds cannot add to the query")
+        _ = try await api.updates(thing: "")
+        #expect(http.requests[2].url?.absoluteString == "https://console.test/api/updates")
+    }
+
+    @Test func anOlderConsoleHasNoUpdatesAndTheAppShowsWhatItDidBefore() async throws {
+        // Console 2.1.0 and before: nothing at this address.
+        let (old, _) = api(404, ["error": ["code": "not_found", "message": "There is nothing at this address.", "requestId": "r"]])
+        #expect(try await old.updates() == nil)
+        #expect(try await old.updates(thing: "cranium-0123456789abcdef") == nil)
+        #expect(ConsoleAPI.hasNoRoute(APIError(status: 404, code: "not_found", message: "x")))
+
+        // A board that is not registered, and any other failure, is an error, and not an older console.
+        let (unknown, _) = api(404, ["error": ["code": "unknown_device", "message": "No board with this name is registered."]])
+        await #expect(throws: APIError.self) { try await unknown.updates(thing: "cranium-fedcba9876543210") }
+        #expect(!ConsoleAPI.hasNoRoute(APIError(status: 404, code: "unknown_device", message: "x")))
+        let (broken, _) = api(500, ["error": ["code": "internal_error", "message": "Oops."]])
+        await #expect(throws: APIError.self) { try await broken.updates() }
+        let (bad, _) = api(400, ["error": ["code": "bad_cursor", "message": "That cursor is not one of this list."]])
+        await #expect(throws: APIError.self) { try await bad.updates(cursor: "zz") }
+        let (garbled, _) = api(200, ["nothing": []])
+        await #expect(throws: APIError.self) { try await garbled.updates() }
+        #expect(!ConsoleAPI.hasNoRoute(URLError(.notConnectedToInternet)))
+    }
+
+    @Test func aBoardsPageCarriesItsNewestUpdate() throws {
+        let raw: [String: Any] = ["device": device, "certificates": [], "executions": [], "lastUpdate": Self.bluetoothUpdate]
+        let detail = try JSONDecoder().decode(DeviceDetail.self, from: json(raw))
+        #expect(detail.lastUpdate?.to == "1.14.0+0")
+        // From an older console, and for a board with none.
+        let nones: [Any] = [NSNull(), "odd", ["id": ""]]
+        for none in nones {
+            var older = raw
+            older["lastUpdate"] = none
+            #expect(try JSONDecoder().decode(DeviceDetail.self, from: json(older)).lastUpdate == nil)
+        }
+        var older = raw
+        older.removeValue(forKey: "lastUpdate")
+        #expect(try JSONDecoder().decode(DeviceDetail.self, from: json(older)).lastUpdate == nil)
+    }
+
     @Test func samplesAskForHoursWithinTheAPIsBounds() async throws {
         let (api, http) = api(200, ["thing": "cranium-0123456789abcdef", "hours": 168, "bucketSeconds": 300,
                                     "samples": [["at": "2026-11-03T11:00:00.000Z", "rssi": -60, "heapFree": 20000],

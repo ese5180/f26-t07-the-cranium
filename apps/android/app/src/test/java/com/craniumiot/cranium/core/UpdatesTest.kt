@@ -718,6 +718,89 @@ class UpdatesTest {
         assertEquals("1.7.2", Updates.FIRST_WITH_NO_BUTTON)
     }
 
+    // Every update of a board (GET /api/updates, console 2.1.1), in the words of the website and both apps.
+
+    private val ended = "2026-11-05T19:32:41.000Z"
+    private val twoHoursLater = Times.parse(ended)!! + 2 * 3_600_000L
+
+    /** Today's board: 1.13.0 to 1.14.0 over Bluetooth, the contract's example. */
+    private val viaBluetooth = Update(
+        id = "bluetooth:$thing:6", thing = thing, from = "1.13.0+0", to = "1.14.0+0", how = "bluetooth",
+        who = Person("s-1", "vihaan@example.invalid", "Vihaan"), outcome = "kept",
+        startedAt = "2026-11-05T19:30:04.000Z", endedAt = ended,
+    )
+
+    @Test
+    fun `how an update came`() {
+        assertEquals("over Bluetooth from Vihaan’s phone", Updates.howWords(viaBluetooth))
+        assertEquals("over Bluetooth from Vihaan’s phone", Updates.howWords(viaBluetooth))
+        assertEquals("over Bluetooth from a phone", Updates.howWords(viaBluetooth.copy(who = null)))
+        assertEquals("over Bluetooth from a phone", Updates.howWords(viaBluetooth.copy(who = Person("s-1", "a@b", ""))))
+        assertEquals("over Bluetooth from a phone", Updates.howWords(viaBluetooth.copy(who = Person("s-1", "a@b", "  "))))
+        assertEquals("deployment $id", Updates.howWords(viaBluetooth.copy(how = "deployment", deployment = id)))
+        assertEquals("USB or another tool", Updates.howWords(viaBluetooth.copy(how = "usb_or_other", who = null)))
+        assertEquals("anything unknown", "USB or another tool", Updates.howWords(viaBluetooth.copy(how = "carrier_pigeon")))
+        assertEquals("USB or another tool", Updates.howWords(viaBluetooth.copy(how = "")))
+    }
+
+    @Test
+    fun `how an update ended, with its tone`() {
+        assertEquals(StateWords(Tone.GOOD, Glyph.CHECK_CIRCLE, "Kept"), Updates.outcomeWords("kept"))
+        assertEquals(StateWords(Tone.BAD, Glyph.UNDO, "Rolled back"), Updates.outcomeWords("rolled_back"))
+        assertEquals(StateWords(Tone.WARN, Glyph.MINUS_CIRCLE, "Not installed"), Updates.outcomeWords("not_installed"))
+        assertEquals(StateWords(Tone.WAIT, Glyph.CLOCK, "Pending"), Updates.outcomeWords("pending"))
+        assertEquals("an unknown outcome is pending", "Pending", Updates.outcomeWords("exploded").label)
+        assertEquals("Pending", Updates.outcomeWords("").label)
+    }
+
+    @Test
+    fun `an update's row, as in the contract's example`() {
+        assertEquals("1.14.0+0", Updates.updateTitle(viaBluetooth))
+        assertEquals("Kept", Updates.outcomeWords(viaBluetooth.outcome).label)
+        assertEquals("from 1.13.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago", Updates.updateDetail(viaBluetooth, twoHoursLater))
+    }
+
+    @Test
+    fun `a row without what it ran before, without a version, or without an end`() {
+        assertEquals("over Bluetooth from Vihaan’s phone · 2 h ago", Updates.updateDetail(viaBluetooth.copy(from = null), twoHoursLater))
+        assertEquals("Unknown version", Updates.updateTitle(viaBluetooth.copy(to = null)))
+        val pending = viaBluetooth.copy(outcome = "pending", endedAt = null)
+        assertEquals("2026-11-05T19:30:04.000Z", Updates.updateTime(pending))
+        assertEquals("from 1.13.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago", Updates.updateDetail(pending, twoHoursLater))
+        assertEquals("from 1.13.0+0 · USB or another tool", Updates.updateDetail(viaBluetooth.copy(how = "usb_or_other", startedAt = null, endedAt = null), twoHoursLater))
+        val deployed = Update(id = "deployment:$id:$thing", thing = thing, to = version, how = "deployment", deployment = id, outcome = "not_installed", startedAt = noon)
+        assertEquals("deployment $id · 2 min ago", Updates.updateDetail(deployed, Times.parse(noon)!! + 120_000))
+    }
+
+    @Test
+    fun `the overview's line for the newest update, and the board page's`() {
+        assertEquals("Last: 1.14.0+0 · over Bluetooth from Vihaan’s phone · 2 h ago", Updates.lastUpdateLine(viaBluetooth, twoHoursLater))
+        assertEquals("Last: Unknown version · USB or another tool", Updates.lastUpdateLine(viaBluetooth.copy(to = null, how = "usb_or_other", startedAt = null, endedAt = null), twoHoursLater))
+        assertEquals("Last: 1.14.0+0 · Kept · 2 h ago", Updates.updateSummary(viaBluetooth, twoHoursLater))
+        assertEquals("Last: 1.14.0+0 · Rolled back · 2 h ago", Updates.updateSummary(viaBluetooth.copy(outcome = "rolled_back"), twoHoursLater))
+    }
+
+    @Test
+    fun `a deployment of this console opens it, anything else the board`() {
+        assertEquals(id, Updates.deploymentOf(viaBluetooth.copy(how = "deployment", deployment = id)))
+        assertNull("another tool's job", Updates.deploymentOf(viaBluetooth.copy(how = "deployment", deployment = "made-elsewhere")))
+        assertNull(Updates.deploymentOf(viaBluetooth.copy(how = "deployment", deployment = null)))
+        assertNull(Updates.deploymentOf(viaBluetooth))
+        assertNull("not a deployment", Updates.deploymentOf(viaBluetooth.copy(how = "usb_or_other", deployment = id)))
+    }
+
+    @Test
+    fun `an older console has no list of updates, and then the app goes by the deployments`() {
+        val older = ApiJson.error(404, """{"error": {"code": "not_found", "message": "There is nothing at this address.", "requestId": "r-1"}}""")
+        assertTrue(Updates.noUpdatesRoute(older))
+        assertFalse("a board that is not registered", Updates.noUpdatesRoute(ApiJson.error(404, """{"error": {"code": "unknown_device", "message": "No such board."}}""")))
+        assertFalse("a bad request", Updates.noUpdatesRoute(ApiJson.error(400, """{"error": {"code": "not_found", "message": "x"}}""")))
+        assertFalse("the gateway", Updates.noUpdatesRoute(ApiJson.error(404, """{"message": "Not Found"}""")))
+        assertFalse(Updates.noUpdatesRoute(ApiJson.error(500, "")))
+        assertFalse(Updates.noUpdatesRoute(java.io.IOException("no network")))
+        assertFalse(Updates.noUpdatesRoute(null))
+    }
+
     @Test
     fun `firmware that is not a registered release, and the board to tick without being asked`() {
         val releases = listOf(release("active"))
