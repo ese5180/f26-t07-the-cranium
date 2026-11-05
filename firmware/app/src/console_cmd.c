@@ -11,6 +11,10 @@
 #include <zephyr/sys/util.h>
 
 #include "app_events.h"
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+#include "bt_ota.h"
+#include "bt_passkey.h"
+#endif
 #include "cloud.h"
 #include "cloud_events.h"
 #include "console_parser.h"
@@ -56,10 +60,32 @@ static const char *const section_names[SECTION_COUNT] = {
 	[SECTION_CLOUD] = "Cloud",
 	[SECTION_STATUS] = "Status",
 	[SECTION_STREAM] = "Loading a certificate",
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	[SECTION_BLUETOOTH] = "Bluetooth",
+#endif
 	[SECTION_TEST] = "Test bench",
 };
 
 static const struct console_command *find_command(const char *name);
+
+/*
+ * A board with Bluetooth only (CONFIG_APP_BT_ONLY) has no Wi-Fi, no cloud and no certificate. Their
+ * commands stay in the table, so that each one says that, and HELP leaves them out.
+ */
+static bool on_this_board(const struct console_command *command)
+{
+#if defined(CONFIG_APP_BT_ONLY)
+	return command->section != SECTION_WIFI && command->section != SECTION_CLOUD &&
+	       command->section != SECTION_STREAM && strcmp(command->name, "RESET_CONFIG") != 0;
+#else
+	ARG_UNUSED(command);
+	return true;
+#endif
+}
+
+#if defined(CONFIG_APP_BT_ONLY)
+#define NOT_ON_THIS_BOARD "not on this board: an " CONFIG_APP_BOARD_TYPE " has Bluetooth only, no Wi-Fi and no cloud"
+#endif
 
 static struct console_reader reader;
 /* The reply being assembled. Only the console task uses this. */
@@ -767,10 +793,12 @@ static const char *mqtt_state_name(const struct cloud_stats *stats, char *buffer
 	return buffer;
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static const char *set_or_unset(bool set)
 {
 	return set ? "set" : "unset";
 }
+#endif
 
 static const char *mode_name(void)
 {
@@ -783,9 +811,15 @@ static void print_device(void)
 	console_reply_line(KEY_VALUE, "id", device_id());
 	console_reply_line(KEY_VALUE, "thing name", identity_thing_name());
 	console_reply_line(KEY_VALUE, "firmware", fw_version_running_string());
+#if defined(CONFIG_APP_BT_ONLY)
+	/* What tools/provision_device.py checks. A board that says none is an nRF7002 DK. */
+	console_reply_line(KEY_VALUE, "board", CONFIG_APP_BOARD_TYPE);
+	console_reply_line("%-14s %d", "layout", CONFIG_APP_IMAGE_LAYOUT);
+#endif
 	console_reply_line("%-14s %u", "stuck count", (unsigned int)main_view.stuck_count);
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void print_wifi(void)
 {
 	net_status_get(&net_view);
@@ -819,6 +853,7 @@ static void print_certs(void)
 	console_reply_line(KEY_VALUE, "private key", set_or_unset(factory_has_private_key()));
 	console_reply_line(KEY_VALUE, "certificate", set_or_unset(factory_has_certificate()));
 }
+#endif /* !CONFIG_APP_BT_ONLY */
 
 static void print_update(void)
 {
@@ -826,14 +861,58 @@ static void print_update(void)
 			   main_view.update_last);
 }
 
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+/* What the main loop owns of Bluetooth. Nothing here is secret: the passkey is only "set". */
+static struct {
+	enum bt_passkey_state passkey;
+	uint32_t failures;
+	bool named;
+	uint16_t tag;
+	bool open;
+} bt_view;
+
+static int read_bt_view(void *arg)
+{
+	ARG_UNUSED(arg);
+
+	bt_view.passkey = bt_passkey_state();
+	bt_view.failures = bt_passkey_failures();
+	bt_view.named = bt_passkey_tag(&bt_view.tag);
+	bt_view.open = bt_ota_is_open();
+	return 0;
+}
+
+static void print_bluetooth(void)
+{
+	char name[24];
+
+	(void)console_port_on_main(read_bt_view, NULL);
+
+	console_reply_line(KEY_VALUE, "bt passkey", bt_passkey_state_name(bt_view.passkey));
+	console_reply_line("%-14s %u of %u", "bt failures", (unsigned int)bt_view.failures,
+			   (unsigned int)CONFIG_APP_BT_PASSKEY_FAILURE_BUDGET);
+	if (bt_view.named && bt_passkey_name(bt_view.tag, CONFIG_BT_DEVICE_NAME, name, sizeof(name)) > 0) {
+		console_reply_line(KEY_VALUE, "bt name", name);
+	} else {
+		console_reply_line(KEY_VALUE, "bt name", "a new one for each window");
+	}
+	console_reply_line(KEY_VALUE, "bt window", bt_view.open ? "open" : "closed");
+}
+#endif
+
 static const struct {
 	const char *name;
 	void (*print)(void);
 } status_sections[] = {
 	{ "device", print_device },
+#if !defined(CONFIG_APP_BT_ONLY)
 	{ "wifi", print_wifi },
 	{ "cloud", print_cloud },
 	{ "certs", print_certs },
+#endif
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	{ "bluetooth", print_bluetooth },
+#endif
 	{ "update", print_update },
 };
 
@@ -860,6 +939,14 @@ static void cmd_status(int argc, char **argv)
 		reply_done();
 		return;
 	}
+
+#if defined(CONFIG_APP_BT_ONLY)
+	if (console_equal_nocase(argv[0], "wifi") || console_equal_nocase(argv[0], "cloud") ||
+	    console_equal_nocase(argv[0], "certs")) {
+		reply_err(NOT_ON_THIS_BOARD);
+		return;
+	}
+#endif
 
 	for (size_t i = 0; i < STATUS_SECTION_COUNT; i++) {
 		strcat(names, " ");
@@ -888,6 +975,10 @@ static void box_field(const char *prefix, const char *label, const char *value)
 
 static void box_wifi(const char *prefix)
 {
+#if defined(CONFIG_APP_BT_ONLY)
+	box_field(prefix, "Board", CONFIG_APP_BOARD_TYPE ", Bluetooth only");
+	return;
+#endif
 	net_status_get(&net_view);
 
 	if (!net_view.stored) {
@@ -993,10 +1084,14 @@ static void cmd_mqtt(int argc, char **argv)
 	console_reply_line(KEY_VALUE, "state", mqtt_state_name(&stats, value, sizeof(value)));
 	console_reply_line(KEY_VALUE, "endpoint",
 			   main_view.has_settings ? main_view.endpoint : "unset");
+#if defined(CONFIG_MQTT_HELPER_PORT)
 	console_reply_line("%-14s %d", "port", CONFIG_MQTT_HELPER_PORT);
+#endif
 	console_reply_line(KEY_VALUE, "client id", identity_thing_name());
+#if defined(CONFIG_MQTT_HELPER_PORT)
 	console_reply_line("%-14s %d s", "keep alive", CONFIG_MQTT_KEEPALIVE);
 	console_reply_line("%-14s %d", "tls sec tag", CONFIG_MQTT_HELPER_SEC_TAG);
+#endif
 
 	if (stats.state == CLOUD_STATE_CONNECTED && stats.connected_at_ms >= 0) {
 		console_reply_line("%-14s %lld s", "connected for",
@@ -1341,6 +1436,74 @@ static void cmd_stream_cancel(int argc, char **argv)
 	reply_ok("%s", console_stream_cancel() ? "transfer cancelled" : "nothing to cancel");
 }
 
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+/* ---- Bluetooth ------------------------------------------------------------------ */
+
+/* The passkey stays in the reader's buffer, which is wiped when the command is over. */
+struct bt_passkey_call {
+	bool clear;
+	uint32_t passkey;
+	uint16_t tag;
+};
+
+/* On the main loop, as the window's own state is: a window that is open keeps its passkey. */
+static int do_bt_passkey(void *arg)
+{
+	const struct bt_passkey_call *call = arg;
+
+	if (bt_ota_is_open()) {
+		return -EBUSY;
+	}
+
+	return call->clear ? bt_passkey_erase() : bt_passkey_store(call->passkey, call->tag);
+}
+
+/*
+ * BT_PASSKEY|<6 digits>|<4 hex digits> stores the board's own passkey and the name it advertises,
+ * which tools/provision_device.py --board nrf5340dk draws and registers with the console first.
+ * BT_PASSKEY|CLEAR erases it: each pairing then shows a new passkey here. Nothing shows a stored
+ * one: see src/bt_passkey.h.
+ */
+static void cmd_bt_passkey(int argc, char **argv)
+{
+	struct bt_passkey_call call = { .clear = argc == 1 && console_equal_nocase(argv[0], "CLEAR") };
+	char name[24];
+	int err;
+
+	if (!call.clear && (argc != 2 || !bt_passkey_parse(argv[0], &call.passkey) ||
+			    !bt_passkey_parse_tag(argv[1], &call.tag))) {
+		reply_err("usage: BT_PASSKEY|<6 digits>|<4 hex digits> or BT_PASSKEY|CLEAR; a passkey "
+			  "of one digit six times, or of a run like 123456, is refused");
+		call.passkey = 0;
+		return;
+	}
+
+	err = on_main_guarded(do_bt_passkey, &call);
+	call.passkey = 0;
+	if (refused_by_update(err)) {
+		return;
+	}
+
+	if (err == -EBUSY) {
+		reply_err("Bluetooth is open: close it with Button 2 first");
+		return;
+	}
+
+	if (err) {
+		reply_err("the passkey could not be %s (%d)", call.clear ? "erased" : "stored", err);
+		return;
+	}
+
+	if (call.clear) {
+		reply_ok("passkey erased: each pairing now shows a new passkey here");
+		return;
+	}
+
+	(void)bt_passkey_name(call.tag, CONFIG_BT_DEVICE_NAME, name, sizeof(name));
+	reply_ok("passkey stored, advertising as %s", name);
+}
+#endif /* CONFIG_APP_BT_STATIC_PASSKEY */
+
 /* ---- test bench ----------------------------------------------------------------- */
 
 /*
@@ -1462,10 +1625,20 @@ static const struct console_command commands[] = {
 	{ "MQTT_RECONNECT", NULL, "MQTT_RECONNECT", "drop the MQTT connection and connect again now",
 	  SECTION_CLOUD, false, 0, 0, cmd_mqtt_reconnect },
 
+#if defined(CONFIG_APP_BT_ONLY)
+	{ "STATS", NULL, "STATS", "show state, id, firmware, board, uptime, memory, last reset",
+	  SECTION_STATUS, false, 0, 0, cmd_stats },
+#else
 	{ "STATS", NULL, "STATS", "show state, id, firmware, wifi, uptime, memory, last reset",
 	  SECTION_STATUS, false, 0, 0, cmd_stats },
+#endif
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	{ "STATUS", NULL, "STATUS[|<device or bluetooth or update>]",
+	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
+#else
 	{ "STATUS", NULL, "STATUS[|<device or wifi or cloud or certs or update>]",
 	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
+#endif
 
 	{ "STREAM_START", NULL, "STREAM_START|<total_bytes>|<chunk_count>|<crc16_hex>|<CA or CERT>",
 	  "start loading a certificate", SECTION_STREAM, false, 4, 4, cmd_stream_start },
@@ -1475,6 +1648,12 @@ static const struct console_command commands[] = {
 	  cmd_stream_status },
 	{ "STREAM_CANCEL", NULL, "STREAM_CANCEL", "give up on it", SECTION_STREAM, false, 0, 0,
 	  cmd_stream_cancel },
+
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	{ "BT_PASSKEY", NULL, "BT_PASSKEY|<6 digits>|<4 hex digits>",
+	  "store the board's own Bluetooth passkey and name; CLEAR erases them", SECTION_BLUETOOTH,
+	  false, 1, 2, cmd_bt_passkey },
+#endif
 
 	{ "BUTTON", NULL, "BUTTON|<1 or 2>", "act as if the button was pressed", SECTION_TEST, false,
 	  1, 1, cmd_button },
@@ -1591,10 +1770,23 @@ static void cmd_help(int argc, char **argv)
 			   "ARGUMENTS", "WHAT IT DOES");
 
 	for (int section = 0; section < SECTION_COUNT; section++) {
+#if defined(CONFIG_APP_BT_ONLY)
+		/* A section whose commands are all for Wi-Fi or the cloud has nothing on this board. */
+		bool any = false;
+
+		for (size_t i = 0; i < COMMAND_COUNT; i++) {
+			any = any || ((int)commands[i].section == section && on_this_board(&commands[i]));
+		}
+
+		if (!any) {
+			continue;
+		}
+#endif
+
 		help_rule(section_names[section]);
 
 		for (size_t i = 0; i < COMMAND_COUNT; i++) {
-			if ((int)commands[i].section == section) {
+			if ((int)commands[i].section == section && on_this_board(&commands[i])) {
 				help_row(&commands[i]);
 			}
 		}
@@ -1624,6 +1816,13 @@ static void run_line(char *line)
 			  name);
 		return;
 	}
+
+#if defined(CONFIG_APP_BT_ONLY)
+	if (!on_this_board(command)) {
+		reply_err(NOT_ON_THIS_BOARD);
+		return;
+	}
+#endif
 
 	if (device_is_factory() && !command->in_factory) {
 		reply_err("factory mode, send INIT|<id> first");

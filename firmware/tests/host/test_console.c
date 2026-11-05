@@ -2182,6 +2182,12 @@ static void test_status(void)
 	CHECK_TEXT(value_of("id"), "ABC123");
 	CHECK_TEXT(value_of("thing name"), "cranium-" SOC_ID);
 	CHECK_TEXT(value_of("firmware"), fw_version_running_string());
+	/*
+	 * An nRF7002 DK names no board type here, as before: tools/provision_device.py takes one that
+	 * names none for an nRF7002 DK. test_console_bt_only.c has the nRF5340 DK's.
+	 */
+	CHECK_TEXT(value_of("board"), "<none>");
+	CHECK_TEXT(value_of("layout"), "<none>");
 	CHECK_TEXT(value_of("wifi network"), "MyNetwork");
 	CHECK_TEXT(value_of("wifi password"), "set");
 	CHECK_TEXT(value_of("wifi link"), "up");

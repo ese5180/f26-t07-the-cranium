@@ -1,0 +1,148 @@
+/*
+ * nRF5340 DK application core: flash and RAM layout, external flash, and the pins handed to the
+ * network core. Bluetooth only: this board has no Wi-Fi chip.
+ *
+ * The layout is the nRF7002 DK's (boards/nrf7002dk_nrf5340_cpuapp_ns.overlay), so that an image has
+ * the same slot size and load address on both, and the console's checks hold for both. Only the bus of
+ * the external flash differs: the nRF5340 DK has its MX25R64 on QSPI, where the nRF7002 DK has the
+ * Wi-Fi chip and puts the flash on SPI.
+ */
+
+/ {
+	chosen {
+		/*
+		 * Tells the build that the secondary image slot is on external flash.
+		 * Needed even though Partition Manager is not used.
+		 */
+		nordic,pm-ext-flash = &mx25r64;
+	};
+};
+
+/delete-node/ &boot_partition;
+/delete-node/ &slot0_partition;
+/delete-node/ &slot1_partition;
+/delete-node/ &tfm_its_partition;
+/delete-node/ &tfm_otp_partition;
+/delete-node/ &tfm_ps_partition;
+/delete-node/ &storage_partition;
+
+/*
+ * Internal flash (1 MiB), as on the nRF7002 DK:
+ *
+ *   0x00000  64 KiB   MCUboot (write-protected once it has started the application)
+ *   0x10000 912 KiB   primary image slot
+ *             128 KiB   TF-M, secure
+ *             784 KiB   application, non-secure
+ *   0xf4000  48 KiB   TF-M storage: internal trusted storage, NV counters, protected storage
+ */
+&flash0 {
+	partitions {
+		boot_partition: partition@0 {
+			compatible = "zephyr,mapped-partition";
+			label = "mcuboot";
+			reg = <0x0 0x10000>;
+		};
+
+		slot0_partition: partition@10000 {
+			compatible = "zephyr,mapped-partition";
+			label = "image-0";
+			reg = <0x10000 0xe4000>;
+			ranges = <0x0 0x10000 0xe4000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			slot0_s_partition: partition@0 {
+				compatible = "zephyr,mapped-partition";
+				label = "image-0-secure";
+				reg = <0x0 0x20000>;
+			};
+
+			slot0_ns_partition: partition@20000 {
+				compatible = "zephyr,mapped-partition";
+				label = "image-0-nonsecure";
+				reg = <0x20000 0xc4000>;
+			};
+		};
+
+		tfm_storage_partition: partition@f4000 {
+			compatible = "zephyr,mapped-partition";
+			label = "tfm-storage";
+			reg = <0xf4000 DT_SIZE_K(48)>;
+			ranges = <0x0 0xf4000 DT_SIZE_K(48)>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			tfm_its_partition: partition@0 {
+				compatible = "zephyr,mapped-partition";
+				label = "tfm-its";
+				reg = <0x0 DT_SIZE_K(8)>;
+			};
+
+			tfm_otp_partition: partition@4000 {
+				compatible = "zephyr,mapped-partition";
+				label = "tfm-otp";
+				reg = <0x4000 DT_SIZE_K(8)>;
+			};
+
+			tfm_ps_partition: partition@8000 {
+				compatible = "zephyr,mapped-partition";
+				label = "tfm-ps";
+				reg = <0x8000 DT_SIZE_K(16)>;
+			};
+		};
+	};
+};
+
+/*
+ * External flash: the secondary image slot, the same size as the primary slot.
+ *
+ * 0x700000 to 0x7e4000 is kept free for a golden image, as on the nRF7002 DK. MCUboot's overlay
+ * declares that partition, and this one does not on purpose, so that this application's flash map
+ * has no area for it. This board's bootloader is built without the golden image: no image for this
+ * board has been frozen.
+ */
+&mx25r64 {
+	status = "okay";
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		slot1_partition: partition@0 {
+			label = "image-1";
+			reg = <0x0 0xe4000>;
+		};
+	};
+};
+
+/*
+ * RAM split between the secure and the non-secure domain, as on the nRF7002 DK. TF-M gets 48 KiB at
+ * the base of the application-core SRAM; the non-secure window is 0x74000 bytes, of which the top
+ * 64 KiB is the memory the two cores can share.
+ */
+&sram0_s {
+	reg = <0x0 0xc000>;
+};
+
+&sram0_ns {
+	reg = <0xc000 0x74000>;
+	ranges = <0x0 0xc000 0x74000>;
+};
+
+&sram0_ns_app {
+	reg = <0x0 0x64000>;
+};
+
+/*
+ * No pins are handed to the network core. By default the board forwards P1.00, P1.01, P0.10 and
+ * P0.11, uart1's, but the network core's image has no console here, and MCUboot logs on uart1.
+ */
+&gpio_fwd {
+	status = "disabled";
+};
+
+/* LED1 (P0.28) is driven as a plain GPIO, so release it from the PWM peripheral. */
+&pwm0 {
+	status = "disabled";
+};

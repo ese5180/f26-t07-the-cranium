@@ -22,6 +22,23 @@ if(SB_CONFIG_NETCORE_BLINKY)
   set_config_bool(${DEFAULT_IMAGE} CONFIG_SOC_NRF53_CPUNET_ENABLE y)
 endif()
 
+# The nRF5340 DK has no Wi-Fi chip. Its application starts from prj_bt_only.conf, which has no network
+# stack, no AWS IoT and no downloader, and not from prj.conf, which is about the cloud. The image itself
+# only learns its board inside find_package(Zephyr), too late to choose, so the choice is made here.
+# Naming CONF_FILE leaves out Zephyr's search for boards/<board>.conf, so the board's file is named too.
+# A -Dapp_CONF_FILE of one's own goes first.
+if(SB_CONFIG_BOARD_NRF5340DK AND NOT DEFINED CACHE{${DEFAULT_IMAGE}_CONF_FILE})
+  set(${DEFAULT_IMAGE}_CONF_FILE
+    "${CMAKE_CURRENT_LIST_DIR}/prj_bt_only.conf;${CMAKE_CURRENT_LIST_DIR}/boards/nrf5340dk_nrf5340_cpuapp_ns.conf"
+    CACHE INTERNAL "The configuration of a board with Bluetooth only")
+endif()
+
+# A board with Bluetooth only updates that way or over USB, and has nothing else: without it, no
+# update could ever reach it.
+if(SB_CONFIG_BOARD_NRF5340DK AND NOT SB_CONFIG_APP_BT_OTA)
+  message(FATAL_ERROR "The nRF5340 DK has Bluetooth only: it cannot be built with no_bt_sysbuild.conf")
+endif()
+
 # Firmware update over Bluetooth LE, off unless bt_ota_sysbuild.conf is given.
 if(SB_CONFIG_APP_BT_OTA)
   if(NOT SB_CONFIG_NETCORE_HCI_IPC)

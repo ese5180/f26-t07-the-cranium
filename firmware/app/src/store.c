@@ -16,8 +16,14 @@ LOG_MODULE_REGISTER(store, CONFIG_APP_LOG_LEVEL);
  * stored Wi-Fi network, which the credentials library keeps as a persistent PSA key. Certificates
  * and the device key are in protected storage, which counts its own. A write past the limit fails.
  */
+#if defined(CONFIG_WIFI_CREDENTIALS)
 BUILD_ASSERT(STORE_BOOT_DIARY + CONFIG_WIFI_CREDENTIALS_MAX_ENTRIES <= CONFIG_TFM_ITS_NUM_ASSETS,
 	     "more records than TF-M's internal trusted storage can hold");
+#else
+/* A board with no Wi-Fi stores no network. Its passkey is in protected storage: see bt_passkey.c. */
+BUILD_ASSERT(STORE_BOOT_DIARY <= CONFIG_TFM_ITS_NUM_ASSETS,
+	     "more records than TF-M's internal trusted storage can hold");
+#endif
 
 int store_read(enum store_id id, void *data, size_t size)
 {

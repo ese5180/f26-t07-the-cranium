@@ -7,7 +7,9 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 
+#if !defined(CONFIG_APP_BT_ONLY)
 #include "cloud.h"
+#endif
 #include "console.h"
 #include "store.h"
 #include "version.h"
@@ -65,6 +67,7 @@ void boot_diary_stage(enum boot_diary_stage stage)
 	}
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 void boot_diary_report(void)
 {
 	static char json[480];
@@ -88,3 +91,4 @@ void boot_diary_report(void)
 		(void)cloud_shadow_report(json);
 	}
 }
+#endif /* !CONFIG_APP_BT_ONLY */
