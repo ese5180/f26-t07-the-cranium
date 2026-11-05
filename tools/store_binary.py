@@ -7,6 +7,15 @@
     binaries/cranium-1.2.0-0.json          the same record, kept next to each version's image, so
                                            that scripts/check-image.sh can check any of them
 
+That is for an nRF7002 DK. A build for another board type (CONFIG_APP_BOARD_TYPE, docs/fleet.md) has the
+type in its names, and a latest of its own, so that nothing that takes latest.signed.bin to an nRF7002
+DK can take it by mistake:
+
+    binaries/cranium-nrf5340dk-1.2.0-0.signed.bin
+    binaries/cranium-nrf5340dk-1.2.0-0.json    its record, which also says "board": "nrf5340dk"
+    binaries/latest-nrf5340dk.signed.bin
+    binaries/latest-nrf5340dk.json
+
 Only a build of the checkout itself is kept: the test bench builds from scratch copies,
 which have no .git, and an image built with a test fault is refused. latest.json says whether
 the image has firmware update over Bluetooth, which every build has from 1.9.0. A signed image
@@ -27,6 +36,8 @@ from pathlib import Path
 
 MCUBOOT_MAGIC = 0x96f3b83d
 KEEP = 10
+# The board type of an image whose build does not say: every build up to 1.12.0 was for this one.
+DEFAULT_BOARD = "nrf7002dk"
 # What CMake writes above a cache entry that came from -D.
 FROM_THE_COMMAND_LINE = "//No help, variable specified on the command line."
 
@@ -44,6 +55,20 @@ def image_version(data: bytes) -> tuple[str, str]:
 def has_test_fault(config: Path) -> bool:
     text = config.read_text() if config.exists() else ""
     return re.search(r"^CONFIG_APP_TEST_FAULT_(?!NONE)\w+=y$", text, re.MULTILINE) is not None
+
+
+def board_type(config: Path) -> str:
+    """The board type the build was for: CONFIG_APP_BOARD_TYPE, or DEFAULT_BOARD before it existed."""
+    text = config.read_text() if config.exists() else ""
+    found = re.search(r'^CONFIG_APP_BOARD_TYPE="([a-z0-9]+)"$', text, re.MULTILINE)
+    return found.group(1) if found else DEFAULT_BOARD
+
+
+def names(board: str, version_name: str) -> tuple[str, str]:
+    """The stem of the image's own file, and of its latest: today's names for an nRF7002 DK."""
+    if board == DEFAULT_BOARD:
+        return f"cranium-{version_name}", "latest"
+    return f"cranium-{board}-{version_name}", f"latest-{board}"
 
 
 def has_bluetooth_update(config: Path) -> bool:
@@ -114,25 +139,32 @@ def main() -> None:
         sys.exit(f"store_binary: {image} is missing")
     data = image.read_bytes()
     version, name = image_version(data)
+    config = args.build / "app" / "zephyr" / ".config"
+    board = board_type(config)
+    stem, latest = names(board, name)
 
     folder = args.repo / "binaries"
     folder.mkdir(exist_ok=True)
-    shutil.copyfile(image, folder / f"cranium-{name}.signed.bin")
-    shutil.copyfile(image, folder / "latest.signed.bin")
-    record = json.dumps({
+    shutil.copyfile(image, folder / f"{stem}.signed.bin")
+    shutil.copyfile(image, folder / f"{latest}.signed.bin")
+    fields = {
         "version": version,
-        "file": f"cranium-{name}.signed.bin",
+        "file": f"{stem}.signed.bin",
         "size": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
-        "bluetooth": has_bluetooth_update(args.build / "app" / "zephyr" / ".config"),
+        "bluetooth": has_bluetooth_update(config),
         "commit": git_commit(args.repo),
         "command_line": command_line_settings(args.build),
         "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }, indent=2) + "\n"
-    (folder / f"cranium-{name}.json").write_text(record)
-    (folder / "latest.json").write_text(record)
+    }
+    # An nRF7002 DK's record stays as it was; any other says what it is for.
+    if board != DEFAULT_BOARD:
+        fields["board"] = board
+    record = json.dumps(fields, indent=2) + "\n"
+    (folder / f"{stem}.json").write_text(record)
+    (folder / f"{latest}.json").write_text(record)
     prune(folder)
-    print(f"store_binary: {version} is in binaries/ ({len(data)} bytes)")
+    print(f"store_binary: {version} for the {board} is in binaries/{stem}.signed.bin ({len(data)} bytes)")
 
 
 if __name__ == "__main__":
