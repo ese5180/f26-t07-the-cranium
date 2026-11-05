@@ -8,8 +8,17 @@
 # Optional arguments set template parameters: SlotSize, LoadAddress, IotLogLevel,
 # UserPoolDeletionProtection, RestrictIotLoggingTrust, ConsoleDomainName,
 # ConsoleCertificateArn, HomeDomainName, HomeCertificateArn, CustomerDomainName,
-# CustomerCertificateArn and CustomerSelfSignUp (docs/customer-site.md). A parameter that is
-# not given keeps its current value.
+# CustomerCertificateArn and CustomerSelfSignUp (docs/customer-site.md), and MemfaultChunksHost,
+# MemfaultOrgSlug and MemfaultProjectSlug (docs/memfault.md). A parameter that is not given keeps
+# its current value.
+#
+# Memfault (docs/memfault.md). If ~/.cranium/memfault_project_key exists, the key in it is
+# stored in the stack's secret (output MemfaultProjectKeyArn), where only the forwarder can
+# read it. It is never printed and never a parameter. Without the file the forwarder drops
+# the boards' chunks, and the boards keep them. The slugs for the link to a board in
+# Memfault are not secrets: MemfaultOrgSlug and MemfaultProjectSlug, from the arguments,
+# else from MEMFAULT_ORG_SLUG and MEMFAULT_PROJECT_SLUG, else from ~/.cranium/memfault.json
+# ({"org": "...", "project": "..."}). With none of them they keep their current values.
 #
 # The console accepts only images signed with the key in firmware/keys/fw_signing_pub.pem.
 # Once it is deployed, a run that finds another key in that file stops and shows both
@@ -300,6 +309,86 @@ check_iot_logging_is_free() {
   fi
 }
 
+# Memfault (docs/memfault.md): the files in ~/.cranium. The key is a secret, the slugs are not.
+MEMFAULT_KEY_FILE="$HOME/.cranium/memfault_project_key"
+MEMFAULT_SLUGS_FILE="$HOME/.cranium/memfault.json"
+
+# memfault_slug_overrides: MemfaultOrgSlug=... and MemfaultProjectSlug=..., one per line, from the
+# environment, or else from ~/.cranium/memfault.json. Nothing when neither has them. A slug that is
+# not one stops the run before anything changes.
+memfault_slug_overrides() {
+  local org="${MEMFAULT_ORG_SLUG:-}" project="${MEMFAULT_PROJECT_SLUG:-}" from="the environment" found slug
+  if [ -z "$org" ] && [ -z "$project" ] && [ -f "$MEMFAULT_SLUGS_FILE" ]; then
+    from="$MEMFAULT_SLUGS_FILE"
+    found="$(node -e '
+      const value = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+      const text = (item) => (typeof item === "string" ? item : "");
+      process.stdout.write(`${text(value?.org)} ${text(value?.project)}`);
+    ' "$MEMFAULT_SLUGS_FILE" 2> /dev/null)" ||
+      die "$MEMFAULT_SLUGS_FILE is not JSON of the form {\"org\": \"...\", \"project\": \"...\"}"
+    org="${found%% *}"
+    project="${found#* }"
+  fi
+  if [ -z "$org" ] && [ -z "$project" ]; then
+    return 0
+  fi
+  for slug in "$org" "$project"; do
+    [[ "$slug" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] ||
+      die "a Memfault slug from $from is not one: lower-case letters, digits and dashes" \
+        "Both the organization's and the project's are needed (docs/memfault.md)."
+  done
+  printf 'MemfaultOrgSlug=%s\nMemfaultProjectSlug=%s\n' "$org" "$project"
+}
+
+# Store ~/.cranium/memfault_project_key in the stack's secret, if the file is there. The version's
+# token is the SHA-256 of the file: a run with the same key adds no version, and a key that was
+# stored before is made the current one again rather than stored twice. The key goes from the file
+# to the AWS CLI and nowhere else: not to the screen, a variable or a parameter.
+store_memfault_key() {
+  local arn token stages found
+  if [ ! -s "$MEMFAULT_KEY_FILE" ]; then
+    echo "Memfault: no project key in ~/.cranium/memfault_project_key. The boards' chunks are dropped"
+    echo "and the boards keep them until one is stored: see docs/memfault.md."
+    return 0
+  fi
+  if [ -n "$(find "$MEMFAULT_KEY_FILE" -perm -004 2> /dev/null)" ]; then
+    echo "Note: other users of this computer can read ~/.cranium/memfault_project_key; chmod 600 it."
+  fi
+  arn="$(stack_output "$STACK" MemfaultProjectKeyArn)"
+  case "$arn" in
+    ""|None) die "$STACK has no MemfaultProjectKeyArn output, so the Memfault project key was not stored" ;;
+  esac
+  token="$(openssl dgst -sha256 -hex < "$MEMFAULT_KEY_FILE" | awk '{ print $NF }')"
+  [[ "$token" =~ ^[0-9a-f]{64}$ ]] || die "the SHA-256 of ~/.cranium/memfault_project_key could not be worked out"
+  stages="$(aws secretsmanager describe-secret --secret-id "$arn" --query 'VersionIdsToStages' --output json)" ||
+    die "the Memfault project key's secret could not be described"
+  # "new", "current" or "old", and the version that is current now, if any.
+  found="$(printf '%s' "$stages" | TOKEN="$token" node -e '
+    const stages = JSON.parse(require("node:fs").readFileSync(0, "utf8")) ?? {};
+    const mine = stages[process.env.TOKEN];
+    const now = Object.keys(stages).find((id) => (stages[id] ?? []).includes("AWSCURRENT")) ?? "-";
+    const state = mine === undefined ? "new" : mine.includes("AWSCURRENT") ? "current" : "old";
+    process.stdout.write(`${state} ${now}`);
+  ')" || die "the Memfault project key's secret says something this script cannot read"
+  case "${found%% *}" in
+    current)
+      echo "Memfault: the project key in ~/.cranium/memfault_project_key is stored already."
+      ;;
+    new)
+      aws secretsmanager put-secret-value --secret-id "$arn" --client-request-token "$token" \
+        --secret-string "file://$MEMFAULT_KEY_FILE" > /dev/null ||
+        die "the Memfault project key could not be stored"
+      echo "Memfault: stored the project key from ~/.cranium/memfault_project_key."
+      ;;
+    old)
+      aws secretsmanager update-secret-version-stage --secret-id "$arn" --version-stage AWSCURRENT \
+        --move-to-version-id "$token" --remove-from-version-id "${found#* }" > /dev/null ||
+        die "the Memfault project key that was stored before could not be made the current one again"
+      echo "Memfault: the project key in ~/.cranium/memfault_project_key, stored before, is the current one again."
+      ;;
+  esac
+}
+
 # All stack outputs as one flat JSON object, plus the AWS IoT data endpoint.
 write_outputs() {
   local outputs endpoint
@@ -319,7 +408,7 @@ write_outputs() {
 }
 
 main() {
-  local arg requested_protection="" replace_signing_key=no
+  local arg requested_protection="" replace_signing_key=no slugs_given=no slugs slug
   local extra=()
   for arg in "$@"; do
     case "$arg" in
@@ -334,7 +423,11 @@ main() {
         requested_protection="${arg#*=}"
         extra+=("$arg")
         ;;
-      SlotSize=*|LoadAddress=*|IotLogLevel=*|RestrictIotLoggingTrust=*|ConsoleDomainName=*|ConsoleCertificateArn=*|HomeDomainName=*|HomeCertificateArn=*)
+      SlotSize=*|LoadAddress=*|IotLogLevel=*|RestrictIotLoggingTrust=*|ConsoleDomainName=*|ConsoleCertificateArn=*|HomeDomainName=*|HomeCertificateArn=*|MemfaultChunksHost=*)
+        extra+=("$arg")
+        ;;
+      MemfaultOrgSlug=*|MemfaultProjectSlug=*)
+        slugs_given=yes
         extra+=("$arg")
         ;;
       CustomerDomainName=*|CustomerCertificateArn=*|CustomerSelfSignUp=true|CustomerSelfSignUp=false)
@@ -349,6 +442,13 @@ main() {
 
   check_tools
   check_sources
+  # The link to a board in Memfault: from the arguments, else the environment or ~/.cranium/memfault.json.
+  if [ "$slugs_given" = no ]; then
+    slugs="$(memfault_slug_overrides)" || exit 1
+    for slug in $slugs; do
+      extra+=("$slug")
+    done
+  fi
 
   step "1/9 Account"
   local identity account caller limit
@@ -466,6 +566,7 @@ main() {
   write_outputs
   echo "Wrote cloud/.deploy/outputs.json"
   bound_iot_log
+  store_memfault_key
 
   step "8/9 Deletion protection of the user pool and the tables"
   # The stack is created with the protection off, because a protected pool or table

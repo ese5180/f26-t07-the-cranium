@@ -426,8 +426,8 @@ test('a board may publish its log on its own events topic, and do nothing else t
   const publish = statements.find((text) => text.includes('Action: iot:Publish'));
   assert.ok(publish.includes(`- ${topic}`));
   // Only under Publish: a board neither subscribes to it nor receives on it. Its other topics of this
-  // kind, location and commands, are checked in map-infra.test.mjs.
-  assert.equal(policy.split('cranium/').length - 1, 4);
+  // kind, location and commands, are checked in map-infra.test.mjs, and memfault in memfault-infra.test.mjs.
+  assert.equal(policy.split('cranium/').length - 1, 5);
   assert.equal(policy.split('/events').length - 1, 1);
   for (const text of statements.filter((item) => !item.includes('Action: iot:Publish'))) {
     assert.equal(text.includes('/events'), false);

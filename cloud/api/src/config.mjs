@@ -32,6 +32,20 @@ const PATTERNS = Object.freeze({
   LOGIN_DOMAIN: /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/,
 });
 
+// Memfault (docs/memfault.md), for a board's page: the slugs of the link to a board in Memfault. Each may
+// be empty, and a stack from before them has neither: then there is no link. Neither is a secret.
+const MEMFAULT_SLUG = /^(?:|[a-z0-9][a-z0-9-]{0,62})$/;
+
+/** A value that may be missing or empty, which is then ''. A value that is there must match. */
+function optional(env, name, pattern) {
+  const value = env[name];
+  if (value === undefined) return '';
+  if (typeof value !== 'string' || !pattern.test(value)) {
+    throw new Error(`Environment variable ${name} is malformed`);
+  }
+  return value;
+}
+
 function read(env, name) {
   const value = env[name];
   if (typeof value !== 'string' || !PATTERNS[name].test(value)) {
@@ -86,5 +100,10 @@ export function loadConfig(env = process.env) {
     // Without the slash at the end, as apps/configure.sh writes it.
     consoleUrl: read(env, 'CONSOLE_URL').replace(/\/$/, ''),
     loginDomain: read(env, 'LOGIN_DOMAIN'),
+    // The link to a board in Memfault, when both are set (lib/memfault.mjs).
+    memfault: Object.freeze({
+      org: optional(env, 'MEMFAULT_ORG_SLUG', MEMFAULT_SLUG),
+      project: optional(env, 'MEMFAULT_PROJECT_SLUG', MEMFAULT_SLUG),
+    }),
   });
 }

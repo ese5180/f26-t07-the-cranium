@@ -2465,7 +2465,7 @@ export function deviceView(ctx) {
       head, loadProblem(resource, 'this board', ctx), pending(resource, 'the board'));
   }
 
-  const { device, certificates, executions, olderExecutions: older } = detail;
+  const { device, certificates, executions, olderExecutions: older, memfault } = detail;
   const ended = newestEnded(executions);
   // The board's own history says whether it has an update waiting, without any other list.
   const queued = executions.find((execution) => execution.status === 'QUEUED') ?? null;
@@ -2485,6 +2485,7 @@ export function deviceView(ctx) {
         locationCard(device, ctx),
         // Its type and flash layout, and the releases it can take (fleet.js).
         ctx.fleet?.compatibilityCard(device, ctx) ?? null,
+        memfaultCard(device, memfault ?? null),
         card({ key: 'certificates', title: 'Certificates' },
           certificates.length === 0
             ? h('p', { class: 'quiet' },
@@ -4506,10 +4507,43 @@ function commandTools(device, ctx) {
             ctx.actions.reportNow(device.thing);
           },
         }, icon('send'), h('span', null, 'Report now',
-          h('span', { class: 'menu-note' }, 'Heartbeat, diagnostics and a Wi-Fi scan, at once'))))));
+          h('span', { class: 'menu-note' }, 'Heartbeat, diagnostics and a Wi-Fi scan, at once'))),
+        h('button', {
+          type: 'button', class: 'menu-item', key: 'memfault', disabled: busy || !device.online,
+          onClick: (event) => {
+            event.currentTarget?.closest?.('details')?.removeAttribute?.('open');
+            ctx.actions.memfaultNow(device.thing);
+          },
+        }, icon('send'), h('span', null, 'Send Memfault data now',
+          h('span', { class: 'menu-note' }, 'A Memfault heartbeat, and all it holds for Memfault, from firmware 1.14.0'))))));
 }
 
-const COMMAND_TITLES = { identify: 'Identify', report: 'Report now' };
+const COMMAND_TITLES = { identify: 'Identify', report: 'Report now', memfault: 'Send Memfault data now' };
+
+/**
+ * Whether the board's Memfault data reaches Memfault (docs/memfault.md): a project key stored in AWS, and
+ * firmware 1.14.0 or later, which sends it over AWS IoT. With the link to the board in Memfault when the
+ * console knows the organization's and the project's slugs. Nothing for a board that never reaches AWS IoT,
+ * or from a server that says nothing of Memfault.
+ */
+function memfaultCard(device, memfault) {
+  if (memfault === null || device.location?.bluetoothOnly) return null;
+  let line;
+  if (!memfault.keyStored) {
+    line = [h('strong', null, 'Memfault: off.'), ' No project key is stored in AWS, so the board keeps its data. ',
+      'cloud/deploy.sh stores one from ~/.cranium/memfault_project_key.'];
+  } else if (!memfault.firmware) {
+    line = [h('strong', null, 'Memfault: needs firmware 1.14.0.'), ' Older firmware sends nothing to Memfault.'];
+  } else {
+    line = [h('strong', null, 'Memfault: forwarding on.'),
+      ' Coredumps, reboot reasons, metrics and update events go to Memfault through AWS IoT.'];
+  }
+  return card({ key: 'memfault', title: 'Memfault' },
+    h('p', { class: 'memfault-line', key: 'line' }, ...line),
+    memfault.url
+      ? h('p', { key: 'link' }, h('a', { href: memfault.url, rel: 'noreferrer', target: '_blank' }, 'Open in Memfault'))
+      : null);
+}
 
 /** What became of the last command sent to the board from this page. */
 function commandNotice(device, ctx) {

@@ -3,6 +3,7 @@
  *
  *   body { "cmd": "identify", "seconds": 15 }   seconds: 1 to 60, 15 when left out
  *        { "cmd": "report" }
+ *        { "cmd": "memfault" }                  from firmware 1.14.0 (docs/memfault.md)
  *   ->   202 { "command": { id, cmd, seconds?, thing, sentAt, online } }
  *
  * The console publishes { id, cmd, seconds? } on cranium/<thing>/commands, QoS 1, and that is all
@@ -21,6 +22,11 @@
  * at a bench of boards uses to tell which one is which. "report" does need one: it is used from
  * anywhere, and it makes the board send its Wi-Fi scan to AWS, which is a paid position estimate.
  * A Bluetooth-only board (nrf5340dk) never reaches AWS IoT and is refused (409).
+ *
+ * "memfault" makes the board take its Memfault heartbeat now and send what it holds for Memfault
+ * (its metrics, its reboots, a coredump) over AWS IoT at once, instead of within the hour; the
+ * forwarder (MemfaultFn) passes it on if a project key is stored. A firmware before 1.14.0 answers
+ * "ignored: unknown cmd". From a phone it needs a fresh sign-in, as report does.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -29,7 +35,7 @@ import { requireFreshSignIn } from '../auth.mjs';
 import { HttpError, badRequest, conflict, field, notFound } from '../http.mjs';
 import { requireThing } from '../lib/validate.mjs';
 
-export const COMMANDS = Object.freeze(['identify', 'report']);
+export const COMMANDS = Object.freeze(['identify', 'report', 'memfault']);
 export const COMMANDS_PER_MINUTE = 10;
 export const IDENTIFY_SECONDS = Object.freeze({ min: 1, max: 60, fallback: 15 });
 const FIELDS = Object.freeze(['cmd', 'seconds']);

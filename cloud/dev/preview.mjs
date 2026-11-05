@@ -1482,6 +1482,11 @@ function answerCommand(fake, board, payload, say) {
     board.log('CMD', `report: heartbeat, diagnostics and a location scan (${payload.id})`);
     if (board.aps) fake.locate(board.thing, { aps: board.aps, boot: 1, t: 61_000 }).catch(() => {});
     say(`${board.thing}: reports at once`);
+  } else if (payload.cmd === 'memfault' && compareVersions(parseVersion(board.version), parseVersion('1.14.0+0')) >= 0) {
+    // From 1.14.0 (docs/memfault.md): a Memfault heartbeat now, and its chunks to the forwarder. The preview
+    // has no forwarder, so only the answer shows.
+    board.log('CMD', `memfault: heartbeat taken, sending its data (${payload.id})`);
+    say(`${board.thing}: sends its Memfault data`);
   } else {
     board.log('CMD', `ignored: unknown command (${payload.id})`);
   }

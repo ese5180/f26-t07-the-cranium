@@ -6,6 +6,22 @@ it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), somethin
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## Unreleased
+
+Memfault, for firmware 1.14.0: the boards' coredumps, reboot reasons, metrics and update events reach Memfault through
+AWS IoT, which stays their only cloud. A board's page says whether that is on, with a link to the board in Memfault,
+and its menu has Send Memfault data now.
+
+A new function, MemfaultFn, takes each chunk a board publishes on cranium/<thing>/memfault, posts it to Memfault's
+chunks API with the project key from AWS Secrets Manager, and answers the board on its commands topic so that it sends
+the next. Without a key it drops the chunk and does not answer, and the board keeps its data. cloud/deploy.sh stores
+the key from ~/.cranium/memfault_project_key and takes the organization's and the project's slugs for the link
+(docs/memfault.md). The device policy lets a board publish on its own memfault topic, and the commands API takes
+"memfault". `cloud/logs.sh memfault` follows the function, and `cloud/logs.sh memfault-errors` what the rule could not
+hand it.
+
+Not deployed yet.
+
 ## 2.0.0
 
 A customer website on a name of its own: customers sign in to see their own boards (online, firmware, last report,

@@ -5,10 +5,15 @@
  * about itself comes from its shadow and is display data only (lib/shadow.mjs).
  * Shadows are cached for a few seconds in this module's memory, because several views
  * and every poll of a running deployment read the same ones.
+ *
+ * A board's own page also says whether its Memfault data reaches Memfault (lib/memfault.mjs):
+ * `memfault` beside `device`. Whether a project key is stored is asked of AWS at most every
+ * MEMFAULT_KEY_CACHE_MS, and a question AWS does not answer says no for MEMFAULT_KEY_RETRY_MS.
  */
 
 import { describeError, notFound } from '../http.mjs';
 import { EXECUTION_STATUSES, isoTime } from '../lib/jobs.mjs';
+import { memfaultView } from '../lib/memfault.mjs';
 import { deviceFromShadow, unknownDevice } from '../lib/shadow.mjs';
 import { isThing, parseJobId, requireThing } from '../lib/validate.mjs';
 
@@ -17,6 +22,9 @@ const MAX_CACHED_SHADOWS = 512;
 // AWS has been asked for all of a board's executions by the time this applies, so it only
 // limits the size of the reply. The reply says how many were left out (olderExecutions).
 const MAX_HISTORY = 50;
+
+export const MEMFAULT_KEY_CACHE_MS = 5 * 60_000;
+export const MEMFAULT_KEY_RETRY_MS = 60_000;
 
 const CERTIFICATE_ARN = /^arn:[a-z0-9-]+:iot:[a-z0-9-]+:\d{12}:cert\/([0-9a-f]{64})$/;
 const ANY_JOB_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -54,8 +62,22 @@ function history(executions) {
   return rows;
 }
 
-export function createDeviceHandlers({ aws, now, log }) {
+export function createDeviceHandlers({ aws, config, now, log }) {
   const shadows = new Map();
+  // Whether a Memfault project key is stored, and until when that answer holds: { stored, until }.
+  let memfaultKey = null;
+
+  async function memfaultKeyStored() {
+    if (memfaultKey !== null && now() < memfaultKey.until) return memfaultKey.stored;
+    if (typeof aws.memfaultKeyStored !== 'function') return false;
+    try {
+      memfaultKey = { stored: (await aws.memfaultKeyStored()) === true, until: now() + MEMFAULT_KEY_CACHE_MS };
+    } catch (error) {
+      log({ level: 'warn', event: 'memfault_key_unknown', error: describeError(error).message });
+      memfaultKey = { stored: false, until: now() + MEMFAULT_KEY_RETRY_MS };
+    }
+    return memfaultKey.stored;
+  }
 
   async function readShadow(thing, maxAgeMs) {
     const cached = shadows.get(thing);
@@ -116,10 +138,11 @@ export function createDeviceHandlers({ aws, now, log }) {
       if (!(await groupThings()).includes(thing)) {
         throw notFound('unknown_device', 'No board with that name is registered.');
       }
-      const [[device], principals, executions] = await Promise.all([
+      const [[device], principals, executions, keyStored] = await Promise.all([
         loadDevices([thing]),
         aws.listThingPrincipals(thing),
         aws.listJobExecutionsForThing(thing),
+        memfaultKeyStored(),
       ]);
       const rows = history(executions);
       return {
@@ -128,6 +151,7 @@ export function createDeviceHandlers({ aws, now, log }) {
           certificates: certificateIds(principals),
           executions: rows.slice(0, MAX_HISTORY),
           olderExecutions: Math.max(0, rows.length - MAX_HISTORY),
+          memfault: memfaultView(device, { keyStored, ...(config?.memfault ?? {}) }),
         },
       };
     },

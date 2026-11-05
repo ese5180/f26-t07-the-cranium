@@ -1595,7 +1595,7 @@ async function startUpload() {
   }
 }
 
-// Commands to a board (docs/fleet.md): identify and report, and the board's answer from its log.
+// Commands to a board (docs/fleet.md): identify, report and memfault, and the board's answer from its log.
 
 /** Look in the board's log for its answer to a command, every few seconds, for a while. */
 function watchForAnswer(thing, command) {
@@ -1637,7 +1637,7 @@ async function sendCommand(thing, cmd) {
     state.commands.set(thing, { cmd, status: 'sent', id: command.id, answer: null, error: null, online: command.online });
     notify(cmd === 'identify'
       ? `Sent: ${name} should blink its two lights for ${command.seconds ?? IDENTIFY_SECONDS} s.`
-      : `Sent: ${name} reports at once.`);
+      : cmd === 'memfault' ? `Sent: ${name} sends its Memfault data at once.` : `Sent: ${name} reports at once.`);
     watchForAnswer(thing, command);
   } catch (error) {
     const problem = asProblem(error);
@@ -1674,6 +1674,7 @@ async function changeAlerts(subscribe) {
 const actions = {
   identify: (thing) => sendCommand(thing, 'identify'),
   reportNow: (thing) => sendCommand(thing, 'report'),
+  memfaultNow: (thing) => sendCommand(thing, 'memfault'),
   subscribeAlerts: () => changeAlerts(true),
   unsubscribeAlerts: () => changeAlerts(false),
   refresh: () => refreshNow(true),

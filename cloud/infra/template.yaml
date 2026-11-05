@@ -120,6 +120,29 @@ Parameters:
     Description: >-
       Whether people may make a customer account themselves. Off: an admin invites each
       customer from the console's Customers page. The customer site has no sign-up page.
+  MemfaultChunksHost:
+    Type: String
+    Default: chunks-nrf.memfault.com
+    AllowedValues: [chunks-nrf.memfault.com, chunks.memfault.com]
+    Description: >-
+      Where the Memfault forwarder posts the boards' chunks (docs/memfault.md). The nRF Connect SDK's
+      own Memfault port posts an nRF board to chunks-nrf, which is where a project made through nRF
+      Cloud is served; chunks.memfault.com is the address of every other Memfault project.
+  MemfaultOrgSlug:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9-]{0,62}$'
+    ConstraintDescription: must be empty, or a Memfault organization slug in lower case
+    Description: >-
+      The Memfault organization's slug, for the link to a board in Memfault on its page in the
+      console. Not a secret. Empty, or MemfaultProjectSlug empty, means no link.
+  MemfaultProjectSlug:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9-]{0,62}$'
+    ConstraintDescription: must be empty, or a Memfault project slug in lower case
+    Description: >-
+      The Memfault project's slug, for the same link. Not a secret.
 
 Conditions:
   CaseInsensitiveSignIn: !Equals [!Ref SignInNamesCaseSensitive, 'false']
@@ -1046,6 +1069,8 @@ Resources:
   # publish only, what the board hears of the Wi-Fi around it (LocationRule); and
   # cranium/<thing>/commands, subscribe and receive only, where the console's commands arrive
   # (identify, report). A board can neither send itself a command nor hear another board's.
+  # From firmware 1.14.0 (docs/memfault.md): cranium/<thing>/memfault, publish only, the board's
+  # Memfault chunks (MemfaultRule), whose acknowledgements come back on its commands topic.
   # A change to the document is an update in place: AWS IoT keeps
   # the policy and its name, makes the new document its default version, and every
   # certificate it is attached to has the new rights at once (AWS::IoT::Policy,
@@ -1071,6 +1096,7 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/location'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/memfault'
           - Effect: Allow
             Action: iot:Subscribe
             Resource:
@@ -1612,6 +1638,12 @@ Resources:
                   - cognito-idp:AdminDisableUser
                   - cognito-idp:AdminEnableUser
                 Resource: !GetAtt CustomerUserPool.Arn
+              # Whether a Memfault project key is stored, for a board's page (docs/memfault.md): the
+              # secret's metadata, which says whether it has a value. Never the value itself.
+              - Sid: SeeMemfaultKey
+                Effect: Allow
+                Action: secretsmanager:DescribeSecret
+                Resource: !Ref MemfaultProjectKey
 
   ApiFn:
     Type: AWS::Lambda::Function
@@ -1652,6 +1684,11 @@ Resources:
           # goes out while it has no address.
           CUSTOMER_POOL_ID: !Ref CustomerUserPool
           CUSTOMER_SITE_URL: !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/', '']
+          # Memfault (docs/memfault.md): the secret whose metadata says whether a project key is
+          # stored, and the slugs of the link to a board in Memfault. None of the three is a secret.
+          MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey
+          MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug
+          MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug
 
   # ---------------------------------------------------------------------------------
   # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own
@@ -1919,6 +1956,166 @@ Resources:
       Qualifier: $LATEST
       MaximumRetryAttempts: 0
       MaximumEventAgeInSeconds: 600
+
+  # ---------------------------------------------------------------------------------
+  # Memfault (docs/memfault.md, course manual 3.11). From firmware 1.14.0 a board keeps Memfault's
+  # data, its coredump, its reboot reasons, its metrics and its trace events, and sends it in chunks
+  # of at most 400 bytes over its own MQTT connection, one at a time: AWS IoT stays the board's only
+  # cloud and its only way to an update. The forwarder (cloud/api/src/forwarder.mjs) posts each chunk
+  # to Memfault's chunks API with the project key, which only it can read, and answers the board on
+  # its commands topic, so that the board sends the next one. Without a key it drops the chunk and
+  # does not answer, and the board keeps its data and tries again later.
+  # ---------------------------------------------------------------------------------
+
+  # A board's chunks, on the topic only that board may publish on. A chunk is binary, so the rule
+  # hands it over as base64; the thing name comes from the topic and the time from AWS IoT, and no
+  # field of the message can be read, since it has none. The forwarder holds the frame to the contract.
+  MemfaultRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      TopicRulePayload:
+        Description: Memfault chunks of a Cranium board, for Memfault's cloud.
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: >-
+          SELECT encode(*, 'base64') AS frame, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/memfault'
+          WHERE startswith(topic(2), 'cranium-')
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt MemfaultFn.Arn
+        # When AWS IoT cannot invoke the forwarder, it says so here, with the message it could not
+        # hand over (a chunk: no secret). The board gets no answer and sends the chunk again.
+        ErrorAction:
+          CloudwatchLogs:
+            LogGroupName: !Ref MemfaultRuleErrorLogGroup
+            RoleArn: !GetAtt MemfaultRuleErrorRole.Arn
+
+  MemfaultPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MemfaultFn
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt MemfaultRule.Arn
+
+  MemfaultRuleErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/iot/${AWS::StackName}-memfault-rule-errors'
+      RetentionInDays: 90
+
+  # What AWS IoT assumes to write the rule's errors: that log group, and nothing else. Only AWS IoT
+  # acting for a rule of this account can assume it. The CloudWatch Logs action of AWS IoT names
+  # DescribeLogStreams among what it needs beside the two writes.
+  MemfaultRuleErrorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:rule/*'
+      Policies:
+        - PolicyName: write-memfault-rule-errors
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteRuleErrors
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource: !GetAtt MemfaultRuleErrorLogGroup.Arn
+
+  # The Memfault project key. The stack makes the secret with no value: cloud/deploy.sh stores
+  # ~/.cranium/memfault_project_key in it when that file exists, so the key is never in the template,
+  # a parameter or the repository. Only the forwarder may read it; the API may only see whether it
+  # has a value.
+  MemfaultProjectKey:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}/memfault-project-key'
+      Description: >-
+        Memfault project key for the Cranium forwarder. Stored by cloud/deploy.sh from
+        ~/.cranium/memfault_project_key; empty until then.
+
+  MemfaultLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-memfault'
+      RetentionInDays: 90
+
+  # It may write to its log, read the project key, and answer a board on its commands topic.
+  # Nothing else: no table, no other secret, no other topic.
+  MemfaultRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: forward-memfault-chunks
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt MemfaultLogGroup.Arn
+              - Sid: ReadProjectKey
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref MemfaultProjectKey
+              - Sid: AnswerBoards
+                Effect: Allow
+                Action: iot:Publish
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/cranium-*/commands'
+
+  MemfaultFn:
+    Type: AWS::Lambda::Function
+    DependsOn: MemfaultLogGroup
+    Properties:
+      LoggingConfig:
+        LogGroup: !Ref MemfaultLogGroup
+      Description: !Sub 'Cranium firmware console - Memfault chunks - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: memfault.handler
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt MemfaultRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey
+          MEMFAULT_CHUNKS_HOST: !Ref MemfaultChunksHost
+
+  # A chunk is never tried again here: the board sends it again when no answer comes, and two tries
+  # at once could put a board's chunks out of order.
+  MemfaultFnInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref MemfaultFn
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
 
   # ---------------------------------------------------------------------------------
   # Staged rollouts (docs/fleet.md, cloud/api/src/handlers/rollouts.mjs). A rollout starts with a
@@ -2291,6 +2488,14 @@ Outputs:
     Value: !Ref RolloutTickFn
   LocationFunctionName:
     Value: !Ref LocationFn
+  MemfaultFunctionName:
+    Description: The function that forwards the boards' Memfault chunks (docs/memfault.md).
+    Value: !Ref MemfaultFn
+  MemfaultProjectKeyArn:
+    Description: >-
+      The secret that holds the Memfault project key, which cloud/deploy.sh stores from
+      ~/.cranium/memfault_project_key. Its name, never its value.
+    Value: !Ref MemfaultProjectKey
   AlertTopicArn:
     Description: Where the e-mail alerts go. Release managers subscribe on the console's Account page.
     Value: !Ref AlertTopic

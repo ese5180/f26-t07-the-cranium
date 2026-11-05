@@ -599,6 +599,23 @@ function readExecutionSummary(raw) {
   };
 }
 
+// A board's address in Memfault, as the server builds it from the organization's and the project's slugs.
+const MEMFAULT_DEVICE_URL = /^https:\/\/app\.memfault\.com\/organizations\/[a-z0-9][a-z0-9-]{0,62}\/projects\/[a-z0-9][a-z0-9-]{0,62}\/devices\/cranium-[0-9a-f]{16}$/;
+
+/**
+ * What the server says of Memfault for a board (docs/memfault.md): whether a project key is stored in AWS,
+ * whether the board's firmware sends Memfault's data (1.14.0 or later), and its page in Memfault, if the
+ * console knows the slugs. Null from a server that says nothing of it.
+ */
+function readMemfault(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    keyStored: raw.keyStored === true,
+    firmware: raw.firmware === true,
+    url: typeof raw.url === 'string' && MEMFAULT_DEVICE_URL.test(raw.url) ? raw.url : null,
+  };
+}
+
 function readDeviceDetail(body) {
   const reply = record(body);
   return {
@@ -607,6 +624,7 @@ function readDeviceDetail(body) {
     executions: list(reply.executions).map(readExecutionSummary),
     // How many older updates the server left out of `executions`.
     olderExecutions: whole(reply.olderExecutions, 0, 2 ** 32) ?? 0,
+    memfault: readMemfault(reply.memfault),
   };
 }
 
@@ -2218,7 +2236,7 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     // The map, commands and alerts (docs/fleet.md): a board's last positions, a command to a board,
     // and the caller's own e-mail alerts.
     positions: async (thing) => readPositions(await get(`/api/devices/${checked(isThing, thing)}/positions`)),
-    /** identify (for `seconds`) or report, now. Tried once: a command is for now, and a refusal says why. */
+    /** identify (for `seconds`), report or memfault, now. Tried once: a command is for now, and a refusal says why. */
     async command(thing, cmd, seconds = null) {
       const body = { cmd: checked((name) => COMMANDS.includes(name), cmd) };
       if (seconds !== null) body.seconds = checked((value) => whole(value, 1, 60) !== null, seconds);
@@ -3286,6 +3304,7 @@ const SIGNED_IN_ON = { web: 'signed in on the website', phone: 'signed in on the
 export const COMMAND_WORDS = {
   identify: 'asked {} to blink its lights',
   report: 'asked {} to report now',
+  memfault: 'asked {} to send its Memfault data now',
 };
 
 // What a command at a board's serial console did (cloud/api/src/handlers/serial.mjs), with the
@@ -3674,7 +3693,8 @@ export function auditSentence(entry, devices = []) {
 // (cloud/api/src/lib/position.mjs), why a board is not on the map, the commands a release manager
 // can send a board and how its answer is found in its log, and a person's own e-mail alerts.
 
-export const COMMANDS = Object.freeze(['identify', 'report']);
+// memfault from firmware 1.14.0 (docs/memfault.md): its Memfault data now, through AWS IoT.
+export const COMMANDS = Object.freeze(['identify', 'report', 'memfault']);
 export const IDENTIFY_SECONDS = 15;
 // How long the page looks in the board's log for its answer to a command.
 export const COMMAND_ANSWER_MS = 45_000;

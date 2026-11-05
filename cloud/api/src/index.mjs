@@ -17,6 +17,7 @@
 import { createApp } from './app.mjs';
 import { createAppsAws } from './aws-apps.mjs';
 import { createMapAws } from './aws-map.mjs';
+import { createMemfaultStatus } from './aws-memfault.mjs';
 import { createAws } from './aws.mjs';
 import { loadConfig } from './config.mjs';
 import { createCustomerStore } from './customer/aws.mjs';
@@ -26,10 +27,12 @@ const customers = loadCustomerAdminConfig(process.env);
 const config = Object.freeze({ ...loadConfig(process.env), customers });
 
 // The adapter: aws.mjs, the calls of the map, the commands and the alerts (aws-map.mjs), those of the
-// phone apps' releases (aws-apps.mjs), and the customer site's (customer/aws.mjs).
+// phone apps' releases (aws-apps.mjs), the customer site's (customer/aws.mjs), and whether a Memfault
+// project key is stored (aws-memfault.mjs).
 export const handler = createApp({
   aws: {
     ...createAws(process.env), ...createMapAws(process.env), ...createAppsAws(process.env),
+    ...createMemfaultStatus(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },
   config,

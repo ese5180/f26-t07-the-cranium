@@ -6,6 +6,8 @@
 #   cloud/logs.sh web      the function that serves the console's static files
 #   cloud/logs.sh events   the recorder: one line per message from a board, with the kinds it recorded
 #   cloud/logs.sh location the location function: one line per Wi-Fi scan, and whether it was solved
+#   cloud/logs.sh memfault the Memfault forwarder: one line per chunk from a board, and what came of it
+#   cloud/logs.sh memfault-errors  what AWS IoT could not hand to the Memfault forwarder
 #   cloud/logs.sh signin   the sign-in trigger: Lambda's own lines for each token Cognito makes
 #   cloud/logs.sh access   API Gateway: every request, with status and authorizer error
 #   cloud/logs.sh iot      AWS IoT: connections, refused publishes, job events
@@ -94,6 +96,8 @@ main() {
     web) check_tools; group="$(stack_log_group WebLogGroup)" ;;
     events) check_tools; group="$(stack_log_group EventsLogGroup)" ;;
     location) check_tools; group="$(stack_log_group LocationLogGroup)" ;;
+    memfault) check_tools; group="$(stack_log_group MemfaultLogGroup)" ;;
+    memfault-errors) check_tools; group="$(stack_log_group MemfaultRuleErrorLogGroup)" ;;
     signin) check_tools; group="$(stack_log_group SignInScopeLogGroup)" ;;
     access) check_tools; group="$(stack_log_group AccessLogGroup)" ;;
     iot)

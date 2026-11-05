@@ -251,6 +251,14 @@ const MAP_PACKAGES = {
     client: 'IoTWirelessClient',
     commands: { GetPositionEstimateCommand: { required: [], optional: ['WiFiAccessPoints'] } },
   },
+  // And the one only src/aws-memfault.mjs imports, whose API part index.mjs loads (aws-memfault.test.mjs).
+  '@aws-sdk/client-secrets-manager': {
+    client: 'SecretsManagerClient',
+    commands: {
+      GetSecretValueCommand: { required: ['SecretId'], optional: ['VersionId', 'VersionStage'] },
+      DescribeSecretCommand: { required: ['SecretId'], optional: [] },
+    },
+  },
 };
 
 const hooks = `

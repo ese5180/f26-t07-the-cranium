@@ -753,6 +753,14 @@ export function createFakeAws({
   // The phone apps' releases and their APKs (docs/mobile-apps.md, src/aws-apps.mjs): test/fake-apps.mjs.
   const apps = createFakeApps({ clock });
   Object.assign(adapter, apps.adapter);
+  // Whether a Memfault project key is stored (docs/memfault.md, src/aws-memfault.mjs createMemfaultStatus):
+  // no, until fake.storeMemfaultKey() plays cloud/deploy.sh storing one.
+  let memfaultKey = false;
+  Object.assign(adapter, {
+    async memfaultKeyStored() {
+      return memfaultKey;
+    },
+  });
 
   const fake = {};
   for (const [method, run] of Object.entries(adapter)) {
@@ -782,6 +790,11 @@ export function createFakeAws({
       const queued = faults.get(method) ?? [];
       for (let count = 0; count < times; count += 1) queued.push(() => awsError(method, awsName, { code }));
       faults.set(method, queued);
+    },
+
+    /** What cloud/deploy.sh does with ~/.cranium/memfault_project_key: store a key in the secret, or none. */
+    storeMemfaultKey(stored = true) {
+      memfaultKey = stored === true;
     },
 
     /** What the provisioning tool does: register a board and attach its certificate. */

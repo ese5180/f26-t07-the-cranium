@@ -47,6 +47,7 @@ case "$*" in
     if [ "\${STUB_TABLE:-False}" = GONE ]; then
       echo "An error occurred (ResourceNotFoundException)" >&2; exit 254; fi
     echo "\${STUB_TABLE:-False}" ;;
+  *"secretsmanager describe-secret"*) printf '%s\\n' "\${STUB_STAGES:-null}" ;;
 esac
 exit 0
 `;
@@ -271,6 +272,94 @@ test('deploy.sh does not take the commit from the command line', () => {
   // The new switch is known, which the refusal above shows it would not be otherwise.
   const text = readFileSync(join(CLOUD, 'deploy.sh'), 'utf8');
   assert.ok(text.includes('RestrictIotLoggingTrust=*'));
+});
+
+// Memfault (docs/memfault.md): the key from ~/.cranium/memfault_project_key into the stack's secret, and the
+// slugs for the link to a board in Memfault. HOME is a folder of the test's own: never the real ~/.cranium.
+const MEMFAULT_KEY = 'AbCdEf0123456789AbCdEf0123456789';
+
+function memfaultHome(files = {}) {
+  runs += 1;
+  const home = join(work, `home-${runs}`);
+  mkdirSync(join(home, '.cranium'), { recursive: true });
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(home, '.cranium', name), text, { mode: 0o600 });
+  return home;
+}
+
+const digestOf = (text) => spawnSync('openssl', ['dgst', '-sha256', '-hex'], { input: text, encoding: 'utf8' })
+  .stdout.trim().split(' ').at(-1);
+
+test('deploy.sh stores the Memfault key by the digest of its file, from the file, and never shows it', () => {
+  const home = memfaultHome({ memfault_project_key: `${MEMFAULT_KEY}\n` });
+  const token = digestOf(`${MEMFAULT_KEY}\n`);
+  const stored = inScript('deploy.sh', 'store_memfault_key', { HOME: home });
+  assert.equal(stored.status, 0, stored.err);
+  const put = stored.calls.find((call) => call.startsWith('secretsmanager put-secret-value'));
+  assert.ok(put, JSON.stringify(stored.calls));
+  assert.ok(put.includes('--secret-id stand-in-output'));
+  assert.ok(put.includes(`--client-request-token ${token}`));
+  assert.ok(put.includes(`--secret-string file://${home}/.cranium/memfault_project_key`));
+  assert.ok(stored.out.includes('stored the project key'));
+  for (const text of [stored.out, stored.err, ...stored.calls]) assert.equal(text.includes(MEMFAULT_KEY), false);
+
+  // The same key again adds no version.
+  const again = inScript('deploy.sh', 'store_memfault_key',
+    { HOME: home, STUB_STAGES: JSON.stringify({ [token]: ['AWSCURRENT'] }) });
+  assert.equal(again.status, 0, again.err);
+  assert.equal(again.calls.some((call) => call.includes('put-secret-value') || call.includes('update-secret-version-stage')), false);
+  assert.ok(again.out.includes('stored already'));
+
+  // A key stored before, and replaced since, is made the current one again.
+  const back = inScript('deploy.sh', 'store_memfault_key',
+    { HOME: home, STUB_STAGES: JSON.stringify({ [token]: ['AWSPREVIOUS'], 'other-version': ['AWSCURRENT'] }) });
+  assert.equal(back.status, 0, back.err);
+  const move = back.calls.find((call) => call.startsWith('secretsmanager update-secret-version-stage'));
+  assert.ok(move.includes(`--move-to-version-id ${token}`) && move.includes('--remove-from-version-id other-version'), move);
+  assert.equal(back.calls.some((call) => call.includes('put-secret-value')), false);
+});
+
+test('deploy.sh without a Memfault key says how to add one, and asks nothing of AWS for it', () => {
+  for (const files of [{}, { memfault_project_key: '' }]) {
+    const none = inScript('deploy.sh', 'store_memfault_key', { HOME: memfaultHome(files) });
+    assert.equal(none.status, 0, none.err);
+    assert.deepEqual(none.calls, []);
+    assert.ok(none.out.includes('docs/memfault.md'));
+  }
+  // A key that others can read is still stored, with a word about it.
+  const home = memfaultHome({ memfault_project_key: MEMFAULT_KEY });
+  chmodSync(join(home, '.cranium', 'memfault_project_key'), 0o644);
+  const open = inScript('deploy.sh', 'store_memfault_key', { HOME: home });
+  assert.equal(open.status, 0, open.err);
+  assert.ok(open.out.includes('chmod 600'));
+});
+
+test('deploy.sh takes the Memfault slugs from the environment, else from ~/.cranium/memfault.json, and checks them', () => {
+  const slugs = (env) => inScript('deploy.sh', 'memfault_slug_overrides', env);
+  const fromFile = slugs({ HOME: memfaultHome({ 'memfault.json': '{"org": "cranium-team", "project": "cranium-boards"}' }) });
+  assert.equal(fromFile.status, 0, fromFile.err);
+  assert.equal(fromFile.out, 'MemfaultOrgSlug=cranium-team\nMemfaultProjectSlug=cranium-boards\n');
+  const fromEnv = slugs({
+    HOME: memfaultHome({ 'memfault.json': '{"org": "file-org", "project": "file-project"}' }),
+    MEMFAULT_ORG_SLUG: 'env-org', MEMFAULT_PROJECT_SLUG: 'env-project',
+  });
+  assert.equal(fromEnv.out, 'MemfaultOrgSlug=env-org\nMemfaultProjectSlug=env-project\n');
+  // Neither: the stack keeps what it has.
+  const none = slugs({ HOME: memfaultHome() });
+  assert.deepEqual([none.status, none.out], [0, '']);
+  for (const [env, files] of [
+    [{ MEMFAULT_ORG_SLUG: 'Has Capitals', MEMFAULT_PROJECT_SLUG: 'p' }, {}],
+    [{ MEMFAULT_ORG_SLUG: 'only-the-org' }, {}],
+    [{}, { 'memfault.json': '{"org": "o"}' }],
+    [{}, { 'memfault.json': 'not json' }],
+    [{}, { 'memfault.json': '{"org": "o; rm -rf /", "project": "p"}' }],
+  ]) {
+    const refused = slugs({ HOME: memfaultHome(files), ...env });
+    assert.notEqual(refused.status, 0, JSON.stringify([env, files]));
+    assert.equal(refused.out, '');
+  }
+  // The arguments are known parameters: a typo is still refused before anything happens.
+  const typo = script('deploy.sh', 'MemfaultOrgSlugs=x');
+  assert.deepEqual([typo.status, typo.calls], [1, []]);
 });
 
 test('trail.sh deploys its own stack, and not next to another trail', () => {
