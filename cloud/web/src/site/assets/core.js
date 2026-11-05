@@ -2223,9 +2223,13 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
     async appsRequest(method, path) {
-      const allowed = method === 'GET' && typeof path === 'string' &&
-        /^\/api\/apps(?:\/config|\/android\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download(?:\?via=qr)?)?$/.test(path);
-      if (!allowed) throw new ApiError(0, 'bad_request', 'That is not a request of the Apps page.');
+      const read = method === 'GET' && typeof path === 'string' && (
+        /^\/api\/apps(?:\/config|\/sidestore|\/android\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download(?:\?via=qr)?)?$/.test(path)
+        || /^\/api\/apps\/ios\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download$/.test(path));
+      // A member's own SideStore link: made, or turned off. Tried once: a new link ends the one before.
+      const change = method === 'POST' && (path === '/api/apps/sidestore' || path === '/api/apps/sidestore/revoke');
+      if (!read && !change) throw new ApiError(0, 'bad_request', 'That is not a request of the Apps page.');
+      if (change) return record(await request(method, path, {}, { once: true }));
       return record(await request(method, path, undefined, { once: path.includes('/download') }));
     },
     tokens: async () => readTokens(await get('/api/tokens')),
@@ -3248,6 +3252,28 @@ const AUDIT_ACTIONS = {
     done: 'downloaded the Android app', tried: 'tried to download the Android app', triedAlone: 'tried to download the Android app',
     icon: 'download',
   },
+  // The iPhone app's unsigned IPAs, the same three steps, a download also through a member's SideStore
+  // source, and that source's link, made and turned off by its owner (named by its id, never the key).
+  'app.ios_upload': {
+    done: 'started publishing the iPhone app', tried: 'tried to start publishing the iPhone app',
+    triedAlone: 'tried to start publishing the iPhone app', icon: 'upload',
+  },
+  'app.ios_publish': {
+    done: 'published the iPhone app', tried: 'tried to publish the iPhone app', triedAlone: 'tried to publish the iPhone app',
+    icon: 'package',
+  },
+  'app.ios_download': {
+    done: 'downloaded the iPhone app', tried: 'tried to download the iPhone app', triedAlone: 'tried to download the iPhone app',
+    icon: 'download',
+  },
+  'app.source_create': {
+    done: 'made SideStore link', doneAlone: 'made a SideStore link', tried: 'tried to make SideStore link',
+    triedAlone: 'tried to make a SideStore link', icon: 'key',
+  },
+  'app.source_revoke': {
+    done: 'turned off SideStore link', doneAlone: 'turned off a SideStore link', tried: 'tried to turn off SideStore link',
+    triedAlone: 'tried to turn off a SideStore link', icon: 'key',
+  },
   // The customer site's accounts, from the Customers page (docs/customer-site.md): a customer by
   // their e-mail address, a board by its name with the customer's address after it (CUSTOMER_BOARD).
   'customer.create': {
@@ -3454,6 +3480,15 @@ export const REFUSAL_WORDS = {
   // The phone apps (cloud/api/src/handlers/apps.mjs): publishing the Android app, and its download links.
   version_code_not_higher: 'Its versionCode is not higher than the newest Android app’s',
   apk_missing: 'No APK had arrived in S3 for that version',
+  // The iPhone app's IPAs, and a member's SideStore link (cloud/api/src/handlers/apps.mjs, sidestore.mjs).
+  ipa_missing: 'No IPA had arrived in S3 for that version',
+  ipa_unreadable: 'The IPA that arrived could not be read as an iPhone app',
+  ipa_mismatch: 'The IPA was not the app, the version, the build or the configuration it was published as',
+  build_not_higher: 'Its build is not higher than the newest iPhone app’s',
+  invalid_build: 'The build was not a whole number',
+  unknown_source: 'There was no SideStore link at that address',
+  no_source: 'There was no SideStore link to turn off',
+  source_conflict: 'The SideStore link was being changed at the same moment',
   size_mismatch: 'The APK that arrived was of another size',
   checksum_missing: 'The APK that arrived had no SHA-256 of its own',
   publish_conflict: 'Another release of the app was being published at the same moment',
@@ -3552,7 +3587,15 @@ const AUDIT_DETAILS = {
   layout: { label: 'Flash layout' },
   // The phone apps: an APK's versionCode, and where a download link went.
   versionCode: { label: 'versionCode', code: true },
-  via: { label: 'As', say: (value) => ({ link: 'a link', qr: 'a QR code for a phone' })[value] ?? value },
+  via: {
+    label: 'As',
+    say: (value) => ({ link: 'a link', qr: 'a QR code for a phone', app: 'an update in the app', sidestore: 'SideStore, on an iPhone' })[value]
+      ?? value,
+  },
+  // An IPA's build, the SideStore link a download came through, and the link a new one replaced.
+  build: { label: 'Build', code: true },
+  source: { label: 'SideStore link', code: true },
+  replaced: { label: 'Replaced', code: true },
   // A customer of the customer site: their address, their account id, and what a board was called for them.
   email: { label: 'E-mail' },
   customer: { label: 'Customer', code: true },

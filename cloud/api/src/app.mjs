@@ -55,6 +55,12 @@
  * cannot deploy, revoke, upload, make API tokens or read the activity log. A route says so
  * with `phone: true`.
  *
+ * SideStore sources (handlers/sidestore.mjs). A GET under /api/sidestore/ is SideStore on an iPhone,
+ * which signs in to nothing: the gateway lets it through with no authorizer, as for /api/t/, and the
+ * key in the path is the credential. None of the steps above apply; the handler checks the key, counts
+ * its use, and asks Cognito whether its owner is still a member. A dead key leaves no entry, only its
+ * log line, which names the route and never the key.
+ *
  * Time: Lambda stops the function 20 s after a request arrived, and what it stops
  * leaves no answer, no log line and no entry. A request is therefore given up earlier,
  * while there is time left to record it. Its work is not waited for any longer, and
@@ -87,6 +93,7 @@ import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
+import { createSidestoreHandlers } from './handlers/sidestore.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import {
   HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, forbidden, json, notFound, readJsonObject,
@@ -97,6 +104,8 @@ const METHODS = Object.freeze(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 
 const MAX_PATH = 512;
 // /api/t/<path> is /api/<path> with an API token.
 const TOKEN_SEGMENT = 't';
+// /api/sidestore/<key>/... is a member's SideStore source, with no sign-in (handlers/sidestore.mjs).
+const SOURCE_SEGMENT = 'sidestore';
 
 // The function has 20 s for a request (Timeout of ApiFn in infra/template.yaml). A
 // request is given up after 16 s, and in any case 4 s before Lambda's own limit: the
@@ -128,6 +137,11 @@ function route(method, path, run, write = null, { token = true, phone = true, at
 /** Whether a path is one of the token routes: /api/t/ and something after it. */
 function isTokenPath(segments) {
   return segments !== null && segments.length >= 3 && segments[0] === 'api' && segments[1] === TOKEN_SEGMENT;
+}
+
+/** Whether a request is SideStore's: a GET of /api/sidestore/ and something after it. */
+function isSourcePath(method, segments) {
+  return method === 'GET' && segments !== null && segments.length >= 3 && segments[0] === 'api' && segments[1] === SOURCE_SEGMENT;
 }
 
 function notForTokens() {
@@ -292,6 +306,8 @@ export function createApp({
   const apps = createAppHandlers(context, { versions });
   // The customer site's customers and their boards (docs/customer-site.md).
   const customers = createCustomerHandlers(context, { devices });
+  // Each member's SideStore source, which keeps the iPhone app on their iPhone up to date.
+  const sidestore = createSidestoreHandlers(context, { apps, audit });
   // Tokens from the console and from the phone apps are both tokens of this console; which
   // routes take the phone apps' is up to each route (`phone`).
   const clientIds = [config.userPoolClientId, config.mobileClientId];
@@ -307,6 +323,8 @@ export function createApp({
   // managers on the website, never from a phone app or with an API token.
   const customerAdmin = { token: false, phone: false };
   const customerChange = (action) => ({ action, maxBody: SMALL_BODY_LIMIT });
+  // A member's SideStore link, like their API tokens: made and turned off on the website, by themselves.
+  const websiteSession = { token: false, phone: false };
 
   const routes = Object.freeze([
     route('GET', '/api/me', apps.withConsole(me.get)),
@@ -404,6 +422,17 @@ export function createApp({
     route('POST', '/api/apps/android/releases/{version}', apps.publish, { action: 'app.publish', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/apps/android/{version}/download', apps.download,
       { action: 'app.download', maxBody: 0, member: true, read: true }),
+    // The iPhone app's unsigned IPAs, the same way (apps/ios/scripts/publish.sh), for SideStore.
+    route('POST', '/api/apps/ios/uploads', apps.startIosUpload, { action: 'app.ios_upload', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/apps/ios/releases/{version}', apps.publishIos, { action: 'app.ios_publish', maxBody: SMALL_BODY_LIMIT }),
+    route('GET', '/api/apps/ios/{version}/download', apps.downloadIos,
+      { action: 'app.ios_download', maxBody: 0, member: true, read: true }),
+    // A member's own SideStore source link (handlers/sidestore.mjs). What SideStore itself asks for is
+    // under /api/sidestore/, with no sign-in, outside this table.
+    route('GET', '/api/apps/sidestore', sidestore.get, null, websiteSession),
+    route('POST', '/api/apps/sidestore', sidestore.create, { action: 'app.source_create', ...ownTokens }, websiteSession),
+    route('POST', '/api/apps/sidestore/revoke', sidestore.revoke, { action: 'app.source_revoke', ...ownTokens },
+      websiteSession),
     // Customers of the customer site. The customer API itself is another function (customer/app.mjs).
     route('GET', '/api/customers', customers.list, null, customerAdmin),
     route('POST', '/api/customers', customers.create, customerChange('customer.create'), customerAdmin),
@@ -614,22 +643,31 @@ export function createApp({
     const method = methodOf(event);
     const segments = pathSegments(event);
     const viaToken = isTokenPath(segments);
-    const found = findRoute(routes, method, viaToken ? ['api', ...segments.slice(2)] : segments);
+    const viaSource = isSourcePath(method, segments);
+    const found = viaSource ? null : findRoute(routes, method, viaToken ? ['api', ...segments.slice(2)] : segments);
     // `sub` is filled in once the caller is identified, which for an API token means a token
     // that is active, and `token` ({ id, status }) once an API token is found at all.
     const request = {
       id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false, signIn: null,
+      // For SideStore's requests: the route's name and the key's id, once known (handlers/sidestore.mjs).
+      routeName: null, source: null,
     };
 
     let response;
     try {
-      const result = found !== null && found.route.write !== null
-        ? await write(found, event, request)
-        : await withinDeadline(request, () => read(found, event, request),
+      let result;
+      if (viaSource) {
+        result = await withinDeadline(request, () => sidestore.serve({ segments, request }),
           'The server ran out of time. Try again in a moment.');
-      response = result.file !== undefined
-        ? binary(result.status ?? 200, result.file.data, result.file.name)
-        : json(result.status ?? 200, result.body);
+      } else if (found !== null && found.route.write !== null) {
+        result = await write(found, event, request);
+      } else {
+        result = await withinDeadline(request, () => read(found, event, request),
+          'The server ran out of time. Try again in a moment.');
+      }
+      if (result.response !== undefined) response = result.response;
+      else if (result.file !== undefined) response = binary(result.status ?? 200, result.file.data, result.file.name);
+      else response = json(result.status ?? 200, result.body);
     } catch (error) {
       const failed = errorResponse(error, requestId);
       if (failed.internal !== null) {
@@ -645,7 +683,7 @@ export function createApp({
       requestId,
       sub: request.sub,
       method,
-      route: found === null ? 'unmatched' : found.route.name,
+      route: viaSource ? request.routeName ?? 'GET /api/sidestore/unmatched' : found === null ? 'unmatched' : found.route.name,
       status: response.statusCode,
       duration: clock() - started,
     };
@@ -653,6 +691,8 @@ export function createApp({
     // or expired: such a request leaves no entry in the activity log, so this line is its trace.
     if (viaToken) Object.assign(line, { via: 'token', token: request.token?.id ?? null });
     if (viaToken && request.token !== null && request.token.status !== 'active') line.tokenState = request.token.status;
+    // Which SideStore source, by its id: never the key. Null for a key that is not live.
+    if (viaSource) Object.assign(line, { via: 'sidestore', source: request.source });
     log(line);
     return response;
   };

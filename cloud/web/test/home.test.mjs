@@ -420,10 +420,11 @@ test('the template sends what no route claims to the web function, and opens not
   // Open, and to the web function: the page, its files and what no route claims.
   const web = open.filter((text) => text.includes('integrations/${WebIntegration}'));
   assert.deepEqual(web.map(keyOf).sort(), ['$default', 'GET /', 'GET /assets/{proxy+}']);
-  // Open, and to the API function: only the routes whose API token the function checks. PUT changes a
-  // release's note (docs/fleet.md).
+  // Open, and to the API function: only the routes whose API token the function checks, and SideStore's,
+  // whose key in the path the function checks (docs/mobile-apps.md). PUT changes a release's note (docs/fleet.md).
   const tokens = open.filter((text) => !text.includes('integrations/${WebIntegration}'));
-  assert.deepEqual(tokens.map(keyOf).sort(), ['GET /api/t/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
+  assert.deepEqual(tokens.map(keyOf).sort(),
+    ['GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
   for (const text of tokens) assert.ok(text.includes('integrations/${ApiIntegration}'), keyOf(text));
 
   const guarded = routes.filter((text) => !text.includes('AuthorizationType: NONE'));

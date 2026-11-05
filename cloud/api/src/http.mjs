@@ -65,6 +65,15 @@ export function binary(status, data, filename) {
   };
 }
 
+/**
+ * A redirect, for the one route that answers with one: a SideStore source's download address, which
+ * sends SideStore on to a presigned S3 GET (handlers/sidestore.mjs). No body, never cached.
+ */
+export function redirect(location) {
+  const { 'content-type': _json, ...headers } = HEADERS;
+  return { statusCode: 302, headers: { ...headers, location }, body: '', isBase64Encoded: false };
+}
+
 /** The error code a caller sees for anything that was thrown. */
 export function errorCode(error) {
   if (error instanceof HttpError) return error.code;
