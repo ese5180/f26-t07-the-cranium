@@ -171,6 +171,7 @@ object AuditText {
     val COMMAND_WORDS = mapOf(
         "identify" to "asked {} to blink its lights",
         "report" to "asked {} to report now",
+        "memfault" to "asked {} to send its Memfault data now",
     )
 
     /**
