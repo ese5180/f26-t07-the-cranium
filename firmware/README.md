@@ -1497,7 +1497,7 @@ has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
 | Wi-Fi, AWS IoT, shadow, heartbeat, jobs, events, commands, location | yes | none of it is in the image: the build fails if it is |
 | Passkey for Bluetooth | a new one for each attempt, on the console and in the shadow | [its own](#the-boards-own-passkey), from provisioning; a new one each time only without it |
 | Keeping an image installed over Bluetooth | it reaches the cloud, or with no Wi-Fi a person proves it | a person proves it |
-| The board's status for the phone | the shadow | [a status characteristic](#what-a-phone-reads) |
+| The status characteristic of 1.14.0 | after an update's restart, once it reaches the cloud or after 30 s | [the same](#what-a-phone-reads), at once after that restart, under the board's own name |
 | Stuck timers | `wifi_silent`, `no_cloud`, `update_stall` | none: each watches Wi-Fi, the cloud or a cloud update |
 | Golden image | 1.5.0, frozen | none frozen: MCUboot has it off |
 | LEDs | LED1, LED2 | [LED1 to LED4](#leds-and-buttons) |
@@ -1540,18 +1540,18 @@ DK's layout 1. Its type and layout are defaults in `firmware/app/Kconfig`, next 
 (`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/build.sh` reads both back
 from the image, and `flash_layout.py` checks the partitions, as for the nRF7002 DK.
 
-A build of the 1.13.0 source, with the console and Bluetooth, in bytes:
+A build of 1.14.0, with the console, Bluetooth and the status characteristic, in bytes:
 
 | Image | Used | Of |
 | --- | --- | --- |
-| Application, flash | 195,000 | 794,474 |
-| Application, RAM | 108,336 | 409,600 |
+| Application, flash | 196,360 | 794,474 |
+| Application, RAM | 107,048 | 409,600 |
 | TF-M, flash | 80,852 | 130,560 |
 | TF-M, RAM | 29,836 | 49,152 |
 | MCUboot, flash | 43,520 | 65,536 |
 | Network core (`hci_ipc`), flash | 133,232 | 262,144 |
 | Network core, RAM | 35,168 | 65,536 |
-| Signed image | 326,244 | 933,888 |
+| Signed image | 327,605 | 933,888 |
 
 The application has no link-time optimisation here, which the nRF7002 DK needs to fit, and most of its RAM is the heap
 that `bt_ota.conf` sizes for an nRF7002 DK's Wi-Fi and TLS. MCUboot is 6,804 bytes smaller than the nRF7002 DK's,
@@ -1635,23 +1635,28 @@ console's pairing route can pair with any of these boards while a person has a w
 What does not change: no window without a person holding Button 1 for 5 s, and it closes after 3 minutes; nothing but a
 newer image signed with this project's key, for this board type and layout, can be uploaded; nothing installs without a
 second press; the image runs on trial and reverts unless a person proves it. A passkey that got out lets someone in
-range during a window upload a signed newer image, which a person still has to choose to install, or read the board's
-status. Store a new one whenever that may have happened. `src/bt_passkey.h` has all of this, and the arithmetic.
+range during a window upload a signed newer image, which a person still has to choose to install. The status
+characteristic needs no pairing on any board, so a passkey adds nothing there. Store a new one whenever that may have
+happened. `src/bt_passkey.h` has all of this, and the arithmetic.
 
 ### Update it from a phone
 
 1. At the board, hold **Button 1** for 5 s and let go. LED1 flashes four times: Bluetooth is open for 3 minutes.
 2. The phone finds `Cranium-3F9C`, asks the console for its passkey (`GET /api/pairing/Cranium-3F9C`), and pairs with it.
    LED3 lights while it is connected, and LED1 double-flashes once it is paired.
-3. The phone reads [the status characteristic](#what-a-phone-reads) and tells the console it saw the board.
+3. The phone follows the window, the upload and the offer on [the status characteristic](#what-a-phone-reads), as on an
+   nRF7002 DK.
 4. It uploads the image, as **Image Upload** in nRF Connect Device Manager does, not Firmware Upgrade, whose test command the
    board refuses. LED3 blinks fast while it arrives. As the image's protected TLVs go past, the upload hook refuses an image
    for another board type or flash layout, whatever tool sent it (`refused an upload: it is for nrf7002dk, and this board
    is nrf5340dk`), as [Board type and compatibility](#board-type-and-compatibility) says; an nRF7002 DK image from before
    1.13.0, which says nothing and so is an nRF7002 DK's, at its first piece. LED4 lights.
 5. When it has arrived LED1 blinks fast: **Button 1** installs it, **Button 2** erases it. The board restarts, and the
-   bootloader swaps it in, about a minute and a half with every LED dark.
-6. The new image runs on trial, LED1 flashing three times. **To keep it**, once it has run 60 s, hold Button 1 again, pair,
+   bootloader swaps it in, about a minute and a half with every LED dark. The phone has heard that Button 1 was pressed
+   before the board restarts.
+6. For 2 minutes from the restart the board advertises its status, under its own name: the phone that sent the image
+   reads how it went, with no pairing, and LED3 lights while it is connected.
+7. The new image runs on trial, LED1 flashing three times. **To keep it**, once it has run 60 s, hold Button 1 again, pair,
    and have the phone read the image list (`image list` in SMP). The board confirms it: `succeeded, proof person`. There is
    no Wi-Fi stack to have answered and no cloud to wait for, so that is all a proof takes here. With nobody doing that, the
    trial's deadline restarts it at 5 minutes, unconfirmed, and the bootloader puts the old image back: `rolled_back` at the
@@ -1663,30 +1668,19 @@ proved by anyone here, and reverts.
 
 ### What a phone reads
 
-After it has paired, a phone reads one GATT characteristic, read-only and only over an authenticated link with a window
-open (`src/bt_status.h`):
+The status characteristic of 1.14.0, as on an nRF7002 DK: one characteristic in a service of its own, read and notify,
+64 bytes, with no pairing, and nothing in it that names the board (`src/bt_status.h`, and its layout under
+[The status characteristic](../docs/mobile-apps.md#the-status-characteristic) in `docs/mobile-apps.md`). It follows a
+window as it goes, and after the restart that an update over Bluetooth asked for it says how that went. Two things
+differ here:
 
-```text
-service         c7a1e000-5f2d-4b9a-9e43-6f1d2c8b3a50
-characteristic  c7a1e001-5f2d-4b9a-9e43-6f1d2c8b3a50
-```
+- After that restart it is advertised at once. An nRF7002 DK waits until it reaches the cloud, or 30 s, so that Wi-Fi
+  and TLS take their share of the heap first; this board has neither, and no cloud that would come. It goes under the
+  board's own name, `Cranium-3F9C`, so the phone that sent the image finds the board it sent it to.
+- Its last update is the one over Bluetooth, or none: there is no cloud update for it to tell of.
 
-```json
-{"thing":"cranium-fe5b26c0c5b1dcd7","id":"CRVIHAAN01","board":"nrf5340dk","layout":1,
- "fw":{"version":"1.12.0+0","confirmed":true},
- "bt":{"from":"1.11.0+0","to":"1.12.0+0","result":"succeeded","proof":"person","count":3},
- "diary":{"boots":42,"log":["1.11.0+0/1/2","1.12.0+0/2/2"]}}
-```
-
-`thing` is the board's AWS IoT name, `id` its device ID, `board` and `layout` what images it takes, `fw` what it runs and
-whether that is confirmed, `bt` the [record](#the-record) of the last update over Bluetooth and `diary` the
-[boot diary](#boot-diary), in the shapes the shadow has them. It is at most 512 bytes, so a phone reads it with a long
-read. The phone checks that `thing` is the board it asked the console about, and sends this to the console as it is, as
-`POST /api/devices/{thing}/seen` in [`docs/fleet.md`](../docs/fleet.md). SMP's own commands did not suffice: `image list`
-gives the slots but no device ID, board type or diary, and the OS group, which could carry those in its `info`, is not in
-this firmware, which has the image group and nothing else. `image list` is still what proves an image on trial.
-
-On an nRF7002 DK this characteristic is off (`CONFIG_APP_BT_STATUS`), because the shadow says all of it.
+A link made to read it never pairs, so the board's own passkey is not read for it, and it cannot get at SMP. To keep an
+image on trial a person still opens a window, pairs, and reads the image list.
 
 ### LEDs and buttons
 
@@ -1727,7 +1721,8 @@ the debug port, and nRF Connect Device Manager:
 - That a phone pairs with the stored passkey, with a wrong one fails and counts, and that three lock it.
 - An upload, a refused one for an nRF7002 DK image, the install, the swap from QSPI, the trial, and a proof by a person;
   and the revert with nobody there.
-- Reading the status characteristic with a phone, and that it refuses before pairing.
+- Reading the status characteristic with a phone in a window and in the 2 minutes after an update's restart, and that a
+  link made for it cannot pair.
 - The stack sizes and the heap, as under [Before relying on it](#before-relying-on-it).
 
 ## Golden image
