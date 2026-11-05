@@ -232,7 +232,9 @@ export async function startRollout({ version: release, things: boards, note, can
 
 // Loading.
 
-const due = (target, full, every) => full || target.loadedAt === 0 || tools.clock.now() - target.loadedAt >= every - 2000;
+// Never twice at once: a read on its way brings what a second one would.
+const due = (target, full, every) =>
+  !target.loading && (full || target.loadedAt === 0 || tools.clock.now() - target.loadedAt >= every - 2000);
 
 /** What a page of the console shows of the fleet, read when the page is. */
 export async function refreshFor(view, full) {

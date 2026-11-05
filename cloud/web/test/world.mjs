@@ -193,6 +193,9 @@ export function repliesFor(world, { viewer = false } = {}) {
     ['/api/deployments', { deployments: world.deployments.map(({ executions, ...summary }) => summary) }],
     ['/api/audit?limit=50', { entries: world.entries, next: null }],
     ['/api/audit?limit=6', { entries: world.entries.slice(0, 6), next: null }],
+    // What fleet.js reads (docs/fleet.md): no groups, and nothing to say of the fleet's health.
+    ['/api/fleet', { boards: [], groups: [], types: [] }],
+    ['/api/fleet/health', {}],
   ]);
   for (const item of world.deployments) replies.set(`/api/deployments/${item.id}`, { deployment: item });
   for (const item of world.devices) {

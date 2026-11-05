@@ -706,6 +706,8 @@ async function pageScript(fetching) {
 
 let timer = 0;
 let turn = 0;
+// Refreshes reading their page's own lists, which go on to what fleet.js shows when they are done.
+let pageReading = 0;
 
 function arm() {
   clearTimeout(timer);
@@ -725,7 +727,12 @@ async function refreshNow(full) {
   turn += 1;
   const mine = turn;
   clearTimeout(timer);
-  await pages[state.route.view].refresh(full);
+  pageReading += 1;
+  try {
+    await pages[state.route.view].refresh(full);
+  } finally {
+    pageReading -= 1;
+  }
   // What the page shows of the fleet: once fleet.js is here, it reads that itself.
   if (fleetScript && !['fleet', 'rollout'].includes(state.route.view)) await fleetScript.refreshFor(state.route.view, full);
   // A board's page also shows where the board was (map.js).
@@ -1788,8 +1795,10 @@ async function start() {
   setInterval(checkSession, SESSION_CHECK_MS);
 
   showRoute();
+  // Once fleet.js is here, only what it shows is read, and only if no refresh under way will read it.
   fleetReady().then((module) => {
-    if (module && !['fleet', 'rollout'].includes(state.route.view)) refreshNow(true);
+    if (!module || ['fleet', 'rollout'].includes(state.route.view) || pageReading > 0) return;
+    module.refreshFor(state.route.view, false).then(draw);
   });
 }
 

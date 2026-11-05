@@ -20,11 +20,16 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, MAP } from './page.mjs';
+import { ACCOUNT, FLEET, MAP } from './page.mjs';
 import {
   INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
   execution, release, repliesFor, revoked,
 } from './world.mjs';
+
+// The scripts app.js fetches when it needs them (fleet.js once it has started, the others with their
+// pages): read here first, each arrives at once, as from a browser's cache, and not part way through
+// a test's clock.
+await Promise.all([FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY].map((address) => import(address)));
 
 // The real timer, kept for waiting on work that is not on the test's clock (hashing).
 const realTimeout = globalThis.setTimeout;
@@ -219,7 +224,7 @@ async function openTab(t, options = {}) {
   copies += 1;
   await import(scriptAddress('app.js', {
     'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY, 'telemetry.js': TELEMETRY,
-    'map.js': MAP, 'account.js': ACCOUNT,
+    'map.js': MAP, 'account.js': ACCOUNT, 'fleet.js': FLEET,
   }, `tab ${copies}`));
   await settle();
 
@@ -302,7 +307,10 @@ test('the console starts on the page in the address and loads what that page sho
     'GET /api/audit?limit=6', 'GET /api/deployments', `GET /api/deployments/${OFFERED}`,
     // Cancelled, but its board is still installing: its boards are followed too.
     `GET /api/deployments/${WITHDRAWN}`,
-    'GET /api/devices', 'GET /api/firmware', 'GET /api/me',
+    'GET /api/devices', 'GET /api/firmware',
+    // What fleet.js shows on the overview: the boards' types and groups, and the fleet's health.
+    'GET /api/fleet', 'GET /api/fleet/health',
+    'GET /api/me',
   ]);
   assert.equal(tab.requests.every((request) => request.token === 'Bearer TOKEN'), true);
   assert.deepEqual(all(tab.main, 'li.run').map((run) => textOf(one(run, 'a.run-version'))),
@@ -566,7 +574,7 @@ test('a page whose boards are at rest is read every 30 s, and so are lists that 
   await tab.wait(29000);
   assert.deepEqual(tab.since(mark), []);
   await tab.wait(1000);
-  assert.deepEqual(tab.since(mark), ['GET /api/firmware']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet'], 'and what fleet.js shows of it');
 
   await tab.goto('#/activity');
   mark = tab.requests.length;
@@ -584,7 +592,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   await tab.press(tab.dialog(), 'button', 'Keep the release');
   mark = tab.requests.length;
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark), ['GET /api/firmware']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
 
   // With a file in hand.
   await chooseFile(tab);
@@ -593,7 +601,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   assert.deepEqual(tab.since(mark), []);
   await tab.press(tab.main, 'button', 'Choose another file');
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark), ['GET /api/firmware']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
 });
 
 test('the log does not take away the pages that were loaded by hand', async (t) => {

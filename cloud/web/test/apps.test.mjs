@@ -10,11 +10,9 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  CORE, HISTORY, NEIGHBOURS, VIEWS, all, click, controls, createDocument, one, scriptAddress, textOf,
+  APPS, CORE, HISTORY, NEIGHBOURS, QR, VIEWS, all, click, controls, createDocument, one, textOf,
 } from './page.mjs';
 
-const QR = scriptAddress('qrcode.js');
-const APPS = scriptAddress('apps.js', { 'core.js': CORE, 'history.js': HISTORY, 'qrcode.js': QR, 'views.js': VIEWS });
 const apps = await import(APPS);
 const { QrCode } = await import(QR);
 const views = await import(VIEWS);

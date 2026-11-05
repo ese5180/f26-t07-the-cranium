@@ -10,7 +10,11 @@
  * Nothing here is a test; the file only has exports.
  */
 
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ASSETS = new URL('../src/site/assets/', import.meta.url);
 export const NEIGHBOURS = 'https://console.test/assets/build/';
@@ -19,9 +23,14 @@ export const NEIGHBOURS = 'https://console.test/assets/build/';
  * The address of one of the site's scripts as a module that Node can import.
  *
  * The scripts are plain ".js" files with no package.json beside them, which Node only
- * takes for ES modules from 22.7 on. Importing the source through a data: URL works on
- * every Node 22. A module loaded that way cannot import by relative path, so each
- * import of another script is pointed at that script's own data: URL.
+ * takes for ES modules from 22.7 on. So each is written out as an ".mjs" file of its own,
+ * in a folder of this test run, which works on every Node 22; each import of another script
+ * is pointed at that script's own file. The file is named by what it holds: the same script
+ * with the same imports is the same module, and a mark makes a copy of its own.
+ *
+ * Not data: URLs, which this once used: one of those holds every script it imports, and they
+ * theirs, so a copy of app.js for each tab was 14 MB, and a run of app.test.mjs went past the
+ * 4 GB a Node 22 process has.
  *
  * @param {string} name      the file in site/assets
  * @param {object} [imports] file name -> address, for every script this one imports
@@ -35,11 +44,25 @@ export function scriptAddress(name, imports = {}, mark = '') {
     if (!source.includes(specifier) && !source.includes(onDemand)) throw new Error(`${name} does not import ${file}`);
     source = source.replaceAll(specifier, `from '${address}'`).replaceAll(onDemand, `import('${address}')`);
   }
-  // A data: URL has nothing beside it, so a script looks for its neighbours at an address of the tests.
+  // A script looks for its neighbours at an address of the tests, not in the folder it is run from.
   source = source.replaceAll('import.meta.url', `'${NEIGHBOURS}${name}'`);
   if (/from '\.\//.test(source)) throw new Error(`${name} imports a script it was not given an address for`);
   if (mark !== '') source += `\n// ${mark}\n`;
-  return `data:text/javascript;base64,${Buffer.from(source, 'utf8').toString('base64')}`;
+  const digest = createHash('sha256').update(source).digest('hex').slice(0, 16);
+  const file = join(scripts(), `${name.replace(/\.js$/, '')}-${digest}.mjs`);
+  writeFileSync(file, source);
+  return pathToFileURL(file).href;
+}
+
+let folder = null;
+
+/** The folder of this run's scripts, made when first needed and removed when the run ends. */
+function scripts() {
+  if (folder === null) {
+    folder = mkdtempSync(join(tmpdir(), 'cranium-site-scripts-'));
+    process.once('exit', () => rmSync(folder, { recursive: true, force: true }));
+  }
+  return folder;
 }
 
 export const CORE = scriptAddress('core.js');
@@ -50,6 +73,10 @@ export const TELEMETRY = scriptAddress('telemetry.js', { 'core.js': CORE, 'views
 // The Map page and the Account page (docs/fleet.md).
 export const MAP = scriptAddress('map.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const ACCOUNT = scriptAddress('account.js', { 'core.js': CORE, 'views.js': VIEWS });
+// The fleet's parts of every page, and the Apps page with its QR encoder (docs/fleet.md, docs/versions.md).
+export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS });
+export const QR = scriptAddress('qrcode.js');
+export const APPS = scriptAddress('apps.js', { 'core.js': CORE, 'history.js': HISTORY, 'qrcode.js': QR, 'views.js': VIEWS });
 
 // The document.
 
