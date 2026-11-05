@@ -162,6 +162,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # The app carries a copy of the console's pages, which cloud/web/build-bundle.mjs writes during the
+      # build (docs/mobile-apps.md, "The app shell").
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Unit tests and a debug build
         working-directory: apps/android
         run: ./gradlew --console=plain --no-daemon testDebugUnitTest assembleDebug
@@ -175,6 +180,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The app carries a copy of the console's pages, which cloud/web/build-bundle.mjs writes during the
+      # build (docs/mobile-apps.md, "The app shell").
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
       - name: Use the newest Xcode on the runner
         run: |
           xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"

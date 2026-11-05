@@ -6,6 +6,20 @@ customer side, as on the customer website. The newest published build of each (0
 its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
 [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
+## What updates without a reinstall
+
+From 0.8.0 the screens are the console's and the customer site's own pages, which each app keeps on the phone and
+brings up to date from the console by itself, on any network ([The app shell](../docs/mobile-apps.md#the-app-shell)).
+
+| Changes | Reaches the phones | How |
+| --- | --- | --- |
+| Anything on the screens: pages, words, the Bluetooth update flow, the sign-in pages | At the app's next start, anywhere, free | Deploy the console (`cloud/deploy.sh`); each app checks every file against its SHA-256 before it uses it |
+| The native shell: what the bridge can do (Bluetooth, Face ID and the fingerprint, the clipboard, sharing), the web view | Only with a new app | Android: the app updates itself, as below. iPhone: SideStore, or `renew.sh` from the Mac |
+
+When the console's pages need more than an app's bridge offers, that app keeps the pages it has and its settings say it
+needs an update. The 0.7 screens are still there for 0.8.0, as **Classic app** (in the app's settings, or by holding
+its icon).
+
 ## Get the app on your phone
 
 ### Android

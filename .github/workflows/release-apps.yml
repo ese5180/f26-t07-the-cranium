@@ -105,6 +105,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # The app carries a copy of the console's pages, which cloud/web/build-bundle.mjs writes during the
+      # build (docs/mobile-apps.md, "The app shell").
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
       # Every value is masked before anything could print it, and the files are readable by this user alone.
       - name: Restore the release key and the configuration from the secrets
         env:
@@ -253,6 +259,12 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "iPhone app $version, build $build, from $(git rev-parse --short HEAD)."
+
+      # The app carries a copy of the console's pages, which cloud/web/build-bundle.mjs writes during the
+      # build (docs/mobile-apps.md, "The app shell").
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
 
       - name: Use the newest Xcode on the runner
         run: |
