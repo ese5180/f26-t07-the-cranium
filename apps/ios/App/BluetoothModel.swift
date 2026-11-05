@@ -7,14 +7,17 @@ import UniformTypeIdentifiers
 #endif
 
 /// An update over Bluetooth: pick a release, open the board's window, pair, send, press the
-/// button. See docs/mobile-apps.md, "What a person does". The app's other screens talk to the
-/// console over the internet; this one talks to a board in the room.
+/// button, and follow the board until it keeps the image or goes back. See docs/mobile-apps.md,
+/// "What a person does". The app's other screens talk to the console over the internet; this one
+/// talks to a board in the room, then follows it on the console.
 @MainActor
 final class BluetoothModel: ObservableObject {
     enum Stage: Equatable {
         case releases
         case boards
         case board
+        /// After the send: what the board does, step by step (`UpdateWatch`).
+        case watching
     }
 
     enum BoardStage: Equatable {
@@ -28,8 +31,6 @@ final class BluetoothModel: ObservableObject {
         /// Asking the console, right before the upload, whether the image may still be sent.
         case confirming(String)
         case uploading(UploadProgress)
-        /// The image has arrived. The person presses Button 1.
-        case sent(String)
         case failed(String)
     }
 
@@ -60,7 +61,13 @@ final class BluetoothModel: ObservableObject {
     @Published private(set) var uploadStarted: Date?
     /// The image being sent, for where it came from and its size.
     @Published private(set) var sending: ObtainedImage?
-    @Published private(set) var device: DeviceStatus?
+
+    /// After the send: the steps so far, the release and the board.
+    @Published private(set) var watch: UpdateWatch.Timeline?
+    @Published private(set) var watchVersion: String?
+    @Published private(set) var watchBoard: String?
+    /// The last update this phone followed on each board, by thing name, for the board's page.
+    @Published private(set) var outcomes: [String: UpdateWatch.Record] = [:]
 
     private unowned let app: AppModel
     /// Made when first needed: making it is what has iOS ask for Bluetooth, which should happen at
@@ -70,7 +77,18 @@ final class BluetoothModel: ObservableObject {
     private var thing: String?
     private var pairingPoll: Task<Void, Never>?
     private var keepAlive: Task<Void, Never>?
-    private var devicePoll: Task<Void, Never>?
+
+    // Following the board after the send. The link is the watch's from then on, not the flow's.
+    private var watchFacts: UpdateWatch.Facts?
+    private var watchSession: BoardSession?
+    private var watchTask: Task<Void, Never>?
+    private var watchEndedAt: Date?
+    /// "Update another board": the person has moved on, so reopening the flow starts over.
+    private var movedOn = false
+    /// After the board's 2 minutes, how long a link that is still up is kept.
+    static let linkGrace: TimeInterval = 15
+    /// Image list reads that fail in a row before the link is taken to be gone.
+    static let linkFailures = 3
 
     init(app: AppModel) {
         self.app = app
@@ -97,6 +115,12 @@ final class BluetoothModel: ObservableObject {
 
     /// Opens the flow, with `release` chosen if it may be sent.
     func open(release: String?) async {
+        // Within 5 minutes of the last follow, and not moved on since: the flow shows how it went.
+        if watch != nil, !movedOn,
+           watchTask != nil || watchEndedAt.map({ Date().timeIntervalSince($0) < UpdateWatch.keepSeconds }) == true {
+            stage = .watching
+            return
+        }
         stage = .releases
         message = nil
         if app.firmware.value == nil { await app.loadFirmware() }
@@ -185,7 +209,6 @@ final class BluetoothModel: ObservableObject {
         consoleThing = nil
         passkeyNotInCloud = false
         thing = nil
-        device = nil
         boardStage = .pairing
         stage = .board
         startPairingPoll(name: board.name)
@@ -282,14 +305,15 @@ final class BluetoothModel: ObservableObject {
             uploadStarted = Date()
             setScreenAwake(true)
             defer { setScreenAwake(false) }
-            try await session.send(obtained.image) { [weak self] progress in
+            try await session.send(obtained.image, keepingTheLink: true) { [weak self] progress in
                 Task { @MainActor in
                     guard let self, case .uploading = self.boardStage else { return }
                     self.boardStage = .uploading(progress)
                 }
             }
-            boardStage = .sent(release.version)
-            watchTheBoard(for: release.version)
+            // The link is kept: the board closes it when a button is pressed or its 2 minutes are up.
+            self.session = nil
+            follow(session, version: release.version)
         } catch {
             keepAlive?.cancel()
             await session.close()
@@ -298,29 +322,159 @@ final class BluetoothModel: ObservableObject {
         }
     }
 
-    /// After the upload, for a board that is online: show it coming back on the new version. The
-    /// board's LEDs and console are the real answer; this only follows its reports.
-    private func watchTheBoard(for version: String) {
-        guard let thing, let api = app.api else { return }
-        devicePoll?.cancel()
-        devicePoll = Task { [weak self] in
-            let until = Date().addingTimeInterval(12 * 60)
-            while !Task.isCancelled, Date() < until {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                guard !Task.isCancelled, let self else { return }
-                if let status = try? await api.device(thing: thing) {
-                    self.device = status
-                    if status.fw?.version == version, status.fw?.confirmed == true { return }
-                }
-            }
+    // MARK: After the send
+
+    /// Follows the board that `linked` has just sent `version` to: the link while it lasts, then the
+    /// console (`UpdateWatch`, docs/mobile-apps.md).
+    private func follow(_ linked: BoardSession, version: String) {
+        endWatch()
+        movedOn = false
+        watchEndedAt = nil
+        watchSession = linked
+        watchVersion = version
+        watchBoard = boardName
+        watchFacts = UpdateWatch.Facts(version: version, from: running?.description, sentAt: Date(), thing: thing)
+        showWatch()
+        stage = .watching
+        watchTask = Task { [weak self] in
+            // The person is at the board for these 2 minutes: with the screen locked, the app would stop.
+            self?.setScreenAwake(true)
+            await self?.followLink(linked)
+            self?.setScreenAwake(false)
+            await self?.followConsole()
+            // A follow that was ended for a newer one leaves the newer one alone.
+            guard !Task.isCancelled else { return }
+            self?.watchTask = nil
+            self?.watchEndedAt = Date()
         }
     }
 
-    /// Stops whatever is going on with the board, and lets go of the link.
+    /// While the board keeps the link: one look at the console (is the board on it?), then the image
+    /// list every few seconds, which the board allows while it waits for a button, until the link goes.
+    private func followLink(_ linked: BoardSession) async {
+        if let thing = watchFacts?.thing, let api = app.api {
+            let online = try? await api.deviceDetail(thing: thing).device.online
+            changeWatch { $0.onConsole = online }
+        }
+        var failures = 0
+        while !Task.isCancelled, let facts = watchFacts, facts.linkDroppedAt == nil {
+            // The board closes the link at the end of its 2 minutes: one still up after that is let go.
+            if Date() > facts.sentAt.addingTimeInterval(UpdateWatch.offerSeconds + Self.linkGrace) {
+                await watchLinkGone()
+                return
+            }
+            do {
+                try await linked.readAfterSend()
+                failures = 0
+            } catch BoardError.disconnected, BoardError.notFound {
+                await watchLinkGone()
+                return
+            } catch BoardError.bluetoothUnavailable(_) {
+                await watchLinkGone()
+                return
+            } catch {
+                failures += 1
+            }
+            if failures >= Self.linkFailures {
+                await watchLinkGone()
+                return
+            }
+            try? await Task.sleep(nanoseconds: UInt64(UpdateWatch.linkReadSeconds * 1_000_000_000))
+        }
+    }
+
+    /// After the link: the board's log, its connections and its report, every 3 s for up to 5 minutes.
+    private func followConsole() async {
+        guard let dropped = watchFacts?.linkDroppedAt else { return }
+        var tick = 0
+        var throttled = 0
+        while !Task.isCancelled, let facts = watchFacts {
+            if UpdateWatch.timeline(facts).finished { return }
+            if Date().timeIntervalSince(dropped) >= UpdateWatch.followSeconds {
+                changeWatch { $0.gaveUp = true }
+                return
+            }
+            guard let api = app.api, let thing = facts.thing else { return }
+            let from = facts.sentAt.addingTimeInterval(-UpdateWatch.clockSlack)
+            do {
+                let lines = try await api.boardLog(from: from, to: Date(), thing: thing, tags: ["BT", "bt_ota"], limit: 100).lines
+                // Two calls each time at most: the log every time, and the connections and the report in turn.
+                if tick % 2 == 0 {
+                    let events = try await api.events(from: from, to: Date(), thing: thing, kinds: ["connection"]).events
+                    changeWatch {
+                        $0.lines = lines
+                        $0.events = events
+                        $0.consoleFailed = false
+                    }
+                } else {
+                    let device = try await api.deviceDetail(thing: thing).device
+                    changeWatch {
+                        $0.lines = lines
+                        $0.device = device
+                        $0.consoleFailed = false
+                    }
+                }
+                throttled = 0
+            } catch let error as APIError where error.status == 429 {
+                throttled += 1
+            } catch is AuthError {
+                return
+            } catch {
+                if Task.isCancelled { return }
+                changeWatch { $0.consoleFailed = true }
+            }
+            tick += 1
+            try? await Task.sleep(nanoseconds: UInt64(UpdateWatch.nextPoll(throttled: throttled) * 1_000_000_000))
+        }
+    }
+
+    /// The board closed the link, or it is taken to have: the console is followed from here.
+    private func watchLinkGone() async {
+        if watchFacts?.linkDroppedAt == nil { changeWatch { $0.linkDroppedAt = Date() } }
+        if let linked = watchSession {
+            watchSession = nil
+            await linked.close()
+        }
+    }
+
+    private func changeWatch(_ change: (inout UpdateWatch.Facts) -> Void) {
+        guard var facts = watchFacts else { return }
+        change(&facts)
+        watchFacts = facts
+        showWatch()
+    }
+
+    private func showWatch() {
+        guard let facts = watchFacts else { return }
+        let timeline = UpdateWatch.timeline(facts)
+        watch = timeline
+        if let record = UpdateWatch.record(facts, timeline) { outcomes[record.thing] = record }
+    }
+
+    private func endWatch() {
+        watchTask?.cancel()
+        watchTask = nil
+        if let linked = watchSession {
+            watchSession = nil
+            Task { await linked.close() }
+        }
+    }
+
+    /// Stops everything, the following of a board included, and forgets what was followed: for a
+    /// sign-out, when nothing of the console is kept.
     func leaveBoard() async {
+        await letGo()
+        endWatch()
+        watchFacts = nil
+        watch = nil
+        outcomes = [:]
+    }
+
+    /// Stops whatever is going on with the board in the room, and lets go of its link. A board that was
+    /// sent to is still followed.
+    private func letGo() async {
         pairingPoll?.cancel()
         keepAlive?.cancel()
-        devicePoll?.cancel()
         radioIfMade?.stopScanning()
         if let session {
             self.session = nil
@@ -330,14 +484,25 @@ final class BluetoothModel: ObservableObject {
     }
 
     func backToBoards() async {
-        await leaveBoard()
+        await letGo()
         stage = .boards
         lookForBoards()
     }
 
-    /// Closes the flow.
+    /// "Update another board", after a send: the board that was sent to is still followed, for its page.
+    func anotherBoard() async {
+        await letGo()
+        movedOn = true
+        sending = nil
+        stage = .releases
+        await open(release: nil)
+    }
+
+    /// Closes the flow. A board that was sent to is still followed, and reopening the flow within 5
+    /// minutes shows it.
     func close() async {
-        await leaveBoard()
+        await letGo()
+        guard stage != .watching else { return }
         stage = .releases
         sending = nil
     }

@@ -41,6 +41,18 @@ import Testing
         #expect(await session.hasSent)
     }
 
+    @Test func aSendThatKeepsTheLinkReadsTheImageListAfterIt() async throws {
+        let board = FakeBoard(running: "1.7.0")
+        let session = BoardSession(transport: board)
+        try await session.open()
+        await #expect(throws: UpdateError.notConnected) { try await session.readAfterSend() }
+        try await session.send(try image("1.8.0+0"), keepingTheLink: true) { _ in }
+        try await session.readAfterSend()
+        #expect(board.calls == [.connect, .list, .upload("1.8.0+0"), .list])
+        await session.close()
+        #expect(board.calls.last == .disconnect)
+    }
+
     @Test func notNewerIsRefusedBeforeAnythingIsSent() async throws {
         let board = FakeBoard(running: "1.8.0")
         let session = BoardSession(transport: board)

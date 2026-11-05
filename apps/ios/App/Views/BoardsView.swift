@@ -338,6 +338,11 @@ struct BoardView: View {
     @ViewBuilder
     private func bluetooth(_ device: Device) -> some View {
         Section("Bluetooth") {
+            if let model = app.bluetooth {
+                FollowedBluetoothUpdate(model: model, device: device)
+            } else {
+                LastBluetoothUpdate(record: nil, device: device)
+            }
             if let record = device.bt {
                 HStack {
                     Text("Last update")
@@ -372,6 +377,29 @@ struct BoardView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// The last update this phone followed on the board, with the phone's record of it as it changes.
+private struct FollowedBluetoothUpdate: View {
+    @ObservedObject var model: BluetoothModel
+    let device: Device
+
+    var body: some View {
+        LastBluetoothUpdate(record: model.outcomes[device.thing], device: device)
+    }
+}
+
+/// "1.13.0+0 over Bluetooth at 12:14, kept": what this phone followed, else the board's own record of
+/// its last update over Bluetooth (`UpdateWatch.summary`).
+private struct LastBluetoothUpdate: View {
+    let record: UpdateWatch.Record?
+    let device: Device
+
+    var body: some View {
+        if let text = UpdateWatch.summary(record: record, bt: device.bt, time: { $0.formatted(date: .omitted, time: .shortened) }) {
+            Text(text).font(.subheadline)
         }
     }
 }

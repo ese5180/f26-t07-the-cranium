@@ -24,11 +24,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -41,14 +46,19 @@ import com.craniumiot.cranium.ble.BluetoothStatus
 import com.craniumiot.cranium.ble.BoardPhase
 import com.craniumiot.cranium.ble.BtState
 import com.craniumiot.cranium.ble.BtStep
+import com.craniumiot.cranium.core.BoardLog
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.Release
+import com.craniumiot.cranium.core.Times
 import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.UpdateWatch
 import com.craniumiot.cranium.core.Words
+import kotlinx.coroutines.delay
 
 /**
  * The update over Bluetooth (docs/mobile-apps.md): choose a release, find the board, pair with
  * the passkey, send, and press Button 1 at the board. One step at a time, each with its one action.
+ * After the send, what the board does until it keeps the image or goes back.
  */
 @Composable
 fun BluetoothScreen(vm: ConsoleViewModel, store: Store) {
@@ -287,23 +297,86 @@ private fun LazyListScope.boardStep(flow: BluetoothFlow, state: BtState, store: 
 
 private fun LazyListScope.doneStep(state: BtState) {
     val done = state.done ?: return
+    val timeline = done.timeline
     item(key = "arrived") {
         Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(prose("${done.version} has arrived on ${done.boardName}."), style = ConsoleType.sectionTitle, color = console.ink)
-            InkPanel {
-                Eyebrow("Now, at the board")
-                Spacer(Modifier.height(8.dp))
-                Text("Press Button 1 within 2 minutes to install it. Button 2 throws it away.", style = ConsoleType.lede, color = console.ink)
-                Spacer(Modifier.height(12.dp))
-                Keys()
+            Text(prose("${done.version} to ${done.boardName}"), style = ConsoleType.sectionTitle, color = console.ink)
+            WatchSteps(timeline)
+            if (timeline.waitingForButton) {
+                InkPanel {
+                    Eyebrow("Now, at the board")
+                    Spacer(Modifier.height(8.dp))
+                    Countdown(timeline.deadline)
+                    Spacer(Modifier.height(12.dp))
+                    Keys()
+                }
             }
-            Text("The board restarts and runs it on trial, and keeps it once it reaches AWS IoT.", style = ConsoleType.small, color = console.ink2)
-            done.status?.let {
-                Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = ConsoleType.small, color = console.ink)
+            timeline.note?.let {
+                Text(prose(it), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = ConsoleType.small, color = console.ink)
             }
             done.image?.let { Text(Messages.imageOrigin(it), style = ConsoleType.note, color = console.ink3) }
         }
     }
+}
+
+/** The steps after the send, each with the time it happened (core/UpdateWatch.kt). */
+@Composable
+private fun WatchSteps(timeline: UpdateWatch.Timeline) {
+    val colors = console
+    val icons = mapOf(
+        UpdateWatch.Step.SENT to Glyph.SEND, UpdateWatch.Step.BUTTON to Glyph.PRESS, UpdateWatch.Step.INSTALLING to Glyph.RESTART,
+        UpdateWatch.Step.TRIAL to Glyph.PULSE, UpdateWatch.Step.END to Glyph.CHECK_CIRCLE,
+    )
+    Column(Modifier.fillMaxWidth().semantics { contentDescription = "Steps of the update" }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (row in timeline.rows) {
+            val icon = icons.getValue(row.step)
+            val (mark, tint, fill) = when (row.state) {
+                UpdateWatch.State.DONE -> Triple(Glyph.CHECK, colors.ink, colors.well)
+                UpdateWatch.State.CURRENT -> Triple(icon, colors.toneInk(Tone.LIVE), colors.toneWash(Tone.LIVE).takeIf { it != Color.Transparent } ?: colors.well)
+                UpdateWatch.State.LIKELY -> Triple(icon, colors.toneInk(Tone.WAIT), colors.toneWash(Tone.WAIT).takeIf { it != Color.Transparent } ?: colors.well)
+                UpdateWatch.State.FAILED -> Triple(
+                    if (row.step == UpdateWatch.Step.END) Glyph.UNDO else Glyph.X,
+                    colors.toneInk(Tone.WARN), colors.toneWash(Tone.WARN).takeIf { it != Color.Transparent } ?: colors.well,
+                )
+                UpdateWatch.State.WAITING -> Triple(icon, colors.ink3, Color.Transparent)
+            }
+            val waiting = row.state == UpdateWatch.State.WAITING
+            val now = row.state == UpdateWatch.State.CURRENT || row.state == UpdateWatch.State.LIKELY || row.state == UpdateWatch.State.FAILED
+            Row(
+                Modifier.fillMaxWidth().semantics(mergeDescendants = true) { if (now) liveRegion = LiveRegionMode.Polite },
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier.size(26.dp).clip(CircleShape).background(fill).border(1.dp, if (waiting) colors.line else tint, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { GlyphIcon(mark, size = 15.dp, tint = tint) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        prose(row.title),
+                        style = ConsoleType.small.copy(fontWeight = if (now) FontWeight.SemiBold else FontWeight.Normal),
+                        color = if (waiting) colors.ink3 else colors.ink,
+                    )
+                    row.detail?.let { Text(prose(it), style = ConsoleType.note, color = colors.ink2) }
+                }
+                row.at?.let { Text(BoardLog.secondOfDay(Times.iso(it)), style = ConsoleType.note, color = colors.ink3) }
+            }
+        }
+    }
+}
+
+/** The board's 2 minutes, to the second, from the end of the upload. */
+@Composable
+private fun Countdown(deadline: Long) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(deadline) {
+        while (now < deadline) {
+            delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val left = ((deadline - now + 999) / 1_000).toInt().coerceAtLeast(0)
+    Text(UpdateWatch.countdown(left), style = ConsoleType.lede.copy(fontWeight = FontWeight.SemiBold), color = console.ink)
 }
 
 /** The two buttons on the board: Button 1 installs, Button 2 declines. */

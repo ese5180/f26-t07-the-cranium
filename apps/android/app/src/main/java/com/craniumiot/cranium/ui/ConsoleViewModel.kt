@@ -874,7 +874,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         val stack = nav.stacks.getValue(nav.tab)
         if (stack.last() is Route.Bluetooth && bluetooth.isBusy) return true
         if (stack.size > 1) {
-            if (stack.last() is Route.Bluetooth) bluetooth.stopEverything()
+            if (stack.last() is Route.Bluetooth) bluetooth.leave()
             _nav.value = nav.copy(stacks = nav.stacks + (nav.tab to stack.dropLast(1)))
             return true
         }

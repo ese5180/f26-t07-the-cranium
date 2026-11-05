@@ -4,11 +4,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.ApiJson
 import com.craniumiot.cranium.core.BoardLog
@@ -19,6 +21,7 @@ import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.Telemetry
 import com.craniumiot.cranium.core.Times
 import com.craniumiot.cranium.core.Tone
+import com.craniumiot.cranium.core.UpdateWatch
 import com.craniumiot.cranium.core.Updates
 import com.craniumiot.cranium.core.Words
 
@@ -84,6 +87,8 @@ fun BoardScreen(vm: ConsoleViewModel, store: Store, thing: String, now: Long) {
     val missing = (resource.error as? ApiError)?.status == 404
     val context = LocalContext.current
     val canWrite = store.me?.canWrite == true
+    val bt by vm.bluetooth.state.collectAsStateWithLifecycle()
+    val followed = bt.outcomes[thing]
     ConsoleScreen(
         title = Boards.name(board),
         titleMono = !Boards.hasOwnName(board),
@@ -130,7 +135,7 @@ fun BoardScreen(vm: ConsoleViewModel, store: Store, thing: String, now: Long) {
         header("Details")
         for (part in BoardPart.entries) {
             item(key = part.name) {
-                ListRow(part.title, supporting = partSummary(part, device, detail, store), onClick = { vm.open(Route.BoardPage(thing, part)) })
+                ListRow(part.title, supporting = partSummary(part, device, detail, store, followed), onClick = { vm.open(Route.BoardPage(thing, part)) })
             }
         }
         latestLines(vm, store, thing)
@@ -186,7 +191,7 @@ private fun UpdateCard(vm: ConsoleViewModel, device: Device) {
 }
 
 /** One short line for each part of a board's page. */
-private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, store: Store): String = when (part) {
+private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, store: Store, followed: UpdateWatch.Record?): String = when (part) {
     BoardPart.FIRMWARE -> device.fw?.let { "${it.version}, ${if (it.confirmed) "confirmed" else "on trial"}" } ?: "Not reported"
     BoardPart.DIAGNOSTICS -> listOfNotNull(
         Words.signalQuality(device.rssi)?.let { "${it.label} · ${Words.signed(device.rssi!!)} dBm" },
@@ -194,7 +199,7 @@ private fun partSummary(part: BoardPart, device: Device, detail: DeviceDetail, s
         device.uptime?.let { "up ${Words.duration(it)}" },
     ).joinToString(" · ").ifEmpty { "Nothing reported" }
     BoardPart.CHARTS -> "Signal and free memory, 24 h"
-    BoardPart.BLUETOOTH -> device.bt?.let { "${it.from} to ${it.to}: ${Telemetry.BT_WORDS[it.result] ?: it.result}" } ?: "No update over Bluetooth recorded"
+    BoardPart.BLUETOOTH -> bluetoothSummary(device, followed) ?: "No update over Bluetooth recorded"
     BoardPart.HISTORY -> if (detail.executions.isEmpty()) "Not offered an update yet" else {
         val last = detail.executions.first()
         "${Words.plural(detail.executions.size + detail.olderExecutions, "update")} · last: ${Updates.describeHistory(last.status).label}"
@@ -209,6 +214,7 @@ fun BoardPartScreen(vm: ConsoleViewModel, store: Store, thing: String, part: Boa
     val detail = resource.value
     val board = detail?.device ?: Boards.of(thing, store.deviceList)
     val route = Route.BoardPage(thing, part)
+    val bt by vm.bluetooth.state.collectAsStateWithLifecycle()
     ConsoleScreen(
         title = part.title,
         subtitle = Boards.name(board),
@@ -226,7 +232,7 @@ fun BoardPartScreen(vm: ConsoleViewModel, store: Store, thing: String, part: Boa
             BoardPart.FIRMWARE -> firmwarePart(vm, device, store)
             BoardPart.DIAGNOSTICS -> diagnosticsPart(device, detail, now)
             BoardPart.CHARTS -> chartsPart(vm, store, device, now)
-            BoardPart.BLUETOOTH -> bluetoothPart(device)
+            BoardPart.BLUETOOTH -> bluetoothPart(device, bt.outcomes[thing])
             BoardPart.HISTORY -> historyPart(vm, device, detail, now)
         }
     }
@@ -342,8 +348,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chartsPart(vm: Consol
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.bluetoothPart(device: Device) {
+/**
+ * "1.13.0+0 over Bluetooth at 12:14, kept": the last update this phone followed on the board, else the
+ * board's own record of its last one (core/UpdateWatch.kt).
+ */
+private fun bluetoothSummary(device: Device, followed: UpdateWatch.Record?): String? =
+    UpdateWatch.summary(followed, device.bt) { Words.timeOfDay(Times.iso(it)) }
+
+private fun androidx.compose.foundation.lazy.LazyListScope.bluetoothPart(device: Device, followed: UpdateWatch.Record?) {
     val record = device.bt
+    bluetoothSummary(device, followed)?.let { summary -> item(key = "last") { ValueRow("Last update", summary) } }
     if (record == null) {
         item(key = "none") { OneLine("No update over Bluetooth recorded. Boards on 1.9.0 or later keep a record of the last one.") }
         return

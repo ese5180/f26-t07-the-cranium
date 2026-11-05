@@ -4,6 +4,18 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.7.1
+
+After a Bluetooth send, the app follows the board step by step, each with its time: sent, with the board's 2 minutes
+counting down; Button 1 pressed and accepted, or Button 2, or the time running out; installing and restarting; running
+on trial; and kept, or rolled back with the board's reason. Closed and opened again within 5 minutes, the flow shows
+it, and the board's page says how its last update went.
+
+The app keeps the Bluetooth link after the upload and reads the image list every 3 s. Once the board closes it, the
+app asks the console every 3 s, for at most 5 minutes, for the board's log, its connections and its report, two calls
+at a time and slower after a 429, and stops at the first end. A board that is not on the console gets one line saying
+the app can't follow it. The steps are one pure function, with the same words and test cases in both apps.
+
 ## 0.7.0
 
 New versions reach every phone: the app checks the console on start and once a day, says "Update available" in the

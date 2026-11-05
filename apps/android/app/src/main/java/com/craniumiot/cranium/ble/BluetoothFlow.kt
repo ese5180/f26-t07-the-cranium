@@ -7,7 +7,6 @@ import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.BoardBluetooth
 import com.craniumiot.cranium.core.BoardImages
-import com.craniumiot.cranium.core.BoardProgressText
 import com.craniumiot.cranium.core.FirmwareCache
 import com.craniumiot.cranium.core.FirmwareVersion
 import com.craniumiot.cranium.core.ImageCheck
@@ -17,6 +16,8 @@ import com.craniumiot.cranium.core.ImageStep
 import com.craniumiot.cranium.core.ObtainedImage
 import com.craniumiot.cranium.core.Release
 import com.craniumiot.cranium.core.ReleaseFilter
+import com.craniumiot.cranium.core.Times
+import com.craniumiot.cranium.core.UpdateWatch
 import com.craniumiot.cranium.ui.Messages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -60,7 +61,8 @@ data class BoardUi(
     val image: ImageNote? = null,
 )
 
-data class DoneUi(val version: String, val boardName: String, val status: String? = null, val image: ImageNote? = null)
+/** After the send: the steps the board has taken, as far as the phone can see (core/UpdateWatch.kt). */
+data class DoneUi(val version: String, val boardName: String, val timeline: UpdateWatch.Timeline, val image: ImageNote? = null)
 
 data class BtState(
     val step: BtStep = BtStep.CHOOSE,
@@ -73,12 +75,15 @@ data class BtState(
     val boards: List<FoundBoard> = emptyList(),
     val board: BoardUi? = null,
     val done: DoneUi? = null,
+    /** The last update this phone followed on each board, by thing name, for the board's page. */
+    val outcomes: Map<String, UpdateWatch.Record> = emptyMap(),
 )
 
 /**
  * The update over Bluetooth (docs/mobile-apps.md): pick a release, find the board, pair, check
  * what it runs, take the image from the phone or download it, check it, ask the console whether it
- * may still be sent, upload it, and tell the person to press Button 1.
+ * may still be sent, upload it, and tell the person to press Button 1. Then follow the board: the link
+ * while the board keeps it, then the console, step by step (core/UpdateWatch.kt).
  */
 class BluetoothFlow(
     private val app: Application,
@@ -100,7 +105,15 @@ class BluetoothFlow(
     private var pairingPoll: Job? = null
     private var keepAlive: Job? = null
     private var scanTimer: Job? = null
-    private var devicePoll: Job? = null
+
+    // Following the board after the send. The link is the watch's from then on, not the flow's.
+    private var watchFacts: UpdateWatch.Facts? = null
+    private var watchSession: BoardSession? = null
+    private var watchJob: Job? = null
+    private var watchEndedAt: Long? = null
+
+    /** "Update another board": the person has moved on, so reopening the flow starts over. */
+    private var movedOn = false
 
     private val _state = MutableStateFlow(BtState())
     val state: StateFlow<BtState> = _state.asStateFlow()
@@ -122,7 +135,14 @@ class BluetoothFlow(
 
     /** Start over with [version] chosen (from the Firmware page), at the step that picks it. */
     fun start(version: String?) {
-        stopEverything()
+        leave()
+        // Within 5 minutes of the last follow, and not moved on since: the flow shows how it went.
+        val ended = watchEndedAt
+        val recent = watchJob?.isActive == true || (ended != null && System.currentTimeMillis() - ended < UpdateWatch.KEEP_MS)
+        if (_state.value.done != null && !movedOn && recent) {
+            _state.update { it.copy(step = BtStep.DONE, notice = null, board = null, boards = emptyList()) }
+            return
+        }
         _state.update { s ->
             s.copy(
                 step = BtStep.CHOOSE, notice = null, board = null, done = null, boards = emptyList(),
@@ -196,7 +216,8 @@ class BluetoothFlow(
         val name = board.name ?: board.address
         linkLost = false
         thing = null
-        val newSession = BoardSession(app, board.device) { scope.launch { onLinkLost() } }
+        lateinit var newSession: BoardSession
+        newSession = BoardSession(app, board.device) { scope.launch { onLinkLost(newSession) } }
         session = newSession
         _state.update { it.copy(step = BtStep.BOARD, notice = null, board = BoardUi(name = name)) }
         startPairingPoll(board.name)
@@ -301,13 +322,11 @@ class BluetoothFlow(
                 return@launch
             }
 
-            // All of it has arrived. The person installs it at the board; the app lets go.
+            // All of it has arrived. The person installs it at the board; the app keeps the link, which the
+            // board closes when a button is pressed or its 2 minutes are up, and then follows the console.
             pairingPoll?.cancel()
-            closeSession()
-            _state.update {
-                it.copy(step = BtStep.DONE, board = null, notice = null, done = DoneUi(release.version, board.name, image = note))
-            }
-            followBoard(release)
+            session = null
+            follow(current, release.version, board.running, board.name, note)
         }
     }
 
@@ -333,11 +352,15 @@ class BluetoothFlow(
         _state.update { it.copy(step = BtStep.FIND_BOARD, board = null, boards = emptyList(), notice = null) }
     }
 
-    /** Back to choosing a release. Not while an image is on its way. */
+    /**
+     * Back to choosing a release. Not while an image is on its way. After a send ("Update another
+     * board"), the board that was sent to is still followed, for its page.
+     */
     fun backToChoose() {
         if (_state.value.board?.phase == BoardPhase.UPLOADING) return
-        stopEverything()
-        _state.update { it.copy(step = BtStep.CHOOSE, board = null, done = null, boards = emptyList()) }
+        leave()
+        if (_state.value.step == BtStep.DONE) movedOn = true
+        _state.update { it.copy(step = BtStep.CHOOSE, board = null, boards = emptyList()) }
     }
 
     val isBusy: Boolean get() = _state.value.board?.phase == BoardPhase.UPLOADING
@@ -432,35 +455,151 @@ class BluetoothFlow(
         }
     }
 
-    /** After the upload: follow the board in the console, if the pairing call said which it is. */
-    private fun followBoard(release: Release) {
-        val client = api() ?: return
-        val target = FirmwareVersion.parseRelease(release.version) ?: return
-        val boardThing = thing
-        if (boardThing == null) {
-            updateDone { it.copy(status = "The console did not say which board this is, so the app cannot follow it.") }
-            return
+    // After the send.
+
+    /** Follow the board that [linked] has just sent [version] to: the link while it lasts, then the console. */
+    private fun follow(linked: BoardSession, version: String, running: String?, boardName: String, note: ImageNote) {
+        endWatch()
+        movedOn = false
+        watchEndedAt = null
+        watchSession = linked
+        val facts = UpdateWatch.Facts(version = version, from = running, sentAt = System.currentTimeMillis(), thing = thing)
+        watchFacts = facts
+        _state.update {
+            it.copy(step = BtStep.DONE, board = null, notice = null, done = DoneUi(version, boardName, UpdateWatch.timeline(facts), note))
         }
-        devicePoll?.cancel()
-        devicePoll = scope.launch {
-            repeat(DEVICE_POLLS) {
-                delay(DEVICE_POLL_INTERVAL_MS)
-                val progress = try {
-                    BoardProgressText.of(client.device(boardThing), target)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    null
-                }
-                if (progress != null) {
-                    updateDone { it.copy(status = progress.text) }
-                    if (progress.finished) return@launch
-                }
+        showWatch()
+        watchJob = scope.launch {
+            try {
+                followLink(linked)
+                followConsole()
+            } finally {
+                // A follow that was ended for a newer one leaves the newer one alone.
+                if (isActive) watchEndedAt = System.currentTimeMillis()
             }
         }
     }
 
-    private fun onLinkLost() {
+    /**
+     * While the board keeps the link: one look at the console (is the board on it?), then the image list
+     * every few seconds, which the board allows while it waits for a button, until the link goes.
+     */
+    private suspend fun followLink(linked: BoardSession) {
+        val boardThing = watchFacts?.thing
+        val client = api()
+        if (client != null && boardThing != null) {
+            val online = try {
+                client.device(boardThing).online
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            changeWatch { it.copy(onConsole = online) }
+        }
+        var failures = 0
+        while (true) {
+            val facts = watchFacts ?: return
+            if (facts.linkDroppedAt != null) return
+            // The board closes the link at the end of its 2 minutes: one still up after that is let go.
+            if (System.currentTimeMillis() > facts.sentAt + UpdateWatch.OFFER_MS + LINK_GRACE_MS) {
+                watchLinkGone()
+                return
+            }
+            try {
+                linked.readImages()
+                failures = 0
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A lost link is reported by onLinkLost; reads that keep failing are one too.
+                if (++failures >= LINK_FAILURES) {
+                    watchLinkGone()
+                    return
+                }
+            }
+            delay(UpdateWatch.LINK_READ_MS)
+        }
+    }
+
+    /** After the link: the board's log, its connections and its report, every 3 s for up to 5 minutes. */
+    private suspend fun followConsole() {
+        val dropped = watchFacts?.linkDroppedAt ?: return
+        var tick = 0
+        var throttled = 0
+        while (true) {
+            val facts = watchFacts ?: return
+            if (UpdateWatch.timeline(facts).finished) return
+            if (System.currentTimeMillis() - dropped >= UpdateWatch.FOLLOW_MS) {
+                changeWatch { it.copy(gaveUp = true) }
+                return
+            }
+            val client = api() ?: return
+            val boardThing = facts.thing ?: return
+            try {
+                val from = Times.iso(facts.sentAt - UpdateWatch.CLOCK_SLACK_MS)
+                val to = Times.iso(System.currentTimeMillis())
+                val lines = client.boardLog(from, to, boardThing, tags = listOf("BT", "bt_ota"), limit = LINE_LIMIT).lines
+                // Two calls each time at most: the log every time, and the connections and the report in turn.
+                if (tick % 2 == 0) {
+                    val events = client.events(from, to, boardThing, listOf("connection"), null).events
+                    changeWatch { it.copy(lines = lines, events = events, consoleFailed = false) }
+                } else {
+                    val device = client.device(boardThing)
+                    changeWatch { it.copy(lines = lines, device = device, consoleFailed = false) }
+                }
+                throttled = 0
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SignedOutException) {
+                return
+            } catch (e: ApiError) {
+                if (e.status == 429) throttled++ else changeWatch { it.copy(consoleFailed = true) }
+            } catch (e: Exception) {
+                changeWatch { it.copy(consoleFailed = true) }
+            }
+            tick++
+            delay(UpdateWatch.nextPoll(throttled))
+        }
+    }
+
+    /** The board closed the link, or it is taken to have: the console is followed from here. */
+    private fun watchLinkGone() {
+        if (watchFacts?.linkDroppedAt == null) changeWatch { it.copy(linkDroppedAt = System.currentTimeMillis()) }
+        watchSession?.close()
+        watchSession = null
+    }
+
+    private fun changeWatch(change: (UpdateWatch.Facts) -> UpdateWatch.Facts) {
+        watchFacts = watchFacts?.let(change) ?: return
+        showWatch()
+    }
+
+    private fun showWatch() {
+        val facts = watchFacts ?: return
+        val timeline = UpdateWatch.timeline(facts)
+        val record = UpdateWatch.record(facts, timeline)
+        _state.update { s ->
+            s.copy(
+                done = s.done?.copy(timeline = timeline),
+                outcomes = if (record != null) s.outcomes + (record.thing to record) else s.outcomes,
+            )
+        }
+    }
+
+    private fun endWatch() {
+        watchJob?.cancel()
+        watchJob = null
+        watchSession?.close()
+        watchSession = null
+    }
+
+    private fun onLinkLost(lost: BoardSession) {
+        if (lost === watchSession) {
+            watchLinkGone()
+            return
+        }
+        if (lost !== session) return
         linkLost = true
         val state = _state.value
         val board = state.board ?: return
@@ -521,11 +660,16 @@ class BluetoothFlow(
         session = null
     }
 
-    fun stopEverything() {
+    /** The flow's screen is left: everything stops but the following of a board that was sent to. */
+    fun leave() {
         stopScan()
         stopBoardJobs()
-        devicePoll?.cancel()
         closeSession()
+    }
+
+    fun stopEverything() {
+        leave()
+        endWatch()
     }
 
     /** Signed out: nothing of the console is kept. */
@@ -539,7 +683,12 @@ class BluetoothFlow(
         const val PAIRING_POLL_MS = 90_000L
         const val PAIRING_POLL_INTERVAL_MS = 3_000L
         const val KEEP_ALIVE_MS = 10_000L
-        const val DEVICE_POLL_INTERVAL_MS = 15_000L
-        const val DEVICE_POLLS = 48
+
+        /** After the board's 2 minutes, how long a link that is still up is kept. */
+        const val LINK_GRACE_MS = 15_000L
+
+        /** Image list reads that fail in a row before the link is taken to be gone. */
+        const val LINK_FAILURES = 3
+        const val LINE_LIMIT = 100
     }
 }

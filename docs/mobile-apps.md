@@ -30,7 +30,22 @@ This file is the contract both apps follow. The board's side is in
    (`POST /api/firmware/{version}/bluetooth`). It sends nothing without a yes: not after a refusal, and
    not when the console cannot be reached, which it says. It takes a few minutes.
 7. At the board, press **Button 1** within 2 minutes to install it. **Button 2** throws it away.
+   The app counts the board's 2 minutes down, from the end of the upload.
 8. The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT.
+9. The app shows each step as it happens, with its time, until the image is kept or undone
+   ([Following the board after a send](#following-the-board-after-a-send)):
+   1. **Sent** the version: press Button 1 within 2 minutes (Button 2 throws it away), and the countdown.
+   2. **Button 1 pressed, accepted**: from the board's disconnect from AWS IoT at the press, or else, said
+      carefully, from the board closing the Bluetooth link ("The board closed the link: it is installing").
+      Button 2, or the 2 minutes running out, is said so, and the steps stop there.
+   3. **Installing and restarting**: the board is offline on the console.
+   4. **Running** the version **on trial**: back online with it, not yet kept.
+   5. **Kept** the version, or **Rolled back to** the old one, with the board's reason.
+
+   Closed and opened again within 5 minutes, the flow shows the same steps. The board's page in the app
+   says how its last update over Bluetooth went: "1.13.0+0 over Bluetooth at 12:14, kept". A board
+   that is not on the console gets one line instead: the app can't follow it from there; after it
+   restarts, check its version over Bluetooth.
 
 ## Configuration
 
@@ -337,9 +352,40 @@ in reach, a read on a paired link is part of what keeps that image (`proof: pers
 README). That is by design, and it is why only a person at the board can open the window.
 
 Offer only releases newer than the version in slot 0. When the upload finishes, tell the person to
-press Button 1 on the board within 2 minutes, and disconnect. Afterwards the app can poll
-`GET /api/devices/{thing}` (the `thing` from the pairing call) to show the board coming back on the
-new version, but the board's own LEDs and console are the real answer.
+press Button 1 on the board within 2 minutes, keep the link, and follow the board (below).
+
+### Following the board after a send
+
+What the board tells, and how (`firmware/app/src/bt_ota.c`), each line of its console in its board log
+(`GET /api/events/log`, tag `BT`) with the board's own time:
+
+| At the board | On the link | In the board log | On the console |
+| --- | --- | --- | --- |
+| The image has arrived | Stays up | `firmware 1.13.0+0 has arrived, …: press Button 1 to install it, Button 2 to erase it` | |
+| Button 1 | Drops a few seconds later: the board restarts | Nothing at the press: the board prints `restarting into the bootloader: …`, but restarts before the line can leave it | A `connection` event `disconnected`, at the press, then `connected` when it is back |
+| After the restart | | `on trial: 1.13.0+0 from 1.12.0+0, pending, …`, then `update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, …` or another result: `rolled_back`, `not_installed`, `trial_lost`, `flash_error` | `fw` `{version, confirmed}` in `GET /api/devices/{thing}`, and the shadow's `bt` record |
+| Button 2 | Dropped by the board at once | `closed: by Button 2` | The board stays online |
+| No button for 2 minutes | Dropped by the board | `closed: no image to install` | The board stays online |
+
+So the apps keep the link after the upload and read the image list every 3 s (the board allows it
+while it waits for a button, and drops no link in that time). Once the link goes, they ask the console
+every 3 s, for at most 5 minutes, two calls each time: the board log since the send
+(`?thing=…&tags=BT,bt_ota&from=…`, from 30 s before the send), and in turn the board's connections
+(`GET /api/events?kinds=connection`) and its report (`GET /api/devices/{thing}`). A 429 doubles the wait,
+up to 30 s. They stop at the first end: kept, rolled back, Button 2, or the 2 minutes run out.
+
+- **Button 1** is taken as accepted once the board left AWS IoT after the link dropped, or ran the new
+  version since; before that, a drop more than 3 s before the end of the 2 minutes says, carefully,
+  "The board closed the link: it is installing". A drop at the end of the 2 minutes is taken for the
+  time running out, until the console says otherwise.
+- **Kept**: the board's `update over Bluetooth … succeeded` line, or a report from a boot after the send
+  (its `lastSeen` less its `uptime`) of the new version, confirmed. **Rolled back**: a line with another
+  result, or such a report of another version.
+- A board the console does not know (no passkey came from it) or had offline right after the send is
+  not followed: one line says so.
+
+The steps are one pure function in each app, `UpdateWatch` (`CraniumKit/UpdateWatch.swift`,
+`core/UpdateWatch.kt`), with the same words and the same test cases on both sides.
 
 ## Errors to expect
 

@@ -65,9 +65,12 @@ public actor BoardSession {
     }
 
     /// Uploads a checked image, and only that: no test, confirm or reset afterwards, which the
-    /// board refuses. Then disconnects. The board offers the image to the person at it, who
-    /// presses Button 1 to install it.
-    public func send(_ image: VerifiedImage, progress: @escaping @Sendable (UploadProgress) -> Void) async throws {
+    /// board refuses. Then disconnects, unless `keepingTheLink`: the app then reads the image list
+    /// until the board closes the link, which it does when a button is pressed or its 2 minutes are
+    /// up (`readAfterSend`). The board offers the image to the person at it, who presses Button 1 to
+    /// install it.
+    public func send(_ image: VerifiedImage, keepingTheLink: Bool = false,
+                     progress: @escaping @Sendable (UploadProgress) -> Void) async throws {
         guard let running else { throw UpdateError.notConnected }
         guard !hasSent else { throw UpdateError.alreadySent }
         guard !uploading else { throw UpdateError.busy }
@@ -82,7 +85,15 @@ public actor BoardSession {
             throw BoardError.disconnectedDuringUpload
         }
         hasSent = true
-        await transport.disconnect()
+        if !keepingTheLink { await transport.disconnect() }
+    }
+
+    /// After the send, on a link that was kept: the image list, which the board still allows while it
+    /// waits for a button. It throws `BoardError.disconnected` once the board has closed the link.
+    @discardableResult
+    public func readAfterSend() async throws -> [ImageSlot] {
+        guard hasSent else { throw UpdateError.notConnected }
+        return try await transport.readImageState()
     }
 
     public func close() async {

@@ -2,8 +2,9 @@ import CraniumBLE
 import CraniumKit
 import SwiftUI
 
-/// An update over Bluetooth, full screen: the release, the board, its passkey, the send, and
-/// Button 1. See docs/mobile-apps.md, "What a person does"; Help has it for people.
+/// An update over Bluetooth, full screen: the release, the board, its passkey, the send, Button 1,
+/// and what the board does after it. See docs/mobile-apps.md, "What a person does"; Help has it for
+/// people.
 struct BluetoothFlow: View {
     @EnvironmentObject private var app: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -24,6 +25,7 @@ struct BluetoothFlow: View {
                 case .releases: BluetoothReleases(model: model)
                 case .boards: BluetoothBoards(model: model)
                 case .board: BluetoothBoard(model: model)
+                case .watching: BluetoothWatch(model: model)
                 }
             }
             .navigationTitle(pairingTitle ?? title)
@@ -57,6 +59,7 @@ struct BluetoothFlow: View {
         case .releases: return "Update over Bluetooth"
         case .boards: return "Find the board"
         case .board: return model.boardName ?? "Board"
+        case .watching: return model.watchBoard ?? "Board"
         }
     }
 }
@@ -184,7 +187,6 @@ struct BluetoothBoard: View {
             case .downloading(let version): Section { StateRow(kind: .loading, text: "Downloading \(version)…") }
             case .confirming(let version): Section { StateRow(kind: .loading, text: "Asking the console about \(version)…") }
             case .uploading(let progress): uploading(progress)
-            case .sent(let version): sent(version)
             case .failed(let text):
                 Section { StateRow(kind: .failed, text: "Not sent. \(text)") }
                 Section { PrimaryButton("Back to the boards") { Task { await model.backToBoards() } } }
@@ -296,31 +298,99 @@ struct BluetoothBoard: View {
         let minutes = Int((seconds / 60).rounded(.up))
         return minutes <= 1 ? "about a minute left" : "about \(minutes) minutes left"
     }
+}
 
-    @ViewBuilder
-    private func sent(_ version: String) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                StatusText(.good, "check-circle", "\(version) has arrived").font(.headline)
-                Text("Press Button 1 on the board within 2 minutes to install it. Button 2 throws it away.")
-                    .font(.subheadline)
-                ButtonKeys()
+/// After the send: what the board does, step by step, each with the time it happened (`UpdateWatch`).
+struct BluetoothWatch: View {
+    @EnvironmentObject private var app: AppModel
+    @Environment(\.theme) private var theme
+    @ObservedObject var model: BluetoothModel
+
+    var body: some View {
+        ListScreen {
+            if let watch = model.watch {
+                Section {
+                    ForEach(Array(watch.rows.enumerated()), id: \.offset) { _, row in
+                        WatchRow(row: row)
+                    }
+                } header: {
+                    Text(verbatim: "\(model.watchVersion ?? "") to \(model.watchBoard ?? "the board")")
+                }
+                if watch.waitingForButton {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let left = Int(watch.deadline.timeIntervalSince(context.date).rounded(.up))
+                                Text(UpdateWatch.countdown(left)).font(.title3.weight(.semibold)).monospacedDigit()
+                            }
+                            ButtonKeys()
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Now, at the board")
+                    }
+                }
+                if let note = watch.note {
+                    Section { Text(note).font(.subheadline) }
+                }
             }
-            .padding(.vertical, 4)
-            if let device = model.device {
-                StatusText(device.online ? .live : .idle, device.online ? "online" : "offline", deviceWords(device, version: version))
+            if let image = model.sending {
+                Section {
+                    Text("\(image.origin == .phone ? "Sent from this phone" : "Downloaded, then sent"), \(UserMessage.kilobytes(image.size)).")
+                        .font(.footnote).foregroundStyle(theme.ink3)
+                }
+            }
+            Section {
+                PrimaryButton("Done") { Task { await model.close(); app.bluetoothOpen = false } }
+                Button("Update another board") { Task { await model.anotherBoard() } }
             }
         }
-        Section {
-            PrimaryButton("Done") { Task { await model.close(); app.bluetoothOpen = false } }
+    }
+}
+
+/// One step after the send.
+private struct WatchRow: View {
+    @Environment(\.theme) private var theme
+    let row: UpdateWatch.Row
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: mark.symbol).foregroundStyle(mark.color).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(.subheadline.weight(row.state == .waiting || row.state == .done ? .regular : .semibold))
+                    .foregroundStyle(row.state == .waiting ? theme.ink3 : theme.ink)
+                if let detail = row.detail {
+                    Text(detail).font(.footnote).foregroundStyle(theme.ink2)
+                }
+            }
+            Spacer(minLength: 8)
+            if let at = row.at {
+                Text(at.formatted(.dateTime.hour().minute().second())).font(.footnote).monospacedDigit().foregroundStyle(theme.ink3)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(stateWord)
+    }
+
+    private var mark: (symbol: String, color: Color) {
+        switch row.state {
+        case .done: return ("checkmark.circle.fill", theme.good)
+        case .current: return ("circle.inset.filled", theme.tone(.live))
+        case .likely: return ("checkmark.circle", theme.ink2)
+        case .failed: return (row.step == .end ? "arrow.uturn.backward.circle.fill" : "xmark.circle.fill", theme.warn)
+        case .waiting: return ("circle", theme.ink3)
         }
     }
 
-    private func deviceWords(_ device: DeviceStatus, version: String) -> String {
-        guard device.online, let fw = device.fw else { return "Waiting for the board to come back online." }
-        if fw.version == version {
-            return fw.confirmed ? "Back online on \(fw.version), and kept." : "Back online on \(fw.version), on trial."
+    private var stateWord: String {
+        switch row.state {
+        case .done: return "done"
+        case .current: return "now"
+        case .likely: return "most likely"
+        case .failed: return "stopped here"
+        case .waiting: return "not yet"
         }
-        return "Online, on \(fw.version)."
     }
 }
