@@ -15,6 +15,8 @@ enum class Glyph {
     HOME, MORE, BLUETOOTH, USB, TERMINAL, HISTORY, SEARCH, HELP, MORE_VERT, FINGERPRINT,
     // The website's, for the fleet's entries of the activity log: a command to a board, an e-mail alert.
     LOCATE, BELL,
+    // The customer site's: its overview, the mixes, and a link that opens another app.
+    GRID, DISC, EXTERNAL,
 }
 
 /** One step of an update, as the step list draws it. */

@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.craniumiot.cranium.BuildConfig
 import com.craniumiot.cranium.core.BiometricState
 import com.craniumiot.cranium.core.CommitHistory
+import com.craniumiot.cranium.core.CustomerText
 import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.HistoryRead
@@ -38,6 +39,7 @@ import com.craniumiot.cranium.core.Words
 @Composable
 fun MoreScreen(vm: ConsoleViewModel, store: Store) {
     val canWrite = store.me?.canWrite == true
+    val exits = LocalAdminExits.current
     ConsoleScreen(title = "More") {
         header("Console")
         item(key = "deployments") { ListRow("Deployments", leading = { GlyphIcon(Glyph.SEND, tint = console.ink2) }, onClick = { vm.open(Route.Deployments) }) }
@@ -59,6 +61,11 @@ fun MoreScreen(vm: ConsoleViewModel, store: Store) {
         item(key = "help") { ListRow("Help", leading = { GlyphIcon(Glyph.HELP, tint = console.ink2) }, onClick = { vm.open(Route.HelpPage(null)) }) }
         item(key = "account") {
             ListRow("Account", supporting = store.me?.email, leading = { GlyphIcon(Glyph.USER, tint = console.ink2) }, onClick = { vm.open(Route.Account) })
+        }
+        exits?.let { exits ->
+            item(key = "leave-admin") {
+                ListRow(CustomerText.LEAVE_ADMIN_MODE, leading = { GlyphIcon(Glyph.ARROW_LEFT, tint = console.ink2) }, onClick = exits.leave)
+            }
         }
     }
 }
@@ -260,6 +267,7 @@ private fun FingerprintRow(vm: ConsoleViewModel) {
 @Composable
 fun AccountScreen(vm: ConsoleViewModel, store: Store, now: Long) {
     val me = store.me
+    val exits = LocalAdminExits.current
     ConsoleScreen(
         title = "Account",
         help = "sign-in-again",
@@ -283,6 +291,11 @@ fun AccountScreen(vm: ConsoleViewModel, store: Store, now: Long) {
         item(key = "fingerprint") { FingerprintRow(vm) }
         item(key = "cache") { ValueRow("Firmware on this phone", Messages.firmwareOnPhone(store.cache).removeSuffix(".")) }
         item(key = "version") { ValueRow("App version", BuildConfig.VERSION_NAME) }
+        exits?.let { exits ->
+            block("leave-admin") {
+                ConsoleButton(CustomerText.LEAVE_ADMIN_MODE, exits.leave, Modifier.fillMaxWidth().padding(top = 16.dp), glyph = Glyph.ARROW_LEFT)
+            }
+        }
         block("sign-out") {
             ConsoleButton("Sign out", vm::signOut, Modifier.fillMaxWidth().padding(top = 16.dp), glyph = Glyph.SIGN_OUT)
         }

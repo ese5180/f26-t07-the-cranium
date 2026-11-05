@@ -86,6 +86,10 @@ object Glyphs {
             "M8.65 22c.21-.66.45-1.32.57-2", "M9 6.8a6 6 0 0 1 9 5.2v2",
         ),
         Glyph.HISTORY to listOf("M4.5 12a7.5 7.5 0 1 0 2.2-5.3", polyline("4.5 3.5 4.5 7.5 8.5 7.5"), polyline("12 8 12 12 14.5 13.5")),
+        // The customer site's (customer-views.js SITE_ICONS).
+        Glyph.GRID to listOf(rect(4f, 4f, 7f, 7f, 1.5f), rect(13f, 4f, 7f, 7f, 1.5f), rect(4f, 13f, 7f, 7f, 1.5f), rect(13f, 13f, 7f, 7f, 1.5f)),
+        Glyph.DISC to listOf(circle(12f, 12f, 8.5f), circle(12f, 12f, 2.5f), "M12 6.5a5.5 5.5 0 0 1 5.5 5.5"),
+        Glyph.EXTERNAL to listOf("M14 4.5h5.5V10M19.5 4.5L11 13", "M18 14v4.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1H10"),
     )
 
     private val cache = mutableMapOf<Glyph, ImageVector>()

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import com.craniumiot.cranium.core.FreshSignIn
 import com.craniumiot.cranium.core.Sealed
+import com.craniumiot.cranium.core.SessionKeys
 import net.openid.appauth.AuthState
 import java.security.KeyStore
 
@@ -70,6 +71,23 @@ data class Session(
     }
 }
 
+/** What AuthManager keeps between launches: [TokenStore] on a phone, memory in the tests. */
+interface SessionStore {
+    fun load(): Session?
+    fun save(session: Session)
+    fun clearSession()
+    fun fingerprintOn(): Boolean
+    fun vault(): Sealed?
+    fun saveVault(sealed: Sealed)
+    fun clearVault()
+    fun fingerprintOff()
+    fun declined(person: String): Boolean
+    fun decline(person: String)
+    fun recentSearches(): List<String>
+    fun saveRecentSearches(list: List<String>)
+    fun clear()
+}
+
 /**
  * Where the tokens live: in EncryptedSharedPreferences, as docs/mobile-apps.md asks. Never in
  * plain storage, never in a log. Construct it off the main thread: opening it touches the
@@ -78,14 +96,21 @@ data class Session(
  * With fingerprint unlock on, no session is kept here at all: only the refresh token encrypted
  * with the fingerprint's key (its ciphertext and IV, [vault]), and that the setting is on.
  *
+ * The staff session of admin mode and a customer's are two of these, each in its own file under
+ * its own master key ([SessionKeys]): neither can read, clear or reset the other.
+ *
  * androidx.security marks EncryptedSharedPreferences deprecated since 1.1.0; it still works, and
  * it is what the contract names.
  */
 @Suppress("DEPRECATION")
-class TokenStore(context: Context) {
-    private val prefs: SharedPreferences = openOrReset(context.applicationContext)
+class TokenStore(
+    context: Context,
+    file: String = SessionKeys.STAFF_FILE,
+    masterKeyAlias: String = MasterKey.DEFAULT_MASTER_KEY_ALIAS,
+) : SessionStore {
+    private val prefs: SharedPreferences = openOrReset(context.applicationContext, file, masterKeyAlias)
 
-    fun load(): Session? {
+    override fun load(): Session? {
         prefs.getString(KEY_SESSION, null)?.let { return Session.fromJson(it) }
         // The state AppAuth kept before the app had its own sign-in.
         return prefs.getString(KEY_LEGACY_STATE, null)
@@ -94,7 +119,7 @@ class TokenStore(context: Context) {
             ?.let(Session::fromAuthState)
     }
 
-    fun save(session: Session) {
+    override fun save(session: Session) {
         prefs.edit(commit = true) {
             putString(KEY_SESSION, session.toJson())
             remove(KEY_LEGACY_STATE)
@@ -102,7 +127,7 @@ class TokenStore(context: Context) {
     }
 
     /** No session kept: with fingerprint unlock on, or once it has ended. */
-    fun clearSession() {
+    override fun clearSession() {
         prefs.edit(commit = true) {
             remove(KEY_SESSION)
             remove(KEY_LEGACY_STATE)
@@ -111,12 +136,12 @@ class TokenStore(context: Context) {
 
     // Fingerprint unlock.
 
-    fun fingerprintOn(): Boolean = prefs.getBoolean(KEY_FINGERPRINT, false)
+    override fun fingerprintOn(): Boolean = prefs.getBoolean(KEY_FINGERPRINT, false)
 
-    fun vault(): Sealed? = Sealed.fromJson(prefs.getString(KEY_VAULT, null))
+    override fun vault(): Sealed? = Sealed.fromJson(prefs.getString(KEY_VAULT, null))
 
     /** Turn it on with [sealed], keeping no session in the clear. */
-    fun saveVault(sealed: Sealed) {
+    override fun saveVault(sealed: Sealed) {
         prefs.edit(commit = true) {
             putBoolean(KEY_FINGERPRINT, true)
             putString(KEY_VAULT, sealed.toJson())
@@ -126,12 +151,12 @@ class TokenStore(context: Context) {
     }
 
     /** The ciphertext no longer opens to a sign-in: drop it, and keep the setting. */
-    fun clearVault() {
+    override fun clearVault() {
         prefs.edit(commit = true) { remove(KEY_VAULT) }
     }
 
     /** Turn it off: the setting and the ciphertext. */
-    fun fingerprintOff() {
+    override fun fingerprintOff() {
         prefs.edit(commit = true) {
             remove(KEY_FINGERPRINT)
             remove(KEY_VAULT)
@@ -139,9 +164,9 @@ class TokenStore(context: Context) {
     }
 
     /** Whether this person said "Not now" on this phone (BiometricPolicy.personKey). */
-    fun declined(person: String): Boolean = person in declinedSet()
+    override fun declined(person: String): Boolean = person in declinedSet()
 
-    fun decline(person: String) {
+    override fun decline(person: String) {
         val kept = (listOf(person) + declinedSet().filter { it != person }).take(MAX_DECLINED)
         prefs.edit(commit = true) { putString(KEY_DECLINED, kept.joinToString(",")) }
     }
@@ -149,10 +174,10 @@ class TokenStore(context: Context) {
     private fun declinedSet(): List<String> = prefs.getString(KEY_DECLINED, null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
 
     /** The last searches, newest first (core RecentSearches). */
-    fun recentSearches(): List<String> =
+    override fun recentSearches(): List<String> =
         prefs.getString(KEY_RECENT, null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
 
-    fun saveRecentSearches(list: List<String>) {
+    override fun saveRecentSearches(list: List<String>) {
         prefs.edit(commit = true) { putString(KEY_RECENT, list.joinToString("\n") { it.replace('\n', ' ') }) }
     }
 
@@ -160,7 +185,7 @@ class TokenStore(context: Context) {
      * Everything of a sign-in: the session, the ciphertext, the setting, the last searches. What
      * stays is only who said "Not now" to the offer, as hashes, so that it is not asked again.
      */
-    fun clear() {
+    override fun clear() {
         val declined = prefs.getString(KEY_DECLINED, null)
         prefs.edit(commit = true) {
             clear()
@@ -168,23 +193,25 @@ class TokenStore(context: Context) {
         }
     }
 
-    private companion object {
-        const val FILE = "cranium_tokens"
-        const val KEY_SESSION = "session"
-        const val KEY_LEGACY_STATE = "auth_state"
-        const val KEY_RECENT = "recent_searches"
-        const val KEY_FINGERPRINT = "fingerprint_unlock"
-        const val KEY_VAULT = "refresh_token_fingerprint"
-        const val KEY_DECLINED = "fingerprint_declined"
-        const val MAX_DECLINED = 20
+    companion object {
+        /** A customer's session (the customer side), apart from the staff session in every name. */
+        fun customer(context: Context) = TokenStore(context, SessionKeys.CUSTOMER_FILE, SessionKeys.CUSTOMER_MASTER_KEY)
 
-        fun open(context: Context): SharedPreferences {
-            val key = MasterKey.Builder(context)
+        private const val KEY_SESSION = "session"
+        private const val KEY_LEGACY_STATE = "auth_state"
+        private const val KEY_RECENT = "recent_searches"
+        private const val KEY_FINGERPRINT = "fingerprint_unlock"
+        private const val KEY_VAULT = "refresh_token_fingerprint"
+        private const val KEY_DECLINED = "fingerprint_declined"
+        private const val MAX_DECLINED = 20
+
+        private fun open(context: Context, file: String, alias: String): SharedPreferences {
+            val key = MasterKey.Builder(context, alias)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
             return EncryptedSharedPreferences.create(
                 context,
-                FILE,
+                file,
                 key,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
@@ -193,17 +220,17 @@ class TokenStore(context: Context) {
 
         /**
          * If the file and the keystore key no longer go together (a restored phone, a keystore
-         * that lost its key), forget both: the person signs in again.
+         * that lost its key), forget both: the person signs in again. Only this file and its own
+         * key: the other session's are not touched.
          */
-        fun openOrReset(context: Context): SharedPreferences = try {
-            open(context)
+        private fun openOrReset(context: Context, file: String, alias: String): SharedPreferences = try {
+            open(context, file, alias)
         } catch (e: Exception) {
-            context.deleteSharedPreferences(FILE)
+            context.deleteSharedPreferences(file)
             runCatching {
-                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                    .deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)
             }
-            open(context)
+            open(context, file, alias)
         }
     }
 }

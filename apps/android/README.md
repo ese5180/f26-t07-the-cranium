@@ -6,7 +6,38 @@ updates over Bluetooth, and the board's serial console over a USB cable. It foll
 [`docs/mobile-apps.md`](../../docs/mobile-apps.md); the board's side is in
 [`firmware/README.md`](../../firmware/README.md#firmware-update-over-bluetooth).
 
-## What is in it
+From 0.6.0 it has two sides, as the customer website has (`docs/customer-site.md`): the **customer
+side**, where a customer signs in to see their own boards, and **Admin mode**, the firmware console
+below, for the team.
+
+## The customer side
+
+The customer website's pages on a phone, in its words (`core/CustomerText.kt`, held to
+`cloud/web/src/customer/assets/` by `CustomerWordsTest`), with its sections in the bottom bar:
+
+| Section | What it shows |
+| --- | --- |
+| Overview | Online now, boards, firmware, last heard from; the boards; the last week of what they did; the mixes to come. With only an admin signed in: who, and Open admin mode |
+| Devices | Every board on the account, as it last reported. A board's page: its state, firmware (on trial or not), last report, update in plain words, Wi-Fi signal, uptime, location ("Not reported") and since when it is the customer's, and the last 30 days of what it did |
+| Mixes | Sessions, Transitions, Track library, Saved moments: each says "Not built yet", and why |
+| Account | The address and name, a password change, two-step sign-in on or off (the setup key in groups of four, Copy the key, and an `otpauth://` link that opens an authenticator app), fingerprint unlock, Sign out |
+| Help | The website's questions and answers |
+
+It reads the customer API (`GET /api/c/me`, `/api/c/boards`, `/api/c/boards/{id}`, `/api/c/activity`,
+`core/Customer.kt`) with the customer's own token, every 30 s on Overview and Devices, and names a board
+only by the id of its assignment. A customer signs in to the customer pool with its phone client, on
+the app's own screen (SRP, the code in six boxes if they turned it on, a new password at the first
+sign-in), and resets a forgotten password with a code from the e-mail. Their session is kept apart from
+the admin's: its own encrypted file, its own master key and its own fingerprint key (`core/SessionKeys.kt`).
+
+**Admin sign-in** is the sign-in below, unchanged, and opens Admin mode: the whole app as it was, with
+**Leave admin mode** under More and Account, which goes back to the customer side and keeps the admin
+signed in. The customer side's Sign out ends both sessions, as the website's does; Admin mode's ends the
+admin's only. The app opens on the customer side when a customer is signed in, else in Admin mode when
+an admin is, else at the customer sign-in. A build whose configuration has no customer pool says so on
+the sign-in screen and offers Admin sign-in.
+
+## Admin mode
 
 The bottom bar has the website's sections, with the rest under More. Every screen is a Material 3
 list: short section headers, standard rows, details one tap further, one primary action (the
@@ -138,8 +169,9 @@ nothing without that yes, offline included (`core/SendCheck.kt`).
 
 - The configuration: `apps/configure.sh` writes `apps/config/cranium.json` from the deployed stack;
   the build reads the console URL, the login domain, the client ID, the region and the user pool
-  from it. Without it the build uses `apps/config/cranium.example.json`, says so, and the app cannot
-  sign in.
+  from it, and for the customer side the customer API's address, the customer pool, its phone client
+  and its Region (all four or none). Without it the build uses `apps/config/cranium.example.json`,
+  says so, and the app cannot sign in.
 - `apps/shared/help.json`, the help, if there is one; without it the Help screen says so.
 
 ## Build
@@ -189,10 +221,16 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
   diagnostics (`Updates.kt`, `Audit.kt`, `Telemetry.kt`, `Text.kt`), the serial console's rules and
   session (`Serial.kt`), the fresh sign-in rule (`FreshSignIn.kt`), the sign-in (`Srp.kt`,
   `CognitoSignIn.kt`), fingerprint unlock (`Fingerprint.kt`), search and help (`Search.kt`,
-  `Help.kt`), image checks and the firmware cache.
+  `Help.kt`), image checks and the firmware cache. The customer side's: the customer API and what a
+  board is doing in words (`Customer.kt`), the account at Cognito (`CustomerAccount.kt`), every word of
+  its screens (`CustomerText.kt`) and where each session is kept (`SessionKeys.kt`).
 - `auth/`: the session on the phone (`TokenStore.kt`), Cognito over HTTPS (`CognitoHttp.kt`),
-  renewing and ending it (`AuthManager.kt`), and the fingerprint's key (`KeystoreVault.kt`).
+  renewing and ending it (`AuthManager.kt`, one for each side, with `AuthSettings`), and the
+  fingerprint's key (`KeystoreVault.kt`).
 - `api/ApiClient.kt`: every route, with the access token, a refresh on 401, and the website's retries.
+  `api/CustomerHttp.kt`: the customer API's GET.
+- `ui/CustomerViewModel.kt` and `ui/CustomerScreens.kt`: the customer side, and which side is in front
+  (`CraniumRoot`); `ui/ConsoleViewModel.kt` and the rest: Admin mode.
 - `ui/`: Compose with Material 3, themed with the console's colour tokens for light and dark
   (`Theme.kt`) and its own icons (`Glyphs.kt`). `Screen.kt` is the frame of every screen and its
   rows. Pages are read when they open and again on the
@@ -201,7 +239,7 @@ and `apps/dist/` for that reason. The same goes for `apps/config/cranium.json` a
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (337 of them) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (361 of them) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
@@ -220,8 +258,18 @@ localhost (`ApiClientTest`), and the record a serial command leaves against a fa
 The sign-in's arithmetic is checked against the website's own code: `app/src/test/resources/srp/make-vectors.mjs`
 runs the website's SRP in Node with a fixed secret, salt, B, user, password and time and writes
 `vectors.json`; `SrpTest` gets the same A, u, k, x, S, key and signature from them. The steps of the
-sign-in, renewing and ending a session run against a fake Cognito (`CognitoSignInTest`).
+sign-in, renewing and ending a session run against a fake Cognito (`CognitoSignInTest`), and so does
+a customer's first sign-in with its new password.
+
+The customer side: the customer API's answers read as the customer site reads them, the assignment id
+as the only way to a board, the customer's token sent only to `/api/c/`, a 401 tried once more
+(`CustomerApiTest`); the account calls (`CustomerAccountTest`); the two sessions under names of their
+own, each refreshed and revoked with its own client, one signed out and the other as it was
+(`CustomerSessionTest`); and `CustomerWordsTest`, which reads the customer site's sources in this
+checkout: ACCOUNT_WORDS and SIGN_IN_WORDS are the website's, every word of the customer screens is
+found there (but for the few the phone has of its own), and a board's words are those of the
+website's tests.
 
 Sign-in against the real Cognito, the API calls, the fingerprint prompt and the Keystore key,
 Bluetooth and the USB serial console take a phone, a deployed stack and a board, and have not been
-tried yet.
+tried yet; nor has the customer side, whose pool is not deployed yet.

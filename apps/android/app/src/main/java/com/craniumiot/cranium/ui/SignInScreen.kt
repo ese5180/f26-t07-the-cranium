@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.craniumiot.cranium.core.CodeEntry
+import com.craniumiot.cranium.core.CustomerText
 import com.craniumiot.cranium.core.Glyph
 import com.craniumiot.cranium.core.SignInWords
 import com.craniumiot.cranium.core.Tone
@@ -109,8 +110,21 @@ fun SignInGate(vm: ConsoleViewModel, gate: Gate.SignIn, form: SignInForm) {
             }
             SignInSteps(vm, form, lead = SIGN_IN_LEAD)
         }
+        // Admin mode's sign-in is the admin sign-in of the customer side (docs/mobile-apps.md, "Customers").
+        LocalAdminExits.current?.let { exits ->
+            HorizontalDivider(color = colors.line)
+            ConsoleButton(
+                CustomerText.CUSTOMER_SIGN_IN, exits.customerSignIn, kind = ButtonKind.QUIET, glyph = Glyph.ARROW_RIGHT, small = true,
+                enabled = gate.busy == null && !form.busy,
+            )
+        }
     }
 }
+
+/** How admin mode is left for the customer side: from the console's More and Account, and its sign-in. */
+class AdminExits(val leave: () -> Unit, val customerSignIn: () -> Unit)
+
+val LocalAdminExits = androidx.compose.runtime.staticCompositionLocalOf<AdminExits?> { null }
 
 /** The fresh sign-in a change waits for: the same screen over the console, with the address fixed. */
 @Composable
@@ -244,37 +258,79 @@ private fun PasswordStep(vm: ConsoleViewModel, form: SignInForm) {
 private fun CodeStep(vm: ConsoleViewModel, form: SignInForm) {
     val colors = console
     val fresh = form.fresh
+    val wrong = form.problem == "wrong-code" || form.problem == "short-code"
+    Text("Code from your authenticator app", style = ConsoleType.small.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
+    CodeBoxes(
+        code = form.code,
+        onChange = { vm.codeChanged(fresh, it) },
+        onDone = { vm.submitCode(fresh) },
+        busy = form.busy,
+        wrong = wrong,
+        errorText = SignInWords.WORDS[form.problem].orEmpty(),
+        tries = form.tries,
+    )
+    Text(
+        "The six digits it shows now. The code goes in by itself once the last digit is typed.",
+        Modifier.widthIn(max = 420.dp),
+        style = ConsoleType.note, color = colors.ink2,
+    )
+    ProblemLine(form)
+    ConsoleButton(
+        if (form.busy) "Checking…" else "Sign in", { vm.submitCode(fresh) }, Modifier.fillMaxWidth(),
+        kind = ButtonKind.PRIMARY, busy = form.busy,
+    )
+    ConsoleButton("Start again", { vm.startOver(fresh) }, kind = ButtonKind.QUIET, small = true, enabled = !form.busy)
+}
+
+/**
+ * The code in six boxes, for the sign-in, the customer side's first code of an authenticator app,
+ * and a password reset. One field behind them takes the digits: typed, pasted or filled in by the
+ * phone from a one-time code; the boxes only show it. Focus comes back to it with each new answer
+ * ([tries]).
+ */
+@Composable
+fun CodeBoxes(
+    code: String,
+    onChange: (String) -> Unit,
+    onDone: () -> Unit,
+    busy: Boolean,
+    wrong: Boolean,
+    errorText: String,
+    tries: Int,
+    focusNow: Boolean = true,
+) {
+    val colors = console
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var focused by remember { mutableStateOf(false) }
-    val wrong = form.problem == "wrong-code" || form.problem == "short-code"
-    LaunchedEffect(form.tries) {
-        focus.requestFocus()
-        keyboard?.show()
+    LaunchedEffect(tries) {
+        if (focusNow) {
+            focus.requestFocus()
+            keyboard?.show()
+        }
     }
-    Text("Code from your authenticator app", style = ConsoleType.small.copy(fontWeight = FontWeight.SemiBold), color = colors.ink)
     BasicTextField(
-        value = form.code,
-        onValueChange = { vm.codeChanged(fresh, it) },
+        value = code,
+        onValueChange = onChange,
         modifier = Modifier
             .focusRequester(focus)
             .onFocusChanged { focused = it.isFocused }
             .semantics {
                 contentDescription = "Code, ${CodeEntry.LENGTH} digits"
                 contentType = ContentType.SmsOtpCode
-                if (wrong) error(SignInWords.WORDS[form.problem].orEmpty())
+                if (wrong) error(errorText)
             },
-        readOnly = form.busy,
+        readOnly = busy,
         singleLine = true,
         cursorBrush = SolidColor(colors.accent),
         textStyle = TextStyle(color = colors.paper.copy(alpha = 0f)),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done, autoCorrectEnabled = false),
-        keyboardActions = KeyboardActions(onDone = { vm.submitCode(fresh) }),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
         decorationBox = { _ ->
             Row(Modifier.clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (index in 0 until CodeEntry.LENGTH) {
-                    val digit = form.code.getOrNull(index)?.toString().orEmpty()
-                    val current = focused && index == form.code.length.coerceAtMost(CodeEntry.LENGTH - 1)
+                    val digit = code.getOrNull(index)?.toString().orEmpty()
+                    val current = focused && index == code.length.coerceAtMost(CodeEntry.LENGTH - 1)
                     Box(
                         Modifier
                             .padding(end = if (index == 2) 10.dp else 0.dp)
@@ -303,15 +359,4 @@ private fun CodeStep(vm: ConsoleViewModel, form: SignInForm) {
             }
         },
     )
-    Text(
-        "The six digits it shows now. The code goes in by itself once the last digit is typed.",
-        Modifier.widthIn(max = 420.dp),
-        style = ConsoleType.note, color = colors.ink2,
-    )
-    ProblemLine(form)
-    ConsoleButton(
-        if (form.busy) "Checking…" else "Sign in", { vm.submitCode(fresh) }, Modifier.fillMaxWidth(),
-        kind = ButtonKind.PRIMARY, busy = form.busy,
-    )
-    ConsoleButton("Start again", { vm.startOver(fresh) }, kind = ButtonKind.QUIET, small = true, enabled = !form.busy)
 }

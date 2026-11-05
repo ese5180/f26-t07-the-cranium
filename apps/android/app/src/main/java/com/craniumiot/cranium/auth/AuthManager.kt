@@ -15,6 +15,7 @@ import com.craniumiot.cranium.core.EnrolNext
 import com.craniumiot.cranium.core.FingerprintLock
 import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.FreshSignIn
+import com.craniumiot.cranium.core.IdpTransport
 import com.craniumiot.cranium.core.Pkce
 import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.core.Refreshed
@@ -47,6 +48,37 @@ class SignedOutException(message: String) : Exception(message)
 class SignInException(message: String) : Exception(message)
 
 /**
+ * Which user pool and app client a sign-in is with. The staff session of admin mode has the AWS
+ * sign-in page as well ([loginDomain], [redirectUri]); a customer's has neither, and answers a first
+ * sign-in's new password on the screen ([newPasswordHere]), as the customer site does.
+ */
+data class AuthSettings(
+    val clientId: String,
+    val region: String,
+    val userPoolId: String,
+    val loginDomain: String?,
+    val redirectUri: String?,
+    val newPasswordHere: Boolean,
+) {
+    /** Never the values. */
+    override fun toString(): String = "AuthSettings(awsPage=${loginDomain != null}, newPasswordHere=$newPasswordHere)"
+
+    companion object {
+        /** The staff pool and the phone apps' client: admin mode, as the app has always signed in. */
+        fun staff(config: CraniumConfig) = AuthSettings(
+            config.mobileClientId, config.region, config.userPoolId, config.loginDomain, config.redirectUri, newPasswordHere = false,
+        )
+
+        /** The customer pool and its phone client; null when the build has no customer pool. */
+        fun customer(config: CraniumConfig): AuthSettings? = if (!config.hasCustomer) {
+            null
+        } else {
+            AuthSettings(config.customerClientId, config.customerRegion, config.customerUserPoolId, null, null, newPasswordHere = true)
+        }
+    }
+}
+
+/**
  * Signing in, two ways, both ending in the same [Session]:
  *
  *  - the app's own screen: e-mail address and password, then the code in six boxes, through
@@ -67,19 +99,34 @@ class SignInException(message: String) : Exception(message)
  * once the fingerprint has opened them. With it off, the refresh token is forgotten an hour after
  * the sign-in (BiometricPolicy), however long Cognito would take it.
  *
+ * Two of these run side by side (docs/mobile-apps.md, "Customers"): the staff session of admin mode,
+ * with the staff pool, the phone apps' client and the AWS sign-in page; and a customer's, with the
+ * customer pool and its phone client, which has no managed login pages ([AuthSettings.loginDomain]
+ * null), takes a first sign-in's new password on the screen, and is revoked with RevokeToken only.
+ * Each has its own [store] and [vault], so that neither session can read or end the other.
+ *
  * Construct it off the main thread; call the rest from the main thread.
  */
 class AuthManager(
-    context: Context,
-    private val config: CraniumConfig,
-    private val store: TokenStore,
+    private val context: Context?,
+    private val settings: AuthSettings,
+    private val store: SessionStore,
     private val vault: BiometricVault,
+    transport: IdpTransport = CognitoHttp(settings.region),
 ) : AccessTokens {
-    private val service = AuthorizationService(context.applicationContext)
-    private val endpoints = CognitoEndpoints(config.loginDomain)
-    private val serviceConfig = AuthorizationServiceConfiguration(endpoints.authorize.toUri(), endpoints.token.toUri())
-    private val cognito = CognitoSignIn(CognitoHttp(config.region), config.mobileClientId, config.userPoolId)
+    /** AppAuth, for the AWS sign-in page: made when that page is first wanted, and never for a customer. */
+    private var authService: AuthorizationService? = null
+    private val endpoints = settings.loginDomain?.let { CognitoEndpoints(it) }
+    private val serviceConfig by lazy {
+        val pages = endpoints ?: error("This sign-in has no AWS sign-in page")
+        AuthorizationServiceConfiguration(pages.authorize.toUri(), pages.token.toUri())
+    }
+    private val cognito = CognitoSignIn(transport, settings.clientId, settings.userPoolId, newPasswordHere = settings.newPasswordHere)
     private val mutex = Mutex()
+
+    private val service: AuthorizationService
+        get() = authService ?: AuthorizationService(requireNotNull(context) { "AppAuth needs a context" }.applicationContext)
+            .also { authService = it }
     private val lock = FingerprintLock(vault)
 
     /** Fingerprint unlock is on: the refresh token is kept only behind it. */
@@ -120,6 +167,9 @@ class AuthManager(
     /** The six digits from the authenticator app. */
     suspend fun sendCode(code: String): SignInStep = keepIfDone(cognito.sendCode(code))
 
+    /** A first sign-in's new password, chosen on the screen (the customer side). */
+    suspend fun sendNewPassword(password: String): SignInStep = keepIfDone(cognito.sendNewPassword(password))
+
     /** Drop a sign-in that waits for its code. */
     fun cancelPasswordSignIn() = cognito.cancel()
 
@@ -144,9 +194,13 @@ class AuthManager(
 
     // The AWS sign-in page.
 
+    /** Whether this sign-in has the AWS sign-in page: the staff session's has, a customer's has not. */
+    val hasAwsPage: Boolean get() = settings.loginDomain != null && settings.redirectUri != null
+
     /** The Custom Tab with the sign-in page. Throws ActivityNotFoundException with no browser. */
     fun signInIntent(): Intent {
-        val spec = AuthorizeRequest.create(config.loginDomain, config.mobileClientId, config.redirectUri)
+        val loginDomain = settings.loginDomain ?: throw IllegalStateException("This sign-in has no AWS sign-in page")
+        val spec = AuthorizeRequest.create(loginDomain, settings.clientId, settings.redirectUri ?: throw IllegalStateException("No redirect"))
         val request = AuthorizationRequest.Builder(serviceConfig, spec.clientId, ResponseTypeValues.CODE, spec.redirectUri.toUri())
             .setScope(spec.scope)
             .setState(spec.state)
@@ -365,12 +419,14 @@ class AuthManager(
         if (refreshToken != null) {
             val revoked = runCatching { cognito.revoke(refreshToken) }.getOrDefault(false)
             // The managed login's own endpoint, for a client or a pool that does not take RevokeToken.
-            if (!revoked) withContext(Dispatchers.IO) { runCatching { revokeHosted(refreshToken) } }
+            // A customer's sign-in has none: RevokeToken is the only way, as on the customer site.
+            if (!revoked && endpoints != null) withContext(Dispatchers.IO) { runCatching { revokeHosted(refreshToken) } }
         }
     }
 
     fun dispose() {
-        service.dispose()
+        authService?.dispose()
+        authService = null
     }
 
     /**
@@ -415,14 +471,15 @@ class AuthManager(
         }
 
     private fun revokeHosted(refreshToken: String) {
-        val connection = URL(endpoints.revoke).openConnection() as HttpURLConnection
+        val pages = endpoints ?: return
+        val connection = URL(pages.revoke).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            connection.outputStream.use { it.write(revokeForm(refreshToken, config.mobileClientId).toByteArray()) }
+            connection.outputStream.use { it.write(revokeForm(refreshToken, settings.clientId).toByteArray()) }
             connection.responseCode
         } finally {
             connection.disconnect()
