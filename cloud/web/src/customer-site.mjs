@@ -4,11 +4,12 @@
  *
  * Like the console's, its files are read once into a table of exact path -> response, and its
  * assets are served under /assets/<build id>/, where the build id is a hash of every file it
- * serves. It serves three of the console's own files as they are, so that the two cannot drift
+ * serves. It serves four of the console's own files as they are, so that the two cannot drift
  * apart: core.js (the sign-in with SRP, the six boxes of the code, the words of sign-in
  * problems), views.js (the renderer that can only make elements and text, and the pieces
- * every page uses) and app.css (the colours, the type and the components). Its own files are
- * named customer*, so that no name of its own can ever stand in for one of those three.
+ * every page uses), app.css (the colours, the type and the components) and bridge.js (the phone
+ * app around the page, docs/mobile-apps.md "The app shell"). Its own files are
+ * named customer*, so that no name of its own can ever stand in for one of those four.
  *
  * Its page carries the public sign-in settings of both pools in a <meta> tag: the customer
  * pool's, for customers, and the staff pool's, for an admin's sign-in. Nothing in them is
@@ -25,7 +26,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 
 export const CUSTOMER_PAGE = 'index.html';
 // What the customer site serves of the console's own files, byte for byte.
-export const SHARED_ASSETS = Object.freeze(['core.js', 'views.js', 'app.css']);
+export const SHARED_ASSETS = Object.freeze(['core.js', 'views.js', 'app.css', 'bridge.js']);
 const OWN_PREFIX = 'customer';
 const BUILD_ID_LENGTH = 12;
 const BUILD_MARK = '%BUILD%';

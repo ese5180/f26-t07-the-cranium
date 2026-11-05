@@ -7,6 +7,22 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## Unreleased
+
+The phone apps' copy of the console and the customer site, for the app shell of 0.8.0: a manifest at /app/manifest.json with every file's path, size and SHA-256 and an id that hashes them, and each file at /app/files/<sha256>. The pages gain a bridge to the app, its sign-in kept by the app, and an update over Bluetooth; the API takes calls from the apps' two origins.
+
+The bundle (web/src/bundle.mjs) is built by the web function when it starts, from the files it serves: the customer
+site's page and the console's as admin mode, each with `{"app":true}` in its settings tag, and every file of both under
+assets/<build id>/. It holds nothing of the stack. web/build-bundle.mjs writes the same bundle into a folder, for the
+copy built into each app. A route of its own, GET /app/{proxy+}, public, 10 a second and bursts of 40.
+
+The pages in the app (assets/bridge.js, fetched only there): the settings from the app, the API at the console's
+address, the session in memory with the refresh token handed to the app (core.js createAuth's vault), Face ID or the
+fingerprint, and a sign-in asked for again on 403 phone_sign_in_again. The console's Bluetooth page (assets/bluetooth.js),
+for release managers in an app with Bluetooth, follows the board with UpdateWatch ported to assets/updatewatch.js, with
+the apps' test cases. The HTTP API's CORS allows cranium-app://bundle and https://appassets.androidplatform.net, with no
+credentials; nothing changes for a browser.
+
 ## 2.1.1
 
 The update history has every update, not only deployments: those over Bluetooth from a phone, with whose phone sent them, and those by USB or another tool, each kept, rolled back, not installed or pending. The Overview's Updates, the Deployments page (Every update), a board's page and fleet health show them.

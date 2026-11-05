@@ -78,6 +78,10 @@ export const ACCOUNT = scriptAddress('account.js', { 'core.js': CORE, 'views.js'
 // The fleet's parts of every page, and the Apps page with its QR encoder (docs/fleet.md, docs/versions.md).
 export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
+// The phone app's bridge, the steps after a Bluetooth send, and the app's Bluetooth page (docs/mobile-apps.md).
+export const BRIDGE = scriptAddress('bridge.js');
+export const UPDATEWATCH = scriptAddress('updatewatch.js', { 'core.js': CORE });
+export const BLUETOOTH = scriptAddress('bluetooth.js', { 'core.js': CORE, 'views.js': VIEWS, 'updatewatch.js': UPDATEWATCH });
 export const APPS = scriptAddress('apps.js', { 'core.js': CORE, 'history.js': HISTORY, 'qrcode.js': QR, 'views.js': VIEWS });
 
 // The document.

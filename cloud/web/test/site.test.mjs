@@ -40,9 +40,13 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // account.js and map.js: the Account page, and the Map page with the map on a board's page (docs/fleet.md).
 // apps.js: the Apps page, with the QR encoder it imports (qrcode.js).
 // customers.js: the Customers page, the customer site's customers and their boards (docs/customer-site.md).
-const ON_DEMAND = ['account.js', 'apps.js', 'customers.js', 'fleet.js', 'history.js', 'map.js', 'serial.js', 'telemetry.js'];
-// Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder.
-const WITH_THEIR_PAGE = ['qrcode.js'];
+// bridge.js and bluetooth.js: the phone app's bridge, fetched only in the app, and its Bluetooth page
+// (docs/mobile-apps.md, "The app shell").
+const ON_DEMAND = ['account.js', 'apps.js', 'bluetooth.js', 'bridge.js', 'customers.js', 'fleet.js', 'history.js', 'map.js', 'serial.js',
+  'telemetry.js'];
+// Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder, and
+// the steps after a Bluetooth send, which the Bluetooth page imports.
+const WITH_THEIR_PAGE = ['qrcode.js', 'updatewatch.js'];
 const atOnce = assets.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));
 const styles = assets.filter((name) => name.endsWith('.css'));
 const read = (name) => readFileSync(new URL(name, SITE), 'utf8');
@@ -163,6 +167,9 @@ test('nothing is fetched from anywhere else', () => {
     let others = name === 'history.js' ? text.replace(commitLinks, '') : text;
     if (name === 'map.js') others = others.replace(tiles, '');
     if (name === 'views.js') others = others.replace(copyright, '');
+    // In the phone app the page is told the pool's Region, and works out Cognito's user pool API from it,
+    // as server.mjs does for the website (bridge.js).
+    if (name === 'bridge.js') others = others.replace(/`https:\/\/cognito-idp\.\$\{region\}\.amazonaws\.com`/g, '');
     // The Apps page's, for a person to follow or copy: the repository to clone, the setup guide, the steps for
     // updates on every phone, and SideStore's own guide to installing it.
     if (name === 'apps.js') {

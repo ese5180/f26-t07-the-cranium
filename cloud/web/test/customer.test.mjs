@@ -17,7 +17,7 @@ import { SHARED_ASSETS, customerPolicy, loadCustomerSite } from '../src/customer
 import { createWebHandler, handler } from '../src/server.mjs';
 import { createCognito } from './cognito.mjs';
 import { createCustomerCognito } from './customer-cognito.mjs';
-import { CORE, VIEWS, all, click, createDocument, descendants, one, scriptAddress, textOf } from './page.mjs';
+import { BRIDGE, CORE, VIEWS, all, click, createDocument, descendants, one, scriptAddress, textOf } from './page.mjs';
 
 const core = await import(CORE);
 
@@ -475,8 +475,21 @@ async function until(check, what) {
 const STAFF = { email: 'manager@example.invalid', userId: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d', password: 'Only-For-Tests-7', code: '135790' };
 let copies = 0;
 
-/** The customer site, started in a stand-in for a tab, with both pools and the customer API behind it. */
-async function openSite(t, { hash = '', status = 'CONFIRMED' } = {}) {
+// In the phone app (docs/mobile-apps.md, "The app shell"): the customer API and the console at their own
+// addresses, and Cognito's user pool API of the pools' Region.
+const APP_CUSTOMER_API = 'https://cranium.example';
+const APP_CONSOLE = 'https://console.example';
+const APP_IDP = 'https://cognito-idp.xx-test-1.amazonaws.com';
+const APP_CONFIG = {
+  consoleUrl: APP_CONSOLE, region: 'xx-test-1', userPoolId: STAFF_POOL, mobileClientId: 'staffclient', customerApiUrl: APP_CUSTOMER_API,
+  customerRegion: 'xx-test-1', customerUserPoolId: CUSTOMER_POOL, customerClientId: 'customerclient', example: false,
+};
+
+/**
+ * The customer site, started in a stand-in for a tab, with both pools and the customer API behind it.
+ * With `app`, the tab is the iPhone app's, with a stand-in for its bridge: answers by method.
+ */
+async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const { cognito: customers, accounts } = customerWorld({ status });
   const staff = createCognito({
@@ -506,7 +519,15 @@ async function openSite(t, { hash = '', status = 'CONFIRMED' } = {}) {
     assign: (url) => navigations.push(url),
   };
   const requests = [];
-  async function fetch(url, init = {}) {
+  const addresses = [];
+  async function fetch(address, init = {}) {
+    addresses.push(address);
+    let url = address;
+    if (phone) {
+      if (address === `${APP_IDP}/`) url = `${IDP}/`;
+      else if (address.startsWith(`${APP_CUSTOMER_API}/api/c/`)) url = address.slice(APP_CUSTOMER_API.length);
+      else if (address.startsWith(`${APP_CONSOLE}/api/`)) url = address.slice(APP_CONSOLE.length);
+    }
     requests.push(`${init.method ?? 'GET'} ${url}`);
     if (url === `${IDP}/`) {
       const body = JSON.parse(init.body);
@@ -543,17 +564,41 @@ async function openSite(t, { hash = '', status = 'CONFIRMED' } = {}) {
     history: { replaceState() { location.search = ''; } },
     navigator: { clipboard: { writeText: async () => {} } },
   };
+  const appCalls = [];
+  if (phone) {
+    const answers = { 'app.hello': { bridge: 1, platform: 'ios', shell: { version: '0.8.0', build: '14' }, bundle: {}, features: ['auth', 'biometric', 'clipboard', 'open', 'settings'] },
+      'app.config': APP_CONFIG, 'app.ready': {}, 'auth.session': { signedIn: false }, 'auth.store': { biometric: { available: true, kind: 'faceID', enabled: false } },
+      'biometric.status': { available: true, kind: 'faceID', enabled: false },
+      ...phone };
+    window.webkit = {
+      messageHandlers: {
+        cranium: {
+          postMessage(text) {
+            const message = JSON.parse(text);
+            appCalls.push(message);
+            const result = typeof answers[message.method] === 'function' ? answers[message.method](message.params) : answers[message.method];
+            queueMicrotask(() => {
+              const detail = JSON.stringify(result === undefined
+                ? { id: message.id, ok: false, error: { code: 'unknown_method', message: 'No such method.' } }
+                : { id: message.id, ok: true, result });
+              for (const listener of [...listeners.get('cranium-native') ?? []]) listener({ type: 'cranium-native', detail });
+            });
+          },
+        },
+      },
+    };
+  }
   for (const [name, value] of Object.entries({ document, window, location, navigator: window.navigator })) {
     Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   }
   copies += 1;
   await import(customerScript('customer.js', {
-    'core.js': CORE, 'views.js': VIEWS, 'customer-core.js': SITE_CORE, 'customer-views.js': SITE_VIEWS,
+    'core.js': CORE, 'views.js': VIEWS, 'customer-core.js': SITE_CORE, 'customer-views.js': SITE_VIEWS, 'bridge.js': BRIDGE,
   }, `tab ${copies}`));
   await settle();
   const app = document.getElementById('app');
   return {
-    document, location, stored, requests, navigations, accounts, app,
+    document, location, stored, requests, addresses, appCalls, navigations, accounts, app,
     landing: document.getElementById('landing'),
     text: () => textOf(app),
     go(to) {
@@ -693,4 +738,33 @@ test('signing out ends the session in the tab and takes it home', async (t) => {
   await settle();
   assert.deepEqual(tab.navigations, [HOME]);
   assert.equal(tab.stored.has('customer:cranium.session'), false);
+});
+
+test('in the phone app the site opens on its sign-in, and the customer\'s refresh token goes to the app, never into the tab', async (t) => {
+  const tab = await openSite(t, { app: {} });
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
+  assert.equal(tab.landing.hidden, true, 'no home page in the app');
+  assert.deepEqual(tab.appCalls.slice(0, 2).map((message) => message.method), ['app.hello', 'app.config']);
+  assert.deepEqual(tab.appCalls.filter((message) => message.method === 'auth.session').map((message) => message.params.pool).sort(),
+    ['admin', 'customer']);
+  assert.ok(tab.appCalls.some((message) => message.method === 'app.ready'));
+
+  await tab.type('signin-email', 'ada@example.invalid');
+  tab.document.getElementById('signin-password').value = 'her own password';
+  tab.submit();
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  const stored = tab.appCalls.filter((message) => message.method === 'auth.store');
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].params.pool, 'customer');
+  assert.match(stored[0].params.refreshToken, /\S{10,}/);
+  // Nothing in the tab's storage, no revocation of the token the app keeps, and the API at its own address.
+  assert.equal(tab.stored.size, 0);
+  assert.equal(tab.requests.some((line) => line.includes('RevokeToken')), false);
+  assert.ok(tab.addresses.includes(`${APP_CUSTOMER_API}/api/c/boards`));
+  assert.ok(tab.addresses.every((address) => !address.startsWith('/')), 'nothing at the page\'s own origin');
+  // The account page has the phone's own card.
+  tab.go('#/account');
+  await until(() => /On this phone/.test(tab.text()), 'the account page');
+  assert.match(tab.text(), /iPhone app 0\.8\.0 \(14\)/);
+  assert.match(tab.text(), /Unlock with Face ID/);
 });

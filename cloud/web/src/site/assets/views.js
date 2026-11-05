@@ -1247,6 +1247,8 @@ const SECTIONS = [
   ['events', 'Events'],
   ['firmware', 'Firmware'],
   ['deployments', 'Deployments'],
+  // An update over Bluetooth: in the phone app, for release managers (bluetooth.js).
+  ['bluetooth', 'Bluetooth'],
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
   ['fleet', 'Fleet'],
   ['activity', 'Activity'],
@@ -1269,7 +1271,11 @@ function sectionHref(view, ctx) {
 
 export function navView(ctx) {
   const current = SECTION_OF[ctx.state.route.view] ?? ctx.state.route.view;
-  const shown = SECTIONS.filter(([view]) => view !== 'customers' || ctx.state.me?.canWrite === true);
+  const shown = SECTIONS.filter(([view]) => {
+    if (view === 'customers') return ctx.state.me?.canWrite === true;
+    if (view === 'bluetooth') return ctx.state.app?.ble === true && ctx.state.me?.canWrite === true;
+    return true;
+  });
   return h('ul', { class: 'nav-list' }, shown.map(([view, label]) =>
     h('li', { key: view }, h('a', {
       class: 'nav-link',
@@ -1301,6 +1307,8 @@ export function footView(ctx) {
     h('p', { class: 'foot-version' },
       own.version ? ['Console ', h('span', { class: 'mono' }, own.version)] : 'Console version not known',
       own.commit ? h('span', { class: 'foot-commit quiet', title: `Built from commit ${own.commit}` }, ` · ${own.commit.slice(0, 7)}`) : null),
+    // In the phone app: which app, and where its pages came from.
+    ctx.state.app?.words ? h('p', { class: 'foot-version quiet' }, ctx.state.app.words) : null,
     h('p', { class: 'foot-links' },
       h('a', { href: '#/history' }, 'What\u2019s new'),
       h('a', { href: '#/apps' }, 'Phone apps')));
@@ -1337,9 +1345,11 @@ export function accountView(ctx) {
   const { me, sessionLeft } = ctx.state;
   const left = Math.max(0, sessionLeft);
   const ends = new Date(Date.now() + left * 1000);
-  const session = left > 0
+  let session = left > 0
     ? { title: `You will be asked to sign in again at ${ends.toLocaleTimeString()}.`, text: `Session ends in ${duration(left)}` }
     : { title: 'Sign in again to go on.', text: 'Session ended' };
+  // In the phone app the app keeps the sign-in and renews it (bridge.js).
+  if (ctx.state.app) session = { title: 'The app keeps this sign-in and renews it.', text: 'Signed in on this phone' };
   const role = me.canWrite ? 'Release manager' : 'Viewer';
   // The account id is what the activity log files this person's actions under.
   const identity = [me.email, me.sub ? `Account ${me.sub}` : ''].filter(Boolean).join(' · ');
@@ -1355,6 +1365,8 @@ export function accountView(ctx) {
     ctx.state.customerSite
       ? h('a', { class: 'btn is-small is-quiet', href: ctx.state.customerSite }, icon('arrow-left'), 'Leave admin mode')
       : null,
+    // The phone app's own settings: its versions, an update of its pages, the classic app.
+    ctx.state.app?.settings ? button('is-small is-quiet', ctx.actions.appSettings, icon('more'), 'App') : null,
     button('is-small', ctx.actions.signOut, icon('sign-out'), 'Sign out'));
 }
 

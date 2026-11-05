@@ -20,7 +20,7 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, FLEET, MAP } from './page.mjs';
+import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, MAP } from './page.mjs';
 import {
   INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
   execution, release, repliesFor, revoked,
@@ -29,7 +29,7 @@ import {
 // The scripts app.js fetches when it needs them (fleet.js once it has started, the others with their
 // pages): read here first, each arrives at once, as from a browser's cache, and not part way through
 // a test's clock.
-await Promise.all([FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY].map((address) => import(address)));
+await Promise.all([FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY, BRIDGE, BLUETOOTH].map((address) => import(address)));
 
 // The real timer, kept for waiting on work that is not on the test's clock (hashing).
 const realTimeout = globalThis.setTimeout;
@@ -101,12 +101,14 @@ function navigatorSerial() {
  *                                        default nothing, as in a browser without one
  * @param {object[]} [options.users]      the accounts of Cognito's user pool API (cognito.mjs)
  * @param {Function} [options.fail]       an error for Cognito to answer a call with, by name
+ * @param {object} [options.app]          the tab is the phone app's (bridge.js): a stand-in for the iPhone
+ *                                        app's bridge, with answers by method that replace APP_ANSWERS'
  */
 async function openTab(t, options = {}) {
   const {
     world = WORLD, viewer = false, hash = '#/overview', search = '', session = 3600, stored = {},
     touch = false, answer = () => null, upload = () => ({ status: 500, body: {} }), BroadcastChannel,
-    users = [PERSON], fail,
+    users = [PERSON], fail, app = null,
   } = options;
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const cognito = createCognito({ userPoolId: CONFIG.userPoolId, clientId: CONFIG.clientId, users, fail });
@@ -157,11 +159,13 @@ async function openTab(t, options = {}) {
     },
   };
 
-  async function fetch(url, init = {}) {
+  async function fetch(address, init = {}) {
+    // In the app the API is at the console's address; the table of replies goes by path.
+    const url = app && address.startsWith(APP_API) ? address.slice(APP_API.length) : address;
     const method = init.method ?? 'GET';
     const json = typeof init.body === 'string' && init.body.startsWith('{');
     const body = json ? JSON.parse(init.body) : init.body;
-    requests.push({ method, url, body, token: init.headers?.authorization ?? null });
+    requests.push({ method, url, body, token: init.headers?.authorization ?? null, ...(app ? { address } : {}) });
     headersSent.push(init.headers ?? {});
     const special = answer(method, url, body);
     if (special) return special;
@@ -215,6 +219,31 @@ async function openTab(t, options = {}) {
     XMLHttpRequest: Upload,
     BroadcastChannel,
   };
+  // The phone app: what the page asks of it, answered a moment later as the app does, by an event.
+  const appCalls = [];
+  if (app) {
+    const answers = { ...APP_ANSWERS, ...app };
+    window.webkit = {
+      messageHandlers: {
+        cranium: {
+          postMessage(text) {
+            const message = JSON.parse(text);
+            appCalls.push(message);
+            const reply = answers[message.method];
+            queueMicrotask(() => {
+              const result = typeof reply === 'function' ? reply(message.params) : reply;
+              let detail;
+              if (result === undefined) detail = { id: message.id, ok: false, error: { code: 'unknown_method', message: 'No such method.' } };
+              else if (result.refuse) detail = { id: message.id, ok: false, error: { code: result.refuse, message: 'Refused.' } };
+              else detail = { id: message.id, ok: true, result };
+              detail = JSON.stringify(detail);
+              for (const listener of [...listeners.get('cranium-native') ?? []]) listener({ type: 'cranium-native', detail });
+            });
+          },
+        },
+      },
+    };
+  }
   const navigator = { clipboard: { writeText: async () => {} } };
   for (const [name, value] of Object.entries({ document, window, location, history, navigator })) {
     Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
@@ -224,7 +253,7 @@ async function openTab(t, options = {}) {
   copies += 1;
   await import(scriptAddress('app.js', {
     'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY, 'telemetry.js': TELEMETRY,
-    'map.js': MAP, 'account.js': ACCOUNT, 'fleet.js': FLEET,
+    'map.js': MAP, 'account.js': ACCOUNT, 'fleet.js': FLEET, 'bridge.js': BRIDGE, 'bluetooth.js': BLUETOOTH,
   }, `tab ${copies}`));
   await settle();
 
@@ -233,6 +262,7 @@ async function openTab(t, options = {}) {
     document,
     location,
     cognito,
+    appCalls,
     requests,
     headersSent,
     navigations,
@@ -283,6 +313,24 @@ async function openTab(t, options = {}) {
 }
 
 const sentTo = (tab, url) => tab.requests.filter((request) => request.url === url);
+
+// The phone app's side (bridge.js, apps/shared/bridge.json): an iPhone app with everything, signed in as the
+// release manager of the world, with the console's API at its own address.
+const APP_API = 'https://console.example';
+const APP_ANSWERS = {
+  'app.hello': {
+    bridge: 1, platform: 'ios', shell: { version: '0.8.0', build: '14' }, bundle: { id: '0123456789abcdef', console: '2.1.1', source: 'downloaded' },
+    features: ['auth', 'biometric', 'ble', 'clipboard', 'haptics', 'share', 'open', 'keepAwake', 'settings'],
+  },
+  'app.config': {
+    consoleUrl: APP_API, region: 'xx-test-1', userPoolId: CONFIG.userPoolId, mobileClientId: 'phoneclient0',
+    customerApiUrl: null, customerRegion: null, customerUserPoolId: null, customerClientId: null, example: false,
+  },
+  'app.ready': {},
+  'auth.session': { signedIn: true, accessToken: 'APP-TOKEN', expiresIn: 3600 },
+  'ble.state': { state: 'on' },
+  'clipboard.write': {},
+};
 const WRITES = new Set([
   'Deploy', 'Revoke', 'Finish revoking', 'Apply the revocation again', 'New deployment',
   'Cancel deployment', 'Upload for verification',
@@ -2129,4 +2177,50 @@ test('a release manager asks for the e-mail alerts and is told to confirm them',
   assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => request.url), ['/api/alerts/subscribe']);
   assert.ok(tab.toasts().some((text) => /AWS Notifications is sending you an e-mail with a link/.test(text)));
   assert.match(textOf(tab.main), /Waiting for you to confirm/);
+});
+
+// In the phone app (docs/mobile-apps.md, "The app shell").
+
+test('in the phone app the console takes its settings and its session from the app, and calls the API at the console\'s address', async (t) => {
+  const tab = await openTab(t, { session: null, app: {} });
+  await until(() => textOf(tab.main).includes('Overview'), 'the overview');
+  const asked = tab.appCalls.map((message) => message.method);
+  assert.deepEqual(asked.slice(0, 3), ['app.hello', 'app.config', 'auth.session']);
+  assert.deepEqual(tab.appCalls[2].params, { pool: 'admin' });
+  assert.ok(asked.includes('app.ready'), 'the app is told the pages started');
+  const me = tab.requests.find((request) => request.url === '/api/me');
+  assert.equal(me.address, `${APP_API}/api/me`);
+  assert.equal(me.token, 'Bearer APP-TOKEN');
+  // Every request of the API went to the console's address, none to the page's own origin.
+  assert.ok(tab.requests.filter((request) => request.url.startsWith('/api/')).every((request) => request.address.startsWith(APP_API)));
+  // Nothing of the session in the tab's storage: the app holds it.
+  assert.equal(tab.storage.size, 0);
+  // Bluetooth is in the masthead of a release manager in the app, and the app's own settings in the account box.
+  assert.ok(textOf(tab.nav).includes('Bluetooth'));
+  await tab.press(tab.account, 'button', 'App');
+  assert.ok(tab.appCalls.some((message) => message.method === 'app.settings'));
+  // The Bluetooth page, with the newest active release chosen and the way to open the board's window.
+  await tab.goto('#/bluetooth');
+  await until(() => textOf(tab.main).includes('Look for boards'), 'the Bluetooth page');
+  assert.ok(textOf(tab.main).includes('Update over Bluetooth'));
+});
+
+test('on the website, and for a viewer in the app, there is no Bluetooth page in the masthead', async (t) => {
+  const web = await openTab(t);
+  assert.equal(textOf(web.nav).includes('Bluetooth'), false);
+  assert.equal(web.appCalls.length, 0);
+});
+
+test('in the app, Face ID cancelled leaves the console locked with a way to unlock, and the sign-in kept', async (t) => {
+  const tab = await openTab(t, { session: null, app: { 'auth.session': { refuse: 'cancelled' } } });
+  await until(() => textOf(tab.main).includes('Cranium is locked'), 'the locked page');
+  assert.equal(tab.appCalls.some((message) => message.method === 'auth.signOut'), false, 'nothing is forgotten');
+  await tab.press(tab.main, 'button', 'Unlock');
+  assert.deepEqual(tab.navigations, ['reload']);
+});
+
+test('in the app, a saved sign-in the biometric can no longer open asks for the password and code, and says why', async (t) => {
+  const tab = await openTab(t, { session: null, app: { 'auth.session': { refuse: 'locked' } } });
+  await until(() => textOf(tab.main).includes('can no longer open the saved sign-in'), 'the sign-in page');
+  assert.ok(tab.document.getElementById('signin-email'));
 });

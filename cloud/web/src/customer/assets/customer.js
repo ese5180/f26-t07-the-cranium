@@ -13,6 +13,10 @@
  *
  * The home page for people who are not signed in is HTML in the page itself; everything else is
  * drawn here into #app from the state, with views.js's render().
+ *
+ * In the phone app (bridge.js, docs/mobile-apps.md "The app shell") the settings come from the app, each
+ * session is kept in memory with the app holding its refresh token, the two APIs are at their own
+ * addresses, and a person who is not signed in starts on the sign-in page rather than the home page.
  */
 
 import {
@@ -36,7 +40,11 @@ const app = document.getElementById('app');
 const toasts = document.getElementById('toasts');
 const announcer = document.getElementById('announcer');
 
-const site = readSiteConfig(document.querySelector('meta[name="cranium-config"]')?.content);
+// The website's settings; in the app, the app's (setUp, below).
+let site = readSiteConfig(document.querySelector('meta[name="cranium-config"]')?.content);
+// The phone app's bridge, in the app only; bridge.js itself is fetched only there.
+let bridgeScript = null;
+let appBridge = null;
 
 function resource() {
   return { value: null, error: null, loadedAt: 0, loading: false };
@@ -63,6 +71,8 @@ const state = {
   signIn: null,
   forgot: { step: 'email', email: '', digits: emptyCode(), busy: false, problem: null },
   sessionLeft: 0,
+  // In the phone app: which app, and the biometric of the customer's sign-in on this phone. Null on the website.
+  app: null,
 };
 
 // The two sign-ins and their tabs' channels.
@@ -82,27 +92,44 @@ const consoleChannel = channel(SESSION_CHANNEL);
 const common = {
   location: window.location, history: window.history, fetch: window.fetch.bind(window), crypto: window.crypto,
 };
-const customerAuth = site && createAuth({
-  ...common,
-  config: authConfig(site, 'customer'),
-  storage: namespaced(window.sessionStorage, CUSTOMER_PREFIX),
-  newPasswordHere: true,
-  tellOtherTabs: () => customerChannel?.postMessage(SIGNED_OUT_SIGNAL),
-});
-// The console's own keys, unprefixed: what the console under /admin reads. Clearing them clears them only.
-const adminAuth = site && createAuth({
-  ...common,
-  config: authConfig(site, 'admin'),
-  storage: namespaced(window.sessionStorage, ''),
-  tellOtherTabs: () => consoleChannel?.postMessage(SIGNED_OUT_SIGNAL),
-});
+let customerAuth = null;
+let adminAuth = null;
+let api = null;
+let account = null;
+// Where the console's API is: this origin on the website, the console's address in the app.
+let consoleApi = '';
 
-const api = site && createCustomerApi({
-  auth: customerAuth,
-  fetch: common.fetch,
-  onUnauthorized: () => customerEnded('Your session has ended. Sign in again to carry on.'),
-});
-const account = site && createAccount({ fetch: common.fetch, site, accessToken: () => customerAuth.accessToken() });
+/**
+ * The two sign-ins and the customer API, for the site's settings. On the website each session is kept in
+ * this tab's sessionStorage, the admin's under the console's own keys, which the console under /admin
+ * reads. In the app each is kept in memory, and the app keeps the refresh tokens (`vaults`); the console
+ * under /admin asks the app for the admin's.
+ */
+function setUp({ storage, vaults = null, customerBase = '' }) {
+  customerAuth = createAuth({
+    ...common,
+    config: authConfig(site, 'customer'),
+    storage: storage(CUSTOMER_PREFIX),
+    newPasswordHere: true,
+    tellOtherTabs: () => customerChannel?.postMessage(SIGNED_OUT_SIGNAL),
+    vault: vaults?.customer ?? null,
+  });
+  // The console's own keys, unprefixed: what the console under /admin reads. Clearing them clears them only.
+  adminAuth = createAuth({
+    ...common,
+    config: authConfig(site, 'admin'),
+    storage: storage(''),
+    tellOtherTabs: () => consoleChannel?.postMessage(SIGNED_OUT_SIGNAL),
+    vault: vaults?.admin ?? null,
+  });
+  api = createCustomerApi({
+    auth: customerAuth,
+    fetch: common.fetch,
+    onUnauthorized: () => customerEnded('Your session has ended. Sign in again to carry on.'),
+    base: customerBase,
+  });
+  account = createAccount({ fetch: common.fetch, site, accessToken: () => customerAuth.accessToken() });
+}
 
 // Drawing.
 
@@ -177,11 +204,17 @@ function follow() {
       go({ view: 'overview' });
       return;
     }
+    // The app is not a place to be told what Cranium is: it opens on the sign-in.
+    if (appBridge) {
+      go({ view: 'sign-in' });
+      return;
+    }
     state.route = { view: 'landing' };
     draw();
     return;
   }
   if (route.view === 'landing' && signedIn) return go({ view: 'overview' });
+  if (route.view === 'landing' && appBridge) return go({ view: 'sign-in' });
   if (!PUBLIC_VIEWS.includes(route.view) && !signedIn) {
     state.after = route;
     return go({ view: 'sign-in' });
@@ -247,6 +280,7 @@ async function refresh(full) {
     if (view === 'account' && (full || state.account.profile.value === null)) jobs.push(load(state.account.profile, readProfile));
   }
   if (state.admin && state.staff.value === null) jobs.push(load(state.staff, staffMe));
+  if (view === 'account' && full && state.app) jobs.push(readBiometric());
   if (jobs.length === 0) return;
   draw();
   await Promise.all(jobs);
@@ -262,7 +296,7 @@ async function staffMe() {
   if (token === null) throw new Error('The admin session has ended.');
   let response;
   try {
-    response = await common.fetch('/api/me', {
+    response = await common.fetch(`${consoleApi}/api/me`, {
       headers: { authorization: `Bearer ${token}`, accept: 'application/json' }, cache: 'no-store', credentials: 'omit',
     });
   } catch {
@@ -316,7 +350,20 @@ function adminEnded() {
   draw();
 }
 
+let renewing = false;
+
 function checkSessions() {
+  // In the app, the app renews a session that is about to end; it is over only if the app cannot.
+  if (appBridge && !renewing) {
+    const due = [[state.customer, customerAuth], [state.admin, adminAuth]].filter(([on, auth]) => on && auth.inApp && auth.needsRenewal());
+    if (due.length > 0) {
+      renewing = true;
+      Promise.all(due.map(([, auth]) => auth.renew())).finally(() => {
+        renewing = false;
+      });
+      return;
+    }
+  }
   if (state.customer && customerAuth.accessToken() === null) customerEnded('Your session has ended. Sign in again to carry on.');
   if (state.admin && adminAuth.accessToken() === null) adminEnded();
   if (state.customer) state.sessionLeft = customerAuth.secondsLeft();
@@ -617,7 +664,9 @@ const authenticatorControls = {
   },
   async copy() {
     try {
-      await window.navigator.clipboard.writeText(state.account.authenticator.secret);
+      const { secret } = state.account.authenticator;
+      if (appBridge?.has('clipboard')) await appBridge.call('clipboard.write', { text: secret, expiresIn: 600 });
+      else await window.navigator.clipboard.writeText(secret);
       toast('The setup key is copied.');
     } catch {
       toast('It could not be copied. Select the key and copy it by hand.');
@@ -638,15 +687,83 @@ function context() {
       },
     },
     site,
-    actions: { refresh: () => refresh(true), signOut },
+    actions: { refresh: () => refresh(true), signOut, ...appActions },
     now: Date.now(),
   };
 }
 
+// The phone app's own controls on the Account page: the biometric of this sign-in, and the app's settings.
+const appActions = {
+  appSettings: () => appBridge?.call('app.settings').catch(() => toast('The app could not show its settings.')),
+  async setBiometric(enabled) {
+    if (!appBridge?.has('biometric')) return;
+    try {
+      const answer = await appBridge.call('biometric.set', { pool: 'customer', enabled });
+      state.app = { ...state.app, biometric: { ...state.app.biometric, enabled: answer.enabled === true } };
+    } catch (error) {
+      if (error?.code !== 'cancelled') toast(error?.message ?? 'The app could not change that.');
+    }
+    draw();
+  },
+};
+
+/** The biometric of the customer's sign-in on this phone, for the Account page. */
+async function readBiometric() {
+  if (!appBridge?.has('biometric') || !state.customer) return;
+  try {
+    const answer = await appBridge.call('biometric.status', { pool: 'customer' });
+    const kinds = { faceID: 'Face ID', touchID: 'Touch ID', fingerprint: 'fingerprint' };
+    state.app = {
+      ...state.app,
+      biometric: { available: answer.available === true, enabled: answer.enabled === true, name: kinds[answer.kind] ?? null },
+    };
+    draw();
+  } catch {
+    // The page goes without the switch.
+  }
+}
+
 // Starting.
 
+/** In the app: the settings and the sessions from the app. False when the app has no customer side to show. */
+async function fromApp() {
+  try {
+    const inApp = Boolean(window.webkit?.messageHandlers?.cranium || window.craniumNative);
+    bridgeScript = inApp ? await import('./bridge.js') : null;
+    appBridge = bridgeScript ? await bridgeScript.connectBridge(window) : null;
+  } catch (error) {
+    console.error(error);
+    site = null;
+    return true;
+  }
+  if (!appBridge) return true;
+  const config = bridgeScript.readAppConfig(await appBridge.call('app.config').catch(() => null));
+  site = config ? bridgeScript.appSiteConfig(config, window.location.origin) : null;
+  // A build of the app without the customer pool: admin mode is all there is.
+  if (config && !site) {
+    window.location.replace('/admin');
+    return false;
+  }
+  state.app = { words: bridgeScript.appWords(appBridge.hello), biometric: null };
+  appBridge.on('auth.locked', () => window.location.reload());
+  appBridge.on('app.bundleReady', () => toast('The app has new pages from Cranium. They show the next time it opens.'));
+  return true;
+}
+
 async function start() {
+  if (!(await fromApp())) return;
   if (!site) return;
+  if (appBridge) {
+    consoleApi = site.consoleApi;
+    const vault = appBridge.has('auth');
+    setUp({
+      storage: () => bridgeScript.memoryStorage(),
+      vaults: vault ? { customer: bridgeScript.createVault(appBridge, 'customer'), admin: bridgeScript.createVault(appBridge, 'admin') } : null,
+      customerBase: site.customerApi,
+    });
+  } else {
+    setUp({ storage: (prefix) => namespaced(window.sessionStorage, prefix) });
+  }
   const [mine, theirs] = await Promise.all([customerAuth.resume(), adminAuth.resume()]);
   state.customer = mine.status === 'signed-in';
   state.admin = theirs.status === 'signed-in';
@@ -670,6 +787,8 @@ async function start() {
     (document.getElementById('content') ?? document.getElementById('page-title') ?? document.getElementById('landing-main'))?.focus();
   });
   follow();
+  // The pages have started: the app keeps this bundle as a good one.
+  appBridge?.call('app.ready').catch(() => {});
 }
 
 start();

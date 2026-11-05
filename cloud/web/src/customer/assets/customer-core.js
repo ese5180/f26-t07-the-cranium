@@ -177,8 +177,10 @@ const list = (value, read) => (Array.isArray(value) ? value.map(read).filter((it
  * @param {object} options.auth            the customer's createAuth
  * @param {Function} options.fetch
  * @param {Function} options.onUnauthorized called when the API turns the session away
+ * @param {string} [options.base]          where the customer API is: the page's own origin on the website,
+ *                                         the customer API's address in the app (bridge.js)
  */
-export function createCustomerApi({ auth, fetch, onUnauthorized }) {
+export function createCustomerApi({ auth, fetch, onUnauthorized, base = '' }) {
   async function get(path) {
     const token = auth.accessToken();
     if (token === null) {
@@ -187,7 +189,7 @@ export function createCustomerApi({ auth, fetch, onUnauthorized }) {
     }
     let response;
     try {
-      response = await fetch(path, {
+      response = await fetch(`${base}${path}`, {
         method: 'GET',
         headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
         cache: 'no-store',
