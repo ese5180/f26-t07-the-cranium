@@ -1,9 +1,11 @@
 # Phone apps: updating a board over Bluetooth
 
 Two apps, one for iPhone (`apps/ios`, Swift; installed with a free Apple team, see
-[`apps/ios/README.md`](../apps/ios/README.md)) and one for Android (`apps/android`, Kotlin). Both do
-everything the console's website does, and one thing more: a release manager picks a firmware release
-that is on AWS and sends it to a board over Bluetooth LE. Nothing else about the board changes for
+[`apps/ios/README.md`](../apps/ios/README.md)) and one for Android (`apps/android`, Kotlin). From version
+0.6.0 each has two sides, as the customer website has ([docs/customer-site.md](customer-site.md)): a
+customer's, who signs in to see their own boards ([Customers](#customers), below), and **admin mode** for the
+team, which is everything the console's website does, and one thing more: a release manager picks a firmware
+release that is on AWS and sends it to a board over Bluetooth LE. Nothing else about the board changes for
 that: MCUboot still checks the signature, the board asks for a press of Button 1 to install an image
 that came over Bluetooth (an update over Wi-Fi needs no button from 1.7.2 on), and the new image
 still runs on trial.
@@ -32,13 +34,17 @@ This file is the contract both apps follow. The board's side is in
 
 ## Configuration
 
-The apps need six values from the deployed stack. They are not in git: the repository is public,
+The apps need ten values from the deployed stack. They are not in git: the repository is public,
 and they name the AWS account. `apps/configure.sh` writes them from `cloud/.deploy/outputs.json`
 into `apps/config/cranium.json`, which git ignores, and each app reads that file at build time.
 
 ```json
 {
   "consoleUrl": "https://console.example.com",
+  "customerApiUrl": "https://example.com",
+  "customerClientId": "yyyyyyyyyyyyyyyyyyyyyyyyyy",
+  "customerRegion": "us-east-1",
+  "customerUserPoolId": "us-east-1_yyyyyyyyy",
   "loginDomain": "https://login.example.com",
   "mobileClientId": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
   "redirectUri": "cranium://signin",
@@ -46,6 +52,14 @@ into `apps/config/cranium.json`, which git ignores, and each app reads that file
   "userPoolId": "us-east-1_xxxxxxxxx"
 }
 ```
+
+The four `customer…` keys are the customer side's ([Customers](#customers)): the customer pool
+(`CustomerUserPoolId`), the phone apps' client of it (`CustomerMobileClientId`, console 2.0.1), its Region,
+and where the customer API is, which is the console's API under `/api/c/`: on the customer site's name
+(`CustomerUrl`) once it has one, else on the console's. They come all four or none: a stack from before
+console 2.0.1 gets a file without them (`configure.sh` says so), and an app built from it signs in admins
+only, and says on its customer sign-in that this build has no customer sign-in. Some of them without the
+others, or one that does not look right, stops the build, naming the key and never its value.
 
 `apps/config/cranium.example.json` has this shape with made-up values, for building without a stack.
 
@@ -127,6 +141,69 @@ Nothing biometric reaches the console: the phone only decides whether to release
 a refresh keeps the first sign-in's `auth_time`. Three failed biometric attempts, or Cancel, offer the password
 and code. The setting is per phone and per person, and is in the Account screen, with the phone's own name for it
 (Face ID, or Touch ID on the iPhones that have it; fingerprint on Android).
+
+## Customers
+
+The customer side of the apps is the customer website ([docs/customer-site.md](customer-site.md)) on a phone:
+the same sections, the same words, the same API and the same customer accounts. What a customer sees:
+
+| Tab | What |
+| --- | --- |
+| Overview | "Hello, {name}.", how many boards are online, four figures (online now, boards, firmware, last heard from), the boards, what they did in the last week (`GET /api/c/activity`, the newest 8), and a card on the mixes to come |
+| Devices | The boards (`GET /api/c/boards`), each with its state, firmware, last report and update; one board (`GET /api/c/boards/{id}`): state, firmware and whether it is on trial, last heard from, the update in plain words, Wi-Fi signal, how long it has run, location ("Not reported: boards cannot tell where they are yet."), since when it is the customer's, and the last 30 days of what it did |
+| Mixes | Sessions, Transitions, Track library, Saved moments: each **Not built yet**, and why (boards do not report what is played) |
+| Account | E-mail and name, a password change, two-step sign-in on or off (the setup key in groups of four, Copy the key, and an `otpauth://` link that opens an authenticator app on the phone, then the first code in six boxes), Face ID or a fingerprint, and Sign out |
+| Help | The website's questions and answers, and that there is no support address yet |
+
+Overview, Devices and a board are read again every 30 seconds while they are on screen, and on a pull. A
+board is only ever named by the id of its assignment (16 hex digits), as the API gives it, never by a thing
+name; an id of any other shape is not asked for, and another customer's board answers 404 (`not_your_board`):
+"There is no board of yours here."
+
+**Signing in.** A customer signs in on the app's own screen, to the customer pool with the phone apps' client
+of it (`CustomerMobileUserPoolClient`), through the user pool API exactly as an admin does
+([Signing in](#signing-in)): `USER_SRP_AUTH`, `PASSWORD_VERIFIER`, and `SOFTWARE_TOKEN_MFA` in six boxes if the
+customer turned two-step sign-in on. At the first sign-in Cognito asks for a new password
+(`NEW_PASSWORD_REQUIRED`), which the screen asks for and sends (`RespondToAuthChallenge` with `NEW_PASSWORD`),
+as the website's does; any other step says "Your account needs a new password first" and leads to **Forgot your
+password?**: `ForgotPassword`, then `ConfirmForgotPassword` with the code Cognito e-mails and a new password of at
+least 10 characters. The customer pool has no managed login pages, so there is no AWS sign-in page here: the
+customer's tokens are refreshed with `InitiateAuth` `REFRESH_TOKEN_AUTH` and revoked at sign-out with
+`RevokeToken`. The account's own calls (`GetUser`, `ChangePassword`, `AssociateSoftwareToken`,
+`VerifySoftwareToken`, `SetUserMFAPreference`) carry the customer's access token, whose
+`aws.cognito.signin.user.admin` scope they need, as the customer API's route does.
+
+| | Customer | Admin |
+| --- | --- | --- |
+| Pool and client | `CustomerUserPool`, `CustomerMobileUserPoolClient` | `UserPool`, `MobileUserPoolClient` |
+| Sign-in screen | Sign in, with "Forgot your password?" and "Admin sign-in" | Admin sign-in, as before, with "Use the AWS sign-in page" and "Customer sign-in" |
+| Code | Only if the customer turned it on | Always |
+| API | `GET {customerApiUrl}/api/c/...` only | `{consoleUrl}/api/...`, as before |
+| Kept on iPhone | Keychain items of the service `com.craniumiot.cranium.customer`; Face ID's item under the same service, its setting `cranium.customer.biometric.settings` | `com.craniumiot.cranium.console`, `cranium.biometric.settings`, as before |
+| Kept on Android | `cranium_customer_tokens` with the master key `cranium_customer_master_key`; the fingerprint key `cranium_customer_refresh_token_fingerprint_v1` | `cranium_tokens`, the default master key, `cranium_refresh_token_fingerprint_v1`, as before |
+
+So the two sessions never share a key, as on the website: a customer's token is never sent to the console's
+API, nor an admin's to the customer API (and each would be refused: the gateway's authorizers name each
+other's pool and clients only), and signing one out leaves the other as it was. An app updated from 0.5 keeps
+its admin's sign-in, under the names it had.
+
+**Face ID and the fingerprint** work for whichever account is kept, by the rules above
+([Unlocking](#unlocking-with-face-id-iphone-or-a-fingerprint-android)): without them the refresh token is
+forgotten an hour after the sign-in; with them, up to 30 days, the customer phone client's refresh token
+lifetime. Each side has its own lock, asked when that side is on screen. Offered once after a full sign-in, in
+the customer's words ("instead of your password": a customer may have no code).
+
+**Admin mode.** The team signs in with **Admin sign-in**, as before (staff pool, phone client, password and
+code), and the app opens admin mode: the whole app as it was. **Leave admin mode** (under More on the iPhone,
+under More and Account on Android) goes back to the customer side, the admin still signed in. There, an admin
+who is not also signed in as a customer sees the website's admin overview ("Signed in as an admin.", **Open admin
+mode**, "What customers see"), Mixes and Help, and can sign a customer in too; a customer side with an admin
+signed in as well has **Admin mode** in its top bar and on Account. The app opens on the customer side when a
+customer is signed in, else in admin mode when an admin is, else on the customer sign-in. Sign out on the
+customer side signs out both, as the website's does; Sign out in admin mode signs the admin out only.
+
+**What a phone cannot do that the site can:** nothing, for a customer. Admins still invite customers and give
+them boards on the console's website only: the Customers routes refuse a phone's token (`phone_not_allowed`).
 
 ## The API
 
@@ -313,7 +390,7 @@ than API Gateway takes, so it goes to S3 directly:
 | The file | `PUT` to that URL with those headers: `curl --upload-file`. S3 refuses other bytes (400 `BadDigest`) and another size (403) |
 | The check | `POST /api/t/apps/android/releases/0.4.0`, the same body without `version`. 201 `{"release"}` once S3's size and SHA-256 of what arrived are the ones described |
 | A download | `GET /api/apps/android/0.4.0/download` (`?via=qr` for the QR code), any member: `{"download": {"url", "expiresAt", "filename", "size", "sha256"}}` |
-| The configuration | `GET /api/apps/config`, any member: `apps/config/cranium.json` as above |
+| The configuration | `GET /api/apps/config`, any member: `apps/config/cranium.json` as above, with the four customer keys once the stack has the phone apps' client of the customer pool |
 
 A version is published once and only upward, by its version and its `versionCode`. `publish.sh` exits 0 when it has
 published the APK or the console has that version with the same bytes, 1 when it was refused (with the console's or
