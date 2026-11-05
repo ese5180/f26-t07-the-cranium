@@ -3,6 +3,7 @@ import CraniumKit
 import Foundation
 #if canImport(UIKit)
 import UIKit
+import UniformTypeIdentifiers
 #endif
 
 /// An update over Bluetooth: pick a release, open the board's window, pair, send, press the
@@ -212,6 +213,7 @@ final class BluetoothModel: ObservableObject {
             while !Task.isCancelled, Date().timeIntervalSince(started) < 90 {
                 guard let self, let api = self.app.api else { return }
                 if let pairing = try? await api.pairing(name: name) {
+                    if self.passkey != pairing.passkey { BluetoothModel.offerToPaste(pairing.passkey) }
                     self.passkey = pairing.passkey
                     self.thing = pairing.thing
                     self.consoleThing = BoardName.isThing(pairing.thing) ? pairing.thing : nil
@@ -222,6 +224,15 @@ final class BluetoothModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
+    }
+
+    /// The phone's pairing box covers the middle of the screen, and the passkey with it: so each new
+    /// passkey also goes on the clipboard, for this phone only and for 2 minutes, to paste into the box.
+    static func offerToPaste(_ passkey: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: passkey]],
+                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+        #endif
     }
 
     /// The board's device ID, where the console knows the board that is pairing.

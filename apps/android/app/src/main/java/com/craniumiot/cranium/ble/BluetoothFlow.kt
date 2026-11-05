@@ -389,6 +389,7 @@ class BluetoothFlow(
                     if (pairing != null) {
                         thing = pairing.thing
                         val shown = pairing.thing.takeIf { BoardBluetooth.isThing(it) }
+                        if (state.value.board?.passkey != pairing.passkey) offerToPaste(pairing.passkey)
                         updateBoard { it.copy(passkey = pairing.passkey, passkeyNote = null, consoleThing = shown) }
                     } else {
                         updateBoard { it.copy(passkey = null, passkeyNote = Messages.PASSKEY_NOT_IN_CLOUD, consoleThing = null) }
@@ -484,6 +485,21 @@ class BluetoothFlow(
     private fun backToReady(message: String) {
         updateBoard { it.copy(phase = BoardPhase.READY) }
         _state.update { it.copy(notice = BtNotice(message)) }
+    }
+
+    /**
+     * The phone's pairing dialog covers the passkey on the screen: each new one also goes on the
+     * clipboard, marked sensitive so Android hides it in its clipboard preview, to paste into the dialog.
+     */
+    private fun offerToPaste(passkey: String) {
+        val clipboard = app.getSystemService(android.content.ClipboardManager::class.java) ?: return
+        val clip = android.content.ClipData.newPlainText("Board passkey", passkey)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras = android.os.PersistableBundle().apply {
+                putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        clipboard.setPrimaryClip(clip)
     }
 
     private fun updateBoard(change: (BoardUi) -> BoardUi) {

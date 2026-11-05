@@ -104,7 +104,11 @@ fun BluetoothScreen(vm: ConsoleViewModel, store: Store) {
 
     ConsoleScreen(
         title = "Update over Bluetooth",
-        subtitle = if (state.step == BtStep.BOARD) board?.name else null,
+        // While pairing, the passkey sits at the top, above the phone's pairing dialog.
+        subtitle = if (state.step == BtStep.BOARD) {
+            board?.takeIf { it.phase == BoardPhase.CONNECTING || it.phase == BoardPhase.READING }?.passkey
+                ?.let { "Passkey ${it.chunked(3).joinToString(" ")} · on the clipboard" } ?: board?.name
+        } else null,
         help = "bluetooth",
         actions = actions,
         primary = primary,
@@ -221,7 +225,7 @@ private fun LazyListScope.boardStep(flow: BluetoothFlow, state: BtState, store: 
                     InkPanel {
                         Eyebrow("Passkey")
                         Spacer(Modifier.height(8.dp))
-                        Text("When the phone asks to pair, type the 6 digits the board shows.", style = ConsoleType.body, color = console.ink)
+                        Text("When the phone asks to pair, paste the passkey: it is on the clipboard, and at the top of the screen.", style = ConsoleType.body, color = console.ink)
                         board.passkey?.let { passkey ->
                             Text(
                                 passkey.chunked(3).joinToString(" "),

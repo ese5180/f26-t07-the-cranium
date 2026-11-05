@@ -4,6 +4,11 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.6.2
+
+The passkey no longer hides behind the phone's pairing box. It goes on the clipboard as soon as the board gives it, for
+this phone only and for 2 minutes, to paste into the box, and the top of the screen says it while pairing.
+
 ## 0.6.1
 
 A release manager is no longer taken for a viewer. When one read of the account failed, for example just after Face ID

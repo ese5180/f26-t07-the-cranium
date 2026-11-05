@@ -11,6 +11,12 @@ struct BluetoothFlow: View {
     @ObservedObject var model: BluetoothModel
     let release: String?
 
+    /// While pairing, the top bar says the passkey: it stays above the phone's pairing box.
+    private var pairingTitle: String? {
+        guard model.stage == .board, case .pairing = model.boardStage, let passkey = model.passkey else { return nil }
+        return "Passkey \(passkey.prefix(3)) \(passkey.dropFirst(3))"
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -20,7 +26,7 @@ struct BluetoothFlow: View {
                 case .board: BluetoothBoard(model: model)
                 }
             }
-            .navigationTitle(title)
+            .navigationTitle(pairingTitle ?? title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -208,7 +214,8 @@ struct BluetoothBoard: View {
         } header: {
             Text("Passkey")
         } footer: {
-            Text("Type it into the phone's pairing prompt. A new one is drawn for each attempt.")
+            Text("It is on the clipboard and at the top of the screen: in the phone's pairing box, tap the field, "
+                 + "Paste, then Pair. A new one is drawn for each attempt.")
         }
         Section {
             StateRow(kind: .loading, text: "Pairing with \(model.boardName ?? "the board")…")
