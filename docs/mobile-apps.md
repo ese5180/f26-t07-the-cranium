@@ -10,8 +10,204 @@ that: MCUboot still checks the signature, the board asks for a press of Button 1
 that came over Bluetooth (an update over Wi-Fi needs no button from 1.7.2 on), and the new image
 still runs on trial.
 
+From 0.8.0 the screens of both apps are the console's and the customer site's own pages, kept on the phone and
+updated from the console without a reinstall, around a thin native shell: [The app shell](#the-app-shell). The 0.7
+screens stay for that one version, as Classic app.
+
 This file is the contract both apps follow. The board's side is in
 [`firmware/README.md`](../firmware/README.md#firmware-update-over-bluetooth).
+
+## The app shell
+
+From 0.8.0 each app is a thin native shell around the console's and the customer site's own pages. What a person sees
+is the website: the customer site, and the console as admin mode, with the same words, the same code and the same
+API calls. The pages come from a copy kept on the phone, which the app brings up to date from the console by itself,
+on any network. So a change to the website reaches every phone that has the app, with no reinstall, no cable and no
+Mac; on an iPhone with a free Apple ID that is the only way an update can reach a phone that is away from the Mac.
+What a page cannot do itself (keep the sign-in behind Face ID or a fingerprint, Bluetooth to a board, the clipboard
+with an expiry, haptics, the share sheet, opening SideStore) the app does for it, through a small bridge.
+
+| | Updates without a reinstall | Needs a new app |
+| --- | --- | --- |
+| What | Every screen, its words and its rules: the pages, the Bluetooth update flow, the sign-in pages | The native shell: the bridge and what it can do, the web view, the bundle store |
+| How | `cloud/deploy.sh` deploys the console; each app takes the new pages at its next start | iPhone: SideStore or `renew.sh` as before; Android: the app's own update, as before |
+| When it needs one | | A bundle that needs a newer bridge than the app has is not taken; the app's settings and the page's foot say so |
+
+### The parts
+
+| Part | Where | What |
+| --- | --- | --- |
+| The bundle | `cloud/web/src/bundle.mjs`, served by the web function | The pages and files of both sites, with a manifest |
+| The built-in copy | `cloud/web/build-bundle.mjs`, run by each app's build | The same bundle inside the app, for a first start and as the last resort. The app builds need Node.js |
+| The shell, iPhone | `apps/ios/App/Shell/`, `CraniumKit/Sources/CraniumKit/Shell/` | A WKWebView on `cranium-app://bundle`, served by a WKURLSchemeHandler |
+| The shell, Android | `apps/android/app/src/main/java/com/craniumiot/cranium/shell/` | A WebView on `https://appassets.androidplatform.net`, served through WebViewAssetLoader |
+| The bridge's contract | `apps/shared/bridge.json` | Every method, its parameters and their ranges, the events, the errors, the policies. All three test suites read it |
+| The page's side | `cloud/web/src/site/assets/bridge.js` | Finds the app, says hello, and gives the pages `cranium.bridge` |
+
+The app opens the customer site at `/` of its origin, or the console at `/admin` when its configuration has no
+customer pool, exactly as the customer site's own name serves them. A page knows it is in the app because the app's
+transport is there (`window.webkit.messageHandlers.cranium` on the iPhone, `window.craniumNative` on Android); on the
+website it is not, `bridge.js` is not even fetched, and nothing changes.
+
+### Bundle delivery
+
+The web function builds the bundle when it starts, from the very files it serves, so the two can never disagree:
+
+| Request | Answer |
+| --- | --- |
+| `GET /app/manifest.json` | The manifest, revalidated on every request (`no-cache`) |
+| `GET /app/files/<sha256>` | One file, by the SHA-256 of its bytes, cached for ever |
+
+Both on the console's names and the customer site's first name, never the home page's; a route of their own in the
+HTTP API (`GET /app/{proxy+}`, public like the pages, 10 a second and bursts of 40).
+
+```json
+{
+  "format": 1,
+  "id": "0d06031f7d2373cf",
+  "bridge": 1,
+  "console": { "version": "2.1.1", "commit": "<40 hex>" },
+  "builtAt": "2026-11-05T12:00:00.000Z",
+  "routes": {
+    "/": { "file": "index.html", "policy": "customer" },
+    "/admin": { "file": "admin/index.html", "policy": "console" }
+  },
+  "files": [{ "path": "assets/331b09bc765e/core.js", "size": 177738, "sha256": "<64 hex>" }]
+}
+```
+
+- **What is in it.** The customer site's page as `index.html` and the console's as `admin/index.html`, each with the
+  build ids written in and `{"app":true}` in its settings tag instead of the server's settings, and every file of both
+  sites under `assets/<build id>/`, `versions.json` and `history.json` included where the deployment wrote them. The
+  home page is not. Nothing of the stack is in it: in the app a page asks the app for its settings (`app.config`, from
+  the app's own `cranium.json`), so the bundle is the same files every visitor of the websites gets.
+- **Its id** is the first 16 hex digits of the SHA-256 of a text that states every fact the app acts on, one a line:
+  `cranium-bundle 1`, `bridge 1`, each route (`route / index.html customer`), and each file
+  (`file <path> <size> <sha256>`), in byte order (`canonicalText` in `bundle.mjs`). The console's version and the time
+  are not in it: they change nothing the app serves.
+- **What a manifest may say.** Format 1; at most four parts in a path, of lower-case letters, digits, `.`, `-` and `_`,
+  none starting with a dot; only `.html`, `.css`, `.js`, `.json` and `.txt`; at most 300 files, 8 MiB each and 32 MiB in
+  all; the two routes and no others, each to a file it lists; and the id that the rest works out to.
+  `readManifest` in `bundle.mjs` and the two apps' readers follow the same rules, and their tests read the same sample,
+  `apps/shared/bundle-sample.json`, with its broken manifests.
+
+**On the phone** (`BundleStore` in each app), in app-private storage that is not backed up:
+
+1. **At start** the app shows the current bundle if every file it names is there and matches its SHA-256, and it is not
+   marked bad; else the previous one, checked the same way; else the copy built into the app. A path in a manifest is
+   only a key: files are kept as `objects/<sha256>`, so no path from a server ever becomes a file name.
+2. **A good bundle** is one whose pages started: each page tells the app (`app.ready`) once it has drawn its sign-in or
+   its first page. One that has not after two starts is marked bad, never fetched again, and the one before it is shown.
+3. **In the background**, when the app starts and when it comes back to the foreground (at most every 10 minutes), it
+   fetches the manifest from the console's address built into it, over HTTPS (15 s at most). A manifest with the same
+   id, or one that needs a newer bridge, changes nothing. Otherwise it fetches each file it does not have, four at a
+   time, writes each to a temporary file, keeps it only if its size and SHA-256 are the manifest's, then writes the new
+   manifest as `current.json` in one rename, the one before becoming `previous.json`, and deletes the files neither
+   names. The page is told (`app.bundleReady`) and the new pages show at the next start (on the iPhone also at once,
+   with Reload in the app's settings).
+
+### The bridge
+
+`apps/shared/bridge.json` is the contract. A request is `{"v": 1, "id", "method", "params"}`, an answer
+`{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`, an event `{"event", "data"}`.
+Each shell checks every request against the contract before anything runs: a method that is not in it is
+`unknown_method`, one whose feature this phone lacks `unavailable`, and a parameter that is missing, not listed, of
+another type, out of its range or not of its pattern, `bad_request`. Only the main frame of the bundle's origin is heard
+(iPhone: the frame's security origin; Android: the web message listener is offered to that origin alone). A page finds
+out what it may use from the hello (`app.hello`: the bridge's version, the app's version and build, the bundle's id
+and console version and whether it came from the console or with the app, `needsNewerApp`, and the features), never
+from the kind of phone. `window.cranium.bridge` is the same object, for feature detection anywhere in the page.
+
+| Feature | Methods | What |
+| --- | --- | --- |
+| (always) | `app.hello`, `app.config`, `app.ready`, `app.reload` | The hello, the public configuration, the bundle is good, show the newest bundle |
+| `auth` | `auth.store`, `auth.session`, `auth.signOut` | The sign-in, below |
+| `biometric` | `biometric.status`, `biometric.set` | Face ID, Touch ID or a fingerprint for a pool's sign-in |
+| `ble` | `ble.state`, `ble.scan`, `ble.connect`, `ble.images`, `ble.upload`, `ble.cancel`, `ble.status`, `ble.disconnect`, `ble.watch` | Bluetooth to a board, below |
+| `clipboard` | `clipboard.write` | With `expiresIn`: this phone only, gone after that time (the passkey, 2 minutes) |
+| `haptics` | `haptics.play` | success, warning, error, selection, impact |
+| `share` | `file.share` | A file (base64, a name, CSV, JSON, text or PDF) through the share sheet: save to Files, AirDrop, mail. For exports to come |
+| `open` | `app.open` | An `https:`, `sidestore:` or `otpauth:` address outside the app; anything else `not_allowed` |
+| `keepAwake` | `app.keepAwake` | The screen stays on during an update over Bluetooth |
+| `settings` | `app.settings` | The shell's own settings: versions, Look for newer pages, Classic app (and Reload on the iPhone) |
+| `appUpdate` (Android) | `update.check`, `update.install` | The APK's own updater, as before; its daily check and notification are unchanged |
+
+Events: `app.lifecycle`, `app.bundleReady`, `auth.locked`, `ble.boards`, `ble.link`, `ble.progress`, `ble.status`.
+
+**Signing in, in the app.** The page signs in itself, with the console's own sign-in code (SRP, the code in six
+boxes), with the phone apps' clients: `mobileClientId` for an admin, the customer pool's phone client for a customer.
+So the API knows the session as a phone's, as before: `from: phone` in the activity log, and a change needs the
+password and code of the last 15 minutes (`403 phone_sign_in_again`, after which the page asks for them in place).
+When Cognito hands over the tokens, the page gives the refresh token to the app (`auth.store`) at once, instead of
+revoking it as the website does, and keeps only the access token, in memory. The app keeps the refresh token exactly as
+the classic app does: the same Keychain items and Keystore keys, behind Face ID or a fingerprint when that is on (the
+app offers it after a sign-in), forgotten an hour after the sign-in when it is not. A page that loads, `/` or `/admin`,
+asks the app for an access token (`auth.session`); the app refreshes it with Cognito when it has less than 2 minutes
+left, behind the biometric where that is on. After 5 minutes in the background with the biometric on, the app locks
+the sign-in again (`auth.locked`) and the page asks again. Signing out makes the app revoke and forget it. Because the
+stores are the classic app's, the shell and the classic app share one sign-in per pool. A step the page's sign-in does
+not do (a new password for an admin, an authenticator app to set up) opens the console's website in the browser.
+
+**Bluetooth, in the app.** The console has a page for it, Bluetooth in its masthead, shown only to a release manager in
+an app whose bridge offers `ble` (`assets/bluetooth.js`). It follows [What a person does](#what-a-person-does) step by
+step and the classic apps' rules: only active releases newer than the board's slot 0; the passkey asked of the console
+from the moment the phone connects, every 3 s for 90 s, pinned at the top of the page and on the clipboard for 2
+minutes; the image checked (size, SHA-256, MCUboot's magic, the header's version and sizes) and checked again by the
+app before the upload; `POST /api/firmware/{version}/bluetooth` right before every send, and nothing sent without its
+yes; MCUmgr's upload only; then the board followed with the same `UpdateWatch`, ported to `assets/updatewatch.js` with
+the same words and test cases, from its status characteristic on the link and after its restart (`ble.watch`), the
+link, and the console. The page keeps no copy of an image ([Cache](#cache)): it downloads it for each send. Once the
+board has reported, the send is in the console's update history (`GET /api/updates`), on the Overview and the board's
+page, "over Bluetooth from" whose phone it was, as on the website: the pages are the website's.
+
+### Security
+
+- **No page from the network.** The web view shows the bundle's origin and nothing else. Every file of it is answered
+  from the bundle on the phone; on Android a main-frame load of any other origin is stopped too. A link, a form, a
+  script or a new window that would go anywhere else is cancelled, and an `https:`, `sidestore:` or `otpauth:` address
+  is handed to the system instead (Safari or the browser, SideStore, an authenticator app). No frame of another origin
+  loads. The iPhone's web view keeps no website data between runs; neither app's web view can be inspected in a release
+  build, reads files, or allows mixed content.
+- **A policy on every page.** The app sends each page the policy of its route (`apps/shared/bridge.json`, `policies`),
+  built from its own configuration: scripts and styles from the bundle only; network to the console's API, the customer
+  API and Cognito's user pool API only; images from the bundle, `data:` and, on the console, OpenStreetMap's tiles;
+  no form, no frame, no plugin, no base; and on the customer site, Trusted Types, as on the website.
+- **What a page gets from the app.** An access token, which the page on the website holds anyway; never a refresh
+  token after the sign-in that made it. Bluetooth that can only upload, never test, confirm or reset, and only after
+  the console's yes; the board still takes only images signed with the project's key. Addresses opened only by the rule
+  above. Errors in a few words, never what went wrong inside.
+- **The manifest is not signed.** It comes over HTTPS from the console's address built into the app, each file is
+  checked against its SHA-256, and the id against everything the manifest says. Whoever could change what the web
+  function serves could already change the console's pages in every team member's browser, with the same tokens; the
+  bridge adds no secret to that and no power over a board that the board does not check itself. Signing the manifest,
+  with a key kept off the deploying machine and its public half built into the apps, would make the apps trust less than
+  the browsers do; it is not done in 0.8.0.
+- **CORS, for the app's origins only.** In the app the pages call the API from `cranium-app://bundle` (iPhone) and
+  `https://appassets.androidplatform.net` (Android). The HTTP API's CORS configuration allows exactly those two, with
+  `authorization`, `content-type` and `accept`, `GET`, `POST` and `PUT`, `date` exposed for the console's clock, no
+  credentials, and a preflight cached for 10 minutes; API Gateway answers the preflight itself. Nothing changes for a
+  browser, whose pages are on the API's own origins. This is not a lock: every call carries its token in a header, never
+  a cookie, so an origin allowed here, which another app could also use, gains nothing without a token of its own.
+
+### The classic app
+
+The 0.7 screens stay for this version, as **Classic app**: a switch in the app's settings (from the page's App button,
+in the console's account box and on the customer site's Account page), a Home Screen quick action on the iPhone and a
+launcher shortcut on Android; the way back is the line at the top of the classic app on the iPhone, and Use the new
+app under More on Android. The app also starts in the
+classic app by itself, with a line that says why, when no bundle can be shown (on Android also when the phone's WebView
+is too old for the bridge). New apps start in the shell. The classic screens can be deleted in the version after the
+shell has been used on the team's phones for a release: from then on the shell's fallback is its built-in bundle alone.
+
+### What only a phone can show
+
+The unit tests check the contract, the bundle, the store, the policies and the pages' logic on both sides, and the
+pages run in a stand-in for a browser with a stand-in for each app. What none of them can show: that WebKit treats
+`cranium-app://bundle` as a secure context (the sign-in needs `crypto.subtle`), loads ES modules through the scheme
+handler and honours its policy header; that Android's WebView honours the policy header and Trusted Types; that API
+Gateway takes the two origins in its CORS configuration and adds the headers to its own 401s; the pairing prompt during
+`ble.connect` on each phone; the upload and the status after the restart; Face ID and the fingerprint through the
+bridge; the share sheet, the file chooser and the quick actions.
 
 ## What a person does
 
@@ -302,6 +498,9 @@ version.
 
 ## Cache
 
+This is the classic apps' cache. The app shell's Bluetooth page (from 0.8.0) keeps no image: it downloads the image for
+each send, checks it, and lets it go.
+
 The apps keep checked images on the phone, so that sending a release again needs no download. Each
 is `firmware/<sha256>.bin`, named after its release's SHA-256, in app-private storage that is not
 backed up: `filesDir` on Android (the app allows no backup), Application Support on iOS (excluded
@@ -468,7 +667,9 @@ cannot follow, is followed this way to the end. With older firmware (no status c
 
 The steps are one pure function in each app, `UpdateWatch` (`CraniumKit/UpdateWatch.swift`,
 `core/UpdateWatch.kt`), with the same words and the same test cases on both sides, and so is the status's
-parser (`CraniumKit/BoardStatus.swift`, `core/BoardStatus.kt`).
+parser (`CraniumKit/BoardStatus.swift`, `core/BoardStatus.kt`). From 0.8.0 the pages have them too, for the app
+shell's Bluetooth page: `cloud/web/src/site/assets/updatewatch.js`, with the same cases in
+`cloud/web/test/updatewatch.test.mjs`.
 
 ## Errors to expect
 

@@ -11,7 +11,9 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 | iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.7.2, tag `ios-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.7.2, tag `android-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page, each version as it was published |
 
-The two phone apps keep the same number for the same features.
+The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
+kept on the phone and updated from the console (docs/mobile-apps.md, "The app shell"): a new console version changes
+what the apps show without a new app version, and the app's settings say which console the pages are from.
 
 ## Making a version
 
