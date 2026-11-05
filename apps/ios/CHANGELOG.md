@@ -4,7 +4,7 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
-## Unreleased
+## 0.7.0
 
 New versions reach every iPhone through SideStore, free, from each member's own source on the console's Apps page;
 Help, About says where updates come from.

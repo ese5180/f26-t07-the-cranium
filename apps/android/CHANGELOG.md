@@ -4,7 +4,7 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
-## Unreleased
+## 0.7.0
 
 New versions reach every phone: the app checks the console on start and once a day, says "Update available" in the
 app and as a notification, and installs it after checking its size and SHA-256. Android asks once to allow installs
