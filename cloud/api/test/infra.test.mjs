@@ -103,12 +103,13 @@ test('the API role reads, adds and updates in the state table, and never deletes
     ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']);
   assert.ok(state.includes('Resource: !GetAtt StateTable.Arn'));
   // Nothing else in the role names that table, and the only DynamoDB actions the role is
-  // allowed are these and the audit table's two: no delete, no scan, no wildcard.
+  // allowed are these, the audit table's two, and the events table's Query and the backfill's
+  // PutItem (on the update history's partitions only): no delete, no scan, no wildcard.
   assert.equal((role.match(/StateTable\.Arn/g) ?? []).length, 1);
   const denied = statement(role, 'NeverChangeAuditEntries');
   const allowed = role.replace(denied, '').match(/^\s*(?:Action: |- )dynamodb:\S+$/gm).map((line) => line.trim());
   assert.deepEqual(allowed, ['- dynamodb:GetItem', '- dynamodb:Query', '- dynamodb:PutItem', '- dynamodb:UpdateItem',
-    '- dynamodb:PutItem', '- dynamodb:Query', 'Action: dynamodb:Query']);
+    '- dynamodb:PutItem', '- dynamodb:Query', 'Action: dynamodb:Query', 'Action: dynamodb:PutItem']);
 });
 
 test('a user cannot change their own e-mail address', () => {
