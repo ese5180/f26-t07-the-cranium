@@ -5,9 +5,13 @@ import UIKit
 
 @main
 struct CraniumApp: App {
+    #if canImport(UIKit)
+    @UIApplicationDelegateAdaptor(CraniumAppDelegate.self) private var delegate
+    #else
+    // The app's sources are type-checked for macOS too (scripts/check.sh), where there is no shell.
     @StateObject private var model = AppModel()
-    /// The customer side, and which side is on screen (docs/mobile-apps.md, "Customers").
     @StateObject private var customer = CustomerModel()
+    #endif
 
     init() {
         #if canImport(UIKit)
@@ -36,9 +40,14 @@ struct CraniumApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if canImport(UIKit)
+            // From 0.8.0 the shell around the console's own pages, or the classic app (Shell/AppRoot.swift).
+            AppRoot()
+            #else
             RootView()
                 .environmentObject(model)
                 .environmentObject(customer)
+            #endif
         }
     }
 }

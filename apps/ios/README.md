@@ -12,11 +12,36 @@ goes wrong.
 It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator with made-up data
 (below). On the owner's iPhone it has signed in to the real console (2026-11-04), and on 2026-11-05 it sent
 firmware 1.13.0 and then 1.14.0 to the board over Bluetooth, each confirmed
-([`docs/test-results.md`](../../docs/test-results.md)). The newest version is 0.7.3; installing it on a phone is in
+([`docs/test-results.md`](../../docs/test-results.md)). The newest version is 0.8.0; installing it on a phone is in
 [`apps/README.md`](../README.md).
 
 From 0.6.0 that console is **admin mode**, and the app has a customer side too, as the customer
 website has ([`docs/customer-site.md`](../../docs/customer-site.md)).
+
+## The app shell (0.8.0)
+
+From 0.8.0 the screens are the console's and the customer site's own pages, in a web view, and the app around them
+is a thin native shell ([`docs/mobile-apps.md`](../../docs/mobile-apps.md#the-app-shell)). What that changes for an
+iPhone with a free Apple ID: **a change to the website reaches the app without a reinstall.** The app keeps a copy of
+the pages, checks the console for a newer one when it starts and when it comes back (at most every 10 minutes), keeps
+it once every file matches its SHA-256, and shows it at the next start, or at once with Reload. Only a change to the
+shell itself (`App/Shell/`, `CraniumKit/Sources/CraniumKit/Shell/`, the bridge) needs a new build through SideStore or
+`renew.sh`, as before.
+
+- **What is native**: the web view (`App/Shell/ShellWebView.swift`), which shows `cranium-app://bundle` and nothing
+  else, through a scheme handler that serves the copy on the phone, with the Content-Security-Policy of
+  `apps/shared/bridge.json`; the bridge (`App/Shell/ShellBridgeHost.swift`) to the sign-in's Keychain items, Face ID,
+  Bluetooth, the clipboard, haptics, the share sheet and other apps; the lock screen after 5 minutes away; and the
+  shell's own settings (App settings, from the page).
+- **The bundle**: `CraniumKit`'s `BundleManifest` and `BundleStore`, by the rules of `cloud/web/src/bundle.mjs`
+  (`apps/shared/bundle-sample.json` keeps the two in step). The copy built into the app is written by
+  `scripts/copy-bundle.sh`, a build phase that runs `cloud/web/build-bundle.mjs`, so **building the app needs
+  Node.js** 18 or newer.
+- **One sign-in**: the shell keeps the tokens in the same Keychain items as the classic app, so either finds the other's
+  sign-in. The page gets access tokens only.
+- **Classic app**: the 0.7 screens are still there for this version, under App settings, Classic app, or the Home
+  Screen quick action (touch and hold the icon). A line at the top of the classic app leads back. If no copy of the
+  pages can be opened at all, the app starts as the classic app and says why.
 
 ## The customer side
 
@@ -61,7 +86,9 @@ account signs in, nothing is changed in its name.
 | Path | What |
 | --- | --- |
 | `CraniumKit/` | Swift package with all the logic. `CraniumKit`: configuration, sign-in (PKCE, tokens in the Keychain, Face ID: `BiometricLock.swift`, `Biometrics.swift`), every route of the console API, the console's wording (`Words.swift`, `Telemetry.swift`, `OverviewWords.swift`, from the website's `core.js` and `telemetry.js`), the upload's checks, the fresh sign-in rule, image checks, the firmware cache, the update flow. `CraniumBLE`: scanning, pairing, and MCUmgr through Nordic's [iOSMcuManagerLibrary](https://github.com/NordicSemiconductor/IOS-nRF-Connect-Device-Manager) 1.15.0 |
-| `App/` | The SwiftUI app. `Theme.swift` names the console's colours; `Views/` has the screens |
+| `App/` | The SwiftUI app. `Theme.swift` names the console's colours; `Views/` has the classic app's screens |
+| `App/Shell/` | The shell (0.8.0): the root and the Classic app switch (`AppRoot.swift`), the web view and its scheme handler, the bridge's native side, the settings and the lock screen |
+| `CraniumKit/Sources/CraniumKit/Shell/` | The shell's logic, tested: the bundle's manifest and store, the bridge's contract and its checks, the policy and navigation rules, and the two sign-ins behind the bridge |
 | `App/Assets.xcassets/Console/` | The console's colour tokens, light and dark, made from `cloud/web/src/site/assets/app.css` by `scripts/colors.sh` |
 | `project.yml` | The Xcode project, for [XcodeGen](https://github.com/yonaskolb/XcodeGen). The `.xcodeproj` is made from it and is not in git |
 | `scripts/generate.sh` | Makes `Cranium.xcodeproj` |
@@ -74,6 +101,7 @@ account signs in, nothing is changed in its name.
 | `scripts/colors.sh` | Makes the colour sets from the website's stylesheet again |
 | `scripts/stamp-commit.sh` | Build phase: writes the commit the app was built from into it, for Help, About |
 | `scripts/copy-config.sh` | Build phase: copies the configuration into the built app |
+| `scripts/copy-bundle.sh` | Build phase: writes the web bundle into the built app with `cloud/web/build-bundle.mjs` (needs Node.js) |
 
 For Bluetooth, the app only lists the board's image slots and uploads to image 0. It never sends
 test, confirm, erase or reset, which the board refuses. That is why it uses `ImageManager.upload`
@@ -211,7 +239,7 @@ apps/ios/scripts/check.sh
 apps/ios/scripts/phone.sh --check
 ```
 
-`check.sh` builds the package, runs its tests (Swift Testing: 319 `@Test` functions, 310 in
+`check.sh` builds the package, runs its tests (Swift Testing: 355 `@Test` functions, 346 in
 CraniumKitTests and 9 in CraniumBLETests; the firmware cache's on real files in a temporary folder), type-checks the
 app's sources against the macOS SDK, and checks the scripts and `Info.plist`. On a Mac with only
 the Command Line Tools, plain `swift test` cannot find Swift Testing; the script passes the paths.

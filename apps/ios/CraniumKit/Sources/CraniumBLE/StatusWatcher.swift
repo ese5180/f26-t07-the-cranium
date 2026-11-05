@@ -19,6 +19,7 @@ public final class StatusWatcher: NSObject, @unchecked Sendable {
     private unowned let radio: BoardRadio
     private let accept: @Sendable (BoardStatus) -> Bool
     private let onStatus: @Sendable (BoardStatus) -> Void
+    private let onPayload: ((Data) -> Void)?
 
     private enum Phase { case idle, scanning, connecting, reading, following }
     private var phase: Phase = .idle
@@ -30,11 +31,13 @@ public final class StatusWatcher: NSObject, @unchecked Sendable {
     private static let characteristicUUID = CBUUID(string: BoardStatus.characteristicUUID)
 
     /// `accept` says whether a status is about this send; `onStatus` gets every one of those.
+    /// `onPayload`, for the shell's bridge, gets the same statuses as they came, before `onStatus`.
     public init(radio: BoardRadio, accept: @escaping @Sendable (BoardStatus) -> Bool,
-                onStatus: @escaping @Sendable (BoardStatus) -> Void) {
+                onStatus: @escaping @Sendable (BoardStatus) -> Void, onPayload: ((Data) -> Void)? = nil) {
         self.radio = radio
         self.accept = accept
         self.onStatus = onStatus
+        self.onPayload = onPayload
     }
 
     public func start() {
@@ -157,6 +160,7 @@ extension StatusWatcher: CBPeripheralDelegate {
             attempt += 1
             if characteristic.properties.contains(.notify) { peripheral.setNotifyValue(true, for: characteristic) }
         }
+        onPayload?(value)
         onStatus(status)
     }
 }

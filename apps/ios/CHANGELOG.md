@@ -4,6 +4,28 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.0
+
+The app's screens are now the console's and the customer site's own pages, kept on the iPhone and updated from the
+console without a reinstall: a change to the website reaches the app at its next start, anywhere. Sign-in, Face ID
+and the Bluetooth update stay native, behind a small bridge. The 0.7 screens are under Classic app, for this version.
+
+The app is a shell: a WKWebView that shows `cranium-app://bundle` and nothing else, served by a WKURLSchemeHandler
+from a copy of the pages on the phone, never from the network. The copy comes from the console's
+`/app/manifest.json` (every file's path, size and SHA-256, and an id that hashes all of it) and `/app/files/<sha256>`;
+each file is checked before it is kept, a new bundle is swapped in with one rename, the previous one is kept, and one
+that has not started after two tries is dropped for the one before. The pages built into the app
+(`scripts/copy-bundle.sh`, from `cloud/web/build-bundle.mjs`) are the last resort. Every page gets the
+Content-Security-Policy of `apps/shared/bridge.json`; any other address goes to Safari, SideStore or an authenticator
+app, or nowhere.
+
+The bridge (`cranium.bridge` in the page, version 1, the contract in `apps/shared/bridge.json` checked by
+`BridgeSpecTests`) takes only the methods and parameters listed there: the sign-in's tokens, which go into the same
+Keychain items as before, so that the shell and the classic app share one sign-in, with the page given access tokens
+only; Face ID; Bluetooth (scan, connect and pair, image list, upload only, the status characteristic and the board
+after its restart); the clipboard with an expiry; haptics; the share sheet; opening SideStore and other apps; and the
+shell's own settings, with Classic app. A Home Screen quick action opens the classic app too.
+
 ## 0.7.3
 
 The Overview's Updates and a board's History and Updates now list every update, as the console has them: deployments,

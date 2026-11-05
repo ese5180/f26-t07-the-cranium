@@ -16,8 +16,8 @@ options:
 settings:
   base:
     # The version people see. TestFlight builds get their build number from scripts/testflight.sh.
-    MARKETING_VERSION: "0.7.3"
-    CURRENT_PROJECT_VERSION: "14"
+    MARKETING_VERSION: "0.8.0"
+    CURRENT_PROJECT_VERSION: "15"
 
 packages:
   CraniumKit:
@@ -67,6 +67,12 @@ targets:
         # account. Without it, a Debug build takes cranium.example.json and the app says so on
         # every screen; a Release build stops.
         script: '"${SRCROOT}/scripts/copy-config.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+      - name: Copy the web bundle
+        # The console's pages, as the console serves them, for the shell's first start and its fallback
+        # (docs/mobile-apps.md, "The app shell"): cloud/web/build-bundle.mjs, which needs Node.js.
+        script: '"${SRCROOT}/scripts/copy-bundle.sh"'
         basedOnDependencyAnalysis: false
         showEnvVars: false
       - name: Record the commit
