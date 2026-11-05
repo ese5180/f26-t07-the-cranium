@@ -4,6 +4,21 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.7.2
+
+From firmware 1.14.0 the app reads the board's own status over Bluetooth during the whole flow: Button 1 from the board,
+its countdown, and why it refused an image. After the restart it reconnects with no pairing while the board advertises
+for 2 minutes, and shows on trial, kept or rolled back from the board itself, so a board without Wi-Fi is followed to
+the end. Older firmware is followed as before.
+
+The status characteristic (service `9112B1B4-2A51-40F0-94D3-A76440F0E6CC`, characteristic `…B5-…`) is read and
+subscribed to by a second GATT client next to MCUmgr's, after pairing; a board without it changes nothing. After the
+link goes, the app scans for that service, connects with no bond, reads, and keeps only a board whose last update over
+Bluetooth is the version sent with the same image hash (the SHA-256 in the image's TLVs), then follows its
+notifications, and scans again after each restart. It follows for 5 minutes after the drop, and 10 minutes after the
+board last said it runs the new image on trial. The console is followed alongside, as before. `UpdateWatch` takes the
+board's readings first, with the same cases as the iPhone app.
+
 ## 0.7.1
 
 After a Bluetooth send, the app follows the board step by step, each with its time: sent, with the board's 2 minutes

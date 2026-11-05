@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 /// An update over Bluetooth: pick a release, open the board's window, pair, send, press the
 /// button, and follow the board until it keeps the image or goes back. See docs/mobile-apps.md,
 /// "What a person does". The app's other screens talk to the console over the internet; this one
-/// talks to a board in the room, then follows it on the console.
+/// talks to a board in the room, then follows it: from firmware 1.14.0 by its own status over
+/// Bluetooth, which it reads again with no pairing after the restart, and on the console.
 @MainActor
 final class BluetoothModel: ObservableObject {
     enum Stage: Equatable {
@@ -83,6 +84,10 @@ final class BluetoothModel: ObservableObject {
     private var watchSession: BoardSession?
     private var watchTask: Task<Void, Never>?
     private var watchEndedAt: Date?
+    /// The board's status on the link to the board in the room (firmware 1.14.0 on), the newest.
+    private var linkStatus: BoardStatus?
+    /// After the restart: the board's status, read with no pairing.
+    private var statusWatcher: StatusWatcher?
     /// "Update another board": the person has moved on, so reopening the flow starts over.
     private var movedOn = false
     /// After the board's 2 minutes, how long a link that is still up is kept.
@@ -209,9 +214,14 @@ final class BluetoothModel: ObservableObject {
         consoleThing = nil
         passkeyNotInCloud = false
         thing = nil
+        linkStatus = nil
         boardStage = .pairing
         stage = .board
         startPairingPoll(name: board.name)
+        // From firmware 1.14.0: what the board says of its window, from the pairing on.
+        session.transport.observeStatus { [weak self] status in
+            Task { @MainActor in self?.boardSaid(status, session: session) }
+        }
         do {
             let version = try await session.open()
             pairingPoll?.cancel()
@@ -313,7 +323,7 @@ final class BluetoothModel: ObservableObject {
             }
             // The link is kept: the board closes it when a button is pressed or its 2 minutes are up.
             self.session = nil
-            follow(session, version: release.version)
+            follow(session, version: release.version, hash: obtained.image.imageHashPrefix)
         } catch {
             keepAlive?.cancel()
             await session.close()
@@ -324,28 +334,77 @@ final class BluetoothModel: ObservableObject {
 
     // MARK: After the send
 
-    /// Follows the board that `linked` has just sent `version` to: the link while it lasts, then the
-    /// console (`UpdateWatch`, docs/mobile-apps.md).
-    private func follow(_ linked: BoardSession, version: String) {
+    /// Follows the board that `linked` has just sent `version` to: the board's own status and the link
+    /// while it lasts, then the console and, from firmware 1.14.0, the board's status after its restart
+    /// (`UpdateWatch`, docs/mobile-apps.md).
+    private func follow(_ linked: BoardSession, version: String, hash: String?) {
         endWatch()
         movedOn = false
         watchEndedAt = nil
         watchSession = linked
         watchVersion = version
         watchBoard = boardName
-        watchFacts = UpdateWatch.Facts(version: version, from: running?.description, sentAt: Date(), thing: thing)
+        let now = Date()
+        watchFacts = UpdateWatch.Facts(version: version, from: running?.description, sentAt: now, thing: thing,
+                                       readings: linkStatus.map { [UpdateWatch.Reading($0, at: now)] } ?? [],
+                                       sentHash: hash)
         showWatch()
         stage = .watching
         watchTask = Task { [weak self] in
+            guard let self else { return }
             // The person is at the board for these 2 minutes: with the screen locked, the app would stop.
-            self?.setScreenAwake(true)
-            await self?.followLink(linked)
-            self?.setScreenAwake(false)
-            await self?.followConsole()
+            // Over Bluetooth after the restart too: iOS does not let an app in the background look for it.
+            self.setScreenAwake(true)
+            await self.followLink(linked)
+            async let console: Void = self.followConsole()
+            async let board: Void = self.followBoard()
+            _ = await (console, board)
+            self.setScreenAwake(false)
             // A follow that was ended for a newer one leaves the newer one alone.
             guard !Task.isCancelled else { return }
-            self?.watchTask = nil
-            self?.watchEndedAt = Date()
+            self.watchTask = nil
+            self.watchEndedAt = Date()
+        }
+    }
+
+    /// What the board says on its link: kept for the follow, and, once the image is sent, each status
+    /// that says something new.
+    private func boardSaid(_ status: BoardStatus, session: BoardSession) {
+        guard status.isNews(after: linkStatus) else { return }
+        linkStatus = status
+        guard watchSession === session, watchFacts?.linkDroppedAt == nil else { return }
+        changeWatch { $0.readings.append(UpdateWatch.Reading(status, at: Date())) }
+    }
+
+    /// After the restart: the board's status, as `StatusWatcher` reads it, when it says something new.
+    private func boardSaidAfterRestart(_ status: BoardStatus) {
+        changeWatch { facts in
+            guard status.isNews(after: facts.readings.last(where: \.afterRestart)?.status) else { return }
+            facts.readings.append(UpdateWatch.Reading(status, at: Date(), afterRestart: true))
+        }
+    }
+
+    /// From firmware 1.14.0, once the link has gone: the board advertises its status for 2 minutes after
+    /// the restart, into the new image or back into the old one, and it is read with no pairing until the
+    /// follow ends (`UpdateWatch.followUntil`). A board without the status is followed on the console alone.
+    private func followBoard() async {
+        guard let facts = watchFacts, facts.tellsOverBluetooth, facts.linkDroppedAt != nil else { return }
+        let watcher = StatusWatcher(radio: radio, accept: { facts.isAboutThisSend($0) }, onStatus: { [weak self] status in
+            Task { @MainActor in self?.boardSaidAfterRestart(status) }
+        })
+        statusWatcher = watcher
+        watcher.start()
+        defer {
+            watcher.stop()
+            if statusWatcher === watcher { statusWatcher = nil }
+        }
+        while !Task.isCancelled, let facts = watchFacts {
+            if UpdateWatch.timeline(facts).finished { return }
+            if let until = UpdateWatch.followUntil(facts), Date() >= until {
+                changeWatch { $0.gaveUp = true }
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
@@ -383,14 +442,15 @@ final class BluetoothModel: ObservableObject {
         }
     }
 
-    /// After the link: the board's log, its connections and its report, every 3 s for up to 5 minutes.
+    /// After the link: the board's log, its connections and its report, every 3 s for up to 5 minutes, and
+    /// longer while the board says over Bluetooth that it is on trial (`UpdateWatch.followUntil`).
     private func followConsole() async {
-        guard let dropped = watchFacts?.linkDroppedAt else { return }
+        guard watchFacts?.linkDroppedAt != nil else { return }
         var tick = 0
         var throttled = 0
         while !Task.isCancelled, let facts = watchFacts {
             if UpdateWatch.timeline(facts).finished { return }
-            if Date().timeIntervalSince(dropped) >= UpdateWatch.followSeconds {
+            if let until = UpdateWatch.followUntil(facts), Date() >= until {
                 changeWatch { $0.gaveUp = true }
                 return
             }
@@ -454,6 +514,8 @@ final class BluetoothModel: ObservableObject {
     private func endWatch() {
         watchTask?.cancel()
         watchTask = nil
+        statusWatcher?.stop()
+        statusWatcher = nil
         if let linked = watchSession {
             watchSession = nil
             Task { await linked.close() }

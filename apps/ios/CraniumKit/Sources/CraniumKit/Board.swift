@@ -105,4 +105,12 @@ public protocol BoardTransport: AnyObject, Sendable {
     /// `image upload` of image 0, to the secondary slot, and nothing after it.
     func upload(_ image: VerifiedImage, progress: @escaping @Sendable (UploadProgress) -> Void) async throws
     func disconnect() async
+    /// From firmware 1.14.0: the board's status (`BoardStatus`), once it is read and then each time it
+    /// changes, until the link goes. A board without the characteristic never calls `handler`.
+    func observeStatus(_ handler: @escaping @Sendable (BoardStatus) -> Void)
+}
+
+public extension BoardTransport {
+    /// A transport that cannot read the status: a board of firmware 1.13 or older, as far as the app sees.
+    func observeStatus(_ handler: @escaping @Sendable (BoardStatus) -> Void) {}
 }

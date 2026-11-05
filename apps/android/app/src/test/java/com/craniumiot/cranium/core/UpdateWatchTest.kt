@@ -249,4 +249,233 @@ class UpdateWatchTest {
     fun `polling backs off on a 429`() {
         assertEquals(listOf(3_000L, 6_000L, 12_000L, 24_000L, 30_000L, 30_000L), listOf(0, 1, 2, 3, 4, 9).map(UpdateWatch::nextPoll))
     }
+
+    // The board's own status over Bluetooth (firmware 1.14.0 on).
+
+    private val hash = "deadbeef01020304"
+
+    /** What the board says on the link of the send: an image on offer, by default. */
+    private fun onLink(
+        seconds: Double,
+        window: BoardStatus.Window = BoardStatus.Window.OFFER,
+        left: Int = 100,
+        image: BoardStatus.Image = BoardStatus.Image.VERIFIED,
+        result: BoardStatus.Result = BoardStatus.Result.NONE,
+        refusal: BoardStatus.Refusal = BoardStatus.Refusal.NONE,
+    ): UpdateWatch.Reading {
+        val installing = result == BoardStatus.Result.INSTALLING
+        return UpdateWatch.Reading(
+            BoardStatus(
+                window = window, secondsLeft = left, image = image, refusal = refusal, imageBytes = 872_000, imageVersion = "1.13.0+0",
+                result = result, closedReason = 0, running = "1.12.0+0", onTrial = false, swap = BoardStatus.Swap.NONE,
+                lastVia = BoardStatus.Via.BLUETOOTH,
+                lastOutcome = if (installing) BoardStatus.Outcome.PENDING else BoardStatus.Outcome.KEPT,
+                lastProof = if (installing) BoardStatus.Proof.NONE else BoardStatus.Proof.CLOUD,
+                lastTarget = if (installing) "1.13.0+0" else "1.12.0+0", lastFrom = if (installing) "1.12.0+0" else "1.11.4+0",
+                lastHash = if (installing) hash else "0102030405060708", lastCount = if (installing) 3 else 2, uptime = 4000,
+            ),
+            t(seconds),
+        )
+    }
+
+    /** What the board says after its restart, to a phone that reads it with no pairing. */
+    private fun afterRestart(
+        seconds: Double,
+        running: String = "1.13.0+0",
+        onTrial: Boolean = true,
+        outcome: BoardStatus.Outcome = BoardStatus.Outcome.PENDING,
+        proof: BoardStatus.Proof = BoardStatus.Proof.NONE,
+        target: String = "1.13.0+0",
+        hash: String? = this.hash,
+    ) = UpdateWatch.Reading(
+        BoardStatus(
+            window = BoardStatus.Window.STATUS, secondsLeft = 100, image = BoardStatus.Image.NONE, refusal = BoardStatus.Refusal.NONE,
+            imageBytes = 0, imageVersion = null, result = BoardStatus.Result.NONE, closedReason = 0, running = running, onTrial = onTrial,
+            swap = if (onTrial) BoardStatus.Swap.REVERT else BoardStatus.Swap.NONE, lastVia = BoardStatus.Via.BLUETOOTH,
+            lastOutcome = outcome, lastProof = proof, lastTarget = target, lastFrom = "1.12.0+0", lastHash = hash, lastCount = 3,
+            uptime = 20,
+        ),
+        t(seconds),
+        afterRestart = true,
+    )
+
+    private fun told(
+        vararg readings: UpdateWatch.Reading,
+        dropped: Double? = null,
+        thing: String? = this.thing,
+        onConsole: Boolean? = true,
+    ) = facts(thing, onConsole, dropped).copy(readings = readings.toList(), sentHash = hash)
+
+    @Test
+    fun `the board counts its two minutes down`() {
+        val timeline = UpdateWatch.timeline(told(onLink(5.0, left = 100)))
+        assertEquals(t(105.0), timeline.deadline)
+        assertTrue(timeline.waitingForButton)
+        assertEquals(listOf(State.DONE, State.CURRENT, State.WAITING, State.WAITING, State.WAITING), states(timeline))
+        // A board without the characteristic: the phone's own count, as before.
+        assertEquals(t(120.0), UpdateWatch.timeline(facts()).deadline)
+    }
+
+    @Test
+    fun `button 1 from the board`() {
+        var f = told(onLink(5.0), onLink(30.0, result = BoardStatus.Result.INSTALLING))
+        val pressed = UpdateWatch.timeline(f)
+        assertEquals(listOf(State.DONE, State.DONE, State.CURRENT, State.WAITING, State.WAITING), states(pressed))
+        assertEquals("Button 1 pressed, accepted", pressed.rows[1].title)
+        assertEquals("The board said so over Bluetooth, and is restarting to install it.", pressed.rows[1].detail)
+        assertEquals(t(30.0), pressed.rows[1].at)
+        assertEquals("The board is restarting into the bootloader, which checks the image and swaps it in.", pressed.rows[2].detail)
+        assertEquals(t(30.0), pressed.rows[2].at)
+        assertTrue(!pressed.waitingForButton && pressed.acceptedAt == t(30.0) && !pressed.finished)
+
+        // The link goes, and the console has it offline: its word for the time it went.
+        f = f.copy(linkDroppedAt = t(31.0), events = listOf(connection(31.0, "disconnected")))
+        val offline = UpdateWatch.timeline(f)
+        assertEquals(t(30.0), offline.rows[1].at)
+        assertEquals("The board is offline on the console while it installs.", offline.rows[2].detail)
+        assertEquals(t(31.0), offline.rows[2].at)
+        assertEquals(t(30.0), UpdateWatch.record(f, offline)?.at)
+    }
+
+    @Test
+    fun `kept from the board after its restart`() {
+        var f = told(onLink(5.0), onLink(30.0, result = BoardStatus.Result.INSTALLING), afterRestart(140.0), dropped = 31.0)
+        val trial = UpdateWatch.timeline(f)
+        assertEquals(listOf(State.DONE, State.DONE, State.DONE, State.CURRENT, State.WAITING), states(trial))
+        assertEquals("The board says so over Bluetooth: not yet kept.", trial.rows[3].detail)
+        assertEquals(t(140.0), trial.rows[3].at)
+        assertTrue(!trial.finished && trial.note == null)
+        assertEquals(t(740.0), UpdateWatch.followUntil(f))
+
+        f = f.copy(readings = f.readings + afterRestart(150.0, onTrial = false, outcome = BoardStatus.Outcome.KEPT, proof = BoardStatus.Proof.CLOUD))
+        val kept = UpdateWatch.timeline(f)
+        assertEquals(listOf(State.DONE, State.DONE, State.DONE, State.DONE, State.DONE), states(kept))
+        assertEquals("Kept 1.13.0+0", kept.rows[4].title)
+        assertEquals("It reached AWS IoT, so the board keeps it.", kept.rows[4].detail)
+        assertEquals(t(150.0), kept.rows[4].at)
+        assertEquals(t(140.0), kept.rows[3].at)
+        assertTrue(kept.outcome == Outcome.KEPT && kept.finished && !kept.tentative)
+    }
+
+    @Test
+    fun `rolled back from the board`() {
+        // On trial, and 5 minutes later back on the old image, which says so.
+        val f = told(
+            onLink(30.0, result = BoardStatus.Result.INSTALLING),
+            afterRestart(140.0),
+            afterRestart(500.0, running = "1.12.0+0", onTrial = false, outcome = BoardStatus.Outcome.ROLLED_BACK),
+            dropped = 31.0,
+        )
+        val timeline = UpdateWatch.timeline(f)
+        assertEquals(listOf(State.DONE, State.DONE, State.DONE, State.DONE, State.FAILED), states(timeline))
+        assertEquals("Rolled back to 1.12.0+0", timeline.rows[4].title)
+        assertEquals("The new image was not kept: the bootloader put the old one back.", timeline.rows[4].detail)
+        assertEquals(t(500.0), timeline.rows[4].at)
+        assertTrue(timeline.outcome == Outcome.ROLLED_BACK && timeline.rolledBackTo == "1.12.0+0" && timeline.finished)
+
+        // The bootloader did not take it, a bad signature for one: it never ran on trial.
+        val notInstalled = UpdateWatch.timeline(
+            told(
+                onLink(30.0, result = BoardStatus.Result.INSTALLING),
+                afterRestart(130.0, running = "1.12.0+0", onTrial = false, outcome = BoardStatus.Outcome.NOT_INSTALLED),
+                dropped = 31.0,
+            ),
+        )
+        assertEquals(listOf(State.DONE, State.DONE, State.DONE, State.WAITING, State.FAILED), states(notInstalled))
+        assertEquals("The bootloader did not install the new image.", notInstalled.rows[4].detail)
+    }
+
+    @Test
+    fun `button 2 and the time from the board`() {
+        val discarded = UpdateWatch.timeline(told(onLink(5.0), onLink(30.0, window = BoardStatus.Window.CLOSED, result = BoardStatus.Result.DISCARDED)))
+        assertEquals(listOf("Sent 1.13.0+0", "Button 2 pressed: the image was thrown away"), discarded.rows.map { it.title })
+        assertEquals("The board said so over Bluetooth.", discarded.rows[1].detail)
+        assertEquals(t(30.0), discarded.rows[1].at)
+        assertTrue(discarded.outcome == Outcome.DECLINED && discarded.finished)
+
+        val expired = UpdateWatch.timeline(
+            told(onLink(5.0), onLink(120.0, window = BoardStatus.Window.CLOSED, left = 0, result = BoardStatus.Result.TIMED_OUT), dropped = 121.0),
+        )
+        assertEquals(listOf("Sent 1.13.0+0", "The 2 minutes ran out: the image was thrown away"), expired.rows.map { it.title })
+        assertTrue(expired.rows[1].state == State.FAILED && expired.rows[1].detail == "The board said so over Bluetooth.")
+        assertTrue(expired.outcome == Outcome.EXPIRED && !expired.tentative && expired.finished)
+    }
+
+    @Test
+    fun `a refusal from the board says why`() {
+        val f = told(
+            onLink(
+                3.0,
+                window = BoardStatus.Window.CLOSED,
+                image = BoardStatus.Image.REFUSED,
+                result = BoardStatus.Result.CLOSED,
+                refusal = BoardStatus.Refusal.INCOMPATIBLE_LAYOUT,
+            ),
+        )
+        val timeline = UpdateWatch.timeline(f)
+        assertEquals(listOf("Sent 1.13.0+0", "The board did not take the image"), timeline.rows.map { it.title })
+        assertEquals("It is for another flash layout.", timeline.rows[1].detail)
+        assertTrue(timeline.outcome == Outcome.REFUSED && timeline.finished)
+    }
+
+    @Test
+    fun `only this send's status counts after the restart`() {
+        // Another board's, or another image of the same version: nothing.
+        val other = told(onLink(30.0, result = BoardStatus.Result.INSTALLING), afterRestart(140.0, hash = "0000000000000001"), dropped = 31.0)
+        assertEquals(listOf(State.DONE, State.DONE, State.CURRENT, State.WAITING, State.WAITING), states(UpdateWatch.timeline(other)))
+        val otherVersion = told(
+            onLink(30.0, result = BoardStatus.Result.INSTALLING),
+            afterRestart(140.0, onTrial = false, outcome = BoardStatus.Outcome.KEPT, target = "1.12.0+0"),
+            dropped = 31.0,
+        )
+        assertNull(UpdateWatch.timeline(otherVersion).outcome)
+        // An image the app could not read the hash of: the version alone.
+        val noHash = told(
+            onLink(30.0, result = BoardStatus.Result.INSTALLING),
+            afterRestart(140.0, onTrial = false, outcome = BoardStatus.Outcome.KEPT),
+            dropped = 31.0,
+        ).copy(sentHash = null)
+        assertEquals(Outcome.KEPT, UpdateWatch.timeline(noHash).outcome)
+    }
+
+    @Test
+    fun `a board with no console is followed over Bluetooth`() {
+        // A board with no Wi-Fi, which the console does not know: before 1.14.0 the app could not follow it.
+        var f = told(onLink(30.0, result = BoardStatus.Result.INSTALLING), dropped = 31.0, thing = null, onConsole = null)
+        val looking = UpdateWatch.timeline(f)
+        assertEquals(
+            "Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing.",
+            looking.note,
+        )
+        assertFalse(looking.finished)
+
+        f = f.copy(readings = f.readings + afterRestart(140.0))
+        assertNull(UpdateWatch.timeline(f).note)
+
+        // A person proved it at the board.
+        f = f.copy(readings = f.readings + afterRestart(260.0, onTrial = false, outcome = BoardStatus.Outcome.KEPT, proof = BoardStatus.Proof.PERSON))
+        val kept = UpdateWatch.timeline(f)
+        assertTrue(kept.outcome == Outcome.KEPT && kept.finished)
+        assertEquals("A person at the board proved it.", kept.rows[4].detail)
+        assertNull(UpdateWatch.record(f, kept))
+
+        // Not seen again.
+        val lost = told(onLink(30.0, result = BoardStatus.Result.INSTALLING), dropped = 31.0, thing = null, onConsole = null).copy(gaveUp = true)
+        val gaveUp = UpdateWatch.timeline(lost)
+        assertEquals(
+            "The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again.",
+            gaveUp.note,
+        )
+        assertTrue(gaveUp.finished)
+    }
+
+    @Test
+    fun `how long the board is followed`() {
+        assertNull(UpdateWatch.followUntil(facts()))
+        assertEquals(t(331.0), UpdateWatch.followUntil(facts(dropped = 31.0)))
+        // A status from before the restart, or of another send, does not stretch it.
+        assertEquals(t(331.0), UpdateWatch.followUntil(told(onLink(30.0, result = BoardStatus.Result.INSTALLING), dropped = 31.0)))
+        assertEquals(t(331.0), UpdateWatch.followUntil(told(afterRestart(140.0, target = "1.12.0+0"), dropped = 31.0)))
+        assertEquals(t(800.0), UpdateWatch.followUntil(told(afterRestart(140.0), afterRestart(200.0), dropped = 31.0)))
+    }
 }

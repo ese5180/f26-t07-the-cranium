@@ -78,6 +78,11 @@ public struct VerifiedImage: Equatable, Sendable {
         self.sha256 = sha256
         self.header = header
     }
+
+    /// The first 8 bytes of the image's own SHA-256, from its TLV area, in lower-case hex: what the board
+    /// keeps in its record of an update over Bluetooth, and shows in its status (`BoardStatus.lastHash`).
+    /// Not the SHA-256 of the file. Nil when the TLV area cannot be read.
+    public var imageHashPrefix: String? { ImageCheck.imageHash(data, header: header).map { String($0.prefix(16)) } }
 }
 
 public enum ImageCheck {
@@ -108,6 +113,27 @@ public enum ImageCheck {
         }
         return VerifiedImage(release: release.version, version: releaseVersion, data: data,
                              sha256: digest, header: header)
+    }
+
+    /// MCUboot's `IMAGE_TLV_SHA256` (type 0x10) in the TLV area after the protected one, as hex. Nil when
+    /// the area is not there or has no such entry.
+    public static func imageHash(_ data: Data, header: MCUbootHeader) -> String? {
+        let bytes = [UInt8](data)
+        func u16(_ at: Int) -> Int { Int(bytes[at]) | Int(bytes[at + 1]) << 8 }
+        var at = Int(header.headerSize) + Int(header.imageSize) + Int(header.protectedTLVSize)
+        guard at + 4 <= bytes.count, u16(at) == 0x6907 else { return nil }
+        let end = min(bytes.count, at + u16(at + 2))
+        at += 4
+        while at + 4 <= end {
+            let type = u16(at)
+            let length = u16(at + 2)
+            at += 4
+            if type == 0x10, length == 32, at + 32 <= end {
+                return bytes[at..<(at + 32)].map { String(format: "%02x", $0) }.joined()
+            }
+            at += length
+        }
+        return nil
     }
 
     public static func sha256Hex(_ data: Data) -> String {

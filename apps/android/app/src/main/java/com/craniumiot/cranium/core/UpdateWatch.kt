@@ -1,20 +1,24 @@
 package com.craniumiot.cranium.core
 
 /**
- * What became of an image sent over Bluetooth, step by step, from what the phone can see: the link to
- * the board while it lasts, then the console (docs/mobile-apps.md, "What a person does"). A pure
- * function of what was seen, so that both apps say the same thing at the same point: the iPhone app's
- * CraniumKit/UpdateWatch.swift is the same, case for case, and so are the tests.
+ * What became of an image sent over Bluetooth, step by step, from what the phone can see: the board's
+ * own status over Bluetooth, the link to the board while it lasts, then the console (docs/mobile-apps.md,
+ * "What a person does"). A pure function of what was seen, so that both apps say the same thing at the
+ * same point: the iPhone app's CraniumKit/UpdateWatch.swift is the same, case for case, and so are the tests.
  *
  * What the board tells, and how (firmware/app/src/bt_ota.c):
  *
- * - Button 1: it records the update, leaves AWS IoT and restarts into the bootloader at once. The line
- *   it prints for it ("restarting into the bootloader: …") is lost with the restart, so the press shows
- *   as the board closing the Bluetooth link, then as its disconnect from AWS IoT (an event of kind
- *   connection) at the moment of the press. After the restart: "on trial: <new> from <old>, …", and
- *   once it is kept or not, "update over Bluetooth: <new> from <old>, <result>, proof <who>, …".
- * - Button 2: "closed: by Button 2", and the link closes. The board stays online.
- * - The 2 minutes running out: "closed: no image to install", and the link closes.
+ * - From 1.14.0, its status characteristic ([BoardStatus]), on the link of the send and, after the
+ *   restart, to any phone for 2 minutes with no pairing: the window and its seconds, the image, the
+ *   button, and the last update's outcome as the board recorded it. The board's word comes first.
+ * - Button 1: it records the update, tells the phone (result `installing`), and restarts into the
+ *   bootloader once AWS IoT has its last report, 2 s at most. From 1.14.0 the line it prints for it
+ *   ("restarting into the bootloader: …") reaches the console first; before, it was lost with the
+ *   restart, and the press showed as the board closing the link and leaving AWS IoT (an event of kind
+ *   connection). After the restart: "on trial: <new> from <old>, …", and once it is kept or not,
+ *   "update over Bluetooth: <new> from <old>, <result>, proof <who>, …".
+ * - Button 2: "closed: by Button 2" (result `discarded`), and the link closes. The board stays online.
+ * - The 2 minutes running out: "closed: no image to install" (result `timed_out`), and the link closes.
  *
  * Times are epoch milliseconds.
  */
@@ -47,6 +51,12 @@ object UpdateWatch {
     /** A flow reopened this soon after its board was last followed shows how it went. */
     const val KEEP_MS = 300_000L
 
+    /**
+     * After the board was last seen over Bluetooth on trial with the new image, it is followed this much
+     * longer: its trial's 5 minutes, and the restart back into the old image, which says how it ended.
+     */
+    const val TRIAL_FOLLOW_MS = 600_000L
+
     enum class Step { SENT, BUTTON, INSTALLING, TRIAL, END }
 
     enum class State {
@@ -77,6 +87,14 @@ object UpdateWatch {
 
     data class Row(val step: Step, val state: State, val title: String, val detail: String? = null, val at: Long? = null)
 
+    /** One read of the board's status characteristic (firmware 1.14.0 on), and when the phone got it. */
+    data class Reading(
+        val status: BoardStatus,
+        val at: Long,
+        /** Read after the board restarted, on a link with no pairing; else on the link of the send. */
+        val afterRestart: Boolean = false,
+    )
+
     /** Everything seen since the send. */
     data class Facts(
         /** The release sent, `1.13.0+0`. */
@@ -99,11 +117,28 @@ object UpdateWatch {
         val device: Device? = null,
         /** The last time the console was asked, it could not be reached. */
         val consoleFailed: Boolean = false,
-        /** The console has been followed for [FOLLOW_MS] after the drop. */
+        /** The board has been followed until [followUntil]. */
         val gaveUp: Boolean = false,
+        /** The board's status, each read that said something new: on the link, and after the restart. */
+        val readings: List<Reading> = emptyList(),
+        /** The image's own hash, as the board records it ([ImageCheck.imageHashPrefix]). */
+        val sentHash: String? = null,
     ) {
         /** The console can follow this board: it knows which board it is, and did not have it offline. */
         val followable: Boolean get() = thing != null && onConsole != false
+
+        /** The board has the status characteristic (firmware 1.14.0 on): it is followed over Bluetooth too. */
+        val tellsOverBluetooth: Boolean get() = readings.any { !it.afterRestart }
+
+        /**
+         * A status read after the restart is this board's, about this send: its last update over
+         * Bluetooth is the version sent, and its image, where both hashes are known.
+         */
+        fun isAboutThisSend(status: BoardStatus): Boolean {
+            if (status.lastVia != BoardStatus.Via.BLUETOOTH || !same(status.lastTarget, version)) return false
+            val theirs = status.lastHash ?: return true
+            return sentHash == null || sentHash == theirs
+        }
     }
 
     data class Timeline(
@@ -157,6 +192,12 @@ object UpdateWatch {
     const val GAVE_UP = "5 minutes have passed, so the app has stopped following it. The board's page shows how it ends."
     const val CONSOLE_FAILED = "The console could not be reached just now. The app keeps asking."
     const val TIME_UP = "The 2 minutes are up."
+    const val BOARD_SAID = "The board said so over Bluetooth."
+    const val BUTTON_FROM_BOARD = "The board said so over Bluetooth, and is restarting to install it."
+    const val INSTALLING_OVER_BLUETOOTH = "The board is restarting into the bootloader, which checks the image and swaps it in."
+    const val TRIAL_OVER_BLUETOOTH = "The board says so over Bluetooth: not yet kept."
+    const val LOOKING = "Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing."
+    const val GAVE_UP_BLUETOOTH = "The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again."
 
     /** Who kept it, from the board's record. */
     fun keptDetail(proof: String?): String = when (proof) {
@@ -187,6 +228,21 @@ object UpdateWatch {
     /** How long to wait before asking the console again, after [throttled] answers of 429 in a row. */
     fun nextPoll(throttled: Int): Long = minOf(SLOWEST_POLL_MS, POLL_MS shl throttled.coerceIn(0, 8))
 
+    /**
+     * Until when the board is followed, once the link has gone: [FOLLOW_MS] after the drop, and
+     * [TRIAL_FOLLOW_MS] after the board last said over Bluetooth that it runs the new image on trial.
+     * Null while the link is up.
+     */
+    fun followUntil(facts: Facts): Long? {
+        val dropped = facts.linkDroppedAt ?: return null
+        var until = dropped + FOLLOW_MS
+        val trial = facts.readings.lastOrNull {
+            it.afterRestart && it.status.onTrial && same(it.status.running, facts.version) && facts.isAboutThisSend(it.status)
+        }
+        if (trial != null) until = maxOf(until, trial.at + TRIAL_FOLLOW_MS)
+        return until
+    }
+
     // What the board said.
 
     /** One of the board's records of an update: "<what>: <to> from <from>, <result>, proof <who>, update N of this board". */
@@ -211,9 +267,19 @@ object UpdateWatch {
     // The timeline.
 
     fun timeline(facts: Facts): Timeline {
-        val deadline = facts.sentAt + OFFER_MS
         val since = facts.sentAt - CLOCK_SLACK_MS
         val version = facts.version
+
+        // The board's own word, over Bluetooth: on the link of the send, then after the restart.
+        val onLink = facts.readings.filter { !it.afterRestart }
+        val windowEnd = onLink.firstOrNull { it.status.result != BoardStatus.Result.NONE && it.status.result != BoardStatus.Result.UNKNOWN }
+        val installing = windowEnd?.takeIf { it.status.result == BoardStatus.Result.INSTALLING }
+        val afterRestart = facts.readings.filter { it.afterRestart && facts.isAboutThisSend(it.status) }
+        val boardTrial = afterRestart.firstOrNull { it.status.onTrial && same(it.status.running, version) }
+        val boardEnd = afterRestart.firstOrNull { it.status.lastOutcome.isEnd }
+        // The board counts its 2 minutes down itself.
+        val offer = onLink.lastOrNull { it.status.window == BoardStatus.Window.OFFER }
+        val deadline = offer?.let { it.at + it.status.secondsLeft * 1000L } ?: (facts.sentAt + OFFER_MS)
 
         val lines = facts.lines
             .filter { (it.tag == "BT" || it.tag == "bt_ota") && Times.parse(it.at)?.let { at -> at >= since } == true }
@@ -251,14 +317,43 @@ object UpdateWatch {
         val runs = if (bootAt == null) null else device?.fw?.takeIf { it.version.isNotEmpty() }
         val record = device?.bt?.takeIf { same(it.to, version) }
 
-        // How it ended, the board's own word first.
+        // How it ended, the board's own word first: over Bluetooth, then in its log.
         var outcome: Outcome? = null
         var endAt: Long? = null
         var proof: String? = null
         var reason: String? = null
         var old: String? = null
         var refusal: String? = null
+        var fromBoard = false
+        val endedOnLink = windowEnd != null && (
+            windowEnd.status.result == BoardStatus.Result.DISCARDED || windowEnd.status.result == BoardStatus.Result.TIMED_OUT ||
+                windowEnd.status.image == BoardStatus.Image.REFUSED
+            )
         when {
+            boardEnd != null -> {
+                val said = boardEnd.status
+                if (said.lastOutcome == BoardStatus.Outcome.KEPT) {
+                    outcome = Outcome.KEPT
+                    proof = said.lastProof.word
+                } else {
+                    outcome = Outcome.ROLLED_BACK
+                    reason = said.lastOutcome.word
+                    old = if (same(said.running, version)) said.lastFrom else said.running
+                }
+                endAt = boardEnd.at
+            }
+            windowEnd != null && endedOnLink -> {
+                when (windowEnd.status.result) {
+                    BoardStatus.Result.DISCARDED -> outcome = Outcome.DECLINED
+                    BoardStatus.Result.TIMED_OUT -> outcome = Outcome.EXPIRED
+                    else -> {
+                        outcome = Outcome.REFUSED
+                        refusal = BoardStatus.words(windowEnd.status.refusal)
+                    }
+                }
+                endAt = windowEnd.at
+                fromBoard = true
+            }
             finished != null && finished.first.result != "pending" -> {
                 val said = finished.first
                 if (said.result == "succeeded") {
@@ -298,9 +393,11 @@ object UpdateWatch {
         }
 
         val dropped = facts.linkDroppedAt
-        val ranOnTrial = onTrial != null || (runs != null && same(runs.version, version)) || outcome == Outcome.KEPT
-        val acceptedSure = restarting != null || ranOnTrial || outcome == Outcome.ROLLED_BACK || (dropped != null && offlineAt != null)
-        val acceptedAt = restarting?.second ?: offlineAt ?: dropped
+        val ranOnTrial = onTrial != null || boardTrial != null || (runs != null && same(runs.version, version)) ||
+            outcome == Outcome.KEPT
+        val acceptedSure = installing != null || afterRestart.isNotEmpty() || restarting != null || ranOnTrial ||
+            outcome == Outcome.ROLLED_BACK || (dropped != null && offlineAt != null)
+        val acceptedAt = installing?.at ?: restarting?.second ?: offlineAt ?: dropped
         val likelyAccepted = !acceptedSure && outcome == null && dropped != null && dropped < deadline - END_SLACK_MS
         val likelyExpired = !acceptedSure && outcome == null && dropped != null && dropped >= deadline - END_SLACK_MS
 
@@ -310,11 +407,11 @@ object UpdateWatch {
 
         when (outcome) {
             Outcome.DECLINED -> {
-                rows += Row(Step.BUTTON, State.FAILED, DECLINED_TITLE, at = endAt)
+                rows += Row(Step.BUTTON, State.FAILED, DECLINED_TITLE, if (fromBoard) BOARD_SAID else null, endAt)
                 stopped = true
             }
             Outcome.EXPIRED -> {
-                rows += Row(Step.BUTTON, State.FAILED, EXPIRED_TITLE, at = endAt)
+                rows += Row(Step.BUTTON, State.FAILED, EXPIRED_TITLE, if (fromBoard) BOARD_SAID else null, endAt)
                 stopped = true
             }
             Outcome.REFUSED -> {
@@ -328,6 +425,7 @@ object UpdateWatch {
                     tentative = true
                     stopped = true
                 }
+                installing != null -> rows += Row(Step.BUTTON, State.DONE, BUTTON_TITLE, BUTTON_FROM_BOARD, installing.at)
                 acceptedSure -> rows += Row(Step.BUTTON, State.DONE, BUTTON_TITLE, at = acceptedAt)
                 likelyAccepted -> rows += Row(Step.BUTTON, State.LIKELY, BUTTON_TITLE, LINK_CLOSED, dropped)
                 else -> rows += Row(Step.BUTTON, State.CURRENT, BUTTON_TITLE)
@@ -335,20 +433,27 @@ object UpdateWatch {
         }
 
         if (!stopped) {
-            val offline = offlineAt != null || (dropped != null && device?.online == false)
-            val pastInstall = backAt != null || ranOnTrial || outcome != null
+            val offline = offlineAt != null || (dropped != null && device?.online == false) || installing != null
+            val pastInstall = backAt != null || ranOnTrial || outcome != null || afterRestart.isNotEmpty()
+            val installedAt = offlineAt ?: installing?.at
             rows += when {
-                pastInstall -> Row(Step.INSTALLING, State.DONE, INSTALLING_TITLE, at = offlineAt)
-                offline -> Row(Step.INSTALLING, State.CURRENT, INSTALLING_TITLE, INSTALLING_DETAIL, offlineAt)
+                pastInstall -> Row(Step.INSTALLING, State.DONE, INSTALLING_TITLE, at = installedAt)
+                offline -> {
+                    val detail = if (offlineAt == null && installing != null) INSTALLING_OVER_BLUETOOTH else INSTALLING_DETAIL
+                    Row(Step.INSTALLING, State.CURRENT, INSTALLING_TITLE, detail, installedAt)
+                }
                 else -> Row(Step.INSTALLING, State.WAITING, INSTALLING_TITLE)
             }
 
-            val trialAt = onTrial?.second ?: backAt ?: bootAt
+            val trialAt = onTrial?.second ?: boardTrial?.at ?: backAt ?: bootAt
+            val trialDone = onTrial != null || boardTrial != null
             rows += when (outcome) {
                 Outcome.KEPT -> Row(Step.TRIAL, State.DONE, trialTitle(version), at = trialAt)
-                Outcome.ROLLED_BACK -> Row(Step.TRIAL, if (onTrial != null) State.DONE else State.WAITING, trialTitle(version), at = onTrial?.second)
+                Outcome.ROLLED_BACK ->
+                    Row(Step.TRIAL, if (trialDone) State.DONE else State.WAITING, trialTitle(version), at = onTrial?.second ?: boardTrial?.at)
                 else -> if (ranOnTrial) {
-                    Row(Step.TRIAL, State.CURRENT, trialTitle(version), TRIAL_DETAIL, trialAt)
+                    val detail = if (onTrial == null && boardTrial != null) TRIAL_OVER_BLUETOOTH else TRIAL_DETAIL
+                    Row(Step.TRIAL, State.CURRENT, trialTitle(version), detail, trialAt)
                 } else {
                     Row(Step.TRIAL, State.WAITING, trialTitle(version))
                 }
@@ -366,15 +471,16 @@ object UpdateWatch {
         var done = outcome != null && !tentative
         if (outcome == null || tentative) {
             when {
-                dropped != null && !facts.followable -> {
+                dropped != null && !facts.followable && !facts.tellsOverBluetooth -> {
                     note = CANNOT_FOLLOW
                     done = true
                 }
                 facts.gaveUp -> {
-                    note = GAVE_UP
+                    note = if (facts.followable) GAVE_UP else GAVE_UP_BLUETOOTH
                     done = true
                 }
                 facts.consoleFailed -> note = CONSOLE_FAILED
+                dropped != null && !facts.followable && afterRestart.isEmpty() -> note = LOOKING
             }
         }
 

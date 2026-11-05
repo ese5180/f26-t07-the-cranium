@@ -16,6 +16,10 @@ import iOSMcuManagerLibrary
 /// `FirmwareUpgradeManager` is not used: it asks for parameters, may erase or reset, and ends with
 /// a test, all of which the board refuses.
 ///
+/// From firmware 1.14.0 the board also has its status characteristic (`BoardStatus`), in a service of
+/// its own. Once paired, this reads it and asks for its notifications, which needs no pairing, and hands
+/// each one to `observeStatus`. A board without it is followed as before.
+///
 /// All state is touched on the main queue only, where CoreBluetooth and the library call back.
 public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Sendable {
     public let name: String
@@ -38,6 +42,8 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
 
     private var smp: McuMgrBleTransport?
     private var images: ImageManager?
+    private var statusService: CBService?
+    private var statusHandler: (@Sendable (BoardStatus) -> Void)?
 
     init(name: String, peripheral: CBPeripheral, radio: BoardRadio) {
         self.name = name
@@ -90,6 +96,10 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
         }
     }
 
+    public func observeStatus(_ handler: @escaping @Sendable (BoardStatus) -> Void) {
+        DispatchQueue.main.async { self.statusHandler = handler }
+    }
+
     // MARK: Connecting and pairing
 
     private func beginConnect(_ continuation: CheckedContinuation<Void, Error>) {
@@ -121,7 +131,7 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
         guard phase == .connecting else { return }
         phase = .discovering
         peripheral.delegate = self
-        peripheral.discoverServices([CBUUID(string: SMP.serviceUUID)])
+        peripheral.discoverServices([CBUUID(string: SMP.serviceUUID), BoardRadio.statusServiceUUID])
         armTimeout(Self.connectTimeout, phase: .discovering, error: .timedOut)
     }
 
@@ -163,6 +173,9 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
         images = ImageManager(transport: transport)
         phase = .ready
         resumePending(with: nil)
+        if let statusService {
+            peripheral.discoverCharacteristics([CBUUID(string: BoardStatus.characteristicUUID)], for: statusService)
+        }
     }
 
     // MARK: Upload
@@ -230,6 +243,7 @@ public final class McuMgrBoardTransport: NSObject, BoardTransport, @unchecked Se
             images?.cancelUpload()
         }
         smp?.close()
+        statusHandler = nil
         radio.cancel(peripheral)
         peripheral.delegate = nil
     }
@@ -251,10 +265,21 @@ extension McuMgrBoardTransport: CBPeripheralDelegate {
             close(with: error.map { BoardErrors.map($0, duringUpload: false) } ?? .failed("The board has no SMP service."))
             return
         }
+        // Firmware 1.13 and older has none: nothing changes for it.
+        statusService = peripheral.services?.first { $0.uuid == BoardRadio.statusServiceUUID }
         peripheral.discoverCharacteristics([CBUUID(string: SMP.characteristicUUID)], for: service)
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if service.uuid == BoardRadio.statusServiceUUID {
+            // Read, and notified of each change: no pairing needed for it, and none asked for.
+            guard error == nil, phase == .ready, let characteristic = service.characteristics?.first(where: {
+                $0.uuid == CBUUID(string: BoardStatus.characteristicUUID)
+            }) else { return }
+            peripheral.readValue(for: characteristic)
+            if characteristic.properties.contains(.notify) { peripheral.setNotifyValue(true, for: characteristic) }
+            return
+        }
         guard phase == .discovering else { return }
         guard error == nil,
               let characteristic = service.characteristics?.first(where: { $0.uuid == CBUUID(string: SMP.characteristicUUID) }) else {
@@ -262,6 +287,12 @@ extension McuMgrBoardTransport: CBPeripheralDelegate {
             return
         }
         characteristicFound(characteristic)
+    }
+
+    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard error == nil, characteristic.uuid == CBUUID(string: BoardStatus.characteristicUUID),
+              let value = characteristic.value, let status = BoardStatus.parse(value) else { return }
+        statusHandler?(status)
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic,
@@ -296,6 +327,8 @@ extension McuMgrBoardTransport: ImageUploadDelegate {
         finishUpload(with: nil)
     }
 }
+
+extension McuMgrBoardTransport: RadioLink {}
 
 /// The contract's UUIDs, handed to the library rather than relying on its defaults.
 struct SMPUUIDs: McuMgrBleTransport.Configuration {

@@ -30,8 +30,18 @@ public enum RadioState: Equatable, Sendable {
     }
 }
 
+/// What has a link of its own to a board through the radio: the update's transport, or a status reader.
+protocol RadioLink: AnyObject {
+    func radioDidConnect()
+    func radioDidFailToConnect(_ error: Error?)
+    func radioDidDisconnect(_ error: Error?)
+    func radioWentAway(_ state: RadioState)
+}
+
 /// The app's one `CBCentralManager`: it scans for boards by the SMP service UUID, and connects to
-/// the one picked so that it can pair. Everything runs on the main queue.
+/// the one picked so that it can pair. From 0.7.2 it also scans for the status service, which a board
+/// advertises for 2 minutes after the restart that an update over Bluetooth asked for (`StatusWatcher`).
+/// Everything runs on the main queue.
 public final class BoardRadio: NSObject, @unchecked Sendable {
     public private(set) var state: RadioState = .starting
     public private(set) var boards: [DiscoveredBoard] = []
@@ -48,10 +58,13 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
     private var links: [UUID: WeakLink] = [:]
     private var wantsScan = false
     private var pruneTimer: Timer?
+    /// Who is told of a board that advertises its status, while that is looked for.
+    private var statusFound: ((CBPeripheral) -> Void)?
 
-    private struct WeakLink { weak var link: McuMgrBoardTransport? }
+    private struct WeakLink { weak var link: RadioLink? }
 
     private static let serviceUUID = CBUUID(string: SMP.serviceUUID)
+    static let statusServiceUUID = CBUUID(string: BoardStatus.serviceUUID)
 
     public override init() {
         super.init()
@@ -75,9 +88,29 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
         wantsScan = false
         pruneTimer?.invalidate()
         pruneTimer = nil
-        if central.state == .poweredOn {
-            central.stopScan()
-        }
+        rescan()
+    }
+
+    // MARK: Used by StatusWatcher, on the main queue
+
+    /// Looks for boards that advertise their status, and hands each one to `found`.
+    func startStatusScan(_ found: @escaping (CBPeripheral) -> Void) {
+        statusFound = found
+        rescan()
+    }
+
+    func stopStatusScan() {
+        statusFound = nil
+        rescan()
+    }
+
+    func register(_ link: RadioLink, for peripheral: CBPeripheral) {
+        peripherals[peripheral.identifier] = peripheral
+        links[peripheral.identifier] = WeakLink(link: link)
+    }
+
+    func unregister(_ peripheral: CBPeripheral) {
+        links[peripheral.identifier] = nil
     }
 
     /// The transport for a board on the list. Connecting stops the scan.
@@ -97,6 +130,11 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
         central.connect(peripheral, options: nil)
     }
 
+    /// For a status reader: the scan for boards to update is not this one's to stop.
+    func connectForStatus(_ peripheral: CBPeripheral) {
+        central.connect(peripheral, options: nil)
+    }
+
     func cancel(_ peripheral: CBPeripheral) {
         if peripheral.state == .connected || peripheral.state == .connecting {
             central.cancelPeripheralConnection(peripheral)
@@ -106,9 +144,20 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
     // MARK: -
 
     private func scanIfReady() {
-        guard wantsScan, central.state == .poweredOn else { return }
-        central.scanForPeripherals(withServices: [Self.serviceUUID],
+        guard central.state == .poweredOn else { return }
+        var services: [CBUUID] = []
+        if wantsScan { services.append(Self.serviceUUID) }
+        if statusFound != nil { services.append(Self.statusServiceUUID) }
+        guard !services.isEmpty else { return }
+        central.scanForPeripherals(withServices: services,
                                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+    }
+
+    /// The scan again, for what is wanted now.
+    private func rescan() {
+        guard central.state == .poweredOn else { return }
+        central.stopScan()
+        scanIfReady()
     }
 
     private func prune() {
@@ -145,6 +194,14 @@ extension BoardRadio: CBCentralManagerDelegate {
         // The name is what identifies a board in its window; anything else is not one of ours.
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name
         guard let name, BoardName.isValid(name) else { return }
+        let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        if services.contains(Self.statusServiceUUID) {
+            // After a restart: for the status alone, never on the list of boards to update.
+            peripherals[peripheral.identifier] = peripheral
+            statusFound?(peripheral)
+            return
+        }
+        guard wantsScan else { return }
         let rssi = RSSI.intValue == 127 ? -127 : RSSI.intValue  // 127: not available
         peripherals[peripheral.identifier] = peripheral
         let seen = DiscoveredBoard(id: peripheral.identifier, name: name, rssi: rssi, lastSeen: Date())

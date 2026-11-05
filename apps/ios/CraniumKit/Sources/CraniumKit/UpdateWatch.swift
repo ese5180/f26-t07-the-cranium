@@ -1,19 +1,23 @@
 import Foundation
 
-/// What became of an image sent over Bluetooth, step by step, from what the phone can see: the link to
-/// the board while it lasts, then the console (docs/mobile-apps.md, "What a person does"). A pure
-/// function of what was seen, so that both apps say the same thing at the same point: the Android
-/// app's core/UpdateWatch.kt is the same, case for case, and so are the tests.
+/// What became of an image sent over Bluetooth, step by step, from what the phone can see: the board's
+/// own status over Bluetooth, the link to the board while it lasts, then the console (docs/mobile-apps.md,
+/// "What a person does"). A pure function of what was seen, so that both apps say the same thing at the
+/// same point: the Android app's core/UpdateWatch.kt is the same, case for case, and so are the tests.
 ///
 /// What the board tells, and how (firmware/app/src/bt_ota.c):
 ///
-/// - Button 1: it records the update, leaves AWS IoT and restarts into the bootloader at once. The line
-///   it prints for it ("restarting into the bootloader: …") is lost with the restart, so the press shows
-///   as the board closing the Bluetooth link, then as its disconnect from AWS IoT (an event of kind
-///   connection) at the moment of the press. After the restart: "on trial: <new> from <old>, …", and
-///   once it is kept or not, "update over Bluetooth: <new> from <old>, <result>, proof <who>, …".
-/// - Button 2: "closed: by Button 2", and the link closes. The board stays online.
-/// - The 2 minutes running out: "closed: no image to install", and the link closes.
+/// - From 1.14.0, its status characteristic (`BoardStatus`), on the link of the send and, after the
+///   restart, to any phone for 2 minutes with no pairing: the window and its seconds, the image, the
+///   button, and the last update's outcome as the board recorded it. The board's word comes first.
+/// - Button 1: it records the update, tells the phone (result `installing`), and restarts into the
+///   bootloader once AWS IoT has its last report, 2 s at most. From 1.14.0 the line it prints for it
+///   ("restarting into the bootloader: …") reaches the console first; before, it was lost with the
+///   restart, and the press showed as the board closing the link and leaving AWS IoT (an event of kind
+///   connection). After the restart: "on trial: <new> from <old>, …", and once it is kept or not,
+///   "update over Bluetooth: <new> from <old>, <result>, proof <who>, …".
+/// - Button 2: "closed: by Button 2" (result `discarded`), and the link closes. The board stays online.
+/// - The 2 minutes running out: "closed: no image to install" (result `timed_out`), and the link closes.
 public enum UpdateWatch {
     /// The board keeps an image that has arrived for this long, for a button (BT_OTA_OFFER_SECONDS).
     public static let offerSeconds: TimeInterval = 120
@@ -33,6 +37,9 @@ public enum UpdateWatch {
     static let bootSlack: TimeInterval = 10
     /// A flow reopened this soon after its board was last followed shows how it went.
     public static let keepSeconds: TimeInterval = 300
+    /// After the board was last seen over Bluetooth on trial with the new image, it is followed this much
+    /// longer: its trial's 5 minutes, and the restart back into the old image, which says how it ended.
+    public static let trialFollowSeconds: TimeInterval = 600
 
     public enum Step: String, Sendable { case sent, button, installing, trial, end }
 
@@ -74,6 +81,20 @@ public enum UpdateWatch {
         }
     }
 
+    /// One read of the board's status characteristic (firmware 1.14.0 on), and when the phone got it.
+    public struct Reading: Equatable, Sendable {
+        public let status: BoardStatus
+        public let at: Date
+        /// Read after the board restarted, on a link with no pairing; else on the link of the send.
+        public let afterRestart: Bool
+
+        public init(_ status: BoardStatus, at: Date, afterRestart: Bool = false) {
+            self.status = status
+            self.at = at
+            self.afterRestart = afterRestart
+        }
+    }
+
     /// Everything seen since the send.
     public struct Facts: Equatable, Sendable {
         /// The release sent, `1.13.0+0`.
@@ -96,12 +117,16 @@ public enum UpdateWatch {
         public var device: Device?
         /// The last time the console was asked, it could not be reached.
         public var consoleFailed: Bool
-        /// The console has been followed for `followSeconds` after the drop.
+        /// The board has been followed until `followUntil`.
         public var gaveUp: Bool
+        /// The board's status, each read that said something new: on the link, and after the restart.
+        public var readings: [Reading]
+        /// The image's own hash, as the board records it (`VerifiedImage.imageHashPrefix`).
+        public var sentHash: String?
 
         public init(version: String, from: String? = nil, sentAt: Date, thing: String? = nil, onConsole: Bool? = nil,
                     linkDroppedAt: Date? = nil, lines: [BoardLine] = [], events: [BoardEvent] = [], device: Device? = nil,
-                    consoleFailed: Bool = false, gaveUp: Bool = false) {
+                    consoleFailed: Bool = false, gaveUp: Bool = false, readings: [Reading] = [], sentHash: String? = nil) {
             self.version = version
             self.from = from
             self.sentAt = sentAt
@@ -113,10 +138,23 @@ public enum UpdateWatch {
             self.device = device
             self.consoleFailed = consoleFailed
             self.gaveUp = gaveUp
+            self.readings = readings
+            self.sentHash = sentHash
         }
 
         /// The console can follow this board: it knows which board it is, and did not have it offline.
         public var followable: Bool { thing != nil && onConsole != false }
+
+        /// The board has the status characteristic (firmware 1.14.0 on): it is followed over Bluetooth too.
+        public var tellsOverBluetooth: Bool { readings.contains { !$0.afterRestart } }
+
+        /// A status read after the restart is this board's, about this send: its last update over
+        /// Bluetooth is the version sent, and its image, where both hashes are known.
+        public func isAboutThisSend(_ status: BoardStatus) -> Bool {
+            guard status.lastVia == .bluetooth, UpdateWatch.same(status.lastTarget, version) else { return false }
+            guard let sentHash, let theirs = status.lastHash else { return true }
+            return sentHash == theirs
+        }
     }
 
     public struct Timeline: Equatable, Sendable {
@@ -180,6 +218,12 @@ public enum UpdateWatch {
     public static let gaveUpNote = "5 minutes have passed, so the app has stopped following it. The board's page shows how it ends."
     public static let consoleFailedNote = "The console could not be reached just now. The app keeps asking."
     public static let timeUp = "The 2 minutes are up."
+    public static let boardSaid = "The board said so over Bluetooth."
+    public static let buttonFromBoard = "The board said so over Bluetooth, and is restarting to install it."
+    public static let installingOverBluetooth = "The board is restarting into the bootloader, which checks the image and swaps it in."
+    public static let trialOverBluetooth = "The board says so over Bluetooth: not yet kept."
+    public static let lookingNote = "Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing."
+    public static let gaveUpBluetoothNote = "The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again."
 
     /// Who kept it, from the board's record.
     public static func keptDetail(_ proof: String?) -> String {
@@ -216,6 +260,20 @@ public enum UpdateWatch {
         min(slowestPollSeconds, pollSeconds * pow(2, Double(min(max(throttled, 0), 8))))
     }
 
+    /// Until when the board is followed, once the link has gone: `followSeconds` after the drop, and
+    /// `trialFollowSeconds` after the board last said over Bluetooth that it runs the new image on trial.
+    /// Nil while the link is up.
+    public static func followUntil(_ facts: Facts) -> Date? {
+        guard let dropped = facts.linkDroppedAt else { return nil }
+        var until = dropped.addingTimeInterval(followSeconds)
+        if let trial = facts.readings.last(where: {
+            $0.afterRestart && $0.status.onTrial && same($0.status.running, facts.version) && facts.isAboutThisSend($0.status)
+        }) {
+            until = max(until, trial.at.addingTimeInterval(trialFollowSeconds))
+        }
+        return until
+    }
+
     // MARK: What the board said
 
     /// One of the board's records of an update: "<what>: <to> from <from>, <result>, proof <who>, update N of this board".
@@ -246,9 +304,20 @@ public enum UpdateWatch {
     // MARK: The timeline
 
     public static func timeline(_ facts: Facts) -> Timeline {
-        let deadline = facts.sentAt.addingTimeInterval(offerSeconds)
         let since = facts.sentAt.addingTimeInterval(-clockSlack)
         let version = facts.version
+
+        // The board's own word, over Bluetooth: on the link of the send, then after the restart.
+        let onLink = facts.readings.filter { !$0.afterRestart }
+        let windowEnd = onLink.first { $0.status.result != .none && $0.status.result != .unknown }
+        let installing = windowEnd?.status.result == .installing ? windowEnd : nil
+        let afterRestart = facts.readings.filter { $0.afterRestart && facts.isAboutThisSend($0.status) }
+        let boardTrial = afterRestart.first { $0.status.onTrial && same($0.status.running, version) }
+        let boardEnd = afterRestart.first { $0.status.lastOutcome.isEnd }
+        // The board counts its 2 minutes down itself.
+        let offer = onLink.last { $0.status.window == .offer }
+        let deadline = offer.map { $0.at.addingTimeInterval(Double($0.status.secondsLeft)) }
+            ?? facts.sentAt.addingTimeInterval(offerSeconds)
 
         let lines = facts.lines
             .filter { ($0.tag == "BT" || $0.tag == "bt_ota") && ($0.date.map { $0 >= since } ?? false) }
@@ -290,14 +359,37 @@ public enum UpdateWatch {
         let runs = bootAt == nil ? nil : device?.fw
         let record = device?.bt.flatMap { same($0.to, version) ? $0 : nil }
 
-        // How it ended, the board's own word first.
+        // How it ended, the board's own word first: over Bluetooth, then in its log.
         var outcome: Outcome?
         var endAt: Date?
         var proof: String?
         var reason: String?
         var old: String?
         var refusal: String?
-        if let end = finished, end.0.result != "pending" {
+        var fromBoard = false
+        let endedOnLink = windowEnd.map { [.discarded, .timedOut].contains($0.status.result) || $0.status.image == .refused } ?? false
+        if let end = boardEnd {
+            let said = end.status
+            if said.lastOutcome == .kept {
+                outcome = .kept
+                proof = said.lastProof.word
+            } else {
+                outcome = .rolledBack
+                reason = said.lastOutcome.word
+                old = same(said.running, version) ? said.lastFrom : said.running
+            }
+            endAt = end.at
+        } else if let end = windowEnd, endedOnLink {
+            switch end.status.result {
+            case .discarded: outcome = .declined
+            case .timedOut: outcome = .expired
+            default:
+                outcome = .refused
+                refusal = BoardStatus.words(end.status.refusal)
+            }
+            endAt = end.at
+            fromBoard = true
+        } else if let end = finished, end.0.result != "pending" {
             let said = end.0
             if said.result == "succeeded" {
                 outcome = .kept
@@ -330,9 +422,11 @@ public enum UpdateWatch {
         }
 
         let dropped = facts.linkDroppedAt
-        let ranOnTrial = onTrial != nil || (runs.map { same($0.version, version) } ?? false) || outcome == .kept
-        let acceptedSure = restarting != nil || ranOnTrial || outcome == .rolledBack || (dropped != nil && offlineAt != nil)
-        let acceptedAt = restarting?.1 ?? offlineAt ?? dropped
+        let ranOnTrial = onTrial != nil || boardTrial != nil || (runs.map { same($0.version, version) } ?? false)
+            || outcome == .kept
+        let acceptedSure = installing != nil || !afterRestart.isEmpty || restarting != nil || ranOnTrial
+            || outcome == .rolledBack || (dropped != nil && offlineAt != nil)
+        let acceptedAt = installing?.at ?? restarting?.1 ?? offlineAt ?? dropped
         let likelyAccepted = !acceptedSure && outcome == nil && dropped.map { $0 < deadline.addingTimeInterval(-endSlack) } == true
         let likelyExpired = !acceptedSure && outcome == nil && dropped.map { $0 >= deadline.addingTimeInterval(-endSlack) } == true
 
@@ -342,10 +436,10 @@ public enum UpdateWatch {
 
         switch outcome {
         case .declined:
-            rows.append(Row(.button, .failed, declinedTitle, at: endAt))
+            rows.append(Row(.button, .failed, declinedTitle, fromBoard ? boardSaid : nil, at: endAt))
             stopped = true
         case .expired:
-            rows.append(Row(.button, .failed, expiredTitle, at: endAt))
+            rows.append(Row(.button, .failed, expiredTitle, fromBoard ? boardSaid : nil, at: endAt))
             stopped = true
         case .refused:
             rows.append(Row(.button, .failed, refusedTitle, refusal, at: endAt))
@@ -356,6 +450,8 @@ public enum UpdateWatch {
                 outcome = .expired
                 tentative = true
                 stopped = true
+            } else if let installing {
+                rows.append(Row(.button, .done, buttonTitle, buttonFromBoard, at: installing.at))
             } else if acceptedSure {
                 rows.append(Row(.button, .done, buttonTitle, at: acceptedAt))
             } else if likelyAccepted {
@@ -366,22 +462,27 @@ public enum UpdateWatch {
         }
 
         if !stopped {
-            let offline = offlineAt != nil || (dropped != nil && device?.online == false)
-            let pastInstall = backAt != nil || ranOnTrial || outcome != nil
+            let offline = offlineAt != nil || (dropped != nil && device?.online == false) || installing != nil
+            let pastInstall = backAt != nil || ranOnTrial || outcome != nil || !afterRestart.isEmpty
+            let installedAt = offlineAt ?? installing?.at
             if pastInstall {
-                rows.append(Row(.installing, .done, installingTitle, at: offlineAt))
+                rows.append(Row(.installing, .done, installingTitle, at: installedAt))
             } else if offline {
-                rows.append(Row(.installing, .current, installingTitle, installingDetail, at: offlineAt))
+                let detail = offlineAt == nil && installing != nil ? installingOverBluetooth : installingDetail
+                rows.append(Row(.installing, .current, installingTitle, detail, at: installedAt))
             } else {
                 rows.append(Row(.installing, .waiting, installingTitle))
             }
 
-            let trialAt = onTrial?.1 ?? backAt ?? bootAt
+            let trialAt = onTrial?.1 ?? boardTrial?.at ?? backAt ?? bootAt
+            let trialDone = onTrial != nil || boardTrial != nil
             switch outcome {
             case .kept: rows.append(Row(.trial, .done, trialTitle(version), at: trialAt))
-            case .rolledBack: rows.append(Row(.trial, onTrial != nil ? .done : .waiting, trialTitle(version), at: onTrial?.1))
+            case .rolledBack:
+                rows.append(Row(.trial, trialDone ? .done : .waiting, trialTitle(version), at: onTrial?.1 ?? boardTrial?.at))
             default:
-                rows.append(ranOnTrial ? Row(.trial, .current, trialTitle(version), trialDetail, at: trialAt)
+                let detail = onTrial == nil && boardTrial != nil ? trialOverBluetooth : trialDetail
+                rows.append(ranOnTrial ? Row(.trial, .current, trialTitle(version), detail, at: trialAt)
                                        : Row(.trial, .waiting, trialTitle(version)))
             }
 
@@ -396,14 +497,16 @@ public enum UpdateWatch {
         var note: String?
         var done = outcome != nil && !tentative
         if outcome == nil || tentative {
-            if dropped != nil && !facts.followable {
+            if dropped != nil && !facts.followable && !facts.tellsOverBluetooth {
                 note = cannotFollow
                 done = true
             } else if facts.gaveUp {
-                note = gaveUpNote
+                note = facts.followable ? gaveUpNote : gaveUpBluetoothNote
                 done = true
             } else if facts.consoleFailed {
                 note = consoleFailedNote
+            } else if dropped != nil && !facts.followable && afterRestart.isEmpty {
+                note = lookingNote
             }
         }
 

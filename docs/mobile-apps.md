@@ -33,19 +33,26 @@ This file is the contract both apps follow. The board's side is in
    The app counts the board's 2 minutes down, from the end of the upload.
 8. The board restarts and runs the new image on trial. It keeps it once it reaches AWS IoT.
 9. The app shows each step as it happens, with its time, until the image is kept or undone
-   ([Following the board after a send](#following-the-board-after-a-send)):
-   1. **Sent** the version: press Button 1 within 2 minutes (Button 2 throws it away), and the countdown.
-   2. **Button 1 pressed, accepted**: from the board's disconnect from AWS IoT at the press, or else, said
-      carefully, from the board closing the Bluetooth link ("The board closed the link: it is installing").
-      Button 2, or the 2 minutes running out, is said so, and the steps stop there.
-   3. **Installing and restarting**: the board is offline on the console.
-   4. **Running** the version **on trial**: back online with it, not yet kept.
+   ([Following the board after a send](#following-the-board-after-a-send)). From firmware 1.14.0 and app
+   0.7.2 each step is the board's own word, from its [status characteristic](#the-status-characteristic)
+   over Bluetooth, and the console's when the board is online:
+   1. **Sent** the version: press Button 1 within 2 minutes (Button 2 throws it away), and the board's own
+      countdown.
+   2. **Button 1 pressed, accepted**: the board says so over Bluetooth before it restarts; with older
+      firmware, from the board's disconnect from AWS IoT at the press, or else, said carefully, from the
+      board closing the Bluetooth link ("The board closed the link: it is installing"). Button 2, the 2
+      minutes running out, or the board refusing the image, with its reason, is said so, and the steps stop
+      there.
+   3. **Installing and restarting**: the board is restarting into the bootloader, or offline on the console.
+   4. **Running** the version **on trial**: back with it, not yet kept. After the restart the app finds the
+      board over Bluetooth again with no pairing, for the 2 minutes the board allows.
    5. **Kept** the version, or **Rolled back to** the old one, with the board's reason.
 
    Closed and opened again within 5 minutes, the flow shows the same steps. The board's page in the app
    says how its last update over Bluetooth went: "1.13.0+0 over Bluetooth at 12:14, kept". A board
-   that is not on the console gets one line instead: the app can't follow it from there; after it
-   restarts, check its version over Bluetooth.
+   that is not on the console, one with no Wi-Fi for one, is followed over Bluetooth alone to the end,
+   from firmware 1.14.0. With older firmware it gets one line instead: the app can't follow it from
+   there; after it restarts, check its version over Bluetooth.
 
 ## Configuration
 
@@ -313,8 +320,9 @@ its own strength: without the console's yes at that moment it stays on the phone
 | | |
 | --- | --- |
 | Advertised name | `Cranium-` and four upper-case hex digits, new for each window. Nothing else identifies the board |
-| Advertising data | The SMP service UUID `8D53DC1D-1DB7-4CD3-868B-8A527460AA84` |
+| Advertising data | The SMP service UUID `8D53DC1D-1DB7-4CD3-868B-8A527460AA84` in a window that takes an image; the status service UUID `9112B1B4-2A51-40F0-94D3-A76440F0E6CC` for 2 minutes after the restart that an update over Bluetooth asked for (from firmware 1.14.0) |
 | SMP characteristic | `DA2E7828-FBCE-4E01-AE9E-261174997C48`: write without response, and notify |
+| Status characteristic | `9112B1B5-2A51-40F0-94D3-A76440F0E6CC`, in the status service: read, and notify. **No pairing needed**: see [The status characteristic](#the-status-characteristic). From firmware 1.14.0 |
 | Pairing | LE Secure Connections only, passkey shown by the board and typed on the phone. No bond is kept, so every session pairs again. The phone's OS asks for the passkey when the app first touches the characteristic. The board drops a link that has not paired within 45 s |
 | Idle link | The board drops an authenticated link with nothing on it for 120 s (30 s before firmware 1.11.2). While the person chooses a release and the image downloads, read the image state every 10 to 20 s |
 | MTU | The board takes ATT packets up to 498 bytes and SMP packets up to 512 |
@@ -354,38 +362,110 @@ README). That is by design, and it is why only a person at the board can open th
 Offer only releases newer than the version in slot 0. When the upload finishes, tell the person to
 press Button 1 on the board within 2 minutes, keep the link, and follow the board (below).
 
+### The status characteristic
+
+From firmware 1.14.0 the board tells a phone how an update over Bluetooth stands, itself
+(`firmware/app/src/bt_status.h`): one characteristic, `9112B1B5-2A51-40F0-94D3-A76440F0E6CC`, read and notify,
+in a service of its own, `9112B1B4-2A51-40F0-94D3-A76440F0E6CC`. A board of 1.13.x or older has neither, and the
+apps follow it as 0.7.1 did.
+
+**Who can read it.** Any phone that is connected, with no pairing and no encryption: the characteristic and its
+notifications need none, because nothing in it is secret. Only versions, counts, seconds and states, all of which
+the board's serial console says as well; never the passkey, a key, the board's name in the cloud or anything about
+its network. The board is connectable only in a window that a person opened with Button 1, as before, and for 2
+minutes after the restart that an update over Bluetooth asked for, into the new image on trial or back into the old
+one. In those 2 minutes it advertises the status service (not SMP, so the apps' scan for boards to update leaves it
+out), as `Cranium-` and four new hex digits, at a new private address. A link made then is for the status alone:
+the board asks for no pairing, refuses one, and so SMP, which needs an authenticated link as before, stays shut.
+Such a link stays while the image is on trial, 5 s more after the trial is over, and 6 minutes at most.
+
+**When it changes.** Every change is notified at once to a phone that asked for notifications; what counts by
+itself (the seconds left, the bytes received, the uptime) every 10 s, and the phone counts down in between. A
+notification takes an ATT MTU of at least 67, which iPhones negotiate by themselves and the Android app asks for;
+on a smaller one, read it (a long read). The board waits up to half a second for the last notification of a window
+to go out before it closes the link or restarts.
+
+**The payload.** 64 bytes, least significant byte first. A version is 8 bytes: major, minor, revision (2), build (4),
+all zero for none. A phone that finds another number in byte 0 reads nothing else; a later firmware may add bytes
+at the end, and new numbers in a field, which the apps take as unknown.
+
+| Byte | Size | | Values |
+| --- | --- | --- | --- |
+| 0 | 1 | Format | 1 |
+| 1 | 1 | Window | 0 closed, 1 open (advertising, or connected and not paired), 2 linked (paired), 3 an image waits for a button, 4 status only (after the restart) |
+| 2 | 2 | Seconds left | of the window; of the offer while an image waits (the board's 2 minutes for Button 1); of the advertising after the restart |
+| 4 | 1 | Image | 0 none, 1 receiving, 2 received (all of it, not looked at yet), 3 verified (offered), 4 refused |
+| 5 | 1 | Refusal | 0 none, 1 older (not newer than what runs), 2 not image 0, 3 no image header, 4 too large, 5 bad sizes, 6 incompatible_board, 7 incompatible_layout, 8 malformed metadata, 9 swap pending, 10 cannot install (the record or the swap request could not be written) |
+| 6 | 4 | Image bytes | so far while receiving, then the image's size |
+| 10 | 8 | Image version | from its header, once the first piece is in |
+| 18 | 1 | Result | 0 none, 1 installing (Button 1: the board restarts), 2 discarded (Button 2), 3 timed out (no button in the offer's 2 minutes, or the window's time ran out), 4 closed for another reason |
+| 19 | 1 | Closed reason | the firmware's `enum bt_ota_closed` + 1, 0 while open: 1 time up, 2 pairing failed, 3 session limit, 4 no image to install, 5 Button 2, 6 trial over, 7 no controller |
+| 20 | 8 | Running version | |
+| 28 | 1 | Flags | bit 0: on trial; bits 1 to 3: the swap the bootloader has to do (0 none, 1 test, 2 permanent, 3 revert, 4 fail) |
+| 29 | 1 | Last update: how | 0 none, 1 Bluetooth, 2 Wi-Fi (a cloud job this boot knows of) |
+| 30 | 1 | Last update: outcome | 0 none, 1 pending, 2 kept, 3 rolled_back, 4 not_installed, 5 trial_lost, 6 superseded, 7 flash_error, 8 incompatible_board, 9 incompatible_layout, 10 failed |
+| 31 | 1 | Last update: proof | 0 none, 1 cloud, 2 person |
+| 32 | 8 | Last update: version | what it installed, or tried to |
+| 40 | 8 | Last update: from | over Bluetooth only |
+| 48 | 8 | Last update: hash | the first 8 bytes of the image's own SHA-256 (its `IMAGE_TLV_SHA256`, not the file's), over Bluetooth only |
+| 56 | 2 | Last update: count | updates over Bluetooth on this board, this one included |
+| 58 | 4 | Uptime | seconds |
+| 62 | 2 | Reserved | 0 |
+
+The signature is the bootloader's to check, at the restart: an image it does not take shows up after the restart as
+the last update's outcome, `not_installed`, not as a refusal. `firmware/tests/host/test_bt_status.c` checks the
+payload byte by byte; `build/bt_status_tests --print` gives its sample, which `BoardStatusTests.swift` and
+`BoardStatusTest.kt` parse.
+
 ### Following the board after a send
 
 What the board tells, and how (`firmware/app/src/bt_ota.c`), each line of its console in its board log
-(`GET /api/events/log`, tag `BT`) with the board's own time:
+(`GET /api/events/log`, tag `BT`) with the board's own time, and from firmware 1.14.0 its status:
 
-| At the board | On the link | In the board log | On the console |
-| --- | --- | --- | --- |
-| The image has arrived | Stays up | `firmware 1.13.0+0 has arrived, …: press Button 1 to install it, Button 2 to erase it` | |
-| Button 1 | Drops a few seconds later: the board restarts | Nothing at the press: the board prints `restarting into the bootloader: …`, but restarts before the line can leave it | A `connection` event `disconnected`, at the press, then `connected` when it is back |
-| After the restart | | `on trial: 1.13.0+0 from 1.12.0+0, pending, …`, then `update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, …` or another result: `rolled_back`, `not_installed`, `trial_lost`, `flash_error` | `fw` `{version, confirmed}` in `GET /api/devices/{thing}`, and the shadow's `bt` record |
-| Button 2 | Dropped by the board at once | `closed: by Button 2` | The board stays online |
-| No button for 2 minutes | Dropped by the board | `closed: no image to install` | The board stays online |
+| At the board | Status (1.14.0 on) | On the link | In the board log | On the console |
+| --- | --- | --- | --- | --- |
+| The image has arrived | Window 3, image verified, the offer's seconds | Stays up | `firmware 1.13.0+0 has arrived, …: press Button 1 to install it, Button 2 to erase it` | |
+| Button 1 | Result installing, notified before the restart | Drops within about 2 s: the board restarts | `restarting into the bootloader: …`, which from 1.14.0 reaches the console first: the board sends what waits, then a report with `ota.state` `rebooting`, and restarts once AWS IoT has acknowledged it, 2 s at most. Before, it was lost with the restart | `ota.state` `rebooting`, then a `connection` event `disconnected` at the press, and `connected` when it is back |
+| After the restart | Window 4 for 2 minutes, read with no pairing: running version, on trial, last update pending, then kept or rolled_back, with its proof | | `on trial: 1.13.0+0 from 1.12.0+0, pending, …`, then `update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, …` or another result: `rolled_back`, `not_installed`, `trial_lost`, `flash_error` | `fw` `{version, confirmed}` in `GET /api/devices/{thing}`, and the shadow's `bt` record |
+| Button 2 | Result discarded, notified before the link goes | Dropped by the board at once | `closed: by Button 2` | The board stays online |
+| No button for 2 minutes | Result timed out | Dropped by the board | `closed: no image to install` | The board stays online |
+| An image it refuses | Image refused, with the reason; result closed | Dropped by the board | `refused the image: …` | The board stays online |
 
 So the apps keep the link after the upload and read the image list every 3 s (the board allows it
-while it waits for a button, and drops no link in that time). Once the link goes, they ask the console
-every 3 s, for at most 5 minutes, two calls each time: the board log since the send
-(`?thing=…&tags=BT,bt_ota&from=…`, from 30 s before the send), and in turn the board's connections
-(`GET /api/events?kinds=connection`) and its report (`GET /api/devices/{thing}`). A 429 doubles the wait,
-up to 30 s. They stop at the first end: kept, rolled back, Button 2, or the 2 minutes run out.
+while it waits for a button, and drops no link in that time), and from firmware 1.14.0 they read the status
+characteristic and ask for its notifications on the same link, all through the flow. Once the link goes, they ask
+the console every 3 s, two calls each time: the board log since the send (`?thing=…&tags=BT,bt_ota&from=…`, from
+30 s before the send), and in turn the board's connections (`GET /api/events?kinds=connection`) and its report
+(`GET /api/devices/{thing}`). A 429 doubles the wait, up to 30 s. They stop at the first end: kept, rolled back,
+Button 2, the 2 minutes run out, or a refusal.
 
-- **Button 1** is taken as accepted once the board left AWS IoT after the link dropped, or ran the new
-  version since; before that, a drop more than 3 s before the end of the 2 minutes says, carefully,
-  "The board closed the link: it is installing". A drop at the end of the 2 minutes is taken for the
+From firmware 1.14.0 they also look for the board over Bluetooth, at the same time: they scan for the status
+service, connect to each board that advertises it, with no pairing, and read its status once. Only the board whose
+last update over Bluetooth is the version sent, and the image sent (its hash), is followed: its status is read, and
+each change notified, until its link goes; then they look again, for a board whose trial fails restarts once more
+and advertises its status from the old image. They follow for 5 minutes after the link of the send went, and
+10 minutes after the board last said it runs the new image on trial. A board with no Wi-Fi, which the console
+cannot follow, is followed this way to the end. With older firmware (no status characteristic) the apps do what
+0.7.1 did.
+
+- **The board's word first.** A status that says installing, discarded, timed out or refused is Button 1,
+  Button 2, the time or the refusal, at the moment the phone got it; after the restart, a status about this
+  send that says on trial, kept or rolled back is that. The countdown is the board's: the seconds left of its
+  offer, from the moment they were read.
+- **Button 1**, without the board's word, is taken as accepted once the board left AWS IoT after the link
+  dropped, or ran the new version since; before that, a drop more than 3 s before the end of the 2 minutes says,
+  carefully, "The board closed the link: it is installing". A drop at the end of the 2 minutes is taken for the
   time running out, until the console says otherwise.
-- **Kept**: the board's `update over Bluetooth … succeeded` line, or a report from a boot after the send
-  (its `lastSeen` less its `uptime`) of the new version, confirmed. **Rolled back**: a line with another
-  result, or such a report of another version.
+- **Kept**: the board's status, its `update over Bluetooth … succeeded` line, or a report from a boot after the
+  send (its `lastSeen` less its `uptime`) of the new version, confirmed. **Rolled back**: a status or a line with
+  another result, or such a report of another version.
 - A board the console does not know (no passkey came from it) or had offline right after the send is
-  not followed: one line says so.
+  followed over Bluetooth alone, from firmware 1.14.0; with older firmware it is not followed, and one line says
+  so.
 
 The steps are one pure function in each app, `UpdateWatch` (`CraniumKit/UpdateWatch.swift`,
-`core/UpdateWatch.kt`), with the same words and the same test cases on both sides.
+`core/UpdateWatch.kt`), with the same words and the same test cases on both sides, and so is the status's
+parser (`CraniumKit/BoardStatus.swift`, `core/BoardStatus.kt`).
 
 ## Errors to expect
 

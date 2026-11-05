@@ -4,6 +4,20 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.7.2
+
+With firmware 1.14.0 or later the app hears the board itself over Bluetooth through the whole update: Button 1 or 2 as
+the board took it, its own 2-minute countdown, and why it refused an image. After the restart it finds the board again
+with no pairing, in the 2 minutes the board allows, and shows it on trial, then kept or rolled back, from the board
+itself. A board without Wi-Fi is followed to the end. Older firmware: as before.
+
+The board's status characteristic (9112B1B5-2A51-40F0-94D3-A76440F0E6CC, read and notify, no pairing) is read on the
+link of the send, and each status that says something new is a fact for UpdateWatch. Once the link has gone, the app
+scans for the board's status service, reads each board that advertises it once, follows only the one whose last update
+over Bluetooth is this version and this image (the image's own hash, from its TLVs), and looks again after each
+restart. It follows for 5 minutes after the link went, and 10 minutes after the board last said it is on trial; the
+console is followed as before alongside. The parser and the new steps have the same words and test cases in both apps.
+
 ## 0.7.1
 
 After a Bluetooth send, the app follows the board step by step, each with its time: sent, with the board's 2 minutes

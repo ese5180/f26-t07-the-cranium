@@ -7,6 +7,7 @@ import com.craniumiot.cranium.auth.SignedOutException
 import com.craniumiot.cranium.core.ApiError
 import com.craniumiot.cranium.core.BoardBluetooth
 import com.craniumiot.cranium.core.BoardImages
+import com.craniumiot.cranium.core.BoardStatus
 import com.craniumiot.cranium.core.FirmwareCache
 import com.craniumiot.cranium.core.FirmwareVersion
 import com.craniumiot.cranium.core.ImageCheck
@@ -24,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,9 +108,17 @@ class BluetoothFlow(
     private var keepAlive: Job? = null
     private var scanTimer: Job? = null
 
+    /**
+     * The board's status characteristic on the link (firmware 1.14.0 on), and the last thing it said
+     * before the send. A board without it never answers, and is followed as before.
+     */
+    private var linkStatus: StatusClient? = null
+    private var lastLinkReading: UpdateWatch.Reading? = null
+
     // Following the board after the send. The link is the watch's from then on, not the flow's.
     private var watchFacts: UpdateWatch.Facts? = null
     private var watchSession: BoardSession? = null
+    private var watchStatus: StatusClient? = null
     private var watchJob: Job? = null
     private var watchEndedAt: Long? = null
 
@@ -228,6 +238,7 @@ class BluetoothFlow(
                 val slots = newSession.readImages()
                 pairingPoll?.cancel()
                 showImages(slots)
+                if (_state.value.board?.phase == BoardPhase.READY) openLinkStatus(board)
                 startKeepAlive(newSession)
             } catch (e: CancellationException) {
                 throw e
@@ -326,7 +337,8 @@ class BluetoothFlow(
             // board closes when a button is pressed or its 2 minutes are up, and then follows the console.
             pairingPoll?.cancel()
             session = null
-            follow(current, release.version, board.running, board.name, note)
+            val hash = withContext(Dispatchers.Default) { ImageCheck.imageHashPrefix(image) }
+            follow(current, release.version, board.running, board.name, note, hash)
         }
     }
 
@@ -455,15 +467,68 @@ class BluetoothFlow(
         }
     }
 
+    /**
+     * The board's status on the link that has just paired, through a client of its own next to MCUmgr's.
+     * Nothing comes of it on a board before 1.14.0, which has no such characteristic.
+     */
+    private fun openLinkStatus(board: FoundBoard) {
+        linkStatus?.close()
+        lastLinkReading = null
+        lateinit var client: StatusClient
+        client = StatusClient(app, board.device, scope, onStatus = { status -> noteLinkStatus(client, status) })
+        linkStatus = client
+        client.open()
+    }
+
+    /** What the board said on the link, before the send and after it, until the link goes. */
+    private fun noteLinkStatus(from: StatusClient, status: BoardStatus) {
+        val now = System.currentTimeMillis()
+        if (from === linkStatus) {
+            if (status.isNews(lastLinkReading?.status)) lastLinkReading = UpdateWatch.Reading(status, now)
+            return
+        }
+        if (from !== watchStatus) return
+        changeWatch { facts ->
+            val last = facts.readings.lastOrNull { !it.afterRestart }?.status
+            if (facts.linkDroppedAt == null && status.isNews(last)) {
+                facts.copy(readings = facts.readings + UpdateWatch.Reading(status, now))
+            } else {
+                facts
+            }
+        }
+    }
+
+    /** What the board said after its restart, to a link with no pairing. */
+    private fun noteRestartedStatus(status: BoardStatus) {
+        val now = System.currentTimeMillis()
+        changeWatch { facts ->
+            val last = facts.readings.lastOrNull { it.afterRestart }?.status
+            if (status.isNews(last)) facts.copy(readings = facts.readings + UpdateWatch.Reading(status, now, afterRestart = true)) else facts
+        }
+    }
+
     // After the send.
 
-    /** Follow the board that [linked] has just sent [version] to: the link while it lasts, then the console. */
-    private fun follow(linked: BoardSession, version: String, running: String?, boardName: String, note: ImageNote) {
+    /**
+     * Follow the board that [linked] has just sent [version] to: its status and the link while they last,
+     * then the console and, from firmware 1.14.0, the board over Bluetooth after its restart.
+     */
+    private fun follow(linked: BoardSession, version: String, running: String?, boardName: String, note: ImageNote, hash: String?) {
         endWatch()
         movedOn = false
         watchEndedAt = null
         watchSession = linked
-        val facts = UpdateWatch.Facts(version = version, from = running, sentAt = System.currentTimeMillis(), thing = thing)
+        watchStatus = linkStatus
+        linkStatus = null
+        val facts = UpdateWatch.Facts(
+            version = version,
+            from = running,
+            sentAt = System.currentTimeMillis(),
+            thing = thing,
+            readings = listOfNotNull(lastLinkReading),
+            sentHash = hash,
+        )
+        lastLinkReading = null
         watchFacts = facts
         _state.update {
             it.copy(step = BtStep.DONE, board = null, notice = null, done = DoneUi(version, boardName, UpdateWatch.timeline(facts), note))
@@ -472,7 +537,10 @@ class BluetoothFlow(
         watchJob = scope.launch {
             try {
                 followLink(linked)
-                followConsole()
+                coroutineScope {
+                    launch { followConsole() }
+                    launch { followBoard() }
+                }
             } finally {
                 // A follow that was ended for a newer one leaves the newer one alone.
                 if (isActive) watchEndedAt = System.currentTimeMillis()
@@ -522,15 +590,22 @@ class BluetoothFlow(
         }
     }
 
-    /** After the link: the board's log, its connections and its report, every 3 s for up to 5 minutes. */
+    /** The board has been followed for as long as it is: see [UpdateWatch.followUntil]. */
+    private fun pastFollow(facts: UpdateWatch.Facts): Boolean =
+        UpdateWatch.followUntil(facts)?.let { System.currentTimeMillis() >= it } == true
+
+    /**
+     * After the link: the board's log, its connections and its report, every 3 s, for 5 minutes, or longer
+     * while the board says over Bluetooth that it is on trial.
+     */
     private suspend fun followConsole() {
-        val dropped = watchFacts?.linkDroppedAt ?: return
+        if (watchFacts?.linkDroppedAt == null) return
         var tick = 0
         var throttled = 0
         while (true) {
             val facts = watchFacts ?: return
             if (UpdateWatch.timeline(facts).finished) return
-            if (System.currentTimeMillis() - dropped >= UpdateWatch.FOLLOW_MS) {
+            if (pastFollow(facts)) {
                 changeWatch { it.copy(gaveUp = true) }
                 return
             }
@@ -563,11 +638,45 @@ class BluetoothFlow(
         }
     }
 
+    /**
+     * After the link, from firmware 1.14.0: the board over Bluetooth once it has restarted, which it
+     * advertises for 2 minutes, readable with no pairing. Into the new image on trial, and back into the
+     * old one if its trial fails. A board that the console does not know is followed this way alone.
+     */
+    private suspend fun followBoard() {
+        val start = watchFacts ?: return
+        if (start.linkDroppedAt == null || !start.tellsOverBluetooth) return
+        val follower = StatusFollower(
+            app,
+            scope,
+            accept = { status -> watchFacts?.isAboutThisSend(status) == true },
+            onStatus = ::noteRestartedStatus,
+        )
+        var scanning = false
+        try {
+            while (true) {
+                val facts = watchFacts ?: return
+                if (UpdateWatch.timeline(facts).finished) return
+                if (pastFollow(facts)) {
+                    changeWatch { it.copy(gaveUp = true) }
+                    return
+                }
+                // Bluetooth off, or the permission gone: tried again until it works.
+                if (!scanning) scanning = follower.start()
+                delay(BOARD_LOOK_MS)
+            }
+        } finally {
+            follower.stop()
+        }
+    }
+
     /** The board closed the link, or it is taken to have: the console is followed from here. */
     private fun watchLinkGone() {
         if (watchFacts?.linkDroppedAt == null) changeWatch { it.copy(linkDroppedAt = System.currentTimeMillis()) }
         watchSession?.close()
         watchSession = null
+        watchStatus?.close()
+        watchStatus = null
     }
 
     private fun changeWatch(change: (UpdateWatch.Facts) -> UpdateWatch.Facts) {
@@ -592,6 +701,8 @@ class BluetoothFlow(
         watchJob = null
         watchSession?.close()
         watchSession = null
+        watchStatus?.close()
+        watchStatus = null
     }
 
     private fun onLinkLost(lost: BoardSession) {
@@ -658,6 +769,9 @@ class BluetoothFlow(
     private fun closeSession() {
         session?.close()
         session = null
+        linkStatus?.close()
+        linkStatus = null
+        lastLinkReading = null
     }
 
     /** The flow's screen is left: everything stops but the following of a board that was sent to. */
@@ -689,6 +803,9 @@ class BluetoothFlow(
 
         /** Image list reads that fail in a row before the link is taken to be gone. */
         const val LINK_FAILURES = 3
+
+        /** How often the follow of the board over Bluetooth looks at whether it is over. */
+        const val BOARD_LOOK_MS = 1_000L
         const val LINE_LIMIT = 100
     }
 }
