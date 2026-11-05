@@ -1540,18 +1540,18 @@ DK's layout 1. Its type and layout are defaults in `firmware/app/Kconfig`, next 
 (`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/build.sh` reads both back
 from the image, and `flash_layout.py` checks the partitions, as for the nRF7002 DK.
 
-The 1.12.0 build, with the console and Bluetooth, in bytes:
+A build of the 1.13.0 source (`firmware/app/VERSION` still says 1.12.0), with the console and Bluetooth, in bytes:
 
 | Image | Used | Of |
 | --- | --- | --- |
-| Application, flash | 194,236 | 794,474 |
-| Application, RAM | 108,344 | 409,600 |
+| Application, flash | 195,000 | 794,474 |
+| Application, RAM | 108,336 | 409,600 |
 | TF-M, flash | 80,852 | 130,560 |
 | TF-M, RAM | 29,836 | 49,152 |
 | MCUboot, flash | 43,520 | 65,536 |
 | Network core (`hci_ipc`), flash | 133,232 | 262,144 |
 | Network core, RAM | 35,168 | 65,536 |
-| Signed image | 325,482 | 933,888 |
+| Signed image | 326,244 | 933,888 |
 
 The application has no link-time optimisation here, which the nRF7002 DK needs to fit, and most of its RAM is the heap
 that `bt_ota.conf` sizes for an nRF7002 DK's Wi-Fi and TLS. MCUboot is 6,804 bytes smaller than the nRF7002 DK's,
