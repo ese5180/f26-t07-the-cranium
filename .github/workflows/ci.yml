@@ -360,8 +360,8 @@ jobs:
               exit 1
             fi
           done
-          if grep -qE '^CONFIG_(WIFI|AWS_IOT|APP_LOCATION)=y$' "$config"; then
-            echo "::error::The nRF5340 DK's build has Wi-Fi, AWS IoT or the location in it."
+          if grep -qE '^CONFIG_(WIFI|AWS_IOT|APP_LOCATION|MEMFAULT)=y$' "$config"; then
+            echo "::error::The nRF5340 DK's build has Wi-Fi, AWS IoT, the location or Memfault in it."
             exit 1
           fi
           test -s build/hci_ipc/zephyr/zephyr.hex
