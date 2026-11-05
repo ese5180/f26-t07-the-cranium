@@ -18,6 +18,10 @@ public struct CraniumConfig: Equatable, Sendable {
     /// `cranium.json` written before it had `userPoolId` and `region`: then the app signs in on
     /// the AWS sign-in page only.
     public let userPool: CognitoUserPool?
+    /// The customer side (docs/mobile-apps.md, "Customers"): the customer pool, the phone apps'
+    /// client of it and the customer API. Nil for a `cranium.json` written before the stack had
+    /// them: then the app signs in admins only, and says so.
+    public let customer: CustomerConfig?
 
     /// The only redirect URI the mobile app client allows.
     public static let expectedRedirectURI = "cranium://signin"
@@ -26,12 +30,32 @@ public struct CraniumConfig: Equatable, Sendable {
     public var callbackScheme: String { "cranium" }
 
     public init(consoleURL: URL, loginDomain: URL, mobileClientId: String,
-                redirectURI: String = CraniumConfig.expectedRedirectURI, userPool: CognitoUserPool? = nil) {
+                redirectURI: String = CraniumConfig.expectedRedirectURI, userPool: CognitoUserPool? = nil,
+                customer: CustomerConfig? = nil) {
         self.consoleURL = consoleURL
         self.loginDomain = loginDomain
         self.mobileClientId = mobileClientId
         self.redirectURI = redirectURI
         self.userPool = userPool
+        self.customer = customer
+    }
+}
+
+/// The customer side's values: `customerApiUrl`, `customerClientId`, `customerRegion` and
+/// `customerUserPoolId` in the configuration, all four or none.
+public struct CustomerConfig: Equatable, Sendable {
+    /// Where the customer API is: `{apiURL}/api/c/...`. The console's API, on the customer site's
+    /// name once it has one.
+    public let apiURL: URL
+    /// The phone apps' client of the customer pool: public, no secret, SRP only.
+    public let clientId: String
+    /// The customer pool, apart from the staff pool.
+    public let pool: CognitoUserPool
+
+    public init(apiURL: URL, clientId: String, pool: CognitoUserPool) {
+        self.apiURL = apiURL
+        self.clientId = clientId
+        self.pool = pool
     }
 }
 
@@ -153,6 +177,10 @@ extension CraniumConfig {
         let redirectUri: String
         let userPoolId: String?
         let region: String?
+        let customerApiUrl: String?
+        let customerClientId: String?
+        let customerRegion: String?
+        let customerUserPoolId: String?
     }
 
     /// Parses and checks the JSON that `apps/configure.sh` writes.
@@ -166,15 +194,44 @@ extension CraniumConfig {
         let console = try httpsBase(raw.consoleUrl, key: "consoleUrl")
         let login = try httpsBase(raw.loginDomain, key: "loginDomain")
         let clientId = raw.mobileClientId
-        guard !clientId.isEmpty, clientId.count <= 128,
-              clientId.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII }) else {
+        guard isClientId(clientId) else {
             throw ConfigError.invalid(key: "mobileClientId", reason: "is not a Cognito app client ID")
         }
         guard raw.redirectUri == expectedRedirectURI else {
             throw ConfigError.invalid(key: "redirectUri", reason: "is not \(expectedRedirectURI), the only one the app client allows")
         }
         return CraniumConfig(consoleURL: console, loginDomain: login, mobileClientId: clientId,
-                             redirectURI: raw.redirectUri, userPool: try userPool(id: raw.userPoolId, region: raw.region))
+                             redirectURI: raw.redirectUri, userPool: try userPool(id: raw.userPoolId, region: raw.region),
+                             customer: try customer(raw))
+    }
+
+    /// Letters and digits, 1 to 128: what Cognito's app client IDs are.
+    private static func isClientId(_ text: String) -> Bool {
+        !text.isEmpty && text.count <= 128
+            && text.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII })
+    }
+
+    /// The four customer keys: all or none. One that is there but wrong is an error, as for the
+    /// other keys.
+    private static func customer(_ raw: File) throws -> CustomerConfig? {
+        let keys: [(String, String?)] = [("customerApiUrl", raw.customerApiUrl), ("customerClientId", raw.customerClientId),
+                                         ("customerRegion", raw.customerRegion), ("customerUserPoolId", raw.customerUserPoolId)]
+        let given = keys.filter { $0.1 != nil }
+        if given.isEmpty { return nil }
+        if let missing = keys.first(where: { $0.1 == nil }) {
+            throw ConfigError.invalid(key: missing.0, reason: "is missing, though \(given[0].0) is there")
+        }
+        let api = try httpsBase(raw.customerApiUrl!, key: "customerApiUrl")
+        guard isClientId(raw.customerClientId!) else {
+            throw ConfigError.invalid(key: "customerClientId", reason: "is not a Cognito app client ID")
+        }
+        guard CognitoUserPool.isRegion(raw.customerRegion!) else {
+            throw ConfigError.invalid(key: "customerRegion", reason: "is not an AWS Region")
+        }
+        guard let pool = CognitoUserPool(id: raw.customerUserPoolId!, region: raw.customerRegion!) else {
+            throw ConfigError.invalid(key: "customerUserPoolId", reason: "is not a user pool ID in that Region")
+        }
+        return CustomerConfig(apiURL: api, clientId: raw.customerClientId!, pool: pool)
     }
 
     /// Both or neither. A value that is there but wrong is an error, as for the other keys: falling

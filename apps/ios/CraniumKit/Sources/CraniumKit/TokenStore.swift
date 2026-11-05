@@ -75,6 +75,18 @@ public final class KeychainTokenStore: TokenStore {
     }
 }
 
+/// Where a customer's session is kept (docs/mobile-apps.md, "Customers"): Keychain items of a
+/// service of its own, apart from the admin's ("com.craniumiot.cranium.console"), so that neither
+/// session can ever be read, sent or cleared as the other.
+public enum CustomerStorage {
+    public static let service = "com.craniumiot.cranium.customer"
+
+    /// The customer's tokens: the same kind of item as the admin's, under the customer's service.
+    public static func tokenStore() -> KeychainTokenStore {
+        KeychainTokenStore(service: service)
+    }
+}
+
 /// Tokens in memory only: for tests and SwiftUI previews.
 public final class MemoryTokenStore: TokenStore, @unchecked Sendable {
     private let lock = NSLock()

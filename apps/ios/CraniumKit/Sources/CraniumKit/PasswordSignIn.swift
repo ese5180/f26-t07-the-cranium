@@ -12,6 +12,9 @@ public enum SignInProblem: String, CaseIterable, Equatable, Sendable {
     case failed
     case missing
     case shortCode = "short-code"
+    /// A new password chosen on the screen itself (a customer's first sign-in).
+    case weakPassword = "weak-password"
+    case missingNew = "missing-new"
 
     public var words: String {
         switch self {
@@ -23,6 +26,8 @@ public enum SignInProblem: String, CaseIterable, Equatable, Sendable {
         case .failed: return "Signing in did not work. Try again, or use the AWS sign-in page."
         case .missing: return "Enter your e-mail address and your password."
         case .shortCode: return "Type all six digits of the code."
+        case .weakPassword: return "That password is not accepted. Choose one of at least 10 characters."
+        case .missingNew: return "Choose a new password and type it twice."
         }
     }
 
@@ -32,7 +37,9 @@ public enum SignInProblem: String, CaseIterable, Equatable, Sendable {
     static func of(_ name: String, at step: PasswordSignIn.Step) -> SignInProblem? {
         switch name {
         case "NotAuthorizedException", "UserNotFoundException":
-            return step == .code ? .expired : .wrongPassword
+            return step == .password ? .wrongPassword : .expired
+        case "InvalidPasswordException":
+            return step == .newPassword ? .weakPassword : .failed
         case "CodeMismatchException":
             return step == .code ? .wrongCode : .failed
         case "ExpiredCodeException":
@@ -53,6 +60,9 @@ public enum PasswordSignInOutcome: Equatable, Sendable {
     case code(SignInProblem?)
     /// Back to the e-mail address and the password, with why.
     case password(SignInProblem)
+    /// A first sign-in's new password, asked for on the screen (a customer's, `newPasswordHere`),
+    /// or asked again, with why.
+    case newPassword(SignInProblem?)
     /// Signed in: the tokens are kept, as the AWS sign-in page's are.
     case done
     /// A step this screen does not do (a new password, an authenticator app to set up, a reset):
@@ -69,7 +79,7 @@ public enum PasswordSignInOutcome: Equatable, Sendable {
 /// go to the `AuthSession`, which keeps and refreshes them as it does those of the AWS sign-in
 /// page.
 public actor PasswordSignIn {
-    enum Step { case password, code }
+    enum Step { case password, code, newPassword }
 
     private let pool: CognitoUserPool
     private let clientId: String
@@ -77,8 +87,11 @@ public actor PasswordSignIn {
     private let session: AuthSession
     private let now: @Sendable () -> Date
     private let random: @Sendable (Int) -> [UInt8]
-    /// The step that waits for the code: Cognito's session for it, and whom it is for.
-    private var challenge: (session: String, userId: String?)?
+    /// A first sign-in's new password is asked for here (the customer side), not left to the AWS
+    /// sign-in page: core.js createAuth's `newPasswordHere`.
+    private let newPasswordHere: Bool
+    /// The step that waits for the code or the new password: Cognito's session for it, and whom it is for.
+    private var challenge: (session: String, userId: String?, newPassword: Bool)?
 
     /// How long one call may take, as on the website.
     static let timeout: TimeInterval = 15
@@ -92,15 +105,30 @@ public actor PasswordSignIn {
     init?(config: CraniumConfig, http: HTTPClient, session: AuthSession,
           now: @escaping @Sendable () -> Date, random: @escaping @Sendable (Int) -> [UInt8]) {
         guard let pool = config.userPool else { return nil }
+        self.init(pool: pool, clientId: config.mobileClientId, http: http, session: session, newPasswordHere: false,
+                  now: now, random: random)
+    }
+
+    /// A customer's sign-in (docs/mobile-apps.md, "Customers"): the customer pool and the phone apps'
+    /// client of it, with a first sign-in's new password on the screen. `session` is the customer's own.
+    public init(customer: CustomerConfig, http: HTTPClient, session: AuthSession,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(pool: customer.pool, clientId: customer.clientId, http: http, session: session, newPasswordHere: true,
+                  now: now, random: CognitoSRP.systemRandom)
+    }
+
+    init(pool: CognitoUserPool, clientId: String, http: HTTPClient, session: AuthSession, newPasswordHere: Bool,
+         now: @escaping @Sendable () -> Date, random: @escaping @Sendable (Int) -> [UInt8]) {
         self.pool = pool
-        clientId = config.mobileClientId
+        self.clientId = clientId
         self.http = http
         self.session = session
+        self.newPasswordHere = newPasswordHere
         self.now = now
         self.random = random
     }
 
-    /// Whether a sign-in waits for its code.
+    /// Whether a sign-in waits for its code or its new password.
     public var waitsForCode: Bool { challenge != nil }
 
     /// Drops a sign-in that waits for its code.
@@ -168,7 +196,7 @@ public actor PasswordSignIn {
     /// The code from the authenticator app, for the sign-in that asked for it. A wrong code leaves
     /// that sign-in waiting for another; a sign-in that Cognito has ended starts again.
     public func sendCode(_ code: String) async -> PasswordSignInOutcome {
-        guard let waiting = challenge else { return .password(.expired) }
+        guard let waiting = challenge, !waiting.newPassword else { return .password(.expired) }
         guard code.utf8.count == CodeEntry.length, code.utf8.allSatisfy({ (48...57).contains($0) }) else {
             return .code(.wrongCode)
         }
@@ -180,6 +208,22 @@ public actor PasswordSignIn {
         ])
         guard case .reply(let reply, _) = answered else { return refused(answered, at: .code) }
         return await following(reply, at: .code, userId: waiting.userId)
+    }
+
+    /// The new password of a first sign-in, for the sign-in that asked for it (`newPasswordHere`):
+    /// core.js `sendNewPassword`. What follows is the code, if the account has an authenticator app,
+    /// or the tokens. Whether it will do (long enough, typed twice) is the screen's to check first.
+    public func sendNewPassword(_ password: String) async -> PasswordSignInOutcome {
+        guard let waiting = challenge, waiting.newPassword else { return .password(.expired) }
+        guard !password.isEmpty else { return .newPassword(.missingNew) }
+        let answered = await ask("RespondToAuthChallenge", [
+            "ChallengeName": "NEW_PASSWORD_REQUIRED",
+            "ClientId": clientId,
+            "Session": waiting.session,
+            "ChallengeResponses": ["USERNAME": waiting.userId ?? NSNull(), "NEW_PASSWORD": password] as [String: Any],
+        ])
+        guard case .reply(let reply, _) = answered else { return refused(answered, at: .newPassword) }
+        return await following(reply, at: .newPassword, userId: waiting.userId)
     }
 
     // MARK: Cognito's user pool API
@@ -251,12 +295,21 @@ public actor PasswordSignIn {
             challenge = nil
             return .password(.expired)
         }
-        return step == .code ? .code(problem) : .password(problem)
+        switch step {
+        case .code: return .code(problem)
+        case .newPassword: return .newPassword(problem)
+        case .password: return .password(problem)
+        }
     }
 
     /// What follows an answer: the code, the tokens, or a step for the AWS sign-in page.
     private func following(_ reply: [String: Any], at step: Step, userId: String?) async -> PasswordSignInOutcome {
-        let failed: PasswordSignInOutcome = step == .code ? .code(.failed) : .password(.failed)
+        let failed: PasswordSignInOutcome
+        switch step {
+        case .code: failed = .code(.failed)
+        case .newPassword: failed = .newPassword(.failed)
+        case .password: failed = .password(.failed)
+        }
         if let result = reply["AuthenticationResult"] as? [String: Any] {
             guard let tokens = Self.tokens(from: result, now: now()) else { return failed }
             challenge = nil
@@ -270,8 +323,12 @@ public actor PasswordSignIn {
         }
         let name = (reply["ChallengeName"] as? String).flatMap(Self.challengeName) ?? ""
         if name == "SOFTWARE_TOKEN_MFA", let session = reply["Session"] as? String, !session.isEmpty {
-            challenge = (session, userId)
+            challenge = (session, userId, false)
             return .code(nil)
+        }
+        if name == "NEW_PASSWORD_REQUIRED", newPasswordHere, let session = reply["Session"] as? String, !session.isEmpty {
+            challenge = (session, userId, true)
+            return .newPassword(nil)
         }
         challenge = nil
         // A new password, an authenticator app to set up, or anything else this screen does not do.

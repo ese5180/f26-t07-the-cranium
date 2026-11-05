@@ -88,10 +88,27 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
     /// LAContext's `evaluatedPolicyDomainState` when it was turned on, to tell "a face was added" from
     /// other failures. Not a secret: it only changes when the enrolled faces or fingers do.
     static let domainStateKey = "cranium.biometric.domainState"
+    /// The customer side's own item and key (docs/mobile-apps.md, "Customers"): a customer's refresh
+    /// token is never in the admin's item, nor the other way round.
+    public static let customerService = CustomerStorage.service
+    static let customerDomainStateKey = "cranium.customer.biometric.domainState"
     private let defaults: UserDefaults
+    private let service: String
+    private let stateKey: String
 
-    public init(defaults: UserDefaults = .standard) {
+    public convenience init(defaults: UserDefaults = .standard) {
+        self.init(defaults: defaults, service: Self.service, domainStateKey: Self.domainStateKey)
+    }
+
+    init(defaults: UserDefaults, service: String, domainStateKey: String) {
         self.defaults = defaults
+        self.service = service
+        stateKey = domainStateKey
+    }
+
+    /// The gate of a customer's refresh token.
+    public static func customer(defaults: UserDefaults = .standard) -> KeychainBiometricGate {
+        KeychainBiometricGate(defaults: defaults, service: customerService, domainStateKey: customerDomainStateKey)
     }
 
     public func biometry() -> Biometry? {
@@ -110,7 +127,7 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
     }
 
     /// The item: the app's own, on this device only, never synchronised.
-    static var identity: [String: Any] {
+    static func identity(service: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -125,19 +142,19 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
 
     /// A new item holding `token`. The accessibility is in the access control: an item may not have
     /// both `kSecAttrAccessible` and `kSecAttrAccessControl`.
-    static func newItem(_ token: String) -> [String: Any]? {
+    static func newItem(_ token: String, service: String = KeychainBiometricGate.service) -> [String: Any]? {
         guard let access = SecAccessControlCreateWithFlags(kCFAllocatorDefault, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
                                                            .biometryCurrentSet, nil) else {
             return nil
         }
-        var item = identity
+        var item = identity(service: service)
         item[kSecAttrAccessControl as String] = access
         item[kSecValueData as String] = Data(token.utf8)
         return item
     }
 
     public func hasRefreshToken() -> Bool {
-        var query = Self.identity
+        var query = Self.identity(service: service)
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         // Never a prompt for this: only whether it is there.
@@ -157,7 +174,7 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
             return Self.failure(error)
         }
         if let state = context.evaluatedPolicyDomainState {
-            defaults.set(state, forKey: Self.domainStateKey)
+            defaults.set(state, forKey: stateKey)
         }
         return write(refreshToken)
     }
@@ -168,8 +185,8 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
 
     /// Delete, then add: adding asks nothing, where changing a protected item could.
     private func write(_ token: String) -> BiometricFailure? {
-        SecItemDelete(Self.identity as CFDictionary)
-        guard let item = Self.newItem(token) else { return .unavailable }
+        SecItemDelete(Self.identity(service: service) as CFDictionary)
+        guard let item = Self.newItem(token, service: service) else { return .unavailable }
         let status = SecItemAdd(item as CFDictionary, nil)
         return status == errSecSuccess ? nil : Self.failure(status)
     }
@@ -183,10 +200,10 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
         } catch {
             return .failure(Self.failure(error))
         }
-        if let kept = defaults.data(forKey: Self.domainStateKey), let state = context.evaluatedPolicyDomainState, kept != state {
+        if let kept = defaults.data(forKey: stateKey), let state = context.evaluatedPolicyDomainState, kept != state {
             return .failure(.changed)
         }
-        var query = Self.identity
+        var query = Self.identity(service: service)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecUseAuthenticationContext as String] = context
@@ -200,8 +217,8 @@ public final class KeychainBiometricGate: BiometricGate, @unchecked Sendable {
     }
 
     public func forget() {
-        SecItemDelete(Self.identity as CFDictionary)
-        defaults.removeObject(forKey: Self.domainStateKey)
+        SecItemDelete(Self.identity(service: service) as CFDictionary)
+        defaults.removeObject(forKey: stateKey)
     }
 
     /// What LocalAuthentication's answer means here.
@@ -323,17 +340,31 @@ public protocol BiometricSettingsStore: Sendable {
     func save(_ settings: BiometricSettings)
 }
 
-/// In UserDefaults, under "cranium.biometric.settings".
+/// In UserDefaults, under "cranium.biometric.settings"; a customer's under
+/// "cranium.customer.biometric.settings", apart from the admin's.
 public final class DefaultsBiometricSettings: BiometricSettingsStore, @unchecked Sendable {
     static let key = "cranium.biometric.settings"
+    static let customerKey = "cranium.customer.biometric.settings"
     private let defaults: UserDefaults
+    private let key: String
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        key = Self.key
+    }
+
+    init(defaults: UserDefaults, key: String) {
+        self.defaults = defaults
+        self.key = key
+    }
+
+    /// A customer's setting.
+    public static func customer(defaults: UserDefaults = .standard) -> DefaultsBiometricSettings {
+        DefaultsBiometricSettings(defaults: defaults, key: customerKey)
     }
 
     public func load() -> BiometricSettings {
-        guard let data = defaults.data(forKey: Self.key),
+        guard let data = defaults.data(forKey: key),
               let settings = try? JSONDecoder().decode(BiometricSettings.self, from: data) else {
             return BiometricSettings()
         }
@@ -341,7 +372,7 @@ public final class DefaultsBiometricSettings: BiometricSettingsStore, @unchecked
     }
 
     public func save(_ settings: BiometricSettings) {
-        defaults.set(try? JSONEncoder().encode(settings), forKey: Self.key)
+        defaults.set(try? JSONEncoder().encode(settings), forKey: key)
     }
 }
 

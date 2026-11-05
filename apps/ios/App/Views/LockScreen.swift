@@ -4,23 +4,44 @@ import SwiftUI
 import UIKit
 #endif
 
+/// What the lock screen needs of a side of the app: the admin's console (AppModel) or the customer's
+/// (CustomerModel), each with its own saved sign-in behind Face ID.
+@MainActor
+protocol LockingModel: ObservableObject {
+    var biometry: Biometry? { get }
+    var lockMessage: String? { get }
+    var unlocking: Bool { get }
+    var cover: AppModel.Cover? { get }
+    /// Under the name: "Firmware console", "Your studio".
+    var lockSubtitle: String { get }
+    /// The Help topic of the (?), if there is one.
+    var lockHelpTopic: String? { get }
+    func unlock() async
+    func signInWithPassword() async
+}
+
+extension AppModel: LockingModel {
+    var lockSubtitle: String { "Firmware console" }
+    var lockHelpTopic: String? { "biometric-sign-in" }
+}
+
 /// Face ID is on, and the app has just opened or is back after 5 minutes: the console's mark, and
 /// nothing of the console, until Face ID passes (docs/mobile-apps.md, "Unlocking with Face ID").
 /// It asks as soon as it shows; Cancel, or a face that does not match, leaves it here with
 /// "Unlock with Face ID" and "Sign in with password". With `privacy`, only the mark: what the app
 /// switcher shows while the app is away.
-struct LockScreen: View {
-    @EnvironmentObject private var app: AppModel
+struct LockScreen<Model: LockingModel>: View {
+    @ObservedObject var model: Model
     @Environment(\.theme) private var theme
     var privacy = false
 
     var body: some View {
-        let biometry = app.biometry ?? .faceID
+        let biometry = model.biometry ?? .faceID
         VStack(spacing: 0) {
-            if !privacy {
+            if !privacy, let topic = model.lockHelpTopic {
                 HStack {
                     Spacer()
-                    HelpButton(topic: "biometric-sign-in")
+                    HelpButton(topic: topic)
                         .font(.title3)
                 }
                 .padding(.top, 8)
@@ -33,7 +54,7 @@ struct LockScreen: View {
                 .tracking(-0.8)
                 .foregroundStyle(theme.ink)
                 .padding(.top, 18)
-            Text("Firmware console")
+            Text(model.lockSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(theme.ink3)
                 .padding(.top, 2)
@@ -43,7 +64,7 @@ struct LockScreen: View {
                     .foregroundStyle(theme.ink2)
                     .multilineTextAlignment(.center)
                     .padding(.top, 28)
-                if let message = app.lockMessage {
+                if let message = model.lockMessage {
                     Notice(.bad, "alert", message)
                         .foregroundStyle(theme.ink)
                         .padding(.top, 18)
@@ -53,17 +74,17 @@ struct LockScreen: View {
             Spacer()
             if !privacy {
                 VStack(spacing: 6) {
-                    PrimaryButton(BiometricWords.unlock(biometry), systemImage: biometry.symbol, busy: app.unlocking) {
-                        Task { await app.unlock() }
+                    PrimaryButton(BiometricWords.unlock(biometry), systemImage: biometry.symbol, busy: model.unlocking) {
+                        Task { await model.unlock() }
                     }
                     .controlSize(.large)
-                    .disabled(app.unlocking)
+                    .disabled(model.unlocking)
                     Button(BiometricWords.password) {
-                        Task { await app.signInWithPassword() }
+                        Task { await model.signInWithPassword() }
                     }
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(app.unlocking)
+                    .disabled(model.unlocking)
                 }
             }
         }
@@ -74,7 +95,7 @@ struct LockScreen: View {
         .background(theme.paper.ignoresSafeArea())
         // Not a foreground style for all of it: the prominent button keeps its own white label.
         .tint(theme.accent)
-        .animation(.easeOut(duration: 0.2), value: app.lockMessage)
+        .animation(.easeOut(duration: 0.2), value: model.lockMessage)
         // Again when the app switcher's mark turns into the lock, in the same window.
         .task(id: privacy) {
             guard !privacy else { return }
@@ -90,7 +111,7 @@ struct LockScreen: View {
             // Demo mode: `-CraniumBiometric lock` keeps it on screen for its screenshot.
             if Demo.isOn, Demo.biometric == "lock" { return }
             #endif
-            await app.unlock()
+            await model.unlock()
         }
     }
 }
@@ -100,6 +121,8 @@ struct LockScreen: View {
 struct BiometricOfferSheet: View {
     @Environment(\.theme) private var theme
     let biometry: Biometry
+    /// What it does, if not the admin's words (a customer's sign-in has no code to skip).
+    var text: String? = nil
     let answer: (Bool) -> Void
 
     var body: some View {
@@ -116,7 +139,7 @@ struct BiometricOfferSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
                 .accessibilityAddTraits(.isHeader)
-            Text(BiometricWords.offerText(biometry))
+            Text(text ?? BiometricWords.offerText(biometry))
                 .font(.body)
                 .foregroundStyle(theme.ink2)
                 .multilineTextAlignment(.center)
@@ -143,16 +166,17 @@ struct BiometricOfferSheet: View {
 }
 
 extension View {
-    /// The cover over the running console (AppModel's `cover`): on the iPhone in a window of its own
-    /// above every sheet and full-screen cover, so that nothing of the console shows in the app
-    /// switcher or before Face ID passes; elsewhere an overlay.
-    func lockCover(_ app: AppModel) -> some View {
-        modifier(LockCover(app: app))
+    /// The cover over the running side of the app (its model's `cover`): on the iPhone in a window of
+    /// its own above every sheet and full-screen cover, so that nothing of it shows in the app
+    /// switcher or before Face ID passes; elsewhere an overlay. Only the side on screen has one: it
+    /// shows when the side does, and goes with it.
+    func lockCover<Model: LockingModel>(_ model: Model) -> some View {
+        modifier(LockCover(model: model))
     }
 }
 
-private struct LockCover: ViewModifier {
-    @ObservedObject var app: AppModel
+private struct LockCover<Model: LockingModel>: ViewModifier {
+    @ObservedObject var model: Model
     #if canImport(UIKit)
     @State private var window = CoverWindow()
     #endif
@@ -160,24 +184,30 @@ private struct LockCover: ViewModifier {
     func body(content: Content) -> some View {
         #if canImport(UIKit)
         content
-            .accessibilityHidden(app.cover != nil)
-            .onChange(of: app.cover) { cover in
-                if let cover {
-                    window.show(LockScreen(privacy: cover == .privacy).environmentObject(app), lock: cover == .lock)
-                } else {
-                    window.hide()
-                }
-            }
+            .accessibilityHidden(model.cover != nil)
+            .onChange(of: model.cover) { cover in show(cover) }
+            .onAppear { show(model.cover) }
+            .onDisappear { window.hide() }
         #else
         content
-            .accessibilityHidden(app.cover != nil)
+            .accessibilityHidden(model.cover != nil)
             .overlay {
-                if let cover = app.cover {
-                    LockScreen(privacy: cover == .privacy).environmentObject(app)
+                if let cover = model.cover {
+                    LockScreen(model: model, privacy: cover == .privacy)
                 }
             }
         #endif
     }
+
+    #if canImport(UIKit)
+    private func show(_ cover: AppModel.Cover?) {
+        if let cover {
+            window.show(LockScreen(model: model, privacy: cover == .privacy), lock: cover == .lock)
+        } else {
+            window.hide()
+        }
+    }
+    #endif
 }
 
 #if canImport(UIKit)
