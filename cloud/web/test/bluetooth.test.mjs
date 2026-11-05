@@ -189,6 +189,15 @@ function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {})
   };
 }
 
+/** Wait for what work off the test's clock (the SHA-256 of an image, in crypto.subtle) leads to. */
+async function until(check, what) {
+  for (let waited = 0; waited < 5000; waited += 5) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`timed out waiting for ${what}`);
+}
+
 /** A flow at the board, paired and ready to send. */
 async function atTheBoard(options) {
   const w = world(options);
@@ -359,7 +368,7 @@ test('an upload that breaks off says how to go on, and nothing is followed', asy
   const w = await atTheBoard();
   w.hold('ble.upload');
   const sending = w.flow.send();
-  await w.settle();
+  await until(() => w.asked('ble.upload').length === 1, 'the upload');
   assert.equal(w.flow.flow.step, 'sending');
   w.emit('ble.progress', { sent: 40, total: 160 });
   assert.deepEqual(w.flow.flow.progress, { sent: 40, total: 160 });
