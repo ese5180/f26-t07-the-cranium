@@ -69,6 +69,7 @@ class BoardSession(context: Context, device: BluetoothDevice, onLinkLost: () -> 
                         active = it.active,
                         confirmed = it.confirmed,
                         pending = it.pending,
+                        permanent = it.permanent,
                     )
                 }
                 if (continuation.isActive) continuation.resume(slots)

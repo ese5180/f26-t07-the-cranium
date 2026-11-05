@@ -173,6 +173,16 @@ class AuthManager(
     /** Drop a sign-in that waits for its code. */
     fun cancelPasswordSignIn() = cognito.cancel()
 
+    /**
+     * A sign-in made elsewhere with this pool and this client: the app shell's page, which signed in with
+     * password and code itself (SRP) and hands the tokens over (bridge auth.store). Kept as a full sign-in
+     * on the app's own screen would be.
+     */
+    suspend fun adopt(tokens: CognitoTokens) = keep(tokens, Session.SRP)
+
+    /** When the access token in memory ends, in epoch seconds by this phone's clock; null with none. */
+    val accessTokenExpiresAt: Long? get() = session?.expiresAt?.takeIf { session?.accessToken?.isNotEmpty() == true }
+
     private suspend fun keepIfDone(step: SignInStep): SignInStep {
         if (step is SignInStep.Done) keep(step.tokens, Session.SRP)
         return step

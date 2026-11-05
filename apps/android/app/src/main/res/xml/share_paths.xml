@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What shell/ShareFileProvider serves: a file a page shares (file.share), in cacheDir/shared, and nothing else. -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

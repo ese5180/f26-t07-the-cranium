@@ -10,6 +10,37 @@ From 0.6.0 it has two sides, as the customer website has (`docs/customer-site.md
 side**, where a customer signs in to see their own boards, and **Admin mode**, the firmware console
 below, for the team.
 
+## The new app (0.8.0)
+
+From 0.8.0 the app is a thin native shell around the website's own pages: the customer site at `/` and
+the console at `/admin`, as the customer site's address serves them (docs/mobile-apps.md, "The app
+shell"). What it shows comes from the console, so **a change to the website reaches the app with no new
+APK**, on any network; only the shell itself needs an install, and that is the self-update below.
+
+- **The pages.** A bundle of the website's files, each checked against its SHA-256, kept in the app's
+  own storage (no backup) and served to a web view at `https://appassets.androidplatform.net` through
+  WebViewAssetLoader, never from the network. In the background the app fetches the console's
+  `/app/manifest.json` and the files that changed, at most four at a time, and swaps the new bundle in
+  with one rename, keeping the one before; it shows after **Reload** or at the next start. A bundle that
+  has not started after two tries is set aside for good, and the copy built into the APK is the last
+  resort (`shell/BundleStore.kt`).
+- **The bridge.** The pages ask the app for what only it can do, through `craniumNative`, a
+  WebMessageListener offered to the bundle's origin only: the saved sign-in (the page signs in itself
+  and hands the refresh token over; it gets access tokens only), fingerprint unlock, Bluetooth (scan,
+  pair, the image list and the upload, the status characteristic, the board after its restart), the
+  clipboard, haptics, sharing a file, opening an address outside, keeping the screen on, the shell's
+  settings and the APK update. `apps/shared/bridge.json` is the contract, and every request is checked
+  against it before anything runs (`shell/Bridge.kt`).
+- **What the web view may do.** Each page gets its Content-Security-Policy from the app. The web view
+  shows the bundle's origin and nothing else; a link anywhere else opens in the browser (`https:`) or in
+  the app that takes it (`otpauth:`, an authenticator), and anything else goes nowhere; file and content
+  access, mixed content and windows are off.
+- **The classic app.** The native screens of 0.7 stay for this version, sharing the same sign-in:
+  **Classic app** in the shell's settings (from the page's App settings), or the launcher shortcut of
+  that name (a long press on the icon); **Use the new app** under More, or on the customer side's
+  Account, or the shortcut **New app**, goes back. A phone whose Android System WebView is too old for
+  the shell gets the classic app, with a line saying so.
+
 ## The customer side
 
 The customer website's pages on a phone, in its words (`core/CustomerText.kt`, held to
@@ -177,6 +208,9 @@ nothing without that yes, offline included (`core/SendCheck.kt`).
   and its Region (all four or none). Without it the build uses `apps/config/cranium.example.json`,
   says so, and the app cannot sign in.
 - `apps/shared/help.json`, the help, if there is one; without it the Help screen says so.
+- Node.js 20 or later on the `PATH` (or `CRANIUM_NODE=/path/to/node`), from 0.8.0: the build makes the
+  web bundle it carries with `cloud/web/build-bundle.mjs`, from `cloud/web/src` in this checkout, and stops
+  with a line saying so without it.
 
 ## Build
 
@@ -213,7 +247,8 @@ Gradle is held to 1.5 GB and two workers (`gradle.properties`). Run `./gradlew -
 
 From 0.7.0 the app updates itself: it checks the console when it opens and once a day, and installs a
 newer version, after checking its size, SHA-256 and signing key, with a tap
-([`docs/mobile-apps.md`](../../docs/mobile-apps.md#updates-on-every-phone)).
+([`docs/mobile-apps.md`](../../docs/mobile-apps.md#updates-on-every-phone)). From 0.8.0 that is only for
+the shell: the pages update by themselves, with no install (above).
 
 Android 8.0 (API 26) or later, with Bluetooth LE. The serial console needs a phone that can be a
 USB host.
@@ -248,10 +283,18 @@ commit `apps/config/cranium.json`, the keystore or its passwords.
   rows. Pages are read when they open and again on the
   website's schedule, and nothing is read while the app is in the background.
 - `ble/` and `usb/`: Bluetooth with Nordic's mcumgr-ble, USB serial with usb-serial-for-android.
+- `shell/` (0.8.0): the new app. With JVM tests: the bundle's manifest (`BundleManifest.kt`), the store
+  and its launch and update rules (`BundleStore.kt`), the bridge's contract, envelope and checks
+  (`Bridge.kt`), the policies and where an address may go (`ShellPolicy.kt`), what the bundle's origin
+  answers (`ShellServe.kt`) and the handlers' own checks (`ShellChecks.kt`). On the phone: the web view
+  (`ShellWeb.kt`), the handlers (`ShellViewModel.kt`, `ShellAuth.kt` over `auth/`, `ShellBle.kt` over
+  `ble/`) and its screen (`ShellScreen.kt`). The built-in bundle is made at build time by the Gradle task
+  `buildWebBundle`, which runs `cloud/web/build-bundle.mjs` with Node.js (`CRANIUM_NODE` names another
+  node) into `assets/web/`.
 
 ## What is tested
 
-`./gradlew testDebugUnitTest` runs JVM tests (412 `@Test` methods) of the parts that need no phone: decoding
+`./gradlew testDebugUnitTest` runs JVM tests (453 `@Test` methods) of the parts that need no phone: decoding
 every answer, the wording of every update state, deployment, log entry, event and diagnostic against
 the website's, the serial console's rules, masking and session on virtual time, the fresh sign-in
 rule, URLs, the MCUboot header, the checks on an image, the check before a Bluetooth send, the
@@ -282,8 +325,16 @@ checkout: ACCOUNT_WORDS and SIGN_IN_WORDS are the website's, every word of the c
 found there (but for the few the phone has of its own), and a board's words are those of the
 website's tests.
 
+The new app's shell (`shell/`, 41 of them): the manifest against `apps/shared/bundle-sample.json`, which the
+website's and the iPhone app's tests read too (it reads, its id is its canonical text's, every broken one is
+refused); the store's launch, update, fallback and clean-up rules on a fake console; the bridge's table
+against `apps/shared/bridge.json`, method for method and parameter for parameter, and every refusal of a
+request before its handler runs; the policies and where each kind of address goes; and the bundle built
+into this very build, read by the app's reader (`BuiltInBundleTest`).
+
 Sign-in against the real Cognito, the API calls, the fingerprint prompt and the Keystore key,
-Bluetooth, the self-update and the USB serial console take a phone, a deployed stack and a board.
+Bluetooth, the self-update and the USB serial console take a phone, a deployed stack and a board; so do
+the new app's web view, its bridge from a real page, the API's CORS for its origin and the CSP it sends.
 The stack is deployed (console 2.1.0, with the customer pool), and the release workflow builds and
 publishes the app; no result of the app on an Android phone is recorded in
 [`docs/test-results.md`](../../docs/test-results.md) yet.

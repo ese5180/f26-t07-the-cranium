@@ -62,9 +62,9 @@ class AppUpdater(context: Context, private val scope: CoroutineScope, private va
      * On start, once signed in: keep the daily check scheduled, ask the console, and show what it
      * says. Quiet when the console cannot be asked: the next start, or the daily check, asks again.
      */
-    fun check() {
-        if (checking?.isActive == true) return
-        checking = scope.launch {
+    fun check(): Job {
+        checking?.takeIf { it.isActive }?.let { return it }
+        return scope.launch {
             val ask = withContext(Dispatchers.IO) {
                 runCatching { UpdateWorker.schedule(app) }
                 UpdateNotifier.mayAsk(app, prefs)
@@ -92,7 +92,7 @@ class AppUpdater(context: Context, private val scope: CoroutineScope, private va
                     else -> AppUpdateUi(release = found, askNotifications = now.askNotifications)
                 }
             }
-        }
+        }.also { checking = it }
     }
 
     /** The banner was tapped: download, check, and hand it to Android's installer. */

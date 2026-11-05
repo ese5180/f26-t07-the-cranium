@@ -657,6 +657,7 @@ private fun CustomerAccountPage(vm: CustomerViewModel, store: CustomerStore, adm
     val colors = com.craniumiot.cranium.ui.console
     val profile = store.profile
     val fingerprint by vm.fingerprint.collectAsStateWithLifecycle()
+    val newApp = com.craniumiot.cranium.shell.LocalNewApp.current
     ConsoleScreen(title = CustomerText.ACCOUNT, onRefresh = { vm.refresh(full = true) }) {
         block("head") { Head(CustomerText.STUDIO, CustomerText.YOUR_ACCOUNT, CustomerText.ACCOUNT_LEDE) }
         problemOf(profile, CustomerText.THE_ACCOUNT)?.let { text ->
@@ -696,6 +697,16 @@ private fun CustomerAccountPage(vm: CustomerViewModel, store: CustomerStore, adm
                 Note(CustomerText.SIGN_OUT_TEXT)
                 Spacer(Modifier.height(10.dp))
                 ConsoleButton(CustomerText.SIGN_OUT, signOut, glyph = Glyph.SIGN_OUT)
+            }
+        }
+        // The classic app, from 0.8.0: back to the new one (shell/, docs/mobile-apps.md "The app shell").
+        newApp?.let { open ->
+            block("new-app") {
+                Section(title = "The new app") {
+                    Note("These are the classic app's screens, kept for this version only.")
+                    Spacer(Modifier.height(10.dp))
+                    ConsoleButton("Use the new app", open)
+                }
             }
         }
     }

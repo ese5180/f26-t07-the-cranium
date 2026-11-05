@@ -20,6 +20,8 @@ mcumgr = "3.4.1"
 usbSerial = "3.11.0"
 # The app's own update check once a day in the background (update/UpdateWorker.kt).
 work = "2.12.0"
+# The new app's web view (shell/): WebViewAssetLoader and the origin-bound WebMessageListener.
+webkit = "1.12.1"
 junit = "4.13.2"
 
 [libraries]
@@ -41,6 +43,7 @@ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "a
 mcumgr-ble = { group = "no.nordicsemi.android", name = "mcumgr-ble", version.ref = "mcumgr" }
 usb-serial = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usbSerial" }
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 
