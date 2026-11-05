@@ -91,12 +91,27 @@ const state = {
   // The phone apps (apps.js): what GET /api/apps says, and versions.json, which the History page reads too.
   apps: resource(),
   versions: resource(),
+  // In the phone app: what it offers (bridge.js), and the line that says which app and which pages. Null on the website.
+  app: null,
 };
 
 const clock = createClock();
 let auth = null;
 let api = null;
 let dialog = null;
+// The phone app's bridge and configuration, in the app only (bridge.js, docs/mobile-apps.md "The app shell").
+// bridge.js itself is fetched only in the app, so that the website's cold load stays as it was.
+let bridgeScript = null;
+let appBridge = null;
+let appConfig = null;
+
+/** Tell the app the pages have started, so that it keeps this bundle as a good one. Once. */
+let toldReady = false;
+function pagesReady() {
+  if (toldReady || !appBridge) return;
+  toldReady = true;
+  appBridge.call('app.ready').catch(() => {});
+}
 
 // Drawing.
 
@@ -627,6 +642,27 @@ const pages = {
     interval: () => IDLE_REFRESH_MS,
     holdStill: () => state.alerts.busy,
   },
+  // An update over Bluetooth, in the phone app only (bluetooth.js): the classic apps' Bluetooth screens.
+  bluetooth: {
+    title: 'Bluetooth',
+    view: (ctx) => (bluetoothScript
+      ? bluetoothScript.bluetoothView({ ...ctx, bluetooth: bluetoothFlow })
+      : scriptPending(ctx, 'bluetooth', 'Update over Bluetooth', { tabs: false })),
+    resources: () => [state.firmware],
+    async refresh(full) {
+      await bluetoothReady();
+      await Promise.all([
+        load(state.firmware, api.firmware),
+        due(state.devices, full) ? load(state.devices, api.devices) : null,
+      ]);
+      bluetoothFlow?.setReleases(state.firmware.value?.releases ?? []);
+      draw();
+    },
+    // The list of releases is read again only while nothing is under way with a board.
+    interval: () => (bluetoothFlow && bluetoothFlow.flow.step !== 'release' ? 0 : IDLE_REFRESH_MS),
+    holdStill: () => bluetoothFlow?.flow.busy === true,
+    everySecond: true,
+  },
   // Read again now and then, so that a token that runs out reads as expired.
   tokens: {
     title: 'API tokens',
@@ -659,6 +695,19 @@ const pages = {
 
 let serialScript = null;
 let historyScript = null;
+let bluetoothScript = null;
+let bluetoothFlow = null;
+
+/** bluetooth.js, fetched once, and its flow, which lives as long as the page: leaving the page does not stop a send. */
+async function bluetoothReady() {
+  bluetoothScript ??= await pageScript(() => import('./bluetooth.js'));
+  if (bluetoothScript && !bluetoothFlow && appBridge?.has('ble')) {
+    bluetoothFlow = bluetoothScript.createBluetoothFlow({
+      api, bridge: appBridge, now: () => clock.now(), onChange: draw, devices: () => state.devices.value?.devices ?? [],
+    });
+  }
+  return bluetoothScript;
+}
 let telemetryScript = null;
 let mapScript = null;
 let accountScript = null;
@@ -799,8 +848,9 @@ function focusOn(id) {
 const focusBox = (index) => focusOn(`code-digit-${index + 1}`);
 
 /** Show the console's own sign-in page, unless a sign-in is under way already. */
-function beginSignIn() {
+function beginSignIn(lead = null) {
   if (state.gate?.leaving || state.gate?.signIn) return;
+  pagesReady();
   auth.cancelPasswordSignIn();
   state.signIn = {
     step: 'password',
@@ -810,7 +860,9 @@ function beginSignIn() {
     problem: null,
     tries: 0,
     // Said when the console was in use until now, not after a message such as a sign-out.
-    lead: started && !state.gate ? 'Your session has ended. Sign in again to carry on where you were.' : null,
+    // `lead` is words only: as a button's handler this is given the click.
+    lead: (typeof lead === 'string' ? lead : null) ??
+      (started && !state.gate ? 'Your session has ended. Sign in again to carry on where you were.' : null),
   };
   showGate({ signIn: true });
   focusOn(lastEmail ? 'signin-password' : 'signin-email');
@@ -830,6 +882,21 @@ const ELSEWHERE_WORDS = {
 /** Leave for the AWS sign-in page, the way the console signed in before it had its own. */
 function toAwsPage(challenge = null) {
   if (state.gate?.leaving) return;
+  // The app has no managed login pages: such a step is done on the console's website, in the browser.
+  if (appBridge) {
+    state.signIn = null;
+    auth.cancelPasswordSignIn();
+    const opened = appBridge.has('open') && appConfig
+      ? appBridge.call('app.open', { url: `${appConfig.consoleUrl}/` }).then(() => true, () => false)
+      : Promise.resolve(false);
+    opened.then((open) => {
+      const what = ELSEWHERE_WORDS[challenge] ?? (challenge ? 'Your account needs a step that only the console\u2019s website does.' : '');
+      // From the sign-in page to the sign-in page again, with the words of why.
+      state.gate = null;
+      beginSignIn(`${what} ${open ? 'The console is open in the browser: do it there, then sign in here.' : 'Do it on the console\u2019s website, then sign in here.'}`.trim());
+    });
+    return;
+  }
   state.signIn = null;
   auth.cancelPasswordSignIn();
   showGate({
@@ -848,7 +915,9 @@ function toAwsPage(challenge = null) {
 /** Tell the user if the refresh token that came with a new session may still be good. */
 function watchRevocation() {
   auth.revocation().then((result) => {
-    if (result === 'failed' || result === 'refused') {
+    if (result === 'not-kept') {
+      notify('The app could not keep this sign-in, so it will ask for your password and code the next time it opens.', 'warn');
+    } else if (result === 'failed' || result === 'refused') {
       notify('The sign-in service did not confirm that the unused refresh token was revoked. ' +
         'It expires by itself within the hour.', 'bad');
     }
@@ -1020,9 +1089,24 @@ function signedOutGate({ reason, message }) {
   }
 }
 
+// In the app: a refused token is first renewed by the app, quietly, before the password is asked for.
+let renewing = null;
+
 function onUnauthorized() {
   // Whatever time it had left: the masthead, a dialog and the next request all go by this.
   auth.tokenRefused();
+  if (auth.inApp && !auth.signedInWithin(FRESH_SIGN_IN_S)) {
+    renewing ??= auth.renew().then((renewed) => {
+      renewing = null;
+      if (renewed) refreshNow(false);
+      else afterRefused();
+    });
+    return;
+  }
+  afterRefused();
+}
+
+function afterRefused() {
   const step = afterUnauthorized({
     gate: state.gate,
     fresh: auth.signedInWithin(FRESH_SIGN_IN_S),
@@ -1036,6 +1120,16 @@ function onUnauthorized() {
 
 /** Ask for the password again shortly before the token ends, unless work is in hand. */
 function checkSession() {
+  // In the app the app renews it, behind Face ID or a fingerprint where that is on.
+  if (auth.inApp) {
+    if (auth.needsRenewal() && !state.gate && !renewing) {
+      renewing = auth.renew().then((renewed) => {
+        renewing = null;
+        if (!renewed) beginSignIn();
+      });
+    }
+    return;
+  }
   const renew = shouldRenew({
     needsRenewal: auth.needsRenewal(),
     visible: document.visibilityState === 'visible',
@@ -1701,9 +1795,12 @@ const actions = {
   recordSerialCommand: (command) => api.recordSerialCommand(command),
   // Asked for by hand where the console does not leave by itself: with a file in hand.
   signInAgain: () => beginSignIn(),
+  // The phone app's own settings: its versions, an update of its pages, and the classic app.
+  appSettings: () => appBridge?.call('app.settings').catch(() => notify('The app could not show its settings.', 'bad')),
   async copy(value, label) {
     try {
-      await navigator.clipboard.writeText(value);
+      if (appBridge?.has('clipboard')) await appBridge.call('clipboard.write', { text: String(value).slice(0, 1024) });
+      else await navigator.clipboard.writeText(value);
       notify(`Copied ${label}.`);
     } catch {
       notify(`Could not copy ${label}. Select the text and copy it by hand.`, 'bad');
@@ -1804,6 +1901,7 @@ async function start() {
     return;
   }
   state.gate = null;
+  pagesReady();
   // After a sign-in in place the console is set up already: it only shows its page again.
   if (started) {
     showRoute();
@@ -1855,7 +1953,38 @@ async function boot() {
     if (event.persisted) location.reload();
   });
 
-  const config = readConfig(document.querySelector('meta[name="cranium-config"]')?.content);
+  // In the phone app the settings come from the app, and the API is at the console's address.
+  try {
+    const inApp = Boolean(window.webkit?.messageHandlers?.cranium || window.craniumNative);
+    bridgeScript = inApp ? await import('./bridge.js') : null;
+    appBridge = bridgeScript ? await bridgeScript.connectBridge(window) : null;
+  } catch (error) {
+    console.error(error);
+    showGate({
+      iconName: 'alert',
+      title: 'The app could not start the console',
+      text: 'The app did not answer the page. Close the app and open it again.',
+    });
+    return;
+  }
+  let config;
+  if (appBridge) {
+    appConfig = bridgeScript.readAppConfig(await appBridge.call('app.config').catch(() => null));
+    config = appConfig ? bridgeScript.appConsoleConfig(appConfig, window.location.origin) : null;
+    state.app = {
+      ble: appBridge.has('ble'),
+      settings: appBridge.has('settings'),
+      words: bridgeScript.appWords(appBridge.hello),
+      example: appConfig?.example === true,
+    };
+    // Five minutes in the background with Face ID or a fingerprint on: the app locked the sign-in again.
+    appBridge.on('auth.locked', ({ pool }) => {
+      if (pool === 'admin') window.location.reload();
+    });
+    appBridge.on('app.bundleReady', () => notify('The app has new pages from the console. They show the next time it opens.'));
+  } else {
+    config = readConfig(document.querySelector('meta[name="cranium-config"]')?.content);
+  }
   if (!config) {
     showGate({
       iconName: 'alert',
@@ -1867,18 +1996,22 @@ async function boot() {
   }
   // Admin mode of the customer site: where to go back to.
   state.customerSite = config.customerSite ?? null;
+  // The API tokens page's example: the API's own address, which in the app is not the page's.
+  if (config.apiBase) state.origin = config.apiBase;
 
   const channel = openSessionChannel();
   let outcome;
   try {
     auth = createAuth({
       config,
-      storage: window.sessionStorage,
+      // In the app the access token lives as long as the page, and the app keeps the sign-in.
+      storage: appBridge ? bridgeScript.memoryStorage() : window.sessionStorage,
       location: window.location,
       history: window.history,
       fetch: window.fetch.bind(window),
       crypto: window.crypto,
       tellOtherTabs: () => channel?.postMessage(SIGNED_OUT_SIGNAL),
+      vault: appBridge?.has('auth') ? bridgeScript.createVault(appBridge, 'admin') : null,
     });
     api = createApi({
       auth,
@@ -1887,6 +2020,9 @@ async function boot() {
       crypto: window.crypto,
       clock,
       onUnauthorized,
+      base: config.apiBase ?? '',
+      // A change from the phone needs the password and code of the last 15 minutes.
+      onSignInAgain: () => beginSignIn('To change anything from the phone, sign in again first: your password and the code.'),
     });
     outcome = await auth.resume();
   } catch (error) {
@@ -1896,10 +2032,23 @@ async function boot() {
   }
 
   if (outcome.status === 'sign-in') {
-    beginSignIn();
+    // In the app: Face ID or the fingerprint was cancelled, or the network is not there. The sign-in is kept.
+    if (outcome.reason === 'cancelled' || outcome.reason === 'network') {
+      pagesReady();
+      showGate({
+        title: outcome.reason === 'network' ? 'No connection' : 'Cranium is locked',
+        text: outcome.reason === 'network'
+          ? 'The app could not reach Cognito to renew your sign-in. Check the connection.'
+          : 'Unlock it to go on, or sign in with your password and code.',
+        action: { label: outcome.reason === 'network' ? 'Try again' : 'Unlock', run: () => window.location.reload() },
+      });
+      return;
+    }
+    beginSignIn(outcome.reason === 'locked' ? 'Face ID or the fingerprint can no longer open the saved sign-in. Sign in with your password and code.' : null);
     return;
   }
   if (outcome.status === 'signed-out') {
+    pagesReady();
     showGate(signedOutGate(outcome));
     return;
   }

@@ -554,7 +554,8 @@ export function accountView(ctx) {
           facts([
             ['E-mail', h('span', { class: 'fact-strong' }, profile.value?.email || me.value?.email || '—')],
             ['Name', profile.value?.name || me.value?.name || h('span', { class: 'quiet' }, 'Not given')],
-            ['Session', ends ? `Until ${ends.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}, then sign in again` : '—'],
+            ['Session', ctx.state.app ? 'Kept by the app on this phone'
+              : ends ? `Until ${ends.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}, then sign in again` : '—'],
           ]),
           h('p', { class: 'cs-note' }, icon('user'),
             h('span', null, 'Your e-mail address is your sign-in name. To change it, ask Cranium.'))),
@@ -568,9 +569,23 @@ export function accountView(ctx) {
             h('div', { class: 'signin-actions' }, submit(password.busy, 'Change password'))))),
       h('div', { class: 'cs-column is-side' },
         profile.value === null && !profile.error ? loadingLine('your account') : authenticatorCard(ctx),
+        ctx.state.app ? phoneCard(ctx) : null,
         card({ key: 'out', title: 'Sign out' },
           h('p', { class: 'card-note' }, 'Ends your session in this tab and in any other tab of this site.'),
           h('div', { class: 'button-row' }, button('', ctx.actions.signOut, icon('sign-out'), 'Sign out'))))));
+}
+
+/** In the phone app: which app this is, the biometric of the sign-in on this phone, and the app's own settings. */
+function phoneCard(ctx) {
+  const { words, biometric } = ctx.state.app;
+  const name = biometric?.name ?? 'the phone\u2019s biometric';
+  return card({ key: 'phone', title: 'On this phone' },
+    h('p', { class: 'card-note' }, words ?? 'The Cranium app.'),
+    biometric?.available
+      ? h('div', { class: 'button-row' }, button('', () => ctx.actions.setBiometric(!biometric.enabled), icon('lock'),
+        biometric.enabled ? `Stop unlocking with ${name}` : `Unlock with ${name}`))
+      : null,
+    h('div', { class: 'button-row' }, button('is-quiet', ctx.actions.appSettings, 'App settings')));
 }
 
 // Help. In plain words, from what the product does today.

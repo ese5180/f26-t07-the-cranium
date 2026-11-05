@@ -110,6 +110,8 @@ const SECTIONS = [
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   'apps',
   'customers',
+  // An update over Bluetooth, in the phone app only (bluetooth.js).
+  'bluetooth',
 ];
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
 const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
@@ -1669,10 +1671,15 @@ export async function cognitoCall(fetch, idpOrigin, operation, body) {
  * revoked through the user pool API, and a sign-out goes back to `redirectUri`. With
  * `newPasswordHere`, a first sign-in's new password is asked for on the page itself
  * (step 'new-password', then sendNewPassword) instead of being left to those pages.
+ *
+ * In the phone app (bridge.js, docs/mobile-apps.md "The app shell") a `vault` keeps the sign-in: the
+ * refresh token goes to it as soon as Cognito hands it over, instead of being revoked, and the page
+ * keeps only the access token, in memory. A page that loads asks the vault for an access token
+ * (resume), and so does a session about to end (renew); signing out makes the vault forget it.
  */
 export function createAuth({
   config, storage, location, history, fetch, crypto, now = () => Date.now(), tellOtherTabs = () => {},
-  newPasswordHere = false,
+  newPasswordHere = false, vault = null,
 }) {
   const seconds = () => Math.floor(now() / 1000);
 
@@ -1795,7 +1802,7 @@ export function createAuth({
     if (!usable(reply?.access_token, reply?.expires_in, reply?.token_type)) {
       throw new Error('The sign-in service sent a reply the console could not read.');
     }
-    keep(reply.access_token, reply.expires_in, reply.refresh_token);
+    keep(reply.access_token, reply.expires_in, reply.refresh_token, reply.id_token);
   }
 
   function usable(accessToken, expiresIn, tokenType) {
@@ -1804,10 +1811,12 @@ export function createAuth({
   }
 
   /** The session of a sign-in that worked, either way. */
-  function keep(accessToken, expiresIn, refreshToken) {
-    // The refresh token goes nowhere but back to the service that issued it.
+  function keep(accessToken, expiresIn, refreshToken, idToken = null) {
+    // The refresh token goes nowhere but back to the service that issued it, or to the app's vault.
     if (typeof refreshToken === 'string' && refreshToken !== '') {
-      revocation = revoke(refreshToken);
+      revocation = vault
+        ? vault.store({ refreshToken, accessToken, idToken, expiresIn }).then(() => 'kept', () => 'not-kept')
+        : revoke(refreshToken);
     }
     signedInAt = seconds();
     storage.removeItem(SIGNED_OUT_KEY);
@@ -1845,7 +1854,7 @@ export function createAuth({
     if (result && typeof result === 'object') {
       if (!usable(result.AccessToken, result.ExpiresIn, result.TokenType)) return { step, problem: 'failed' };
       challenge = null;
-      keep(result.AccessToken, result.ExpiresIn, result.RefreshToken);
+      keep(result.AccessToken, result.ExpiresIn, result.RefreshToken, result.IdToken);
       return { step: 'done' };
     }
     const name = typeof reply.ChallengeName === 'string' && CHALLENGE_NAME.test(reply.ChallengeName)
@@ -1973,7 +1982,28 @@ export function createAuth({
    * @returns {Promise<{status: 'signed-in', route: string|null} | {status: 'sign-in'} |
    *   {status: 'signed-out', reason: string, message?: string}>}
    */
+  /** An access token from the vault into this page's session: signed-in, signed-out, or why not. */
+  async function fromVault() {
+    let answer;
+    try {
+      answer = await vault.session();
+    } catch (error) {
+      return ['cancelled', 'locked', 'network'].includes(error?.code) ? error.code : 'failed';
+    }
+    if (answer?.signedIn !== true || !usable(answer.accessToken, answer.expiresIn, 'Bearer')) return 'signed-out';
+    storage.setItem(SESSION_KEY, JSON.stringify({ accessToken: answer.accessToken, expiresAt: seconds() + Math.floor(answer.expiresIn) }));
+    return 'signed-in';
+  }
+
   async function resume() {
+    if (vault) {
+      if (readSession() && secondsLeft() > RENEW_BEFORE_S) return { status: 'signed-in', route: null };
+      storage.removeItem(SESSION_KEY);
+      const kept = await fromVault();
+      if (kept === 'signed-in') return { status: 'signed-in', route: null };
+      // Face ID cancelled or failed, or no network: the sign-in page, which says so; nothing is forgotten.
+      return kept === 'signed-out' ? { status: 'sign-in' } : { status: 'sign-in', reason: kept };
+    }
     const query = new URLSearchParams(location.search);
     const code = query.get('code');
     const state = query.get('state');
@@ -2027,6 +2057,11 @@ export function createAuth({
   function signOut() {
     forgetSession();
     tellOtherTabs();
+    // In the app: the vault forgets the refresh token and revokes it, then back to the site's own page.
+    if (vault) {
+      vault.signOut().catch(() => {}).finally(() => location.assign(config.redirectUri));
+      return;
+    }
     // No managed login pages, so nothing to end there: back to the site's own page.
     if (!config.loginOrigin) {
       location.assign(config.redirectUri);
@@ -2066,8 +2101,17 @@ export function createAuth({
     needsRenewal: () => secondsLeft() <= RENEW_BEFORE_S,
     /** True if this page load completed a sign-in less than `window` seconds ago. */
     signedInWithin: (window) => signedInAt !== null && seconds() - signedInAt < window,
-    /** How the revocation of the unwanted refresh token went: revoked, sent, refused, failed or none. */
+    /**
+     * How the revocation of the unwanted refresh token went: revoked, sent, refused, failed or none; in the
+     * app, kept or not-kept by the vault.
+     */
     revocation: () => revocation,
+    /** In the app: a new access token from the vault, without asking for the password. True if it gave one. */
+    async renew() {
+      return vault !== null && (await fromVault()) === 'signed-in';
+    },
+    /** Whether the sign-in is kept by the app (bridge.js). */
+    inApp: vault !== null,
   };
 }
 
@@ -2102,7 +2146,7 @@ function backoff(attempt, crypto) {
  * @param {Function} options.onUnauthorized    called when the API refuses the token
  * @param {Function} [options.pause]           waits the given milliseconds
  */
-export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauthorized,
+export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauthorized, base = '', onSignInAgain = () => {},
   pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   function unauthorized() {
     onUnauthorized();
@@ -2119,7 +2163,7 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
       if (body !== undefined) headers['content-type'] = 'application/json';
       let response;
       try {
-        response = await fetch(path, {
+        response = await fetch(`${base}${path}`, {
           method,
           headers,
           body: body === undefined ? undefined : JSON.stringify(body),
@@ -2144,9 +2188,59 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
         throw new ApiError(0, 'network', 'The connection to the server broke off. Check the connection.');
       }
       const payload = parseJson(text);
-      if (!response.ok) throw errorFrom(response.status, payload);
+      if (!response.ok) throw signInAgain(errorFrom(response.status, payload));
       if (payload === null) throw unreadable();
       return payload;
+    }
+  }
+
+  /** A change from the phone needs a sign-in in the last 15 minutes (docs/mobile-apps.md): the page asks for one. */
+  function signInAgain(error) {
+    if (error.status === 403 && error.code === 'phone_sign_in_again') onSignInAgain(error);
+    return error;
+  }
+
+  /**
+   * A signed firmware image, as bytes, for the Bluetooth page of the app (bluetooth.js). Read again on
+   * a gateway's hiccup, as any read is; checked by the caller against the release.
+   */
+  async function image(version) {
+    const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/image`;
+    for (let attempt = 1; ; attempt += 1) {
+      const token = auth.accessToken();
+      if (token === null) throw unauthorized();
+      let response;
+      try {
+        response = await fetch(`${base}${path}`, {
+          method: 'GET',
+          headers: { authorization: `Bearer ${token}`, accept: 'application/octet-stream' },
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        });
+      } catch (error) {
+        throw error?.name === 'TimeoutError' ? tooSlow() : unreachable();
+      }
+      clock.observe(response.headers.get('date'));
+      if (response.status === 401) throw unauthorized();
+      if (RETRY_GET.has(response.status) && attempt < MAX_TRIES) {
+        await pause(backoff(attempt, crypto));
+        continue;
+      }
+      if (!response.ok) {
+        let payload = null;
+        try {
+          payload = parseJson(await response.text());
+        } catch {
+          payload = null;
+        }
+        throw errorFrom(response.status, payload);
+      }
+      try {
+        return new Uint8Array(await response.arrayBuffer());
+      } catch {
+        throw new ApiError(0, 'network', 'The connection to the server broke off. Check the connection.');
+      }
     }
   }
 
@@ -2154,7 +2248,7 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
   function send(token, body, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/firmware');
+      xhr.open('POST', `${base}/api/firmware`);
       xhr.timeout = UPLOAD_TIMEOUT_MS;
       xhr.setRequestHeader('authorization', `Bearer ${token}`);
       xhr.setRequestHeader('accept', 'application/json');
@@ -2308,6 +2402,22 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
       if (change) return record(await request(method, path, {}, { once: true }));
       return record(await request(method, path, undefined, { once: path.includes('/download') }));
     },
+    // An update over Bluetooth from the app (bluetooth.js, docs/mobile-apps.md "The API"): the image, the
+    // passkey of a board that is pairing, and the console's yes right before every send.
+    image,
+    async pairing(name) {
+      const path = `/api/pairing/${encodeURIComponent(checked(isBluetoothName, name))}`;
+      const reply = record(await request('GET', path, undefined, { once: true }));
+      const passkey = typeof reply.passkey === 'string' && /^\d{6}$/.test(reply.passkey) ? reply.passkey : null;
+      return passkey === null ? null : { passkey, thing: isThing(reply.thing) ? reply.thing : null, reportedAt: instant(reply.reportedAt) };
+    },
+    async clearSend(version, { sha256, board = null }) {
+      const body = { sha256: checked((value) => /^[0-9a-f]{64}$/.test(value), sha256) };
+      if (board !== null) body.board = checked(isBluetoothName, board);
+      const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/bluetooth`;
+      const reply = record(await request('POST', path, body, { once: true }));
+      return { version: text(reply.version, 32), sha256: text(reply.sha256, 64), status: text(reply.status, 16) };
+    },
     tokens: async () => readTokens(await get('/api/tokens')),
     createToken: async ({ name, days }) => readNewToken(await post('/api/tokens', { name, days })),
     async revokeToken(id) {
@@ -2337,6 +2447,13 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     setCustomerEnabled: async (id, enabled) =>
       record(await post(`/api/customers/${checked(isCustomerId, id)}/${enabled ? 'enable' : 'disable'}`, {})),
   };
+}
+
+// The name a board advertises over Bluetooth while its window is open: Cranium- and four hex digits.
+const BLUETOOTH_NAME = /^Cranium-[0-9A-F]{4}$/;
+
+export function isBluetoothName(value) {
+  return typeof value === 'string' && BLUETOOTH_NAME.test(value);
 }
 
 // A customer of the customer site: the sub of their account in the customer pool.
