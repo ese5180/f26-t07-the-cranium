@@ -74,11 +74,24 @@ own topic only. A board that is offline misses the command: that is meant, these
 | `cmd` | What the board does |
 | --- | --- |
 | `identify` | Blinks LED1 and LED2 together, fast (about 5 Hz), for `seconds` (1 to 60, else 15), then goes back to what it showed |
-| `report` | Sends the heartbeat, the diagnostics report and a location scan at once (the location's own 10-minute floor still holds) |
+| `report` | Sends the heartbeat, the diagnostics report and a location scan at once (the location's own 10-minute floor still holds), and from 1.14.0 what Memfault data waits |
+| `memfault` | From 1.14.0: takes a heartbeat of Memfault's metrics now and sends it, with whatever else waits ([`memfault.md`](memfault.md)) |
 
 `id` is 16 hexadecimal characters. The board answers on its events topic with tag `CMD`, for example
 `identify for 15 s (3f9c2a1b7d4e6f80)`, which the console files as kind `setting`. Anything else is ignored with a
 `CMD` line saying so. Only release managers can send a command; each one is in the activity log (`board.command`).
+
+The cloud also publishes `{"id": ..., "cmd": "memfault_ack", "seq": <n>}` there, from 1.14.0: the answer for one
+Memfault chunk, which the board never answers.
+
+## Memfault: `cranium/<thing>/memfault`
+
+From firmware 1.14.0 the board publishes, QoS 0, binary, the Memfault SDK's chunks: its reboot reasons, a coredump
+of a crash, an hourly heartbeat of metrics and an event per update. A function in AWS posts each one to Memfault with
+the project key, which only it can read, and answers on the commands topic. The device policy allows the board to
+publish on its own topic only. What leaves the board: no network name, no access point's address and no OUI;
+the coredump holds the registers and the tops of the stacks, not the application's data. [`memfault.md`](memfault.md)
+has the rest.
 
 ## Location by Wi-Fi: `cranium/<thing>/location`
 
