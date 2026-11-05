@@ -1540,7 +1540,7 @@ DK's layout 1. Its type and layout are defaults in `firmware/app/Kconfig`, next 
 (`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/build.sh` reads both back
 from the image, and `flash_layout.py` checks the partitions, as for the nRF7002 DK.
 
-A build of the 1.13.0 source (`firmware/app/VERSION` still says 1.12.0), with the console and Bluetooth, in bytes:
+A build of the 1.13.0 source, with the console and Bluetooth, in bytes:
 
 | Image | Used | Of |
 | --- | --- | --- |
