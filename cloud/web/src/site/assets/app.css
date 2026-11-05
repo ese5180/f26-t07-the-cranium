@@ -7084,7 +7084,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .timeline-plot {
   position: relative;
-  padding: 0 6px;
+  padding: 0 14px;
   touch-action: pan-y;
   user-select: none;
 }
@@ -9291,3 +9291,81 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .bt-step-title { font-weight: 600; }
 .bt-step-detail { color: var(--ink-2); }
 .bt-countdown { color: var(--work); }
+
+/* The timeline's group markers, its readout of a group, and its key. */
+.tl-count circle {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+.tl-count text {
+  fill: var(--surface);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-mark.is-group > .glyph {
+  stroke-width: 3.5;
+}
+
+.tip-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+
+.tip-count {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tl-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  list-style: none;
+}
+
+.tl-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tl-key .key-group {
+  fill: var(--kind-a);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.tl-key .key-count {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+.tick-swatch {
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--kind-b);
+}
+
+@media (forced-colors: active) {
+  .tl-count circle {
+    fill: CanvasText;
+    stroke: Canvas;
+  }
+
+  .tl-count text {
+    fill: Canvas;
+  }
+}

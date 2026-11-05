@@ -48,6 +48,8 @@ function setup({
   linesCursor = null,
 } = {}) {
   const state = { now: NOW, route, interval: 0, me: { canWrite: false }, devices: loaded({ devices }) };
+  // No layout here: a wide plot, on which events minutes apart are still apart.
+  telemetry.measurePlot(5000);
   const asked = [];
   const api = {
     async events(query) {
@@ -118,7 +120,7 @@ test('a preset ends now and moves with it; a range chosen by hand stays where it
   const day = telemetry.rangeOf({ preset: '24h' }, NOW);
   assert.deepEqual([day.fromMs, day.toMs, day.live], [NOW - DAY, NOW, true]);
   assert.equal(telemetry.rangeWords(day), 'the last 24 hours, up to now');
-  assert.deepEqual(telemetry.PRESETS.map((preset) => preset.label), ['1 h', '24 h', '7 d', '30 d']);
+  assert.deepEqual(telemetry.PRESETS.map((preset) => preset.label), ['1 h', '6 h', '24 h', '7 d', '30 d']);
   const fixed = telemetry.rangeOf({ fromMs: NOW - HOUR, toMs: NOW - MINUTE }, NOW + DAY);
   assert.deepEqual([fixed.fromMs, fixed.toMs, fixed.live], [NOW - HOUR, NOW - MINUTE, false]);
   assert.match(telemetry.rangeWords(fixed), / to /);
@@ -189,9 +191,21 @@ test('switched-off kinds are left out, and what is left is newest first', () => 
   const lanes = [{ events }];
   assert.deepEqual(telemetry.shownEvents(lanes, new Set()).map((item) => item.text), ['new', 'mid', 'old']);
   assert.deepEqual(telemetry.shownEvents(lanes, new Set(['connection', 'update'])).map((item) => item.text), ['mid']);
-  // Two minutes on a day's width are one spot; on an hour's they are not.
-  assert.equal(telemetry.neighbours(events, at(2 * MINUTE), { fromMs: NOW - DAY, toMs: NOW }).length, 3);
-  assert.equal(telemetry.neighbours(events, at(2 * MINUTE), { fromMs: NOW - HOUR, toMs: NOW }).length, 1);
+});
+
+test('events a few pixels apart are one spot with a count; zooming in or a wider plot pulls them apart', () => {
+  const events = [event(A, 3 * MINUTE, 'update', 'step', 'old'), event(A, MINUTE, 'connection', 'connected', 'new'),
+    event(A, 2 * MINUTE, 'health', 'memory', 'mid', { level: 'warn' }), event(A, 5 * HOUR, 'restart', 'boot', 'far')];
+  const day = { fromMs: NOW - DAY, toMs: NOW };
+  // A day on 390 px: the three minutes are one spot, newest first, standing for them by their warning.
+  const narrow = telemetry.spotsOf(events, day, 358);
+  assert.deepEqual(narrow.map((spot) => spot.events.map((item) => item.text)), [['new', 'mid', 'old'], ['far']]);
+  assert.equal(narrow[0].lead.text, 'mid');
+  assert.equal(narrow[0].at, events[1].at);
+  assert.ok(narrow[0].x > 99 && narrow[0].x < 100);
+  // Ten minutes on the same width (zoomed in): a minute is 36 px, so each stands alone (the far one is cut to the edge).
+  assert.equal(telemetry.spotsOf(events, { fromMs: NOW - 10 * MINUTE, toMs: NOW }, 358).length, 4);
+  assert.deepEqual(telemetry.spotsOf([], day), []);
 });
 
 test('every kind the API knows has a look, three hues by family and a shape of its own', () => {
@@ -364,6 +378,84 @@ test('the timeline has a lane per board and the console, a marker per event and 
   assert.match(textOf(rows[2]), /^.*Console.*manager@example\.invalid/);
   assert.equal(all(page, 'tr.event-day').length >= 1, true);
   assert.match(textOf(one(page, 'p.event-count')), /6 events.*2 warnings/);
+});
+
+test('on a narrow plot, events close together are one marker with their number, which lists each with its time', async () => {
+  const world = setup({
+    devices: [board(A)],
+    events: [
+      event(A, 10 * MINUTE, 'update', 'result', 'Update failed: download_failed', { level: 'warn' }),
+      event(A, 11 * MINUTE, 'update', 'step', 'Downloading 1.2.3+5'),
+      event(A, 12 * MINUTE, 'connection', 'connected', 'Connected to AWS IoT'),
+      event(A, 6 * HOUR, 'restart', 'boot', 'Last boot ended by the watchdog'),
+    ],
+  });
+  telemetry.measurePlot(358);
+  await telemetry.refreshEvents(true);
+  let page = drawn(telemetry.eventsView(world.ctx));
+  const marks = all(page, 'svg.tl-mark').filter((mark) => /^cranium-/.test(mark.getAttribute('aria-label')));
+  assert.equal(marks.length, 2, 'three events in a few pixels are one marker, the fourth is another');
+  const group = marks.find((mark) => /3 events/.test(mark.getAttribute('aria-label')));
+  assert.match(group.getAttribute('aria-label'), /Includes a warning/);
+  assert.equal(textOf(one(group, 'g.tl-count')), '3');
+  assert.equal(group.getAttribute('tabindex'), '0');
+  // Hovering lists every event of it, newest first, each with its time and its kind.
+  group.dispatchEvent({ type: 'pointerenter' });
+  page = drawn(telemetry.eventsView(world.ctx));
+  const rows = all(one(page, 'div.timeline-tip'), 'li.tip-row');
+  assert.equal(rows.length, 3);
+  assert.match(textOf(rows[0]), /Update failed: download_failed.*Nov 2, 2026, \d+:50:00 [AP]M.*Update.*warning/);
+  assert.match(textOf(rows[2]), /Connected to AWS IoT.*\d+:48:00 [AP]M.*Connection/);
+  assert.match(textOf(one(page, 'div.timeline-tip')), /3 events close together/);
+  // The keyboard gets there too: Enter picks the newest of them, and its row in the table.
+  group.dispatchEvent({ type: 'pointerleave' });
+  group.dispatchEvent({ type: 'keydown', key: 'Enter' });
+  page = drawn(telemetry.eventsView(world.ctx));
+  assert.match(textOf(one(page, 'tr.event-row.is-selected')), /download_failed/);
+  assert.equal(all(page, 'svg.tl-mark.is-selected').length, 1);
+  assert.equal(all(page, 'div.timeline-tip').length, 1, 'the readout stays for the marker that was picked');
+  // The key says what each drawn mark means, and only the kinds that are drawn.
+  assert.deepEqual(all(one(page, 'ul.tl-key'), 'li').map((item) => textOf(item)),
+    ['Update', 'Restart', 'Connection', 'A number: that many events close together', 'Board online']);
+  telemetry.measurePlot(5000);
+});
+
+test('the range last chosen is the next visit\'s, 6 h among them, and a browser that keeps nothing opens on 24 h', async () => {
+  const kept = new Map();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)) },
+  });
+  try {
+    let world = setup(eventsWorld());
+    await telemetry.refreshEvents(true);
+    let page = drawn(telemetry.eventsView(world.ctx));
+    assert.deepEqual(all(one(page, 'div.segmented'), 'button').slice(0, 4).map((button) => textOf(button)), ['1 h', '6 h', '24 h', '7 d']);
+    assert.equal(one(page, 'button.segmented-option', '24 h').getAttribute('aria-pressed'), 'true');
+    one(page, 'button.segmented-option', '6 h').dispatchEvent({ type: 'click' });
+    await settle();
+    assert.equal(kept.get('cranium.events.range'), '6h');
+    assert.equal(world.asked.filter(([name]) => name === 'events').at(-1)[1].from, at(6 * HOUR));
+    // A new visit: a page of its own, which opens on what was chosen.
+    world = setup(eventsWorld());
+    await telemetry.refreshEvents(true);
+    page = drawn(telemetry.eventsView(world.ctx));
+    assert.equal(one(page, 'button.segmented-option', '6 h').getAttribute('aria-pressed'), 'true');
+    assert.equal(world.asked.find(([name]) => name === 'events')[1].from, at(6 * HOUR));
+    kept.set('cranium.events.range', 'nonsense');
+    world = setup(eventsWorld());
+    assert.equal(telemetry.rangeOf(world.state.eventLog?.range ?? { preset: '24h' }, NOW).preset.id, '24h');
+  } finally {
+    delete globalThis.localStorage;
+  }
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem() { throw new Error('blocked'); } } });
+  try {
+    const world = setup(eventsWorld());
+    await telemetry.refreshEvents(true);
+    assert.equal(world.asked.find(([name]) => name === 'events')[1].from, at(DAY));
+  } finally {
+    delete globalThis.localStorage;
+  }
 });
 
 test('picking a marker marks its row, picking a row marks its marker, and the tooltip names every event at that spot', async () => {

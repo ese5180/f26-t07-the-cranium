@@ -43,6 +43,7 @@ const DAY = 24 * HOUR;
 
 export const PRESETS = Object.freeze([
   { id: '1h', label: '1 h', ms: HOUR, name: 'the last hour' },
+  { id: '6h', label: '6 h', ms: 6 * HOUR, name: 'the last 6 hours' },
   { id: '24h', label: '24 h', ms: DAY, name: 'the last 24 hours' },
   { id: '7d', label: '7 d', ms: 7 * DAY, name: 'the last 7 days' },
   { id: '30d', label: '30 d', ms: 30 * DAY, name: 'the last 30 days' },
@@ -283,12 +284,32 @@ export function shownEvents(lanes, hidden) {
 }
 
 /**
- * The markers of a lane that sit within `reach` percent of each other count as one spot: the
- * tooltip of one names them all.
+ * Events that would be drawn on top of each other become one spot. Each spot is
+ * { key, at, ms, x, events, lead }: the newest event's key and time, where the spot is drawn
+ * (the middle of its events, as a percentage), every event of it newest first, and the one
+ * that stands for it (a warning first, else the newest). A spot takes in the events within
+ * `reachPx` pixels of its first, on a plot `widthPx` wide; the spots are newest first.
  */
-export function neighbours(events, at, { fromMs, toMs, reach = 0.6 }) {
-  const here = place(Date.parse(at), fromMs, toMs);
-  return events.filter((event) => Math.abs(place(Date.parse(event.at), fromMs, toMs) - here) <= reach);
+export function spotsOf(events, { fromMs, toMs }, widthPx = 1000, reachPx = 14) {
+  const oldestFirst = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || (eventKey(a) < eventKey(b) ? -1 : 1));
+  const groups = [];
+  let anchor = -Infinity;
+  for (const event of oldestFirst) {
+    const x = place(Date.parse(event.at), fromMs, toMs);
+    if (groups.length > 0 && ((x - anchor) / 100) * widthPx <= reachPx) groups[groups.length - 1].push(event);
+    else {
+      anchor = x;
+      groups.push([event]);
+    }
+  }
+  return groups.map((group) => {
+    const newestFirst = group.reverse();
+    const x = newestFirst.reduce((sum, event) => sum + place(Date.parse(event.at), fromMs, toMs), 0) / newestFirst.length;
+    return {
+      key: eventKey(newestFirst[0]), at: newestFirst[0].at, ms: Date.parse(newestFirst[0].at), x, events: newestFirst,
+      lead: newestFirst.find((event) => event.level === 'warn') ?? newestFirst[0],
+    };
+  }).reverse();
 }
 
 // Words for what a board reports.
@@ -490,9 +511,29 @@ export function connect(given) {
   tools = given;
 }
 
+// The range chosen last is this browser's: the next visit opens on it.
+const RANGE_KEY = 'cranium.events.range';
+
+function rememberedPreset() {
+  try {
+    const stored = globalThis.localStorage?.getItem(RANGE_KEY);
+    return PRESETS.some((preset) => preset.id === stored) ? stored : '24h';
+  } catch {
+    return '24h';
+  }
+}
+
+function rememberPreset(id) {
+  try {
+    globalThis.localStorage?.setItem(RANGE_KEY, id);
+  } catch {
+    // A browser that keeps nothing still shows the range it was given.
+  }
+}
+
 function eventsPage(state) {
   state.eventLog ??= {
-    range: { preset: '24h' },
+    range: { preset: rememberedPreset() },
     zooms: [],
     thing: '',
     hidden: new Set(),
@@ -674,6 +715,7 @@ function changeRange(range) {
 }
 
 function choosePreset(id) {
+  rememberPreset(id);
   eventsPage(tools.state).zooms = [];
   changeRange({ preset: id });
 }
@@ -752,9 +794,9 @@ function select(key, { from }) {
 // The timeline.
 
 const AXIS = 24;
-const LANE_HEAD = 20;
-const TRACK = 28;
-const LANE_GAP = 14;
+const LANE_HEAD = 22;
+const TRACK = 44;
+const LANE_GAP = 16;
 const LANE = LANE_HEAD + TRACK + LANE_GAP;
 
 /** Move the keyboard from one marker to the next: along a lane, or to the nearest in the next lane. */
@@ -763,16 +805,16 @@ function markerKeys(event, lanes, laneIndex, index) {
   let target = null;
   if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
     // The lane's events are newest first; to the right is newer.
-    target = lane.shown[index + (event.key === 'ArrowRight' ? -1 : 1)] ?? null;
+    target = lane.clusters[index + (event.key === 'ArrowRight' ? -1 : 1)] ?? null;
   } else if (event.key === 'Home') {
-    target = lane.shown[lane.shown.length - 1] ?? null;
+    target = lane.clusters[lane.clusters.length - 1] ?? null;
   } else if (event.key === 'End') {
-    target = lane.shown[0] ?? null;
+    target = lane.clusters[0] ?? null;
   } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
     const step = event.key === 'ArrowUp' ? -1 : 1;
-    const at = Date.parse(lane.shown[index].at);
+    const at = Date.parse(lane.clusters[index].at);
     for (let other = laneIndex + step; other >= 0 && other < lanes.length && target === null; other += step) {
-      const candidates = lanes[other].shown;
+      const candidates = lanes[other].clusters;
       if (candidates.length > 0) {
         target = candidates.reduce((best, item) =>
           (Math.abs(Date.parse(item.at) - at) < Math.abs(Date.parse(best.at) - at) ? item : best), candidates[0]);
@@ -780,7 +822,7 @@ function markerKeys(event, lanes, laneIndex, index) {
     }
   } else if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault();
-    select(eventKey(lane.shown[index]), { from: 'marker' });
+    select(lane.clusters[index].key, { from: 'marker' });
     return;
   } else if (event.key === 'Escape') {
     eventsPage(tools.state).selected = null;
@@ -791,7 +833,7 @@ function markerKeys(event, lanes, laneIndex, index) {
   }
   event.preventDefault();
   if (target === null) return;
-  const key = eventKey(target);
+  const key = target.key;
   const page = eventsPage(tools.state);
   page.focused = key;
   page.hovered = null;
@@ -848,36 +890,73 @@ function dragHandlers(span) {
   };
 }
 
-/** The readout over the timeline for the spot a marker marks: every event there, the newest first. */
+// How many events a readout lists before it sends the reader to the table.
+const TIP_ROWS = 8;
+
+/** The readout over the timeline for a spot: every event there, the newest first, each with its time. */
 function timelineTip(lane, spot, span, y, below) {
-  const x = place(Date.parse(spot[0].at), span.fromMs, span.toMs);
-  const shown = spot.slice(0, 5);
+  const x = spot.x;
+  const shown = spot.events.slice(0, TIP_ROWS);
+  const many = spot.events.length > 1;
   return h('div', {
     class: ['timeline-tip', x < 22 ? 'is-left' : '', x > 78 ? 'is-right' : '', below ? 'is-below' : ''].filter(Boolean).join(' '),
     role: 'presentation',
     vars: { '--x': percent(x), '--y': `${y}px` },
   },
   h('p', { class: 'tip-head' },
-    lane.id === 'console' ? 'Console' : [mono(lane.label), boardThing({ thing: lane.thing, name: lane.label })]),
+    lane.id === 'console' ? 'Console' : [mono(lane.label), boardThing({ thing: lane.thing, name: lane.label })],
+    many ? h('span', { class: 'tip-count' }, `${spot.events.length} events close together`) : null),
   h('ul', { class: 'tip-list' }, shown.map((event) => h('li', { key: eventKey(event), class: 'tip-row' },
     swatch(event.kind),
     h('span', { class: 'tip-text' },
       h('strong', null, event.text),
       h('span', { class: 'tip-meta' },
-        `${kindOf(event.kind).label} · ${exactTime(event.at)}`, event.level === 'warn' ? ' · warning' : ''))))),
-  spot.length > shown.length ? h('p', { class: 'tip-more' }, `and ${spot.length - shown.length} more at this point`) : null);
+        `${exactTime(event.at)} · ${kindOf(event.kind).label}`, event.level === 'warn' ? ' · warning' : ''))))),
+  spot.events.length > shown.length
+    ? h('p', { class: 'tip-more' }, `and ${spot.events.length - shown.length} more: zoom in, or see All events below`)
+    : null);
 }
+
+// The width the plot was last measured at, in pixels: spots are made for it. Until it is measured, a desktop's.
+let plotWidth = 1000;
+let measureTimer = 0;
+
+/** Measure the plot after it is drawn; if its width is not the one the spots were made for, draw again. */
+function remeasure() {
+  clearTimeout(measureTimer);
+  measureTimer = setTimeout(() => {
+    const width = globalThis.document?.querySelector?.('.timeline-plot')?.clientWidth ?? 0;
+    if (width > 0 && Math.abs(width - plotWidth) > plotWidth * 0.04) {
+      plotWidth = width;
+      tools?.draw();
+    }
+  }, 60);
+}
+
+/** For tests, which have no layout: the width of the plot, in pixels. */
+export function measurePlot(width) {
+  plotWidth = width;
+}
+
+if (typeof globalThis.addEventListener === 'function') globalThis.addEventListener('resize', remeasure);
 
 function timeline(lanes, span, page, data) {
   const height = AXIS + lanes.length * LANE;
   const ticks = timeTicks(span.fromMs, span.toMs, 7);
-  const focused = page.focused ?? page.selected;
+  // Events close together are one marker; an event picked in the table lights the marker it is in.
+  const reach = Math.max(plotWidth - 12, 100);
+  for (const lane of lanes) lane.clusters = spotsOf(lane.shown, span, reach);
+  const spotOf = new Map();
+  for (const lane of lanes) for (const spot of lane.clusters) for (const event of spot.events) spotOf.set(eventKey(event), spot.key);
+  const focusedEvent = page.focused ?? page.selected;
+  const focused = spotOf.get(focusedEvent) ?? focusedEvent;
+  const selected = spotOf.get(page.selected) ?? page.selected;
   // The one marker the keyboard reaches with Tab: the chosen one, else the newest.
-  const all = lanes.flatMap((lane) => lane.shown);
-  const reachable = all.some((event) => eventKey(event) === focused) ? focused : (all[0] ? eventKey(all[0]) : null);
+  const all = lanes.flatMap((lane) => lane.clusters);
+  const reachable = all.some((spot) => spot.key === focused) ? focused : (all[0] ? all[0].key : null);
   // Where the loaded events of a range with more pages begin.
   const oldestLoaded = data.cursor && data.events.length > 0 ? Date.parse(data.events[data.events.length - 1].at) : null;
-  const pointed = page.hovered ?? focused;
+  const pointed = spotOf.get(page.hovered) ?? page.hovered ?? focused;
   let tip = null;
 
   const laneNodes = lanes.map((lane, laneIndex) => {
@@ -885,25 +964,30 @@ function timeline(lanes, span, page, data) {
     const middle = top + LANE_HEAD + TRACK / 2;
     const bands = lane.id === 'console' ? [] : onlineBands(lane.events, { ...span, device: lane.device });
     const state = lane.device ? laneState(lane.device) : null;
-    const lift = staggered(lane.shown, span);
-    const markers = lane.shown.map((event, index) => {
-      const key = eventKey(event);
+    const markers = lane.clusters.map((spot, index) => {
+      const key = spot.key;
+      const event = spot.lead;
       const kind = kindOf(event.kind);
-      const x = place(Date.parse(event.at), span.fromMs, span.toMs);
-      if (key === pointed) tip = timelineTip(lane, neighbours(lane.shown, event.at, span), span, middle, laneIndex === 0);
+      const count = spot.events.length;
+      const holdsSelected = spot.events.some((member) => eventKey(member) === page.selected);
+      const warns = spot.events.some((member) => member.level === 'warn');
+      if (key === pointed) tip = timelineTip(lane, spot, span, middle, laneIndex === 0);
+      const who = lane.id === 'console' ? 'Console' : lane.label;
       return h('svg', {
         key,
         class: [
-          'tl-mark', `is-${kind.tone}`, event.level === 'warn' ? 'is-warn' : '', key === page.selected ? 'is-selected' : '',
+          'tl-mark', `is-${kind.tone}`, warns ? 'is-warn' : '', count > 1 ? 'is-group' : '', holdsSelected ? 'is-selected' : '',
         ].filter(Boolean).join(' '),
-        x: percent(x),
-        y: String(middle + lift.get(key)),
+        x: percent(spot.x),
+        y: String(middle),
         overflow: 'visible',
         tabindex: key === reachable ? '0' : '-1',
         role: 'button',
-        'aria-pressed': key === page.selected ? 'true' : 'false',
-        'aria-label': `${lane.id === 'console' ? 'Console' : lane.label}, ${exactTime(event.at)}: ${event.text}` +
-          `${event.level === 'warn' ? '. Warning' : ''}`,
+        'aria-pressed': holdsSelected ? 'true' : 'false',
+        'aria-label': count > 1
+          ? `${who}, ${count} events from ${exactTime(spot.events[count - 1].at)} to ${exactTime(spot.at)}, the newest: ${spot.events[0].text}` +
+            `${warns ? '. Includes a warning' : ''}`
+          : `${who}, ${exactTime(event.at)}: ${event.text}${event.level === 'warn' ? '. Warning' : ''}`,
         'data-key': key,
         onClick: () => {
           if (!justDragged) select(key, { from: 'marker' });
@@ -930,9 +1014,14 @@ function timeline(lanes, span, page, data) {
           }
         },
       },
-      h('circle', { class: 'tl-hit', r: '12' }),
-      h('circle', { class: 'tl-ring', r: '10' }),
-      glyph(kind.shape));
+      h('circle', { class: 'tl-hit', r: '14' }),
+      h('circle', { class: 'tl-ring', r: '12' }),
+      glyph(kind.shape),
+      count > 1
+        ? h('g', { class: 'tl-count' },
+          h('circle', { cx: '9', cy: '-10', r: '8' }),
+          h('text', { x: '9', y: '-10', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, count > 99 ? '99+' : String(count)))
+        : null);
     });
     return h('g', { key: lane.id, class: `tl-lane ${lane.id === 'console' ? 'is-console' : ''}`.trim() },
       h('text', { class: 'tl-lane-name', x: '0', y: String(top + 14) },
@@ -972,6 +1061,7 @@ function timeline(lanes, span, page, data) {
     })
     : null;
 
+  remeasure();
   return h('div', { class: 'timeline-plot', ...dragHandlers(span) },
     h('svg', {
       class: 'timeline-svg',
@@ -979,7 +1069,7 @@ function timeline(lanes, span, page, data) {
       height: String(height),
       role: 'group',
       'aria-label': `Timeline of events, ${rangeWords(span)}. One lane per board${lanes.some((lane) => lane.id === 'console') ? ' and one for the console' : ''}. ` +
-        'Use the arrow keys to move between events and Enter to pick one; the table below lists them all' +
+        'Events close together are one marker with their number. Use the arrow keys to move between markers and Enter to pick one; the table below lists every event' +
         `${lanes.some((lane) => lane.lines?.length > 0) ? ', and the board log under it every line of the boards’ own logs' : ''}.`,
     },
     ticks.map((tick) => {
@@ -997,6 +1087,21 @@ function timeline(lanes, span, page, data) {
     tip);
 }
 
+/** What the marks of the timeline mean: the kinds that are drawn, a group, the online band and the log ticks. */
+function timelineKey(lanes) {
+  const drawn = new Set(lanes.flatMap((lane) => lane.shown.map((event) => event.kind)));
+  const hasLines = lanes.some((lane) => lane.lines?.length > 0);
+  return h('ul', { class: 'tl-key', key: 'key', 'aria-label': 'What the marks mean' },
+    KINDS.filter((kind) => drawn.has(kind.id)).map((kind) => h('li', { key: kind.id }, swatch(kind.id), kind.label)),
+    h('li', { key: 'group' },
+      h('svg', { class: 'swatch', viewBox: '-8 -8 20 20', width: '20', height: '20', 'aria-hidden': 'true', focusable: 'false' },
+        h('circle', { class: 'key-group', cx: '0', cy: '0', r: '6' }),
+        h('circle', { class: 'key-count', cx: '6', cy: '-6', r: '5' })),
+      'A number: that many events close together'),
+    h('li', { key: 'band' }, h('span', { class: 'band-swatch', 'aria-hidden': 'true' }), 'Board online'),
+    hasLines ? h('li', { key: 'tick' }, h('span', { class: 'tick-swatch', 'aria-hidden': 'true' }), 'Line of the board’s log') : null);
+}
+
 /**
  * The lines of a board's own log, as ticks at the foot of its lane: where it was talking, and
  * in which family's hue, without a marker for each. They are not reached with the keyboard and
@@ -1012,28 +1117,6 @@ function logTicks(lane, span, bottom) {
       x1: x, x2: x, y1: String(bottom - 7), y2: String(bottom - 1),
     });
   }));
-}
-
-/**
- * How far up or down to move each marker of a lane so that markers at one spot do not hide
- * each other entirely: the second of a run of close ones goes up, the third down, and so on.
- * Their time stays where it is; the tooltip names them all, and zooming in pulls them apart.
- */
-export function staggered(events, { fromMs, toMs }, reach = 0.7) {
-  const lift = new Map();
-  const oldestFirst = [...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  let anchor = -Infinity;
-  let run = 0;
-  for (const event of oldestFirst) {
-    const x = place(Date.parse(event.at), fromMs, toMs);
-    if (x - anchor <= reach) run += 1;
-    else {
-      anchor = x;
-      run = 0;
-    }
-    lift.set(eventKey(event), [0, -7, 7][run % 3]);
-  }
-  return lift;
 }
 
 /** A board's state now, for its lane: online words from the same source as the rest of the console. */
@@ -1330,8 +1413,9 @@ export function eventsView(ctx) {
           h('h2', { class: 'eyebrow' }, 'Timeline'),
           h('p', { class: 'timeline-range' }, rangeWords(span))),
         timeline(lanes, span, page, data),
+        timelineKey(lanes),
         h('p', { class: 'card-note timeline-note' },
-          'A band is a board online. Hover or tab to an event for what happened; drag across the timeline to zoom in.',
+          'Hover, tap or tab to a marker for the time and what happened; drag across the timeline to zoom in.',
           lines.length > 0 ? ' A tick at the foot of a lane is a line of that board’s own log, listed under Board log.' : '',
           data.audit?.cut ? ' The Console lane shows the newest 500 entries of the activity log in this range.' : '')),
         h('section', { key: 'list', class: 'card event-card' },
