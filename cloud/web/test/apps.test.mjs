@@ -65,7 +65,7 @@ function resource(value) {
 }
 
 /** The Apps page in a box, with an API that answers from `answers` and remembers what it was asked. */
-function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, answers = {} } = {}) {
+function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, answers = {}, ipas = [] } = {}) {
   const box = document.createElement('div');
   document.body.replaceChildren(box);
   const asked = [];
@@ -74,7 +74,7 @@ function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, a
   const state = {
     now: NOW,
     me: { canWrite },
-    apps: resource(apps.readApps({ android: { releases }, ios: { version: '0.4.0', notes: 'From the API.' } })),
+    apps: resource(apps.readApps({ android: { releases }, ios: { version: '0.4.0', notes: 'From the API.', releases: ipas } })),
     versions: resource(versions),
   };
   const ctx = { state, actions: { copy: (value) => copied.push(value) } };
@@ -82,7 +82,7 @@ function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, a
   const api = {
     async appsRequest(method, path) {
       asked.push(`${method} ${path}`);
-      const answer = answers[path];
+      const answer = answers[`${method} ${path}`] ?? answers[path];
       if (answer instanceof Error) throw answer;
       return answer ?? {};
     },
@@ -233,9 +233,14 @@ test('iPhone: its version and note from versions.json, and how to install it wit
   const text = textOf(iphone);
   for (const words of ['git clone https://github.com/ese5180/f26-t07-the-cranium.git', 'apps/ios/scripts/phone.sh',
     'tap Trust', 'press Run', 'VPN & Device Management', 'apps/ios/scripts/renew.sh --schedule', 'Every 7 days',
-    'An iPhone without a Mac needs the paid Apple Developer Program, and TestFlight.']) {
+    'On any iPhone, with SideStore', 'with your own Apple ID', 'No iPhone version is published on the console yet',
+    'Make my SideStore link', 'every 7 days, over Wi-Fi', 'Face ID works', 'over the Mac\'s Wi-Fi']) {
     assert.ok(text.includes(words), words);
   }
+  assert.equal(text.includes('TestFlight'), false);
+  const official = one(iphone, 'a', 'SideStore\'s own guide');
+  assert.equal(official.getAttribute('href'), 'https://docs.sidestore.io/docs/installation/prerequisites');
+  assert.equal(official.getAttribute('rel'), 'noopener noreferrer');
   const guide = one(iphone, 'a', 'the phone apps in the setup guide');
   assert.equal(guide.getAttribute('href'), 'https://github.com/ese5180/f26-t07-the-cranium/blob/main/docs/new-board-setup.md#the-phone-apps');
   assert.equal(guide.getAttribute('rel'), 'noopener noreferrer');
@@ -244,6 +249,134 @@ test('iPhone: its version and note from versions.json, and how to install it wit
   // Without versions.json, the API's word for it.
   const bare = appsPage({ versions: { missing: true } });
   assert.equal(textOf(one(cardOf(bare.box, 'iPhone'), 'p.app-note')), 'From the API.');
+});
+
+const IPA = {
+  version: '0.6.0', buildVersion: '8', size: 15_432_100, sha256: 'd'.repeat(64), notes: 'Updates on every iPhone, with SideStore.',
+  filename: 'cranium-ios-0.6.0.ipa', publishedBy: { sub: 's', email: 'manager@preview.invalid' }, publishedAt: '2026-11-04T16:00:00.000Z',
+};
+const KEY = `crs_${'Ab1_-'.repeat(8)}abc`;
+const SOURCE_URL = `https://console.example/api/sidestore/${KEY}/source.json`;
+const MADE = {
+  source: { id: '0123456789abcdef', createdAt: '2026-11-04T18:00:00.000Z', lastUsedAt: null },
+  url: SOURCE_URL,
+  add: `sidestore://source?url=${encodeURIComponent(SOURCE_URL)}`,
+};
+
+test('iPhone: the newest IPA on the console, with its note, build and a download of its own', async () => {
+  const presigned = 'https://cranium-firmwarebucket-1.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.6.0.ipa?X-Amz-Signature=ab';
+  const page = appsPage({ ipas: [IPA], answers: { '/api/apps/ios/0.6.0/download': { download: { url: presigned } } } });
+  const iphone = cardOf(page.box, 'iPhone');
+  assert.match(textOf(one(iphone, 'p.app-version')), /^0\.6\.0 Newest$/);
+  assert.equal(textOf(one(iphone, 'p.app-note')), 'Updates on every iPhone, with SideStore.');
+  const facts = textOf(one(iphone, 'dl.facts'));
+  assert.match(facts, /Size 14\.72 MiB/);
+  assert.match(facts, /Build 8/);
+  assert.match(facts, /Published 2 h ago by manager@preview\.invalid/);
+  assert.equal(textOf(iphone).includes('No iPhone version is published'), false);
+  const assigned = [];
+  globalThis.window = { location: { origin: 'https://console.example', assign: (url) => assigned.push(url) } };
+  click(one(iphone, 'button', 'Download cranium-ios-0.6.0.ipa'));
+  await settle();
+  assert.deepEqual(page.asked, ['GET /api/apps/ios/0.6.0/download']);
+  assert.deepEqual(assigned, [presigned]);
+});
+
+test('SideStore: a member\'s own link, shown once as Add to SideStore, its address and a QR code', async () => {
+  const answers = { 'GET /api/apps/sidestore': { source: null }, 'POST /api/apps/sidestore': MADE };
+  const page = appsPage({ ipas: [IPA], answers });
+  await apps.refreshApps();
+  page.draw();
+  // The releases are read through `load`, which this page leaves out; the link is asked for itself.
+  assert.deepEqual(page.asked, ['GET /api/apps/sidestore']);
+  click(one(cardOf(page.box, 'iPhone'), 'button', 'Make my SideStore link'));
+  await settle();
+  await settle();
+  assert.deepEqual(page.asked.slice(1), ['POST /api/apps/sidestore']);
+  const iphone = cardOf(page.box, 'iPhone');
+  const add = one(iphone, 'a', 'Add to SideStore');
+  assert.equal(add.getAttribute('href'), MADE.add);
+  assert.ok(textOf(iphone).includes(SOURCE_URL));
+  // The QR code holds the link that opens SideStore to add the source, for the iPhone's camera.
+  const svg = one(iphone, 'svg.qr-code');
+  assert.equal(svg.getAttribute('aria-label'), 'QR code that adds your own source to SideStore');
+  assert.equal(one(svg, 'path.qr-ink').getAttribute('d'), apps.qrPath(QrCode.encodeText(MADE.add, QrCode.Ecc.LOW)));
+  assert.match(textOf(iphone), /It is shown this once: keep it to yourself/);
+  click(labelled(iphone, 'Copy the source link'));
+  assert.deepEqual(page.copied, [SOURCE_URL]);
+  assert.deepEqual(page.notes, [['good', 'Made your SideStore link. It is shown this once.']]);
+
+  // Read again while it is on show, it stays; replaced elsewhere, it goes, and is never drawn again.
+  answers['GET /api/apps/sidestore'] = { source: MADE.source };
+  await apps.refreshApps();
+  page.draw();
+  assert.equal(all(cardOf(page.box, 'iPhone'), 'svg.qr-code').length, 1);
+  answers['GET /api/apps/sidestore'] = { source: { ...MADE.source, id: 'fedcba9876543210' } };
+  await apps.refreshApps();
+  page.draw();
+  assert.equal(all(cardOf(page.box, 'iPhone'), 'svg.qr-code').length, 0);
+  assert.equal(textOf(cardOf(page.box, 'iPhone')).includes(KEY), false);
+});
+
+test('SideStore: after it is made, only when; a new link or turning it off is asked first', async () => {
+  const known = { source: { ...MADE.source, lastUsedAt: '2026-11-04T17:00:00.000Z' } };
+  const page = appsPage({
+    ipas: [IPA],
+    answers: {
+      'GET /api/apps/sidestore': known, 'POST /api/apps/sidestore': MADE, 'POST /api/apps/sidestore/revoke': { source: null },
+    },
+  });
+  await apps.refreshApps();
+  page.draw();
+  let iphone = cardOf(page.box, 'iPhone');
+  assert.match(textOf(iphone), /Your source link was made /);
+  assert.match(textOf(iphone), /SideStore last used it 1 h ago/);
+  assert.equal(all(iphone, 'svg.qr-code').length, 0);
+  assert.equal(textOf(iphone).includes(KEY), false);
+
+  click(one(iphone, 'button', 'Turn it off'));
+  iphone = cardOf(page.box, 'iPhone');
+  assert.ok(controls(iphone).includes('Turn it off: SideStore stops updating the app'));
+  click(one(iphone, 'button', 'Keep it'));
+  assert.deepEqual(page.asked.filter((line) => line.startsWith('POST')), []);
+  click(one(cardOf(page.box, 'iPhone'), 'button', 'Turn it off'));
+  click(one(cardOf(page.box, 'iPhone'), 'button', 'Turn it off: SideStore stops updating the app'));
+  await settle();
+  await settle();
+  assert.deepEqual(page.asked.filter((line) => line.startsWith('POST')), ['POST /api/apps/sidestore/revoke']);
+  assert.ok(controls(cardOf(page.box, 'iPhone')).includes('Make my SideStore link'));
+  assert.match(page.notes.at(-1)[1], /^Turned off your SideStore link/);
+
+  // A refused one says so, and draws no link.
+  const refused = appsPage({
+    answers: {
+      'GET /api/apps/sidestore': known,
+      'POST /api/apps/sidestore': Object.assign(new Error('Your SideStore link was being changed at the same moment elsewhere.'),
+        { status: 409, code: 'source_conflict' }),
+    },
+  });
+  await apps.refreshApps();
+  refused.draw();
+  click(one(cardOf(refused.box, 'iPhone'), 'button', 'Make a new link'));
+  click(one(cardOf(refused.box, 'iPhone'), 'button', 'Make a new link: SideStore stops updating from this one'));
+  await settle();
+  await settle();
+  assert.equal(all(cardOf(refused.box, 'iPhone'), 'svg.qr-code').length, 0);
+  assert.match(refused.notes.at(-1)[1], /^No SideStore link could be made\. Your SideStore link was being changed/);
+});
+
+test('a new link is taken only as the console makes one: its own address, and the link that adds it', () => {
+  assert.deepEqual(apps.readNewSource(MADE), MADE);
+  const local = `http://127.0.0.1:8787/api/sidestore/${KEY}/source.json`;
+  assert.ok(apps.readNewSource({ ...MADE, url: local, add: `sidestore://source?url=${encodeURIComponent(local)}` }));
+  for (const change of [
+    { url: `http://console.example/api/sidestore/${KEY}/source.json` }, { url: `${SOURCE_URL}?x=1` },
+    { url: SOURCE_URL.replace(KEY, 'crs_short') }, { add: 'sidestore://source?url=https%3A%2F%2Felsewhere.example' },
+    { source: { id: 'nope' } }, { url: 5 },
+  ]) {
+    assert.equal(apps.readNewSource({ ...MADE, ...change }), null, JSON.stringify(change));
+  }
+  assert.deepEqual(apps.readSource({ id: '0123456789abcdef', createdAt: 5 }), { id: '0123456789abcdef', createdAt: null, lastUsedAt: null });
 });
 
 test('the configuration is saved as cranium.json, exactly as the API gives it; building Android yourself', async () => {
@@ -298,7 +431,7 @@ test('what the API says is taken only where it has the form it should', () => {
     ios: { version: 'x', notes: 5 },
   });
   assert.deepEqual(read.android.releases.map((release) => [release.version, release.filename]), [['0.4.0', 'cranium-android-0.4.0.apk']]);
-  assert.deepEqual(read.ios, { version: null, notes: '' });
+  assert.deepEqual(read.ios, { version: null, notes: '', latest: null, releases: [] });
 });
 
 test('the foot of every page says the console\'s version, and leads to what is new and to the apps', () => {
@@ -365,7 +498,13 @@ test('the Apps page is a section of the console, in the masthead and in the addr
   return Promise.all([
     assert.rejects(api.appsRequest('POST', '/api/apps/android/uploads'), /not a request of the Apps page/),
     assert.rejects(api.appsRequest('GET', '/api/apps/android/0.4.0/download?via=mail'), /not a request of the Apps page/),
+    assert.rejects(api.appsRequest('POST', '/api/apps/ios/uploads'), /not a request of the Apps page/),
+    assert.rejects(api.appsRequest('POST', '/api/apps/sidestore/other'), /not a request of the Apps page/),
     api.appsRequest('GET', '/api/apps/android/0.4.0/download?via=qr'),
+    api.appsRequest('GET', '/api/apps/ios/0.6.0/download'),
+    api.appsRequest('GET', '/api/apps/sidestore'),
+    api.appsRequest('POST', '/api/apps/sidestore'),
+    api.appsRequest('POST', '/api/apps/sidestore/revoke'),
   ]);
 });
 
@@ -375,4 +514,16 @@ test('the audit log has words for the apps\' actions', () => {
   assert.equal(said('app.download').verb, 'downloaded the Android app');
   assert.equal(said('app.upload', 'rejected').verb, 'tried to start publishing the Android app');
   assert.deepEqual(said('app.download').facts.map((fact) => [fact.label, fact.words ?? fact.value]), [['As', 'a QR code for a phone']]);
+  assert.equal(said('app.ios_publish').verb, 'published the iPhone app');
+  assert.equal(said('app.ios_upload', 'rejected').verb, 'tried to start publishing the iPhone app');
+  const sidestore = core.describeAudit({
+    action: 'app.ios_download', target: '0.6.0', outcome: 'ok', detail: [['via', 'sidestore'], ['source', '0123456789abcdef']],
+  });
+  assert.equal(sidestore.verb, 'downloaded the iPhone app');
+  assert.deepEqual(sidestore.facts.map((fact) => [fact.label, fact.value]), [['As', 'SideStore, on an iPhone'], ['SideStore link', '0123456789abcdef']]);
+  const made = core.describeAudit({ action: 'app.source_create', target: '0123456789abcdef', outcome: 'ok', detail: [] });
+  assert.equal(`${made.verb} ${made.label}`, 'made SideStore link 0123456789abcdef');
+  const off = core.describeAudit({ action: 'app.source_revoke', target: '', outcome: 'rejected', detail: [['code', 'no_source']] });
+  assert.equal(off.verb, 'tried to turn off a SideStore link');
+  assert.equal(off.facts[0].words, 'There was no SideStore link to turn off');
 });

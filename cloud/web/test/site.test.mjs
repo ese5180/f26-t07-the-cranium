@@ -163,9 +163,11 @@ test('nothing is fetched from anywhere else', () => {
     let others = name === 'history.js' ? text.replace(commitLinks, '') : text;
     if (name === 'map.js') others = others.replace(tiles, '');
     if (name === 'views.js') others = others.replace(copyright, '');
-    // The Apps page's two, for a person to follow or copy: the repository to clone, and the setup guide.
+    // The Apps page's, for a person to follow or copy: the repository to clone, the setup guide, the steps for
+    // updates on every phone, and SideStore's own guide to installing it.
     if (name === 'apps.js') {
-      others = others.replace(/'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium(?:\.git|\/blob\/main\/docs\/new-board-setup\.md#the-phone-apps)'/g, '');
+      others = others.replace(/'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium(?:\.git|\/blob\/main\/docs\/new-board-setup\.md#the-phone-apps|\/blob\/main\/docs\/mobile-apps\.md#updates-on-every-phone)'/g, '')
+        .replace(/'https:\/\/docs\.sidestore\.io\/docs\/installation\/prerequisites'/g, '');
     }
     assert.doesNotMatch(others.replace(namespaces, ''), /https?:\/\/[a-z0-9]/i, `${name} names another site`);
   }

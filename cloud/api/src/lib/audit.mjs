@@ -53,6 +53,10 @@ export const ACTIONS = Object.freeze([
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once
   // what arrived is checked, and each download link handed out, for a person or a QR code.
   'app.upload', 'app.publish', 'app.download',
+  // The iPhone app's releases, the same three steps for an IPA, and a member's own SideStore source,
+  // made and turned off on the website (handlers/sidestore.mjs). A download through a source is
+  // app.ios_download too, in its owner's name.
+  'app.ios_upload', 'app.ios_publish', 'app.ios_download', 'app.source_create', 'app.source_revoke',
   // The customer site's accounts and their boards, from the console's Customers page
   // (handlers/customers.mjs). A customer's own reads are not recorded.
   'customer.create', 'customer.resend', 'customer.assign', 'customer.unassign', 'customer.disable', 'customer.enable',

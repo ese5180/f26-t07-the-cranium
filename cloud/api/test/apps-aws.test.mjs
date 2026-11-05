@@ -34,11 +34,28 @@ const REFERENCE = {
         required: ['TransactItems'],
         optional: ['ReturnConsumedCapacity', 'ReturnItemCollectionMetrics', 'ClientRequestToken'],
       },
+      UpdateItemCommand: {
+        required: ['TableName', 'Key'],
+        optional: [
+          'AttributeUpdates', 'Expected', 'ConditionalOperator', 'ReturnValues', 'ReturnConsumedCapacity',
+          'ReturnItemCollectionMetrics', 'UpdateExpression', 'ConditionExpression',
+          'ExpressionAttributeNames', 'ExpressionAttributeValues', 'ReturnValuesOnConditionCheckFailure',
+        ],
+      },
     },
   },
   '@aws-sdk/client-s3': {
     client: 'S3Client',
     commands: {
+      GetObjectCommand: {
+        required: ['Bucket', 'Key'],
+        optional: [
+          'IfMatch', 'IfModifiedSince', 'IfNoneMatch', 'IfUnmodifiedSince', 'Range', 'ResponseCacheControl',
+          'ResponseContentDisposition', 'ResponseContentEncoding', 'ResponseContentLanguage',
+          'ResponseContentType', 'ResponseExpires', 'VersionId', 'SSECustomerAlgorithm', 'SSECustomerKey',
+          'SSECustomerKeyMD5', 'RequestPayer', 'PartNumber', 'ExpectedBucketOwner', 'ChecksumMode',
+        ],
+      },
       HeadObjectCommand: {
         required: ['Bucket', 'Key'],
         optional: [
@@ -180,8 +197,9 @@ test('the adapter reads only what it needs, no client waits without a limit, and
     assert.throws(() => createAppsAws({ ...ENV, [name]: '' }), new RegExp(name));
   }
   assert.deepEqual(Object.keys(real).sort(), [
-    'getAppRelease', 'headAppObject', 'highestAppRelease', 'listAppReleases', 'presignAppDownload', 'presignAppUpload',
-    'registerAppRelease',
+    'getAppRelease', 'getSourceKey', 'getSourceOwner', 'headAppObject', 'highestAppRelease', 'listAppReleases',
+    'presignAppDownload', 'presignAppUpload', 'readAppObject', 'registerAppRelease', 'replaceSourceKey', 'revokeSourceKey',
+    'useSourceKey',
   ]);
   const fake = createFakeAws();
   for (const method of Object.keys(real)) assert.equal(typeof fake[method], 'function', method);
@@ -197,7 +215,10 @@ test('releases are read from their partition, by platform, newest first, consist
   assert.deepEqual(first.ExpressionAttributeValues, { ':pk': { S: 'APP' }, ':platform': { S: 'android#' } });
   assert.deepEqual([first.ScanIndexForward, first.ConsistentRead, first.TableName], [false, true, 'state-table']);
   assert.deepEqual(second.ExclusiveStartKey, { pk: { S: 'APP' } });
-  await assert.rejects(aws.listAppReleases('ios'), TypeError);
+  await assert.rejects(aws.listAppReleases('web'), TypeError);
+  sdk.reply('dynamodb:QueryCommand', { Items: [] });
+  assert.deepEqual(await aws.listAppReleases('ios'), []);
+  assert.deepEqual(sdk.inputs('dynamodb:QueryCommand').at(-1).ExpressionAttributeValues[':platform'], { S: 'ios#' });
 
   sdk.reply('dynamodb:GetItemCommand', { Item: ITEM }, {});
   assert.equal((await aws.getAppRelease(SK)).objectVersion, 'v1');
@@ -285,4 +306,94 @@ test('the URLs it signs are taken by an S3 that knows its credentials, with the 
   // Without credentials in the environment nothing is signed.
   const bare = fresh({ AWS_REGION: 'us-east-1', STATE_TABLE: 's', FIRMWARE_BUCKET: 'local-firmware' });
   await rejectsWith(bare.presignAppUpload({ key, size: 1, sha256Base64, expiresIn: 900 }), { code: 'failed', operation: 'PresignPutObject' });
+});
+
+test('an IPA is read in ranges of the version that was checked, served as a file', async () => {
+  const aws = fresh();
+  const bytes = Buffer.from('0123456789');
+  sdk.reply('s3:GetObjectCommand', { Body: { transformToByteArray: async () => new Uint8Array(bytes.subarray(2, 6)) } },
+    fails('NoSuchVersion', 404));
+  const key = 'apps/ios/cranium-ios-0.6.0.ipa';
+  assert.deepEqual(await aws.readAppObject({ key, versionId: 'v1', start: 2, end: 5 }), bytes.subarray(2, 6));
+  assert.deepEqual(sdk.inputs('s3:GetObjectCommand')[0], { Bucket: 'local-firmware', Key: key, VersionId: 'v1', Range: 'bytes=2-5' });
+  await rejectsWith(aws.readAppObject({ key, versionId: 'v2', start: 0, end: 1 }), { code: 'failed', operation: 'GetObject' });
+  for (const [start, end] of [[-1, 2], [5, 4], [0, 9 * 1024 * 1024], [0.5, 2]]) {
+    await assert.rejects(aws.readAppObject({ key, versionId: 'v1', start, end }), TypeError);
+  }
+  const link = await aws.presignAppDownload({
+    key, versionId: 'v1', filename: 'cranium-ios-0.6.0.ipa', expiresIn: 300, contentType: 'application/octet-stream',
+  });
+  const address = new URL(link.url);
+  assert.equal(address.searchParams.get('response-content-type'), 'application/octet-stream');
+  assert.equal(address.searchParams.get('X-Amz-Expires'), '300');
+});
+
+test('a SideStore key is stored by its digest, replaced and revoked in one transaction each', async () => {
+  const aws = fresh();
+  const digest = 'c'.repeat(64);
+  const previous = 'd'.repeat(64);
+  const sub = '00000000-0000-4000-8000-000000000001';
+  sdk.reply('dynamodb:GetItemCommand', { Item: { pk: { S: 'SRC' }, sk: { S: `owner#${sub}` }, digest: { S: digest }, revokedAt: { NULL: true } } }, {},
+    { Item: { pk: { S: 'SRC' }, sk: { S: `key#${digest}` }, lastUsedAt: { S: '2026-11-05T12:00:00.000Z' } } });
+  assert.equal((await aws.getSourceOwner(sub)).digest, digest);
+  assert.equal(await aws.getSourceOwner(sub), null);
+  assert.equal((await aws.getSourceKey(digest)).lastUsedAt, '2026-11-05T12:00:00.000Z');
+  assert.deepEqual(sdk.inputs('dynamodb:GetItemCommand').map((input) => [input.Key.sk.S, input.ConsistentRead]),
+    [[`owner#${sub}`, true], [`owner#${sub}`, true], [`key#${digest}`, true]]);
+
+  const record = { digest, id: '0123456789abcdef', createdAt: '2026-11-05T12:00:00.000Z' };
+  sdk.reply('dynamodb:TransactWriteItemsCommand', {}, {}, fails('TransactionCanceledException', 400, { CancellationReasons: [] }));
+  assert.deepEqual(await aws.replaceSourceKey({ sub, key: record, previous: null, at: record.createdAt }), { ok: true });
+  assert.deepEqual(await aws.replaceSourceKey({ sub, key: record, previous, at: record.createdAt }), { ok: true });
+  assert.deepEqual(await aws.replaceSourceKey({ sub, key: record, previous, at: record.createdAt }), { ok: false, reason: 'conflict' });
+  const [first, second] = sdk.inputs('dynamodb:TransactWriteItemsCommand');
+  assert.equal(first.TransactItems.length, 2);
+  const [put, owner, revoke] = second.TransactItems;
+  assert.deepEqual([put.Put.Item.sk, put.Put.Item.ownerSub, put.Put.Item.revokedAt, put.Put.Item.uses],
+    [{ S: `key#${digest}` }, { S: sub }, { NULL: true }, { N: '0' }]);
+  assert.equal(JSON.stringify(second).includes('crs_'), false);
+  assert.equal(owner.Put.ConditionExpression, '#digest = :previous AND attribute_type(#revokedAt, :null)');
+  assert.equal(first.TransactItems[1].Put.ConditionExpression, 'attribute_not_exists(#pk) OR NOT attribute_type(#revokedAt, :null)');
+  assert.deepEqual(revoke.Update.Key, { pk: { S: 'SRC' }, sk: { S: `key#${previous}` } });
+  assert.equal(revoke.Update.ConditionExpression, '#owner = :owner AND attribute_type(#revokedAt, :null)');
+
+  sdk.reply('dynamodb:TransactWriteItemsCommand', {}, fails('TransactionCanceledException', 400, { CancellationReasons: [] }),
+    fails('InternalServerError', 500));
+  assert.deepEqual(await aws.revokeSourceKey({ sub, digest, at: record.createdAt }), { ok: true });
+  assert.deepEqual(await aws.revokeSourceKey({ sub, digest, at: record.createdAt }), { ok: false, reason: 'not_active' });
+  await rejectsWith(aws.revokeSourceKey({ sub, digest, at: record.createdAt }), { code: 'failed', operation: 'TransactWriteItems' });
+});
+
+test('a use of a key counts within its minute, starts a new one, and says why it is refused', async () => {
+  const aws = fresh();
+  const digest = 'c'.repeat(64);
+  const item = (window, uses, revokedAt = null) => ({
+    pk: { S: 'SRC' }, sk: { S: `key#${digest}` }, id: { S: '0123456789abcdef' }, ownerSub: { S: 'abc' },
+    window: { N: String(window) }, uses: { N: String(uses) }, revokedAt: revokedAt === null ? { NULL: true } : { S: revokedAt },
+  });
+  const checkFailed = (old) => fails('ConditionalCheckFailedException', 400, old === null ? {} : { Item: old });
+  const use = () => aws.useSourceKey({ digest, window: 100, max: 30, at: '2026-11-05T12:00:00.000Z' });
+
+  sdk.reply('dynamodb:UpdateItemCommand', { Attributes: item(100, 3) });
+  assert.deepEqual(await use(), { ok: true, key: { pk: 'SRC', sk: `key#${digest}`, id: '0123456789abcdef', ownerSub: 'abc', window: 100, uses: 3, revokedAt: null } });
+  const [counted] = sdk.inputs('dynamodb:UpdateItemCommand');
+  assert.equal(counted.ConditionExpression, 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window = :w AND #uses < :max');
+  assert.deepEqual([counted.ReturnValues, counted.ReturnValuesOnConditionCheckFailure], ['ALL_NEW', 'ALL_OLD']);
+  assert.deepEqual(counted.ExpressionAttributeValues[':max'], { N: '30' });
+
+  // An older minute: the count starts again.
+  sdk.reply('dynamodb:UpdateItemCommand', checkFailed(item(99, 30)), { Attributes: item(100, 1) });
+  assert.equal((await use()).ok, true);
+  assert.equal(sdk.inputs('dynamodb:UpdateItemCommand').at(-1).ConditionExpression,
+    'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window < :w');
+  // Used up, revoked, unknown.
+  sdk.reply('dynamodb:UpdateItemCommand', checkFailed(item(100, 30)), checkFailed(item(100, 1, '2026-11-05T11:00:00.000Z')), checkFailed(null),
+    fails('ProvisionedThroughputExceededException'));
+  assert.deepEqual(await use(), { ok: false, reason: 'limit' });
+  assert.deepEqual(await use(), { ok: false, reason: 'revoked' });
+  assert.deepEqual(await use(), { ok: false, reason: 'unknown' });
+  await rejectsWith(use(), { code: 'throttled', operation: 'UpdateItem' });
+  // Two requests at the turn of a minute: the second finds the first's new minute and counts in it.
+  sdk.reply('dynamodb:UpdateItemCommand', checkFailed(item(99, 5)), checkFailed(item(100, 1)), { Attributes: item(100, 2) });
+  assert.equal((await use()).key.uses, 2);
 });

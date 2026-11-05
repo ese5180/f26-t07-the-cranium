@@ -135,6 +135,25 @@ object AuditText {
         "app.download" to Action(
             "downloaded the Android app", "tried to download the Android app", "tried to download the Android app", Glyph.DOWNLOAD,
         ),
+        // The iPhone app's IPAs, the same three steps, and a member's SideStore link (docs/mobile-apps.md).
+        "app.ios_upload" to Action(
+            "started publishing the iPhone app", "tried to start publishing the iPhone app",
+            "tried to start publishing the iPhone app", Glyph.UPLOAD,
+        ),
+        "app.ios_publish" to Action(
+            "published the iPhone app", "tried to publish the iPhone app", "tried to publish the iPhone app", Glyph.PACKAGE,
+        ),
+        "app.ios_download" to Action(
+            "downloaded the iPhone app", "tried to download the iPhone app", "tried to download the iPhone app", Glyph.DOWNLOAD,
+        ),
+        "app.source_create" to Action(
+            "made SideStore link", "tried to make SideStore link", "tried to make a SideStore link", Glyph.KEY,
+            doneAlone = "made a SideStore link",
+        ),
+        "app.source_revoke" to Action(
+            "turned off SideStore link", "tried to turn off SideStore link", "tried to turn off a SideStore link", Glyph.KEY,
+            doneAlone = "turned off a SideStore link",
+        ),
         // The customer site's accounts, from the console's Customers page (docs/customer-site.md): a customer by
         // their e-mail address, and "a customer" after a board is that address where the entry has it.
         "customer.create" to Action("invited the customer", "tried to invite the customer", "tried to invite a customer", Glyph.USER),
@@ -322,6 +341,14 @@ object AuditText {
         // The phone apps (the API's handlers/apps.mjs): publishing the Android app, and its download links.
         "version_code_not_higher" to "Its versionCode is not higher than the newest Android app’s",
         "apk_missing" to "No APK had arrived in S3 for that version",
+        "ipa_missing" to "No IPA had arrived in S3 for that version",
+        "ipa_unreadable" to "The IPA that arrived could not be read as an iPhone app",
+        "ipa_mismatch" to "The IPA was not the app, the version, the build or the configuration it was published as",
+        "build_not_higher" to "Its build is not higher than the newest iPhone app’s",
+        "invalid_build" to "The build was not a whole number",
+        "unknown_source" to "There was no SideStore link at that address",
+        "no_source" to "There was no SideStore link to turn off",
+        "source_conflict" to "The SideStore link was being changed at the same moment",
         "size_mismatch" to "The APK that arrived was of another size",
         "checksum_missing" to "The APK that arrived had no SHA-256 of its own",
         "publish_conflict" to "Another release of the app was being published at the same moment",

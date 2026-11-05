@@ -140,6 +140,8 @@ const API_PUT = 'PUT /api/{proxy+}';
 const API_TOKEN_PUT = 'PUT /api/t/{proxy+}';
 // The customer API: its own function, behind the authorizer of the customer pool (docs/customer-site.md).
 const API_CUSTOMER_READ = 'GET /api/c/{proxy+}';
+// SideStore on an iPhone: no authorizer; the key in the path is the credential (api/src/handlers/sidestore.mjs).
+const API_SIDESTORE = 'GET /api/sidestore/{proxy+}';
 // How often the schedule moves staged rollouts on, as deployed.
 const ROLLOUT_TICK_MS = 60_000;
 // The key the fleet scenario's images are signed with (see the top of this file).
@@ -1696,6 +1698,10 @@ export async function createPreview({
   // A scenario may sign its images with a key of its own, which its console then trusts.
   const config = Object.freeze({
     ...loadConfig(fakeEnv(SCENARIOS[scenario].env ?? {})),
+    // The preview's own address, once it listens: a SideStore source link names it (api/src/lib/sidestore.mjs).
+    get consoleUrl() {
+      return consoleHost === null ? 'http://127.0.0.1' : `http://${consoleHost}`;
+    },
     customers: Object.freeze({
       customerPoolId: CUSTOMER_POOL_ID,
       get siteUrl() {
@@ -1799,6 +1805,7 @@ export async function createPreview({
     else if (method === 'GET' && path.startsWith('/assets/')) routeKey = WEB_ASSETS;
     else if (method === 'GET' && path.startsWith('/api/c/')) routeKey = API_CUSTOMER_READ;
     else if (method === 'GET' && path.startsWith('/api/t/')) routeKey = API_TOKEN_READ;
+    else if (method === 'GET' && path.startsWith('/api/sidestore/')) routeKey = API_SIDESTORE;
     else if (method === 'POST' && path.startsWith('/api/t/')) routeKey = API_TOKEN_WRITE;
     else if (method === 'PUT' && path.startsWith('/api/t/')) routeKey = API_TOKEN_PUT;
     else if (method === 'GET' && path.startsWith('/api/')) routeKey = API_READ;
@@ -1815,6 +1822,8 @@ export async function createPreview({
       }
       const event = gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, claims: customerClaims({ sub: held.sub }) });
       sendResult(response, await customerApp(event));
+    } else if (routeKey === API_SIDESTORE) {
+      sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost })));
     } else if (routeKey === API_TOKEN_READ || routeKey === API_TOKEN_WRITE || routeKey === API_TOKEN_PUT) {
       // No authorizer: the request goes to the function as it came, token and all.
       const body = await readBody(request, MAX_REQUEST_BYTES);

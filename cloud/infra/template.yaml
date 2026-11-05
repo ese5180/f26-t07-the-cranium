@@ -297,6 +297,20 @@ Resources:
       RouteKey: 'PUT /api/t/{proxy+}'
       AuthorizationType: NONE
       Target: !Sub 'integrations/${ApiIntegration}'
+
+  # SideStore on a member's iPhone (docs/mobile-apps.md, "Updates on every phone"), which signs in to
+  # nothing: /api/sidestore/<key>/source.json and /api/sidestore/<key>/cranium-ios-<version>.ipa. The key
+  # in the path is the credential, a member's own, stored as its digest and checked by the function,
+  # which also asks Cognito whether its owner is still a member and counts its uses (handlers/
+  # sidestore.mjs). GET only, and the lowest limits of the API (Stage). The access log records the
+  # route key, never the path, so the key is in no log.
+  ApiSidestoreRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'GET /api/sidestore/{proxy+}'
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${ApiIntegration}'
   # The customer site's API (docs/customer-site.md): another function, behind an authorizer of
   # its own, whose issuer is the customer pool and whose audience is the customer site's client.
   # Authorizer above keeps the staff pool and the staff clients, so neither kind of token opens the
@@ -454,6 +468,7 @@ Resources:
       - ApiTokenWriteRoute
       - ApiPutRoute
       - ApiTokenPutRoute
+      - ApiSidestoreRoute
       - CustomerApiReadRoute
     Properties:
       ApiId: !Ref Api
@@ -494,6 +509,11 @@ Resources:
           ThrottlingBurstLimit: 10
           ThrottlingRateLimit: 5
         'PUT /api/t/{proxy+}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+        # SideStore: a source read when the app looks for updates, an IPA downloaded once a version. A
+        # team's phones need little; a flood with a dead or guessed key is held to this.
+        'GET /api/sidestore/{proxy+}':
           ThrottlingBurstLimit: 5
           ThrottlingRateLimit: 2
         # Customers, apart from the console's own routes, so that busy customers cannot use up
@@ -896,9 +916,11 @@ Resources:
 
   # ---------------------------------------------------------------------------------
   # Firmware storage. Objects are firmware/<sha256 of the file>.bin, written once. The
-  # Android app's APKs are here too, under apps/android/ (docs/mobile-apps.md): a bucket
-  # that is already private, TLS only, encrypted, versioned and kept when the stack goes.
-  # A download of one names the S3 version that was checked when it was published.
+  # Android app's APKs are here too, under apps/android/, and the iPhone app's unsigned IPAs
+  # under apps/ios/ (docs/mobile-apps.md): a bucket that is already private, TLS only,
+  # encrypted, versioned and kept when the stack goes. A download of one names the S3
+  # version that was checked when it was published. Neither is ever public: both hold the
+  # stack's console address and client IDs.
   # ---------------------------------------------------------------------------------
 
   FirmwareBucket:
@@ -1511,10 +1533,27 @@ Resources:
                 Effect: Allow
                 Action: s3:GetObjectVersion
                 Resource: !Sub '${FirmwareBucket.Arn}/apps/android/cranium-android-*.apk'
-              # Releases (pk REL and META) and API tokens (pk TOK, keyed by the digest of
-              # the token). A token is looked up with GetItem, a person's tokens are read
-              # with Query, and revoking one sets its revokedAt with UpdateItem, as revoking
-              # a release sets its status. TransactWriteItems is authorized through PutItem
+              # The iPhone app's unsigned IPAs under apps/ios/, the same three steps, and only objects
+              # named like one: cranium-ios-<version>.ipa. GetObjectVersion serves the presigned GET
+              # that a SideStore source's download address redirects to, and reads the Info.plist out
+              # of the zip, in ranges of the version that was checked (lib/ipa.mjs).
+              - Sid: SendIphoneIpas
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/ios/cranium-ios-*.ipa'
+              - Sid: CheckIphoneIpas
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/ios/cranium-ios-*.ipa'
+              - Sid: ServeIphoneIpas
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub '${FirmwareBucket.Arn}/apps/ios/cranium-ios-*.ipa'
+              # Releases (pk REL and META), the phone apps' (pk APP), API tokens (pk TOK, keyed
+              # by the digest of the token) and SideStore source keys (pk SRC, keyed the same
+              # way). A token is looked up with GetItem, a person's tokens are read with Query,
+              # and revoking one sets its revokedAt with UpdateItem, as revoking a release sets
+              # its status; a source key's use is counted with UpdateItem. TransactWriteItems is authorized through PutItem
               # and UpdateItem; IAM has no action of its own for it. No Scan and no DeleteItem.
               - Sid: ReadAndWriteReleasesAndTokens
                 Effect: Allow

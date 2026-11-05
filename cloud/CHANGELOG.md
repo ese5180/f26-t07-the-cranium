@@ -20,6 +20,17 @@ the key from ~/.cranium/memfault_project_key and takes the organization's and th
 "memfault". `cloud/logs.sh memfault` follows the function, and `cloud/logs.sh memfault-errors` what the rule could not
 hand it.
 
+The iPhone app on the console, for every iPhone of the team through SideStore: release managers publish an unsigned
+IPA the same two-step way as an APK (a presigned PUT to S3, then a check), once per version and only upward by version
+and build; the check reads the IPA's Info.plist out of the zip in S3 (bundle ID, version, build) and its cranium.json,
+which must be this console's. Each member makes a SideStore source link of their own on the Apps page (Add to
+SideStore, the address and a QR code), shown once and stored as its digest; a new one ends the old, and it can be
+turned off. SideStore reads the source with no sign-in, and each download address answers 302 with a fresh presigned
+S3 GET, so the IPA never has a public address. A route of its own, GET /api/sidestore/{proxy+}, has no authorizer and
+the lowest limits; a key is used at most 30 times a minute, and its owner must still be a member. New actions
+app.ios_upload, app.ios_publish, app.ios_download, app.source_create and app.source_revoke; the API role may put, read
+and serve apps/ios/cranium-ios-*.ipa. The Android app may ask for its own update link (`via=app`).
+
 Not deployed yet.
 
 ## 2.0.0

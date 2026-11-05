@@ -863,6 +863,16 @@ download link). No list, no delete, no tagging, nothing under `firmware/` this w
 function (`cloud/api/src/lib/presign.mjs`, Signature Version 4 in the query string, checked against AWS's published
 example) with the role's credentials from the environment; a URL is good until it expires or they do.
 
+**The iPhone app** (`docs/mobile-apps.md`, [Updates on every phone](mobile-apps.md#updates-on-every-phone)). The same
+three steps for an unsigned IPA, under `apps/ios/cranium-ios-<version>.ipa`, with three more statements of one action
+each on those objects alone (`SendIphoneIpas`, `CheckIphoneIpas`, `ServeIphoneIpas`): `POST /api/apps/ios/uploads`
+(`app.ios_upload`), `POST /api/apps/ios/releases/{version}` (`app.ios_publish`), which also reads the IPA's
+`Info.plist` and `cranium.json` out of the zip with ranged `GetObject`s of the version that was checked, and
+`GET /api/apps/ios/{version}/download` (`app.ios_download`). Releases are `APP`/`ios#MMM.mmm.ppppp`, the pointer
+`META`/`APP#ios`, the build in the place of the `versionCode`. Each member's SideStore source key is `SRC`/`key#<SHA-256
+of the key>` with its owner, and `SRC`/`owner#<sub>` names the member's newest; `GET /api/sidestore/{proxy+}` is the one
+route that SideStore reads them through, with no authorizer, and counts each key's use with a conditional `UpdateItem`.
+
 **The console's own version.** `GET /api/me` also says `console: { version, commit }`: the version in `cloud/VERSION`
 and the commit this deployment was built from, from the `versions.json` that `cloud/deploy.sh` writes beside the
 function's code ([`docs/versions.md`](versions.md)), `null` where it has none.

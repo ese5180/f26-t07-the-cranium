@@ -5,8 +5,10 @@
  *   Android   the newest release on the console (GET /api/apps), with its note, size and SHA-256, a
  *             Download button, and on request a QR code of a download link for a phone to scan; how to
  *             install it; the older releases, folded away
- *   iPhone    its version and note, from the changelog this deployment was built with (versions.json),
- *             and how to install it with a Mac: clone, the configuration, phone.sh, Trust, Run, renew
+ *   iPhone    the newest version published as an IPA (GET /api/apps), or else the newest in the changelog this
+ *             deployment was built with (versions.json); how to have it on any iPhone with SideStore, from
+ *             the member's own source link (GET and POST /api/apps/sidestore); and how to install it with a
+ *             Mac: clone, the configuration, phone.sh, Trust, Run, renew
  *   Android, built by yourself: clone, the configuration, Gradle
  *
  * A download link is presigned for 15 minutes (cloud/api/src/handlers/apps.mjs) and goes on record when it
@@ -14,6 +16,11 @@
  * downloads the APK without signing in to the console, and so could anyone who sees the code in those 15
  * minutes. The page says so, and when it runs out. The code itself is drawn here, as SVG, from the modules
  * of qrcode.js (Project Nayuki's encoder, vendored and pinned).
+ *
+ * A SideStore source link (cloud/api/src/handlers/sidestore.mjs) holds a key that downloads the iPhone app
+ * without signing in, like an API token: it is shown once, when it is made, as an "Add to SideStore" link,
+ * the address to copy, and a QR code of the link for the iPhone's camera. After that the page says only
+ * when it was made and last used; making a new one, or turning it off, ends it.
  *
  * "Download the configuration" saves cranium.json for apps/config/ in a clone: the six values the apps are
  * built with, from this stack (GET /api/apps/config). They are no secret, but they name the AWS account, so
@@ -28,6 +35,9 @@ import { badge, card, empty, facts, h, icon, loading, loadProblem, mono, notice,
 // Links for a person to follow, to this project on GitHub. Nothing is fetched from there.
 export const REPOSITORY = 'https://github.com/ese5180/f26-t07-the-cranium.git';
 export const SETUP_GUIDE = 'https://github.com/ese5180/f26-t07-the-cranium/blob/main/docs/new-board-setup.md#the-phone-apps';
+// SideStore's own installation guide, and this project's steps for the team.
+export const SIDESTORE_GUIDE = 'https://docs.sidestore.io/docs/installation/prerequisites';
+export const UPDATES_GUIDE = 'https://github.com/ese5180/f26-t07-the-cranium/blob/main/docs/mobile-apps.md#updates-on-every-phone';
 const REFRESH_MS = 60_000;
 // White around the code, in modules: the four the standard asks for.
 const QUIET_ZONE = 4;
@@ -36,14 +46,19 @@ const CONFIG_NAME = 'cranium.json';
 let given = null;
 // The QR code on show: { version, url, expiresAt, size, path }, made when it was asked for.
 let shown = null;
-// What is being asked of the API just now: 'qr', 'download:<version>', 'config'.
+// What is being asked of the API just now: 'qr', 'download:<version>', 'ipa:<version>', 'config', 'link'.
 let busy = '';
+// The member's SideStore link: status 'unknown' | 'none' | 'active' | 'failed', what the API says of it
+// ({ id, createdAt, lastUsedAt }), and the link itself while it is on show, the once it was made:
+// { id, url, add, size, path }. `confirming` is 'replace' or 'revoke' while the page asks first.
+let link = { status: 'unknown', source: null, made: null, confirming: '' };
 
 /** What app.js hands over: { state, api, load, draw, notify }. */
 export function connect(parts) {
   given = parts;
   shown = null;
   busy = '';
+  link = { status: 'unknown', source: null, made: null, confirming: '' };
 }
 
 export function appsResources(state) {
@@ -60,8 +75,20 @@ export async function refreshApps() {
   await Promise.all([
     load(state.apps, async () => readApps(await api.appsRequest('GET', '/api/apps'))),
     state.versions.value ? null : load(state.versions, () => readVersions(window.fetch.bind(window))),
+    readLink(api),
   ]);
   if (shown !== null && shown.version !== state.apps.value?.android.latest) shown = null;
+}
+
+/** The member's SideStore link, as the API knows it. A link on show stays until it is replaced or turned off. */
+async function readLink(api) {
+  try {
+    const source = readSource((await api.appsRequest('GET', '/api/apps/sidestore'))?.source);
+    const made = source !== null && link.made?.id === source.id ? link.made : null;
+    link = { ...link, status: source === null ? 'none' : 'active', source, made };
+  } catch {
+    if (link.status === 'unknown') link = { ...link, status: 'failed' };
+  }
 }
 
 // What the API says, as the page uses it (cloud/api/src/handlers/apps.mjs).
@@ -87,12 +114,56 @@ function readRelease(raw) {
   };
 }
 
+function readIpa(raw) {
+  if (!VERSION.test(raw?.version ?? '') || !HEX64.test(raw.sha256 ?? '') || !Number.isInteger(raw.size)) return null;
+  return {
+    version: raw.version,
+    buildVersion: /^\d{1,10}$/.test(raw.buildVersion ?? '') ? raw.buildVersion : null,
+    size: raw.size,
+    sha256: raw.sha256,
+    notes: text(raw.notes),
+    filename: `cranium-ios-${raw.version}.ipa`,
+    publishedBy: text(raw.publishedBy?.email, 254),
+    publishedAt: typeof raw.publishedAt === 'string' ? raw.publishedAt : null,
+  };
+}
+
 export function readApps(body) {
   const releases = (Array.isArray(body?.android?.releases) ? body.android.releases : []).map(readRelease).filter(Boolean);
+  const ipas = (Array.isArray(body?.ios?.releases) ? body.ios.releases : []).map(readIpa).filter(Boolean);
   return {
     android: { latest: releases[0]?.version ?? null, releases },
-    ios: { version: VERSION.test(body?.ios?.version ?? '') ? body.ios.version : null, notes: text(body?.ios?.notes) },
+    ios: {
+      version: VERSION.test(body?.ios?.version ?? '') ? body.ios.version : null,
+      notes: text(body?.ios?.notes),
+      latest: ipas[0]?.version ?? null,
+      releases: ipas,
+    },
   };
+}
+
+const SOURCE_ID = /^[0-9a-f]{16}$/;
+// The address of a source, as the console makes one: https, or plain http for the preview on this computer.
+const SOURCE_URL = /^(?:https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?|http:\/\/(?:127\.0\.0\.1|localhost)(?::\d{1,5})?)\/api\/sidestore\/crs_[A-Za-z0-9_-]{43}\/source\.json$/;
+
+/** A SideStore link as the API describes it to its owner, or null. */
+export function readSource(raw) {
+  if (!SOURCE_ID.test(raw?.id ?? '')) return null;
+  return {
+    id: raw.id,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : null,
+    lastUsedAt: typeof raw.lastUsedAt === 'string' ? raw.lastUsedAt : null,
+  };
+}
+
+/** A new link as POST /api/apps/sidestore gives it, or null: its address, and the sidestore:// link that adds it. */
+export function readNewSource(body) {
+  const source = readSource(body?.source);
+  const url = body?.url;
+  if (source === null || typeof url !== 'string' || !SOURCE_URL.test(url)) return null;
+  const add = `sidestore://source?url=${encodeURIComponent(url)}`;
+  if (body.add !== add) return null;
+  return { source, url, add };
 }
 
 // The QR code.
@@ -118,12 +189,12 @@ export function qrOf(url) {
   return { size: qr.size + 2 * QUIET_ZONE, path: qrPath(qr), modules: qr.size };
 }
 
-function qrPicture(code) {
+function qrPicture(code, label = 'QR code of a link that downloads the Android app') {
   return h('svg', {
     class: 'qr-code',
     viewBox: `0 0 ${code.size} ${code.size}`,
     role: 'img',
-    'aria-label': 'QR code of a link that downloads the Android app',
+    'aria-label': label,
     focusable: 'false',
     'shape-rendering': 'crispEdges',
     vars: { '--qr-modules': String(code.size) },
@@ -175,6 +246,67 @@ async function showQr(release) {
     busy = '';
     given.draw();
   }
+}
+
+async function downloadIpa(release) {
+  if (busy !== '') return;
+  busy = `ipa:${release.version}`;
+  given.draw();
+  try {
+    const { download: answer } = await given.api.appsRequest('GET', `/api/apps/ios/${release.version}/download`);
+    if (!usable(answer)) throw new Error('The console gave no download link.');
+    window.location.assign(answer.url);
+    given.notify(`Downloading ${release.filename}.`);
+  } catch (error) {
+    failed('The IPA could not be downloaded.', error);
+  } finally {
+    busy = '';
+    given.draw();
+  }
+}
+
+/** A new SideStore link, which ends the one before: shown this once. */
+async function makeLink() {
+  if (busy !== '') return;
+  busy = 'link';
+  given.draw();
+  try {
+    const made = readNewSource(await given.api.appsRequest('POST', '/api/apps/sidestore'));
+    if (made === null) throw new Error('The console gave no source link.');
+    link = {
+      status: 'active', source: made.source, confirming: '',
+      made: { id: made.source.id, url: made.url, add: made.add, ...qrOf(made.add) },
+    };
+    given.notify('Made your SideStore link. It is shown this once.');
+  } catch (error) {
+    link = { ...link, confirming: '' };
+    failed('No SideStore link could be made.', error);
+  } finally {
+    busy = '';
+    given.draw();
+  }
+}
+
+async function revokeLink() {
+  if (busy !== '') return;
+  busy = 'link';
+  given.draw();
+  try {
+    await given.api.appsRequest('POST', '/api/apps/sidestore/revoke');
+    link = { status: 'none', source: null, made: null, confirming: '' };
+    given.notify('Turned off your SideStore link. SideStore can no longer download the app with it.');
+  } catch (error) {
+    link = { ...link, confirming: '' };
+    failed('The SideStore link could not be turned off.', error);
+  } finally {
+    busy = '';
+    given.draw();
+  }
+}
+
+function confirmFirst(what) {
+  link = { ...link, confirming: what };
+  given.draw();
 }
 
 /** Save the apps' configuration as cranium.json, as apps/configure.sh writes it. */
@@ -331,18 +463,102 @@ function androidCard(apps, versions, ctx) {
     olderReleases(older, ctx));
 }
 
+/** The member's own source link: made, on show the once, or how it stands. */
+function linkBlock(ctx) {
+  const { now } = ctx.state;
+  if (link.made !== null) {
+    const { made } = link;
+    return h('div', { class: 'app-qr app-source', key: 'link' },
+      qrPicture(made, 'QR code that adds your own source to SideStore'),
+      h('div', { class: 'app-qr-text' },
+        h('a', { class: 'btn is-primary', href: made.add }, icon('plus'), 'Add to SideStore'),
+        h('div', { class: 'app-command' },
+          h('code', { class: 'code' }, made.url),
+          h('button', {
+            type: 'button', class: 'btn is-quiet is-icon', title: 'Copy the source link', 'aria-label': 'Copy the source link',
+            onClick: () => ctx.actions.copy(made.url, 'your source link'),
+          }, icon('copy'))),
+        h('p', { class: 'card-note' }, 'On the iPhone, tap Add to SideStore, or scan the code with its camera. In SideStore you ' +
+          'can also add the address under Sources. It is shown this once: keep it to yourself, since whoever has it can ' +
+          'download the app without signing in. If it got out, make a new one, which ends this one.')));
+  }
+  const ask = (what, words, run) => h('div', { class: 'button-row', key: `ask-${what}` },
+    h('button', { type: 'button', class: 'btn is-small is-danger', disabled: busy === 'link', onClick: run }, words),
+    h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: () => confirmFirst('') }, 'Keep it'));
+  if (link.status === 'active' && link.source !== null) {
+    const { source } = link;
+    return h('div', { class: 'app-source', key: 'link' },
+      h('p', null, 'Your source link was made ',
+        source.createdAt ? h('time', { datetime: source.createdAt, title: exactTime(source.createdAt) }, timeAgo(source.createdAt, now)) : 'earlier',
+        source.lastUsedAt
+          ? [', and SideStore last used it ', h('time', { datetime: source.lastUsedAt, title: exactTime(source.lastUsedAt) }, timeAgo(source.lastUsedAt, now))]
+          : ', and has not been used yet',
+        '. The console shows a link only when it is made.'),
+      link.confirming === 'replace'
+        ? ask('replace', 'Make a new link: SideStore stops updating from this one', makeLink)
+        : link.confirming === 'revoke'
+          ? ask('revoke', 'Turn it off: SideStore stops updating the app', revokeLink)
+          : h('div', { class: 'button-row' },
+            h('button', { type: 'button', class: 'btn is-small', disabled: busy === 'link', onClick: () => confirmFirst('replace') },
+              icon('restart'), 'Make a new link'),
+            h('button', { type: 'button', class: 'btn is-small is-quiet', disabled: busy === 'link', onClick: () => confirmFirst('revoke') },
+              icon('ban'), 'Turn it off')));
+  }
+  return h('div', { class: 'app-source', key: 'link' },
+    link.status === 'failed' ? h('p', { class: 'card-note' }, 'Whether you have a link could not be looked up just now.') : null,
+    h('button', { type: 'button', class: 'btn is-primary', disabled: busy === 'link', onClick: makeLink },
+      icon('key'), 'Make my SideStore link'),
+    h('p', { class: 'card-note' }, 'A link of your own, which SideStore reads without signing in to the console. It is shown once.'));
+}
+
+function sidestoreSection(apps, ctx) {
+  return h('section', { class: 'app-how', key: 'sidestore', 'aria-label': 'On any iPhone, with SideStore' },
+    h('h3', { class: 'app-how-title' }, 'On any iPhone, with SideStore'),
+    h('p', { class: 'card-note' }, 'Free, with your own Apple ID, and a computer only the first time. SideStore signs the app ' +
+      'on the iPhone and installs each new version from your own source.'),
+    apps.ios.latest === null
+      ? h('p', { class: 'card-note' }, 'No iPhone version is published on the console yet: your source lists it once one is.')
+      : null,
+    steps([
+      ['Install SideStore on the iPhone, once, with a computer, as ',
+        h('a', { href: SIDESTORE_GUIDE, target: '_blank', rel: 'noopener noreferrer' }, 'SideStore\'s own guide'),
+        ' says (opens docs.sidestore.io). Sign in to it with your own Apple ID.'],
+      ['Add your own source to SideStore:', h('div', { class: 'app-step-action' }, linkBlock(ctx))],
+      'In SideStore, open the Cranium source and install Cranium. Open it and sign in with your console account; Face ID works as in any app.',
+      'SideStore renews the app on the iPhone every 7 days, over Wi-Fi, and shows each new version under Updates. Open SideStore once a week if it has not refreshed by itself.',
+    ]),
+    h('p', { class: 'card-note' }, 'What to do when something goes wrong: ',
+      h('a', { href: UPDATES_GUIDE, target: '_blank', rel: 'noopener noreferrer' }, 'updates on every phone'), ' (opens GitHub).'));
+}
+
 function iphoneCard(apps, versions, ctx) {
+  const [published] = apps.ios.releases;
   const newest = versions?.changelogs?.ios?.[0] ?? null;
-  const version = newest?.version ?? apps.ios.version;
-  const note = newest?.note ?? apps.ios.notes;
+  const version = published?.version ?? newest?.version ?? apps.ios.version;
+  const note = published ? published.notes : newest?.note ?? apps.ios.notes;
   return card({ key: 'ios', title: 'iPhone', className: 'app-card' },
     h('div', { class: 'app-latest-text', key: 'about' },
       version
-        ? h('p', { class: 'app-version' }, mono(version))
+        ? h('p', { class: 'app-version' }, mono(version), published ? badge('good', 'check-circle', 'Newest') : null)
         : h('p', { class: 'quiet' }, 'Its version is not known to this copy of the console.'),
-      note ? h('p', { class: 'app-note' }, note) : null),
+      note ? h('p', { class: 'app-note' }, note) : null,
+      published
+        ? facts([
+          ['Size', fileSize(published.size)],
+          ['SHA-256', h('span', { class: 'app-digest' }, mono(published.sha256))],
+          published.buildVersion ? ['Build', mono(published.buildVersion)] : null,
+          ['Published', publishedLine(published, ctx.state.now, '')],
+        ])
+        : null,
+      published
+        ? h('div', { class: 'button-row app-actions' },
+          h('button', {
+            type: 'button', class: 'btn is-small', disabled: busy === `ipa:${published.version}`, onClick: () => downloadIpa(published),
+          }, icon('download'), `Download ${published.filename}`))
+        : null),
+    sidestoreSection(apps, ctx),
     h('section', { class: 'app-how', key: 'mac', 'aria-label': 'Install it with a Mac' },
-      h('h3', { class: 'app-how-title' }, 'Install it with a Mac'),
+      h('h3', { class: 'app-how-title' }, 'Or install it with a Mac'),
       h('p', { class: 'card-note' }, 'It takes Xcode 16 or later, ', mono('brew install xcodegen'),
         ', your Apple ID in Xcode (a free Personal Team), and Developer Mode on the iPhone.'),
       steps([
@@ -358,7 +574,7 @@ function iphoneCard(apps, versions, ctx) {
       h('p', { class: 'card-note' }, 'All of it, with what to do when something goes wrong: ',
         h('a', { href: SETUP_GUIDE, target: '_blank', rel: 'noopener noreferrer' }, 'the phone apps in the setup guide'),
         ' (opens GitHub).'),
-      h('p', { class: 'card-note' }, 'An iPhone without a Mac needs the paid Apple Developer Program, and TestFlight.')));
+      h('p', { class: 'card-note' }, 'The owner\'s iPhone is kept up to date this way, over the Mac\'s Wi-Fi.')));
 }
 
 function buildCard(ctx) {

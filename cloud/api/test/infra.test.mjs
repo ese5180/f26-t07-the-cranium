@@ -57,8 +57,8 @@ test('reads and writes have a request limit each, and neither is weaker than the
   const open = template.split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE'))
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}', 'POST /api/t/{proxy+}',
-    'PUT /api/t/{proxy+}']);
+  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}',
+    'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
 
   const stage = block(template, 'Stage');
   for (const name of ['ApiReadRoute', 'ApiWriteRoute']) assert.ok(block(stage, 'DependsOn', 4).includes(`- ${name}`));
@@ -219,8 +219,8 @@ test('the API role reads images for the phone apps, and the bucket still refuses
   const read = statement(role, 'ReadFirmware');
   assert.ok(read.includes('Action: s3:GetObject\n'));
   assert.ok(read.includes("Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'"));
-  // The other two are the Android app's, on its APKs alone (apps-infra.test.mjs).
-  const apks = ['CheckAndroidApks', 'ServeAndroidApks'].map((sid) => statement(role, sid));
+  // The others are the phone apps', on their APKs and IPAs alone (apps-infra.test.mjs).
+  const apks = ['CheckAndroidApks', 'ServeAndroidApks', 'CheckIphoneIpas', 'ServeIphoneIpas'].map((sid) => statement(role, sid));
   assert.equal((apks.reduce((rest, part) => rest.replace(part, ''), role).match(/s3:GetObject/g) ?? []).length, 1);
   assert.ok(block(template, 'FirmwareBucketPolicy').includes('Sid: DenyDownloadingRevokedFirmware'));
 });

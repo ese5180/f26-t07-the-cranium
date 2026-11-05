@@ -382,6 +382,7 @@ What this console does not do, stated plainly.
 | `POST /api/{proxy+}` | 5 | 10 | Yes |
 | `GET /api/t/{proxy+}`: scripts with an API token | 5 | 10 | No: the function checks the API token |
 | `POST /api/t/{proxy+}`: scripts with an API token | 2 | 5 | No: the function checks the API token |
+| `GET /api/sidestore/{proxy+}`: SideStore on an iPhone | 2 | 5 | No: the function checks the key in the path, at most 30 uses a minute each |
 | `GET /` and `GET /assets/{proxy+}`, each | 20 | 60 | No |
 | `$default`: everything else | 10 | 20 | No |
 

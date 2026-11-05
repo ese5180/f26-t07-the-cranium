@@ -9060,6 +9060,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: 0.875rem;
 }
 
+/* A member's SideStore source link on the iPhone card: made, on show once, or how it stands. */
+.app-source {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-source .app-command .code {
+  overflow-wrap: anywhere;
+}
+
 /* A board without Wi-Fi among the tiles: it never connects, and that is no fault. */
 .tile.is-phone {
   border: 1.5px dotted var(--line-strong);
