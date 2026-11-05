@@ -573,6 +573,41 @@ test('the customer site\'s client signs in with SRP on its own pages, and never 
   assert.ok(domains[0].includes('UserPoolId: !Ref UserPool\n'));
 });
 
+test('the phone apps\' client of the customer pool is the site\'s, with the staff phone client\'s 30-day refresh token', () => {
+  const client = block(template, 'CustomerMobileUserPoolClient');
+  for (const line of [
+    'Type: AWS::Cognito::UserPoolClient', 'UserPoolId: !Ref CustomerUserPool', 'GenerateSecret: false',
+    'AllowedOAuthFlowsUserPoolClient: false', 'EnableTokenRevocation: true', 'PreventUserExistenceErrors: ENABLED',
+    'AuthSessionValidity: 15', 'AccessTokenValidity: 60', 'IdTokenValidity: 60', 'RefreshTokenValidity: 30',
+    'AccessToken: minutes', 'IdToken: minutes', 'RefreshToken: days',
+  ]) {
+    assert.ok(client.includes(line), line);
+  }
+  assert.deepEqual([...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
+  assert.deepEqual([...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['name']);
+  for (const word of ['CallbackURLs', 'AllowedOAuthFlows:', 'AllowedOAuthScopes', '- ALLOW_USER_PASSWORD_AUTH', 'ADMIN_']) {
+    assert.equal(client.includes(word), false, word);
+  }
+  // The staff pool's phone client is the same lifetime: the apps keep a refresh token only behind biometrics.
+  assert.ok(block(template, 'MobileUserPoolClient').includes('RefreshTokenValidity: 30'));
+  // The customer pool has no trigger: its access tokens keep aws.cognito.signin.user.admin, which the route asks for.
+  assert.equal(block(template, 'CustomerUserPool').includes('LambdaConfig'), false);
+  // configure.sh copies it into the apps' configuration, and the console's API hands it out on the Apps page.
+  const outputs = block(template, 'Outputs', 0);
+  assert.ok(block(outputs, 'CustomerMobileClientId').includes('Value: !Ref CustomerMobileUserPoolClient'));
+  assert.ok(block(block(template, 'ApiFn'), 'Variables', 8).includes('CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'));
+  const configure = read('../apps/configure.sh');
+  for (const key of ['CustomerUserPoolId', 'CustomerMobileClientId', 'CustomerUrl', 'customerApiUrl', 'customerClientId',
+    'customerRegion', 'customerUserPoolId']) {
+    assert.ok(configure.includes(key), key);
+  }
+  // The site's own client stays off the phone.
+  assert.equal(configure.includes('"CustomerClientId"'), false);
+  // Nothing else of the site's client moved.
+  assert.equal(block(template, 'WebFn').includes('CustomerMobileUserPoolClient'), false);
+});
+
 test('a customer\'s token and a staff token each open their own API only, at the gateway', () => {
   const staff = block(template, 'Authorizer');
   assert.ok(staff.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'"));
@@ -584,7 +619,7 @@ test('a customer\'s token and a staff token each open their own API only, at the
   assert.ok(customer.includes('AuthorizerType: JWT'));
   assert.ok(customer.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CustomerUserPool}'"));
   assert.deepEqual([...block(customer, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
-    ['CustomerUserPoolClient']);
+    ['CustomerUserPoolClient', 'CustomerMobileUserPoolClient']);
 
   const route = block(template, 'CustomerApiReadRoute');
   for (const line of ["RouteKey: 'GET /api/c/{proxy+}'", 'AuthorizationType: JWT', 'AuthorizerId: !Ref CustomerAuthorizer',
@@ -626,7 +661,8 @@ test('the customer API may read the boards, their events, the ownership records 
     assert.ok(fn.includes(line), line);
   }
   assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID']);
+    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID', 'CUSTOMER_MOBILE_CLIENT_ID']);
+  assert.ok(block(fn, 'Variables', 8).includes('CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'));
   assert.ok(read('api/src/customer.mjs').includes('export const handler'));
   assert.ok(block(template, 'CustomerApiFnPermission').includes('FunctionName: !Ref CustomerApiFn'));
 });

@@ -5,6 +5,10 @@
 #
 # The file names the AWS account, so git ignores it and it never goes in the public repository.
 # See docs/mobile-apps.md.
+#
+# The customer side of the apps (docs/mobile-apps.md, "Customers") needs the customer pool and the
+# phone apps' client of it, from console 2.0.1 on. A stack without them gets a file without the
+# four customer keys: the apps then sign in admins only, and say so.
 
 set -euo pipefail
 
@@ -24,14 +28,30 @@ if missing:
 # it needs the pool and its Region, and the pool's ID begins with the Region.
 if not outputs["UserPoolId"].startswith(outputs["Region"] + "_"):
     sys.exit("error: the user pool " + outputs["UserPoolId"] + " is not in " + outputs["Region"])
-config = {
-    "consoleUrl": outputs["ConsoleUrl"].rstrip("/"),
+console = outputs["ConsoleUrl"].rstrip("/")
+config = {"consoleUrl": console}
+# The customer pool is in the stack's Region too. Its API is the console's API under /api/c/, on the
+# customer site's name once that is set, else on the console's.
+customer = [k for k in ("CustomerUserPoolId", "CustomerMobileClientId") if outputs.get(k)]
+if len(customer) == 2:
+    if not outputs["CustomerUserPoolId"].startswith(outputs["Region"] + "_"):
+        sys.exit("error: the customer pool " + outputs["CustomerUserPoolId"] + " is not in " + outputs["Region"])
+    config.update({
+        "customerApiUrl": (outputs.get("CustomerUrl") or console).rstrip("/"),
+        "customerClientId": outputs["CustomerMobileClientId"],
+        "customerRegion": outputs["Region"],
+        "customerUserPoolId": outputs["CustomerUserPoolId"],
+    })
+else:
+    print("note: the stack has no CustomerMobileClientId yet (console 2.0.1): the apps will sign in admins only."
+          " Deploy the current cloud/infra/template.yaml, then run this again.", file=sys.stderr)
+config.update({
     "loginDomain": "https://" + outputs["LoginDomain"].removeprefix("https://").rstrip("/"),
     "mobileClientId": outputs["MobileClientId"],
     "redirectUri": "cranium://signin",
     "region": outputs["Region"],
     "userPoolId": outputs["UserPoolId"],
-}
+})
 os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True)
 with open(sys.argv[2], "w") as f:
     json.dump(config, f, indent=2)

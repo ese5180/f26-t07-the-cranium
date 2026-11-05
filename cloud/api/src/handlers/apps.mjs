@@ -3,8 +3,8 @@
  *
  *   GET  /api/apps                                the Android releases, newest first, and the iPhone
  *                                                 app's version and note; any member
- *   GET  /api/apps/config                         the apps' configuration, as apps/config/cranium.json;
- *                                                 any member
+ *   GET  /api/apps/config                         the apps' configuration, as apps/config/cranium.json
+ *                                                 (apps/configure.sh); any member
  *   POST /api/apps/android/uploads                a URL to PUT an APK to; release managers (app.upload)
  *   POST /api/apps/android/releases/{version}     the APK that arrived is checked and published; release
  *                                                 managers (app.publish)
@@ -96,11 +96,22 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
       };
     },
 
-    /** The six values of apps/config/cranium.json, from this stack, in that file's order. */
+    /**
+     * The values of apps/config/cranium.json, from this stack, in that file's order: six, and the four
+     * of the apps' customer side once the stack has the phone apps' client of the customer pool. The
+     * customer API is this API under /api/c/, on the customer site's name once it has one.
+     */
     config() {
+      const customers = config.customers?.mobileClientId ? config.customers : null;
       return {
         body: {
           consoleUrl: config.consoleUrl,
+          ...(customers === null ? {} : {
+            customerApiUrl: customers.siteUrl === '' ? config.consoleUrl : customers.siteUrl.replace(/\/$/, ''),
+            customerClientId: customers.mobileClientId,
+            customerRegion: config.region,
+            customerUserPoolId: customers.customerPoolId,
+          }),
           loginDomain: `https://${config.loginDomain}`,
           mobileClientId: config.mobileClientId,
           redirectUri: APP_REDIRECT_URI,

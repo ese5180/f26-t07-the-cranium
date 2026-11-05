@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { apkKey, parseAppVersion } from '../src/lib/apps.mjs';
 import { parseBundledVersions } from '../src/lib/versions.mjs';
 import { accessClaims, createTestConsole } from './fake-aws.mjs';
+import { CUSTOMER_CLIENT_ID, CUSTOMER_MOBILE_CLIENT_ID, CUSTOMER_POOL_ID, createCustomerWorld } from './fake-customers.mjs';
 
 const COMMIT = '1036507aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'.slice(0, 40);
 const VERSIONS = parseBundledVersions({
@@ -315,6 +316,27 @@ test('the apps\' configuration is apps/config/cranium.json, from the stack, for 
   assert.equal((await other.call('GET', '/api/apps/config', { as: someone })).body.consoleUrl, 'https://console.craniumiot.com');
   const nobody = other.addUser('nobody', []);
   assert.equal((await other.call('GET', '/api/apps/config', { as: nobody })).status, 403);
+});
+
+test('with the customer pool\'s phone client, the configuration has the apps\' customer side too, as configure.sh writes it', async () => {
+  for (const [siteUrl, api] of [['', 'https://console.example.invalid'], ['https://customer.example/', 'https://customer.example']]) {
+    const w = createCustomerWorld({ siteUrl });
+    const viewer = w.addStaff('viewer', ['viewers']);
+    const answer = await w.console('GET', '/api/apps/config', { as: viewer });
+    assert.equal(answer.status, 200);
+    assert.deepEqual(Object.keys(answer.body), ['consoleUrl', 'customerApiUrl', 'customerClientId', 'customerRegion',
+      'customerUserPoolId', 'loginDomain', 'mobileClientId', 'redirectUri', 'region', 'userPoolId']);
+    assert.equal(answer.body.consoleUrl, 'https://console.example.invalid');
+    assert.deepEqual([answer.body.customerApiUrl, answer.body.customerClientId, answer.body.customerRegion, answer.body.customerUserPoolId],
+      [api, CUSTOMER_MOBILE_CLIENT_ID, 'us-east-1', CUSTOMER_POOL_ID]);
+    // The site's own client never goes to a phone.
+    assert.equal(JSON.stringify(answer.body).includes(`"${CUSTOMER_CLIENT_ID}"`), false);
+  }
+  // A deployment from before the phone client: the six values only.
+  const older = createCustomerWorld({ mobileClientId: '' });
+  const viewer = older.addStaff('viewer', ['viewers']);
+  assert.deepEqual(Object.keys((await older.console('GET', '/api/apps/config', { as: viewer })).body),
+    ['consoleUrl', 'loginDomain', 'mobileClientId', 'redirectUri', 'region', 'userPoolId']);
 });
 
 test('GET /api/me carries the console\'s version and commit; without versions.json they are null', async () => {
