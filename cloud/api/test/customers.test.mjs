@@ -9,11 +9,12 @@ import { test } from 'node:test';
 
 import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
+import { authenticateCustomer } from '../src/customer/app.mjs';
 import { customerEvent as shownEvent } from '../src/customer/boards.mjs';
 import { loadCustomerAdminConfig, loadCustomerApiConfig } from '../src/customer/config.mjs';
 import { accessClaims, apiEvent, createFakeAws, fakeEnv } from './fake-aws.mjs';
 import {
-  CUSTOMER_CLIENT_ID, CUSTOMER_POOL_ID, createCustomerWorld, customerClaims, createFakeCustomers,
+  CUSTOMER_CLIENT_ID, CUSTOMER_MOBILE_CLIENT_ID, CUSTOMER_POOL_ID, createCustomerWorld, customerClaims, createFakeCustomers,
 } from './fake-customers.mjs';
 
 const MINUTE = 60_000;
@@ -80,6 +81,37 @@ test('a staff token, a phone app\'s, an ID token and another pool\'s are all ref
   assert.equal((await w.customer('/api/c/boards')).status, 401);
   // And the customer's own token works, so the refusals are about the tokens.
   assert.equal((await w.customer('/api/c/boards', { as: w.ada })).status, 200);
+});
+
+test('the phone apps\' client of the customer pool reads the same as the site\'s, and the log says which it was', async () => {
+  const w = await world();
+  await w.assign(w.ada, BOARD_A, 'Living room deck');
+  const phone = customerClaims({ sub: w.ada.sub, clientId: CUSTOMER_MOBILE_CLIENT_ID });
+  const site = await w.customer('/api/c/boards', { as: w.ada });
+  const fromPhone = await w.customer('/api/c/boards', { claims: phone });
+  assert.equal(fromPhone.status, 200);
+  assert.deepEqual(fromPhone.body, site.body);
+  const id = site.body.boards[0].id;
+  assert.equal((await w.customer(`/api/c/boards/${id}`, { claims: phone })).status, 200);
+  assert.deepEqual((await w.customer('/api/c/me', { claims: phone })).body, (await w.customer('/api/c/me', { as: w.ada })).body);
+  const lines = w.logs.filter((line) => line.api === 'customer' && line.status === 200);
+  assert.deepEqual([...new Set(lines.map((line) => line.client))].sort(), ['phone', 'site']);
+  // The phone apps' client of the staff pool is still refused, and so is an ID token of the phone's customer client.
+  for (const claims of [
+    accessClaims({ sub: w.ada.sub, groups: [], clientId: 'localmobile' }),
+    customerClaims({ sub: w.ada.sub, clientId: CUSTOMER_MOBILE_CLIENT_ID, tokenUse: 'id' }),
+    { ...phone, client_id: undefined },
+    { ...phone, client_id: [CUSTOMER_MOBILE_CLIENT_ID] },
+  ]) {
+    assert.equal((await w.customer('/api/c/boards', { claims })).status, 401, JSON.stringify(claims));
+  }
+  // Without the phone client in the settings, a token of it is refused, and no missing setting lets one through.
+  const bare = { ...w.customerConfig, customerMobileClientId: undefined };
+  const event = { requestContext: { authorizer: { jwt: { claims: { ...phone, client_id: undefined } } } } };
+  assert.throws(() => authenticateCustomer(event, bare), /Sign in/);
+  assert.throws(() => authenticateCustomer({ requestContext: { authorizer: { jwt: { claims: phone } } } }, bare), /Sign in/);
+  assert.deepEqual(authenticateCustomer({ requestContext: { authorizer: { jwt: { claims: phone } } } }, w.customerConfig),
+    { sub: w.ada.sub, client: 'phone' });
 });
 
 test('the customer API only reads: any other method and any other path are nothing', async () => {
@@ -379,15 +411,18 @@ test('a deployment with no customer pool says so, and changes nothing', async ()
 test('the customer API needs all of its settings, and the console only the pool and the address', () => {
   const env = {
     AWS_REGION: 'us-east-1', STATE_TABLE: 'local-state', EVENTS_TABLE: 'local-events',
-    CUSTOMER_POOL_ID: CUSTOMER_POOL_ID, CUSTOMER_CLIENT_ID: CUSTOMER_CLIENT_ID,
+    CUSTOMER_POOL_ID: CUSTOMER_POOL_ID, CUSTOMER_CLIENT_ID: CUSTOMER_CLIENT_ID, CUSTOMER_MOBILE_CLIENT_ID: CUSTOMER_MOBILE_CLIENT_ID,
   };
   const config = loadCustomerApiConfig(env);
   assert.equal(config.issuer, `https://cognito-idp.us-east-1.amazonaws.com/${CUSTOMER_POOL_ID}`);
+  assert.equal(config.customerMobileClientId, CUSTOMER_MOBILE_CLIENT_ID);
   for (const name of Object.keys(env)) {
     assert.throws(() => loadCustomerApiConfig({ ...env, [name]: '' }), new RegExp(name));
   }
   assert.equal(loadCustomerAdminConfig({}), null);
-  assert.deepEqual({ ...loadCustomerAdminConfig({ CUSTOMER_POOL_ID }) }, { customerPoolId: CUSTOMER_POOL_ID, siteUrl: '' });
+  assert.deepEqual({ ...loadCustomerAdminConfig({ CUSTOMER_POOL_ID }) }, { customerPoolId: CUSTOMER_POOL_ID, siteUrl: '', mobileClientId: '' });
+  assert.equal(loadCustomerAdminConfig({ CUSTOMER_POOL_ID, CUSTOMER_MOBILE_CLIENT_ID }).mobileClientId, CUSTOMER_MOBILE_CLIENT_ID);
+  assert.throws(() => loadCustomerAdminConfig({ CUSTOMER_POOL_ID, CUSTOMER_MOBILE_CLIENT_ID: 'not a client' }), /CUSTOMER_MOBILE_CLIENT_ID/);
   assert.equal(loadCustomerAdminConfig({ CUSTOMER_POOL_ID, CUSTOMER_SITE_URL: 'https://cranium.example/' }).siteUrl,
     'https://cranium.example/');
   for (const url of ['http://cranium.example/', 'https://cranium.example', 'https://cranium.example/x', 'javascript:x']) {

@@ -22,6 +22,18 @@ hand it.
 
 Not deployed yet.
 
+## 2.0.1
+
+The phone apps can sign customers in: a client of the customer pool of their own, whose sign-in an app keeps behind
+Face ID or a fingerprint for up to 30 days, and the customer API takes its tokens as it takes the customer site's.
+
+`CustomerMobileUserPoolClient`: SRP only, no secret, no OAuth, refresh token 30 days, as the staff pool's phone client.
+The customer authorizer's audience and the customer API both name it, the API's log says which client a request came
+from, and the output `CustomerMobileClientId` goes into the apps' configuration (`apps/configure.sh`, and the Apps
+page's Download the configuration). See [docs/mobile-apps.md](../docs/mobile-apps.md#customers).
+
+Not released yet: branch feature/customer-apps, 2026-11-05.
+
 ## 2.0.0
 
 A customer website on a name of its own: customers sign in to see their own boards (online, firmware, last report,

@@ -1977,7 +1977,7 @@ test('the customer API\'s board reader reads a shadow and a board\'s events, and
 test('the customer API\'s Lambda entry point starts with its own settings, and turns away a request with no token', async () => {
   Object.assign(process.env, {
     AWS_REGION: 'eu-west-1', STATE_TABLE: 'state-table', EVENTS_TABLE: 'events-table',
-    CUSTOMER_POOL_ID: 'eu-west-1_Customers', CUSTOMER_CLIENT_ID: 'customerclient',
+    CUSTOMER_POOL_ID: 'eu-west-1_Customers', CUSTOMER_CLIENT_ID: 'customerclient', CUSTOMER_MOBILE_CLIENT_ID: 'customerphone',
   });
   const lines = [];
   console.log = (line) => lines.push(JSON.parse(line));

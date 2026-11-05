@@ -313,8 +313,10 @@ Resources:
         - $request.header.Authorization
       JwtConfiguration:
         Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CustomerUserPool}'
+        # The customer site's client, and the phone apps' client of the customer pool.
         Audience:
           - !Ref CustomerUserPoolClient
+          - !Ref CustomerMobileUserPoolClient
 
   CustomerApiIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -893,6 +895,39 @@ Resources:
         AccessToken: minutes
         IdToken: minutes
         RefreshToken: minutes
+
+  # The phone apps' customer side (docs/mobile-apps.md, "Customers"): the same accounts as the
+  # customer site, signed in on the apps' own screen with SRP, as the site does. A client of its
+  # own only for the refresh token's lifetime, as MobileUserPoolClient has for the staff pool: an
+  # app keeps it only behind Face ID or a fingerprint, for up to 30 days, and without them forgets
+  # it an hour after the sign-in. Every request to the customer API asks Cognito whether the
+  # account is on, so a switched-off customer's refresh token reads nothing within a minute.
+  CustomerMobileUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CustomerUserPool
+      ClientName: customer-phone-apps
+      # A phone cannot keep a secret either, and needs none: it signs in with SRP.
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: false
+      SupportedIdentityProviders:
+        - COGNITO
+      WriteAttributes:
+        - name
+      # SRP only: the password never leaves the phone. Never ALLOW_USER_PASSWORD_AUTH.
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      EnableTokenRevocation: true
+      PreventUserExistenceErrors: ENABLED
+      AuthSessionValidity: 15
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
 
   # ---------------------------------------------------------------------------------
   # Firmware storage. Objects are firmware/<sha256 of the file>.bin, written once. The
@@ -1689,6 +1724,8 @@ Resources:
           MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey
           MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug
           MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug
+          # The phone apps' customer side, in their configuration (GET /api/apps/config).
+          CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
 
   # ---------------------------------------------------------------------------------
   # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own
@@ -1772,6 +1809,7 @@ Resources:
           EVENTS_TABLE: !Ref EventsTable
           CUSTOMER_POOL_ID: !Ref CustomerUserPool
           CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
+          CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
 
   EventsLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2448,6 +2486,9 @@ Outputs:
   CustomerClientId:
     Description: The customer site's client of the customer pool.
     Value: !Ref CustomerUserPoolClient
+  CustomerMobileClientId:
+    Description: The phone apps' client of the customer pool. apps/configure.sh copies it into their configuration.
+    Value: !Ref CustomerMobileUserPoolClient
   CustomerApiFunctionName:
     Value: !Ref CustomerApiFn
   Region:

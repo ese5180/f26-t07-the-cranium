@@ -22,6 +22,8 @@ import { accessClaims, apiEvent, awsError, createFakeAws, fakeEnv } from './fake
 
 export const CUSTOMER_POOL_ID = 'us-east-1_customers';
 export const CUSTOMER_CLIENT_ID = 'localcustomer';
+// The phone apps' client of the customer pool (CustomerMobileUserPoolClient).
+export const CUSTOMER_MOBILE_CLIENT_ID = 'localcustomerphone';
 const OWNERSHIP_PK = 'OWN';
 
 function copy(value) {
@@ -199,6 +201,7 @@ const MAIL_DOMAIN = 'example.invalid';
  */
 export function createCustomerWorld({
   startMs = Date.UTC(2026, 10, 4, 12, 0, 0), siteUrl = 'https://customer.example/', customers: wired = true,
+  mobileClientId = CUSTOMER_MOBILE_CLIENT_ID,
 } = {}) {
   const clock = { ms: startMs };
   const now = () => clock.ms;
@@ -208,7 +211,7 @@ export function createCustomerWorld({
   let draws = 0;
   const config = Object.freeze({
     ...loadConfig(fakeEnv()),
-    customers: wired ? Object.freeze({ customerPoolId: CUSTOMER_POOL_ID, siteUrl }) : null,
+    customers: wired ? Object.freeze({ customerPoolId: CUSTOMER_POOL_ID, siteUrl, mobileClientId }) : null,
   });
   const consoleApp = createApp({
     aws: wired ? { ...fake, ...store } : fake,
@@ -222,7 +225,8 @@ export function createCustomerWorld({
   });
   const customerConfig = Object.freeze({
     region: 'us-east-1', stateTable: 'local-state', eventsTable: 'local-events',
-    customerPoolId: CUSTOMER_POOL_ID, customerClientId: CUSTOMER_CLIENT_ID, issuer: issuerOf(CUSTOMER_POOL_ID),
+    customerPoolId: CUSTOMER_POOL_ID, customerClientId: CUSTOMER_CLIENT_ID, customerMobileClientId: CUSTOMER_MOBILE_CLIENT_ID,
+    issuer: issuerOf(CUSTOMER_POOL_ID),
   });
   const customerApp = createCustomerApp({
     aws: { getShadow: fake.getShadow, queryEvents: fake.queryEvents, ...store },

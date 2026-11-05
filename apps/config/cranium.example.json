@@ -1,5 +1,9 @@
 {
   "consoleUrl": "https://console.example.com",
+  "customerApiUrl": "https://customer.example.com",
+  "customerClientId": "examplecustomerclient0000",
+  "customerRegion": "us-east-1",
+  "customerUserPoolId": "us-east-1_EXAMPLE01",
   "loginDomain": "https://cranium-example.auth.us-east-1.amazoncognito.com",
   "mobileClientId": "exampleclientid0000000000",
   "redirectUri": "cranium://signin",
