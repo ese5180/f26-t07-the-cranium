@@ -35,9 +35,11 @@ export const NEIGHBOURS = 'https://console.test/assets/build/';
  * @param {string} name      the file in site/assets
  * @param {object} [imports] file name -> address, for every script this one imports
  * @param {string} [mark]    makes the address differ, for a second copy of a module
+ * @param {URL} [assets]     the folder the file is in: the customer site's own scripts are in
+ *                           customer/assets (customer.test.mjs)
  */
-export function scriptAddress(name, imports = {}, mark = '') {
-  let source = readFileSync(new URL(name, ASSETS), 'utf8');
+export function scriptAddress(name, imports = {}, mark = '', assets = ASSETS) {
+  let source = readFileSync(new URL(name, assets), 'utf8');
   for (const [file, address] of Object.entries(imports)) {
     const specifier = `from './${file}'`;
     const onDemand = `import('./${file}')`;

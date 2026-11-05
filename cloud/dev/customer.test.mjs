@@ -11,18 +11,17 @@
 
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
+import { CORE, scriptAddress } from '../web/test/page.mjs';
 import {
   PREVIEW_CODE, PREVIEW_CUSTOMER_PASSWORD, PREVIEW_PASSWORD, PREVIEW_TEMPORARY_PASSWORD, createPreview,
 } from './preview.mjs';
 
-const asData = (text) => `data:text/javascript;base64,${Buffer.from(text, 'utf8').toString('base64')}`;
-const coreAddress = asData(readFileSync(new URL('../web/src/site/assets/core.js', import.meta.url), 'utf8'));
-const core = await import(coreAddress);
-const site = await import(asData(readFileSync(new URL('../web/src/customer/assets/customer-core.js', import.meta.url), 'utf8')
-  .replaceAll("from './core.js'", `from '${coreAddress}'`)));
+// The scripts as files of this run, as the website's tests load them (cloud/web/test/page.mjs).
+const core = await import(CORE);
+const site = await import(scriptAddress('customer-core.js', { 'core.js': CORE }, '',
+  new URL('../web/src/customer/assets/', import.meta.url)));
 
 const ADA = 'ada@preview.invalid';
 const CLEO = 'cleo@preview.invalid';

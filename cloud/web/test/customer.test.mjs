@@ -17,25 +17,19 @@ import { SHARED_ASSETS, customerPolicy, loadCustomerSite } from '../src/customer
 import { createWebHandler, handler } from '../src/server.mjs';
 import { createCognito } from './cognito.mjs';
 import { createCustomerCognito } from './customer-cognito.mjs';
-import { CORE, NEIGHBOURS, VIEWS, all, click, createDocument, descendants, one, textOf } from './page.mjs';
+import { CORE, VIEWS, all, click, createDocument, descendants, one, scriptAddress, textOf } from './page.mjs';
 
 const core = await import(CORE);
 
 const CUSTOMER_DIR = new URL('../src/customer/', import.meta.url);
 const SITE_DIR = new URL('../src/site/', import.meta.url);
 
-/** One of the site's scripts as a module Node can import, its imports pointed at the given addresses. */
+/**
+ * One of the customer site's scripts as a module Node can import, its imports pointed at the given
+ * addresses: written out as a file of this run, as page.mjs does the console's.
+ */
 function customerScript(name, imports = {}, mark = '') {
-  let source = readFileSync(new URL(`assets/${name}`, CUSTOMER_DIR), 'utf8');
-  for (const [file, address] of Object.entries(imports)) {
-    const specifier = `from './${file}'`;
-    if (!source.includes(specifier)) throw new Error(`${name} does not import ${file}`);
-    source = source.replaceAll(specifier, `from '${address}'`);
-  }
-  source = source.replaceAll('import.meta.url', `'${NEIGHBOURS}${name}'`);
-  if (/from '\.\//.test(source)) throw new Error(`${name} imports a script it was not given an address for`);
-  if (mark !== '') source += `\n// ${mark}\n`;
-  return `data:text/javascript;base64,${Buffer.from(source, 'utf8').toString('base64')}`;
+  return scriptAddress(name, imports, mark, new URL('assets/', CUSTOMER_DIR));
 }
 
 const SITE_CORE = customerScript('customer-core.js', { 'core.js': CORE });
