@@ -7,7 +7,9 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
-## Unreleased
+## 2.2.0
+
+The phone apps from 0.8.0 show the console's own pages: the console serves them as a bundle at /app/manifest.json, each file with its SHA-256, and the apps keep it on the phone, so a console deploy updates every phone the next time its app opens. In the apps, the console gains a Bluetooth update page. API calls from the two app origins are allowed.
 
 The phone apps' copy of the console and the customer site, for the app shell of 0.8.0: a manifest at /app/manifest.json with every file's path, size and SHA-256 and an id that hashes them, and each file at /app/files/<sha256>. The pages gain a bridge to the app, its sign-in kept by the app, and an update over Bluetooth; the API takes calls from the apps' two origins.
 
