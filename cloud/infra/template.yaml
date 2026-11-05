@@ -166,6 +166,30 @@ Resources:
     Properties:
       Name: !Ref AWS::StackName
       ProtocolType: HTTP
+      # The phone apps from 0.8.0 (docs/mobile-apps.md, "The app shell"): their pages come from the
+      # copy of the sites inside the app, at an origin of the app's own, and call this API from there,
+      # across origins. These two origins and no others: the iPhone app's scheme, and the address
+      # Android's WebViewAssetLoader serves on. Nothing else changes for a browser: the console and
+      # the customer site are on this API's own origins, which need no CORS. No credentials: every
+      # call carries its token in the Authorization header, never a cookie, so an origin allowed here
+      # gains nothing without a token of its own. API Gateway answers the preflight itself.
+      CorsConfiguration:
+        AllowOrigins:
+          - cranium-app://bundle
+          - https://appassets.androidplatform.net
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+        AllowHeaders:
+          - authorization
+          - content-type
+          - accept
+        # The console's clock follows the server's (createClock in assets/core.js).
+        ExposeHeaders:
+          - date
+        AllowCredentials: false
+        MaxAge: 600
 
   WebIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -211,6 +235,17 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: 'GET /assets/{proxy+}'
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${WebIntegration}'
+
+  # The phone apps' copy of the sites (web/src/bundle.mjs): /app/manifest.json and /app/files/<sha256>,
+  # from the web function, which holds them in memory as it holds the pages. Public, as the pages are,
+  # with limits of its own, so that every phone taking a new bundle at once cannot crowd out the pages.
+  AppBundleRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'GET /app/{proxy+}'
       AuthorizationType: NONE
       Target: !Sub 'integrations/${WebIntegration}'
 
@@ -464,6 +499,7 @@ Resources:
     DependsOn:
       - RootRoute
       - AssetsRoute
+      - AppBundleRoute
       - ApiReadRoute
       - ApiWriteRoute
       - ApiTokenReadRoute
@@ -488,6 +524,10 @@ Resources:
         'GET /assets/{proxy+}':
           ThrottlingBurstLimit: 60
           ThrottlingRateLimit: 20
+        # A phone takes a new bundle's files four at a time.
+        'GET /app/{proxy+}':
+          ThrottlingBurstLimit: 40
+          ThrottlingRateLimit: 10
         # What the API as a whole had before the two routes were separated.
         'GET /api/{proxy+}':
           ThrottlingBurstLimit: 20

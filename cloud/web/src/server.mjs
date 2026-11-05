@@ -25,12 +25,17 @@
  * names in CUSTOMER_HOSTS: the first serves it at / and the console at /admin, as admin mode, so
  * that an admin signs in once; the others send the browser to the first. Only there.
  *
+ * The phone apps' copy of both sites (bundle.mjs, docs/mobile-apps.md "The app shell") is served on the
+ * console's names and the customer site's first: its manifest at /app/manifest.json and each of its
+ * files at /app/files/<sha256>. It is made from these same files when the function starts.
+ *
  * No dependencies: only node:crypto and node:fs.
  */
 
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 
+import { APP_CONFIG, FILES_PREFIX, MANIFEST_PATH, consoleOf, makeBundle } from './bundle.mjs';
 import { customerPolicy, loadCustomerSite } from './customer-site.mjs';
 
 const SITE = new URL('./site/', import.meta.url);
@@ -56,6 +61,7 @@ const ASSET_TYPES = new Map([
   ['txt', 'text/plain; charset=utf-8'],
 ]);
 const HTML = 'text/html; charset=utf-8';
+const JSON_TYPE = 'application/json; charset=utf-8';
 const PLAIN = 'text/plain; charset=utf-8';
 
 const CACHE_ASSET = 'public, max-age=31536000, immutable';
@@ -169,6 +175,35 @@ const ATTRIBUTE_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;
 function escapeAttribute(text) {
   return text.replace(/[&<>"']/g, (character) => ATTRIBUTE_ESCAPES[character]);
 }
+
+/**
+ * The phone apps' bundle (bundle.mjs) of the two sites as loaded: the customer site's page at
+ * index.html and the console's at admin/index.html, each with the app's settings tag, and every file
+ * of both under assets/<build id>/, as the customer site's name serves them. Its files by SHA-256,
+ * each with the type and the text the function answers with.
+ */
+export function loadAppBundle(consoleSite, customer) {
+  const tag = escapeAttribute(APP_CONFIG);
+  const files = [
+    { path: 'index.html', bytes: Buffer.from(customer.pageHead + tag + customer.pageTail, 'utf8') },
+    { path: 'admin/index.html', bytes: Buffer.from(consoleSite.console.pageHead + tag + consoleSite.console.pageTail, 'utf8') },
+  ];
+  let versions = null;
+  for (const assets of [consoleSite.console.assets, customer.assets]) {
+    for (const [key, { body }] of assets) {
+      files.push({ path: key.slice(1), bytes: Buffer.from(body, 'utf8') });
+      if (key.endsWith('/versions.json')) versions = body;
+    }
+  }
+  const { manifest, objects } = makeBundle(files, consoleOf(versions));
+  return {
+    manifest,
+    manifestBody: `${JSON.stringify(manifest)}\n`,
+    objects: new Map([...objects].map(([digest, { type, bytes }]) => [digest, { type, body: bytes.toString('utf8'), bytes }])),
+  };
+}
+
+export const appBundle = loadAppBundle(site, customerSite);
 
 function requireText(name, value) {
   if (typeof value !== 'string' || value === '') {
@@ -306,6 +341,17 @@ export function createWebHandler({
     };
   }
 
+  /**
+   * The phone apps' bundle: its manifest, revalidated each time, and a file by its SHA-256, for ever.
+   * Null for any other path. The path is a key, as everywhere here.
+   */
+  function bundleAnswer(headers, path) {
+    if (path === MANIFEST_PATH) return respond(headers, 200, JSON_TYPE, CACHE_PAGE, appBundle.manifestBody);
+    if (typeof path !== 'string' || !path.startsWith(FILES_PREFIX)) return null;
+    const object = appBundle.objects.get(path.slice(FILES_PREFIX.length));
+    return object ? respond(headers, 200, object.type, CACHE_ASSET, object.body) : null;
+  }
+
   /** The console's page; with `admin`, as admin mode of the customer site, at /admin. */
   function page(event, admin = false) {
     let returnTo = redirectUri;
@@ -356,6 +402,8 @@ export function createWebHandler({
     }
     if (path === '/') return customerPage(event);
     if (path === ADMIN_PATH) return page(event, true);
+    const bundled = bundleAnswer(customerHeaders, path);
+    if (bundled) return bundled;
     const asset = typeof path === 'string' ? customerSite.assets.get(path) ?? site.console.assets.get(path) : undefined;
     if (asset) return respond(customerHeaders, 200, asset.type, CACHE_ASSET, asset.body);
     return respond(customerHeaders, 404, PLAIN, CACHE_NEVER, 'Not found\n');
@@ -371,6 +419,8 @@ export function createWebHandler({
     }
     const path = event.rawPath;
     if (path === '/') return home ? respond(headers, 200, HTML, CACHE_PAGE, site.home.page) : page(event);
+    const bundled = home ? null : bundleAnswer(headers, path);
+    if (bundled) return bundled;
     const { assets } = home ? site.home : site.console;
     const asset = typeof path === 'string' ? assets.get(path) : undefined;
     if (asset) return respond(headers, 200, asset.type, CACHE_ASSET, asset.body);

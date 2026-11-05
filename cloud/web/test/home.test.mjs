@@ -417,9 +417,10 @@ test('the template sends what no route claims to the web function, and opens not
     .filter((text) => text.includes('Type: AWS::ApiGatewayV2::Route'));
   const open = routes.filter((text) => text.includes('AuthorizationType: NONE'));
   const keyOf = (text) => /RouteKey: '?([^'\n]+)'?/.exec(text)[1];
-  // Open, and to the web function: the page, its files and what no route claims.
+  // Open, and to the web function: the page, its files, the phone apps' copy of them (bundle.mjs) and what
+  // no route claims.
   const web = open.filter((text) => text.includes('integrations/${WebIntegration}'));
-  assert.deepEqual(web.map(keyOf).sort(), ['$default', 'GET /', 'GET /assets/{proxy+}']);
+  assert.deepEqual(web.map(keyOf).sort(), ['$default', 'GET /', 'GET /app/{proxy+}', 'GET /assets/{proxy+}']);
   // Open, and to the API function: only the routes whose API token the function checks, and SideStore's,
   // whose key in the path the function checks (docs/mobile-apps.md). PUT changes a release's note (docs/fleet.md).
   const tokens = open.filter((text) => !text.includes('integrations/${WebIntegration}'));
