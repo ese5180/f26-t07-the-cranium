@@ -4,6 +4,18 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## Unreleased
+
+New versions reach every phone: the app checks the console on start and once a day, says "Update available" in the
+app and as a notification, and installs it after checking its size and SHA-256. Android asks once to allow installs
+from the app.
+
+The banner sits above every page of the console; tap it to download and install, or Later to hide it until the app
+starts again. The APK is checked against the console's list and its download answer, and Android must read it as this
+app with the promised version and signing key; a file that fails is deleted. On Android 13 and later the app asks once
+whether it may send notifications. The daily check uses only a sign-in kept without fingerprint unlock, while its token
+is still good, and never asks for anything; otherwise the check when the app opens covers it.
+
 ## 0.5.0
 
 The board log under Events and on each board's page, the activity log in the website's sentences (who signed in, changes

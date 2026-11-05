@@ -194,6 +194,9 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
 
     val usb = UsbConsole(app, viewModelScope)
 
+    /** A newer version of this app on the console (update/): checked when the console opens, installed on a tap. */
+    val appUpdate = com.craniumiot.cranium.update.AppUpdater(app, viewModelScope) { auth }
+
     init {
         viewModelScope.launch {
             val manager = try {
@@ -405,6 +408,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             recordSerialCommands(me.canWrite)
             _recent.value = withContext(Dispatchers.IO) { auth?.recentSearches().orEmpty() }
             _gate.value = Gate.Ready
+            appUpdate.check()
             showCache()
             if (pendingFullSignIn) {
                 pendingFullSignIn = false

@@ -164,6 +164,7 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.mcumgr.ble)
     implementation(libs.usb.serial)
+    implementation(libs.work.runtime.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
