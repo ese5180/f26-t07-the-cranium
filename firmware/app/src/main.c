@@ -34,6 +34,7 @@
 #include "factory.h"
 #include "health.h"
 #include "location.h"
+#include "mflt.h"
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
@@ -318,6 +319,7 @@ static void on_tick(void)
 	stuck_on_tick();
 	report_changes();
 	cloud_events_send();
+	mflt_on_tick();
 }
 
 static void on_button(const struct app_event *event)
@@ -337,6 +339,7 @@ static void on_button(const struct app_event *event)
 
 		cloud_disconnect();
 		(void)factory_reset();
+		mflt_reboot_mark(MFLT_REBOOT_FACTORY_RESET);
 		LOG_PANIC();
 		sys_reboot(SYS_REBOOT_COLD);
 	}
@@ -347,11 +350,11 @@ static void on_button(const struct app_event *event)
 static void on_job_message(void)
 {
 	enum cloud_job_message kind;
-	const char *payload;
-	size_t length;
+	enum ota_job_result result;
+	const struct ota_job *job;
 
-	if (cloud_job_message_get(&kind, &payload, &length)) {
-		ota_on_job_message(kind, payload, length);
+	if (cloud_job_message_get(&kind, &result, &job)) {
+		ota_on_job_message(kind, result, job);
 	}
 
 	if (cloud_job_message_done()) {
@@ -417,11 +420,13 @@ static void handle(const struct app_event *event)
 		boot_diary_stage(BOOT_DIARY_NET_UP);
 #endif
 		net_report_up();
+		mflt_on_net_up();
 		cloud_retry_in = CLOUD_SETTLE_SECONDS;
 		break;
 	case APP_EVENT_NET_DOWN:
 		LOG_INF("Network is down");
 		net_report_down();
+		mflt_on_net_down();
 		cloud_disconnect();
 		cloud_retry_in = -1;
 		break;
@@ -452,10 +457,12 @@ static void handle(const struct app_event *event)
 #endif
 		/* Last: the update's messages go first on a new connection. */
 		cloud_events_on_cloud_up();
+		mflt_on_cloud_up();
 		break;
 	case APP_EVENT_CLOUD_DOWN:
 		LOG_INF("Disconnected from AWS IoT");
 		cloud_events_on_cloud_down();
+		mflt_on_cloud_down();
 		location_on_cloud_down();
 		if (cloud_reconnect_asked) {
 			cloud_reconnect_asked = false;
@@ -645,6 +652,7 @@ int main(void)
 	}
 
 	LOG_INF("Thing name: %s", identity_thing_name());
+	mflt_init();
 
 	decide_mode();
 	console_start();

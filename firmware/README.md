@@ -93,6 +93,11 @@ Internal flash (1 MiB) and the 8 MiB external SPI flash:
 | `slot1_partition` (external flash) | `0x0` | 912 KiB | downloaded image waiting to be installed, then the previous image kept for revert |
 | `golden_partition` (external flash, bootloader only) | `0x700000` | 912 KiB | the [golden image](#golden-image): the plain signed file, with no trailer |
 
+RAM of the application core (512 KiB): TF-M has the first 48 KiB, and the non-secure application the next 396 KiB
+from 1.14.0 (400 KiB before). Then come 64 bytes for Memfault's reboot reason (`MFLT_REBOOT`, `0x2006f000`), 3,968
+for its coredump (`MFLT_COREDUMP`, `0x2006f040`), 64 left unused, and the 64 KiB the two cores share, from
+`0x20070000`. See [Memfault](#memfault).
+
 ## Serial console
 
 The board is set up and debugged from a plain serial monitor, one command per line, on the
@@ -926,14 +931,19 @@ them: they are for now. [`docs/fleet.md`](../docs/fleet.md), under Commands, has
   see [What the LEDs show](#what-the-leds-show). Another identify starts the time again.
 - **report** sends the heartbeat and the diagnostics report at once, and asks for a
   [location scan](#location-by-wi-fi), which that section's rules can hold: the 10-minute floor, an update, the
-  Bluetooth window.
+  Bluetooth window. From 1.14.0 it also sends what [Memfault](#memfault) data is waiting.
+- **memfault**, from 1.14.0, takes a heartbeat of Memfault's metrics now, instead of at the end of the hour, and
+  sends it with whatever else is waiting: `[CMD] memfault: heartbeat taken, sending (<id>)`.
+- **memfault_ack**, `{"id": ..., "cmd": "memfault_ack", "seq": 4711}`, is not for people: the cloud's answer for one
+  Memfault chunk ([Memfault](#memfault)). It goes past the one command that waits, and is never answered.
 
 `src/command.c` reads a message strictly, on the MQTT library's thread, into a struct of 20 bytes, and hands it to
 the main loop, which carries it out. A message is one JSON object, of at most 256 bytes, with `id`, `cmd` and, for
 identify, `seconds`, each at most once and nothing else; strings without escapes or control characters; values that
 are strings, numbers, `true`, `false` or `null`, and nothing nested. `id` is 16 hexadecimal digits. `cmd` is
-`identify` or `report`, as written. `seconds` is a whole number from 1 to 60; anything else, or none, is 15. One
-command waits for the main loop at a time.
+`identify`, `report`, `memfault` or `memfault_ack`, as written. `seconds` is a whole number from 1 to 60; anything
+else, or none, is 15. `seq`, for memfault_ack only, is a whole number from 0 to 65535. One command waits for the main
+loop at a time.
 
 The board answers each one on its [events topic](#events-to-the-console) with the tag `CMD`, which the console files
 as kind `setting`, and prints the same line on the serial console:
@@ -947,7 +957,7 @@ as kind `setting`, and prints the same line on the serial console:
 ```
 
 An ignored one says why: `too long`, `not a command` (not JSON of that kind), `unknown member`, `repeated member`,
-`no id`, `no cmd`, `unknown cmd`, or `the board is busy` (another was still waiting). The id is in the answer only
+`no id`, `no cmd`, `unknown cmd`, `no seq`, or `the board is busy` (another was still waiting). The id is in the answer only
 when the message was well formed and its id good, and nothing else of the message ever is. A build without the
 serial console sends no events, and so no answers, and still carries out the commands.
 
@@ -1028,6 +1038,47 @@ answers. `tests/host/test_location.c` checks what is kept against a plain refere
 JSON and its longest, and every rule of when, on a fake of the Wi-Fi stack; built twice, the second time for the
 Bluetooth window. `tests/host/test_ui.c` runs identify on the timers, and `tests/host/test_cloud.c` the topics and
 the guard. What a real scan does to a real link is for a board.
+
+## Memfault
+
+From firmware 1.14.0 the board keeps what Memfault needs, with Memfault's SDK, and sends it over its own AWS IoT
+connection: why every boot ended, a coredump of a crash, an hourly heartbeat of metrics, and an event for each
+update that ends. It never talks to Memfault itself and carries no project key: a function in AWS posts each chunk
+to Memfault and answers on the commands topic. [`docs/memfault.md`](../docs/memfault.md) has how it works, what is
+sent, what the owner sets up, and the crash demonstration (`CONFIG_APP_CRASH_DEMO`).
+
+```text
+cranium/<thing name>/memfault     the board publishes, QoS 0: 1, a 16-bit sequence number, one chunk
+cranium/<thing name>/commands     the cloud answers {"id": ..., "cmd": "memfault_ack", "seq": <n>}
+```
+
+- `src/mflt_link.c` sends one chunk of at most 400 bytes at a time and waits 20 s for its answer, then sends it again
+  after 30 s, doubling to an hour; an answer sends the next one at once. Not during a download or an installation,
+  and not while Bluetooth is open.
+- `src/mflt.c` gives the SDK the thing name as its device ID, the reset cause from `src/reset_cause.c`, the reboot
+  reasons this firmware knows (an update, a trial that ran out, the stuck timers, a factory reset, RESET), its
+  metrics and the update events.
+- The coredump (3,968 bytes) and the reboot reason are in two RAM regions of their own, `MFLT_COREDUMP` and
+  `MFLT_REBOOT` in `boards/nrf7002dk_nrf5340_cpuapp_ns.overlay`, at the same address in every image from 1.14.0, so
+  they outlive a revert to another such image. A fault in the secure domain (TF-M) leaves no coredump.
+
+### The device policy for Memfault
+
+The device policy has to allow `iot:Publish` on `topic/cranium/${iot:Connection.Thing.ThingName}/memfault` before a
+board runs 1.14.0. On a cloud whose policy does not, AWS IoT closes the connection after a chunk. A connection that
+ends within 5 s of one, before any answer came, is counted, and after two of those the board sends no Memfault data
+until a restart: `[memfault_link] WRN: AWS IoT closed the connection right after a Memfault chunk, 2 times: no
+Memfault data until a restart. Its device policy must allow cranium/<thing>/memfault`. Updates go on as before, and
+the trial is over before the first chunk goes.
+
+### Tests of Memfault
+
+`tests/host/test_mflt_link.c` sends chunks through the real `src/mflt_link.c` against a fake packetizer and a fake
+connection: in order, each after its answer, the same one again without one, the waits, the sizes, the sequence
+number's wrap and the device policy's guard. `tests/host/test_reset_cause.c` reads the cause once and clears it once,
+and checks what each set of bits comes down to. `tests/host/test_command.c` is built a second time with Memfault for
+the two commands, and `tests/host/test_cloud.c` checks the topic and the jobs message read where it arrives. What the
+SDK does on a crash, and the chunks reaching Memfault, are for a board.
 
 ## Firmware update over Bluetooth
 

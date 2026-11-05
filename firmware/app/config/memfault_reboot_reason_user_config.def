@@ -1,0 +1,13 @@
+/*
+ * Why this firmware restarts a board itself, beyond Memfault's own reasons, from 1.14.0
+ * (docs/memfault.md). An update is kMfltRebootReason_FirmwareUpdate, a trial that ran out is
+ * kMfltRebootReason_FirmwareUpdateError and RESET on the console is kMfltRebootReason_UserReset.
+ */
+
+/* Holding Button 2: everything provisioned is erased. */
+MEMFAULT_EXPECTED_REBOOT_REASON_DEFINE(FactoryReset)
+
+/* The restarts of src/stuck.c, one for each of its timers. */
+MEMFAULT_UNEXPECTED_REBOOT_REASON_DEFINE(StuckWifiSilent)
+MEMFAULT_UNEXPECTED_REBOOT_REASON_DEFINE(StuckNoCloud)
+MEMFAULT_UNEXPECTED_REBOOT_REASON_DEFINE(StuckUpdateStall)

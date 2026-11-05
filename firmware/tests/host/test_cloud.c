@@ -6,6 +6,10 @@
  * library sends. The connection's work runs when a test runs it, as the connection thread would.
  *
  * What the broker does, and the library's own threads, are for a board: see firmware/README.md.
+ *
+ * Built with CONFIG_APP_MEMFAULT, against fakes of what src/mflt.h counts: from 1.14.0 a frame of
+ * Memfault data goes to the board's own memfault topic, as bytes, and a jobs reply is read where it
+ * arrives, so that the 4 KB copy of it is gone.
  */
 
 #include <errno.h>
@@ -66,6 +70,8 @@ static struct {
 	enum aws_iot_shadow_topic_type sent_shadow_topic;
 	enum mqtt_qos sent_qos;
 	char sent_payload[CLOUD_EVENTS_JSON_MAX];
+	uint8_t sent_bytes[CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE];
+	size_t sent_len;
 
 	/* The connection thread. */
 	k_work_handler_t work;
@@ -79,6 +85,12 @@ static struct {
 	/* command.c */
 	int commands;
 	char command[64];
+
+	/* src/mflt.h */
+	int connected_notes;
+	int lost_notes;
+	int reports_sent;
+	int reports_failed;
 } lib;
 
 static struct identity_settings settings = { .endpoint = ENDPOINT,
@@ -150,6 +162,22 @@ const struct identity_settings *identity_settings_get(void)
 	return &settings;
 }
 
+void mflt_note_cloud_connected(void)
+{
+	lib.connected_notes++;
+}
+
+void mflt_note_cloud_lost(void)
+{
+	lib.lost_notes++;
+}
+
+void mflt_note_report(bool sent)
+{
+	lib.reports_sent += sent;
+	lib.reports_failed += !sent;
+}
+
 static void library_event(enum aws_iot_evt_type type, int err)
 {
 	struct aws_iot_evt event = { .type = type };
@@ -215,6 +243,9 @@ int aws_iot_send(const struct aws_iot_data *const tx_data)
 	lib.sent_shadow_topic = tx_data->topic.type;
 	lib.sent_qos = tx_data->qos;
 	snprintf(lib.sent_payload, sizeof(lib.sent_payload), "%.*s", (int)tx_data->len, tx_data->ptr);
+	lib.sent_len = tx_data->len;
+	CHECK(tx_data->len <= sizeof(lib.sent_bytes));
+	memcpy(lib.sent_bytes, tx_data->ptr, MIN(tx_data->len, sizeof(lib.sent_bytes)));
 	return lib.send_result;
 }
 
@@ -584,6 +615,142 @@ static void test_a_cloud_that_ends_the_connection_on_the_commands_subscription(v
 	CHECK(cloud_commands_given_up());
 }
 
+/* A frame of Memfault data: bytes, zeros and all, to the board's own topic, at QoS 0. */
+static void test_a_memfault_frame_goes_to_the_memfault_topic(void)
+{
+	static const uint8_t frame[] = { 1, 0x12, 0x34, 0x00, 0x08, 0x02, 0x00, 0xa7, 0xff };
+	uint32_t published = now_stats().published;
+
+	lib.uptime_ms = 11000;
+	CHECK(cloud_memfault_publish(frame, sizeof(frame)) == 0);
+	CHECK_TEXT(lib.sent_topic, "cranium/" THING "/memfault");
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_NONE);
+	CHECK(lib.sent_qos == MQTT_QOS_0_AT_MOST_ONCE);
+	CHECK(lib.sent_len == sizeof(frame));
+	CHECK(memcmp(lib.sent_bytes, frame, sizeof(frame)) == 0);
+	CHECK(now_stats().published == published + 1);
+
+	/* What the library does not take was not published, and src/mflt_link.c holds the frame. */
+	lib.send_result = -EAGAIN;
+	CHECK(cloud_memfault_publish(frame, sizeof(frame)) == -EAGAIN);
+	CHECK(now_stats().published == published + 1);
+	lib.send_result = 0;
+
+	/* The topic is no subscription: the answers come on the commands topic. */
+	for (size_t i = 0; cloud_subscription(i) != NULL; i++) {
+		CHECK(strstr(cloud_subscription(i), "/memfault") == NULL);
+	}
+
+	/* What cloud.c asserts at build time, with the topic it made, for the largest chunk. */
+	CHECK(strlen(topic_memfault) == MEMFAULT_TOPIC_LENGTH);
+	CHECK(PUBLISH_QOS0_HEADER + strlen(topic_memfault) + MFLT_LINK_HEADER + MFLT_LINK_CHUNK_LIMIT <=
+	      CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE);
+}
+
+/* What Memfault is told of the connection and of the shadow reports. */
+static void test_memfault_hears_of_the_connection_and_the_reports(void)
+{
+	int connected = lib.connected_notes;
+	int lost = lib.lost_notes;
+
+	library_event(AWS_IOT_EVT_CONNECTED, 0);
+	CHECK(lib.connected_notes == connected + 1);
+	library_event(AWS_IOT_EVT_DISCONNECTED, 0);
+	CHECK(lib.lost_notes == lost + 1);
+	/* A second word that it is down is not a second loss. */
+	library_event(AWS_IOT_EVT_DISCONNECTED, 0);
+	library_event(AWS_IOT_EVT_ERROR, -ECONNRESET);
+	CHECK(lib.lost_notes == lost + 1);
+	library_event(AWS_IOT_EVT_CONNECTED, 0);
+	library_event(AWS_IOT_EVT_ERROR, -ECONNRESET);
+	CHECK(lib.lost_notes == lost + 2);
+
+	library_event(AWS_IOT_EVT_CONNECTED, 0);
+	lib.reports_sent = 0;
+	lib.reports_failed = 0;
+	CHECK(cloud_shadow_report("{\"uptime\":1}") == 0);
+	lib.send_result = -EAGAIN;
+	CHECK(cloud_shadow_report("{\"uptime\":2}") == -EAGAIN);
+	lib.send_result = 0;
+	CHECK(lib.reports_sent == 1 && lib.reports_failed == 1);
+	/* An event or a location is no report. */
+	CHECK(cloud_event_publish("{}") == 0);
+	CHECK(cloud_location_publish("{}") == 0);
+	CHECK(lib.reports_sent == 1 && lib.reports_failed == 1);
+}
+
+#define JOB_REPLY(url)                                                                             \
+	"{\"clientToken\":\"x\",\"timestamp\":1760137000,\"execution\":{\"jobId\":\"job-7\","     \
+	"\"status\":\"QUEUED\",\"queuedAt\":1760136000,\"versionNumber\":1,\"executionNumber\":1,"   \
+	"\"jobDocument\":{\"op\":\"fw_update\",\"v\":1,\"fw\":{\"version\":\"9.1.0\",\"size\":1000,"   \
+	"\"sha256\":\"00000000000000000000000000000000000000000000000000000000000000ff\","            \
+	"\"url\":\"" url "\"}}}}"
+
+/*
+ * A reply to a request for the next job is read where it arrives, on the library's thread, with the
+ * prefix that the connection was made with, and the main loop gets what came of it.
+ */
+static void test_a_jobs_reply_is_read_where_it_arrives(void)
+{
+	enum cloud_job_message kind;
+	enum ota_job_result result;
+	const struct ota_job *job;
+	char reply[] = JOB_REPLY("https://b.example.com/fw/9.1.0.bin?X-Amz-Signature=ab");
+
+	/* The prefix is the connection's own copy: a change on the main loop waits for the next one. */
+	CHECK_TEXT(connect_url_prefix, "https://b.example.com/fw/");
+	strcpy(settings.download_url_prefix, "https://elsewhere.example.com/fw/");
+
+	CHECK(!cloud_job_message_get(&kind, &result, &job));
+	library_message("$aws/things/" THING "/jobs/$next/get/accepted", reply);
+	/* The library's buffer is gone once the callback returns: nothing may point into it. */
+	memset(reply, 'x', sizeof(reply) - 1);
+	CHECK(cloud_job_message_get(&kind, &result, &job));
+	CHECK(kind == CLOUD_JOB_GET_ACCEPTED);
+	CHECK(result == OTA_JOB_OK);
+	CHECK_TEXT(job->id, "job-7");
+	CHECK(!job->in_progress);
+	CHECK(job->version.major == 9 && job->version.minor == 1 && job->size == 1000);
+	CHECK_TEXT(job->host, "https://b.example.com");
+	CHECK_TEXT(job->file, "fw/9.1.0.bin?X-Amz-Signature=ab");
+	CHECK(job->sha256[31] == 0xff);
+
+	/* Another while the main loop has that one: dropped, and the main loop is told to ask again. */
+	library_message("$aws/things/" THING "/jobs/$next/get/accepted",
+			JOB_REPLY("https://b.example.com/fw/other.bin"));
+	CHECK(cloud_job_message_get(&kind, &result, &job));
+	CHECK_TEXT(job->file, "fw/9.1.0.bin?X-Amz-Signature=ab");
+	CHECK(cloud_job_message_done());
+	CHECK(!cloud_job_message_get(&kind, &result, &job));
+
+	/* A URL under another prefix: refused by its id, as the main loop would have. */
+	library_message("$aws/things/" THING "/jobs/$next/get/accepted",
+			JOB_REPLY("https://elsewhere.example.com/fw/9.1.0.bin"));
+	CHECK(cloud_job_message_get(&kind, &result, &job));
+	CHECK(result == OTA_JOB_URL_NOT_ALLOWED);
+	CHECK_TEXT(job->id, "job-7");
+	CHECK(job->host[0] == '\0' && job->file[0] == '\0');
+	CHECK(!cloud_job_message_done());
+
+	/* Nothing pending, the other kinds, and what is not JSON. */
+	library_message("$aws/things/" THING "/jobs/$next/get/accepted", "{\"clientToken\":\"x\"}");
+	CHECK(cloud_job_message_get(&kind, &result, &job) && result == OTA_JOB_NONE);
+	CHECK(!cloud_job_message_done());
+	library_message("$aws/things/" THING "/jobs/notify-next", "{\"execution\":{\"jobId\":\"job-7\"}}");
+	CHECK(cloud_job_message_get(&kind, &result, &job));
+	CHECK(kind == CLOUD_JOB_NOTIFY_NEXT && result == OTA_JOB_NONE && job->id[0] == '\0');
+	CHECK(!cloud_job_message_done());
+	library_message("$aws/things/" THING "/jobs/$next/get/rejected", "{\"code\":\"InternalError\"}");
+	CHECK(cloud_job_message_get(&kind, &result, &job));
+	CHECK(kind == CLOUD_JOB_GET_REJECTED && result == OTA_JOB_NONE);
+	CHECK(!cloud_job_message_done());
+	library_message("$aws/things/" THING "/jobs/$next/get/accepted", "{\"execution\":");
+	CHECK(cloud_job_message_get(&kind, &result, &job) && result == OTA_JOB_MALFORMED);
+	CHECK(!cloud_job_message_done());
+
+	strcpy(settings.download_url_prefix, "https://b.example.com/fw/");
+}
+
 int main(void)
 {
 	test_before_anything_happened();
@@ -596,6 +763,9 @@ int main(void)
 	test_a_connection_that_ends();
 	test_errors_say_where_they_came_from();
 	test_a_cloud_that_ends_the_connection_on_the_commands_subscription();
+	test_a_memfault_frame_goes_to_the_memfault_topic();
+	test_memfault_hears_of_the_connection_and_the_reports();
+	test_a_jobs_reply_is_read_where_it_arrives();
 
 	printf("%d cloud checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

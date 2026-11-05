@@ -36,13 +36,24 @@ int uart_fifo_fill(const struct device *dev, const uint8_t *data, int size);
 int uart_err_check(const struct device *dev);
 void uart_poll_out(const struct device *dev, unsigned char byte);
 
+/* Zephyr's own values (drivers/hwinfo.h), which src/reset_cause.c's tests depend on. */
 #define RESET_PIN            (1u << 0)
 #define RESET_SOFTWARE       (1u << 1)
 #define RESET_BROWNOUT       (1u << 2)
+#define RESET_POR            (1u << 3)
 #define RESET_WATCHDOG       (1u << 4)
 #define RESET_DEBUG          (1u << 5)
-#define RESET_LOW_POWER_WAKE (1u << 6)
-#define RESET_CPU_LOCKUP     (1u << 7)
+#define RESET_SECURITY       (1u << 6)
+#define RESET_LOW_POWER_WAKE (1u << 7)
+#define RESET_CPU_LOCKUP     (1u << 8)
+#define RESET_PARITY         (1u << 9)
+#define RESET_PLL            (1u << 10)
+#define RESET_CLOCK          (1u << 11)
+#define RESET_HARDWARE       (1u << 12)
+#define RESET_USER           (1u << 13)
+#define RESET_TEMPERATURE    (1u << 14)
+#define RESET_BOOTLOADER     (1u << 15)
+#define RESET_FLASH          (1u << 16)
 int hwinfo_get_reset_cause(uint32_t *cause);
 int hwinfo_clear_reset_cause(void);
 

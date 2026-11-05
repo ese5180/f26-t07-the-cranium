@@ -383,9 +383,21 @@ static const char offer[] =
 	"0000000000000000000000000000000000000000000000000000000000000000\",\"url\":\""
 	URL_PREFIX "x.bin\"}}}}";
 
+/*
+ * A reply to a request for the next job, as cloud.c hands it to ota.c from 1.14.0: read where it
+ * arrives, with the connection's download URL prefix (cloud.h).
+ */
+static void reply_arrives(const char *json)
+{
+	static struct ota_job read;
+	enum ota_job_result result = ota_job_parse(json, strlen(json), URL_PREFIX, &read);
+
+	ota_on_job_message(CLOUD_JOB_GET_ACCEPTED, result, &read);
+}
+
 static void job_arrives(void)
 {
-	ota_on_job_message(CLOUD_JOB_GET_ACCEPTED, offer, strlen(offer));
+	reply_arrives(offer);
 }
 
 #if !defined(CONFIG_APP_TEST_FAULT_NO_CONFIRM)
@@ -732,7 +744,7 @@ static void job_listed(const char *id, const char *status, const char *version)
 		       "0000000000000000000000000000000000000000000000000000000000000000\",\"url\":\""
 		       URL_PREFIX "x.bin\"}}}}",
 		       id, status, version);
-	ota_on_job_message(CLOUD_JOB_GET_ACCEPTED, message, strlen(message));
+	reply_arrives(message);
 }
 
 /* The same answer when no job is pending. */
@@ -740,7 +752,7 @@ static void no_job_listed(void)
 {
 	static const char none[] = "{\"clientToken\":\"x\",\"timestamp\":1760137000}";
 
-	ota_on_job_message(CLOUD_JOB_GET_ACCEPTED, none, strlen(none));
+	reply_arrives(none);
 }
 
 static void ticks(int seconds)
@@ -1333,7 +1345,7 @@ static void test_a_version_that_is_not_newer_is_refused(void)
 			"{\"execution\":{\"jobId\":\"job-5\",\"status\":\"QUEUED\",\"jobDocument\":"
 			"{\"op\":\"reboot\",\"v\":1}}}";
 
-		ota_on_job_message(CLOUD_JOB_GET_ACCEPTED, other, strlen(other));
+		reply_arrives(other);
 	}
 	CHECK(ota_state() == OTA_IDLE);
 	CHECK(last_update_says("\"reason\":\"unsupported\""));

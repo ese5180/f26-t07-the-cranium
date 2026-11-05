@@ -35,7 +35,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/stuck_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
 		$(BUILD)/fault_wifi_tests $(BUILD)/fault_wifi_command_tests $(BUILD)/app_fault_tests \
 		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests \
-		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests
+		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests \
+		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -62,6 +63,9 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/location_tests
 	./$(BUILD)/location_bt_tests
 	./$(BUILD)/image_compat_tests
+	./$(BUILD)/command_mflt_tests
+	./$(BUILD)/mflt_link_tests
+	./$(BUILD)/reset_cause_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -79,9 +83,11 @@ $(BUILD)/console_tests: test_console.c $(CONSOLE_SOURCES) $(BUILD)/base64.o $(CO
 
 # console.c on a fake UART, and main.c and net.c on a fake network stack. These test files
 # include the real source files, to get at what they keep static.
-$(BUILD)/console_output_tests: test_console_output.c $(SRC)/console.c $(SRC)/console_parser.c $(CONSOLE_HEADERS)
+$(BUILD)/console_output_tests: test_console_output.c $(SRC)/console.c $(SRC)/console_parser.c $(SRC)/reset_cause.c \
+		$(CONSOLE_HEADERS)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_console_output.c $(SRC)/console_parser.c
+	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_DEFINES) -o $@ test_console_output.c $(SRC)/console_parser.c \
+		$(SRC)/reset_cause.c
 
 $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/stuck.c $(SRC)/stuck_policy.c $(SRC)/join_policy.c \
 		$(CONSOLE_HEADERS)
@@ -90,13 +96,17 @@ $(BUILD)/app_tests: test_app.c $(SRC)/main.c $(SRC)/net.c $(SRC)/diag.c $(SRC)/s
 
 # cloud.c, included by its test to get at the AWS IoT library's callback and the connection's work,
 # against a fake of that library: what the console's MQTT command counts, and the topics it lists.
+# With CONFIG_APP_MEMFAULT, as a board has it from 1.14.0: the memfault topic, what src/mflt.h is
+# told, and a jobs reply read where it arrives, by the real job parser.
 $(BUILD)/cloud_tests: test_cloud.c $(SRC)/cloud.c $(SRC)/cloud.h $(SRC)/app_events.h $(SRC)/identity.h \
-		$(SRC)/cloud_events.h $(SRC)/command.h $(SRC)/location.h stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h \
-		stubs/zephyr/kernel.h
+		$(SRC)/cloud_events.h $(SRC)/command.h $(SRC)/location.h $(SRC)/mflt.h $(SRC)/mflt_link.h \
+		$(SRC)/ota_job.c $(SRC)/ota_job.h $(SRC)/version.c stubs/net/aws_iot.h stubs/zephyr/net/mqtt.h \
+		stubs/zephyr/kernel.h $(BUILD)/cJSON.o
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN=4096 \
 		-DCONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE=512 -DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" \
-		-o $@ test_cloud.c
+		-DCONFIG_APP_MEMFAULT=1 -DCONFIG_APP_MEMFAULT_CHUNK_MAX=400 \
+		-o $@ test_cloud.c $(SRC)/ota_job.c $(SRC)/version.c $(BUILD)/cJSON.o -lm
 
 # The events for the console (src/cloud_events.c), included by its test to get at the ring and the
 # connection's state, against fakes of the cloud, the main loop's queue and the Wi-Fi store: what is
@@ -110,11 +120,31 @@ $(BUILD)/cloud_events_tests: test_cloud_events.c $(SRC)/cloud_events.c $(SRC)/cl
 # The console's commands (src/command.c), included by its test, against fakes of the main loop's queue,
 # the LEDs, the reports and the location: reading a message strictly, hostile ones above all, and what
 # each command does and answers.
-$(BUILD)/command_tests: test_command.c $(SRC)/command.c $(SRC)/command.h $(SRC)/location.h $(SRC)/ui.h \
-		$(SRC)/app_events.h $(SRC)/console.h stubs/zephyr/kernel.h
+# The second is a build with Memfault, from 1.14.0, against fakes of src/mflt.h: the memfault command,
+# and the answers for its chunks, which go past the one command that waits.
+COMMAND_DEPS := test_command.c $(SRC)/command.c $(SRC)/command.h $(SRC)/location.h $(SRC)/ui.h \
+	$(SRC)/app_events.h $(SRC)/console.h $(SRC)/mflt.h stubs/zephyr/kernel.h
+$(BUILD)/command_tests: $(COMMAND_DEPS)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_LOCATION=1 \
 		-o $@ test_command.c
+
+$(BUILD)/command_mflt_tests: $(COMMAND_DEPS)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_LOG_LEVEL=0 -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_LOCATION=1 \
+		-DCONFIG_APP_MEMFAULT=1 -o $@ test_command.c
+
+# How Memfault chunks go to the cloud (src/mflt_link.c), from 1.14.0: in order, each after its
+# answer, again after no answer, and their sizes. It needs nothing but the C library.
+$(BUILD)/mflt_link_tests: test_mflt_link.c $(SRC)/mflt_link.c $(SRC)/mflt_link.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_mflt_link.c $(SRC)/mflt_link.c
+
+# Why the last boot ended (src/reset_cause.c), from 1.14.0 read once and cleared once, included by
+# its test against a fake of the register.
+$(BUILD)/reset_cause_tests: test_reset_cause.c $(SRC)/reset_cause.c $(SRC)/reset_cause.h stubs/host_hw.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_reset_cause.c
 
 # Location by Wi-Fi (src/location.c), included by its test, against fakes of the Wi-Fi stack's scan, the
 # cloud, the update and the main loop's queue: what is kept, the JSON, when a scan happens and what holds

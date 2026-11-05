@@ -45,6 +45,20 @@ config MCUBOOT_EXTRA_IMGTOOL_ARGS
 
 endif # BOOTLOADER_MCUBOOT
 
+# Before the definitions in the nRF Connect SDK's Memfault module, for the same reason. What Memfault
+# calls the firmware is what MCUboot and the shadow call it, "1.14.0+0": the module's own default
+# asks for $(VERSION_MAJOR), which nothing gives Kconfig, and would leave it empty. And the hardware
+# is the board type, as the console and the image's TLV say it, not the Zephyr board name.
+if MEMFAULT
+
+config MEMFAULT_NCS_FW_VERSION
+	default "$(APP_VERSION_TWEAK_STRING)" if MEMFAULT_NCS_FW_VERSION_STATIC
+
+config MEMFAULT_NCS_HW_VERSION
+	default APP_BOARD_TYPE
+
+endif # MEMFAULT
+
 config APP_THING_NAME_PREFIX
 	string "Prefix of the AWS IoT thing name"
 	default "cranium-"
@@ -227,6 +241,55 @@ config APP_BT_OTA_TRIAL_MIN_SECONDS
 	  falls over soon after it starts does not get kept, and Wi-Fi has its chance.
 
 endif # APP_BT_OTA
+
+config APP_MEMFAULT
+	bool "Memfault: coredumps, metrics and reboot reasons, sent over AWS IoT"
+	depends on MEMFAULT
+	default y
+	help
+	  From 1.14.0 (docs/memfault.md). The Memfault SDK keeps a coredump of the last crash in RAM,
+	  the reason of each reboot and an hourly heartbeat of metrics. The board never talks to
+	  Memfault itself: src/mflt.c sends the SDK's chunks one at a time on its own AWS IoT
+	  connection to cranium/<thing name>/memfault, and a function in AWS posts each one to
+	  Memfault and answers on the commands topic, after which the next goes. No project key is
+	  in the image. The device policy in AWS IoT has to allow publishing there.
+
+if APP_MEMFAULT
+
+config APP_MEMFAULT_CHUNK_MAX
+	int "Largest Memfault chunk in one MQTT message"
+	default 400
+	range 64 460
+	help
+	  With its 3-byte header, its topic and the PUBLISH header it has to fit the MQTT buffer
+	  (CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE), which cloud.c checks when it is built.
+
+config APP_MEMFAULT_ACK_SECONDS
+	int "Seconds to wait for the cloud's answer to a chunk"
+	default 20
+	range 5 120
+	help
+	  Then the same chunk goes again, after 30 s, and the wait doubles after every chunk that
+	  gets no answer, up to an hour. A chunk that the cloud answers resets it.
+
+endif # APP_MEMFAULT
+
+config APP_CRASH_DEMO
+	bool "Crash once, on purpose, after the image is confirmed: for showing a coredump"
+	depends on APP_MEMFAULT && !APP_TEST_FAULT_WIFI_DEAD
+	help
+	  A demonstration image, never a release. It goes through its trial and is confirmed like
+	  any other, and once it has been connected for APP_CRASH_DEMO_AFTER_SECONDS it stops with
+	  k_oops(), once per install: the version it crashed on is kept in storage, under the record
+	  of APP_TEST_FAULT_WIFI_DEAD, which is why the two cannot be on together. The board
+	  restarts, still on this image, and sends the coredump. Its log line starts with "Test
+	  image:", so scripts/github-release.sh refuses it. See docs/memfault.md.
+
+config APP_CRASH_DEMO_AFTER_SECONDS
+	int "Seconds of connection after the confirmation before the crash"
+	depends on APP_CRASH_DEMO
+	default 60
+	range 10 3600
 
 config APP_VERSION_FROM_BUILD
 	bool

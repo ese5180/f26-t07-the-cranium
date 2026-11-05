@@ -18,6 +18,7 @@
 #include "app_events.h"
 #include "console.h"
 #include "location.h"
+#include "mflt.h"
 #include "ui.h"
 
 /* ---- reading a message ---------------------------------------------------------------- */
@@ -210,9 +211,11 @@ enum command_fault command_parse(const char *json, size_t len, struct command *o
 	struct value id = { 0 };
 	struct value cmd = { 0 };
 	struct value seconds = { 0 };
+	struct value seq = { 0 };
 	unsigned int seen_id = 0;
 	unsigned int seen_cmd = 0;
 	unsigned int seen_seconds = 0;
+	unsigned int seen_seq = 0;
 	enum command_fault members = COMMAND_OK;
 
 	memset(out, 0, sizeof(*out));
@@ -249,6 +252,9 @@ enum command_fault command_parse(const char *json, size_t len, struct command *o
 			} else if (is_text(name, name_length, "seconds")) {
 				seconds = v;
 				seen_seconds++;
+			} else if (is_text(name, name_length, "seq")) {
+				seq = v;
+				seen_seq++;
 			} else if (members == COMMAND_OK) {
 				members = COMMAND_UNKNOWN_MEMBER;
 			}
@@ -270,7 +276,8 @@ enum command_fault command_parse(const char *json, size_t len, struct command *o
 		out->id[COMMAND_ID_LENGTH] = '\0';
 	}
 
-	if (members == COMMAND_OK && (seen_id > 1 || seen_cmd > 1 || seen_seconds > 1)) {
+	if (members == COMMAND_OK &&
+	    (seen_id > 1 || seen_cmd > 1 || seen_seconds > 1 || seen_seq > 1)) {
 		members = COMMAND_REPEATED_MEMBER;
 	}
 
@@ -286,6 +293,18 @@ enum command_fault command_parse(const char *json, size_t len, struct command *o
 	} else if (is_text(cmd.text, cmd.length, "report")) {
 		out->kind = COMMAND_REPORT;
 		out->fault = COMMAND_OK;
+	} else if (is_text(cmd.text, cmd.length, "memfault")) {
+		out->kind = COMMAND_MEMFAULT;
+		out->fault = COMMAND_OK;
+	} else if (is_text(cmd.text, cmd.length, "memfault_ack")) {
+		if (seen_seq == 1 && seq.type == VALUE_NUMBER && seq.whole && seq.number >= 0 &&
+		    seq.number <= UINT16_MAX) {
+			out->kind = COMMAND_MEMFAULT_ACK;
+			out->seq = (uint16_t)seq.number;
+			out->fault = COMMAND_OK;
+		} else {
+			out->fault = COMMAND_NO_SEQ;
+		}
 	} else {
 		out->fault = COMMAND_UNKNOWN_CMD;
 	}
@@ -321,6 +340,8 @@ static const char *fault_text(enum command_fault fault)
 		return "no cmd";
 	case COMMAND_UNKNOWN_CMD:
 		return "unknown cmd";
+	case COMMAND_NO_SEQ:
+		return "no seq";
 	case COMMAND_BUSY:
 		return "the board is busy";
 	default:
@@ -382,7 +403,18 @@ static void run(void)
 		return;
 	}
 
+	if (command.kind == COMMAND_MEMFAULT) {
+		if (!IS_ENABLED(CONFIG_APP_MEMFAULT)) {
+			console_event("CMD", "memfault: not in this firmware (%s)", command.id);
+			return;
+		}
+		mflt_heartbeat_now();
+		console_event("CMD", "memfault: heartbeat taken, sending (%s)", command.id);
+		return;
+	}
+
 	app_send_reports();
+	mflt_drain_now();
 	hold = location_request();
 	if (hold == LOCATION_GO) {
 		console_event("CMD", "report: heartbeat, diagnostics and a location scan (%s)",
@@ -402,6 +434,12 @@ void command_received(const char *payload, size_t len)
 	struct command parsed;
 
 	(void)command_parse(payload, len, &parsed);
+
+	/* Not a person's: never answered, and never in the way of one that is. */
+	if (parsed.fault == COMMAND_OK && parsed.kind == COMMAND_MEMFAULT_ACK) {
+		mflt_on_answer(parsed.seq);
+		return;
+	}
 
 	if (!atomic_cas(&waiting, 0, 1)) {
 		parsed.fault = COMMAND_BUSY;

@@ -65,7 +65,12 @@ enum ota_state {
 int ota_init(void);
 
 void ota_on_cloud_up(void);
-void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t len);
+/*
+ * A jobs message, as cloud_job_message_get() hands it over: for CLOUD_JOB_GET_ACCEPTED, what
+ * ota_job_parse() made of it, in result and *job.
+ */
+void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
+			const struct ota_job *job);
 void ota_on_job_ack(char kind, uint16_t sequence, bool accepted, bool permanent);
 void ota_on_button(enum app_button button);
 void ota_on_download(enum app_download_event what, int value);

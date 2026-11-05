@@ -1,0 +1,17 @@
+/*
+ * Trace events: one for each update from the cloud that ends, with its result, from 1.14.0
+ * (src/ota.c, docs/memfault.md). The text says the reason, as the job's status does.
+ */
+
+/* Confirmed after its trial. The text is the version. */
+MEMFAULT_TRACE_REASON_DEFINE(update_succeeded)
+/* The download, the check of its digest or the installation failed. */
+MEMFAULT_TRACE_REASON_DEFINE(update_failed)
+/* The SHA-256 of what was downloaded is not the one in the job. */
+MEMFAULT_TRACE_REASON_DEFINE(update_digest_mismatch)
+/* The image is for another board type or flash layout (incompatible_board, incompatible_layout). */
+MEMFAULT_TRACE_REASON_DEFINE(update_incompatible)
+/* Refused without a download: not newer, too large, a URL that is not allowed, a bad document. */
+MEMFAULT_TRACE_REASON_DEFINE(update_refused)
+/* The new image was not confirmed and the bootloader put the old one back, or its trial was lost. */
+MEMFAULT_TRACE_REASON_DEFINE(update_rolled_back)

@@ -3,6 +3,7 @@
  * nobody meant to be a command, and what the main loop does with a command and says about it. The
  * real file is compiled here, against fakes of the main loop's queue, the LEDs, the reports and the
  * location, with the address and undefined-behaviour sanitizers watching every read of a message.
+ * It is built twice: as it is, and with CONFIG_APP_MEMFAULT, against fakes of src/mflt.h.
  */
 
 #include <errno.h>
@@ -53,6 +54,11 @@ static struct {
 	int reports;
 	int location_requests;
 	enum location_hold hold;
+	/* src/mflt.h, with CONFIG_APP_MEMFAULT only. */
+	int heartbeats;
+	int drains;
+	int answers;
+	uint16_t answer_seq;
 } fake;
 
 /* ---- what command.c calls ------------------------------------------------------------ */
@@ -94,6 +100,24 @@ enum location_hold location_request(void)
 	fake.location_requests++;
 	return fake.hold;
 }
+
+#if defined(CONFIG_APP_MEMFAULT)
+void mflt_heartbeat_now(void)
+{
+	fake.heartbeats++;
+}
+
+void mflt_drain_now(void)
+{
+	fake.drains++;
+}
+
+void mflt_on_answer(uint16_t seq)
+{
+	fake.answers++;
+	fake.answer_seq = seq;
+}
+#endif
 
 /* ---- helpers ------------------------------------------------------------------------- */
 
@@ -277,6 +301,23 @@ static void test_what_is_not_a_command(void)
 		{ "{\"id\":\"" ID "\",\"cmd\":\"reboot\"}", COMMAND_UNKNOWN_CMD, true },
 		{ "{\"id\":\"" ID "\",\"cmd\":\"factory_reset\"}", COMMAND_UNKNOWN_CMD, true },
 		{ "{\"id\":\"" ID "\",\"cmd\":\"\"}", COMMAND_UNKNOWN_CMD, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"Memfault\"}", COMMAND_UNKNOWN_CMD, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack \",\"seq\":1}", COMMAND_UNKNOWN_CMD, true },
+		/* memfault_ack's seq: once, a whole number from 0 to 65535. */
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\"}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":-1}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":65536}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":4294967297}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":1.5}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":1e2}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":\"7\"}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":null}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":true}", COMMAND_NO_SEQ, true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":1,\"seq\":2}", COMMAND_REPEATED_MEMBER,
+		  true },
+		{ "{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":1,\"ok\":true}", COMMAND_UNKNOWN_MEMBER,
+		  true },
+		{ "{\"cmd\":\"memfault_ack\",\"seq\":1}", COMMAND_NO_ID, false },
 	};
 	struct command c;
 
@@ -334,6 +375,7 @@ static void test_whatever_arrives(void)
 		"{\"id\":\"" ID "\",\"cmd\":\"identify\",\"seconds\":15}",
 		"{\"id\":\"" ID2 "\",\"cmd\":\"report\"}",
 		"{ \"cmd\" : \"identify\" , \"seconds\" : 1e5 , \"id\" : \"" ID "\" }",
+		"{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":65535}",
 	};
 	static const char alphabet[] = "{}[]\":,\\ \t\n-+.0123456789eEabcdefxyzidcmsrptnul\x01\x7f\xff";
 	char message[COMMAND_MAX + 8];
@@ -519,6 +561,86 @@ static void test_one_waits_at_a_time(void)
 	CHECK(fake.reports == 1);
 }
 
+static void test_the_memfault_commands(void)
+{
+	struct command c;
+
+	CHECK(parse("{\"id\":\"" ID "\",\"cmd\":\"memfault\"}", &c) == COMMAND_OK);
+	CHECK(c.kind == COMMAND_MEMFAULT);
+	check_sane(&c, COMMAND_OK);
+
+	/* The answer for a chunk, as the function in AWS writes it: its whole range. */
+	CHECK(parse("{\"id\":\"" ID2 "\",\"cmd\":\"memfault_ack\",\"seq\":4711}", &c) == COMMAND_OK);
+	CHECK(c.kind == COMMAND_MEMFAULT_ACK && c.seq == 4711);
+	check_sane(&c, COMMAND_OK);
+	CHECK(parse("{\"seq\": 0, \"cmd\": \"memfault_ack\", \"id\": \"" ID "\"}", &c) == COMMAND_OK);
+	CHECK(c.kind == COMMAND_MEMFAULT_ACK && c.seq == 0);
+	CHECK(parse("{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":65535}", &c) == COMMAND_OK);
+	CHECK(c.seq == 65535);
+
+	/* seq with another command is nothing, as seconds is with report. */
+	CHECK(parse("{\"id\":\"" ID "\",\"cmd\":\"report\",\"seq\":3}", &c) == COMMAND_OK);
+	CHECK(c.kind == COMMAND_REPORT && c.seq == 0);
+}
+
+static void test_an_answer_for_a_chunk_is_never_answered_and_never_waits(void)
+{
+	start_over();
+
+	received("{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":513}");
+	CHECK(fake.posts == 0);
+	CHECK(fake.lines == 0);
+	CHECK(atomic_get(&waiting) == 0);
+#if defined(CONFIG_APP_MEMFAULT)
+	CHECK(fake.answers == 1 && fake.answer_seq == 513);
+#endif
+
+	/* A command waits for the main loop: the answer still goes through, and the command stays. */
+	received("{\"id\":\"" ID2 "\",\"cmd\":\"identify\"}");
+	CHECK(fake.posts == 1);
+	received("{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":514}");
+	CHECK(fake.posts == 1);
+	CHECK(fake.lines == 0);
+#if defined(CONFIG_APP_MEMFAULT)
+	CHECK(fake.answers == 2 && fake.answer_seq == 514);
+#endif
+	run_loop();
+	CHECK_TEXT(fake.line, "identify for 15 s (" ID2 ")");
+
+	/* One that is not right is no answer, and is answered as any message that is not a command. */
+	start_over();
+	received("{\"id\":\"" ID "\",\"cmd\":\"memfault_ack\",\"seq\":70000}");
+	run_loop();
+	CHECK(fake.answers == 0);
+	CHECK_TEXT(fake.line, "ignored: no seq (" ID ")");
+}
+
+static void test_memfault_takes_a_heartbeat_and_says_so(void)
+{
+	start_over();
+	received("{\"id\":\"" ID "\",\"cmd\":\"memfault\"}");
+	CHECK(fake.heartbeats == 0);
+	run_loop();
+	CHECK(fake.reports == 0);
+	CHECK(fake.location_requests == 0);
+#if defined(CONFIG_APP_MEMFAULT)
+	CHECK(fake.heartbeats == 1);
+	CHECK_TEXT(fake.line, "memfault: heartbeat taken, sending (" ID ")");
+#else
+	CHECK_TEXT(fake.line, "memfault: not in this firmware (" ID ")");
+#endif
+
+	/* report sends what Memfault data waits, along with the rest. */
+	start_over();
+	received("{\"id\":\"" ID2 "\",\"cmd\":\"report\"}");
+	run_loop();
+	CHECK(fake.reports == 1);
+#if defined(CONFIG_APP_MEMFAULT)
+	CHECK(fake.drains == 1);
+	CHECK(fake.heartbeats == 0);
+#endif
+}
+
 int main(void)
 {
 	test_the_two_commands_as_the_console_sends_them();
@@ -530,6 +652,9 @@ int main(void)
 	test_report_sends_everything_it_may();
 	test_what_is_ignored_says_why();
 	test_one_waits_at_a_time();
+	test_the_memfault_commands();
+	test_an_answer_for_a_chunk_is_never_answered_and_never_waits();
+	test_memfault_takes_a_heartbeat_and_says_so();
 
 	printf("%d command checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

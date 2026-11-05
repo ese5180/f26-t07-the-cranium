@@ -49,6 +49,7 @@ target_sources(app PRIVATE
   src/net.c
   src/ota.c
   src/ota_job.c
+  src/reset_cause.c
   src/store.c
   src/stuck.c
   src/stuck_policy.c
@@ -89,6 +90,27 @@ target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud_events.c)
 target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/location.c)
 if(CONFIG_APP_TEST_FAULT_WIFI_DEAD AND CONFIG_NRF_WIFI_RPU_RECOVERY)
   message(FATAL_ERROR "APP_TEST_FAULT_WIFI_DEAD needs -Dapp_CONFIG_NRF_WIFI_RPU_RECOVERY=n as well")
+endif()
+
+# Memfault, from 1.14.0 (docs/memfault.md). The SDK looks for its three configuration files on the
+# include path of each of its libraries, so this directory goes on every one. What it keeps across a
+# reset has to be in the two memory regions of the board's overlay, at the same address in every
+# image; prj.conf names them, and this stops a build that would put them anywhere else.
+if(CONFIG_MEMFAULT)
+  zephyr_include_directories(config)
+endif()
+target_sources_ifdef(CONFIG_APP_MEMFAULT app PRIVATE src/mflt.c src/mflt_link.c)
+if(CONFIG_APP_MEMFAULT AND
+   (NOT CONFIG_MEMFAULT_RAM_BACKED_COREDUMP OR
+    NOT CONFIG_MEMFAULT_RAM_BACKED_COREDUMP_REGION STREQUAL "MFLT_COREDUMP" OR
+    NOT CONFIG_MEMFAULT_REBOOT_TRACKING_REGION STREQUAL "MFLT_REBOOT"))
+  message(FATAL_ERROR "Memfault's coredump and reboot reason must be in the regions MFLT_COREDUMP "
+                      "and MFLT_REBOOT of the board's overlay: see prj.conf")
+endif()
+# The board never talks to Memfault itself, and its image carries no project key.
+if(CONFIG_APP_MEMFAULT AND (CONFIG_MEMFAULT_HTTP_ENABLE OR NOT CONFIG_MEMFAULT_NCS_PROJECT_KEY STREQUAL ""))
+  message(FATAL_ERROR "The Memfault chunks go over AWS IoT: no HTTP client and no project key in the "
+                      "image (CONFIG_MEMFAULT_HTTP_ENABLE, CONFIG_MEMFAULT_NCS_PROJECT_KEY)")
 endif()
 
 zephyr_linker_sources_ifdef(CONFIG_LOG SECTIONS src/log_backend_check.ld)

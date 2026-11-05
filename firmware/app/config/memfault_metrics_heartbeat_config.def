@@ -1,0 +1,29 @@
+/*
+ * This firmware's own metrics in Memfault's hourly heartbeat, from 1.14.0 (docs/memfault.md).
+ * The SDK adds its own: the heap (Heap_BytesFree, memory_pct_max), the time connected to the
+ * cloud (connectivity_connected_time), the shadow reports that got out or did not
+ * (sync_successful, sync_failure) and the boot time.
+ */
+
+/*
+ * Wi-Fi, by the names of the SDK's own Wi-Fi metrics, which are off (CONFIG_MEMFAULT_METRICS_WIFI):
+ * they would also send the access point's OUI. Set from the main loop by src/mflt.c.
+ */
+MEMFAULT_METRICS_KEY_DEFINE(wifi_connected_time_ms, kMemfaultMetricType_Timer)
+MEMFAULT_METRICS_KEY_DEFINE(wifi_disconnect_count, kMemfaultMetricType_Unsigned)
+MEMFAULT_METRICS_KEY_DEFINE(wifi_sta_rssi, kMemfaultMetricType_Signed)
+MEMFAULT_METRICS_KEY_DEFINE(wifi_primary_channel, kMemfaultMetricType_Unsigned)
+
+/* AWS IoT: connections after the first of a boot. */
+MEMFAULT_METRICS_KEY_DEFINE(mqtt_reconnect_count, kMemfaultMetricType_Unsigned)
+
+/* Updates from the cloud: started (the cloud accepted the start), failed and refused. */
+MEMFAULT_METRICS_KEY_DEFINE(ota_attempt_count, kMemfaultMetricType_Unsigned)
+MEMFAULT_METRICS_KEY_DEFINE(ota_failure_count, kMemfaultMetricType_Unsigned)
+MEMFAULT_METRICS_KEY_DEFINE(ota_refusal_count, kMemfaultMetricType_Unsigned)
+
+/* Restarts in a row for being stuck (src/stuck.h), as the shadow says it. */
+MEMFAULT_METRICS_KEY_DEFINE(stuck_restart_count, kMemfaultMetricType_Unsigned)
+
+/* This board's own chunks: sent again because no answer came. */
+MEMFAULT_METRICS_KEY_DEFINE(memfault_chunk_retry_count, kMemfaultMetricType_Unsigned)

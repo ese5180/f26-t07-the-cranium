@@ -623,11 +623,12 @@ int cloud_jobs_request_next(void)
 	return 0;
 }
 
-bool cloud_job_message_get(enum cloud_job_message *kind, const char **payload, size_t *len)
+bool cloud_job_message_get(enum cloud_job_message *kind, enum ota_job_result *result,
+			   const struct ota_job **job)
 {
 	ARG_UNUSED(kind);
-	ARG_UNUSED(payload);
-	ARG_UNUSED(len);
+	ARG_UNUSED(result);
+	ARG_UNUSED(job);
 	return false;
 }
 
@@ -645,11 +646,12 @@ void ota_on_cloud_up(void)
 {
 }
 
-void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t len)
+void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
+			const struct ota_job *job)
 {
 	ARG_UNUSED(kind);
-	ARG_UNUSED(payload);
-	ARG_UNUSED(len);
+	ARG_UNUSED(result);
+	ARG_UNUSED(job);
 }
 
 void ota_on_job_ack(char kind, uint16_t sequence, bool accepted, bool permanent)

@@ -30,6 +30,7 @@
 #include "device.h"
 #include "identity.h"
 #include "image_compat.h"
+#include "mflt.h"
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
@@ -59,7 +60,8 @@ LOG_MODULE_REGISTER(bt_ota, CONFIG_APP_LOG_LEVEL);
 #if defined(CONFIG_MCUMGR_GRP_OS) || defined(CONFIG_MCUMGR_GRP_FS) || \
 	defined(CONFIG_MCUMGR_GRP_SHELL) || defined(CONFIG_MCUMGR_GRP_STAT) || \
 	defined(CONFIG_MCUMGR_GRP_SETTINGS) || defined(CONFIG_MCUMGR_GRP_ZBASIC) || \
-	defined(CONFIG_MCUMGR_GRP_ENUM)
+	defined(CONFIG_MCUMGR_GRP_ENUM) || defined(CONFIG_MEMFAULT_MCUMGR_GRP)
+/* The Memfault SDK's group, on by default with MCUmgr, would read out its project key. */
 #error "MCUmgr must have the image group and no other"
 #endif
 #if defined(CONFIG_MCUMGR_TRANSPORT_UART) || defined(CONFIG_MCUMGR_TRANSPORT_RAW_UART) || \
@@ -972,6 +974,7 @@ static void install_image(void)
 
 	say_record("restarting into the bootloader");
 	cloud_disconnect();
+	mflt_reboot_mark(MFLT_REBOOT_UPDATE);
 	LOG_PANIC();
 	sys_reboot(SYS_REBOOT_COLD);
 }

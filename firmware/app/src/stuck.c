@@ -14,6 +14,7 @@
 #include "factory.h"
 #include "health.h"
 #include "identity.h"
+#include "mflt.h"
 #include "net.h"
 #include "ota.h"
 #include "store.h"
@@ -89,6 +90,21 @@ static void restart(uint32_t actions)
 
 		/* If this fails the next restart comes sooner, and that is all that happens. */
 		(void)store_write(STORE_STUCK, &record, sizeof(record));
+	}
+
+	/* Which timer it was, for Memfault's reboot reason: RAM only, nothing that could hang. */
+	switch (state.reason) {
+	case STUCK_REASON_WIFI_SILENT:
+		mflt_reboot_mark(MFLT_REBOOT_STUCK_WIFI_SILENT);
+		break;
+	case STUCK_REASON_NO_CLOUD:
+		mflt_reboot_mark(MFLT_REBOOT_STUCK_NO_CLOUD);
+		break;
+	case STUCK_REASON_UPDATE_STALL:
+		mflt_reboot_mark(MFLT_REBOOT_STUCK_UPDATE_STALL);
+		break;
+	default:
+		break;
 	}
 
 	/* The way health.c ends a trial. Nothing else is touched: it may be what is stuck. */

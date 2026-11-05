@@ -14,6 +14,10 @@
 #include "command.h"
 #include "identity.h"
 #include "location.h"
+#include "mflt.h"
+#if defined(CONFIG_APP_MEMFAULT)
+#include "mflt_link.h"
+#endif
 
 LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 
@@ -30,6 +34,7 @@ LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 #define EVENTS_TOPIC_LENGTH   OWN_TOPIC_LENGTH("events")
 #define COMMANDS_TOPIC_LENGTH OWN_TOPIC_LENGTH("commands")
 #define LOCATION_TOPIC_LENGTH OWN_TOPIC_LENGTH("location")
+#define MEMFAULT_TOPIC_LENGTH OWN_TOPIC_LENGTH("memfault")
 #define PUBLISH_QOS0_HEADER 5
 BUILD_ASSERT(EVENTS_TOPIC_LENGTH < TOPIC_MAX, "the events topic must fit its buffer");
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX - 1 <=
@@ -38,6 +43,12 @@ BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX -
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + LOCATION_TOPIC_LENGTH + LOCATION_JSON_MAX - 1 <=
 		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
 	     "the longest location must fit the MQTT buffer with its topic");
+#if defined(CONFIG_APP_MEMFAULT)
+BUILD_ASSERT(PUBLISH_QOS0_HEADER + MEMFAULT_TOPIC_LENGTH + MFLT_LINK_HEADER +
+			     CONFIG_APP_MEMFAULT_CHUNK_MAX <=
+		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
+	     "the largest Memfault frame must fit the MQTT buffer with its topic");
+#endif
 #define CONNECT_STACK    4096
 #define CONNECT_PRIORITY K_PRIO_PREEMPT(10)
 
@@ -51,6 +62,9 @@ static char topic_events[TOPIC_MAX];
 /* Only as long as they can be: RAM is short. */
 static char topic_commands[COMMANDS_TOPIC_LENGTH + 1];
 static char topic_location[LOCATION_TOPIC_LENGTH + 1];
+#if defined(CONFIG_APP_MEMFAULT)
+static char topic_memfault[MEMFAULT_TOPIC_LENGTH + 1];
+#endif
 
 /*
  * What is subscribed to, in this order. The console lists them from here as well. The commands
@@ -80,6 +94,11 @@ static struct k_work_q connect_queue;
 static struct k_work connect_work;
 /* The connection thread's own copy: the settings can change on the main loop. */
 static char connect_host[IDENTITY_ENDPOINT_MAX];
+/*
+ * Where this connection's jobs may download from, for the MQTT library's thread, which reads them
+ * (cloud_job_message_get()). Copied with the host, while no connection is up or being made.
+ */
+static char connect_url_prefix[IDENTITY_URL_PREFIX_MAX];
 
 static atomic_t connected;
 static atomic_t connecting;
@@ -118,9 +137,12 @@ static void stats_note_down(void)
 	k_spin_unlock(&stats_lock, key);
 }
 
-/* One jobs message at a time is handed to the main loop. */
-static char job_payload[CONFIG_MQTT_HELPER_PAYLOAD_BUFFER_LEN + 1];
-static size_t job_payload_len;
+/*
+ * One jobs message at a time is handed to the main loop, read already: written here while job_busy
+ * is 0, and read by the main loop while it is 1.
+ */
+static struct ota_job job_read;
+static enum ota_job_result job_result;
 static enum cloud_job_message job_kind;
 static atomic_t job_busy;
 static atomic_t job_overrun;
@@ -222,22 +244,24 @@ static void on_update_reply(bool accepted, const char *payload, size_t len)
 	(void)app_event_post(&event);
 }
 
+/*
+ * The MQTT library's own buffer holds the message only until this returns, so the reply that the
+ * main loop needs is read here, as the main loop would: the same function, the same checks. Only
+ * what it found is kept.
+ */
 static void queue_job_message(enum cloud_job_message kind, const char *payload, size_t len)
 {
-	if (len >= sizeof(job_payload)) {
-		LOG_WRN("Jobs message of %u bytes is too large and was dropped", (unsigned int)len);
-		return;
-	}
-
 	if (!atomic_cas(&job_busy, 0, 1)) {
 		atomic_set(&job_overrun, 1);
 		return;
 	}
 
-	memcpy(job_payload, payload, len);
-	job_payload[len] = '\0';
-	job_payload_len = len;
 	job_kind = kind;
+	job_result = OTA_JOB_NONE;
+	memset(&job_read, 0, sizeof(job_read));
+	if (kind == CLOUD_JOB_GET_ACCEPTED) {
+		job_result = ota_job_parse(payload, len, connect_url_prefix, &job_read);
+	}
 
 	if (app_event_post_simple(APP_EVENT_JOB_MESSAGE) != 0) {
 		atomic_set(&job_busy, 0);
@@ -286,11 +310,13 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 		k_spin_unlock(&stats_lock, key);
 
 		atomic_set(&connected, 1);
+		mflt_note_cloud_connected();
 		(void)app_event_post_simple(APP_EVENT_CLOUD_UP);
 		break;
 	case AWS_IOT_EVT_DISCONNECTED:
 		if (atomic_set(&connected, 0)) {
 			stats_note_down();
+			mflt_note_cloud_lost();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
 		}
 		break;
@@ -310,6 +336,7 @@ static void on_aws_iot_event(const struct aws_iot_evt *const event)
 		}
 		if (atomic_set(&connected, 0)) {
 			stats_note_down();
+			mflt_note_cloud_lost();
 			(void)app_event_post_simple(APP_EVENT_CLOUD_DOWN);
 		}
 		break;
@@ -435,6 +462,14 @@ int cloud_init(void)
 		return -ENOSPC;
 	}
 
+#if defined(CONFIG_APP_MEMFAULT)
+	written = snprintk(topic_memfault, sizeof(topic_memfault), "cranium/%s/memfault",
+			   identity_thing_name());
+	if (written < 0 || written >= (int)sizeof(topic_memfault)) {
+		return -ENOSPC;
+	}
+#endif
+
 	for (size_t i = 0; i < ARRAY_SIZE(subscribed); i++) {
 		subscribe_to(i, subscribed[i]);
 	}
@@ -467,6 +502,7 @@ void cloud_connect(void)
 	}
 
 	strcpy(connect_host, config->endpoint);
+	strcpy(connect_url_prefix, config->download_url_prefix);
 	(void)k_work_submit_to_queue(&connect_queue, &connect_work);
 }
 
@@ -519,8 +555,8 @@ bool cloud_commands_given_up(void)
 	return atomic_get(&commands_off) != 0;
 }
 
-static int publish_at(enum mqtt_qos qos, const char *topic,
-		      enum aws_iot_shadow_topic_type shadow_topic, const char *payload)
+static int publish_bytes(enum mqtt_qos qos, const char *topic,
+			 enum aws_iot_shadow_topic_type shadow_topic, const void *payload, size_t len)
 {
 	struct aws_iot_data message = {
 		.qos = qos,
@@ -528,7 +564,7 @@ static int publish_at(enum mqtt_qos qos, const char *topic,
 		.topic.str = topic,
 		.topic.len = topic ? strlen(topic) : 0,
 		.ptr = (char *)payload,
-		.len = strlen(payload),
+		.len = len,
 	};
 	k_spinlock_key_t key;
 	int err;
@@ -550,6 +586,12 @@ static int publish_at(enum mqtt_qos qos, const char *topic,
 	return err;
 }
 
+static int publish_at(enum mqtt_qos qos, const char *topic,
+		      enum aws_iot_shadow_topic_type shadow_topic, const char *payload)
+{
+	return publish_bytes(qos, topic, shadow_topic, payload, strlen(payload));
+}
+
 static int publish(const char *topic, enum aws_iot_shadow_topic_type shadow_topic,
 		   const char *payload)
 {
@@ -566,7 +608,10 @@ int cloud_shadow_report(const char *reported_json)
 		return -ENOSPC;
 	}
 
-	return publish(NULL, AWS_IOT_SHADOW_TOPIC_UPDATE, document);
+	written = publish(NULL, AWS_IOT_SHADOW_TOPIC_UPDATE, document);
+	/* Memfault's sync success rate: the reports that got out, and those that did not. */
+	mflt_note_report(written == 0);
+	return written;
 }
 
 /* QoS 0: nothing here would send it again, and the shadow is what the board's state is kept in. */
@@ -589,6 +634,19 @@ int cloud_location_publish(const char *json)
 	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic_location, AWS_IOT_SHADOW_TOPIC_NONE, json);
 }
 
+#if defined(CONFIG_APP_MEMFAULT)
+/* QoS 0: src/mflt_link.c waits for the cloud's own answer, and sends again without one. */
+int cloud_memfault_publish(const uint8_t *frame, size_t len)
+{
+	if (topic_memfault[0] == '\0') {
+		return -ENOTCONN;
+	}
+
+	return publish_bytes(MQTT_QOS_0_AT_MOST_ONCE, topic_memfault, AWS_IOT_SHADOW_TOPIC_NONE,
+			     frame, len);
+}
+#endif
+
 int cloud_jobs_request_next(void)
 {
 	return publish(topic_get_next, AWS_IOT_SHADOW_TOPIC_NONE, "{}");
@@ -607,15 +665,16 @@ int cloud_jobs_update(const char *job_id, const char *body_json)
 	return publish(topic, AWS_IOT_SHADOW_TOPIC_NONE, body_json);
 }
 
-bool cloud_job_message_get(enum cloud_job_message *kind, const char **payload, size_t *len)
+bool cloud_job_message_get(enum cloud_job_message *kind, enum ota_job_result *result,
+			   const struct ota_job **job)
 {
 	if (!atomic_get(&job_busy)) {
 		return false;
 	}
 
 	*kind = job_kind;
-	*payload = job_payload;
-	*len = job_payload_len;
+	*result = job_result;
+	*job = &job_read;
 	return true;
 }
 

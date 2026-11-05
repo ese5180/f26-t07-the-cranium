@@ -6,6 +6,8 @@
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/sys/reboot.h>
 
+#include "mflt.h"
+
 LOG_MODULE_REGISTER(health, CONFIG_APP_LOG_LEVEL);
 
 static const struct device *const watchdog = DEVICE_DT_GET(DT_ALIAS(watchdog0));
@@ -58,6 +60,7 @@ void health_feed(void)
 		 */
 		LOG_ERR("New image was not confirmed in %d s: rebooting to revert",
 			CONFIG_APP_OTA_SELF_TEST_TIMEOUT_SECONDS);
+		mflt_reboot_mark(MFLT_REBOOT_TRIAL_FAILED);
 		LOG_PANIC();
 		sys_reboot(SYS_REBOOT_COLD);
 	}

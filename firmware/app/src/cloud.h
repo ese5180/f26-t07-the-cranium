@@ -4,7 +4,8 @@
  * The device talks only to its own shadow and its own jobs topics, and from 1.12.0 publishes its
  * events to cranium/<thing name>/events. From 1.13.0 it also takes the console's commands on
  * cranium/<thing name>/commands (command.h) and publishes what it hears of Wi-Fi to
- * cranium/<thing name>/location (location.h). The endpoint and the client ID (the thing name) are
+ * cranium/<thing name>/location (location.h). From 1.14.0 it publishes its Memfault data to
+ * cranium/<thing name>/memfault (mflt_link.h). The endpoint and the client ID (the thing name) are
  * provisioned per device.
  */
 
@@ -14,6 +15,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "ota_job.h"
 
 enum cloud_state {
 	CLOUD_STATE_IDLE,
@@ -117,6 +120,13 @@ int cloud_event_publish(const char *json);
  */
 int cloud_location_publish(const char *json);
 
+/*
+ * Publish one frame of Memfault data (src/mflt_link.h) to cranium/<thing name>/memfault, at QoS 0:
+ * binary, len bytes, from 1.14.0 with CONFIG_APP_MEMFAULT only. The device policy has to allow
+ * that topic, as it has to allow the events topic.
+ */
+int cloud_memfault_publish(const uint8_t *frame, size_t len);
+
 /* Ask for the next pending job execution, including a fresh job document. */
 int cloud_jobs_request_next(void);
 
@@ -128,11 +138,18 @@ int cloud_jobs_request_next(void);
 int cloud_jobs_update(const char *job_id, const char *body_json);
 
 /*
- * Access to the jobs message announced by APP_EVENT_JOB_MESSAGE. The payload stays
- * valid until cloud_job_message_done(); messages that arrive in between are dropped,
- * which cloud_job_message_done() reports so that the caller can ask again.
+ * Access to the jobs message announced by APP_EVENT_JOB_MESSAGE. It stays valid until
+ * cloud_job_message_done(); messages that arrive in between are dropped, which
+ * cloud_job_message_done() reports so that the caller can ask again.
+ *
+ * From 1.14.0 the reply to a request for the next job (CLOUD_JOB_GET_ACCEPTED) is not kept as text:
+ * it is read where it arrives, on the MQTT library's thread, by ota_job_parse() with the download
+ * URL prefix that the connection was made with, straight into the one struct that *job points to,
+ * and *result is what that returned. That saves the 4 KB copy of the message that the board kept
+ * before, for Memfault. The other kinds carry nothing: *result is OTA_JOB_NONE.
  */
-bool cloud_job_message_get(enum cloud_job_message *kind, const char **payload, size_t *len);
+bool cloud_job_message_get(enum cloud_job_message *kind, enum ota_job_result *result,
+			   const struct ota_job **job);
 bool cloud_job_message_done(void);
 
 #endif /* CLOUD_H_ */

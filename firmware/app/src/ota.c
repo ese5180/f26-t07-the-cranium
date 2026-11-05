@@ -20,6 +20,7 @@
 #include "identity.h"
 #include "health.h"
 #include "image_compat.h"
+#include "mflt.h"
 #include "ota_job.h"
 #include "store.h"
 #include "version.h"
@@ -256,6 +257,7 @@ static void fail_job(const char *reason, const char *detail)
 			 fw_version_running_string());
 	close_job(ota.job.id);
 	set_last("failed", reason);
+	mflt_note_update_end(MFLT_UPDATE_FAILED, reason, detail);
 	go_idle();
 	(void)cloud_jobs_request_next();
 }
@@ -272,6 +274,7 @@ static void refuse_job(const char *job_id, bool in_progress, const char *reason)
 			 fw_version_running_string());
 	close_job(job_id);
 	set_last("refused", reason);
+	mflt_note_update_end(MFLT_UPDATE_REFUSED, reason, job_id);
 }
 
 /* The job was cancelled, timed out or deleted while this device was working on it. */
@@ -349,6 +352,9 @@ static void start_download(void)
 	ota.progress = 0;
 	atomic_inc(&stuck_progress);
 	enter(OTA_DOWNLOADING);
+	if (ota.download_attempts == 1) {
+		mflt_note_update_started();
+	}
 
 	LOG_INF("Downloading %u bytes of firmware %u.%u.%u+%u (attempt %u)", ota.job.size,
 		ota.job.version.major, ota.job.version.minor, ota.job.version.revision,
@@ -598,6 +604,7 @@ static void install_download(void)
 
 	LOG_INF("Restarting into the bootloader to install the image");
 	cloud_disconnect();
+	mflt_reboot_mark(MFLT_REBOOT_UPDATE);
 	LOG_PANIC();
 	sys_reboot(SYS_REBOOT_COLD);
 }
@@ -675,6 +682,7 @@ static void settle_interrupted_job(const struct ota_job *job)
 			 "\"reason\":\"interrupted\",\"running\":\"%s\"",
 			 fw_version_running_string());
 	set_last("failed", "interrupted");
+	mflt_note_update_end(MFLT_UPDATE_FAILED, "interrupted", job->id);
 }
 
 /* True if the document still describes the image that this update started with. */
@@ -847,18 +855,24 @@ int ota_init(void)
 			ota.report = REPORT_FAILED;
 			ota.report_reason = "trial_lost";
 			set_last("failed", "trial_lost");
+			mflt_note_update_end(MFLT_UPDATE_ROLLED_BACK, "trial_lost",
+					     fw_version_running_string());
 			break;
 		case OTA_RESTART_ROLLED_BACK:
 			LOG_ERR("The updated firmware was not confirmed: the bootloader reverted it");
 			ota.report = REPORT_FAILED;
 			ota.report_reason = "rolled_back";
 			set_last("rolled_back", "not confirmed");
+			mflt_note_update_end(MFLT_UPDATE_ROLLED_BACK, "rolled_back",
+					     fw_version_running_string());
 			break;
 		default:
 			LOG_ERR("The bootloader did not install the downloaded image");
 			ota.report = REPORT_FAILED;
 			ota.report_reason = "not_installed";
 			set_last("failed", "not_installed");
+			mflt_note_update_end(MFLT_UPDATE_FAILED, "not_installed",
+					     fw_version_running_string());
 			break;
 		}
 	} else if (on_trial) {
@@ -899,6 +913,7 @@ void ota_on_cloud_up(void)
 		health_trial_passed();
 		LOG_INF("Firmware %s confirmed", fw_version_running_string());
 		set_last("succeeded", "");
+		mflt_note_update_end(MFLT_UPDATE_SUCCEEDED, "succeeded", fw_version_running_string());
 		go_idle();
 
 		if (ota.have_record) {
@@ -928,11 +943,10 @@ void ota_on_cloud_up(void)
 	(void)cloud_jobs_request_next();
 }
 
-void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t len)
+void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
+			const struct ota_job *incoming)
 {
-	static struct ota_job incoming;
 	const struct identity_settings *config = identity_settings_get();
-	enum ota_job_result result;
 
 	if (kind == CLOUD_JOB_NOTIFY_NEXT) {
 		/* Something changed in the list of pending jobs: fetch the next one. */
@@ -949,11 +963,10 @@ void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t
 		return;
 	}
 
-	result = ota_job_parse(payload, len, config->download_url_prefix, &incoming);
-
+	/* Read on the MQTT library's thread already, with this connection's prefix: cloud.h. */
 	switch (result) {
 	case OTA_JOB_OK:
-		on_job(&incoming);
+		on_job(incoming);
 		break;
 	case OTA_JOB_NONE:
 		/*
@@ -971,13 +984,13 @@ void ota_on_job_message(enum cloud_job_message kind, const char *payload, size_t
 		break;
 	default:
 		/* Identified but unusable: refuse it so that it does not block later jobs. */
-		if ((ota.have_record && strcmp(incoming.id, ota.record.job_id) == 0) ||
-		    strcmp(incoming.id, ota.closed_job_id) == 0) {
+		if ((ota.have_record && strcmp(incoming->id, ota.record.job_id) == 0) ||
+		    strcmp(incoming->id, ota.closed_job_id) == 0) {
 			break;
 		}
 		if (ota.state == OTA_IDLE || ota.state == OTA_AWAITING_USER ||
 		    ota.state == OTA_REFRESHING) {
-			refuse_job(incoming.id, incoming.in_progress, ota_job_result_reason(result));
+			refuse_job(incoming->id, incoming->in_progress, ota_job_result_reason(result));
 			if (ota.state != OTA_IDLE) {
 				go_idle();
 			}

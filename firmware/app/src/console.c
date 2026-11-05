@@ -32,6 +32,8 @@
 #include "cloud_events.h"
 #include "console_cmd.h"
 #include "console_port.h"
+#include "mflt.h"
+#include "reset_cause.h"
 
 #define LINE_ENDING       "\r\n"
 #define LINE_ENDING_SIZE  2
@@ -88,8 +90,6 @@ static atomic_t rx_thrown_away;
 
 static K_THREAD_STACK_DEFINE(console_stack, CONFIG_APP_CONSOLE_STACK_SIZE);
 static struct k_thread console_thread_data;
-
-static uint32_t last_reset_cause;
 
 /* ---- the interrupt -------------------------------------------------------------- */
 
@@ -562,6 +562,7 @@ int console_port_on_main(int (*function)(void *arg), void *arg)
 
 void console_port_reboot(void)
 {
+	mflt_reboot_mark(MFLT_REBOOT_USER);
 	LOG_PANIC();
 	sys_reboot(SYS_REBOOT_COLD);
 }
@@ -604,7 +605,7 @@ const char *console_port_reset_reason(void)
 	};
 
 	for (size_t i = 0; i < ARRAY_SIZE(reasons); i++) {
-		if (last_reset_cause & reasons[i].cause) {
+		if (reset_cause_get() & reasons[i].cause) {
 			return reasons[i].name;
 		}
 	}
@@ -612,9 +613,10 @@ const char *console_port_reset_reason(void)
 	return "power-on";
 }
 
+/* From 1.14.0 src/reset_cause.c reads it, before this file and Memfault, and clears it. */
 uint32_t console_last_reset_cause(void)
 {
-	return last_reset_cause;
+	return reset_cause_get();
 }
 
 /* ---- the task ------------------------------------------------------------------- */
@@ -716,10 +718,6 @@ static int console_output_init(void)
 	ring_buf_init(&tx_ring, sizeof(tx_storage), tx_storage);
 	ring_buf_init(&held_ring, sizeof(held_storage), held_storage);
 	ring_buf_init(&rx_ring, sizeof(rx_storage), rx_storage);
-
-	if (hwinfo_get_reset_cause(&last_reset_cause) == 0) {
-		(void)hwinfo_clear_reset_cause();
-	}
 
 	uart_irq_rx_disable(uart);
 	uart_irq_tx_disable(uart);

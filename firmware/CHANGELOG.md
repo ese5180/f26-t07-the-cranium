@@ -7,6 +7,22 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.14.0
+
+The board now reports to Memfault: why it restarted each time, a coredump after a crash, and an hourly heartbeat of
+Wi-Fi, connection, memory and update counts, with an event for each update's result. It all goes over the board's own
+AWS IoT connection, and AWS passes it on, so nothing else goes on the network. Needs the console's device policy for
+the memfault topic first, and goes over the air as before.
+
+Memfault SDK 1.40.0 with no HTTP client and no project key in the image: chunks of at most 400 bytes on
+`cranium/<thing>/memfault`, one at a time, each answered by `memfault_ack` on the commands topic before the next goes,
+again after 20 s without an answer and then backing off to an hour (src/mflt_link.c). The coredump (3,968 bytes) and the
+reboot reason sit in two RAM regions at the same address in every image from this one, so they outlive a revert. The
+reset cause has one reader now, src/reset_cause.c, so Memfault sees the real one. A `memfault` command takes a heartbeat
+and sends it at once. The jobs message is read where it arrives, which saves its 4 KB copy. Flash 740,816 of 794,474 bytes;
+RAM 403,972 of 405,504, and 4,032 for Memfault's regions: 1.5 KB free, from 6.1 KB (docs/memfault.md). Not yet run on
+a board.
+
 ## 1.13.0
 
 The image now says which board and flash layout it is for, and the board refuses one for another board or layout,

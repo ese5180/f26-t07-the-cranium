@@ -128,8 +128,35 @@
 	ranges = <0x0 0xc000 0x74000>;
 };
 
+/*
+ * From 1.14.0 the application has 396 KiB of it, and the next 4 KiB hold what Memfault keeps
+ * across a reset (docs/memfault.md): the reason of the reboot and the coredump of a crash. They
+ * are their own memory regions, so every image from 1.14.0 has them at these same addresses, and a
+ * coredump or a reason outlives a revert to another such image. Nothing initialises them: the
+ * linker gives them NOLOAD sections, and the SDK checks what it finds there for its own magic.
+ * The last 64 bytes stay unused. MCUboot, and the application before 1.14.0, set up a C library
+ * heap that runs to the end of the 400 KiB, and that writes its end marker into the last 8 bytes at
+ * every boot. MCUboot's own RAM ends below 0x20006000. This is RAM only: the flash layout, which
+ * firmware/app/flash_layout.py checks, is unchanged, so this goes over the air.
+ */
 &sram0_ns_app {
-	reg = <0x0 0x64000>;
+	reg = <0x0 0x63000>;
+};
+
+&sram0_ns {
+	/* 0x2006f000 */
+	sram0_ns_mflt_reboot: sram@63000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x63000 0x40>;
+		zephyr,memory-region = "MFLT_REBOOT";
+	};
+
+	/* 0x2006f040 to 0x2006ffc0 */
+	sram0_ns_mflt_coredump: sram@63040 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x63040 0xf80>;
+		zephyr,memory-region = "MFLT_COREDUMP";
+	};
 };
 
 /*

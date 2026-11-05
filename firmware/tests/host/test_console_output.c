@@ -899,7 +899,11 @@ static void test_a_call_on_the_main_loop(void)
 
 	running_console();
 	CHECK(console_port_on_main(thirty_two, &ten) == 42);
+	/* From 1.14.0 src/reset_cause.c reads the cause, as the kernel starts: here, as the test says. */
+	CHECK_TEXT(console_port_reset_reason(), "power-on");
+	reset_cause_capture();
 	CHECK_TEXT(console_port_reset_reason(), "reset pin");
+	CHECK(console_last_reset_cause() == RESET_PIN);
 	CHECK(console_port_free_heap() == 1234);
 }
 
