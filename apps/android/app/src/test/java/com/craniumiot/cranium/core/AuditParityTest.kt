@@ -268,4 +268,31 @@ class AuditParityTest {
         )
         assertEquals(listOf("Board type nRF7002 DK"), facts(describe("group.create", "lab", detail = listOf("type" to "nrf7002dk")).facts))
     }
+
+    // cloud/web/test/customer.test.mjs "the Customers page's entries read as sentences"
+    @Test
+    fun `the Customers page's entries read as sentences, a customer by address and a board then whose it is`() {
+        val sub = "7ec17d2e-9ee4-4734-8901-33c8fec73372"
+        val email = "email" to "ada@example.invalid"
+        val a = Person("s", "a@b")
+        fun sentence(action: String, target: String, outcome: String, detail: List<Pair<String, String>>) =
+            AuditText.sentence(entry(action, target, outcome, detail, actor = a))
+        assertEquals("a@b invited the customer ada@example.invalid", sentence("customer.create", sub, "ok", listOf(email)))
+        assertEquals(emptyList<String>(), facts(describe("customer.create", sub, "ok", listOf(email)).facts))
+        assertEquals("a@b tried to invite the customer ada@example.invalid",
+            sentence("customer.create", "", "rejected", listOf(email, "code" to "customer_exists")))
+        val given = listOf("customer" to sub, email, "label" to "Deck")
+        assertEquals("a@b gave $thingOfTest to ada@example.invalid", sentence("customer.assign", thingOfTest, "ok", given))
+        assertEquals(listOf("Customer $sub", "Called: Deck"), facts(describe("customer.assign", thingOfTest, "ok", given).facts))
+        assertEquals("a@b took $thingOfTest back from a customer",
+            sentence("customer.unassign", thingOfTest, "ok", listOf("customer" to sub)))
+        assertEquals("a@b tried to give a board to a customer",
+            sentence("customer.assign", "", "denied", listOf("code" to "release_manager_required")))
+        assertEquals("a@b sent an invitation again", sentence("customer.resend", "", "ok", emptyList()))
+        assertEquals("a@b switched off the customer account of ada@example.invalid",
+            sentence("customer.disable", sub, "ok", listOf(email)))
+        assertEquals("a@b tried to switch on a customer account", sentence("customer.enable", "", "denied", emptyList()))
+        assertEquals("That board belongs to another customer",
+            describe("customer.assign", thingOfTest, "rejected", listOf("code" to "board_taken")).facts[0].words)
+    }
 }

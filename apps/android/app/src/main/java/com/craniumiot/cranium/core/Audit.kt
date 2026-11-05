@@ -135,7 +135,32 @@ object AuditText {
         "app.download" to Action(
             "downloaded the Android app", "tried to download the Android app", "tried to download the Android app", Glyph.DOWNLOAD,
         ),
+        // The customer site's accounts, from the console's Customers page (docs/customer-site.md): a customer by
+        // their e-mail address, and "a customer" after a board is that address where the entry has it.
+        "customer.create" to Action("invited the customer", "tried to invite the customer", "tried to invite a customer", Glyph.USER),
+        "customer.resend" to Action(
+            "sent the invitation again to", "tried to send the invitation again to", "tried to send an invitation again", Glyph.SEND,
+            doneAlone = "sent an invitation again",
+        ),
+        "customer.assign" to Action(
+            "gave {} to a customer", "tried to give {} to a customer", "tried to give a board to a customer", Glyph.CHIP,
+        ),
+        "customer.unassign" to Action(
+            "took {} back from a customer", "tried to take {} back from a customer", "tried to take a board back from a customer",
+            Glyph.UNDO,
+        ),
+        "customer.disable" to Action(
+            "switched off the customer account of", "tried to switch off the customer account of",
+            "tried to switch off a customer account", Glyph.BAN,
+        ),
+        "customer.enable" to Action(
+            "switched on the customer account of", "tried to switch on the customer account of",
+            "tried to switch on a customer account", Glyph.CHECK,
+        ),
     )
+
+    /** The customer actions whose target is a board, and whose sentence ends with the customer. */
+    private val CUSTOMER_BOARD = setOf("customer.assign", "customer.unassign")
 
     /** What the schedule that moves staged rollouts on did is the console's own: no person asked for it. */
     private val CONSOLE_ACTIONS = setOf("rollout.advance", "rollout.stop")
@@ -303,6 +328,19 @@ object AuditText {
         "invalid_version_code" to "The versionCode was not a whole number",
         "invalid_size" to "The size was not a whole number of bytes, up to 100 MB",
         "unversioned" to "The bucket kept no version of the APK",
+        // The customer site's customers (the API's handlers/customers.mjs) and its own API.
+        "customers_not_set_up" to "This deployment has no customer pool",
+        "customer_site_has_no_address" to "The customer site has no address yet, so an invitation would lead nowhere",
+        "invalid_customer" to "Not a valid customer ID",
+        "invalid_email" to "Not an e-mail address",
+        "unknown_customer" to "There is no customer with that ID",
+        "customer_exists" to "There is a customer with that address already",
+        "customer_not_invited" to "That customer has signed in already, so there was no invitation to send again",
+        "already_assigned" to "That board was that customer’s already",
+        "board_taken" to "That board belongs to another customer",
+        "not_assigned" to "That board was not that customer’s",
+        "not_your_board" to "That customer has no such board",
+        "unavailable" to "The account could not be checked just then",
     )
 
     private val REVOCATION_STEPS = mapOf(
@@ -379,6 +417,10 @@ object AuditText {
         "notes" to Detail("New note", sentence = true),
         "oldLength" to Detail("Old note", say = { value -> if (value == "0") "none" else "$value characters" }),
         "type" to Detail("Board type", say = { value -> BOARD_LABELS[value] ?: value }),
+        // A customer of the customer site: their address, their account id, and what a board was called for them.
+        "email" to Detail("E-mail"),
+        "customer" to Detail("Customer", code = true),
+        "label" to Detail("Called", sentence = true),
     )
 
     private fun fact(entry: AuditEntry, key: String, value: String): AuditFact {
@@ -406,8 +448,15 @@ object AuditText {
         val action = ACTIONS[entry.action]
         val ok = entry.outcome == "ok"
         val deployment = entry.target.takeIf { ApiJson.isDeploymentId(it) }
-        val label = if (deployment != null) Updates.versionOfDeployment(deployment) ?: deployment else entry.target
         val details = entry.detail.toMap()
+        // A customer is told by their address, where the entry has it, not by the id of their account.
+        val customerEmail = if (entry.action.startsWith("customer.")) details["email"].orEmpty() else ""
+        val byAddress = customerEmail.isNotEmpty() && entry.action !in CUSTOMER_BOARD
+        val label = when {
+            deployment != null -> Updates.versionOfDeployment(deployment) ?: deployment
+            byAddress -> customerEmail
+            else -> entry.target
+        }
         // A revocation that completed what an earlier request had begun.
         val resumed = entry.action == "firmware.revoke" && ok && details["resumed"] == "true"
         val words = when {
@@ -430,6 +479,8 @@ object AuditText {
             verb = words.replace("{}", "a board")
         }
         if (label.isEmpty()) verb = verb.removeSuffix(" of")
+        // "gave CRVIHAAN01 to <the customer's address>": the board, then whose it is now.
+        if (entry.action in CUSTOMER_BOARD && customerEmail.isNotEmpty()) tail = tail.replace(Regex("a customer$"), customerEmail)
 
         // The boards of a deployment: by name where the entry has them, else how many.
         val creates = entry.action == "deployment.create"
@@ -440,6 +491,7 @@ object AuditText {
         // What the sentence says already is not said again as a fact.
         val said = buildSet {
             if (entry.action == "account.sign_in") add("client")
+            if (customerEmail.isNotEmpty() && (byAddress || label.isNotEmpty())) add("email")
             if (creates && boardCount > 0) add("things")
             if (boards.size <= 2) add("boards")
         }

@@ -3237,16 +3237,21 @@ const AUDIT_ACTIONS = {
   },
   'customer.resend': {
     done: 'sent the invitation again to',
+    doneAlone: 'sent an invitation again',
     tried: 'tried to send the invitation again to',
     triedAlone: 'tried to send an invitation again',
     icon: 'send',
   },
+  // "a customer" is the customer's address where the entry has it.
   'customer.assign': {
-    done: 'gave {} to', tried: 'tried to give {} to', triedAlone: 'tried to give a board to a customer', icon: 'chip',
+    done: 'gave {} to a customer',
+    tried: 'tried to give {} to a customer',
+    triedAlone: 'tried to give a board to a customer',
+    icon: 'chip',
   },
   'customer.unassign': {
-    done: 'took {} back from',
-    tried: 'tried to take {} back from',
+    done: 'took {} back from a customer',
+    tried: 'tried to take {} back from a customer',
     triedAlone: 'tried to take a board back from a customer',
     icon: 'undo',
   },
@@ -3600,8 +3605,7 @@ export function describeAudit(entry) {
   }
   if (!label) verb = verb.replace(/ of$/, '');
   // "gave CRVIHAAN01 to <the customer's address>": the board, then whose it is now.
-  if (CUSTOMER_BOARD.has(entry.action) && slot >= 0 && label) tail = `${tail} ${customerEmail || 'a customer'}`.trim();
-  if (!label) verb = verb.replace(/ (?:to|from)$/, '');
+  if (CUSTOMER_BOARD.has(entry.action) && customerEmail) tail = tail.replace(/a customer$/, customerEmail);
 
   // The boards of a deployment: by name where the entry has them, else how many.
   const boards = entry.action === 'deployment.create' ? (details.get('boards') ?? '').split(' ').filter(isThing) : [];

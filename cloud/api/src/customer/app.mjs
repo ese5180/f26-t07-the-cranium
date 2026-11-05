@@ -55,7 +55,7 @@ const OVERVIEW_EVENTS = 20;
 const REQUEST_BUDGET_MS = 8_000;
 
 const unauthorized = () => new HttpError(401, 'unauthorized', 'Sign in to see your boards.');
-const unknownBoard = () => notFound('unknown_board', 'There is no board of yours at this address.');
+const unknownBoard = () => notFound('not_your_board', 'There is no board of yours at this address.');
 
 function claimsOf(event) {
   const claims = event?.requestContext?.authorizer?.jwt?.claims;

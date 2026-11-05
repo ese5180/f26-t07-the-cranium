@@ -233,7 +233,7 @@ export function createCustomerApi({ auth, fetch, onUnauthorized }) {
       return boards;
     },
     async board(id) {
-      if (!BOARD_ID.test(id)) throw new ApiError(404, 'unknown_board', 'There is no board of yours at this address.');
+      if (!BOARD_ID.test(id)) throw new ApiError(404, 'not_your_board', 'There is no board of yours at this address.');
       const body = await get(`/api/c/boards/${id}`);
       const board = readBoard(body.board);
       const activity = list(body.activity, readEvent);
