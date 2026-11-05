@@ -23,9 +23,11 @@ function setup() {
   const console_ = createTestConsole();
   const manager = console_.addUser('manager', ['release-managers']);
   const viewer = console_.addUser('viewer', ['viewers']);
-  const upload = () => console_.call('POST', '/api/firmware', {
-    as: manager, body: { filename: 'zephyr.signed.bin', data: IMAGE.toString('base64'), notes: '' },
-  });
+  const upload = () =>
+    console_.call('POST', '/api/firmware', {
+      as: manager,
+      body: { filename: 'zephyr.signed.bin', data: IMAGE.toString('base64'), notes: '' },
+    });
   return { ...console_, manager, viewer, upload };
 }
 
@@ -52,7 +54,7 @@ test('a release manager gets the signed image of an active release, byte for byt
   assert.equal(added[0].detail.sha256, sha256(IMAGE));
 });
 
-test('a token from the phone apps\' client counts like one from the console, where the apps call', async () => {
+test("a token from the phone apps' client counts like one from the console, where the apps call", async () => {
   const { call, manager, upload } = setup();
   await upload();
   const claims = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: 'localmobile' });
@@ -84,7 +86,8 @@ test('an unknown, revoked or unreadable image is not handed out', async () => {
 
   await upload();
   const revoked = await call('POST', `/api/firmware/${encodeURIComponent(VERSION)}/revoke`, {
-    as: manager, body: { reason: 'bricks the encoder' },
+    as: manager,
+    body: { reason: 'bricks the encoder' },
   });
   assert.equal(revoked.status, 200);
   const response = await call('GET', imagePath(VERSION), { as: manager });
@@ -121,7 +124,9 @@ function shadowWithPairing(nowMs, ageMs, pair = { name: 'Cranium-1A2B', passkey:
 test('a fresh, well-formed pairing is read from a shadow, and nothing else is', () => {
   const now = Date.parse('2026-11-02T18:00:00Z');
   assert.deepEqual(pairingFromShadow(shadowWithPairing(now, 10_000), now), {
-    name: 'Cranium-1A2B', passkey: '012345', reportedAt: '2026-11-02T17:59:50.000Z',
+    name: 'Cranium-1A2B',
+    passkey: '012345',
+    reportedAt: '2026-11-02T17:59:50.000Z',
   });
   assert.equal(pairingFromShadow(shadowWithPairing(now, PAIRING_FRESH_MS + 1000), now), null);
   assert.equal(pairingFromShadow(shadowWithPairing(now, -60_000), now), null);
@@ -150,7 +155,9 @@ test('a release manager gets the passkey of the board that is pairing, on record
   const response = await call('GET', '/api/pairing/Cranium-1A2B', { as: manager });
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, {
-    thing: THING, name: 'Cranium-1A2B', passkey: '012345',
+    thing: THING,
+    name: 'Cranium-1A2B',
+    passkey: '012345',
     reportedAt: new Date(Math.floor((clock.ms - 5000) / 1000) * 1000).toISOString(),
   });
   const added = fake.auditLog().slice(before);
@@ -188,7 +195,7 @@ test('no passkey for a viewer, a stale report, an unknown name or a malformed on
   assert.equal(stale.body.error.code, 'no_pairing');
 });
 
-test('a board outside the project\'s group is never asked', async () => {
+test("a board outside the project's group is never asked", async () => {
   const { call, manager, fake, clock } = setup();
   fake.addThing(THING, { inGroup: false });
   fake.device(THING).setRaw(shadowWithPairing(clock.ms, 5000));
@@ -198,10 +205,14 @@ test('a board outside the project\'s group is never asked', async () => {
 test('a board with its Bluetooth window open says so, and the console passes it on', () => {
   const now = Date.parse('2026-11-02T18:00:00Z');
   const stamp = Math.floor(now / 1000) - 5;
-  const device = deviceFromShadow(THING, {
-    state: { reported: { ota: { state: 'bluetooth', job: null, progress: 0, last: 'none', error: '' }, uptime: 9 } },
-    metadata: { reported: { uptime: { timestamp: stamp } } },
-  }, now);
+  const device = deviceFromShadow(
+    THING,
+    {
+      state: { reported: { ota: { state: 'bluetooth', job: null, progress: 0, last: 'none', error: '' }, uptime: 9 } },
+      metadata: { reported: { uptime: { timestamp: stamp } } },
+    },
+    now
+  );
   assert.equal(device.ota.state, 'bluetooth');
   assert.equal(device.online, true);
 });
@@ -227,33 +238,70 @@ const ROUTES = [
   { route: 'GET /api/events/log', status: 200, phone: true },
   { route: 'GET /api/firmware', status: 200, phone: true },
   {
-    route: 'POST /api/firmware', status: 201, phone: true,
-    body: () => ({ filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+5.signed.bin').toString('base64'), notes: '' }),
+    route: 'POST /api/firmware',
+    status: 201,
+    phone: true,
+    body: () => ({
+      filename: 'zephyr.signed.bin',
+      data: fixture('valid-1.2.3+5.signed.bin').toString('base64'),
+      notes: '',
+    }),
   },
   { route: 'GET /api/firmware/{version}', path: `/api/firmware/${V}`, status: 200, phone: true },
   { route: 'GET /api/firmware/{version}/image', path: `/api/firmware/${V}/image`, status: 200, phone: true },
   { route: 'GET /api/pairing/{name}', path: '/api/pairing/Cranium-1A2B', status: 200, phone: true },
-  { route: 'POST /api/firmware/{version}/revoke', path: `/api/firmware/${V}/revoke`, status: 200, phone: true,
-    body: { reason: 'bricks the encoder' } },
-  { route: 'POST /api/firmware/{version}/bluetooth', path: `/api/firmware/${V}/bluetooth`, status: 200, phone: true,
-    body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } },
+  {
+    route: 'POST /api/firmware/{version}/revoke',
+    path: `/api/firmware/${V}/revoke`,
+    status: 200,
+    phone: true,
+    body: { reason: 'bricks the encoder' },
+  },
+  {
+    route: 'POST /api/firmware/{version}/bluetooth',
+    path: `/api/firmware/${V}/bluetooth`,
+    status: 200,
+    phone: true,
+    body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' },
+  },
   { route: 'GET /api/deployments', status: 200, phone: true },
   // Every update however it came (handlers/updates.mjs): the apps' Overview and a board's Updates.
   { route: 'GET /api/updates', status: 200, phone: true },
   { route: 'POST /api/deployments', status: 201, phone: true, body: { version: VERSION, things: [THING] } },
   // No such deployment: the console's session gets as far as looking for it.
   { route: 'GET /api/deployments/{id}', path: `/api/deployments/${SOME_DEPLOYMENT}`, status: 404, phone: true },
-  { route: 'POST /api/deployments/{id}/cancel', path: `/api/deployments/${SOME_DEPLOYMENT}/cancel`, status: 404,
-    phone: true, body: {} },
+  {
+    route: 'POST /api/deployments/{id}/cancel',
+    path: `/api/deployments/${SOME_DEPLOYMENT}/cancel`,
+    status: 404,
+    phone: true,
+    body: {},
+  },
   { route: 'GET /api/audit', status: 200, phone: true },
   { route: 'GET /api/tokens', status: 200, phone: true },
   { route: 'POST /api/tokens', status: 201, phone: true, body: { name: 'laptop' } },
-  { route: 'POST /api/tokens/{id}/revoke', path: '/api/tokens/0123456789abcdef/revoke', status: 404, phone: true, body: {} },
-  { route: 'POST /api/serial/commands', status: 201, phone: true, body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } },
+  {
+    route: 'POST /api/tokens/{id}/revoke',
+    path: '/api/tokens/0123456789abcdef/revoke',
+    status: 404,
+    phone: true,
+    body: {},
+  },
+  {
+    route: 'POST /api/serial/commands',
+    status: 201,
+    phone: true,
+    body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' },
+  },
   // The map, commands and alerts (docs/fleet.md).
   { route: 'GET /api/devices/{thing}/positions', path: `/api/devices/${THING}/positions`, status: 200, phone: true },
-  { route: 'POST /api/devices/{thing}/commands', path: `/api/devices/${THING}/commands`, status: 202, phone: true,
-    body: { cmd: 'identify' } },
+  {
+    route: 'POST /api/devices/{thing}/commands',
+    path: `/api/devices/${THING}/commands`,
+    status: 202,
+    phone: true,
+    body: { cmd: 'identify' },
+  },
   { route: 'GET /api/alerts', status: 200, phone: true },
   { route: 'POST /api/alerts/subscribe', status: 202, phone: true, body: {} },
   // Nobody has subscribed in this world: the console's session gets as far as looking.
@@ -264,37 +312,102 @@ const ROUTES = [
   { route: 'GET /api/fleet/health', status: 200, phone: true },
   { route: 'GET /api/groups', status: 200, phone: true },
   { route: 'POST /api/groups', status: 201, phone: true, body: { name: 'Bench', things: [THING] } },
-  { route: 'POST /api/groups/{id}', path: '/api/groups/grp-0a0b0c0d', status: 404, phone: true, body: { name: 'Desk' } },
-  { route: 'POST /api/groups/{id}/delete', path: '/api/groups/grp-0a0b0c0d/delete', status: 404, phone: true, body: {} },
+  {
+    route: 'POST /api/groups/{id}',
+    path: '/api/groups/grp-0a0b0c0d',
+    status: 404,
+    phone: true,
+    body: { name: 'Desk' },
+  },
+  {
+    route: 'POST /api/groups/{id}/delete',
+    path: '/api/groups/grp-0a0b0c0d/delete',
+    status: 404,
+    phone: true,
+    body: {},
+  },
   { route: 'GET /api/groups/{id}/rollback', path: '/api/groups/grp-0a0b0c0d/rollback', status: 404, phone: true },
-  { route: 'POST /api/groups/{id}/rollback', path: '/api/groups/grp-0a0b0c0d/rollback', status: 404, phone: true, body: {} },
+  {
+    route: 'POST /api/groups/{id}/rollback',
+    path: '/api/groups/grp-0a0b0c0d/rollback',
+    status: 404,
+    phone: true,
+    body: {},
+  },
   { route: 'GET /api/rollouts', status: 200, phone: true },
-  { route: 'POST /api/rollouts', status: 201, phone: true, body: { version: VERSION, target: { kind: 'boards', things: [THING] } } },
+  {
+    route: 'POST /api/rollouts',
+    status: 201,
+    phone: true,
+    body: { version: VERSION, target: { kind: 'boards', things: [THING] } },
+  },
   { route: 'GET /api/rollouts/{id}', path: '/api/rollouts/rol-20261102T180000Z-abcdef', status: 404, phone: true },
-  { route: 'POST /api/rollouts/{id}/cancel', path: '/api/rollouts/rol-20261102T180000Z-abcdef/cancel', status: 404, phone: true,
-    body: {} },
+  {
+    route: 'POST /api/rollouts/{id}/cancel',
+    path: '/api/rollouts/rol-20261102T180000Z-abcdef/cancel',
+    status: 404,
+    phone: true,
+    body: {},
+  },
   { route: 'GET /api/fleet/update-everything', status: 200, phone: true },
   // The board has never reported, so the plan leaves it out: asked for all the same, it is refused.
-  { route: 'POST /api/fleet/update-everything', status: 409, phone: true,
-    body: { types: [{ type: 'nrf7002dk', version: VERSION, things: [THING] }] } },
-  { route: 'POST /api/devices/{thing}/seen', path: `/api/devices/${THING}/seen`, status: 201, phone: true,
-    body: { version: VERSION, name: 'Cranium-1A2B' } },
-  { route: 'PUT /api/firmware/{version}/notes', path: `/api/firmware/${V}/notes`, status: 200, phone: true,
-    body: { notes: 'Reconnects faster after the Wi-Fi drops out.' } },
+  {
+    route: 'POST /api/fleet/update-everything',
+    status: 409,
+    phone: true,
+    body: { types: [{ type: 'nrf7002dk', version: VERSION, things: [THING] }] },
+  },
+  {
+    route: 'POST /api/devices/{thing}/seen',
+    path: `/api/devices/${THING}/seen`,
+    status: 201,
+    phone: true,
+    body: { version: VERSION, name: 'Cranium-1A2B' },
+  },
+  {
+    route: 'PUT /api/firmware/{version}/notes',
+    path: `/api/firmware/${V}/notes`,
+    status: 200,
+    phone: true,
+    body: { notes: 'Reconnects faster after the Wi-Fi drops out.' },
+  },
   // The phone apps on the Apps page (docs/mobile-apps.md). No Android app is published in this world, and
   // no APK has arrived: the console's session gets a URL to send one to, and then as far as looking for it.
   { route: 'GET /api/apps', status: 200, phone: true },
   { route: 'GET /api/apps/config', status: 200, phone: true },
-  { route: 'POST /api/apps/android/uploads', status: 201, phone: true,
-    body: { version: '0.4.0', versionCode: 4, sha256: 'a'.repeat(64), size: 4096, notes: '' } },
-  { route: 'POST /api/apps/android/releases/{version}', path: '/api/apps/android/releases/0.4.0', status: 409, phone: true,
-    body: { versionCode: 4, sha256: 'a'.repeat(64), size: 4096 } },
-  { route: 'GET /api/apps/android/{version}/download', path: '/api/apps/android/0.4.0/download', status: 404, phone: true },
+  {
+    route: 'POST /api/apps/android/uploads',
+    status: 201,
+    phone: true,
+    body: { version: '0.4.0', versionCode: 4, sha256: 'a'.repeat(64), size: 4096, notes: '' },
+  },
+  {
+    route: 'POST /api/apps/android/releases/{version}',
+    path: '/api/apps/android/releases/0.4.0',
+    status: 409,
+    phone: true,
+    body: { versionCode: 4, sha256: 'a'.repeat(64), size: 4096 },
+  },
+  {
+    route: 'GET /api/apps/android/{version}/download',
+    path: '/api/apps/android/0.4.0/download',
+    status: 404,
+    phone: true,
+  },
   // The iPhone app's IPAs, the same way; and a member's SideStore link, on the website alone (sidestore.test.mjs).
-  { route: 'POST /api/apps/ios/uploads', status: 201, phone: true,
-    body: { version: '0.6.0', buildVersion: '8', sha256: 'a'.repeat(64), size: 4096, notes: '' } },
-  { route: 'POST /api/apps/ios/releases/{version}', path: '/api/apps/ios/releases/0.6.0', status: 409, phone: true,
-    body: { buildVersion: '8', sha256: 'a'.repeat(64), size: 4096 } },
+  {
+    route: 'POST /api/apps/ios/uploads',
+    status: 201,
+    phone: true,
+    body: { version: '0.6.0', buildVersion: '8', sha256: 'a'.repeat(64), size: 4096, notes: '' },
+  },
+  {
+    route: 'POST /api/apps/ios/releases/{version}',
+    path: '/api/apps/ios/releases/0.6.0',
+    status: 409,
+    phone: true,
+    body: { buildVersion: '8', sha256: 'a'.repeat(64), size: 4096 },
+  },
   { route: 'GET /api/apps/ios/{version}/download', path: '/api/apps/ios/0.6.0/download', status: 404, phone: true },
   { route: 'GET /api/apps/sidestore', status: 200, phone: false },
   { route: 'POST /api/apps/sidestore', status: 201, phone: false, body: {} },
@@ -303,13 +416,41 @@ const ROUTES = [
   // so a release manager is told so (customers.test.mjs has them with one).
   { route: 'GET /api/customers', status: 200, phone: false },
   { route: 'POST /api/customers', status: 409, phone: false, body: { email: 'dee@example.invalid' } },
-  { route: 'POST /api/customers/{id}/resend', path: `/api/customers/${CUSTOMER}/resend`, status: 409, phone: false, body: {} },
-  { route: 'POST /api/customers/{id}/boards', path: `/api/customers/${CUSTOMER}/boards`, status: 409, phone: false,
-    body: { thing: THING } },
-  { route: 'POST /api/customers/{id}/boards/{thing}/remove', path: `/api/customers/${CUSTOMER}/boards/${THING}/remove`,
-    status: 409, phone: false, body: {} },
-  { route: 'POST /api/customers/{id}/disable', path: `/api/customers/${CUSTOMER}/disable`, status: 409, phone: false, body: {} },
-  { route: 'POST /api/customers/{id}/enable', path: `/api/customers/${CUSTOMER}/enable`, status: 409, phone: false, body: {} },
+  {
+    route: 'POST /api/customers/{id}/resend',
+    path: `/api/customers/${CUSTOMER}/resend`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/customers/{id}/boards',
+    path: `/api/customers/${CUSTOMER}/boards`,
+    status: 409,
+    phone: false,
+    body: { thing: THING },
+  },
+  {
+    route: 'POST /api/customers/{id}/boards/{thing}/remove',
+    path: `/api/customers/${CUSTOMER}/boards/${THING}/remove`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/customers/{id}/disable',
+    path: `/api/customers/${CUSTOMER}/disable`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/customers/{id}/enable',
+    path: `/api/customers/${CUSTOMER}/enable`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */
@@ -320,7 +461,10 @@ async function world() {
   assert.equal((await context.upload()).status, 201);
   // Signed in on the phone just now: a phone's deployment needs a recent sign-in.
   const phone = accessClaims({
-    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT, authTime: Math.floor(context.clock.ms / 1000),
+    sub: context.manager.sub,
+    groups: ['release-managers'],
+    clientId: PHONE_CLIENT,
+    authTime: Math.floor(context.clock.ms / 1000),
   });
   return { ...context, phone };
 }
@@ -329,8 +473,11 @@ async function world() {
 function withoutRequestId(value) {
   if (Array.isArray(value)) return value.map(withoutRequestId);
   if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'requestId')
-    .map(([key, inner]) => [key, withoutRequestId(inner)]));
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'requestId')
+      .map(([key, inner]) => [key, withoutRequestId(inner)])
+  );
 }
 
 function requestOf(entry) {
@@ -341,25 +488,44 @@ function requestOf(entry) {
 
 /** What state a refused request must leave alone: releases, tokens, deployments. */
 function snapshot(fake) {
-  return JSON.stringify([[...fake.releases.entries()], [...fake.tokens.entries()], fake.calls.filter(
-    (call) => ['createJob', 'cancelJob', 'putFirmwareObject', 'registerRelease', 'markReleaseRevoked',
-      'tagFirmwareRevoked', 'putToken', 'markTokenRevoked'].includes(call.method)).length]);
+  return JSON.stringify([
+    [...fake.releases.entries()],
+    [...fake.tokens.entries()],
+    fake.calls.filter((call) =>
+      [
+        'createJob',
+        'cancelJob',
+        'putFirmwareObject',
+        'registerRelease',
+        'markReleaseRevoked',
+        'tagFirmwareRevoked',
+        'putToken',
+        'markTokenRevoked',
+      ].includes(call.method)
+    ).length,
+  ]);
 }
 
 test('the table below names every route of the API', () => {
   const source = readFileSync(new URL('../src/app.mjs', import.meta.url), 'utf8');
-  const declared = [...source.matchAll(/\broute\('([A-Z]+)', '([^']+)'/g)].map(([, method, path]) => `${method} ${path}`);
+  const declared = [...source.matchAll(/\broute\(\s*'([A-Z]+)',\s*'([^']+)'/g)].map(
+    ([, method, path]) => `${method} ${path}`
+  );
   assert.ok(declared.length > 15, `found ${declared.length} routes`);
   assert.deepEqual(ROUTES.map((entry) => entry.route).sort(), [...declared].sort());
 });
 
-test('every route takes the console\'s session; a phone app\'s only where the apps call', async () => {
+test("every route takes the console's session; a phone app's only where the apps call", async () => {
   for (const entry of ROUTES) {
     const { method, path, body } = requestOf(entry);
 
     const ours = await world();
     const console_ = await ours.call(method, path, { as: ours.manager, body });
-    assert.equal(console_.status, entry.status, `${entry.route} with the console's session: ${JSON.stringify(console_.body)}`);
+    assert.equal(
+      console_.status,
+      entry.status,
+      `${entry.route} with the console's session: ${JSON.stringify(console_.body)}`
+    );
 
     const theirs = await world();
     const before = theirs.fake.auditLog().length;
@@ -373,22 +539,29 @@ test('every route takes the console\'s session; a phone app\'s only where the ap
       else assert.deepEqual(withoutRequestId(phone.body), withoutRequestId(console_.body), entry.route);
       continue;
     }
-    assert.deepEqual([phone.status, phone.body.error?.code], [403, 'phone_not_allowed'], `${entry.route} with a phone app's session`);
+    assert.deepEqual(
+      [phone.status, phone.body.error?.code],
+      [403, 'phone_not_allowed'],
+      `${entry.route} with a phone app's session`
+    );
     assert.match(phone.body.error.message, /Sign in to the console instead\./);
     assert.equal(snapshot(theirs.fake), untouched, `${entry.route}: nothing changed`);
     // A write that is refused is on record, as every write is; a read is not.
     const added = theirs.fake.auditLog().slice(before);
     if (method === 'POST') {
       assert.equal(added.length, 1, entry.route);
-      assert.deepEqual([added[0].outcome, added[0].actor.sub, added[0].detail.code],
-        ['denied', theirs.manager.sub, 'phone_not_allowed'], entry.route);
+      assert.deepEqual(
+        [added[0].outcome, added[0].actor.sub, added[0].detail.code],
+        ['denied', theirs.manager.sub, 'phone_not_allowed'],
+        entry.route
+      );
     } else {
       assert.equal(added.length, 0, entry.route);
     }
   }
 });
 
-test('a phone app\'s session reaches no address the API does not have, and still needs a member', async () => {
+test("a phone app's session reaches no address the API does not have, and still needs a member", async () => {
   const { call, phone, viewer } = await world();
   const nowhere = await call('GET', '/api/nowhere', { claims: phone });
   assert.deepEqual([nowhere.status, nowhere.body.error.code], [403, 'phone_not_allowed']);
@@ -410,7 +583,10 @@ test('an active release with the same SHA-256 may be sent, and the check is on r
   const { call, manager, upload, fake } = setup();
   await upload();
   const before = fake.auditLog().length;
-  const response = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } });
+  const response = await call('POST', sendPath(VERSION), {
+    as: manager,
+    body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' },
+  });
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, { version: VERSION, sha256: sha256(IMAGE), status: 'active' });
 
@@ -419,14 +595,20 @@ test('an active release with the same SHA-256 may be sent, and the check is on r
   assert.deepEqual(bare.body, response.body);
 
   const added = fake.auditLog().slice(before);
-  assert.deepEqual(added.map((entry) => [entry.action, entry.outcome, entry.target, entry.actor.sub]), [
-    ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
-    ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
-  ]);
+  assert.deepEqual(
+    added.map((entry) => [entry.action, entry.outcome, entry.target, entry.actor.sub]),
+    [
+      ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
+      ['firmware.bluetooth_send', 'ok', VERSION, manager.sub],
+    ]
+  );
   assert.deepEqual(added[0].detail, { sha256: sha256(IMAGE), board: 'Cranium-1A2B' });
   assert.deepEqual(added[1].detail, { sha256: sha256(IMAGE) });
   // It changes nothing: the release is as it was.
-  assert.equal((await call('GET', `/api/firmware/${encodeURIComponent(VERSION)}`, { as: manager })).body.release.status, 'active');
+  assert.equal(
+    (await call('GET', `/api/firmware/${encodeURIComponent(VERSION)}`, { as: manager })).body.release.status,
+    'active'
+  );
 });
 
 test('a revoked release, another image or an unknown version may not be sent, on record', async () => {
@@ -435,47 +617,76 @@ test('a revoked release, another image or an unknown version may not be sent, on
   const other = 'f'.repeat(64);
   const before = fake.auditLog().length;
 
-  const mismatch = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: other, board: 'Cranium-1A2B' } });
+  const mismatch = await call('POST', sendPath(VERSION), {
+    as: manager,
+    body: { sha256: other, board: 'Cranium-1A2B' },
+  });
   assert.deepEqual([mismatch.status, mismatch.body.error.code], [409, 'sha256_mismatch']);
   const unknown = await call('POST', sendPath('9.9.9+9'), { as: manager, body: { sha256: sha256(IMAGE) } });
   assert.deepEqual([unknown.status, unknown.body.error.code], [404, 'unknown_version']);
 
   const revoked = await call('POST', `/api/firmware/${encodeURIComponent(VERSION)}/revoke`, {
-    as: manager, body: { reason: 'bricks the encoder' },
+    as: manager,
+    body: { reason: 'bricks the encoder' },
   });
   assert.equal(revoked.status, 200);
   const refused = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: sha256(IMAGE) } });
   assert.deepEqual([refused.status, refused.body.error.code], [409, 'release_revoked']);
 
-  const added = fake.auditLog().slice(before).filter((entry) => entry.action === 'firmware.bluetooth_send');
-  assert.deepEqual(added.map((entry) => [entry.outcome, entry.target, entry.detail.code, entry.detail.sha256]), [
-    ['rejected', VERSION, 'sha256_mismatch', other],
-    ['rejected', '9.9.9+9', 'unknown_version', sha256(IMAGE)],
-    ['rejected', VERSION, 'release_revoked', sha256(IMAGE)],
-  ]);
+  const added = fake
+    .auditLog()
+    .slice(before)
+    .filter((entry) => entry.action === 'firmware.bluetooth_send');
+  assert.deepEqual(
+    added.map((entry) => [entry.outcome, entry.target, entry.detail.code, entry.detail.sha256]),
+    [
+      ['rejected', VERSION, 'sha256_mismatch', other],
+      ['rejected', '9.9.9+9', 'unknown_version', sha256(IMAGE)],
+      ['rejected', VERSION, 'release_revoked', sha256(IMAGE)],
+    ]
+  );
   assert.equal(added[0].detail.board, 'Cranium-1A2B');
 });
 
-test('the check takes a SHA-256 and a board\'s name in exactly one spelling each', async () => {
+test("the check takes a SHA-256 and a board's name in exactly one spelling each", async () => {
   const { call, manager, upload, fake } = setup();
   await upload();
   const good = sha256(IMAGE);
   for (const value of [undefined, null, '', good.toUpperCase(), good.slice(1), `${good}0`, ` ${good}`, 42, [good]]) {
-    const response = await call('POST', sendPath(VERSION), { as: manager, body: value === undefined ? {} : { sha256: value } });
+    const response = await call('POST', sendPath(VERSION), {
+      as: manager,
+      body: value === undefined ? {} : { sha256: value },
+    });
     assert.deepEqual([response.status, response.body.error.code], [400, 'invalid_sha256'], JSON.stringify(value));
   }
-  for (const board of [null, '', 'cranium-1a2b', 'Cranium-1a2b', 'Cranium-12345', 'Cranium-1A2', 'Cranium-1A2G', 7, ['Cranium-1A2B']]) {
+  for (const board of [
+    null,
+    '',
+    'cranium-1a2b',
+    'Cranium-1a2b',
+    'Cranium-12345',
+    'Cranium-1A2',
+    'Cranium-1A2G',
+    7,
+    ['Cranium-1A2B'],
+  ]) {
     const response = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: good, board } });
     assert.deepEqual([response.status, response.body.error.code], [400, 'invalid_board'], JSON.stringify(board));
   }
-  const badVersion = await call('POST', '/api/firmware/not-a-version/bluetooth', { as: manager, body: { sha256: good } });
+  const badVersion = await call('POST', '/api/firmware/not-a-version/bluetooth', {
+    as: manager,
+    body: { sha256: good },
+  });
   assert.deepEqual([badVersion.status, badVersion.body.error.code], [400, 'invalid_version']);
   const notJson = await call('POST', sendPath(VERSION), { as: manager, body: '{' });
   assert.deepEqual([notJson.status, notJson.body.error.code], [400, 'invalid_json']);
   const large = await call('POST', sendPath(VERSION), { as: manager, body: { sha256: good, pad: 'x'.repeat(20_000) } });
   assert.deepEqual([large.status, large.body.error.code], [413, 'payload_too_large']);
   // Each refusal is on record, as every write is.
-  assert.ok(fake.auditLog().filter((entry) => entry.action === 'firmware.bluetooth_send' && entry.outcome === 'rejected').length >= 21);
+  assert.ok(
+    fake.auditLog().filter((entry) => entry.action === 'firmware.bluetooth_send' && entry.outcome === 'rejected')
+      .length >= 21
+  );
 });
 
 test('a viewer may not send, and the refusal is on record', async () => {
@@ -485,16 +696,20 @@ test('a viewer may not send, and the refusal is on record', async () => {
   const response = await call('POST', sendPath(VERSION), { as: viewer, body: { sha256: sha256(IMAGE) } });
   assert.deepEqual([response.status, response.body.error.code], [403, 'release_manager_required']);
   const added = fake.auditLog().slice(before);
-  assert.deepEqual(added.map((entry) => [entry.action, entry.outcome]), [['firmware.bluetooth_send', 'denied']]);
+  assert.deepEqual(
+    added.map((entry) => [entry.action, entry.outcome]),
+    [['firmware.bluetooth_send', 'denied']]
+  );
 });
 
-test('a release manager\'s API token may ask too, and the entry names the token', async () => {
+test("a release manager's API token may ask too, and the entry names the token", async () => {
   const { call, manager, upload, fake } = setup();
   await upload();
   const made = await call('POST', '/api/tokens', { as: manager, body: { name: 'bench' } });
   assert.equal(made.status, 201);
   const response = await call('POST', `/api/t/firmware/${encodeURIComponent(VERSION)}/bluetooth`, {
-    token: made.body.token, body: { sha256: sha256(IMAGE) },
+    token: made.body.token,
+    body: { sha256: sha256(IMAGE) },
   });
   assert.equal(response.status, 200);
   const entry = fake.auditLog().at(-1);
@@ -505,7 +720,9 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   const context = await world();
   context.fake.addThing(OTHER_THING);
   const stale = accessClaims({
-    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT,
+    sub: context.manager.sub,
+    groups: ['release-managers'],
+    clientId: PHONE_CLIENT,
     authTime: Math.floor(context.clock.ms / 1000) - 16 * 60,
   });
   const unknown = accessClaims({ sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT });
@@ -514,7 +731,10 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   const changes = () => context.fake.auditLog().filter((entry) => entry.action !== 'account.sign_in');
   for (const claims of [stale, unknown]) {
     const before = changes().length;
-    const deploy = await context.call('POST', '/api/deployments', { claims, body: { version: VERSION, things: [THING] } });
+    const deploy = await context.call('POST', '/api/deployments', {
+      claims,
+      body: { version: VERSION, things: [THING] },
+    });
     assert.deepEqual([deploy.status, deploy.body.error?.code], [403, 'phone_sign_in_again']);
     const revoke = await context.call('POST', `/api/firmware/${V}/revoke`, { claims, body: { reason: 'old build' } });
     assert.equal(revoke.body.error?.code, 'phone_sign_in_again');
@@ -522,15 +742,24 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
     assert.equal(token.body.error?.code, 'phone_sign_in_again');
     // Refused, and on record as refused.
     const added = changes().slice(before);
-    assert.deepEqual(added.map((entry) => [entry.outcome, entry.detail.code]),
-      [['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again'], ['denied', 'phone_sign_in_again']]);
+    assert.deepEqual(
+      added.map((entry) => [entry.outcome, entry.detail.code]),
+      [
+        ['denied', 'phone_sign_in_again'],
+        ['denied', 'phone_sign_in_again'],
+        ['denied', 'phone_sign_in_again'],
+      ]
+    );
   }
   assert.equal(context.fake.calls.filter((call) => call.method === 'createJob').length, 0);
 
   // Reading never asks for a new sign-in, nor does what a person at a board does.
   assert.equal((await context.call('GET', '/api/firmware', { claims: stale })).status, 200);
   assert.equal((await context.call('GET', `/api/firmware/${V}/image`, { claims: stale })).status, 200);
-  const check = await context.call('POST', `/api/firmware/${V}/bluetooth`, { claims: stale, body: { sha256: sha256(IMAGE) } });
+  const check = await context.call('POST', `/api/firmware/${V}/bluetooth`, {
+    claims: stale,
+    body: { sha256: sha256(IMAGE) },
+  });
   assert.equal(check.status, 200);
   // Nor does saying what was done at a board's serial console, which is done already.
   const serial = await context.call('POST', '/api/serial/commands', { claims: stale, body: { command: 'CLEAR_WIFI' } });
@@ -538,17 +767,22 @@ test('a change from the phone needs a sign-in in the last 15 minutes; at a board
   assert.deepEqual([changes().at(-1).action, changes().at(-1).detail.from], ['serial.command', 'phone']);
 
   // Signed in just now: a deployment to two boards goes ahead, and says it came from the phone.
-  const both = await context.call('POST', '/api/deployments', { claims: context.phone, body: { version: VERSION, things: [THING, OTHER_THING] } });
+  const both = await context.call('POST', '/api/deployments', {
+    claims: context.phone,
+    body: { version: VERSION, things: [THING, OTHER_THING] },
+  });
   assert.equal(both.status, 201, JSON.stringify(both.body));
   const entry = changes().at(-1);
   assert.equal(entry.action, 'deployment.create');
   assert.equal(entry.detail.from, 'phone');
 });
 
-test('from the phone, the fleet\'s changes need a recent sign-in; saying what a phone saw of a board does not', async () => {
+test("from the phone, the fleet's changes need a recent sign-in; saying what a phone saw of a board does not", async () => {
   const context = await world();
   const stale = accessClaims({
-    sub: context.manager.sub, groups: ['release-managers'], clientId: PHONE_CLIENT,
+    sub: context.manager.sub,
+    groups: ['release-managers'],
+    clientId: PHONE_CLIENT,
     authTime: Math.floor(context.clock.ms / 1000) - 16 * 60,
   });
   const changes = () => context.fake.auditLog().filter((entry) => entry.action !== 'account.sign_in');
@@ -562,9 +796,17 @@ test('from the phone, the fleet\'s changes need a recent sign-in; saying what a 
     const refused = await context.call(method, path, { claims: stale, body });
     assert.deepEqual([refused.status, refused.body.error?.code], [403, 'phone_sign_in_again'], path);
   }
-  assert.deepEqual(changes().slice(before).map((entry) => [entry.action, entry.outcome]), [
-    ['group.create', 'denied'], ['rollout.create', 'denied'], ['fleet.update_everything', 'denied'], ['firmware.notes', 'denied'],
-  ]);
+  assert.deepEqual(
+    changes()
+      .slice(before)
+      .map((entry) => [entry.action, entry.outcome]),
+    [
+      ['group.create', 'denied'],
+      ['rollout.create', 'denied'],
+      ['fleet.update_everything', 'denied'],
+      ['firmware.notes', 'denied'],
+    ]
+  );
   const seen = await context.call('POST', `/api/devices/${THING}/seen`, { claims: stale, body: { version: VERSION } });
   assert.equal(seen.status, 201, JSON.stringify(seen.body));
   assert.deepEqual([changes().at(-1).action, changes().at(-1).detail.from], ['device.seen', 'phone']);

@@ -1,0 +1,20 @@
+# Only cloud/ (JavaScript, CSS, HTML, JSON) is formatted for now: see docs/ci.md, "Formatting".
+*
+!cloud/
+!cloud/**/
+!cloud/**/*.js
+!cloud/**/*.mjs
+!cloud/**/*.css
+!cloud/**/*.json
+# Vendored, kept byte for byte as their authors ship them.
+cloud/web/src/site/assets/leaflet.js
+cloud/web/src/site/assets/leaflet.css
+cloud/web/src/site/assets/qrcode.js
+# Generated at deploy or by a build.
+cloud/.deploy/
+cloud/**/history.json
+cloud/**/versions.json
+cloud/**/node_modules/
+cloud/**/.aws-sam/
+# The HTML pages are templates the web function fills in by matching their exact text (server.mjs):
+# Prettier would rewrite what it matches, so they stay as written.

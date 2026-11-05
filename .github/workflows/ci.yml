@@ -137,6 +137,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+      # The cloud's JavaScript, CSS and JSON as Prettier formats them, at the version pinned here and in
+      # docs/ci.md ("Formatting"); .prettierignore says what is left out and why.
+      - name: Formatting
+        run: npx --yes prettier@3.3.3 --check .
       - name: API
         working-directory: cloud/api
         run: node --test

@@ -55,6 +55,23 @@ Tests that skip themselves:
 Without `firmware/tests/host/build/console_sim` and `console_sim_fault`, `test_board.py` skips most of
 its tests. The Python job builds both first, so on Actions it does not.
 
+## Formatting
+
+The Cloud tests job first checks that `cloud/`'s JavaScript (`.js`, `.mjs`), CSS and JSON are as Prettier formats
+them: `npx --yes prettier@3.3.3 --check .`, from the repository's root. The version is pinned there and nowhere else:
+there is no `package.json` in the repository, on purpose, because Node then takes the site's plain `.js` files as ES
+modules only by looking at them, which the website's tests rely on. The options are in `.prettierrc.json` (single
+quotes, semicolons, 120 columns, trailing commas where ES5 allows them).
+
+Left out, in `.prettierignore`: everything outside `cloud/` for now (the firmware's C, the apps' Swift and Kotlin, the
+workflows, and all Markdown, whose line breaks are written by hand and whose README uses CRLF); the vendored Leaflet and
+QR code files, kept as their authors ship them; generated files (`history.json`, `versions.json`, `cloud/.deploy/`);
+and the HTML pages, which the web function fills in by matching their exact text.
+
+To format before a commit: `npx --yes prettier@3.3.3 --write .` The one commit that first formatted everything is in
+`.git-blame-ignore-revs`, so `git blame` (with `git config blame.ignoreRevsFile .git-blame-ignore-revs`, which GitHub
+does by itself) shows who wrote a line rather than the reformat.
+
 ## What this does not show
 
 - **No hardware.** No job touches a board. A green run says nothing about whether an image boots,
