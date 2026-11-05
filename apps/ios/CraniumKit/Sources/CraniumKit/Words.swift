@@ -1066,7 +1066,25 @@ public enum Words {
         "serial.command": AuditAction(done: "ran a command on {} over USB", doneAlone: "ran a command on a board over USB",
                                       tried: "tried to put on record a command on {} over USB",
                                       triedAlone: "tried to put on record a command run over USB", icon: "chip"),
+        // The customer site's accounts, from the console's Customers page (docs/customer-site.md): a customer
+        // by their e-mail address, and "a customer" after a board is that address where the entry has it.
+        "customer.create": AuditAction(done: "invited the customer", tried: "tried to invite the customer",
+                                       triedAlone: "tried to invite a customer", icon: "user"),
+        "customer.resend": AuditAction(done: "sent the invitation again to", doneAlone: "sent an invitation again",
+                                       tried: "tried to send the invitation again to", triedAlone: "tried to send an invitation again",
+                                       icon: "send"),
+        "customer.assign": AuditAction(done: "gave {} to a customer", tried: "tried to give {} to a customer",
+                                       triedAlone: "tried to give a board to a customer", icon: "chip"),
+        "customer.unassign": AuditAction(done: "took {} back from a customer", tried: "tried to take {} back from a customer",
+                                         triedAlone: "tried to take a board back from a customer", icon: "undo"),
+        "customer.disable": AuditAction(done: "switched off the customer account of", tried: "tried to switch off the customer account of",
+                                        triedAlone: "tried to switch off a customer account", icon: "ban"),
+        "customer.enable": AuditAction(done: "switched on the customer account of", tried: "tried to switch on the customer account of",
+                                       triedAlone: "tried to switch on a customer account", icon: "check"),
     ]
+
+    /// The customer actions whose target is a board, and whose sentence ends with the customer.
+    static let customerBoard: Set<String> = ["customer.assign", "customer.unassign"]
 
     static let signedInOn = ["web": "signed in on the website", "phone": "signed in on the phone app"]
 
@@ -1217,6 +1235,19 @@ public enum Words {
         "invalid_version_code": "The versionCode was not a whole number",
         "invalid_size": "The size was not a whole number of bytes, up to 100 MB",
         "unversioned": "The bucket kept no version of the APK",
+        // The customer site's customers (the API's handlers/customers.mjs) and its own API.
+        "customers_not_set_up": "This deployment has no customer pool",
+        "customer_site_has_no_address": "The customer site has no address yet, so an invitation would lead nowhere",
+        "invalid_customer": "Not a valid customer ID",
+        "invalid_email": "Not an e-mail address",
+        "unknown_customer": "There is no customer with that ID",
+        "customer_exists": "There is a customer with that address already",
+        "customer_not_invited": "That customer has signed in already, so there was no invitation to send again",
+        "already_assigned": "That board was that customer’s already",
+        "board_taken": "That board belongs to another customer",
+        "not_assigned": "That board was not that customer’s",
+        "not_your_board": "That customer has no such board",
+        "unavailable": "The account could not be checked just then",
     ]
 
     struct AuditDetail {
@@ -1230,7 +1261,7 @@ public enum Words {
     /// line reads best.
     static let auditDetailOrder = ["code", "incomplete", "filename", "version", "things", "force", "reason", "cancelled",
                                    "size", "sha256", "token", "tokenState", "board", "thing", "boards", "command", "from",
-                                   "client", "name", "days", "withdrawn"]
+                                   "client", "name", "days", "withdrawn", "email", "customer", "label"]
     static let revocationSteps = ["tag": "refusing the image", "cancel": "cancelling the deployments",
                                   "record": "recording that it is done"]
     static let auditDetails: [String: AuditDetail] = [
@@ -1265,6 +1296,10 @@ public enum Words {
             value.allSatisfy(\.isNumber) && !value.isEmpty ? plural(Int(value) ?? 0, "day") : value
         }),
         "withdrawn": AuditDetail(label: "Withdrawn", say: { $0 == "true" ? "at once, to stay within the limit" : $0 }),
+        // A customer of the customer site: their address, their account id, and what a board was called for them.
+        "email": AuditDetail(label: "E-mail"),
+        "customer": AuditDetail(label: "Customer", code: true),
+        "label": AuditDetail(label: "Called", sentence: true),
     ]
 
     /// Requests from scripts/ota.sh without a token, and from the test bench, carry this request id.
@@ -1279,8 +1314,12 @@ public enum Words {
         let action = auditActions[entry.action]
         let ok = entry.outcome == "ok"
         let deployment = DeploymentId.isValid(entry.target) ? entry.target : nil
-        let label = deployment.map { DeploymentId.version(of: $0) ?? $0 } ?? entry.target
         let details = Dictionary(entry.detail.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        var label = deployment.map { DeploymentId.version(of: $0) ?? $0 } ?? entry.target
+        // A customer is told by their address, where the entry has it, not by the id of their account.
+        let customerEmail = entry.action.hasPrefix("customer.") ? details["email"] ?? "" : ""
+        let byAddress = !customerEmail.isEmpty && !customerBoard.contains(entry.action)
+        if byAddress { label = customerEmail }
         // A revocation that completed what an earlier request had begun.
         let resumed = entry.action == "firmware.revoke" && ok && details["resumed"] == "true"
         var words = entry.action.isEmpty ? "did something" : entry.action
@@ -1307,6 +1346,10 @@ public enum Words {
             }
         }
         if label.isEmpty, verb.hasSuffix(" of") { verb = String(verb.dropLast(3)) }
+        // "gave CRVIHAAN01 to <the customer's address>": the board, then whose it is now.
+        if customerBoard.contains(entry.action), !customerEmail.isEmpty, tail.hasSuffix("a customer") {
+            tail = String(tail.dropLast("a customer".count)) + customerEmail
+        }
 
         // The boards of a deployment: by name where the entry has them, else how many.
         let boards = entry.action == "deployment.create"
@@ -1319,6 +1362,7 @@ public enum Words {
         // What the sentence says already is not said again as a fact.
         var said: Set<String> = []
         if entry.action == "account.sign_in" { said.insert("client") }
+        if !customerEmail.isEmpty && (byAddress || !label.isEmpty) { said.insert("email") }
         if entry.action == "deployment.create" && boardCount > 0 { said.insert("things") }
         if boards.count <= 2 { said.insert("boards") }
         var keys: [String] = []

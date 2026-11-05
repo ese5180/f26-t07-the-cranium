@@ -181,6 +181,33 @@ import Testing
         #expect(Words.auditSpoken(command("WIFI", "", "denied")) == "a@b tried to put on record a command run over USB (not allowed)")
     }
 
+    /// The Customers page's entries (cloud/web/test/customer.test.mjs): a customer by their address,
+    /// a board by its name and then whose it is now.
+    @Test func aCustomerReadsAsTheirAddressAndABoardAsWhoseItIs() {
+        let sub = "7ec17d2e-9ee4-4734-8901-33c8fec73372"
+        let thing = "cranium-fe5b26c0c5b1dcd7"
+        let actor = Person(sub: "s", email: "a@b")
+        func customer(_ action: String, _ target: String, _ outcome: String, _ detail: [(String, String)]) -> AuditEntry {
+            entry(action, target, outcome, detail, actor: actor)
+        }
+        let email = ("email", "ada@example.invalid")
+        #expect(Words.auditSentence(customer("customer.create", sub, "ok", [email])) == "a@b invited the customer ada@example.invalid")
+        #expect(Words.describeAudit(customer("customer.create", sub, "ok", [email])).facts.isEmpty)
+        #expect(Words.auditSentence(customer("customer.create", "", "rejected", [email, ("code", "customer_exists")]))
+                == "a@b tried to invite the customer ada@example.invalid")
+        let given = customer("customer.assign", thing, "ok", [("customer", sub), email, ("label", "Deck")])
+        #expect(Words.auditSentence(given) == "a@b gave \(thing) to ada@example.invalid")
+        #expect(Words.describeAudit(given).facts.map { [$0.label, $0.value] } == [["Customer", sub], ["Called", "Deck"]])
+        #expect(Words.auditSentence(customer("customer.unassign", thing, "ok", [("customer", sub)])) == "a@b took \(thing) back from a customer")
+        #expect(Words.auditSentence(customer("customer.assign", "", "denied", [("code", "release_manager_required")]))
+                == "a@b tried to give a board to a customer")
+        #expect(Words.auditSentence(customer("customer.resend", "", "ok", [])) == "a@b sent an invitation again")
+        #expect(Words.auditSentence(customer("customer.disable", sub, "ok", [email])) == "a@b switched off the customer account of ada@example.invalid")
+        #expect(Words.auditSentence(customer("customer.enable", "", "denied", [])) == "a@b tried to switch on a customer account")
+        #expect(Words.describeAudit(customer("customer.assign", thing, "rejected", [("code", "board_taken")])).facts.first?.words
+                == "That board belongs to another customer")
+    }
+
     /// The word lists themselves, read out of the website's core.js: a code or a command the website
     /// has words for and the app does not fails here.
     @Test func theWordListsAreTheWebsitesOwn() throws {
@@ -206,7 +233,9 @@ import Testing
         #expect(try map("export const SERIAL_WORDS") == Words.serialWords)
         #expect(try map("const SIGNED_IN_ON") == Words.signedInOn)
         for action in ["firmware.upload", "firmware.revoke", "deployment.create", "deployment.cancel", "firmware.download",
-                       "pairing.read", "firmware.bluetooth_send", "token.create", "token.revoke", "account.sign_in", "serial.command"] {
+                       "pairing.read", "firmware.bluetooth_send", "token.create", "token.revoke", "account.sign_in", "serial.command",
+                       "customer.create", "customer.resend", "customer.assign", "customer.unassign", "customer.disable",
+                       "customer.enable"] {
             #expect(source.contains("'\(action)': {"), "\(action) on the website")
             #expect(Words.auditActions[action] != nil, "\(action) in the app")
         }

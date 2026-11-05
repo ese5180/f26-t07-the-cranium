@@ -524,6 +524,8 @@ test('staged rollouts move on every minute, in a function of their own that can 
   assert.equal(/Action: \S+:\*/.test(role), false);
   assert.ok(statement(role, 'PassPresignRoleToIot').includes('iam:PassedToService: iot.amazonaws.com'));
   assert.ok(block(block(template, 'Outputs', 0), 'RolloutsFunctionName').includes('Value: !Ref RolloutTickFn'));
+});
+
 // The customer site (docs/customer-site.md).
 
 test('customers have a pool of their own: invited by an admin, e-mail and 10 characters, a code if they like', () => {

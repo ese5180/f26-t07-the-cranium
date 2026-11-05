@@ -226,6 +226,35 @@ test('the home page says what is built and what is not, and promises nothing mor
   for (const claim of [/for sale/i, /buy/i, /price/i, /\bfree\b/i, /guarantee/i]) assert.doesNotMatch(words, claim);
 });
 
+// The console's activity log, for the Customers page's entries. The phone apps keep the same examples
+// (apps/android AuditParityTest, apps/ios ParityTests).
+
+test('the Customers page\'s entries read as sentences: a customer by address, a board then whose it is', () => {
+  const SUB = '7ec17d2e-9ee4-4734-8901-33c8fec73372';
+  const THING = 'cranium-fe5b26c0c5b1dcd7';
+  const actor = { sub: 's', email: 'a@b' };
+  const entry = (action, target, outcome, detail) => ({ at: '2026-11-04T12:00:00Z', actor, action, target, outcome, detail, requestId: '' });
+  const facts = (described) => described.facts.map((fact) => [fact.label, fact.value]);
+  const email = ['email', 'ada@example.invalid'];
+
+  assert.equal(core.auditSentence(entry('customer.create', SUB, 'ok', [email])), 'a@b invited the customer ada@example.invalid');
+  assert.deepEqual(facts(core.describeAudit(entry('customer.create', SUB, 'ok', [email]))), []);
+  assert.equal(core.auditSentence(entry('customer.create', '', 'rejected', [email, ['code', 'customer_exists']])),
+    'a@b tried to invite the customer ada@example.invalid');
+  const given = entry('customer.assign', THING, 'ok', [['customer', SUB], email, ['label', 'Deck']]);
+  assert.equal(core.auditSentence(given), `a@b gave ${THING} to ada@example.invalid`);
+  assert.deepEqual(facts(core.describeAudit(given)), [['Customer', SUB], ['Called', 'Deck']]);
+  assert.equal(core.describeAudit(given).thing, THING);
+  assert.equal(core.auditSentence(entry('customer.unassign', THING, 'ok', [['customer', SUB]])), `a@b took ${THING} back from a customer`);
+  assert.equal(core.auditSentence(entry('customer.assign', '', 'denied', [['code', 'release_manager_required']])),
+    'a@b tried to give a board to a customer');
+  assert.equal(core.auditSentence(entry('customer.resend', '', 'ok', [])), 'a@b sent an invitation again');
+  assert.equal(core.auditSentence(entry('customer.disable', SUB, 'ok', [email])), 'a@b switched off the customer account of ada@example.invalid');
+  assert.equal(core.auditSentence(entry('customer.enable', '', 'denied', [])), 'a@b tried to switch on a customer account');
+  assert.equal(core.describeAudit(entry('customer.assign', THING, 'rejected', [['code', 'board_taken']])).facts[0].words,
+    'That board belongs to another customer');
+});
+
 // The site's logic.
 
 test('routes: the pages of the site, a board by its assignment id, and nothing else', () => {
@@ -498,7 +527,7 @@ async function openSite(t, { hash = '', status = 'CONFIRMED' } = {}) {
       if (url === '/api/c/boards') return Response.json({ boards: [BOARD] });
       if (url === '/api/c/activity') return Response.json({ activity: [{ at: BOARD.lastSeen, board: BOARD.id, kind: 'connection', what: 'connected' }] });
       if (url === `/api/c/boards/${BOARD.id}`) return Response.json({ board: BOARD, activity: [] });
-      return Response.json({ error: { code: 'unknown_board', message: 'There is no board of yours at this address.' } }, { status: 404 });
+      return Response.json({ error: { code: 'not_your_board', message: 'There is no board of yours at this address.' } }, { status: 404 });
     }
     if (url === '/api/me') {
       return token === 'STAFF-TOKEN'

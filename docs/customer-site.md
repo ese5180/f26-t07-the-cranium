@@ -212,7 +212,8 @@ the customer API has a request limit of its own (`GET /api/c/{proxy+}`: 20 at on
 ## The admins' accounts
 
 The four admins (the owner, Adam, Christian and Demetrius) are staff pool accounts, made after the deployment as every
-console account is. Their addresses are not written in this repository:
+console account is. Their addresses are in the team table of the [root README](../README.md#31-team-formation) (3.1),
+and are not repeated here:
 
 ```sh
 cloud/users.sh add <the owner's e-mail> release-manager
@@ -243,8 +244,8 @@ they can be taken back.
   password again: whoever holds an open session can do it.
 - **The masthead.** The console's Customers item means the account box takes a second row at 1440 px wide; below
   1280 px it did already.
-- **The phone apps** do not have the Customers page, and show the new entries of the activity log in their own generic
-  words until they are taught the customer actions.
+- **The phone apps** do not have the Customers page. Their activity log reads the new entries in the website's words
+  (Android `Audit.kt`, iOS `Words.swift`, held to it by `WebsiteListsTest`, `AuditParityTest` and `ParityTests`).
 - **On a stack that exists, the customer pool is created with deletion protection on**, like the events table was; if
   that update failed and rolled back, CloudFormation could not delete the new pool, and it would have to be removed by
   hand. `cloud/teardown.sh` deletes it with the rest.

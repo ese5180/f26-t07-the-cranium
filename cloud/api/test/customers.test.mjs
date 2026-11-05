@@ -124,7 +124,7 @@ test('a customer sees their own boards and no other: by assignment id, never by 
   assert.equal((await w.customer(`/api/c/boards/${first.id}`, { as: w.ada })).status, 200);
   for (const path of [`/api/c/boards/${first.id}`, `/api/c/boards/${BOARD_A}`, '/api/c/boards/0123456789abcdef']) {
     const response = await w.customer(path, { as: w.ben });
-    assert.deepEqual([response.status, response.body.error.code], [404, 'unknown_board'], path);
+    assert.deepEqual([response.status, response.body.error.code], [404, 'not_your_board'], path);
   }
   assert.deepEqual((await w.customer('/api/c/me', { as: w.ada })).body, { email: 'ada@example.invalid', name: 'Ada', boards: 2 });
 });
