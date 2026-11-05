@@ -4,6 +4,26 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.0
+
+The app is now a thin shell around the website's own pages, kept on the phone and updated from the console by itself,
+on any network: what changes on the website reaches the app with no new APK. Bluetooth, the fingerprint and the saved
+sign-in stay the app's own, behind a bridge the pages ask. The screens of 0.7 stay for this version: Classic app, in
+the app's settings or on its icon.
+
+The pages are a bundle (`/app/manifest.json`, every file with its size and SHA-256): the app serves the last one that
+checked out from its own storage at `https://appassets.androidplatform.net` (WebViewAssetLoader), never from the
+network, and in the background fetches a newer one, at most four files at a time, checks each, swaps it in with one
+rename and keeps the one before. A bundle that has not started after two tries is set aside for good, and the copy
+built into the APK (`cloud/web/build-bundle.mjs`, so the build needs Node.js) is the last resort. Each page gets a
+Content-Security-Policy from the app; the web view goes nowhere but the bundle, and every other address opens outside.
+
+The bridge (`apps/shared/bridge.json`, version 1) is a WebMessageListener for the bundle's origin only, and every
+request is checked against the contract before anything runs. The page signs in itself and hands the refresh token
+over: the app keeps it in the same store, behind the same fingerprint and under the same hour's rule as the classic
+app, so both share one sign-in, and gives the page access tokens only. Bluetooth runs on the classic app's MCUmgr
+upload, status client and status scan. The APK's own update banner, daily check and notification are as before.
+
 ## 0.7.3
 
 The Overview's last update and a board's update history now show every update, not only deployments: over Bluetooth

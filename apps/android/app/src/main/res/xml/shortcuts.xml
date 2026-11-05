@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher's shortcuts (a long press on the app's icon), from 0.8.0: the classic app, the native
+  screens of 0.7, kept for this version; and back to the new app. MainActivity reads the action.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="classic_app"
+        android:shortcutLongLabel="@string/shortcut_classic_long"
+        android:shortcutShortLabel="@string/shortcut_classic">
+        <intent
+            android:action="com.craniumiot.cranium.CLASSIC_APP"
+            android:targetClass="com.craniumiot.cranium.MainActivity"
+            android:targetPackage="com.craniumiot.cranium" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="new_app"
+        android:shortcutLongLabel="@string/shortcut_new_long"
+        android:shortcutShortLabel="@string/shortcut_new">
+        <intent
+            android:action="com.craniumiot.cranium.NEW_APP"
+            android:targetClass="com.craniumiot.cranium.MainActivity"
+            android:targetPackage="com.craniumiot.cranium" />
+    </shortcut>
+</shortcuts>

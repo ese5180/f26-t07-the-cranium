@@ -40,6 +40,7 @@ import com.craniumiot.cranium.core.Words
 fun MoreScreen(vm: ConsoleViewModel, store: Store) {
     val canWrite = store.me?.canWrite == true
     val exits = LocalAdminExits.current
+    val newApp = com.craniumiot.cranium.shell.LocalNewApp.current
     ConsoleScreen(title = "More") {
         header("Console")
         item(key = "deployments") { ListRow("Deployments", leading = { GlyphIcon(Glyph.SEND, tint = console.ink2) }, onClick = { vm.open(Route.Deployments) }) }
@@ -65,6 +66,12 @@ fun MoreScreen(vm: ConsoleViewModel, store: Store) {
         exits?.let { exits ->
             item(key = "leave-admin") {
                 ListRow(CustomerText.LEAVE_ADMIN_MODE, leading = { GlyphIcon(Glyph.ARROW_LEFT, tint = console.ink2) }, onClick = exits.leave)
+            }
+        }
+        // The classic app, from 0.8.0: back to the new one (shell/, docs/mobile-apps.md "The app shell").
+        newApp?.let { open ->
+            item(key = "new-app") {
+                ListRow("Use the new app", supporting = "The classic app's screens are for this version only", leading = { GlyphIcon(Glyph.ARROW_LEFT, tint = console.ink2) }, onClick = open)
             }
         }
     }

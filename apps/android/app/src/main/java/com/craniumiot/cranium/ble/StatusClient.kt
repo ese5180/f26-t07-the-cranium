@@ -42,6 +42,11 @@ class StatusClient(
     private val onAbsent: () -> Unit = {},
     /** The link went, or could not be made. */
     private val onGone: () -> Unit = {},
+    /**
+     * Each value as it came, with what it parsed to, if it did (the app shell hands the bytes to the page,
+     * which reads them itself: a later format than this app knows included).
+     */
+    private val onPayload: ((ByteArray, BoardStatus?) -> Unit)? = null,
 ) {
     private var gatt: BluetoothGatt? = null
     private var ended = false
@@ -75,8 +80,14 @@ class StatusClient(
     }
 
     private fun deliver(value: ByteArray?) {
-        val status = value?.let(BoardStatus::parse) ?: return
-        scope.launch { if (!ended) onStatus(status) }
+        if (value == null) return
+        val status = BoardStatus.parse(value)
+        if (status == null && onPayload == null) return
+        scope.launch {
+            if (ended) return@launch
+            onPayload?.invoke(value, status)
+            if (status != null) onStatus(status)
+        }
     }
 
     private fun characteristic(g: BluetoothGatt): BluetoothGattCharacteristic? =
@@ -166,6 +177,8 @@ class StatusFollower(
     private val scope: CoroutineScope,
     private val accept: (BoardStatus) -> Boolean,
     private val onStatus: (BoardStatus) -> Unit,
+    /** The bytes of each status that is followed, as they came (the app shell's ble.watch). */
+    private val onPayload: ((ByteArray) -> Unit)? = null,
 ) {
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private var scan: ScanCallback? = null
@@ -213,9 +226,10 @@ class StatusFollower(
             context,
             device,
             scope,
-            onStatus = { status -> read(opened, status) },
+            onStatus = { status -> if (onPayload == null) read(opened, status, null) },
             onAbsent = { passedOver += opened.address },
             onGone = { gone(opened) },
+            onPayload = if (onPayload == null) null else { raw, status -> if (status != null) read(opened, status, raw) },
         )
         client = opened
         opened.open()
@@ -230,7 +244,7 @@ class StatusFollower(
         }
     }
 
-    private fun read(from: StatusClient, status: BoardStatus) {
+    private fun read(from: StatusClient, status: BoardStatus, raw: ByteArray?) {
         if (client !== from) return
         if (!accepted && !accept(status)) {
             passedOver += from.address
@@ -240,6 +254,7 @@ class StatusFollower(
         }
         accepted = true
         onStatus(status)
+        if (raw != null) onPayload?.invoke(raw)
     }
 
     private fun gone(from: StatusClient) {

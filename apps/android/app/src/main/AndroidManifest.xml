@@ -53,15 +53,35 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Cranium"
         tools:targetApi="s">
+        <!--
+          A rotation or a keyboard does not make the activity again: the new app's web view keeps its
+          page (and an update over Bluetooth under way) instead of loading it again.
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- The launcher's shortcuts: the classic app, and back to the new one. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- A file a page of the new app shares (file.share): cacheDir/shared only, read-only, granted per file. -->
+        <provider
+            android:name=".shell.ShareFileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
 
         <!-- A downloaded update, to Android's installer: cacheDir/updates only, read-only, granted per file. -->
         <provider

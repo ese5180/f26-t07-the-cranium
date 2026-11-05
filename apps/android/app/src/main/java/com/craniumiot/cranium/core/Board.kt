@@ -8,6 +8,8 @@ data class ImageSlot(
     val active: Boolean,
     val confirmed: Boolean,
     val pending: Boolean,
+    /** Marked to stay after the next restart (MCUmgr's `permanent`). */
+    val permanent: Boolean = false,
 )
 
 object BoardImages {

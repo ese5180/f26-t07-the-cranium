@@ -1,5 +1,8 @@
 import groovy.json.JsonSlurper
+import java.io.ByteArrayOutputStream
 import java.util.Properties
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
 
 plugins {
     alias(libs.plugins.android.application)
@@ -97,6 +100,70 @@ val copyHelp = tasks.register<CopyHelp>("copyHelp") {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The web bundle built into the app (docs/mobile-apps.md, "The app shell"): the console's and the
+// customer site's pages as cloud/web/build-bundle.mjs writes them, into assets/web/ (manifest.json and
+// files/<sha256>). The app serves it until it has fetched a newer one from the console, and falls back
+// on it whenever what it fetched does not check out. Node.js makes it: the same code that serves it.
+// ---------------------------------------------------------------------------------------------
+val repoDir: File = rootDir.resolve("../..").canonicalFile
+
+abstract class BuildWebBundle : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val webSources: DirectoryProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val script: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val consoleVersion: RegularFileProperty
+
+    @get:Input
+    abstract val node: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val exec: ExecOperations
+
+    @TaskAction
+    fun build() {
+        val root = outputDir.get().asFile
+        root.deleteRecursively()
+        root.mkdirs()
+        val output = ByteArrayOutputStream()
+        val result = try {
+            exec.exec {
+                commandLine(node.get(), script.get().asFile.absolutePath, "--out", root.resolve("web").absolutePath)
+                standardOutput = output
+                errorOutput = output
+                isIgnoreExitValue = true
+            }
+        } catch (e: Exception) {
+            throw GradleException(
+                "Cranium: the app's built-in web bundle is made with Node.js (cloud/web/build-bundle.mjs), and " +
+                    "\"${node.get()}\" could not be run. Install Node.js 20 or later, or set CRANIUM_NODE to its path.",
+            )
+        }
+        if (result.exitValue != 0) {
+            throw GradleException("Cranium: cloud/web/build-bundle.mjs failed: ${output.toString().trim()}")
+        }
+        logger.lifecycle(output.toString().trim())
+    }
+}
+
+val buildWebBundle = tasks.register<BuildWebBundle>("buildWebBundle") {
+    webSources.set(repoDir.resolve("cloud/web/src"))
+    script.set(repoDir.resolve("cloud/web/build-bundle.mjs"))
+    consoleVersion.set(repoDir.resolve("cloud/VERSION"))
+    node.set(providers.environmentVariable("CRANIUM_NODE").orElse("node"))
+    outputDir.set(layout.buildDirectory.dir("generated/webBundle"))
+}
+
+// ---------------------------------------------------------------------------------------------
 // Release signing. The keystore and its passwords live outside the repository, in
 // ~/.cranium/android (build-release.sh creates them). Without them a release build is unsigned.
 // ---------------------------------------------------------------------------------------------
@@ -165,9 +232,16 @@ android {
     }
 }
 
+// The unit tests read the built-in bundle as the app does (BuiltInBundleTest): Node's manifest, the app's reader.
+tasks.withType<Test>().configureEach {
+    dependsOn(buildWebBundle)
+    systemProperty("cranium.webBundle", layout.buildDirectory.dir("generated/webBundle/web").get().asFile.absolutePath)
+}
+
 androidComponents {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(copyHelp, CopyHelp::outputDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(buildWebBundle, BuildWebBundle::outputDir)
     }
 }
 
@@ -190,6 +264,7 @@ dependencies {
     implementation(libs.mcumgr.ble)
     implementation(libs.usb.serial)
     implementation(libs.work.runtime.ktx)
+    implementation(libs.webkit)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

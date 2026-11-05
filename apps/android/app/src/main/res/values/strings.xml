@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Cranium</string>
+    <!-- The launcher's shortcuts (res/xml/shortcuts.xml). -->
+    <string name="shortcut_classic">Classic app</string>
+    <string name="shortcut_classic_long">Open the classic app</string>
+    <string name="shortcut_new">New app</string>
+    <string name="shortcut_new_long">Open the new app</string>
 </resources>
