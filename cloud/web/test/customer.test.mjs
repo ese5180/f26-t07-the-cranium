@@ -511,6 +511,8 @@ async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null 
   const location = {
     pathname: '/',
     search: '',
+    // The app's origin, in the app (bridge.json "origins"); the site's own reads none.
+    ...(phone ? { origin: 'cranium-app://bundle' } : {}),
     get hash() { return address; },
     set hash(value) {
       address = value;
@@ -767,4 +769,25 @@ test('in the phone app the site opens on its sign-in, and the customer\'s refres
   await until(() => /On this phone/.test(tab.text()), 'the account page');
   assert.match(tab.text(), /iPhone app 0\.8\.0 \(14\)/);
   assert.match(tab.text(), /Unlock with Face ID/);
+});
+
+test('in the phone app, signing out of the customer side makes the app forget both sign-ins, as the website does', async (t) => {
+  const tab = await openSite(t, {
+    app: { 'auth.session': ({ pool }) => (pool === 'admin' ? { signedIn: true, accessToken: 'STAFF-TOKEN', expiresIn: 3600 } : { signedIn: false }),
+      'auth.signOut': {} },
+  });
+  // The admin is signed in already, from the app: the customer signs in as well.
+  await until(() => /Signed in as an admin/.test(tab.text()), 'the admin overview');
+  tab.go('#/sign-in');
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
+  await tab.type('signin-email', 'ada@example.invalid');
+  tab.document.getElementById('signin-password').value = 'her own password';
+  tab.submit();
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'Sign out'));
+  await until(() => tab.appCalls.filter((message) => message.method === 'auth.signOut').length === 2, 'both sign-outs');
+  assert.deepEqual(tab.appCalls.filter((message) => message.method === 'auth.signOut').map((message) => message.params.pool).sort(),
+    ['admin', 'customer']);
+  await until(() => tab.navigations.length === 1, 'the way home');
+  assert.deepEqual(tab.navigations, ['cranium-app://bundle/']);
 });

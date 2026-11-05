@@ -375,6 +375,8 @@ function signOut() {
   if (state.admin && state.customer) {
     adminAuth.signedOutElsewhere();
     consoleChannel?.postMessage(SIGNED_OUT_SIGNAL);
+    // In the app the admin's sign-in is kept by the app: it forgets and revokes that one too.
+    if (adminAuth.inApp) appBridge.call('auth.signOut', { pool: 'admin' }).catch(() => {});
     customerAuth.signOut();
   } else if (state.customer) {
     customerAuth.signOut();
