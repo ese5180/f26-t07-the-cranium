@@ -1,0 +1,225 @@
+{
+  "about": "The bridge between the phone apps' native shell and the pages of the web bundle (docs/mobile-apps.md, 'The bridge'). Version 1. The page's side is cloud/web/src/site/assets/bridge.js; the shells' are apps/ios/App/Shell/ and apps/android/app/src/main/java/com/craniumiot/cranium/shell/. All three test suites read this file: a method that is not here does not exist, and a parameter that is not here, of another type, or out of its range, is refused with bad_request before anything is done.",
+  "bridge": 1,
+  "origins": {
+    "ios": "cranium-app://bundle",
+    "android": "https://appassets.androidplatform.net"
+  },
+  "transport": {
+    "ios": "Page to app: window.webkit.messageHandlers.cranium.postMessage(text). App to page: window.dispatchEvent(new CustomEvent('cranium-native', { detail: text })), run with callAsyncJavaScript and the text as an argument. Main frame of the bundle's origin only.",
+    "android": "Page to app: window.craniumNative.postMessage(text), a WebMessageListener (androidx.webkit addWebMessageListener) allowed for the bundle's origin only. App to page: the listener's reply proxy, postMessage(text), which the page reads in craniumNative.onmessage. Main frame only."
+  },
+  "envelope": {
+    "request": "{\"v\": 1, \"id\": <integer 1..2147483647>, \"method\": \"<name>\", \"params\": {<object>}}",
+    "response": "{\"id\": <the request's>, \"ok\": true, \"result\": {<object>}} or {\"id\": <the request's>, \"ok\": false, \"error\": {\"code\": \"<one of errors>\", \"message\": \"<for a person>\"}}",
+    "event": "{\"event\": \"<name>\", \"data\": {<object>}}",
+    "maxRequestBytes": 4194304
+  },
+  "errors": {
+    "bad_request": "Not a request of this bridge, or a parameter missing, unknown, of another type or out of range",
+    "unknown_method": "No method of that name in this version of the bridge",
+    "unavailable": "The method's feature is not on this phone or this app (hello.features)",
+    "not_allowed": "Refused by the app's own rules, such as an address it does not open",
+    "cancelled": "The person cancelled, as a biometric prompt or a share sheet",
+    "locked": "The saved sign-in could not be unlocked: a new face or fingerprint, three failures, or no passcode",
+    "signed_out": "No sign-in is kept for that pool",
+    "busy": "Something of that kind is under way already, such as an upload",
+    "network": "The network or the service could not be reached",
+    "failed": "Anything else; the message says what"
+  },
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate"],
+  "methods": {
+    "app.hello": {
+      "feature": null,
+      "params": {},
+      "result": "{bridge: 1, platform: 'ios'|'android', shell: {version: '0.8.0', build: '14'}, bundle: {id, console: '2.1.1'|null, source: 'downloaded'|'built-in'}, features: [...], needsNewerApp: true when the console has a bundle that needs a newer bridge than this app's}"
+    },
+    "app.config": {
+      "feature": null,
+      "params": {},
+      "result": "The app's public configuration (apps/config/cranium.json): {consoleUrl, region, userPoolId, mobileClientId, customerApiUrl, customerRegion, customerUserPoolId, customerClientId, example}. The four customer values are null for a configuration without the customer pool; example is true for a build with cranium.example.json."
+    },
+    "app.ready": {
+      "feature": null,
+      "params": {},
+      "result": "{}. The page has started: the bundle it came from is good, and is kept as the last good one."
+    },
+    "app.reload": {
+      "feature": null,
+      "params": {},
+      "result": "{}. The web view loads the newest good bundle at the page it is on."
+    },
+    "app.open": {
+      "feature": "open",
+      "params": {
+        "url": { "type": "string", "max": 4096 }
+      },
+      "result": "{}. Opens an https:, sidestore: or otpauth: address outside the app (the system browser, SideStore, an authenticator app); anything else is not_allowed."
+    },
+    "app.settings": {
+      "feature": "settings",
+      "params": {},
+      "result": "{}. Shows the shell's own settings: the versions, Look for an update of the pages, and Classic app."
+    },
+    "app.keepAwake": {
+      "feature": "keepAwake",
+      "params": {
+        "on": { "type": "boolean" }
+      },
+      "result": "{}. Keeps the screen on while true, as during an update over Bluetooth."
+    },
+    "auth.store": {
+      "feature": "auth",
+      "params": {
+        "pool": { "type": "enum", "values": ["admin", "customer"] },
+        "refreshToken": { "type": "string", "max": 8192 },
+        "accessToken": { "type": "string", "max": 8192 },
+        "idToken": { "type": "string", "max": 8192, "optional": true },
+        "expiresIn": { "type": "integer", "min": 1, "max": 86400 }
+      },
+      "result": "{biometric: {available, kind: 'faceID'|'touchID'|'fingerprint'|null, enabled}}. Keeps the refresh token as the classic app does (Keychain or Keystore; behind the biometric where that is on) and the access token in memory. After a sign-in the app may offer the biometric itself."
+    },
+    "auth.session": {
+      "feature": "auth",
+      "params": {
+        "pool": { "type": "enum", "values": ["admin", "customer"] }
+      },
+      "result": "{signedIn: true, accessToken, expiresIn} or {signedIn: false}. Refreshes with Cognito (InitiateAuth REFRESH_TOKEN_AUTH) when the access token in memory has less than 120 s left, behind the biometric when that is on. Errors: cancelled, locked, network."
+    },
+    "auth.signOut": {
+      "feature": "auth",
+      "params": {
+        "pool": { "type": "enum", "values": ["admin", "customer"] }
+      },
+      "result": "{}. Revokes the refresh token where it can and forgets everything of that pool's sign-in."
+    },
+    "biometric.status": {
+      "feature": "biometric",
+      "params": {
+        "pool": { "type": "enum", "values": ["admin", "customer"] }
+      },
+      "result": "{available, kind: 'faceID'|'touchID'|'fingerprint'|null, enabled}"
+    },
+    "biometric.set": {
+      "feature": "biometric",
+      "params": {
+        "pool": { "type": "enum", "values": ["admin", "customer"] },
+        "enabled": { "type": "boolean" }
+      },
+      "result": "{enabled}. On asks for the biometric and moves the refresh token behind it; off moves it back."
+    },
+    "clipboard.write": {
+      "feature": "clipboard",
+      "params": {
+        "text": { "type": "string", "max": 1024 },
+        "expiresIn": { "type": "integer", "min": 1, "max": 600, "optional": true }
+      },
+      "result": "{}. With expiresIn, on this phone only and gone after that many seconds (iOS: localOnly and expirationDate; Android: marked sensitive, and cleared after that time if it still holds the text)."
+    },
+    "haptics.play": {
+      "feature": "haptics",
+      "params": {
+        "kind": { "type": "enum", "values": ["success", "warning", "error", "selection", "impact"] }
+      },
+      "result": "{}"
+    },
+    "file.share": {
+      "feature": "share",
+      "params": {
+        "name": { "type": "string", "max": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,99}$" },
+        "type": { "type": "enum", "values": ["text/csv", "application/json", "text/plain", "application/pdf"] },
+        "data": { "type": "string", "max": 11184812 }
+      },
+      "result": "{shared: true|false}. data is base64. Opens the share sheet (save to Files, AirDrop, mail …) with the file."
+    },
+    "ble.state": {
+      "feature": "ble",
+      "params": {},
+      "result": "{state: 'on'|'off'|'unauthorized'|'unsupported'|'unknown'}"
+    },
+    "ble.scan": {
+      "feature": "ble",
+      "params": {
+        "on": { "type": "boolean" }
+      },
+      "result": "{}. While on, scans for boards that take an image (the SMP service) and sends ble.boards each time the list changes."
+    },
+    "ble.connect": {
+      "feature": "ble",
+      "params": {
+        "id": { "type": "string", "max": 64, "pattern": "^[A-Za-z0-9:-]{1,64}$" }
+      },
+      "result": "{name}. Connects to a board from ble.boards; one board at a time. The iPhone app answers once the board has paired (MCUmgr's connect needs the paired link); the Android app answers at once and pairs at the first ble.images. Either way the phone asks for the passkey in between, so the page asks the console for it from before it calls ble.connect."
+    },
+    "ble.images": {
+      "feature": "ble",
+      "params": {},
+      "result": "{images: [{slot, version: '1.14.0' or '1.14.0.5' as the board says it, active, confirmed, pending, permanent}]}. MCUmgr's image list on the board that is connected; the phone asks for the passkey at the first one."
+    },
+    "ble.upload": {
+      "feature": "ble",
+      "params": {
+        "image": { "type": "string", "max": 3495256 },
+        "sha256": { "type": "string", "max": 64, "pattern": "^[0-9a-f]{64}$" }
+      },
+      "result": "{}. image is the signed image in base64 (2.5 MiB at most). The app checks the SHA-256 of what it got and MCUboot's magic, then uploads with MCUmgr's image upload only: no test, confirm or reset. ble.progress while it goes. busy if an upload is under way."
+    },
+    "ble.cancel": {
+      "feature": "ble",
+      "params": {},
+      "result": "{}. Stops an upload under way."
+    },
+    "ble.status": {
+      "feature": "ble",
+      "params": {},
+      "result": "{supported: true|false, payload: base64|null}. Reads the board's status characteristic (9112B1B5-2A51-40F0-94D3-A76440F0E6CC) on the link that is up, and asks for its notifications: each comes as ble.status with afterRestart false. supported is false for firmware before 1.14.0."
+    },
+    "ble.disconnect": {
+      "feature": "ble",
+      "params": {},
+      "result": "{}"
+    },
+    "ble.watch": {
+      "feature": "ble",
+      "params": {
+        "on": { "type": "boolean" },
+        "version": { "type": "string", "max": 40, "pattern": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,5}\\+\\d{1,10}$", "optional": true },
+        "hash": { "type": "string", "max": 16, "pattern": "^[0-9a-f]{16}$", "optional": true }
+      },
+      "result": "{}. After the restart: looks for boards that advertise the status service, connects with no pairing, reads each once, and follows the one whose last update over Bluetooth is that version (and that image hash, if given): each status as ble.status with afterRestart true. version is needed with on."
+    },
+    "update.check": {
+      "feature": "appUpdate",
+      "params": {},
+      "result": "{available: {version, note}|null}. Android only: whether the console has a newer APK than this one (the app's own updater, update/)."
+    },
+    "update.install": {
+      "feature": "appUpdate",
+      "params": {},
+      "result": "{}. Android only: downloads, checks and hands the newer APK to Android's installer, as the banner does."
+    }
+  },
+  "events": {
+    "app.lifecycle": "{state: 'foreground'|'background'}",
+    "app.bundleReady": "{id, console}: a newer bundle is checked and kept; app.reload shows it, and the next start does anyway",
+    "auth.locked": "{pool}: the app locked the sign-in again (5 minutes in the background with the biometric on); ask auth.session before the next request",
+    "ble.boards": "{boards: [{id, name, rssi}]}",
+    "ble.link": "{state: 'connected'|'disconnected', name, error: string|null}",
+    "ble.progress": "{sent, total}",
+    "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}"
+  },
+  "policies": {
+    "about": "The Content-Security-Policy the shell sends with each page of the bundle, by the route's policy. {self} is the bundle's origin, {console} and {customer} the origins of consoleUrl and customerApiUrl (customer left out when there is none), {idp} https://cognito-idp.<region>.amazonaws.com of each pool (the same origin once when both pools are in one Region).",
+    "console": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'",
+    "customer": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
+  },
+  "navigation": "The web view shows the bundle's origin and nothing else. A link, a form or a script that would take the main frame anywhere else, or open a window, is cancelled, and an https:, sidestore: or otpauth: address goes to the system instead (app.open's rule). No frame of another origin is loaded.",
+  "bundle": {
+    "manifest": "{consoleUrl}/app/manifest.json",
+    "file": "{consoleUrl}/app/files/<sha256>",
+    "builtIn": "The folder that cloud/web/build-bundle.mjs writes: manifest.json and files/<sha256>. In the iPhone app the folder reference WebBundle/; in the Android app the assets folder web/.",
+    "store": "In app-private storage that is not backed up: objects/<sha256> (each file checked against its SHA-256 and size before it is renamed into place), current.json and previous.json (manifests), state.json. A path in a manifest is only a key, never a file name.",
+    "launch": "The current bundle if every file it names is there and matches its SHA-256, and it is not marked bad; else the previous one, the same way; else the built-in one. A bundle that has not yet sent app.ready after two starts is marked bad and not fetched again.",
+    "update": "In the background, when the app starts and when it comes back to the foreground at most every 10 minutes: fetch the manifest (HTTPS, 15 s), read it (bundle.mjs readManifest has the same rules), and if its id is new and its bridge is not above the app's, fetch each file it names that is not kept yet, at most 4 at a time, check each one, then write current.json (the old one becomes previous.json) in one rename, send app.bundleReady, and delete the files neither manifest names. A manifest that needs a newer bridge is not taken: app.hello and the settings say the app itself needs an update."
+  }
+}

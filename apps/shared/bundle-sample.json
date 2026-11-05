@@ -1,0 +1,605 @@
+{
+  "about": "A small bundle that cloud/web/test/bundle.test.mjs, the iPhone app's BundleManifestTests and the Android app's BundleManifestTest all read: the manifest must read, its id must be the one worked out from canonical, each file's text must have its SHA-256, and each of the broken manifests must be refused. Written by cloud/web/src/bundle.mjs; do not edit by hand.",
+  "files": {
+    "index.html": "<!doctype html><title>Customer</title><script type=\"module\" src=\"/assets/0123456789ab/customer.js\"></script>\n",
+    "admin/index.html": "<!doctype html><title>Console</title><script type=\"module\" src=\"/assets/ba9876543210/app.js\"></script>\n",
+    "assets/0123456789ab/customer.js": "export const side = \"customer\";\n",
+    "assets/0123456789ab/core.js": "export const shared = 1;\n",
+    "assets/ba9876543210/core.js": "export const shared = 1;\n",
+    "assets/ba9876543210/app.js": "import { shared } from \"./core.js\";\n",
+    "assets/ba9876543210/app.css": "body { color: #171411; }\n"
+  },
+  "objects": 6,
+  "canonical": "cranium-bundle 1\nbridge 1\nroute / index.html customer\nroute /admin admin/index.html console\nfile admin/index.html 103 b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264\nfile assets/0123456789ab/core.js 25 82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8\nfile assets/0123456789ab/customer.js 32 dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8\nfile assets/ba9876543210/app.css 25 3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8\nfile assets/ba9876543210/app.js 36 835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649\nfile assets/ba9876543210/core.js 25 82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8\nfile index.html 109 1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15\n",
+  "manifest": {
+    "format": 1,
+    "id": "0d06031f7d2373cf",
+    "bridge": 1,
+    "console": {
+      "version": "2.1.1",
+      "commit": "0123456789abcdef0123456789abcdef01234567"
+    },
+    "builtAt": "2026-11-05T12:00:00.000Z",
+    "routes": {
+      "/": {
+        "file": "index.html",
+        "policy": "customer"
+      },
+      "/admin": {
+        "file": "admin/index.html",
+        "policy": "console"
+      }
+    },
+    "files": [
+      {
+        "path": "admin/index.html",
+        "size": 103,
+        "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+      },
+      {
+        "path": "assets/0123456789ab/core.js",
+        "size": 25,
+        "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+      },
+      {
+        "path": "assets/0123456789ab/customer.js",
+        "size": 32,
+        "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+      },
+      {
+        "path": "assets/ba9876543210/app.css",
+        "size": 25,
+        "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+      },
+      {
+        "path": "assets/ba9876543210/app.js",
+        "size": 36,
+        "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+      },
+      {
+        "path": "assets/ba9876543210/core.js",
+        "size": 25,
+        "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+      },
+      {
+        "path": "index.html",
+        "size": 109,
+        "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+      }
+    ]
+  },
+  "broken": {
+    "id does not match": {
+      "format": 1,
+      "id": "0000000000000000",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "a path that climbs": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        },
+        {
+          "path": "../secret.js",
+          "size": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "a kind of file a bundle may not hold": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        },
+        {
+          "path": "assets/x/run.sh",
+          "size": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "a route to no file": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/missing.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "an unknown route": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        },
+        "/other": {
+          "file": "index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "an unknown policy": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "none"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "a SHA-256 in capitals": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "B104BDE69C0E61D100F2425954B4710586D2DD52CA40C1981BF4385EDA708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "another format": {
+      "format": 2,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        }
+      ]
+    },
+    "the same path twice": {
+      "format": 1,
+      "id": "0d06031f7d2373cf",
+      "bridge": 1,
+      "console": {
+        "version": "2.1.1",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "builtAt": "2026-11-05T12:00:00.000Z",
+      "routes": {
+        "/": {
+          "file": "index.html",
+          "policy": "customer"
+        },
+        "/admin": {
+          "file": "admin/index.html",
+          "policy": "console"
+        }
+      },
+      "files": [
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        },
+        {
+          "path": "assets/0123456789ab/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "assets/0123456789ab/customer.js",
+          "size": 32,
+          "sha256": "dfac0a92376f2e9171a32a1e060e44ec4ac7b21bd67fb1e461b46a58ea3902d8"
+        },
+        {
+          "path": "assets/ba9876543210/app.css",
+          "size": 25,
+          "sha256": "3dff73c7a936f706424e258b9049213050365cc8ecf91fd74e025aec57b73cf8"
+        },
+        {
+          "path": "assets/ba9876543210/app.js",
+          "size": 36,
+          "sha256": "835fc58a5abd2c2a6299c8d0c1eb1728e728ba40c9eb6b56e89a9fa87075a649"
+        },
+        {
+          "path": "assets/ba9876543210/core.js",
+          "size": 25,
+          "sha256": "82b40360d811a664d6203f13b541ad87b6cee6a0b9d5313537476eb01640ffa8"
+        },
+        {
+          "path": "index.html",
+          "size": 109,
+          "sha256": "1d90335afb2005ae35445190eb461b7142cf7d80bf7cd8250ba09950dbfb0e15"
+        },
+        {
+          "path": "admin/index.html",
+          "size": 103,
+          "sha256": "b104bde69c0e61d100f2425954b4710586d2dd52ca40c1981bf4385eda708264"
+        }
+      ]
+    }
+  }
+}

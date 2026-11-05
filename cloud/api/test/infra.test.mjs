@@ -57,8 +57,8 @@ test('reads and writes have a request limit each, and neither is weaker than the
   const open = template.split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE'))
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'GET /assets/{proxy+}',
-    'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
+  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'GET /app/{proxy+}',
+    'GET /assets/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
 
   const stage = block(template, 'Stage');
   for (const name of ['ApiReadRoute', 'ApiWriteRoute']) assert.ok(block(stage, 'DependsOn', 4).includes(`- ${name}`));
@@ -726,4 +726,35 @@ test('teardown removes the customer pool too, which the stack keeps like the sta
   assert.ok(teardown.includes('CUSTOMER_POOL="$(resolve "$STACK" CustomerUserPoolId)"'));
   assert.ok(teardown.includes('delete_user_pool "customer pool" "$CUSTOMER_POOL"'));
   assert.ok(block(block(template, 'Outputs', 0), 'CustomerUserPoolId').includes('Value: !Ref CustomerUserPool'));
+});
+
+test('the phone apps\' pages may call the API from the two origins of the app shell, and from no other', () => {
+  const api = block(template, 'Api');
+  const cors = block(api, 'CorsConfiguration', 6);
+  const list = (key) => block(cors, key, 8).split('\n').slice(1).map((line) => line.trim())
+    .filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
+  // The iPhone app's own scheme and Android's WebViewAssetLoader: apps/shared/bridge.json, "origins".
+  const shell = JSON.parse(readFileSync(new URL('../../../apps/shared/bridge.json', import.meta.url), 'utf8')).origins;
+  assert.deepEqual(list('AllowOrigins').sort(), [shell.android, shell.ios].sort());
+  assert.equal(cors.includes('*'), false, 'no wildcard, of origins, headers or methods');
+  assert.deepEqual(list('AllowMethods'), ['GET', 'POST', 'PUT']);
+  assert.deepEqual(list('AllowHeaders'), ['authorization', 'content-type', 'accept']);
+  assert.deepEqual(list('ExposeHeaders'), ['date']);
+  // A token travels in a header; no cookie of this API is ever sent across origins.
+  assert.ok(cors.includes('AllowCredentials: false'));
+  assert.match(cors, /MaxAge: \d+/);
+  // The only CORS of the stack: the functions answer no preflight and add no such header themselves.
+  assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 1);
+});
+
+test('the phone apps\' bundle has a route of its own to the web function, public and with its own limits', () => {
+  const route = block(template, 'AppBundleRoute');
+  assert.ok(route.includes("RouteKey: 'GET /app/{proxy+}'"));
+  assert.ok(route.includes('AuthorizationType: NONE'));
+  assert.ok(route.includes('integrations/${WebIntegration}'));
+  const stage = block(template, 'Stage');
+  assert.ok(block(stage, 'DependsOn', 4).includes('- AppBundleRoute'));
+  const settings = block(stage, 'RouteSettings', 6).split("'GET /app/{proxy+}':")[1].split('\n').slice(1, 3).join('\n');
+  assert.ok(Number(/ThrottlingBurstLimit: (\d+)/.exec(settings)[1]) > 0);
+  assert.ok(Number(/ThrottlingRateLimit: (\d+)/.exec(settings)[1]) > 0);
 });
