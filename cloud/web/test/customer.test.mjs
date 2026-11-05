@@ -727,9 +727,42 @@ test('an admin signs in with password and code, and is offered admin mode, which
   await until(() => /release manager/.test(tab.text()), 'who the admin is');
   // No token in any address.
   for (const link of all(tab.app, 'a')) assert.doesNotMatch(link.getAttribute('href') ?? '', /TOKEN|token=/);
-  // Customer pages are not an admin's: the devices of a customer are not theirs to see here.
-  tab.go('#/devices');
-  await until(() => tab.location.hash === '#/overview', 'back to the overview');
+  // Every link of the side panel (and of the tab bar of a small screen) opens its own page for an admin, who has no
+  // boards of their own: not the overview, which Devices and Account once fell back to.
+  const titles = new Map([['overview', 'Signed in as an admin.'], ['devices', 'Boards, for admins'], ['mixes', 'Find your next great mix.'],
+    ['account', 'Your account'], ['help', 'How can we help?']]);
+  await openEverySection(tab, titles);
+  // A board's own page is a customer's: an admin gets the list's page.
+  tab.go(`#/devices/${BOARD.id}`);
+  await until(() => tab.location.hash === '#/devices', 'the devices page');
+  assert.match(tab.text(), /Boards, for admins/);
+  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '/admin' && /admin mode/i.test(textOf(link))));
+});
+
+/** Click each link of the sections, as the browser follows an anchor, and check the page that opens. */
+async function openEverySection(tab, titles) {
+  for (const group of ['a.cs-nav-link', 'a.cs-tab']) {
+    for (const [view, title] of titles) {
+      tab.go('#/help');
+      await until(() => tab.location.hash === '#/help', 'help');
+      const link = all(tab.app, group.split('.')[0]).filter((a) => a.getAttribute('class') === group.split('.')[1])
+        .find((a) => a.getAttribute('href') === `#/${view}`);
+      assert.ok(link, `${group} to ${view} exists`);
+      link.dispatchEvent({ type: 'click', target: link });
+      tab.go(link.getAttribute('href'));
+      await until(() => tab.location.hash === `#/${view}` && descendants(tab.app).some((el) => el.getAttribute('id') === 'page-title' && textOf(el) === title),
+        `${view} to open as "${title}"`);
+      assert.equal(tab.location.hash, `#/${view}`, `${group} to ${view} stays there`);
+    }
+  }
+}
+
+test('a customer opens every section of the side panel and the tab bar, and each is its own page', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => all(tab.app, 'div.cs-tiles').length === 1, 'the overview');
+  const titles = new Map([['overview', 'Hello, Ada.'], ['devices', 'Your boards'], ['mixes', 'Find your next great mix.'], ['account', 'Your account'], ['help', 'How can we help?']]);
+  await openEverySection(tab, titles);
 });
 
 test('signing out ends the session in the tab and takes it home', async (t) => {

@@ -186,7 +186,6 @@ function draw() {
 
 // Following the address bar.
 
-const NEEDS_CUSTOMER = new Set(['devices', 'device', 'account']);
 const SIGN_IN_VIEWS = new Set(['sign-in', 'admin-sign-in']);
 
 function go(route) {
@@ -219,7 +218,8 @@ function follow() {
     state.after = route;
     return go({ view: 'sign-in' });
   }
-  if (NEEDS_CUSTOMER.has(route.view) && !state.customer) return go({ view: 'overview' });
+  // An admin without a customer account has no boards of their own: a board's page is the list's page.
+  if (route.view === 'device' && !state.customer) return go({ view: 'devices' });
   if ((route.view === 'sign-in' && state.customer) || (route.view === 'admin-sign-in' && state.admin)) {
     return go({ view: 'overview' });
   }

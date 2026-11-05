@@ -292,7 +292,23 @@ export function overviewView(ctx) {
 
 // Devices.
 
+/** What an admin without a customer account sees where a customer sees their boards or their account. */
+function adminElsewhere(ctx, { key, title, lede, text }) {
+  return h('div', { class: 'cs-page', key },
+    head({ eyebrow: 'Admin', title, lede }),
+    card({ title: 'In admin mode' },
+      h('p', { class: 'card-note' }, text),
+      h('a', { class: 'btn is-primary', href: ctx.site.adminPath }, icon('key'), 'Open admin mode')));
+}
+
 export function devicesView(ctx) {
+  if (!ctx.state.customer) {
+    return adminElsewhere(ctx, {
+      key: 'admin-devices', title: 'Boards, for admins', lede: 'You are signed in as an admin, not as a customer.',
+      text: 'This page lists the boards on a customer\'s account. Yours are all the boards, with their firmware, ' +
+        'deployments and which customer has which, in the console.',
+    });
+  }
   const { boards } = ctx.state;
   const list = boards.value;
   return h('div', { class: 'cs-page', key: 'devices' },
@@ -541,6 +557,19 @@ function authenticatorCard(ctx) {
 }
 
 export function accountView(ctx) {
+  if (!ctx.state.customer) {
+    const me = ctx.state.staff.value;
+    return h('div', { class: 'cs-page', key: 'admin-account' },
+      head({ eyebrow: 'Admin', title: 'Your account', lede: 'Your admin sign-in.' }),
+      card({ title: 'Signed in as' },
+        facts([
+          ['E-mail', h('span', { class: 'fact-strong' }, me?.email || '—')],
+          ['Role', me ? (me.canWrite ? 'Release manager' : 'Viewer') : '—'],
+        ]),
+        h('p', { class: 'cs-note' }, icon('user'),
+          h('span', null, 'An admin\'s password and codes are kept by the console\'s own sign-in. To change them, ask the person who invited you.')),
+        h('a', { class: 'btn is-primary', href: ctx.site.adminPath }, icon('key'), 'Open admin mode')));
+  }
   const { account, me } = ctx.state;
   const profile = account.profile;
   const password = account.password;
