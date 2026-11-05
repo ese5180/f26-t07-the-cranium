@@ -380,10 +380,19 @@ jobs:
         run: rm -f "$HOME/.cranium/mcuboot_signing_key.pem"
 
       - name: Upload the image, which cannot be installed
-        if: matrix.configuration != 'no Bluetooth'
+        if: matrix.configuration == 'default'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ steps.report.outputs.artifact || steps.report_nrf5340dk.outputs.artifact }}
+          name: ${{ steps.report.outputs.artifact }}
+          path: ci-artifact/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the nRF5340 DK's image, which cannot be installed either
+        if: matrix.configuration == 'nRF5340 DK'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.report_nrf5340dk.outputs.artifact }}
           path: ci-artifact/
           if-no-files-found: error
           retention-days: 30
