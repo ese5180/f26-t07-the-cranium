@@ -1605,11 +1605,12 @@ void bt_ota_on_tick(void)
 	if (window.phase == BT_OTA_CLOSED) {
 		if (status_window.open) {
 			tick_status_window();
+			refresh_status(false);
 		} else if (atomic_get(&connected) != 0) {
 			/* A disconnection can fail: a phone from a closed window does not get to stay. */
 			bt_conn_foreach(BT_CONN_TYPE_LE, disconnect_one, NULL);
 		}
-		refresh_status(false);
+		/* Otherwise nobody can read the status, and the slots' trailers are not read for it. */
 		return;
 	}
 

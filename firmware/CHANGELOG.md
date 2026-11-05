@@ -38,8 +38,8 @@ the boot, and the board advertises the status service for 2 minutes; such a link
 Button 1 tells the phone (installing), then cloud_events_flush() sends what waits and the report goes with ota.state
 rebooting, at QoS 1 with its own message ID, and the board restarts on that PUBACK or after 2 s (app_restart(),
 cloud_shadow_report_acked()). Button 2 and the time running out tell the phone before its link goes. A full event ring
-lets go of a line that is not about an update first (tags BT, bt_ota, ota). With all of it: flash 745,184 of 794,474
-bytes, RAM 404,284 of 405,504 (1,220 free, 312 used by the status), signed image 876,429 bytes; the ring stays at 32
+lets go of a line that is not about an update first (tags BT, bt_ota, ota). With all of it: flash 745,168 of 794,474
+bytes, RAM 404,284 of 405,504 (1,220 free, 312 used by the status), signed image 876,412 bytes; the ring stays at 32
 lines. Host tests: 30 programs, 0 failures. Not yet run on a board.
 
 ## 1.13.0

@@ -102,6 +102,7 @@ static struct {
 
 	/* The bootloader. */
 	int swap_type;
+	int swap_reads;
 	int request_result;
 	int request_permanent;
 	int requests;
@@ -583,6 +584,7 @@ int boot_read_bank_header(uint8_t area_id, struct mcuboot_img_header *header, si
 int mcuboot_swap_type_multi(int image_index)
 {
 	CHECK(image_index == 0);
+	fake.swap_reads++;
 	return fake.swap_type;
 }
 
@@ -2818,6 +2820,19 @@ static void test_a_normal_boot_does_not_advertise(void)
 	CHECK(fake.enables == 0);
 }
 
+static void test_a_closed_board_reads_no_trailer_for_the_status(void)
+{
+	fresh_board();
+	image_on_offer();
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	fake.swap_reads = 0;
+	for (int second = 0; second < 60; second++) {
+		bt_ota_on_tick();
+	}
+	CHECK(fake.swap_reads == 0);
+	CHECK(fake.notifies == 0);
+}
+
 static void test_a_window_opened_first_takes_the_place_of_the_status(void)
 {
 	restarted_on_trial();
@@ -2999,6 +3014,7 @@ int main(void)
 	test_a_status_link_stays_for_the_trial_and_no_longer_than_the_limit();
 	test_the_boot_that_went_back_advertises_its_status_too();
 	test_a_normal_boot_does_not_advertise();
+	test_a_closed_board_reads_no_trailer_for_the_status();
 	test_a_window_opened_first_takes_the_place_of_the_status();
 	test_a_status_phone_gives_way_to_a_window_and_cannot_pair_in_it();
 	test_a_cloud_update_this_boot_is_the_last_update();
