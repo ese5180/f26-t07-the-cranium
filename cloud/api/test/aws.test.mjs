@@ -1590,15 +1590,25 @@ test('getUser asks the pool by sub and reports enabled, status and address', asy
     UserCreateDate: new Date(T0),
     UserMFASettingList: ['SOFTWARE_TOKEN_MFA'],
   });
-  assert.deepEqual(await aws.getUser(sub), { enabled: true, status: 'CONFIRMED', email: 'address' });
+  assert.deepEqual(await aws.getUser(sub), { enabled: true, status: 'CONFIRMED', email: 'address', name: '' });
   assert.deepEqual(sdk.inputs('AdminGetUserCommand'), [{ UserPoolId: 'eu-west-1_Pool', Username: sub }]);
   assert.equal(sdk.sent[0].package, '@aws-sdk/client-cognito-identity-provider');
 
   sdk.reply('AdminGetUserCommand', { Username: sub, Enabled: false, UserStatus: 'FORCE_CHANGE_PASSWORD' });
-  assert.deepEqual(await aws.getUser(sub), { enabled: false, status: 'FORCE_CHANGE_PASSWORD', email: '' });
+  assert.deepEqual(await aws.getUser(sub), { enabled: false, status: 'FORCE_CHANGE_PASSWORD', email: '', name: '' });
   // Only a literal true counts as enabled.
   sdk.reply('AdminGetUserCommand', { Username: sub, UserStatus: 'CONFIRMED' });
-  assert.deepEqual(await aws.getUser(sub), { enabled: false, status: 'CONFIRMED', email: '' });
+  assert.deepEqual(await aws.getUser(sub), { enabled: false, status: 'CONFIRMED', email: '', name: '' });
+  // The name an account has: its given name, else its name, the first word of it.
+  sdk.reply('AdminGetUserCommand', {
+    Username: sub, Enabled: true, UserStatus: 'CONFIRMED',
+    UserAttributes: [{ Name: 'email', Value: 'vihaan1@x.invalid' }, { Name: 'name', Value: 'V. Ravishankar' }, { Name: 'given_name', Value: 'vihaan' }],
+  });
+  assert.equal((await aws.getUser(sub)).name, 'Vihaan');
+  sdk.reply('AdminGetUserCommand', {
+    Username: sub, Enabled: true, UserStatus: 'CONFIRMED', UserAttributes: [{ Name: 'name', Value: 'Ada Lovelace' }],
+  });
+  assert.equal((await aws.getUser(sub)).name, 'Ada');
 
   sdk.reply('AdminGetUserCommand', fails('UserNotFoundException'));
   assert.equal(await aws.getUser(sub), null);

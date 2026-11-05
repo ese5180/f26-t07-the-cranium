@@ -435,12 +435,12 @@ test('the audit table is append-only and read newest first below a cursor', asyn
 test('users, groups and things are what the administrator made them', async () => {
   const { fake } = setup();
   fake.addUser({ sub: 'u1', email: 'address', groups: ['viewers'] });
-  assert.deepEqual(await fake.getUser('u1'), { enabled: true, status: 'CONFIRMED', email: 'address' });
+  assert.deepEqual(await fake.getUser('u1'), { enabled: true, status: 'CONFIRMED', email: 'address', name: '' });
   assert.deepEqual(await fake.listUserGroups('u1'), ['viewers']);
   fake.user('u1').setGroups(['viewers', 'release-managers']);
   fake.user('u1').disable();
   fake.user('u1').setStatus('RESET_REQUIRED');
-  assert.deepEqual(await fake.getUser('u1'), { enabled: false, status: 'RESET_REQUIRED', email: 'address' });
+  assert.deepEqual(await fake.getUser('u1'), { enabled: false, status: 'RESET_REQUIRED', email: 'address', name: '' });
   assert.deepEqual(await fake.listUserGroups('u1'), ['viewers', 'release-managers']);
   fake.user('u1').enable();
   assert.equal((await fake.getUser('u1')).enabled, true);

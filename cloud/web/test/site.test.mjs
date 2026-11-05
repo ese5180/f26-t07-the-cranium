@@ -148,7 +148,8 @@ test('scripts set no inline styles: custom properties through setProperty only',
 
 test('the access token is kept for the tab only, and randomness comes from the CSPRNG', () => {
   for (const [name, source] of sources) {
-    const text = code(source);
+    // The one thing kept beyond the tab is a choice of the Events page, which range it opens on: no token, no address.
+    const text = (name === 'telemetry.js' ? code(source).replaceAll(/globalThis\.localStorage\?\.(?:get|set)Item\(RANGE_KEY(?:, id)?\)/g, '') : code(source));
     assert.doesNotMatch(text, /localStorage|indexedDB|document\.cookie/,
       `${name} keeps something beyond the tab`);
     assert.doesNotMatch(text, /Math\.random/, `${name} uses Math.random`);
