@@ -141,7 +141,11 @@ def main() -> int:
         return 0
 
     note(f"symbols of {version} to {org}/{project}")
-    if not run([cli, "upload-mcu-symbols", str(elf)], token, org, project):
+    # The version and software type as well as the ELF: memfault-cli 1.12 does not find the GNU build
+    # ID this build carries (.note.gnu.build-id, kept by the Memfault SDK), and refuses symbols with
+    # neither. The board tells Memfault the same version string (CONFIG_MEMFAULT_NCS_FW_VERSION).
+    if not run([cli, "upload-mcu-symbols", "--software-type", software, "--software-version", version, str(elf)],
+               token, org, project):
         print("memfault_upload: the symbols were not uploaded", file=sys.stderr)
         return 1
 

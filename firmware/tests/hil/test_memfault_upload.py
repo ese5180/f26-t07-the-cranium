@@ -107,7 +107,10 @@ class MemfaultUpload(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0]["argv"], ["upload-mcu-symbols", str(self.build / "app/zephyr/zephyr.elf")])
+        # The version and software type go with the symbols: memfault-cli 1.12 does not find the build's
+        # GNU build ID and refuses symbols with neither.
+        self.assertEqual(calls[0]["argv"], ["upload-mcu-symbols", "--software-type", "app", "--software-version",
+                                            "1.14.0+0", str(self.build / "app/zephyr/zephyr.elf")])
         self.assertEqual(calls[1]["argv"], ["upload-ota-payload", "--hardware-version", "nrf7002dk",
                                             "--software-type", "app", "--software-version", "1.14.0+0",
                                             str(self.build / "app/zephyr/zephyr.signed.bin")])
