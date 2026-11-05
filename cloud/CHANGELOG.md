@@ -6,7 +6,9 @@ it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), somethin
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
-## Unreleased
+## 2.1.0
+
+Memfault for firmware 1.14.0, through AWS IoT: a board's coredumps, restarts and metrics go to Memfault, and its page links to it. The iPhone app for every iPhone of the team through SideStore: each member's own SideStore link on the Apps page, and iPhone builds published like APKs. The Android app can fetch its own updates.
 
 Memfault, for firmware 1.14.0: the boards' coredumps, reboot reasons, metrics and update events reach Memfault through
 AWS IoT, which stays their only cloud. A board's page says whether that is on, with a link to the board in Memfault,
@@ -30,8 +32,6 @@ S3 GET, so the IPA never has a public address. A route of its own, GET /api/side
 the lowest limits; a key is used at most 30 times a minute, and its owner must still be a member. New actions
 app.ios_upload, app.ios_publish, app.ios_download, app.source_create and app.source_revoke; the API role may put, read
 and serve apps/ios/cranium-ios-*.ipa. The Android app may ask for its own update link (`via=app`).
-
-Not deployed yet.
 
 ## 2.0.1
 
