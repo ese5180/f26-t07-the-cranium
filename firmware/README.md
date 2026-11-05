@@ -1494,7 +1494,7 @@ has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
 | --- | --- | --- |
 | Main loop | `src/main.c` | `src/bt_only_main.c` |
 | Update manager | `src/ota.c`: jobs, downloads, the trial | `src/bt_only_ota.c`: the trial only |
-| Wi-Fi, AWS IoT, shadow, heartbeat, jobs, events | yes | none of it is in the image: the build fails if it is |
+| Wi-Fi, AWS IoT, shadow, heartbeat, jobs, events, commands, location | yes | none of it is in the image: the build fails if it is |
 | Passkey for Bluetooth | a new one for each attempt, on the console and in the shadow | [its own](#the-boards-own-passkey), from provisioning; a new one each time only without it |
 | Keeping an image installed over Bluetooth | it reaches the cloud, or with no Wi-Fi a person proves it | a person proves it |
 | The board's status for the phone | the shadow | [a status characteristic](#what-a-phone-reads) |
@@ -1502,20 +1502,22 @@ has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
 | Golden image | 1.5.0, frozen | none frozen: MCUboot has it off |
 | LEDs | LED1, LED2 | [LED1 to LED4](#leds-and-buttons) |
 | Console commands | all | no Wi-Fi, cloud or certificate commands; `BT_PASSKEY` |
-| Image TLVs 0xA1, 0xA2 | none up to 1.12.0 | `nrf5340dk`, `1` |
+| Board type and layout, TLVs 0xA1 and 0xA2 | `nrf7002dk`, `1` | `nrf5340dk`, `1`: the same partitions, numbered per board type |
 
 `CONFIG_APP_BT_ONLY` is what makes the difference, and nothing in the nRF7002 DK's build changes with it. `sysbuild.cmake`
 gives this board `prj_bt_only.conf` in place of `prj.conf`, which is about Wi-Fi and the cloud, and
 `boards/nrf5340dk_nrf5340_cpuapp_ns.conf` after it. `Kconfig.sysbuild` leaves the nRF70 driver out for it. What the code
 every board shares asks of Wi-Fi and the cloud, `src/bt_only_stubs.c` answers with "there is none". The shadow, the
-jobs and the events have no function in this image at all, so code that used them would not link, and after the link
+jobs, the events, the console's commands and the location have no function in this image at all, so code that used them
+would not link, and after the link
 `bt_only_check.py` looks at the symbol table and the bytes of the image for anything of the cloud: the heartbeat's
 JSON, `$aws/things/`, MQTT, AWS IoT, the downloader, Wi-Fi, the network stack, cJSON. It found nothing.
 
 ### Build
 
 ```sh
-scripts/build.sh --board nrf5340dk --keep --no-upload
+scripts/build.sh --board nrf5340dk                    # a release, with the next version, uploaded
+scripts/build.sh --board nrf5340dk --keep --no-upload # a try at the version in firmware/app/VERSION
 ```
 
 or by hand, from an nRF Connect SDK terminal:
@@ -1527,14 +1529,16 @@ west build -b nrf5340dk/nrf5340/cpuapp/ns --sysbuild firmware/app -d build-nrf53
 `scripts/build.sh --board nrf5340dk` builds in `build-nrf5340dk/`, and leaves
 `binaries/cranium-nrf5340dk-<version>-0.signed.bin`, with `binaries/latest-nrf5340dk.signed.bin` and its `.json`, whose
 record says `"board": "nrf5340dk"`. The nRF7002 DK's names, `build/` and `latest.signed.bin` stay what they were.
-It takes the next version above the images of the same type; to give both types the same version, build the second
-with `--keep`. It does not upload an nRF5340 DK's image without `--upload`: a console that does not read the image's
-TLVs would take it for an nRF7002 DK's.
+Versions are one sequence across board types, so one version names one image ([`docs/fleet.md`](../docs/fleet.md)): it
+takes the next version above every image in `binaries/`, of either type, and an nRF5340 DK's release needs a number of
+its own.
 
-The image carries what it is compatible with ("Compatibility" in [`docs/fleet.md`](../docs/fleet.md)), as protected TLVs
-inside the signed area: `0xA1` = `nrf5340dk` and `0xA2` = `1`, this board's first flash layout.
-`CONFIG_APP_BOARD_TYPE` and `CONFIG_APP_IMAGE_LAYOUT` say them in the board's `.conf`, `CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS`
-asks the signing step for them, and the build stops if the two differ.
+The image carries what it is compatible with, as under [Board type and compatibility](#board-type-and-compatibility):
+`0xa1` = `nrf5340dk` and `0xa2` = `1`. Layouts are numbered per board type, and this board's partitions are the nRF7002
+DK's, so its first layout is `1`, and `flash_layouts.json` holds its lines, which hash to the same SHA-256 as the nRF7002
+DK's layout 1. Its type and layout are defaults in `firmware/app/Kconfig`, next to the nRF7002 DK's
+(`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/build.sh` reads both back
+from the image, and `flash_layout.py` checks the partitions, as for the nRF7002 DK.
 
 The 1.12.0 build, with the console and Bluetooth, in bytes:
 
@@ -1642,9 +1646,9 @@ status. Store a new one whenever that may have happened. `src/bt_passkey.h` has 
 3. The phone reads [the status characteristic](#what-a-phone-reads) and tells the console it saw the board.
 4. It uploads the image, as **Image Upload** in nRF Connect Device Manager does, not Firmware Upgrade, whose test command the
    board refuses. LED3 blinks fast while it arrives. As the image's protected TLVs go past, the upload hook refuses an image
-   for another board type or flash layout, whatever tool sent it (`refused an upload: it is for nrf7002dk, layout 1, and
-   this board is nrf5340dk, layout 1 (incompatible_board)`), and the rest of it; the board reads the same TLVs back from
-   flash before it offers the image, too.
+   for another board type or flash layout, whatever tool sent it (`refused an upload: it is for nrf7002dk, and this board
+   is nrf5340dk`), as [Board type and compatibility](#board-type-and-compatibility) says; an nRF7002 DK image from before
+   1.13.0, which says nothing and so is an nRF7002 DK's, at its first piece. LED4 lights.
 5. When it has arrived LED1 blinks fast: **Button 1** installs it, **Button 2** erases it. The board restarts, and the
    bootloader swaps it in, about a minute and a half with every LED dark.
 6. The new image runs on trial, LED1 flashing three times. **To keep it**, once it has run 60 s, hold Button 1 again, pair,
