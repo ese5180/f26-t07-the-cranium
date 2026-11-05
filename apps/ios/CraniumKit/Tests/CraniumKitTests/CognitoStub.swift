@@ -22,7 +22,9 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
         var userId: String
         var password: String
         var code: String
-        /// The challenge after the password: SOFTWARE_TOKEN_MFA unless it says otherwise.
+        /// The challenge after the password: SOFTWARE_TOKEN_MFA unless it says otherwise. "NONE": the
+        /// tokens at once (a customer without two-step sign-in). NEW_PASSWORD_REQUIRED: a first
+        /// sign-in, after which the code follows if `code` is not empty.
         var next: String? = nil
     }
 
@@ -47,6 +49,9 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
     private var exchanges: [String: (account: User?, userId: String, verifier: BigUInt, A: BigUInt, b: BigUInt, B: BigUInt)] = [:]
     private var sessions: [String: (user: User, expiresAt: Date, tries: Int, step: String)] = [:]
     private var issued = 0
+    /// The refresh tokens handed out and not revoked, and those revoked.
+    private var refreshTokens: Set<String> = []
+    private var _revoked: [String] = []
     private var _calls: [Call] = []
     private var _now: Date
     /// Put the Date header on every answer.
@@ -77,6 +82,10 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
         set { lock.withLock { _now = newValue } }
     }
     var sessionsOpen: Int { lock.withLock { sessions.count } }
+    var revoked: [String] { lock.withLock { _revoked } }
+    /// The new password a first sign-in chose, by user.
+    private var _chosen: [String: String] = [:]
+    var chosen: [String: String] { lock.withLock { _chosen } }
 
     static func random(_ count: Int) -> [UInt8] { CognitoSRP.systemRandom(count) }
 
@@ -109,6 +118,14 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
         case ("InitiateAuth", _): answer = initiate(body)
         case ("RespondToAuthChallenge", "PASSWORD_VERIFIER"): answer = verifyPassword(body)
         case ("RespondToAuthChallenge", "SOFTWARE_TOKEN_MFA"): answer = verifyCode(body)
+        case ("RespondToAuthChallenge", "NEW_PASSWORD_REQUIRED"): answer = verifyNewPassword(body)
+        case ("RevokeToken", _):
+            let token = body["Token"] as? String ?? ""
+            lock.withLock {
+                refreshTokens.remove(token)
+                _revoked.append(token)
+            }
+            answer = (nil, [:])
         default: answer = ("InvalidParameterException", [:])
         }
         if let error = answer.0 { return refuse(request, error) }
@@ -134,6 +151,17 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
     }
 
     private func initiate(_ body: [String: Any]) -> (String?, [String: Any]) {
+        if body["AuthFlow"] as? String == "REFRESH_TOKEN_AUTH" {
+            let token = (body["AuthParameters"] as? [String: Any])?["REFRESH_TOKEN"] as? String ?? ""
+            return lock.withLock {
+                guard refreshTokens.contains(token) else { return ("NotAuthorizedException", [:]) }
+                issued += 1
+                // No refresh token in a refresh's answer, as Cognito without rotation.
+                return (nil, ["AuthenticationResult": [
+                    "TokenType": "Bearer", "AccessToken": "SRP-ACCESS-\(issued)", "ExpiresIn": 3600, "IdToken": "SRP-ID-\(issued)",
+                ] as [String: Any], "ChallengeParameters": [String: String]()])
+            }
+        }
         guard body["AuthFlow"] as? String == "USER_SRP_AUTH" else { return ("InvalidParameterException", [:]) }
         let parameters = body["AuthParameters"] as? [String: Any] ?? [:]
         guard let username = parameters["USERNAME"] as? String, let srpA = parameters["SRP_A"] as? String,
@@ -201,11 +229,52 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
               answer["PASSWORD_CLAIM_SIGNATURE"] as? String == expected else {
             return ("NotAuthorizedException", [:])
         }
-        let session = Data(Self.random(24)).base64EncodedString()
         let step = user.next ?? "SOFTWARE_TOKEN_MFA"
+        if step == "NONE" { return lock.withLock { tokensLocked() } }
+        return (nil, open(step, for: user))
+    }
+
+    /// A step that waits, with its session.
+    private func open(_ step: String, for user: User) -> [String: Any] {
+        let session = Data(Self.random(24)).base64EncodedString()
         let expiresAt = now.addingTimeInterval(Self.sessionLength)
         lock.withLock { sessions[session] = (user, expiresAt, 0, step) }
-        return (nil, ["ChallengeName": step, "Session": session, "ChallengeParameters": [String: String]()])
+        return ["ChallengeName": step, "Session": session, "ChallengeParameters": [String: String]()]
+    }
+
+    /// Tokens, with a refresh token that a refresh and a revocation know. Call with the lock held.
+    private func tokensLocked() -> (String?, [String: Any]) {
+        issued += 1
+        refreshTokens.insert("SRP-REFRESH-\(issued)")
+        return (nil, [
+            "AuthenticationResult": [
+                "TokenType": "Bearer", "AccessToken": "SRP-ACCESS-\(issued)", "ExpiresIn": 3600,
+                "RefreshToken": "SRP-REFRESH-\(issued)", "IdToken": "SRP-ID-\(issued)",
+            ] as [String: Any],
+            "ChallengeParameters": [String: String](),
+        ])
+    }
+
+    /// A first sign-in's new password: at least 10 characters, as the customer pool asks.
+    private func verifyNewPassword(_ body: [String: Any]) -> (String?, [String: Any]) {
+        let key = body["Session"] as? String ?? ""
+        let found: (user: User, ok: Bool)? = lock.withLock {
+            guard let session = sessions[key], session.step == "NEW_PASSWORD_REQUIRED", session.expiresAt > _now else {
+                sessions.removeValue(forKey: key)
+                return nil
+            }
+            let answer = body["ChallengeResponses"] as? [String: Any] ?? [:]
+            guard answer["USERNAME"] as? String == session.user.userId else { return nil }
+            let password = answer["NEW_PASSWORD"] as? String ?? ""
+            guard password.count >= 10 else { return (session.user, false) }
+            sessions.removeValue(forKey: key)
+            _chosen[session.user.userId] = password
+            return (session.user, true)
+        }
+        guard let found else { return ("NotAuthorizedException", [:]) }
+        guard found.ok else { return ("InvalidPasswordException", [:]) }
+        if found.user.code.isEmpty { return lock.withLock { tokensLocked() } }
+        return (nil, open("SOFTWARE_TOKEN_MFA", for: found.user))
     }
 
     private func verifyCode(_ body: [String: Any]) -> (String?, [String: Any]) {
@@ -223,14 +292,7 @@ final class CognitoStub: HTTPClient, @unchecked Sendable {
                 return ("CodeMismatchException", [:])
             }
             sessions.removeValue(forKey: key)
-            issued += 1
-            return (nil, [
-                "AuthenticationResult": [
-                    "TokenType": "Bearer", "AccessToken": "SRP-ACCESS-\(issued)", "ExpiresIn": 3600,
-                    "RefreshToken": "SRP-REFRESH-\(issued)", "IdToken": "SRP-ID-\(issued)",
-                ] as [String: Any],
-                "ChallengeParameters": [String: String](),
-            ])
+            return tokensLocked()
         }
     }
 }

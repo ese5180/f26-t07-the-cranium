@@ -21,6 +21,8 @@ struct SignInScreen: View {
     private let again: Bool
     private let message: String?
     private let awsPageOpen: Bool
+    /// The admin sign-in of the customer side: "Customer sign-in" goes back to the customer's.
+    private let onCustomerSignIn: (() -> Void)?
     private let onEnd: (SignInEnding) -> Void
 
     @State private var password = ""
@@ -36,12 +38,15 @@ struct SignInScreen: View {
     ///   - email: the address to start with.
     ///   - message: what went wrong on the AWS sign-in page (AppModel's `signInMessage`).
     ///   - awsPageOpen: the AWS sign-in page is open, or its answer is on the way.
+    ///   - onCustomerSignIn: the admin sign-in of the customer side (docs/mobile-apps.md,
+    ///     "Customers"): titled Admin sign-in, with a way back to the customer's sign-in.
     init(flow: PasswordSignIn?, again: Bool = false, email: String? = nil, message: String? = nil,
-         awsPageOpen: Bool = false, onEnd: @escaping (SignInEnding) -> Void) {
+         awsPageOpen: Bool = false, onCustomerSignIn: (() -> Void)? = nil, onEnd: @escaping (SignInEnding) -> Void) {
         _model = StateObject(wrappedValue: SignInModel(flow: flow, email: email, fixedEmail: again))
         self.again = again
         self.message = message
         self.awsPageOpen = awsPageOpen
+        self.onCustomerSignIn = onCustomerSignIn
         self.onEnd = onEnd
     }
 
@@ -66,6 +71,20 @@ struct SignInScreen: View {
                     }
                     if model.hasOwnSignIn && model.step != .leaving {
                         other
+                    }
+                    if let onCustomerSignIn, !again, model.step != .leaving {
+                        Button(action: onCustomerSignIn) {
+                            HStack(spacing: 7) {
+                                Text(CustomerWords.customerSignIn)
+                                Image(systemName: Icon.symbol("arrow-right"))
+                                    .font(.footnote.weight(.semibold))
+                                    .accessibilityHidden(true)
+                            }
+                            .foregroundStyle(theme.ink2)
+                        }
+                        .consoleButton(.quiet)
+                        .padding(.leading, -15)
+                        .disabled(locked)
                     }
                 }
             }
@@ -108,7 +127,7 @@ struct SignInScreen: View {
         switch model.step {
         case .leaving: return SignInWords.leaving
         case .code: return SignInWords.codeTitle
-        case .password: return again ? SignInWords.againTitle : SignInWords.title
+        case .password: return again ? SignInWords.againTitle : (onCustomerSignIn == nil ? SignInWords.title : CustomerWords.adminSignInTitle)
         }
     }
 
@@ -390,7 +409,7 @@ private extension Path {
     }
 }
 
-private extension Text {
+extension Text {
     /// The website's `.gate-text`.
     func leadStyle(_ theme: Theme) -> some View {
         font(.body)
@@ -399,7 +418,7 @@ private extension Text {
     }
 }
 
-private extension View {
+extension View {
     /// The website's `.signin-form .input`: 11 by 13 points of room, 17-point type, a 1-point rule
     /// that turns rust with the keyboard and red when wrong, the well's colour when read-only.
     func signInInput(_ theme: Theme, focused: Bool, invalid: Bool, readOnly: Bool) -> some View {

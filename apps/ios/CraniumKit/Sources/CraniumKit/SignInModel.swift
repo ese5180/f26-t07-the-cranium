@@ -241,6 +241,10 @@ public final class SignInModel: ObservableObject {
         case .elsewhere(let challenge):
             busy = false
             leave(reason: SignInWords.elsewhere(challenge))
+        case .newPassword:
+            // Only a customer's sign-in asks for it on the screen; an admin's goes to the AWS page.
+            busy = false
+            leave(reason: SignInWords.elsewhere("NEW_PASSWORD_REQUIRED"))
         case .code(let problem):
             // A wrong code, or one given too often, is cleared for the next; a code that did not
             // get through is kept to be sent again.

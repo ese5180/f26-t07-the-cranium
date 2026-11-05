@@ -11,6 +11,23 @@ goes wrong.
 It compiles for iPhone (`scripts/phone.sh --check`) and runs in the Simulator with made-up data
 (below). It has not yet been run against the real console, on a phone, or with a board.
 
+From 0.6.0 that console is **admin mode**, and the app has a customer side too, as the customer
+website has ([`docs/customer-site.md`](../../docs/customer-site.md)).
+
+## The customer side
+
+The customer website on a phone, in its words (`CraniumKit/Sources/CraniumKit/CustomerWords.swift`,
+held to `cloud/web/src/customer/assets/` by `CustomerWordsTests`): tabs Overview, Devices, Mixes,
+Account and Help (`App/Views/CustomerRoot.swift`, `CustomerScreens.swift`, `CustomerAccountView.swift`).
+A customer signs in on the app's own screen to the customer pool (`CustomerSignIn.swift`, with
+`PasswordSignIn`: SRP, the code if they turned it on, a new password at the first sign-in, and
+"Forgot your password?"), and reads the customer API with their own token (`CustomerAPI.swift`); a
+board is named by its assignment id only. Their account's calls go to Cognito with that token
+(`CustomerAccount.swift`). Their session is in Keychain items of its own (`CustomerStorage`), with
+its own Face ID item and setting, apart from the admin's. **Admin sign-in** is the sign-in below and
+opens admin mode, the console as before; **Leave admin mode** is under More. See
+[`docs/mobile-apps.md`](../../docs/mobile-apps.md#customers).
+
 ## What is where
 
 The screens are iOS's own grouped lists, on the console's paper, with the console's colours kept for
@@ -106,7 +123,9 @@ included (`SendCheck.swift`).
 - A Mac with a current Xcode (16 or later; App Store Connect only takes builds from recent
   versions), selected with `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 - `brew install xcodegen`.
-- The configuration: `apps/configure.sh` writes `apps/config/cranium.json` from the deployed stack.
+- The configuration: `apps/configure.sh` writes `apps/config/cranium.json` from the deployed stack,
+  with the customer side's four keys once the stack has them (console 2.0.1; without them the app
+  signs in admins only, and says so).
   It names the AWS account, so it is not in git, and the build copies it into the app, never into
   the source tree. Without it a Debug build uses `cranium.example.json`: an orange banner says so,
   and sign-in cannot work. A Release build stops.

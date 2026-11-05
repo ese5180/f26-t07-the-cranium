@@ -17,8 +17,21 @@ public protocol AccessTokenProvider: Sendable {
 ///   gives the phone is never kept without the biometric.
 /// - Face ID on: behind it, in the Keychain item that `BiometricLock` looks after, and never in
 ///   `store`. It is in memory only once Face ID has released it, for that run of the app.
+///
+/// Two kinds, each with a store of its own (docs/mobile-apps.md, "Customers"): an admin's, of the
+/// staff pool, renewed at the managed login's token endpoint; and a customer's, of the customer
+/// pool, which has no managed login, renewed and revoked through Cognito's user pool API
+/// (InitiateAuth with REFRESH_TOKEN_AUTH, RevokeToken), as the customer site revokes its own.
 public actor AuthSession: AccessTokenProvider {
-    private let config: CraniumConfig
+    /// How the tokens are renewed and revoked.
+    enum Renewal: Sendable {
+        /// The managed login's token endpoint, with the staff pool's phone client.
+        case oauth(CraniumConfig)
+        /// Cognito's user pool API, with the phone apps' client of the customer pool.
+        case userPool(CognitoUserPool, clientId: String)
+    }
+
+    private let renewal: Renewal
     private let http: HTTPClient
     private let store: TokenStore
     private let now: @Sendable () -> Date
@@ -34,7 +47,20 @@ public actor AuthSession: AccessTokenProvider {
 
     public init(config: CraniumConfig, http: HTTPClient, store: TokenStore, refreshTokenBehindBiometrics: Bool = false,
                 now: @escaping @Sendable () -> Date = { Date() }) {
-        self.config = config
+        self.init(renewal: .oauth(config), http: http, store: store, refreshTokenBehindBiometrics: refreshTokenBehindBiometrics,
+                  now: now)
+    }
+
+    /// A customer's session: its own store (never the admin's), renewed through the user pool API.
+    public init(customer: CustomerConfig, http: HTTPClient, store: TokenStore, refreshTokenBehindBiometrics: Bool = false,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(renewal: .userPool(customer.pool, clientId: customer.clientId), http: http, store: store,
+                  refreshTokenBehindBiometrics: refreshTokenBehindBiometrics, now: now)
+    }
+
+    init(renewal: Renewal, http: HTTPClient, store: TokenStore, refreshTokenBehindBiometrics: Bool,
+         now: @escaping @Sendable () -> Date) {
+        self.renewal = renewal
         self.http = http
         self.store = store
         self.now = now
@@ -53,6 +79,10 @@ public actor AuthSession: AccessTokenProvider {
 
     /// Whether the session can be renewed: a refresh token is in memory.
     public var hasRefreshToken: Bool { tokens?.refreshToken != nil }
+
+    /// Whose session it is: the access token's `sub`, for the Face ID setting of a customer, whom no
+    /// API call names. Nil when not signed in or not known.
+    public var subject: String? { tokens.flatMap { JWTClaims.subject($0.accessToken) } }
 
     /// When the person signed in with password and code: the access token's `auth_time`, which a
     /// refresh keeps, or the time recorded at the sign-in.
@@ -85,13 +115,20 @@ public actor AuthSession: AccessTokenProvider {
         return made
     }
 
-    public func beginSignIn() -> PendingSignIn {
-        OAuth.begin(config)
+    /// The managed login's configuration; a customer's session has none.
+    private func managedLogin() throws -> CraniumConfig {
+        guard case .oauth(let config) = renewal else { throw AuthError.refused("This account has no AWS sign-in page.") }
+        return config
+    }
+
+    public func beginSignIn() throws -> PendingSignIn {
+        OAuth.begin(try managedLogin())
     }
 
     /// Takes the callback URL from the web authentication session, checks it, and trades the
     /// code for tokens.
     public func completeSignIn(callback: URL, pending: PendingSignIn) async throws {
+        let config = try managedLogin()
         let code = try OAuth.code(from: callback, expecting: pending, config: config)
         let request = OAuth.tokenRequest(config, code: code, verifier: pending.pkce.verifier)
         let (data, response) = try await http.send(request)
@@ -135,10 +172,20 @@ public actor AuthSession: AccessTokenProvider {
             forget()
             throw AuthError.sessionExpired
         }
-        let request = OAuth.refreshRequest(config, refreshToken: refreshToken)
-        let task = Task { [http, now] () throws -> Tokens in
-            let (data, response) = try await http.send(request)
-            return try OAuth.tokens(from: data, status: response.statusCode, keeping: refreshToken, now: now())
+        let task = Task { [http, now, renewal] () throws -> Tokens in
+            switch renewal {
+            case .oauth(let config):
+                let (data, response) = try await http.send(OAuth.refreshRequest(config, refreshToken: refreshToken))
+                return try OAuth.tokens(from: data, status: response.statusCode, keeping: refreshToken, now: now())
+            case .userPool(let pool, let clientId):
+                let request = try CognitoUserPoolAPI.request(pool, "InitiateAuth", [
+                    "AuthFlow": "REFRESH_TOKEN_AUTH",
+                    "ClientId": clientId,
+                    "AuthParameters": ["REFRESH_TOKEN": refreshToken],
+                ])
+                let (data, response) = try await http.send(request)
+                return try CognitoUserPoolAPI.refreshed(data, response: response, keeping: refreshToken, now: now())
+            }
         }
         refreshing = task
         defer { refreshing = nil }
@@ -162,9 +209,30 @@ public actor AuthSession: AccessTokenProvider {
     public func signOut() async {
         let refreshToken = tokens?.refreshToken
         forget()
-        if let refreshToken {
+        guard let refreshToken else { return }
+        switch renewal {
+        case .oauth(let config):
             _ = try? await http.send(OAuth.revokeRequest(config, refreshToken: refreshToken))
+        case .userPool(let pool, let clientId):
+            if let request = try? CognitoUserPoolAPI.request(pool, "RevokeToken", ["Token": refreshToken, "ClientId": clientId]) {
+                _ = try? await http.send(request)
+            }
         }
+    }
+
+    /// A current access token, refreshed first if it has to be, or nil when the session is over: for
+    /// the user pool API's calls about the account itself (`CustomerAccount`), which take it as a
+    /// parameter.
+    public func currentAccessToken() async -> String? {
+        try? await accessToken()
+    }
+
+    /// When the refresh token goes without Face ID (`refreshTokenLifetime` after the sign-in), or
+    /// nil when it does not (behind Face ID, or not known).
+    public var refreshTokenForgottenAt: Date? {
+        guard !refreshTokenBehindBiometrics, let current = tokens, current.refreshToken != nil,
+              let start = Self.signInTime(current) else { return nil }
+        return start.addingTimeInterval(Self.refreshTokenLifetime)
     }
 
     private func forget() {

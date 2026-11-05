@@ -18,6 +18,12 @@ enum JWTClaims {
         return object
     }
 
+    /// `sub`: whose token it is. Nil if it is not a JWT or has none.
+    static func subject(_ token: String) -> String? {
+        guard let sub = claims(token)?["sub"] as? String, !sub.isEmpty, sub.count <= 128 else { return nil }
+        return sub
+    }
+
     /// `auth_time`, in seconds since 1970.
     static func authTime(_ token: String) -> Date? {
         guard let seconds = (claims(token)?["auth_time"] as? NSNumber)?.doubleValue, seconds.isFinite, seconds > 0 else {

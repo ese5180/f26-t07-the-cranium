@@ -377,7 +377,7 @@ final class AppModel: ObservableObject {
 
     /// The managed login in the system's web sheet, with `prompt=login`: password and code each time.
     private func webSignIn(_ auth: AuthSession) async throws {
-        let pending = await auth.beginSignIn()
+        let pending = try await auth.beginSignIn()
         let callback = try await webSignIn.signIn(url: pending.url, callbackScheme: callbackScheme,
                                                   anchor: WebSignIn.currentAnchor())
         try await auth.completeSignIn(callback: callback, pending: pending)

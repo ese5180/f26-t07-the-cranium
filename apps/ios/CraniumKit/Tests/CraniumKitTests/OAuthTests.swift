@@ -125,7 +125,7 @@ import Testing
         let http = FakeHTTP { _ in (200, tokenAnswer("a1", refresh: "r1")) }
         let store = MemoryTokenStore()
         let session = AuthSession(config: testConfig, http: http, store: store)
-        let pending = await session.beginSignIn()
+        let pending = try await session.beginSignIn()
         let callback = URL(string: "cranium://signin?code=xyz&state=\(pending.state)")!
         try await session.completeSignIn(callback: callback, pending: pending)
         #expect(try await session.accessToken() == "a1")
@@ -134,10 +134,10 @@ import Testing
         #expect(await session.isSignedIn)
     }
 
-    @Test func aForgedCallbackSendsNothing() async {
+    @Test func aForgedCallbackSendsNothing() async throws {
         let http = FakeHTTP { _ in (200, tokenAnswer("a1", refresh: "r1")) }
         let session = AuthSession(config: testConfig, http: http, store: MemoryTokenStore())
-        let pending = await session.beginSignIn()
+        let pending = try await session.beginSignIn()
         await #expect(throws: AuthError.stateMismatch) {
             try await session.completeSignIn(callback: URL(string: "cranium://signin?code=xyz&state=forged")!, pending: pending)
         }
