@@ -341,9 +341,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # A release of firmware, tagged v<version>. The phone apps' tags (android-v, ios-v) are released by
+  # release-apps.yml, and a GitHub release made for one of those tags has no files to check here.
   release-assets:
     name: Check the release's files
-    if: github.event_name == 'release'
+    if: >-
+      github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'android-v') &&
+      !startsWith(github.event.release.tag_name, 'ios-v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Read-only, like the whole workflow: this job can look at a release and cannot change it.
