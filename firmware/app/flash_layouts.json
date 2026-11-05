@@ -22,5 +22,28 @@
         "mcuboot mx25r64 slot1_partition 0x0 0xe4000"
       ]
     }
+  },
+  "nrf5340dk": {
+    "1": {
+      "sha256": "b7314c96a6c30f3422ad48a2a6f225e9aeab2ae539856e80f12e0a113882bc3b",
+      "partitions": [
+        "app code slot0_ns_partition",
+        "app flash0 boot_partition 0x0 0x10000",
+        "app flash0 slot0_partition 0x10000 0xe4000",
+        "app flash0 slot0_partition/slot0_ns_partition 0x20000 0xc4000",
+        "app flash0 slot0_partition/slot0_s_partition 0x0 0x20000",
+        "app flash0 tfm_storage_partition 0xf4000 0xc000",
+        "app flash0 tfm_storage_partition/tfm_its_partition 0x0 0x2000",
+        "app flash0 tfm_storage_partition/tfm_otp_partition 0x4000 0x2000",
+        "app flash0 tfm_storage_partition/tfm_ps_partition 0x8000 0x4000",
+        "app mx25r64 slot1_partition 0x0 0xe4000",
+        "mcuboot code boot_partition",
+        "mcuboot flash0 boot_partition 0x0 0x10000",
+        "mcuboot flash0 slot0_partition 0x10000 0xe4000",
+        "mcuboot flash0 storage_partition 0xf8000 0x8000",
+        "mcuboot mx25r64 golden_partition 0x700000 0xe4000",
+        "mcuboot mx25r64 slot1_partition 0x0 0xe4000"
+      ]
+    }
   }
 }
