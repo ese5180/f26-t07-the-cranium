@@ -7,9 +7,10 @@ choice BOOTLOADER
 	default BOOTLOADER_MCUBOOT
 endchoice
 
-# Without this sysbuild forces the nRF70 Wi-Fi driver off in the application image.
+# Without this sysbuild forces the nRF70 Wi-Fi driver off in the application image. The nRF5340 DK
+# has no Wi-Fi chip, and builds with Bluetooth only (prj_bt_only.conf).
 config WIFI_NRF70
-	default y
+	default y if !BOARD_NRF5340DK
 
 # Flash and RAM layout come from the devicetree overlays in boards/.
 config PARTITION_MANAGER

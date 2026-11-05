@@ -14,7 +14,9 @@
 
 /*
  * Erase the Wi-Fi network, the cloud settings, the device certificate and private key,
- * the root CAs, any pending update record, the device ID and the init-complete flag.
+ * the root CAs, any pending update record, the device ID and the init-complete flag. On a board
+ * with Bluetooth only (CONFIG_APP_BT_ONLY) there is no network, setting or credential for the cloud,
+ * and its Bluetooth passkey goes as well.
  * The firmware itself is not touched. The next boot is in factory mode, also after a
  * power cut half way through or an erase that failed. Everything is tried; returns the
  * first error, or 0.

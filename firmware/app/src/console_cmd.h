@@ -22,6 +22,10 @@ enum console_section {
 	SECTION_CLOUD,
 	SECTION_STATUS,
 	SECTION_STREAM,
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	/* A board with a passkey of its own only. */
+	SECTION_BLUETOOTH,
+#endif
 	SECTION_TEST,
 	SECTION_COUNT,
 };

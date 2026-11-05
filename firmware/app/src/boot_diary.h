@@ -22,8 +22,10 @@ void boot_diary_begin(void);
 /* How far this boot has got. Each stage writes to storage, so a reset right after it still shows. */
 void boot_diary_stage(enum boot_diary_stage stage);
 
+#if !defined(CONFIG_APP_BT_ONLY)
 /* Send the entries to the device shadow as "diary". */
 void boot_diary_report(void);
+#endif
 
 /*
  * How many boots the diary has counted, this one included, or 0 before boot_diary_begin(). It starts

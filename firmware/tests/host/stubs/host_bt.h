@@ -110,7 +110,11 @@ struct bt_conn_auth_cb {
 					       const struct bt_conn_pairing_feat *const feat);
 	void (*passkey_display)(struct bt_conn *conn, unsigned int passkey);
 	void (*cancel)(struct bt_conn *conn);
+	/* With CONFIG_BT_APP_PASSKEY: a board with a passkey of its own. */
+	uint32_t (*app_passkey)(struct bt_conn *conn);
 };
+
+#define BT_PASSKEY_RAND 0xffffffff
 
 struct bt_conn_auth_info_cb {
 	void (*pairing_failed)(struct bt_conn *conn, enum bt_security_err reason);

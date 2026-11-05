@@ -1,0 +1,42 @@
+#
+# A board that has Bluetooth and no Wi-Fi: the nRF5340 DK. Its board type and flash layout are in
+# Kconfig, next to the nRF7002 DK's. See "The nRF5340 DK (Bluetooth only)" in firmware/README.md.
+#
+
+config APP_BT_ONLY
+	bool "Bluetooth only: no Wi-Fi, no AWS IoT"
+	depends on APP_BT_OTA
+	help
+	  For a board with no Wi-Fi chip. prj_bt_only.conf turns it on for the nRF5340 DK. The main loop
+	  is src/bt_only_main.c in place of main.c, and the update manager src/bt_only_ota.c in place of
+	  ota.c: no network stack, no connection to AWS IoT, no jobs, no device shadow, no heartbeat, no
+	  events and no location. The board updates over Bluetooth from a phone, or over USB, and an image
+	  on trial is kept only by a person, as "proof: person" in firmware/README.md says.
+
+if APP_BT_ONLY
+
+config APP_BT_STATIC_PASSKEY
+	bool "A passkey of its own for pairing, stored at provisioning"
+	default y
+	select BT_APP_PASSKEY
+	help
+	  The phone has no device shadow to get a fresh passkey from, so the board keeps one 6-digit
+	  passkey in TF-M's protected storage, which tools/provision_device.py --board nrf5340dk draws at
+	  random and registers with the console. It is never shown on the console. Without one, or once it
+	  is locked, the Bluetooth host draws a new passkey for each attempt and the console shows it, as
+	  on an offline nRF7002 DK. src/bt_passkey.h says what this costs.
+
+config APP_BT_PASSKEY_FAILURE_BUDGET
+	int "Failed pairings that the stored passkey survives"
+	depends on APP_BT_STATIC_PASSKEY
+	default 3
+	range 1 20
+	help
+	  A guess at a passkey that does not change, which fails, gives away the bit it failed on and
+	  every bit it got right before that: two on average. After this many failures with it, counted
+	  from when it was stored and across windows and restarts, the board stops using it until a new
+	  one is stored. An attacker who guesses from the start pairs before that with a chance of 0.02%
+	  at 3, 0.13% at 4 and 2% at 6, against 0.0003% for three tries at a new passkey each time. Three
+	  failures in one window close the window, whatever this is.
+
+endif # APP_BT_ONLY

@@ -14,7 +14,10 @@ config CRANIUM_GOLDEN
 	  this code path. See the limits in firmware/README.md for what a compromised application
 	  can still do with the copy in external flash.
 
-if CRANIUM_GOLDEN
+# Not inside `if CRANIUM_GOLDEN`: a board whose bootloader has the golden image off (the nRF5340 DK's
+# boards/ file) still reads the pin that tools/golden.py freeze wrote into the shared prj.conf, and
+# Kconfig stops the build on a value given to an option that is not there. Nothing reads these when
+# CRANIUM_GOLDEN is off.
 
 config CRANIUM_GOLDEN_SHA256
 	string "SHA-256 TLV of the one image this bootloader will store or restore"
@@ -29,4 +32,3 @@ config CRANIUM_GOLDEN_SIZE
 	help
 	  The whole signed file, up to the end of its metadata.
 
-endif # CRANIUM_GOLDEN

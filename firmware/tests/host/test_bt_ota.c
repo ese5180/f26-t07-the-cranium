@@ -17,6 +17,11 @@
 #define CONFIG_APPLICATION_INIT_PRIORITY    90
 #define CONFIG_BT_DEVICE_NAME               "Cranium"
 #define CONFIG_MCUBOOT_UPDATE_FOOTER_SIZE   0x2000
+/* test_bt_only.c includes this file for a board with Bluetooth only, and says what it is first. */
+#if !defined(CONFIG_APP_BOARD_TYPE)
+#define CONFIG_APP_BOARD_TYPE               "nrf7002dk"
+#define CONFIG_APP_IMAGE_LAYOUT             1
+#endif
 
 /* What bt_ota.conf sets, and what bt_ota.c stops the build without. */
 #define CONFIG_MCUMGR_TRANSPORT_BT_PERM_RW_AUTHEN 1
@@ -628,7 +633,9 @@ static void fresh_board(void)
 	report_waiting = false;
 	last_proof = BT_OTA_PROVED;
 	name[0] = '\0';
+#if !defined(CONFIG_APP_BT_ONLY)
 	pairing_reported = false;
+#endif
 	memset(&track, 0, sizeof(track));
 	memset(&status_window, 0, sizeof(status_window));
 	status_due = false;
@@ -646,6 +653,14 @@ static void fresh_board(void)
 	atomic_set(&secure, 0);
 	atomic_set(&to_say, 0);
 	atomic_set(&passkey_to_say, 0);
+#if defined(CONFIG_APP_BT_ONLY)
+	atomic_set(&trouble, 0);
+	link_view = BT_OTA_LINK_NONE;
+	commands_last_tick = 0;
+#endif
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	atomic_set(&own_passkey, 0);
+#endif
 	reset_link_state();
 
 	for (int i = 0; i < boot_function_count; i++) {
@@ -738,17 +753,56 @@ static int read_list(void)
 	return command(MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_STATE, MGMT_OP_READ);
 }
 
-/* An image's header, as imgtool writes it: 0x200 bytes of header and 1000 of body, no TLVs. */
+/*
+ * The protected area of an image for the board under test: none for an nRF7002 DK, whose images had
+ * none up to 1.12.0 and are taken as its own, and its board type and layout 1 for another, which
+ * test_bt_only.c runs these tests on. Its length, 0 for none.
+ */
+static size_t own_area(uint8_t *area)
+{
+	static const char layout[] = "1";
+	const char *board = CONFIG_APP_BOARD_TYPE;
+	uint16_t value;
+	size_t at = 4;
+
+	if (strcmp(board, IMAGE_COMPAT_LEGACY_BOARD) == 0) {
+		return 0;
+	}
+
+	for (int i = 0; i < 2; i++) {
+		const char *text = i == 0 ? board : layout;
+
+		value = i == 0 ? IMAGE_COMPAT_TLV_BOARD : IMAGE_COMPAT_TLV_LAYOUT;
+		memcpy(area + at, &value, 2);
+		value = (uint16_t)strlen(text);
+		memcpy(area + at + 2, &value, 2);
+		memcpy(area + at + 4, text, strlen(text));
+		at += 4 + strlen(text);
+	}
+	value = IMAGE_COMPAT_PROT_MAGIC;
+	memcpy(area, &value, 2);
+	value = (uint16_t)at;
+	memcpy(area + 2, &value, 2);
+	return at;
+}
+
+/*
+ * An image's header, as imgtool writes it: 0x200 bytes of header and 1000 of body, and the protected
+ * area of own_area() after them.
+ */
 static void image_header(uint8_t *data, uint8_t major, uint8_t minor)
 {
 	const uint32_t magic = BT_OTA_IMAGE_MAGIC;
 	const uint16_t header_size = 0x200;
 	const uint32_t body_size = 1000;
+	uint8_t area[32];
+	const uint16_t protected_size = (uint16_t)own_area(area);
 
 	memset(data, 0, BT_OTA_IMAGE_HEADER_LEN);
 	memcpy(data, &magic, sizeof(magic));
 	memcpy(data + 8, &header_size, sizeof(header_size));
 	memcpy(data + 12, &body_size, sizeof(body_size));
+	memcpy(data + 10, &protected_size, sizeof(protected_size));
 	data[20] = major;
 	data[21] = minor;
 }
@@ -774,12 +828,32 @@ static int piece(const uint8_t *data, size_t len, size_t off, unsigned long long
 	return 0;
 }
 
+/*
+ * The header, and on a board that is not an nRF7002 DK the protected area after the body, which says
+ * the image is for it: the tests of what follows send their own pieces, and none of that area.
+ */
 static int first_piece(uint8_t major, uint8_t minor, unsigned long long total, uint32_t image)
 {
 	uint8_t data[BT_OTA_IMAGE_HEADER_LEN];
+	uint8_t area[32];
+	size_t area_length = own_area(area);
+	int rc;
 
 	image_header(data, major, minor);
-	return piece(data, sizeof(data), 0, total, image);
+	rc = piece(data, sizeof(data), 0, total, image);
+	if (rc != 0 || area_length == 0) {
+		return rc;
+	}
+	return piece(area, area_length, 0x200 + 1000, total, image);
+}
+
+/* Where first_piece() ends: after the header, or after the protected area on a board type with one. */
+static uint32_t first_piece_end(void)
+{
+	uint8_t area[32];
+	size_t area_length = own_area(area);
+
+	return area_length == 0 ? BT_OTA_IMAGE_HEADER_LEN : 0x200 + 1000 + (uint32_t)area_length;
 }
 
 static void upload_finishes(void)
@@ -1136,6 +1210,7 @@ static void test_a_passkey_comes_out_on_the_main_loop(void)
 	CHECK(atomic_get(&passkey_to_say) == 0);
 }
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void test_an_online_board_puts_the_passkey_in_its_shadow_and_takes_it_out(void)
 {
 	char expected[80];
@@ -1166,7 +1241,9 @@ static void test_an_online_board_puts_the_passkey_in_its_shadow_and_takes_it_out
 	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
 	CHECK(fake.shadow_reports == 2);
 }
+#endif
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void test_a_failed_attempt_and_a_closed_window_take_the_passkey_out(void)
 {
 	fresh_board();
@@ -1192,6 +1269,7 @@ static void test_a_failed_attempt_and_a_closed_window_take_the_passkey_out(void)
 	CHECK(!pairing_reported);
 	CHECK(strcmp(fake.last_shadow, "{\"btpair\":null}") == 0);
 }
+#endif
 
 static void test_an_offline_board_keeps_the_passkey_on_its_console(void)
 {
@@ -1205,7 +1283,9 @@ static void test_an_offline_board_keeps_the_passkey_on_its_console(void)
 	run_what_was_posted();
 	CHECK(strstr(fake.console, "[BT] passkey 654321\n") != NULL);
 	CHECK(fake.shadow_reports == 0);
+#if !defined(CONFIG_APP_BT_ONLY)
 	CHECK(!pairing_reported);
+#endif
 }
 
 static void test_the_console_says_what_the_link_negotiated(void)
@@ -1804,6 +1884,41 @@ static void offered_but_no_good(int swap_type_by_then)
 	CHECK(fake.ota == OTA_IDLE);
 }
 
+#if defined(CONFIG_APP_BT_ONLY)
+/* What the LEDs of a board with Bluetooth only show: test_bt_only.c runs these. */
+static void test_the_link_is_seen_as_connected_and_then_receiving(void)
+{
+	fresh_board();
+	CHECK(bt_ota_link_view() == BT_OTA_LINK_NONE);
+	open_by_hand();
+	phone_connects();
+	bt_ota_on_tick();
+	CHECK(bt_ota_link_view() == BT_OTA_LINK_CONNECTED);
+
+	connection_callbacks.security_changed(&phone, BT_SECURITY_L4, BT_SECURITY_ERR_SUCCESS);
+	CHECK(read_list() == 0);
+	bt_ota_on_tick();
+	CHECK(bt_ota_link_view() == BT_OTA_LINK_RECEIVING);
+	bt_ota_on_tick();
+	CHECK(bt_ota_link_view() == BT_OTA_LINK_CONNECTED);
+
+	CHECK(bt_ota_on_button(APP_BUTTON_2, false, true));
+	bt_ota_on_tick();
+	CHECK(bt_ota_link_view() == BT_OTA_LINK_NONE);
+}
+
+static void test_trouble_is_said_once(void)
+{
+	fresh_board();
+	CHECK(!bt_ota_take_trouble());
+	open_by_hand();
+	phone_connects();
+	fake.auth_info->pairing_failed(&phone, BT_SECURITY_ERR_AUTH_FAIL);
+	CHECK(bt_ota_take_trouble());
+	CHECK(!bt_ota_take_trouble());
+}
+#endif /* CONFIG_APP_BT_ONLY */
+
 static void test_what_arrived_is_looked_at_again_before_it_is_offered(void)
 {
 	fresh_board();
@@ -2332,6 +2447,7 @@ static void test_a_cloud_proof_of_something_else_changes_nothing(void)
 
 /* ---- the report ------------------------------------------------------------------------ */
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void test_the_record_goes_to_the_shadow_when_the_cloud_is_there(void)
 {
 	fresh_board();
@@ -2362,7 +2478,9 @@ static void test_the_record_goes_to_the_shadow_when_the_cloud_is_there(void)
 	bt_ota_on_cloud_up();
 	CHECK(fake.shadow_reports == 3);
 }
+#endif
 
+#if !defined(CONFIG_APP_BT_ONLY)
 static void test_no_record_no_report(void)
 {
 	fresh_board();
@@ -2371,6 +2489,7 @@ static void test_no_record_no_report(void)
 	bt_ota_on_cloud_up();
 	CHECK(fake.shadow_reports == 0);
 }
+#endif
 
 /* ---- LED1 ------------------------------------------------------------------------------ */
 
@@ -2456,7 +2575,7 @@ static void test_the_status_follows_the_window(void)
 	bt_ota_on_tick();
 	CHECK(fake.notifies == 2);
 	CHECK(fake.notified[4] == BT_STATUS_IMAGE_RECEIVING);
-	CHECK(le32(fake.notified + 6) == BT_OTA_IMAGE_HEADER_LEN);
+	CHECK(le32(fake.notified + 6) == first_piece_end());
 	CHECK(fake.notified[11] == RUNNING_MINOR + 1);
 
 	upload_finishes();
@@ -2915,6 +3034,7 @@ static void test_what_led1_shows(void)
 	CHECK(bt_ota_ui_state() == UI_UPDATE_OFFERED);
 }
 
+#if !defined(TEST_BT_OTA_NO_MAIN)
 int main(void)
 {
 	test_the_hooks_are_on_from_the_boot_on();
@@ -3024,3 +3144,4 @@ int main(void)
 	printf("%d Bluetooth update checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
+#endif /* TEST_BT_OTA_NO_MAIN */

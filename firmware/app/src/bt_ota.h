@@ -34,10 +34,32 @@ void bt_ota_on_tick(void);
 /* The image on trial has been confirmed because it reached the cloud. */
 void bt_ota_on_cloud_proof(void);
 
+#if !defined(CONFIG_APP_BT_ONLY)
 /* Connected to the cloud: tell it about the last update over Bluetooth. */
 void bt_ota_on_cloud_up(void);
+#endif
 
 bool bt_ota_is_open(void);
 enum ui_state bt_ota_ui_state(void);
+
+#if defined(CONFIG_APP_BT_ONLY)
+/* What a phone is doing, as of the last tick: for the LEDs of a board with Bluetooth only. */
+enum bt_ota_link_view {
+	BT_OTA_LINK_NONE,
+	/* A phone is connected, pairing or paired. */
+	BT_OTA_LINK_CONNECTED,
+	/* Commands came in the last second, in a window that takes an image: it is arriving. */
+	BT_OTA_LINK_RECEIVING,
+};
+
+enum bt_ota_link_view bt_ota_link_view(void);
+
+/*
+ * True once after something went wrong that a person at the board should see: a pairing that failed,
+ * a command or an upload refused, an image that arrived and cannot be installed, a controller that did
+ * not start, a passkey that got locked, or a record at boot that says the last update did not stay.
+ */
+bool bt_ota_take_trouble(void);
+#endif /* CONFIG_APP_BT_ONLY */
 
 #endif /* BT_OTA_H_ */

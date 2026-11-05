@@ -12,8 +12,10 @@ CRANIUM_LAYOUT_TLV := 0xa2
 
 # Each board's flash layout number. It goes up whenever its partitions change, and
 # firmware/app/flash_layouts.json holds what its partitions are for each number: the build stops if
-# they are not those (sysbuild.cmake). The nRF5340 DK has none until its partitions are drawn.
+# they are not those (sysbuild.cmake). Numbers are per board type: the nRF5340 DK's first layout,
+# boards/nrf5340dk_nrf5340_cpuapp_ns.overlay, is its 1.
 CRANIUM_NRF7002DK_LAYOUT := 1
+CRANIUM_NRF5340DK_LAYOUT := 1
 
 config APP_BOARD_TYPE
 	string
@@ -28,6 +30,7 @@ config APP_BOARD_TYPE
 config APP_IMAGE_LAYOUT
 	int
 	default $(CRANIUM_NRF7002DK_LAYOUT) if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
+	default $(CRANIUM_NRF5340DK_LAYOUT) if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
 	default 0
 	help
 	  From 1.13.0. The number of this board's flash layout: its partitions, its slot sizes and the
@@ -41,7 +44,7 @@ if BOOTLOADER_MCUBOOT
 # Before Zephyr's own definition, which defaults to "", so these defaults come first.
 config MCUBOOT_EXTRA_IMGTOOL_ARGS
 	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf7002dk --custom-tlv $(CRANIUM_LAYOUT_TLV) $(CRANIUM_NRF7002DK_LAYOUT)" if BOARD_NRF7002DK_NRF5340_CPUAPP_NS || BOARD_NRF7002DK_NRF5340_CPUAPP
-	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf5340dk" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
+	default "--custom-tlv $(CRANIUM_BOARD_TLV) nrf5340dk --custom-tlv $(CRANIUM_LAYOUT_TLV) $(CRANIUM_NRF5340DK_LAYOUT)" if BOARD_NRF5340DK_NRF5340_CPUAPP_NS || BOARD_NRF5340DK_NRF5340_CPUAPP
 
 endif # BOOTLOADER_MCUBOOT
 
@@ -290,6 +293,9 @@ config APP_CRASH_DEMO_AFTER_SECONDS
 	depends on APP_CRASH_DEMO
 	default 60
 	range 10 3600
+
+# The board types of docs/fleet.md, and the board with Bluetooth only.
+rsource "Kconfig.bt_only"
 
 config APP_VERSION_FROM_BUILD
 	bool

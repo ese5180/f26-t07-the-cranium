@@ -63,6 +63,13 @@ struct bt_ota_board {
 	bool swap_pending;
 	/* The last window's phone has not gone yet. A new window takes a new pairing. */
 	bool link_up;
+#if defined(CONFIG_APP_BT_ONLY)
+	/*
+	 * A board with Bluetooth only: no cloud job can have put an image on trial, and nothing but a
+	 * person can prove one.
+	 */
+	bool no_cloud;
+#endif
 };
 
 enum bt_ota_open {
@@ -78,6 +85,10 @@ enum bt_ota_open {
 	BT_OTA_REFUSED_BUSY,
 	BT_OTA_REFUSED_SWAP_PENDING,
 	BT_OTA_REFUSED_LINK_UP,
+#if defined(CONFIG_APP_BT_ONLY)
+	/* On trial with no record of an update over Bluetooth, on a board with no cloud. */
+	BT_OTA_REFUSED_UNKNOWN_TRIAL,
+#endif
 };
 
 enum bt_ota_open bt_ota_may_open(const struct bt_ota_board *board);
@@ -210,6 +221,13 @@ struct bt_ota_proof {
 	bool wifi_up;
 	/* The Wi-Fi stack has reported the result of a join attempt since this image started. */
 	bool wifi_answered;
+#if defined(CONFIG_APP_BT_ONLY)
+	/*
+	 * A board with no Wi-Fi at all. Then there is no stack to have answered, and no network that
+	 * would make it the cloud's to decide: the rest of the proof is all there is.
+	 */
+	bool no_wifi;
+#endif
 	bool link_secure;
 	uint32_t list_reads;
 };
