@@ -1,0 +1,9 @@
+# What tools/*.py need outside an nRF Connect SDK terminal, whose Python has all of it already:
+# pyserial and cbor2 for the tools that talk to a board, cryptography for tools/keys.py, and what
+# MCUboot's imgtool needs. The same pinned versions as the tests, which are those of the SDK.
+#
+#   python3 -m pip install -r tools/requirements.txt
+#
+# scripts/new-board.sh check offers it when one is missing. tools/new_board.py ble-scan also uses
+# bleak if it is installed (python3 -m pip install bleak); nothing else needs it.
+-r ../firmware/tests/requirements.txt

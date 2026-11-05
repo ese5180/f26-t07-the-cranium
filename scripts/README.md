@@ -4,6 +4,7 @@
 
 | Script | What it does |
 | --- | --- |
+| `new-board.sh` | Sets up a new board, from out of the box to online on the console: checks this computer (`check`), finds the one board plugged in, asks for its serial number's last 4 digits, then builds, flashes, puts on the golden image and the newest release, provisions and checks it. `--dry-run` runs nothing, `--from <step>` goes on where it stopped, and `status` shows a board. [`docs/new-board-setup.md`](../docs/new-board-setup.md#the-quick-way) |
 | `build.sh` | Builds the firmware with the next unused version, leaves the signed image in `binaries/`, and uploads it to the console's Firmware page (`--no-upload` not to). It never deploys |
 | `upload-to-console.sh` | Uploads one signed image to the console with your API token; `build.sh` runs it after each build |
 | `check-image.sh` | Checks an image before it goes anywhere: the console's own checks, its build record, its commit on main, and CI |
@@ -56,7 +57,7 @@ credentials instead, as before. More in [`docs/aws-iot.md`](../docs/aws-iot.md#a
 | `verify-github-release.sh` | Checks a published release's files |
 | `release-lib.sh` | Checks shared by the two release scripts |
 
-Setting up a blank board is in [`docs/new-board-setup.md`](../docs/new-board-setup.md).
+Setting up a blank board is `scripts/new-board.sh`, and by hand [`docs/new-board-setup.md`](../docs/new-board-setup.md).
 
 ## Where things go
 

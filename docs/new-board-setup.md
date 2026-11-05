@@ -9,6 +9,52 @@ and shows up online in the console. It takes about 20 minutes. The iPhone and An
 board keeps its ID, Wi-Fi network, private key and certificates. Never run it on a working board: to update one,
 use the console or `scripts/ota.sh`.
 
+## The quick way
+
+One command takes a board from out of the box to online on the console, and checks each step as it goes. On
+macOS or Linux, from the repository:
+
+```sh
+scripts/new-board.sh check     # what this computer still needs, and the command that gets each thing
+scripts/new-board.sh           # set up the one board plugged in by USB
+```
+
+It finds the boards plugged in, and goes on only if there is exactly one, or `--serial-number <n>` names one.
+It says which DK it is, from its debugger (an nRF7002 DK, or an nRF5340 DK with `--board nrf5340dk` where the
+debugger doesn't say), and asks for the last 4 digits of its serial number before it erases anything. Then:
+
+| Step | What it does | By hand |
+| --- | --- | --- |
+| `build` | `scripts/build.sh --keep --no-upload`. It leaves `binaries/` as it was | [2](#2-build) |
+| `flash` | `west flash --recover` on that board's probe: erases it, and writes the bootloader, TF-M with the application and the Bluetooth controller | [3](#3-flash-everything-erasing-the-chip) |
+| `golden` | `tools/golden.py restore`, then you do the gesture, and it watches the bootloader's log for `sealed`. Not on an nRF5340 DK | [4](#4-put-the-golden-image-on-and-seal-it) |
+| `release` | The newest release for the board's type, through serial recovery: the console's, with a console token, or else the newest in `binaries/`, or `--image <file>` | [6](#6-update-it-to-the-current-firmware), over USB |
+| `provision` | `tools/provision_device.py`, with `--board nrf5340dk` for that board | [5](#5-provision-it) |
+| `verify` | The board's serial console, and the console's view: online with that release (nRF7002 DK), or listed and advertising over Bluetooth once you hold Button 1 (nRF5340 DK) | [7](#7-check-it) |
+
+The release goes on over USB before provisioning, where the steps by hand provision the golden image and update it
+over the air: the same board at the end, sooner, and with no Button 1 to press.
+
+- A step that fails stops it, says why, and says how to go on: `scripts/new-board.sh --from <step>`, or `--resume`
+  for the step after the last one done. `--only <step>` runs one step.
+- `--dry-run` prints every command, and runs none of them.
+- `scripts/new-board.sh status` shows a board at any time: what its serial console says, and what the console
+  shows of it. `scripts/new-board.sh list` lists the boards plugged in.
+- It needs what [What you need](#what-you-need) lists, which `check` goes through, and a console token
+  ([`scripts/README.md`](../scripts/README.md#otash-with-an-api-token)) for the newest release and for the console's
+  view. An nRF5340 DK needs one for its passkey; while the console has no route for that, add `--no-register`, as
+  `provision_device.py` says. The script runs the tools with the SDK toolchain's Python, which has their packages;
+  without it, `python3 -m pip install -r tools/requirements.txt`.
+- It never makes a signing key, and never prints the Wi-Fi network, a password, the AWS account, an endpoint or a
+  bucket.
+- On Windows, run it in WSL2, set up as in [On Windows, use WSL2](#on-windows-use-wsl2), with the board attached to
+  WSL. There is no PowerShell version: outside WSL the Python tools stop at registering the board and at the Wi-Fi
+  network, and no bash script runs, so a PowerShell script would break in the same places.
+
+**It has not run on a board yet.** Its tests (`firmware/tests/hil/test_new_board.py`) run it against stand-ins for
+nrfutil, west, AWS, the console and the board's tools. Each step runs the commands below. If one fails, do that step
+by hand, then go on with `--from` the next one.
+
 ## What you need
 
 | Thing | Why | Where it comes from |
