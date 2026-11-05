@@ -492,9 +492,13 @@ const FIRMWARE = new URL(process.env.CRANIUM_FIRMWARE_SRC ? `file://${process.en
 
 test('the table agrees with the firmware\'s table and limits', { skip: !existsSync(new URL('console_cmd.c', FIRMWARE)) }, () => {
   // A command that only a build with a test fault has is no command of a released board's, so
-  // the page must not offer it.
+  // the page must not offer it. Nor what only a board with a static Bluetooth passkey has (the
+  // nRF5340 DK): tools/provision_device.py sets that passkey after registering it with the console,
+  // and a passkey sent from this page would be one the console does not know. Where such a block
+  // has an #else, that is the nRF7002 DK's, and it stays.
   const source = readFileSync(new URL('console_cmd.c', FIRMWARE), 'utf8')
-    .replace(/#if defined\(CONFIG_APP_TEST_FAULT_\w+\)[\s\S]*?#endif/g, '');
+    .replace(/#if defined\(CONFIG_APP_TEST_FAULT_\w+\)[\s\S]*?#endif/g, '')
+    .replace(/#if defined\(CONFIG_APP_BT_STATIC_PASSKEY\)[\s\S]*?(?=#else|#endif)/g, '');
   const entry =/\{\s*"([A-Z_]+)",\s*(NULL|"\?"),\s*"[^"]*",\s*(?:"[^"]*"\s*)+,\s*SECTION_\w+,\s*(true|false),\s*(\d+),\s*(\d+),\s*cmd_\w+\s*\}/g;
   const firmware = new Map([...source.matchAll(entry)].map(([, name, alias, factory, min, max]) =>
     [name, { alias: alias === 'NULL' ? undefined : '?', factory: factory === 'true', args: [Number(min), Number(max)] }]));
