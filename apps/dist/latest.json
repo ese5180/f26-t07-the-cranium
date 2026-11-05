@@ -6,9 +6,9 @@
     "version": "0.7.1"
   },
   "ios": {
-    "file": "cranium-ios-0.7.0.ipa",
-    "sha256": "c5036fc4e61621e5f834730a2c982eb59a5871d5d6fee369166987ccf31d7b7e",
-    "size": 2316518,
-    "version": "0.7.0"
+    "file": "cranium-ios-0.7.1.ipa",
+    "sha256": "4ea1a1b41886425c064025891bfe4f4e3fb26b8853d015cc0f18205b27bc86f1",
+    "size": 2379595,
+    "version": "0.7.1"
   }
 }
