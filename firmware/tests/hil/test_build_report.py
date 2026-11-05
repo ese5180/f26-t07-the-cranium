@@ -178,12 +178,12 @@ class WholeReport(Folder):
         return subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.org", "-C", str(self.repo), *args],
                               capture_output=True, text=True, check=True).stdout.strip()
 
-    def keep(self, image, **latest):
+    def keep(self, image, stem="latest", **latest):
         """What tools/store_binary.py does at the end of a build."""
         (self.repo / "binaries").mkdir(exist_ok=True)
         (self.build / "app/zephyr/zephyr.signed.bin").write_bytes(image)
-        (self.repo / "binaries/latest.signed.bin").write_bytes(image)
-        (self.repo / "binaries/latest.json").write_text(json.dumps({
+        (self.repo / f"binaries/{stem}.signed.bin").write_bytes(image)
+        (self.repo / f"binaries/{stem}.json").write_text(json.dumps({
             "version": "1.6.0+0", "file": "cranium-1.6.0-0.signed.bin", "size": len(image), "sha256": hashlib.sha256(image).hexdigest(),
             "commit": self.commit, "command_line": [], "built": "2026-11-01T00:00:00Z", **latest}))
 
@@ -276,6 +276,49 @@ class WholeReport(Folder):
                 (self.build / path).unlink()
                 self.refused(path)
                 (self.build / path).write_bytes(contents)
+
+    def for_board(self, board):
+        """The build's .config says its board type, as CONFIG_APP_BOARD_TYPE does in a real one."""
+        (self.build / "app/zephyr/.config").write_text(f'CONFIG_APP_BT_OTA=y\nCONFIG_APP_BOARD_TYPE="{board}"\n')
+
+    def test_an_nrf7002dk_build_that_says_its_type_keeps_the_names_it_had(self):
+        self.for_board("nrf7002dk")
+        artifact = self.root / "artifact"
+        output = self.root / "output"
+        result = self.run_tool("--artifact", str(artifact), "--output", str(output))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("latest.json", [path.name for path in artifact.iterdir()])
+        self.assertEqual(output.read_text(), f"artifact=firmware-1.6.0-0-{self.commit}-ci-key-not-installable\n")
+
+    def test_an_nrf5340dk_build_is_reported_from_its_own_files(self):
+        self.for_board("nrf5340dk")
+        (self.repo / "binaries/latest.signed.bin").unlink()
+        (self.repo / "binaries/latest.json").unlink()
+        self.keep(make_image(), "latest-nrf5340dk", board="nrf5340dk", file="cranium-nrf5340dk-1.6.0-0.signed.bin")
+        artifact = self.root / "artifact"
+        output = self.root / "output"
+        result = self.run_tool("--summary", str(self.root / "summary.md"), "--artifact", str(artifact), "--output", str(output))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = (self.root / "summary.md").read_text()
+        self.assertTrue(text.startswith("## Firmware build, nrf5340dk\n"), text)
+        self.assertIn(f"Version `1.6.0+0`, commit `{self.commit}`", text)
+        self.assertEqual(sorted(path.name for path in artifact.iterdir()), [
+            "NOT-INSTALLABLE.txt", "cranium-nrf5340dk-1.6.0-0-ci-key-not-installable.signed.bin", "latest-nrf5340dk.json",
+            "sizes.md"])
+        self.assertEqual(json.loads((artifact / "latest-nrf5340dk.json").read_text())["board"], "nrf5340dk")
+        self.assertEqual(output.read_text(), f"artifact=firmware-nrf5340dk-1.6.0-0-{self.commit}-ci-key-not-installable\n")
+
+    def test_an_nrf5340dk_build_does_not_take_an_nrf7002dk_image_for_its_own(self):
+        # setUp kept latest.signed.bin, which is the same image: it is still not this board type's file.
+        self.for_board("nrf5340dk")
+        self.refused("latest-nrf5340dk.signed.bin is missing")
+
+    def test_an_nrf5340dk_record_has_to_say_its_board_type(self):
+        self.for_board("nrf5340dk")
+        for board in (None, "nrf7002dk"):
+            with self.subTest(board):
+                self.keep(make_image(), "latest-nrf5340dk", **({} if board is None else {"board": board}))
+                self.refused("binaries/latest-nrf5340dk.json says board is")
 
     def test_a_table_is_made_for_every_row_it_is_given(self):
         rows = [build_report.Row("One", 1, 2), build_report.Row("Two", 3, 2)]
