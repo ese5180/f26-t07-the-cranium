@@ -142,8 +142,8 @@ private fun ConsoleFrame(vm: ConsoleViewModel) {
                 )
             }
             CompositionLocalProvider(LocalChrome provides chrome) {
-                // Keyed by the page, so that each page starts at its top.
-                key(route.key) { Page(vm, route, store, now) }
+                // Keyed by the page, so that each page starts at its top. Above it, a newer app (update/).
+                com.craniumiot.cranium.update.AppUpdateFrame(vm.appUpdate) { key(route.key) { Page(vm, route, store, now) } }
             }
             Toasts(toasts, onDismiss = vm::dismissToast, modifier = Modifier.align(Alignment.BottomCenter))
         }
