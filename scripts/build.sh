@@ -7,23 +7,30 @@
 #   scripts/build.sh --keep            the version already in firmware/app/VERSION
 #   scripts/build.sh --jobs 8          compile with that many jobs (default 4)
 #   scripts/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
+#   scripts/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
+#                                      or nrf5340dk, which has Bluetooth only
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
-# binaries/latest.signed.bin and binaries/latest.json. From 1.13.0 the image says its board type and
-# flash layout in protected TLVs (firmware/README.md, "Board type and compatibility"): this reads them
-# back with tools/check_image.py, stops if they are missing or not this build's, and writes them into
-# both records as "board" and "layout". It then
-# checks the image's signature with the same code the console uses, and uploads it to the console's
-# Firmware page with your API token (scripts/upload-to-console.sh): only uploads, so no board gets it
-# until it is deployed. Without a token it says how to make one, and the image stays in binaries/. A
-# version can be uploaded only once, which is why each build takes a new one. Exit status 3: built,
-# but the upload failed. From 1.14.0 it also gives Memfault the build's symbols and the image as a
-# release (tools/memfault_upload.py, docs/memfault.md), when ~/.cranium has a Memfault token.
+# binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
+# is in the names, as binaries/cranium-nrf5340dk-<version>-0.signed.bin and latest-nrf5340dk.*, and it
+# builds in build-nrf5340dk/. From 1.13.0 the image says its board type and flash layout in protected
+# TLVs (firmware/README.md, "Board type and compatibility"): this reads them back with
+# tools/check_image.py, stops if they are missing or not this build's, and writes them into both
+# records as "board" and "layout". It then checks the image's signature with the same code the console
+# uses, and uploads it to the console's Firmware page with your API token (scripts/upload-to-console.sh):
+# only uploads, so no board gets it until it is deployed, and the console offers a release only to
+# boards of its type and layout. Without a token it says how to make one, and the image stays in
+# binaries/. A version can be uploaded only once, which is why each build takes a new one. Exit status
+# 3: built, but the upload failed. From 1.14.0 an nRF7002 DK's build also gives Memfault its symbols
+# and the image as a release (tools/memfault_upload.py, docs/memfault.md), when ~/.cranium has a
+# Memfault token. An nRF5340 DK has no Memfault: it has no AWS IoT to send it over.
 #
-# The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/. This
-# checkout cannot see what else has been uploaded, so the console may still refuse a number. A
-# failed build puts firmware/app/VERSION back. A good one leaves it changed and not committed:
-# commit it before you build anything you mean to release, because the image records its commit.
+# The next version is one above the highest in firmware/app/VERSION, binaries/ and ota-demo/, of any
+# board type: one version is one image, and a build for another type takes the next number
+# (docs/fleet.md). This checkout cannot see what else has been uploaded, so the console may still
+# refuse a number. A failed build puts firmware/app/VERSION back. A good one leaves it changed and not
+# committed: commit it before you build anything you mean to release, because the image records its
+# commit.
 
 set -euo pipefail
 
@@ -32,9 +39,6 @@ NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 NCS_VERSION=v3.4.0
 # Where nrfutil sdk-manager puts it on macOS; elsewhere, set NCS_DIR (docs/new-board-setup.md).
 NCS_DIR="${NCS_DIR:-/opt/nordic/ncs/$NCS_VERSION}"
-BOARD=nrf7002dk/nrf5340/cpuapp/ns
-# What the image and the console call that board (docs/fleet.md, CONFIG_APP_BOARD_TYPE).
-BOARD_TYPE=nrf7002dk
 VERSION_FILE="$REPO_DIR/firmware/app/VERSION"
 KEY="$HOME/.cranium/mcuboot_signing_key.pem"
 
@@ -45,7 +49,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -65,14 +69,16 @@ set_version() {
   rm -f "$file"
 }
 
-# The next patch number above everything this checkout knows about, as "major minor patch".
+# The next patch number above everything this checkout knows about, of any board type, as
+# "major minor patch". An nRF7002 DK's images are named cranium-<version>, any other's
+# cranium-<type>-<version>.
 next_version() {
   python3 -I - "$(field VERSION_MAJOR).$(field VERSION_MINOR).$(field PATCHLEVEL)" \
     "$REPO_DIR"/binaries/cranium-*.signed.bin "$REPO_DIR"/ota-demo/cranium-*.signed.bin <<'EOF'
 import re, sys
 seen = [tuple(int(n) for n in sys.argv[1].split("."))]
 for name in sys.argv[2:]:
-    found = re.search(r"cranium-(\d+)\.(\d+)\.(\d+)-", name)
+    found = re.search(r"(?:^|/)cranium-(?:[a-z][a-z0-9]*-)?(\d+)\.(\d+)\.(\d+)-", name)
     if found:
         seen.append(tuple(int(n) for n in found.groups()))
 major, minor, patch = max(seen)
@@ -84,10 +90,16 @@ jobs=4
 keep=false
 upload=true
 version=""
+board_type=nrf7002dk
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=true ;;
     --no-upload) upload=false ;;
+    --board)
+      [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk or nrf5340dk"
+      board_type="$2"
+      shift
+      ;;
     --version)
       [ $# -ge 2 ] || die "--version needs a value, for example --version 1.8.0"
       version="$2"
@@ -111,6 +123,23 @@ while [ $# -gt 0 ]; do
 done
 
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a number, not $jobs"
+
+# The board types of docs/fleet.md. An nRF7002 DK keeps the names and the build directory it always had.
+case "$board_type" in
+  nrf7002dk)
+    BOARD=nrf7002dk/nrf5340/cpuapp/ns
+    BUILD_DIR="$REPO_DIR/build"
+    name_prefix=cranium-
+    latest=latest
+    ;;
+  nrf5340dk)
+    BOARD=nrf5340dk/nrf5340/cpuapp/ns
+    BUILD_DIR="$REPO_DIR/build-nrf5340dk"
+    name_prefix=cranium-nrf5340dk-
+    latest=latest-nrf5340dk
+    ;;
+  *) die "--board takes nrf7002dk or nrf5340dk, not $board_type" ;;
+esac
 [ -n "$version" ] && [ "$keep" = true ] && die "use --keep or --version, not both"
 if [ -n "$version" ] && ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   die "--version must look like 1.8.0, not $version"
@@ -150,21 +179,22 @@ log="$work/build.log"
 export ZEPHYR_BASE="$NCS_DIR/zephyr"
 export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
 
-echo "Building firmware $expected with $jobs jobs. This takes a minute or two."
-if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$REPO_DIR/build" -b "$BOARD" \
+build_name="$(basename "$BUILD_DIR")"
+echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
+if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
     --sysbuild "$REPO_DIR/firmware/app" -- ) > "$log" 2>&1; then
-  mkdir -p "$REPO_DIR/build"
-  cp "$log" "$REPO_DIR/build/last-build.log"
+  mkdir -p "$BUILD_DIR"
+  cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true
-  die "the build failed" "The whole log is in build/last-build.log."
+  die "the build failed" "The whole log is in $build_name/last-build.log."
 fi
-cp "$log" "$REPO_DIR/build/last-build.log"
+cp "$log" "$BUILD_DIR/last-build.log"
 
-name="cranium-${expected%+*}-${expected#*+}.signed.bin"
+name="${name_prefix}${expected%+*}-${expected#*+}.signed.bin"
 file="$REPO_DIR/binaries/$name"
 [ -f "$file" ] || die "the build left no image at binaries/$name"
-cmp -s "$file" "$REPO_DIR/binaries/latest.signed.bin" \
-  || die "binaries/latest.signed.bin is not the image that was just built"
+cmp -s "$file" "$REPO_DIR/binaries/$latest.signed.bin" \
+  || die "binaries/$latest.signed.bin is not the image that was just built"
 
 # The board type and the flash layout, as the image itself says them, under its signature.
 # tools/store_binary.py, which the build runs, does not write them: this adds them to both records of
@@ -172,15 +202,15 @@ cmp -s "$file" "$REPO_DIR/binaries/latest.signed.bin" \
 board="$(python3 -I "$REPO_DIR/tools/check_image.py" --board "$file")" \
   || die "the image does not say its board type, or its protected TLV area does not verify" \
     "Every image from 1.13.0 carries it: see \"Board type and compatibility\" in firmware/README.md."
-[ "$board" = "$BOARD_TYPE" ] || die "the image says it is for $board, and this build is for $BOARD_TYPE"
+[ "$board" = "$board_type" ] || die "the image says it is for $board, and this build is for $board_type"
 layout="$(python3 -I "$REPO_DIR/tools/check_image.py" --layout "$file")" \
   || die "the image does not say its flash layout, or its protected TLV area does not verify"
-configured="$(awk -F= '$1 == "CONFIG_APP_IMAGE_LAYOUT" { print $2 }' "$REPO_DIR/build/app/zephyr/.config")"
+configured="$(awk -F= '$1 == "CONFIG_APP_IMAGE_LAYOUT" { print $2 }' "$BUILD_DIR/app/zephyr/.config")"
 [ "$layout" = "$configured" ] \
   || die "the image says flash layout $layout, and the build was configured for ${configured:-none}"
 record="binaries/${name%.signed.bin}.json"
-python3 -I - "$board" "$layout" "$REPO_DIR/binaries/latest.json" "$REPO_DIR/$record" <<'EOF' \
-  || die "the board type and layout could not be written into binaries/latest.json and $record"
+python3 -I - "$board" "$layout" "$REPO_DIR/binaries/$latest.json" "$REPO_DIR/$record" <<'EOF' \
+  || die "the board type and layout could not be written into binaries/$latest.json and $record"
 import json, sys
 board, layout = sys.argv[1], int(sys.argv[2])
 for path in sys.argv[3:]:
@@ -200,11 +230,13 @@ for path in sys.argv[3:]:
         target.write(json.dumps(updated, indent=2) + "\n")
 EOF
 
-python3 -I - "$REPO_DIR/binaries/latest.json" "$expected" <<'EOF' || die "binaries/latest.json does not match this build"
+python3 -I - "$REPO_DIR/binaries/$latest.json" "$expected" "$board_type" <<'EOF' || die "binaries/$latest.json does not match this build"
 import json, sys
 info = json.load(open(sys.argv[1]))
 if info.get("version") != sys.argv[2]:
     sys.exit(f"it says {info.get('version')}, and this build is {sys.argv[2]}")
+if info.get("board", "nrf7002dk") != sys.argv[3]:
+    sys.exit(f"it says it is for {info.get('board', 'nrf7002dk')}, and this build is for {sys.argv[3]}")
 print()
 print(f"Version   {info['version']}")
 print(f"Board     {info.get('board', 'not recorded')}, flash layout {info.get('layout', 'not recorded')}")
@@ -236,22 +268,27 @@ fi
 
 if [ "$upload" = false ]; then
   echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/upload-to-console.sh."
-  echo "Memfault gets nothing either: while build/ holds this image, run tools/memfault_upload.py --build build."
+  if [ "$board_type" = nrf7002dk ]; then
+    echo "Memfault gets nothing either: while build/ holds this image, run tools/memfault_upload.py --build build."
+  fi
   exit 0
 fi
 
 # From 1.14.0 (docs/memfault.md): the ELF's symbols, without which Memfault cannot read a coredump of
 # this image, and the image as a release there. Only with an organization token and the project's
 # slugs; without them it says so in one line. A failure here leaves the console's upload as it is.
-echo
-if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$REPO_DIR/build"; then
-  echo "warning: Memfault did not get all of this build: see above. Run tools/memfault_upload.py --build build" \
-    "again while build/ holds it." >&2
+# An nRF5340 DK's image has no Memfault in it.
+if [ "$board_type" = nrf7002dk ]; then
+  echo
+  if ! python3 -I "$REPO_DIR/tools/memfault_upload.py" --build "$REPO_DIR/build"; then
+    echo "warning: Memfault did not get all of this build: see above. Run tools/memfault_upload.py --build build" \
+      "again while build/ holds it." >&2
+  fi
 fi
 
 echo
 commit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("commit", "unknown"))' \
-  "$REPO_DIR/binaries/latest.json")"
+  "$REPO_DIR/binaries/$latest.json")"
 notes="Built by scripts/build.sh from commit $commit"
 case "$commit" in
   *+uncommitted) notes="$notes: firmware/ had changes that are in no commit" ;;
