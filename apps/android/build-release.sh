@@ -51,11 +51,12 @@ fi
 export PATH="$JAVA_HOME/bin:$PATH"
 
 # The Android SDK: sdk.dir in local.properties, else ANDROID_HOME.
-SDK_DIR="$(sed -n 's/^sdk\.dir=//p' "$ANDROID_DIR/local.properties" 2>/dev/null | tail -n 1)"
+# local.properties is only on a developer's machine: with pipefail, a missing one must not end the script.
+SDK_DIR="$( { sed -n 's/^sdk\.dir=//p' "$ANDROID_DIR/local.properties" 2>/dev/null || true; } | tail -n 1)"
 SDK_DIR="${SDK_DIR:-${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}}"
 [ -n "$SDK_DIR" ] && [ -d "$SDK_DIR" ] \
   || fail "no Android SDK: put sdk.dir in apps/android/local.properties (see apps/android/README.md)"
-APKSIGNER="$(ls -1d "$SDK_DIR"/build-tools/*/apksigner 2>/dev/null | sort | tail -n 1)"
+APKSIGNER="$( { ls -1d "$SDK_DIR"/build-tools/*/apksigner 2>/dev/null || true; } | sort | tail -n 1)"
 [ -n "$APKSIGNER" ] || fail "no apksigner under $SDK_DIR/build-tools: install build-tools with sdkmanager"
 
 VERSION_NAME="$(sed -n 's/^craniumVersionName=//p' "$ANDROID_DIR/gradle.properties" | tail -n 1)"

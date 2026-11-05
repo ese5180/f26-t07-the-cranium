@@ -179,9 +179,9 @@ fi
 # published, because a version is published once. CRANIUM_AAPT2=none skips it.
 aapt2="${CRANIUM_AAPT2:-}"
 if [ -z "$aapt2" ]; then
-  sdk_dir="$(sed -n 's/^sdk\.dir=//p' "$ANDROID_DIR/local.properties" 2>/dev/null | tail -n 1)"
+  sdk_dir="$( { sed -n 's/^sdk\.dir=//p' "$ANDROID_DIR/local.properties" 2>/dev/null || true; } | tail -n 1)"
   sdk_dir="${sdk_dir:-${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}}"
-  [ -z "$sdk_dir" ] || aapt2="$(ls -1d "$sdk_dir"/build-tools/*/aapt2 2>/dev/null | sort | tail -n 1)"
+  [ -z "$sdk_dir" ] || aapt2="$( { ls -1d "$sdk_dir"/build-tools/*/aapt2 2>/dev/null || true; } | sort | tail -n 1)"
 fi
 if [ -n "$aapt2" ] && [ "$aapt2" != none ]; then
   badging="$("$aapt2" dump badging "$apk" 2>/dev/null | sed -n 's/^package: //p' | head -n 1)" \
