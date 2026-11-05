@@ -4,6 +4,11 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.6.1
+
+The Bluetooth update reads the account again when it is not known, and says when it could not check it rather than
+saying that only a release manager can send firmware, so a release manager is never refused because one read failed.
+
 ## 0.6.0
 
 Customers can sign in to see their own boards, as on the customer website: an overview, their devices and each board's

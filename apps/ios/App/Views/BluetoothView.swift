@@ -95,6 +95,13 @@ struct BluetoothReleases: View {
             if let message = model.message {
                 Section { StateRow(kind: .failed, text: message) }
             }
+            if app.me == nil {
+                Section {
+                    Button("Check my account again") {
+                        Task { await model.open(release: model.chosenRelease?.version) }
+                    }
+                }
+            }
             Section {
                 PrimaryButton(model.preparing ?? (model.chosenRelease.map { "Continue with \($0.version)" } ?? "Continue"),
                               busy: model.busy) {

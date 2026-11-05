@@ -22,6 +22,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +59,17 @@ fun BluetoothScreen(vm: ConsoleViewModel, store: Store) {
     }
     val enable = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { flow.lookForBoards() }
 
-    if (store.me?.canWrite != true) {
+    if (store.me == null) {
+        // Not known yet, or one read of it failed: ask again, and never take the person for a viewer.
+        LaunchedEffect(Unit) { vm.ensureMe() }
+        ConsoleScreen(title = "Update over Bluetooth", help = "bluetooth") {
+            item(key = "checking") {
+                OneLine("Your account could not be checked with the console yet.", action = "Check again" to { vm.ensureMe() })
+            }
+        }
+        return
+    }
+    if (store.me.canWrite != true) {
         ConsoleScreen(title = "Update over Bluetooth", help = "bluetooth") {
             item(key = "viewer") { OneLine("Only a release manager can send firmware.", glyph = Glyph.LOCK) }
         }

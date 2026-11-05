@@ -91,6 +91,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var biometricSignInOpen = false
     @Published private(set) var configSource: ConfigSource?
     @Published private(set) var me: Me?
+    /// Why the account could not be read just now, in plain words; nil once it was read. Until it is,
+    /// the app knows no role at all, and says so, rather than taking the person for a viewer.
+    @Published private(set) var meProblem: String?
     @Published private(set) var signingIn = false
     @Published var signInMessage: String?
     /// A short message at the foot of the screen: "Copied the token."
@@ -223,6 +226,8 @@ final class AppModel: ObservableObject {
             if stage == .locked {
                 stage = .signedIn
                 await loadMe()
+            } else {
+                await ensureMe()
             }
         case .stay(let message):
             lockMessage = message
@@ -271,8 +276,9 @@ final class AppModel: ObservableObject {
         }
         if ask {
             cover = .lock
-        } else if cover == .privacy {
-            cover = nil
+        } else {
+            if cover == .privacy { cover = nil }
+            await ensureMe()
         }
     }
 
@@ -447,15 +453,38 @@ final class AppModel: ObservableObject {
         await refreshOverview(full: true)
     }
 
+    /// Reads who is signed in, and so whether they may write. A failure other than an ended session
+    /// (no network yet after Face ID, a slow renewal of the session, the console busy) is tried again
+    /// three times, then kept in `meProblem`: never dropped, which once left a release manager taken
+    /// for a viewer for the rest of the session, with Bluetooth updates refused.
     func loadMe() async {
         guard let api else { return }
-        do {
-            me = try await api.me()
-            noteBiometrics()
-            if me?.canWrite != true { await forgetFirmware() }
-        } catch {
-            await handle(error)
+        let waits: [UInt64] = [0, 700_000_000, 2_000_000_000, 4_000_000_000]
+        for wait in waits {
+            if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
+            guard stage == .signedIn || stage == .locked else { return }
+            do {
+                me = try await api.me()
+                meProblem = nil
+                noteBiometrics()
+                if me?.canWrite != true { await forgetFirmware() }
+                return
+            } catch AuthError.sessionExpired {
+                await handle(AuthError.sessionExpired)
+                return
+            } catch AuthError.notSignedIn {
+                await handle(AuthError.notSignedIn)
+                return
+            } catch {
+                meProblem = UserMessage.text(for: error)
+            }
         }
+    }
+
+    /// The account, read again if it is not known: before anything that depends on the role.
+    func ensureMe() async {
+        guard stage == .signedIn, me == nil else { return }
+        await loadMe()
     }
 
     // MARK: The Bluetooth update
@@ -582,6 +611,7 @@ final class AppModel: ObservableObject {
     func loadAudit() async { await load(\.audit) { try await $0.audit(limit: 50) } }
 
     func refreshOverview(full: Bool) async {
+        await ensureMe()
         async let devices: Void = loadDevices()
         async let deployments: Void = loadDeployments()
         async let firmware: Void = self.firmware.due(full) ? loadFirmware() : ()

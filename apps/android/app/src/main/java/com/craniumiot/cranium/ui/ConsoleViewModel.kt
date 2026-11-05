@@ -772,6 +772,28 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         failed?.invoke(SignInException("Sign-in was cancelled, so nothing was changed."))
     }
 
+    /**
+     * The account, read again when it is not known, before anything that depends on the role (the
+     * Bluetooth update): a release manager is never taken for a viewer because one read failed.
+     */
+    fun ensureMe() {
+        if (_store.value.me != null) return
+        val client = api ?: return
+        viewModelScope.launch {
+            val me = try {
+                client.me()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (me != null) {
+                _store.update { it.copy(me = me) }
+                recordSerialCommands(me.canWrite)
+            }
+        }
+    }
+
     private suspend fun afterFreshSignIn() {
         val then = freshThen ?: return
         freshThen = null

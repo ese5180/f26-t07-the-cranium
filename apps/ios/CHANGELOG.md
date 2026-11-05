@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.6.1
+
+A release manager is no longer taken for a viewer. When one read of the account failed, for example just after Face ID
+while the sign-in was renewed, the app kept no role for the rest of the session: Update over Bluetooth refused, and
+Continue stayed grey. It now tries again, checks the account before a Bluetooth update and on coming back, and says when
+it could not check.
+
 ## 0.6.0
 
 Customers can sign in to see their own boards, as on the customer website: an overview, their devices and each board's

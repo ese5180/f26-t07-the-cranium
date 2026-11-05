@@ -105,7 +105,10 @@ final class BluetoothModel: ObservableObject {
             preferred = ReleaseOffer.newest(releases)?.version
         }
         obtained = obtained.filter { _, held in releases.contains { held.isImage(of: $0) } }
-        if !app.canWrite {
+        await app.ensureMe()
+        if app.me == nil {
+            message = "Your account could not be checked with the console\(app.meProblem.map { ": \($0)" } ?? ".") Check again below."
+        } else if !app.canWrite {
             message = "Only a release manager can download firmware. Ask an administrator for the role."
         }
     }
