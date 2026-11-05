@@ -12,6 +12,12 @@
  * Lambda tries the message again (EventInvokeConfig in infra/template.yaml limits how often and
  * for how long).
  *
+ * The update history (lib/updates.mjs): what an event or a line says of an update is also a fact in
+ * the board's partition of update facts (pk "UPD#<thing>"), put only where none is or where the one
+ * there is later, so that a message tried again, or a board that says the same on every boot, leaves
+ * one. A shadow document's facts are put before its events: a failure then leaves nothing for the
+ * retry to repeat. A line's come after it, and a retry of the line finds its own claim and puts them.
+ *
  * Alerts (alerts.mjs): once the events of a message are stored, the alerter is told about them, and
  * about a connection or disconnection; an EventBridge rule also runs this function every 5 minutes for
  * the alerts that are due. An alert that cannot be handled never fails the message.
@@ -25,11 +31,13 @@ import { isScheduledCheck } from './alerts.mjs';
 import { describeError } from './http.mjs';
 import { recordsOf } from './lib/events.mjs';
 import { isLineMessage, recordsFromLine } from './lib/lines.mjs';
+import { factsFromItems } from './lib/updates.mjs';
 
 /**
  * @param {object} options
  * @param {{ putEvent: (item: object) => Promise<void>,
- *           claimLine: (claim: object) => Promise<{ ok: boolean }> }} options.store
+ *           claimLine: (claim: object) => Promise<{ ok: boolean }>,
+ *           putUpdateFact: (fact: object) => Promise<{ ok: boolean }> }} options.store
  *        aws.mjs createEventStore
  * @param {{ afterRecord: Function, check: Function } | null} [options.alerts]
  *        the alerter (alerts.mjs): told what each message made, and run by the scheduled check;
@@ -71,6 +79,7 @@ export function createRecorder({
         return { recorded: 0 };
       }
       await store.putEvent(line);
+      for (const fact of factsFromItems(made.items)) await store.putUpdateFact(fact);
     } catch (error) {
       log({ level: 'error', event: 'record_failed', thing: made.thing, error: describeError(error) });
       throw error;
@@ -90,6 +99,7 @@ export function createRecorder({
     }
     const events = made.items.filter((item) => item.sk.startsWith('E#'));
     try {
+      for (const fact of factsFromItems(events)) await store.putUpdateFact(fact);
       // A few items at most, in order: the events of one report keep theirs.
       for (const item of made.items) await store.putEvent(item);
     } catch (error) {

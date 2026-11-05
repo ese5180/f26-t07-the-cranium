@@ -128,8 +128,15 @@
  *                                 -> object[]   that board's items with low <= sk <= high,
  *                                               lowest sk first
  *
+ * The update history (events table, pk "UPD#<thing>": the facts of lib/updates.mjs)
+ *   queryUpdateFacts(thing)       -> object[]   every item of that board's partition of facts,
+ *                                               lowest sk first, read consistently
+ *   putUpdateFact(item)           -> { ok: true }  stored: there was none with its key, or one with
+ *                                                  a later `at`
+ *                                  | { ok: false, reason: "kept" }  one as early or earlier is there
+ *
  * createEventStore(env) is the recorder's adapter (recorder.mjs). It reads AWS_REGION and
- * EVENTS_TABLE only, and has two methods, both PutItem:
+ * EVENTS_TABLE only, and has three methods, all PutItem: putUpdateFact as above, and
  *   putEvent(item)                -> undefined   stores an item of the events table as it is;
  *                                               an item with the same key is replaced
  *   claimLine({ pk, sk, at, ttl })
@@ -184,6 +191,7 @@ import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-d
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
 
 import { SAME_LINE_MS } from './lib/lines.mjs';
+import { FACT_PARTITION, factPartition } from './lib/updates.mjs';
 
 // The largest page the list operations of AWS IoT allow, and of Cognito for groups.
 const PAGE_SIZE = 250;
@@ -396,6 +404,29 @@ async function queryEventTable(dynamo, table, {
     start = out.LastEvaluatedKey;
   }
   throw new Error(`more than ${MAX_PAGES} pages`);
+}
+
+/**
+ * Put a fact of the update history (lib/updates.mjs) unless one as early or earlier has its key: the
+ * first time a board said it is kept, however often it says it again.
+ */
+async function putFact(dynamo, table, item) {
+  if (typeof item?.pk !== 'string' || !item.pk.startsWith(FACT_PARTITION) || !Number.isSafeInteger(item.at)) {
+    throw new TypeError('a fact of the update history has a pk "UPD#<thing>" and an `at` in ms');
+  }
+  try {
+    await dynamo.send(new PutItemCommand({
+      TableName: table,
+      Item: toItem(item),
+      ConditionExpression: 'attribute_not_exists(#sk) OR #at > :at',
+      ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+      ExpressionAttributeValues: { ':at': { N: String(item.at) } },
+    }));
+    return { ok: true };
+  } catch (cause) {
+    if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'kept' };
+    throw failure('PutItem', cause);
+  }
 }
 
 /**
@@ -990,6 +1021,33 @@ export function createAws(env) {
       }
     },
 
+    async queryUpdateFacts(thing) {
+      const items = [];
+      let start;
+      try {
+        for (let pages = 0; pages < MAX_PAGES; pages += 1) {
+          const out = await dynamo.send(new QueryCommand({
+            TableName: eventsTable,
+            KeyConditionExpression: '#pk = :pk',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+            ExpressionAttributeValues: { ':pk': { S: factPartition(thing) } },
+            ConsistentRead: true,
+            ExclusiveStartKey: start,
+          }));
+          for (const item of out.Items ?? []) items.push(fromItem(item));
+          if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
+          start = out.LastEvaluatedKey;
+        }
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+      throw failure('Query', new Error(`more than ${MAX_PAGES} pages`));
+    },
+
+    async putUpdateFact(item) {
+      return putFact(dynamo, eventsTable, item);
+    },
+
     async getUser(sub) {
       try {
         const out = await cognito.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: sub }));
@@ -1122,6 +1180,10 @@ export function createEventStore(env) {
   const table = required(env, 'EVENTS_TABLE');
   const dynamo = new DynamoDBClient(clientSettings(region));
   return Object.freeze({
+    async putUpdateFact(item) {
+      return putFact(dynamo, table, item);
+    },
+
     async putEvent(item) {
       try {
         await dynamo.send(new PutItemCommand({ TableName: table, Item: toItem(item) }));

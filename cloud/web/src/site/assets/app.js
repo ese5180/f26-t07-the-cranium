@@ -42,6 +42,8 @@ const ACTIVITY_PAGE = 50;
 const RECENT_ENTRIES = 6;
 const REQUESTS_AT_ONCE = 4;
 const DEPLOYMENTS_ON_OVERVIEW = 4;
+// The newest updates of every board (GET /api/updates) that the Overview and the Deployments page show.
+const UPDATES_SHOWN = 25;
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
@@ -67,6 +69,9 @@ const state = {
   devices: resource(),
   firmware: resource(),
   deployments: resource(),
+  // Every update of every board however it came, newest first (GET /api/updates); and of one board, by thing.
+  updates: resource(),
+  boardUpdates: new Map(),
   recent: resource(),
   audit: { ...resource(), loadingMore: false, moreError: null },
   commits: resource(),
@@ -361,6 +366,8 @@ const pages = {
         load(state.deployments, api.deployments),
         due(state.firmware, full) ? load(state.firmware, api.firmware) : null,
         due(state.recent, full) ? load(state.recent, () => api.audit({ limit: RECENT_ENTRIES })) : null,
+        // What the boards installed, however it came: read as seldom as the releases.
+        due(state.updates, full) ? load(state.updates, () => api.updates({ limit: UPDATES_SHOWN })) : null,
       ]);
       // The list says how many boards are in each state, not which board is doing
       // what. That comes from each unfinished deployment's own record.
@@ -389,10 +396,18 @@ const pages = {
     resources: () => [entry(state.deviceDetails, state.route.thing)],
     async refresh(full) {
       const { thing } = state.route;
+      const own = entry(state.boardUpdates, thing);
       await Promise.all([
         load(entry(state.deviceDetails, thing), () => api.device(thing)),
         due(state.firmware, full) ? load(state.firmware, api.firmware) : null,
+        due(own, full) ? load(own, () => api.updates({ thing, limit: UPDATES_SHOWN })) : null,
       ]);
+      // The board's own page says its last update: when that is not the list's newest, the list is behind.
+      const last = state.deviceDetails.get(thing)?.value?.lastUpdate ?? null;
+      if (last !== null && own.value !== null && own.value.updates[0]?.id !== last.id &&
+          own.value.updates[0]?.endedAt !== last.endedAt) {
+        await load(own, () => api.updates({ thing, limit: UPDATES_SHOWN }));
+      }
     },
     interval() {
       const detail = state.deviceDetails.get(state.route.thing)?.value;
@@ -420,6 +435,7 @@ const pages = {
       await Promise.all([
         load(state.deployments, api.deployments),
         due(state.firmware, full) ? load(state.firmware, api.firmware) : null,
+        due(state.updates, full) ? load(state.updates, () => api.updates({ limit: UPDATES_SHOWN })) : null,
       ]);
       // Which waiting board needs its button pressed, and which boards are online.
       if ((state.deployments.value ?? []).some(isUnderWay)) await load(state.devices, api.devices);

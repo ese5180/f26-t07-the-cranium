@@ -444,7 +444,9 @@ test('the recorder writes what a message makes, in order, and logs nothing of wh
   const after = heartbeat({ ota: { state: 'idle', progress: 0, last: 'failed', error: 'secret-looking-error' }, uptime: 3 });
   assert.deepEqual(await recorder(documentOf(before, after)), { recorded: 3 });
   assert.deepEqual(fake.eventItems(THING).map((item) => item.kind ?? 'sample'), ['restart', 'update', 'sample']);
-  assert.deepEqual(fake.methodsCalled(), ['putEvent', 'putEvent', 'putEvent']);
+  // The board's word on how the job ended is a fact of the update history first (lib/updates.mjs).
+  assert.deepEqual(fake.methodsCalled(), ['putUpdateFact', 'putEvent', 'putEvent', 'putEvent']);
+  assert.deepEqual(fake.updateFacts(THING).map((item) => item.sk), [`R#${JOB}#failed`]);
   assert.deepEqual(logs, [{ event: 'recorded', thing: THING, kinds: ['restart', 'update'], samples: 1 }]);
 
   assert.deepEqual(await recorder({ eventType: 'connected', clientId: 'not-a-board', ipAddress: '192.0.2.1' }), { recorded: 0 });

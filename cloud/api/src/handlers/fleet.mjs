@@ -8,6 +8,9 @@
  *     -> { types: [{ type, label, bluetoothOnly, boards, newest, onNewest, share, versions, unknown }],
  *          updates: { days, succeeded, failed, rolledBack }, attention: [{ thing, name, type, reasons }],
  *          generatedAt }
+ *        `updates` counts the updates that ended in the last `days`: those over the internet as the
+ *        boards reported their jobs' ends, and those over Bluetooth or by USB or another tool from the
+ *        update history (handlers/updates.mjs)
  *   POST /api/devices/{thing}/seen   body { "version": "1.13.0+0", "name": "Cranium-1A2B" }
  *     -> 201 { seen: { thing, version, at, name, by } }
  *
@@ -42,6 +45,7 @@ import {
 } from '../lib/fleet.mjs';
 import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
 import { deviceFromShadow } from '../lib/shadow.mjs';
+import { updateCounts } from '../lib/updates.mjs';
 import { isThing, requireBluetoothName, requireThing, strictVersion } from '../lib/validate.mjs';
 import { releaseFromItem } from './firmware.mjs';
 
@@ -93,7 +97,7 @@ export function groupFromItem(item, registered) {
   };
 }
 
-export function createFleetHandlers({ aws, config, now, log }, { devices }) {
+export function createFleetHandlers({ aws, config, now, log }, { devices, updates = () => null }) {
   const attributes = new Map();   // thing -> { value, at }
   let seenCache = null;           // { byThing, at }
   let groupCache = null;          // { items, at }
@@ -199,20 +203,38 @@ export function createFleetHandlers({ aws, config, now, log }, { devices }) {
     }));
   }
 
-  /** What the boards did with their updates in the last days, from the event log. */
+  /**
+   * What the boards did with their updates in the last days: the ends of their jobs from the event log,
+   * and their other updates, over Bluetooth and by USB or another tool, from the update history.
+   */
   async function recentResults(fleetBoards) {
     const toMs = now();
-    const range = eventRange(toMs - HEALTH_DAYS * DAY_MS, toMs);
+    const sinceMs = toMs - HEALTH_DAYS * DAY_MS;
+    const range = eventRange(sinceMs, toMs);
+    const history = updates();
     const lists = await mapLimit(fleetBoards.filter((board) => !board.bluetoothOnly), MAX_IN_FLIGHT, async (board) => {
+      let events = [];
+      let records = [];
       try {
-        const items = await aws.queryEvents({ thing: board.thing, ...range, kinds: ['update', 'bluetooth'], limit: 500 });
-        return items.map(eventFromItem).filter((event) => event !== null);
+        const items = await aws.queryEvents({ thing: board.thing, ...range, kinds: ['update'], limit: 500 });
+        events = items.map(eventFromItem).filter((event) => event !== null);
       } catch (error) {
         log({ level: 'warn', event: 'events_unreadable', thing: board.thing, error: String(error?.message ?? error).slice(0, 200) });
-        return [];
       }
+      try {
+        records = history === null ? [] : await history.recordsOf(board.thing);
+      } catch (error) {
+        log({ level: 'warn', event: 'updates_unreadable', thing: board.thing, error: String(error?.message ?? error).slice(0, 200) });
+      }
+      return { events, records };
     });
-    return updateResults(lists.flat());
+    const jobs = updateResults(lists.flatMap((part) => part.events));
+    const others = updateCounts(lists.flatMap((part) => part.records), { sinceMs });
+    return {
+      succeeded: jobs.succeeded + others.succeeded,
+      failed: jobs.failed + others.failed,
+      rolledBack: jobs.rolledBack + others.rolledBack,
+    };
   }
 
   /** Throws unless every one of `things` is of the release's type and layout and can be the target of a job. */

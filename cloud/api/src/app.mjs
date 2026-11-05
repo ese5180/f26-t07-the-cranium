@@ -95,6 +95,7 @@ import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
+import { createUpdateHandlers } from './handlers/updates.mjs';
 import {
   HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, forbidden, json, notFound, readJsonObject,
 } from './http.mjs';
@@ -286,9 +287,14 @@ export function createApp({
   const audit = createAuditHandlers(context);
   const devices = createDeviceHandlers(context);
   // Board types, groups and staged rollouts (docs/fleet.md). Deployments and the check before a
-  // Bluetooth send ask the fleet for each board's type.
-  const fleet = createFleetHandlers(context, { devices });
+  // Bluetooth send ask the fleet for each board's type. Fleet health counts the update history's
+  // updates, which are made after the deployments they read.
+  let updates = null;
+  const fleet = createFleetHandlers(context, { devices, updates: () => updates });
   const deployments = createDeploymentHandlers(context, { devices, fleet });
+  // The update history (handlers/updates.mjs): every update of every board, deployments and the
+  // updates the boards reported themselves, over Bluetooth or by USB.
+  updates = createUpdateHandlers(context, { devices, deployments });
   const events = createEventHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
@@ -330,7 +336,7 @@ export function createApp({
     route('GET', '/api/me', apps.withConsole(me.get)),
     // Each board with its position from Wi-Fi, if it has one (handlers/location.mjs).
     route('GET', '/api/devices', location.listed(devices.list)),
-    route('GET', '/api/devices/{thing}', location.detailed(devices.get)),
+    route('GET', '/api/devices/{thing}', location.detailed(updates.withLastUpdate(devices.get))),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
     route('GET', '/api/events', events.list),
@@ -357,6 +363,8 @@ export function createApp({
     // deployment is to one board, and needs a sign-in in the last 15 minutes: see
     // deployments.create. Uploading and revoking stay on the website.
     route('GET', '/api/deployments', deployments.list),
+    // Every update of every board, however it came: a deployment, over Bluetooth, by USB or another tool.
+    route('GET', '/api/updates', updates.list),
     route('POST', '/api/deployments', deployments.create,
       { action: 'deployment.create', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments/{id}', deployments.get),

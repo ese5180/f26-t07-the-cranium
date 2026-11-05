@@ -222,8 +222,10 @@ test('one board is shown with its certificates and update history', async () => 
 
   const fresh = await context.call('GET', `/api/devices/${BOARD_A}`, { as: viewer });
   assert.equal(fresh.status, 200);
-  // memfault: test/memfault-console.test.mjs.
-  assert.deepEqual(Object.keys(fresh.body).sort(), ['certificates', 'device', 'executions', 'memfault', 'olderExecutions']);
+  // memfault: test/memfault-console.test.mjs. lastUpdate: test/updates.test.mjs.
+  assert.deepEqual(Object.keys(fresh.body).sort(),
+    ['certificates', 'device', 'executions', 'lastUpdate', 'memfault', 'olderExecutions']);
+  assert.equal(fresh.body.lastUpdate, null);
   assert.equal(fresh.body.olderExecutions, 0);
   assert.equal(fresh.body.device.thing, BOARD_A);
   assert.equal(fresh.body.device.online, true);

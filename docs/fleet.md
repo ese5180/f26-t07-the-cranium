@@ -58,6 +58,10 @@ image on a board checks it. The board's own check is the last word.
   for). The rest follow in waves only once the canary has confirmed the update. It stops by itself, cancelling what has
   not started, when the share of failed or rolled-back boards reaches the abort threshold (default 20%, at least one
   board). AWS IoT Jobs' rollout and abort configuration does the waves and the abort where it can.
+- **Every update.** The console's update history (`GET /api/updates`, from console 2.1.1;
+  [aws-iot.md](aws-iot.md#update-history)) has each board's updates however they came: a deployment board by board, an
+  update over Bluetooth from a phone with whose phone it was, and one by USB or another tool, each kept, rolled back,
+  not installed or pending. A board that never reaches AWS IoT has no reports to make one from.
 - **Update everything.** One action: for each board type, its newest active release goes to every board of that type
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
   boards, and what is left out (offline long, Bluetooth only, already current).

@@ -197,6 +197,14 @@ export function repliesFor(world, { viewer = false } = {}) {
     ['/api/fleet', { boards: [], groups: [], types: [] }],
     ['/api/fleet/health', {}],
   ]);
+  // The update history (GET /api/updates): what a world says it holds, else nothing.
+  const updates = world.updates ?? [];
+  replies.set('/api/updates?limit=25', { updates, cursor: null, generatedAt: ago(0) });
+  for (const item of world.devices) {
+    replies.set(`/api/updates?thing=${item.thing}&limit=25`, {
+      updates: updates.filter((update) => update.thing === item.thing), cursor: null, generatedAt: ago(0),
+    });
+  }
   for (const item of world.deployments) replies.set(`/api/deployments/${item.id}`, { deployment: item });
   for (const item of world.devices) {
     replies.set(`/api/devices/${item.thing}`, {

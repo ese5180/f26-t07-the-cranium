@@ -76,6 +76,7 @@ import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { recordsOf } from '../src/lib/events.mjs';
 import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
+import { FACT_PARTITION, factPartition, factsFromItems } from '../src/lib/updates.mjs';
 import { parseBundledVersions } from '../src/lib/versions.mjs';
 import { createFakeApps } from './fake-apps.mjs';
 import { createFakeMap } from './fake-map.mjs';
@@ -346,6 +347,21 @@ export function createFakeAws({
     return { ok: true };
   }
 
+  /**
+   * A fact of the update history, as the conditional PutItem of src/aws.mjs putUpdateFact makes it:
+   * stored unless one as early or earlier has its key.
+   */
+  function putFactItem(item) {
+    assertStorable(item, 'item');
+    if (typeof item.pk !== 'string' || !item.pk.startsWith(FACT_PARTITION) || !Number.isSafeInteger(item.at)) {
+      throw new TypeError('a fact of the update history has a pk "UPD#<thing>" and an `at` in ms');
+    }
+    const there = eventItems.get(item.pk)?.get(item.sk);
+    if (there !== undefined && !(there.at > item.at)) return { ok: false, reason: 'kept' };
+    putEventItem(item);
+    return { ok: true };
+  }
+
   /** What the rules and the recorder make of a message: repeatable random digits, the stand-in's clock. */
   function record(message) {
     if (isLineMessage(message)) {
@@ -353,6 +369,7 @@ export function createFakeAws({
       if (made.items === undefined) return made;
       if (!claimLineItem(made.claim).ok) return { ...made, items: [], repeated: true };
       for (const item of made.items) putEventItem(item);
+      for (const fact of factsFromItems(made.items)) putFactItem(fact);
       return made;
     }
     const made = recordsOf(message, {
@@ -362,6 +379,7 @@ export function createFakeAws({
         return createHash('sha256').update(`event ${eventDraws}`).digest('hex').slice(0, 2 * count);
       },
     });
+    for (const fact of factsFromItems(made.items ?? [])) putFactItem(fact);
     for (const item of made.items ?? []) putEventItem(item);
     // What the recorder then tells the alerter, if the alerts are on (test/fake-map.mjs).
     if (made.items !== undefined) map.helpers.recorded(message, made.items);
@@ -659,6 +677,16 @@ export function createFakeAws({
 
     async querySamples({ thing, low, high }) {
       return eventPart(thing, low, high).map(copy);
+    },
+
+    async queryUpdateFacts(thing) {
+      checkThingName('Query', thing);
+      const part = eventItems.get(factPartition(thing)) ?? new Map();
+      return [...part.keys()].sort().map((sk) => copy(part.get(sk)));
+    },
+
+    async putUpdateFact(item) {
+      return putFactItem(item);
     },
 
     async getUser(sub) {
@@ -987,6 +1015,10 @@ export function createFakeAws({
     /** The stand-in for the recorder's adapter (src/aws.mjs createEventStore). */
     eventStore() {
       return Object.freeze({
+        async putUpdateFact(item) {
+          calls.push({ method: 'putUpdateFact', args: [item] });
+          return putFactItem(item);
+        },
         async putEvent(item) {
           calls.push({ method: 'putEvent', args: [item] });
           putEventItem(item);
@@ -1001,6 +1033,17 @@ export function createFakeAws({
     /** Hand a message to the recorder as one of the two rules would: what it made, or why it was dropped. */
     deliver(message) {
       return record(message);
+    },
+
+    /** A board's facts of the update history (src/lib/updates.mjs), lowest sort key first. */
+    updateFacts(thing) {
+      const part = eventItems.get(factPartition(thing)) ?? new Map();
+      return [...part.keys()].sort().map((sk) => copy(part.get(sk)));
+    },
+
+    /** Put an item in the events table as it is, as an older recorder left it there (the backfill's tests). */
+    putEventItem(item) {
+      putEventItem(item);
     },
 
     /** A board's items in the events table, lowest sort key first. */

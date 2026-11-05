@@ -1076,7 +1076,9 @@ Resources:
   # line for each line of its console (from firmware 1.12.0, cloud/api/src/lib/lines.mjs),
   # and a reading of its signal and memory for each report (cloud/api/src/lib/events.mjs). Only
   # the recorder writes here, and only with PutItem (EventsRole); the API only reads
-  # (ApiRole). An event is kept 90 days and a reading 7: DynamoDB deletes an item some time
+  # (ApiRole), but for the update history's facts (pk UPD#<thing>, kept for good,
+  # cloud/api/src/lib/updates.mjs), which the recorder puts as boards report and the API's backfill
+  # puts once per board. An event is kept 90 days and a reading 7: DynamoDB deletes an item some time
   # after the epoch second in its `ttl`, usually within a few days, and the API leaves out
   # what has expired meanwhile. Nothing here is a record of who did what: that is the
   # activity log. It is protected like the other two tables all the same, because a
@@ -1611,6 +1613,17 @@ Resources:
                 Effect: Allow
                 Action: dynamodb:Query
                 Resource: !GetAtt EventsTable.Arn
+              # The update history's facts (pk UPD#<thing>, cloud/api/src/lib/updates.mjs): the backfill
+              # puts a board's once, from its events and lines, on the condition that keeps the first.
+              # Only those partitions: the boards' events stay the recorder's to write.
+              - Sid: BackfillUpdateHistory
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys:
+                      - UPD#cranium-*
               # Nothing above allows these. Said outright so that no later Allow can.
               - Sid: NeverChangeAuditEntries
                 Effect: Deny

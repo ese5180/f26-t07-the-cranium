@@ -309,22 +309,15 @@ export function isOpenRollout(rollout) {
 
 // Fleet health (GET /api/fleet/health).
 
-const HEALTHY_RESULTS = Object.freeze({
-  // A result of an update over the air, as the board reported it (lib/events.mjs).
-  update: { succeeded: 'succeeded', failed: 'failed', refused: 'failed', rolled_back: 'rolledBack' },
-  // A Bluetooth update the board recorded.
-  bluetooth: {
-    succeeded: 'succeeded', rolled_back: 'rolledBack', trial_lost: 'rolledBack', not_installed: 'failed', flash_error: 'failed',
-  },
-});
+// A result of an update over the air, as the board reported it (lib/events.mjs). An update over
+// Bluetooth, or by USB or another tool, is counted from the update history (lib/updates.mjs updateCounts).
+const JOB_RESULTS = Object.freeze({ succeeded: 'succeeded', failed: 'failed', refused: 'failed', rolled_back: 'rolledBack' });
 
-/** How the updates of the last days ended, from the boards' events: { succeeded, failed, rolledBack }. */
+/** How the cloud updates of the last days ended, from the boards' events: { succeeded, failed, rolledBack }. */
 export function updateResults(events) {
   const counts = { succeeded: 0, failed: 0, rolledBack: 0 };
   for (const event of events) {
-    const known = event.kind === 'update' && event.what === 'result' ? HEALTHY_RESULTS.update
-      : event.kind === 'bluetooth' && event.what === 'record' ? HEALTHY_RESULTS.bluetooth : null;
-    const counted = known?.[event.result];
+    const counted = event.kind === 'update' && event.what === 'result' ? JOB_RESULTS[event.result] : undefined;
     if (counted !== undefined) counts[counted] += 1;
   }
   return counts;

@@ -28,6 +28,8 @@ import {
 } from './core.js';
 // The map, commands and alerts (docs/fleet.md).
 import { canCommand, distanceWords, positionSteps, unplacedReason } from './core.js';
+// The update history (GET /api/updates): every update however it came.
+import { describeOutcome, updateHow, updateTime } from './core.js';
 
 // Drawing.
 
@@ -1961,10 +1963,56 @@ function workWords(devices) {
   return `${who} ${count === 1 ? 'reports' : 'report'} ${update} in progress.`;
 }
 
+/**
+ * One update of the update history, as a row: what it installed and how that ended, and under it
+ * where from, how it came and when. A deployment's row leads to the deployment, and on a list of
+ * every board's updates any other row leads to its board.
+ */
+function updateRow(update, ctx, { withBoard = false } = {}) {
+  const { now } = ctx.state;
+  const outcome = describeOutcome(update);
+  let href = null;
+  if (update.how === 'deployment') href = deploymentHref(update.deployment);
+  else if (withBoard) href = deviceHref(update.thing);
+  const time = updateTime(update);
+  return h('li', { key: update.id, class: 'row history-row update-row' },
+    h('div', { class: 'row-main' },
+      linkTo(href, { class: `mono row-title ${href ? 'cover-link' : ''}`.trim() }, update.to ?? 'Unknown version'),
+      h('span', { class: 'row-note dotted' },
+        withBoard ? h('span', { key: 'board' }, boardName(boardOf(update.thing, ctx.state.devices?.value?.devices))) : null,
+        update.from ? h('span', { key: 'from' }, 'from ', mono(update.from)) : null,
+        h('span', { key: 'how', class: 'update-how' }, updateHow(update)),
+        time ? h('span', { key: 'when' }, when(time, now)) : null)),
+    statusLine(outcome),
+    href ? h('span', { class: 'row-chevron' }, icon('arrow-right')) : null);
+}
+
+/** Updates as rows, newest first. */
+function updateRows(updates, ctx, options) {
+  return h('ul', { class: 'rows update-rows', key: 'updates' }, updates.map((update) => updateRow(update, ctx, options)));
+}
+
+// How many of the newest updates the Overview lists under its news.
+const UPDATES_ON_OVERVIEW = 3;
+
+/**
+ * The newest update, if it came some other way than the deployments this console lists, and after
+ * the last of them ended: over Bluetooth, by USB or another tool. The Overview tells of it first.
+ */
+function updateOutsideDeployments(state, lastDone) {
+  const newest = state.updates?.value?.updates?.[0] ?? null;
+  if (newest === null || newest.how === 'deployment') return null;
+  const at = Date.parse(updateTime(newest) ?? '');
+  const done = Date.parse(lastDone?.completedAt ?? lastDone?.createdAt ?? '');
+  return Number.isNaN(done) || (!Number.isNaN(at) && at > done) ? newest : null;
+}
+
 function updatesCard(ctx, devices) {
   const { state } = ctx;
   const { now } = state;
   const deployments = state.deployments.value;
+  // Every board's updates however they came (GET /api/updates); null where the list is not to hand.
+  const history = state.updates?.value?.updates ?? null;
   const byThing = new Map((devices ?? []).map((device) => [device.thing, device]));
   // Decided by the boards, not by the status of the job: a cancelled deployment can
   // still have a board that is installing, or restarting into the new firmware.
@@ -1986,9 +2034,13 @@ function updatesCard(ctx, devices) {
     // deployment that went wrong is what the panel opens with, in words, an icon and its
     // outcome bar. Before the first deployment there is nothing to tick off.
     const ending = lastDone ? describeDeployment(lastDone, devices) : null;
+    // An update after it that came over Bluetooth, by USB or by another tool: that is the news, and
+    // it says why the boards no longer run what the deployment installed.
+    const since = updateOutsideDeployments(state, lastDone);
+    const sinceOutcome = since ? describeOutcome(since) : null;
     // That a deployment went through is on record. Whether that is still what the boards run
     // is for the boards to say, and an offline board can only say what it last reported.
-    const standing = ending?.tone === 'good' ? installStanding(lastDone, devices) : null;
+    const standing = ending?.tone === 'good' && !since ? installStanding(lastDone, devices) : null;
     const strangers = offList(devices, ctx);
     const movedOn = standing?.state === 'moved';
     // A board on firmware that is not a release is what there is to tell, unless the last
@@ -2000,6 +2052,11 @@ function updatesCard(ctx, devices) {
 
     let tone = outOfDate ? 'idle' : ending?.tone ?? 'idle';
     let news = outOfDate ? null : ending?.said ?? null;
+    if (since && !outOfDate) {
+      // Its outcome is the tone; the words are in the note, with how it came. One on trial is not over.
+      tone = sinceOutcome.tone;
+      news = since.outcome === 'pending' ? 'The last update has not ended yet.' : null;
+    }
     if (offRecord) {
       tone = 'warn';
       news = unregisteredWords(strangers, devices);
@@ -2008,25 +2065,36 @@ function updatesCard(ctx, devices) {
       tone = 'idle';
       news = null;
     }
-    let iconName = ending?.icon;
+    let iconName = since ? sinceOutcome.icon : ending?.icon;
     if (tone === 'idle') iconName = news === null && work ? 'restart' : 'minus-circle';
     else if (offRecord) iconName = 'alert';
     // Called off or one board's result: the words say it. A bar that is one block across
     // measures nothing, so it is for what several boards did.
     const boards = lastDone?.things.length ?? 0;
-    const showBar = boards > 1 && (tone === 'bad' || tone === 'warn' || tone === 'good');
+    const showBar = !since && boards > 1 && (tone === 'bad' || tone === 'warn' || tone === 'good');
     // Neither list can say that nothing is going on while it could not be read.
     const unknown = outOfDate || Boolean(state.devices.error);
     const atRest = !unknown && !work;
     const resting = unknown ? 'Whether an update is in progress cannot be told right now.' : 'No update is in progress.';
-    let since = null;
+    let after = null;
     // The headline is about these boards, so the note is too, whatever the last deployment did.
-    if (offRecord) since = offlineWords(strangers, now, devices.length === 1);
-    else if (!outOfDate && movedOn) since = movedWords(standing, lastDone, now);
-    else if (!outOfDate && standing && standing.state !== 'current') since = offlineWords(standing.boards, now);
+    if (offRecord) after = offlineWords(strangers, now, devices.length === 1);
+    else if (!outOfDate && movedOn) after = movedWords(standing, lastDone, now);
+    else if (!outOfDate && standing && standing.state !== 'current') after = offlineWords(standing.boards, now);
+    // The rest of the history, under the news: the newest few, however they came.
+    const recent = history === null ? [] : history.slice(since ? 1 : 0).slice(0, UPDATES_ON_OVERVIEW)
+      .filter((update) => !(update.how === 'deployment' && update.deployment === lastDone?.id && !since));
     body = h('div', { class: `calm is-${tone}` },
       h('p', { class: `calm-title is-${tone}` }, icon(iconName ?? 'minus-circle'), news ?? work ?? resting),
-      lastDone
+      since
+        ? h('p', { class: 'card-note calm-note', key: 'last' },
+          'Last update: ',
+          linkTo(deviceHref(since.thing), { class: 'mono' }, since.to ?? 'Unknown version'),
+          ' ', badge(sinceOutcome.tone, sinceOutcome.icon, sinceOutcome.label), ' ',
+          h('span', null, devices && devices.length > 1 ? [boardName(boardOf(since.thing, devices)), ', '] : null,
+            updateHow(since), ', ', when(updateTime(since), now)))
+        : null,
+      !since && lastDone
         ? h('p', { class: 'card-note calm-note' },
           // Off the record, what the board runs did not come from a deployment: say whose this is.
           offRecord ? 'Last deployment from this console: ' : (news ? null : 'Last deployment: '),
@@ -2038,15 +2106,23 @@ function updatesCard(ctx, devices) {
               ? when(lastDone.completedAt, now)
               : when(lastDone.createdAt, now, 'started '),
             news && atRest ? '. No update is in progress.' : null))
-        : h('p', { class: 'card-note' },
-          news && atRest ? 'No update is in progress. ' : null, 'Deployments from this console appear here while boards are being updated.'),
+        : null,
+      !since && !lastDone
+        ? h('p', { class: 'card-note' },
+          news && atRest ? 'No update is in progress. ' : null, 'Deployments from this console appear here while boards are being updated.')
+        : null,
       news && work ? h('p', { class: 'card-note calm-work', key: 'work' }, work) : null,
-      since ? h('p', { class: 'card-note calm-since', key: 'since' }, since) : null,
+      after ? h('p', { class: 'card-note calm-since', key: 'since' }, after) : null,
       showBar
         ? h('div', { class: 'calm-outcome' },
           segments(countParts(lastDone.counts), `Boards: ${countWords(lastDone.counts)}.`, { thin: true }),
           // One board's count says what the words above say already.
           boards > 1 ? countList(lastDone.counts) : null)
+        : null,
+      recent.length > 0
+        ? h('div', { class: 'recent-updates', key: 'recent' },
+          h('p', { class: 'eyebrow' }, 'Earlier updates'),
+          updateRows(recent, ctx, { withBoard: true }))
         : null);
   } else {
     body = h('ul', { class: 'run-list' }, active.map((deployment) => {
@@ -2073,7 +2149,7 @@ function updatesCard(ctx, devices) {
     key: 'updates',
     title: active.length > 0 ? 'Updates in progress' : 'Updates',
     className: `is-zone updates overview-updates ${active.length > 0 ? 'is-active' : ''}`.trim(),
-    more: { href: '#/deployments', label: 'All deployments' },
+    more: { href: '#/deployments', label: history !== null && history.length > 0 ? 'All updates' : 'All deployments' },
   }, body);
 }
 
@@ -2498,7 +2574,7 @@ export function deviceView(ctx) {
                 'its private key never leaves the board.'),
             ]),
         card({ key: 'history', title: 'Update history' },
-          executions.length === 0
+          boardHistory(thing, ctx) ?? (executions.length === 0
             ? h('p', { class: 'quiet' }, 'This board has not been offered an update yet.')
             : [
               h('ul', { class: 'rows', key: 'rows' }, executions.map((execution) =>
@@ -2507,7 +2583,23 @@ export function deviceView(ctx) {
                 ? h('p', { class: 'card-note history-cut', key: 'cut' },
                   `The newest ${executions.length} are shown. ${plural(older, 'older update is', 'older updates are')} not listed.`)
                 : null,
-            ]))));
+            ])))));
+}
+
+/**
+ * A board's every update however it came, from the update history; null until that has come, and
+ * from a console that has none, where the board's executions in AWS IoT Jobs are what there is.
+ */
+function boardHistory(thing, ctx) {
+  const updates = ctx.state.boardUpdates?.get(thing)?.value?.updates ?? null;
+  if (updates === null) return null;
+  if (updates.length === 0) return h('p', { class: 'quiet' }, 'This board has not reported an update yet.');
+  return [
+    updateRows(updates, ctx),
+    ctx.state.boardUpdates.get(thing).value.cursor
+      ? h('p', { class: 'card-note history-cut', key: 'cut' }, `The newest ${updates.length} are shown.`)
+      : null,
+  ];
 }
 
 // Firmware.
@@ -3216,6 +3308,32 @@ function deploymentsPanel(deployments, ctx) {
         : h('p', { class: 'quiet', key: 'none' }, 'AWS IoT has not listed any board for these deployments yet.')));
 }
 
+/**
+ * Every update of every board, however it came, on the Deployments page: deployments board by board,
+ * and the updates over Bluetooth and by USB or another tool that no deployment lists. Nothing while
+ * the list has not come, or when a console says nothing of it.
+ */
+function everyUpdateCard(ctx) {
+  const resource = ctx.state.updates;
+  const updates = resource?.value?.updates ?? null;
+  if (updates === null) return resource?.error ? loadProblem(resource, 'the update history', ctx) : null;
+  return [
+    h('h2', { class: 'section-title', key: 'every-title' }, 'Every update'),
+    card({ key: 'every', className: 'every-update' },
+      updates.length === 0
+        ? h('p', { class: 'quiet' }, 'No board has reported an update yet.')
+        : [
+          updateRows(updates, ctx, { withBoard: true }),
+          resource.value.cursor
+            ? h('p', { class: 'card-note history-cut', key: 'cut' }, `The newest ${updates.length} are shown.`)
+            : null,
+        ],
+      h('p', { class: 'card-note', key: 'note' },
+        'Deployments board by board, and what the boards reported themselves: updates over Bluetooth from the phone app, ',
+        'and by USB or another tool.')),
+  ];
+}
+
 export function deploymentsView(ctx) {
   const { state } = ctx;
   const deployments = state.deployments.value;
@@ -3234,7 +3352,7 @@ export function deploymentsView(ctx) {
       text = ['Upload a signed image on the ', h('a', { href: '#/firmware' }, 'Firmware page'),
         ' first; then it can be offered to boards here.'];
     }
-    body = card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text }));
+    body = [card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text })), everyUpdateCard(ctx)];
   } else {
     body = [
       deploymentsPanel(deployments, ctx),
@@ -3242,6 +3360,7 @@ export function deploymentsView(ctx) {
       ctx.fleet?.rolloutsPanel(ctx) ?? null,
       card({ key: 'list', className: 'is-flush' },
         h('ul', { class: 'rows' }, deployments.map((deployment) => deploymentRow(deployment, ctx)))),
+      everyUpdateCard(ctx),
     ];
   }
 
@@ -3259,7 +3378,8 @@ export function deploymentsView(ctx) {
       lede: 'A deployment sends one release to a set of boards. ' +
         `A board on firmware ${FIRST_WITH_NO_BUTTON} or newer starts as soon as it sees it, and older firmware ` +
         'waits for someone to press Button 1 on the board. ' +
-        'A job made directly in AWS IoT is not listed here; its board’s page shows it.',
+        'A job made directly in AWS IoT is not listed here; Every update below has it, with the updates the boards ' +
+        'reported themselves: over Bluetooth, and by USB or another tool.',
       tools: [freshness(state.deployments, ctx), start],
     }),
     loadProblem(state.deployments, 'the deployments', ctx),

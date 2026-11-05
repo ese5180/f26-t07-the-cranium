@@ -436,12 +436,18 @@ test('a board may publish its log on its own events topic, and do nothing else t
   for (const resource of policy.match(/^\s+- !Sub '[^']+'$/gm)) assert.match(resource, /\$\{!iot:Connection\.Thing\.ThingName\}/);
 });
 
-test('the API reads the events table and nothing more: Query, on that table alone', () => {
+test('the API reads the events table, and writes only the update history\'s facts: Query, and PutItem on UPD#', () => {
   const role = block(template, 'ApiRole');
   const read = statement(role, 'ReadEvents');
   assert.ok(read.includes('Action: dynamodb:Query\n'));
   assert.ok(read.includes('Resource: !GetAtt EventsTable.Arn'));
-  assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 1);
+  // The backfill (cloud/api/src/handlers/updates.mjs): a put, only into the partitions of facts.
+  const backfill = statement(role, 'BackfillUpdateHistory');
+  assert.ok(backfill.includes('Action: dynamodb:PutItem\n'));
+  assert.ok(backfill.includes('Resource: !GetAtt EventsTable.Arn'));
+  assert.ok(backfill.includes('ForAllValues:StringLike:\n'));
+  assert.deepEqual(backfill.match(/^\s+- \S+$/gm).map((line) => line.trim()), ['- UPD#cranium-*']);
+  assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 2);
   assert.ok(block(template, 'ApiFn').includes('EVENTS_TABLE: !Ref EventsTable'));
   assert.equal(block(template, 'WebRole').includes('EventsTable'), false);
 });

@@ -7,6 +7,24 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.1.1
+
+The update history has every update, not only deployments: those over Bluetooth from a phone, with whose phone sent them, and those by USB or another tool, each kept, rolled back, not installed or pending. The Overview's Updates, the Deployments page (Every update), a board's page and fleet health show them.
+
+The recorder keeps what each board says of an update as facts in the events table (pk `UPD#<thing>`: the version it
+reports changing and being confirmed, its Bluetooth record from the shadow and from the BT lines of firmware 1.12.0 on,
+an image's arrival, the end of a job), each put once at its first time. `GET /api/updates` (newest first, 25 a page,
+`?thing=`) folds a board's facts and its AWS IoT executions into one record per update: { thing, from, to, how:
+deployment | bluetooth | usb_or_other, deployment, who, outcome: kept | rolled_back | not_installed | pending,
+startedAt, endedAt, status }. Who sent an update over Bluetooth is whoever's phone made the check before the send for
+that version and board, in the two hours before; who started a deployment is in its job. `GET /api/devices/{thing}` has
+the board's newest as `lastUpdate`, and fleet health counts the updates over Bluetooth and by USB beside the jobs'.
+
+The first read of a board's history makes its facts once from what the events table holds (90 days of the shadow's
+events, and the BT lines), so 1.13.0 and 1.14.0 over Bluetooth on 2026-11-05 and the updates before them appear; the
+API may put facts only in the `UPD#` partitions (ApiRole `BackfillUpdateHistory`). The customer site shows no update
+history, so the customer API is unchanged. docs/aws-iot.md, "Update history".
+
 ## 2.1.0
 
 Memfault for firmware 1.14.0, through AWS IoT: a board's coredumps, restarts and metrics go to Memfault, and its page links to it. The iPhone app for every iPhone of the team through SideStore: each member's own SideStore link on the Apps page, and iPhone builds published like APKs. The Android app can fetch its own updates.

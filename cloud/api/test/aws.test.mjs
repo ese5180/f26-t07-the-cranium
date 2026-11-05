@@ -477,6 +477,8 @@ test('the adapter and the in-memory fake have the same methods', () => {
     'registerRelease', 'tagFirmwareRevoked',
     // The fleet (docs/fleet.md).
     'describeThing', 'getFleetItem', 'listFleetItems', 'putFleetItem', 'setReleaseNotes', 'updateFleetItem',
+    // The update history (lib/updates.mjs): a board's facts, read, and put by the backfill.
+    'putUpdateFact', 'queryUpdateFacts',
   ].sort());
   for (const method of methods) {
     assert.equal(typeof real[method], 'function');
@@ -1439,6 +1441,38 @@ test('queryEvents reads one board between two keys, newest first, every page, ne
   await rejectsWith(aws.queryEvents({ thing: THING, low, high, kinds: null, limit: 5 }), { code: 'throttled', operation: 'Query' });
 });
 
+test('a board\'s facts of the update history are read whole and consistently, and put on a condition', async () => {
+  const aws = adapter();
+  const fact = (sk) => ({ pk: { S: `UPD#${THING}` }, sk: { S: sk }, fact: { S: 'confirmed' }, at: { N: '1793985600000' } });
+  sdk.reply('QueryCommand', { Items: [fact('C#1')], LastEvaluatedKey: { pk: { S: `UPD#${THING}` }, sk: { S: 'C#1' } } },
+    { Items: [fact('C#2')] });
+  assert.deepEqual((await aws.queryUpdateFacts(THING)).map((item) => [item.pk, item.sk, item.at]),
+    [[`UPD#${THING}`, 'C#1', 1793985600000], [`UPD#${THING}`, 'C#2', 1793985600000]]);
+  const [first, second] = sdk.inputs('QueryCommand');
+  assert.deepEqual(first, {
+    TableName: 'events-table',
+    KeyConditionExpression: '#pk = :pk',
+    ExpressionAttributeNames: { '#pk': 'pk' },
+    ExpressionAttributeValues: { ':pk': { S: `UPD#${THING}` } },
+    ConsistentRead: true,
+  });
+  assert.deepEqual(second.ExclusiveStartKey, { pk: { S: `UPD#${THING}` }, sk: { S: 'C#1' } });
+  sdk.reply('QueryCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.queryUpdateFacts(THING), { code: 'throttled', operation: 'Query' });
+
+  sdk.reset();
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'));
+  const item = { pk: `UPD#${THING}`, sk: 'M#backfill', fact: 'backfill', at: 1793985600000, facts: 3, oldest: null };
+  assert.deepEqual(await aws.putUpdateFact(item), { ok: true });
+  assert.deepEqual(await aws.putUpdateFact(item), { ok: false, reason: 'kept' });
+  const [put] = sdk.inputs('PutItemCommand');
+  assert.equal(put.TableName, 'events-table');
+  assert.equal(put.ConditionExpression, 'attribute_not_exists(#sk) OR #at > :at');
+  assert.deepEqual(put.Item.oldest, { NULL: true });
+  // Never into a board's own partition of events.
+  await assert.rejects(aws.putUpdateFact({ ...item, pk: THING }), TypeError);
+});
+
 test('querySamples reads one board between two keys, oldest first, every page', async () => {
   const aws = adapter();
   const sample = (n) => ({ pk: { S: THING }, sk: { S: `S#2026-10-10T22:15:0${n}.000Z` }, rssi: { N: '-50' } });
@@ -1463,7 +1497,7 @@ test('the recorder\'s adapter has one client, one table and one operation: PutIt
   assert.deepEqual(sdk.clients.map((client) => client.package), ['@aws-sdk/client-dynamodb']);
   assert.deepEqual(Object.keys(sdk.clients[0].config).sort(), ['maxAttempts', 'region', 'requestHandler']);
   assert.equal(Object.isFrozen(store), true);
-  assert.deepEqual(Object.keys(store), ['putEvent', 'claimLine']);
+  assert.deepEqual(Object.keys(store), ['putUpdateFact', 'putEvent', 'claimLine']);
   // It needs nothing but these two: not the other tables, the bucket or the pool.
   for (const name of Object.keys(env)) assert.throws(() => createEventStore({ ...env, [name]: '' }), new RegExp(name));
 
@@ -1478,6 +1512,27 @@ test('the recorder\'s adapter has one client, one table and one operation: PutIt
   }]);
   sdk.reply('PutItemCommand', fails('ProvisionedThroughputExceededException'));
   await rejectsWith(store.putEvent({ pk: THING, sk: 'S#x' }), { code: 'throttled', operation: 'PutItem' });
+
+  // A fact of the update history (lib/updates.mjs): a PutItem on a condition that keeps the first time it was said.
+  sdk.reset();
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'), fails('ThrottlingException'));
+  const fact = { pk: `UPD#${THING}`, sk: 'C#2026-11-05T17:20:00.000Z', fact: 'confirmed', at: 1793985600000, version: '1.13.0+0' };
+  assert.deepEqual(await store.putUpdateFact(fact), { ok: true });
+  assert.deepEqual(sdk.inputs('PutItemCommand')[0], {
+    TableName: 'events-table',
+    Item: {
+      pk: { S: `UPD#${THING}` }, sk: { S: 'C#2026-11-05T17:20:00.000Z' }, fact: { S: 'confirmed' }, at: { N: '1793985600000' },
+      version: { S: '1.13.0+0' },
+    },
+    ConditionExpression: 'attribute_not_exists(#sk) OR #at > :at',
+    ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+    ExpressionAttributeValues: { ':at': { N: '1793985600000' } },
+  });
+  assert.deepEqual(await store.putUpdateFact(fact), { ok: false, reason: 'kept' });
+  await rejectsWith(store.putUpdateFact(fact), { code: 'throttled', operation: 'PutItem' });
+  // Only into a partition of facts, and only with its time.
+  await assert.rejects(store.putUpdateFact({ ...fact, pk: THING }), TypeError);
+  await assert.rejects(store.putUpdateFact({ ...fact, at: '1793985600000' }), TypeError);
 
   // The claim of a line of a board's log: a PutItem too, on a condition, and nothing else.
   sdk.reset();

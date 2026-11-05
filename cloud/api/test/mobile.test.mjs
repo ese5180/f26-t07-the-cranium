@@ -238,6 +238,8 @@ const ROUTES = [
   { route: 'POST /api/firmware/{version}/bluetooth', path: `/api/firmware/${V}/bluetooth`, status: 200, phone: true,
     body: { sha256: sha256(IMAGE), board: 'Cranium-1A2B' } },
   { route: 'GET /api/deployments', status: 200, phone: true },
+  // Every update however it came (handlers/updates.mjs): the apps' Overview and a board's Updates.
+  { route: 'GET /api/updates', status: 200, phone: true },
   { route: 'POST /api/deployments', status: 201, phone: true, body: { version: VERSION, things: [THING] } },
   // No such deployment: the console's session gets as far as looking for it.
   { route: 'GET /api/deployments/{id}', path: `/api/deployments/${SOME_DEPLOYMENT}`, status: 404, phone: true },

@@ -9217,3 +9217,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The update history (GET /api/updates): the Overview's earlier updates, under its news. */
+.recent-updates {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+.update-rows > .update-row .row-note {
+  overflow-wrap: anywhere;
+}

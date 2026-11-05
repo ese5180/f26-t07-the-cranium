@@ -593,6 +593,52 @@ would be of the order of 30 US dollars a month for one board flooding all day (m
 A board that is well says far less: a few dozen lines when it starts and connects, and a few an hour after that. The
 recorder has no limit of its own beyond the firmware's.
 
+### Update history
+
+From console 2.1.1 the Overview's Updates, the Deployments page (**Every update**), a board's page and both phone apps
+list every update of every board, however it came: a deployment (an AWS IoT job, board by board), an update over
+Bluetooth from a phone, or one by USB or another tool. Only a deployment is in AWS IoT Jobs; for the rest the board's
+own reports are all there is, so the recorder keeps what they say of an update as **facts**
+([`lib/updates.mjs`](../cloud/api/src/lib/updates.mjs)), in the events table, a partition per board, kept for good:
+
+| Key (pk `UPD#<thing>`) | From | Says |
+| --- | --- | --- |
+| `V#<time>` | the shadow's `fw.version` changed | `from`, `to`, `confirmed`, and the `job` its report named |
+| `C#<time>` | `fw.confirmed` became true | `version` |
+| `B#<count>#<from>#<to>#<result>` | the shadow's `bt`, or a BT line ("update over Bluetooth: …", "last update over Bluetooth: …", "on trial: …") | `from`, `to`, `result`, `proof`, `count` (the board's own number for the update) |
+| `A#<time>#<boot>.<seq>` | the BT line "firmware X has arrived" | `to` |
+| `R#<job>#<result>` | the shadow's `ota.last` for a job | `job`, `result` |
+| `M#backfill` | the backfill of this board is done | `facts`, `oldest` |
+
+Each has `at`, when the board said it, and is put only where none is or where the one there is later
+(`attribute_not_exists(sk) OR at > :at`): a retried message, the record a board says again on every boot, the shadow
+and the log saying the same, or the backfill after the recorder, leave one fact at its first time. On read the API
+folds a board's facts and its executions into one **record** per update: each execution is a deployment; each Bluetooth
+count is an update over Bluetooth, with the first result that is not `pending`; a version change is that of one of them
+when it is near it (the same versions within a day, or the job its report named or in the job's time), the end of
+one that was not kept when it goes back to where that one came from (a rollback, within a day), and otherwise an update
+of its own, by USB or another tool. Who sent an update over Bluetooth is whoever's phone made the check before the send
+(`firmware.bluetooth_send` in the activity log, answered yes, for that version and that board or none named) in the
+two hours before the board first said anything of it, and that check's time is when the update started.
+
+```
+GET /api/updates?thing=<name>&limit=<1-100, 25>&cursor=<cursor>
+  -> { updates: [{ id, thing, from, to, how: deployment | bluetooth | usb_or_other, deployment, who: { sub, email, name },
+                   outcome: kept | rolled_back | not_installed | pending, startedAt, endedAt, status }], cursor, generatedAt }
+```
+
+Newest first, for viewers and release managers, from the website, a phone app or an API token; `status` is a
+deployment's execution status. `GET /api/devices/{thing}` has the board's newest as `lastUpdate`. The words are the same
+everywhere: "over Bluetooth from Vihaan’s phone", "deployment <id>", "USB or another tool". The customer site lists no
+updates (a customer sees their board's current update and its events), so the customer API has no such route.
+
+**Backfill.** The first read that needs a board's list, after 2.1.1 is deployed, makes its facts once from what the
+events table already holds of it: the shadow's firmware, update and Bluetooth events, kept 90 days, and its BT lines,
+which exist from firmware 1.12.0 and are kept as long. So it goes back 90 days before the deploy (2026-08-07 for a
+deploy on 2026-11-05), and in practice to a board's first events: for the board, the update to 1.11.4, the 1.12.0
+deployment, and 1.13.0 and 1.14.0 over Bluetooth on 2026-11-05. The API may put facts only in the `UPD#` partitions (`BackfillUpdateHistory`
+in ApiRole). If they cannot be put, the list is shown from them all the same and the backfill is tried again 10 minutes later.
+
 ## The fleet: board types, groups and staged rollouts
 
 What [fleet.md](fleet.md) agrees for the firmware and the console, as the console does it. The map, the commands
@@ -674,7 +720,8 @@ Bluetooth, when, and who; the last one per board is kept. It is how a board with
 Release managers only, with no fresh sign-in asked of a phone (it changes no board), at most 60 a minute per person.
 
 **Fleet health** (`GET /api/fleet/health`, the Overview): versions by board type and how many run the newest;
-the last 7 days' update results from the event log (over the air and over Bluetooth); and the boards that need
+the last 7 days' update results: the ends of jobs as the boards reported them, and from console 2.1.1 the updates over
+Bluetooth and by USB or another tool from the [update history](#update-history); and the boards that need
 looking at: offline for more than an hour, restarted for being stuck, a last update that failed or rolled back,
 memory down below 15% free, a Wi-Fi signal below −75 dBm, and a board without Wi-Fi no phone has seen.
 

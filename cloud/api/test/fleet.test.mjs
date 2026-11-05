@@ -172,9 +172,10 @@ test('the pieces of fleet health, one by one', () => {
   assert.deepEqual(updateResults([
     { kind: 'update', what: 'result', result: 'succeeded' }, { kind: 'update', what: 'result', result: 'failed' },
     { kind: 'update', what: 'result', result: 'refused' }, { kind: 'update', what: 'result', result: 'declined' },
-    { kind: 'update', what: 'step', result: 'succeeded' }, { kind: 'bluetooth', what: 'record', result: 'trial_lost' },
-    { kind: 'bluetooth', what: 'record', result: 'succeeded' },
-  ]), { succeeded: 2, failed: 2, rolledBack: 1 });
+    { kind: 'update', what: 'step', result: 'succeeded' }, { kind: 'update', what: 'result', result: 'rolled_back' },
+    // An update over Bluetooth is counted from the update history (lib/updates.mjs updateCounts), not from its events.
+    { kind: 'bluetooth', what: 'record', result: 'trial_lost' }, { kind: 'bluetooth', what: 'record', result: 'succeeded' },
+  ]), { succeeded: 1, failed: 2, rolledBack: 1 });
   const boards = [{ type: 'nrf7002dk', version: '1.2.0+0' }, { type: 'nrf7002dk', version: null }, { type: 'nrf5340dk', version: '1.0.0+0' }];
   const [wifi, bt] = versionsByType(boards, { nrf7002dk: '1.3.0+0', nrf5340dk: '1.0.0+0' }, ['nrf7002dk', 'nrf5340dk']);
   assert.deepEqual([wifi.onNewest, wifi.share, wifi.unknown], [0, 0, 1]);

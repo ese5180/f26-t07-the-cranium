@@ -625,7 +625,74 @@ function readDeviceDetail(body) {
     // How many older updates the server left out of `executions`.
     olderExecutions: whole(reply.olderExecutions, 0, 2 ** 32) ?? 0,
     memfault: readMemfault(reply.memfault),
+    // Its newest update however it came (GET /api/updates), from console 2.1.1; a server before it leaves it out.
+    ...(Object.hasOwn(reply, 'lastUpdate') ? { lastUpdate: reply.lastUpdate ? readUpdate(reply.lastUpdate) : null } : {}),
   };
+}
+
+// The update history (GET /api/updates, docs/aws-iot.md "Update history"): every update of every board,
+// a deployment's on each of its boards and those the boards reported themselves.
+
+export const UPDATE_HOWS = Object.freeze(['deployment', 'bluetooth', 'usb_or_other']);
+export const UPDATE_OUTCOMES = Object.freeze(['kept', 'rolled_back', 'not_installed', 'pending']);
+
+/** One update as the server describes it. A way or an outcome this console does not know reads as the vaguest. */
+export function readUpdate(raw) {
+  const item = record(raw);
+  const who = item.who && typeof item.who === 'object'
+    ? { sub: text(item.who.sub, 128), email: text(item.who.email, 320), name: boardText(item.who.name, 32) }
+    : null;
+  return {
+    id: text(item.id, 200),
+    thing: isThing(item.thing) ? item.thing : '',
+    from: versionOrNull(item.from),
+    to: versionOrNull(item.to),
+    how: UPDATE_HOWS.includes(item.how) ? item.how : 'usb_or_other',
+    deployment: optionalText(item.deployment, 64),
+    who,
+    outcome: UPDATE_OUTCOMES.includes(item.outcome) ? item.outcome : 'pending',
+    startedAt: instant(item.startedAt),
+    endedAt: instant(item.endedAt),
+    status: optionalText(item.status, 24),
+  };
+}
+
+function readUpdates(body) {
+  const reply = record(body);
+  return {
+    updates: list(reply.updates).map(readUpdate).filter((update) => update.id !== '' && update.thing !== ''),
+    cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
+    generatedAt: instant(reply.generatedAt),
+  };
+}
+
+/**
+ * How an update came, in the words of every client of this console (the phone apps have the same):
+ * "over Bluetooth from Vihaan’s phone", "deployment <id>", "USB or another tool".
+ */
+export function updateHow(update) {
+  if (update.how === 'bluetooth') {
+    return update.who?.name ? `over Bluetooth from ${update.who.name}’s phone` : 'over Bluetooth from a phone';
+  }
+  if (update.how === 'deployment') return update.deployment ? `deployment ${update.deployment}` : 'deployment';
+  return 'USB or another tool';
+}
+
+const UPDATE_OUTCOME_WORDS = Object.freeze({
+  kept: { tone: 'good', icon: 'check-circle', label: 'Kept' },
+  rolled_back: { tone: 'bad', icon: 'undo', label: 'Rolled back' },
+  not_installed: { tone: 'warn', icon: 'minus-circle', label: 'Not installed' },
+  pending: { tone: 'idle', icon: 'clock', label: 'Pending' },
+});
+
+/** How an update ended, as a badge says it: { tone, icon, label }. */
+export function describeOutcome(update) {
+  return { ...(UPDATE_OUTCOME_WORDS[update.outcome] ?? UPDATE_OUTCOME_WORDS.pending) };
+}
+
+/** The time an update is told by: when it ended, or while it has not, when it started. */
+export function updateTime(update) {
+  return update.endedAt ?? update.startedAt;
 }
 
 function readRelease(raw) {
@@ -2143,6 +2210,15 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     device: async (thing) => readDeviceDetail(await get(`/api/devices/${checked(isThing, thing)}`)),
     firmware: async () => readFirmware(await get('/api/firmware')),
     deployments: async () => readDeployments(await get('/api/deployments')),
+    /** Every update of every board (or of one), newest first, a page at a time: { updates, cursor, generatedAt }. */
+    async updates({ thing = null, limit = null, cursor = null } = {}) {
+      const query = {};
+      if (thing !== null) query.thing = checked(isThing, thing);
+      if (limit !== null) query.limit = String(checked((count) => Number.isInteger(count) && count >= 1 && count <= 100, limit));
+      if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
+      const asked = form(query);
+      return readUpdates(await get(asked === '' ? '/api/updates' : `/api/updates?${asked}`));
+    },
     deployment: async (id) =>
       readDeployment(record(record(await get(`/api/deployments/${checked(isDeploymentId, id)}`)).deployment)),
     /** The boards' events between two times (ISO), newest first, a page at a time. */
