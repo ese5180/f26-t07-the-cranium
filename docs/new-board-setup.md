@@ -253,6 +253,10 @@ themselves.
 The iPhone app and the Android app do what the console's website does, and also update a board over Bluetooth.
 [`docs/mobile-apps.md`](mobile-apps.md) says what they do and how. You need the board only for Bluetooth.
 
+**The short way:** [`apps/README.md`](../apps/README.md). The newest builds are in git, in `apps/dist/`, and one command
+puts the app on a phone: `apps/install.sh android` or `apps/install.sh iphone` (macOS, Linux), or
+`apps\install.ps1` (Windows, Android). `apps/install.sh check` says what this computer is missing.
+
 **Start on the console's Apps page** (Apps, in the masthead, once you can sign in): it has the team's Android app to
 download, with a QR code for the phone to scan, the iPhone app's version, and the configuration to download for a build
 of your own. What follows is the same, with the details.
