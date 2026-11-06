@@ -25,7 +25,8 @@ function bundleOf(label, extra = {}) {
 
 async function folder(t) {
   const root = await mkdtemp(join(tmpdir(), 'cranium-desktop-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // Best-effort: on Windows a file may still be held for a moment (by the antivirus), and that is no failure.
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {}));
   return root;
 }
 

@@ -19,7 +19,14 @@ const python = ['python3', 'python'].find((name) => spawnSync(name, ['--version'
 
 test('each published installer is in latest.json under its system, the first one offered, and the update check takes it', { skip: !python }, (t) => {
   const dist = mkdtempSync(join(tmpdir(), 'cranium-dist-'));
-  t.after(() => rmSync(dist, { recursive: true, force: true }));
+  // Best-effort: on Windows a file may still be held for a moment (by the antivirus), and that is no failure.
+  t.after(() => {
+    try {
+      rmSync(dist, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+      // Left in the temporary folder.
+    }
+  });
   const names = { windows: INSTALLERS.windows('0.1.0'), linux: INSTALLERS.linux('0.2.0') };
   for (const name of [...names.windows, ...names.linux, 'cranium-android-0.8.0.apk', 'Cranium-0.1.0.zip']) {
     writeFileSync(join(dist, name), name);
