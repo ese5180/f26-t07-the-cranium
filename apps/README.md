@@ -6,6 +6,9 @@ customer side, as on the customer website. The newest published build of each (0
 its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
 [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
+For a Windows PC or a Linux computer there is the desktop app, the same pages in a window of their own, with the USB
+console and Bluetooth: [`desktop/README.md`](desktop/README.md) and [`docs/desktop-app.md`](../docs/desktop-app.md).
+
 ## What updates without a reinstall
 
 From 0.8.0 the screens are the console's and the customer site's own pages, which each app keeps on the phone and

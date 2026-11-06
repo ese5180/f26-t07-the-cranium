@@ -151,6 +151,40 @@ jobs:
         working-directory: cloud/dev
         run: node --test
 
+  # The desktop app's core, the same on Windows and Linux (docs/desktop-app.md): its tests, with no Electron,
+  # then the app itself, started once from the checkout with the example configuration under a virtual
+  # display, until it has drawn the customer site's sign-in from its built-in pages. Each system's
+  # installers have a workflow of their own.
+  desktop-core:
+    name: Desktop app (core)
+    if: github.event_name != 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install (Electron and electron-builder, at the lockfile's versions)
+        run: npm ci --no-audit --no-fund
+      - name: Tests
+        run: npm test
+      - name: Start the app once
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libgbm1 libnss3 libasound2t64 > /dev/null
+          # Electron's setuid sandbox helper, as a package would install it (docs/desktop-linux.md).
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          node scripts/prepare.mjs --example
+          CRANIUM_DESKTOP_SMOKE="$RUNNER_TEMP/desktop.png" timeout 90 xvfb-run -a npx electron . | tee "$RUNNER_TEMP/desktop.log"
+          grep -q '"smoke":"done","url":"cranium-app://bundle/#/sign-in"' "$RUNNER_TEMP/desktop.log"
+
   # The phone apps. Their real configuration names the AWS account and is never in git, so these
   # builds use apps/config/cranium.example.json and say so: nothing built here can sign in.
   android:

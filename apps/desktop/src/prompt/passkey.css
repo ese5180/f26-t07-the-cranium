@@ -1,0 +1,63 @@
+:root {
+  --bg: #faf7f2;
+  --ink: #1c1814;
+  --ink-2: #5b5249;
+  --line: #d9d0c4;
+  --accent: #b7410e;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1814;
+    --ink: #f3ede4;
+    --ink-2: #b9aea1;
+    --line: #3b342d;
+    --accent: #e0703f;
+  }
+}
+body {
+  margin: 0;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+h1 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+p {
+  margin: 0 0 14px;
+  color: var(--ink-2);
+}
+input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 22px/1 ui-monospace, monospace;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+button[type='submit'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}

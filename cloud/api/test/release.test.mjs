@@ -1147,7 +1147,8 @@ test('the job that checks a release runs on publishing, and nothing else runs th
   const jobs = WORKFLOW.slice(WORKFLOW.indexOf('\njobs:\n'))
     .split(/\n(?= {2}[\w-]+:\n)/)
     .slice(1);
-  assert.equal(jobs.length, 8);
+  // With the desktop app's core (docs/desktop-app.md); each system's installers have a workflow of their own.
+  assert.equal(jobs.length, 9);
   for (const job of jobs) {
     if (job.startsWith('  release-assets:')) {
       // A firmware release only: a release made for a phone app's tag is release-apps.yml's (docs/ci.md).

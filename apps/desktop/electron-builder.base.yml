@@ -1,0 +1,24 @@
+# What every platform's installer of the desktop app has (docs/desktop-app.md, "Building"). Each platform
+# adds a file of its own over this one, electron-builder.<platform>.yml (extends: electron-builder.base.yml),
+# so that no platform's settings are in another's lines. scripts/dist.mjs picks the file.
+appId: com.craniumiot.cranium.desktop
+productName: Cranium
+copyright: The Cranium team
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - package.json
+  - src/**/*
+extraResources:
+  - from: build/bundle
+    to: bundle
+  - from: build/shared
+    to: shared
+  - from: build/cranium.json
+    to: cranium.json
+  - from: build/cranium.source
+    to: cranium.source
+asar: true
+# Nothing is published from a build: see docs/desktop-app.md, "Updates".
+publish: null

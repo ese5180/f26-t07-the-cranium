@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; form-action 'none'; base-uri 'none'"
+    />
+    <title>Pair with the board</title>
+    <link rel="stylesheet" href="passkey.css" />
+  </head>
+  <body>
+    <form id="form">
+      <h1>Pair with the board</h1>
+      <p>Type the passkey the console shows at the top of its Bluetooth page.</p>
+      <input id="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required autofocus />
+      <div class="buttons">
+        <button type="button" id="cancel">Cancel</button>
+        <button type="submit">Pair</button>
+      </div>
+    </form>
+    <script src="passkey.js"></script>
+  </body>
+</html>

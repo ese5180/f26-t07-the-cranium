@@ -1,6 +1,6 @@
 # Versions
 
-Four things have their own version number, changelog and git tags. The rule is the same for all four: the last number
+These things have their own version number, changelog and git tags. The rule is the same for all of them: the last number
 for a small change or a fix (1.11.0 to 1.11.1), the middle one for a larger update (1.11.x to 1.12.0), and never the
 first. Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
 
@@ -10,6 +10,7 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 | Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.1.0, tag `console-v2.1.0` (bcc5a19): deployed | At the foot of every page of the console ("Console 2.1.0"), What's new on its History page, and `GET /api/me` |
 | iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.7.2, tag `ios-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.7.2, tag `android-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | Not released yet; tags will be `desktop-windows-v<version>` and `desktop-linux-v<version>` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
 
 The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
 kept on the phone and updated from the console (docs/mobile-apps.md, "The app shell"): a new console version changes

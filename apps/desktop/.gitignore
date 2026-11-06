@@ -1,0 +1,4 @@
+# Installed and made here, never kept in git (apps/desktop/README.md).
+node_modules/
+build/
+dist/

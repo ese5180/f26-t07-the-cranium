@@ -1,0 +1,21 @@
+{
+  "name": "cranium-desktop",
+  "productName": "Cranium",
+  "version": "0.0.0",
+  "description": "The Cranium console and customer site on Windows and Linux: the console's own pages, kept on the computer, with USB and Bluetooth to a board. Each platform's build sets its own version (electron-builder.<platform>.yml).",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "author": "The Cranium team",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node scripts/prepare.mjs && electron .",
+    "test": "node --test",
+    "prepare-app": "node scripts/prepare.mjs",
+    "dist": "node scripts/dist.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0"
+  }
+}
