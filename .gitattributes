@@ -7,6 +7,9 @@
 Makefile                    text eol=lf
 firmware/app/VERSION        text eol=lf
 apps/android/gradlew        text eol=lf
+# What the Linux packages install (a shell script run by dpkg/rpm, a udev rule): LF, even when
+# the Windows runner checks them out to build its own installer and runs every desktop test.
+apps/desktop/resources/linux/** text eol=lf
 
 # Stored with CRLF on purpose; left exactly as they are.
 apps/android/gradlew.bat    -text
