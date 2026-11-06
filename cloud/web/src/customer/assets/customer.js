@@ -28,8 +28,13 @@ import {
   passwordProblem, readSiteConfig, routeHash,
 } from './customer-core.js';
 import {
-  accountView, aloneView, deviceView, devicesView, forgotView, helpView, mixesView, overviewView, shellView, signInView,
+  accountView, aloneView, deviceView, devicesView, forgotView, helpView, mixesView, overviewView, sessionView, shellView,
+  signInView,
 } from './customer-views.js';
+import {
+  ImportProblem, LIMITS, RANGES, cleanJournal, demoJournal, emptyJournal, fileName, inRange, journalFile, mergeJournal,
+  momentOf, readImport, sampleFile, sessionsCsv, transitionsOf, withMoment, withoutMoment, withoutSession,
+} from './customer-mixes.js';
 
 const REFRESH_MS = 30000;
 const SESSION_CHECK_MS = 5000;
@@ -148,20 +153,23 @@ function toast(message) {
 }
 
 const VIEWS = {
-  overview: overviewView, devices: devicesView, device: deviceView, mixes: mixesView, account: accountView, help: helpView,
+  overview: overviewView, devices: devicesView, device: deviceView, mixes: mixesView, session: sessionView, account: accountView,
+  help: helpView,
 };
 const TITLES = {
   landing: 'Cranium · Your DJ controller, without the laptop',
   'sign-in': 'Sign in', 'admin-sign-in': 'Admin sign-in', forgot: 'A new password', overview: 'Overview',
-  devices: 'Devices', device: 'Your board', mixes: 'Mixes', account: 'Account', help: 'Help',
+  devices: 'Devices', device: 'Your board', mixes: 'Mixes', session: 'Session', account: 'Account', help: 'Help',
 };
+const MIX_TITLES = { sessions: 'Sessions', transitions: 'Transitions', library: 'Track library', moments: 'Saved moments' };
 
 let drawnView = null;
 
 function draw() {
   if (!site) return;
   const { view } = state.route;
-  document.title = view === 'landing' ? TITLES.landing : `${TITLES[view] ?? 'Cranium'} · Cranium`;
+  const title = view === 'mixes' ? MIX_TITLES[state.route.tab] ?? TITLES.mixes : TITLES[view];
+  document.title = view === 'landing' ? TITLES.landing : `${title ?? 'Cranium'} · Cranium`;
   if (view === 'landing') {
     landing.hidden = false;
     app.hidden = true;
@@ -689,10 +697,246 @@ function context() {
       },
     },
     site,
-    actions: { refresh: () => refresh(true), signOut, ...appActions },
+    mixes: mixesContext(),
+    actions: { refresh: () => refresh(true), signOut, mix: mixActions, ...appActions },
     now: Date.now(),
   };
 }
+
+// The mixes (customer-mixes.js): the demo, and the journal of what this person imported, which is kept in this
+// browser's localStorage under their e-mail address. In the app, where the page's storage may not last, it is
+// kept as long as the page; Export makes a backup either way.
+
+const JOURNAL_KEY = 'cranium.mixes.journal.v1:';
+const PREFS_KEY = 'cranium.mixes.prefs.v1';
+const mixes = {
+  owner: null,
+  journal: emptyJournal(),
+  demo: null,
+  source: null,
+  range: 'all',
+  query: '',
+  libraryQuery: '',
+  dialog: null,
+  storage: true,
+};
+
+function localStore() {
+  try {
+    const store = window.localStorage;
+    const probe = 'cranium.mixes.probe';
+    store.setItem(probe, '1');
+    store.removeItem(probe);
+    return store;
+  } catch {
+    return null;
+  }
+}
+
+function ownerOf() {
+  const person = state.customer ? state.me.value : state.staff.value;
+  return typeof person?.email === 'string' && person.email !== '' ? person.email.toLowerCase() : null;
+}
+
+/** The journal of whoever is signed in, read once for each person. */
+function followOwner() {
+  const owner = ownerOf();
+  if (owner === mixes.owner) return;
+  mixes.owner = owner;
+  mixes.journal = emptyJournal();
+  mixes.dialog = null;
+  const store = localStore();
+  mixes.storage = store !== null;
+  if (store && owner) {
+    try {
+      mixes.journal = cleanJournal(JSON.parse(store.getItem(JOURNAL_KEY + owner) ?? 'null'));
+    } catch {
+      mixes.journal = emptyJournal();
+    }
+  }
+  let prefs = null;
+  try {
+    prefs = JSON.parse(store?.getItem(PREFS_KEY) ?? 'null');
+  } catch {
+    prefs = null;
+  }
+  mixes.range = RANGES.some(([value]) => value === prefs?.range) ? prefs.range : 'all';
+  mixes.source = prefs?.source === 'demo' || prefs?.source === 'journal'
+    ? prefs.source
+    : mixes.journal.sessions.length > 0 ? 'journal' : 'demo';
+}
+
+function keepJournal() {
+  const store = localStore();
+  if (!store || !mixes.owner) {
+    mixes.storage = false;
+    return;
+  }
+  try {
+    store.setItem(JOURNAL_KEY + mixes.owner, JSON.stringify(mixes.journal));
+  } catch {
+    mixes.storage = false;
+    toast('This browser did not keep your journal: export a backup before you close the page.');
+  }
+}
+
+function keepPrefs() {
+  try {
+    localStore()?.setItem(PREFS_KEY, JSON.stringify({ source: mixes.source, range: mixes.range }));
+  } catch {
+    // Only a preference: the page goes on without it.
+  }
+}
+
+function mixesContext() {
+  followOwner();
+  const now = Date.now();
+  if (mixes.demo === null) mixes.demo = demoJournal(now);
+  const all = mixes.source === 'journal' ? mixes.journal.sessions : mixes.demo.sessions;
+  const pairs = new Map(transitionsOf([...mixes.demo.sessions, ...mixes.journal.sessions]).map((pair) => [pair.id, pair]));
+  return {
+    ...mixes,
+    sessions: inRange(all, mixes.range, now),
+    pairs,
+    find: (id) => mixes.journal.sessions.find((session) => session.id === id) ?? mixes.demo.sessions.find((session) => session.id === id) ?? null,
+  };
+}
+
+function utf8Base64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return window.btoa(binary);
+}
+
+/** A file for the person: the app's share sheet in the app, a download on the website. */
+async function giveFile(name, type, body) {
+  if (appBridge?.has('share')) {
+    try {
+      await appBridge.call('file.share', { name, type, data: utf8Base64(body) });
+    } catch (error) {
+      if (error?.code !== 'cancelled') toast(error?.message ?? 'The app could not share the file.');
+    }
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([body], { type: `${type};charset=utf-8` }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+const mixActions = {
+  setSource(source) {
+    if (source !== 'demo' && source !== 'journal') return;
+    mixes.source = source;
+    keepPrefs();
+    draw();
+  },
+  setRange(range) {
+    if (!RANGES.some(([value]) => value === range)) return;
+    mixes.range = range;
+    keepPrefs();
+    draw();
+  },
+  setQuery(query) {
+    mixes.query = String(query).slice(0, LIMITS.text);
+    draw();
+  },
+  setLibraryQuery(query) {
+    mixes.libraryQuery = String(query).slice(0, LIMITS.text);
+    draw();
+  },
+  open({ kind, id = null }) {
+    const saved = id ? mixes.journal.moments.find((moment) => moment.id === id) : null;
+    mixes.dialog = { kind, id, busy: false, problem: null, done: null, note: saved?.note ?? '' };
+    draw();
+  },
+  close() {
+    if (mixes.dialog === null) return;
+    mixes.dialog = null;
+    draw();
+  },
+  setNote(note) {
+    if (mixes.dialog?.kind !== 'moment') return;
+    mixes.dialog = { ...mixes.dialog, note: String(note).slice(0, LIMITS.note) };
+    draw();
+  },
+  saveMoment() {
+    const model = mixes.dialog;
+    if (model?.kind !== 'moment') return;
+    const pair = mixesContext().pairs.get(model.id);
+    const saved = mixes.journal.moments.find((moment) => moment.id === model.id);
+    const moment = pair ? momentOf(pair, model.note, Date.now()) : saved ? { ...saved, note: model.note } : null;
+    if (!moment) return;
+    mixes.journal = withMoment(mixes.journal, moment);
+    keepJournal();
+    mixes.dialog = null;
+    toast(`Kept: ${moment.from.title} to ${moment.to.title}.`);
+    draw();
+  },
+  forgetMoment(id) {
+    const moment = mixes.journal.moments.find((item) => item.id === id);
+    if (!moment) return;
+    mixes.journal = withoutMoment(mixes.journal, id);
+    keepJournal();
+    if (mixes.dialog?.id === id) mixes.dialog = null;
+    toast(`Forgot ${moment.from.title} to ${moment.to.title}.`);
+    draw();
+  },
+  forgetSession(id) {
+    const session = mixes.journal.sessions.find((item) => item.id === id);
+    if (!session) return;
+    mixes.journal = withoutSession(mixes.journal, id);
+    keepJournal();
+    mixes.dialog = null;
+    toast(`Removed “${session.title}” from your journal.`);
+    go({ view: 'mixes', tab: 'sessions' });
+    draw();
+  },
+  async importFile(file) {
+    const model = mixes.dialog;
+    if (model?.kind !== 'import' || !file) return;
+    if (file.size > LIMITS.bytes) {
+      mixes.dialog = { ...model, problem: 'The file is larger than 1 MB. Import fewer sessions at a time.', done: null };
+      draw();
+      return;
+    }
+    mixes.dialog = { ...model, busy: true, problem: null, done: null };
+    draw();
+    let outcome;
+    try {
+      const imported = readImport(await file.text(), file.name);
+      mixes.journal = mergeJournal(mixes.journal, imported);
+      keepJournal();
+      mixes.source = 'journal';
+      keepPrefs();
+      const sessions = imported.sessions.length === 1 ? '1 session' : `${imported.sessions.length} sessions`;
+      const moments = imported.moments.length ? ` and ${imported.moments.length === 1 ? '1 saved moment' : `${imported.moments.length} saved moments`}` : '';
+      const skipped = imported.skipped ? ` ${imported.skipped === 1 ? 'One session' : `${imported.skipped} sessions`} had no start time or no named track, and stayed out.` : '';
+      outcome = { done: `Imported ${sessions}${moments} into your journal.${skipped}`, problem: null };
+    } catch (error) {
+      outcome = { done: null, problem: error instanceof ImportProblem ? error.message : 'The file could not be read.' };
+    }
+    if (mixes.dialog?.kind === 'import') mixes.dialog = { ...mixes.dialog, busy: false, ...outcome };
+    draw();
+  },
+  exportJournal(kind) {
+    const now = Date.now();
+    if (kind === 'csv') giveFile(fileName('sessions', now, 'csv'), 'text/csv', sessionsCsv(mixes.journal.sessions));
+    else giveFile(fileName('journal', now, 'json'), 'application/json', journalFile(mixes.journal, now));
+  },
+  exportSession(id) {
+    const session = mixesContext().find(id);
+    if (session) giveFile(fileName(session.title, Date.now(), 'csv'), 'text/csv', sessionsCsv([session]));
+  },
+  sample() {
+    giveFile('cranium-sample-session.json', 'application/json', sampleFile(Date.now()));
+  },
+};
 
 // The phone app's own controls on the Account page: the biometric of this sign-in, and the app's settings.
 const appActions = {

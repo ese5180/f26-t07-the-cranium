@@ -7,9 +7,20 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.3.0
+
+The customer site looks like the mockup: a dark sidebar, Connect device and Export in the top bar, and pages of its own for Sessions, Transitions, the Track library and Saved moments. Explore them with a made-up demo, or import your own sessions (CSV or JSON) into a journal kept in your browser; keep a transition with a note, and export a backup or a spreadsheet.
+
+The Overview leads with the mixes (the card "After the last track", time on the decks, sessions, tracks played and
+overlaps, the last set with its shape on the two decks and its tracks, On repeat, a moment to come back to), then the
+boards as before. A range of all time, 7 or 30 days, a search in a set and in the library, and a session's own page with
+its transitions. Boards still do not send what is played: the demo says it is made up wherever it shows, and an empty
+journal says why. The phone apps show the same pages from their bundle. customer-mixes.js works it out
+(web/test/mixes.test.mjs); customer-mix-views.js draws it (docs/customer-site.md, "The mixes").
+
 ## 2.2.0
 
-The phone apps from 0.8.0 show the console's own pages: the console serves them as a bundle at /app/manifest.json, each file with its SHA-256, and the apps keep it on the phone, so a console deploy updates every phone the next time its app opens. In the apps, the console gains a Bluetooth update page. API calls from the two app origins are allowed.
+The phone apps from 0.8.0 show the console's own pages: the console serves them as a bundle at /app/manifest.json, each file with its SHA-256, and the apps keep it on the phone, so a console deploy updates every phone the next time its app opens. In the apps, the console gains a Bluetooth update page. The API takes calls from any origin, with no credentials: API Gateway refuses the iPhone app's cranium-app:// origin by name.
 
 Fixes in the same version, which reach the apps too, as they show these pages: on the customer site, Devices and Account no
 longer fall back to Overview for an admin without a customer account (each is a page of its own, pointing to admin mode),

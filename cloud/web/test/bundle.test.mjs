@@ -82,7 +82,7 @@ test('the deployed bundle: both sites, their pages with the app\'s settings tag,
   for (const name of ['app.js', 'core.js', 'views.js', 'bridge.js', 'bluetooth.js', 'updatewatch.js', 'app.css', 'leaflet.js']) {
     assert.ok(paths.some((path) => /^assets\/[0-9a-f]{12}\//.test(path) && path.endsWith(`/${name}`)), name);
   }
-  for (const name of ['customer.js', 'customer-core.js', 'customer-views.js', 'customer.css']) {
+  for (const name of ['customer.js', 'customer-core.js', 'customer-views.js', 'customer-mixes.js', 'customer-mix-views.js', 'customer.css']) {
     assert.ok(paths.some((path) => path.endsWith(`/${name}`)), name);
   }
   // Each page refers only to files the bundle has.

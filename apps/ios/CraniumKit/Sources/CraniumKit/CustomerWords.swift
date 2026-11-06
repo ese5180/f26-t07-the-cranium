@@ -373,7 +373,7 @@ public enum CustomerWords {
             ("Who can see my boards?", "You, and the people at Cranium who look after the boards. No other customer can."),
         ]),
         ("Your mixes", [
-            ("Where are my sessions and tracks?", "Not here yet. Your board does not send what you play: that is being built. Until it is, the Mixes page says so instead of showing anything made up."),
+            ("Where are my sessions and tracks?", "Your board does not send what you play yet: that is being built. Until it is, Explore demo shows made-up sessions, and My journal holds the session files you import, in this browser only."),
         ]),
     ]
     public static let stillStuck = "Still stuck?"

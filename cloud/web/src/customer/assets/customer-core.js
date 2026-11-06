@@ -81,11 +81,33 @@ export const CUSTOMER_CHANNEL = 'cranium.customer.session';
 // Routes. The site has exactly these; anything else in the address bar is the home page.
 
 export const MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'moments']);
+
+// The mixes' words that the phone apps' Classic screens share (CustomerText.kt, CustomerWords.swift).
+export const MIXES_EYEBROW = 'Your mixes, remembered';
+export const MIXES_TITLE = 'Find your next great mix.';
+export const MIXES_LEDE = 'A home for the tracks, the transitions and the happy accidents of every set.';
+export const NOT_BUILT = 'Not built yet';
+export const WHY_EMPTY = 'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +
+  'plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime.';
+export const MIXES_NOTE = 'When it is built, only what you played is kept: track names and times, never the music itself.';
+export const TEASER_TITLE = 'Good mixes happen. Great ones get remembered.';
+export const TEASER_EYEBROW = 'After the last track';
+export const TEASER_TEXT = 'Your sessions, your transitions and the tracks you keep coming back to will live here, once your board ' +
+  'can tell this site what you played. That part is not built yet.';
+export const TEASER_MORE = 'What is coming';
+// The Overview's part about the boards, and the foot of every page.
+export const BOARDS_EYEBROW = 'Your boards, at a glance';
+export const BOARDS_LEDE = 'How your Cranium is doing, and what it did lately.';
+export const WELCOME = 'Welcome back.';
+export const FOOT_NOTE = 'Your music stays on your deck: this site only shows how your boards are.';
+
 const VIEWS = Object.freeze(['sign-in', 'forgot', 'admin-sign-in', 'overview', 'devices', 'mixes', 'account', 'help']);
 // What anybody may open, signed in or not.
 export const PUBLIC_VIEWS = Object.freeze(['landing', 'sign-in', 'forgot', 'admin-sign-in', 'help']);
 const ROUTE = /^#\/([a-z-]+)(?:\/([a-z0-9]+))?$/;
 export const BOARD_ID = /^[0-9a-f]{16}$/;
+// A session of the mixes (customer-mixes.js sessionId).
+export const SESSION_ID = /^s[0-9a-f]{8}$/;
 
 export function parseRoute(hash) {
   if (hash === '' || hash === '#' || hash === '#/') return { view: 'landing' };
@@ -95,12 +117,14 @@ export function parseRoute(hash) {
   if (item === undefined) return VIEWS.includes(view) ? { view } : null;
   if (view === 'devices' && BOARD_ID.test(item)) return { view: 'device', id: item };
   if (view === 'mixes' && MIX_TABS.includes(item)) return { view: 'mixes', tab: item };
+  if (view === 'sessions' && SESSION_ID.test(item)) return { view: 'session', id: item };
   return null;
 }
 
 export function routeHash(route) {
   if (route?.view === 'device' && BOARD_ID.test(route.id ?? '')) return `#/devices/${route.id}`;
   if (route?.view === 'mixes' && MIX_TABS.includes(route.tab)) return `#/mixes/${route.tab}`;
+  if (route?.view === 'session' && SESSION_ID.test(route.id ?? '')) return `#/sessions/${route.id}`;
   if (route?.view === 'landing') return '#/';
   return VIEWS.includes(route?.view) ? `#/${route.view}` : '#/';
 }

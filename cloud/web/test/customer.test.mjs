@@ -33,7 +33,13 @@ function customerScript(name, imports = {}, mark = '') {
 }
 
 const SITE_CORE = customerScript('customer-core.js', { 'core.js': CORE });
-const SITE_VIEWS = customerScript('customer-views.js', { 'core.js': CORE, 'views.js': VIEWS, 'customer-core.js': SITE_CORE });
+const SITE_MIXES = customerScript('customer-mixes.js');
+const SITE_MIX_VIEWS = customerScript('customer-mix-views.js', {
+  'views.js': VIEWS, 'customer-core.js': SITE_CORE, 'customer-mixes.js': SITE_MIXES,
+});
+const SITE_VIEWS = customerScript('customer-views.js', {
+  'core.js': CORE, 'views.js': VIEWS, 'customer-core.js': SITE_CORE, 'customer-mix-views.js': SITE_MIX_VIEWS,
+});
 const site = await import(SITE_CORE);
 
 const STAFF_POOL = 'xx-test-1_Staff0Pool';
@@ -75,7 +81,8 @@ test('the customer site\'s name gets the site at /, the console as admin mode at
   });
   const files = [...home.body.matchAll(/"(\/assets\/[0-9a-f]{12}\/[a-z.-]+)"/g)].map((match) => match[1]);
   assert.deepEqual(files.map((path) => path.split('/').pop()).sort(),
-    ['app.css', 'core.js', 'customer-core.js', 'customer-views.js', 'customer.css', 'customer.js', 'views.js']);
+    ['app.css', 'core.js', 'customer-core.js', 'customer-mix-views.js', 'customer-mixes.js', 'customer-views.js', 'customer.css',
+      'customer.js', 'views.js']);
   for (const path of files) {
     const asset = await web(request('cranium.example', path));
     assert.equal(asset.statusCode, 200, path);
@@ -175,7 +182,7 @@ test('the site serves the console\'s own core.js, views.js and app.css, byte for
     const served = loaded.assets.get(`/assets/${loaded.buildId}/${name}`);
     assert.equal(served.body, readFileSync(new URL(`assets/${name}`, SITE_DIR), 'utf8'), name);
   }
-  assert.deepEqual(ownAssets, ['customer-core.js', 'customer-views.js', 'customer.css', 'customer.js']);
+  assert.deepEqual(ownAssets, ['customer-core.js', 'customer-mix-views.js', 'customer-mixes.js', 'customer-views.js', 'customer.css', 'customer.js']);
   // No copy of the sign-in: the site's scripts have no SRP of their own.
   for (const name of ownAssets.filter((file) => file.endsWith('.js'))) {
     const source = code(readFileSync(new URL(`assets/${name}`, CUSTOMER_DIR), 'utf8'));
@@ -191,8 +198,8 @@ test('the page has no inline script, style or handler, and refers only to its ow
   }
   const fetched = [...page.matchAll(/\s(?:href|src)="([^"#][^"]*)"/g)].map((match) => match[1])
     .filter((reference) => !reference.startsWith('data:') && !reference.startsWith('https://github.com/'));
-  assert.deepEqual([...new Set(fetched)].sort(), ['app.css', 'core.js', 'customer-core.js', 'customer-views.js', 'customer.css',
-    'customer.js', 'views.js'].map((name) => `/assets/%BUILD%/${name}`).sort());
+  assert.deepEqual([...new Set(fetched)].sort(), ['app.css', 'core.js', 'customer-core.js', 'customer-mix-views.js', 'customer-mixes.js',
+    'customer-views.js', 'customer.css', 'customer.js', 'views.js'].map((name) => `/assets/%BUILD%/${name}`).sort());
   assert.equal((page.match(/%CONFIG%/g) ?? []).length, 1);
   assert.match(page, /<noscript>[\s\S]+<\/noscript>/);
   // No CDN, no font, no image to fetch.
@@ -596,6 +603,7 @@ async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null 
   copies += 1;
   await import(customerScript('customer.js', {
     'core.js': CORE, 'views.js': VIEWS, 'customer-core.js': SITE_CORE, 'customer-views.js': SITE_VIEWS, 'bridge.js': BRIDGE,
+    'customer-mixes.js': SITE_MIXES,
   }, `tab ${copies}`));
   await settle();
   const app = document.getElementById('app');
@@ -669,6 +677,11 @@ test('a customer signs in, lands on the page they asked for, and sees their boar
   assert.match(tab.text(), /Location Not reported: boards cannot tell where they are yet\./);
   tab.go('#/mixes/transitions');
   await until(() => /The space between tracks\./.test(tab.text()), 'the mixes');
+  // The demo first, said to be made up; the journal is empty, and says why.
+  assert.match(tab.text(), /Made-up sessions, to show what this will be/);
+  assert.match(tab.text(), /Copper Light → Low Tide Radio/);
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'My journal'));
+  await until(() => /Your journal is empty\./.test(tab.text()), 'the empty journal');
   assert.match(tab.text(), /Not built yet/);
   assert.match(tab.text(), /Nothing here is made up in the meantime\./);
   // No admin mode for a customer.
@@ -678,7 +691,7 @@ test('a customer signs in, lands on the page they asked for, and sees their boar
 test('the overview: figures, the boards and what they did; the account page labels every field', async (t) => {
   const tab = await openSite(t);
   await signInAsCustomer(tab);
-  await until(() => all(tab.app, 'div.cs-tiles').length === 1 && /Came online/.test(tab.text()), 'the overview');
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2 && /Came online/.test(tab.text()), 'the overview');
   assert.match(tab.text(), /Hello, Ada\./);
   assert.match(tab.text(), /Online now 1 of 1/);
   tab.go('#/account');
@@ -701,7 +714,7 @@ test('an invited customer chooses a password on the page, and signs in with it',
   tab.document.getElementById('first-password').value = 'a long one of her own';
   tab.document.getElementById('first-again').value = 'a long one of her own';
   tab.submit();
-  await until(() => all(tab.app, 'div.cs-tiles').length === 1, 'the overview');
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
   assert.equal(tab.accounts.get('5d0e1f2a-3b4c-4d5e-8f60-718293a4b5c6').status, 'CONFIRMED');
 });
 
@@ -729,7 +742,7 @@ test('an admin signs in with password and code, and is offered admin mode, which
   for (const link of all(tab.app, 'a')) assert.doesNotMatch(link.getAttribute('href') ?? '', /TOKEN|token=/);
   // Every link of the side panel (and of the tab bar of a small screen) opens its own page for an admin, who has no
   // boards of their own: not the overview, which Devices and Account once fell back to.
-  const titles = new Map([['overview', 'Signed in as an admin.'], ['devices', 'Boards, for admins'], ['mixes', 'Find your next great mix.'],
+  const titles = new Map([['overview', 'Signed in as an admin.'], ['devices', 'Boards, for admins'], ...MIX_TITLES,
     ['account', 'Your account'], ['help', 'How can we help?']]);
   await openEverySection(tab, titles);
   // A board's own page is a customer's: an admin gets the list's page.
@@ -739,10 +752,16 @@ test('an admin signs in with password and code, and is offered admin mode, which
   assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '/admin' && /admin mode/i.test(textOf(link))));
 });
 
+// The mixes' four pages, in the side panel; the tab bar of a small screen has the first three.
+const MIX_TITLES = [['mixes/sessions', 'Every set has a story.'], ['mixes/transitions', 'The space between tracks.'],
+  ['mixes/library', 'Your rotation, revealed.'], ['mixes/moments', 'Keep the good ones.']];
+const TAB_BAR = ['overview', 'mixes/sessions', 'mixes/transitions', 'mixes/library', 'devices'];
+
 /** Click each link of the sections, as the browser follows an anchor, and check the page that opens. */
 async function openEverySection(tab, titles) {
   for (const group of ['a.cs-nav-link', 'a.cs-tab']) {
     for (const [view, title] of titles) {
+      if (group === 'a.cs-tab' && !TAB_BAR.includes(view)) continue;
       tab.go('#/help');
       await until(() => tab.location.hash === '#/help', 'help');
       const link = all(tab.app, group.split('.')[0]).filter((a) => a.getAttribute('class') === group.split('.')[1])
@@ -760,15 +779,16 @@ async function openEverySection(tab, titles) {
 test('a customer opens every section of the side panel and the tab bar, and each is its own page', async (t) => {
   const tab = await openSite(t);
   await signInAsCustomer(tab);
-  await until(() => all(tab.app, 'div.cs-tiles').length === 1, 'the overview');
-  const titles = new Map([['overview', 'Hello, Ada.'], ['devices', 'Your boards'], ['mixes', 'Find your next great mix.'], ['account', 'Your account'], ['help', 'How can we help?']]);
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
+  const titles = new Map([['overview', 'Find your next great mix.'], ['devices', 'Your boards'], ...MIX_TITLES, ['account', 'Your account'],
+    ['help', 'How can we help?']]);
   await openEverySection(tab, titles);
 });
 
 test('signing out ends the session in the tab and takes it home', async (t) => {
   const tab = await openSite(t);
   await signInAsCustomer(tab);
-  await until(() => all(tab.app, 'div.cs-tiles').length === 1, 'the overview');
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
   click(all(tab.app, 'button').find((button) => /Sign out/.test(textOf(button))));
   await settle();
   assert.deepEqual(tab.navigations, [HOME]);

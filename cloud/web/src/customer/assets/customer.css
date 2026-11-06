@@ -13,12 +13,36 @@
   /* The record on the home page: ink, in both themes. */
   --record: #1c1814;
   --record-groove: rgb(250 247 242 / 0.16);
+  /* The sidebar: an ink panel in both themes, as the mockup's is. */
+  --side: #1c1814;
+  /* The squares of tracks: four shades of ink, each with its paper. */
+  --cover-0: #1c1814;
+  --cover-1: #4a4038;
+  --cover-2: #72675b;
+  --cover-3: #9a8d7e;
+  --on-cover: #faf7f2;
+  /* The decks on the shape of a set: A in the accent's wash, B in the well's. */
+  --deck-a: #f1d6c4;
+  --deck-a-ink: #7a2c08;
+  --deck-b: #e4dccf;
+  --deck-b-ink: #3b332c;
+  --radius-panel: 12px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --record: #0d0b09;
     --record-groove: rgb(243 238 231 / 0.18);
+    --side: #110e0c;
+    --cover-0: #f1ebe2;
+    --cover-1: #cfc4b6;
+    --cover-2: #a89a8a;
+    --cover-3: #7c6f62;
+    --on-cover: #1c1814;
+    --deck-a: #4a2a17;
+    --deck-a-ink: #f8cfb4;
+    --deck-b: #352e28;
+    --deck-b-ink: #e9e0d4;
   }
 }
 
@@ -68,7 +92,7 @@
   grid-template-columns: 264px minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(to right, var(--surface) 263px, var(--line) 263px, var(--line) 264px, transparent 264px);
+  background: linear-gradient(to right, var(--side) 264px, transparent 264px);
 }
 
 .cs-side {
@@ -81,12 +105,21 @@
   height: 100dvh;
   padding: 26px 18px 20px;
   overflow-y: auto;
-  border-right: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--side);
+}
+
+.cs-nav {
+  display: grid;
+  gap: 6px;
 }
 
 .cs-nav-title {
-  margin: 0 0 10px 12px;
+  margin: 0 0 6px 12px;
+  color: var(--ink-3);
+}
+
+.cs-nav-list + .cs-nav-title {
+  margin-top: 20px;
 }
 
 .cs-nav-list {
@@ -110,16 +143,45 @@
   color: var(--ink);
 }
 
-/* The section open now: in ink and bold, with the accent at its edge. */
-.cs-nav-link[aria-current="page"] {
-  background: var(--paper);
-  box-shadow: inset 3px 0 0 var(--accent), 0 0 0 1px var(--line);
+.cs-nav-label {
+  flex: 1;
+}
+
+.cs-nav-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* In the ink panel the links are its quieter ink, not its brightest. */
+.cs-side .cs-nav-link {
+  color: var(--ink-2);
+}
+
+.cs-side .cs-nav-link:hover {
   color: var(--ink);
+}
+
+/* The section open now: a paper pill on the ink, as in the mockup, with the accent's icon. */
+.cs-side .cs-nav-link[aria-current="page"],
+.cs-nav-link[aria-current="page"] {
+  background: #faf7f2;
+  color: #1c1814;
   font-weight: 600;
 }
 
 .cs-nav-link[aria-current="page"] .icon {
-  color: var(--accent);
+  color: #b7410e;
+}
+
+.cs-nav-link[aria-current="page"] .cs-nav-count {
+  border-color: #d1c6b6;
+  color: #574e45;
 }
 
 .cs-side-foot {
@@ -132,10 +194,15 @@
   display: grid;
   gap: 8px;
   padding: 16px;
-  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
 }
 
 .cs-side-card > .icon {
+  box-sizing: content-box;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--well);
   color: var(--ink-2);
 }
 
@@ -154,9 +221,19 @@
   align-items: center;
   gap: 6px;
   width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
   text-decoration: none;
+  cursor: pointer;
+}
+
+.cs-side-card-link:hover {
+  text-decoration: underline;
 }
 
 .cs-side-card-link .icon {
@@ -224,8 +301,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 68px;
-  padding: 12px var(--gutter);
+  width: calc(100% - 2 * var(--gutter));
+  max-width: calc(1280px - 2 * var(--gutter));
+  min-height: 84px;
+  margin: 0 auto;
+  padding: 16px 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -251,6 +331,48 @@
   gap: 12px;
 }
 
+.cs-top-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  text-decoration: none;
+}
+
+.cs-top-status:hover {
+  color: var(--ink);
+}
+
+.cs-top-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-mark);
+}
+
+.cs-top-status.is-live .cs-top-status-dot {
+  background: var(--bar-good);
+  box-shadow: 0 0 0 3px var(--good-wash);
+}
+
+.cs-top-account {
+  display: none;
+}
+
+/* Connect device: an ink button, as the mockup's, in both themes. */
+.btn.cs-connect {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.btn.cs-connect:hover {
+  border-color: var(--ink-2);
+  background: var(--ink-2);
+  color: var(--paper);
+}
+
 /* On a wide screen the sidebar holds the way to admin mode; on a small one the top bar does. */
 .cs-admin-mode.is-top {
   display: none;
@@ -273,7 +395,10 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px 24px;
-  padding: 18px var(--gutter) 28px;
+  width: calc(100% - 2 * var(--gutter));
+  max-width: calc(1280px - 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 18px 0 28px;
   border-top: 1px solid var(--line);
   color: var(--ink-3);
   font-size: 0.6875rem;
@@ -380,6 +505,14 @@
   width: 16px;
   height: 16px;
   color: var(--ink-3);
+}
+
+.cs-tile-label .cs-tile-icon {
+  margin-left: auto;
+}
+
+.cs-tiles .cs-tile {
+  border-radius: var(--radius-panel);
 }
 
 .cs-tile-value {
@@ -532,38 +665,6 @@
   font-size: 0.8125rem;
 }
 
-.cs-teaser {
-  display: grid;
-  gap: 10px;
-}
-
-.cs-teaser .eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cs-teaser .eyebrow .icon {
-  width: 15px;
-  height: 15px;
-}
-
-.cs-teaser-title {
-  font-size: 1.375rem;
-  font-weight: 700;
-  letter-spacing: -0.024em;
-  line-height: 1.15;
-}
-
-.cs-teaser-text {
-  color: var(--ink-2);
-  font-size: 0.875rem;
-}
-
-.cs-teaser .card-more {
-  width: fit-content;
-}
-
 /* Admin. */
 
 .cs-admin-panel {
@@ -640,38 +741,7 @@
   grid-template-columns: 132px minmax(0, 1fr);
 }
 
-/* Mixes: four tabs, and what each will hold, said as what it is. */
-
-.cs-segments {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-self: start;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--well);
-}
-
-.cs-segment {
-  padding: 7px 14px;
-  border-radius: var(--radius-small);
-  color: var(--ink-2);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.cs-segment:hover {
-  color: var(--ink);
-}
-
-.cs-segment[aria-current="page"] {
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line-strong);
-  color: var(--ink);
-  font-weight: 600;
-}
+/* Mixes: an empty journal, said as what it is. */
 
 .cs-placeholder {
   display: grid;
@@ -694,28 +764,6 @@
   max-width: 40rem;
   color: var(--ink-2);
   font-size: 1rem;
-}
-
-.cs-placeholder-why {
-  max-width: 44rem;
-  color: var(--ink-3);
-  font-size: 0.875rem;
-}
-
-.cs-lanes {
-  width: min(100%, 520px);
-  height: auto;
-  margin: 8px 0;
-}
-
-.cs-lane {
-  fill: var(--well);
-}
-
-.cs-lane-slot {
-  fill: none;
-  stroke: var(--line-mark);
-  stroke-dasharray: 4 4;
 }
 
 /* Account. */
@@ -1118,6 +1166,923 @@
   text-align: center;
 }
 
+/* The mixes (customer-mix-views.js): the tools of a page, the switch between the demo and the journal. */
+
+.cs-head-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cs-range-select {
+  min-width: 150px;
+  min-height: 44px;
+}
+
+.btn.cs-import {
+  min-height: 44px;
+}
+
+.cs-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-top: calc(-1 * clamp(8px, 1.2vw, 16px));
+}
+
+.cs-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+}
+
+.cs-switch-option {
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cs-switch-option:hover {
+  color: var(--ink);
+}
+
+.cs-switch-option[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(28 24 20 / 0.12), 0 0 0 1px var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cs-source-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-source-note .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The card on top of the Overview: words on the left, a record and its sleeve on the right. */
+
+.cs-hero-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  align-items: center;
+  min-height: 212px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.cs-hero-card-text {
+  display: grid;
+  gap: 12px;
+  padding: clamp(22px, 2.4vw, 32px);
+}
+
+.cs-hero-card-text .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cs-hero-card-title {
+  max-width: 22ch;
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+.cs-hero-card-lede {
+  max-width: 46ch;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+}
+
+.cs-link-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cs-link-more:hover {
+  color: var(--accent);
+}
+
+.cs-hero-card-art {
+  position: relative;
+  align-self: stretch;
+  min-height: 212px;
+}
+
+.cs-vinyl {
+  position: absolute;
+  top: 50%;
+  right: -46px;
+  width: 236px;
+  height: 236px;
+  transform: translateY(-50%);
+}
+
+.cs-sleeve {
+  position: absolute;
+  top: 50%;
+  right: 118px;
+  display: grid;
+  place-items: end start;
+  width: 134px;
+  height: 134px;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--well);
+  box-shadow: var(--lift);
+  transform: translateY(-50%) rotate(-12deg);
+}
+
+.cs-sleeve-text {
+  color: var(--ink-2);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.cs-hero-card-caption {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  color: var(--ink-3);
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* The Overview below the figures: the last set, and beside it the rotation and a moment. */
+
+.cs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  align-items: start;
+  gap: 24px;
+}
+
+.cs-grid-main,
+.cs-grid-side {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.cs-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.cs-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1875rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.cs-section-title .cs-tilt {
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+  transform: rotate(-45deg);
+}
+
+.cs-link-quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  text-decoration: none;
+}
+
+.cs-link-quiet:hover {
+  color: var(--ink);
+}
+
+.cs-link-quiet .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.cs-count {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.cs-panel-pad {
+  padding: clamp(16px, 1.8vw, 22px);
+}
+
+.cs-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px clamp(16px, 1.8vw, 22px);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+a.cs-panel-foot {
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+  text-decoration: none;
+}
+
+a.cs-panel-foot:hover {
+  background: var(--well);
+  color: var(--ink);
+}
+
+.cs-panel-foot .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* A set: its head, and its shape on two decks. */
+
+.cs-set-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.cs-set-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cs-set-head {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cs-set-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cs-set-title {
+  font-size: 1.125rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.cs-set-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cs-set-title a:hover {
+  text-decoration: underline;
+}
+
+.cs-set-meta {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+.cs-demo-tag {
+  align-self: flex-start;
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cs-shape {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+}
+
+.cs-shape-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cs-shape-head .eyebrow {
+  font-size: 0.625rem;
+}
+
+.cs-shape-time {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cs-lanes {
+  display: grid;
+  gap: 8px;
+}
+
+.cs-lane {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.cs-lane-name {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.cs-lane-track {
+  position: relative;
+  height: 26px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--well);
+}
+
+.cs-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--from);
+  width: var(--width);
+  overflow: hidden;
+  padding: 0 7px;
+  border-radius: 3px;
+  background: var(--deck-a);
+  color: var(--deck-a-ink);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-lane + .cs-lane .cs-block {
+  background: var(--deck-b);
+  color: var(--deck-b-ink);
+}
+
+.cs-shape-note {
+  padding-left: 22px;
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+}
+
+/* A track: its square, its name, its artist. */
+
+.cs-cover {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: var(--cover-0);
+  color: var(--on-cover);
+}
+
+.cs-cover.is-shade-1 { background: var(--cover-1); }
+.cs-cover.is-shade-2 { background: var(--cover-2); }
+.cs-cover.is-shade-3 { background: var(--cover-3); }
+
+.cs-cover-ring {
+  display: grid;
+  place-items: center;
+  width: 70%;
+  height: 70%;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+}
+
+.cs-cover.is-large {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+}
+
+.cs-cover.is-large .cs-cover-ring {
+  font-size: 0.75rem;
+}
+
+.cs-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cs-track-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.cs-track-title {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-track-artist {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The tracks of a set, or of the library: a search, and a table. */
+
+.cs-search {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px clamp(16px, 1.8vw, 22px);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.cs-panel > .cs-search:first-child {
+  border-top: 0;
+}
+
+.cs-search-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--ink-3);
+}
+
+.cs-search-field .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.cs-search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.cs-search-input:focus {
+  outline: none;
+}
+
+.cs-search-field:focus-within {
+  color: var(--ink);
+}
+
+.cs-search:focus-within {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.cs-search-note {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cs-tracks-none {
+  padding: 22px;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+.cs-tracktable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.cs-tracktable th,
+.cs-tracktable td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.cs-tracktable thead th {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  color: var(--ink-3);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cs-tracktable tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.cs-tracktable tbody tr:hover {
+  background: var(--well);
+}
+
+.cs-tracktable .is-number {
+  width: 3.5em;
+  padding-left: clamp(16px, 1.8vw, 22px);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cs-tracktable .is-narrow {
+  width: 11%;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cs-deck {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--well);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+/* The side of the Overview: on repeat, a moment to come back to. */
+
+.cs-card-title {
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.cs-card-lede {
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-repeat-list {
+  display: grid;
+  margin-top: 12px;
+}
+
+.cs-repeat-list li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cs-rank {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cs-plays {
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.cs-repeat-more {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.cs-revisit {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-radius: var(--radius-panel);
+  background: var(--well);
+}
+
+.cs-revisit > .icon {
+  color: var(--accent);
+}
+
+.cs-revisit-pair {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.cs-revisit-text {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.cs-revisit .btn {
+  width: fit-content;
+}
+
+/* Sessions, transitions and saved moments: cards in a grid. */
+
+.cs-sessions,
+.cs-pairs,
+.cs-moments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 18px;
+}
+
+.cs-pairs {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+
+.cs-session {
+  display: flex;
+  flex-direction: column;
+}
+
+.cs-session > .cs-panel-pad {
+  flex: 1;
+}
+
+.cs-pair,
+.cs-moment {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.cs-pair-covers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.cs-pair-swap {
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+}
+
+.cs-pair-keep {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.cs-pair-keep[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.cs-pair-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cs-pair-arrow {
+  color: var(--ink-3);
+}
+
+.cs-pair-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-pair-set {
+  width: fit-content;
+  margin-top: 4px;
+}
+
+.cs-moment-note {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--well);
+  color: var(--ink);
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cs-moment-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cs-moment-tools .cs-fine {
+  margin-right: auto;
+}
+
+.cs-fine {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-pairs-wrap {
+  display: grid;
+  gap: 0;
+}
+
+.cs-pairs-wrap > .cs-fine {
+  margin-top: 16px;
+}
+
+.cs-placeholder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.cs-boards-part {
+  display: grid;
+  gap: 20px;
+  margin-top: clamp(8px, 1.6vw, 20px);
+  padding-top: clamp(20px, 2.4vw, 32px);
+  border-top: 1px solid var(--line);
+}
+
+.cs-boards-part > .cs-section-head {
+  margin-bottom: -6px;
+}
+
+.cs-boards-head {
+  display: grid;
+  gap: 4px;
+}
+
+/* The dialogs of the mixes. */
+
+.cs-dialog {
+  width: min(600px, calc(100vw - 32px));
+}
+
+.cs-dialog-body .dialog-body {
+  display: grid;
+  gap: 14px;
+}
+
+.cs-dialog-body .dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cs-chain {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--well);
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.cs-steps {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+  list-style: decimal;
+}
+
+.cs-connect-state {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--well);
+}
+
+.cs-columns-list {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--well);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.cs-file {
+  display: grid;
+  gap: 6px;
+}
+
+.cs-file-input {
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.cs-done {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--good);
+  font-size: 0.875rem;
+}
+
+.cs-export-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.cs-export-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.cs-export-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.cs-note-input {
+  min-height: 96px;
+  resize: vertical;
+}
+
 /* Narrower screens. */
 
 @media (max-width: 1080px) {
@@ -1136,7 +2101,8 @@
     border-left: 0;
   }
 
-  .cs-columns {
+  .cs-columns,
+  .cs-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -1172,6 +2138,37 @@
 
   .cs-top-tools {
     gap: 8px;
+  }
+
+  .cs-top {
+    width: 100%;
+    max-width: none;
+  }
+
+  .cs-top-status,
+  .cs-top-tools .cs-admin-mode.is-top {
+    display: none;
+  }
+
+  .cs-top-account {
+    display: inline-flex;
+  }
+
+  .cs-hero-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cs-hero-card-art {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 40%;
+    min-height: 0;
+    opacity: 0.2;
+    pointer-events: none;
+  }
+
+  .cs-hero-card-caption {
+    display: none;
   }
 
   .cs-admin-mode.is-top {
@@ -1323,18 +2320,42 @@
     text-transform: uppercase;
   }
 
-  .cs-segments {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    .cs-foot {
+    padding-bottom: 20px;
+  }
+
+  .btn.cs-connect {
+    padding-inline: 12px;
+  }
+
+  .cs-tracktable .is-hide-small,
+  .cs-tracktable th.is-narrow:nth-child(3),
+  .cs-tracktable td.is-narrow:nth-child(3),
+  .cs-tracktable th.is-narrow:nth-child(5),
+  .cs-tracktable td.is-narrow:nth-child(5) {
+    display: none;
+  }
+
+  .cs-tracktable th,
+  .cs-tracktable td {
+    padding: 10px 8px;
+  }
+
+  .cs-head-tools {
     width: 100%;
   }
 
-  .cs-segment {
-    text-align: center;
+  .cs-range {
+    flex: 1;
   }
 
-  .cs-foot {
-    padding-bottom: 20px;
+  .cs-range-select {
+    width: 100%;
+  }
+
+  .cs-sleeve,
+  .cs-hero-card-art {
+    display: none;
   }
 }
 

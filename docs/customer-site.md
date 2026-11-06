@@ -20,39 +20,60 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `#/sign-in` | customers | E-mail and password; the code of an authenticator app, in six boxes, if the customer turned one on; a new password at the first sign-in |
 | `#/forgot` | customers | A password reset with a code e-mailed by Cognito |
 | `#/admin-sign-in` | the team | The staff account of the console: e-mail, password and code, always |
-| `#/overview` | a customer | Four figures (online now, boards, firmware, last heard from), the boards, what they did in the last week, and what is coming for mixes |
+| `#/overview` | a customer | The mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to), then the boards: four figures, the boards and what they did in the last week |
 | `#/overview` | an admin | Who is signed in, and **Open admin mode** |
 | `#/devices`, `#/devices/<id>` | a customer | The boards as a table; one board's state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
-| `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Saved moments: **not built yet**, and the page says so |
+| `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Saved moments, of the demo or of the customer's own journal (below) |
+| `#/sessions/<id>` | signed in | One session: its shape on the two decks, every track, its transitions, Export set, and Remove for one of the journal |
 | `#/account` | a customer | Their address, a password change, two-step sign-in on or off, sign out |
 | `#/help` | anybody | Questions and answers about the board, its updates and the account |
 | `https://example.com/admin` | the team | **Admin mode**: the firmware console itself, with a way back ("Leave admin mode") |
 | `https://www.example.com/...` | anybody | Sent to `https://example.com/` (or `/admin`), so that there is one origin |
 
-The pages follow the mockup the owner chose (a studio sidebar, a top bar with how the boards are, figures, the boards,
-what happened, the mixes; at 390 px a bar of sections at the foot), in the console's own design: its colours for light
-and dark, its type, its buttons, badges, cards, fields and six boxes, with one ink panel per page. At 390 px the sidebar
-gives way to that bar. Every field has a label, every state has a word or an icon as well as a colour, and focus moves to
-each page's heading.
+The pages follow the mockup the owner chose, in the console's colours for light and dark: a dark sidebar of the
+workspace (Overview, Sessions, Transitions, Track library, Saved moments with how many are kept) and of the boards
+(Devices, Account, Help), with "Your deck, a little more connected" and Connect your board at its foot; a top bar with
+how many boards are online, Export, and **Connect device**; each page's title with the range (all time, 7 or 30 days)
+and **Import session**; and the switch between **Explore demo** and **My journal**. At 390 px the sidebar gives way to
+a bar of five sections at the foot (Overview, Sessions, Transitions, Library, Devices), and Account is in the top bar.
+Every field has a label, every state has a word or an icon as well as a colour, and focus moves to each page's heading.
 
-### What is shown, and what is not built
+### The mixes: the demo, and the customer's own journal
 
 The mockup is a DJ journal: sessions, transitions, a track library and saved moments, synced from the board. Cranium's
-boards do not report what is played: that needs the Raspberry Pi to record what Mixxx plays and the board to pass it on,
-and neither is built. So the site is built on what the boards do report, and the rest is a placeholder that says so:
+boards do not report what is played yet: that needs the Raspberry Pi to record what Mixxx plays and the board to pass it
+on, and neither is built. So the mixes come from two places (`customer-mixes.js`, its pages in `customer-mix-views.js`):
 
-| Mockup | Here |
+- **Explore demo**: three made-up sessions of made-up tracks, dated from today so that the ranges show something. Every
+  page that shows them says so ("Made-up sessions, to show what this will be"), and each card has a Demo tag.
+- **My journal**: the sessions the customer imports, kept in their browser's `localStorage` under their e-mail address,
+  never on Cranium's servers. A file is a CSV of tracks, one line each (`session, started, title, artist, deck, start,
+  end, bpm, key`; only `started` and `title` are needed, times in seconds or m:ss from the start of the set), or a JSON
+  file of this site (`"format": "cranium-mixes", "version": 1`). At most 1 MB, 200 sessions of 400 tracks; every field is
+  checked and cut to size, and a session imported again replaces itself. The journal is empty until a file is imported,
+  and says why. In the phone app the page's storage may not last: the journal is then kept while the page is open.
+
+What each page works out, the same for both:
+
+| Page | What |
 | --- | --- |
-| Overview: hero, four figures, the last set, On repeat, a moment to come back to | Hero, four figures from the boards (online, boards, firmware, last report), the boards, the last week of what they did, and a card on the mixes to come |
-| Board offline / Connect device (Web Bluetooth) | How many boards are online. Connecting a board to the browser is **not built** |
-| Sessions, Transitions, Track library, Saved moments | **Not built yet**: one page with the four tabs, each saying what it will hold and why it is empty. No made-up tracks |
-| Import session, Export set, journal backup, the date range | **Not built** (there is nothing to import or export yet) |
-| (not in the mockup) | Devices, a board's page, Account, Help, the sign-in pages, admin mode |
+| Overview | Time on the decks (two decks at once counted once), sessions, tracks played and how many different, overlaps; the last set; the four most played tracks; the longest overlap of the last set, to keep |
+| Sessions, one session | Each set's shape on decks A and B, its tracks in the order they started with deck, BPM, key and when, a search, Export set (CSV) |
+| Transitions | Each pair of tracks in start order, their BPMs, how long both played (when both tracks' times are known), and a bookmark to keep it |
+| Track library | Every track, the most played first, with its plays, BPM and time on the decks, and a search |
+| Saved moments | The pairs kept, each with the customer's own note (500 characters), to edit or forget |
+
+Export (the top bar) backs the journal up as JSON, which Import brings back, or writes every track as a CSV, where a
+cell that starts like a formula starts with a quote instead. In the app, a file goes to the phone's share sheet.
+**Connect device** says what is built (the board's reports and its updates) and what is not (the Pi and the board passing
+on what is played), how many boards are online, and offers Import and a sample file instead. Nothing rates a blend: an
+overlap is only how long two tracks played at once.
 
 Also not built: a board's **location** (the fleet work's location by Wi-Fi, `docs/fleet.md`; the page says "Not reported"),
 a **QR code** for setting up an authenticator app (the setup key is shown in groups of four, with a copy button and an
 `otpauth://` link that opens the app on a phone), a **sign-up** page, a **support address** (Help says there is none yet),
-and **updates started by a customer**: the mockup has none, so updates stay with admins, on the console.
+**updates started by a customer** (the mockup has none, so updates stay with admins, on the console), and **Web
+Bluetooth** from the site to a board (the firmware sends no tracks to pass on yet).
 
 ## Accounts
 

@@ -8,10 +8,10 @@
  * Cognito can become markup. The look is the console's stylesheet (app.css) with a few layouts of
  * the site's own (customer.css).
  *
- * The layout follows the mockup the owner chose: a sidebar of the studio's sections, a bar on top
- * with how the boards are, figures, the boards, what they did, and the mixes. What the boards do
- * not report yet (the mixes: sessions, transitions, the track library, saved moments) is shown as
- * what it is: not built yet. Nothing here makes data up.
+ * The layout follows the mockup the owner chose: a dark sidebar of the studio's sections, a bar on
+ * top with how the boards are, Export and Connect device, and pages of mixes (customer-mix-views.js)
+ * beside the boards. Boards do not send what they play yet, so the mixes are the demo, which says
+ * it is made up wherever it shows, or the customer's own journal of the session files they import.
  */
 
 import { CODE_LENGTH, SIGN_IN_WORDS, dateAndTime, duration, exactTime, signalQuality, timeAgo } from './core.js';
@@ -19,9 +19,13 @@ import {
   badge, brandMark, button, card, domeArt, empty, facts, h, icon, notice, signalBars,
 } from './views.js';
 import {
-  ACCOUNT_WORDS, MIX_TABS, PASSWORD_MIN, boardTitle, eventWords, groupSecret, initials, onlineWords, otpauthUri, plural,
+  ACCOUNT_WORDS, BOARDS_EYEBROW, BOARDS_LEDE, FOOT_NOTE, MIXES_EYEBROW, MIXES_LEDE, MIXES_TITLE, MIX_TABS, PASSWORD_MIN, WELCOME, boardTitle, eventWords, groupSecret, initials, onlineWords, otpauthUri, plural,
   shortVersion, signalWords, statusWords, summarize, updateWords,
 } from './customer-core.js';
+import {
+  libraryList, mixDialog, mixIcon, mixTools, momentsList, overviewMixes,
+  sessionPage, sessionsList, transitionsList,
+} from './customer-mix-views.js';
 
 // Icons the console does not have, drawn the same way: 24 by 24, stroked in the text colour.
 const SITE_ICONS = {
@@ -47,25 +51,48 @@ function ago(iso, now) {
 
 // The frame of a signed-in page.
 
-const SECTIONS = Object.freeze([
-  ['overview', 'Overview', 'grid'],
-  ['devices', 'Devices', 'chip'],
-  ['mixes', 'Mixes', 'disc'],
-  ['account', 'Account', 'user'],
-  ['help', 'Help', 'help'],
+// [the section, its address, its name, its icon]: the mixes first, as in the mockup, then the boards.
+const WORKSPACE = Object.freeze([
+  ['overview', '#/overview', 'Overview', 'grid'],
+  ['mixes:sessions', '#/mixes/sessions', 'Sessions', 'layers'],
+  ['mixes:transitions', '#/mixes/transitions', 'Transitions', 'swap'],
+  ['mixes:library', '#/mixes/library', 'Track library', 'note'],
+  ['mixes:moments', '#/mixes/moments', 'Saved moments', 'bookmark'],
 ]);
-const SECTION_OF = { device: 'devices' };
+const CRANIUM = Object.freeze([
+  ['devices', '#/devices', 'Devices', 'chip'],
+  ['account', '#/account', 'Account', 'user'],
+  ['help', '#/help', 'Help', 'help'],
+]);
+// The tab bar of a small screen: the five a phone needs most. Account and Help are in its top bar.
+const TABS = Object.freeze(['overview', 'mixes:sessions', 'mixes:transitions', 'mixes:library', 'devices']);
+const SHORT = { 'mixes:library': 'Library', 'mixes:moments': 'Moments' };
 const TITLES = {
-  overview: 'Overview', devices: 'Devices', device: 'Device', mixes: 'Mixes', account: 'Account', help: 'Help',
+  overview: 'Overview', devices: 'Devices', device: 'Device', account: 'Account', help: 'Help', session: 'Session',
+  'mixes:sessions': 'Sessions', 'mixes:transitions': 'Transitions', 'mixes:library': 'Track library', 'mixes:moments': 'Saved moments',
 };
 
-function navLinks(current, className) {
-  return SECTIONS.map(([view, label, iconName]) => h('li', { key: view },
+/** The section a page is in: a board is in Devices, a session in Sessions, a tab of the mixes its own. */
+function sectionOf(route) {
+  if (route.view === 'device') return 'devices';
+  if (route.view === 'session') return 'mixes:sessions';
+  if (route.view === 'mixes') return `mixes:${route.tab ?? 'sessions'}`;
+  return route.view;
+}
+
+function siteOrMixIcon(name) {
+  return SITE_ICONS[name] ? siteIcon(name) : mixIcon(name);
+}
+
+function navLinks(items, current, className, ctx, { short = false } = {}) {
+  return items.map(([section, href, label, iconName]) => h('li', { key: section },
     h('a', {
       class: className,
-      href: `#/${view}`,
-      'aria-current': view === current ? 'page' : null,
-    }, siteIcon(iconName), h('span', null, label))));
+      href,
+      'aria-current': section === current ? 'page' : null,
+    }, siteOrMixIcon(iconName), h('span', { class: 'cs-nav-label' }, short ? SHORT[section] ?? label : label),
+    section === 'mixes:moments' && ctx ? h('span', { class: 'cs-nav-count', 'aria-label': `, ${ctx.mixes.journal.moments.length} kept` },
+      String(ctx.mixes.journal.moments.length)) : null)));
 }
 
 function brand(sub) {
@@ -81,8 +108,9 @@ function boardsBadge(ctx) {
   const boards = ctx.state.boards.value;
   if (!ctx.state.customer || boards === null) return null;
   const summary = summarize(boards);
-  const tone = summary.total === 0 ? 'idle' : summary.online > 0 ? 'good' : 'idle';
-  return badge(tone, summary.online > 0 ? 'online' : 'offline', onlineWords(summary));
+  const live = summary.online > 0;
+  return h('a', { class: `cs-top-status ${live ? 'is-live' : ''}`.trim(), href: '#/devices', title: 'Your boards' },
+    h('span', { class: 'cs-top-status-dot', 'aria-hidden': 'true' }), onlineWords(summary));
 }
 
 function adminButton(ctx, className = '') {
@@ -108,24 +136,24 @@ function roleOf(ctx) {
   return me.canWrite ? 'Admin · release manager' : 'Admin · viewer';
 }
 
-/** A signed-in page: the sidebar, the top bar, the page, and the tab bar of a small screen. */
+/** A signed-in page: the sidebar, the top bar, the page, the tab bar of a small screen, and a dialog. */
 export function shellView(ctx, page) {
-  const view = ctx.state.route.view;
-  const current = SECTION_OF[view] ?? view;
+  const current = sectionOf(ctx.state.route);
   return h('div', { class: 'cs-shell' },
-    h('aside', { class: 'cs-side' },
+    h('aside', { class: 'cs-side on-ink' },
       brand('Your studio'),
       h('nav', { class: 'cs-nav', 'aria-label': 'Sections' },
-        h('p', { class: 'eyebrow cs-nav-title' }, 'Your studio'),
-        h('ul', { class: 'cs-nav-list' }, navLinks(current, 'cs-nav-link'))),
+        h('p', { class: 'eyebrow cs-nav-title' }, 'Your workspace'),
+        h('ul', { class: 'cs-nav-list' }, navLinks(WORKSPACE, current, 'cs-nav-link', ctx)),
+        h('p', { class: 'eyebrow cs-nav-title' }, 'Your Cranium'),
+        h('ul', { class: 'cs-nav-list' }, navLinks(CRANIUM, current, 'cs-nav-link'))),
       h('div', { class: 'cs-side-foot' },
-        ctx.state.customer
-          ? h('div', { class: 'cs-side-card on-ink' },
-            siteIcon('chip'),
-            h('p', { class: 'cs-side-card-title' }, 'Your deck, a little more connected.'),
-            h('p', { class: 'cs-side-card-text' }, 'Every board on your account, how it is and what it runs.'),
-            h('a', { class: 'cs-side-card-link', href: '#/devices' }, 'See your boards', icon('arrow-right')))
-          : null,
+        h('div', { class: 'cs-side-card' },
+          siteIcon('chip'),
+          h('p', { class: 'cs-side-card-title' }, 'Your deck, a little more connected.'),
+          h('p', { class: 'cs-side-card-text' }, 'Bring the moments of your mix back to your laptop.'),
+          h('button', { type: 'button', class: 'cs-side-card-link', onClick: () => ctx.actions.mix.open({ kind: 'connect' }) },
+            'Connect your board', icon('arrow-right'))),
         adminButton(ctx),
         who(ctx))),
     h('div', { class: 'cs-body' },
@@ -133,13 +161,24 @@ export function shellView(ctx, page) {
         h('div', { class: 'cs-top-brand' }, brand('Your studio')),
         h('p', { class: 'cs-crumbs' },
           h('span', null, 'Your studio'), h('span', { class: 'cs-crumbs-sep', 'aria-hidden': 'true' }, '/'),
-          h('span', { class: 'cs-crumbs-here' }, TITLES[view] ?? '')),
-        h('div', { class: 'cs-top-tools' }, boardsBadge(ctx), adminButton(ctx, 'is-top'))),
+          h('span', { class: 'cs-crumbs-here' }, TITLES[current] ?? '')),
+        h('div', { class: 'cs-top-tools' },
+          boardsBadge(ctx),
+          h('button', {
+            type: 'button', class: 'btn is-icon is-quiet cs-export', 'aria-label': 'Export or back up your journal', title: 'Export or back up your journal',
+            onClick: () => ctx.actions.mix.open({ kind: 'export' }),
+          }, icon('download')),
+          h('a', { class: 'btn is-icon is-quiet cs-top-account', href: '#/account', 'aria-label': 'Account' }, icon('user')),
+          adminButton(ctx, 'is-top'),
+          h('button', { type: 'button', class: 'btn cs-connect', onClick: () => ctx.actions.mix.open({ kind: 'connect' }) },
+            mixIcon('bluetooth'), h('span', null, 'Connect device')))),
       h('main', { class: 'cs-main', id: 'content', tabindex: '-1' }, page),
       h('footer', { class: 'cs-foot' },
-        h('span', null, 'Cranium · in development'),
-        h('span', null, 'Your music stays on your deck: this site only shows how your boards are.'))),
-    h('nav', { class: 'cs-tabbar on-ink', 'aria-label': 'Sections' }, h('ul', null, navLinks(current, 'cs-tab'))));
+        h('span', null, 'Cranium · a little memory for every mix'),
+        h('span', null, FOOT_NOTE))),
+    h('nav', { class: 'cs-tabbar on-ink', 'aria-label': 'Sections' },
+      h('ul', null, navLinks([...WORKSPACE, ...CRANIUM].filter(([section]) => TABS.includes(section)), current, 'cs-tab', null, { short: true }))),
+    mixDialog(ctx));
 }
 
 function head({ eyebrow, title, lede, tools }) {
@@ -220,16 +259,6 @@ function activityList(events, boards, now, { compact = false } = {}) {
   }));
 }
 
-function mixesTeaser() {
-  return h('section', { class: 'cs-teaser card', key: 'mixes' },
-    h('p', { class: 'eyebrow' }, siteIcon('disc', 'is-small'), ' After the last track'),
-    h('h2', { class: 'cs-teaser-title' }, 'Good mixes happen. Great ones get remembered.'),
-    h('p', { class: 'cs-teaser-text' },
-      'Your sessions, your transitions and the tracks you keep coming back to will live here, once your board ' +
-      'can tell this site what you played. That part is not built yet.'),
-    h('a', { class: 'card-more', href: '#/mixes' }, 'What is coming', icon('arrow-right')));
-}
-
 function adminOverview(ctx) {
   const me = ctx.state.staff.value;
   return h('div', { class: 'cs-page', key: 'admin' },
@@ -259,35 +288,43 @@ export function overviewView(ctx) {
   const list = boards.value;
   return h('div', { class: 'cs-page', key: 'overview' },
     head({
-      eyebrow: 'Your boards, at a glance',
-      title: name ? `Hello, ${name}.` : 'Welcome back.',
-      lede: 'How your Cranium is doing, and what it did lately.',
+      eyebrow: MIXES_EYEBROW,
+      title: MIXES_TITLE,
+      lede: `${name ? `Hello, ${name}.` : WELCOME} ${MIXES_LEDE}`,
+      tools: mixTools(ctx),
     }),
-    problem(boards, 'your boards', ctx),
-    list === null
-      ? (boards.error ? null : loadingLine('your boards'))
-      : [
-        tiles(list, ctx.now),
-        h('div', { class: 'cs-columns' },
-          h('div', { class: 'cs-column' },
-            card({ key: 'boards', title: 'Your boards', more: list.length > 0 ? { href: '#/devices', label: 'All devices' } : null },
-              list.length === 0
-                ? empty({
-                  iconName: 'chip',
-                  title: 'No boards on your account yet.',
-                  text: 'Once Cranium gives you a board, it shows here.',
-                })
-                : h('ul', { class: 'cs-boards' }, list.map((board) => boardRow(board, ctx.now))))),
-          h('div', { class: 'cs-column is-side' },
-            card({ key: 'activity', title: 'Lately' },
-              problem(activity, 'what your boards did', ctx),
-              activity.value === null
-                ? (activity.error ? null : loadingLine('what your boards did'))
-                : activity.value.length === 0
-                  ? h('p', { class: 'card-note' }, 'Nothing in the last week.')
-                  : activityList(activity.value.slice(0, 8), list, ctx.now, { compact: true })),
-            mixesTeaser())),
-      ]);
+    overviewMixes(ctx),
+    h('section', { class: 'cs-boards-part', key: 'boards-part', 'aria-labelledby': 'boards-title' },
+      h('header', { class: 'cs-section-head' },
+        h('div', { class: 'cs-boards-head' },
+          h('p', { class: 'eyebrow' }, BOARDS_EYEBROW),
+          h('h2', { class: 'cs-section-title', id: 'boards-title' }, 'Your boards'),
+          h('p', { class: 'cs-card-lede' }, BOARDS_LEDE)),
+        list && list.length > 0 ? h('a', { class: 'cs-link-quiet', href: '#/devices' }, 'All devices', icon('arrow-right')) : null),
+      problem(boards, 'your boards', ctx),
+      list === null
+        ? (boards.error ? null : loadingLine('your boards'))
+        : [
+          tiles(list, ctx.now),
+          h('div', { class: 'cs-columns', key: 'board-columns' },
+            h('div', { class: 'cs-column' },
+              card({ key: 'boards', title: 'On your account' },
+                list.length === 0
+                  ? empty({
+                    iconName: 'chip',
+                    title: 'No boards on your account yet.',
+                    text: 'Once Cranium gives you a board, it shows here.',
+                  })
+                  : h('ul', { class: 'cs-boards' }, list.map((board) => boardRow(board, ctx.now))))),
+            h('div', { class: 'cs-column is-side' },
+              card({ key: 'activity', title: 'Lately' },
+                problem(activity, 'what your boards did', ctx),
+                activity.value === null
+                  ? (activity.error ? null : loadingLine('what your boards did'))
+                  : activity.value.length === 0
+                    ? h('p', { class: 'card-note' }, 'Nothing in the last week.')
+                    : activityList(activity.value.slice(0, 6), list, ctx.now, { compact: true })))),
+        ]));
 }
 
 // Devices.
@@ -388,7 +425,7 @@ export function deviceView(ctx) {
             : activityList(activity, [board], ctx.now)))));
 }
 
-// Mixes: what the boards cannot report yet. Placeholders, in so many words.
+// Mixes: the pages of customer-mix-views.js, under the words each tab has had since the first site.
 
 const MIX_WORDS = Object.freeze({
   sessions: {
@@ -412,41 +449,26 @@ const MIX_WORDS = Object.freeze({
     text: 'A note on a transition worth trying again, kept with your account for your next set.',
   },
 });
-
-/** Two decks as lanes, with nothing on them: what a session will look like, not a session. */
-function lanes() {
-  return h('svg', { class: 'cs-lanes', viewBox: '0 0 320 64', 'aria-hidden': 'true', focusable: 'false' },
-    h('rect', { class: 'cs-lane', x: '0', y: '6', width: '320', height: '20', rx: '4' }),
-    h('rect', { class: 'cs-lane', x: '0', y: '38', width: '320', height: '20', rx: '4' }),
-    [[8, 6, 70], [104, 6, 64], [200, 6, 76], [56, 38, 62], [150, 38, 70], [246, 38, 66]].map(([x, y, w], index) =>
-      h('rect', { key: String(index), class: 'cs-lane-slot', x: String(x), y: String(y), width: String(w), height: '20', rx: '4' })));
-}
+const MIX_PAGES = { sessions: sessionsList, transitions: transitionsList, library: libraryList, moments: momentsList };
 
 export function mixesView(ctx) {
-  const tab = ctx.state.route.tab ?? 'sessions';
+  const tab = MIX_TABS.includes(ctx.state.route.tab) ? ctx.state.route.tab : 'sessions';
   const words = MIX_WORDS[tab];
-  return h('div', { class: 'cs-page', key: 'mixes' },
-    head({
-      eyebrow: 'Your mixes, remembered',
-      title: 'Find your next great mix.',
-      lede: 'A home for the tracks, the transitions and the happy accidents of every set.',
-    }),
-    h('nav', { class: 'cs-segments', 'aria-label': 'Mixes' }, MIX_TABS.map((name) => h('a', {
-      key: name,
-      class: 'cs-segment',
-      href: `#/mixes/${name}`,
-      'aria-current': name === tab ? 'page' : null,
-    }, MIX_WORDS[name].label))),
-    h('section', { class: 'cs-placeholder', key: tab, 'aria-labelledby': 'mix-title' },
-      h('span', { class: 'tag is-warn cs-placeholder-tag' }, 'Not built yet'),
-      h('h2', { class: 'cs-placeholder-title', id: 'mix-title' }, words.title),
-      h('p', { class: 'cs-placeholder-text' }, words.text),
-      lanes(),
-      h('p', { class: 'cs-placeholder-why' },
-        'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +
-        'plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime.')),
-    h('p', { class: 'cs-note' }, icon('shield'),
-      h('span', null, 'When it is built, only what you played is kept: track names and times, never the music itself.')));
+  return h('div', { class: 'cs-page', key: `mixes-${tab}` },
+    head({ eyebrow: MIXES_EYEBROW, title: words.title, lede: words.text, tools: tab === 'moments' ? null : mixTools(ctx) }),
+    MIX_PAGES[tab](ctx));
+}
+
+export function sessionView(ctx) {
+  const session = ctx.mixes.find(ctx.state.route.id);
+  const back = h('a', { class: 'back', href: '#/mixes/sessions' }, icon('arrow-left'), 'All sessions');
+  if (!session) {
+    return h('div', { class: 'cs-page', key: 'session' }, back,
+      empty({ iconName: 'list', title: 'There is no such session here.', text: 'It may have been removed from your journal, or be in another browser.' }));
+  }
+  return h('div', { class: 'cs-page', key: `session-${session.id}` }, back,
+    head({ eyebrow: session.source === 'demo' ? 'A session of the demo' : 'A session of your journal', title: session.title }),
+    sessionPage(ctx, session));
 }
 
 // Account.
@@ -637,7 +659,7 @@ const HELP = [
     ['Who can see my boards?', 'You, and the people at Cranium who look after the boards. No other customer can.'],
   ]],
   ['Your mixes', [
-    ['Where are my sessions and tracks?', 'Not here yet. Your board does not send what you play: that is being built. Until it is, the Mixes page says so instead of showing anything made up.'],
+    ['Where are my sessions and tracks?', 'Your board does not send what you play yet: that is being built. Until it is, Explore demo shows made-up sessions, and My journal holds the session files you import, in this browser only.'],
   ]],
 ];
 
