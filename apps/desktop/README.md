@@ -30,7 +30,7 @@ From a checkout only (never in a built app):
 | Variable | What it does |
 | --- | --- |
 | `CRANIUM_DESKTOP_PAGE=admin` | Opens the console first, as a build without the customer pool does |
-| `CRANIUM_DESKTOP_SMOKE=<file.png>` | Takes a picture of the window a few seconds after the page loaded (`CRANIUM_DESKTOP_SMOKE_MS`, 6000 by default), says the page's address and title, and quits |
+| `CRANIUM_DESKTOP_SMOKE=<file.png>` | Runs with nothing on screen: an offscreen window that is never shown, and no dock icon. It takes a picture a few seconds after the page loaded (`CRANIUM_DESKTOP_SMOKE_MS`, 6000 by default), prints the page's address, title and the app's name, and quits. It gives up after 45 s with exit code 1. CI uses it |
 
 The page's warnings and errors print in the terminal, and the View menu has the developer tools.
 

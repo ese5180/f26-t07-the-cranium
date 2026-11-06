@@ -69,6 +69,25 @@ const log = (line) => console.log(JSON.stringify({ at: new Date().toISOString(),
 // What the app was built with: in a packaged app, its resources; from a checkout, build/ (scripts/prepare.mjs).
 const RESOURCES = app.isPackaged ? process.resourcesPath : join(HERE, '..', 'build');
 
+// The app's own name wherever Electron shows one (menus, dialogs, About, the folder of its data): a checkout runs
+// Electron's own binary, which would otherwise say "Electron". A built app has it from productName as well.
+const APP_NAME = 'Cranium';
+app.setName(APP_NAME);
+app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: app.getVersion() });
+
+// From a checkout only: CRANIUM_DESKTOP_SMOKE=<png> runs the app with nothing on screen (an offscreen window
+// that is never shown, no dock icon), takes a picture once the page has drawn, and quits; or gives up and
+// quits after SMOKE_LIMIT_MS. CI and the tests use it; it never opens a window in front of anybody.
+const SMOKE = app.isPackaged ? null : process.env.CRANIUM_DESKTOP_SMOKE || null;
+const SMOKE_LIMIT_MS = 45_000;
+if (SMOKE) {
+  app.dock?.hide();
+  setTimeout(() => {
+    log({ smoke: 'timed out' });
+    app.exit(1);
+  }, SMOKE_LIMIT_MS).unref();
+}
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: SCHEME,
@@ -471,6 +490,8 @@ async function start() {
         spellcheck: false,
         navigateOnDragDrop: false,
         safeDialogs: true,
+        // A smoke run draws offscreen: nothing appears, and the picture is still taken.
+        offscreen: SMOKE !== null,
       },
     });
     const contents = window.webContents;
@@ -501,24 +522,25 @@ async function start() {
       send('app.lifecycle', { state: 'foreground' });
       if (Date.now() - lastPagesCheck >= UPDATE_PAGES_EVERY_MS) lookForPages().catch(() => {});
     });
-    window.once('ready-to-show', () => window.show());
+    // A smoke run's window is never shown (SMOKE, above).
+    window.once('ready-to-show', () => {
+      if (!SMOKE) window.show();
+    });
     if (!app.isPackaged) {
-      // From a checkout: the page's warnings and errors in the terminal, and with CRANIUM_DESKTOP_SMOKE=<png>
-      // a picture of the window after a few seconds, then quit (apps/desktop/README.md, "Trying it").
+      // From a checkout: the page's warnings and errors in the terminal (apps/desktop/README.md, "Trying it").
       contents.on('console-message', (event) => {
         if (['warning', 'error'].includes(event.level)) log({ page: event.level, message: String(event.message).slice(0, 300) });
       });
-      const smoke = process.env.CRANIUM_DESKTOP_SMOKE;
-      if (smoke) {
-        contents.once('did-finish-load', () => {
-          setTimeout(async () => {
-            const picture = await contents.capturePage();
-            await writeFile(smoke, picture.toPNG());
-            log({ smoke: 'done', url: contents.getURL(), title: contents.getTitle() });
-            app.quit();
-          }, Number(process.env.CRANIUM_DESKTOP_SMOKE_MS ?? 6000));
-        });
-      }
+    }
+    if (SMOKE) {
+      contents.once('did-finish-load', () => {
+        setTimeout(async () => {
+          const picture = await contents.capturePage();
+          await writeFile(SMOKE, picture.toPNG());
+          log({ smoke: 'done', url: contents.getURL(), title: contents.getTitle(), name: app.getName() });
+          app.quit();
+        }, Number(process.env.CRANIUM_DESKTOP_SMOKE_MS ?? 6000));
+      });
     }
     window.on('closed', () => {
       bluetooth.stop();
