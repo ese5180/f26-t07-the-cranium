@@ -39,8 +39,10 @@ jobs:
     name: Windows installers
     runs-on: windows-latest
     timeout-minutes: 40
+    # A job's own defaults replace the workflow's: without shell here, Windows runs the steps in PowerShell.
     defaults:
       run:
+        shell: bash
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,19 +104,26 @@ jobs:
       - name: Install it silently, then uninstall it
         env:
           VERSION: ${{ steps.built.outputs.version }}
+          # Git's bash would otherwise turn the installer's /S into a path.
+          MSYS_NO_PATHCONV: '1'
         run: |
+          local_data="$(cygpath -u "$LOCALAPPDATA")"
+          roaming="$(cygpath -u "$APPDATA")"
+          home="$(cygpath -u "$USERPROFILE")"
+          dir="$local_data/Programs/Cranium"
+          start_menu="$roaming/Microsoft/Windows/Start Menu/Programs/Cranium.lnk"
           ./dist/"Cranium-Setup-$VERSION.exe" /S
-          dir="$LOCALAPPDATA/Programs/Cranium"
-          test -f "$dir/Cranium.exe" || { echo "::error::Not installed in $dir."; ls "$LOCALAPPDATA/Programs" || true; exit 1; }
-          test -f "$APPDATA/Microsoft/Windows/Start Menu/Programs/Cranium.lnk" || { echo "::error::No Start menu entry."; exit 1; }
+          for _ in $(seq 1 90); do [ -f "$dir/Cranium.exe" ] && [ -f "$start_menu" ] && break; sleep 1; done
+          test -f "$dir/Cranium.exe" || { echo "::error::Not installed in %LOCALAPPDATA%\\Programs\\Cranium."; ls "$local_data/Programs" || true; exit 1; }
+          test -f "$start_menu" || { echo "::error::No Start menu entry."; exit 1; }
           # A silent install asks nothing, so it puts no shortcut on the desktop.
-          test ! -e "$USERPROFILE/Desktop/Cranium.lnk" || { echo "::error::A silent install made a desktop shortcut."; exit 1; }
+          test ! -e "$home/Desktop/Cranium.lnk" || { echo "::error::A silent install made a desktop shortcut."; exit 1; }
           uninstaller="$(ls "$dir"/Uninstall*.exe | head -n 1)"
           "$uninstaller" /S
           # The uninstaller hands over to a copy of itself and returns at once: wait for it.
-          for _ in $(seq 1 60); do [ -e "$dir/Cranium.exe" ] || break; sleep 1; done
+          for _ in $(seq 1 90); do [ -e "$dir/Cranium.exe" ] || break; sleep 1; done
           test ! -e "$dir/Cranium.exe" || { echo "::error::The uninstaller left the app."; exit 1; }
-          test ! -e "$APPDATA/Microsoft/Windows/Start Menu/Programs/Cranium.lnk" || { echo "::error::The uninstaller left the Start menu entry."; exit 1; }
+          test ! -e "$start_menu" || { echo "::error::The uninstaller left the Start menu entry."; exit 1; }
           echo "Installed, found in the Start menu, and uninstalled."
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
