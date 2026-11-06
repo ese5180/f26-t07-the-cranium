@@ -67,7 +67,7 @@ test('the configuration is read as the pages read it, and app.config gives what 
   assert.equal(config.customer?.apiUrl ?? null, pages.customer?.apiUrl ?? null);
   const result = configResult(config);
   assert.deepEqual(Object.keys(result).sort(), [
-    'consoleUrl', 'customerApiUrl', 'customerClientId', 'customerRegion', 'customerUserPoolId', 'example', 'mobileClientId', 'region', 'userPoolId',
+    'consoleUrl', 'customerApiUrl', 'customerClientId', 'customerRegion', 'customerUserPoolId', 'example', 'liveUrl', 'mobileClientId', 'region', 'userPoolId',
   ]);
   assert.equal(result.example, true);
   assert.deepEqual(readAppConfig(result).consoleUrl, config.consoleUrl);
