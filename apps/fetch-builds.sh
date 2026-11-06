@@ -84,20 +84,7 @@ EOF
 case "$WHICH" in android|both) fetch android apk ;; esac
 case "$WHICH" in ios|both) fetch ios ipa ;; esac
 
-# SHA256SUMS and latest.json, for every build now in apps/dist/.
-python3 -I - "$DIST" <<'EOF'
-import hashlib, json, os, re, sys
-dist = sys.argv[1]
-sums, latest = [], {}
-for name in sorted(os.listdir(dist)):
-    m = re.fullmatch(r"cranium-(android|ios)-(\d+\.\d+\.\d+)\.(apk|ipa)", name)
-    if not m:
-        continue
-    data = open(os.path.join(dist, name), "rb").read()
-    digest = hashlib.sha256(data).hexdigest()
-    sums.append("%s  %s" % (digest, name))
-    latest[m.group(1)] = {"version": m.group(2), "file": name, "size": len(data), "sha256": digest}
-open(os.path.join(dist, "SHA256SUMS"), "w").write("\n".join(sums) + ("\n" if sums else ""))
-open(os.path.join(dist, "latest.json"), "w").write(json.dumps(latest, indent=2, sort_keys=True) + "\n")
-EOF
+# SHA256SUMS and latest.json, for every build now in apps/dist/: the desktop app's too
+# (apps/write-dist-index.py, which apps/fetch-desktop-builds.sh also ends with).
+python3 -I "$APPS_DIR/write-dist-index.py" "$DIST"
 echo "Wrote apps/dist/SHA256SUMS and latest.json. Commit apps/dist/ to put these builds in git."

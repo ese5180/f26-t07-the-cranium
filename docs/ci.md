@@ -285,6 +285,7 @@ and every phone takes the new version from there ([`docs/mobile-apps.md`](mobile
 | --- | --- | --- |
 | Android app | A tag `android-v<version>`, or Run workflow with app `android` | Ubuntu, JDK 17: `apps/android/build-release.sh --no-publish` with the release key restored from the secrets, then `apps/android/publish.sh` with the API token |
 | iPhone app | A tag `ios-v<version>`, or Run workflow with app `ios` | macOS, the runner's newest Xcode: `apps/ios/scripts/build-ipa.sh`, an unsigned IPA, then `apps/ios/scripts/publish.sh` |
+| Desktop app | A tag `desktop-windows-v<version>` or `desktop-linux-v<version>`, or Run workflow with app `desktop-windows` or `desktop-linux` | That system, Node 22: `npm ci`, `npm test` and `npm run dist -- <system>` in `apps/desktop` with the configuration from `CRANIUM_CONFIG_JSON`, then the installers as the run's artifact for 7 days, for `apps/fetch-desktop-builds.sh` to put into `apps/dist/` ([docs/desktop-app.md](desktop-app.md#releases)). Unlike the phone apps' jobs, it uploads an artifact: the console has no place for desktop builds yet |
 
 Before anything is built, a job checks that the version in the app's files (`craniumVersionName`, `MARKETING_VERSION`)
 is the one in the tag, that the tag names the commit being built (for Run workflow, whose `ref` may be the tag or a
@@ -292,8 +293,10 @@ branch whose newest commit it names), that the changelog has the version's entry
 set; then that the keystore opens with its password. It runs only in this repository, never in a fork; one release of
 each app at a time, and one under way is never cancelled; with a read-only token (`contents: read`), and its actions
 pinned by commit as in `ci.yml`. The jobs run with `environment: release`, so the owner can put the secrets behind
-that environment's rules (below). Nothing is uploaded as an artifact: an APK or an IPA holds the stack's console address
-and client IDs, and anybody can read this repository's artifacts. The job summary says the version, size and
+that environment's rules (below). Nothing of the phone apps is uploaded as an artifact: an APK or an IPA holds the
+stack's console address and client IDs, and anybody can read this repository's artifacts. The desktop app's job does
+upload its installers, for 7 days, because the owner asked for them in `apps/dist/` and the console has no place for
+them yet; they hold the same values as the phone builds that `apps/dist/` already has. The job summary says the version, size and
 SHA-256 that were published. A last step, run whatever happened, removes the key, the passwords, the configuration
 and the build from the runner.
 

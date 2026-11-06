@@ -6,8 +6,13 @@
 # does not do: docs/ci.md, "Releasing the apps".
 #
 # The secrets are restored into files under the runner's temporary folder, never printed (each value is also
-# masked in the log), and removed at the end, whatever happened. Nothing built here is uploaded as an
+# masked in the log), and removed at the end, whatever happened. Nothing of the phone apps is uploaded as an
 # artifact: an APK or an IPA holds the stack's console address and client IDs, and this repository is public.
+#
+# The desktop app (docs/desktop-app.md, "Releases"): a tag desktop-windows-v<version> or desktop-linux-v<version>
+# builds that system's installers with the configuration, and keeps them as this run's artifact for 7 days, for
+# apps/fetch-desktop-builds.sh to put into apps/dist/ in git, as the owner asked: the console has no place for
+# them yet. Like the phone builds in apps/dist/, they hold the console's address and client IDs.
 
 name: Release the apps
 
@@ -16,6 +21,8 @@ on:
     tags:
       - 'android-v*'
       - 'ios-v*'
+      - 'desktop-windows-v*'
+      - 'desktop-linux-v*'
   workflow_dispatch:
     inputs:
       app:
@@ -25,6 +32,8 @@ on:
         options:
           - android
           - ios
+          - desktop-windows
+          - desktop-linux
       ref:
         description: The tag to release, such as ios-v0.7.0 (or a branch whose newest commit that tag names)
         required: true
@@ -337,4 +346,143 @@ jobs:
         if: always()
         run: |
           rm -rf apps/config/cranium.json apps/dist apps/ios/build
+          echo "Removed the configuration and the build."
+
+  desktop:
+    name: Desktop app
+    if: >-
+      github.repository == 'ese5180/f26-t07-the-cranium' && (
+      (github.event_name == 'push' && (startsWith(github.ref_name, 'desktop-windows-v') || startsWith(github.ref_name, 'desktop-linux-v'))) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.app == 'desktop-windows' || inputs.app == 'desktop-linux')))
+    # Each system's installers are built on that system.
+    runs-on: ${{ (startsWith(github.ref_name, 'desktop-windows-v') || inputs.app == 'desktop-windows') && 'windows-latest' || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    concurrency:
+      group: release-apps-${{ (startsWith(github.ref_name, 'desktop-windows-v') || inputs.app == 'desktop-windows') && 'desktop-windows' || 'desktop-linux' }}
+      cancel-in-progress: false
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Check the version against the tag
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_APP: ${{ inputs.app }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            case "$REF_NAME" in desktop-windows-v*) platform=windows ;; *) platform=linux ;; esac
+          else
+            platform="${INPUT_APP#desktop-}"
+          fi
+          if ! version="$(node apps/desktop/scripts/version-of.mjs "$platform")"; then
+            echo "::error file=apps/desktop/electron-builder.$platform.yml::No version for $platform in this commit."
+            exit 1
+          fi
+          tag="desktop-$platform-v$version"
+          if [ "$EVENT" = push ]; then
+            if [ "$REF_NAME" != "$tag" ]; then
+              echo "::error::The tag is $REF_NAME, but electron-builder.$platform.yml says $version: tag $tag instead (docs/versions.md)."
+              exit 1
+            fi
+          else
+            if [[ "$INPUT_REF" == desktop-* ]] && [ "$INPUT_REF" != "$tag" ]; then
+              echo "::error::Asked for $INPUT_REF, but that commit's electron-builder.$platform.yml says $version."
+              exit 1
+            fi
+            if ! git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"; then
+              echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
+              exit 1
+            fi
+            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::The tag $tag names another commit than the one checked out."
+              exit 1
+            fi
+          fi
+          if ! grep -q "^## $version[[:space:]]*$" "apps/desktop/CHANGELOG.$platform.md"; then
+            echo "::error file=apps/desktop/CHANGELOG.$platform.md::There is no entry for $version."
+            exit 1
+          fi
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Desktop app for $platform, $version, from $(git rev-parse --short HEAD)."
+
+      # Every value is masked before anything could print it.
+      - name: Restore the configuration from the secret
+        env:
+          CRANIUM_CONFIG_JSON: ${{ secrets.CRANIUM_CONFIG_JSON }}
+        run: |
+          if [ -z "$CRANIUM_CONFIG_JSON" ]; then
+            echo "::error::The repository secret CRANIUM_CONFIG_JSON is not set. docs/ci.md, \"Releasing the apps\", has the command that sets it."
+            exit 1
+          fi
+          umask 077
+          mkdir -p apps/config
+          printf '%s\n' "$CRANIUM_CONFIG_JSON" > apps/config/cranium.json
+          node apps/desktop/scripts/mask-config.mjs apps/config/cranium.json
+
+      # A system's own tools for its installers, where its packaging needs any (scripts/ci-setup-<platform>.sh).
+      - name: The system's own tools
+        env:
+          PLATFORM: ${{ steps.version.outputs.platform }}
+        run: |
+          if [ -f "apps/desktop/scripts/ci-setup-$PLATFORM.sh" ]; then bash "apps/desktop/scripts/ci-setup-$PLATFORM.sh"; fi
+
+      - name: Build the installers
+        working-directory: apps/desktop
+        env:
+          PLATFORM: ${{ steps.version.outputs.platform }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run dist -- "$PLATFORM"
+          if [ "$(cat build/cranium.source)" != configured ]; then
+            echo "::error::The build has the example configuration: it would sign nobody in."
+            exit 1
+          fi
+
+      - name: Collect what is published
+        env:
+          PLATFORM: ${{ steps.version.outputs.platform }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir release-out
+          names="$(node apps/desktop/scripts/installers.mjs "$PLATFORM" "$VERSION")"
+          {
+            echo "## Desktop app for $PLATFORM, $VERSION"
+            echo
+            echo "| File | Bytes | SHA-256 |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r name; do
+            cp "apps/desktop/dist/$name" "release-out/$name"
+            size="$(wc -c < "release-out/$name" | tr -d ' ')"
+            echo "| $name | $size | \`$(sha256sum "release-out/$name" | cut -d ' ' -f 1)\` |" >> "$GITHUB_STEP_SUMMARY"
+            # GitHub refuses a file over 100 MB in git: such a file stays out of apps/dist/ (docs/desktop-app.md).
+            if [ "$size" -gt 104857600 ]; then echo "::warning::$name is $size bytes, more than git on GitHub takes."; fi
+          done <<< "$names"
+          (cd release-out && sha256sum $names > SHA256SUMS)
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Put into apps/dist/ with: \`apps/fetch-desktop-builds.sh $PLATFORM $VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cranium-desktop-${{ steps.version.outputs.platform }}-${{ steps.version.outputs.version }}
+          path: release-out/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the configuration from the runner
+        if: always()
+        run: |
+          rm -rf apps/config/cranium.json apps/desktop/build apps/desktop/dist release-out
           echo "Removed the configuration and the build."

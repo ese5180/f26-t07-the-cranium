@@ -136,6 +136,38 @@ notes say what it needs: on Linux, the permission to open the port.
   newer version for this system, Settings offers **Download the new app**, which opens the file in the browser.
 - **Before any build is listed**, there is nothing to say.
 
+## Releases
+
+A release of one system is a tag. The installers end in `apps/dist/` in git, next to the phone apps' builds:
+
+1. **Make the version.** Bump `extraMetadata.version` in `apps/desktop/electron-builder.<system>.yml`, and add the
+   version's entry at the top of `apps/desktop/CHANGELOG.<system>.md` ([docs/versions.md](versions.md)).
+2. **Tag and push.** Commit, then tag that commit `desktop-windows-v<version>` or `desktop-linux-v<version>`, and push
+   the tag. Or press Run workflow under Actions > Release the apps, with app `desktop-windows` or `desktop-linux` and
+   the tag as `ref`.
+3. **The release job runs.** The Desktop app job of
+   [`release-apps.yml`](../.github/workflows/release-apps.yml) runs on that system:
+   - it checks the version against the tag, the commit and the changelog;
+   - it restores the configuration from the `CRANIUM_CONFIG_JSON` secret, masking every value, then runs
+     `npm ci`, `npm test` and `npm run dist -- <system>`;
+   - it refuses a build with the example configuration;
+   - it keeps the installers (`scripts/installers.mjs` names them) and their `SHA256SUMS` as the run's artifact
+     `cranium-desktop-<system>-<version>`, for 7 days.
+
+   The console has no place for desktop builds yet, so the artifact is where the job leaves them. Like the phone
+   builds in `apps/dist/`, they hold the console's address and client IDs.
+4. **Into apps/dist.** Within those 7 days, from a checkout of `main`, run
+   `apps/fetch-desktop-builds.sh <system> <version>`. It:
+   - downloads the artifact with the GitHub CLI and checks every file against its `SHA256SUMS` and its name;
+   - puts the installers in `apps/dist/` in place of the older ones of that system;
+   - writes `SHA256SUMS` and `latest.json` again for every build there (`apps/write-dist-index.py`, which
+     `apps/fetch-builds.sh` uses too);
+   - prints the `git add -f` and `git commit` lines. `apps/dist/` stays ignored for anything else.
+
+GitHub refuses a file over 100 MB in git. An Electron installer is about 80 to 110 MB (each system's page gives the
+sizes of its own). So the fetch script leaves out any file over 100 MB and says so; that file stays in the run's
+artifact. `--allow-large` puts it in anyway, for a repository that keeps such files in Git LFS.
+
 ## What has been tried, and what has not
 
 Tried, from a checkout on a Mac with `npm start`. A Mac is not a target of this app, but the core runs there the same:

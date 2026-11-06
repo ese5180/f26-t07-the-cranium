@@ -13,7 +13,9 @@ export const LATEST_URL = 'https://raw.githubusercontent.com/ese5180/f26-t07-the
 export const DOWNLOAD_BASE = 'https://github.com/ese5180/f26-t07-the-cranium/raw/main/apps/dist/';
 export const CHECK_EVERY_MS = 24 * 3600 * 1000;
 const VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,6})$/;
-const FILE = /^cranium-desktop-[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9._-]{0,60}$/;
+// The installers' names, as apps/write-dist-index.py and scripts/installers.mjs know them.
+const FILE =
+  /^(?:Cranium-Setup-\d+\.\d+\.\d+(?:-arm64)?\.exe|Cranium-\d+\.\d+\.\d+-portable\.exe|Cranium-\d+\.\d+\.\d+(?:-arm64)?\.AppImage|cranium_\d+\.\d+\.\d+_(?:amd64|arm64)\.deb|cranium-\d+\.\d+\.\d+\.(?:x86_64|aarch64)\.rpm)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
 /** The platform's word in latest.json, from Node's: windows or linux; null for any other. */

@@ -42,7 +42,9 @@ electron-builder with that system's file over [`electron-builder.base.yml`](elec
 file says so: it comes with that system's packaging.
 
 CI builds each system's installers with the example configuration only: this repository is public, and a configured
-build names the stack. For a build that signs in, build it after `apps/configure.sh`.
+build names the stack. For a build that signs in, build it after `apps/configure.sh`, or release it: a tag
+`desktop-<system>-v<version>` builds it with the configuration, and `apps/fetch-desktop-builds.sh` puts it into
+`apps/dist/` ([docs/desktop-app.md, "Releases"](../../docs/desktop-app.md#releases)).
 
 ## What is where
 

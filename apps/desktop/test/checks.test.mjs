@@ -80,10 +80,10 @@ test('the configuration is read as the pages read it, and app.config gives what 
 
 test('a newer build is news only for this platform, upward, and named as a file of the app', () => {
   const latest = (entry) => JSON.stringify({ android: { version: '9.9.9' }, 'desktop-windows': entry });
-  const good = { file: 'cranium-desktop-0.2.0-setup.exe', version: '0.2.0', sha256: 'a'.repeat(64), size: 100 };
+  const good = { file: 'Cranium-Setup-0.2.0.exe', version: '0.2.0', sha256: 'a'.repeat(64), size: 100 };
   const found = newerBuild(latest(good), { platform: 'win32', version: '0.1.0' });
   assert.equal(found.version, '0.2.0');
-  assert.equal(found.url, 'https://github.com/ese5180/f26-t07-the-cranium/raw/main/apps/dist/cranium-desktop-0.2.0-setup.exe');
+  assert.equal(found.url, 'https://github.com/ese5180/f26-t07-the-cranium/raw/main/apps/dist/Cranium-Setup-0.2.0.exe');
   assert.equal(newerBuild(latest(good), { platform: 'win32', version: '0.2.0' }), null);
   assert.equal(newerBuild(latest(good), { platform: 'linux', version: '0.1.0' }), null);
   assert.equal(newerBuild(latest(good), { platform: 'darwin', version: '0.1.0' }), null);
