@@ -125,9 +125,11 @@ import Testing
         for template in templates {
             #expect(site.contains(template), "\(template)")
         }
-        #expect(site.contains("'Signing in as ', h('strong', { class: 'signin-who' }, model.email), '.'"))
-        #expect(site.contains("'If ', h('strong', { class: 'signin-who' }, model.email),"))
-        #expect(site.contains("' has an account, a code is on its way to it. It can take a minute.'"))
+        // Prettier breaks a long call over lines, one argument to a line: these parts are read with
+        // each run of white space as one space.
+        let flat = site.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        #expect(flat.contains("'Signing in as ', h('strong', { class: 'signin-who' }, model.email), '.'"))
+        #expect(flat.contains("'If ', h('strong', { class: 'signin-who' }, model.email), ' has an account, a code is on its way to it. It can take a minute.'"))
     }
 
     // The words of a board, case by case, as cloud/web/test/customer.test.mjs has them.
