@@ -160,8 +160,10 @@ jobs:
     if: github.event_name != 'release'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # A job's own defaults replace the workflow's: shell is named again, or a pipe into tee would hide a failure.
     defaults:
       run:
+        shell: bash
         working-directory: apps/desktop
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
