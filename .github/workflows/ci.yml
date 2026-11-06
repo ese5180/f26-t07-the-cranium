@@ -180,6 +180,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb libgbm1 libnss3 libasound2t64 > /dev/null
+          # Electron's own binary: npm ci does not fetch it.
+          node node_modules/electron/install.js
           # Electron's setuid sandbox helper, as a package would install it (docs/desktop-linux.md).
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox

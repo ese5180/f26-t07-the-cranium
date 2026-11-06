@@ -17,9 +17,9 @@ import { fileURLToPath } from 'node:url';
 
 const VERSION = /^extraMetadata:\n(?:[ \t]+.*\n)*?[ \t]+version:[ \t]*['"]?(\d+\.\d+\.\d+)['"]?[ \t]*$/m;
 
-/** extraMetadata.version of an electron-builder file's text, or null. */
+/** extraMetadata.version of an electron-builder file's text, or null. A Windows checkout has CRLF line ends. */
 export function versionIn(text) {
-  return VERSION.exec(String(text))?.[1] ?? null;
+  return VERSION.exec(String(text).replace(/\r\n/g, '\n'))?.[1] ?? null;
 }
 
 const here = fileURLToPath(import.meta.url);

@@ -55,6 +55,8 @@ test("a platform's version is extraMetadata.version in its electron-builder file
   assert.equal(run.status, 2);
   assert.equal(versionIn('extends: base\nextraMetadata:\n  name: x\n  version: 0.1.2\nwin: {}\n'), '0.1.2');
   assert.equal(versionIn("extraMetadata:\n  version: '1.0.0'\n"), '1.0.0');
+  // As a Windows checkout has it.
+  assert.equal(versionIn('extends: base\r\nextraMetadata:\r\n  version: 0.1.3\r\n'), '0.1.3');
   assert.equal(versionIn('version: 0.1.0\n'), null);
   assert.equal(versionIn('extraMetadata:\n  name: x\nversion: 0.1.0\n'), null);
 });
