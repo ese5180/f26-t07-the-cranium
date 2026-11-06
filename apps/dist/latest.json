@@ -1,14 +1,14 @@
 {
   "android": {
-    "file": "cranium-android-0.7.3.apk",
-    "sha256": "3b06cde6647190177b573f7cd85e0800ebb081d5f1abb375846d457bb746dd43",
-    "size": 12755095,
-    "version": "0.7.3"
+    "file": "cranium-android-0.8.0.apk",
+    "sha256": "0cada14d4ef1a98efad1647f025a59d6005010e1bb6803ae27789dc767e151b2",
+    "size": 13253032,
+    "version": "0.8.0"
   },
   "ios": {
-    "file": "cranium-ios-0.7.3.ipa",
-    "sha256": "172b6e0f5c3b45aaac32ce9273f6d334e27f4b0754ebaad34277474a1accabb8",
-    "size": 2448069,
-    "version": "0.7.3"
+    "file": "cranium-ios-0.8.0.ipa",
+    "sha256": "8321b4468a2b4237f8f3dcc92f7915a95a154a94f1f937c4eabbbdb874b139cf",
+    "size": 3005167,
+    "version": "0.8.0"
   }
 }

@@ -2,7 +2,7 @@
 
 Two apps, one for iPhone (`ios/`, Swift) and one for Android (`android/`, Kotlin), with the same screens: sign in, the
 boards, firmware, deployments, the activity log, and updating a board over Bluetooth, for the team in admin mode; and a
-customer side, as on the customer website. The newest published build of each (0.7.2 now) is in [`dist/`](dist/), with
+customer side, as on the customer website. The newest published build of each (0.8.0 now) is in [`dist/`](dist/), with
 its SHA-256 in `dist/SHA256SUMS`. More detail: [`docs/mobile-apps.md`](../docs/mobile-apps.md),
 [`ios/README.md`](ios/README.md), [`android/README.md`](android/README.md).
 
