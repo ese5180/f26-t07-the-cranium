@@ -98,6 +98,8 @@ jobs:
             size="$(wc -c < "dist/$name" | tr -d ' ')"
             echo "| $name | $size | \`$(sha256sum "dist/$name" | cut -d ' ' -f 1)\` |" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$names"
+          # One name a line: the split is meant.
+          # shellcheck disable=SC2086
           (cd ../../desktop-out && sha256sum $names > SHA256SUMS)
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -118,8 +120,8 @@ jobs:
           test -f "$start_menu" || { echo "::error::No Start menu entry."; exit 1; }
           # A silent install asks nothing, so it puts no shortcut on the desktop.
           test ! -e "$home/Desktop/Cranium.lnk" || { echo "::error::A silent install made a desktop shortcut."; exit 1; }
-          uninstaller="$(ls "$dir"/Uninstall*.exe | head -n 1)"
-          "$uninstaller" /S
+          uninstallers=("$dir"/Uninstall*.exe)
+          "${uninstallers[0]}" /S
           # The uninstaller hands over to a copy of itself and returns at once, and removes the Start menu entry
           # after the program: wait for both.
           for _ in $(seq 1 90); do [ -e "$dir/Cranium.exe" ] || [ -e "$start_menu" ] || break; sleep 1; done
