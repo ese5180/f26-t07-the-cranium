@@ -39,12 +39,13 @@ object BridgeSpec {
     const val MAX_REQUEST_BYTES = 4_194_304
     const val ORIGIN = "https://appassets.androidplatform.net"
 
-    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate")
+    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage")
     val ERRORS = listOf("bad_request", "unknown_method", "unavailable", "not_allowed", "cancelled", "locked", "signed_out", "busy", "network", "failed")
     val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status")
 
     private val pool = ParamSpec.OneOf(listOf("admin", "customer"))
     private const val VERSION_PATTERN = """^\d{1,3}\.\d{1,3}\.\d{1,5}\+\d{1,10}$"""
+    private val storageKey = ParamSpec.Text(208, """^cranium\.[!-~]{1,200}$""")
 
     val METHODS: Map<String, MethodSpec> = linkedMapOf(
         "app.hello" to MethodSpec(null),
@@ -84,6 +85,9 @@ object BridgeSpec {
                 "data" to ParamSpec.Text(11_184_812),
             ),
         ),
+        "storage.get" to MethodSpec("storage", mapOf("key" to storageKey)),
+        "storage.set" to MethodSpec("storage", mapOf("key" to storageKey, "value" to ParamSpec.Text(3_000_000))),
+        "storage.remove" to MethodSpec("storage", mapOf("key" to storageKey)),
         "ble.state" to MethodSpec("ble"),
         "ble.scan" to MethodSpec("ble", mapOf("on" to ParamSpec.Flag())),
         "ble.connect" to MethodSpec("ble", mapOf("id" to ParamSpec.Text(64, "^[A-Za-z0-9:-]{1,64}$"))),

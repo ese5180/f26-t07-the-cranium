@@ -10,7 +10,10 @@ import WebKit
 @MainActor
 final class ShellBridgeHost {
     /// What the iPhone offers: everything but the Android app's own updater.
-    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings"]
+    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
+                                        "storage"]
+    /// What the pages keep through storage.*: the web view itself keeps nothing between runs.
+    private let pages = PageStore.standard()
 
     /// Weak: a request may still be under way while the shell goes, for the classic app.
     private weak var owner: ShellModel?
@@ -28,6 +31,7 @@ final class ShellBridgeHost {
         registerApp()
         registerAuth()
         registerDevice()
+        registerStorage()
         registerBluetooth()
     }
 
@@ -208,6 +212,30 @@ final class ShellBridgeHost {
             sheet.completionWithItemsHandler = { _, completed, _, _ in continuation.resume(returning: completed) }
             sheet.popoverPresentationController?.sourceView = top.view
             top.present(sheet, animated: true)
+        }
+    }
+
+    // MARK: storage.*
+
+    /// The pages' own items, such as the customer site's journal, in the app's PageStore: off the main
+    /// thread, as a value may be a few megabytes.
+    private func registerStorage() {
+        let pages = pages
+        dispatcher.register("storage.get") { params in
+            let key = params.string("key")
+            let value = try await Task.detached { try pages.get(key) }.value
+            return ["value": value.map { .string($0) } ?? .null]
+        }
+        dispatcher.register("storage.set") { params in
+            let key = params.string("key")
+            let value = params.string("value")
+            try await Task.detached { try pages.set(key, value) }.value
+            return [:]
+        }
+        dispatcher.register("storage.remove") { params in
+            let key = params.string("key")
+            try await Task.detached { try pages.remove(key) }.value
+            return [:]
         }
     }
 

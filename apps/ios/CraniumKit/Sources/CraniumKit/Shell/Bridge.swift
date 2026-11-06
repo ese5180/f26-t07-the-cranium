@@ -195,9 +195,10 @@ public struct BridgeMethod: Equatable, Sendable {
 /// file and compares it with this, entry by entry.
 public enum BridgeSpec {
     public static let features = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                  "appUpdate"]
+                                  "appUpdate", "storage"]
 
     static let pool = BridgeParam.enumeration(["admin", "customer"])
+    static let storageKey = BridgeParam.string(max: 208, pattern: "^cranium\\.[!-~]{1,200}$")
 
     public static let methods: [String: BridgeMethod] = [
         "app.hello": BridgeMethod(feature: nil, params: [:]),
@@ -230,6 +231,9 @@ public enum BridgeSpec {
             "type": .enumeration(["text/csv", "application/json", "text/plain", "application/pdf"]),
             "data": .string(max: 11_184_812),
         ]),
+        "storage.get": BridgeMethod(feature: "storage", params: ["key": storageKey]),
+        "storage.set": BridgeMethod(feature: "storage", params: ["key": storageKey, "value": .string(max: 3_000_000)]),
+        "storage.remove": BridgeMethod(feature: "storage", params: ["key": storageKey]),
         "ble.state": BridgeMethod(feature: "ble", params: [:]),
         "ble.scan": BridgeMethod(feature: "ble", params: ["on": .boolean]),
         "ble.connect": BridgeMethod(feature: "ble", params: ["id": .string(max: 64, pattern: "^[A-Za-z0-9:-]{1,64}$")]),

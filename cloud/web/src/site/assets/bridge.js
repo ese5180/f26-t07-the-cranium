@@ -3,7 +3,8 @@
  * shell"). From 0.8.0 the iPhone and Android apps are a thin native shell that shows the console and
  * the customer site from a copy kept on the phone, and offers the page a few things a page cannot do
  * itself: keep the sign-in behind Face ID or a fingerprint, Bluetooth to a board, the clipboard,
- * haptics, sharing a file, opening SideStore or the system browser. apps/shared/bridge.json is the
+ * haptics, sharing a file, opening SideStore or the system browser, and keeping what a page means to
+ * keep from one start of the app to the next (storage.*). apps/shared/bridge.json is the
  * contract, method by method; both shells check every request against it.
  *
  * On the website none of this is there: connectBridge() answers null at once, and the pages are what
@@ -47,6 +48,7 @@ const FEATURES = new Set([
   'keepAwake',
   'settings',
   'appUpdate',
+  'storage',
 ]);
 const MAX_ID = 2147483647;
 

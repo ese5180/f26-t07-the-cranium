@@ -103,6 +103,13 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
     private val clipboard = ShellClipboard()
     private var checking: Job? = null
 
+    /** What the pages keep through storage.* (PageStore): on this phone only, never backed up. */
+    private val pages = PageStore(File(app.noBackupFilesDir, "page-store"))
+
+    private val _canGoBack = MutableStateFlow(false)
+    /** Whether the page has somewhere to go back to, for the back button (#/sessions/<id> to Sessions, and so on). */
+    val canGoBack: StateFlow<Boolean> = _canGoBack.asStateFlow()
+
     val bridge = Bridge { features() }.apply {
         register("app.hello") {
             ShellChecks.helloJson(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, launched, this@ShellViewModel.features(), store.needsNewerApp)
@@ -141,6 +148,18 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
             EMPTY
         }
         register("file.share") { params -> share(params.text("name"), params.text("type"), params.text("data")) }
+        register("storage.get") { params ->
+            val value = withContext(Dispatchers.IO) { pages.get(params.text("key")) }
+            buildJsonObject { put("value", value?.let(::JsonPrimitive) ?: JsonNull) }
+        }
+        register("storage.set") { params ->
+            withContext(Dispatchers.IO) { pages.set(params.text("key"), params.text("value")) }
+            EMPTY
+        }
+        register("storage.remove") { params ->
+            withContext(Dispatchers.IO) { pages.remove(params.text("key")) }
+            EMPTY
+        }
         register("ble.state") { ble.state() }
         register("ble.scan") { params -> ble.scan(params) }
         register("ble.connect") { params -> ble.connect(params) }
@@ -190,7 +209,7 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
 
     /** What this phone and this app offer the pages (app.hello's features). */
     fun features(): Set<String> {
-        val all = linkedSetOf("auth", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate")
+        val all = linkedSetOf("auth", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage")
         val biometric = KeystoreVault.state(app)
         if (biometric != BiometricState.NO_HARDWARE && biometric != BiometricState.UNSUPPORTED) all += "biometric"
         if (ble.hasBluetooth) all += "ble"
@@ -227,9 +246,22 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         if (view === webView) {
             view = null
             proxy = null
+            _canGoBack.value = false
         }
         ble.release()
         _keepAwake.value = false
+    }
+
+    /** The web view's history changed, a page's #/... route included: whether back has somewhere to go. */
+    fun historyChanged(webView: WebView) {
+        if (view === webView) _canGoBack.value = webView.canGoBack()
+    }
+
+    /** The back button, while the page has somewhere to go back to: as a browser's back does. */
+    fun goBack() {
+        val web = view ?: return
+        if (web.canGoBack()) web.goBack()
+        _canGoBack.value = web.canGoBack()
     }
 
     /**

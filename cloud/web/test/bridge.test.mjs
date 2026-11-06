@@ -295,7 +295,19 @@ test('every method a page asks the app for is in the contract, with only the par
   assert.equal(CONTRACT.bridge, bridge.BRIDGE_VERSION);
   assert.deepEqual(
     [...CONTRACT.features].sort(),
-    ['appUpdate', 'auth', 'ble', 'biometric', 'clipboard', 'haptics', 'keepAwake', 'open', 'settings', 'share'].sort()
+    [
+      'appUpdate',
+      'auth',
+      'ble',
+      'biometric',
+      'clipboard',
+      'haptics',
+      'keepAwake',
+      'open',
+      'settings',
+      'share',
+      'storage',
+    ].sort()
   );
   for (const [name, method] of Object.entries(CONTRACT.methods)) {
     assert.ok(method.feature === null || CONTRACT.features.includes(method.feature), `${name}: ${method.feature}`);

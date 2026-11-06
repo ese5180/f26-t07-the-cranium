@@ -27,7 +27,7 @@
     "network": "The network or the service could not be reached",
     "failed": "Anything else; the message says what"
   },
-  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate"],
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage"],
   "methods": {
     "app.hello": {
       "feature": null,
@@ -131,6 +131,28 @@
         "data": { "type": "string", "max": 11184812 }
       },
       "result": "{shared: true|false}. data is base64. Opens the share sheet (save to Files, AirDrop, mail …) with the file."
+    },
+    "storage.get": {
+      "feature": "storage",
+      "params": {
+        "key": { "type": "string", "max": 208, "pattern": "^cranium\\.[!-~]{1,200}$" }
+      },
+      "result": "{value: string|null}. What the pages kept under that key with storage.set, or null. The pages' own storage does not last from one start of the iPhone app to the next (its web view keeps nothing on disk), so what a page means to keep, such as the customer site's journal of sessions, is kept by the app: in app-private storage that is not backed up, on this phone only."
+    },
+    "storage.set": {
+      "feature": "storage",
+      "params": {
+        "key": { "type": "string", "max": 208, "pattern": "^cranium\\.[!-~]{1,200}$" },
+        "value": { "type": "string", "max": 3000000 }
+      },
+      "result": "{}. Keeps the text under the key, in place of what was there. At most 3,000,000 bytes of UTF-8 for one value, 64 keys and 12,000,000 bytes in all: past that, failed, and nothing is changed."
+    },
+    "storage.remove": {
+      "feature": "storage",
+      "params": {
+        "key": { "type": "string", "max": 208, "pattern": "^cranium\\.[!-~]{1,200}$" }
+      },
+      "result": "{}. Forgets what was kept under the key, if anything."
     },
     "ble.state": {
       "feature": "ble",
