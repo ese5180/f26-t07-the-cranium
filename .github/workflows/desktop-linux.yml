@@ -1,0 +1,153 @@
+# The desktop app's Linux packages (docs/desktop-linux.md), on Ubuntu, for every push that touches the app: its
+# tests, the app started once from the checkout, the AppImage, the .deb and the .rpm built and looked into, the
+# .deb installed (the command, the menu entry, the udev rule, the sandbox), the installed app started, the .deb
+# removed, and the packages kept as the run's artifact.
+#
+# Built with the example configuration only: this repository is public, and a configured build names the stack, so
+# these packages show the pages but sign nobody in. A release that signs in is release-apps.yml's job, for a tag
+# desktop-linux-v<version> (docs/desktop-app.md, "Releases").
+
+name: Desktop app for Linux
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/shared/**'
+      - 'apps/config/cranium.example.json'
+      - 'cloud/web/src/**'
+      - 'cloud/web/build-bundle.mjs'
+      - 'cloud/VERSION'
+      - '.github/workflows/desktop-linux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  linux:
+    name: Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    # A job's own defaults replace the workflow's: shell is named again.
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install (Electron and electron-builder, at the lockfile's versions)
+        run: npm ci --no-audit --no-fund
+
+      - name: Tests
+        run: npm test
+
+      - name: The tools the packages need
+        run: |
+          bash scripts/ci-setup-linux.sh
+          sudo apt-get install -y -qq xvfb libgbm1 libnss3 libasound2t64 > /dev/null
+
+      - name: Start the app once from the checkout
+        run: |
+          # Electron's setuid sandbox helper, as the .deb's install script sets it where it must (docs/desktop-linux.md).
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          node scripts/prepare.mjs --example
+          CRANIUM_DESKTOP_SMOKE="$RUNNER_TEMP/desktop.png" timeout 120 xvfb-run -a npx electron . | tee "$RUNNER_TEMP/desktop.log"
+          grep -q '"smoke":"done","url":"cranium-app://bundle/#/sign-in"' "$RUNNER_TEMP/desktop.log"
+          grep -q '"name":"Cranium"' "$RUNNER_TEMP/desktop.log"
+
+      - name: Build the packages
+        run: npm run dist -- linux --example
+
+      - name: Look into them
+        id: built
+        run: |
+          version="$(node scripts/version-of.mjs linux)"
+          appimage="dist/Cranium-$version.AppImage"
+          deb="dist/cranium_${version}_amd64.deb"
+          rpm="dist/cranium-$version.x86_64.rpm"
+          for file in "$appimage" "$deb" "$rpm"; do test -f "$file" || { echo "::error::$file was not built."; ls dist; exit 1; }; done
+          fail() { echo "::error::$*"; exit 1; }
+
+          [ "$(dpkg-deb -f "$deb" Package)" = cranium ] || fail "The .deb's package is not cranium."
+          dpkg-deb -c "$deb" > "$RUNNER_TEMP/deb.list"
+          for path in ./usr/lib/udev/rules.d/70-cranium-jlink.rules ./usr/share/applications/cranium.desktop ./opt/Cranium/cranium ./opt/Cranium/chrome-sandbox; do
+            grep -q " $path\$" "$RUNNER_TEMP/deb.list" || fail "The .deb has no $path."
+          done
+          entry="$(dpkg-deb --fsys-tarfile "$deb" | tar -xO ./usr/share/applications/cranium.desktop)"
+          grep -qx 'Name=Cranium' <<< "$entry" || fail "The menu entry is not named Cranium."
+          grep -qx 'Icon=cranium' <<< "$entry" || fail "The menu entry has no icon of its own."
+          grep -q '^Exec=/opt/Cranium/cranium' <<< "$entry" || fail "The menu entry does not start /opt/Cranium/cranium."
+          grep -q './usr/share/icons/hicolor/512x512/apps/cranium.png$' "$RUNNER_TEMP/deb.list" || fail "The .deb has no 512 px icon."
+
+          [ "$(rpm -qp --queryformat '%{NAME}' "$rpm" 2>/dev/null)" = cranium ] || fail "The .rpm's package is not cranium."
+          rpm -qlp "$rpm" 2>/dev/null | grep -qx /usr/lib/udev/rules.d/70-cranium-jlink.rules || fail "The .rpm has no udev rule."
+
+          chmod +x "$appimage"
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/apps/desktop/$appimage" --appimage-extract cranium.desktop > /dev/null)
+          grep -qx 'Name=Cranium' "$RUNNER_TEMP/squashfs-root/cranium.desktop" || fail "The AppImage's entry is not named Cranium."
+
+          mkdir -p ../../desktop-out
+          {
+            echo "## Linux packages, $version (example configuration)"
+            echo
+            echo "| File | Bytes | SHA-256 |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          names="$(node scripts/installers.mjs linux "$version")"
+          while IFS= read -r name; do
+            cp "dist/$name" "../../desktop-out/$name"
+            size="$(wc -c < "dist/$name" | tr -d ' ')"
+            echo "| $name | $size | \`$(sha256sum "dist/$name" | cut -d ' ' -f 1)\` |" >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$names"
+          (cd ../../desktop-out && sha256sum $names > SHA256SUMS)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install the .deb, start the app, and remove it
+        env:
+          VERSION: ${{ steps.built.outputs.version }}
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          sudo apt-get install -y -qq "./dist/cranium_${VERSION}_amd64.deb" > /dev/null
+          test -x /usr/bin/cranium || fail "No cranium command."
+          test -f /usr/lib/udev/rules.d/70-cranium-jlink.rules || fail "No udev rule."
+          test -f /usr/share/applications/cranium.desktop || fail "No menu entry."
+          ls -l /opt/Cranium/chrome-sandbox
+          # The installed app, under its sandbox, for 25 s: still running then is a start.
+          set +e
+          timeout 25 xvfb-run -a cranium > "$RUNNER_TEMP/installed.log" 2>&1
+          code=$?
+          set -e
+          if [ "$code" != 124 ]; then
+            cat "$RUNNER_TEMP/installed.log"
+            fail "The installed app stopped by itself (exit $code) instead of running."
+          fi
+          sudo apt-get remove -y -qq cranium > /dev/null
+          test ! -e /usr/bin/cranium || fail "The command stayed after removing the package."
+          test ! -e /usr/lib/udev/rules.d/70-cranium-jlink.rules || fail "The udev rule stayed after removing the package."
+          echo "Installed, started under its sandbox, and removed."
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cranium-desktop-linux-${{ steps.built.outputs.version }}-example
+          path: desktop-out/
+          if-no-files-found: error
+          retention-days: 14

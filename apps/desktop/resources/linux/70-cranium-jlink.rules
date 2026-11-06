@@ -1,0 +1,6 @@
+# The board's J-Link (SEGGER, USB vendor 1366), for the person at the computer: its serial port, which the Cranium
+# app's USB console opens (Web Serial), and the probe itself. Installed by the cranium .deb and .rpm into
+# /usr/lib/udev/rules.d/ (docs/desktop-linux.md, "The USB console"). "uaccess" gives the seat's user access while
+# they are logged in, with no group to join; it must come before 73-seat-late.rules, hence the 70.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1366", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1366", MODE="0660", TAG+="uaccess"

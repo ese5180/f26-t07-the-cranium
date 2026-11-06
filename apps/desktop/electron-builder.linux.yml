@@ -1,0 +1,54 @@
+# The Linux packages of the desktop app (docs/desktop-linux.md), over electron-builder.base.yml:
+#
+#   Cranium-<version>.AppImage    one file that runs on most distributions (chmod +x, then open it)
+#   cranium_<version>_amd64.deb   Debian, Ubuntu: the app in /opt/Cranium, the command cranium, the menu entry
+#                                 with the icon, and the udev rule for the board's USB serial port
+#   cranium-<version>.x86_64.rpm  Fedora, openSUSE: the same as the .deb
+#
+# None is signed.
+extends: electron-builder.base.yml
+# This build's version (docs/versions.md): bump it with an entry in CHANGELOG.linux.md. The packages need a
+# home page, which package.json does not have.
+extraMetadata:
+  version: 0.1.0
+  homepage: https://github.com/ese5180/f26-t07-the-cranium
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+    - target: rpm
+      arch: [x64]
+  executableName: cranium
+  icon: resources/icon.png
+  category: Utility
+  synopsis: The Cranium console and customer site
+  description: >-
+    The Cranium console and customer site in a window of their own, with their pages kept on the computer and
+    brought up to date from the console, the board's USB console, and updates to a board over Bluetooth.
+  maintainer: The Cranium team <https://github.com/ese5180/f26-t07-the-cranium>
+  vendor: The Cranium team
+  desktop:
+    entry:
+      Name: Cranium
+      GenericName: Cranium console
+      Comment: The Cranium console and customer site
+      Categories: Utility;Development;
+      StartupWMClass: Cranium
+appImage:
+  artifactName: Cranium-${version}.${ext}
+deb:
+  packageName: cranium
+  artifactName: cranium_${version}_${arch}.${ext}
+  # The board's J-Link for the person at the computer (resources/linux/70-cranium-jlink.rules), and the
+  # package's own install script: electron-builder's, with udev told about the rule.
+  fpm:
+    - resources/linux/70-cranium-jlink.rules=/usr/lib/udev/rules.d/70-cranium-jlink.rules
+  afterInstall: resources/linux/after-install.tpl
+rpm:
+  packageName: cranium
+  artifactName: cranium-${version}.${arch}.${ext}
+  fpm:
+    - resources/linux/70-cranium-jlink.rules=/usr/lib/udev/rules.d/70-cranium-jlink.rules
+  afterInstall: resources/linux/after-install.tpl
