@@ -867,9 +867,10 @@ function context() {
   };
 }
 
-// The mixes (customer-mixes.js): the demo, and the journal of what this person imported, which is kept in this
-// browser's localStorage under their e-mail address. In the app, where the page's storage may not last, it is
-// kept as long as the page; Export makes a backup either way.
+// The mixes (customer-mixes.js): the demo, and the journal of what this person imported, kept under their
+// e-mail address. On the website it is this browser's localStorage. In the app the page's own storage does not
+// last (the iPhone app's web view keeps nothing on disk), so the app keeps it (storage.*, apps/shared/bridge.json),
+// on the phone only; an app without storage.* keeps it as long as the page. Export makes a backup either way.
 
 const JOURNAL_KEY = 'cranium.mixes.journal.v1:';
 const PREFS_KEY = 'cranium.mixes.prefs.v1';
@@ -897,30 +898,26 @@ function localStore() {
   }
 }
 
+/** The app, when it keeps what the page means to keep; null on the website and in an app without storage.*. */
+function appStore() {
+  return appBridge?.has('storage') ? appBridge : null;
+}
+
 function ownerOf() {
   const person = state.customer ? state.me.value : state.staff.value;
   return typeof person?.email === 'string' && person.email !== '' ? person.email.toLowerCase() : null;
 }
 
-/** The journal of whoever is signed in, read once for each person. */
-function followOwner() {
-  const owner = ownerOf();
-  if (owner === mixes.owner) return;
-  mixes.owner = owner;
-  mixes.journal = emptyJournal();
-  mixes.dialog = null;
-  const store = localStore();
-  mixes.storage = store !== null;
-  if (store && owner) {
-    try {
-      mixes.journal = cleanJournal(JSON.parse(store.getItem(JOURNAL_KEY + owner) ?? 'null'));
-    } catch {
-      mixes.journal = emptyJournal();
-    }
+/** The journal and the choices from their kept text; anything unreadable is the empty journal and the defaults. */
+function takeKept(journalText, prefsText) {
+  try {
+    mixes.journal = cleanJournal(JSON.parse(journalText ?? 'null'));
+  } catch {
+    mixes.journal = emptyJournal();
   }
   let prefs = null;
   try {
-    prefs = JSON.parse(store?.getItem(PREFS_KEY) ?? 'null');
+    prefs = JSON.parse(prefsText ?? 'null');
   } catch {
     prefs = null;
   }
@@ -933,9 +930,68 @@ function followOwner() {
         : 'demo';
 }
 
-function keepJournal() {
+/** The journal of whoever is signed in, read once for each person. */
+function followOwner() {
+  const owner = ownerOf();
+  if (owner === mixes.owner) return;
+  mixes.owner = owner;
+  mixes.dialog = null;
+  const app = appStore();
+  if (app) {
+    mixes.storage = true;
+    takeKept(null, null);
+    if (owner) readFromApp(app, owner);
+    return;
+  }
   const store = localStore();
-  if (!store || !mixes.owner) {
+  mixes.storage = store !== null;
+  takeKept(store && owner ? store.getItem(JOURNAL_KEY + owner) : null, store?.getItem(PREFS_KEY) ?? null);
+}
+
+/**
+ * What the app kept for this person, and then the page again. What an app before storage.* left in the page's
+ * own storage (the Android app's lasts) is taken over once. Nothing is replaced that the person changed meanwhile.
+ */
+async function readFromApp(app, owner) {
+  const before = mixes.journal;
+  const key = JOURNAL_KEY + owner;
+  try {
+    const [journal, prefs] = await Promise.all([
+      app.call('storage.get', { key }).then((answer) => answer?.value ?? null),
+      app.call('storage.get', { key: PREFS_KEY }).then((answer) => answer?.value ?? null),
+    ]);
+    const page = localStore();
+    const earlier = journal === null ? (page?.getItem(key) ?? null) : null;
+    const earlierPrefs = prefs === null ? (page?.getItem(PREFS_KEY) ?? null) : null;
+    if (earlier !== null) app.call('storage.set', { key, value: earlier }).catch(() => {});
+    if (earlierPrefs !== null) app.call('storage.set', { key: PREFS_KEY, value: earlierPrefs }).catch(() => {});
+    if (mixes.owner !== owner || mixes.journal !== before) return;
+    takeKept(journal ?? earlier, prefs ?? earlierPrefs);
+  } catch {
+    if (mixes.owner !== owner) return;
+    mixes.storage = false;
+  }
+  draw();
+}
+
+function keepJournal() {
+  if (!mixes.owner) {
+    mixes.storage = false;
+    return;
+  }
+  const app = appStore();
+  if (app) {
+    const owner = mixes.owner;
+    app.call('storage.set', { key: JOURNAL_KEY + owner, value: JSON.stringify(mixes.journal) }).catch(() => {
+      if (mixes.owner !== owner) return;
+      mixes.storage = false;
+      toast('The app did not keep your journal: export a backup before you close it.');
+      draw();
+    });
+    return;
+  }
+  const store = localStore();
+  if (!store) {
     mixes.storage = false;
     return;
   }
@@ -948,8 +1004,15 @@ function keepJournal() {
 }
 
 function keepPrefs() {
+  const value = JSON.stringify({ source: mixes.source, range: mixes.range });
+  const app = appStore();
+  if (app) {
+    // Only a preference: the page goes on without it.
+    app.call('storage.set', { key: PREFS_KEY, value }).catch(() => {});
+    return;
+  }
   try {
-    localStore()?.setItem(PREFS_KEY, JSON.stringify({ source: mixes.source, range: mixes.range }));
+    localStore()?.setItem(PREFS_KEY, value);
   } catch {
     // Only a preference: the page goes on without it.
   }
@@ -965,6 +1028,10 @@ function mixesContext() {
   );
   return {
     ...mixes,
+    // Where the journal is kept, as the pages say it.
+    app: state.app !== null,
+    place: state.app ? 'this app' : 'this browser',
+    elsewhere: state.app ? 'the website or another phone' : 'another browser',
     sessions: inRange(all, mixes.range, now),
     pairs,
     find: (id) =>

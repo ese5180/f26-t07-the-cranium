@@ -1215,7 +1215,7 @@ const HELP = [
     [
       [
         'Where are my sessions and tracks?',
-        'Your board does not send what you play yet: that is being built. Until it is, Explore demo shows made-up sessions, and My journal holds the session files you import, in this browser only.',
+        'Your board does not send what you play yet: that is being built. Until it is, Explore demo shows made-up sessions, and My journal holds the session files you import, kept on this device only.',
       ],
     ],
   ],

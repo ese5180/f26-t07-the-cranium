@@ -782,7 +782,7 @@ const APP_CONFIG = {
  */
 async function openSite(
   t,
-  { hash = '', status = 'CONFIRMED', app: phone = null, liveUrl = null, WebSocket = null } = {}
+  { hash = '', status = 'CONFIRMED', app: phone = null, liveUrl = null, WebSocket = null, local = null } = {}
 ) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   // Node has a WebSocket of its own: a tab never gets it, only the stand-in it is given (docs/live.md).
@@ -876,8 +876,19 @@ async function openSite(
     },
     scrollTo() {},
     crypto: globalThis.crypto,
+    btoa: globalThis.btoa,
     fetch,
     sessionStorage,
+    // The browser's localStorage, when the test gives one (a Map): none otherwise, as when a browser keeps nothing.
+    ...(local
+      ? {
+          localStorage: {
+            getItem: (key) => local.get(key) ?? null,
+            setItem: (key, value) => local.set(key, String(value)),
+            removeItem: (key) => local.delete(key),
+          },
+        }
+      : {}),
     location,
     history: {
       replaceState() {
@@ -1295,4 +1306,137 @@ test('in the phone app, signing out of the customer side makes the app forget bo
   );
   await until(() => tab.navigations.length === 1, 'the way home');
   assert.deepEqual(tab.navigations, ['cranium-app://bundle/']);
+});
+
+// The journal in the phone app: the app keeps it (storage.*), the page's own storage does not last on an iPhone.
+
+const JOURNAL = 'cranium.mixes.journal.v1:ada@example.invalid';
+const PREFS = 'cranium.mixes.prefs.v1';
+const SET_CSV = [
+  'session,started,title,artist,deck,start,end',
+  'Friday,2026-11-03T20:30:00Z,Opening Track,Test Artist,A,0,5:10',
+  'Friday,2026-11-03T20:30:00Z,Second Track,Other Artist,B,4:40,10:00',
+].join('\r\n');
+const OLDER_JOURNAL = JSON.stringify({
+  sessions: [
+    {
+      title: 'Older set',
+      startedAt: '2026-11-02T20:00:00.000Z',
+      tracks: [{ title: 'Old Track', artist: 'Someone', start: 0, end: 300 }],
+    },
+  ],
+  moments: [],
+});
+
+/** An app that keeps the page's values in a Map, and shares files into a list. */
+function keepingApp(
+  kept,
+  shared = [],
+  features = ['auth', 'biometric', 'clipboard', 'open', 'settings', 'share', 'storage']
+) {
+  return {
+    'app.hello': { bridge: 1, platform: 'ios', shell: { version: '0.8.2', build: '15' }, bundle: {}, features },
+    'storage.get': ({ key }) => ({ value: kept.get(key) ?? null }),
+    'storage.set': ({ key, value }) => {
+      kept.set(key, value);
+      return {};
+    },
+    'storage.remove': ({ key }) => {
+      kept.delete(key);
+      return {};
+    },
+    'file.share': (params) => {
+      shared.push(params);
+      return {};
+    },
+  };
+}
+
+async function signedInInApp(t, app, options = {}) {
+  const tab = await openSite(t, { app, ...options });
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  return tab;
+}
+
+const buttonNamed = (tab, label) => all(tab.app, 'button').find((button) => textOf(button).includes(label));
+
+async function openImport(tab) {
+  tab.go('#/mixes/sessions');
+  await until(() => buttonNamed(tab, 'Import session') !== undefined, 'the mixes');
+  click(buttonNamed(tab, 'Import session'));
+  await until(() => all(tab.app, 'input.cs-file-input').length > 0, 'the import dialog');
+}
+
+async function importSet(tab, name = 'set.csv', text = SET_CSV) {
+  await openImport(tab);
+  const input = one(tab.app, 'input.cs-file-input');
+  const file = { name, size: text.length, text: async () => text };
+  input.files = [file];
+  input.dispatchEvent({ type: 'change' });
+  await until(() => /Imported 1 session/.test(tab.text()), 'the import');
+}
+
+test('in the phone app, an imported session file is kept by the app, with the choice of the journal', async (t) => {
+  const kept = new Map();
+  const tab = await signedInInApp(t, keepingApp(kept));
+  await importSet(tab);
+  const stored = JSON.parse(kept.get(JOURNAL));
+  assert.equal(stored.sessions.length, 1);
+  assert.equal(stored.sessions[0].title, 'Friday');
+  assert.equal(JSON.parse(kept.get(PREFS)).source, 'journal');
+  // The page's own storage is not where it went.
+  assert.equal(tab.stored.size, 0);
+});
+
+test('in the phone app, Back up and CSV go through the share sheet as files', async (t) => {
+  const shared = [];
+  const tab = await signedInInApp(t, keepingApp(new Map(), shared));
+  await importSet(tab);
+  click(one(tab.app, 'button.cs-export'));
+  await until(() => buttonNamed(tab, 'Back up') !== undefined, 'the Back up button');
+  click(buttonNamed(tab, 'Back up'));
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'CSV'));
+  await until(() => shared.length === 2, 'both files');
+  assert.equal(shared[0].type, 'application/json');
+  assert.match(shared[0].name, /\.json$/);
+  assert.equal(JSON.parse(Buffer.from(shared[0].data, 'base64').toString('utf8')).sessions.length, 1);
+  assert.equal(shared[1].type, 'text/csv');
+  assert.match(shared[1].name, /\.csv$/);
+  assert.match(Buffer.from(shared[1].data, 'base64').toString('utf8'), /^session,started,title/);
+});
+
+test('in the phone app, the kept journal is there again at the next start', async (t) => {
+  const kept = new Map();
+  const first = await signedInInApp(t, keepingApp(kept));
+  await importSet(first);
+  t.mock.timers.reset();
+  await t.test('the next start', async (next) => {
+    const again = await signedInInApp(next, keepingApp(kept));
+    again.go('#/mixes/sessions');
+    await until(() => /Friday/.test(again.text()), 'the kept session');
+    assert.equal(again.stored.size, 0);
+  });
+});
+
+test("in the phone app, a journal an older app left in the page's storage is moved to the app once", async (t) => {
+  const kept = new Map();
+  const tab = await signedInInApp(t, keepingApp(kept), { local: new Map([[JOURNAL, OLDER_JOURNAL]]) });
+  await until(() => kept.has(JOURNAL), 'the move');
+  assert.equal(JSON.parse(kept.get(JOURNAL)).sessions[0].title, 'Older set');
+  tab.go('#/mixes/sessions');
+  await until(() => buttonNamed(tab, 'My journal') !== undefined, 'the mixes');
+  click(buttonNamed(tab, 'My journal'));
+  await until(() => /Older set/.test(tab.text()), 'the older session');
+});
+
+test('an app without storage says it cannot keep the journal, and asks the app for nothing', async (t) => {
+  const tab = await signedInInApp(t, keepingApp(new Map(), [], ['auth', 'biometric', 'clipboard', 'open', 'settings']));
+  await openImport(tab);
+  assert.match(tab.text(), /This app cannot keep the journal/);
+  assert.equal(
+    tab.appCalls.some((message) => message.method.startsWith('storage.')),
+    false
+  );
 });

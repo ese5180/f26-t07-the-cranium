@@ -137,7 +137,7 @@ export function sourceBar(ctx) {
         ? 'Made-up sessions, to show what this will be: no board sends what you play yet'
         : count === 0
           ? 'Your journal is empty: import a session file to start it'
-          : `Your journal: ${count === 1 ? '1 session' : `${count} sessions`}, kept in this browser`
+          : `Your journal: ${count === 1 ? '1 session' : `${count} sessions`}, kept in ${mixes.place}`
     )
   );
 }
@@ -530,7 +530,7 @@ function revisit(ctx, pair) {
   );
 }
 
-function journalNote() {
+function journalNote(ctx) {
   return h(
     'p',
     { class: 'cs-note', key: 'journal-note' },
@@ -538,7 +538,7 @@ function journalNote() {
     h(
       'span',
       null,
-      "Your journal lives in this browser, not on Cranium's servers. Export a backup to keep it with you."
+      `Your journal lives in ${ctx.mixes.place}, not on Cranium's servers. Export a backup to keep it with you.`
     )
   );
 }
@@ -604,7 +604,7 @@ export function overviewMixes(ctx) {
             { class: 'cs-grid-side' },
             onRepeat(sessions),
             revisit(ctx, momentToRevisit(sessions)),
-            journalNote()
+            journalNote(ctx)
           )
         )
       : h('div', { key: 'none' }, noSessions(ctx)),
@@ -855,7 +855,7 @@ export function momentsList(ctx) {
         text: 'On Transitions, keep a pair worth trying again, with a note on what made it work.',
         action: { href: '#/mixes/transitions', label: 'Go to Transitions' },
       }),
-      journalNote(),
+      journalNote(ctx),
     ];
   }
   return [
@@ -905,7 +905,7 @@ export function momentsList(ctx) {
         )
       )
     ),
-    journalNote(),
+    journalNote(ctx),
   ];
 }
 
@@ -1071,7 +1071,9 @@ function importDialog(ctx) {
         : h(
             'p',
             { class: 'cs-fine', key: 'storage' },
-            'This browser does not let the site keep data, so the journal lasts until you close the page. Export a backup before you go.'
+            ctx.mixes.app
+              ? 'This app cannot keep the journal, so it lasts until you close the app. Export a backup before you go.'
+              : 'This browser does not let the site keep data, so the journal lasts until you close the page. Export a backup before you go.'
           ),
     ],
     [
@@ -1102,7 +1104,7 @@ function exportDialog(ctx) {
       h(
         'p',
         { key: 'what' },
-        'Your journal lives in this browser only. A backup brings it back here, or to another browser, with Import session.'
+        `Your journal lives in ${ctx.mixes.place} only. A backup brings it back here, or to ${ctx.mixes.elsewhere}, with Import session.`
       ),
       h(
         'ul',
@@ -1181,7 +1183,7 @@ function momentDialog(ctx) {
         h(
           'span',
           { class: 'field-hint' },
-          `Kept in this browser with your journal. ${LIMITS.note - model.note.length} characters left.`
+          `Kept in ${ctx.mixes.place} with your journal. ${LIMITS.note - model.note.length} characters left.`
         )
       ),
     ],
@@ -1219,7 +1221,7 @@ function forgetDialog(ctx) {
       h(
         'p',
         { key: 'what' },
-        `“${session.title}”, of ${sessionDay(session.startedAt)}, leaves your journal in this browser. ` +
+        `“${session.title}”, of ${sessionDay(session.startedAt)}, leaves your journal in ${ctx.mixes.place}. ` +
           'Saved moments of it stay. Export a backup first if you might want it again.'
       ),
     ],
