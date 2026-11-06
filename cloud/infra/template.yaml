@@ -167,16 +167,17 @@ Resources:
       Name: !Ref AWS::StackName
       ProtocolType: HTTP
       # The phone apps from 0.8.0 (docs/mobile-apps.md, "The app shell"): their pages come from the
-      # copy of the sites inside the app, at an origin of the app's own, and call this API from there,
-      # across origins. These two origins and no others: the iPhone app's scheme, and the address
-      # Android's WebViewAssetLoader serves on. Nothing else changes for a browser: the console and
-      # the customer site are on this API's own origins, which need no CORS. No credentials: every
-      # call carries its token in the Authorization header, never a cookie, so an origin allowed here
-      # gains nothing without a token of its own. API Gateway answers the preflight itself.
+      # copy of the sites inside the app, at an origin of the app's own (the iPhone app's
+      # cranium-app://bundle, Android's https://appassets.androidplatform.net), and call this API
+      # from there, across origins. Any origin, because API Gateway refuses an origin that is not
+      # http or https ("Invalid format for origin cranium-app://bundle", the 2.2.0 deploy of
+      # 2026-11-05), and because it allows nothing more here: no credentials, every call carries its
+      # token in the Authorization header, never a cookie, so an origin gains nothing without a token
+      # of its own. Nothing changes for a browser: the console and the customer site are on this
+      # API's own origins, which need no CORS. API Gateway answers the preflight itself.
       CorsConfiguration:
         AllowOrigins:
-          - cranium-app://bundle
-          - https://appassets.androidplatform.net
+          - '*'
         AllowMethods:
           - GET
           - POST

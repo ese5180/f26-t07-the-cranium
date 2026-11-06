@@ -728,15 +728,17 @@ test('teardown removes the customer pool too, which the stack keeps like the sta
   assert.ok(block(block(template, 'Outputs', 0), 'CustomerUserPoolId').includes('Value: !Ref CustomerUserPool'));
 });
 
-test('the phone apps\' pages may call the API from the two origins of the app shell, and from no other', () => {
+test('the phone apps\' pages may call the API from any origin, with no credentials, and only these methods and headers', () => {
   const api = block(template, 'Api');
   const cors = block(api, 'CorsConfiguration', 6);
   const list = (key) => block(cors, key, 8).split('\n').slice(1).map((line) => line.trim())
     .filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
-  // The iPhone app's own scheme and Android's WebViewAssetLoader: apps/shared/bridge.json, "origins".
-  const shell = JSON.parse(readFileSync(new URL('../../../apps/shared/bridge.json', import.meta.url), 'utf8')).origins;
-  assert.deepEqual(list('AllowOrigins').sort(), [shell.android, shell.ios].sort());
-  assert.equal(cors.includes('*'), false, 'no wildcard, of origins, headers or methods');
+  // Any origin: API Gateway refuses the iPhone app's cranium-app://bundle, which is not http or https,
+  // so the app shell's two origins (apps/shared/bridge.json) can only be had with the wildcard. It
+  // allows nothing more: no credentials, and only these methods and headers.
+  assert.deepEqual(list('AllowOrigins'), ["'*'"]);
+  const allowed = cors.replace(/AllowOrigins:\n\s*- '\*'/, '');
+  assert.equal(allowed.includes('*'), false, 'no wildcard of headers or methods');
   assert.deepEqual(list('AllowMethods'), ['GET', 'POST', 'PUT']);
   assert.deepEqual(list('AllowHeaders'), ['authorization', 'content-type', 'accept']);
   assert.deepEqual(list('ExposeHeaders'), ['date']);
