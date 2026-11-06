@@ -23,6 +23,7 @@ import re
 import sys
 
 V = r"(\d+\.\d+\.\d+)"
+PART = re.compile(r"(.+)\.part(\d\d)")
 PHONE = re.compile(r"cranium-(android|ios)-" + V + r"\.(apk|ipa)")
 # The desktop app's installers, as electron-builder.<platform>.yml names them, in the order they are offered.
 DESKTOP = {
@@ -53,7 +54,22 @@ def digest(path):
 def main(dist):
     sums, latest = [], {}
     desktop = {app: [] for app in DESKTOP}
-    for name in sorted(os.listdir(dist)):
+    names = sorted(os.listdir(dist))
+    # An installer over GitHub's 100 MB is kept in parts, <installer>.part01, .part02, ..., with its own
+    # SHA-256 in <installer>.sha256 (apps/fetch-desktop-builds.sh; apps/join-build.sh joins them).
+    parts = {}
+    for name in names:
+        piece = PART.fullmatch(name)
+        if piece:
+            parts.setdefault(piece.group(1), []).append(name)
+            sha, _ = digest(os.path.join(dist, name))
+            sums.append("%s  %s" % (sha, name))
+        elif name.endswith(".sha256") and name[: -len(".sha256")] in {PART.fullmatch(n).group(1) for n in names if PART.fullmatch(n)}:
+            sha, _ = digest(os.path.join(dist, name))
+            sums.append("%s  %s" % (sha, name))
+    for name in names + [base for base in parts if base not in names]:
+        if PART.fullmatch(name) or name.endswith(".sha256"):
+            continue
         phone = PHONE.fullmatch(name)
         rank = None
         for app, patterns in DESKTOP.items():
@@ -62,6 +78,13 @@ def main(dist):
                 if match:
                     rank = (app, index, match.group(1))
         if not phone and rank is None:
+            continue
+        if name in parts:
+            with open(os.path.join(dist, name + ".sha256")) as file:
+                sha = file.read().split()[0]
+            size = sum(os.path.getsize(os.path.join(dist, piece)) for piece in parts[name])
+            app, index, version = rank
+            desktop[app].append((index, version, {"file": name, "size": size, "sha256": sha, "parts": sorted(parts[name])}))
             continue
         sha, size = digest(os.path.join(dist, name))
         sums.append("%s  %s" % (sha, name))
@@ -80,7 +103,7 @@ def main(dist):
         first = found[0][2]
         latest[app] = dict(first, version=found[0][1], files=[item[2] for item in found])
     with open(os.path.join(dist, "SHA256SUMS"), "w") as file:
-        file.write("\n".join(sums) + ("\n" if sums else ""))
+        file.write("\n".join(sorted(sums, key=lambda line: line.split("  ", 1)[1])) + ("\n" if sums else ""))
     with open(os.path.join(dist, "latest.json"), "w") as file:
         file.write(json.dumps(latest, indent=2, sort_keys=True) + "\n")
 

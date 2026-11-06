@@ -165,8 +165,11 @@ A release of one system is a tag. The installers end in `apps/dist/` in git, nex
    - prints the `git add -f` and `git commit` lines. `apps/dist/` stays ignored for anything else.
 
 GitHub refuses a file over 100 MB in git. An Electron installer is about 80 to 110 MB (each system's page gives the
-sizes of its own). So the fetch script leaves out any file over 100 MB and says so; that file stays in the run's
-artifact. `--allow-large` puts it in anyway, for a repository that keeps such files in Git LFS.
+sizes of its own). So the fetch script keeps any file over 100 MiB in parts of 90 MiB, `<installer>.part01`,
+`.part02`, ..., with the whole file's SHA-256 in `<installer>.sha256`, all listed in `SHA256SUMS` and the parts in
+`latest.json`. `apps/join-build.sh <installer> [folder]` joins them, checks the SHA-256 and keeps the file only if it
+matches (an AppImage made executable). `--allow-large` puts the whole file in instead, for a repository that keeps
+such files in Git LFS.
 
 ## What has been tried, and what has not
 

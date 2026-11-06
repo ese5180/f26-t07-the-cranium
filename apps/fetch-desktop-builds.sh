@@ -9,7 +9,8 @@
 #   apps/fetch-desktop-builds.sh linux             the newest release of linux whose artifact is still kept
 #   apps/fetch-desktop-builds.sh linux 0.1.0 --allow-large
 #                                                  files over 100 MB too (only with Git LFS for them: GitHub
-#                                                  refuses such a file in git)
+#                                                  refuses such a file in git). Without it, such a
+#                                                  file goes in parts of 90 MiB (apps/join-build.sh)
 #
 # Each file is checked against the SHA256SUMS the release job wrote, and must be one of the installers the
 # app publishes by its name. Older builds of the same system in apps/dist/ are removed. SHA256SUMS and
@@ -110,24 +111,48 @@ EOF
 mkdir -p "$DIST"
 added=()
 left=()
+split=()
 for path in "$WORK/files"/*; do
   name="$(basename "$path")"
   [ "$name" = SHA256SUMS ] && continue
   size="$(wc -c < "$path" | tr -d ' ')"
   if [ "$size" -gt "$LIMIT" ] && [ "$ALLOW_LARGE" = 0 ]; then
-    left+=("$name ($size bytes)")
+    # Over what GitHub takes in one file: in parts of 90 MiB, <name>.part01, .part02, ..., with the whole
+    # file's SHA-256 in <name>.sha256. apps/join-build.sh puts it back together and checks it.
+    python3 -I - "$path" "$WORK/parts" <<'SPLIT'
+import hashlib, os, sys
+path, out = sys.argv[1], sys.argv[2]
+name, part, whole = os.path.basename(path), 0, hashlib.sha256()
+os.makedirs(out, exist_ok=True)
+with open(path, "rb") as source:
+    while True:
+        chunk = source.read(90 * 1024 * 1024)
+        if not chunk:
+            break
+        whole.update(chunk)
+        part += 1
+        with open(os.path.join(out, "%s.part%02d" % (name, part)), "wb") as target:
+            target.write(chunk)
+with open(os.path.join(out, name + ".sha256"), "w") as target:
+    target.write("%s  %s\n" % (whole.hexdigest(), name))
+SPLIT
+    for piece in "$WORK/parts/$name".part[0-9][0-9] "$WORK/parts/$name.sha256"; do
+      mv "$piece" "$WORK/files/"
+      added+=("$(basename "$piece")")
+    done
+    split+=("$name ($size bytes, in $(find "$WORK/files" -name "$name.part*" | wc -l | tr -d ' ') parts)")
     continue
   fi
   added+=("$name")
 done
-[ "${#added[@]}" -gt 0 ] || fail "every file is over 100 MB: none goes into git without Git LFS (--allow-large)"
+[ "${#added[@]}" -gt 0 ] || fail "nothing to put in apps/dist"
 
 # Older builds of this system go: the newest is the one in git.
 removed=()
 for old in "$DIST"/*; do
   name="$(basename "$old")"
   case "$PLATFORM:$name" in
-    windows:Cranium-Setup-*.exe | windows:Cranium-*-portable.exe | linux:Cranium-*.AppImage | linux:cranium_*.deb | linux:cranium-*.rpm) ;;
+    windows:Cranium-Setup-*.exe* | windows:Cranium-*-portable.exe* | linux:Cranium-*.AppImage* | linux:cranium_*.deb* | linux:cranium-*.rpm*) ;;
     *) continue ;;
   esac
   keep=0
@@ -141,6 +166,9 @@ python3 -I "$APPS_DIR/write-dist-index.py" "$DIST"
 echo
 for name in "${left[@]+"${left[@]}"}"; do
   echo "Left out, over the 100 MB GitHub takes in git: $name. It stays in the run's artifact for 7 days."
+done
+for name in "${split[@]+"${split[@]}"}"; do
+  echo "In parts, as it is over the 100 MB GitHub takes in one file: $name. apps/join-build.sh joins them."
 done
 echo "Wrote apps/dist/SHA256SUMS and latest.json. To put $PLATFORM $VERSION in git:"
 echo

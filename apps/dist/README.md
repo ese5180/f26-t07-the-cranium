@@ -6,9 +6,18 @@ The newest build of each app:
   `apps/release.sh <version> --wait`).
 - **The desktop app for Windows and Linux:** what its release job built, put here by
   `apps/fetch-desktop-builds.sh <windows|linux> <version>` ([docs/desktop-app.md](../../docs/desktop-app.md#releases)).
-  A file over the 100 MiB (104,857,600 bytes) GitHub takes in git stays in the release run's artifact only. For 0.1.0
-  that is the AppImage (about 126 MB): `Cranium-Setup-<version>.exe` and the `.deb` (about 100.6 MB, under the limit)
-  come here; the AppImage, and any installer that grows past the limit, is downloaded from the release run instead.
+  GitHub takes no file over 100 MiB (104,857,600 bytes) in git, so such an installer is kept in parts of 90 MiB:
+  `<installer>.part01`, `.part02`, ..., and its whole SHA-256 in `<installer>.sha256`. For 0.1.0 that is the AppImage
+  (about 126 MB, two parts); `Cranium-Setup-<version>.exe` and the `.deb` (about 100.6 MB) are whole. To install the
+  AppImage from here:
+
+  ```
+  apps/join-build.sh apps/dist/Cranium-0.1.0.AppImage ~/Applications
+  ~/Applications/Cranium-0.1.0.AppImage
+  ```
+
+  `join-build.sh` joins the parts in order, checks the joined file against its SHA-256 and keeps it only if it
+  matches, made executable.
 
 `SHA256SUMS` and `latest.json` list every build here; both scripts write them (`apps/write-dist-index.py`). Check the
 builds with `shasum -a 256 -c SHA256SUMS`. How to install them: [`../README.md`](../README.md). Local builds also land
