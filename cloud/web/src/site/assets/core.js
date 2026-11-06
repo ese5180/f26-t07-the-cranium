@@ -1751,6 +1751,9 @@ const CHALLENGE_NAME = /^[A-Z_]{1,40}$/;
 const CODE = /^\d{6}$/;
 
 /** The sign-in settings the server put in the page. Null if they are unusable. */
+// As live.js reads it: wss://<host>/<stage>, or ws:// for the local preview.
+const LIVE_URL = /^wss?:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?\/[A-Za-z0-9_-]{1,128}$/;
+
 export function readConfig(json) {
   const value = parseJson(json ?? '');
   if (value === null || typeof value !== 'object') return null;
@@ -1763,6 +1766,8 @@ export function readConfig(json) {
   const address = /^https?:\/\/[^?#\s]+$/;
   // Served as admin mode of the customer site (docs/customer-site.md): the site is at the root.
   if (value.customerSite === '/') config.customerSite = '/';
+  // The live API's WebSocket (live.js, docs/live.md). Without it, or with something else, the console polls.
+  if (typeof value.liveUrl === 'string' && LIVE_URL.test(value.liveUrl)) config.liveUrl = value.liveUrl;
   return origin.test(config.loginOrigin) &&
     origin.test(config.idpOrigin) &&
     address.test(config.redirectUri) &&

@@ -46,6 +46,7 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // customers.js: the Customers page, the customer site's customers and their boards (docs/customer-site.md).
 // bridge.js and bluetooth.js: the phone app's bridge, fetched only in the app, and its Bluetooth page
 // (docs/mobile-apps.md, "The app shell").
+// live.js: live updates, fetched once the console is shown, when its settings name the live API (docs/live.md).
 const ON_DEMAND = [
   'account.js',
   'apps.js',
@@ -54,6 +55,7 @@ const ON_DEMAND = [
   'customers.js',
   'fleet.js',
   'history.js',
+  'live.js',
   'map.js',
   'serial.js',
   'telemetry.js',

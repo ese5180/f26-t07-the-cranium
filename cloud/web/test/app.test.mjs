@@ -32,7 +32,7 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, MAP } from './page.mjs';
+import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LIVE, MAP } from './page.mjs';
 import {
   INSTALLING,
   MANAGER,
@@ -139,6 +139,8 @@ function navigatorSerial() {
  * @param {Function} [options.fail]       an error for Cognito to answer a call with, by name
  * @param {object} [options.app]          the tab is the phone app's (bridge.js): a stand-in for the iPhone
  *                                        app's bridge, with answers by method that replace APP_ANSWERS'
+ * @param {string} [options.liveUrl]      the live API's address in the page's settings (docs/live.md)
+ * @param {Function} [options.WebSocket]  what the tab has for a WebSocket, with liveUrl
  */
 async function openTab(t, options = {}) {
   const {
@@ -155,8 +157,16 @@ async function openTab(t, options = {}) {
     users = [PERSON],
     fail,
     app = null,
+    liveUrl = null,
+    WebSocket = null,
   } = options;
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
+  // Node has a WebSocket of its own: a tab never gets it, only the stand-in it is given.
+  const realSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'WebSocket', { value: WebSocket ?? undefined, configurable: true, writable: true });
+  t.after(() =>
+    Object.defineProperty(globalThis, 'WebSocket', { value: realSocket, configurable: true, writable: true })
+  );
   const cognito = createCognito({ userPoolId: CONFIG.userPoolId, clientId: CONFIG.clientId, users, fail });
 
   const replies = repliesFor(world, { viewer });
@@ -165,7 +175,9 @@ async function openTab(t, options = {}) {
   const navigations = [];
   const document = createDocument(['skip', 'main', 'nav', 'account', 'toasts', 'announcer']);
   document.querySelector = (selector) =>
-    selector === 'meta[name="cranium-config"]' ? { content: JSON.stringify(CONFIG) } : null;
+    selector === 'meta[name="cranium-config"]'
+      ? { content: JSON.stringify(liveUrl ? { ...CONFIG, liveUrl } : CONFIG) }
+      : null;
 
   const storage = new Map(Object.entries(stored));
   if (session !== null) {
@@ -314,6 +326,7 @@ async function openTab(t, options = {}) {
         'fleet.js': FLEET,
         'bridge.js': BRIDGE,
         'bluetooth.js': BLUETOOTH,
+        'live.js': LIVE,
       },
       `tab ${copies}`
     )
@@ -2534,4 +2547,55 @@ test('in the app, a saved sign-in the biometric can no longer open asks for the 
   const tab = await openTab(t, { session: null, app: { 'auth.session': { refuse: 'locked' } } });
   await until(() => textOf(tab.main).includes('can no longer open the saved sign-in'), 'the sign-in page');
   assert.ok(tab.document.getElementById('signin-email'));
+});
+
+// Live updates (live.js, docs/live.md).
+
+test('with the live API, a change it tells makes the page read again once, at once; without it the console only polls', async (t) => {
+  const sockets = [];
+  class FakeSocket {
+    constructor(url, protocols) {
+      Object.assign(this, { url, protocols, sent: [] });
+      sockets.push(this);
+    }
+    send(text) {
+      this.sent.push(text);
+    }
+    close() {}
+  }
+  const LIVE_URL = 'wss://live.example/live';
+  const tab = await openTab(t, { liveUrl: LIVE_URL, WebSocket: FakeSocket });
+  await until(() => sockets.length === 1, 'the WebSocket');
+  // The token goes in the subprotocols, never in the address.
+  assert.equal(sockets[0].url, LIVE_URL);
+  assert.deepEqual(sockets[0].protocols, ['cranium-live', 'TOKEN']);
+  sockets[0].onopen({});
+  await settle();
+  assert.ok(textOf(tab.main).includes('Live'), 'the page says it is live');
+
+  const mark = tab.requests.length;
+  sockets[0].onmessage({ data: JSON.stringify({ type: 'changed', things: [], what: ['board'], at: 'x' }) });
+  sockets[0].onmessage({ data: JSON.stringify({ type: 'changed', things: [], what: ['updates'], at: 'x' }) });
+  await tab.wait(300);
+  await until(() => tab.since(mark).includes('GET /api/devices'), 'the boards read again');
+  await settle();
+  assert.equal(tab.since(mark).filter((line) => line === 'GET /api/devices').length, 1, 'two changes, one read');
+
+  // Hidden, the WebSocket is closed within a few seconds.
+  await tab.hide(true);
+  await tab.wait(5000);
+  assert.equal(sockets[0].onmessage, null);
+});
+
+test('without the live API in its settings, the console opens no WebSocket', async (t) => {
+  let made = 0;
+  class FakeSocket {
+    constructor() {
+      made += 1;
+    }
+  }
+  const tab = await openTab(t, { WebSocket: FakeSocket });
+  await tab.wait(60_000);
+  assert.equal(made, 0);
+  assert.ok(tab.requests.length > 0);
 });

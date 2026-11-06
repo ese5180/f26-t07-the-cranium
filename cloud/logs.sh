@@ -9,6 +9,7 @@
 #   cloud/logs.sh memfault the Memfault forwarder: one line per chunk from a board, and what came of it
 #   cloud/logs.sh memfault-errors  what AWS IoT could not hand to the Memfault forwarder
 #   cloud/logs.sh signin   the sign-in trigger: Lambda's own lines for each token Cognito makes
+#   cloud/logs.sh live     live updates: one line per page that connects or is refused, and per change told
 #   cloud/logs.sh access   API Gateway: every request, with status and authorizer error
 #   cloud/logs.sh iot      AWS IoT: connections, refused publishes, job events
 #
@@ -99,6 +100,7 @@ main() {
     memfault) check_tools; group="$(stack_log_group MemfaultLogGroup)" ;;
     memfault-errors) check_tools; group="$(stack_log_group MemfaultRuleErrorLogGroup)" ;;
     signin) check_tools; group="$(stack_log_group SignInScopeLogGroup)" ;;
+    live) check_tools; group="$(stack_log_group LiveLogGroup)" ;;
     access) check_tools; group="$(stack_log_group AccessLogGroup)" ;;
     iot)
       check_tools

@@ -119,6 +119,39 @@ test('the page may talk to itself, the login pages and the user pool API, and to
   assert.match(policy, /(^|; )form-action 'none'(;|$)/);
 });
 
+test("with the live API, both sites' pages are told where it is, and may talk to its origin and no more of it", async () => {
+  const LIVE = 'wss://f6e5d4c3b2.execute-api.region-1.cloud.test/live';
+  const customer = { hosts: ['customer.test'], userPoolId: 'xx-test-1_Customers1', clientId: 'customer-client' };
+  const live = quiet({ ...SETTINGS, customer, liveUrl: LIVE });
+  const page = await live(request('/'));
+  assert.equal(settingsIn(page.body).liveUrl, LIVE);
+  const connect = (response) =>
+    response.headers['content-security-policy'].split('; ').find((directive) => directive.startsWith('connect-src '));
+  assert.deepEqual(connect(page).split(' ').slice(1), [
+    "'self'",
+    LOGIN,
+    USER_POOL_API,
+    'wss://f6e5d4c3b2.execute-api.region-1.cloud.test',
+  ]);
+  const site = await live(request('/', { domainName: 'customer.test' }));
+  assert.equal(settingsIn(site.body).liveUrl, LIVE);
+  assert.ok(connect(site).endsWith(' wss://f6e5d4c3b2.execute-api.region-1.cloud.test'));
+  const admin = await live(request('/admin', { domainName: 'customer.test' }));
+  assert.equal(settingsIn(admin.body).liveUrl, LIVE);
+  // Without it, nothing about it.
+  assert.equal(Object.hasOwn(settingsIn((await serve(request('/'))).body), 'liveUrl'), false);
+  // Only a WebSocket address of a host and a stage: nothing that could add a source to the policy.
+  for (const bad of [
+    'https://x.test/live',
+    'wss://x.test',
+    "wss://x.test/live 'unsafe-inline'",
+    'wss://x.test/live;',
+    42,
+  ]) {
+    assert.throws(() => quiet({ ...SETTINGS, liveUrl: bad }), /liveUrl/, String(bad));
+  }
+});
+
 test('a user pool ID that is not one is refused when the handler is made', () => {
   const refused = [
     'xx-test-1_Pool0Tests evil.example',

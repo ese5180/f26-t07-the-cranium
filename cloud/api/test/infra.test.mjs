@@ -56,11 +56,15 @@ test('reads and writes have a request limit each, and neither is weaker than the
     assert.ok(route.includes('integrations/${ApiIntegration}'), resource);
   }
   // Only the page itself, its files, what no route claims and the routes whose function
-  // checks an API token itself are open, whatever a route is called.
+  // checks an API token itself are open, whatever a route is called. (The live API's routes are
+  // the live function's to check: live-infra.test.mjs.)
   const open = template
     .split(/\n(?= {2}\w+:\n)/)
     .filter(
-      (resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE')
+      (resource) =>
+        resource.includes('Type: AWS::ApiGatewayV2::Route') &&
+        resource.includes('ApiId: !Ref Api\n') &&
+        resource.includes('AuthorizationType: NONE')
     )
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
   assert.deepEqual(open.sort(), [

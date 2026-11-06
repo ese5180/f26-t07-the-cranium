@@ -7,6 +7,22 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.0
+
+Live updates: an open page hears of a change as it happens, and shows it within about a second instead of on its next refresh. A board that connects, restarts or takes an update, a new release, a board given to a customer: the console, and the customer site for a customer's own boards, read it again at once. The console's Live mark shows while it is connected; the 30-second refresh stays for when it is not.
+
+A WebSocket API of its own (LiveApi, stage live) and a function, LiveFn (api/src/live.mjs, live-app.mjs), with a table
+of open connections. The state, audit and events tables each gain a stream of keys only, and three filtered event source
+mappings hand LiveFn a board's events and update facts, ownership, releases, groups, rollouts, phone app builds and new
+activity entries, never the readings every 30 s or the console's lines. LiveFn sends each page that may see it one
+message with no data of a board: the team hears thing names, a customer only of the boards they own, by the id of the
+assignment. A page connects with its access token in the Sec-WebSocket-Protocol header, never in the address; LiveFn
+checks its signature against the pool's keys (api/src/lib/jwt.mjs), the client and the times, and asks Cognito whether
+the account may, as the API does. The web function puts the address in both sites' settings (liveUrl) and allows its
+origin in their policies. The pages' side is web/src/site/assets/live.js, fetched on demand; the apps' shells of 0.8.0
+do not pass the address on yet, so their pages poll as before. cloud/logs.sh live follows the function's log.
+docs/live.md says all of it.
+
 ## 2.3.0
 
 The customer site looks like the mockup: a dark sidebar, Connect device and Export in the top bar, and pages of its own for Sessions, Transitions, the Track library and Saved moments. Explore them with a made-up demo, or import your own sessions (CSV or JSON) into a journal kept in your browser; keep a transition with a note, and export a backup or a spreadsheet.

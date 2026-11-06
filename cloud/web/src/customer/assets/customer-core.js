@@ -34,6 +34,9 @@ function pool(value) {
 }
 
 /** The settings the server put in the page, or null if they are unusable. */
+// As live.js reads it: wss://<host>/<stage>, or ws:// for the local preview.
+const LIVE_URL = /^wss?:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?\/[A-Za-z0-9_-]{1,128}$/;
+
 export function readSiteConfig(json) {
   let value;
   try {
@@ -47,7 +50,9 @@ export function readSiteConfig(json) {
   const { idpOrigin, home, adminPath } = value;
   if (!customer || !admin || typeof idpOrigin !== 'string' || !ORIGIN.test(idpOrigin)) return null;
   if (typeof home !== 'string' || !HOME.test(home) || adminPath !== '/admin') return null;
-  return { customer, admin, idpOrigin, home, adminPath };
+  // The live API's WebSocket (live.js, docs/live.md). Without it, or with something else, the site polls.
+  const liveUrl = typeof value.liveUrl === 'string' && LIVE_URL.test(value.liveUrl) ? value.liveUrl : null;
+  return { customer, admin, idpOrigin, home, adminPath, ...(liveUrl ? { liveUrl } : {}) };
 }
 
 /**

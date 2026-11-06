@@ -287,6 +287,7 @@ cloud/logs.sh api       # or: web, events, location, memfault, memfault-errors, 
 | A 500 with no line in the API log | `logs.sh access`: `integrationError` |
 | A board does not come online | `logs.sh iot`: look for `Connect` entries with status `Failure`. The client ID must be the thing name, and the certificate must be attached to the thing |
 | A board refuses or fails an update | the deployment page of the console, then the board's serial console |
+| A page does not show changes at once (its Live mark does not show, docs/live.md) | `logs.sh live`: a `$connect` line with `refused` and why (`no_token`, `expired`, `account`, ...) or `failed`, and one line per batch of changes with how many pages were told. The page still refreshes every 30 s |
 | A board's events are missing from the Events page | `logs.sh events`: one `recorded` line per report of a board, or `message_ignored` with why. No line at all: the AWS IoT rules did not invoke the recorder |
 | A board's log is missing from the Events page | The board runs firmware 1.12.0 or later, and the device policy allows `cranium/<thing>/events` (else its serial console says `AWS IoT closed the connection right after an event`). `logs.sh events`: `recorded` with a `tag` per line, `line_withheld` for a line with a passkey or a password in it, `line_repeated` for one sent twice |
 | A sign-in is not in the activity log | It is recorded by the first request of it that reaches the API function; `logs.sh api` shows `sign_in_unrecorded` with why when it could not be written, and the next request tries again |
@@ -404,6 +405,7 @@ What this console does not do, stated plainly.
 | `GET /api/sidestore/{proxy+}`: SideStore on an iPhone | 2 | 5 | No: the function checks the key in the path, at most 30 uses a minute each |
 | `GET /` and `GET /assets/{proxy+}`, each | 20 | 60 | No |
 | `$default`: everything else | 10 | 20 | No |
+| The live API's WebSocket (`LiveApi`, stage `live`): a page connecting, and its ping every 5 minutes | 10 | 20 | No: the live function checks the token a page connects with ([docs/live.md](../docs/live.md)) |
 
 These limits are per route, for everybody together. An HTTP API has no limit per caller,
 and AWS WAF cannot be attached to one. Separating reads from writes keeps heavy reading,

@@ -90,6 +90,10 @@ let site = readSiteConfig(document.querySelector('meta[name="cranium-config"]')?
 // The phone app's bridge, in the app only; bridge.js itself is fetched only there.
 let bridgeScript = null;
 let appBridge = null;
+// Live updates (live.js, docs/live.md): fetched once the site has started, when its settings name the live API.
+let live = null;
+let liveQueued = false;
+let refreshing = 0;
 
 function resource() {
   return { value: null, error: null, loadedAt: 0, loading: false };
@@ -355,11 +359,57 @@ async function refresh(full) {
   if (view === 'account' && full && state.app) jobs.push(readBiometric());
   if (jobs.length === 0) return;
   draw();
-  await Promise.all(jobs);
+  refreshing += 1;
+  try {
+    await Promise.all(jobs);
+  } finally {
+    refreshing -= 1;
+  }
   draw();
+  // A change was told while this refresh was reading: read once more, now.
+  if (liveQueued && refreshing === 0) {
+    liveQueued = false;
+    await refresh(false);
+    return;
+  }
   if (['overview', 'devices', 'device'].includes(view) && document.visibilityState !== 'hidden') {
     timer = setTimeout(() => refresh(false), REFRESH_MS);
   }
+}
+
+/**
+ * The live API said a board of this customer's changed, or which boards are theirs did (live.js): the
+ * pages that show boards read them again at once. A board's page, only for its own board.
+ */
+function liveChanged({ boards, what, resync }) {
+  if (!state.customer || document.visibilityState === 'hidden') return;
+  const { view, id } = state.route;
+  if (!['overview', 'devices', 'device'].includes(view)) return;
+  if (view === 'device' && !resync && !what.includes('ownership') && !boards.includes(id)) return;
+  if (refreshing > 0) {
+    liveQueued = true;
+    return;
+  }
+  refresh(false);
+}
+
+/** Fetch live.js once, and keep the WebSocket while a customer is signed in and the page is in view. */
+function startLive() {
+  if (!site?.liveUrl || live !== null) return;
+  live = { sync() {} };
+  import('./live.js')
+    .then((module) => {
+      live = module.createLive({
+        url: module.readLiveUrl(site.liveUrl),
+        accessToken: () => (state.customer ? customerAuth.accessToken() : null),
+        onChange: liveChanged,
+      });
+      live.start();
+    })
+    .catch((error) => {
+      console.error(error);
+      live = null;
+    });
 }
 
 /** Who the admin is, from the console's own API: their address and whether they may change things. */
@@ -427,6 +477,8 @@ function adminEnded() {
 let renewing = false;
 
 function checkSessions() {
+  // The WebSocket follows the customer's sign-in: closed while signed out or hidden, opened again with a new token.
+  live?.sync();
   // In the app, the app renews a session that is about to end; it is over only if the app cannot.
   if (appBridge && !renewing) {
     const due = [
@@ -1164,9 +1216,11 @@ async function start() {
   });
   window.addEventListener('hashchange', follow);
   document.addEventListener('visibilitychange', () => {
+    live?.sync();
     if (document.visibilityState === 'visible') refresh(false);
   });
   setInterval(checkSessions, SESSION_CHECK_MS);
+  startLive();
   document.getElementById('skip')?.addEventListener('click', () => {
     (
       document.getElementById('content') ??

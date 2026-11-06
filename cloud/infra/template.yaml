@@ -615,6 +615,79 @@ Resources:
       SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
 
   # ---------------------------------------------------------------------------------
+  # Live updates (docs/live.md): a WebSocket API that tells open pages that something they show
+  # changed, so that they read it again at once instead of on their next refresh. It is an API of its
+  # own, at the address API Gateway assigns: a WebSocket API cannot share a custom domain name with
+  # the HTTP API. Its three routes go to the live function, which checks the token a page connects
+  # with itself (a WebSocket API has no JWT authorizer). The messages carry no data of a board.
+  # ---------------------------------------------------------------------------------
+
+  LiveApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-live'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+
+  LiveIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref LiveApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LiveFn.Arn}/invocations'
+
+  # No authorizer: the token comes in the Sec-WebSocket-Protocol header, which LiveFn reads and checks,
+  # and answers with the subprotocol "cranium-live" or refuses (live-app.mjs).
+  LiveConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LiveApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${LiveIntegration}'
+
+  LiveDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LiveApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${LiveIntegration}'
+
+  # Every message a page sends: its ping, every 5 minutes, which keeps the 10-minute idle limit away.
+  LiveDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LiveApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${LiveIntegration}'
+
+  LiveStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn:
+      - LiveConnectRoute
+      - LiveDisconnectRoute
+      - LiveDefaultRoute
+    Properties:
+      ApiId: !Ref LiveApi
+      StageName: live
+      AutoDeploy: true
+      # Connections and pings. A page connects once and pings every 5 minutes; a flood of connections
+      # with no valid token is held to this, each refused by the function before anything is stored.
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  LiveFnPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LiveFn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${LiveApi}/*'
+
+  # ---------------------------------------------------------------------------------
   # Sign-in: Cognito user pool. Users are created by an administrator (cloud/users.sh),
   # sign in with e-mail and password, and must use an authenticator app. The console has
   # a sign-in page of its own (the user pool API, with SRP and the sign-in trigger below)
@@ -1084,6 +1157,9 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
+      # Its changes, keys only, for the live function (LiveStreams below, docs/live.md).
+      StreamSpecification:
+        StreamViewType: KEYS_ONLY
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
@@ -1110,6 +1186,9 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
+      # Its changes, keys only, for the live function (LiveStreams below, docs/live.md).
+      StreamSpecification:
+        StreamViewType: KEYS_ONLY
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
@@ -1144,6 +1223,9 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+      # Its changes, keys only, for the live function (LiveStreams below, docs/live.md).
+      StreamSpecification:
+        StreamViewType: KEYS_ONLY
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
@@ -1538,6 +1620,9 @@ Resources:
           # For the customer site's own sign-in page. Public, as the staff client ID is.
           CUSTOMER_POOL_ID: !Ref CustomerUserPool
           CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
+          # Where both sites' pages keep their WebSocket for live updates (LiveApi, docs/live.md), which
+          # their Content-Security-Policy allows and nothing else of that host.
+          LIVE_URL: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2541,6 +2626,189 @@ Resources:
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !GetAtt UserPool.Arn
 
+  # ---------------------------------------------------------------------------------
+  # The live function (cloud/api/src/live.mjs, docs/live.md): the live API's routes, and the
+  # changes of the events, state and audit tables, which it passes on to the open pages.
+  # ---------------------------------------------------------------------------------
+
+  # One item per open page: who it is and until when (live-app.mjs). Nothing here outlives its page by
+  # much: DynamoDB deletes an item an hour after its time, if $disconnect did not. No deletion protection
+  # and no backup: a lost item is a page that connects again.
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  LiveLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-live'
+      RetentionInDays: 90
+
+  # It may write to its log; put, delete and scan the connections; read who owns which board (pk OWN
+  # of the state table) and nothing else of that table; read the three tables' streams; send to and
+  # close the live API's connections, of its one stage; and ask Cognito whether an account is enabled,
+  # and in which groups a member of the team is. Nothing else: no table but the connections is written.
+  LiveRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: live-updates
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLog
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt LiveLogGroup.Arn
+              - Sid: KeepConnections
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !GetAtt ConnectionsTable.Arn
+              - Sid: ReadOwnership
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - OWN
+              # What Lambda's poller needs of each stream it reads for the function.
+              - Sid: ReadStreams
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                Resource:
+                  - !GetAtt EventsTable.StreamArn
+                  - !GetAtt StateTable.StreamArn
+                  - !GetAtt AuditTable.StreamArn
+              # It names no table's items: only which streams there are.
+              - Sid: ListStreams
+                Effect: Allow
+                Action: dynamodb:ListStreams
+                Resource: '*'
+              - Sid: TellPages
+                Effect: Allow
+                Action: execute-api:ManageConnections
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${LiveApi}/live/POST/@connections/*'
+                  - !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${LiveApi}/live/DELETE/@connections/*'
+              - Sid: CheckAccounts
+                Effect: Allow
+                Action: cognito-idp:AdminGetUser
+                Resource:
+                  - !GetAtt UserPool.Arn
+                  - !GetAtt CustomerUserPool.Arn
+              - Sid: CheckTeamGroups
+                Effect: Allow
+                Action: cognito-idp:AdminListGroupsForUser
+                Resource: !GetAtt UserPool.Arn
+
+  # The API's code with another entry point (cloud/api/src/live.mjs). It is given the pools and their
+  # app clients, whose access tokens it takes; the connections table; the three tables' names, to tell
+  # their streams apart; and the address of the management API of the live API's stage.
+  LiveFn:
+    Type: AWS::Lambda::Function
+    DependsOn: LiveLogGroup
+    Properties:
+      LoggingConfig:
+        LogGroup: !Ref LiveLogGroup
+      Description: !Sub 'Cranium firmware console - live updates - ${DeployedCommit} (${DeployedTree})'
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      Handler: live.handler
+      MemorySize: 256
+      Timeout: 10
+      Role: !GetAtt LiveRole.Arn
+      # Local path: "aws cloudformation package" zips it and puts the S3 location here.
+      Code: ../api/src
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
+          CUSTOMER_POOL_ID: !Ref CustomerUserPool
+          CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
+          CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          STATE_TABLE: !Ref StateTable
+          EVENTS_TABLE: !Ref EventsTable
+          AUDIT_TABLE: !Ref AuditTable
+          LIVE_CALLBACK_URL: !Sub 'https://${LiveApi}.execute-api.${AWS::Region}.amazonaws.com/live'
+
+  # The three streams, each with a filter, so that the function is invoked only for what is a change
+  # (lib/live.mjs): of the events table, a board's events (sk E#...) and its update facts (pk UPD#...),
+  # never its readings every 30 s, the lines of its console, the alerts' or the positions' parts, nor
+  # what DynamoDB lets expire; of the state table, ownership, releases, groups, rollouts and the phone
+  # apps, never the tokens; of the audit table, each new entry. A change is worth little a minute later:
+  # a batch that fails is tried twice and given up after a minute, and the page still has its polling.
+  LiveEventsStream:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref LiveFn
+      EventSourceArn: !GetAtt EventsTable.StreamArn
+      StartingPosition: LATEST
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 0
+      MaximumRetryAttempts: 2
+      MaximumRecordAgeInSeconds: 60
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"Keys":{"sk":{"S":[{"prefix":"E#"}]}}}}'
+          - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"Keys":{"pk":{"S":[{"prefix":"UPD#"}]}}}}'
+
+  LiveStateStream:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref LiveFn
+      EventSourceArn: !GetAtt StateTable.StreamArn
+      StartingPosition: LATEST
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 0
+      MaximumRetryAttempts: 2
+      MaximumRecordAgeInSeconds: 60
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"dynamodb":{"Keys":{"pk":{"S":["OWN","REL","GRP","ROL","APP"]}}}}'
+
+  LiveAuditStream:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref LiveFn
+      EventSourceArn: !GetAtt AuditTable.StreamArn
+      StartingPosition: LATEST
+      BatchSize: 100
+      MaximumBatchingWindowInSeconds: 0
+      MaximumRetryAttempts: 2
+      MaximumRecordAgeInSeconds: 60
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["INSERT"]}'
+
 Outputs:
   ConsoleUrl:
     Description: Address of the console. Also the redirect URI the console signs in with.
@@ -2617,6 +2885,12 @@ Outputs:
     Value: !Ref WebFn
   EventsFunctionName:
     Value: !Ref EventsFn
+  LiveFunctionName:
+    Description: The function behind live updates (docs/live.md).
+    Value: !Ref LiveFn
+  LiveUrl:
+    Description: Where the pages keep their WebSocket for live updates (docs/live.md).
+    Value: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'
   RolloutsFunctionName:
     Description: The function that moves staged rollouts on, every minute.
     Value: !Ref RolloutTickFn

@@ -34,6 +34,7 @@ stack, `cranium-trail`, with a CloudTrail record of management events.
 | HTTP API and two Lambda functions | The console: one function serves the pages, one is the console's API. A third function, the recorder, has no route, and neither has the sign-in trigger, which only Cognito calls. The same page function serves the customer site, and a fifth function, the customer API, answers `GET /api/c/` behind the customer pool's own authorizer. The page function can also serve a public home page on a name of its own (`HomeDomainName`), which is not deployed now: craniumiot.com is the customer site. |
 | Fleet functions | The staged rollouts' schedule, the location function and the e-mail alerts' topic: [The fleet](#the-fleet-board-types-groups-and-staged-rollouts). |
 | Memfault forwarder | From console 2.1.0: `MemfaultRule` hands each chunk a board publishes on `cranium/<thing>/memfault` to `MemfaultFn`, which posts it to Memfault with the project key from Secrets Manager and answers the board: [`memfault.md`](memfault.md). |
+| Live updates | From console 2.4.0: a WebSocket API, `LiveFn` and its connections table. The tables' streams (keys only) tell `LiveFn` what changed, and it tells each open page that may see it, which reads it again at once: [`live.md`](live.md). |
 | CloudWatch log groups | API access log, function logs, AWS IoT logs. |
 
 ## A board's identity
@@ -141,7 +142,10 @@ publish to its own shadow, jobs and board-log topics only, and a connection that
 stamps the time at which it received `uptime`, and a board is online when that is less than 90 seconds ago
 (`ONLINE_WINDOW_MS` in `cloud/api/src/lib/shadow.mjs`). A board that dies counts as offline in the API after 90
 seconds. A page that is open can take about 125 seconds to show it: the API keeps a shadow for 5 seconds, and a page
-with nothing under way asks every 30 seconds. A board on the golden image, which reports every 60 seconds, stays online
+with nothing under way asks every 30 seconds. (What a board says it is doing, such as connecting, restarting or an
+update's steps, reaches an open page within about a second from console 2.4.0: [live updates](live.md). A board that
+just stops says nothing: it turns offline when its heartbeat is late, which no table records, and AWS IoT's word that
+it disconnected, when that comes, is told like any event.) A board on the golden image, which reports every 60 seconds, stays online
 with one report that is late, and counts as offline from 90 seconds until its next report if one is lost.
 
 A board that last said `rebooting` gets 240 seconds (`RESTART_WINDOW_MS`), because a real restart takes longer than

@@ -80,6 +80,8 @@ export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VI
 export const QR = scriptAddress('qrcode.js');
 // The phone app's bridge, the steps after a Bluetooth send, and the app's Bluetooth page (docs/mobile-apps.md).
 export const BRIDGE = scriptAddress('bridge.js');
+// Live updates (docs/live.md).
+export const LIVE = scriptAddress('live.js');
 export const UPDATEWATCH = scriptAddress('updatewatch.js', { 'core.js': CORE });
 export const BLUETOOTH = scriptAddress('bluetooth.js', {
   'core.js': CORE,

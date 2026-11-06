@@ -150,6 +150,8 @@ const state = {
   versions: resource(),
   // In the phone app: what it offers (bridge.js), and the line that says which app and which pages. Null on the website.
   app: null,
+  // Whether the live API's WebSocket is open (live.js, docs/live.md): the page then hears of changes at once.
+  liveUpdates: false,
 };
 
 const clock = createClock();
@@ -161,6 +163,11 @@ let dialog = null;
 let bridgeScript = null;
 let appBridge = null;
 let appConfig = null;
+// Live updates (live.js, docs/live.md): the live API's address from the page's settings, and the client,
+// fetched once the console is shown, like fleet.js. Without an address the console only polls.
+let liveUrl = null;
+let live = null;
+let liveQueued = false;
 
 /** Tell the app the pages have started, so that it keeps this bundle as a good one. Once. */
 let toldReady = false;
@@ -921,7 +928,55 @@ async function refreshNow(full) {
     await fleetScript.refreshFor(state.route.view, full);
   // A board's page also shows where the board was (map.js).
   await boardLocation(full);
-  if (mine === turn) arm();
+  if (mine !== turn) return;
+  // A change was told while this refresh was reading: read once more, now.
+  if (liveQueued) {
+    liveQueued = false;
+    await refreshNow(false);
+    return;
+  }
+  arm();
+}
+
+/**
+ * The live API said something changed (live.js): the page reads again what it shows, at once, as a
+ * scheduled refresh would. Not while a dialog or a file in hand would be in the way (the timer takes it
+ * then), nor on a board's page for another board's events alone.
+ */
+function liveChanged({ things, what, resync }) {
+  if (state.gate || document.visibilityState !== 'visible') return;
+  const page = pages[state.route.view];
+  if (page.holdStill?.()) return;
+  const boardsOnly = what.every((kind) => kind === 'board' || kind === 'updates');
+  if (!resync && state.route.view === 'device' && boardsOnly && !things.includes(state.route.thing)) return;
+  if (pageReading > 0) {
+    liveQueued = true;
+    return;
+  }
+  refreshNow(false);
+}
+
+/** Fetch live.js once, and keep the WebSocket while the console is signed in and in view. */
+function startLive() {
+  if (liveUrl === null || live !== null) return;
+  live = { sync() {} };
+  import('./live.js')
+    .then((module) => {
+      live = module.createLive({
+        url: module.readLiveUrl(liveUrl),
+        accessToken: () => (state.gate ? null : auth.accessToken()),
+        onChange: liveChanged,
+        onStatus: (status) => {
+          state.liveUpdates = status === 'live';
+          draw();
+        },
+      });
+      live.start();
+    })
+    .catch((error) => {
+      console.error(error);
+      live = null;
+    });
 }
 
 // Sign-in. The console's own page asks, in place: the address stays as it is, and so
@@ -1244,6 +1299,8 @@ function afterRefused() {
 
 /** Ask for the password again shortly before the token ends, unless work is in hand. */
 function checkSession() {
+  // The WebSocket follows the sign-in: closed while signed out or hidden, opened again with a new token.
+  live?.sync();
   // In the app the app renews it, behind Face ID or a fingerprint where that is on.
   if (auth.inApp) {
     if (auth.needsRenewal() && !state.gate && !renewing) {
@@ -2104,6 +2161,7 @@ async function start() {
   setInterval(checkSession, SESSION_CHECK_MS);
 
   showRoute();
+  startLive();
   // Once fleet.js is here, only what it shows is read, and only if no refresh under way will read it.
   fleetReady().then((module) => {
     if (!module || ['fleet', 'rollout'].includes(state.route.view) || pageReading > 0) return;
@@ -2177,6 +2235,7 @@ async function boot() {
   }
   // Admin mode of the customer site: where to go back to.
   state.customerSite = config.customerSite ?? null;
+  liveUrl = config.liveUrl ?? null;
   // The API tokens page's example: the API's own address, which in the app is not the page's.
   if (config.apiBase) state.origin = config.apiBase;
 

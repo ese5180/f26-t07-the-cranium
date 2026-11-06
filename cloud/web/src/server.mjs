@@ -76,6 +76,9 @@ const ORIGIN = /^https?:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5}
 // A user pool ID: the Region, an underscore, and letters and digits. The Region names the
 // address of Cognito's user pool API, which goes into the policy too.
 const USER_POOL_ID = /^([a-z]{2}(?:-[a-z]+)+-\d{1,2})_[0-9A-Za-z]{1,64}$/;
+// The live API's address (docs/live.md): a WebSocket URL, an origin and a stage. Its origin goes into
+// the policy, so it is held to the same characters as the login origin; the local preview's is ws://.
+const LIVE_URL = /^(wss?:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?)\/[A-Za-z0-9_-]{1,128}$/;
 
 const LOGGED_PATH_LENGTH = 200;
 
@@ -221,12 +224,12 @@ export const TILE_ORIGIN = 'https://tile.openstreetmap.org';
 
 /**
  * The page may talk to its own origin, to the managed login pages (the token and the
- * revocation of the refresh token) and to Cognito's user pool API (the console's own
- * sign-in page). Nowhere else. It may show images from itself and from OpenStreetMap's tile
- * server, for the map, and from nowhere else.
+ * revocation of the refresh token), to Cognito's user pool API (the console's own
+ * sign-in page) and, with live updates, to the live API (docs/live.md). Nowhere else. It may
+ * show images from itself and from OpenStreetMap's tile server, for the map, and from nowhere else.
  */
-function consolePolicy(loginOrigin, idpOrigin) {
-  const connect = [...new Set(["'self'", loginOrigin, idpOrigin])].join(' ');
+function consolePolicy(loginOrigin, idpOrigin, liveOrigin = null) {
+  const connect = [...new Set(["'self'", loginOrigin, idpOrigin, ...(liveOrigin ? [liveOrigin] : [])])].join(' ');
   return [
     "default-src 'none'",
     "script-src 'self'",
@@ -292,6 +295,8 @@ function writeLog(entry) {
  * @param {object} [options.customer]    the customer site: { hosts, userPoolId, clientId }, its
  *                                       names (the first is the one it is served on) and the
  *                                       customer pool's sign-in settings. Left out, no name gets it.
+ * @param {string} [options.liveUrl]     the live API's address, wss://<host>/<stage> (docs/live.md),
+ *                                       which both sites' pages connect to. Left out, they only poll.
  * @param {(entry: object) => void} [options.log]  receives one entry per request
  */
 export function createWebHandler({
@@ -303,6 +308,7 @@ export function createWebHandler({
   redirectUri,
   homeHosts = [],
   customer = null,
+  liveUrl,
   log = writeLog,
 } = {}) {
   requireText('clientId', clientId);
@@ -323,8 +329,15 @@ export function createWebHandler({
     throw new TypeError('homeHosts must be a list of host names in lower case');
   }
 
+  let liveOrigin = null;
+  if (liveUrl !== undefined && liveUrl !== null) {
+    liveOrigin = typeof liveUrl === 'string' ? (LIVE_URL.exec(liveUrl)?.[1] ?? null) : null;
+    if (liveOrigin === null) throw new TypeError('liveUrl must be a WebSocket address such as wss://live.example/live');
+  }
+  const live = liveOrigin === null ? {} : { liveUrl };
+
   const homeNames = new Set(homeHosts);
-  const consoleHeaders = securityHeaders(consolePolicy(loginOrigin, userPoolApi), '(self)');
+  const consoleHeaders = securityHeaders(consolePolicy(loginOrigin, userPoolApi, liveOrigin), '(self)');
   const homeHeaders = securityHeaders(HOME_POLICY, '()');
 
   // The customer site. Its pool is in the Region of the staff pool, so both talk to one user pool API.
@@ -347,7 +360,7 @@ export function createWebHandler({
       throw new TypeError('customer.userPoolId must be a user pool ID in the Region of the staff pool');
     }
     for (const host of hosts) customerNames.add(host);
-    customerHeaders = securityHeaders(customerPolicy(userPoolApi), '()');
+    customerHeaders = securityHeaders(customerPolicy(userPoolApi, liveOrigin), '()');
   }
 
   function respond(headers, statusCode, type, cacheControl, body, extra) {
@@ -388,6 +401,7 @@ export function createWebHandler({
       userPoolId,
       idpOrigin: userPoolApi,
       ...(admin ? { customerSite: '/' } : {}),
+      ...live,
     });
     const { pageHead, pageTail } = site.console;
     return respond(consoleHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
@@ -403,6 +417,7 @@ export function createWebHandler({
       idpOrigin: userPoolApi,
       home,
       adminPath: ADMIN_PATH,
+      ...live,
     });
     const { pageHead, pageTail } = customerSite;
     return respond(customerHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
@@ -484,6 +499,8 @@ function settingsFromEnvironment(env) {
           clientId: env.CUSTOMER_CLIENT_ID,
         }
       : null,
+    // Left out or empty, the pages do not keep a WebSocket, and only poll.
+    liveUrl: env.LIVE_URL ? env.LIVE_URL : undefined,
   };
 }
 

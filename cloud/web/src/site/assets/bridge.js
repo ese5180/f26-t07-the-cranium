@@ -222,6 +222,7 @@ const HTTPS = /^https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9._~/-]*)?$/;
 const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/;
 const POOL = /^([a-z]{2}(?:-[a-z]+)+-\d{1,2})_[0-9A-Za-z]{1,64}$/;
 const CLIENT = /^[A-Za-z0-9]{1,128}$/;
+const LIVE_URL = /^wss:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?\/[A-Za-z0-9_-]{1,128}$/;
 
 /** The app's configuration, checked; null if it is not usable. The customer side is null without its four values. */
 export function readAppConfig(value) {
@@ -255,6 +256,8 @@ export function readAppConfig(value) {
     mobileClientId,
     customer,
     example: value.example === true,
+    // The live API's WebSocket (docs/live.md), from a shell that gives it; without it the pages poll.
+    ...(typeof value.liveUrl === 'string' && LIVE_URL.test(value.liveUrl) ? { liveUrl: value.liveUrl } : {}),
   };
 }
 
@@ -275,6 +278,7 @@ export function appConsoleConfig(app, origin) {
     idpOrigin: idpOf(app.region),
     apiBase: app.consoleUrl,
     ...(app.customer ? { customerSite: '/' } : {}),
+    ...(app.liveUrl ? { liveUrl: app.liveUrl } : {}),
   };
 }
 
@@ -289,6 +293,7 @@ export function appSiteConfig(app, origin) {
     adminPath: '/admin',
     customerApi: app.customer.apiUrl,
     consoleApi: app.consoleUrl,
+    ...(app.liveUrl ? { liveUrl: app.liveUrl } : {}),
   };
 }
 

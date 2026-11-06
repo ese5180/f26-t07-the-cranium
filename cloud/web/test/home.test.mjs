@@ -545,12 +545,23 @@ test('the template sends what no route claims to the web function, and opens not
   assert.ok(route.includes('AuthorizationType: NONE'));
   assert.ok(route.includes('integrations/${WebIntegration}'));
 
-  // The whole list of routes, whatever each one is called: every resource of that type.
-  const routes = template
+  // The whole list of routes, whatever each one is called: every resource of that type. Those of the live
+  // API (docs/live.md) are its three own, to the live function, which checks each token itself
+  // (cloud/api/test/live-infra.test.mjs); every other is the HTTP API's.
+  const all = template
     .split('\n')
     .filter((line) => /^ {2}\w+:$/.test(line))
     .map((line) => block(template, line.trim().slice(0, -1)))
     .filter((text) => text.includes('Type: AWS::ApiGatewayV2::Route'));
+  const liveRoutes = all.filter((text) => text.includes('ApiId: !Ref LiveApi\n'));
+  assert.deepEqual(liveRoutes.map((text) => /RouteKey: (\S+)/.exec(text)[1]).sort(), [
+    '$connect',
+    '$default',
+    '$disconnect',
+  ]);
+  for (const text of liveRoutes) assert.ok(text.includes('integrations/${LiveIntegration}'));
+  const routes = all.filter((text) => !liveRoutes.includes(text));
+  for (const text of routes) assert.ok(text.includes('ApiId: !Ref Api\n'));
   const open = routes.filter((text) => text.includes('AuthorizationType: NONE'));
   const keyOf = (text) => /RouteKey: '?([^'\n]+)'?/.exec(text)[1];
   // Open, and to the web function: the page, its files, the phone apps' copy of them (bundle.mjs) and what

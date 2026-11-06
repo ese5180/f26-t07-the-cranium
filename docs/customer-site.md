@@ -264,6 +264,13 @@ while it is unused. **Give a board** picks one of the boards nobody has, with an
 reading within a minute. An account deleted from the pool by hand still shows ("Account gone") with its boards, so that
 they can be taken back.
 
+## Live updates
+
+From console 2.4.0 the site keeps a WebSocket to the live API while a customer is signed in and the page is in view,
+and reads the Overview, Devices or a board's page again as soon as one of their boards changes, or which boards are
+theirs does ([live.md](live.md)). A customer hears only of their own boards, named by the id of each assignment, never
+by a thing name. The 30-second refresh stays, for when the WebSocket is down.
+
 ## Known limits
 
 - **E-mail.** The customer pool sends with Cognito's own e-mail, which allows about 50 messages a day, from a Cognito

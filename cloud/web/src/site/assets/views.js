@@ -835,10 +835,14 @@ function copyButton(value, label, ctx) {
   );
 }
 
-/** How fresh the page is: live while it is being polled, otherwise when it was loaded. */
+/**
+ * How fresh the page is: live while the live API tells it of changes (docs/live.md) or while it is
+ * being polled often, otherwise when it was loaded.
+ */
 function freshness(resource, ctx) {
-  const { interval, now } = ctx.state;
-  const live = interval > 0 && interval <= 10000;
+  const { interval, now, liveUpdates } = ctx.state;
+  const polled = interval > 0 && interval <= 10000;
+  const live = liveUpdates === true || polled;
   return h(
     'div',
     { class: 'freshness' },
@@ -847,11 +851,18 @@ function freshness(resource, ctx) {
           'span',
           {
             class: 'freshness-live',
-            title: `Refreshing by itself every ${interval / 1000} s. Paused while this tab is in the background.`,
+            title: polled
+              ? `Refreshing by itself every ${interval / 1000} s. Paused while this tab is in the background.`
+              : 'Refreshing by itself as soon as something changes. Paused while this tab is in the background.',
           },
           h('span', { class: 'live-dot' }),
           // The rate is left out where the row is narrow; the tooltip keeps it.
-          h('span', null, 'Live', h('span', { class: 'freshness-rate' }, ` · every ${interval / 1000} s`))
+          h(
+            'span',
+            null,
+            'Live',
+            polled ? h('span', { class: 'freshness-rate' }, ` · every ${interval / 1000} s`) : null
+          )
         )
       : resource.loadedAt
         ? h('span', { class: 'freshness-age' }, 'Updated ', whenLoaded(resource, now))

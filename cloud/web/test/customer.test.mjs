@@ -17,7 +17,19 @@ import { SHARED_ASSETS, customerPolicy, loadCustomerSite } from '../src/customer
 import { createWebHandler, handler } from '../src/server.mjs';
 import { createCognito } from './cognito.mjs';
 import { createCustomerCognito } from './customer-cognito.mjs';
-import { BRIDGE, CORE, VIEWS, all, click, createDocument, descendants, one, scriptAddress, textOf } from './page.mjs';
+import {
+  BRIDGE,
+  CORE,
+  LIVE,
+  VIEWS,
+  all,
+  click,
+  createDocument,
+  descendants,
+  one,
+  scriptAddress,
+  textOf,
+} from './page.mjs';
 
 const core = await import(CORE);
 
@@ -763,8 +775,17 @@ const APP_CONFIG = {
  * The customer site, started in a stand-in for a tab, with both pools and the customer API behind it.
  * With `app`, the tab is the iPhone app's, with a stand-in for its bridge: answers by method.
  */
-async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null } = {}) {
+async function openSite(
+  t,
+  { hash = '', status = 'CONFIRMED', app: phone = null, liveUrl = null, WebSocket = null } = {}
+) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
+  // Node has a WebSocket of its own: a tab never gets it, only the stand-in it is given (docs/live.md).
+  const realSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'WebSocket', { value: WebSocket ?? undefined, configurable: true, writable: true });
+  t.after(() =>
+    Object.defineProperty(globalThis, 'WebSocket', { value: realSocket, configurable: true, writable: true })
+  );
   const { cognito: customers, accounts } = customerWorld({ status });
   const staff = createCognito({
     userPoolId: STAFF_POOL,
@@ -777,7 +798,9 @@ async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null 
   document.getElementById('app').hidden = true;
   document.visibilityState = 'visible';
   document.querySelector = (selector) =>
-    selector === 'meta[name="cranium-config"]' ? { content: JSON.stringify(SITE_CONFIG) } : null;
+    selector === 'meta[name="cranium-config"]'
+      ? { content: JSON.stringify(liveUrl ? { ...SITE_CONFIG, liveUrl } : SITE_CONFIG) }
+      : null;
   const stored = new Map();
   const sessionStorage = {
     getItem: (key) => stored.get(key) ?? null,
@@ -913,6 +936,7 @@ async function openSite(t, { hash = '', status = 'CONFIRMED', app: phone = null 
         'customer-views.js': SITE_VIEWS,
         'bridge.js': BRIDGE,
         'customer-mixes.js': SITE_MIXES,
+        'live.js': LIVE,
       },
       `tab ${copies}`
     )
@@ -1035,6 +1059,51 @@ test('the overview: figures, the boards and what they did; the account page labe
     );
   }
   await until(() => /Two-step sign-in/.test(tab.text()) && /Turn on/.test(tab.text()), 'the authenticator card');
+});
+
+test('with the live API, a change to one of her boards makes the page read them again at once; a board page only for its board', async (t) => {
+  const sockets = [];
+  class FakeSocket {
+    constructor(url, protocols) {
+      Object.assign(this, { url, protocols });
+      sockets.push(this);
+    }
+    send() {}
+    close() {}
+  }
+  const tab = await openSite(t, { liveUrl: 'wss://live.example/live', WebSocket: FakeSocket });
+  // Signed out: no WebSocket.
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.equal(sockets.length, 0);
+  await signInAsCustomer(tab);
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
+  t.mock.timers.tick(5000);
+  await until(() => sockets.length === 1, 'the WebSocket');
+  assert.equal(sockets[0].url, 'wss://live.example/live');
+  assert.equal(sockets[0].protocols[0], 'cranium-live');
+  sockets[0].onopen({});
+  const boardsRead = () => tab.requests.filter((line) => line === 'GET /api/c/boards').length;
+  const before = boardsRead();
+  sockets[0].onmessage({ data: JSON.stringify({ type: 'changed', boards: [BOARD.id], what: ['board'], at: 'x' }) });
+  t.mock.timers.tick(300);
+  await until(() => boardsRead() === before + 1, 'the boards read again');
+
+  // On her board's page, a change to another board is not hers to read.
+  tab.go(`#/devices/${BOARD.id}`);
+  await until(() => tab.requests.includes(`GET /api/c/boards/${BOARD.id}`), 'the board page');
+  await settle();
+  const boardRead = () => tab.requests.filter((line) => line === `GET /api/c/boards/${BOARD.id}`).length;
+  const once = boardRead();
+  sockets[0].onmessage({
+    data: JSON.stringify({ type: 'changed', boards: ['ffffffffffffffff'], what: ['board'], at: 'x' }),
+  });
+  t.mock.timers.tick(300);
+  await settle();
+  assert.equal(boardRead(), once);
+  sockets[0].onmessage({ data: JSON.stringify({ type: 'changed', boards: [BOARD.id], what: ['updates'], at: 'x' }) });
+  t.mock.timers.tick(300);
+  await until(() => boardRead() === once + 1, 'the board read again');
 });
 
 test('an invited customer chooses a password on the page, and signs in with it', async (t) => {
