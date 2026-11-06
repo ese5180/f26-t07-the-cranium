@@ -182,12 +182,16 @@ page, "over Bluetooth from" whose phone it was, as on the website: the pages are
   bridge adds no secret to that and no power over a board that the board does not check itself. Signing the manifest,
   with a key kept off the deploying machine and its public half built into the apps, would make the apps trust less than
   the browsers do; it is not done in 0.8.0.
-- **CORS, for the app's origins only.** In the app the pages call the API from `cranium-app://bundle` (iPhone) and
-  `https://appassets.androidplatform.net` (Android). The HTTP API's CORS configuration allows exactly those two, with
-  `authorization`, `content-type` and `accept`, `GET`, `POST` and `PUT`, `date` exposed for the console's clock, no
-  credentials, and a preflight cached for 10 minutes; API Gateway answers the preflight itself. Nothing changes for a
-  browser, whose pages are on the API's own origins. This is not a lock: every call carries its token in a header, never
-  a cookie, so an origin allowed here, which another app could also use, gains nothing without a token of its own.
+- **CORS, from any origin, without credentials.** In the app the pages call the API from `cranium-app://bundle`
+  (iPhone) and `https://appassets.androidplatform.net` (Android). API Gateway refuses an origin that is not http(s) in
+  its CORS configuration, so since console 2.2.0 it allows any origin (`*`), with `authorization`, `content-type` and
+  `accept`, `GET`, `POST` and `PUT`, `date` exposed for the console's clock, no credentials, and a preflight cached for
+  10 minutes. The preflight is answered by the web function, with a 204 and no body, for any path under `/api/`: the
+  `$default` route brings it there instead of API Gateway answering it, and API Gateway adds its CORS headers to that
+  answer (console 2.4.1; before, the web function answered 405, and every call of the apps' pages failed with "The
+  console could not reach its server"). Nothing changes for a browser, whose pages are on the API's own origins. This
+  is not a lock: every call carries its token in a header, never a cookie, so an origin gains nothing without a token
+  of its own.
 
 ### The classic app
 
@@ -205,7 +209,7 @@ The unit tests check the contract, the bundle, the store, the policies and the p
 pages run in a stand-in for a browser with a stand-in for each app. What none of them can show: that WebKit treats
 `cranium-app://bundle` as a secure context (the sign-in needs `crypto.subtle`), loads ES modules through the scheme
 handler and honours its policy header; that Android's WebView honours the policy header and Trusted Types; that API
-Gateway takes the two origins in its CORS configuration and adds the headers to its own 401s; the pairing prompt during
+Gateway adds its CORS headers to its own 401s and to the web function's answer to a preflight; the pairing prompt during
 `ble.connect` on each phone; the upload and the status after the restart; Face ID and the fingerprint through the
 bridge; the share sheet, the file chooser and the quick actions.
 

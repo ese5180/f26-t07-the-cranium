@@ -383,6 +383,21 @@ export function createWebHandler({
     return object ? respond(headers, 200, object.type, CACHE_ASSET, object.body) : null;
   }
 
+  /**
+   * A browser asks first, with OPTIONS, before a page of another origin calls the API with a token:
+   * the phone apps' pages, from the bundle (docs/mobile-apps.md, "The app shell"). The $default route
+   * brings that request here instead of API Gateway answering it, so it is answered here, with
+   * nothing: API Gateway adds the Access-Control-* headers of its CorsConfiguration
+   * (infra/template.yaml) to this answer, as to every other. The answer must be a 2xx: a 405 there
+   * stopped every request of those pages. Only under /api/; any other OPTIONS is still a 405.
+   */
+  function preflight(event, headers) {
+    const path = event?.rawPath;
+    if (event?.requestContext?.http?.method !== 'OPTIONS') return null;
+    if (typeof path !== 'string' || !path.startsWith('/api/')) return null;
+    return respond(headers, 204, PLAIN, CACHE_NEVER, '', { allow: 'GET, POST, PUT' });
+  }
+
   /** The console's page; with `admin`, as admin mode of the customer site, at /admin. */
   function page(event, admin = false) {
     let returnTo = redirectUri;
@@ -435,6 +450,8 @@ export function createWebHandler({
       const to = path === ADMIN_PATH ? ADMIN_PATH : '/';
       return respond(customerHeaders, 308, PLAIN, CACHE_NEVER, 'Moved\n', { location: `https://${canonical}${to}` });
     }
+    const asked = preflight(event, customerHeaders);
+    if (asked) return asked;
     if (event?.requestContext?.http?.method !== 'GET') {
       return respond(customerHeaders, 405, PLAIN, CACHE_NEVER, 'Method not allowed\n', { allow: 'GET' });
     }
@@ -453,6 +470,8 @@ export function createWebHandler({
     if (customerNames.has(host)) return customerAnswer(event, host);
     const home = homeNames.has(event?.requestContext?.domainName);
     const headers = home ? homeHeaders : consoleHeaders;
+    const asked = home ? null : preflight(event, headers);
+    if (asked) return asked;
     if (event?.requestContext?.http?.method !== 'GET') {
       return respond(headers, 405, PLAIN, CACHE_NEVER, 'Method not allowed\n', { allow: 'GET' });
     }

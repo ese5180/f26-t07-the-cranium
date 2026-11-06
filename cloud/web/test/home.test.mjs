@@ -147,6 +147,8 @@ test('every reply on a home host carries the same security headers as the consol
   const head = await serve(request('/', HOME, 'HEAD'));
   assert.equal(head.statusCode, 405);
   assert.equal(head.headers.allow, 'GET');
+  // The home page has no API, so it is never asked about one.
+  assert.equal((await serve(request('/api/me', HOME, 'OPTIONS'))).statusCode, 405);
 });
 
 test('a home host serves its stylesheet and cannot reach a file of the console', async () => {

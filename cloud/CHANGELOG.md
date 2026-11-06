@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.1
+
+The phone apps reach the console again: every request of their pages failed with "The console could not reach its server", because the browser's check before each one was refused.
+
+A page of another origin, as the apps' pages are (cranium-app://bundle, appassets.androidplatform.net), asks with
+OPTIONS before each call with a token. The HTTP API's $default route brought that request to the web function, which
+answers only GET and said 405; a preflight needs a 2xx, so the WebView stopped the call. The web function now answers
+OPTIONS under /api/ on the console's and the customer site's names with a 204 and no body, and API Gateway adds its
+CORS headers to it, as it did to the 405. Any other OPTIONS is still a 405. docs/mobile-apps.md says how CORS works now.
+
 ## 2.4.0
 
 Live updates: an open page hears of a change as it happens, and shows it within about a second instead of on its next refresh. A board that connects, restarts or takes an update, a new release, a board given to a customer: the console, and the customer site for a customer's own boards, read it again at once. The console's Live mark shows while it is connected; the 30-second refresh stays for when it is not.

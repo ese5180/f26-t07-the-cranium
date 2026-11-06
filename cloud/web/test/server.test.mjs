@@ -412,6 +412,25 @@ test('only GET is answered', async () => {
   }
 });
 
+test('a browser asking first, before a page of another origin calls the API, is answered with nothing', async () => {
+  // The phone apps' pages come from the bundle, so each request with a token is asked about first.
+  // API Gateway adds the Access-Control-* headers; a 2xx is what a browser needs from here.
+  for (const path of ['/api/me', '/api/devices', '/api/t/devices', '/api/c/boards']) {
+    const response = await serve(request(path, { method: 'OPTIONS' }));
+    assert.equal(response.statusCode, 204, path);
+    assert.equal(response.body, '', path);
+    assert.equal(response.headers['cache-control'], 'no-store', path);
+    assert.equal(response.headers.allow, 'GET, POST, PUT', path);
+    assertSecurityHeaders(response);
+  }
+  // Nothing but the API is asked about, and only OPTIONS is answered like this.
+  for (const path of ['/', '/api', '/apis/me', '/app/manifest.json']) {
+    assert.equal((await serve(request(path, { method: 'OPTIONS' }))).statusCode, 405, path);
+  }
+  assert.equal((await serve(request('/api/me', { method: 'options' }))).statusCode, 405);
+  assert.equal((await serve(request('/api/me', { method: 'DELETE' }))).statusCode, 405);
+});
+
 test('an event without the expected outline is refused without throwing', async () => {
   const events = [
     undefined,

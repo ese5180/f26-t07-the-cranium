@@ -138,6 +138,11 @@ test("the customer site's name gets the site at /, the console as admin mode at 
   assert.equal((await web(request('cranium.example', '/admin/'))).statusCode, 404);
   assert.equal((await web(request('cranium.example', '/index.html'))).statusCode, 404);
   assert.equal((await web(request('cranium.example', '/', 'POST'))).statusCode, 405);
+  // The apps' customer pages ask first before they call the customer API with a token.
+  const asked = await web(request('cranium.example', '/api/c/boards', 'OPTIONS'));
+  assert.equal(asked.statusCode, 204);
+  assert.equal(asked.body, '');
+  assert.equal((await web(request('cranium.example', '/', 'OPTIONS'))).statusCode, 405);
 });
 
 test('www., and any other name of the site, sends the browser to the one name', async () => {
