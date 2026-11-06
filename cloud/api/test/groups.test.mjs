@@ -20,7 +20,10 @@ test('a group is made, renamed, changed and deleted, each change on record', asy
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const { group } = made.body;
   assert.match(group.id, /^grp-[0-9a-f]{8}$/);
-  assert.deepEqual([group.name, group.things, group.gone, group.createdBy.email], ['Lab bench', [A, B], 0, world.manager.email]);
+  assert.deepEqual(
+    [group.name, group.things, group.gone, group.createdBy.email],
+    ['Lab bench', [A, B], 0, world.manager.email]
+  );
 
   const renamed = await world.call('POST', `/api/groups/${group.id}`, { name: 'Demo' });
   assert.equal(renamed.status, 200);
@@ -29,9 +32,18 @@ test('a group is made, renamed, changed and deleted, each change on record', asy
   assert.deepEqual(changed.body.group.things, [A, C]);
 
   const listed = await world.call('GET', '/api/groups', undefined, world.viewer);
-  assert.deepEqual(listed.body.groups.map((item) => [item.name, item.things]), [['Demo', [A, C]]]);
+  assert.deepEqual(
+    listed.body.groups.map((item) => [item.name, item.things]),
+    [['Demo', [A, C]]]
+  );
   // Every board is in the group of its type as well, which is not stored.
-  assert.deepEqual(listed.body.types.map((type) => [type.type, type.things]), [['nrf7002dk', [A, B]], ['nrf5340dk', [C]]]);
+  assert.deepEqual(
+    listed.body.types.map((type) => [type.type, type.things]),
+    [
+      ['nrf7002dk', [A, B]],
+      ['nrf5340dk', [C]],
+    ]
+  );
 
   const deleted = await world.call('POST', `/api/groups/${group.id}/delete`, {});
   assert.equal(deleted.status, 200);
@@ -43,10 +55,16 @@ test('a group is made, renamed, changed and deleted, each change on record', asy
   assert.equal((await world.call('POST', `/api/groups/${group.id}`, { name: 'Again' })).status, 404);
 
   const records = world.fake.auditLog().filter((entry) => entry.action.startsWith('group.'));
-  assert.deepEqual(records.map((entry) => [entry.action, entry.target, entry.outcome]), [
-    ['group.create', group.id, 'ok'], ['group.update', group.id, 'ok'], ['group.update', group.id, 'ok'],
-    ['group.delete', group.id, 'ok'], ['group.update', group.id, 'rejected'],
-  ]);
+  assert.deepEqual(
+    records.map((entry) => [entry.action, entry.target, entry.outcome]),
+    [
+      ['group.create', group.id, 'ok'],
+      ['group.update', group.id, 'ok'],
+      ['group.update', group.id, 'ok'],
+      ['group.delete', group.id, 'ok'],
+      ['group.update', group.id, 'rejected'],
+    ]
+  );
   assert.deepEqual(records[0].detail, { name: 'Lab bench', things: '2', boards: `${A} ${B}` });
   assert.deepEqual(records[1].detail, { name: 'Demo', renamedFrom: 'Lab bench' });
   assert.deepEqual(records[2].detail, { name: 'Demo', added: '1', removed: '1', things: '2', boards: `${A} ${C}` });
@@ -56,7 +74,9 @@ test('a board can be in several groups, and its chips say which', async () => {
   const world = await withBoards();
   const one = (await world.call('POST', '/api/groups', { name: 'Bench', things: [A] })).body.group;
   const two = (await world.call('POST', '/api/groups', { name: 'Demo', things: [A, B] })).body.group;
-  const boards = Object.fromEntries((await world.call('GET', '/api/fleet')).body.boards.map((board) => [board.thing, board.groups]));
+  const boards = Object.fromEntries(
+    (await world.call('GET', '/api/fleet')).body.boards.map((board) => [board.thing, board.groups])
+  );
   assert.deepEqual(boards[A].sort(), [one.id, two.id].sort());
   assert.deepEqual(boards[B], [two.id]);
   assert.deepEqual(boards[C], []);
@@ -69,8 +89,14 @@ test('names are unique whatever their case; boards must be registered; a viewer 
   assert.deepEqual([taken.status, taken.body.error.code], [409, 'name_taken']);
   const stranger = await world.call('POST', '/api/groups', { name: 'Other', things: [D] });
   assert.deepEqual([stranger.status, stranger.body.error.code], [422, 'unknown_device']);
-  for (const body of [{}, { name: '' }, { name: 'x'.repeat(41) }, { name: 'two\nlines' }, { name: 'Ok', things: [A, A] },
-    { name: 'Ok', things: 'all' }]) {
+  for (const body of [
+    {},
+    { name: '' },
+    { name: 'x'.repeat(41) },
+    { name: 'two\nlines' },
+    { name: 'Ok', things: [A, A] },
+    { name: 'Ok', things: 'all' },
+  ]) {
     const response = await world.call('POST', '/api/groups', body);
     assert.equal(response.status, 400, JSON.stringify(body));
   }
@@ -79,8 +105,14 @@ test('names are unique whatever their case; boards must be registered; a viewer 
   assert.equal((await world.call('POST', '/api/groups/not-a-group', { name: 'X' })).status, 400);
   assert.equal((await world.call('POST', '/api/groups/grp-00000000', { name: 'X' })).status, 404);
   const nothing = (await world.call('GET', '/api/groups')).body.groups[0];
-  assert.deepEqual([(await world.call('POST', `/api/groups/${nothing.id}`, {})).body.error.code], ['nothing_to_change']);
-  assert.equal(world.fake.auditLog().filter((entry) => entry.action === 'group.create' && entry.outcome !== 'ok').length, 9);
+  assert.deepEqual(
+    [(await world.call('POST', `/api/groups/${nothing.id}`, {})).body.error.code],
+    ['nothing_to_change']
+  );
+  assert.equal(
+    world.fake.auditLog().filter((entry) => entry.action === 'group.create' && entry.outcome !== 'ok').length,
+    9
+  );
 });
 
 test('a change made in the meantime by someone else is not overwritten', async () => {

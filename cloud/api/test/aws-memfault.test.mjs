@@ -21,8 +21,15 @@ const REFERENCE = {
       PublishCommand: {
         required: ['topic'],
         optional: [
-          'qos', 'retain', 'payload', 'userProperties', 'payloadFormatIndicator', 'contentType', 'responseTopic',
-          'correlationData', 'messageExpiry',
+          'qos',
+          'retain',
+          'payload',
+          'userProperties',
+          'payloadFormatIndicator',
+          'contentType',
+          'responseTopic',
+          'correlationData',
+          'messageExpiry',
         ],
       },
     },
@@ -93,7 +100,10 @@ globalThis[Symbol.for('cranium.memfault-sdk-stand-in')] = {
     assert.ok(spec, `${commandName} is not a command of ${name}`);
     const input = Object.fromEntries(Object.entries(command.input).filter(([, value]) => value !== undefined));
     for (const member of Object.keys(input)) {
-      assert.ok(spec.required.includes(member) || spec.optional.includes(member), `${commandName} has no input member "${member}"`);
+      assert.ok(
+        spec.required.includes(member) || spec.optional.includes(member),
+        `${commandName} has no input member "${member}"`
+      );
     }
     for (const member of spec.required) assert.ok(Object.hasOwn(input, member), `${commandName} needs "${member}"`);
     const key = `${name.replace('@aws-sdk/client-', '')}:${commandName}`;
@@ -111,12 +121,18 @@ function sdkError(name, status = 400) {
   error.$metadata = { httpStatusCode: status };
   return error;
 }
-const fails = (name, status) => () => { throw sdkError(name, status); };
+const fails = (name, status) => () => {
+  throw sdkError(name, status);
+};
 
 const { POST_TIMEOUT_MS, createMemfaultStatus, createMemfaultStore } = await import('../src/aws-memfault.mjs');
 
 const SECRET = 'arn:aws:secretsmanager:us-east-1:000000000000:secret:cranium-ota/memfault-project-key-AbCdEf';
-const ENV = Object.freeze({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: SECRET, MEMFAULT_CHUNKS_HOST: 'chunks-nrf.memfault.com' });
+const ENV = Object.freeze({
+  AWS_REGION: 'us-east-1',
+  MEMFAULT_KEY_SECRET_ARN: SECRET,
+  MEMFAULT_CHUNKS_HOST: 'chunks-nrf.memfault.com',
+});
 const THING = 'cranium-0123456789abcdef';
 const KEY = 'AbCdEf0123456789AbCdEf0123456789';
 
@@ -143,12 +159,20 @@ test('each part reads only the environment it needs, and no client waits without
   sdk.clients.length = 0;
   createMemfaultStore(ENV, { fetch: fakeFetch().fetch });
   createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: SECRET });
-  assert.deepEqual(sdk.clients.map((client) => client.package).sort(),
-    ['@aws-sdk/client-iot-data-plane', '@aws-sdk/client-secrets-manager', '@aws-sdk/client-secrets-manager']);
+  assert.deepEqual(sdk.clients.map((client) => client.package).sort(), [
+    '@aws-sdk/client-iot-data-plane',
+    '@aws-sdk/client-secrets-manager',
+    '@aws-sdk/client-secrets-manager',
+  ]);
   for (const { config } of sdk.clients) {
     assert.equal(config.region, 'us-east-1');
     assert.equal(config.maxAttempts, 2);
-    assert.deepEqual(config.requestHandler, { connectionTimeout: 1000, socketTimeout: 3000, requestTimeout: 4000, throwOnRequestTimeout: true });
+    assert.deepEqual(config.requestHandler, {
+      connectionTimeout: 1000,
+      socketTimeout: 3000,
+      requestTimeout: 4000,
+      throwOnRequestTimeout: true,
+    });
   }
   for (const name of Object.keys(ENV)) {
     assert.throws(() => createMemfaultStore({ ...ENV, [name]: '' }), new RegExp(name));
@@ -158,28 +182,48 @@ test('each part reads only the environment it needs, and no client waits without
   for (const host of ['example.org', 'chunks.memfault.com.example.org', 'http://chunks.memfault.com']) {
     assert.throws(() => createMemfaultStore({ ...ENV, MEMFAULT_CHUNKS_HOST: host }), /MEMFAULT_CHUNKS_HOST/);
   }
-  assert.throws(() => createMemfaultStore({ ...ENV, MEMFAULT_KEY_SECRET_ARN: 'cranium-ota/memfault-project-key' }), /MEMFAULT_KEY_SECRET_ARN/);
-  assert.throws(() => createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: 'not an arn' }), /MEMFAULT_KEY_SECRET_ARN/);
-  assert.doesNotThrow(() => createMemfaultStore({ ...ENV, MEMFAULT_CHUNKS_HOST: 'chunks.memfault.com' }, { fetch: fakeFetch().fetch }));
+  assert.throws(
+    () => createMemfaultStore({ ...ENV, MEMFAULT_KEY_SECRET_ARN: 'cranium-ota/memfault-project-key' }),
+    /MEMFAULT_KEY_SECRET_ARN/
+  );
+  assert.throws(
+    () => createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: 'not an arn' }),
+    /MEMFAULT_KEY_SECRET_ARN/
+  );
+  assert.doesNotThrow(() =>
+    createMemfaultStore({ ...ENV, MEMFAULT_CHUNKS_HOST: 'chunks.memfault.com' }, { fetch: fakeFetch().fetch })
+  );
 });
 
-test('the key is the secret\'s value, and an empty secret is no key', async () => {
+test("the key is the secret's value, and an empty secret is no key", async () => {
   sdk.reset();
   const store = createMemfaultStore(ENV, { fetch: fakeFetch().fetch });
-  sdk.reply('secrets-manager:GetSecretValueCommand', { SecretString: `${KEY}\n`, ARN: SECRET },
-    fails('ResourceNotFoundException'), { SecretBinary: new Uint8Array([1]) }, { SecretString: '' });
+  sdk.reply(
+    'secrets-manager:GetSecretValueCommand',
+    { SecretString: `${KEY}\n`, ARN: SECRET },
+    fails('ResourceNotFoundException'),
+    { SecretBinary: new Uint8Array([1]) },
+    { SecretString: '' }
+  );
   assert.equal(await store.readProjectKey(), `${KEY}\n`);
   // The secret as the stack makes it has no version yet: Secrets Manager says it cannot find the value.
   assert.equal(await store.readProjectKey(), null);
   assert.equal(await store.readProjectKey(), null);
   assert.equal(await store.readProjectKey(), null);
-  assert.deepEqual(sdk.inputs('secrets-manager:GetSecretValueCommand').map((input) => input.SecretId), Array(4).fill(SECRET));
-  sdk.reply('secrets-manager:GetSecretValueCommand', fails('AccessDeniedException', 400), fails('ThrottlingException', 400));
+  assert.deepEqual(
+    sdk.inputs('secrets-manager:GetSecretValueCommand').map((input) => input.SecretId),
+    Array(4).fill(SECRET)
+  );
+  sdk.reply(
+    'secrets-manager:GetSecretValueCommand',
+    fails('AccessDeniedException', 400),
+    fails('ThrottlingException', 400)
+  );
   await rejectsWith(store.readProjectKey(), { code: 'failed', operation: 'GetSecretValue' });
   await rejectsWith(store.readProjectKey(), { code: 'throttled', operation: 'GetSecretValue' });
 });
 
-test('a chunk is posted as it is to the board\'s place in Memfault\'s chunks API, with the key in its header', async () => {
+test("a chunk is posted as it is to the board's place in Memfault's chunks API, with the key in its header", async () => {
   const { fetch, requests } = fakeFetch({ status: 202 });
   const store = createMemfaultStore(ENV, { fetch });
   const chunk = Buffer.from([0x08, 0x02, 0xa7, 0x02, 0x01]);
@@ -193,7 +237,10 @@ test('a chunk is posted as it is to the board\'s place in Memfault\'s chunks API
   assert.equal(POST_TIMEOUT_MS, 5000);
 
   const other = fakeFetch({ status: 503 });
-  const elsewhere = createMemfaultStore({ ...ENV, MEMFAULT_CHUNKS_HOST: 'chunks.memfault.com' }, { fetch: other.fetch });
+  const elsewhere = createMemfaultStore(
+    { ...ENV, MEMFAULT_CHUNKS_HOST: 'chunks.memfault.com' },
+    { fetch: other.fetch }
+  );
   assert.deepEqual(await elsewhere.postChunk({ thing: THING, chunk, key: KEY }), { status: 503 });
   assert.equal(other.requests[0].url, `https://chunks.memfault.com/api/v0/chunks/${THING}`);
   // Never to a path that is not a board's.
@@ -202,8 +249,10 @@ test('a chunk is posted as it is to the board\'s place in Memfault\'s chunks API
 });
 
 test('a post that does not get through says how, and never the key', async () => {
-  for (const [cause, code] of [[Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' }), 'timeout'],
-    [new TypeError('fetch failed'), 'network']]) {
+  for (const [cause, code] of [
+    [Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' }), 'timeout'],
+    [new TypeError('fetch failed'), 'network'],
+  ]) {
     const store = createMemfaultStore(ENV, { fetch: fakeFetch({ fail: cause }).fetch });
     await assert.rejects(store.postChunk({ thing: THING, chunk: Buffer.from([1]), key: KEY }), (error) => {
       assert.deepEqual([error.name, error.code], ['ChunkPostError', code]);
@@ -213,7 +262,7 @@ test('a post that does not get through says how, and never the key', async () =>
   }
 });
 
-test('the answer is published with QoS 1 to the board\'s commands topic, as JSON', async () => {
+test("the answer is published with QoS 1 to the board's commands topic, as JSON", async () => {
   sdk.reset();
   const store = createMemfaultStore(ENV, { fetch: fakeFetch().fetch });
   sdk.reply('iot-data-plane:PublishCommand', {});
@@ -228,18 +277,30 @@ test('the answer is published with QoS 1 to the board\'s commands topic, as JSON
   await assert.rejects(store.publishAck({ thing: 'cranium-+', payload: {} }), TypeError);
 });
 
-test('the API asks the secret\'s metadata whether a key is stored, and never its value', async () => {
+test("the API asks the secret's metadata whether a key is stored, and never its value", async () => {
   sdk.reset();
   const status = createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: SECRET });
   assert.deepEqual(Object.keys(status), ['memfaultKeyStored']);
-  sdk.reply('secrets-manager:DescribeSecretCommand',
+  sdk.reply(
+    'secrets-manager:DescribeSecretCommand',
     { ARN: SECRET, Name: 'cranium-ota/memfault-project-key' },
     { VersionIdsToStages: {} },
     { VersionIdsToStages: { 'aaaa-1': ['AWSPREVIOUS'], 'bbbb-2': ['AWSCURRENT'] } },
-    { VersionIdsToStages: { 'aaaa-1': ['AWSPENDING'] } });
-  assert.deepEqual([await status.memfaultKeyStored(), await status.memfaultKeyStored(), await status.memfaultKeyStored(),
-    await status.memfaultKeyStored()], [false, false, true, false]);
-  assert.deepEqual(sdk.inputs('secrets-manager:DescribeSecretCommand').map((input) => input.SecretId), Array(4).fill(SECRET));
+    { VersionIdsToStages: { 'aaaa-1': ['AWSPENDING'] } }
+  );
+  assert.deepEqual(
+    [
+      await status.memfaultKeyStored(),
+      await status.memfaultKeyStored(),
+      await status.memfaultKeyStored(),
+      await status.memfaultKeyStored(),
+    ],
+    [false, false, true, false]
+  );
+  assert.deepEqual(
+    sdk.inputs('secrets-manager:DescribeSecretCommand').map((input) => input.SecretId),
+    Array(4).fill(SECRET)
+  );
   assert.equal(sdk.inputs('secrets-manager:GetSecretValueCommand').length, 0);
   sdk.reply('secrets-manager:DescribeSecretCommand', fails('AccessDeniedException'));
   await rejectsWith(status.memfaultKeyStored(), { code: 'failed', operation: 'DescribeSecret' });
@@ -250,9 +311,11 @@ test('the API asks the secret\'s metadata whether a key is stored, and never its
   assert.equal(sdk.inputs('secrets-manager:DescribeSecretCommand').length, 5);
 });
 
-test('the in-memory stand-in has the API\'s part, and says no key until one is stored', async () => {
+test("the in-memory stand-in has the API's part, and says no key until one is stored", async () => {
   const fake = createFakeAws();
-  for (const method of Object.keys(createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: SECRET }))) {
+  for (const method of Object.keys(
+    createMemfaultStatus({ AWS_REGION: 'us-east-1', MEMFAULT_KEY_SECRET_ARN: SECRET })
+  )) {
     assert.equal(typeof fake[method], 'function', method);
   }
   assert.equal(await fake.memfaultKeyStored(), false);

@@ -25,12 +25,25 @@
 
 import { badRequest, field, notFound } from '../http.mjs';
 import {
-  KINDS, decodeEventCursor, encodeEventCursor, eventFromItem, eventRange, orderKey, sampleFromItem, sampleRange,
+  KINDS,
+  decodeEventCursor,
+  encodeEventCursor,
+  eventFromItem,
+  eventRange,
+  orderKey,
+  sampleFromItem,
+  sampleRange,
   thinSamples,
 } from '../lib/events.mjs';
 import { LINE_KINDS, TAGS, decodeLineCursor, lineFromItem, lineRange } from '../lib/lines.mjs';
 import {
-  requireEventPageSize, requireEventRange, requireHours, requireKinds, requireTags, requireThing, requireTime,
+  requireEventPageSize,
+  requireEventRange,
+  requireHours,
+  requireKinds,
+  requireTags,
+  requireThing,
+  requireTime,
 } from '../lib/validate.mjs';
 
 // What a page of events and a page of the board log each read: their part of the table and how.
@@ -75,11 +88,15 @@ export function createEventHandlers({ aws, now }, { devices }) {
     const after = cursor === null ? null : orderKey({ sk: cursor.sk, pk: cursor.thing });
     // Two more than a page: one to know that another page follows, one for the event the
     // last page ended on, which comes back with its board's part.
-    const parts = await Promise.all(things.map((thing) =>
-      aws.queryEvents({ thing, low: range.low, high, kinds, ...(tags === null ? {} : { tags }), limit: limit + 2 })));
+    const parts = await Promise.all(
+      things.map((thing) =>
+        aws.queryEvents({ thing, low: range.low, high, kinds, ...(tags === null ? {} : { tags }), limit: limit + 2 })
+      )
+    );
     // DynamoDB deletes an expired item some time after its ttl, and returns it until then.
     const nowSec = now() / 1000;
-    const ordered = parts.flat()
+    const ordered = parts
+      .flat()
       .filter((item) => typeof item?.sk === 'string' && typeof item?.pk === 'string')
       .filter((item) => !(Number.isFinite(item.ttl) && item.ttl <= nowSec))
       .filter((item) => after === null || orderKey(item) < after)

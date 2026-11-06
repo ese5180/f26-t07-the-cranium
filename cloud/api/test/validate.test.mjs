@@ -7,18 +7,34 @@ import { test } from 'node:test';
 import { HttpError, SMALL_BODY_LIMIT, field, readJsonObject } from '../src/http.mjs';
 import { PAIRING_NAME } from '../src/lib/shadow.mjs';
 import {
-  BLUETOOTH_NAME, isThing, parseJobId, requireBase64, requireBluetoothName, requireBoolean, requireFilename,
-  requireJobId, requirePageSize, requireSha256, requireText, requireThing, requireThings, requireVersion, strictVersion,
+  BLUETOOTH_NAME,
+  isThing,
+  parseJobId,
+  requireBase64,
+  requireBluetoothName,
+  requireBoolean,
+  requireFilename,
+  requireJobId,
+  requirePageSize,
+  requireSha256,
+  requireText,
+  requireThing,
+  requireThings,
+  requireVersion,
+  strictVersion,
 } from '../src/lib/validate.mjs';
 
 function refuses(run, code, status = 400) {
-  assert.throws(run, (error) => error instanceof HttpError && error.status === status && error.code === code,
-    `expected ${status} ${code}`);
+  assert.throws(
+    run,
+    (error) => error instanceof HttpError && error.status === status && error.code === code,
+    `expected ${status} ${code}`
+  );
 }
 
 const thing = (n) => `cranium-${n.toString(16).padStart(16, '0')}`;
 
-test('a version needs all four numbers and stays within MCUboot\'s ranges', () => {
+test("a version needs all four numbers and stays within MCUboot's ranges", () => {
   for (const good of ['1.2.3+4', '0.0.0+0', '0.0.1+0', '255.255.65535+4294967295', '10.20.300+4000']) {
     assert.equal(strictVersion(good).text, good);
     assert.equal(requireVersion(good).text, good);
@@ -26,10 +42,38 @@ test('a version needs all four numbers and stays within MCUboot\'s ranges', () =
   assert.deepEqual(strictVersion('1.10.0+7').parts, { major: 1, minor: 10, revision: 0, build: 7 });
 
   const bad = [
-    '1.2.3', '1.2.3+', '1.2+4', '1.2.3.4+5', '+4', 'v1.2.3+4', '1.2.3+4 ', ' 1.2.3+4', '1.2.3+4\n',
-    '01.2.3+4', '1.02.3+4', '1.2.03+4', '1.2.3+04', '256.0.0+0', '0.256.0+0', '0.0.65536+0',
-    '0.0.0+4294967296', '1.2.3-4', '1.2.3+4+5', '1..3+4', '1,2.3+4', '1.2.3+-4', '1.2.3+4.0', '1.2.3+0x4',
-    '\uff11.2.3+4', '1.2.3+4/../x', '', null, undefined, 123, ['1.2.3+4'], { text: '1.2.3+4' },
+    '1.2.3',
+    '1.2.3+',
+    '1.2+4',
+    '1.2.3.4+5',
+    '+4',
+    'v1.2.3+4',
+    '1.2.3+4 ',
+    ' 1.2.3+4',
+    '1.2.3+4\n',
+    '01.2.3+4',
+    '1.02.3+4',
+    '1.2.03+4',
+    '1.2.3+04',
+    '256.0.0+0',
+    '0.256.0+0',
+    '0.0.65536+0',
+    '0.0.0+4294967296',
+    '1.2.3-4',
+    '1.2.3+4+5',
+    '1..3+4',
+    '1,2.3+4',
+    '1.2.3+-4',
+    '1.2.3+4.0',
+    '1.2.3+0x4',
+    '\uff11.2.3+4',
+    '1.2.3+4/../x',
+    '',
+    null,
+    undefined,
+    123,
+    ['1.2.3+4'],
+    { text: '1.2.3+4' },
   ];
   for (const value of bad) {
     assert.equal(strictVersion(value), null, `${JSON.stringify(value)} must not be a version`);
@@ -41,9 +85,21 @@ test('a thing name is cranium- and exactly 16 lowercase hex digits', () => {
   assert.equal(requireThing('cranium-fe5b26c0c5b1dcd7'), 'cranium-fe5b26c0c5b1dcd7');
   assert.ok(isThing('cranium-0000000000000000'));
   const bad = [
-    'cranium-FE5B26C0C5B1DCD7', 'cranium-fe5b26c0c5b1dcd', 'cranium-fe5b26c0c5b1dcd70', 'cranium-fe5b26c0c5b1dcdg',
-    'Cranium-fe5b26c0c5b1dcd7', 'fe5b26c0c5b1dcd7', 'cranium-fe5b26c0c5b1dcd7\n', ' cranium-fe5b26c0c5b1dcd7',
-    'cranium-fe5b26c0c5b1dcd7/shadow', 'cranium-*', 'cranium-fe5b26c0-c5b1dcd7', '', null, undefined, 7,
+    'cranium-FE5B26C0C5B1DCD7',
+    'cranium-fe5b26c0c5b1dcd',
+    'cranium-fe5b26c0c5b1dcd70',
+    'cranium-fe5b26c0c5b1dcdg',
+    'Cranium-fe5b26c0c5b1dcd7',
+    'fe5b26c0c5b1dcd7',
+    'cranium-fe5b26c0c5b1dcd7\n',
+    ' cranium-fe5b26c0c5b1dcd7',
+    'cranium-fe5b26c0c5b1dcd7/shadow',
+    'cranium-*',
+    'cranium-fe5b26c0-c5b1dcd7',
+    '',
+    null,
+    undefined,
+    7,
     ['cranium-fe5b26c0c5b1dcd7'],
   ];
   for (const value of bad) {
@@ -56,19 +112,32 @@ test('a deployment id has the fixed shape and names a version', () => {
   const job = requireJobId('cranium-1-1-0-b7-20261010T221500Z-9f3a');
   assert.equal(job.id, 'cranium-1-1-0-b7-20261010T221500Z-9f3a');
   assert.equal(job.version, '1.1.0+7');
-  assert.equal(parseJobId('cranium-255-255-65535-b4294967295-20261010T221500Z-0000').version,
-    '255.255.65535+4294967295');
+  assert.equal(
+    parseJobId('cranium-255-255-65535-b4294967295-20261010T221500Z-0000').version,
+    '255.255.65535+4294967295'
+  );
 
   const bad = [
-    'cranium-1-1-0-7-20261010T221500Z-9f3a', 'cranium-1-1-0-b7-20261010T221500Z-9F3A',
-    'cranium-1-1-0-b7-20261010T221500Z-9f3', 'cranium-1-1-0-b7-20261010T221500Z-9f3a0',
-    'cranium-1-1-0-b7-20261010T221500-9f3a', 'cranium-1-1-0-b7-2026101T221500Z-9f3a',
-    'cranium-1-1-b7-20261010T221500Z-9f3a', 'cranium-1111-1-0-b7-20261010T221500Z-9f3a',
-    'cranium-256-1-0-b7-20261010T221500Z-9f3a', 'cranium-1-256-0-b7-20261010T221500Z-9f3a',
-    'cranium-1-1-65536-b7-20261010T221500Z-9f3a', 'cranium-1-1-0-b4294967296-20261010T221500Z-9f3a',
-    'other-1-1-0-b7-20261010T221500Z-9f3a', 'cranium-1-1-0-b7-20261010T221500Z-9f3a\n',
-    'cranium-1-1-0-b7-20261010T221500Z-9f3a/cancel', '../cranium-1-1-0-b7-20261010T221500Z-9f3a', '', null,
-    undefined, 12,
+    'cranium-1-1-0-7-20261010T221500Z-9f3a',
+    'cranium-1-1-0-b7-20261010T221500Z-9F3A',
+    'cranium-1-1-0-b7-20261010T221500Z-9f3',
+    'cranium-1-1-0-b7-20261010T221500Z-9f3a0',
+    'cranium-1-1-0-b7-20261010T221500-9f3a',
+    'cranium-1-1-0-b7-2026101T221500Z-9f3a',
+    'cranium-1-1-b7-20261010T221500Z-9f3a',
+    'cranium-1111-1-0-b7-20261010T221500Z-9f3a',
+    'cranium-256-1-0-b7-20261010T221500Z-9f3a',
+    'cranium-1-256-0-b7-20261010T221500Z-9f3a',
+    'cranium-1-1-65536-b7-20261010T221500Z-9f3a',
+    'cranium-1-1-0-b4294967296-20261010T221500Z-9f3a',
+    'other-1-1-0-b7-20261010T221500Z-9f3a',
+    'cranium-1-1-0-b7-20261010T221500Z-9f3a\n',
+    'cranium-1-1-0-b7-20261010T221500Z-9f3a/cancel',
+    '../cranium-1-1-0-b7-20261010T221500Z-9f3a',
+    '',
+    null,
+    undefined,
+    12,
   ];
   for (const value of bad) {
     assert.equal(parseJobId(value), null, `${JSON.stringify(value)} must not be a deployment id`);
@@ -80,8 +149,23 @@ test('a file name is 1 to 64 characters from a small set', () => {
   for (const good of ['zephyr.signed.bin', 'a', 'A-b_c.9', 'x'.repeat(64)]) {
     assert.equal(requireFilename(good), good);
   }
-  const bad = ['', 'x'.repeat(65), 'a/b', '../x', 'a\\b', 'a b', 'ü.bin', 'a\n', 'a\u0000b', 'a:b', '<x>', null,
-    undefined, 5, ['a']];
+  const bad = [
+    '',
+    'x'.repeat(65),
+    'a/b',
+    '../x',
+    'a\\b',
+    'a b',
+    'ü.bin',
+    'a\n',
+    'a\u0000b',
+    'a:b',
+    '<x>',
+    null,
+    undefined,
+    5,
+    ['a'],
+  ];
   for (const value of bad) refuses(() => requireFilename(value), 'invalid_filename');
 });
 
@@ -105,9 +189,20 @@ test('free text is trimmed, one line, and within its limit', () => {
 
   // Control and format characters inside the text.
   const hostile = [
-    'two\nlines', 'tab\there', 'nul\u0000byte', 'del\u007f', 'c1\u0085control', 'escape\u001b[31m',
-    'zero\u200bwidth', 'right\u202eto-left', 'isolate\u2066x', 'line\u2028separator', 'paragraph\u2029separator',
-    'lone\ud800surrogate', 'bom\ufeffinside', 'private\ue000use',
+    'two\nlines',
+    'tab\there',
+    'nul\u0000byte',
+    'del\u007f',
+    'c1\u0085control',
+    'escape\u001b[31m',
+    'zero\u200bwidth',
+    'right\u202eto-left',
+    'isolate\u2066x',
+    'line\u2028separator',
+    'paragraph\u2029separator',
+    'lone\ud800surrogate',
+    'bom\ufeffinside',
+    'private\ue000use',
   ];
   for (const value of hostile) {
     refuses(() => requireText(value, 'note', { max: 200 }), 'invalid_note');
@@ -148,14 +243,20 @@ test('uploaded data must be canonical base64', () => {
   assert.deepEqual(requireBase64('QQ==', 'data'), Buffer.from('A'));
 
   const bad = [
-    'aGVsbG8',        // padding left out
-    'aGVsbG8=\n',     // trailing line break
-    'aGVs bG8=',      // white space inside
-    'aGVsbG8==',      // too much padding
-    'QR==',           // unused bits set: decodes to the same byte as QQ==
-    'YWJj-_8=',       // URL-safe alphabet
-    'aGVsbG8=AAAA',   // data after the padding
-    '!!!!', '', null, undefined, 42, ['aGVsbG8='], Buffer.from('hello'),
+    'aGVsbG8', // padding left out
+    'aGVsbG8=\n', // trailing line break
+    'aGVs bG8=', // white space inside
+    'aGVsbG8==', // too much padding
+    'QR==', // unused bits set: decodes to the same byte as QQ==
+    'YWJj-_8=', // URL-safe alphabet
+    'aGVsbG8=AAAA', // data after the padding
+    '!!!!',
+    '',
+    null,
+    undefined,
+    42,
+    ['aGVsbG8='],
+    Buffer.from('hello'),
   ];
   for (const value of bad) refuses(() => requireBase64(value, 'data'), 'invalid_data');
 });
@@ -163,17 +264,42 @@ test('uploaded data must be canonical base64', () => {
 test('a SHA-256 is 64 lowercase hex digits, in no other spelling', () => {
   const good = '0123456789abcdef'.repeat(4);
   assert.equal(requireSha256(good), good);
-  for (const bad of [undefined, null, '', good.toUpperCase(), good.slice(1), `${good}0`, ` ${good}`, `${good}\n`,
-    `sha256:${good}`, 'g'.repeat(64), 42, [good], { sha256: good }]) {
+  for (const bad of [
+    undefined,
+    null,
+    '',
+    good.toUpperCase(),
+    good.slice(1),
+    `${good}0`,
+    ` ${good}`,
+    `${good}\n`,
+    `sha256:${good}`,
+    'g'.repeat(64),
+    42,
+    [good],
+    { sha256: good },
+  ]) {
     refuses(() => requireSha256(bad), 'invalid_sha256');
   }
 });
 
-test('a board\'s name over Bluetooth is Cranium- and four upper-case hex digits, or absent', () => {
+test("a board's name over Bluetooth is Cranium- and four upper-case hex digits, or absent", () => {
   for (const good of ['Cranium-1A2B', 'Cranium-0000', 'Cranium-FFFF']) assert.equal(requireBluetoothName(good), good);
   assert.equal(requireBluetoothName(undefined), null);
-  for (const bad of [null, '', 'Cranium-1a2b', 'cranium-1A2B', 'Cranium-12345', 'Cranium-123', 'Cranium-1A2G',
-    'Cranium-1A2B\n', ' Cranium-1A2B', 'Cranium', 7, ['Cranium-1A2B']]) {
+  for (const bad of [
+    null,
+    '',
+    'Cranium-1a2b',
+    'cranium-1A2B',
+    'Cranium-12345',
+    'Cranium-123',
+    'Cranium-1A2G',
+    'Cranium-1A2B\n',
+    ' Cranium-1A2B',
+    'Cranium',
+    7,
+    ['Cranium-1A2B'],
+  ]) {
     refuses(() => requireBluetoothName(bad), 'invalid_board');
   }
   // One grammar: the name a board reports while it pairs is the same.

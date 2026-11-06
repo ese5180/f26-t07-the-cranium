@@ -12,9 +12,7 @@ import assert from 'node:assert/strict';
 import { createHmac, getDiffieHellman, hkdfSync, randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 
-import {
-  N, createCognito, expectedClaim, g, javaBytes, k, passwordNumber, powMod, timestampAt,
-} from './cognito.mjs';
+import { N, createCognito, expectedClaim, g, javaBytes, k, passwordNumber, powMod, timestampAt } from './cognito.mjs';
 import { CORE } from './page.mjs';
 
 const core = await import(CORE);
@@ -33,7 +31,12 @@ const CONFIG = {
 const NOW = Date.parse('2026-11-02T03:04:05Z');
 // Made up for these tests, as are the addresses: a reserved domain that cannot receive mail.
 const PASSWORD = 'Correct-Horse-B4ttery';
-const USER = { email: 'person@example.invalid', userId: '6f1e2d3c-4b5a-4987-8a6b-5c4d3e2f1a0b', password: PASSWORD, code: '246810' };
+const USER = {
+  email: 'person@example.invalid',
+  userId: '6f1e2d3c-4b5a-4987-8a6b-5c4d3e2f1a0b',
+  password: PASSWORD,
+  code: '246810',
+};
 
 const hex = (bytes) => Buffer.from(bytes).toString('hex');
 
@@ -47,8 +50,17 @@ test('the group is the 3072-bit prime of RFC 3526 with g = 2, as Cognito uses', 
 
 test('a number is hashed as Java writes it: a 00 byte in front when the top bit is set', () => {
   const vectors = [
-    [0n, '00'], [1n, '01'], [0x7fn, '7f'], [0x80n, '0080'], [0xffn, '00ff'], [0x100n, '0100'],
-    [0xabcn, '0abc'], [0x8abcn, '008abc'], [0x0123n, '0123'], [0x7fffn, '7fff'], [0x8000n, '008000'],
+    [0n, '00'],
+    [1n, '01'],
+    [0x7fn, '7f'],
+    [0x80n, '0080'],
+    [0xffn, '00ff'],
+    [0x100n, '0100'],
+    [0xabcn, '0abc'],
+    [0x8abcn, '008abc'],
+    [0x0123n, '0123'],
+    [0x7fffn, '7fff'],
+    [0x8000n, '008000'],
   ];
   for (const [value, written] of vectors) {
     assert.equal(core.srpHex(value), written, value.toString(16));
@@ -85,7 +97,7 @@ test('the time is written as Cognito wants it: the day of the month without a le
     // The stand-in reads it back to the second, weekday checked.
     assert.equal(timestampAt(written), Math.floor(Date.parse(iso) / 1000) * 1000);
   }
-  assert.equal(timestampAt('Mon Nov 02 03:04:05 UTC 2026'), Number.NaN, 'a leading zero is not Cognito\'s format');
+  assert.equal(timestampAt('Mon Nov 02 03:04:05 UTC 2026'), Number.NaN, "a leading zero is not Cognito's format");
   assert.equal(timestampAt('Tue Nov 2 03:04:05 UTC 2026'), Number.NaN, 'nor a weekday that is wrong');
 });
 
@@ -103,11 +115,13 @@ test('the key is 16 bytes of HKDF-SHA-256 (RFC 5869), with "Caldera Derived Key"
   const derived = hex(await core.srpKey(subtle, input, u));
   assert.equal(derived, Buffer.from(hkdfSync('sha256', input, u, 'Caldera Derived Key', 16)).toString('hex'));
   const prk = createHmac('sha256', u).update(input).digest();
-  const okm = createHmac('sha256', prk).update(Buffer.concat([Buffer.from('Caldera Derived Key'), Buffer.from([1])])).digest();
+  const okm = createHmac('sha256', prk)
+    .update(Buffer.concat([Buffer.from('Caldera Derived Key'), Buffer.from([1])]))
+    .digest();
   assert.equal(derived, okm.subarray(0, 16).toString('hex'));
 });
 
-test('modular powers agree with the stand-in\'s, also for a base below zero', () => {
+test("modular powers agree with the stand-in's, also for a base below zero", () => {
   for (let round = 0; round < 8; round += 1) {
     const base = BigInt(`0x${randomBytes(400).toString('hex')}`);
     const exponent = BigInt(`0x${randomBytes(160).toString('hex')}`);
@@ -119,7 +133,12 @@ test('modular powers agree with the stand-in\'s, also for a base below zero', ()
 
 test('a is 128 bytes from the CSPRNG, and A = g^a mod N', () => {
   const asked = [];
-  const crypto = { getRandomValues: (array) => { asked.push(array.length); return array.fill(7); } };
+  const crypto = {
+    getRandomValues: (array) => {
+      asked.push(array.length);
+      return array.fill(7);
+    },
+  };
   const { a, A } = core.startSrp(crypto);
   assert.deepEqual(asked, [128]);
   assert.equal(a, BigInt(`0x${'07'.repeat(128)}`));
@@ -137,13 +156,21 @@ async function exchange({ salt, password = PASSWORD, claimed = password, userId 
   const secretBlock = randomBytes(96).toString('base64');
   const timestamp = core.cognitoTimestamp(NOW);
   const claim = await core.srpClaim({
-    subtle, userPoolId: POOL, userId, password: claimed, a, A, srpB: B.toString(16), salt: salt.toString(16),
-    secretBlock, timestamp,
+    subtle,
+    userPoolId: POOL,
+    userId,
+    password: claimed,
+    a,
+    A,
+    srpB: B.toString(16),
+    salt: salt.toString(16),
+    secretBlock,
+    timestamp,
   });
   return { claim, expected: expectedClaim({ userPoolId: POOL, userId, verifier, A, b, B, secretBlock, timestamp }) };
 }
 
-test('the claim the browser makes is the one Cognito\'s side of the exchange expects', async () => {
+test("the claim the browser makes is the one Cognito's side of the exchange expects", async () => {
   // Salts as Cognito sends them: hex without leading zeros, top bit set or not, of odd length.
   const salts = [
     BigInt(`0x${randomBytes(16).toString('hex')}`),
@@ -168,14 +195,32 @@ test('the claim the browser makes is the one Cognito\'s side of the exchange exp
 test('a challenge that cannot be used is refused, not answered', async () => {
   const { a, A } = core.startSrp(globalThis.crypto);
   const fine = {
-    subtle, userPoolId: POOL, userId: USER.userId, password: PASSWORD, a, A, srpB: 'abc123', salt: 'beef',
-    secretBlock: 'AAAA', timestamp: core.cognitoTimestamp(NOW),
+    subtle,
+    userPoolId: POOL,
+    userId: USER.userId,
+    password: PASSWORD,
+    a,
+    A,
+    srpB: 'abc123',
+    salt: 'beef',
+    secretBlock: 'AAAA',
+    timestamp: core.cognitoTimestamp(NOW),
   };
   await core.srpClaim(fine);
   const broken = [
-    { srpB: '0' }, { srpB: N.toString(16) }, { srpB: (2n * N).toString(16) }, { srpB: 'xyz' }, { srpB: '' },
-    { srpB: 'f'.repeat(1025) }, { salt: '' }, { salt: '12 34' }, { secretBlock: 'not base64!' }, { secretBlock: '' },
-    { userId: '' }, { userId: 'a:b' }, { userId: 'two words' },
+    { srpB: '0' },
+    { srpB: N.toString(16) },
+    { srpB: (2n * N).toString(16) },
+    { srpB: 'xyz' },
+    { srpB: '' },
+    { srpB: 'f'.repeat(1025) },
+    { salt: '' },
+    { salt: '12 34' },
+    { secretBlock: 'not base64!' },
+    { secretBlock: '' },
+    { userId: '' },
+    { userId: 'a:b' },
+    { userId: 'two words' },
   ];
   for (const change of broken) {
     await assert.rejects(core.srpClaim({ ...fine, ...change }), JSON.stringify(change));
@@ -194,7 +239,10 @@ function tab({ users = [USER], fail, now = () => NOW, cognitoNow = now, dateHead
   const writes = [];
   const storage = {
     getItem: (key) => (items.has(key) ? items.get(key) : null),
-    setItem: (key, value) => { writes.push([key, String(value)]); items.set(key, String(value)); },
+    setItem: (key, value) => {
+      writes.push([key, String(value)]);
+      items.set(key, String(value));
+    },
     removeItem: (key) => items.delete(key),
     clear: () => items.clear(),
   };
@@ -235,11 +283,16 @@ test('e-mail address, password and code: a session in the tab, and the password 
   // Each call is to the user pool API, as Cognito's JSON protocol has it, and carries
   // nothing of the browser.
   const [start, verifier, code] = browser.fetches.filter((call) => call.url.startsWith(CONFIG.idpOrigin));
-  for (const [call, operation] of [[start, 'InitiateAuth'], [verifier, 'RespondToAuthChallenge'], [code, 'RespondToAuthChallenge']]) {
+  for (const [call, operation] of [
+    [start, 'InitiateAuth'],
+    [verifier, 'RespondToAuthChallenge'],
+    [code, 'RespondToAuthChallenge'],
+  ]) {
     assert.equal(call.url, `${CONFIG.idpOrigin}/`);
     assert.equal(call.init.method, 'POST');
     assert.deepEqual(call.init.headers, {
-      'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityProviderService.${operation}`,
+      'content-type': 'application/x-amz-json-1.1',
+      'x-amz-target': `AWSCognitoIdentityProviderService.${operation}`,
     });
     assert.equal(call.init.credentials, 'omit');
     assert.equal(call.init.referrerPolicy, 'no-referrer');
@@ -252,8 +305,12 @@ test('e-mail address, password and code: a session in the tab, and the password 
   // The address as the account has it: trimmed and in lower case.
   assert.equal(sent[0].AuthParameters.USERNAME, USER.email);
   assert.match(sent[0].AuthParameters.SRP_A, /^[0-9a-f]+$/);
-  assert.deepEqual(Object.keys(sent[1].ChallengeResponses).sort(),
-    ['PASSWORD_CLAIM_SECRET_BLOCK', 'PASSWORD_CLAIM_SIGNATURE', 'TIMESTAMP', 'USERNAME']);
+  assert.deepEqual(Object.keys(sent[1].ChallengeResponses).sort(), [
+    'PASSWORD_CLAIM_SECRET_BLOCK',
+    'PASSWORD_CLAIM_SIGNATURE',
+    'TIMESTAMP',
+    'USERNAME',
+  ]);
   // Cognito's own name for the user, not what was typed.
   assert.equal(sent[1].ChallengeResponses.USERNAME, USER.userId);
   assert.equal(sent[1].ChallengeResponses.TIMESTAMP, 'Mon Nov 2 03:04:05 UTC 2026');
@@ -262,7 +319,10 @@ test('e-mail address, password and code: a session in the tab, and the password 
 
   // The password itself went nowhere: not in a request, not in an address, not in storage.
   for (const call of browser.fetches) {
-    assert.equal(`${call.url} ${call.init.body ?? ''} ${JSON.stringify(call.init.headers ?? {})}`.includes(PASSWORD), false);
+    assert.equal(
+      `${call.url} ${call.init.body ?? ''} ${JSON.stringify(call.init.headers ?? {})}`.includes(PASSWORD),
+      false
+    );
   }
   for (const [, value] of browser.writes) assert.equal(value.includes(PASSWORD), false);
   // Never the flow that sends it.
@@ -270,11 +330,17 @@ test('e-mail address, password and code: a session in the tab, and the password 
 
   // The same session as the AWS sign-in page leaves, and its refresh token revoked at once.
   assert.deepEqual([...browser.items.keys()], ['cranium.session']);
-  assert.deepEqual(JSON.parse(browser.items.get('cranium.session')), { accessToken: 'SRP-ACCESS-1', expiresAt: NOW / 1000 + 3600 });
+  assert.deepEqual(JSON.parse(browser.items.get('cranium.session')), {
+    accessToken: 'SRP-ACCESS-1',
+    expiresAt: NOW / 1000 + 3600,
+  });
   assert.equal(browser.auth.accessToken(), 'SRP-ACCESS-1');
   assert.equal(await browser.auth.revocation(), 'revoked');
   const revoke = browser.fetches.find((call) => call.url.endsWith('/oauth2/revoke'));
-  assert.deepEqual(Object.fromEntries(new URLSearchParams(revoke.init.body)), { token: 'SRP-REFRESH-1', client_id: CLIENT });
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(revoke.init.body)), {
+    token: 'SRP-REFRESH-1',
+    client_id: CLIENT,
+  });
   for (const [, value] of browser.writes) {
     for (const secret of ['SRP-REFRESH-1', 'SRP-ID-1']) assert.equal(value.includes(secret), false, secret);
   }
@@ -289,7 +355,10 @@ test('a wrong password and an unknown address get the same answer, and nothing i
     await wrong.auth.passwordSignIn(USER.email, 'Not-The-Password-1'),
     await unknown.auth.passwordSignIn('nobody@example.invalid', PASSWORD),
   ];
-  assert.deepEqual(outcomes, [{ step: 'password', problem: 'wrong-password' }, { step: 'password', problem: 'wrong-password' }]);
+  assert.deepEqual(outcomes, [
+    { step: 'password', problem: 'wrong-password' },
+    { step: 'password', problem: 'wrong-password' },
+  ]);
   for (const browser of [wrong, unknown]) {
     assert.deepEqual(calls(browser), ['InitiateAuth', 'PASSWORD_VERIFIER']);
     assert.deepEqual([...browser.items.keys()], []);
@@ -300,7 +369,12 @@ test('a wrong password and an unknown address get the same answer, and nothing i
 });
 
 test('an empty address or password is not sent', async () => {
-  for (const [email, password] of [['', PASSWORD], ['   ', PASSWORD], [USER.email, ''], [USER.email, undefined]]) {
+  for (const [email, password] of [
+    ['', PASSWORD],
+    ['   ', PASSWORD],
+    [USER.email, ''],
+    [USER.email, undefined],
+  ]) {
     const browser = tab();
     assert.deepEqual(await browser.auth.passwordSignIn(email, password), { step: 'password', problem: 'missing' });
     assert.equal(browser.fetches.length, 0);
@@ -331,7 +405,7 @@ test('a wrong code leaves the sign-in waiting for the next; a sign-in Cognito en
   assert.deepEqual(await slow.auth.sendCode(USER.code), { step: 'password', problem: 'expired' });
 });
 
-test('every answer of Cognito is put in the console\'s words, never in Cognito\'s', () => {
+test("every answer of Cognito is put in the console's words, never in Cognito's", () => {
   const table = [
     ['NotAuthorizedException', 'password', 'wrong-password'],
     ['UserNotFoundException', 'password', 'wrong-password'],
@@ -345,30 +419,60 @@ test('every answer of Cognito is put in the console\'s words, never in Cognito\'
     ['InternalErrorException', 'password', 'failed'],
     ['', 'code', 'failed'],
   ];
-  for (const [name, step, problem] of table) assert.equal(core.signInProblem(name, step), problem, `${name} at ${step}`);
-  assert.equal(core.SIGN_IN_WORDS['wrong-code'], 'That code is not right. Try the next one from your authenticator app.');
+  for (const [name, step, problem] of table)
+    assert.equal(core.signInProblem(name, step), problem, `${name} at ${step}`);
+  assert.equal(
+    core.SIGN_IN_WORDS['wrong-code'],
+    'That code is not right. Try the next one from your authenticator app.'
+  );
   assert.equal(core.SIGN_IN_WORDS['too-many'], 'Too many tries. Wait a minute.');
   for (const words of Object.values(core.SIGN_IN_WORDS)) assert.doesNotMatch(words, /Exception|Cognito/);
 
   // How Cognito names an error: in the body, perhaps with a namespace, or in a header.
   assert.equal(core.cognitoErrorName({ __type: 'NotAuthorizedException', message: 'x' }), 'NotAuthorizedException');
-  assert.equal(core.cognitoErrorName({ __type: 'com.amazon.coral.service#UnknownOperationException' }), 'UnknownOperationException');
-  assert.equal(core.cognitoErrorName(null, 'CodeMismatchException:http://internal.amazon.com/coral/'), 'CodeMismatchException');
+  assert.equal(
+    core.cognitoErrorName({ __type: 'com.amazon.coral.service#UnknownOperationException' }),
+    'UnknownOperationException'
+  );
+  assert.equal(
+    core.cognitoErrorName(null, 'CodeMismatchException:http://internal.amazon.com/coral/'),
+    'CodeMismatchException'
+  );
   assert.equal(core.cognitoErrorName({ __type: '<script>' }), '');
   assert.equal(core.cognitoErrorName(null, null), '');
 });
 
 test('refusals, limits and failures at each step', async () => {
   const at = (operation, challenge, name) => (op, body) =>
-    (op === operation && (challenge === null || body.ChallengeName === challenge) ? name : null);
+    op === operation && (challenge === null || body.ChallengeName === challenge) ? name : null;
   const cases = [
     [at('InitiateAuth', null, 'TooManyRequestsException'), 'password', { step: 'password', problem: 'too-many' }],
-    [at('RespondToAuthChallenge', 'PASSWORD_VERIFIER', 'LimitExceededException'), 'password', { step: 'password', problem: 'too-many' }],
-    [at('InitiateAuth', null, 'PasswordResetRequiredException'), 'password', { step: 'elsewhere', challenge: 'PASSWORD_RESET_REQUIRED' }],
+    [
+      at('RespondToAuthChallenge', 'PASSWORD_VERIFIER', 'LimitExceededException'),
+      'password',
+      { step: 'password', problem: 'too-many' },
+    ],
+    [
+      at('InitiateAuth', null, 'PasswordResetRequiredException'),
+      'password',
+      { step: 'elsewhere', challenge: 'PASSWORD_RESET_REQUIRED' },
+    ],
     [at('InitiateAuth', null, 'InternalErrorException'), 'password', { step: 'password', problem: 'failed' }],
-    [at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'TooManyRequestsException'), 'code', { step: 'code', problem: 'too-many' }],
-    [at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'ExpiredCodeException'), 'code', { step: 'password', problem: 'expired' }],
-    [at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'NotAuthorizedException'), 'code', { step: 'password', problem: 'expired' }],
+    [
+      at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'TooManyRequestsException'),
+      'code',
+      { step: 'code', problem: 'too-many' },
+    ],
+    [
+      at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'ExpiredCodeException'),
+      'code',
+      { step: 'password', problem: 'expired' },
+    ],
+    [
+      at('RespondToAuthChallenge', 'SOFTWARE_TOKEN_MFA', 'NotAuthorizedException'),
+      'code',
+      { step: 'password', problem: 'expired' },
+    ],
   ];
   for (const [fail, step, expected] of cases) {
     const browser = tab({ fail });
@@ -379,17 +483,28 @@ test('refusals, limits and failures at each step', async () => {
   }
 
   // The network, and answers that cannot be read.
-  const offline = tab({ idp: () => { throw new TypeError('Failed to fetch'); } });
+  const offline = tab({
+    idp: () => {
+      throw new TypeError('Failed to fetch');
+    },
+  });
   assert.deepEqual(await offline.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'network' });
   const garbled = tab({ idp: () => new Response('<html>', { status: 200 }) });
   assert.deepEqual(await garbled.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'failed' });
   const bare = tab({ idp: () => new Response('{}', { status: 500 }) });
   assert.deepEqual(await bare.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'failed' });
-  const odd = tab({ idp: () => Response.json({ ChallengeName: 'PASSWORD_VERIFIER', ChallengeParameters: { SRP_B: 'zz' } }) });
+  const odd = tab({
+    idp: () => Response.json({ ChallengeName: 'PASSWORD_VERIFIER', ChallengeParameters: { SRP_B: 'zz' } }),
+  });
   assert.deepEqual(await odd.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'failed' });
   // A code that went out but whose answer never came back keeps the step of the code.
   let down = false;
-  const flaky = tab({ idp: (url, init) => { if (down) throw new TypeError('Failed to fetch'); return flaky.cognito.fetch(CONFIG.idpOrigin, url, init); } });
+  const flaky = tab({
+    idp: (url, init) => {
+      if (down) throw new TypeError('Failed to fetch');
+      return flaky.cognito.fetch(CONFIG.idpOrigin, url, init);
+    },
+  });
   await flaky.auth.passwordSignIn(USER.email, PASSWORD);
   down = true;
   assert.deepEqual(await flaky.auth.sendCode(USER.code), { step: 'code', problem: 'network' });
@@ -398,7 +513,14 @@ test('refusals, limits and failures at each step', async () => {
 });
 
 test('a step this page does not do goes to the AWS sign-in page, with nothing kept', async () => {
-  for (const next of ['NEW_PASSWORD_REQUIRED', 'MFA_SETUP', 'SELECT_MFA_TYPE', 'SMS_MFA', 'EMAIL_OTP', 'CUSTOM_CHALLENGE']) {
+  for (const next of [
+    'NEW_PASSWORD_REQUIRED',
+    'MFA_SETUP',
+    'SELECT_MFA_TYPE',
+    'SMS_MFA',
+    'EMAIL_OTP',
+    'CUSTOM_CHALLENGE',
+  ]) {
     const browser = tab({ users: [{ ...USER, next }] });
     assert.deepEqual(await browser.auth.passwordSignIn(USER.email, PASSWORD), { step: 'elsewhere', challenge: next });
     assert.deepEqual([...browser.items.keys()], []);
@@ -411,14 +533,17 @@ test('a step this page does not do goes to the AWS sign-in page, with nothing ke
   assert.deepEqual(await strange.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'failed' });
 });
 
-test('the time in the claim goes by Cognito\'s clock where its answer says it', async () => {
+test("the time in the claim goes by Cognito's clock where its answer says it", async () => {
   // This computer's clock is an hour behind.
   const behind = () => NOW - 3600 * 1000;
   const told = tab({ now: behind, cognitoNow: () => NOW, dateHeader: new Date(NOW).toUTCString() });
   assert.deepEqual(await told.auth.passwordSignIn(USER.email, PASSWORD), { step: 'code' });
   // Without the header the claim carries this computer's time, which Cognito refuses.
   const untold = tab({ now: behind, cognitoNow: () => NOW });
-  assert.deepEqual(await untold.auth.passwordSignIn(USER.email, PASSWORD), { step: 'password', problem: 'wrong-password' });
+  assert.deepEqual(await untold.auth.passwordSignIn(USER.email, PASSWORD), {
+    step: 'password',
+    problem: 'wrong-password',
+  });
 });
 
 test('signing out drops a sign-in that waits for its code, and a new session clears the mark of a sign-out', async () => {
@@ -465,7 +590,11 @@ test('a typed digit fills its box and moves on; anything but a digit changes not
 test('a whole code fills all six boxes wherever it arrives, with or without a space; part of one fills from there', () => {
   for (const text of ['123456', '123 456', ' 123-456 ', '1 2 3 4 5 6', '123456\n']) {
     for (const index of [0, 3, 5]) {
-      assert.deepEqual(core.enterCode(empty(), index, text), { digits: boxes('123456'), focus: 5 }, `${JSON.stringify(text)} at ${index}`);
+      assert.deepEqual(
+        core.enterCode(empty(), index, text),
+        { digits: boxes('123456'), focus: 5 },
+        `${JSON.stringify(text)} at ${index}`
+      );
     }
   }
   // Over what was there before.

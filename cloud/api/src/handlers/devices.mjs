@@ -57,8 +57,9 @@ function history(executions) {
       lastUpdatedAt: isoTime(execution.lastUpdatedAt) ?? queuedAt,
     });
   }
-  rows.sort((a, b) => (a.queuedAt < b.queuedAt ? 1 : a.queuedAt > b.queuedAt ? -1 :
-    a.deployment < b.deployment ? 1 : -1));
+  rows.sort((a, b) =>
+    a.queuedAt < b.queuedAt ? 1 : a.queuedAt > b.queuedAt ? -1 : a.deployment < b.deployment ? 1 : -1
+  );
   return rows;
 }
 
@@ -118,7 +119,12 @@ export function createDeviceHandlers({ aws, config, now, log }) {
     const settled = await Promise.allSettled(things.map((thing) => readShadow(thing, maxAgeMs)));
     return settled.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
-      log({ level: 'warn', event: 'shadow_unreadable', thing: things[index], error: describeError(result.reason).message });
+      log({
+        level: 'warn',
+        event: 'shadow_unreadable',
+        thing: things[index],
+        error: describeError(result.reason).message,
+      });
       return null;
     });
   }

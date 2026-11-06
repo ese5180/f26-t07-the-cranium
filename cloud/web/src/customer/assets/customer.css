@@ -1221,7 +1221,9 @@
 
 .cs-switch-option[aria-pressed="true"] {
   background: var(--surface);
-  box-shadow: 0 1px 2px rgb(28 24 20 / 0.12), 0 0 0 1px var(--line);
+  box-shadow:
+    0 1px 2px rgb(28 24 20 / 0.12),
+    0 0 0 1px var(--line);
   color: var(--ink);
   font-weight: 600;
 }
@@ -1595,9 +1597,15 @@ a.cs-panel-foot:hover {
   color: var(--on-cover);
 }
 
-.cs-cover.is-shade-1 { background: var(--cover-1); }
-.cs-cover.is-shade-2 { background: var(--cover-2); }
-.cs-cover.is-shade-3 { background: var(--cover-3); }
+.cs-cover.is-shade-1 {
+  background: var(--cover-1);
+}
+.cs-cover.is-shade-2 {
+  background: var(--cover-2);
+}
+.cs-cover.is-shade-3 {
+  background: var(--cover-3);
+}
 
 .cs-cover-ring {
   display: grid;
@@ -2320,7 +2328,7 @@ a.cs-panel-foot:hover {
     text-transform: uppercase;
   }
 
-    .cs-foot {
+  .cs-foot {
     padding-bottom: 20px;
   }
 

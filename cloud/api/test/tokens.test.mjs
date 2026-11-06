@@ -7,7 +7,14 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 
 import {
-  MAX_ACTIVE_TOKENS, bearerToken, newToken, presentToken, sameDigest, tokenDigest, tokenFromItem, tokenStatus,
+  MAX_ACTIVE_TOKENS,
+  bearerToken,
+  newToken,
+  presentToken,
+  sameDigest,
+  tokenDigest,
+  tokenFromItem,
+  tokenStatus,
 } from '../src/lib/tokens.mjs';
 import { accessClaims, createTestConsole, fixture } from './fake-aws.mjs';
 
@@ -43,10 +50,27 @@ test('a token is crn_ and 32 random bytes in base64url, and only that spelling o
   // they decode to bytes that encode back to another spelling.
   const last = 'BCD'.split('').map((c) => `crn_${body.slice(0, -1)}${c}`);
   for (const header of [
-    token, `bearer ${token}`, `BEARER ${token}`, `Bearer  ${token}`, ` Bearer ${token}`, `Bearer ${token} `,
-    `Bearer ${token}\n`, `Bearer ${token}=`, `Bearer ${token.slice(0, -1)}`, `Bearer ${token}A`,
-    `Bearer crn-${body}`, `Bearer CRN_${body}`, `Bearer ${token},Bearer ${token}`, `Bearer crn_${body.replace(/./, '+')}`,
-    `Basic ${token}`, 'Bearer ', '', null, undefined, 42, [`Bearer ${token}`],
+    token,
+    `bearer ${token}`,
+    `BEARER ${token}`,
+    `Bearer  ${token}`,
+    ` Bearer ${token}`,
+    `Bearer ${token} `,
+    `Bearer ${token}\n`,
+    `Bearer ${token}=`,
+    `Bearer ${token.slice(0, -1)}`,
+    `Bearer ${token}A`,
+    `Bearer crn-${body}`,
+    `Bearer CRN_${body}`,
+    `Bearer ${token},Bearer ${token}`,
+    `Bearer crn_${body.replace(/./, '+')}`,
+    `Basic ${token}`,
+    'Bearer ',
+    '',
+    null,
+    undefined,
+    42,
+    [`Bearer ${token}`],
   ]) {
     assert.equal(bearerToken(header), null, String(header).slice(0, 20));
   }
@@ -62,20 +86,40 @@ test('a token is crn_ and 32 random bytes in base64url, and only that spelling o
 
 test('a stored item is a token only if every field is what this console writes', () => {
   const item = {
-    pk: 'TOK', sk: sha256('x'), id: '0123456789abcdef', ownerSub: 'abc', name: 'laptop',
-    createdAt: '2026-10-10T22:15:00.000Z', expiresAt: '2026-11-09T22:15:00.000Z', revokedAt: null,
+    pk: 'TOK',
+    sk: sha256('x'),
+    id: '0123456789abcdef',
+    ownerSub: 'abc',
+    name: 'laptop',
+    createdAt: '2026-10-10T22:15:00.000Z',
+    expiresAt: '2026-11-09T22:15:00.000Z',
+    revokedAt: null,
   };
   const token = tokenFromItem(item);
   assert.equal(token.digest, item.sk);
   assert.deepEqual(presentToken(token, Date.parse('2026-10-11T00:00:00Z')), {
-    id: '0123456789abcdef', name: 'laptop', createdAt: item.createdAt, expiresAt: item.expiresAt, revokedAt: null,
+    id: '0123456789abcdef',
+    name: 'laptop',
+    createdAt: item.createdAt,
+    expiresAt: item.expiresAt,
+    revokedAt: null,
     status: 'active',
   });
   assert.equal(tokenStatus(token, Date.parse(item.expiresAt)), 'expired');
   assert.equal(tokenStatus({ ...token, revokedAt: item.createdAt }, 0), 'revoked');
   assert.equal(tokenStatus({ ...token, expiresAt: 'soon' }, 0), 'expired');
-  for (const change of [{ sk: 'x' }, { id: 'XYZ' }, { ownerSub: '' }, { name: '' }, { name: 'a\nb' }, { name: 'x'.repeat(41) },
-    { createdAt: 'yesterday' }, { expiresAt: 5 }, { revokedAt: 'now' }, { revokedAt: undefined }]) {
+  for (const change of [
+    { sk: 'x' },
+    { id: 'XYZ' },
+    { ownerSub: '' },
+    { name: '' },
+    { name: 'a\nb' },
+    { name: 'x'.repeat(41) },
+    { createdAt: 'yesterday' },
+    { expiresAt: 5 },
+    { revokedAt: 'now' },
+    { revokedAt: undefined },
+  ]) {
     assert.equal(tokenFromItem({ ...item, ...change }), null, JSON.stringify(change));
   }
   assert.equal(tokenFromItem(null), null);
@@ -103,15 +147,30 @@ test('any member makes a token on the website; it is shown once and only its dig
     assert.equal(stored.includes(secret), false);
   }
   assert.deepEqual(fake.tokens.get(sha256(made.token)), {
-    pk: 'TOK', sk: sha256(made.token), id: made.id, ownerSub: viewer.sub, name: 'CI on my laptop',
-    createdAt: made.createdAt, expiresAt: made.expiresAt, revokedAt: null,
+    pk: 'TOK',
+    sk: sha256(made.token),
+    id: made.id,
+    ownerSub: viewer.sub,
+    name: 'CI on my laptop',
+    createdAt: made.createdAt,
+    expiresAt: made.expiresAt,
+    revokedAt: null,
   });
 
   // The list is the caller's own, without the token or its digest, ever.
   const listed = await call('GET', '/api/tokens', { as: viewer });
   assert.equal(listed.status, 200);
   assert.deepEqual(listed.body, {
-    tokens: [{ id: made.id, name: 'CI on my laptop', createdAt: made.createdAt, expiresAt: made.expiresAt, revokedAt: null, status: 'active' }],
+    tokens: [
+      {
+        id: made.id,
+        name: 'CI on my laptop',
+        createdAt: made.createdAt,
+        expiresAt: made.expiresAt,
+        revokedAt: null,
+        status: 'active',
+      },
+    ],
     limit: 10,
     maxDays: 90,
   });
@@ -120,20 +179,30 @@ test('any member makes a token on the website; it is shown once and only its dig
 
   // Both are on record, and the token is not.
   const entries = fake.auditLog();
-  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome, entry.target, entry.actor.sub, entry.detail]), [
-    ['token.create', 'ok', made.id, viewer.sub, { name: 'CI on my laptop', days: '7' }],
-    ['token.create', 'ok', plain.id, manager.sub, { name: 'laptop', days: '30' }],
-  ]);
+  assert.deepEqual(
+    entries.map((entry) => [entry.action, entry.outcome, entry.target, entry.actor.sub, entry.detail]),
+    [
+      ['token.create', 'ok', made.id, viewer.sub, { name: 'CI on my laptop', days: '7' }],
+      ['token.create', 'ok', plain.id, manager.sub, { name: 'laptop', days: '30' }],
+    ]
+  );
   assert.equal(JSON.stringify(entries).includes(made.token.slice(4)), false);
 });
 
-test('a token\'s name and lifetime are checked, and a refusal goes on record', async () => {
+test("a token's name and lifetime are checked, and a refusal goes on record", async () => {
   const { call, manager, fake } = setup();
   const cases = [
-    [{}, 'invalid_token_name'], [{ name: '' }, 'invalid_token_name'], [{ name: '   ' }, 'invalid_token_name'],
-    [{ name: 'x'.repeat(41) }, 'invalid_token_name'], [{ name: 'a\u0000b' }, 'invalid_token_name'], [{ name: 5 }, 'invalid_token_name'],
-    [{ name: 'ok', days: 0 }, 'invalid_days'], [{ name: 'ok', days: 91 }, 'invalid_days'], [{ name: 'ok', days: 1.5 }, 'invalid_days'],
-    [{ name: 'ok', days: '30' }, 'invalid_days'], [{ name: 'ok', days: null }, 'invalid_days'],
+    [{}, 'invalid_token_name'],
+    [{ name: '' }, 'invalid_token_name'],
+    [{ name: '   ' }, 'invalid_token_name'],
+    [{ name: 'x'.repeat(41) }, 'invalid_token_name'],
+    [{ name: 'a\u0000b' }, 'invalid_token_name'],
+    [{ name: 5 }, 'invalid_token_name'],
+    [{ name: 'ok', days: 0 }, 'invalid_days'],
+    [{ name: 'ok', days: 91 }, 'invalid_days'],
+    [{ name: 'ok', days: 1.5 }, 'invalid_days'],
+    [{ name: 'ok', days: '30' }, 'invalid_days'],
+    [{ name: 'ok', days: null }, 'invalid_days'],
   ];
   for (const [body, code] of cases) {
     const response = await call('POST', '/api/tokens', { as: manager, body });
@@ -143,7 +212,10 @@ test('a token\'s name and lifetime are checked, and a refusal goes on record', a
   assert.equal(fake.auditLog().length, cases.length);
   assert.ok(fake.auditLog().every((entry) => entry.action === 'token.create' && entry.outcome === 'rejected'));
   // The longest name and the longest life are fine.
-  assert.equal((await call('POST', '/api/tokens', { as: manager, body: { name: 'x'.repeat(40), days: 90 } })).status, 201);
+  assert.equal(
+    (await call('POST', '/api/tokens', { as: manager, body: { name: 'x'.repeat(40), days: 90 } })).status,
+    201
+  );
   assert.equal((await call('POST', '/api/tokens', { as: manager, body: { name: 'y', days: 1 } })).status, 201);
 });
 
@@ -153,24 +225,36 @@ test('only an active member of the console, asked of Cognito now, makes a token'
   const outsider = addUser('outsider', []);
   const demoted = addUser('demoted', [], { tokenGroups: ['viewers'] });
   const disabled = addUser('disabled', ['viewers'], { enabled: false });
-  for (const [who, status, code] of [[outsider, 403, 'forbidden'], [demoted, 403, 'forbidden'],
-    [disabled, 403, 'account_inactive'], [null, 401, 'unauthorized']]) {
+  for (const [who, status, code] of [
+    [outsider, 403, 'forbidden'],
+    [demoted, 403, 'forbidden'],
+    [disabled, 403, 'account_inactive'],
+    [null, 401, 'unauthorized'],
+  ]) {
     const response = await call('POST', '/api/tokens', { as: who ?? undefined, body: { name: 'x' } });
     assert.deepEqual([response.status, response.body.error.code], [status, code]);
   }
   assert.equal(fake.tokens.size, 0);
-  assert.deepEqual(fake.auditLog().map((entry) => [entry.action, entry.outcome]),
-    Array(4).fill(['token.create', 'denied']));
+  assert.deepEqual(
+    fake.auditLog().map((entry) => [entry.action, entry.outcome]),
+    Array(4).fill(['token.create', 'denied'])
+  );
 });
 
-test('a request to /api/t/ is the request to /api/, made with the token in its owner\'s name', async () => {
+test("a request to /api/t/ is the request to /api/, made with the token in its owner's name", async () => {
   const context = setup();
   const { call, fake, manager, viewer, make } = context;
   const { token, id } = await make(manager);
   await call('POST', '/api/firmware', { as: manager, body: upload() });
 
-  for (const path of ['/api/firmware', '/api/devices', `/api/devices/${BOARD}`, '/api/deployments', '/api/audit',
-    '/api/firmware/1.2.3+4']) {
+  for (const path of [
+    '/api/firmware',
+    '/api/devices',
+    `/api/devices/${BOARD}`,
+    '/api/deployments',
+    '/api/audit',
+    '/api/firmware/1.2.3+4',
+  ]) {
     const bySession = await call('GET', path, { as: viewer });
     const byToken = await call('GET', path.replace('/api/', '/api/t/'), { token });
     assert.equal(byToken.status, 200, path);
@@ -178,7 +262,10 @@ test('a request to /api/t/ is the request to /api/, made with the token in its o
   }
   const me = await call('GET', '/api/t/me', { token });
   assert.deepEqual(me.body, {
-    sub: manager.sub, email: manager.email, groups: ['release-managers'], canWrite: true,
+    sub: manager.sub,
+    email: manager.email,
+    groups: ['release-managers'],
+    canWrite: true,
     expiresAt: Math.floor(Date.parse(fake.tokens.get(sha256(token)).expiresAt) / 1000),
     // The console's own version and commit (handlers/apps.mjs): none in a test console.
     console: { version: null, commit: null },
@@ -188,12 +275,18 @@ test('a request to /api/t/ is the request to /api/, made with the token in its o
   const created = await call('POST', '/api/t/deployments', { token, body: { version: '1.2.3+4', things: [BOARD] } });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const [entry] = fake.auditLog().slice(before);
-  assert.deepEqual([entry.action, entry.outcome, entry.actor], ['deployment.create', 'ok', { sub: manager.sub, email: manager.email }]);
+  assert.deepEqual(
+    [entry.action, entry.outcome, entry.actor],
+    ['deployment.create', 'ok', { sub: manager.sub, email: manager.email }]
+  );
   assert.equal(entry.detail.token, id);
   // The token is the first detail, so that it is never the one cut off.
   assert.equal(Object.keys(entry.detail)[0], 'token');
 
-  const cancelled = await call('POST', `/api/t/deployments/${created.body.deployment.id}/cancel`, { token, body: { force: true } });
+  const cancelled = await call('POST', `/api/t/deployments/${created.body.deployment.id}/cancel`, {
+    token,
+    body: { force: true },
+  });
   assert.equal(cancelled.status, 200);
   assert.equal(fake.auditLog().at(-1).detail.token, id);
 
@@ -204,26 +297,30 @@ test('a request to /api/t/ is the request to /api/, made with the token in its o
   }
 });
 
-test('a viewer\'s token reads and never writes, and the attempt goes on record', async () => {
+test("a viewer's token reads and never writes, and the attempt goes on record", async () => {
   const { call, fake, viewer, make } = setup();
   const { token, id } = await make(viewer);
   assert.equal((await call('GET', '/api/t/firmware', { token })).status, 200);
   const before = fake.auditLog().length;
-  for (const [path, body, action] of [['/api/t/firmware', upload(), 'firmware.upload'],
+  for (const [path, body, action] of [
+    ['/api/t/firmware', upload(), 'firmware.upload'],
     ['/api/t/deployments', { version: '1.2.3+4', things: [BOARD] }, 'deployment.create'],
-    ['/api/t/firmware/1.2.3+4/image', undefined, 'firmware.download']]) {
+    ['/api/t/firmware/1.2.3+4/image', undefined, 'firmware.download'],
+  ]) {
     const method = action === 'firmware.download' ? 'GET' : 'POST';
     const response = await call(method, path, { token, body });
     assert.deepEqual([response.status, response.body.error?.code], [403, 'release_manager_required'], path);
     const entry = fake.auditLog().at(-1);
-    assert.deepEqual([entry.action, entry.outcome, entry.actor.sub, entry.detail.token, entry.detail.code],
-      [action, 'denied', viewer.sub, id, 'release_manager_required']);
+    assert.deepEqual(
+      [entry.action, entry.outcome, entry.actor.sub, entry.detail.token, entry.detail.code],
+      [action, 'denied', viewer.sub, id, 'release_manager_required']
+    );
   }
   assert.equal(fake.auditLog().length, before + 3);
   assert.equal(fake.releases.size, 0);
 });
 
-test('demoting, disabling or removing the owner takes the token\'s power away at once', async () => {
+test("demoting, disabling or removing the owner takes the token's power away at once", async () => {
   const context = setup();
   const { call, fake, manager, make } = context;
   const { token } = await make(manager);
@@ -255,8 +352,13 @@ test('every use of a token asks Cognito, and no answer is no access', async () =
   const mark = fake.calls.length;
   await call('GET', '/api/t/devices', { token });
   await call('GET', '/api/t/devices', { token });
-  assert.deepEqual(fake.methodsCalled().slice(mark).filter((name) => ['getToken', 'getUser', 'listUserGroups'].includes(name)),
-    ['getToken', 'getUser', 'listUserGroups', 'getToken', 'getUser', 'listUserGroups']);
+  assert.deepEqual(
+    fake
+      .methodsCalled()
+      .slice(mark)
+      .filter((name) => ['getToken', 'getUser', 'listUserGroups'].includes(name)),
+    ['getToken', 'getUser', 'listUserGroups', 'getToken', 'getUser', 'listUserGroups']
+  );
 
   // A session's read goes on through a Cognito outage; a token's does not.
   fake.failNext('getUser');
@@ -289,8 +391,10 @@ test('a token stops working when it expires', async () => {
   // One lookup by digest, and nobody asked about its owner.
   assert.deepEqual(fake.methodsCalled().slice(mark), ['getToken']);
   const line = logs.find((entry) => entry.requestId === 'req-expired' && entry.event === undefined);
-  assert.deepEqual([line.via, line.token, line.tokenState, line.sub, line.status, line.route],
-    ['token', id, 'expired', null, 401, 'POST /api/firmware']);
+  assert.deepEqual(
+    [line.via, line.token, line.tokenState, line.sub, line.status, line.route],
+    ['token', id, 'expired', null, 401, 'POST /api/firmware']
+  );
 });
 
 test('a revoked token fills no activity log, however often it is used', async () => {
@@ -299,8 +403,12 @@ test('a revoked token fills no activity log, however often it is used', async ()
   const { token, id } = await make(manager, { name: 'leaked' });
   assert.equal((await call('POST', `/api/tokens/${id}/revoke`, { as: manager })).status, 200);
   const before = fake.auditLog().length;
-  const writes = [['/api/t/firmware', upload()], ['/api/t/deployments', { version: '1.2.3+4', things: [BOARD] }],
-    ['/api/t/firmware/1.2.3+4/revoke', { reason: 'x' }], ['/api/t/firmware/1.2.3+4/bluetooth', { sha256: 'a'.repeat(64) }]];
+  const writes = [
+    ['/api/t/firmware', upload()],
+    ['/api/t/deployments', { version: '1.2.3+4', things: [BOARD] }],
+    ['/api/t/firmware/1.2.3+4/revoke', { reason: 'x' }],
+    ['/api/t/firmware/1.2.3+4/bluetooth', { sha256: 'a'.repeat(64) }],
+  ];
   for (let round = 0; round < 5; round += 1) {
     for (const [path, body] of writes) {
       const response = await call('POST', path, { token, body, requestId: `req-${round}-${path.length}` });
@@ -312,7 +420,10 @@ test('a revoked token fills no activity log, however often it is used', async ()
   assert.equal(fake.auditLog().length, before);
   // The same answer as for a token that never existed, and a log line for each request.
   const unknown = await call('POST', '/api/t/firmware', { token: newToken(), body: upload() });
-  assert.deepEqual(unknown.body.error.message, (await call('POST', '/api/t/firmware', { token, body: upload() })).body.error.message);
+  assert.deepEqual(
+    unknown.body.error.message,
+    (await call('POST', '/api/t/firmware', { token, body: upload() })).body.error.message
+  );
   const refused = logs.filter((line) => line.via === 'token' && line.token === id);
   assert.equal(refused.length, 26);
   assert.ok(refused.every((line) => line.tokenState === 'revoked' && line.status === 401 && line.sub === null));
@@ -329,8 +440,12 @@ test('the owner revokes a token on the website, and it stops working at once', a
   const revoked = await call('POST', `/api/tokens/${id}/revoke`, { as: manager });
   assert.equal(revoked.status, 200);
   assert.deepEqual(revoked.body.token, {
-    id, name: 'ci', createdAt: revoked.body.token.createdAt, expiresAt: revoked.body.token.expiresAt,
-    revokedAt: new Date(clock.ms).toISOString(), status: 'revoked',
+    id,
+    name: 'ci',
+    createdAt: revoked.body.token.createdAt,
+    expiresAt: revoked.body.token.expiresAt,
+    revokedAt: new Date(clock.ms).toISOString(),
+    status: 'revoked',
   });
   assert.equal(fake.tokens.get(sha256(token)).revokedAt, new Date(clock.ms).toISOString());
   const response = await call('GET', '/api/t/devices', { token });
@@ -345,12 +460,18 @@ test('the owner revokes a token on the website, and it stops working at once', a
   const odd = await call('POST', '/api/tokens/ZZZZ/revoke', { as: manager });
   assert.deepEqual([odd.status, odd.body.error.code], [400, 'invalid_token_id']);
 
-  assert.deepEqual(fake.auditLog().slice(before).map((entry) => [entry.action, entry.outcome, entry.target, entry.detail.code ?? null]), [
-    ['token.revoke', 'ok', id, null],
-    ['token.revoke', 'rejected', id, 'token_already_revoked'],
-    ['token.revoke', 'rejected', other.id, 'unknown_token'],
-    ['token.revoke', 'rejected', '', 'invalid_token_id'],
-  ]);
+  assert.deepEqual(
+    fake
+      .auditLog()
+      .slice(before)
+      .map((entry) => [entry.action, entry.outcome, entry.target, entry.detail.code ?? null]),
+    [
+      ['token.revoke', 'ok', id, null],
+      ['token.revoke', 'rejected', id, 'token_already_revoked'],
+      ['token.revoke', 'rejected', other.id, 'unknown_token'],
+      ['token.revoke', 'rejected', '', 'invalid_token_id'],
+    ]
+  );
   assert.equal(fake.auditLog().slice(before)[0].detail.name, 'ci');
 });
 
@@ -369,7 +490,10 @@ test('a token cannot manage tokens, or read a Bluetooth passkey', async () => {
     assert.deepEqual([response.status, response.body.error.code], [403, 'token_not_allowed'], path);
     if (action !== null) {
       const entry = fake.auditLog().at(-1);
-      assert.deepEqual([entry.action, entry.outcome, entry.actor.sub, entry.detail.token], [action, 'denied', manager.sub, id]);
+      assert.deepEqual(
+        [entry.action, entry.outcome, entry.actor.sub, entry.detail.token],
+        [action, 'denied', manager.sub, id]
+      );
     }
   }
   assert.equal(fake.auditLog().length, before + 3);
@@ -397,9 +521,20 @@ test('a token that names nobody gets one answer, asks nobody and leaves no entry
   const { token } = await make(manager);
   const before = fake.auditLog().length;
   const mark = fake.calls.length;
-  const malformed = [undefined, '', token, `bearer ${token}`, `Bearer ${token.slice(0, -1)}`, `Bearer ${token}x`, 'Bearer crn_'];
+  const malformed = [
+    undefined,
+    '',
+    token,
+    `bearer ${token}`,
+    `Bearer ${token.slice(0, -1)}`,
+    `Bearer ${token}x`,
+    'Bearer crn_',
+  ];
   for (const authorization of malformed) {
-    for (const [method, path] of [['GET', '/api/t/devices'], ['POST', '/api/t/firmware']]) {
+    for (const [method, path] of [
+      ['GET', '/api/t/devices'],
+      ['POST', '/api/t/firmware'],
+    ]) {
       const response = await call(method, path, { authorization, body: method === 'POST' ? upload() : undefined });
       assert.deepEqual([response.status, response.body.error.code], [401, 'invalid_token'], String(authorization));
     }
@@ -415,7 +550,10 @@ test('a token that names nobody gets one answer, asks nobody and leaves no entry
   assert.equal(fake.releases.size, 0);
   // The log knows that a token request was refused, not which token.
   const line = logs.at(-1);
-  assert.deepEqual([line.via, line.token, line.sub, line.status, line.route], ['token', null, null, 401, 'POST /api/firmware']);
+  assert.deepEqual(
+    [line.via, line.token, line.sub, line.status, line.route],
+    ['token', null, null, 401, 'POST /api/firmware']
+  );
 });
 
 test('the log names a token by its id, never by the token or its digest', async () => {
@@ -425,10 +563,13 @@ test('the log names a token by its id, never by the token or its digest', async 
   await call('GET', '/api/t/devices', { token, requestId: 'req-t1' });
   await call('POST', '/api/t/firmware', { token, body: upload(), requestId: 'req-t2' });
   const requests = logs.filter((line) => line.event === undefined);
-  assert.deepEqual(requests.map((line) => [line.requestId, line.sub, line.route, line.status, line.via, line.token]), [
-    ['req-t1', manager.sub, 'GET /api/devices', 200, 'token', id],
-    ['req-t2', manager.sub, 'POST /api/firmware', 201, 'token', id],
-  ]);
+  assert.deepEqual(
+    requests.map((line) => [line.requestId, line.sub, line.route, line.status, line.via, line.token]),
+    [
+      ['req-t1', manager.sub, 'GET /api/devices', 200, 'token', id],
+      ['req-t2', manager.sub, 'POST /api/firmware', 201, 'token', id],
+    ]
+  );
   const text = JSON.stringify(logs);
   for (const hidden of [token, token.slice(4), sha256(token)]) assert.equal(text.includes(hidden), false);
 });
@@ -437,7 +578,8 @@ test('a person has at most ten tokens that still work', async () => {
   const context = setup();
   const { call, manager, viewer, make, fake } = context;
   const made = [];
-  for (let count = 0; count < MAX_ACTIVE_TOKENS; count += 1) made.push(await make(manager, { name: `t${count}`, days: count === 0 ? 1 : 30 }));
+  for (let count = 0; count < MAX_ACTIVE_TOKENS; count += 1)
+    made.push(await make(manager, { name: `t${count}`, days: count === 0 ? 1 : 30 }));
   const full = await call('POST', '/api/tokens', { as: manager, body: { name: 'one more' } });
   assert.deepEqual([full.status, full.body.error.code], [409, 'too_many_tokens']);
   // Somebody else's count is their own.
@@ -475,9 +617,13 @@ test('two tokens made at the same moment cannot take a person past ten', async (
     }
     return answer;
   };
-  const results = await Promise.all([1, 2].map((n) => call('POST', '/api/tokens', { as: manager, body: { name: `race ${n}` } })));
+  const results = await Promise.all(
+    [1, 2].map((n) => call('POST', '/api/tokens', { as: manager, body: { name: `race ${n}` } }))
+  );
   fake.listTokens = original;
-  const active = (await call('GET', '/api/tokens', { as: manager })).body.tokens.filter((token) => token.status === 'active');
+  const active = (await call('GET', '/api/tokens', { as: manager })).body.tokens.filter(
+    (token) => token.status === 'active'
+  );
   assert.ok(active.length <= MAX_ACTIVE_TOKENS, `${active.length} active`);
   for (const response of results.filter((item) => item.status !== 201)) {
     assert.deepEqual([response.status, response.body.error.code], [409, 'too_many_tokens']);
@@ -486,28 +632,46 @@ test('two tokens made at the same moment cannot take a person past ten', async (
   assert.equal(withdrawn.length, results.filter((item) => item.status === 409).length);
 });
 
-test('a phone app\'s session manages tokens too, with a sign-in in the last 15 minutes', async () => {
+test("a phone app's session manages tokens too, with a sign-in in the last 15 minutes", async () => {
   const { call, fake, manager, make, config, clock } = setup();
   const { id } = await make(manager);
   const nowSec = Math.floor(clock.ms / 1000);
-  const stale = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId, authTime: nowSec - 3600 });
-  const fresh = accessClaims({ sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId, authTime: nowSec });
+  const stale = accessClaims({
+    sub: manager.sub,
+    groups: ['release-managers'],
+    clientId: config.mobileClientId,
+    authTime: nowSec - 3600,
+  });
+  const fresh = accessClaims({
+    sub: manager.sub,
+    groups: ['release-managers'],
+    clientId: config.mobileClientId,
+    authTime: nowSec,
+  });
 
   // Reading the list asks for no new sign-in; a change does.
   assert.equal((await call('GET', '/api/tokens', { claims: stale })).status, 200);
   const before = fake.auditLog().length;
-  for (const [path, body] of [['/api/tokens', { name: 'from a phone' }], [`/api/tokens/${id}/revoke`, {}]]) {
+  for (const [path, body] of [
+    ['/api/tokens', { name: 'from a phone' }],
+    [`/api/tokens/${id}/revoke`, {}],
+  ]) {
     const response = await call('POST', path, { claims: stale, body });
     assert.deepEqual([response.status, response.body.error.code], [403, 'phone_sign_in_again'], path);
   }
   assert.equal(fake.tokens.size, 1);
-  assert.deepEqual(fake.auditLog().slice(before).map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.detail.code]), [
-    ['token.create', 'denied', manager.sub, 'phone_sign_in_again'],
-    ['token.revoke', 'denied', manager.sub, 'phone_sign_in_again'],
-  ]);
+  assert.deepEqual(
+    fake
+      .auditLog()
+      .slice(before)
+      .map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.detail.code]),
+    [
+      ['token.create', 'denied', manager.sub, 'phone_sign_in_again'],
+      ['token.revoke', 'denied', manager.sub, 'phone_sign_in_again'],
+    ]
+  );
 
   // Signed in just now, the phone can.
   assert.equal((await call('POST', '/api/tokens', { claims: fresh, body: { name: 'from a phone' } })).status, 201);
   assert.equal((await call('POST', `/api/tokens/${id}/revoke`, { claims: fresh, body: {} })).status, 200);
 });
-

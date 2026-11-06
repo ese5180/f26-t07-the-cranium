@@ -28,16 +28,27 @@
 
 import { HttpError, conflict, notFound, redirect } from '../http.mjs';
 import {
-  SOURCE_FILE, SOURCE_LINK_SECONDS, SOURCE_USES_PER_MINUTE, buildSource, newSourceKey, presentSource, sourceDigest,
-  sourceKeyOf, sourceLinks, versionOfIpaFile,
+  SOURCE_FILE,
+  SOURCE_LINK_SECONDS,
+  SOURCE_USES_PER_MINUTE,
+  buildSource,
+  newSourceKey,
+  presentSource,
+  sourceDigest,
+  sourceKeyOf,
+  sourceLinks,
+  versionOfIpaFile,
 } from '../lib/sidestore.mjs';
 
 const MINUTE_MS = 60_000;
 const ID = /^[0-9a-f]{16}$/;
 
 function unknownSource() {
-  return notFound('unknown_source', 'There is no SideStore source at this address: it was turned off or replaced, ' +
-    'or its owner is no longer a member. Make a new one on the console\'s Apps page.');
+  return notFound(
+    'unknown_source',
+    'There is no SideStore source at this address: it was turned off or replaced, ' +
+      "or its owner is no longer a member. Make a new one on the console's Apps page."
+  );
 }
 
 function noSource() {
@@ -89,16 +100,25 @@ export function createSidestoreHandlers({ aws, config, now, randomHex, directory
     } catch (error) {
       failure = error;
     }
-    const outcome = failure === null ? 'ok' : failure instanceof HttpError && failure.status < 500 ? 'rejected' : 'error';
+    const outcome =
+      failure === null ? 'ok' : failure instanceof HttpError && failure.status < 500 ? 'rejected' : 'error';
     if (failure !== null) entry.detail.code = failure instanceof HttpError ? failure.code : 'internal_error';
     const recorded = await audit.record({
-      at: now(), requestId: request.id, actor: { sub: used.ownerSub, email: owner.email },
-      action: 'app.ios_download', target: entry.target, outcome, detail: entry.detail,
+      at: now(),
+      requestId: request.id,
+      actor: { sub: used.ownerSub, email: owner.email },
+      action: 'app.ios_download',
+      target: entry.target,
+      outcome,
+      detail: entry.detail,
     });
     if (failure !== null) throw failure;
     if (!recorded) {
-      throw new HttpError(500, 'audit_failed', 'The download could not be written to the activity log, so it was not ' +
-        'handed out. Try again in a moment.');
+      throw new HttpError(
+        500,
+        'audit_failed',
+        'The download could not be written to the activity log, so it was not ' + 'handed out. Try again in a moment.'
+      );
     }
     return { response: redirect(link.url) };
   }
@@ -108,7 +128,12 @@ export function createSidestoreHandlers({ aws, config, now, randomHex, directory
       const owner = await activeOwner(caller.sub);
       if (owner === null) return { body: { source: null, perMinute: SOURCE_USES_PER_MINUTE } };
       const key = await aws.getSourceKey(owner.digest);
-      return { body: { source: presentSource({ ...owner, lastUsedAt: key?.lastUsedAt ?? null }), perMinute: SOURCE_USES_PER_MINUTE } };
+      return {
+        body: {
+          source: presentSource({ ...owner, lastUsedAt: key?.lastUsedAt ?? null }),
+          perMinute: SOURCE_USES_PER_MINUTE,
+        },
+      };
     },
 
     async create({ caller, entry }) {
@@ -118,9 +143,17 @@ export function createSidestoreHandlers({ aws, config, now, randomHex, directory
       const record = { digest: sourceDigest(key), id: drawId(), createdAt: at };
       entry.target = record.id;
       if (previous !== null) entry.detail.replaced = previous.id;
-      const stored = await aws.replaceSourceKey({ sub: caller.sub, key: record, previous: previous?.digest ?? null, at });
+      const stored = await aws.replaceSourceKey({
+        sub: caller.sub,
+        key: record,
+        previous: previous?.digest ?? null,
+        at,
+      });
       if (!stored.ok) {
-        throw conflict('source_conflict', 'Your SideStore link was being changed at the same moment elsewhere. Try again.');
+        throw conflict(
+          'source_conflict',
+          'Your SideStore link was being changed at the same moment elsewhere. Try again.'
+        );
       }
       const links = sourceLinks(config.consoleUrl, key);
       return {
@@ -146,9 +179,12 @@ export function createSidestoreHandlers({ aws, config, now, randomHex, directory
     async serve({ segments, request }) {
       const [, , segment, file, ...rest] = segments;
       const version = versionOfIpaFile(file);
-      const name = file === SOURCE_FILE
-        ? 'GET /api/sidestore/{key}/source.json'
-        : version !== null ? 'GET /api/sidestore/{key}/{ipa}' : 'GET /api/sidestore/unmatched';
+      const name =
+        file === SOURCE_FILE
+          ? 'GET /api/sidestore/{key}/source.json'
+          : version !== null
+            ? 'GET /api/sidestore/{key}/{ipa}'
+            : 'GET /api/sidestore/unmatched';
       request.routeName = name;
       if (rest.length > 0 || (file !== SOURCE_FILE && version === null)) {
         throw notFound('not_found', 'There is nothing at this address.');
@@ -157,12 +193,18 @@ export function createSidestoreHandlers({ aws, config, now, randomHex, directory
       if (key === null) throw unknownSource();
       const at = now();
       const used = await aws.useSourceKey({
-        digest: sourceDigest(key), window: Math.floor(at / MINUTE_MS), max: SOURCE_USES_PER_MINUTE, at: iso(at),
+        digest: sourceDigest(key),
+        window: Math.floor(at / MINUTE_MS),
+        max: SOURCE_USES_PER_MINUTE,
+        at: iso(at),
       });
       if (!used.ok) {
         if (used.reason === 'limit') {
-          throw new HttpError(429, 'rate_limited', `A SideStore source is read at most ${SOURCE_USES_PER_MINUTE} times a ` +
-            'minute. Try again in a minute.');
+          throw new HttpError(
+            429,
+            'rate_limited',
+            `A SideStore source is read at most ${SOURCE_USES_PER_MINUTE} times a ` + 'minute. Try again in a minute.'
+          );
         }
         throw unknownSource();
       }

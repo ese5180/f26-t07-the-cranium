@@ -19,7 +19,17 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,7 +85,7 @@ export function writeBundle(out, { bundle = appBundle, repo = REPO, commit = nul
 
 function option(args, name) {
   const at = args.indexOf(name);
-  return at >= 0 ? args[at + 1] ?? null : null;
+  return at >= 0 ? (args[at + 1] ?? null) : null;
 }
 
 function main(args) {

@@ -28,13 +28,19 @@
 import { createHash } from 'node:crypto';
 
 export const ACTIONS = Object.freeze([
-  'firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
+  'firmware.upload',
+  'firmware.revoke',
+  'deployment.create',
+  'deployment.cancel',
   // A phone app's calls for an update over Bluetooth (docs/mobile-apps.md): the image, the
   // board's passkey, and the check right before every send, which goes on record even when
   // the image came from the phone and needed no download.
-  'firmware.download', 'pairing.read', 'firmware.bluetooth_send',
+  'firmware.download',
+  'pairing.read',
+  'firmware.bluetooth_send',
   // A person's own API tokens, made and ended on the website (handlers/tokens.mjs).
-  'token.create', 'token.revoke',
+  'token.create',
+  'token.revoke',
   // A sign-in with password and code, on the website or in a phone app, recorded once, by the
   // first request of it that the API sees (app.mjs). Its request id is made up, not a request's.
   'account.sign_in',
@@ -43,23 +49,45 @@ export const ACTIONS = Object.freeze([
   'serial.command',
   // A command sent to a board (handlers/commands.mjs), and a release manager's own e-mail alerts
   // (handlers/alerts.mjs): docs/fleet.md.
-  'board.command', 'alert.subscribe', 'alert.unsubscribe',
+  'board.command',
+  'alert.subscribe',
+  'alert.unsubscribe',
   // The fleet (docs/fleet.md): groups of boards, staged rollouts and the two that start several at
   // once, what a phone saw of a board (handlers/groups.mjs, rollouts.mjs, fleet.mjs), and a
   // release's note changed after its upload (handlers/firmware.mjs). rollout.advance and
   // rollout.stop are the console's own, made by the schedule that moves rollouts on (tick.mjs).
-  'group.create', 'group.update', 'group.delete', 'rollout.create', 'rollout.cancel', 'rollout.advance', 'rollout.stop',
-  'fleet.update_everything', 'group.rollback', 'device.seen', 'firmware.notes',
+  'group.create',
+  'group.update',
+  'group.delete',
+  'rollout.create',
+  'rollout.cancel',
+  'rollout.advance',
+  'rollout.stop',
+  'fleet.update_everything',
+  'group.rollback',
+  'device.seen',
+  'firmware.notes',
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once
   // what arrived is checked, and each download link handed out, for a person or a QR code.
-  'app.upload', 'app.publish', 'app.download',
+  'app.upload',
+  'app.publish',
+  'app.download',
   // The iPhone app's releases, the same three steps for an IPA, and a member's own SideStore source,
   // made and turned off on the website (handlers/sidestore.mjs). A download through a source is
   // app.ios_download too, in its owner's name.
-  'app.ios_upload', 'app.ios_publish', 'app.ios_download', 'app.source_create', 'app.source_revoke',
+  'app.ios_upload',
+  'app.ios_publish',
+  'app.ios_download',
+  'app.source_create',
+  'app.source_revoke',
   // The customer site's accounts and their boards, from the console's Customers page
   // (handlers/customers.mjs). A customer's own reads are not recorded.
-  'customer.create', 'customer.resend', 'customer.assign', 'customer.unassign', 'customer.disable', 'customer.enable',
+  'customer.create',
+  'customer.resend',
+  'customer.assign',
+  'customer.unassign',
+  'customer.disable',
+  'customer.enable',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
@@ -129,7 +157,11 @@ export function auditItem({ at, requestId, actor, action, target, outcome, detai
 function sortedKeys(value) {
   if (Array.isArray(value)) return value.map(sortedKeys);
   if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortedKeys(value[key])]));
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedKeys(value[key])])
+  );
 }
 
 /**
@@ -139,7 +171,9 @@ function sortedKeys(value) {
  */
 export function auditDigest(item) {
   const { pk: _partition, ...entry } = item;
-  return createHash('sha256').update(JSON.stringify(sortedKeys(entry)), 'utf8').digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(sortedKeys(entry)), 'utf8')
+    .digest('hex');
 }
 
 /** Turn a stored item into an AuditEntry, or null if it is not one. */

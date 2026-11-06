@@ -103,12 +103,19 @@ export function createCommandHandlers({ aws, config, now, randomHex }, { devices
       }
       const [device] = await devices.loadDevices([thing]);
       if (await bluetoothOnly(thing, device, fleet)) {
-        throw conflict('bluetooth_only', 'This board has Bluetooth only and never connects to AWS IoT, so it cannot ' +
-          'be sent a command. Use the phone app next to it.');
+        throw conflict(
+          'bluetooth_only',
+          'This board has Bluetooth only and never connects to AWS IoT, so it cannot ' +
+            'be sent a command. Use the phone app next to it.'
+        );
       }
-      if (await recentCommands(caller.sub) >= COMMANDS_PER_MINUTE) {
-        throw new HttpError(429, 'rate_limited', `At most ${COMMANDS_PER_MINUTE} commands a minute can be sent by one ` +
-          'person. Wait a moment and send it again.');
+      if ((await recentCommands(caller.sub)) >= COMMANDS_PER_MINUTE) {
+        throw new HttpError(
+          429,
+          'rate_limited',
+          `At most ${COMMANDS_PER_MINUTE} commands a minute can be sent by one ` +
+            'person. Wait a moment and send it again.'
+        );
       }
 
       const id = commandId();

@@ -102,11 +102,21 @@ export function versionOfDeployment(id) {
 // Routes. The console has exactly these; anything else in the address bar is ignored.
 
 const SECTIONS = [
-  'overview', 'devices', 'diagnostics', 'events', 'firmware', 'deployments', 'activity', 'serial', 'history', 'tokens',
+  'overview',
+  'devices',
+  'diagnostics',
+  'events',
+  'firmware',
+  'deployments',
+  'activity',
+  'serial',
+  'history',
+  'tokens',
   // Board types, groups and staged rollouts (fleet.js).
   'fleet',
   // The map of the boards, and the Account page with its e-mail alerts (map.js, account.js).
-  'map', 'account',
+  'map',
+  'account',
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   'apps',
   'customers',
@@ -214,7 +224,11 @@ export function dateAndTime(iso) {
   const then = new Date(Date.parse(iso));
   if (Number.isNaN(then.getTime())) return '';
   return then.toLocaleString(undefined, {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -233,8 +247,7 @@ export function dayLabel(iso, nowMs) {
   const days = Math.round((startOfDay(new Date(nowMs)) - startOfDay(then)) / DAY);
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
-  return then.toLocaleDateString(undefined,
-    { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  return then.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /** A length of time: "42 s", "5 min", "2 h 14 min", "3 d 4 h". */
@@ -350,7 +363,9 @@ export function singleLine(text) {
 
 /** The name recorded for an upload: the file's name in the characters the API accepts. */
 export function recordedFilename(name) {
-  const cleaned = String(name ?? '').replace(/[^A-Za-z0-9._-]/g, '_').slice(-64);
+  const cleaned = String(name ?? '')
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .slice(-64);
   return cleaned || 'image.signed.bin';
 }
 
@@ -489,9 +504,33 @@ function person(value) {
 const MAC = /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/;
 const HEX = /^[0-9a-f]{1,8}$/;
 const WORD = /^[a-z][a-z_]{0,31}$/;
-const RESET_NAMES = ['pin', 'software', 'brownout', 'power_on', 'watchdog', 'debugger', 'security', 'wake', 'lockup',
-  'parity', 'pll', 'clock', 'hardware', 'user', 'temperature', 'unknown'];
-export const BT_RESULTS = ['pending', 'succeeded', 'rolled_back', 'not_installed', 'trial_lost', 'superseded', 'flash_error'];
+const RESET_NAMES = [
+  'pin',
+  'software',
+  'brownout',
+  'power_on',
+  'watchdog',
+  'debugger',
+  'security',
+  'wake',
+  'lockup',
+  'parity',
+  'pll',
+  'clock',
+  'hardware',
+  'user',
+  'temperature',
+  'unknown',
+];
+export const BT_RESULTS = [
+  'pending',
+  'succeeded',
+  'rolled_back',
+  'not_installed',
+  'trial_lost',
+  'superseded',
+  'flash_error',
+];
 
 function anObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -507,13 +546,20 @@ function readStuck(value) {
 
 function readDiag(value) {
   if (!anObject(value)) return null;
-  const heap = anObject(value.heap) ? {
-    free: whole(value.heap.free, 0, 2 ** 31),
-    least: whole(value.heap.least, 0, 2 ** 31),
-    size: whole(value.heap.size, 1, 2 ** 31),
-  } : null;
-  const usable = heap && heap.free !== null && heap.least !== null && heap.size !== null &&
-    heap.free <= heap.size && heap.least <= heap.size;
+  const heap = anObject(value.heap)
+    ? {
+        free: whole(value.heap.free, 0, 2 ** 31),
+        least: whole(value.heap.least, 0, 2 ** 31),
+        size: whole(value.heap.size, 1, 2 ** 31),
+      }
+    : null;
+  const usable =
+    heap &&
+    heap.free !== null &&
+    heap.least !== null &&
+    heap.size !== null &&
+    heap.free <= heap.size &&
+    heap.least <= heap.size;
   return {
     mac: typeof value.mac === 'string' && MAC.test(value.mac) ? value.mac : null,
     channel: whole(value.channel, 0, 233),
@@ -526,12 +572,16 @@ function readDiary(value) {
   if (!anObject(value) || !Array.isArray(value.entries)) return null;
   const boots = whole(value.boots, 0, 2 ** 32);
   if (boots === null) return null;
-  const entries = value.entries.slice(0, 16).filter(anObject).map((entry) => ({
-    version: versionOrNull(entry.version),
-    cause: typeof entry.cause === 'string' && HEX.test(entry.cause) ? entry.cause : null,
-    causes: texts(entry.causes, 16).filter((name) => RESET_NAMES.includes(name)),
-    stage: whole(entry.stage, 0, 255),
-  })).filter((entry) => entry.version !== null && entry.cause !== null && entry.stage !== null);
+  const entries = value.entries
+    .slice(0, 16)
+    .filter(anObject)
+    .map((entry) => ({
+      version: versionOrNull(entry.version),
+      cause: typeof entry.cause === 'string' && HEX.test(entry.cause) ? entry.cause : null,
+      causes: texts(entry.causes, 16).filter((name) => RESET_NAMES.includes(name)),
+      stage: whole(entry.stage, 0, 255),
+    }))
+    .filter((entry) => entry.version !== null && entry.cause !== null && entry.stage !== null);
   return { boots, entries };
 }
 
@@ -541,7 +591,9 @@ function readBt(value) {
   const to = versionOrNull(value.to);
   if (from === null || to === null || !BT_RESULTS.includes(value.result)) return null;
   return {
-    from, to, result: value.result,
+    from,
+    to,
+    result: value.result,
     proof: ['cloud', 'person'].includes(value.proof) ? value.proof : 'none',
     count: whole(value.count, 0, 2 ** 32) ?? 0,
   };
@@ -549,18 +601,20 @@ function readBt(value) {
 
 function readDevice(raw) {
   const item = record(raw);
-  const fw = item.fw && typeof item.fw === 'object' && isVersion(item.fw.version)
-    ? { version: item.fw.version, confirmed: item.fw.confirmed === true }
-    : null;
-  const ota = item.ota && typeof item.ota === 'object'
-    ? {
-      state: boardText(item.ota.state, 24) || 'idle',
-      job: isDeploymentId(item.ota.job) ? item.ota.job : null,
-      progress: whole(item.ota.progress, 0, 100) ?? 0,
-      last: boardText(item.ota.last, 24) || 'none',
-      error: boardText(item.ota.error, 64),
-    }
-    : null;
+  const fw =
+    item.fw && typeof item.fw === 'object' && isVersion(item.fw.version)
+      ? { version: item.fw.version, confirmed: item.fw.confirmed === true }
+      : null;
+  const ota =
+    item.ota && typeof item.ota === 'object'
+      ? {
+          state: boardText(item.ota.state, 24) || 'idle',
+          job: isDeploymentId(item.ota.job) ? item.ota.job : null,
+          progress: whole(item.ota.progress, 0, 100) ?? 0,
+          last: boardText(item.ota.last, 24) || 'none',
+          error: boardText(item.ota.error, 64),
+        }
+      : null;
   return {
     thing: text(item.thing, 64),
     // From firmware 1.11.4. Shown beside the thing name, never in its place.
@@ -584,7 +638,9 @@ function readDevice(raw) {
 function readDevices(body) {
   const reply = record(body);
   return {
-    devices: list(reply.devices).map(readDevice).filter((device) => device.thing !== ''),
+    devices: list(reply.devices)
+      .map(readDevice)
+      .filter((device) => device.thing !== ''),
     generatedAt: instant(reply.generatedAt),
   };
 }
@@ -602,7 +658,8 @@ function readExecutionSummary(raw) {
 }
 
 // A board's address in Memfault, as the server builds it from the organization's and the project's slugs.
-const MEMFAULT_DEVICE_URL = /^https:\/\/app\.memfault\.com\/organizations\/[a-z0-9][a-z0-9-]{0,62}\/projects\/[a-z0-9][a-z0-9-]{0,62}\/devices\/cranium-[0-9a-f]{16}$/;
+const MEMFAULT_DEVICE_URL =
+  /^https:\/\/app\.memfault\.com\/organizations\/[a-z0-9][a-z0-9-]{0,62}\/projects\/[a-z0-9][a-z0-9-]{0,62}\/devices\/cranium-[0-9a-f]{16}$/;
 
 /**
  * What the server says of Memfault for a board (docs/memfault.md): whether a project key is stored in AWS,
@@ -628,7 +685,9 @@ function readDeviceDetail(body) {
     olderExecutions: whole(reply.olderExecutions, 0, 2 ** 32) ?? 0,
     memfault: readMemfault(reply.memfault),
     // Its newest update however it came (GET /api/updates), from console 2.1.1; a server before it leaves it out.
-    ...(Object.hasOwn(reply, 'lastUpdate') ? { lastUpdate: reply.lastUpdate ? readUpdate(reply.lastUpdate) : null } : {}),
+    ...(Object.hasOwn(reply, 'lastUpdate')
+      ? { lastUpdate: reply.lastUpdate ? readUpdate(reply.lastUpdate) : null }
+      : {}),
   };
 }
 
@@ -641,9 +700,10 @@ export const UPDATE_OUTCOMES = Object.freeze(['kept', 'rolled_back', 'not_instal
 /** One update as the server describes it. A way or an outcome this console does not know reads as the vaguest. */
 export function readUpdate(raw) {
   const item = record(raw);
-  const who = item.who && typeof item.who === 'object'
-    ? { sub: text(item.who.sub, 128), email: text(item.who.email, 320), name: boardText(item.who.name, 32) }
-    : null;
+  const who =
+    item.who && typeof item.who === 'object'
+      ? { sub: text(item.who.sub, 128), email: text(item.who.email, 320), name: boardText(item.who.name, 32) }
+      : null;
   return {
     id: text(item.id, 200),
     thing: isThing(item.thing) ? item.thing : '',
@@ -662,7 +722,9 @@ export function readUpdate(raw) {
 function readUpdates(body) {
   const reply = record(body);
   return {
-    updates: list(reply.updates).map(readUpdate).filter((update) => update.id !== '' && update.thing !== ''),
+    updates: list(reply.updates)
+      .map(readUpdate)
+      .filter((update) => update.id !== '' && update.thing !== ''),
     cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
     generatedAt: instant(reply.generatedAt),
   };
@@ -708,10 +770,21 @@ export function updateTotals(updates) {
 export function updateSummary(updates, cut = false) {
   const { total, how, outcome } = updateTotals(updates);
   if (total === 0) return 'No update has been reported yet.';
-  const ways = [[how.deployment, 'by deployment'], [how.bluetooth, 'over Bluetooth'], [how.usb_or_other, 'by USB or another tool']]
-    .filter(([count]) => count > 0).map(([count, words]) => `${count} ${words}`);
-  const ends = [[outcome.kept, 'kept'], [outcome.rolled_back, 'rolled back'], [outcome.not_installed, 'not installed'],
-    [outcome.pending, 'pending']].filter(([count]) => count > 0).map(([count, words]) => `${count} ${words}`);
+  const ways = [
+    [how.deployment, 'by deployment'],
+    [how.bluetooth, 'over Bluetooth'],
+    [how.usb_or_other, 'by USB or another tool'],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, words]) => `${count} ${words}`);
+  const ends = [
+    [outcome.kept, 'kept'],
+    [outcome.rolled_back, 'rolled back'],
+    [outcome.not_installed, 'not installed'],
+    [outcome.pending, 'pending'],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, words]) => `${count} ${words}`);
   return `${cut ? 'The newest ' : ''}${total} ${total === 1 ? 'update' : 'updates'}: ${ways.join(', ')}; ${ends.join(', ')}.`;
 }
 
@@ -730,7 +803,9 @@ function readRelease(raw) {
   let revoked = null;
   if (item.revoked && typeof item.revoked === 'object') {
     revoked = {
-      by: person(item.revoked.by), at: instant(item.revoked.at), reason: text(item.revoked.reason, 200),
+      by: person(item.revoked.by),
+      at: instant(item.revoked.at),
+      reason: text(item.revoked.reason, 200),
     };
     // When the server finished what follows the mark: the image refused, the open
     // deployments cancelled. Null until then. A server that does not record it leaves
@@ -847,7 +922,9 @@ function readExecution(raw) {
 }
 
 function readDeployment(raw) {
-  const executions = list(raw.executions).map(readExecution).filter((execution) => execution.thing !== '');
+  const executions = list(raw.executions)
+    .map(readExecution)
+    .filter((execution) => execution.thing !== '');
   return { ...readDeploymentSummary(raw), executions };
 }
 
@@ -940,7 +1017,9 @@ function readEvent(raw) {
 function readEvents(body) {
   const reply = record(body);
   return {
-    events: list(reply.events).map(readEvent).filter((event) => event !== null),
+    events: list(reply.events)
+      .map(readEvent)
+      .filter((event) => event !== null),
     cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
     from: instant(reply.from),
     to: instant(reply.to),
@@ -952,17 +1031,38 @@ function readEvents(body) {
 
 export const LINE_KINDS = Object.freeze(['bluetooth', 'update', 'restart', 'health', 'setting', 'log']);
 export const LINE_TAGS = Object.freeze([
-  'BT', 'WIFI', 'STUCK', 'CONSOLE',
+  'BT',
+  'WIFI',
+  'STUCK',
+  'CONSOLE',
   // A board's answer to a command from the console (identify, report), from firmware 1.13.0.
   'CMD',
-  'app', 'boot_diary', 'bt_ota', 'cloud', 'factory', 'health', 'identity', 'net', 'ota', 'store', 'stuck', 'ui',
+  'app',
+  'boot_diary',
+  'bt_ota',
+  'cloud',
+  'factory',
+  'health',
+  'identity',
+  'net',
+  'ota',
+  'store',
+  'stuck',
+  'ui',
 ]);
 const LINE_ID = /^(0|[1-9]\d{0,9})\.([1-9]\d{0,9})$/;
 
 /** One line of a board's log, or null for one that cannot be shown. */
 function readLine(raw) {
-  if (!anObject(raw) || !isThing(raw.thing) || instant(raw.at) === null || !LINE_KINDS.includes(raw.kind) ||
-      !LINE_TAGS.includes(raw.tag) || typeof raw.id !== 'string' || !LINE_ID.test(raw.id)) {
+  if (
+    !anObject(raw) ||
+    !isThing(raw.thing) ||
+    instant(raw.at) === null ||
+    !LINE_KINDS.includes(raw.kind) ||
+    !LINE_TAGS.includes(raw.tag) ||
+    typeof raw.id !== 'string' ||
+    !LINE_ID.test(raw.id)
+  ) {
     return null;
   }
   return {
@@ -982,7 +1082,9 @@ function readLine(raw) {
 function readLines(body) {
   const reply = record(body);
   return {
-    lines: list(reply.lines).map(readLine).filter((line) => line !== null),
+    lines: list(reply.lines)
+      .map(readLine)
+      .filter((line) => line !== null),
     cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
     from: instant(reply.from),
     to: instant(reply.to),
@@ -992,13 +1094,16 @@ function readLines(body) {
 function readSamples(body) {
   const reply = record(body);
   return {
-    samples: list(reply.samples).filter(anObject).map((sample) => ({
-      at: instant(sample.at),
-      rssi: whole(sample.rssi, -127, 0),
-      uptime: whole(sample.uptime, 0, 2 ** 32),
-      heapFree: whole(sample.heapFree, 0, 2 ** 31),
-      heapLeast: whole(sample.heapLeast, 0, 2 ** 31),
-    })).filter((sample) => sample.at !== null),
+    samples: list(reply.samples)
+      .filter(anObject)
+      .map((sample) => ({
+        at: instant(sample.at),
+        rssi: whole(sample.rssi, -127, 0),
+        uptime: whole(sample.uptime, 0, 2 ** 32),
+        heapFree: whole(sample.heapFree, 0, 2 ** 31),
+        heapLeast: whole(sample.heapLeast, 0, 2 ** 31),
+      }))
+      .filter((sample) => sample.at !== null),
     hours: whole(reply.hours, 1, 168) ?? 24,
     bucketSeconds: whole(reply.bucketSeconds, 0, 86400) ?? 0,
     from: instant(reply.from),
@@ -1050,7 +1155,9 @@ function readToken(raw) {
 function readTokens(body) {
   const reply = record(body);
   return {
-    tokens: list(reply.tokens).map(readToken).filter((token) => token.id !== ''),
+    tokens: list(reply.tokens)
+      .map(readToken)
+      .filter((token) => token.id !== ''),
     limit: whole(reply.limit, 1, 1000) ?? 10,
     maxDays: whole(reply.maxDays, 1, 3650) ?? TOKEN_DAYS.most,
   };
@@ -1169,7 +1276,8 @@ export function sentence(message) {
 // What the signature check says when an image is laid out differently from what it
 // expects: true, but in terms of the file format. A person who signed with the wrong
 // kind of key has to be told what to change.
-const SIGNED_WRONGLY = 'This image is not signed the way this project requires: an ECDSA P-256 ' +
+const SIGNED_WRONGLY =
+  'This image is not signed the way this project requires: an ECDSA P-256 ' +
   'signature, with a hash of the public key. Sign it with the project’s imgtool settings.';
 const PLAIN_WORDS = {
   unexpected_tlv: SIGNED_WRONGLY,
@@ -1235,12 +1343,15 @@ export function revocationInPlace(error) {
 export function stillRunning(boards) {
   const heard = boards.filter((board) => board.online).length;
   const quiet = boards.length - heard;
-  const who = boards.length === 1
-    ? `${boardName(boards[0])} ${heard === 1 ? 'still runs it' : 'last reported running it'}`
-    : [
-      heard > 0 ? plural(heard, 'board still runs it', 'boards still run it') : null,
-      quiet > 0 ? `${plural(quiet, 'board')} last reported running it` : null,
-    ].filter(Boolean).join(' and ');
+  const who =
+    boards.length === 1
+      ? `${boardName(boards[0])} ${heard === 1 ? 'still runs it' : 'last reported running it'}`
+      : [
+          heard > 0 ? plural(heard, 'board still runs it', 'boards still run it') : null,
+          quiet > 0 ? `${plural(quiet, 'board')} last reported running it` : null,
+        ]
+          .filter(Boolean)
+          .join(' and ');
   return `${who}; to replace it there, upload a newer version and deploy that.`;
 }
 
@@ -1257,9 +1368,11 @@ export function stillRunning(boards) {
 export function revocationNotice(version, { cancelled, again, running = [] }) {
   const still = running.length > 0 ? ` ${stillRunning(running)}` : '';
   if (cancelled === null) {
-    return `${again
-      ? `The revocation of ${version} is in place: its image is refused and no deployment of it is open.`
-      : `${version} was revoked already, and that revocation is in place.`}${still}`;
+    return `${
+      again
+        ? `The revocation of ${version} is in place: its image is refused and no deployment of it is open.`
+        : `${version} was revoked already, and that revocation is in place.`
+    }${still}`;
   }
   const lead = again ? `The revocation of ${version} is in place.` : `Revoked ${version}.`;
   if (cancelled.length === 0) return `${lead} No deployment of it was still open.${still}`;
@@ -1333,24 +1446,26 @@ export function createClock(read = () => Date.now()) {
 //
 // a is 128 random bytes from the CSPRNG and lives for one sign-in, in memory.
 
-const SRP_N = BigInt(`0x${[
-  'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1',
-  '29024E088A67CC74020BBEA63B139B22514A08798E3404DD',
-  'EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245',
-  'E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED',
-  'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D',
-  'C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F',
-  '83655D23DCA3AD961C62F356208552BB9ED529077096966D',
-  '670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B',
-  'E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9',
-  'DE2BCBF6955817183995497CEA956AE515D2261898FA0510',
-  '15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64',
-  'ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7',
-  'ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B',
-  'F12FFA06D98A0864D87602733EC86A64521F2B18177B200C',
-  'BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31',
-  '43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF',
-].join('')}`);
+const SRP_N = BigInt(
+  `0x${[
+    'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1',
+    '29024E088A67CC74020BBEA63B139B22514A08798E3404DD',
+    'EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245',
+    'E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED',
+    'EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D',
+    'C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F',
+    '83655D23DCA3AD961C62F356208552BB9ED529077096966D',
+    '670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B',
+    'E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9',
+    'DE2BCBF6955817183995497CEA956AE515D2261898FA0510',
+    '15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64',
+    'ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7',
+    'ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B',
+    'F12FFA06D98A0864D87602733EC86A64521F2B18177B200C',
+    'BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31',
+    '43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF',
+  ].join('')}`
+);
 const SRP_G = 2n;
 const SRP_INFO = 'Caldera Derived Key';
 const SRP_KEY_BYTES = 16;
@@ -1417,8 +1532,10 @@ export function modPow(base, exponent, modulus) {
 export function cognitoTimestamp(ms) {
   const at = new Date(ms);
   const two = (value) => String(value).padStart(2, '0');
-  return `${WEEKDAYS[at.getUTCDay()]} ${MONTHS[at.getUTCMonth()]} ${at.getUTCDate()} ` +
-    `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} UTC ${at.getUTCFullYear()}`;
+  return (
+    `${WEEKDAYS[at.getUTCDay()]} ${MONTHS[at.getUTCMonth()]} ${at.getUTCDate()} ` +
+    `${two(at.getUTCHours())}:${two(at.getUTCMinutes())}:${two(at.getUTCSeconds())} UTC ${at.getUTCFullYear()}`
+  );
 }
 
 async function sha256(subtle, bytes) {
@@ -1646,8 +1763,12 @@ export function readConfig(json) {
   const address = /^https?:\/\/[^?#\s]+$/;
   // Served as admin mode of the customer site (docs/customer-site.md): the site is at the root.
   if (value.customerSite === '/') config.customerSite = '/';
-  return origin.test(config.loginOrigin) && origin.test(config.idpOrigin) && address.test(config.redirectUri) &&
-    USER_POOL_ID.test(config.userPoolId) ? config : null;
+  return origin.test(config.loginOrigin) &&
+    origin.test(config.idpOrigin) &&
+    address.test(config.redirectUri) &&
+    USER_POOL_ID.test(config.userPoolId)
+    ? config
+    : null;
 }
 
 function form(fields) {
@@ -1706,8 +1827,16 @@ export async function cognitoCall(fetch, idpOrigin, operation, body) {
  * (resume), and so does a session about to end (renew); signing out makes the vault forget it.
  */
 export function createAuth({
-  config, storage, location, history, fetch, crypto, now = () => Date.now(), tellOtherTabs = () => {},
-  newPasswordHere = false, vault = null,
+  config,
+  storage,
+  location,
+  history,
+  fetch,
+  crypto,
+  now = () => Date.now(),
+  tellOtherTabs = () => {},
+  newPasswordHere = false,
+  vault = null,
 }) {
   const seconds = () => Math.floor(now() / 1000);
 
@@ -1739,18 +1868,20 @@ export function createAuth({
     storage.removeItem(SESSION_KEY);
     storage.removeItem(SIGNED_OUT_KEY);
     storage.setItem(FLOW_KEY, JSON.stringify({ state, verifier, route: routeHash(parseRoute(route)) }));
-    location.assign(`${config.loginOrigin}/oauth2/authorize?${form({
-      response_type: 'code',
-      client_id: config.clientId,
-      redirect_uri: config.redirectUri,
-      scope: config.scope,
-      state,
-      code_challenge: toBase64Url(new Uint8Array(digest)),
-      code_challenge_method: 'S256',
-      // Every sign-in asks for the password and the code, also while the login page's own
-      // cookie is still valid: a closed tab, or one left open, does not sign in by itself.
-      prompt: 'login',
-    })}`);
+    location.assign(
+      `${config.loginOrigin}/oauth2/authorize?${form({
+        response_type: 'code',
+        client_id: config.clientId,
+        redirect_uri: config.redirectUri,
+        scope: config.scope,
+        state,
+        code_challenge: toBase64Url(new Uint8Array(digest)),
+        code_challenge_method: 'S256',
+        // Every sign-in asks for the password and the code, also while the login page's own
+        // cookie is still valid: a closed tab, or one left open, does not sign in by itself.
+        prompt: 'login',
+      })}`
+    );
   }
 
   /** Take the pending sign-in out of storage. It can be used for one reply only. */
@@ -1834,8 +1965,13 @@ export function createAuth({
   }
 
   function usable(accessToken, expiresIn, tokenType) {
-    return typeof accessToken === 'string' && accessToken !== '' && Number.isFinite(expiresIn) && expiresIn > 0 &&
-      String(tokenType).toLowerCase() === 'bearer';
+    return (
+      typeof accessToken === 'string' &&
+      accessToken !== '' &&
+      Number.isFinite(expiresIn) &&
+      expiresIn > 0 &&
+      String(tokenType).toLowerCase() === 'bearer'
+    );
   }
 
   /** The session of a sign-in that worked, either way. */
@@ -1843,15 +1979,21 @@ export function createAuth({
     // The refresh token goes nowhere but back to the service that issued it, or to the app's vault.
     if (typeof refreshToken === 'string' && refreshToken !== '') {
       revocation = vault
-        ? vault.store({ refreshToken, accessToken, idToken, expiresIn }).then(() => 'kept', () => 'not-kept')
+        ? vault.store({ refreshToken, accessToken, idToken, expiresIn }).then(
+            () => 'kept',
+            () => 'not-kept'
+          )
         : revoke(refreshToken);
     }
     signedInAt = seconds();
     storage.removeItem(SIGNED_OUT_KEY);
-    storage.setItem(SESSION_KEY, JSON.stringify({
-      accessToken,
-      expiresAt: signedInAt + Math.floor(expiresIn),
-    }));
+    storage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        accessToken,
+        expiresAt: signedInAt + Math.floor(expiresIn),
+      })
+    );
   }
 
   // Sign-in on the console's own page.
@@ -1885,13 +2027,18 @@ export function createAuth({
       keep(result.AccessToken, result.ExpiresIn, result.RefreshToken, result.IdToken);
       return { step: 'done' };
     }
-    const name = typeof reply.ChallengeName === 'string' && CHALLENGE_NAME.test(reply.ChallengeName)
-      ? reply.ChallengeName : '';
+    const name =
+      typeof reply.ChallengeName === 'string' && CHALLENGE_NAME.test(reply.ChallengeName) ? reply.ChallengeName : '';
     if (name === 'SOFTWARE_TOKEN_MFA' && typeof reply.Session === 'string' && reply.Session !== '') {
       challenge = { session: reply.Session, userId };
       return { step: 'code' };
     }
-    if (name === 'NEW_PASSWORD_REQUIRED' && newPasswordHere && typeof reply.Session === 'string' && reply.Session !== '') {
+    if (
+      name === 'NEW_PASSWORD_REQUIRED' &&
+      newPasswordHere &&
+      typeof reply.Session === 'string' &&
+      reply.Session !== ''
+    ) {
       challenge = { session: reply.Session, userId, newPassword: true };
       return { step: 'new-password' };
     }
@@ -1909,7 +2056,9 @@ export function createAuth({
    */
   async function passwordSignIn(email, password) {
     challenge = null;
-    const username = String(email ?? '').trim().toLowerCase();
+    const username = String(email ?? '')
+      .trim()
+      .toLowerCase();
     if (username === '' || typeof password !== 'string' || password === '') {
       return { step: 'password', problem: 'missing' };
     }
@@ -2019,7 +2168,10 @@ export function createAuth({
       return ['cancelled', 'locked', 'network'].includes(error?.code) ? error.code : 'failed';
     }
     if (answer?.signedIn !== true || !usable(answer.accessToken, answer.expiresIn, 'Bearer')) return 'signed-out';
-    storage.setItem(SESSION_KEY, JSON.stringify({ accessToken: answer.accessToken, expiresAt: seconds() + Math.floor(answer.expiresIn) }));
+    storage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ accessToken: answer.accessToken, expiresAt: seconds() + Math.floor(answer.expiresIn) })
+    );
     return 'signed-in';
   }
 
@@ -2087,7 +2239,10 @@ export function createAuth({
     tellOtherTabs();
     // In the app: the vault forgets the refresh token and revokes it, then back to the site's own page.
     if (vault) {
-      vault.signOut().catch(() => {}).finally(() => location.assign(config.redirectUri));
+      vault
+        .signOut()
+        .catch(() => {})
+        .finally(() => location.assign(config.redirectUri));
       return;
     }
     // No managed login pages, so nothing to end there: back to the site's own page.
@@ -2095,10 +2250,12 @@ export function createAuth({
       location.assign(config.redirectUri);
       return;
     }
-    location.assign(`${config.loginOrigin}/logout?${form({
-      client_id: config.clientId,
-      logout_uri: config.redirectUri,
-    })}`);
+    location.assign(
+      `${config.loginOrigin}/logout?${form({
+        client_id: config.clientId,
+        logout_uri: config.redirectUri,
+      })}`
+    );
   }
 
   return {
@@ -2174,15 +2331,24 @@ function backoff(attempt, crypto) {
  * @param {Function} options.onUnauthorized    called when the API refuses the token
  * @param {Function} [options.pause]           waits the given milliseconds
  */
-export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauthorized, base = '', onSignInAgain = () => {},
-  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export function createApi({
+  auth,
+  fetch,
+  XMLHttpRequest,
+  crypto,
+  clock,
+  onUnauthorized,
+  base = '',
+  onSignInAgain = () => {},
+  pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
   function unauthorized() {
     onUnauthorized();
     return new ApiError(401, 'unauthorized', 'Your session has ended. Sign in again to continue.');
   }
 
   async function request(method, path, body, { once = false } = {}) {
-    const retry = once ? new Set() : (method === 'GET' ? RETRY_GET : RETRY_POST);
+    const retry = once ? new Set() : method === 'GET' ? RETRY_GET : RETRY_POST;
     for (let attempt = 1; ; attempt += 1) {
       const token = auth.accessToken();
       if (token === null) throw unauthorized();
@@ -2286,11 +2452,12 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
         onProgress({ stage: 'sending', sent: event.loaded / event.total });
       };
       xhr.upload.onload = () => onProgress({ stage: 'checking', sent: 1 });
-      xhr.onload = () => resolve({
-        status: xhr.status,
-        text: xhr.responseText,
-        date: xhr.getResponseHeader('date'),
-      });
+      xhr.onload = () =>
+        resolve({
+          status: xhr.status,
+          text: xhr.responseText,
+          date: xhr.getResponseHeader('date'),
+        });
       xhr.onerror = () => reject(unreachable());
       xhr.ontimeout = () => reject(tooSlow());
       xhr.send(body);
@@ -2336,7 +2503,8 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async updates({ thing = null, limit = null, cursor = null } = {}) {
       const query = {};
       if (thing !== null) query.thing = checked(isThing, thing);
-      if (limit !== null) query.limit = String(checked((count) => Number.isInteger(count) && count >= 1 && count <= 100, limit));
+      if (limit !== null)
+        query.limit = String(checked((count) => Number.isInteger(count) && count >= 1 && count <= 100, limit));
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       const asked = form(query);
       return readUpdates(await get(asked === '' ? '/api/updates' : `/api/updates?${asked}`));
@@ -2347,7 +2515,8 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async events({ from, to, thing = null, kinds = null, cursor = null }) {
       const query = { from: checked(instant, from), to: checked(instant, to) };
       if (thing !== null) query.thing = checked(isThing, thing);
-      if (kinds !== null) query.kinds = kinds.map((kind) => checked((name) => EVENT_KINDS.includes(name), kind)).join(',');
+      if (kinds !== null)
+        query.kinds = kinds.map((kind) => checked((name) => EVENT_KINDS.includes(name), kind)).join(',');
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       return readEvents(await get(`/api/events?${form(query)}`));
     },
@@ -2355,7 +2524,8 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async boardLog({ from, to, thing = null, kinds = null, tags = null, cursor = null }) {
       const query = { from: checked(instant, from), to: checked(instant, to) };
       if (thing !== null) query.thing = checked(isThing, thing);
-      if (kinds !== null) query.kinds = kinds.map((kind) => checked((name) => LINE_KINDS.includes(name), kind)).join(',');
+      if (kinds !== null)
+        query.kinds = kinds.map((kind) => checked((name) => LINE_KINDS.includes(name), kind)).join(',');
       if (tags !== null) query.tags = tags.map((tag) => checked((name) => LINE_TAGS.includes(name), tag)).join(',');
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       return readLines(await get(`/api/events/log?${form(query)}`));
@@ -2411,7 +2581,9 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
      * rollouts, and nothing else of the API.
      */
     async fleetRequest(method, path, body) {
-      const allowed = (method === 'GET' || method === 'POST') && typeof path === 'string' &&
+      const allowed =
+        (method === 'GET' || method === 'POST') &&
+        typeof path === 'string' &&
         /^\/api\/(?:fleet|groups|rollouts)(?:\/[A-Za-z0-9-]+){0,2}(?:\?[A-Za-z0-9=&%._-]*)?$/.test(path);
       if (!allowed) throw new ApiError(0, 'bad_request', 'That is not a request of the fleet.');
       return record(await request(method, path, body));
@@ -2421,9 +2593,13 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
     async appsRequest(method, path) {
-      const read = method === 'GET' && typeof path === 'string' && (
-        /^\/api\/apps(?:\/config|\/sidestore|\/android\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download(?:\?via=qr)?)?$/.test(path)
-        || /^\/api\/apps\/ios\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download$/.test(path));
+      const read =
+        method === 'GET' &&
+        typeof path === 'string' &&
+        (/^\/api\/apps(?:\/config|\/sidestore|\/android\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download(?:\?via=qr)?)?$/.test(
+          path
+        ) ||
+          /^\/api\/apps\/ios\/\d{1,3}\.\d{1,3}\.\d{1,5}\/download$/.test(path));
       // A member's own SideStore link: made, or turned off. Tried once: a new link ends the one before.
       const change = method === 'POST' && (path === '/api/apps/sidestore' || path === '/api/apps/sidestore/revoke');
       if (!read && !change) throw new ApiError(0, 'bad_request', 'That is not a request of the Apps page.');
@@ -2437,7 +2613,9 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
       const path = `/api/pairing/${encodeURIComponent(checked(isBluetoothName, name))}`;
       const reply = record(await request('GET', path, undefined, { once: true }));
       const passkey = typeof reply.passkey === 'string' && /^\d{6}$/.test(reply.passkey) ? reply.passkey : null;
-      return passkey === null ? null : { passkey, thing: isThing(reply.thing) ? reply.thing : null, reportedAt: instant(reply.reportedAt) };
+      return passkey === null
+        ? null
+        : { passkey, thing: isThing(reply.thing) ? reply.thing : null, reportedAt: instant(reply.reportedAt) };
     },
     async clearSend(version, { sha256, board = null }) {
       const body = { sha256: checked((value) => /^[0-9a-f]{64}$/.test(value), sha256) };
@@ -2458,18 +2636,25 @@ export function createApi({ auth, fetch, XMLHttpRequest, crypto, clock, onUnauth
     async command(thing, cmd, seconds = null) {
       const body = { cmd: checked((name) => COMMANDS.includes(name), cmd) };
       if (seconds !== null) body.seconds = checked((value) => whole(value, 1, 60) !== null, seconds);
-      return readCommand(record(await request('POST', `/api/devices/${checked(isThing, thing)}/commands`, body,
-        { once: true })).command);
+      return readCommand(
+        record(await request('POST', `/api/devices/${checked(isThing, thing)}/commands`, body, { once: true })).command
+      );
     },
     alerts: async () => readAlerts(await get('/api/alerts')),
-    subscribeAlerts: async () => text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
+    subscribeAlerts: async () =>
+      text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
     unsubscribeAlerts: async () => text(record(await post('/api/alerts/unsubscribe', {})).subscription, 16),
     // The customer site's customers (docs/customer-site.md). customers.js reads the replies.
     customers: async () => record(await get('/api/customers')),
     inviteCustomer: async ({ email, name }) => record(await post('/api/customers', name ? { email, name } : { email })),
     resendInvitation: async (id) => record(await post(`/api/customers/${checked(isCustomerId, id)}/resend`, {})),
-    assignBoard: async (id, { thing, label }) => record(await post(`/api/customers/${checked(isCustomerId, id)}/boards`,
-      label ? { thing: checked(isThing, thing), label } : { thing: checked(isThing, thing) })),
+    assignBoard: async (id, { thing, label }) =>
+      record(
+        await post(
+          `/api/customers/${checked(isCustomerId, id)}/boards`,
+          label ? { thing: checked(isThing, thing), label } : { thing: checked(isThing, thing) }
+        )
+      ),
     unassignBoard: async (id, thing) =>
       record(await post(`/api/customers/${checked(isCustomerId, id)}/boards/${checked(isThing, thing)}/remove`, {})),
     setCustomerEnabled: async (id, enabled) =>
@@ -2659,8 +2844,12 @@ export function asksForButton(device) {
  * not been read, or while it is empty and there is nothing to be registered among.
  */
 export function isUnregistered(version, releases) {
-  return Boolean(version) && Array.isArray(releases) && releases.length > 0 &&
-    !releases.some((release) => release.version === version);
+  return (
+    Boolean(version) &&
+    Array.isArray(releases) &&
+    releases.length > 0 &&
+    !releases.some((release) => release.version === version)
+  );
 }
 
 /**
@@ -2725,14 +2914,13 @@ const FAILURES = {
   digest_mismatch: {
     at: 3,
     title: 'The download was damaged',
-    text: 'What the board downloaded did not match the SHA-256 digest of the release, so the board ' +
-      'discarded it.',
+    text: 'What the board downloaded did not match the SHA-256 digest of the release, so the board ' + 'discarded it.',
   },
   header_mismatch: {
     at: 3,
     title: 'Not the announced version',
-    text: 'The image the board downloaded does not carry the version that was announced, so the board ' +
-      'discarded it.',
+    text:
+      'The image the board downloaded does not carry the version that was announced, so the board ' + 'discarded it.',
   },
   flash_error: {
     at: null,
@@ -2747,13 +2935,15 @@ const FAILURES = {
   not_installed: {
     at: 4,
     title: 'Not installed',
-    text: 'The board restarted, but the bootloader did not start the new image. It turns away an image ' +
+    text:
+      'The board restarted, but the bootloader did not start the new image. It turns away an image ' +
       'with a wrong signature or an older version.',
   },
   trial_lost: {
     at: 5,
     title: 'Its trial was cut short',
-    text: 'The board runs this image with nothing left to bring the old one back, because a restore of the ' +
+    text:
+      'The board runs this image with nothing left to bring the old one back, because a restore of the ' +
       'golden image was interrupted right after it began. The image has proved nothing. Repeat the gesture ' +
       'at the board to finish the restore.',
     // This one did not keep the firmware it had.
@@ -2777,9 +2967,18 @@ function entryOf(table, name) {
  * the ones that are done. `lastSeen` says that `stopped` is only where the board was when
  * it was last heard of, and `word` then says so instead of the word for a stop.
  */
-function steps(done, {
-  current = null, failed = null, stopped = null, ended = false, refusal = null, unknown = false, lastSeen = false,
-} = {}) {
+function steps(
+  done,
+  {
+    current = null,
+    failed = null,
+    stopped = null,
+    ended = false,
+    refusal = null,
+    unknown = false,
+    lastSeen = false,
+  } = {}
+) {
   return STEPS.map((step, index) => {
     let state = unknown ? 'unknown' : 'upcoming';
     if (index < done) state = 'done';
@@ -2798,8 +2997,12 @@ const mayHaveInstalled = (entry) => entry.status === 'SUCCEEDED' || entry.status
 
 /** The other deployment that put this version on a board, from the board's own list of updates. */
 function otherInstall(history, deployment, version) {
-  const other = (history ?? []).find((entry) => entry.deployment !== deployment &&
-    (entry.version ?? versionOfDeployment(entry.deployment)) === version && mayHaveInstalled(entry));
+  const other = (history ?? []).find(
+    (entry) =>
+      entry.deployment !== deployment &&
+      (entry.version ?? versionOfDeployment(entry.deployment)) === version &&
+      mayHaveInstalled(entry)
+  );
   return other?.deployment ?? null;
 }
 
@@ -2840,7 +3043,8 @@ function description(tone, icon, title, text, timeline, extra = {}) {
 }
 
 const STILL_OPEN = ' The update stays open until the board reports back or the time limit ends.';
-const TRIAL_RULE = 'It is kept once the board has reconnected to AWS IoT; if it cannot, the bootloader puts the previous firmware back.';
+const TRIAL_RULE =
+  'It is kept once the board has reconnected to AWS IoT; if it cannot, the bootloader puts the previous firmware back.';
 
 /**
  * Describe one board's part in a deployment.
@@ -2866,20 +3070,26 @@ const TRIAL_RULE = 'It is kept once the board has reconnected to AWS IoT; if it 
  *   `installed` says that it went through all the same, `installedBy` names the other
  *   deployment that installed this version, and `unsure` that this cannot be told yet.
  */
-export function describeExecution(execution, {
-  board = null, deployment = null, version = null, history = null, historyCut = false, unread = false,
-} = {}) {
+export function describeExecution(
+  execution,
+  { board = null, deployment = null, version = null, history = null, historyCut = false, unread = false } = {}
+) {
   const { phase, reason, ranAtEnd, reported, online, progress, startedAt } = execution;
   // An update that the board saw through to its end: `ranAtEnd` is what the board said then,
   // kept with the job. It stays as it was however long ago that was, so it is told in the
   // past. Where the job holds none, or could not be read, no version is named at all.
   const ranThen = ranAtEnd ? ` The board was running ${ranAtEnd} at the time.` : '';
-  const kept = ranAtEnd ? ` It kept running the firmware it had, ${ranAtEnd}.` : ' It kept running the firmware it had.';
+  const kept = ranAtEnd
+    ? ` It kept running the firmware it had, ${ranAtEnd}.`
+    : ' It kept running the firmware it had.';
   const since = movedSince(board, ranAtEnd);
   // An update the board could not see through (cancelled, timed out): `reported` is the
   // board's own latest report. An offline board's is old news, and says so.
   let reports = '';
-  if (reported) reports = online ? ` The board reports that it runs ${reported}.` : ` When last seen, the board reported ${reported}.`;
+  if (reported)
+    reports = online
+      ? ` The board reports that it runs ${reported}.`
+      : ` When last seen, the board reported ${reported}.`;
   // Offering this release again only makes sense if the board would not refuse it: the rule
   // of the deployment dialog. While the board list has not been read it cannot be told.
   const mayRetry = !unread && !(board && alreadyRuns(board, version));
@@ -2887,78 +3097,129 @@ export function describeExecution(execution, {
   const target = version ?? 'an update';
   // A step of an update under way. A board that has gone offline can only say where it was
   // when it was last heard of, so that is what is said, and it is not drawn as moving.
-  const underWay = (iconName, at, { title, text, extra }, { was, quiet }) => (online
-    ? description('live', iconName, title, text, steps(at, { current: at }), extra)
-    : description('idle', iconName, `Was ${was} when last seen`, quiet, steps(at, { stopped: at, unknown: true, lastSeen: true })));
+  const underWay = (iconName, at, { title, text, extra }, { was, quiet }) =>
+    online
+      ? description('live', iconName, title, text, steps(at, { current: at }), extra)
+      : description(
+          'idle',
+          iconName,
+          `Was ${was} when last seen`,
+          quiet,
+          steps(at, { stopped: at, unknown: true, lastSeen: true })
+        );
 
   switch (phase) {
     case 'waiting_for_device':
       // A board the list knows and has never heard from: nothing to wait for by itself.
       if (!online && board && !board.lastSeen) {
-        return description('wait', 'minus-circle', 'Never connected',
+        return description(
+          'wait',
+          'minus-circle',
+          'Never connected',
           'Power it up and check that it was provisioned; it will see this update when it first connects.',
-          steps(0, { current: 0 }));
+          steps(0, { current: 0 })
+        );
       }
       if (!online) {
-        return description('wait', 'offline', 'Board offline',
+        return description(
+          'wait',
+          'offline',
+          'Board offline',
           'The board is offline; it will see this update when it reconnects.',
-          steps(0, { current: 0 }));
+          steps(0, { current: 0 })
+        );
       }
-      return description('wait', 'clock', 'Not picked up yet',
+      return description(
+        'wait',
+        'clock',
+        'Not picked up yet',
         'The board is online but has not picked up the offer yet. That normally takes a few seconds.',
-        steps(0, { current: 0 }));
+        steps(0, { current: 0 })
+      );
     case 'waiting_for_button':
       // The one moment in an update when everything waits for a person, on a board that
       // reports that it does: said as an instruction, in a tone of its own.
-      return description('act', 'press', `Press ${BUTTON_1} on the board`,
+      return description(
+        'act',
+        'press',
+        `Press ${BUTTON_1} on the board`,
         `The board has the offer and waits for someone to press ${BUTTON_1}. LED1 blinks quickly ` +
-        'while the offer is open; Button 2 declines it.',
-        steps(1, { current: 1 }));
+          'while the offer is open; Button 2 declines it.',
+        steps(1, { current: 1 })
+      );
     case 'starting':
       // The board has taken the job on, and AWS has not said yet that it agrees.
-      return underWay('download', 2, {
-        title: 'Starting',
-        text: 'The board has told AWS IoT that it starts this update, and downloads the image as soon ' +
-          'as AWS IoT agrees. The firmware it runs is not touched yet.',
-      }, {
-        was: `starting ${target}`,
-        quiet: `The board went offline as it started this update.${STILL_OPEN}`,
-      });
+      return underWay(
+        'download',
+        2,
+        {
+          title: 'Starting',
+          text:
+            'The board has told AWS IoT that it starts this update, and downloads the image as soon ' +
+            'as AWS IoT agrees. The firmware it runs is not touched yet.',
+        },
+        {
+          was: `starting ${target}`,
+          quiet: `The board went offline as it started this update.${STILL_OPEN}`,
+        }
+      );
     case 'downloading':
-      return underWay('download', 2, {
-        title: progress === null ? 'Downloading' : `Downloading ${progress}%`,
-        text: 'The board is downloading the image into its spare flash slot. The firmware it runs is ' +
-          'not touched yet.',
-        extra: { progress, said: 'Downloading' },
-      }, {
-        was: `downloading ${target}`,
-        quiet: `The board went offline ${progress === null ? 'during the download' : `with the download at ${progress}%`}.${STILL_OPEN}`,
-      });
+      return underWay(
+        'download',
+        2,
+        {
+          title: progress === null ? 'Downloading' : `Downloading ${progress}%`,
+          text:
+            'The board is downloading the image into its spare flash slot. The firmware it runs is ' +
+            'not touched yet.',
+          extra: { progress, said: 'Downloading' },
+        },
+        {
+          was: `downloading ${target}`,
+          quiet: `The board went offline ${progress === null ? 'during the download' : `with the download at ${progress}%`}.${STILL_OPEN}`,
+        }
+      );
     case 'verifying':
-      return underWay('shield', 3, {
-        title: 'Checking the download',
-        text: 'The board is checking the size, the SHA-256 digest and the version in the signed header ' +
-          'before it installs anything.',
-      }, {
-        was: `checking the download of ${target}`,
-        quiet: `The board went offline while it was checking the download.${STILL_OPEN}`,
-      });
+      return underWay(
+        'shield',
+        3,
+        {
+          title: 'Checking the download',
+          text:
+            'The board is checking the size, the SHA-256 digest and the version in the signed header ' +
+            'before it installs anything.',
+        },
+        {
+          was: `checking the download of ${target}`,
+          quiet: `The board went offline while it was checking the download.${STILL_OPEN}`,
+        }
+      );
     case 'rebooting':
-      return underWay('restart', 4, {
-        title: 'Restarting',
-        text: 'The board is restarting. The bootloader checks the signature before it starts the new firmware.',
-      }, {
-        was: `restarting into ${target}`,
-        quiet: `The board went offline while it was restarting.${STILL_OPEN}`,
-      });
+      return underWay(
+        'restart',
+        4,
+        {
+          title: 'Restarting',
+          text: 'The board is restarting. The bootloader checks the signature before it starts the new firmware.',
+        },
+        {
+          was: `restarting into ${target}`,
+          quiet: `The board went offline while it was restarting.${STILL_OPEN}`,
+        }
+      );
     case 'testing':
-      return underWay('pulse', 5, {
-        title: 'On trial',
-        text: `The new firmware is running on trial. ${TRIAL_RULE}`,
-      }, {
-        was: `on trial with ${target}`,
-        quiet: `The board went offline with the new firmware on trial. ${TRIAL_RULE}`,
-      });
+      return underWay(
+        'pulse',
+        5,
+        {
+          title: 'On trial',
+          text: `The new firmware is running on trial. ${TRIAL_RULE}`,
+        },
+        {
+          was: `on trial with ${target}`,
+          quiet: `The board went offline with the new firmware on trial. ${TRIAL_RULE}`,
+        }
+      );
     case 'succeeded': {
       // That it went through stays true. That the board runs it is for the board to say today.
       const holds = Boolean(ranAtEnd) && board?.online === true && board.fw?.version === ranAtEnd && board.fw.confirmed;
@@ -2968,47 +3229,81 @@ export function describeExecution(execution, {
       return description('good', 'check-circle', 'Installed and confirmed', told, steps(STEPS.length));
     }
     case 'rolled_back':
-      return description('bad', 'undo', 'Rolled back',
+      return description(
+        'bad',
+        'undo',
+        'Rolled back',
         'The bootloader put the previous firmware back. The new firmware started but did not ' +
-        `reconnect to AWS IoT, so it was never confirmed.${ranAtEnd ? ` That left the board on ${ranAtEnd}.` : ''}${since}`,
+          `reconnect to AWS IoT, so it was never confirmed.${ranAtEnd ? ` That left the board on ${ranAtEnd}.` : ''}${since}`,
         steps(5, { failed: 5, ended: true }),
         // Old news once the board runs this version or a newer one.
-        mayRetry ? { next: 'Fix the build, then upload a newer version and deploy that.' } : {});
+        mayRetry ? { next: 'Fix the build, then upload a newer version and deploy that.' } : {}
+      );
     case 'declined':
-      return description('warn', 'minus-circle', 'Declined on the board',
+      return description(
+        'warn',
+        'minus-circle',
+        'Declined on the board',
         `Someone pressed Button 2 on the board to decline this update. Nothing was installed.${ranThen}${since}`,
-        steps(1, { failed: 1, ended: true }), again());
+        steps(1, { failed: 1, ended: true }),
+        again()
+      );
     case 'refused': {
       // No reason on record: the job holds none, or could not be read. So whether a person
       // pressed Button 2 or the board refused is not known either.
       if (!reason) {
-        return description('warn', 'ban', 'Refused or declined',
+        return description(
+          'warn',
+          'ban',
+          'Refused or declined',
           `This update was turned down on the board before anything was installed.${ranThen}${since}`,
-          steps(1, { failed: 1, ended: true }), again());
+          steps(1, { failed: 1, ended: true }),
+          again()
+        );
       }
       const why = entryOf(REFUSALS, reason);
       const said = why ? `Refused: ${why}.` : 'The board refused this update before installing anything.';
       // Offered again, a board that already runs this version gives the same answer.
-      const way = reason === 'not_newer'
-        ? { next: 'To put something else on it, upload a newer version and deploy that.' }
-        : again('Deal with that first, then start a new deployment.');
-      return description('warn', 'ban', 'Refused by the board', `${said}${ranThen}${since}`,
-        steps(1, { failed: 1, ended: true, refusal: 'Refused' }), { code: why ? null : reason, ...way });
+      const way =
+        reason === 'not_newer'
+          ? { next: 'To put something else on it, upload a newer version and deploy that.' }
+          : again('Deal with that first, then start a new deployment.');
+      return description(
+        'warn',
+        'ban',
+        'Refused by the board',
+        `${said}${ranThen}${since}`,
+        steps(1, { failed: 1, ended: true, refusal: 'Refused' }),
+        { code: why ? null : reason, ...way }
+      );
     }
     case 'failed': {
       const failure = entryOf(FAILURES, reason);
       if (failure) {
-        return description('bad', 'x-circle', failure.title, `${failure.text}${failure.replaced ? '' : kept}${since}`,
-          steps(failure.at ?? DOWNLOADED,
-            failure.at === null ? { stopped: DOWNLOADED, ended: true } : { failed: failure.at, ended: true }),
-          again());
+        return description(
+          'bad',
+          'x-circle',
+          failure.title,
+          `${failure.text}${failure.replaced ? '' : kept}${since}`,
+          steps(
+            failure.at ?? DOWNLOADED,
+            failure.at === null ? { stopped: DOWNLOADED, ended: true } : { failed: failure.at, ended: true }
+          ),
+          again()
+        );
       }
       // A refusal reported once the update was under way arrives as a failure.
       const why = entryOf(REFUSALS, reason);
       const said = why ? `The board stopped: ${why}.` : 'The board reported that the update failed.';
       // With no reason on record, where it stopped is not on record either.
-      return description('bad', 'x-circle', 'Failed', `${said}${kept}${since}`,
-        steps(DOWNLOADED, reason ? { stopped: DOWNLOADED, ended: true } : { unknown: true }), { code: why ? null : reason, ...again() });
+      return description(
+        'bad',
+        'x-circle',
+        'Failed',
+        `${said}${kept}${since}`,
+        steps(DOWNLOADED, reason ? { stopped: DOWNLOADED, ended: true } : { unknown: true }),
+        { code: why ? null : reason, ...again() }
+      );
     }
     case 'cancelled': {
       // What the board runs now, against what this deployment offered. `reported` is what it
@@ -3023,105 +3318,180 @@ export function describeExecution(execution, {
         // and offering this one again would only be refused.
         if (runsIt || movedOn) {
           const installedBy = runsIt ? otherInstall(history, deployment, version) : null;
-          return description('idle', 'stop', 'Cancelled',
+          return description(
+            'idle',
+            'stop',
+            'Cancelled',
             `Cancelled before the board started, so this deployment installed nothing.${reports}`,
-            steps(ACCEPTED, { ended: true }), installedBy ? { installedBy } : {});
+            steps(ACCEPTED, { ended: true }),
+            installedBy ? { installedBy } : {}
+          );
         }
-        return description('idle', 'stop', 'Cancelled',
+        return description(
+          'idle',
+          'stop',
+          'Cancelled',
           `Cancelled before the board started. Nothing was installed.${reports}`,
-          steps(ACCEPTED, { ended: true }), again());
+          steps(ACCEPTED, { ended: true }),
+          again()
+        );
       }
       // It stopped when it was told to, and a later deployment is what installed the version.
       const installedBy = runsIt ? otherInstall(history, deployment, version) : null;
       if (installedBy) {
-        return description('idle', 'stop', 'Cancelled',
+        return description(
+          'idle',
+          'stop',
+          'Cancelled',
           `Cancelled after the board had started, and it stopped there. Another deployment installed ${reported}.`,
-          steps(DOWNLOADED, { stopped: DOWNLOADED, ended: true }), { installedBy });
+          steps(DOWNLOADED, { stopped: DOWNLOADED, ended: true }),
+          { installedBy }
+        );
       }
       // A newer version came later. Whether this update had finished before that is not on
       // record: a board that AWS has cancelled can no longer report. Nothing is claimed, and
       // this version is not offered again, because the board would refuse it.
       if (movedOn) {
-        return description('idle', 'stop', 'Cancelled',
+        return description(
+          'idle',
+          'stop',
+          'Cancelled',
           `Cancelled after the board had started.${reports} This page cannot tell how this update ended.`,
-          steps(DOWNLOADED, { unknown: true }), { unsure: true });
+          steps(DOWNLOADED, { unknown: true }),
+          { unsure: true }
+        );
       }
       // A board that was past its last look at AWS when the cancellation came ends up on the
       // new firmware all the same, and AWS has no more to say about it. So does one flashed
       // with this version by other means, so this takes the board's own word that its last
       // update went through, and a whole list of updates with no other job that can have done it.
-      const wentThrough = runsIt && board?.fw?.confirmed && board.ota?.last === 'succeeded' &&
-        Array.isArray(history) && !historyCut && !outsideInstall(history);
+      const wentThrough =
+        runsIt &&
+        board?.fw?.confirmed &&
+        board.ota?.last === 'succeeded' &&
+        Array.isArray(history) &&
+        !historyCut &&
+        !outsideInstall(history);
       if (wentThrough) {
-        return description('warn', 'alert', 'Installed despite the cancellation',
+        return description(
+          'warn',
+          'alert',
+          'Installed despite the cancellation',
           'This deployment was cancelled, but the board had gone too far to be stopped. ' +
-          `${online ? 'It now runs' : 'When last seen, it ran'} ${reported}.`,
+            `${online ? 'It now runs' : 'When last seen, it ran'} ${reported}.`,
           steps(STEPS.length),
-          { next: 'To replace it, upload a newer version and deploy that.', installed: true });
+          { next: 'To replace it, upload a newer version and deploy that.', installed: true }
+        );
       }
       const reached = board?.ota && board.ota.job === deployment ? board.ota.state : null;
       if (reached === 'rebooting' || reached === 'testing') {
         const at = reached === 'rebooting' ? RESTARTED : TESTED;
         if (!online) {
-          return description('idle', 'restart',
+          return description(
+            'idle',
+            'restart',
             `Was ${reached === 'rebooting' ? `restarting into ${target}` : `on trial with ${target}`} when last seen`,
             'This deployment was cancelled, but the board was already restarting into the new firmware, and it ' +
-            'has gone offline since. What it ends up running will show here.',
-            steps(at, { stopped: at, unknown: true, lastSeen: true }));
+              'has gone offline since. What it ends up running will show here.',
+            steps(at, { stopped: at, unknown: true, lastSeen: true })
+          );
         }
-        return description('live', 'restart', 'Finishing despite the cancellation',
+        return description(
+          'live',
+          'restart',
+          'Finishing despite the cancellation',
           'This deployment was cancelled, but the board was already restarting into the new firmware ' +
-          'and cannot be stopped. What it ends up running will show here.',
-          steps(at, { current: at, ended: true }));
+            'and cannot be stopped. What it ends up running will show here.',
+          steps(at, { current: at, ended: true })
+        );
       }
       // The board runs this version, and nothing says how it got there: nothing is claimed.
       if (runsIt) {
-        return description('idle', 'stop', 'Cancelled',
+        return description(
+          'idle',
+          'stop',
+          'Cancelled',
           `Cancelled after the board had started. ${online ? 'The board now runs' : 'When last seen, the board ran'} ${reported}; ` +
-          'how it got there is not on record.',
-          steps(DOWNLOADED, { unknown: true }), { unsure: true });
+            'how it got there is not on record.',
+          steps(DOWNLOADED, { unknown: true }),
+          { unsure: true }
+        );
       }
       // The board list decides between "it stopped" and "it is restarting and cannot be
       // stopped". Until it has been read, neither is said.
       if (unread) {
-        return description('idle', 'stop', 'Cancelled',
+        return description(
+          'idle',
+          'stop',
+          'Cancelled',
           'Cancelled after the board had started. What the board did next is still being read.',
-          steps(DOWNLOADED, { unknown: true }), { unsure: true });
+          steps(DOWNLOADED, { unknown: true }),
+          { unsure: true }
+        );
       }
-      return description('idle', 'stop', 'Cancelled',
+      return description(
+        'idle',
+        'stop',
+        'Cancelled',
         'Cancelled after the board had started. A board asks AWS before it installs, so it stops ' +
-        `there and keeps the firmware it had.${reports}`,
-        steps(reached === 'verifying' ? VERIFIED : DOWNLOADED,
-          { stopped: reached === 'verifying' ? VERIFIED : DOWNLOADED, ended: true }),
-        again());
+          `there and keeps the firmware it had.${reports}`,
+        steps(reached === 'verifying' ? VERIFIED : DOWNLOADED, {
+          stopped: reached === 'verifying' ? VERIFIED : DOWNLOADED,
+          ended: true,
+        }),
+        again()
+      );
     }
     case 'timed_out':
-      return description('bad', 'hourglass', 'Timed out',
+      return description(
+        'bad',
+        'hourglass',
+        'Timed out',
         `The board started but did not report a result before the time limit.${reports}`,
         steps(DOWNLOADED, { stopped: DOWNLOADED, ended: true }),
-        again('Check that the board is powered and online, then start a new deployment.'));
+        again('Check that the board is powered and online, then start a new deployment.')
+      );
     case 'removed':
-      return description('idle', 'minus', 'Removed', 'This board was taken out of the deployment.',
-        steps(0, { ended: true }));
+      return description(
+        'idle',
+        'minus',
+        'Removed',
+        'This board was taken out of the deployment.',
+        steps(0, { ended: true })
+      );
     default:
-      return description('idle', 'minus', 'Unknown state',
+      return description(
+        'idle',
+        'minus',
+        'Unknown state',
         'The server reported a state this console does not know.',
-        steps(0), { code: phase || null });
+        steps(0),
+        { code: phase || null }
+      );
   }
 }
 
 /** The words for an execution status alone, where no phase is known (a board's history). */
 export function describeStatus(status) {
   switch (status) {
-    case 'QUEUED': return { tone: 'wait', icon: 'clock', label: 'Waiting' };
-    case 'IN_PROGRESS': return { tone: 'live', icon: 'restart', label: 'Updating' };
-    case 'SUCCEEDED': return { tone: 'good', icon: 'check-circle', label: 'Installed' };
-    case 'FAILED': return { tone: 'bad', icon: 'x-circle', label: 'Failed' };
-    case 'TIMED_OUT': return { tone: 'bad', icon: 'hourglass', label: 'Timed out' };
-    case 'REJECTED': return { tone: 'warn', icon: 'ban', label: 'Refused or declined' };
-    case 'REMOVED': return { tone: 'idle', icon: 'minus', label: 'Removed' };
-    case 'CANCELED': return { tone: 'idle', icon: 'stop', label: 'Cancelled' };
-    default: return { tone: 'idle', icon: 'minus', label: 'Unknown' };
+    case 'QUEUED':
+      return { tone: 'wait', icon: 'clock', label: 'Waiting' };
+    case 'IN_PROGRESS':
+      return { tone: 'live', icon: 'restart', label: 'Updating' };
+    case 'SUCCEEDED':
+      return { tone: 'good', icon: 'check-circle', label: 'Installed' };
+    case 'FAILED':
+      return { tone: 'bad', icon: 'x-circle', label: 'Failed' };
+    case 'TIMED_OUT':
+      return { tone: 'bad', icon: 'hourglass', label: 'Timed out' };
+    case 'REJECTED':
+      return { tone: 'warn', icon: 'ban', label: 'Refused or declined' };
+    case 'REMOVED':
+      return { tone: 'idle', icon: 'minus', label: 'Removed' };
+    case 'CANCELED':
+      return { tone: 'idle', icon: 'stop', label: 'Cancelled' };
+    default:
+      return { tone: 'idle', icon: 'minus', label: 'Unknown' };
   }
 }
 
@@ -3186,9 +3556,13 @@ export function describeUpdate(device) {
       return { ...last, ...told, ...settled, text };
     }
     case 'awaiting_user':
-      return live('act', 'press', `Press ${BUTTON_1} on the board`,
+      return live(
+        'act',
+        'press',
+        `Press ${BUTTON_1} on the board`,
         `${version ?? 'An update'} is on offer. Button 1 on the board installs it, Button 2 declines.`,
-        { was: `waiting for ${BUTTON_1}` });
+        { was: `waiting for ${BUTTON_1}` }
+      );
     case 'downloading':
       return live('live', 'download', `Downloading ${target}`, '', { progress: ota.progress });
     case 'verifying':
@@ -3196,12 +3570,17 @@ export function describeUpdate(device) {
     case 'rebooting':
       return live('live', 'restart', `Restarting into ${target}`, '');
     case 'testing':
-      return live('live', 'pulse', `On trial: ${target}`, 'It is kept once the board has reconnected.',
-        { was: `on trial with ${target}` });
+      return live('live', 'pulse', `On trial: ${target}`, 'It is kept once the board has reconnected.', {
+        was: `on trial with ${target}`,
+      });
     case 'bluetooth':
-      return live('live', 'download', 'Open for an update over Bluetooth',
+      return live(
+        'live',
+        'download',
+        'Open for an update over Bluetooth',
         'A person at the board opened Bluetooth for a phone. Updates from here wait until it closes.',
-        { was: 'open for an update over Bluetooth' });
+        { was: 'open for an update over Bluetooth' }
+      );
     default:
       return live('live', 'restart', 'Updating', '');
   }
@@ -3217,12 +3596,13 @@ export function describeUpdate(device) {
  */
 export function installStanding(deployment, devices) {
   const boards = (devices ?? []).filter((device) => deployment.things.includes(device.thing));
-  const moved = deployment.version === null
-    ? []
-    : boards.filter((device) => device.fw && device.fw.version !== deployment.version);
+  const moved =
+    deployment.version === null ? [] : boards.filter((device) => device.fw && device.fw.version !== deployment.version);
   if (moved.length > 0) return { state: 'moved', boards, moved };
-  const current = boards.length > 0 && boards.length === deployment.things.length && boards.every((device) =>
-    device.online && device.fw?.version === deployment.version && device.fw.confirmed);
+  const current =
+    boards.length > 0 &&
+    boards.length === deployment.things.length &&
+    boards.every((device) => device.online && device.fw?.version === deployment.version && device.fw.confirmed);
   return { state: current ? 'current' : 'unheard', boards, moved };
 }
 
@@ -3253,7 +3633,10 @@ export function describeDeployment(deployment, devices = null) {
       }
       if (counts.succeeded > 0) {
         return {
-          tone: 'warn', icon: 'alert', label: 'Partly succeeded', said: 'The last deployment partly succeeded.',
+          tone: 'warn',
+          icon: 'alert',
+          label: 'Partly succeeded',
+          said: 'The last deployment partly succeeded.',
         };
       }
       if (counts.failed + counts.timedOut > 0) {
@@ -3263,7 +3646,11 @@ export function describeDeployment(deployment, devices = null) {
     case 'CANCELED':
       // Cancelling leaves boards that had started alone: the badge does not hide them.
       if (counts.inProgress > 0) {
-        return { tone: 'live', icon: 'restart', label: `Cancelled, ${plural(counts.inProgress, 'board')} still working` };
+        return {
+          tone: 'live',
+          icon: 'restart',
+          label: `Cancelled, ${plural(counts.inProgress, 'board')} still working`,
+        };
       }
       if (counts.succeeded > 0) {
         return {
@@ -3274,9 +3661,12 @@ export function describeDeployment(deployment, devices = null) {
         };
       }
       return { tone: 'idle', icon: 'stop', label: 'Cancelled' };
-    case 'SCHEDULED': return { tone: 'wait', icon: 'clock', label: 'Scheduled' };
-    case 'DELETION_IN_PROGRESS': return { tone: 'idle', icon: 'minus', label: 'Being deleted' };
-    default: return { tone: 'idle', icon: 'minus', label: 'Unknown' };
+    case 'SCHEDULED':
+      return { tone: 'wait', icon: 'clock', label: 'Scheduled' };
+    case 'DELETION_IN_PROGRESS':
+      return { tone: 'idle', icon: 'minus', label: 'Being deleted' };
+    default:
+      return { tone: 'idle', icon: 'minus', label: 'Unknown' };
   }
 }
 
@@ -3298,14 +3688,22 @@ const COUNT_WORDS = [
  */
 export function describeCounts(counts, atButton = 0) {
   const pressing = Math.min(atButton, counts.queued);
-  const lines = COUNT_WORDS
-    .filter(([name]) => counts[name] > 0 && !(name === 'queued' && counts.queued === pressing))
-    .map(([name, label, tone, icon]) => ({
-      name, count: name === 'queued' ? counts.queued - pressing : counts[name], label, tone, icon,
-    }));
+  const lines = COUNT_WORDS.filter(
+    ([name]) => counts[name] > 0 && !(name === 'queued' && counts.queued === pressing)
+  ).map(([name, label, tone, icon]) => ({
+    name,
+    count: name === 'queued' ? counts.queued - pressing : counts[name],
+    label,
+    tone,
+    icon,
+  }));
   if (pressing > 0) {
     lines.unshift({
-      name: 'atButton', count: pressing, label: `waiting for ${BUTTON_1}`, tone: 'act', icon: 'press',
+      name: 'atButton',
+      count: pressing,
+      label: `waiting for ${BUTTON_1}`,
+      tone: 'act',
+      icon: 'press',
     });
   }
   return lines;
@@ -3352,13 +3750,22 @@ export function nameOf(person) {
 // version it installs, and the boards it went to follow the sentence (auditBoards).
 const AUDIT_ACTIONS = {
   'firmware.upload': {
-    done: 'uploaded firmware', tried: 'tried to upload', triedAlone: 'tried to upload a file', icon: 'upload',
+    done: 'uploaded firmware',
+    tried: 'tried to upload',
+    triedAlone: 'tried to upload a file',
+    icon: 'upload',
   },
   'firmware.revoke': {
-    done: 'revoked firmware', tried: 'tried to revoke firmware', triedAlone: 'tried to revoke a release', icon: 'ban',
+    done: 'revoked firmware',
+    tried: 'tried to revoke firmware',
+    triedAlone: 'tried to revoke a release',
+    icon: 'ban',
   },
   'deployment.create': {
-    done: 'deployed', doneAlone: 'started a deployment', tried: 'tried to deploy', triedAlone: 'tried to start a deployment',
+    done: 'deployed',
+    doneAlone: 'started a deployment',
+    tried: 'tried to deploy',
+    triedAlone: 'tried to start a deployment',
     icon: 'send',
   },
   'deployment.cancel': {
@@ -3392,14 +3799,23 @@ const AUDIT_ACTIONS = {
   },
   // A person's own API tokens, named by their id; the token itself is never recorded.
   'token.create': {
-    done: 'made API token', tried: 'tried to make API token', triedAlone: 'tried to make an API token', icon: 'key',
+    done: 'made API token',
+    tried: 'tried to make API token',
+    triedAlone: 'tried to make an API token',
+    icon: 'key',
   },
   'token.revoke': {
-    done: 'revoked API token', tried: 'tried to revoke API token', triedAlone: 'tried to revoke an API token', icon: 'key',
+    done: 'revoked API token',
+    tried: 'tried to revoke API token',
+    triedAlone: 'tried to revoke an API token',
+    icon: 'key',
   },
   // A sign-in with password and code, on the website or the phone app (SIGNED_IN_ON).
   'account.sign_in': {
-    done: 'signed in', tried: 'tried to sign in', triedAlone: 'tried to sign in', icon: 'user',
+    done: 'signed in',
+    tried: 'tried to sign in',
+    triedAlone: 'tried to sign in',
+    icon: 'user',
   },
   // A command that changed a board at its serial console, over USB from this console's Serial page
   // or a phone app, named by the board's device ID (SERIAL_WORDS).
@@ -3412,93 +3828,155 @@ const AUDIT_ACTIONS = {
   },
   // A command sent to a board over the internet (COMMAND_WORDS), and a person's own e-mail alerts.
   'board.command': {
-    done: 'sent a command to', tried: 'tried to send a command to', triedAlone: 'tried to send a command to a board',
+    done: 'sent a command to',
+    tried: 'tried to send a command to',
+    triedAlone: 'tried to send a command to a board',
     icon: 'locate',
   },
   'alert.subscribe': {
-    done: 'asked for e-mail alerts at', tried: 'tried to ask for e-mail alerts at', triedAlone: 'tried to ask for e-mail alerts',
+    done: 'asked for e-mail alerts at',
+    tried: 'tried to ask for e-mail alerts at',
+    triedAlone: 'tried to ask for e-mail alerts',
     icon: 'bell',
   },
   'alert.unsubscribe': {
-    done: 'stopped the e-mail alerts to', tried: 'tried to stop the e-mail alerts to',
-    triedAlone: 'tried to stop e-mail alerts', icon: 'bell',
+    done: 'stopped the e-mail alerts to',
+    tried: 'tried to stop the e-mail alerts to',
+    triedAlone: 'tried to stop e-mail alerts',
+    icon: 'bell',
   },
   // The fleet (docs/fleet.md): groups, staged rollouts, a phone's sighting, a release's note.
-  'group.create': { done: 'made the group', tried: 'tried to make the group', triedAlone: 'tried to make a group', icon: 'list' },
-  'group.update': { done: 'changed the group', tried: 'tried to change the group', triedAlone: 'tried to change a group', icon: 'list' },
-  'group.delete': { done: 'deleted the group', tried: 'tried to delete the group', triedAlone: 'tried to delete a group', icon: 'list' },
+  'group.create': {
+    done: 'made the group',
+    tried: 'tried to make the group',
+    triedAlone: 'tried to make a group',
+    icon: 'list',
+  },
+  'group.update': {
+    done: 'changed the group',
+    tried: 'tried to change the group',
+    triedAlone: 'tried to change a group',
+    icon: 'list',
+  },
+  'group.delete': {
+    done: 'deleted the group',
+    tried: 'tried to delete the group',
+    triedAlone: 'tried to delete a group',
+    icon: 'list',
+  },
   'group.rollback': {
-    done: 'rolled back the group', tried: 'tried to roll back the group', triedAlone: 'tried to roll back a group', icon: 'restart',
+    done: 'rolled back the group',
+    tried: 'tried to roll back the group',
+    triedAlone: 'tried to roll back a group',
+    icon: 'restart',
   },
   'rollout.create': {
-    done: 'started a staged rollout of', doneAlone: 'started a staged rollout', tried: 'tried to start a staged rollout of',
-    triedAlone: 'tried to start a staged rollout', icon: 'send',
+    done: 'started a staged rollout of',
+    doneAlone: 'started a staged rollout',
+    tried: 'tried to start a staged rollout of',
+    triedAlone: 'tried to start a staged rollout',
+    icon: 'send',
   },
   'rollout.cancel': {
-    done: 'cancelled the staged rollout', tried: 'tried to cancel the staged rollout', triedAlone: 'tried to cancel a staged rollout',
+    done: 'cancelled the staged rollout',
+    tried: 'tried to cancel the staged rollout',
+    triedAlone: 'tried to cancel a staged rollout',
     icon: 'stop',
   },
   // The console's own, when a canary has confirmed or a rollout stopped (cloud/api/src/tick.mjs).
   'rollout.advance': {
-    done: 'went on with the staged rollout', tried: 'could not go on with the staged rollout',
-    triedAlone: 'could not go on with a staged rollout', icon: 'send',
+    done: 'went on with the staged rollout',
+    tried: 'could not go on with the staged rollout',
+    triedAlone: 'could not go on with a staged rollout',
+    icon: 'send',
   },
   'rollout.stop': {
-    done: 'stopped the staged rollout', tried: 'could not stop the staged rollout', triedAlone: 'could not stop a staged rollout',
+    done: 'stopped the staged rollout',
+    tried: 'could not stop the staged rollout',
+    triedAlone: 'could not stop a staged rollout',
     icon: 'stop',
   },
   'fleet.update_everything': {
-    done: 'started updating everything', doneAlone: 'started updating everything', tried: 'tried to update everything',
-    triedAlone: 'tried to update everything', icon: 'send',
+    done: 'started updating everything',
+    doneAlone: 'started updating everything',
+    tried: 'tried to update everything',
+    triedAlone: 'tried to update everything',
+    icon: 'send',
   },
   'device.seen': {
-    done: 'saw {} over Bluetooth', doneAlone: 'saw a board over Bluetooth', tried: 'tried to say a phone saw {}',
-    triedAlone: 'tried to say a phone saw a board', icon: 'chip',
+    done: 'saw {} over Bluetooth',
+    doneAlone: 'saw a board over Bluetooth',
+    tried: 'tried to say a phone saw {}',
+    triedAlone: 'tried to say a phone saw a board',
+    icon: 'chip',
   },
   'firmware.notes': {
-    done: 'changed the note of', tried: 'tried to change the note of', triedAlone: 'tried to change the note of a release',
+    done: 'changed the note of',
+    tried: 'tried to change the note of',
+    triedAlone: 'tried to change the note of a release',
     icon: 'file',
   },
   // The phone apps (the Apps page): the URL a build sends an APK to S3 with, the APK published once the
   // console has checked what arrived, and a download link handed out, for a person or a phone's QR code.
   'app.upload': {
-    done: 'started publishing the Android app', tried: 'tried to start publishing the Android app',
-    triedAlone: 'tried to start publishing the Android app', icon: 'upload',
+    done: 'started publishing the Android app',
+    tried: 'tried to start publishing the Android app',
+    triedAlone: 'tried to start publishing the Android app',
+    icon: 'upload',
   },
   'app.publish': {
-    done: 'published the Android app', tried: 'tried to publish the Android app', triedAlone: 'tried to publish the Android app',
+    done: 'published the Android app',
+    tried: 'tried to publish the Android app',
+    triedAlone: 'tried to publish the Android app',
     icon: 'package',
   },
   'app.download': {
-    done: 'downloaded the Android app', tried: 'tried to download the Android app', triedAlone: 'tried to download the Android app',
+    done: 'downloaded the Android app',
+    tried: 'tried to download the Android app',
+    triedAlone: 'tried to download the Android app',
     icon: 'download',
   },
   // The iPhone app's unsigned IPAs, the same three steps, a download also through a member's SideStore
   // source, and that source's link, made and turned off by its owner (named by its id, never the key).
   'app.ios_upload': {
-    done: 'started publishing the iPhone app', tried: 'tried to start publishing the iPhone app',
-    triedAlone: 'tried to start publishing the iPhone app', icon: 'upload',
+    done: 'started publishing the iPhone app',
+    tried: 'tried to start publishing the iPhone app',
+    triedAlone: 'tried to start publishing the iPhone app',
+    icon: 'upload',
   },
   'app.ios_publish': {
-    done: 'published the iPhone app', tried: 'tried to publish the iPhone app', triedAlone: 'tried to publish the iPhone app',
+    done: 'published the iPhone app',
+    tried: 'tried to publish the iPhone app',
+    triedAlone: 'tried to publish the iPhone app',
     icon: 'package',
   },
   'app.ios_download': {
-    done: 'downloaded the iPhone app', tried: 'tried to download the iPhone app', triedAlone: 'tried to download the iPhone app',
+    done: 'downloaded the iPhone app',
+    tried: 'tried to download the iPhone app',
+    triedAlone: 'tried to download the iPhone app',
     icon: 'download',
   },
   'app.source_create': {
-    done: 'made SideStore link', doneAlone: 'made a SideStore link', tried: 'tried to make SideStore link',
-    triedAlone: 'tried to make a SideStore link', icon: 'key',
+    done: 'made SideStore link',
+    doneAlone: 'made a SideStore link',
+    tried: 'tried to make SideStore link',
+    triedAlone: 'tried to make a SideStore link',
+    icon: 'key',
   },
   'app.source_revoke': {
-    done: 'turned off SideStore link', doneAlone: 'turned off a SideStore link', tried: 'tried to turn off SideStore link',
-    triedAlone: 'tried to turn off a SideStore link', icon: 'key',
+    done: 'turned off SideStore link',
+    doneAlone: 'turned off a SideStore link',
+    tried: 'tried to turn off SideStore link',
+    triedAlone: 'tried to turn off a SideStore link',
+    icon: 'key',
   },
   // The customer site's accounts, from the Customers page (docs/customer-site.md): a customer by
   // their e-mail address, a board by its name with the customer's address after it (CUSTOMER_BOARD).
   'customer.create': {
-    done: 'invited the customer', tried: 'tried to invite the customer', triedAlone: 'tried to invite a customer', icon: 'user',
+    done: 'invited the customer',
+    tried: 'tried to invite the customer',
+    triedAlone: 'tried to invite a customer',
+    icon: 'user',
   },
   'customer.resend': {
     done: 'sent the invitation again to',
@@ -3752,7 +4230,11 @@ const REVOCATION_STEPS = {
 };
 
 function stepsLeft(value) {
-  return value.split(' ').filter(Boolean).map((step) => entryOf(REVOCATION_STEPS, step) ?? step).join(', ');
+  return value
+    .split(' ')
+    .filter(Boolean)
+    .map((step) => entryOf(REVOCATION_STEPS, step) ?? step)
+    .join(', ');
 }
 
 // What the API records with an entry, in the words of the console and in the order in
@@ -3793,7 +4275,13 @@ const AUDIT_DETAILS = {
   days: { label: 'Valid for', say: (value) => (/^\d+$/.test(value) ? plural(Number(value), 'day') : value) },
   withdrawn: { label: 'Withdrawn', say: (value) => (value === 'true' ? 'at once, to stay within the limit' : value) },
   // The fleet.
-  kind: { label: 'To', say: (value) => ({ boards: 'boards named one by one', group: 'a group', type: 'a board type', fleet: 'the whole fleet' })[value] ?? value },
+  kind: {
+    label: 'To',
+    say: (value) =>
+      ({ boards: 'boards named one by one', group: 'a group', type: 'a board type', fleet: 'the whole fleet' })[
+        value
+      ] ?? value,
+  },
   canary: { label: 'Canary', code: true },
   rollouts: { label: 'Rollouts', code: true },
   versions: { label: 'Releases' },
@@ -3810,8 +4298,13 @@ const AUDIT_DETAILS = {
   versionCode: { label: 'versionCode', code: true },
   via: {
     label: 'As',
-    say: (value) => ({ link: 'a link', qr: 'a QR code for a phone', app: 'an update in the app', sidestore: 'SideStore, on an iPhone' })[value]
-      ?? value,
+    say: (value) =>
+      ({
+        link: 'a link',
+        qr: 'a QR code for a phone',
+        app: 'an update in the app',
+        sidestore: 'SideStore, on an iPhone',
+      })[value] ?? value,
   },
   // An IPA's build, the SideStore link a download came through, and the link a new one replaced.
   build: { label: 'Build', code: true },
@@ -3840,7 +4333,7 @@ function auditFact(entry, key, value) {
     code: known.code === true,
     phrase: known.sentence !== true,
     // A refusal is said in words where there are words for it, with its code after them.
-    words: key === 'code' ? entryOf(REFUSAL_WORDS, value) ?? null : null,
+    words: key === 'code' ? (entryOf(REFUSAL_WORDS, value) ?? null) : null,
   };
 }
 
@@ -3859,22 +4352,24 @@ export function describeAudit(entry) {
   const deployment = isDeploymentId(entry.target) ? entry.target : null;
   const details = new Map(entry.detail ?? []);
   // A staged rollout is told by its release, and a group by its name; the entry keeps their ids.
-  let label = deployment ? versionOfDeployment(deployment) ?? deployment : entry.target ?? '';
+  let label = deployment ? (versionOfDeployment(deployment) ?? deployment) : (entry.target ?? '');
   if (isRolloutId(entry.target) && isVersion(details.get('version'))) label = details.get('version');
   else if (/^group\.(?:create|update|delete)$/.test(entry.action) && details.get('name')) label = details.get('name');
   else if (entry.action === 'group.rollback' && details.get('group')) label = details.get('group');
   // A customer is told by their address, where the entry has it, not by the id of their account.
-  const customerEmail = String(entry.action ?? '').startsWith('customer.') ? details.get('email') ?? '' : '';
+  const customerEmail = String(entry.action ?? '').startsWith('customer.') ? (details.get('email') ?? '') : '';
   const byAddress = customerEmail !== '' && !CUSTOMER_BOARD.has(entry.action);
   if (byAddress) label = customerEmail;
   // A revocation that completed what an earlier request had begun.
   const resumed = entry.action === 'firmware.revoke' && ok && details.get('resumed') === 'true';
   let words = entry.action || 'did something';
   if (resumed) words = 'finished revoking firmware';
-  else if (entry.action === 'account.sign_in' && ok) words = entryOf(SIGNED_IN_ON, details.get('client')) ?? action.done;
-  else if (entry.action === 'serial.command' && ok) words = entryOf(SERIAL_WORDS, details.get('command')) ?? action.done;
+  else if (entry.action === 'account.sign_in' && ok)
+    words = entryOf(SIGNED_IN_ON, details.get('client')) ?? action.done;
+  else if (entry.action === 'serial.command' && ok)
+    words = entryOf(SERIAL_WORDS, details.get('command')) ?? action.done;
   else if (entry.action === 'board.command' && ok) words = entryOf(COMMAND_WORDS, details.get('cmd')) ?? action.done;
-  else if (action && ok) words = label ? action.done : action.doneAlone ?? action.done;
+  else if (action && ok) words = label ? action.done : (action.doneAlone ?? action.done);
   else if (action) words = label ? action.tried : action.triedAlone;
 
   let verb = words;
@@ -3892,9 +4387,10 @@ export function describeAudit(entry) {
 
   // The boards of a deployment: by name where the entry has them, else how many.
   const boards = entry.action === 'deployment.create' ? (details.get('boards') ?? '').split(' ').filter(isThing) : [];
-  const counted = entry.action === 'deployment.create' && /^[1-9]\d{0,3}$/.test(details.get('things') ?? '')
-    ? Number(details.get('things'))
-    : 0;
+  const counted =
+    entry.action === 'deployment.create' && /^[1-9]\d{0,3}$/.test(details.get('things') ?? '')
+      ? Number(details.get('things'))
+      : 0;
   const boardCount = Math.max(counted, boards.length);
 
   // What the sentence says already is not said again as a fact.
@@ -3922,7 +4418,7 @@ export function describeAudit(entry) {
     verb,
     label,
     tail,
-    outcome: ok ? null : entryOf(AUDIT_OUTCOMES, entry.outcome) ?? other,
+    outcome: ok ? null : (entryOf(AUDIT_OUTCOMES, entry.outcome) ?? other),
     href: deploymentHref(entry.target) ?? rolloutHref(entry.target) ?? (isVersion(entry.target) ? '#/firmware' : null),
     facts,
     scripted: String(entry.requestId ?? '').startsWith(SCRIPTED_REQUEST),
@@ -3950,7 +4446,8 @@ export function auditBoards(description, devices = []) {
 export function auditSentence(entry, devices = []) {
   const description = describeAudit(entry);
   return [actorOf(entry), description.verb, description.label, description.tail, auditBoards(description, devices)]
-    .filter(Boolean).join(' ');
+    .filter(Boolean)
+    .join(' ');
 }
 
 // The map, commands and alerts (docs/fleet.md). Where each board is, from the Wi-Fi it hears
@@ -3992,7 +4489,10 @@ function readPositions(body) {
   return {
     thing: text(reply.thing, 64),
     location: readLocation(reply.location),
-    positions: list(reply.positions).map(readPosition).filter((position) => position !== null).slice(0, 20),
+    positions: list(reply.positions)
+      .map(readPosition)
+      .filter((position) => position !== null)
+      .slice(0, 20),
   };
 }
 
@@ -4029,7 +4529,9 @@ function readAlerts(body) {
     subscription: ['none', 'pending', 'confirmed'].includes(reply.subscription) ? reply.subscription : 'none',
     canSubscribe: reply.canSubscribe === true,
     subscribers: whole(reply.subscribers, 0, 10_000) ?? 0,
-    recent: list(reply.recent).map(readSentAlert).filter((item) => item !== null),
+    recent: list(reply.recent)
+      .map(readSentAlert)
+      .filter((item) => item !== null),
     rules: {
       offlineMinutes: whole(rules.offlineMinutes, 1, 1440) ?? 15,
       everyMinutes: whole(rules.everyMinutes, 1, 1440) ?? 60,
@@ -4060,13 +4562,18 @@ export function unplacedReason(device) {
       return {
         code: 'too_few',
         title: 'Too few access points',
-        text: `It heard ${location.apCount === 1 ? 'one' : location.apCount === 0 ? 'none' : 'too few'} it could use; ` +
+        text:
+          `It heard ${location.apCount === 1 ? 'one' : location.apCount === 0 ? 'none' : 'too few'} it could use; ` +
           'two are needed. Hotspots and other moving networks do not count.',
       };
     case 'unsolved':
       return { code: 'unsolved', title: 'Not found', text: 'AWS could not place the access points it heard.' };
     case 'failed':
-      return { code: 'failed', title: 'Not placed yet', text: 'AWS could not be asked; it tries again with the next scan.' };
+      return {
+        code: 'failed',
+        title: 'Not placed yet',
+        text: 'AWS could not be asked; it tries again with the next scan.',
+      };
     case 'unknown':
       return { code: 'unknown', title: 'Not read', text: 'The positions could not be read just now.' };
     default:
@@ -4106,12 +4613,18 @@ export function positionSteps(positions) {
     if (!before) return { ...position, moved: null };
     const dLat = (position.lat - before.lat) * radians;
     const dLon = (position.lon - before.lon) * radians;
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(before.lat * radians) * Math.cos(position.lat * radians) * Math.sin(dLon / 2) ** 2;
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(before.lat * radians) * Math.cos(position.lat * radians) * Math.sin(dLon / 2) ** 2;
     return { ...position, moved: 2 * 6_371_008.8 * Math.asin(Math.min(1, Math.sqrt(h))) };
   });
 }
 
 export const ALERT_KIND_WORDS = Object.freeze({
-  offline: 'Offline', online: 'Back online', update: 'Update failed', stuck: 'Restarted, stuck', moved: 'Moved',
+  offline: 'Offline',
+  online: 'Back online',
+  update: 'Update failed',
+  stuck: 'Restarted, stuck',
+  moved: 'Moved',
   deployment: 'Deployment stopped',
 });

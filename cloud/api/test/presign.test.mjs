@@ -19,12 +19,15 @@ const EXAMPLE = Object.freeze({
   expiresIn: 86400,
 });
 
-test('the URL of AWS\'s published example, to the character', () => {
+test("the URL of AWS's published example, to the character", () => {
   const { url, signedHeaders, expiresAt } = presignUrl(EXAMPLE);
-  assert.equal(url, 'https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256' +
-    '&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z' +
-    '&X-Amz-Expires=86400&X-Amz-SignedHeaders=host' +
-    '&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404');
+  assert.equal(
+    url,
+    'https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256' +
+      '&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z' +
+      '&X-Amz-Expires=86400&X-Amz-SignedHeaders=host' +
+      '&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404'
+  );
   assert.deepEqual(signedHeaders, ['host']);
   assert.equal(expiresAt, EXAMPLE.at + 86400 * 1000);
 });
@@ -32,12 +35,19 @@ test('the URL of AWS\'s published example, to the character', () => {
 /** The signature worked out step by step as the reference describes it, for a URL that signs headers. */
 function referenceSignature({ method, host, path, query, headers, secret, region, amzDate }) {
   const names = Object.keys(headers).sort();
-  const canonical = [method, path, query, names.map((name) => `${name}:${headers[name]}\n`).join(''), names.join(';'),
-    'UNSIGNED-PAYLOAD'].join('\n');
+  const canonical = [
+    method,
+    path,
+    query,
+    names.map((name) => `${name}:${headers[name]}\n`).join(''),
+    names.join(';'),
+    'UNSIGNED-PAYLOAD',
+  ].join('\n');
   const scope = `${amzDate.slice(0, 8)}/${region}/s3/aws4_request`;
   const toSign = ['AWS4-HMAC-SHA256', amzDate, scope, createHash('sha256').update(canonical).digest('hex')].join('\n');
   let key = Buffer.from(`AWS4${secret}`);
-  for (const part of [amzDate.slice(0, 8), region, 's3', 'aws4_request']) key = createHmac('sha256', key).update(part).digest();
+  for (const part of [amzDate.slice(0, 8), region, 's3', 'aws4_request'])
+    key = createHmac('sha256', key).update(part).digest();
   return createHmac('sha256', key).update(toSign).digest('hex');
 }
 
@@ -60,23 +70,35 @@ test('an upload URL signs the size and the SHA-256, and the session token goes i
   // The token's "/", "+" and "=" are encoded in the URL.
   assert.match(url, /X-Amz-Security-Token=IQoJb3JpZ2lu%2F%2B%3Dtoken&/);
   const query = url.slice(url.indexOf('?') + 1, url.indexOf('&X-Amz-Signature='));
-  assert.equal(address.searchParams.get('X-Amz-Signature'), referenceSignature({
-    method: 'PUT', host: address.host, path: address.pathname, query, secret: EXAMPLE.credentials.secretAccessKey,
-    region: 'us-east-1', amzDate: '20130524T000000Z',
-    headers: { 'content-length': '12027314', host: address.host, 'x-amz-checksum-sha256': checksum },
-  }));
+  assert.equal(
+    address.searchParams.get('X-Amz-Signature'),
+    referenceSignature({
+      method: 'PUT',
+      host: address.host,
+      path: address.pathname,
+      query,
+      secret: EXAMPLE.credentials.secretAccessKey,
+      region: 'us-east-1',
+      amzDate: '20130524T000000Z',
+      headers: { 'content-length': '12027314', host: address.host, 'x-amz-checksum-sha256': checksum },
+    })
+  );
 });
 
 test('a download URL names the version and how the file is to be served, all of it signed', () => {
   const { url } = presignUrl({
     ...EXAMPLE,
     query: {
-      versionId: 'Ab.c_d-1', 'response-content-disposition': 'attachment; filename="cranium-android-0.4.0.apk"',
+      versionId: 'Ab.c_d-1',
+      'response-content-disposition': 'attachment; filename="cranium-android-0.4.0.apk"',
       'response-content-type': 'application/vnd.android.package-archive',
     },
   });
   const address = new URL(url);
-  assert.equal(address.searchParams.get('response-content-disposition'), 'attachment; filename="cranium-android-0.4.0.apk"');
+  assert.equal(
+    address.searchParams.get('response-content-disposition'),
+    'attachment; filename="cranium-android-0.4.0.apk"'
+  );
   // Sorted by name, as SigV4 asks: upper case before lower.
   const names = [...address.searchParams.keys()];
   assert.deepEqual(names.slice(0, -1), [...names.slice(0, -1)].sort());

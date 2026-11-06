@@ -283,7 +283,10 @@ section[id] {
   letter-spacing: -0.006em;
   text-decoration: none;
   white-space: nowrap;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .btn:hover {
@@ -497,15 +500,33 @@ section[id] {
   animation: draw 1.6s var(--ease) 100ms forwards;
 }
 
-.art-groove:nth-of-type(3) { animation-delay: 170ms; }
-.art-groove:nth-of-type(4) { animation-delay: 240ms; }
-.art-groove:nth-of-type(5) { animation-delay: 310ms; }
-.art-groove:nth-of-type(6) { animation-delay: 380ms; }
-.art-groove:nth-of-type(7) { animation-delay: 450ms; }
-.art-groove:nth-of-type(8) { animation-delay: 520ms; }
-.art-groove:nth-of-type(9) { animation-delay: 590ms; }
-.art-groove:nth-of-type(10) { animation-delay: 660ms; }
-.art-groove:nth-of-type(11) { animation-delay: 730ms; }
+.art-groove:nth-of-type(3) {
+  animation-delay: 170ms;
+}
+.art-groove:nth-of-type(4) {
+  animation-delay: 240ms;
+}
+.art-groove:nth-of-type(5) {
+  animation-delay: 310ms;
+}
+.art-groove:nth-of-type(6) {
+  animation-delay: 380ms;
+}
+.art-groove:nth-of-type(7) {
+  animation-delay: 450ms;
+}
+.art-groove:nth-of-type(8) {
+  animation-delay: 520ms;
+}
+.art-groove:nth-of-type(9) {
+  animation-delay: 590ms;
+}
+.art-groove:nth-of-type(10) {
+  animation-delay: 660ms;
+}
+.art-groove:nth-of-type(11) {
+  animation-delay: 730ms;
+}
 
 @keyframes draw {
   to {

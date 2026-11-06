@@ -30,8 +30,12 @@ const VENDORED = Object.freeze({
   // and checked in apps.test.mjs).
   'qrcode-license.txt': 'fe42702c5e3361d1e14ae4b46faf85da6e4522f63405e3673e3ddabecb79054d',
 });
-const assets = visible(new URL('assets/', SITE)).map((entry) => entry.name)
-  .filter((name) => !name.startsWith('home.') && name !== HISTORY_DATA && name !== VERSIONS_DATA && !Object.hasOwn(VENDORED, name))
+const assets = visible(new URL('assets/', SITE))
+  .map((entry) => entry.name)
+  .filter(
+    (name) =>
+      !name.startsWith('home.') && name !== HISTORY_DATA && name !== VERSIONS_DATA && !Object.hasOwn(VENDORED, name)
+  )
   .sort();
 const scripts = assets.filter((name) => name.endsWith('.js'));
 // Each belongs to one page and is fetched when that page is opened.
@@ -42,8 +46,18 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // customers.js: the Customers page, the customer site's customers and their boards (docs/customer-site.md).
 // bridge.js and bluetooth.js: the phone app's bridge, fetched only in the app, and its Bluetooth page
 // (docs/mobile-apps.md, "The app shell").
-const ON_DEMAND = ['account.js', 'apps.js', 'bluetooth.js', 'bridge.js', 'customers.js', 'fleet.js', 'history.js', 'map.js', 'serial.js',
-  'telemetry.js'];
+const ON_DEMAND = [
+  'account.js',
+  'apps.js',
+  'bluetooth.js',
+  'bridge.js',
+  'customers.js',
+  'fleet.js',
+  'history.js',
+  'map.js',
+  'serial.js',
+  'telemetry.js',
+];
 // Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder, and
 // the steps after a Bluetooth send, which the Bluetooth page imports.
 const WITH_THEIR_PAGE = ['qrcode.js', 'updatewatch.js'];
@@ -60,13 +74,20 @@ function code(source) {
 }
 
 test('a cold load is at most five requests: the page, one stylesheet, three scripts', () => {
-  assert.deepEqual(visible(SITE).map((entry) => entry.name).sort(), ['assets', 'home.html', 'index.html']);
-  assert.equal(visible(new URL('assets/', SITE)).every((entry) => entry.isFile()), true);
+  assert.deepEqual(
+    visible(SITE)
+      .map((entry) => entry.name)
+      .sort(),
+    ['assets', 'home.html', 'index.html']
+  );
+  assert.equal(
+    visible(new URL('assets/', SITE)).every((entry) => entry.isFile()),
+    true
+  );
   assert.equal(styles.length, 1);
   const coldScripts = scripts.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));
   assert.equal(coldScripts.length >= 1 && coldScripts.length <= 3, true, `${coldScripts.length} scripts`);
-  assert.equal(assets.length, styles.length + scripts.length,
-    `only stylesheets and scripts: ${assets.join(', ')}`);
+  assert.equal(assets.length, styles.length + scripts.length, `only stylesheets and scripts: ${assets.join(', ')}`);
   assert.equal(1 + atOnce.length <= 5, true);
 });
 
@@ -90,7 +111,11 @@ test('scripts import only each other, by relative path, and only app.js fetches 
     reachable.add(name);
     const source = code(sources.get(name));
     const fetched = [...source.matchAll(/\bimport\s*\(([^)]*)\)/g)].map((match) => match[1]);
-    if (name === 'app.js') assert.deepEqual(fetched.sort(), ON_DEMAND.map((file) => `'./${file}'`));
+    if (name === 'app.js')
+      assert.deepEqual(
+        fetched.sort(),
+        ON_DEMAND.map((file) => `'./${file}'`)
+      );
     else assert.deepEqual(fetched, [], `${name} must not import on demand`);
     for (const file of name === 'app.js' ? ON_DEMAND : []) visit(file);
     for (const match of source.matchAll(/^\s*(?:import|export)\s[^'"]*?from\s+'([^']+)'/gm)) {
@@ -149,9 +174,11 @@ test('scripts set no inline styles: custom properties through setProperty only',
 test('the access token is kept for the tab only, and randomness comes from the CSPRNG', () => {
   for (const [name, source] of sources) {
     // The one thing kept beyond the tab is a choice of the Events page, which range it opens on: no token, no address.
-    const text = (name === 'telemetry.js' ? code(source).replaceAll(/globalThis\.localStorage\?\.(?:get|set)Item\(RANGE_KEY(?:, id)?\)/g, '') : code(source));
-    assert.doesNotMatch(text, /localStorage|indexedDB|document\.cookie/,
-      `${name} keeps something beyond the tab`);
+    const text =
+      name === 'telemetry.js'
+        ? code(source).replaceAll(/globalThis\.localStorage\?\.(?:get|set)Item\(RANGE_KEY(?:, id)?\)/g, '')
+        : code(source);
+    assert.doesNotMatch(text, /localStorage|indexedDB|document\.cookie/, `${name} keeps something beyond the tab`);
     assert.doesNotMatch(text, /Math\.random/, `${name} uses Math.random`);
   }
 });
@@ -174,7 +201,11 @@ test('nothing is fetched from anywhere else', () => {
     // The Apps page's, for a person to follow or copy: the repository to clone, the setup guide, the steps for
     // updates on every phone, and SideStore's own guide to installing it.
     if (name === 'apps.js') {
-      others = others.replace(/'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium(?:\.git|\/blob\/main\/docs\/new-board-setup\.md#the-phone-apps|\/blob\/main\/docs\/mobile-apps\.md#updates-on-every-phone)'/g, '')
+      others = others
+        .replace(
+          /'https:\/\/github\.com\/ese5180\/f26-t07-the-cranium(?:\.git|\/blob\/main\/docs\/new-board-setup\.md#the-phone-apps|\/blob\/main\/docs\/mobile-apps\.md#updates-on-every-phone)'/g,
+          ''
+        )
         .replace(/'https:\/\/docs\.sidestore\.io\/docs\/installation\/prerequisites'/g, '');
     }
     assert.doesNotMatch(others.replace(namespaces, ''), /https?:\/\/[a-z0-9]/i, `${name} names another site`);
@@ -367,10 +398,16 @@ test('on the ink panel, lettering and marks hold up in both themes', () => {
   const letters = ['--ink', '--ink-2', '--ink-3', '--accent', '--work', '--good', '--warn', '--bad'];
   const marks = ['--bar-live', '--bar-good', '--bar-warn', '--bar-bad', '--line-mark'];
   const washes = [
-    ['--accent', '--accent-wash'], ['--work', '--work-wash'], ['--good', '--good-wash'],
-    ['--warn', '--warn-wash'], ['--bad', '--bad-wash'],
+    ['--accent', '--accent-wash'],
+    ['--work', '--work-wash'],
+    ['--good', '--good-wash'],
+    ['--warn', '--warn-wash'],
+    ['--bad', '--bad-wash'],
   ];
-  for (const [name, colours] of [['light', light], ['dark', dark]]) {
+  for (const [name, colours] of [
+    ['light', light],
+    ['dark', dark],
+  ]) {
     for (const text of letters) {
       const ratio = contrast(colours.get(text), colours.get('--surface'));
       assert.equal(ratio >= 4.5, true, `${text} on the panel, ${name}: ${ratio.toFixed(2)}:1`);
@@ -387,7 +424,10 @@ test('on the ink panel, lettering and marks hold up in both themes', () => {
     }
   }
   // Nearly the colour of the page: in the dark theme the panel carries the heaviest rule on it.
-  assert.equal(declared('.on-ink', '@media (prefers-color-scheme: dark)').get('box-shadow'), 'inset 0 3px 0 var(--ink)');
+  assert.equal(
+    declared('.on-ink', '@media (prefers-color-scheme: dark)').get('box-shadow'),
+    'inset 0 3px 0 var(--ink)'
+  );
 });
 
 test('colour keeps to what it means', () => {
@@ -403,7 +443,10 @@ test('colour keeps to what it means', () => {
   assert.equal(declared('.steps.is-act').get('--now-fill'), 'var(--accent)');
   // Only the moment when somebody is needed pulses.
   const pulsing = rules.filter((rule) => /\bbeacon\b/.test(rule.values.get('animation') ?? ''));
-  assert.deepEqual(pulsing.flatMap((rule) => rule.selectors), ['.steps.is-act .step.is-current .step-mark']);
+  assert.deepEqual(
+    pulsing.flatMap((rule) => rule.selectors),
+    ['.steps.is-act .step.is-current .step-mark']
+  );
 });
 
 test('a line through a version means that it was revoked, and nothing else', () => {
@@ -434,7 +477,10 @@ test('what a dialog says about a failed request does not scroll away with its bo
 });
 
 test('a state that asks for somebody has a look of its own, and motion is never needed to read one', () => {
-  assert.equal(rules.some((rule) => rule.selectors.includes('.execution.is-act .execution-state')), true);
+  assert.equal(
+    rules.some((rule) => rule.selectors.includes('.execution.is-act .execution-state')),
+    true
+  );
   assert.equal(declared('.execution.is-act .execution-state').get('background'), 'var(--accent-wash)');
   // With reduced motion the bar that waits for the server is not left standing part full.
   const still = '@media (prefers-reduced-motion: reduce)';
@@ -444,10 +490,16 @@ test('a state that asks for somebody has a look of its own, and motion is never 
 test('the steps of an update keep their places from one phase to the next', () => {
   // Seven equal columns. A current step is heavier, not wider, and the last one is not pinned to the edge.
   assert.equal(declared('.step').get('flex'), '1 1 0');
-  assert.equal(rules.some((rule) => rule.selectors.includes('.step.is-current') && rule.values.has('flex-grow')), false);
+  assert.equal(
+    rules.some((rule) => rule.selectors.includes('.step.is-current') && rule.values.has('flex-grow')),
+    false
+  );
   assert.equal(declared('.step').has('transition'), false);
   assert.equal(declared('.step:last-child').has('text-align'), false);
-  assert.equal(rules.some((rule) => rule.selectors.includes('.step:last-child .step-mark')), false);
+  assert.equal(
+    rules.some((rule) => rule.selectors.includes('.step:last-child .step-mark')),
+    false
+  );
   // The rule for the step that cannot be told, in both layouts of the steps.
   assert.equal(declared('.step.is-unknown .step-mark').get('border-style'), 'dashed');
 });
@@ -461,9 +513,18 @@ test('colours mean what they mean inside the upload panel too', () => {
 
 test('what grows with the text is measured in text, not in pixels', () => {
   assert.equal(declared('.flash-row').get('grid-template-columns'), '7rem minmax(0, 0.9fr) minmax(0, 1.5fr)');
-  assert.equal(declared('.flash-row', '@container flash (max-width: 34rem)').get('grid-template-columns'), 'auto minmax(0, 1fr)');
-  assert.equal(declared('.flash-row', '@container flash (max-width: 16rem)').get('grid-template-columns'), 'minmax(0, 1fr)');
-  assert.match(declared('.device-grid', '@container page (min-width: 64rem)').get('--device-columns'), /^minmax\(14\.5rem, 1\.5fr\) minmax\(8\.5rem, 0\.7fr\)/);
+  assert.equal(
+    declared('.flash-row', '@container flash (max-width: 34rem)').get('grid-template-columns'),
+    'auto minmax(0, 1fr)'
+  );
+  assert.equal(
+    declared('.flash-row', '@container flash (max-width: 16rem)').get('grid-template-columns'),
+    'minmax(0, 1fr)'
+  );
+  assert.match(
+    declared('.device-grid', '@container page (min-width: 64rem)').get('--device-columns'),
+    /^minmax\(14\.5rem, 1\.5fr\) minmax\(8\.5rem, 0\.7fr\)/
+  );
   assert.equal(declared('.upload-stage-mark').get('width'), '1.625rem');
   assert.equal(declared('.wizard-number').get('width'), '1.375rem');
   // At large text the sections take more rows, and none is left out of sight in a strip.
@@ -482,7 +543,10 @@ test('what the keyboard moves to stays in view and shows whole', () => {
   // The masthead stands at the top of the window from this width on.
   // In text, not in pixels: it takes more rows at large text.
   assert.equal(declared('html', '@media (min-width: 1141px)').get('scroll-padding-top'), '5rem');
-  assert.equal(declared('.masthead-inner', '@media (min-width: 861px) and (max-width: 1140px)').get('flex-wrap'), 'wrap');
+  assert.equal(
+    declared('.masthead-inner', '@media (min-width: 861px) and (max-width: 1140px)').get('flex-wrap'),
+    'wrap'
+  );
   // A dot list is clipped on the left only: a focus ring in it is not cut off on the other sides.
   assert.match(declared('.dotted').get('clip-path'), /^inset\(-\d+px -\d+px -\d+px 18px\)$/);
   assert.equal(declared('.nav-link').get('padding-inline'), '6px');
@@ -499,7 +563,10 @@ test('what cannot be used is still readable, and looks the same on every kind of
   assert.equal(held.get('color'), 'var(--ink-3)');
   assert.equal(held.get('background'), 'var(--well)');
   assert.equal(held.has('opacity'), false);
-  assert.equal(rules.some((rule) => rule.selectors.includes('.btn[aria-disabled="true"]')), true);
+  assert.equal(
+    rules.some((rule) => rule.selectors.includes('.btn[aria-disabled="true"]')),
+    true
+  );
   // After the looks that it has to win over, at the same specificity.
   assert.equal(css.indexOf('.btn.is-danger {') < css.indexOf('.btn:disabled'), true);
 });
@@ -538,7 +605,8 @@ test('no file of the site contains an e-mail address', () => {
 
 test('a finished update has no room kept for a next phase, and a headline is not hyphenated', () => {
   const stylesheet = readFileSync(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
-  const rule = (selector) => new RegExp(`${selector.replace(/[.:()]/g, '\\$&')}[^{}]*\\{[^}]*\\}`).exec(stylesheet)?.[0] ?? '';
+  const rule = (selector) =>
+    new RegExp(`${selector.replace(/[.:()]/g, '\\$&')}[^{}]*\\{[^}]*\\}`).exec(stylesheet)?.[0] ?? '';
   // Only while an update can still move on: live, waiting for a person, waiting for the board.
   const keeping = rule('.execution.is-live:not(.is-compact) .execution-state');
   assert.match(keeping, /\.execution\.is-act:not\(\.is-compact\) \.execution-state/);
@@ -574,7 +642,10 @@ test('Leaflet is the pinned 1.9.4 of its npm package, with its licence, fetched 
   }
   assert.match(read('assets/leaflet.js'), /^\/\* @preserve\n \* Leaflet 1\.9\.4,/);
   // As the package has it, with CRLF line ends.
-  assert.match(read('assets/leaflet-license.txt'), /^BSD 2-Clause License\r?\n\r?\nCopyright \(c\) 2010-2023, Volodymyr Agafonkin/);
+  assert.match(
+    read('assets/leaflet-license.txt'),
+    /^BSD 2-Clause License\r?\n\r?\nCopyright \(c\) 2010-2023, Volodymyr Agafonkin/
+  );
   // The map's script fetches it from beside itself, from this site, and no other script names it.
   const map = code(sources.get('map.js'));
   assert.match(map, /new URL\('leaflet\.js', import\.meta\.url\)/);

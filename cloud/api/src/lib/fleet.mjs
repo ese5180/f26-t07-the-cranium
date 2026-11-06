@@ -119,15 +119,23 @@ export function selectTargets({ release, candidates, busy = new Map(), nowMs, le
     if (board.type !== release.board) {
       out(board, 'other_type', `An ${boardLabel(board.type)}: this release is for the ${boardLabel(release.board)}`);
     } else if ((board.layout ?? 1) !== (release.layout ?? 1)) {
-      out(board, 'other_layout', `Flash layout ${board.layout ?? 1}: this release is built for layout ${release.layout ?? 1}`);
+      out(
+        board,
+        'other_layout',
+        `Flash layout ${board.layout ?? 1}: this release is built for layout ${release.layout ?? 1}`
+      );
     } else if (board.bluetoothOnly) {
       out(board, 'bluetooth_only');
     } else if (board.version !== null && order === 0) {
       out(board, 'current', `Already runs ${release.version}`);
     } else if (board.version !== null && order > 0) {
-      out(board, older ? 'older_refused' : 'newer', older
-        ? `Runs ${board.version}: a board takes only firmware newer than what it runs, so it would refuse ${release.version}`
-        : `Runs ${board.version}, newer than ${release.version}: a board takes only newer firmware`);
+      out(
+        board,
+        older ? 'older_refused' : 'newer',
+        older
+          ? `Runs ${board.version}: a board takes only firmware newer than what it runs, so it would refuse ${release.version}`
+          : `Runs ${board.version}, newer than ${release.version}: a board takes only newer firmware`
+      );
     } else if (busy.has(board.thing)) {
       out(board, 'busy', `Has another update open (${busy.get(board.thing)})`);
     } else if (leaveOutAway && board.lastSeen === null && !board.online) {
@@ -153,7 +161,7 @@ export function chooseCanary(things, boards, size) {
     const online = Number(right?.online === true) - Number(left?.online === true);
     if (online !== 0) return online;
     const seen = (Date.parse(right?.lastSeen ?? '') || 0) - (Date.parse(left?.lastSeen ?? '') || 0);
-    return seen !== 0 ? seen : (a < b ? -1 : 1);
+    return seen !== 0 ? seen : a < b ? -1 : 1;
   });
   return ranked.slice(0, Math.max(1, size)).sort();
 }
@@ -176,9 +184,14 @@ export function rolloutConfigs({ wave = DEFAULT_WAVE, abortPercent = DEFAULT_ABO
       },
     },
     abort: {
-      criteriaList: [{
-        failureType: 'ALL', action: 'CANCEL', thresholdPercentage: abortPercent, minNumberOfExecutedThings: MIN_EXECUTED,
-      }],
+      criteriaList: [
+        {
+          failureType: 'ALL',
+          action: 'CANCEL',
+          thresholdPercentage: abortPercent,
+          minNumberOfExecutedThings: MIN_EXECUTED,
+        },
+      ],
     },
   };
 }
@@ -223,14 +236,20 @@ export function canaryVerdict(canary, executions) {
 /** The share of a wave's finished boards that failed, was rejected or timed out: { executed, failed, percent }. */
 export function failureShare(executions) {
   const executed = executions.filter((execution) =>
-    ['SUCCEEDED', 'FAILED', 'REJECTED', 'TIMED_OUT'].includes(execution.status)).length;
-  const failed = executions.filter((execution) => ['FAILED', 'REJECTED', 'TIMED_OUT'].includes(execution.status)).length;
+    ['SUCCEEDED', 'FAILED', 'REJECTED', 'TIMED_OUT'].includes(execution.status)
+  ).length;
+  const failed = executions.filter((execution) =>
+    ['FAILED', 'REJECTED', 'TIMED_OUT'].includes(execution.status)
+  ).length;
   return { executed, failed, percent: executed === 0 ? 0 : (100 * failed) / executed };
 }
 
 /** A rollout's id: rol-<yyyymmddThhmmssZ>-<6 hex>, in time order. */
 export function rolloutId(nowMs, hex) {
-  const stamp = new Date(nowMs).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const stamp = new Date(nowMs)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const id = `rol-${stamp}-${hex}`;
   if (!ROLLOUT_ID.test(id)) throw new TypeError('The time or the hex does not make a rollout id');
   return id;
@@ -244,7 +263,8 @@ export function requireRolloutId(value) {
 }
 
 export function requireGroupId(value) {
-  if (typeof value !== 'string' || !GROUP_ID.test(value)) throw badRequest('invalid_group', 'That is not the id of a group.');
+  if (typeof value !== 'string' || !GROUP_ID.test(value))
+    throw badRequest('invalid_group', 'That is not the id of a group.');
   return value;
 }
 
@@ -268,11 +288,17 @@ export function requireWhole(value, name, low, high, fallback) {
 
 /** A stored rollout item as the API shows it, or null if it is not one. */
 export function rolloutFromItem(item) {
-  if (item === null || typeof item !== 'object' || typeof item.id !== 'string' || !ROLLOUT_ID.test(item.id)) return null;
+  if (item === null || typeof item !== 'object' || typeof item.id !== 'string' || !ROLLOUT_ID.test(item.id))
+    return null;
   const list = (value) => (Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : []);
-  const reasons = (value) => (Array.isArray(value) ? value : []).filter((entry) =>
-    typeof entry?.thing === 'string' && typeof entry?.reason === 'string')
-    .map(({ thing, reason, text }) => ({ thing, reason, text: typeof text === 'string' ? text : LEFT_OUT[reason] ?? reason }));
+  const reasons = (value) =>
+    (Array.isArray(value) ? value : [])
+      .filter((entry) => typeof entry?.thing === 'string' && typeof entry?.reason === 'string')
+      .map(({ thing, reason, text }) => ({
+        thing,
+        reason,
+        text: typeof text === 'string' ? text : (LEFT_OUT[reason] ?? reason),
+      }));
   return {
     id: item.id,
     version: item.version,
@@ -311,7 +337,12 @@ export function isOpenRollout(rollout) {
 
 // A result of an update over the air, as the board reported it (lib/events.mjs). An update over
 // Bluetooth, or by USB or another tool, is counted from the update history (lib/updates.mjs updateCounts).
-const JOB_RESULTS = Object.freeze({ succeeded: 'succeeded', failed: 'failed', refused: 'failed', rolled_back: 'rolledBack' });
+const JOB_RESULTS = Object.freeze({
+  succeeded: 'succeeded',
+  failed: 'failed',
+  refused: 'failed',
+  rolled_back: 'rolledBack',
+});
 
 /** How the cloud updates of the last days ended, from the boards' events: { succeeded, failed, rolledBack }. */
 export function updateResults(events) {
@@ -334,9 +365,10 @@ export function versionsByType(boards, newestByType, types) {
       if (board.version === null) unknown += 1;
       else counts.set(board.version, (counts.get(board.version) ?? 0) + 1);
     }
-    const versions = [...counts].sort(([a], [b]) => versionOrder(b, a))
+    const versions = [...counts]
+      .sort(([a], [b]) => versionOrder(b, a))
       .map(([version, count]) => ({ version, count, newest: version === newest }));
-    const onNewest = newest === null ? 0 : counts.get(newest) ?? 0;
+    const onNewest = newest === null ? 0 : (counts.get(newest) ?? 0);
     return {
       type,
       label: boardLabel(type),
@@ -372,16 +404,23 @@ export function attentionReasons(board, device, nowMs) {
   if (device?.stuck && device.stuck.count > 0) {
     reasons.push({
       code: 'stuck',
-      text: `Restarted ${device.stuck.count === 1 ? 'once' : `${device.stuck.count} times`} for being stuck` +
+      text:
+        `Restarted ${device.stuck.count === 1 ? 'once' : `${device.stuck.count} times`} for being stuck` +
         (device.stuck.reason && device.stuck.reason !== 'none' ? ` (${device.stuck.reason})` : ''),
     });
   }
   if (device?.ota && ['failed', 'rolled_back'].includes(device.ota.last)) {
-    reasons.push({ code: 'update_failed', text: device.ota.last === 'rolled_back' ? 'Its last update was rolled back' : 'Its last update failed' });
+    reasons.push({
+      code: 'update_failed',
+      text: device.ota.last === 'rolled_back' ? 'Its last update was rolled back' : 'Its last update failed',
+    });
   }
   const heap = device?.diag?.heap ?? null;
   if (heap !== null && heap.size > 0 && heap.least / heap.size < LOW_HEAP_SHARE) {
-    reasons.push({ code: 'low_memory', text: `Memory ran down to ${Math.round((100 * heap.least) / heap.size)}% free` });
+    reasons.push({
+      code: 'low_memory',
+      text: `Memory ran down to ${Math.round((100 * heap.least) / heap.size)}% free`,
+    });
   }
   if (Number.isInteger(device?.rssi) && device.rssi < WEAK_SIGNAL_DBM && silent === 0) {
     reasons.push({ code: 'weak_signal', text: `Weak Wi-Fi signal (${device.rssi} dBm)` });

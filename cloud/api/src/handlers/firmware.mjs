@@ -34,12 +34,27 @@ import { createHash } from 'node:crypto';
 
 import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import {
-  BOARD_TYPES, BoardTlvError, boardOfImage, isBoardType, isLayout, layoutOfImage, releaseBoard, releaseLayout,
+  BOARD_TYPES,
+  BoardTlvError,
+  boardOfImage,
+  isBoardType,
+  isLayout,
+  layoutOfImage,
+  releaseBoard,
+  releaseLayout,
 } from '../lib/boards.mjs';
 import { ImageError, compareVersions, formatVersion, validateImage } from '../lib/mcuboot.mjs';
 import {
-  MAX_NOTES, MAX_REASON, requireBase64, requireBluetoothName, requireFilename, requireSha256, requireText,
-  requireThing, requireVersion, strictVersion,
+  MAX_NOTES,
+  MAX_REASON,
+  requireBase64,
+  requireBluetoothName,
+  requireFilename,
+  requireSha256,
+  requireText,
+  requireThing,
+  requireVersion,
+  strictVersion,
 } from '../lib/validate.mjs';
 
 // Enough for an image that fills the slot, base64 encoded, with its notes.
@@ -60,7 +75,10 @@ export function versionOfKey(sortKey) {
   const match = typeof sortKey === 'string' ? SORT_KEY.exec(sortKey) : null;
   if (!match) return null;
   return formatVersion({
-    major: Number(match[1]), minor: Number(match[2]), revision: Number(match[3]), build: Number(match[4]),
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    revision: Number(match[3]),
+    build: Number(match[4]),
   });
 }
 
@@ -126,26 +144,33 @@ export function releaseFromItem(item) {
     uploadedBy: person(item.uploadedBy),
     uploadedAt,
     status: active ? 'active' : 'revoked',
-    revoked: active ? null : {
-      by: person(item.revoked?.by),
-      at: text(item.revoked?.at, 40) || uploadedAt,
-      reason: text(item.revoked?.reason, MAX_REASON),
-      enforcedAt: instant(item.revoked?.enforcedAt),
-    },
+    revoked: active
+      ? null
+      : {
+          by: person(item.revoked?.by),
+          at: text(item.revoked?.at, 40) || uploadedAt,
+          reason: text(item.revoked?.reason, MAX_REASON),
+          enforcedAt: instant(item.revoked?.enforcedAt),
+        },
   };
 }
 
 function versionExists(version) {
-  return conflict('version_exists',
-    `Release ${version} already exists. A version is registered once and never replaced.`);
+  return conflict(
+    'version_exists',
+    `Release ${version} already exists. A version is registered once and never replaced.`
+  );
 }
 
 function versionNotNewer(version, highestKey) {
   const highest = versionOfKey(highestKey);
-  return unprocessable('version_not_newer', highest === null
-    ? `Version ${version} is not newer than the releases that already exist.`
-    : `Version ${version} is not newer than ${highest}, the highest version ever ` +
-      'registered. Versions only go up, revoked releases included.');
+  return unprocessable(
+    'version_not_newer',
+    highest === null
+      ? `Version ${version} is not newer than the releases that already exist.`
+      : `Version ${version} is not newer than ${highest}, the highest version ever ` +
+          'registered. Versions only go up, revoked releases included.'
+  );
 }
 
 /**
@@ -158,9 +183,13 @@ function versionNotNewer(version, highestKey) {
  */
 function revokeIncomplete(version, steps, unconfirmed) {
   if (steps.includes('record')) {
-    return new HttpError(500, 'revoke_incomplete', `Release ${version} is revoked: its image is blocked and ` +
-      'its deployments are cancelled. Only the record that this is done could not be written. Revoke it ' +
-      'again to finish.');
+    return new HttpError(
+      500,
+      'revoke_incomplete',
+      `Release ${version} is revoked: its image is blocked and ` +
+        'its deployments are cancelled. Only the record that this is done could not be written. Revoke it ' +
+        'again to finish.'
+    );
   }
   const open = [];
   if (steps.includes('tag')) open.push('its image could not be blocked');
@@ -168,14 +197,18 @@ function revokeIncomplete(version, steps, unconfirmed) {
     if (unconfirmed.length === 0) {
       open.push('its deployments could not be checked');
     } else {
-      const which = unconfirmed.length > 3
-        ? `${unconfirmed.length} deployments`
-        : `${unconfirmed.length === 1 ? 'deployment' : 'deployments'} ${unconfirmed.join(', ')}`;
+      const which =
+        unconfirmed.length > 3
+          ? `${unconfirmed.length} deployments`
+          : `${unconfirmed.length === 1 ? 'deployment' : 'deployments'} ${unconfirmed.join(', ')}`;
       open.push(`${which} could not be confirmed as stopped (a board may still be at work)`);
     }
   }
-  return new HttpError(500, 'revoke_incomplete', `Release ${version} is marked revoked, but ${open.join(' and ')}. ` +
-    'Revoke it again to finish.');
+  return new HttpError(
+    500,
+    'revoke_incomplete',
+    `Release ${version} is marked revoked, but ${open.join(' and ')}. ` + 'Revoke it again to finish.'
+  );
 }
 
 export function createFirmwareHandlers({ aws, config, now, log }, { deployments, fleet = null }) {
@@ -223,7 +256,11 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
       }
       if (data.length !== release.size || createHash('sha256').update(data).digest('hex') !== release.sha256) {
         log({ level: 'error', event: 'stored_image_mismatch', version: version.text });
-        throw new HttpError(500, 'image_mismatch', `The stored image of ${version.text} is not the one that was verified.`);
+        throw new HttpError(
+          500,
+          'image_mismatch',
+          `The stored image of ${version.text} is not the one that was verified.`
+        );
       }
       entry.detail.sha256 = release.sha256;
       const safeName = /^[A-Za-z0-9._+-]{1,64}$/.test(release.filename ?? '') ? release.filename : 'cranium.signed.bin';
@@ -277,10 +314,14 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
         throw conflict('release_revoked', `Release ${version.text} is revoked. Do not send it to a board.`);
       }
       if (release.sha256 !== sha256) {
-        throw conflict('sha256_mismatch', `That image is not the one of release ${version.text}: ` +
-          'its SHA-256 is different. Do not send it to a board.');
+        throw conflict(
+          'sha256_mismatch',
+          `That image is not the one of release ${version.text}: ` +
+            'its SHA-256 is different. Do not send it to a board.'
+        );
       }
-      if (fleet !== null) await fleet.requireBluetoothBoard({ thing, type: type ?? null, layout: layout ?? null }, release);
+      if (fleet !== null)
+        await fleet.requireBluetoothBoard({ thing, type: type ?? null, layout: layout ?? null }, release);
       return { body: { version: release.version, sha256: release.sha256, status: 'active' } };
     },
 
@@ -294,8 +335,7 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
 
       let info;
       try {
-        info = validateImage(image, config.signingKey,
-          { maxSize: config.slotSize, loadAddress: config.loadAddress });
+        info = validateImage(image, config.signingKey, { maxSize: config.slotSize, loadAddress: config.loadAddress });
       } catch (error) {
         if (error instanceof ImageError) throw unprocessable(error.code, error.message);
         throw error;
@@ -317,8 +357,10 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
       entry.detail.board = board;
       entry.detail.layout = String(layout);
       if (info.version === '0.0.0+0') {
-        throw unprocessable('version_zero',
-          'The image has version 0.0.0+0. Set a version when you build the firmware.');
+        throw unprocessable(
+          'version_zero',
+          'The image has version 0.0.0+0. Set a version when you build the firmware.'
+        );
       }
 
       // A version that cannot be registered is refused before the image is stored, so
@@ -359,8 +401,7 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
       if (!registered.ok) {
         if (registered.reason === 'exists') throw versionExists(info.version);
         if (registered.reason === 'not_newer') throw versionNotNewer(info.version, registered.highest);
-        throw conflict('upload_conflict',
-          'Another upload was being registered at the same moment. Try again.');
+        throw conflict('upload_conflict', 'Another upload was being registered at the same moment. Try again.');
       }
       return { status: 201, body: { release } };
     },
@@ -399,7 +440,9 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
 
       // 1. The record: from here on no new deployment of this release can be created.
       const revoked = {
-        by: { sub: actor.sub, email: actor.email }, at: new Date(now()).toISOString(), reason,
+        by: { sub: actor.sub, email: actor.email },
+        at: new Date(now()).toISOString(),
+        reason,
       };
       const marked = await aws.markReleaseRevoked({ sk, revoked });
       if (marked.ok) entry.detail.reason = reason;
@@ -410,7 +453,11 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
       const failed = (step, error) => {
         incomplete.push(step);
         log({
-          level: 'error', event: 'revoke_incomplete', step, version: version.text, error: describeError(error),
+          level: 'error',
+          event: 'revoke_incomplete',
+          step,
+          version: version.text,
+          error: describeError(error),
         });
       };
 
@@ -464,7 +511,12 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
         try {
           release = await findRelease(version);
         } catch (error) {
-          log({ level: 'warn', event: 'release_unreadable', version: version.text, error: describeError(error).message });
+          log({
+            level: 'warn',
+            event: 'release_unreadable',
+            version: version.text,
+            error: describeError(error).message,
+          });
         }
       }
       release ??= { ...existing, status: 'revoked', revoked: { ...(existing.revoked ?? revoked), enforcedAt } };

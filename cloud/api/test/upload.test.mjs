@@ -35,13 +35,18 @@ writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.
 
 function run(args, env) {
   return new Promise((resolve) => {
-    const clean = Object.fromEntries(Object.entries(process.env)
-      .filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('CRANIUM_')));
+    const clean = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('CRANIUM_'))
+    );
     const child = spawn('bash', [SCRIPT, ...args], { env: { ...clean, ...env } });
     let out = '';
     let err = '';
-    child.stdout.on('data', (chunk) => { out += chunk; });
-    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      err += chunk;
+    });
     child.on('close', (status) => resolve({ status, out, err }));
   });
 }
@@ -59,7 +64,9 @@ async function consoleServer(t) {
     seen.push(`${request.method} ${request.url}`);
     console_.advance(5000);
     const headers = request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization };
-    const answer = await console_.app(apiEvent(request.method, request.url, { headers, body: body === '' ? undefined : body }));
+    const answer = await console_.app(
+      apiEvent(request.method, request.url, { headers, body: body === '' ? undefined : body })
+    );
     response.writeHead(answer.statusCode, answer.headers);
     response.end(answer.body);
   });
@@ -67,16 +74,22 @@ async function consoleServer(t) {
   t.after(() => server.close());
   const token = async (as) => (await console_.call('POST', '/api/tokens', { as, body: { name: 'builds' } })).body.token;
   return {
-    console_, seen, url: `http://127.0.0.1:${server.address().port}`,
-    managerToken: await token(manager), viewerToken: await token(viewer),
+    console_,
+    seen,
+    url: `http://127.0.0.1:${server.address().port}`,
+    managerToken: await token(manager),
+    viewerToken: await token(viewer),
   };
 }
 
 test('an image is uploaded, and only uploaded: nothing is deployed', { skip }, async (t) => {
   const { console_, seen, url, managerToken } = await consoleServer(t);
   const home = mkdtempSync(join(work, 'home-'));
-  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'],
-    { HOME: home, CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
+  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'], {
+    HOME: home,
+    CRANIUM_TOKEN: managerToken,
+    CRANIUM_CONSOLE_URL: url,
+  });
   assert.equal(status, 0, `${out}\n${err}`);
   assert.match(out, /Uploaded release 1\.2\.3\+4\./);
   assert.deepEqual(seen, ['POST /api/t/firmware']);
@@ -89,11 +102,17 @@ test('an image is uploaded, and only uploaded: nothing is deployed', { skip }, a
 test("the note is the version's changelog entry, with the given note after it in brackets", { skip }, async (t) => {
   const { console_, url, managerToken } = await consoleServer(t);
   const home = mkdtempSync(join(work, 'home-'));
-  writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.2.3\n\nThe board blinks\nfaster.\n\nMore detail that is not\nthe note.\n\n'
-    + '## 1.0.0\n\nThe first release.\n');
+  writeFileSync(
+    CHANGELOG,
+    '# Firmware changelog\n\n## 1.2.3\n\nThe board blinks\nfaster.\n\nMore detail that is not\nthe note.\n\n' +
+      '## 1.0.0\n\nThe first release.\n'
+  );
   t.after(() => writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.\n'));
-  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'],
-    { HOME: home, CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
+  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'], {
+    HOME: home,
+    CRANIUM_TOKEN: managerToken,
+    CRANIUM_CONSOLE_URL: url,
+  });
   assert.equal(status, 0, `${out}\n${err}`);
   const [release] = console_.fake.releases.values();
   assert.equal(release.notes, 'The board blinks faster. (Built by scripts/build.sh from commit abc1234)');
@@ -128,25 +147,33 @@ test('a token file others can read is refused before anything is sent', { skip }
   assert.deepEqual(seen, []);
 });
 
-test('a viewer\'s token, and an image signed with another key, are refused with the console\'s words', { skip }, async (t) => {
-  const { console_, url, managerToken, viewerToken } = await consoleServer(t);
-  const home = mkdtempSync(join(work, 'home-'));
-  const viewer = await run([IMAGE], { HOME: home, CRANIUM_TOKEN: viewerToken, CRANIUM_CONSOLE_URL: url });
-  assert.equal(viewer.status, 1);
-  assert.match(viewer.err, /refused the upload \(403\)/);
+test(
+  "a viewer's token, and an image signed with another key, are refused with the console's words",
+  { skip },
+  async (t) => {
+    const { console_, url, managerToken, viewerToken } = await consoleServer(t);
+    const home = mkdtempSync(join(work, 'home-'));
+    const viewer = await run([IMAGE], { HOME: home, CRANIUM_TOKEN: viewerToken, CRANIUM_CONSOLE_URL: url });
+    assert.equal(viewer.status, 1);
+    assert.match(viewer.err, /refused the upload \(403\)/);
 
-  const copy = join(work, 'other.signed.bin');
-  copyFileSync(OTHER, copy);
-  const other = await run([copy], { HOME: home, CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
-  assert.equal(other.status, 1);
-  assert.match(other.err, /refused the upload \(422\)/);
-  assert.equal(console_.fake.releases.size, 0);
-});
+    const copy = join(work, 'other.signed.bin');
+    copyFileSync(OTHER, copy);
+    const other = await run([copy], { HOME: home, CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
+    assert.equal(other.status, 1);
+    assert.match(other.err, /refused the upload \(422\)/);
+    assert.equal(console_.fake.releases.size, 0);
+  }
+);
 
 test('only https, except for the preview on this computer', { skip }, async () => {
   const home = mkdtempSync(join(work, 'home-'));
   const token = `crn_${'A'.repeat(43)}`;
-  const { status, err } = await run([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
+  const { status, err } = await run([IMAGE], {
+    HOME: home,
+    CRANIUM_TOKEN: token,
+    CRANIUM_CONSOLE_URL: 'http://console.example.com',
+  });
   assert.equal(status, 1);
   assert.match(err, /must start with https:\/\//);
 });

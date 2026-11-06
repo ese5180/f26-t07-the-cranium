@@ -108,7 +108,10 @@ import { withConsoleScope } from '../api/src/signin-scope.mjs';
 import { parseBundledVersions } from '../api/src/lib/versions.mjs';
 import { accessClaims, createFakeAws, fakeEnv, fixture } from '../api/test/fake-aws.mjs';
 import {
-  CUSTOMER_CLIENT_ID, CUSTOMER_POOL_ID, createFakeCustomers, customerClaims,
+  CUSTOMER_CLIENT_ID,
+  CUSTOMER_POOL_ID,
+  createFakeCustomers,
+  customerClaims,
 } from '../api/test/fake-customers.mjs';
 import { buildImage, imageKey, keyEnv } from '../api/test/images.mjs';
 import { buildVersions } from '../web/build-versions.mjs';
@@ -231,8 +234,10 @@ export class UsageError extends Error {
  */
 function requireLoopback(host) {
   if (typeof host !== 'string' || !isIPv4(host) || !host.startsWith('127.')) {
-    throw new UsageError(`The preview only listens on a loopback address (127.x.x.x), not on "${host}": ` +
-      'it has no real sign-in and must not be reachable from another computer.');
+    throw new UsageError(
+      `The preview only listens on a loopback address (127.x.x.x), not on "${host}": ` +
+        'it has no real sign-in and must not be reachable from another computer.'
+    );
   }
 }
 
@@ -311,7 +316,11 @@ function gatewayEvent({ routeKey, method, path, query, headers, host, body = nul
     requestContext: {
       domainName: host,
       http: {
-        method, path, protocol: 'HTTP/1.1', sourceIp: DEFAULT_HOST, userAgent: headers['user-agent'] ?? '',
+        method,
+        path,
+        protocol: 'HTTP/1.1',
+        sourceIp: DEFAULT_HOST,
+        userAgent: headers['user-agent'] ?? '',
       },
       // An id of the kind API Gateway gives each request.
       requestId: randomBytes(11).toString('base64'),
@@ -353,14 +362,16 @@ function gatewayEvent({ routeKey, method, path, query, headers, host, body = nul
  *                                         client, or by the access token of a customer's own call
  */
 function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirectUri, now, customerPool = null }) {
-  const codes = new Map();          // code -> { challenge, scopes, expiresAt }
-  const sessions = new Map();       // access token -> { scopes, expiresAt, user }
+  const codes = new Map(); // code -> { challenge, scopes, expiresAt }
+  const sessions = new Map(); // access token -> { scopes, expiresAt, user }
   const refreshTokens = new Set();
 
   const seconds = () => Math.floor(now() / 1000);
   const secret = () => randomBytes(32).toString('base64url');
   const sealed = Object.freeze({
-    'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
   });
 
   function forget() {
@@ -381,12 +392,17 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
    * like Cognito, the stand-in names the console's origin as the one that is allowed.
    */
   function reply(response, status, body) {
-    send(response, status, {
-      ...sealed,
-      'content-type': 'application/json;charset=UTF-8',
-      'access-control-allow-origin': consoleOrigin(),
-      vary: 'origin',
-    }, body === null ? '' : JSON.stringify(body));
+    send(
+      response,
+      status,
+      {
+        ...sealed,
+        'content-type': 'application/json;charset=UTF-8',
+        'access-control-allow-origin': consoleOrigin(),
+        vary: 'origin',
+      },
+      body === null ? '' : JSON.stringify(body)
+    );
   }
 
   function authorize(response, query) {
@@ -439,7 +455,9 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     // A code is good for one attempt, whatever comes of it.
     codes.delete(code);
     const verifier = form.get('code_verifier') ?? '';
-    const proven = grant !== undefined && VERIFIER.test(verifier) &&
+    const proven =
+      grant !== undefined &&
+      VERIFIER.test(verifier) &&
       createHash('sha256').update(verifier).digest('base64url') === grant.challenge;
     if (!proven || grant.expiresAt <= seconds() || form.get('redirect_uri') !== redirectUri()) {
       reply(response, 400, { error: 'invalid_grant' });
@@ -450,7 +468,12 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     const accessToken = secret();
     const refreshToken = secret();
     // When the person signed in, as the token's auth_time says: what the activity log records a sign-in by.
-    sessions.set(accessToken, { scopes: grant.scopes, expiresAt: seconds() + TOKEN_SECONDS, user, authTime: seconds() });
+    sessions.set(accessToken, {
+      scopes: grant.scopes,
+      expiresAt: seconds() + TOKEN_SECONDS,
+      user,
+      authTime: seconds(),
+    });
     refreshTokens.add(refreshToken);
     // Cognito answers with these five. The console wants only the access token.
     reply(response, 200, {
@@ -489,29 +512,39 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
    * Cognito would give it after the real sign-in trigger has had its say.
    */
   function issue(person) {
-    const event = withConsoleScope({
-      version: '2',
-      triggerSource: 'TokenGeneration_Authentication',
-      region: userPoolId.split('_')[0],
-      userPoolId,
-      userName: person.userId,
-      callerContext: { awsSdkVersion: 'aws-sdk-unknown-unknown', clientId },
-      request: {
-        userAttributes: { sub: person.userId, email: person.email, email_verified: 'true' },
-        groupConfiguration: { groupsToOverride: [...person.groups], iamRolesToOverride: [], preferredRole: null },
-        scopes: [...USER_POOL_API_SCOPES],
+    const event = withConsoleScope(
+      {
+        version: '2',
+        triggerSource: 'TokenGeneration_Authentication',
+        region: userPoolId.split('_')[0],
+        userPoolId,
+        userName: person.userId,
+        callerContext: { awsSdkVersion: 'aws-sdk-unknown-unknown', clientId },
+        request: {
+          userAttributes: { sub: person.userId, email: person.email, email_verified: 'true' },
+          groupConfiguration: { groupsToOverride: [...person.groups], iamRolesToOverride: [], preferredRole: null },
+          scopes: [...USER_POOL_API_SCOPES],
+        },
+        response: { claimsAndScopeOverrideDetails: null },
       },
-      response: { claimsAndScopeOverrideDetails: null },
-    }, clientId);
+      clientId
+    );
     const change = event.response.claimsAndScopeOverrideDetails?.accessTokenGeneration ?? {};
-    const scopes = [...new Set([
-      ...USER_POOL_API_SCOPES.filter((scope) => !(change.scopesToSuppress ?? []).includes(scope)),
-      ...(change.scopesToAdd ?? []),
-    ])];
+    const scopes = [
+      ...new Set([
+        ...USER_POOL_API_SCOPES.filter((scope) => !(change.scopesToSuppress ?? []).includes(scope)),
+        ...(change.scopesToAdd ?? []),
+      ]),
+    ];
     forget();
     const accessToken = secret();
     const refreshToken = secret();
-    sessions.set(accessToken, { scopes, expiresAt: seconds() + TOKEN_SECONDS, user: person.local, authTime: seconds() });
+    sessions.set(accessToken, {
+      scopes,
+      expiresAt: seconds() + TOKEN_SECONDS,
+      user: person.local,
+      authTime: seconds(),
+    });
     refreshTokens.add(refreshToken);
     return { AccessToken: accessToken, ExpiresIn: TOKEN_SECONDS, RefreshToken: refreshToken, IdToken: secret() };
   }
@@ -520,7 +553,12 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     userPoolId,
     clientId,
     users: Object.values(USERS).map((local) => ({
-      email: local.email, userId: local.sub, password: PREVIEW_PASSWORD, code: PREVIEW_CODE, groups: local.groups, local,
+      email: local.email,
+      userId: local.sub,
+      password: PREVIEW_PASSWORD,
+      code: PREVIEW_CODE,
+      groups: local.groups,
+      local,
     })),
     now,
     issue,
@@ -549,7 +587,10 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
       call = null;
     }
     const operation = target?.[1];
-    const ofCustomer = customerPool !== null && call !== null && typeof call === 'object' &&
+    const ofCustomer =
+      customerPool !== null &&
+      call !== null &&
+      typeof call === 'object' &&
       (call.ClientId === CUSTOMER_CLIENT_ID || (call.ClientId === undefined && typeof call.AccessToken === 'string'));
     let reply;
     if (call === null || typeof call !== 'object') {
@@ -565,9 +606,17 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     }
     const { status, body: answer } = reply;
     // Its own clock in the Date header, as Cognito's answers carry Cognito's.
-    send(response, status, {
-      ...sealed, ...crossOrigin(), 'content-type': IDP_JSON, date: new Date(now()).toUTCString(),
-    }, JSON.stringify(answer));
+    send(
+      response,
+      status,
+      {
+        ...sealed,
+        ...crossOrigin(),
+        'content-type': IDP_JSON,
+        date: new Date(now()).toUTCString(),
+      },
+      JSON.stringify(answer)
+    );
   }
 
   return {
@@ -636,10 +685,21 @@ function previewId(what, length) {
  */
 function createBoard(fake, thing, version, say) {
   const board = {
-    thing, version, powered: false, state: 'idle', job: null, target: null, progress: 0,
-    last: 'none', error: '', rssi: -52,
+    thing,
+    version,
+    powered: false,
+    state: 'idle',
+    job: null,
+    target: null,
+    progress: 0,
+    last: 'none',
+    error: '',
+    rssi: -52,
     // What later firmware reports beside the heartbeat (firmware/README.md); none by default.
-    stuck: null, diag: null, diary: null, bt: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
     // How the signal and the heap move while time goes by: (board, at) => void, or null.
     wander: null,
   };
@@ -659,7 +719,11 @@ function createBoard(fake, thing, version, say) {
       fw: { version: board.version, confirmed: true },
       // AWS IoT deletes a key whose value is null, so an idle board has no ota.job.
       ota: {
-        state: board.state, job: board.job, progress: board.progress, last: board.last, error: board.error,
+        state: board.state,
+        job: board.job,
+        progress: board.progress,
+        last: board.last,
+        error: board.error,
       },
       wifi: { rssi: board.rssi },
       ...(board.stuck === null ? {} : { stuck: board.stuck }),
@@ -784,7 +848,10 @@ function createBoard(fake, thing, version, say) {
       board.disconnect();
       if (stuck !== null) board.stuck = stuck;
       if (board.diary !== null) {
-        board.diary = { boots: board.diary.boots + 1, log: [...board.diary.log, `${board.version}/${cause}/4`].slice(-8) };
+        board.diary = {
+          boots: board.diary.boots + 1,
+          log: [...board.diary.log, `${board.version}/${cause}/4`].slice(-8),
+        };
       }
       if (board.diag?.heap) board.diag = { ...board.diag, heap: { ...board.diag.heap, least: board.diag.heap.free } };
       board.connect(5);
@@ -883,11 +950,15 @@ function createBoard(fake, thing, version, say) {
       if (kept) board.version = board.target;
       // If the job was cancelled meanwhile nobody takes this answer; the board runs
       // what it runs all the same.
-      update(kept ? 'SUCCEEDED' : 'FAILED',
-        kept ? { running: board.version } : { reason: 'rolled_back', running: board.version });
-      say(kept
-        ? `${thing}: runs ${board.version} and has confirmed it`
-        : `${thing}: the bootloader put ${board.version} back`);
+      update(
+        kept ? 'SUCCEEDED' : 'FAILED',
+        kept ? { running: board.version } : { reason: 'rolled_back', running: board.version }
+      );
+      say(
+        kept
+          ? `${thing}: runs ${board.version} and has confirmed it`
+          : `${thing}: the bootloader put ${board.version} back`
+      );
       enter('idle');
       board.job = null;
       board.target = null;
@@ -987,15 +1058,16 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     const answer = JSON.parse(result.body);
     const outcome = result.statusCode === 200 || result.statusCode === 201 ? 'ok' : answer.error?.code;
     if (outcome !== expected) {
-      throw new Error(`The scenario could not be built: ${method} ${path} answered ` +
-        `${result.statusCode} ${outcome}, not ${expected}`);
+      throw new Error(
+        `The scenario could not be built: ${method} ${path} answered ` +
+          `${result.statusCode} ${outcome}, not ${expected}`
+      );
     }
     return answer;
   }
 
   // A build always produces zephyr.signed.bin, whatever the fixture is called.
-  const image = (file, notes) =>
-    ({ filename: 'zephyr.signed.bin', notes, data: fixture(file).toString('base64') });
+  const image = (file, notes) => ({ filename: 'zephyr.signed.bin', notes, data: fixture(file).toString('base64') });
 
   return {
     /** Go to the moment that lay this long before the preview started, e.g. "2h50m". */
@@ -1025,7 +1097,8 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     provision(number, version, { type = null } = {}) {
       const thing = `cranium-${previewId(`board ${number}`, 16)}`;
       fake.addThing(thing, {
-        certificates: [previewId(`certificate ${number}`, 64)], attributes: type === null ? {} : { board: type },
+        certificates: [previewId(`certificate ${number}`, 64)],
+        attributes: type === null ? {} : { board: type },
       });
       const board = createBoard(fake, thing, version, say);
       boards.push(board);
@@ -1042,17 +1115,28 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
      */
     async publishApp(version, versionCode, notes) {
       const bytes = Buffer.from(`PK\u0003\u0004 A stand-in for cranium-android-${version}.apk, made by the preview.\n`);
-      const described = { versionCode, sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, notes };
+      const described = {
+        versionCode,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        size: bytes.length,
+        notes,
+      };
       const { upload } = await request('POST', '/api/apps/android/uploads', { version, ...described }, 'ok');
       const sent = fake.s3Request({ method: 'PUT', url: upload.url, headers: upload.headers, body: bytes });
-      if (sent.status !== 200) throw new Error(`The scenario could not be built: S3 answered ${sent.status} for ${version}`);
+      if (sent.status !== 200)
+        throw new Error(`The scenario could not be built: S3 answered ${sent.status} for ${version}`);
       await request('POST', `/api/apps/android/releases/${version}`, described, 'ok');
     },
 
     /** An image made for the scenario (api/test/images.mjs), for a board type, signed with its key. */
     async uploadBuilt(version, board, notes) {
       const data = buildImage({ version, key: FLEET_KEY, board, fill: Number.parseInt(previewId(version, 2), 16) });
-      await request('POST', '/api/firmware', { filename: 'zephyr.signed.bin', notes, data: data.toString('base64') }, 'ok');
+      await request(
+        'POST',
+        '/api/firmware',
+        { filename: 'zephyr.signed.bin', notes, data: data.toString('base64') },
+        'ok'
+      );
     },
 
     /** What a phone app posts once it has connected to a board over Bluetooth. */
@@ -1091,7 +1175,12 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     async outsideJob(name, board, status, details) {
       const jobId = `cranium-bench-${name}`;
       await fake.createJob({
-        jobId, things: [board.thing], document: '{}', description: '{}', urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+        jobId,
+        things: [board.thing],
+        document: '{}',
+        description: '{}',
+        urlExpiresInSec: 600,
+        inProgressTimeoutMinutes: 30,
       });
       fake.execution(jobId, board.thing).update(status, { running: board.version, ...details });
     },
@@ -1146,7 +1235,12 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     },
 
     async assign(customer, board, label = '') {
-      await request('POST', `/api/customers/${customer.id}/boards`, label ? { thing: board.thing, label } : { thing: board.thing }, 'ok');
+      await request(
+        'POST',
+        `/api/customers/${customer.id}/boards`,
+        label ? { thing: board.thing, label } : { thing: board.thing },
+        'ok'
+      );
     },
 
     /** The temporary password the invitation's e-mail would have carried. */
@@ -1335,7 +1429,11 @@ async function fleet(stage) {
   stage.ago('2h20m');
   await stage.uploadBuilt('1.13.0+0', 'nrf7002dk', 'Reconnects to AWS IoT within seconds of the Wi-Fi coming back.');
   stage.ago('2h15m');
-  await stage.uploadBuilt('1.13.0+1', 'nrf5340dk', 'The first build for the nRF5340 DK: Bluetooth only, updated from the phone app.');
+  await stage.uploadBuilt(
+    '1.13.0+1',
+    'nrf5340dk',
+    'The first build for the nRF5340 DK: Bluetooth only, updated from the phone app.'
+  );
   stage.ago('2h10m');
   await stage.seen(fourth, '1.13.0+1', 'Cranium-4D21');
   stage.ago('1h50m');
@@ -1393,7 +1491,9 @@ async function customerSite(stage) {
  * manager's build publishes them, with their notes from apps/android/CHANGELOG.md.
  */
 async function androidReleases(stage) {
-  const notes = new Map((versionsOfRepository()?.changelogs.android ?? []).map((entry) => [entry.version, entry.note.slice(0, 500)]));
+  const notes = new Map(
+    (versionsOfRepository()?.changelogs.android ?? []).map((entry) => [entry.version, entry.note.slice(0, 500)])
+  );
   stage.ago('4m');
   await stage.publishApp('0.3.0', 3, notes.get('0.3.0') ?? '');
   stage.ago('2m');
@@ -1423,14 +1523,28 @@ const CAMPUS = Object.freeze({
   singh: [39.95262, -75.18888],
   pennovation: [39.94063, -75.20178],
 });
-const CAMPUS_APS = Object.freeze(Object.fromEntries(Object.entries(CAMPUS).flatMap(([, [lat, lon]], building) =>
-  [[0, 0], [0.00018, -0.00022], [-0.00014, 0.00025]].map(([dLat, dLon], index) =>
-    [`00:00:5e:ef:10:${(building * 16 + index).toString(16).padStart(2, '0')}`, { lat: lat + dLat, lon: lon + dLon }]))));
+const CAMPUS_APS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CAMPUS).flatMap(([, [lat, lon]], building) =>
+      [
+        [0, 0],
+        [0.00018, -0.00022],
+        [-0.00014, 0.00025],
+      ].map(([dLat, dLon], index) => [
+        `00:00:5e:ef:10:${(building * 16 + index).toString(16).padStart(2, '0')}`,
+        { lat: lat + dLat, lon: lon + dLon },
+      ])
+    )
+  )
+);
 
 /** What a board hears in a building: its three access points, strongest first. */
 function heard(building, rss = [-48, -61, -70]) {
   const at = Object.keys(CAMPUS).indexOf(building) * 16;
-  return rss.map((value, index) => ({ mac: `00:00:5e:ef:10:${(at + index).toString(16).padStart(2, '0')}`, rss: value }));
+  return rss.map((value, index) => ({
+    mac: `00:00:5e:ef:10:${(at + index).toString(16).padStart(2, '0')}`,
+    rss: value,
+  }));
 }
 
 /**
@@ -1459,7 +1573,12 @@ async function campusMap(stage, third) {
   await stage.locate(basement, heard('levine', [-88]));
   await stage.checkAlerts();
   stage.ago('30m');
-  await stage.locate(bench, heard('levine', [-52, -58, -74]).slice(0, 2).concat(heard('towne', [-80]).slice(0, 1)));
+  await stage.locate(
+    bench,
+    heard('levine', [-52, -58, -74])
+      .slice(0, 2)
+      .concat(heard('towne', [-80]).slice(0, 1))
+  );
   await stage.checkAlerts();
   stage.ago('15m');
   await stage.locate(demo, heard('pennovation', [-45, -57, -69]));
@@ -1476,7 +1595,8 @@ async function campusMap(stage, third) {
 function answerCommand(fake, board, payload, say) {
   if (!board?.powered || compareVersions(parseVersion(board.version), parseVersion('1.13.0+0')) < 0) return;
   if (payload.cmd === 'identify') {
-    const seconds = Number.isInteger(payload.seconds) && payload.seconds >= 1 && payload.seconds <= 60 ? payload.seconds : 15;
+    const seconds =
+      Number.isInteger(payload.seconds) && payload.seconds >= 1 && payload.seconds <= 60 ? payload.seconds : 15;
     board.log('CMD', `identify for ${seconds} s (${payload.id})`);
     say(`${board.thing}: blinks LED1 and LED2 for ${seconds} s`);
   } else if (payload.cmd === 'report') {
@@ -1484,7 +1604,10 @@ function answerCommand(fake, board, payload, say) {
     board.log('CMD', `report: heartbeat, diagnostics and a location scan (${payload.id})`);
     if (board.aps) fake.locate(board.thing, { aps: board.aps, boot: 1, t: 61_000 }).catch(() => {});
     say(`${board.thing}: reports at once`);
-  } else if (payload.cmd === 'memfault' && compareVersions(parseVersion(board.version), parseVersion('1.14.0+0')) >= 0) {
+  } else if (
+    payload.cmd === 'memfault' &&
+    compareVersions(parseVersion(board.version), parseVersion('1.14.0+0')) >= 0
+  ) {
     // From 1.14.0 (docs/memfault.md): a Memfault heartbeat now, and its chunks to the forwarder. The preview
     // has no forwarder, so only the answer shows.
     board.log('CMD', `memfault: heartbeat taken, sending its data (${payload.id})`);
@@ -1577,14 +1700,16 @@ export const SCENARIOS = Object.freeze({
     },
   },
   fleet: {
-    summary: 'Five boards over two days, two of them nRF5340 DKs: every kind of event, diagnostics, groups and a ' +
+    summary:
+      'Five boards over two days, two of them nRF5340 DKs: every kind of event, diagnostics, groups and a ' +
       'staged rollout. For the Events, Diagnostics and Fleet pages.',
     build: fleet,
     // Its images are built and signed with a key of the run (api/test/images.mjs), which this console trusts.
     env: keyEnv(FLEET_KEY),
   },
   customers: {
-    summary: 'The fleet, with customers: Ada has two boards, Ben one, Cleo an unused invitation, and the rest nobody has.',
+    summary:
+      'The fleet, with customers: Ada has two boards, Ben one, Cleo an unused invitation, and the rest nobody has.',
     build: customerSite,
     env: keyEnv(FLEET_KEY),
   },
@@ -1671,13 +1796,21 @@ export const SCENARIOS = Object.freeze({
  * @param {() => number} [options.now]  the clock, epoch milliseconds
  */
 export async function createPreview({
-  scenario = 'empty', viewer = false, live = false, home = false, customer = false, repeatedCancel = 'refused',
-  host = DEFAULT_HOST, port = DEFAULT_PORT, log = () => {}, say = () => {}, now = Date.now,
+  scenario = 'empty',
+  viewer = false,
+  live = false,
+  home = false,
+  customer = false,
+  repeatedCancel = 'refused',
+  host = DEFAULT_HOST,
+  port = DEFAULT_PORT,
+  log = () => {},
+  say = () => {},
+  now = Date.now,
 } = {}) {
   requireLoopback(host);
   if (!Object.hasOwn(SCENARIOS, scenario)) {
-    throw new UsageError(
-      `There is no scenario "${scenario}". Choose from: ${Object.keys(SCENARIOS).join(', ')}.`);
+    throw new UsageError(`There is no scenario "${scenario}". Choose from: ${Object.keys(SCENARIOS).join(', ')}.`);
   }
   if (!Number.isInteger(port) || port < 0 || port > 65534) {
     throw new UsageError('The port must be a number from 0 to 65534.');
@@ -1721,17 +1854,29 @@ export async function createPreview({
   const customerApp = createCustomerApp({
     aws: { getShadow: fake.getShadow, queryEvents: fake.queryEvents, ...customers },
     config: Object.freeze({
-      region: 'us-east-1', stateTable: 'local-state', eventsTable: 'local-events', customerPoolId: CUSTOMER_POOL_ID,
-      customerClientId: CUSTOMER_CLIENT_ID, issuer: issuerOf(CUSTOMER_POOL_ID),
+      region: 'us-east-1',
+      stateTable: 'local-state',
+      eventsTable: 'local-events',
+      customerPoolId: CUSTOMER_POOL_ID,
+      customerClientId: CUSTOMER_CLIENT_ID,
+      issuer: issuerOf(CUSTOMER_POOL_ID),
     }),
     now: clock.now,
     log: (line) => log({ function: 'customer-api', ...line }),
   });
   const customerPool = createCustomerCognito({
-    userPoolId: CUSTOMER_POOL_ID, clientId: CUSTOMER_CLIENT_ID, directory: customers.directory(), now,
+    userPoolId: CUSTOMER_POOL_ID,
+    clientId: CUSTOMER_CLIENT_ID,
+    directory: customers.directory(),
+    now,
   });
   // The schedule that moves staged rollouts on (api/src/tick.mjs): every minute, and when a scenario says.
-  const tick = createRolloutTick({ aws: fake, config, now: clock.now, log: (line) => log({ function: 'rollouts', ...line }) });
+  const tick = createRolloutTick({
+    aws: fake,
+    config,
+    now: clock.now,
+    log: (line) => log({ function: 'rollouts', ...line }),
+  });
   for (const { sub, email, groups } of Object.values(USERS)) {
     fake.addUser({ sub, email, groups: [...groups] });
   }
@@ -1765,9 +1910,18 @@ export async function createPreview({
       exp: expiresAt ?? Math.floor(now() / 1000) + TOKEN_SECONDS,
       authTime,
     });
-    return app(gatewayEvent({
-      routeKey: { GET: API_READ, PUT: API_PUT }[method] ?? API_WRITE, method, path, query, headers, host: consoleHost, body, claims,
-    }));
+    return app(
+      gatewayEvent({
+        routeKey: { GET: API_READ, PUT: API_PUT }[method] ?? API_WRITE,
+        method,
+        path,
+        query,
+        headers,
+        host: consoleHost,
+        body,
+        claims,
+      })
+    );
   }
 
   /** The console's origin: what API Gateway is in production. */
@@ -1820,7 +1974,15 @@ export async function createPreview({
         sendGateway(response, 401, 'Unauthorized', { 'www-authenticate': 'Bearer' });
         return;
       }
-      const event = gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, claims: customerClaims({ sub: held.sub }) });
+      const event = gatewayEvent({
+        routeKey,
+        method,
+        path,
+        query,
+        headers,
+        host: consoleHost,
+        claims: customerClaims({ sub: held.sub }),
+      });
       sendResult(response, await customerApp(event));
     } else if (routeKey === API_SIDESTORE) {
       sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost })));
@@ -1831,15 +1993,28 @@ export async function createPreview({
         sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
         return;
       }
-      sendResult(response, await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, body })));
+      sendResult(
+        response,
+        await app(gatewayEvent({ routeKey, method, path, query, headers, host: consoleHost, body }))
+      );
     } else if (routeKey !== API_READ && routeKey !== API_WRITE && routeKey !== API_PUT) {
       const named = customer ? CUSTOMER_HOST : home ? HOME_HOST : consoleHost;
       const event = gatewayEvent({ routeKey, method, path, query, headers, host: named });
       const result = await web(event);
       // versions.json, which cloud/deploy.sh writes into the site when it deploys: where this checkout has
       // none, the one it would write.
-      if (result.statusCode === 404 && !home && versions !== null && /^\/assets\/[0-9a-f]{12}\/versions\.json$/.test(path)) {
-        send(response, 200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, JSON.stringify(versions));
+      if (
+        result.statusCode === 404 &&
+        !home &&
+        versions !== null &&
+        /^\/assets\/[0-9a-f]{12}\/versions\.json$/.test(path)
+      ) {
+        send(
+          response,
+          200,
+          { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+          JSON.stringify(versions)
+        );
         return;
       }
       sendResult(response, result);
@@ -1861,10 +2036,19 @@ export async function createPreview({
         return;
       }
       // Whoever signed in: on the console's own page, either local user.
-      sendResult(response,
+      sendResult(
+        response,
         await callApi({
-          method, path, query, headers, body, user: session.user, expiresAt: session.expiresAt, authTime: session.authTime,
-        }));
+          method,
+          path,
+          query,
+          headers,
+          body,
+          user: session.user,
+          expiresAt: session.expiresAt,
+          authTime: session.authTime,
+        })
+      );
     }
   }
 
@@ -1909,7 +2093,13 @@ export async function createPreview({
     fake.setS3Endpoint(`http://${consoleHost}/local-s3`);
     loginHost = `${host}:${await listen(loginServer, port === 0 ? 0 : port + 1)}`;
     const stage = createStage({
-      fake, clock, boards, callApi, tick, say: (text) => narrate(text), customers: { store: customers, pool: customerPool },
+      fake,
+      clock,
+      boards,
+      callApi,
+      tick,
+      say: (text) => narrate(text),
+      customers: { store: customers, pool: customerPool },
     });
     await SCENARIOS[scenario].build(stage);
     stage.catchUp();
@@ -1937,35 +2127,55 @@ export async function createPreview({
   });
 
   let beats = 0;
-  timers.push(setInterval(() => {
-    beats += 1;
-    // Every tenth heartbeat is 5 minutes on: the diagnostics report of the boards that send one.
-    for (const board of boards) {
-      if (beats % 10 === 0) board.passTime(clock.now());
-      else board.heartbeat();
-    }
-    // The stand-ins keep every call for tests to look at. Nobody looks here.
-    fake.calls.length = 0;
-    customers.calls.length = 0;
-    customerPool.calls.length = 0;
-  }, HEARTBEAT_MS));
-  timers.push(setInterval(() => {
-    tick().catch((error) => log({ level: 'error', event: 'rollouts_not_advanced', error: String(error?.stack ?? error) }));
-  }, ROLLOUT_TICK_MS));
+  timers.push(
+    setInterval(() => {
+      beats += 1;
+      // Every tenth heartbeat is 5 minutes on: the diagnostics report of the boards that send one.
+      for (const board of boards) {
+        if (beats % 10 === 0) board.passTime(clock.now());
+        else board.heartbeat();
+      }
+      // The stand-ins keep every call for tests to look at. Nobody looks here.
+      fake.calls.length = 0;
+      customers.calls.length = 0;
+      customerPool.calls.length = 0;
+    }, HEARTBEAT_MS)
+  );
+  timers.push(
+    setInterval(() => {
+      tick().catch((error) =>
+        log({ level: 'error', event: 'rollouts_not_advanced', error: String(error?.stack ?? error) })
+      );
+    }, ROLLOUT_TICK_MS)
+  );
   if (live) {
-    timers.push(setInterval(() => {
-      for (const board of boards) board.tick();
-    }, LIVE_TICK_MS));
+    timers.push(
+      setInterval(() => {
+        for (const board of boards) board.tick();
+      }, LIVE_TICK_MS)
+    );
   }
   // The boards answer the console's commands, and the alerts are checked every 5 minutes, as when deployed.
-  fake.onCommand((thing, payload) => answerCommand(fake, boards.find((board) => board.thing === thing), payload, narrate));
+  fake.onCommand((thing, payload) =>
+    answerCommand(
+      fake,
+      boards.find((board) => board.thing === thing),
+      payload,
+      narrate
+    )
+  );
   let mailed = fake.alertEmails.length;
-  timers.push(setInterval(() => {
-    fake.checkAlerts().then(() => {
-      for (const mail of fake.alertEmails.slice(mailed)) say(`e-mail alert (not sent): ${mail.subject}`);
-      mailed = fake.alertEmails.length;
-    }, () => {});
-  }, ALERT_CHECK_MS));
+  timers.push(
+    setInterval(() => {
+      fake.checkAlerts().then(
+        () => {
+          for (const mail of fake.alertEmails.slice(mailed)) say(`e-mail alert (not sent): ${mail.subject}`);
+          mailed = fake.alertEmails.length;
+        },
+        () => {}
+      );
+    }, ALERT_CHECK_MS)
+  );
 
   return {
     consoleUrl: `http://${consoleHost}/`,
@@ -2015,14 +2225,24 @@ const USAGE = `Usage: node cloud/dev/preview.mjs [options]
   --help              show this text
 
 Scenarios:
-${Object.entries(SCENARIOS).map(([name, { summary }]) => `  ${name.padEnd(20)}${summary}`).join('\n')}
+${Object.entries(SCENARIOS)
+  .map(([name, { summary }]) => `  ${name.padEnd(20)}${summary}`)
+  .join('\n')}
 `;
 
 /** The options the preview was started with. Throws a UsageError for anything else. */
 export function parseArguments(argv) {
   const options = {
-    scenario: 'empty', viewer: false, live: false, home: false, customer: false, verbose: false, help: false,
-    host: DEFAULT_HOST, port: DEFAULT_PORT, repeatedCancel: REPEATED_CANCEL[0],
+    scenario: 'empty',
+    viewer: false,
+    live: false,
+    home: false,
+    customer: false,
+    verbose: false,
+    help: false,
+    host: DEFAULT_HOST,
+    port: DEFAULT_PORT,
+    repeatedCancel: REPEATED_CANCEL[0],
   };
   // "--port=8000" is "--port 8000".
   const words = argv.flatMap((word) => {

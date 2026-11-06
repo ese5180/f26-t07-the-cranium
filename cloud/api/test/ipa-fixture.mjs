@@ -21,7 +21,7 @@ export function zip(entries, { zip64 = false } = {}) {
     const data = Buffer.from(entry.data ?? '');
     const method = entry.method ?? 8;
     const stored = method === 8 ? deflateRawSync(data) : data;
-    const crc = entry.crc ?? (crc32(data) >>> 0);
+    const crc = entry.crc ?? crc32(data) >>> 0;
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
@@ -165,16 +165,23 @@ const escapeXml = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 export function xmlPlist(value) {
   const write = (item, indent) => {
     const pad = '\t'.repeat(indent);
-    if (Array.isArray(item)) return `${pad}<array>\n${item.map((one) => write(one, indent + 1)).join('')}${pad}</array>\n`;
+    if (Array.isArray(item))
+      return `${pad}<array>\n${item.map((one) => write(one, indent + 1)).join('')}${pad}</array>\n`;
     if (item !== null && typeof item === 'object') {
-      return `${pad}<dict>\n${Object.entries(item).map(([key, one]) => `${pad}\t<key>${escapeXml(key)}</key>\n${write(one, indent + 1)}`).join('')}${pad}</dict>\n`;
+      return `${pad}<dict>\n${Object.entries(item)
+        .map(([key, one]) => `${pad}\t<key>${escapeXml(key)}</key>\n${write(one, indent + 1)}`)
+        .join('')}${pad}</dict>\n`;
     }
     if (typeof item === 'boolean') return `${pad}<${item}/>\n`;
     if (Number.isInteger(item)) return `${pad}<integer>${item}</integer>\n`;
     return `${pad}<string>${escapeXml(String(item))}</string>\n`;
   };
-  return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" ' +
-    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n' + write(value, 0) + '</plist>\n';
+  return (
+    '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" ' +
+    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n' +
+    write(value, 0) +
+    '</plist>\n'
+  );
 }
 
 /** `length` bytes that look random and are the same on every run. */
@@ -212,9 +219,16 @@ export function infoPlist({ version = '0.6.0', build = '8', bundleId = 'com.cran
 
 /** An unsigned IPA of the app, as apps/ios/scripts/build-ipa.sh makes one. */
 export function ipa({
-  version = '0.6.0', build = '8', bundleId = 'com.craniumiot.cranium', plist = 'binary', extra = {},
-  config = { consoleUrl: 'https://console.example.invalid', mobileClientId: 'localmobile' }, example = false,
-  zip64 = false, more = [], padding = 2048,
+  version = '0.6.0',
+  build = '8',
+  bundleId = 'com.craniumiot.cranium',
+  plist = 'binary',
+  extra = {},
+  config = { consoleUrl: 'https://console.example.invalid', mobileClientId: 'localmobile' },
+  example = false,
+  zip64 = false,
+  more = [],
+  padding = 2048,
 } = {}) {
   const info = infoPlist({ version, build, bundleId, extra });
   const entries = [
@@ -226,7 +240,11 @@ export function ipa({
     { name: 'Payload/Cranium.app/help.json', data: '{"topics":[]}', method: 8 },
   ];
   if (config !== null) {
-    entries.push({ name: 'Payload/Cranium.app/cranium.json', data: JSON.stringify({ ...config, redirectUri: 'cranium://signin' }), method: 8 });
+    entries.push({
+      name: 'Payload/Cranium.app/cranium.json',
+      data: JSON.stringify({ ...config, redirectUri: 'cranium://signin' }),
+      method: 8,
+    });
   }
   if (example) entries.push({ name: 'Payload/Cranium.app/cranium.example.json', data: '{}', method: 8 });
   return zip([...entries, ...more], { zip64 });

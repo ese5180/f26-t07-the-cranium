@@ -64,7 +64,14 @@ function area(magic, entries) {
  * @param {Buffer} [options.payload]       the program; bytes of `fill` unless given
  */
 export function buildImage({
-  version, key, board = null, protectedTlvs = [], unprotectedTlvs = [], payload = null, fill = 0xa5, payloadSize = 96,
+  version,
+  key,
+  board = null,
+  protectedTlvs = [],
+  unprotectedTlvs = [],
+  payload = null,
+  fill = 0xa5,
+  payloadSize = 96,
   loadAddress = LOAD_ADDRESS,
 }) {
   const { major, minor, revision, build } = parseVersion(version);

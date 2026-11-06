@@ -7,8 +7,17 @@ import { test } from 'node:test';
 
 import { EVENT_DAYS } from '../src/lib/events.mjs';
 import {
-  KIND_OF_TAG, LINE_KINDS, LINE_TEXT_MAX, NEVER_STORED, SAME_LINE_MS, TAGS, cleanLineText, decodeLineCursor,
-  isLineMessage, lineFromItem, recordsFromLine,
+  KIND_OF_TAG,
+  LINE_KINDS,
+  LINE_TEXT_MAX,
+  NEVER_STORED,
+  SAME_LINE_MS,
+  TAGS,
+  cleanLineText,
+  decodeLineCursor,
+  isLineMessage,
+  lineFromItem,
+  recordsFromLine,
 } from '../src/lib/lines.mjs';
 import { createRecorder } from '../src/recorder.mjs';
 import { createFakeAws, createTestConsole } from './fake-aws.mjs';
@@ -20,8 +29,15 @@ const RECEIVED = NOW - 400;
 
 /** A line as the rule hands it over. */
 const line = (changes = {}) => ({
-  t: 61_234, seq: 17, boot: 42, up: 61_240, tag: 'WIFI', text: 'connected ip=10.0.0.7 rssi=-51',
-  thing: THING, received: RECEIVED, ...changes,
+  t: 61_234,
+  seq: 17,
+  boot: 42,
+  up: 61_240,
+  tag: 'WIFI',
+  text: 'connected ip=10.0.0.7 rssi=-51',
+  thing: THING,
+  received: RECEIVED,
+  ...changes,
 });
 const made = (changes, nowMs = NOW) => recordsFromLine(line(changes), { nowMs });
 
@@ -31,9 +47,23 @@ test('each source has a kind: the existing ones where they fit, setting and log 
   assert.deepEqual(Object.keys(KIND_OF_TAG).sort(), [...TAGS].sort());
   const kinds = Object.fromEntries(TAGS.map((tag) => [tag, made({ tag, text: 'something happened' }).items[0].kind]));
   assert.deepEqual(kinds, {
-    BT: 'bluetooth', bt_ota: 'bluetooth', ota: 'update', STUCK: 'restart', stuck: 'restart', boot_diary: 'restart',
-    WIFI: 'health', net: 'health', health: 'health', CONSOLE: 'setting', factory: 'setting', CMD: 'setting',
-    app: 'log', cloud: 'log', identity: 'log', store: 'log', ui: 'log',
+    BT: 'bluetooth',
+    bt_ota: 'bluetooth',
+    ota: 'update',
+    STUCK: 'restart',
+    stuck: 'restart',
+    boot_diary: 'restart',
+    WIFI: 'health',
+    net: 'health',
+    health: 'health',
+    CONSOLE: 'setting',
+    factory: 'setting',
+    CMD: 'setting',
+    app: 'log',
+    cloud: 'log',
+    identity: 'log',
+    store: 'log',
+    ui: 'log',
   });
   assert.equal(Object.values(kinds).includes('connection'), false);
   assert.deepEqual([...new Set(Object.values(kinds))].sort(), [...LINE_KINDS].sort());
@@ -46,7 +76,11 @@ test('a line is dated when AWS IoT got it, less the time it waited on the board'
   assert.equal(item.ttl, Math.floor((RECEIVED - 60_000) / 1000) + EVENT_DAYS * 86_400);
   // A time of arrival that cannot be right is replaced by the recorder's own clock.
   for (const received of [NOW + 10 * 60_000, NOW - 2 * 86_400_000, 'soon', null]) {
-    assert.equal(made({ t: 1_000, up: 1_500, received }).items[0].sk, `L#${new Date(NOW - 500).toISOString()}#42.17`, String(received));
+    assert.equal(
+      made({ t: 1_000, up: 1_500, received }).items[0].sk,
+      `L#${new Date(NOW - 500).toISOString()}#42.17`,
+      String(received)
+    );
   }
 });
 
@@ -55,15 +89,27 @@ test('a line is stored with its tag, its numbers and how many lines were lost be
   assert.equal(result.thing, THING);
   const [item] = result.items;
   assert.deepEqual(item, {
-    pk: THING, sk: item.sk, kind: 'health', what: 'line', level: 'info', tag: 'WIFI', text: 'connected ip=10.0.0.7 rssi=-51',
-    boot: 42, seq: 17, ttl: item.ttl, dropped: 3,
+    pk: THING,
+    sk: item.sk,
+    kind: 'health',
+    what: 'line',
+    level: 'info',
+    tag: 'WIFI',
+    text: 'connected ip=10.0.0.7 rssi=-51',
+    boot: 42,
+    seq: 17,
+    ttl: item.ttl,
+    dropped: 3,
   });
   assert.deepEqual(result.claim, { pk: THING, sk: 'K#42.17', at: Date.parse(item.sk.slice(2, 26)), ttl: item.ttl });
   // No count when nothing was lost.
   assert.equal(Object.hasOwn(made({ dropped: 0 }).items[0], 'dropped'), false);
   assert.equal(Object.hasOwn(made().items[0], 'dropped'), false);
   assert.equal(made({ tag: 'ota', text: 'WRN: Download stalled' }).items[0].level, 'warn');
-  assert.equal(made({ tag: 'cloud', text: 'ERR: AWS IoT library could not be initialised: -12' }).items[0].level, 'warn');
+  assert.equal(
+    made({ tag: 'cloud', text: 'ERR: AWS IoT library could not be initialised: -12' }).items[0].level,
+    'warn'
+  );
   assert.equal(made({ tag: 'STUCK', text: 'restarting reason=no_cloud count=1' }).items[0].level, 'warn');
   assert.equal(made({ tag: 'app', text: 'Network is up' }).items[0].level, 'info');
 });
@@ -78,10 +124,18 @@ test('nothing the board sends is taken on trust: numbers, ranges, tag, text', ()
   for (const seq of [0, -1, 2 ** 32, 1.5, '17']) assert.equal(ignored({ seq }), 'bad_count', String(seq));
   for (const boot of [-1, 2 ** 32, '42', null]) assert.equal(ignored({ boot }), 'bad_count', String(boot));
   for (const dropped of [-1, 2 ** 32, '3']) assert.equal(ignored({ dropped }), 'bad_count', String(dropped));
-  for (const tag of ['wifi', 'zephyr', 'mqtt', '', 'BT ', null, ['BT']]) assert.equal(ignored({ tag }), 'unknown_tag', String(tag));
-  for (const text of [17, null, { a: 1 }, 'x'.repeat(1025)]) assert.equal(ignored({ text }), 'bad_text', String(text).slice(0, 20));
+  for (const tag of ['wifi', 'zephyr', 'mqtt', '', 'BT ', null, ['BT']])
+    assert.equal(ignored({ tag }), 'unknown_tag', String(tag));
+  for (const text of [17, null, { a: 1 }, 'x'.repeat(1025)])
+    assert.equal(ignored({ text }), 'bad_text', String(text).slice(0, 20));
   // Fields the rule does not know are left behind; a line stays a line whatever else it carries.
-  const extra = made({ eventType: 'connected', clientId: OTHER, current: { state: {} }, kind: 'connection', what: 'connected' });
+  const extra = made({
+    eventType: 'connected',
+    clientId: OTHER,
+    current: { state: {} },
+    kind: 'connection',
+    what: 'connected',
+  });
   assert.equal(extra.items[0].kind, 'health');
   assert.equal(extra.items[0].pk, THING);
   assert.equal(JSON.stringify(extra).includes(OTHER), false);
@@ -101,17 +155,30 @@ test('the text is made printable and cut to 160 characters, as the board makes i
 });
 
 test('a network name between quotes, a URL and an AWS host name are replaced', () => {
-  assert.equal(cleanLineText('net', 'ERR: Leaving "Home "5G"": its security mode (2) is not allowed').text,
-    'ERR: Leaving the network: its security mode (2) is not allowed');
+  assert.equal(
+    cleanLineText('net', 'ERR: Leaving "Home "5G"": its security mode (2) is not allowed').text,
+    'ERR: Leaving the network: its security mode (2) is not allowed'
+  );
   assert.equal(cleanLineText('WIFI', 'joining "half').text, 'joining the network');
   // Only where the firmware says quotes hold a network.
   assert.equal(cleanLineText('app', 'said "hello"').text, 'said "hello"');
-  assert.equal(cleanLineText('ota', 'fetching https://bucket.s3.amazonaws.com/firmware/x.bin now').text, 'fetching a URL now');
+  assert.equal(
+    cleanLineText('ota', 'fetching https://bucket.s3.amazonaws.com/firmware/x.bin now').text,
+    'fetching a URL now'
+  );
   assert.equal(cleanLineText('cloud', 'mqtts://abc-ats.iot.us-east-1.amazonaws.com:8883 "next"').text, 'a URL "next"');
-  assert.equal(cleanLineText('cloud', 'Connecting to a1b2c3d4e5f6g7-ats.iot.us-east-1.amazonaws.com:8883').text,
-    'Connecting to AWS:8883');
-  assert.equal(cleanLineText('cloud', 'endpoint A1B2-ATS.IOT.EU-WEST-1.AMAZONAWS.COM, then').text, 'endpoint AWS, then');
-  assert.equal(cleanLineText('cloud', 'amazonaws.com alone, notamazonaws.com.example').text, 'amazonaws.com alone, notamazonaws.com.example');
+  assert.equal(
+    cleanLineText('cloud', 'Connecting to a1b2c3d4e5f6g7-ats.iot.us-east-1.amazonaws.com:8883').text,
+    'Connecting to AWS:8883'
+  );
+  assert.equal(
+    cleanLineText('cloud', 'endpoint A1B2-ATS.IOT.EU-WEST-1.AMAZONAWS.COM, then').text,
+    'endpoint AWS, then'
+  );
+  assert.equal(
+    cleanLineText('cloud', 'amazonaws.com alone, notamazonaws.com.example').text,
+    'amazonaws.com alone, notamazonaws.com.example'
+  );
 });
 
 test('a line with a passkey, a password, a key or a signed URL is never stored, in any case, from any source', () => {
@@ -136,13 +203,28 @@ test('a line with a passkey, a password, a key or a signed URL is never stored, 
 test('a line read back is checked again, and only a line of this log is taken back as a cursor', () => {
   const [item] = made({ dropped: 2 }).items;
   assert.deepEqual(lineFromItem(item), {
-    thing: THING, at: item.sk.slice(2, 26), id: '42.17', kind: 'health', tag: 'WIFI', level: 'info',
-    text: 'connected ip=10.0.0.7 rssi=-51', boot: 42, seq: 17, dropped: 2,
+    thing: THING,
+    at: item.sk.slice(2, 26),
+    id: '42.17',
+    kind: 'health',
+    tag: 'WIFI',
+    level: 'info',
+    text: 'connected ip=10.0.0.7 rssi=-51',
+    boot: 42,
+    seq: 17,
+    dropped: 2,
   });
   for (const broken of [
-    { ...item, sk: item.sk.replace('L#', 'E#') }, { ...item, sk: `${item.sk}x` }, { ...item, pk: 'someone' },
-    { ...item, kind: 'connection' }, { ...item, tag: 'zephyr' }, { ...item, text: 'é' }, { ...item, text: 'x'.repeat(161) },
-    { ...item, sk: item.sk.replace('#42.17', '#42.0') }, null, 'line',
+    { ...item, sk: item.sk.replace('L#', 'E#') },
+    { ...item, sk: `${item.sk}x` },
+    { ...item, pk: 'someone' },
+    { ...item, kind: 'connection' },
+    { ...item, tag: 'zephyr' },
+    { ...item, text: 'é' },
+    { ...item, text: 'x'.repeat(161) },
+    { ...item, sk: item.sk.replace('#42.17', '#42.0') },
+    null,
+    'line',
   ]) {
     assert.equal(lineFromItem(broken), null, JSON.stringify(broken));
   }
@@ -167,7 +249,10 @@ test('the recorder claims a line, then stores it, and logs its board, kind and t
   const { recorder, logs } = recorderOn(fake);
   assert.deepEqual(await recorder(line()), { recorded: 1 });
   assert.deepEqual(fake.methodsCalled(), ['claimLine', 'putEvent']);
-  assert.deepEqual(fake.eventItems(THING).map((item) => item.sk.slice(0, 2)), ['K#', 'L#']);
+  assert.deepEqual(
+    fake.eventItems(THING).map((item) => item.sk.slice(0, 2)),
+    ['K#', 'L#']
+  );
   assert.deepEqual(logs, [{ event: 'recorded', thing: THING, kinds: ['health'], tag: 'WIFI', samples: 0 }]);
   assert.equal(JSON.stringify(logs).includes('10.0.0.7'), false);
 });
@@ -210,8 +295,13 @@ test('a line that is never stored is withheld with a log line that names its boa
 });
 
 test('a claim or a line that cannot be written is thrown, so that Lambda tries the message again', async () => {
-  const fail = async () => { throw Object.assign(new Error('PutItem: ThrottlingException'), { code: 'throttled' }); };
-  for (const store of [{ claimLine: fail, putEvent: async () => {} }, { claimLine: async () => ({ ok: true }), putEvent: fail }]) {
+  const fail = async () => {
+    throw Object.assign(new Error('PutItem: ThrottlingException'), { code: 'throttled' });
+  };
+  for (const store of [
+    { claimLine: fail, putEvent: async () => {} },
+    { claimLine: async () => ({ ok: true }), putEvent: fail },
+  ]) {
     const logs = [];
     const recorder = createRecorder({ store, now: () => NOW, log: (entry) => logs.push(entry) });
     await assert.rejects(recorder(line()), /ThrottlingException/);
@@ -254,13 +344,27 @@ function history() {
 
 const said = (body) => body.lines.map((entry) => `${entry.thing === THING ? 'A' : 'B'}:${entry.tag}`);
 
-test('GET /api/events/log lists every board\'s lines of the last day, newest first, for a viewer too', async () => {
+test("GET /api/events/log lists every board's lines of the last day, newest first, for a viewer too", async () => {
   const { console_, fake, viewer } = history();
   const { status, body } = await console_.call('GET', '/api/events/log', { as: viewer });
   assert.equal(status, 200, JSON.stringify(body));
   assert.deepEqual(said(body), ['A:app', 'B:CONSOLE', 'A:ota', 'A:WIFI']);
-  assert.deepEqual(Object.keys(body.lines[0]).sort(), ['at', 'boot', 'dropped', 'id', 'kind', 'level', 'seq', 'tag', 'text', 'thing']);
-  assert.deepEqual(body.lines.map((entry) => entry.kind), ['log', 'setting', 'update', 'health']);
+  assert.deepEqual(Object.keys(body.lines[0]).sort(), [
+    'at',
+    'boot',
+    'dropped',
+    'id',
+    'kind',
+    'level',
+    'seq',
+    'tag',
+    'text',
+    'thing',
+  ]);
+  assert.deepEqual(
+    body.lines.map((entry) => entry.kind),
+    ['log', 'setting', 'update', 'health']
+  );
   assert.equal(body.lines[2].level, 'warn');
   assert.equal(body.cursor, null);
   // The line waited two seconds on the board before it was sent.
@@ -270,7 +374,10 @@ test('GET /api/events/log lists every board\'s lines of the last day, newest fir
   // A read: nothing on record. And the events are where they were: no line among them.
   assert.deepEqual(fake.auditLog(), []);
   const events = (await console_.call('GET', '/api/events', { as: viewer })).body.events;
-  assert.deepEqual(events.map((event) => event.what), ['connected']);
+  assert.deepEqual(
+    events.map((event) => event.what),
+    ['connected']
+  );
 });
 
 test('GET /api/events/log narrows to a board, kinds and sources, pages, and refuses what it cannot answer', async () => {
@@ -303,6 +410,9 @@ test('GET /api/events/log narrows to a board, kinds and sources, pages, and refu
   // A cursor of the events is not one of the board log.
   const events = (await console_.call('GET', '/api/events', { as: viewer, query: { limit: '1' } })).body;
   assert.equal(events.cursor, null);
-  await refused({ cursor: Buffer.from(`E#2026-11-03T12:00:00.000Z#abcdef|${THING}`).toString('base64url') }, 'invalid_cursor');
+  await refused(
+    { cursor: Buffer.from(`E#2026-11-03T12:00:00.000Z#abcdef|${THING}`).toString('base64url') },
+    'invalid_cursor'
+  );
   assert.equal((await console_.call('GET', '/api/events/log')).status, 401);
 });

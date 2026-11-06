@@ -26,8 +26,10 @@ async function setup(options) {
   const viewer = console_.addUser('viewer', ['viewers']);
   for (const thing of [BOARD_A, BOARD_B, BOARD_C]) console_.fake.addThing(thing);
   const upload = async (name) => {
-    const response = await console_.call('POST', '/api/firmware',
-      { as: manager, body: { filename: 'zephyr.signed.bin', data: fixture(name).toString('base64') } });
+    const response = await console_.call('POST', '/api/firmware', {
+      as: manager,
+      body: { filename: 'zephyr.signed.bin', data: fixture(name).toString('base64') },
+    });
     assert.equal(response.status, 201, JSON.stringify(response.body));
   };
   await upload('valid-1.2.3+4.signed.bin');
@@ -51,7 +53,7 @@ async function setup(options) {
 
 const count = (fake, method) => fake.calls.filter((call) => call.method === method).length;
 
-test('a deployment is one snapshot job with the contract\'s document', async () => {
+test("a deployment is one snapshot job with the contract's document", async () => {
   const context = await setup();
   const { fake, manager, clock, config } = context;
   const release = [...fake.releases.values()][0];
@@ -64,8 +66,14 @@ test('a deployment is one snapshot job with the contract\'s document', async () 
   assert.ok(deployment.id.startsWith('cranium-1-2-3-b4-20261010T221500Z-'));
 
   const [created] = fake.calls.filter((call) => call.method === 'createJob').map((call) => call.args[0]);
-  assert.deepEqual(Object.keys(created).sort(),
-    ['description', 'document', 'inProgressTimeoutMinutes', 'jobId', 'things', 'urlExpiresInSec']);
+  assert.deepEqual(Object.keys(created).sort(), [
+    'description',
+    'document',
+    'inProgressTimeoutMinutes',
+    'jobId',
+    'things',
+    'urlExpiresInSec',
+  ]);
   assert.equal(created.jobId, deployment.id);
   assert.deepEqual(created.things, [BOARD_A, BOARD_B]);
   assert.equal(created.urlExpiresInSec, 600);
@@ -153,7 +161,10 @@ test('the request for a deployment is validated before anything is looked up', a
     [{ version: '1.2.3+4', things: BOARD_A }, 'invalid_things'],
     [{ version: '1.2.3+4', things: [BOARD_A, BOARD_A] }, 'invalid_things'],
     [{ version: '1.2.3+4', things: [BOARD_A, 'cranium-*'] }, 'invalid_things'],
-    [{ version: '1.2.3+4', things: Array.from({ length: 26 }, (_, n) => `cranium-${String(n).padStart(16, '0')}`) }, 'invalid_things'],
+    [
+      { version: '1.2.3+4', things: Array.from({ length: 26 }, (_, n) => `cranium-${String(n).padStart(16, '0')}`) },
+      'invalid_things',
+    ],
     [{ version: '1.2.3+4', things: [BOARD_A], note: 'x'.repeat(201) }, 'invalid_note'],
     [{ version: '1.2.3+4', things: [BOARD_A], note: 'a\u0000b' }, 'invalid_note'],
     [{ version: '1.2.3+4', things: [BOARD_A], note: 7 }, 'invalid_note'],
@@ -164,12 +175,18 @@ test('the request for a deployment is validated before anything is looked up', a
     assert.equal(response.status, 400, code);
     assert.equal(response.body.error.code, code);
   }
-  for (const [body, code] of [['', 'invalid_json'], ['[]', 'invalid_body'], ['{"version":', 'invalid_json']]) {
+  for (const [body, code] of [
+    ['', 'invalid_json'],
+    ['[]', 'invalid_body'],
+    ['{"version":', 'invalid_json'],
+  ]) {
     const response = await context.create(body);
     assert.equal(response.status, 400);
     assert.equal(response.body.error.code, code);
   }
-  const tooLong = await context.create(JSON.stringify({ version: '1.2.3+4', things: [BOARD_A], pad: 'x'.repeat(20000) }));
+  const tooLong = await context.create(
+    JSON.stringify({ version: '1.2.3+4', things: [BOARD_A], pad: 'x'.repeat(20000) })
+  );
   assert.equal(tooLong.status, 413);
 
   for (const method of ['getRelease', 'listGroupThings', 'listJobExecutionsForThing', 'createJob']) {
@@ -179,8 +196,13 @@ test('the request for a deployment is validated before anything is looked up', a
 
   // Fields the API does not know are ignored, not acted on.
   const response = await context.create({
-    version: '1.2.3+4', things: [BOARD_A], jobId: 'cranium-mine', targets: ['arn:aws:iot:::thinggroup/all'],
-    force: true, document: '{"op":"other"}', createdBy: { sub: 'x' },
+    version: '1.2.3+4',
+    things: [BOARD_A],
+    jobId: 'cranium-mine',
+    targets: ['arn:aws:iot:::thinggroup/all'],
+    force: true,
+    document: '{"op":"other"}',
+    createdBy: { sub: 'x' },
   });
   assert.equal(response.status, 201);
   assert.match(response.body.deployment.id, JOB_ID);
@@ -199,11 +221,16 @@ test('only an existing, active release can be deployed', async () => {
   assert.equal(revoked.body.error.code, 'release_revoked');
   assert.equal(context.fake.jobs.size, 0);
   assert.equal(count(context.fake, 'createJob'), 0);
-  assert.deepEqual(context.fake.auditLog().slice(-1).map((entry) => [entry.target, entry.outcome, entry.detail.code]),
-    [['1.2.3+4', 'rejected', 'release_revoked']]);
+  assert.deepEqual(
+    context.fake
+      .auditLog()
+      .slice(-1)
+      .map((entry) => [entry.target, entry.outcome, entry.detail.code]),
+    [['1.2.3+4', 'rejected', 'release_revoked']]
+  );
 });
 
-test('only boards of the project\'s group can be targeted', async () => {
+test("only boards of the project's group can be targeted", async () => {
   const context = await setup();
   const { fake } = context;
   const stranger = 'cranium-00000000000000dd';
@@ -256,7 +283,7 @@ test('a board with an unfinished update cannot get another one', async () => {
   fake.execution(first, BOARD_A).update('REJECTED', { reason: 'declined' });
   fake.execution(response.body.deployment.id, BOARD_B).update('SUCCEEDED', { running: '1.2.3+4' });
   fake.execution(second, BOARD_C).update('IN_PROGRESS', { step: 'downloading' });
-  context.advance(31 * 60 * 1000);   // C times out
+  context.advance(31 * 60 * 1000); // C times out
   assert.equal(fake.execution(second, BOARD_C).get().status, 'TIMED_OUT');
   assert.equal((await context.create({ version: '1.2.3+4', things: [BOARD_A, BOARD_B, BOARD_C] })).status, 201);
 });
@@ -264,8 +291,12 @@ test('a board with an unfinished update cannot get another one', async () => {
 test('a job some other tool created on a board blocks it too', async () => {
   const context = await setup();
   await context.fake.createJob({
-    jobId: 'factory-test-7', things: [BOARD_A], document: '{}', description: 'not ours',
-    urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+    jobId: 'factory-test-7',
+    things: [BOARD_A],
+    document: '{}',
+    description: 'not ours',
+    urlExpiresInSec: 600,
+    inProgressTimeoutMinutes: 30,
   });
   const response = await context.create({ version: '1.2.3+4', things: [BOARD_A] });
   assert.equal(response.status, 409);
@@ -325,22 +356,34 @@ test('two deployments to the same board at the same moment: one is withdrawn', a
   // The one AWS created later gave way: it was cancelled with force, all of it.
   const [withdrawn] = [...fake.jobs.values()].filter((job) => job.jobId !== kept.id);
   assert.ok(kept.id < withdrawn.jobId);
-  assert.deepEqual([withdrawn.status, withdrawn.forceCanceled, withdrawn.reasonCode, withdrawn.comment],
-    ['CANCELED', true, 'DEVICE_BUSY', manager.sub]);
+  assert.deepEqual(
+    [withdrawn.status, withdrawn.forceCanceled, withdrawn.reasonCode, withdrawn.comment],
+    ['CANCELED', true, 'DEVICE_BUSY', manager.sub]
+  );
   assert.equal(fake.jobs.get(kept.id).status, 'IN_PROGRESS');
   for (const thing of [BOARD_A, BOARD_B, BOARD_C]) {
     const open = (await fake.listJobExecutionsForThing(thing)).filter((execution) => execution.status === 'QUEUED');
-    assert.deepEqual(open.map((execution) => execution.jobId), kept.things.includes(thing) ? [kept.id] : [], thing);
+    assert.deepEqual(
+      open.map((execution) => execution.jobId),
+      kept.things.includes(thing) ? [kept.id] : [],
+      thing
+    );
   }
   // A board gets the deployment that stayed.
   assert.equal(fake.device(BOARD_B).nextJob().jobId, kept.id);
 
   // Both requests are on record, the withdrawn one with the job it had created.
-  const entries = fake.auditLog().slice(before).map((entry) => [entry.outcome, entry.target, entry.detail.code ?? null]);
-  assert.deepEqual(entries.sort(), [
-    ['ok', kept.id, null],
-    ['rejected', withdrawn.jobId, 'device_busy'],
-  ].sort());
+  const entries = fake
+    .auditLog()
+    .slice(before)
+    .map((entry) => [entry.outcome, entry.target, entry.detail.code ?? null]);
+  assert.deepEqual(
+    entries.sort(),
+    [
+      ['ok', kept.id, null],
+      ['rejected', withdrawn.jobId, 'device_busy'],
+    ].sort()
+  );
 
   // Afterwards the board is busy with the one that stayed, like any other.
   const next = await context.create({ version: '1.2.3+4', things: [BOARD_B] });
@@ -356,11 +399,14 @@ test('two deployments at the same moment while AWS has not created their executi
   ]);
   assert.deepEqual(answers.map((answer) => answer.status).sort(), [201, 409]);
   const kept = answers.find((answer) => answer.status === 201).body.deployment;
-  assert.deepEqual(answers.find((answer) => answer.status === 409).body.error.details,
-    [{ thing: BOARD_A, deployment: kept.id }]);
+  assert.deepEqual(answers.find((answer) => answer.status === 409).body.error.details, [
+    { thing: BOARD_A, deployment: kept.id },
+  ]);
   context.advance(5000);
-  assert.deepEqual((await fake.listJobExecutionsForThing(BOARD_A)).map((execution) => [execution.jobId, execution.status]),
-    [[kept.id, 'QUEUED']]);
+  assert.deepEqual(
+    (await fake.listJobExecutionsForThing(BOARD_A)).map((execution) => [execution.jobId, execution.status]),
+    [[kept.id, 'QUEUED']]
+  );
 });
 
 test('a deployment gives way to a job that another tool created in the same moment', async () => {
@@ -370,8 +416,12 @@ test('a deployment gives way to a job that another tool created in the same mome
   // The other tool's job appears between the check and the creation.
   fake.createJob = async (input) => {
     await original({
-      jobId: 'factory-test-9', things: [BOARD_A], document: '{}', description: 'not ours',
-      urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+      jobId: 'factory-test-9',
+      things: [BOARD_A],
+      document: '{}',
+      description: 'not ours',
+      urlExpiresInSec: 600,
+      inProgressTimeoutMinutes: 30,
     });
     return original(input);
   };
@@ -382,7 +432,10 @@ test('a deployment gives way to a job that another tool created in the same mome
   assert.equal(response.body.error.code, 'device_busy');
   assert.deepEqual(response.body.error.details, [{ thing: BOARD_A, deployment: 'factory-test-9' }]);
   const [own] = [...fake.jobs.values()].filter((job) => job.jobId !== 'factory-test-9');
-  assert.deepEqual([own.status, own.forceCanceled, own.reasonCode, own.comment], ['CANCELED', true, 'DEVICE_BUSY', manager.sub]);
+  assert.deepEqual(
+    [own.status, own.forceCanceled, own.reasonCode, own.comment],
+    ['CANCELED', true, 'DEVICE_BUSY', manager.sub]
+  );
   assert.equal(fake.jobs.get('factory-test-9').status, 'IN_PROGRESS');
 });
 
@@ -402,7 +455,9 @@ test('the second look at the boards is best effort; the first one decided', asyn
 
   assert.equal(response.status, 201);
   assert.equal(fake.jobs.get(response.body.deployment.id).status, 'IN_PROGRESS');
-  assert.ok(context.logs.some((line) => line.event === 'busy_recheck_failed' && line.deployment === response.body.deployment.id));
+  assert.ok(
+    context.logs.some((line) => line.event === 'busy_recheck_failed' && line.deployment === response.body.deployment.id)
+  );
   assert.equal(fake.auditLog().at(-1).outcome, 'ok');
 
   // A deployment that cannot be withdrawn is an error, and the entry names its job.
@@ -410,8 +465,12 @@ test('the second look at the boards is best effort; the first one decided', asyn
   const create = fake.createJob;
   fake.createJob = async (input) => {
     await create({
-      jobId: 'factory-test-9', things: [BOARD_B], document: '{}', description: 'not ours',
-      urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+      jobId: 'factory-test-9',
+      things: [BOARD_B],
+      document: '{}',
+      description: 'not ours',
+      urlExpiresInSec: 600,
+      inProgressTimeoutMinutes: 30,
     });
     return create(input);
   };
@@ -448,7 +507,10 @@ test('a job this request created is recognised when AWS reports its id as taken'
   assert.equal(fake.jobs.size, 1);
   assert.deepEqual([...fake.jobs.keys()], [response.body.deployment.id]);
   assert.deepEqual(response.body.deployment.createdBy, { sub: manager.sub, email: manager.email });
-  assert.deepEqual([fake.auditLog().at(-1).outcome, fake.auditLog().at(-1).target], ['ok', response.body.deployment.id]);
+  assert.deepEqual(
+    [fake.auditLog().at(-1).outcome, fake.auditLog().at(-1).target],
+    ['ok', response.body.deployment.id]
+  );
 });
 
 test('what a board reports never decides whether it is deployed to', async () => {
@@ -479,11 +541,16 @@ test('a job id that is taken is drawn again', async () => {
   const { fake, config, clock, manager } = context;
   const draws = ['aaaa', 'aaaa', 'bbbb', 'cccc'];
   const app = createApp({
-    aws: fake, config, now: () => clock.ms, log: () => {}, randomHex: () => draws.shift(),
+    aws: fake,
+    config,
+    now: () => clock.ms,
+    log: () => {},
+    randomHex: () => draws.shift(),
   });
   const send = async (things) => {
-    const response = await app(apiEvent('POST', '/api/deployments',
-      { claims: manager.claims, body: { version: '1.2.3+4', things } }));
+    const response = await app(
+      apiEvent('POST', '/api/deployments', { claims: manager.claims, body: { version: '1.2.3+4', things } })
+    );
     return { status: response.statusCode, body: JSON.parse(response.body) };
   };
   const first = await send([BOARD_A]);
@@ -497,8 +564,9 @@ test('a job id that is taken is drawn again', async () => {
   // A source of randomness that does not deliver is an error, not a weak id.
   for (const broken of [() => 'zzzz', () => '', () => undefined, () => 'AB12']) {
     const weak = createApp({ aws: fake, config, now: () => clock.ms, log: () => {}, randomHex: broken });
-    const response = await weak(apiEvent('POST', '/api/deployments',
-      { claims: manager.claims, body: { version: '1.2.3+4', things: [BOARD_C] } }));
+    const response = await weak(
+      apiEvent('POST', '/api/deployments', { claims: manager.claims, body: { version: '1.2.3+4', things: [BOARD_C] } })
+    );
     assert.equal(response.statusCode, 500);
   }
   assert.equal(fake.jobs.size, 2);
@@ -511,7 +579,10 @@ test('a release revoked while a deployment is being created wins', async () => {
   // The release is revoked by someone else just after the job was created.
   fake.createJob = async (input) => {
     const result = await original(input);
-    await fake.markReleaseRevoked({ sk: '001.002.00003.0000000004', revoked: { by: { sub: 'x', email: '' }, at: 'now', reason: 'r' } });
+    await fake.markReleaseRevoked({
+      sk: '001.002.00003.0000000004',
+      revoked: { by: { sub: 'x', email: '' }, at: 'now', reason: 'r' },
+    });
     return result;
   };
   const response = await context.create({ version: '1.2.3+4', things: [BOARD_A] });
@@ -559,8 +630,19 @@ test('a deployment that was created is answered with 201 even if it cannot be re
     things: [BOARD_A, BOARD_B],
     counts: { queued: 2, inProgress: 0, succeeded: 0, failed: 0, rejected: 0, canceled: 0, timedOut: 0, removed: 0 },
     executions: [BOARD_A, BOARD_B].map((thing) => ({
-      thing, status: 'QUEUED', phase: 'waiting_for_device', progress: null, reason: null, detail: null, ranAtEnd: null, reported: null,
-      online: false, queuedAt: at, startedAt: null, lastUpdatedAt: at, secondsLeft: null,
+      thing,
+      status: 'QUEUED',
+      phase: 'waiting_for_device',
+      progress: null,
+      reason: null,
+      detail: null,
+      ranAtEnd: null,
+      reported: null,
+      online: false,
+      queuedAt: at,
+      startedAt: null,
+      lastUpdatedAt: at,
+      secondsLeft: null,
     })),
   });
   assert.ok(context.logs.some((line) => line.event === 'release_recheck_failed'));
@@ -570,7 +652,10 @@ test('a deployment that was created is answered with 201 even if it cannot be re
 
   // The next read is the real thing.
   const seen = await context.detail(job.jobId);
-  assert.deepEqual(seen.executions.map((row) => row.status), ['QUEUED', 'QUEUED']);
+  assert.deepEqual(
+    seen.executions.map((row) => row.status),
+    ['QUEUED', 'QUEUED']
+  );
 });
 
 test('a cancellation whose result cannot be read back is on record all the same', async () => {
@@ -591,8 +676,10 @@ test('a cancellation whose result cannot be read back is on record all the same'
   assert.equal(response.status, 500);
   assert.equal(fake.jobs.get(id).status, 'CANCELED');
   const entry = fake.auditLog().at(-1);
-  assert.deepEqual([entry.outcome, entry.target, entry.detail],
-    ['error', id, { force: 'true', cancelled: 'true', code: 'internal_error' }]);
+  assert.deepEqual(
+    [entry.outcome, entry.target, entry.detail],
+    ['error', id, { force: 'true', cancelled: 'true', code: 'internal_error' }]
+  );
 });
 
 test('a board is followed through a whole update', async () => {
@@ -606,13 +693,18 @@ test('a board is followed through a whole update', async () => {
 
   // Offered, not yet picked up.
   let seen = await row();
-  assert.deepEqual([seen.status, seen.phase, seen.progress, seen.online, seen.reported],
-    ['QUEUED', 'waiting_for_device', null, true, '1.0.0+3']);
+  assert.deepEqual(
+    [seen.status, seen.phase, seen.progress, seen.online, seen.reported],
+    ['QUEUED', 'waiting_for_device', null, true, '1.0.0+3']
+  );
 
   // The board holds the job and waits for its button. The execution stays queued.
   board.report({ ota: { state: 'awaiting_user', job: id }, uptime: 610 });
   seen = await row();
-  assert.deepEqual([seen.status, seen.phase, seen.startedAt, seen.secondsLeft], ['QUEUED', 'waiting_for_button', null, null]);
+  assert.deepEqual(
+    [seen.status, seen.phase, seen.startedAt, seen.secondsLeft],
+    ['QUEUED', 'waiting_for_button', null, null]
+  );
 
   // Button pressed: the board says "downloading" at once, a moment before AWS has
   // accepted the start. Until then nothing has started, and the phase does not go back.
@@ -649,13 +741,34 @@ test('a board is followed through a whole update', async () => {
 
   // It reached AWS again, confirmed itself and reported success.
   assert.deepEqual(execution.update('SUCCEEDED', { running: '1.2.3+4' }), { accepted: true });
-  board.report({ fw: { confirmed: true }, ota: { state: 'idle', job: null, progress: 0, last: 'succeeded' }, uptime: 20 });
+  board.report({
+    fw: { confirmed: true },
+    ota: { state: 'idle', job: null, progress: 0, last: 'succeeded' },
+    uptime: 20,
+  });
   const done = await context.detail(id);
   assert.equal(done.status, 'COMPLETED');
   assert.ok(done.completedAt !== null);
-  assert.deepEqual(done.counts, { queued: 0, inProgress: 0, succeeded: 1, failed: 0, rejected: 0, canceled: 0, timedOut: 0, removed: 0 });
-  assert.deepEqual([done.executions[0].status, done.executions[0].phase, done.executions[0].progress,
-    done.executions[0].ranAtEnd, done.executions[0].secondsLeft], ['SUCCEEDED', 'succeeded', null, '1.2.3+4', null]);
+  assert.deepEqual(done.counts, {
+    queued: 0,
+    inProgress: 0,
+    succeeded: 1,
+    failed: 0,
+    rejected: 0,
+    canceled: 0,
+    timedOut: 0,
+    removed: 0,
+  });
+  assert.deepEqual(
+    [
+      done.executions[0].status,
+      done.executions[0].phase,
+      done.executions[0].progress,
+      done.executions[0].ranAtEnd,
+      done.executions[0].secondsLeft,
+    ],
+    ['SUCCEEDED', 'succeeded', null, '1.2.3+4', null]
+  );
 
   // The devices view agrees.
   context.advance(6000);
@@ -664,8 +777,10 @@ test('a board is followed through a whole update', async () => {
   assert.deepEqual(device.fw, { version: '1.2.3+4', confirmed: true });
   assert.deepEqual(device.ota, { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' });
   const history = await context.call('GET', `/api/devices/${BOARD_A}`, { as: context.viewer });
-  assert.deepEqual(history.body.executions.map((entry) => [entry.deployment, entry.version, entry.status]),
-    [[id, '1.2.3+4', 'SUCCEEDED']]);
+  assert.deepEqual(
+    history.body.executions.map((entry) => [entry.deployment, entry.version, entry.status]),
+    [[id, '1.2.3+4', 'SUCCEEDED']]
+  );
 });
 
 test('every way an update can end is shown for what it is', async () => {
@@ -679,22 +794,39 @@ test('every way an update can end is shown for what it is', async () => {
   fake.execution(id, BOARD_A).update('REJECTED', { reason: 'declined', running: '1.0.0+3' });
   fake.execution(id, BOARD_B).update('IN_PROGRESS', { step: 'downloading' });
   fake.execution(id, BOARD_B).update('IN_PROGRESS', { step: 'rebooting' });
-  fake.execution(id, BOARD_B).update('FAILED', { reason: 'rolled_back', detail: 'image did not confirm', running: '1.0.0+3' });
+  fake
+    .execution(id, BOARD_B)
+    .update('FAILED', { reason: 'rolled_back', detail: 'image did not confirm', running: '1.0.0+3' });
   fake.execution(id, BOARD_C).update('IN_PROGRESS', { step: 'downloading' });
   context.advance(31 * 60 * 1000);
   fake.device(BOARD_C).report({ fw: { version: '1.2.3+5', confirmed: true }, uptime: 9 });
 
   const seen = await context.detail(id);
   assert.equal(seen.status, 'COMPLETED');
-  assert.deepEqual(seen.counts, { queued: 0, inProgress: 0, succeeded: 0, failed: 1, rejected: 1, canceled: 0, timedOut: 1, removed: 0 });
+  assert.deepEqual(seen.counts, {
+    queued: 0,
+    inProgress: 0,
+    succeeded: 0,
+    failed: 1,
+    rejected: 1,
+    canceled: 0,
+    timedOut: 1,
+    removed: 0,
+  });
   const rows = Object.fromEntries(seen.executions.map((row) => [row.thing, row]));
-  assert.deepEqual([rows[BOARD_A].status, rows[BOARD_A].phase, rows[BOARD_A].reason, rows[BOARD_A].ranAtEnd],
-    ['REJECTED', 'declined', 'declined', '1.0.0+3']);
-  assert.deepEqual([rows[BOARD_B].status, rows[BOARD_B].phase, rows[BOARD_B].reason, rows[BOARD_B].detail],
-    ['FAILED', 'rolled_back', 'rolled_back', 'image did not confirm']);
+  assert.deepEqual(
+    [rows[BOARD_A].status, rows[BOARD_A].phase, rows[BOARD_A].reason, rows[BOARD_A].ranAtEnd],
+    ['REJECTED', 'declined', 'declined', '1.0.0+3']
+  );
+  assert.deepEqual(
+    [rows[BOARD_B].status, rows[BOARD_B].phase, rows[BOARD_B].reason, rows[BOARD_B].detail],
+    ['FAILED', 'rolled_back', 'rolled_back', 'image did not confirm']
+  );
   // Timed out stays timed out; next to it is what the board reports now.
-  assert.deepEqual([rows[BOARD_C].status, rows[BOARD_C].phase, rows[BOARD_C].reported, rows[BOARD_C].secondsLeft],
-    ['TIMED_OUT', 'timed_out', '1.2.3+5', null]);
+  assert.deepEqual(
+    [rows[BOARD_C].status, rows[BOARD_C].phase, rows[BOARD_C].reported, rows[BOARD_C].secondsLeft],
+    ['TIMED_OUT', 'timed_out', '1.2.3+5', null]
+  );
 
   // Refusals that are not a person's choice.
   const second = await context.deploy([BOARD_A], '1.2.3+5');
@@ -739,7 +871,11 @@ test('what a job recorded and what a board reports now are two fields, and only 
     // A job that holds no usable version stays without one.
     for (const running of [{}, { running: 'latest' }]) {
       const silent = await ended((execution) => execution.update(status, running));
-      assert.deepEqual(firmware(await row(silent)), { ranAtEnd: null, reported: null }, `${status}, ${running.running}`);
+      assert.deepEqual(
+        firmware(await row(silent)),
+        { ranAtEnd: null, reported: null },
+        `${status}, ${running.running}`
+      );
     }
   }
 
@@ -786,24 +922,47 @@ test('what a board writes into its execution is cleaned before it is shown', asy
   const context = await setup();
   const { fake } = context;
   const id = await context.deploy([BOARD_A, BOARD_B]);
-  assert.equal(fake.execution(id, BOARD_A).update('FAILED', {
-    reason: '<img src=x onerror=alert(1)>',
-    detail: `${'A'.repeat(900)}`,
-    running: '1.0.0+3; DROP TABLE releases',
-    step: 'rebooting',
-    extra: 'ignored',
-  }).accepted, true);
-  assert.equal(fake.execution(id, BOARD_B).update('REJECTED', { reason: 'Declined', detail: 'ok "quoted" <b>text</b>' }).accepted, true);
+  assert.equal(
+    fake.execution(id, BOARD_A).update('FAILED', {
+      reason: '<img src=x onerror=alert(1)>',
+      detail: `${'A'.repeat(900)}`,
+      running: '1.0.0+3; DROP TABLE releases',
+      step: 'rebooting',
+      extra: 'ignored',
+    }).accepted,
+    true
+  );
+  assert.equal(
+    fake.execution(id, BOARD_B).update('REJECTED', { reason: 'Declined', detail: 'ok "quoted" <b>text</b>' }).accepted,
+    true
+  );
 
   const seen = await context.detail(id);
   const rows = Object.fromEntries(seen.executions.map((row) => [row.thing, row]));
-  assert.deepEqual([rows[BOARD_A].phase, rows[BOARD_A].reason, rows[BOARD_A].detail, rows[BOARD_A].ranAtEnd],
-    ['failed', null, null, null]);
+  assert.deepEqual(
+    [rows[BOARD_A].phase, rows[BOARD_A].reason, rows[BOARD_A].detail, rows[BOARD_A].ranAtEnd],
+    ['failed', null, null, null]
+  );
   // Not the board's "Declined": the reason must match exactly to count.
-  assert.deepEqual([rows[BOARD_B].phase, rows[BOARD_B].reason, rows[BOARD_B].detail],
-    ['refused', null, 'ok "quoted" <b>text</b>']);
-  assert.deepEqual(Object.keys(rows[BOARD_A]).sort(), ['detail', 'lastUpdatedAt', 'online', 'phase', 'progress',
-    'queuedAt', 'ranAtEnd', 'reason', 'reported', 'secondsLeft', 'startedAt', 'status', 'thing']);
+  assert.deepEqual(
+    [rows[BOARD_B].phase, rows[BOARD_B].reason, rows[BOARD_B].detail],
+    ['refused', null, 'ok "quoted" <b>text</b>']
+  );
+  assert.deepEqual(Object.keys(rows[BOARD_A]).sort(), [
+    'detail',
+    'lastUpdatedAt',
+    'online',
+    'phase',
+    'progress',
+    'queuedAt',
+    'ranAtEnd',
+    'reason',
+    'reported',
+    'secondsLeft',
+    'startedAt',
+    'status',
+    'thing',
+  ]);
 });
 
 test('a detail is cached for two seconds and finished executions are described once', async () => {
@@ -835,7 +994,7 @@ test('a detail is cached for two seconds and finished executions are described o
   context.advance(2100);
   seen = (await get()).body.deployment;
   assert.equal(seen.executions[0].phase, 'declined');
-  assert.equal(count(fake, 'describeJobExecution'), 5);   // only board B, which is still queued
+  assert.equal(count(fake, 'describeJobExecution'), 5); // only board B, which is still queued
   assert.equal(count(fake, 'describeJob'), 3);
 });
 
@@ -851,7 +1010,10 @@ test('an execution that changes after it had ended is read again', async () => {
   // The console creates none, but it must not show a remembered result if that happens.
   const job = fake.jobs.get(id);
   Object.assign(job.executions.get(BOARD_A), {
-    status: 'QUEUED', startedAt: null, lastUpdatedAt: context.clock.ms + 1000, statusDetails: {},
+    status: 'QUEUED',
+    startedAt: null,
+    lastUpdatedAt: context.clock.ms + 1000,
+    statusDetails: {},
   });
   job.status = 'IN_PROGRESS';
   job.completedAt = null;
@@ -891,10 +1053,13 @@ test('boards are shown as queued while AWS is still creating their executions', 
   assert.equal(response.status, 201);
   const { deployment } = response.body;
   assert.equal(count(fake, 'describeJobExecution'), 0);
-  assert.deepEqual(deployment.executions.map((row) => [row.thing, row.status, row.phase, row.queuedAt]), [
-    [BOARD_A, 'QUEUED', 'waiting_for_device', deployment.createdAt],
-    [BOARD_B, 'QUEUED', 'waiting_for_device', deployment.createdAt],
-  ]);
+  assert.deepEqual(
+    deployment.executions.map((row) => [row.thing, row.status, row.phase, row.queuedAt]),
+    [
+      [BOARD_A, 'QUEUED', 'waiting_for_device', deployment.createdAt],
+      [BOARD_B, 'QUEUED', 'waiting_for_device', deployment.createdAt],
+    ]
+  );
   assert.equal(deployment.counts.queued, 2);
 
   context.advance(100);
@@ -905,8 +1070,20 @@ test('boards are shown as queued while AWS is still creating their executions', 
   context.advance(4000);
   fake.execution(deployment.id, BOARD_A).update('IN_PROGRESS', { step: 'downloading' });
   const seen = await context.detail(deployment.id);
-  assert.deepEqual(seen.executions.map((row) => row.status), ['IN_PROGRESS', 'QUEUED']);
-  assert.deepEqual(seen.counts, { queued: 1, inProgress: 1, succeeded: 0, failed: 0, rejected: 0, canceled: 0, timedOut: 0, removed: 0 });
+  assert.deepEqual(
+    seen.executions.map((row) => row.status),
+    ['IN_PROGRESS', 'QUEUED']
+  );
+  assert.deepEqual(seen.counts, {
+    queued: 1,
+    inProgress: 1,
+    succeeded: 0,
+    failed: 0,
+    rejected: 0,
+    canceled: 0,
+    timedOut: 0,
+    removed: 0,
+  });
 });
 
 test('unknown and malformed deployment ids', async () => {
@@ -917,12 +1094,22 @@ test('unknown and malformed deployment ids', async () => {
   assert.equal(missing.body.error.code, 'unknown_deployment');
 
   await fake.createJob({
-    jobId: 'factory-test-7', things: [BOARD_A], document: '{}', description: 'not ours',
-    urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+    jobId: 'factory-test-7',
+    things: [BOARD_A],
+    document: '{}',
+    description: 'not ours',
+    urlExpiresInSec: 600,
+    inProgressTimeoutMinutes: 30,
   });
   fake.calls.length = 0;
-  for (const id of ['factory-test-7', 'cranium-1-2-3', 'cranium-256-2-3-b4-20261010T221500Z-0000', '..%2f..%2fjobs', '%00',
-    'cranium-1-2-3-b4-20261010T221500Z-0000%0a']) {
+  for (const id of [
+    'factory-test-7',
+    'cranium-1-2-3',
+    'cranium-256-2-3-b4-20261010T221500Z-0000',
+    '..%2f..%2fjobs',
+    '%00',
+    'cranium-1-2-3-b4-20261010T221500Z-0000%0a',
+  ]) {
     const response = await context.call('GET', `/api/deployments/${id}`, { as: viewer });
     assert.equal(response.status, 400, id);
     assert.equal(response.body.error.code, 'invalid_deployment');
@@ -946,25 +1133,45 @@ test('deployments are listed newest first, without the jobs of other tools', asy
     ids.push(await context.deploy([thing]));
   }
   await fake.createJob({
-    jobId: 'factory-test-7', things: [BOARD_A], document: '{}', description: 'not ours',
-    urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+    jobId: 'factory-test-7',
+    things: [BOARD_A],
+    document: '{}',
+    description: 'not ours',
+    urlExpiresInSec: 600,
+    inProgressTimeoutMinutes: 30,
   });
   await fake.createJob({
-    jobId: 'cranium-not-a-deployment', things: [BOARD_A], document: '{}', description: 'not ours',
-    urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+    jobId: 'cranium-not-a-deployment',
+    things: [BOARD_A],
+    document: '{}',
+    description: 'not ours',
+    urlExpiresInSec: 600,
+    inProgressTimeoutMinutes: 30,
   });
   fake.execution(ids[0], BOARD_A).update('SUCCEEDED', { running: '1.2.3+4' });
 
   context.advance(2500);
   const listed = await context.call('GET', '/api/deployments', { as: viewer });
   assert.equal(listed.status, 200);
-  assert.deepEqual(listed.body.deployments.map((entry) => entry.id), [...ids].reverse());
+  assert.deepEqual(
+    listed.body.deployments.map((entry) => entry.id),
+    [...ids].reverse()
+  );
   const oldest = listed.body.deployments.at(-1);
   assert.equal(oldest.status, 'COMPLETED');
   assert.equal(oldest.counts.succeeded, 1);
   assert.equal(Object.hasOwn(oldest, 'executions'), false);
-  assert.deepEqual(Object.keys(oldest).sort(),
-    ['completedAt', 'counts', 'createdAt', 'createdBy', 'id', 'note', 'status', 'things', 'version']);
+  assert.deepEqual(Object.keys(oldest).sort(), [
+    'completedAt',
+    'counts',
+    'createdAt',
+    'createdBy',
+    'id',
+    'note',
+    'status',
+    'things',
+    'version',
+  ]);
 });
 
 test('the list shows at most 25 deployments and describes at most 5 jobs at a time', async () => {
@@ -974,7 +1181,11 @@ test('the list shows at most 25 deployments and describes at most 5 jobs at a ti
     context.advance(60_000);
     await fake.createJob({
       jobId: `cranium-1-2-3-b4-202610${String(11 + Math.floor(n / 10)).padStart(2, '0')}T0${n % 10}0000Z-${String(n).padStart(4, '0')}`,
-      things: [BOARD_A], document: '{}', description: '{}', urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+      things: [BOARD_A],
+      document: '{}',
+      description: '{}',
+      urlExpiresInSec: 600,
+      inProgressTimeoutMinutes: 30,
     });
   }
   let inFlight = 0;
@@ -1012,20 +1223,27 @@ test('finished jobs are remembered; running ones are asked about again after two
   const running = await context.deploy([BOARD_B]);
   const stopped = await context.deploy([BOARD_C]);
   fake.execution(stopped, BOARD_C).update('IN_PROGRESS', { step: 'downloading' });
-  await context.cancel(stopped);   // without force: the board that started carries on
+  await context.cancel(stopped); // without force: the board that started carries on
   const list = () => context.call('GET', '/api/deployments', { as: viewer });
 
   context.advance(2500);
   fake.calls.length = 0;
   await list();
-  const described = () => fake.calls.filter((call) => call.method === 'describeJob').map((call) => call.args[0]).sort();
+  const described = () =>
+    fake.calls
+      .filter((call) => call.method === 'describeJob')
+      .map((call) => call.args[0])
+      .sort();
   assert.deepEqual(described(), [done, running, stopped].sort());
 
   // Within two seconds nothing is asked again, not even the list.
   fake.calls.length = 0;
   context.advance(1000);
   await list();
-  assert.deepEqual(fake.methodsCalled().filter((name) => name !== 'getUser'), []);
+  assert.deepEqual(
+    fake.methodsCalled().filter((name) => name !== 'getUser'),
+    []
+  );
 
   // Later, the finished job comes from memory. The cancelled one still has a board at
   // work, so it is not finished yet.
@@ -1055,16 +1273,23 @@ test('cancelling without force stops only boards that have not started', async (
 
   const response = await context.cancel(id, { force: false });
   assert.equal(response.status, 200);
-  assert.deepEqual(fake.calls.find((call) => call.method === 'cancelJob').args[0],
-    { jobId: id, force: false, reasonCode: 'CONSOLE_CANCEL', comment: manager.sub });
+  assert.deepEqual(fake.calls.find((call) => call.method === 'cancelJob').args[0], {
+    jobId: id,
+    force: false,
+    reasonCode: 'CONSOLE_CANCEL',
+    comment: manager.sub,
+  });
 
   // The answer is what AWS says after the call.
   const { deployment } = response.body;
   assert.equal(deployment.status, 'CANCELED');
-  assert.deepEqual(deployment.executions.map((row) => [row.thing, row.status, row.phase]), [
-    [BOARD_A, 'CANCELED', 'cancelled'],
-    [BOARD_B, 'IN_PROGRESS', 'downloading'],
-  ]);
+  assert.deepEqual(
+    deployment.executions.map((row) => [row.thing, row.status, row.phase]),
+    [
+      [BOARD_A, 'CANCELED', 'cancelled'],
+      [BOARD_B, 'IN_PROGRESS', 'downloading'],
+    ]
+  );
   const order = fake.methodsCalled();
   assert.ok(order.indexOf('cancelJob') < order.lastIndexOf('describeJob'));
   assert.ok(order.indexOf('cancelJob') < order.lastIndexOf('listJobExecutionsForJob'));
@@ -1072,7 +1297,10 @@ test('cancelling without force stops only boards that have not started', async (
   // The board that had started may finish.
   assert.equal(fake.execution(id, BOARD_B).update('SUCCEEDED', { running: '1.2.3+4' }).accepted, true);
   const entry = fake.auditLog().at(-1);
-  assert.deepEqual([entry.action, entry.target, entry.outcome, entry.detail], ['deployment.cancel', id, 'ok', { force: 'false' }]);
+  assert.deepEqual(
+    [entry.action, entry.target, entry.outcome, entry.detail],
+    ['deployment.cancel', id, 'ok', { force: 'false' }]
+  );
 });
 
 test('cancelling with force also stops boards that have started', async () => {
@@ -1083,12 +1311,19 @@ test('cancelling with force also stops boards that have started', async () => {
 
   const response = await context.cancel(id, { force: true });
   assert.equal(response.status, 200);
-  assert.deepEqual(response.body.deployment.executions.map((row) => [row.status, row.phase]),
-    [['CANCELED', 'cancelled'], ['CANCELED', 'cancelled']]);
+  assert.deepEqual(
+    response.body.deployment.executions.map((row) => [row.status, row.phase]),
+    [
+      ['CANCELED', 'cancelled'],
+      ['CANCELED', 'cancelled'],
+    ]
+  );
   assert.equal(fake.jobs.get(id).forceCanceled, true);
   // The board asks AWS before it installs, and is told no.
-  assert.deepEqual(fake.execution(id, BOARD_B).update('IN_PROGRESS', { step: 'rebooting' }),
-    { accepted: false, code: 'InvalidStateTransition' });
+  assert.deepEqual(fake.execution(id, BOARD_B).update('IN_PROGRESS', { step: 'rebooting' }), {
+    accepted: false,
+    code: 'InvalidStateTransition',
+  });
   assert.equal(fake.auditLog().at(-1).detail.force, 'true');
 });
 
@@ -1103,8 +1338,13 @@ test('AWS stops boards a few seconds after a cancellation, and the answers say w
   const forced = await context.cancel(id, { force: true });
   assert.equal(forced.status, 200);
   assert.equal(forced.body.deployment.status, 'CANCELED');
-  assert.deepEqual(forced.body.deployment.executions.map((row) => [row.thing, row.status]),
-    [[BOARD_A, 'QUEUED'], [BOARD_B, 'IN_PROGRESS']]);
+  assert.deepEqual(
+    forced.body.deployment.executions.map((row) => [row.thing, row.status]),
+    [
+      [BOARD_A, 'QUEUED'],
+      [BOARD_B, 'IN_PROGRESS'],
+    ]
+  );
   assert.deepEqual([forced.body.deployment.counts.queued, forced.body.deployment.counts.inProgress], [1, 1]);
 
   // Asking again in that time, with or without force: nothing is sent to AWS, and the
@@ -1115,8 +1355,11 @@ test('AWS stops boards a few seconds after a cancellation, and the answers say w
     const again = await context.cancel(id, { force });
     assert.equal(again.status, 409);
     assert.equal(again.body.error.code, 'already_cancelled');
-    assert.equal(again.body.error.message, 'This deployment is already cancelled with force. ' +
-      'AWS takes a few seconds to stop its boards: 2 boards are still listed as unfinished.');
+    assert.equal(
+      again.body.error.message,
+      'This deployment is already cancelled with force. ' +
+        'AWS takes a few seconds to stop its boards: 2 boards are still listed as unfinished.'
+    );
   }
   assert.equal(count(fake, 'cancelJob'), 0);
   // Until AWS has stopped it, a board's update still passes. That is why a board looks
@@ -1125,7 +1368,10 @@ test('AWS stops boards a few seconds after a cancellation, and the answers say w
 
   context.advance(5000);
   const seen = await context.detail(id);
-  assert.deepEqual(seen.executions.map((row) => row.status), ['CANCELED', 'CANCELED']);
+  assert.deepEqual(
+    seen.executions.map((row) => row.status),
+    ['CANCELED', 'CANCELED']
+  );
   const done = await context.cancel(id, { force: true });
   assert.equal(done.body.error.code, 'already_finished');
 
@@ -1137,9 +1383,15 @@ test('AWS stops boards a few seconds after a cancellation, and the answers say w
   context.advance(3000);
   const plain = await context.cancel(second, { force: false });
   assert.equal(plain.body.error.code, 'already_cancelled');
-  assert.match(plain.body.error.message, /^This deployment is already cancelled\. 1 board is still at work on it, because/);
+  assert.match(
+    plain.body.error.message,
+    /^This deployment is already cancelled\. 1 board is still at work on it, because/
+  );
   context.advance(10_000);
-  assert.deepEqual((await context.detail(second)).executions.map((row) => row.status), ['CANCELED', 'IN_PROGRESS']);
+  assert.deepEqual(
+    (await context.detail(second)).executions.map((row) => row.status),
+    ['CANCELED', 'IN_PROGRESS']
+  );
 
   // A board that is only waiting while AWS withdraws the offer needs nothing more.
   const third = await context.deploy([BOARD_C]);
@@ -1148,8 +1400,11 @@ test('AWS stops boards a few seconds after a cancellation, and the answers say w
   for (const force of [false, true]) {
     const waiting = await context.cancel(third, { force });
     assert.equal(waiting.body.error.code, 'already_cancelled');
-    assert.equal(waiting.body.error.message, 'This deployment is already cancelled. ' +
-      'AWS takes a few seconds to withdraw the offer: 1 board is still listed as waiting.');
+    assert.equal(
+      waiting.body.error.message,
+      'This deployment is already cancelled. ' +
+        'AWS takes a few seconds to withdraw the offer: 1 board is still listed as waiting.'
+    );
   }
   assert.equal(count(fake, 'cancelJob'), 0);
 });
@@ -1164,12 +1419,18 @@ test('a board that a forced cancellation did not stop is not passed over', async
   assert.equal((await context.cancel(id, { force: true })).status, 200);
 
   context.advance(119_000);
-  assert.match((await context.cancel(id, { force: false })).body.error.message, /AWS takes a few seconds to stop its boards/);
+  assert.match(
+    (await context.cancel(id, { force: false })).body.error.message,
+    /AWS takes a few seconds to stop its boards/
+  );
   context.advance(2000);
   const plain = await context.cancel(id, { force: false });
   assert.equal(plain.body.error.code, 'already_cancelled');
-  assert.equal(plain.body.error.message, 'This deployment is already cancelled with force. ' +
-    '1 board is still at work on it all the same. Cancel with force to try again.');
+  assert.equal(
+    plain.body.error.message,
+    'This deployment is already cancelled with force. ' +
+      '1 board is still at work on it all the same. Cancel with force to try again.'
+  );
   // With force it is asked of AWS once more, and the answer is passed on as it is.
   const forced = await context.cancel(id, { force: true });
   assert.equal(forced.status, 409);
@@ -1219,10 +1480,18 @@ test('a deployment that is cancelled already says what is left of it', async () 
     assert.equal(done.body.error.code, 'already_finished');
   }
   assert.equal(count(fake, 'cancelJob'), 0);
-  assert.deepEqual(fake.auditLog().slice(-4).map((entry) => [entry.outcome, entry.detail.code]), [
-    ['rejected', 'already_cancelled'], ['rejected', 'already_cancelled'],
-    ['rejected', 'already_finished'], ['rejected', 'already_finished'],
-  ]);
+  assert.deepEqual(
+    fake
+      .auditLog()
+      .slice(-4)
+      .map((entry) => [entry.outcome, entry.detail.code]),
+    [
+      ['rejected', 'already_cancelled'],
+      ['rejected', 'already_cancelled'],
+      ['rejected', 'already_finished'],
+      ['rejected', 'already_finished'],
+    ]
+  );
 });
 
 // AWS documents what a forced cancellation does to a job that is in progress. It does
@@ -1241,14 +1510,21 @@ test('a board at work on a cancelled deployment: AWS refuses the forced cancella
   assert.equal(count(fake, 'cancelJob'), 1);
   assert.equal(fake.execution(id, BOARD_B).get().status, 'IN_PROGRESS');
   const entry = fake.auditLog().at(-1);
-  assert.deepEqual([entry.action, entry.target, entry.outcome, entry.detail],
-    ['deployment.cancel', id, 'rejected', { force: 'true', code: 'cancel_refused' }]);
+  assert.deepEqual(
+    [entry.action, entry.target, entry.outcome, entry.detail],
+    ['deployment.cancel', id, 'rejected', { force: 'true', code: 'cancel_refused' }]
+  );
   assert.ok(context.logs.some((line) => line.event === 'cancel_refused' && line.deployment === id));
 
   // The page keeps showing the board as it is.
   const seen = await context.detail(id);
-  assert.deepEqual(seen.executions.map((row) => [row.thing, row.status]),
-    [[BOARD_A, 'CANCELED'], [BOARD_B, 'IN_PROGRESS']]);
+  assert.deepEqual(
+    seen.executions.map((row) => [row.thing, row.status]),
+    [
+      [BOARD_A, 'CANCELED'],
+      [BOARD_B, 'IN_PROGRESS'],
+    ]
+  );
 });
 
 test('a board at work on a cancelled deployment: AWS accepts the forced cancellation', async () => {
@@ -1257,7 +1533,10 @@ test('a board at work on a cancelled deployment: AWS accepts the forced cancella
 
   const forced = await context.cancel(id, { force: true });
   assert.equal(forced.status, 200);
-  assert.deepEqual(forced.body.deployment.executions.map((row) => row.status), ['CANCELED', 'CANCELED']);
+  assert.deepEqual(
+    forced.body.deployment.executions.map((row) => row.status),
+    ['CANCELED', 'CANCELED']
+  );
   assert.equal(fake.execution(id, BOARD_B).update('IN_PROGRESS', { step: 'rebooting' }).accepted, false);
 
   const again = await context.cancel(id, { force: true });
@@ -1273,8 +1552,13 @@ test('a board at work on a cancelled deployment: AWS accepts the call and change
   const forced = await context.cancel(id, { force: true });
   assert.equal(forced.status, 200);
   assert.equal(forced.body.deployment.status, 'CANCELED');
-  assert.deepEqual(forced.body.deployment.executions.map((row) => [row.thing, row.status, row.phase]),
-    [[BOARD_A, 'CANCELED', 'cancelled'], [BOARD_B, 'IN_PROGRESS', 'downloading']]);
+  assert.deepEqual(
+    forced.body.deployment.executions.map((row) => [row.thing, row.status, row.phase]),
+    [
+      [BOARD_A, 'CANCELED', 'cancelled'],
+      [BOARD_B, 'IN_PROGRESS', 'downloading'],
+    ]
+  );
   assert.equal(forced.body.deployment.counts.inProgress, 1);
   assert.equal(fake.execution(id, BOARD_B).get().status, 'IN_PROGRESS');
   // The log keeps the case, for whoever wants to know what AWS did.
@@ -1333,10 +1617,15 @@ test('a finished or unknown deployment cannot be cancelled', async () => {
   fake.cancelJob = original;
   assert.equal(vanished.status, 404);
   const cancellations = fake.auditLog().filter((entry) => entry.action === 'deployment.cancel');
-  assert.deepEqual(cancellations.slice(-4).map((entry) => [entry.outcome, entry.detail.code]), [
-    ['rejected', 'already_finished'], ['rejected', 'cancel_refused'], ['rejected', 'cancel_refused'],
-    ['rejected', 'unknown_deployment'],
-  ]);
+  assert.deepEqual(
+    cancellations.slice(-4).map((entry) => [entry.outcome, entry.detail.code]),
+    [
+      ['rejected', 'already_finished'],
+      ['rejected', 'cancel_refused'],
+      ['rejected', 'cancel_refused'],
+      ['rejected', 'unknown_deployment'],
+    ]
+  );
   assert.equal(fake.jobs.get(open).status, 'IN_PROGRESS');
 });
 
@@ -1350,7 +1639,11 @@ test('the cancel request itself is validated', async () => {
     assert.equal(response.status, 400, JSON.stringify(body));
     assert.equal(response.body.error.code, 'invalid_force');
   }
-  for (const [body, code] of [['', 'invalid_json'], ['true', 'invalid_body'], ['[]', 'invalid_body']]) {
+  for (const [body, code] of [
+    ['', 'invalid_json'],
+    ['true', 'invalid_body'],
+    ['[]', 'invalid_body'],
+  ]) {
     const response = await context.cancel(id, body);
     assert.equal(response.status, 400);
     assert.equal(response.body.error.code, code);
@@ -1376,48 +1669,79 @@ test('one session: upload, deploy, watch, cancel, revoke', async () => {
   assert.equal((await context.detail(first)).executions[0].phase, 'waiting_for_button');
   fake.execution(first, BOARD_A).update('IN_PROGRESS', { step: 'downloading' });
   fake.device(BOARD_A).report({ ota: { state: 'downloading', progress: 60 } });
-  assert.deepEqual((await context.detail(first)).executions.map((row) => [row.phase, row.progress]), [['downloading', 60]]);
+  assert.deepEqual(
+    (await context.detail(first)).executions.map((row) => [row.phase, row.progress]),
+    [['downloading', 60]]
+  );
   fake.execution(first, BOARD_A).update('IN_PROGRESS', { step: 'rebooting' });
   fake.execution(first, BOARD_A).update('SUCCEEDED', { running: '1.2.3+4' });
-  fake.device(BOARD_A).report({ fw: { version: '1.2.3+4', confirmed: true }, ota: { state: 'idle', job: null, progress: 0, last: 'succeeded' } });
+  fake.device(BOARD_A).report({
+    fw: { version: '1.2.3+4', confirmed: true },
+    ota: { state: 'idle', job: null, progress: 0, last: 'succeeded' },
+  });
   assert.equal((await context.detail(first)).status, 'COMPLETED');
 
   // Deploy 1.2.3+5 to A, and think better of it before the board has started.
   context.advance(60_000);
   const second = await context.deploy([BOARD_A], '1.2.3+5');
   const cancelled = await context.cancel(second, { force: false });
-  assert.deepEqual(cancelled.body.deployment.executions.map((row) => row.phase), ['cancelled']);
+  assert.deepEqual(
+    cancelled.body.deployment.executions.map((row) => row.phase),
+    ['cancelled']
+  );
 
   // Deploy it to both; B starts. Then the release turns out to be bad: revoking it
   // stops B as well.
   context.advance(60_000);
   const third = await context.deploy([BOARD_A, BOARD_B], '1.2.3+5');
   fake.execution(third, BOARD_B).update('IN_PROGRESS', { step: 'downloading' });
-  const revoked = await context.call('POST', '/api/firmware/1.2.3+5/revoke', { as: manager, body: { reason: 'drops Wi-Fi' } });
+  const revoked = await context.call('POST', '/api/firmware/1.2.3+5/revoke', {
+    as: manager,
+    body: { reason: 'drops Wi-Fi' },
+  });
   assert.equal(revoked.status, 200);
   assert.deepEqual(revoked.body.cancelled, [third]);
-  assert.deepEqual((await context.detail(third)).executions.map((row) => row.phase), ['cancelled', 'cancelled']);
+  assert.deepEqual(
+    (await context.detail(third)).executions.map((row) => row.phase),
+    ['cancelled', 'cancelled']
+  );
   assert.equal(fake.execution(third, BOARD_B).update('IN_PROGRESS', { step: 'rebooting' }).accepted, false);
   assert.equal((await context.create({ version: '1.2.3+5', things: [BOARD_B] })).body.error.code, 'release_revoked');
 
   // What a viewer sees afterwards.
   context.advance(6000);
   const firmware = await context.call('GET', '/api/firmware', { as: viewer });
-  assert.deepEqual(firmware.body.releases.map((release) => [release.version, release.status]),
-    [['1.2.3+5', 'revoked'], ['1.2.3+4', 'active']]);
+  assert.deepEqual(
+    firmware.body.releases.map((release) => [release.version, release.status]),
+    [
+      ['1.2.3+5', 'revoked'],
+      ['1.2.3+4', 'active'],
+    ]
+  );
   const deployments = await context.call('GET', '/api/deployments', { as: viewer });
-  assert.deepEqual(deployments.body.deployments.map((entry) => [entry.id, entry.status]),
-    [[third, 'CANCELED'], [second, 'CANCELED'], [first, 'COMPLETED']]);
+  assert.deepEqual(
+    deployments.body.deployments.map((entry) => [entry.id, entry.status]),
+    [
+      [third, 'CANCELED'],
+      [second, 'CANCELED'],
+      [first, 'COMPLETED'],
+    ]
+  );
   const audit = await context.call('GET', '/api/audit', { as: viewer });
-  assert.deepEqual(audit.body.entries.map((entry) => [entry.action, entry.outcome, entry.target]), [
-    ['deployment.create', 'rejected', '1.2.3+5'],
-    ['firmware.revoke', 'ok', '1.2.3+5'],
-    ['deployment.create', 'ok', third],
-    ['deployment.cancel', 'ok', second],
-    ['deployment.create', 'ok', second],
-    ['deployment.create', 'ok', first],
-    ['firmware.upload', 'ok', '1.2.3+5'],
-    ['firmware.upload', 'ok', '1.2.3+4'],
-  ]);
-  assert.ok(audit.body.entries.every((entry) => entry.actor.sub === manager.sub && entry.actor.email === manager.email));
+  assert.deepEqual(
+    audit.body.entries.map((entry) => [entry.action, entry.outcome, entry.target]),
+    [
+      ['deployment.create', 'rejected', '1.2.3+5'],
+      ['firmware.revoke', 'ok', '1.2.3+5'],
+      ['deployment.create', 'ok', third],
+      ['deployment.cancel', 'ok', second],
+      ['deployment.create', 'ok', second],
+      ['deployment.create', 'ok', first],
+      ['firmware.upload', 'ok', '1.2.3+5'],
+      ['firmware.upload', 'ok', '1.2.3+4'],
+    ]
+  );
+  assert.ok(
+    audit.body.entries.every((entry) => entry.actor.sub === manager.sub && entry.actor.email === manager.email)
+  );
 });

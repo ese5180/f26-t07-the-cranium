@@ -15,13 +15,18 @@ import { test } from 'node:test';
 
 import { CORE, scriptAddress } from '../web/test/page.mjs';
 import {
-  PREVIEW_CODE, PREVIEW_CUSTOMER_PASSWORD, PREVIEW_PASSWORD, PREVIEW_TEMPORARY_PASSWORD, createPreview,
+  PREVIEW_CODE,
+  PREVIEW_CUSTOMER_PASSWORD,
+  PREVIEW_PASSWORD,
+  PREVIEW_TEMPORARY_PASSWORD,
+  createPreview,
 } from './preview.mjs';
 
 // The scripts as files of this run, as the website's tests load them (cloud/web/test/page.mjs).
 const core = await import(CORE);
-const site = await import(scriptAddress('customer-core.js', { 'core.js': CORE }, '',
-  new URL('../web/src/customer/assets/', import.meta.url)));
+const site = await import(
+  scriptAddress('customer-core.js', { 'core.js': CORE }, '', new URL('../web/src/customer/assets/', import.meta.url))
+);
 
 const ADA = 'ada@preview.invalid';
 const CLEO = 'cleo@preview.invalid';
@@ -42,18 +47,33 @@ async function start(t) {
 async function pageConfig(url) {
   const response = await fetch(url);
   const page = await response.text();
-  const content = /<meta name="cranium-config" content="([^"]*)">/.exec(page)[1].replaceAll('&quot;', '"').replaceAll('&amp;', '&');
+  const content = /<meta name="cranium-config" content="([^"]*)">/
+    .exec(page)[1]
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
   return { response, page, content };
 }
 
 /** One tab: its sessionStorage, its address and its history, shared by every script in it. */
 function tab(origin, pathname = '/') {
   const stored = new Map();
-  const location = { search: '', hash: '#/sign-in', pathname, assigned: null, assign(url) { location.assigned = url; } };
+  const location = {
+    search: '',
+    hash: '#/sign-in',
+    pathname,
+    assigned: null,
+    assign(url) {
+      location.assigned = url;
+    },
+  };
   return {
     stored,
     location,
-    history: { replaceState() { location.search = ''; } },
+    history: {
+      replaceState() {
+        location.search = '';
+      },
+    },
     storage: {
       getItem: (key) => (stored.has(key) ? stored.get(key) : null),
       setItem: (key, value) => stored.set(key, String(value)),
@@ -66,19 +86,36 @@ function tab(origin, pathname = '/') {
 
 /** The customer site's two sign-ins in a tab, made as customer.js makes them. */
 function signIns(config, browser, clock) {
-  const common = { location: browser.location, history: browser.history, fetch: browser.fetch, crypto: webcrypto, now: () => clock.ms };
+  const common = {
+    location: browser.location,
+    history: browser.history,
+    fetch: browser.fetch,
+    crypto: webcrypto,
+    now: () => clock.ms,
+  };
   return {
     customer: core.createAuth({
-      ...common, config: site.authConfig(config, 'customer'), storage: site.namespaced(browser.storage, site.CUSTOMER_PREFIX), newPasswordHere: true,
+      ...common,
+      config: site.authConfig(config, 'customer'),
+      storage: site.namespaced(browser.storage, site.CUSTOMER_PREFIX),
+      newPasswordHere: true,
     }),
-    admin: core.createAuth({ ...common, config: site.authConfig(config, 'admin'), storage: site.namespaced(browser.storage, '') }),
+    admin: core.createAuth({
+      ...common,
+      config: site.authConfig(config, 'admin'),
+      storage: site.namespaced(browser.storage, ''),
+    }),
   };
 }
 
 async function call(origin, token, method, path, body) {
   const headers = { authorization: `Bearer ${token}` };
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const response = await fetch(`${origin}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(`${origin}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const text = await response.text();
   let parsed = null;
   try {
@@ -111,24 +148,38 @@ test('one name serves the customer site at / and the console as admin mode at /a
   assert.doesNotMatch(admin.response.headers.get('content-security-policy'), /trusted-types/);
 });
 
-test('a customer signs in with the console\'s own SRP code and reads their boards, and nothing of the console', async (t) => {
+test("a customer signs in with the console's own SRP code and reads their boards, and nothing of the console", async (t) => {
   const { origin, clock } = await start(t);
   const config = site.readSiteConfig((await pageConfig(`${origin}/`)).content);
   const browser = tab(origin);
   const { customer } = signIns(config, browser, clock);
   assert.deepEqual(await customer.resume(), { status: 'sign-in' });
-  assert.deepEqual(await customer.passwordSignIn(ADA, 'not the password'), { step: 'password', problem: 'wrong-password' });
+  assert.deepEqual(await customer.passwordSignIn(ADA, 'not the password'), {
+    step: 'password',
+    problem: 'wrong-password',
+  });
   assert.deepEqual(await customer.passwordSignIn(ADA, PREVIEW_CUSTOMER_PASSWORD), { step: 'done' });
   // Revoked through the user pool API, with no managed login pages: none is kept.
   assert.equal(await customer.revocation(), 'revoked');
   // The session is under the customer's own keys, not the console's.
   assert.deepEqual([...browser.stored.keys()], ['customer:cranium.session']);
 
-  const api = site.createCustomerApi({ auth: customer, fetch: browser.fetch, onUnauthorized: () => assert.fail('refused') });
+  const api = site.createCustomerApi({
+    auth: customer,
+    fetch: browser.fetch,
+    onUnauthorized: () => assert.fail('refused'),
+  });
   const boards = await api.boards();
-  assert.deepEqual(boards.map((board) => [board.name, board.status]), [['Living room deck', 'online'], [null, 'offline']]);
+  assert.deepEqual(
+    boards.map((board) => [board.name, board.status]),
+    [
+      ['Living room deck', 'online'],
+      [null, 'offline'],
+    ]
+  );
   const raw = await call(origin, customer.accessToken(), 'GET', '/api/c/boards');
-  for (const word of ['cranium-', 'thing', 'mac', 'heap', 'job']) assert.equal(JSON.stringify(raw.body).includes(word), false, word);
+  for (const word of ['cranium-', 'thing', 'mac', 'heap', 'job'])
+    assert.equal(JSON.stringify(raw.body).includes(word), false, word);
   const detail = await api.board(boards[0].id);
   assert.ok(detail.activity.length > 0);
   assert.deepEqual(await api.me(), { email: ADA, name: 'Ada', boards: 2 });
@@ -158,14 +209,25 @@ test('an admin signs in once on the customer site, and the console under /admin 
   browser.location.pathname = '/admin';
   browser.location.hash = '#/customers';
   const consoleAuth = core.createAuth({
-    config: consoleConfig, storage: browser.storage, location: browser.location, history: browser.history, fetch, crypto: webcrypto,
+    config: consoleConfig,
+    storage: browser.storage,
+    location: browser.location,
+    history: browser.history,
+    fetch,
+    crypto: webcrypto,
     now: () => clock.ms,
   });
   assert.deepEqual(await consoleAuth.resume(), { status: 'signed-in', route: null });
   assert.equal(consoleAuth.accessToken(), token);
   const customers = await call(origin, consoleAuth.accessToken(), 'GET', '/api/customers');
-  assert.deepEqual(customers.body.customers.map((customer) => [customer.email, customer.status]),
-    [[ADA, 'active'], ['ben@preview.invalid', 'active'], [CLEO, 'invited']]);
+  assert.deepEqual(
+    customers.body.customers.map((customer) => [customer.email, customer.status]),
+    [
+      [ADA, 'active'],
+      ['ben@preview.invalid', 'active'],
+      [CLEO, 'invited'],
+    ]
+  );
   assert.equal(customers.body.siteUrl, `${origin}/`);
   // Leaving admin mode and signing out there ends it in the tab, at the console's managed sign-out.
   consoleAuth.signOut();
@@ -173,7 +235,7 @@ test('an admin signs in once on the customer site, and the console under /admin 
   assert.equal(browser.stored.get('cranium.session'), undefined);
 });
 
-test('an invited customer chooses a password on the site\'s own page, and the console then shows them active', async (t) => {
+test("an invited customer chooses a password on the site's own page, and the console then shows them active", async (t) => {
   const { origin, clock } = await start(t);
   const config = site.readSiteConfig((await pageConfig(`${origin}/`)).content);
   const { customer } = signIns(config, tab(origin), clock);
@@ -204,17 +266,28 @@ test('a release manager gives a board and takes it back; the customer sees it co
   const ben = listed.find((item) => item.email === 'ben@preview.invalid');
   const owned = new Set(listed.flatMap((item) => item.boards.map((board) => board.thing)));
   const free = preview.boards.map((board) => board.thing).find((thing) => !owned.has(thing));
-  const given = await call(origin, staff.accessToken(), 'POST', `/api/customers/${ben.id}/boards`, { thing: free, label: 'Spare' });
+  const given = await call(origin, staff.accessToken(), 'POST', `/api/customers/${ben.id}/boards`, {
+    thing: free,
+    label: 'Spare',
+  });
   assert.equal(given.status, 200);
   const now = await benBoards();
   assert.deepEqual(now.map((board) => board.name).sort(), ['Spare', 'Studio']);
   const spare = now.find((board) => board.name === 'Spare');
 
-  assert.equal((await call(origin, staff.accessToken(), 'POST', `/api/customers/${ben.id}/boards/${free}/remove`, {})).status, 200);
-  assert.deepEqual((await benBoards()).map((board) => board.name), ['Studio']);
+  assert.equal(
+    (await call(origin, staff.accessToken(), 'POST', `/api/customers/${ben.id}/boards/${free}/remove`, {})).status,
+    200
+  );
+  assert.deepEqual(
+    (await benBoards()).map((board) => board.name),
+    ['Studio']
+  );
   assert.equal((await call(origin, customer.accessToken(), 'GET', `/api/c/boards/${spare.id}`)).status, 404);
 
-  const log = (await call(origin, staff.accessToken(), 'GET', '/api/audit?limit=20')).body.entries.map((entry) => entry.action);
+  const log = (await call(origin, staff.accessToken(), 'GET', '/api/audit?limit=20')).body.entries.map(
+    (entry) => entry.action
+  );
   assert.deepEqual(log.slice(0, 2), ['customer.unassign', 'customer.assign']);
   assert.ok(log.includes('customer.create'));
 });
@@ -229,18 +302,27 @@ test('a forgotten password is reset with the code from the e-mail, and an authen
   assert.deepEqual(await account.forgotPassword('nobody@preview.invalid'), { ok: true });
   // An unused invitation has no password to reset yet.
   assert.deepEqual(await account.forgotPassword(CLEO), { ok: false, problem: 'not-yet' });
-  assert.deepEqual(await account.confirmForgotPassword(ADA, '000000', 'her new password'), { ok: false, problem: 'wrong-code' });
+  assert.deepEqual(await account.confirmForgotPassword(ADA, '000000', 'her new password'), {
+    ok: false,
+    problem: 'wrong-code',
+  });
   assert.deepEqual(await account.confirmForgotPassword(ADA, '135790', 'her new password'), { ok: true });
 
   const { customer } = signIns(config, browser, clock);
-  assert.deepEqual(await customer.passwordSignIn(ADA, PREVIEW_CUSTOMER_PASSWORD), { step: 'password', problem: 'wrong-password' });
+  assert.deepEqual(await customer.passwordSignIn(ADA, PREVIEW_CUSTOMER_PASSWORD), {
+    step: 'password',
+    problem: 'wrong-password',
+  });
   assert.deepEqual(await customer.passwordSignIn(ADA, 'her new password'), { step: 'done' });
 
   const mine = site.createAccount({ fetch: browser.fetch, site: config, accessToken: () => customer.accessToken() });
   assert.deepEqual(await mine.profile(), { ok: true, email: ADA, name: 'Ada', authenticator: false });
   const started = await mine.startAuthenticator();
   assert.equal(started.ok, true);
-  assert.match(site.otpauthUri(started.secret, ADA), /^otpauth:\/\/totp\/Cranium%3Aada%40preview\.invalid\?secret=[A-Z2-7]+&issuer=Cranium$/);
+  assert.match(
+    site.otpauthUri(started.secret, ADA),
+    /^otpauth:\/\/totp\/Cranium%3Aada%40preview\.invalid\?secret=[A-Z2-7]+&issuer=Cranium$/
+  );
   assert.deepEqual(await mine.confirmAuthenticator('000000'), { ok: false, problem: 'wrong-code' });
   assert.deepEqual(await mine.confirmAuthenticator(PREVIEW_CODE), { ok: true });
   assert.equal((await mine.profile()).authenticator, true);

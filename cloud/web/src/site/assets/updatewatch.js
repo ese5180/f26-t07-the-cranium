@@ -21,18 +21,49 @@ export const STATUS_LENGTH = 64;
 
 const WINDOWS = ['closed', 'open', 'linked', 'offer', 'status'];
 const IMAGES = ['none', 'receiving', 'received', 'verified', 'refused'];
-const REFUSALS = ['none', 'older', 'notImage0', 'noHeader', 'tooLarge', 'badSizes', 'incompatibleBoard', 'incompatibleLayout',
-  'malformed', 'swapPending', 'cannotInstall'];
+const REFUSALS = [
+  'none',
+  'older',
+  'notImage0',
+  'noHeader',
+  'tooLarge',
+  'badSizes',
+  'incompatibleBoard',
+  'incompatibleLayout',
+  'malformed',
+  'swapPending',
+  'cannotInstall',
+];
 const RESULTS = ['none', 'installing', 'discarded', 'timedOut', 'closed'];
 const SWAPS = ['none', 'test', 'permanent', 'revert', 'fail'];
 const VIAS = ['none', 'bluetooth', 'wifi'];
-const OUTCOMES = ['none', 'pending', 'kept', 'rolledBack', 'notInstalled', 'trialLost', 'superseded', 'flashError',
-  'incompatibleBoard', 'incompatibleLayout', 'failed'];
+const OUTCOMES = [
+  'none',
+  'pending',
+  'kept',
+  'rolledBack',
+  'notInstalled',
+  'trialLost',
+  'superseded',
+  'flashError',
+  'incompatibleBoard',
+  'incompatibleLayout',
+  'failed',
+];
 const PROOFS = ['none', 'cloud', 'person'];
 const OUTCOME_WORDS = {
-  none: 'none', pending: 'pending', kept: 'succeeded', rolledBack: 'rolled_back', notInstalled: 'not_installed',
-  trialLost: 'trial_lost', superseded: 'superseded', flashError: 'flash_error', incompatibleBoard: 'incompatible_board',
-  incompatibleLayout: 'incompatible_layout', failed: 'failed', unknown: 'unknown',
+  none: 'none',
+  pending: 'pending',
+  kept: 'succeeded',
+  rolledBack: 'rolled_back',
+  notInstalled: 'not_installed',
+  trialLost: 'trial_lost',
+  superseded: 'superseded',
+  flashError: 'flash_error',
+  incompatibleBoard: 'incompatible_board',
+  incompatibleLayout: 'incompatible_layout',
+  failed: 'failed',
+  unknown: 'unknown',
 };
 
 const named = (names, value) => names[value] ?? 'unknown';
@@ -42,9 +73,9 @@ export function parseStatus(data) {
   const b = data instanceof Uint8Array ? data : new Uint8Array(data ?? []);
   if (b.length < STATUS_LENGTH || b[0] !== STATUS_FORMAT) return null;
   const u16 = (at) => b[at] | (b[at + 1] << 8);
-  const u32 = (at) => (u16(at) + u16(at + 2) * 65536);
-  const version = (at) => (b.subarray(at, at + 8).some((byte) => byte !== 0)
-    ? `${b[at]}.${b[at + 1]}.${u16(at + 2)}+${u32(at + 4)}` : null);
+  const u32 = (at) => u16(at) + u16(at + 2) * 65536;
+  const version = (at) =>
+    b.subarray(at, at + 8).some((byte) => byte !== 0) ? `${b[at]}.${b[at + 1]}.${u16(at + 2)}+${u32(at + 4)}` : null;
   const hash = b.subarray(48, 56);
   return {
     window: named(WINDOWS, b[1]),
@@ -63,7 +94,9 @@ export function parseStatus(data) {
     lastProof: named(PROOFS, b[31]),
     lastTarget: version(32),
     lastFrom: version(40),
-    lastHash: hash.some((byte) => byte !== 0) ? [...hash].map((byte) => byte.toString(16).padStart(2, '0')).join('') : null,
+    lastHash: hash.some((byte) => byte !== 0)
+      ? [...hash].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+      : null,
     lastCount: u16(56),
     uptime: u32(58),
   };
@@ -90,24 +123,51 @@ export const proofWord = (proof) => (proof === 'cloud' || proof === 'person' ? p
 /** The two say something different, beyond what counts by itself: the seconds left, the bytes and the uptime. */
 export function isNews(status, other) {
   if (!other) return true;
-  return ['window', 'image', 'refusal', 'imageVersion', 'result', 'closedReason', 'running', 'onTrial', 'swap', 'lastVia',
-    'lastOutcome', 'lastProof', 'lastTarget', 'lastFrom', 'lastHash', 'lastCount'].some((field) => status[field] !== other[field]);
+  return [
+    'window',
+    'image',
+    'refusal',
+    'imageVersion',
+    'result',
+    'closedReason',
+    'running',
+    'onTrial',
+    'swap',
+    'lastVia',
+    'lastOutcome',
+    'lastProof',
+    'lastTarget',
+    'lastFrom',
+    'lastHash',
+    'lastCount',
+  ].some((field) => status[field] !== other[field]);
 }
 
 /** Why the board refused an image, in words. */
 export function refusalWords(refusal) {
   switch (refusal) {
-    case 'older': return 'It is not newer than what the board runs.';
-    case 'notImage0': return 'It is not for image 0.';
-    case 'noHeader': return 'It does not start with an image header.';
-    case 'tooLarge': return 'It would reach the end of the board\'s slot.';
-    case 'badSizes': return 'Its header claims more than the file holds.';
-    case 'incompatibleBoard': return 'It is for another kind of board.';
-    case 'incompatibleLayout': return 'It is for another flash layout.';
-    case 'malformed': return 'Its signed metadata is malformed, or it could not be read back.';
-    case 'swapPending': return 'The bootloader has a swap to do already.';
-    case 'cannotInstall': return 'The board could not record it or ask for the swap.';
-    default: return 'The board did not say why.';
+    case 'older':
+      return 'It is not newer than what the board runs.';
+    case 'notImage0':
+      return 'It is not for image 0.';
+    case 'noHeader':
+      return 'It does not start with an image header.';
+    case 'tooLarge':
+      return "It would reach the end of the board's slot.";
+    case 'badSizes':
+      return 'Its header claims more than the file holds.';
+    case 'incompatibleBoard':
+      return 'It is for another kind of board.';
+    case 'incompatibleLayout':
+      return 'It is for another flash layout.';
+    case 'malformed':
+      return 'Its signed metadata is malformed, or it could not be read back.';
+    case 'swapPending':
+      return 'The bootloader has a swap to do already.';
+    case 'cannotInstall':
+      return 'The board could not record it or ask for the swap.';
+    default:
+      return 'The board did not say why.';
   }
 }
 
@@ -119,7 +179,7 @@ export function imageHash(data) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data ?? []);
   if (bytes.length < 32) return null;
   const u16 = (at) => bytes[at] | (bytes[at + 1] << 8);
-  const u32 = (at) => (u16(at) + u16(at + 2) * 65536);
+  const u32 = (at) => u16(at) + u16(at + 2) * 65536;
   let at = u16(8) + u32(12) + u16(10);
   if (at + 4 > bytes.length || u16(at) !== 0x6907) return null;
   const end = Math.min(bytes.length, at + u16(at + 2));
@@ -170,7 +230,8 @@ export const WORDS = Object.freeze({
   declinedTitle: 'Button 2 pressed: the image was thrown away',
   expiredTitle: 'The 2 minutes ran out: the image was thrown away',
   likelyExpiredTitle: 'The 2 minutes ran out',
-  likelyExpiredDetail: 'The board closed the link at the end of its 2 minutes: it has most likely thrown the image away.',
+  likelyExpiredDetail:
+    'The board closed the link at the end of its 2 minutes: it has most likely thrown the image away.',
   refusedTitle: 'The board did not take the image',
   installingTitle: 'Installing and restarting',
   installingDetail: 'The board is offline on the console while it installs.',
@@ -178,16 +239,19 @@ export const WORDS = Object.freeze({
   trialDetail: 'Back online with the new version, not yet kept.',
   keptTitle: (version) => `Kept ${version}`,
   rolledBackTitle: (old) => (old ? `Rolled back to ${old}` : 'Rolled back'),
-  cannotFollow: 'The board is not on the console, so the app can\'t follow it from here. After it restarts, check its version over Bluetooth.',
-  gaveUpNote: '5 minutes have passed, so the app has stopped following it. The board\'s page shows how it ends.',
+  cannotFollow:
+    "The board is not on the console, so the app can't follow it from here. After it restarts, check its version over Bluetooth.",
+  gaveUpNote: "5 minutes have passed, so the app has stopped following it. The board's page shows how it ends.",
   consoleFailedNote: 'The console could not be reached just now. The app keeps asking.',
   timeUp: 'The 2 minutes are up.',
   boardSaid: 'The board said so over Bluetooth.',
   buttonFromBoard: 'The board said so over Bluetooth, and is restarting to install it.',
   installingOverBluetooth: 'The board is restarting into the bootloader, which checks the image and swaps it in.',
   trialOverBluetooth: 'The board says so over Bluetooth: not yet kept.',
-  lookingNote: 'Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing.',
-  gaveUpBluetoothNote: 'The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again.',
+  lookingNote:
+    'Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing.',
+  gaveUpBluetoothNote:
+    'The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again.',
 });
 
 const BAD_BLUETOOTH_RESULTS = new Set(['rolled_back', 'not_installed', 'trial_lost', 'flash_error']);
@@ -202,14 +266,22 @@ export function keptDetail(proof) {
 /** Why it went back, from the board's record; "Back on the old version." when the board only shows it. */
 export function rolledBackDetail(result) {
   switch (result) {
-    case 'rolled_back': return 'The new image was not kept: the bootloader put the old one back.';
-    case 'not_installed': return 'The bootloader did not install the new image.';
-    case 'trial_lost': return 'The new image lost its trial.';
-    case 'flash_error': return 'The new image could not be written to flash.';
-    case 'superseded': return 'A cloud update replaced it.';
-    case 'incompatible_board': return 'The image is for another kind of board.';
-    case 'incompatible_layout': return 'The image is for another flash layout.';
-    default: return 'Back on the old version.';
+    case 'rolled_back':
+      return 'The new image was not kept: the bootloader put the old one back.';
+    case 'not_installed':
+      return 'The bootloader did not install the new image.';
+    case 'trial_lost':
+      return 'The new image lost its trial.';
+    case 'flash_error':
+      return 'The new image could not be written to flash.';
+    case 'superseded':
+      return 'A cloud update replaced it.';
+    case 'incompatible_board':
+      return 'The image is for another kind of board.';
+    case 'incompatible_layout':
+      return 'The image is for another flash layout.';
+    default:
+      return 'Back on the old version.';
   }
 }
 
@@ -244,8 +316,18 @@ const time = (iso) => {
  */
 export function facts(start) {
   return {
-    from: null, thing: null, onConsole: null, linkDroppedAt: null, lines: [], events: [], device: null,
-    consoleFailed: false, gaveUp: false, readings: [], sentHash: null, ...start,
+    from: null,
+    thing: null,
+    onConsole: null,
+    linkDroppedAt: null,
+    lines: [],
+    events: [],
+    device: null,
+    consoleFailed: false,
+    gaveUp: false,
+    readings: [],
+    sentHash: null,
+    ...start,
   };
 }
 
@@ -265,13 +347,25 @@ export function isAboutThisSend(f, status) {
 export function followUntil(f) {
   if (f.linkDroppedAt === null) return null;
   let until = f.linkDroppedAt + FOLLOW_MS;
-  const trial = [...f.readings].reverse().find((reading) => reading.afterRestart && reading.status.onTrial &&
-    same(reading.status.running, f.version) && isAboutThisSend(f, reading.status));
+  const trial = [...f.readings]
+    .reverse()
+    .find(
+      (reading) =>
+        reading.afterRestart &&
+        reading.status.onTrial &&
+        same(reading.status.running, f.version) &&
+        isAboutThisSend(f, reading.status)
+    );
   if (trial) until = Math.max(until, trial.at + TRIAL_FOLLOW_MS);
   return until;
 }
 
-const RECORD_KINDS = ['restarting into the bootloader', 'on trial', 'last update over Bluetooth', 'update over Bluetooth'];
+const RECORD_KINDS = [
+  'restarting into the bootloader',
+  'on trial',
+  'last update over Bluetooth',
+  'update over Bluetooth',
+];
 
 /** One of the board's records of an update: "<what>: <to> from <from>, <result>, proof <who>, update N of this board". */
 export function parseRecord(text) {
@@ -293,10 +387,12 @@ export function timeline(f) {
 
   // The board's own word, over Bluetooth: on the link of the send, then after the restart.
   const onLink = f.readings.filter((reading) => !reading.afterRestart);
-  const windowEnd = onLink.find((reading) => reading.status.result !== 'none' && reading.status.result !== 'unknown') ?? null;
+  const windowEnd =
+    onLink.find((reading) => reading.status.result !== 'none' && reading.status.result !== 'unknown') ?? null;
   const installing = windowEnd?.status.result === 'installing' ? windowEnd : null;
   const afterRestart = f.readings.filter((reading) => reading.afterRestart && isAboutThisSend(f, reading.status));
-  const boardTrial = afterRestart.find((reading) => reading.status.onTrial && same(reading.status.running, version)) ?? null;
+  const boardTrial =
+    afterRestart.find((reading) => reading.status.onTrial && same(reading.status.running, version)) ?? null;
   const boardEnd = afterRestart.find((reading) => outcomeIsEnd(reading.status.lastOutcome)) ?? null;
   // The board counts its 2 minutes down itself.
   const offer = [...onLink].reverse().find((reading) => reading.status.window === 'offer') ?? null;
@@ -323,8 +419,12 @@ export function timeline(f) {
   const onTrial = first('on trial');
   const finished = first('update over Bluetooth') ?? first('last update over Bluetooth');
   const button2 = firstLine((text) => text.startsWith('closed: by Button 2'));
-  const refused = firstLine((text) => text.startsWith('refused the image') || text.startsWith('what arrived cannot be installed') ||
-    text.startsWith('the image could not be installed'));
+  const refused = firstLine(
+    (text) =>
+      text.startsWith('refused the image') ||
+      text.startsWith('what arrived cannot be installed') ||
+      text.startsWith('the image could not be installed')
+  );
   const noImage = firstLine((text) => text.startsWith('closed: no image to install'));
 
   const connections = f.events
@@ -343,7 +443,7 @@ export function timeline(f) {
     const boot = seen - device.uptime * S;
     if (boot >= f.sentAt - BOOT_SLACK_MS) bootAt = boot;
   }
-  const runs = bootAt === null ? null : device?.fw ?? null;
+  const runs = bootAt === null ? null : (device?.fw ?? null);
   const record = device?.bt && same(device.bt.to, version) ? device.bt : null;
 
   // How it ended, the board's own word first: over Bluetooth, then in its log.
@@ -354,7 +454,8 @@ export function timeline(f) {
   let old = null;
   let refusal = null;
   let fromBoard = false;
-  const endedOnLink = windowEnd !== null &&
+  const endedOnLink =
+    windowEnd !== null &&
     (['discarded', 'timedOut'].includes(windowEnd.status.result) || windowEnd.status.image === 'refused');
   if (boardEnd) {
     const said = boardEnd.status;
@@ -408,9 +509,15 @@ export function timeline(f) {
   }
 
   const dropped = f.linkDroppedAt;
-  const ranOnTrial = onTrial !== null || boardTrial !== null || (runs ? same(runs.version, version) : false) || outcome === 'kept';
-  const acceptedSure = installing !== null || afterRestart.length > 0 || restarting !== null || ranOnTrial ||
-    outcome === 'rolled_back' || (dropped !== null && offlineAt !== null);
+  const ranOnTrial =
+    onTrial !== null || boardTrial !== null || (runs ? same(runs.version, version) : false) || outcome === 'kept';
+  const acceptedSure =
+    installing !== null ||
+    afterRestart.length > 0 ||
+    restarting !== null ||
+    ranOnTrial ||
+    outcome === 'rolled_back' ||
+    (dropped !== null && offlineAt !== null);
   const acceptedAt = installing?.at ?? restarting?.at ?? offlineAt ?? dropped;
   const likelyAccepted = !acceptedSure && outcome === null && dropped !== null && dropped < deadline - END_SLACK_MS;
   const likelyExpired = !acceptedSure && outcome === null && dropped !== null && dropped >= deadline - END_SLACK_MS;
@@ -461,14 +568,27 @@ export function timeline(f) {
     if (outcome === 'kept') {
       rows.push(row('trial', 'done', WORDS.trialTitle(version), null, trialAt));
     } else if (outcome === 'rolled_back') {
-      rows.push(row('trial', trialDone ? 'done' : 'waiting', WORDS.trialTitle(version), null, onTrial?.at ?? boardTrial?.at ?? null));
+      rows.push(
+        row(
+          'trial',
+          trialDone ? 'done' : 'waiting',
+          WORDS.trialTitle(version),
+          null,
+          onTrial?.at ?? boardTrial?.at ?? null
+        )
+      );
     } else {
       const detail = onTrial === null && boardTrial !== null ? WORDS.trialOverBluetooth : WORDS.trialDetail;
-      rows.push(ranOnTrial ? row('trial', 'current', WORDS.trialTitle(version), detail, trialAt) : row('trial', 'waiting', WORDS.trialTitle(version)));
+      rows.push(
+        ranOnTrial
+          ? row('trial', 'current', WORDS.trialTitle(version), detail, trialAt)
+          : row('trial', 'waiting', WORDS.trialTitle(version))
+      );
     }
 
     if (outcome === 'kept') rows.push(row('end', 'done', WORDS.keptTitle(version), keptDetail(proof), endAt));
-    else if (outcome === 'rolled_back') rows.push(row('end', 'failed', WORDS.rolledBackTitle(old ?? f.from), rolledBackDetail(reason), endAt));
+    else if (outcome === 'rolled_back')
+      rows.push(row('end', 'failed', WORDS.rolledBackTitle(old ?? f.from), rolledBackDetail(reason), endAt));
     else rows.push(row('end', 'waiting', WORDS.keptTitle(version)));
   }
 
@@ -497,7 +617,7 @@ export function timeline(f) {
     waitingForButton: dropped === null && !acceptedSure && outcome === null,
     note,
     finished: done,
-    rolledBackTo: outcome === 'rolled_back' ? old ?? f.from : null,
+    rolledBackTo: outcome === 'rolled_back' ? (old ?? f.from) : null,
     acceptedAt: acceptedSure || likelyAccepted ? acceptedAt : null,
   };
 }
@@ -506,19 +626,29 @@ export function timeline(f) {
 export function followedRecord(f, line) {
   if (f.thing === null) return null;
   return {
-    thing: f.thing, version: f.version, at: line.acceptedAt ?? f.sentAt, outcome: line.outcome,
-    tentative: line.tentative, rolledBackTo: line.rolledBackTo,
+    thing: f.thing,
+    version: f.version,
+    at: line.acceptedAt ?? f.sentAt,
+    outcome: line.outcome,
+    tentative: line.tentative,
+    rolledBackTo: line.rolledBackTo,
   };
 }
 
 function outcomeWords(outcome, rolledBackTo) {
   switch (outcome) {
-    case 'kept': return 'kept';
-    case 'rolled_back': return rolledBackTo ? `rolled back to ${rolledBackTo}` : 'rolled back';
-    case 'declined': return 'thrown away with Button 2';
-    case 'expired': return 'not installed: the 2 minutes ran out';
-    case 'refused': return 'not taken by the board';
-    default: return 'not followed to the end';
+    case 'kept':
+      return 'kept';
+    case 'rolled_back':
+      return rolledBackTo ? `rolled back to ${rolledBackTo}` : 'rolled back';
+    case 'declined':
+      return 'thrown away with Button 2';
+    case 'expired':
+      return 'not installed: the 2 minutes ran out';
+    case 'refused':
+      return 'not taken by the board';
+    default:
+      return 'not followed to the end';
   }
 }
 

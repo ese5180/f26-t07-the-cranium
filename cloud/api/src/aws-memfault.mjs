@@ -23,9 +23,7 @@
  */
 
 import { IoTDataPlaneClient, PublishCommand } from '@aws-sdk/client-iot-data-plane';
-import {
-  DescribeSecretCommand, GetSecretValueCommand, SecretsManagerClient,
-} from '@aws-sdk/client-secrets-manager';
+import { DescribeSecretCommand, GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 
 const CONNECT_TIMEOUT_MS = 1000;
 const IDLE_TIMEOUT_MS = 3000;
@@ -35,7 +33,8 @@ const MAX_ATTEMPTS = 2;
 export const POST_TIMEOUT_MS = 5000;
 
 const HOSTS = Object.freeze(['chunks-nrf.memfault.com', 'chunks.memfault.com']);
-const SECRET_ARN = /^arn:aws[a-z-]*:secretsmanager:[a-z]{2}(?:-[a-z]+)+-\d{1,2}:\d{12}:secret:[A-Za-z0-9/_+=.@-]{1,512}$/;
+const SECRET_ARN =
+  /^arn:aws[a-z-]*:secretsmanager:[a-z]{2}(?:-[a-z]+)+-\d{1,2}:\d{12}:secret:[A-Za-z0-9/_+=.@-]{1,512}$/;
 const THING = /^cranium-[0-9a-f]{16}$/;
 
 /** The topic a board's commands, and so its answers, go to, as aws-map.mjs names it. */
@@ -44,7 +43,11 @@ function commandTopic(thing) {
 }
 
 const THROTTLING = new Set([
-  'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException', 'RequestLimitExceeded',
+  'ThrottlingException',
+  'Throttling',
+  'ThrottledException',
+  'TooManyRequestsException',
+  'RequestLimitExceeded',
 ]);
 
 function nameOf(cause) {
@@ -59,8 +62,10 @@ function statusOf(cause) {
 function failure(operation, cause) {
   const error = new Error(`${operation}: ${nameOf(cause)}: ${String(cause?.message ?? cause).slice(0, 300)}`);
   error.name = 'AwsError';
-  error.code = THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
-    ? 'throttled' : 'failed';
+  error.code =
+    THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
+      ? 'throttled'
+      : 'failed';
   error.operation = operation;
   error.awsError = nameOf(cause);
   error.awsStatus = statusOf(cause);
@@ -119,7 +124,7 @@ export function createMemfaultStore(env, { fetch: fetchChunk = globalThis.fetch 
     },
 
     async postChunk({ thing, chunk, key }) {
-      if (!THING.test(thing)) throw new TypeError('postChunk needs a board\'s name');
+      if (!THING.test(thing)) throw new TypeError("postChunk needs a board's name");
       let response;
       try {
         response = await fetchChunk(`https://${host}/api/v0/chunks/${thing}`, {
@@ -137,14 +142,16 @@ export function createMemfaultStore(env, { fetch: fetchChunk = globalThis.fetch 
     },
 
     async publishAck({ thing, payload }) {
-      if (!THING.test(thing)) throw new TypeError('publishAck needs a board\'s name');
+      if (!THING.test(thing)) throw new TypeError("publishAck needs a board's name");
       try {
-        await iotData.send(new PublishCommand({
-          topic: commandTopic(thing),
-          qos: 1,
-          payload: Buffer.from(JSON.stringify(payload), 'utf8'),
-          contentType: 'application/json',
-        }));
+        await iotData.send(
+          new PublishCommand({
+            topic: commandTopic(thing),
+            qos: 1,
+            payload: Buffer.from(JSON.stringify(payload), 'utf8'),
+            contentType: 'application/json',
+          })
+        );
       } catch (cause) {
         throw failure('Publish', cause);
       }
@@ -157,9 +164,14 @@ export function createMemfaultStatus(env) {
   const region = required(env, 'AWS_REGION');
   const secretArn = env?.MEMFAULT_KEY_SECRET_ARN;
   if (secretArn === undefined || secretArn === '') {
-    return Object.freeze({ async memfaultKeyStored() { return false; } });
+    return Object.freeze({
+      async memfaultKeyStored() {
+        return false;
+      },
+    });
   }
-  if (!SECRET_ARN.test(secretArn)) throw new Error('Environment variable MEMFAULT_KEY_SECRET_ARN is missing or malformed');
+  if (!SECRET_ARN.test(secretArn))
+    throw new Error('Environment variable MEMFAULT_KEY_SECRET_ARN is missing or malformed');
   const secrets = new SecretsManagerClient(clientSettings(region));
 
   return Object.freeze({

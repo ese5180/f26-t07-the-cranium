@@ -46,9 +46,26 @@
 
 import { HttpError, badRequest, conflict, field, notFound, unprocessable } from '../http.mjs';
 import {
-  ANDROID, APP_REDIRECT_URI, IOS, IOS_BUNDLE_ID, IPA_TYPE, LINK_SECONDS, apkKey, apkName, appReleaseFromItem, appReleaseKey,
-  checksumHex, compareAppVersions, iosReleaseFromItem, ipaKey, objectVersionOf, parseAppVersion, requireApkDescription,
-  requireAppVersion, requireIpaDescription, versionOfAppKey,
+  ANDROID,
+  APP_REDIRECT_URI,
+  IOS,
+  IOS_BUNDLE_ID,
+  IPA_TYPE,
+  LINK_SECONDS,
+  apkKey,
+  apkName,
+  appReleaseFromItem,
+  appReleaseKey,
+  checksumHex,
+  compareAppVersions,
+  iosReleaseFromItem,
+  ipaKey,
+  objectVersionOf,
+  parseAppVersion,
+  requireApkDescription,
+  requireAppVersion,
+  requireIpaDescription,
+  versionOfAppKey,
 } from '../lib/apps.mjs';
 import { IpaError, readIpa } from '../lib/ipa.mjs';
 import { readBundledVersions } from '../lib/versions.mjs';
@@ -65,29 +82,42 @@ function iso(ms) {
 }
 
 function versionExists(version, platform = ANDROID) {
-  return conflict('version_exists',
-    `${NAMES[platform]} ${version} is on the console already. A version is published once and never replaced.`);
+  return conflict(
+    'version_exists',
+    `${NAMES[platform]} ${version} is on the console already. A version is published once and never replaced.`
+  );
 }
 
 function versionNotNewer(version, highest, platform = ANDROID) {
-  return unprocessable('version_not_newer', highest === null
-    ? `Version ${version} is not newer than the ${NAMES[platform]} on the console.`
-    : `Version ${version} is not newer than ${highest}, the newest ${NAMES[platform]} published. Versions only go up.`);
+  return unprocessable(
+    'version_not_newer',
+    highest === null
+      ? `Version ${version} is not newer than the ${NAMES[platform]} on the console.`
+      : `Version ${version} is not newer than ${highest}, the newest ${NAMES[platform]} published. Versions only go up.`
+  );
 }
 
 function buildNotHigher(build, highest) {
-  return unprocessable('build_not_higher', `Build ${build} is not higher than ${highest}, the newest iPhone app's. ` +
-    'SideStore takes an update by its version and build: raise CURRENT_PROJECT_VERSION in apps/ios/project.yml.');
+  return unprocessable(
+    'build_not_higher',
+    `Build ${build} is not higher than ${highest}, the newest iPhone app's. ` +
+      'SideStore takes an update by its version and build: raise CURRENT_PROJECT_VERSION in apps/ios/project.yml.'
+  );
 }
 
 function ipaMismatch(version, what) {
-  return unprocessable('ipa_mismatch', `The IPA that arrived for ${version} ${what} Build it again with ` +
-    'apps/ios/scripts/build-ipa.sh.');
+  return unprocessable(
+    'ipa_mismatch',
+    `The IPA that arrived for ${version} ${what} Build it again with ` + 'apps/ios/scripts/build-ipa.sh.'
+  );
 }
 
 function codeNotHigher(code, highest) {
-  return unprocessable('version_code_not_higher', `versionCode ${code} is not higher than ${highest}, the newest ` +
-    'Android app\'s. Android installs an update only over a lower versionCode: raise craniumVersionCode.');
+  return unprocessable(
+    'version_code_not_higher',
+    `versionCode ${code} is not higher than ${highest}, the newest ` +
+      "Android app's. Android installs an update only over a lower versionCode: raise craniumVersionCode."
+  );
 }
 
 /** What the activity log keeps of an APK: never the note, which is on the release. */
@@ -119,7 +149,8 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
     const [taken, highest] = await Promise.all([aws.getAppRelease(sk), aws.highestAppRelease(ANDROID)]);
     if (taken !== null) throw versionExists(apk.version);
     if (highest !== null && !(highest.sk < sk)) throw versionNotNewer(apk.version, versionOfAppKey(highest.sk));
-    if (highest !== null && !(highest.versionCode < apk.versionCode)) throw codeNotHigher(apk.versionCode, highest.versionCode);
+    if (highest !== null && !(highest.versionCode < apk.versionCode))
+      throw codeNotHigher(apk.versionCode, highest.versionCode);
     return sk;
   }
 
@@ -139,28 +170,48 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
     const object = await aws.headAppObject(key);
     if (object === null) {
       throw platform === IOS
-        ? conflict('ipa_missing', `No IPA for ${described.version} has arrived. Send it with the URL from ` +
-          'POST /api/apps/ios/uploads first: that URL is good for 15 minutes.')
-        : conflict('apk_missing', `No APK for ${described.version} has arrived. Send it with the URL from ` +
-          'POST /api/apps/android/uploads first: that URL is good for 15 minutes.');
+        ? conflict(
+            'ipa_missing',
+            `No IPA for ${described.version} has arrived. Send it with the URL from ` +
+              'POST /api/apps/ios/uploads first: that URL is good for 15 minutes.'
+          )
+        : conflict(
+            'apk_missing',
+            `No APK for ${described.version} has arrived. Send it with the URL from ` +
+              'POST /api/apps/android/uploads first: that URL is good for 15 minutes.'
+          );
     }
     if (object.size !== described.size) {
-      throw unprocessable('size_mismatch', `The ${file} that arrived for ${described.version} is ${object.size} bytes, ` +
-        `not ${described.size}. Start the upload again.`);
+      throw unprocessable(
+        'size_mismatch',
+        `The ${file} that arrived for ${described.version} is ${object.size} bytes, ` +
+          `not ${described.size}. Start the upload again.`
+      );
     }
     // A multipart upload's checksum is one of its parts, not of the file: it never came through the console's URL.
-    const arrived = object.checksumType === null || object.checksumType === 'FULL_OBJECT' ? checksumHex(object.sha256Base64) : null;
+    const arrived =
+      object.checksumType === null || object.checksumType === 'FULL_OBJECT' ? checksumHex(object.sha256Base64) : null;
     if (arrived === null) {
-      throw unprocessable('checksum_missing', `The ${file} that arrived for ${described.version} has no SHA-256 of its own: ` +
-        'it was not sent with the console\'s upload URL. Start the upload again.');
+      throw unprocessable(
+        'checksum_missing',
+        `The ${file} that arrived for ${described.version} has no SHA-256 of its own: ` +
+          "it was not sent with the console's upload URL. Start the upload again."
+      );
     }
     if (arrived !== described.sha256) {
-      throw unprocessable('sha256_mismatch', `The ${file} that arrived for ${described.version} is not the one described: ` +
-        'its SHA-256 is different. Start the upload again.');
+      throw unprocessable(
+        'sha256_mismatch',
+        `The ${file} that arrived for ${described.version} is not the one described: ` +
+          'its SHA-256 is different. Start the upload again.'
+      );
     }
     if (object.versionId === null) {
-      throw new HttpError(500, 'unversioned', `The bucket gave the ${file} no version of its own, so the console ` +
-        'cannot pin the download to it. Its versioning must be on (infra/template.yaml).');
+      throw new HttpError(
+        500,
+        'unversioned',
+        `The bucket gave the ${file} no version of its own, so the console ` +
+          'cannot pin the download to it. Its versioning must be on (infra/template.yaml).'
+      );
     }
     return object;
   }
@@ -175,8 +226,11 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
       });
     } catch (error) {
       if (error instanceof IpaError) {
-        throw unprocessable('ipa_unreadable', `The IPA that arrived for ${ipa.version} cannot be read as an iPhone app: ` +
-          `${error.message} Build it with apps/ios/scripts/build-ipa.sh.`);
+        throw unprocessable(
+          'ipa_unreadable',
+          `The IPA that arrived for ${ipa.version} cannot be read as an iPhone app: ` +
+            `${error.message} Build it with apps/ios/scripts/build-ipa.sh.`
+        );
       }
       throw error;
     }
@@ -192,14 +246,20 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
     if (read.exampleConfig || read.config === null) {
       throw ipaMismatch(ipa.version, 'has the example configuration, or none, and could not sign in.');
     }
-    if ((read.config.consoleUrl ?? '').replace(/\/+$/, '') !== config.consoleUrl || read.config.mobileClientId !== config.mobileClientId) {
-      throw ipaMismatch(ipa.version, 'is configured for another console: its cranium.json is not this console\'s.');
+    if (
+      (read.config.consoleUrl ?? '').replace(/\/+$/, '') !== config.consoleUrl ||
+      read.config.mobileClientId !== config.mobileClientId
+    ) {
+      throw ipaMismatch(ipa.version, "is configured for another console: its cranium.json is not this console's.");
     }
     return read;
   }
 
   async function iosReleases() {
-    return (await aws.listAppReleases(IOS)).map(iosReleaseFromItem).filter((release) => release !== null).sort(byNewest);
+    return (await aws.listAppReleases(IOS))
+      .map(iosReleaseFromItem)
+      .filter((release) => release !== null)
+      .sort(byNewest);
   }
 
   /**
@@ -216,7 +276,11 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
       throw new HttpError(500, 'unversioned', `The record of ${parts.text} names no version of its IPA.`);
     }
     const link = await aws.presignAppDownload({
-      key: ipaKey(parts.text), versionId: objectVersion, filename: release.filename, expiresIn, contentType: IPA_TYPE,
+      key: ipaKey(parts.text),
+      versionId: objectVersion,
+      filename: release.filename,
+      expiresIn,
+      contentType: IPA_TYPE,
     });
     return { url: link.url, expiresAt: link.expiresAt, release };
   }
@@ -226,7 +290,12 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
 
     async list() {
       const [android, ios] = await Promise.all([
-        aws.listAppReleases(ANDROID).then((items) => items.map(appReleaseFromItem).filter((release) => release !== null).sort(byNewest)),
+        aws.listAppReleases(ANDROID).then((items) =>
+          items
+            .map(appReleaseFromItem)
+            .filter((release) => release !== null)
+            .sort(byNewest)
+        ),
         iosReleases(),
       ]);
       return {
@@ -255,12 +324,14 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
       return {
         body: {
           consoleUrl: config.consoleUrl,
-          ...(customers === null ? {} : {
-            customerApiUrl: customers.siteUrl === '' ? config.consoleUrl : customers.siteUrl.replace(/\/$/, ''),
-            customerClientId: customers.mobileClientId,
-            customerRegion: config.region,
-            customerUserPoolId: customers.customerPoolId,
-          }),
+          ...(customers === null
+            ? {}
+            : {
+                customerApiUrl: customers.siteUrl === '' ? config.consoleUrl : customers.siteUrl.replace(/\/$/, ''),
+                customerClientId: customers.mobileClientId,
+                customerRegion: config.region,
+                customerUserPoolId: customers.customerPoolId,
+              }),
           loginDomain: `https://${config.loginDomain}`,
           mobileClientId: config.mobileClientId,
           redirectUri: APP_REDIRECT_URI,
@@ -322,7 +393,10 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
             ? codeNotHigher(apk.versionCode, registered.versionCode)
             : versionNotNewer(apk.version, versionOfAppKey(registered.highest));
         }
-        throw conflict('publish_conflict', 'Another release of the app was being published at the same moment. Try again.');
+        throw conflict(
+          'publish_conflict',
+          'Another release of the app was being published at the same moment. Try again.'
+        );
       }
       return { status: 201, body: { release: appReleaseFromItem({ ...release, sk }) } };
     },
@@ -383,7 +457,10 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
             ? buildNotHigher(ipa.build, registered.versionCode)
             : versionNotNewer(ipa.version, versionOfAppKey(registered.highest), IOS);
         }
-        throw conflict('publish_conflict', 'Another release of the app was being published at the same moment. Try again.');
+        throw conflict(
+          'publish_conflict',
+          'Another release of the app was being published at the same moment. Try again.'
+        );
       }
       const { privacy: _, ...shown } = iosReleaseFromItem({ ...release, sk });
       return { status: 201, body: { release: shown } };
@@ -425,7 +502,10 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
       }
       entry.detail.sha256 = release.sha256;
       const link = await aws.presignAppDownload({
-        key: apkKey(parts.text), versionId: objectVersion, filename: release.filename, expiresIn: LINK_SECONDS,
+        key: apkKey(parts.text),
+        versionId: objectVersion,
+        filename: release.filename,
+        expiresIn: LINK_SECONDS,
       });
       return {
         body: {

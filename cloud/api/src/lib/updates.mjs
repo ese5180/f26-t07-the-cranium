@@ -104,8 +104,10 @@ const OPEN_STATUSES = new Set(['QUEUED', 'IN_PROGRESS']);
 
 // The board's BT lines (firmware/app/src/bt_ota.c say_record and the offer of an image that arrived).
 const LEVEL = '(?:(?:INF|WRN|ERR): )?';
-const BT_RECORD_LINE = new RegExp(`^${LEVEL}(update over Bluetooth|last update over Bluetooth|on trial): ` +
-  '(\\S+) from (\\S+), ([a-z_]+), proof ([a-z]+), update (\\d{1,10}) of this board$');
+const BT_RECORD_LINE = new RegExp(
+  `^${LEVEL}(update over Bluetooth|last update over Bluetooth|on trial): ` +
+    '(\\S+) from (\\S+), ([a-z_]+), proof ([a-z]+), update (\\d{1,10}) of this board$'
+);
 const ARRIVED_LINE = new RegExp(`^${LEVEL}firmware (\\S+) has arrived, hash [0-9a-f]{16}: press Button 1`);
 
 const ISO = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z';
@@ -141,7 +143,9 @@ function factsOfLine(line) {
     const count = Number(digits);
     if (!version(to) || !version(from) || !BT_RESULTS.includes(result) || !BT_PROOFS.includes(proof)) return [];
     if (!Number.isSafeInteger(count) || count > 2 ** 32) return [];
-    return [fact(line.thing, `B#${count}#${from}#${to}#${result}`, 'bluetooth', at, { from, to, result, proof, count })];
+    return [
+      fact(line.thing, `B#${count}#${from}#${to}#${result}`, 'bluetooth', at, { from, to, result, proof, count }),
+    ];
   }
   const arrived = ARRIVED_LINE.exec(line.text);
   if (arrived !== null && version(arrived[1])) {
@@ -171,26 +175,46 @@ export function factsFromItems(items) {
   // The job a board named in a report, for the version change in the same report: one second.
   const jobs = new Map();
   for (const event of events) {
-    if (event.kind === 'update' && typeof event.job === 'string') jobs.set(`${event.thing} ${event.at.slice(0, 19)}`, event.job);
+    if (event.kind === 'update' && typeof event.job === 'string')
+      jobs.set(`${event.thing} ${event.at.slice(0, 19)}`, event.job);
   }
   const facts = [];
   for (const event of events) {
     const at = Date.parse(event.at);
     if (event.kind === 'firmware' && event.what === 'changed' && version(event.from) && version(event.version)) {
       const job = jobs.get(`${event.thing} ${event.at.slice(0, 19)}`);
-      facts.push(fact(event.thing, `V#${event.at}`, 'version', at, {
-        from: event.from, to: event.version, confirmed: event.confirmed === true, ...(job === undefined ? {} : { job }),
-      }));
+      facts.push(
+        fact(event.thing, `V#${event.at}`, 'version', at, {
+          from: event.from,
+          to: event.version,
+          confirmed: event.confirmed === true,
+          ...(job === undefined ? {} : { job }),
+        })
+      );
     } else if (event.kind === 'firmware' && event.what === 'confirmed' && version(event.version)) {
       facts.push(fact(event.thing, `C#${event.at}`, 'confirmed', at, { version: event.version }));
-    } else if (event.kind === 'bluetooth' && event.what === 'record' && version(event.from) && version(event.to) &&
-        BT_RESULTS.includes(event.result) && Number.isInteger(event.count)) {
+    } else if (
+      event.kind === 'bluetooth' &&
+      event.what === 'record' &&
+      version(event.from) &&
+      version(event.to) &&
+      BT_RESULTS.includes(event.result) &&
+      Number.isInteger(event.count)
+    ) {
       const { from, to, result, count } = event;
       const proof = BT_PROOFS.includes(event.proof) ? event.proof : 'none';
-      facts.push(fact(event.thing, `B#${count}#${from}#${to}#${result}`, 'bluetooth', at, { from, to, result, proof, count }));
-    } else if (event.kind === 'update' && event.what === 'result' && typeof event.job === 'string' &&
-        JOB_RESULTS.includes(event.result)) {
-      facts.push(fact(event.thing, `R#${event.job}#${event.result}`, 'result', at, { job: event.job, result: event.result }));
+      facts.push(
+        fact(event.thing, `B#${count}#${from}#${to}#${result}`, 'bluetooth', at, { from, to, result, proof, count })
+      );
+    } else if (
+      event.kind === 'update' &&
+      event.what === 'result' &&
+      typeof event.job === 'string' &&
+      JOB_RESULTS.includes(event.result)
+    ) {
+      facts.push(
+        fact(event.thing, `R#${event.job}#${event.result}`, 'result', at, { job: event.job, result: event.result })
+      );
     }
   }
   for (const line of lines) facts.push(...factsOfLine(line));
@@ -207,9 +231,15 @@ export function backfillMarker(thing, { at, facts, oldest }) {
  * item that is not one. The marker of a backfill is a fact too (`fact: "backfill"`).
  */
 export function factFromItem(item) {
-  if (item === null || typeof item !== 'object' || typeof item.pk !== 'string' || typeof item.sk !== 'string') return null;
+  if (item === null || typeof item !== 'object' || typeof item.pk !== 'string' || typeof item.sk !== 'string')
+    return null;
   const thing = item.pk.startsWith(FACT_PARTITION) ? item.pk.slice(FACT_PARTITION.length) : null;
-  if (!isThing(thing) || !Object.hasOwn(FACT_KEYS, item.fact) || !FACT_KEYS[item.fact].test(item.sk) || !time(item.at)) {
+  if (
+    !isThing(thing) ||
+    !Object.hasOwn(FACT_KEYS, item.fact) ||
+    !FACT_KEYS[item.fact].test(item.sk) ||
+    !time(item.at)
+  ) {
     return null;
   }
   const base = { thing, sk: item.sk, fact: item.fact, at: item.at };
@@ -217,7 +247,10 @@ export function factFromItem(item) {
     case 'version':
       if (!version(item.from) || !version(item.to)) return null;
       return {
-        ...base, from: item.from, to: item.to, confirmed: item.confirmed === true,
+        ...base,
+        from: item.from,
+        to: item.to,
+        confirmed: item.confirmed === true,
         job: typeof item.job === 'string' && ANY_JOB_ID.test(item.job) ? item.job : null,
       };
     case 'confirmed':
@@ -226,7 +259,11 @@ export function factFromItem(item) {
       if (!version(item.from) || !version(item.to) || !BT_RESULTS.includes(item.result)) return null;
       if (!Number.isSafeInteger(item.count) || item.count < 0) return null;
       return {
-        ...base, from: item.from, to: item.to, result: item.result, count: item.count,
+        ...base,
+        from: item.from,
+        to: item.to,
+        result: item.result,
+        count: item.count,
         proof: BT_PROOFS.includes(item.proof) ? item.proof : 'none',
       };
     case 'arrived':
@@ -235,7 +272,11 @@ export function factFromItem(item) {
       if (typeof item.job !== 'string' || !ANY_JOB_ID.test(item.job) || !JOB_RESULTS.includes(item.result)) return null;
       return { ...base, job: item.job, result: item.result };
     default:
-      return { ...base, facts: Number.isSafeInteger(item.facts) ? item.facts : 0, oldest: time(item.oldest) ? item.oldest : null };
+      return {
+        ...base,
+        facts: Number.isSafeInteger(item.facts) ? item.facts : 0,
+        oldest: time(item.oldest) ? item.oldest : null,
+      };
   }
 }
 
@@ -272,14 +313,23 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
   const deployments = [];
   for (const execution of executions) {
     const jobId = execution?.jobId ?? execution?.deployment;
-    if (typeof jobId !== 'string' || !ANY_JOB_ID.test(jobId) || !EXECUTION_STATUSES.includes(execution.status)) continue;
+    if (typeof jobId !== 'string' || !ANY_JOB_ID.test(jobId) || !EXECUTION_STATUSES.includes(execution.status))
+      continue;
     const startedAt = msOf(execution.startedAt) ?? msOf(execution.queuedAt) ?? msOf(execution.lastUpdatedAt);
     if (startedAt === null) continue;
     const open = OPEN_STATUSES.has(execution.status);
     const record = {
-      thing, how: 'deployment', from: null, to: parseJobId(jobId)?.version ?? null, deployment: jobId, count: null,
-      status: execution.status, outcome: EXECUTION_OUTCOME[execution.status], startedAt,
-      endedAt: open ? null : msOf(execution.lastUpdatedAt) ?? startedAt, firstAt: startedAt,
+      thing,
+      how: 'deployment',
+      from: null,
+      to: parseJobId(jobId)?.version ?? null,
+      deployment: jobId,
+      count: null,
+      status: execution.status,
+      outcome: EXECUTION_OUTCOME[execution.status],
+      startedAt,
+      endedAt: open ? null : (msOf(execution.lastUpdatedAt) ?? startedAt),
+      firstAt: startedAt,
     };
     deployments.push(record);
     records.push(record);
@@ -302,8 +352,18 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
     let record = bluetooth.get(key);
     if (record === undefined) {
       record = {
-        thing, how: 'bluetooth', from: item.from, to: item.to, deployment: null, count: item.count, status: null,
-        outcome: 'pending', startedAt: item.at, endedAt: null, firstAt: item.at, final: false,
+        thing,
+        how: 'bluetooth',
+        from: item.from,
+        to: item.to,
+        deployment: null,
+        count: item.count,
+        status: null,
+        outcome: 'pending',
+        startedAt: item.at,
+        endedAt: null,
+        firstAt: item.at,
+        final: false,
       };
       bluetooth.set(key, record);
       records.push(record);
@@ -318,18 +378,31 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
 
   for (const change of ofKind('version')) {
     // The change of an update over Bluetooth of the same two versions.
-    const phone = nearest(viaPhone.filter((record) => record.from === change.from && record.to === change.to &&
-      record.changedAt === undefined && Math.abs(change.at - record.firstAt) <= SAME_UPDATE_MS), change.at,
-    (record) => record.firstAt);
+    const phone = nearest(
+      viaPhone.filter(
+        (record) =>
+          record.from === change.from &&
+          record.to === change.to &&
+          record.changedAt === undefined &&
+          Math.abs(change.at - record.firstAt) <= SAME_UPDATE_MS
+      ),
+      change.at,
+      (record) => record.firstAt
+    );
     if (phone !== null) {
       phone.changedAt = change.at;
       continue;
     }
     // The change of a deployment: reported with its job, or in its time on the board.
-    const job = deployments.find((record) => record.changedAt === undefined && (change.job !== null
-      ? change.job === record.deployment
-      : record.to === change.to && change.at >= record.startedAt - JOB_BEFORE_MS &&
-        change.at <= (record.endedAt ?? nowMs) + JOB_AFTER_MS));
+    const job = deployments.find(
+      (record) =>
+        record.changedAt === undefined &&
+        (change.job !== null
+          ? change.job === record.deployment
+          : record.to === change.to &&
+            change.at >= record.startedAt - JOB_BEFORE_MS &&
+            change.at <= (record.endedAt ?? nowMs) + JOB_AFTER_MS)
+    );
     if (job !== undefined) {
       job.from = change.from;
       job.to ??= change.to;
@@ -337,9 +410,17 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
       continue;
     }
     // Back where an update that was not kept came from: its rollback.
-    const undone = records.filter((record) => record.changedAt !== undefined && record.revertedAt === undefined &&
-      record.to === change.from && record.from === change.to && record.outcome !== 'kept' &&
-      change.at >= record.changedAt && change.at - record.changedAt <= ROLLBACK_MS)
+    const undone = records
+      .filter(
+        (record) =>
+          record.changedAt !== undefined &&
+          record.revertedAt === undefined &&
+          record.to === change.from &&
+          record.from === change.to &&
+          record.outcome !== 'kept' &&
+          change.at >= record.changedAt &&
+          change.at - record.changedAt <= ROLLBACK_MS
+      )
       .sort((a, b) => b.changedAt - a.changedAt)[0];
     if (undone !== undefined) {
       undone.revertedAt = change.at;
@@ -350,27 +431,55 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
     // A job that AWS IoT no longer lists, by its id in the board's report.
     if (change.job !== null) {
       const record = {
-        thing, how: 'deployment', from: change.from, to: change.to, deployment: change.job, count: null, status: null,
-        outcome: change.confirmed ? 'kept' : 'pending', startedAt: change.at, endedAt: change.confirmed ? change.at : null,
-        firstAt: change.at, changedAt: change.at,
+        thing,
+        how: 'deployment',
+        from: change.from,
+        to: change.to,
+        deployment: change.job,
+        count: null,
+        status: null,
+        outcome: change.confirmed ? 'kept' : 'pending',
+        startedAt: change.at,
+        endedAt: change.confirmed ? change.at : null,
+        firstAt: change.at,
+        changedAt: change.at,
       };
       deployments.push(record);
       records.push(record);
       continue;
     }
     records.push({
-      thing, how: 'usb_or_other', from: change.from, to: change.to, deployment: null, count: null, status: null,
-      outcome: change.confirmed ? 'kept' : 'pending', startedAt: change.at, endedAt: change.confirmed ? change.at : null,
-      firstAt: change.at, changedAt: change.at,
+      thing,
+      how: 'usb_or_other',
+      from: change.from,
+      to: change.to,
+      deployment: null,
+      count: null,
+      status: null,
+      outcome: change.confirmed ? 'kept' : 'pending',
+      startedAt: change.at,
+      endedAt: change.confirmed ? change.at : null,
+      firstAt: change.at,
+      changedAt: change.at,
     });
   }
 
   // A confirmation ends the update that last brought the board to that version, if nothing else has.
   for (const confirmation of ofKind('confirmed')) {
-    const record = records.filter((candidate) => candidate.to === confirmation.version && candidate.changedAt !== undefined &&
-      candidate.changedAt <= confirmation.at && candidate.revertedAt === undefined)
+    const record = records
+      .filter(
+        (candidate) =>
+          candidate.to === confirmation.version &&
+          candidate.changedAt !== undefined &&
+          candidate.changedAt <= confirmation.at &&
+          candidate.revertedAt === undefined
+      )
       .sort((a, b) => b.changedAt - a.changedAt)[0];
-    if (record !== undefined && record.outcome === 'pending' && (record.how !== 'deployment' || record.status === null)) {
+    if (
+      record !== undefined &&
+      record.outcome === 'pending' &&
+      (record.how !== 'deployment' || record.status === null)
+    ) {
       record.outcome = 'kept';
       record.endedAt = confirmation.at;
     }
@@ -379,14 +488,16 @@ export function foldUpdates({ thing, facts, executions = [], nowMs }) {
   // A job the board said it rolled back, whatever AWS IoT calls its end.
   for (const result of ofKind('result')) {
     const record = deployments.find((candidate) => candidate.deployment === result.job);
-    if (record !== undefined && result.result === 'rolled_back' && record.outcome !== 'kept') record.outcome = 'rolled_back';
+    if (record !== undefined && result.result === 'rolled_back' && record.outcome !== 'kept')
+      record.outcome = 'rolled_back';
   }
 
   // An update over Bluetooth starts when its image arrived, if the board said so.
   const arrivals = ofKind('arrived');
   for (const record of viaPhone) {
     const first = Math.min(record.firstAt, record.changedAt ?? Infinity);
-    const arrived = arrivals.filter((item) => item.to === record.to && item.at <= first + MINUTE_MS && first - item.at <= ARRIVAL_MS)
+    const arrived = arrivals
+      .filter((item) => item.to === record.to && item.at <= first + MINUTE_MS && first - item.at <= ARRIVAL_MS)
       .sort((a, b) => b.at - a.at)[0];
     record.anchor = arrived === undefined ? first : Math.min(arrived.at, first);
     record.startedAt = record.anchor;
@@ -429,11 +540,20 @@ export function pickCheck(record, entries) {
   const fitting = entries.filter((entry) => {
     const at = msOf(entry?.at);
     const named = entry?.detail?.thing;
-    return entry?.action === 'firmware.bluetooth_send' && entry.outcome === 'ok' && entry.target === record.to &&
-      at !== null && at >= fromMs && at <= toMs && (named === undefined || named === record.thing);
+    return (
+      entry?.action === 'firmware.bluetooth_send' &&
+      entry.outcome === 'ok' &&
+      entry.target === record.to &&
+      at !== null &&
+      at >= fromMs &&
+      at <= toMs &&
+      (named === undefined || named === record.thing)
+    );
   });
-  const ranked = fitting.sort((a, b) => Number(b.detail?.thing === record.thing) - Number(a.detail?.thing === record.thing) ||
-    msOf(b.at) - msOf(a.at));
+  const ranked = fitting.sort(
+    (a, b) =>
+      Number(b.detail?.thing === record.thing) - Number(a.detail?.thing === record.thing) || msOf(b.at) - msOf(a.at)
+  );
   return ranked[0] ?? null;
 }
 
@@ -508,7 +628,10 @@ export function decodeUpdateCursor(text) {
   const at = decoded.slice(0, bar);
   const id = decoded.slice(bar + 1);
   const sortAt = new RegExp(`^${ISO}$`).test(at) ? Date.parse(at) : NaN;
-  if (!Number.isFinite(sortAt) || !/^(?:deployment|bluetooth|usb_or_other):cranium-[0-9a-f]{16}:[\x21-\x7e]{1,120}$/.test(id)) {
+  if (
+    !Number.isFinite(sortAt) ||
+    !/^(?:deployment|bluetooth|usb_or_other):cranium-[0-9a-f]{16}:[\x21-\x7e]{1,120}$/.test(id)
+  ) {
     return null;
   }
   return { sortAt, id };

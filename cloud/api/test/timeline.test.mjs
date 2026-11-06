@@ -14,10 +14,13 @@ const THING = 'cranium-fe5b26c0c5b1dcd7';
 /** A board as lib/shadow.mjs describes it. */
 function board({ online = true, state = 'idle', job = null, progress = 0 } = {}) {
   return {
-    thing: THING, online, lastSeen: '2026-10-10T22:15:00.000Z',
+    thing: THING,
+    online,
+    lastSeen: '2026-10-10T22:15:00.000Z',
     fw: { version: '1.0.0+3', confirmed: true },
     ota: { state, job, progress, last: 'none', error: '' },
-    rssi: -50, uptime: 100,
+    rssi: -50,
+    uptime: 100,
   };
 }
 
@@ -52,7 +55,10 @@ test('a queued board waits for the device or for the button', () => {
   assert.equal(queued(board({ state: 'awaiting_user', job: null })).phase, 'waiting_for_device');
   assert.equal(queued(board({ state: 'awaiting_user', job: OTHER })).phase, 'waiting_for_device');
   assert.equal(queued({ ...board(), ota: null }).phase, 'waiting_for_device');
-  assert.equal(queued({ ...board(), online: 'yes', ota: { state: 'awaiting_user', job: JOB } }).phase, 'waiting_for_device');
+  assert.equal(
+    queued({ ...board(), online: 'yes', ota: { state: 'awaiting_user', job: JOB } }).phase,
+    'waiting_for_device'
+  );
   assert.equal(queued(board({ state: 'idle', job: JOB })).phase, 'waiting_for_device');
 });
 
@@ -62,10 +68,14 @@ test('a board that says it has started is starting until AWS says so too, and is
   // it sees the job from 1.7.2 on, and after Button 1 before that. The execution, not the
   // shadow, says whether the update has started, so that is no download yet, and the phase
   // does not fall back to the board not having picked it up.
-  assert.deepEqual(queued(board({ state: 'downloading', job: JOB, progress: 0 })),
-    { phase: 'starting', progress: null });
-  assert.deepEqual(queued(board({ state: 'downloading', job: JOB, progress: 50 })),
-    { phase: 'starting', progress: null });
+  assert.deepEqual(queued(board({ state: 'downloading', job: JOB, progress: 0 })), {
+    phase: 'starting',
+    progress: null,
+  });
+  assert.deepEqual(queued(board({ state: 'downloading', job: JOB, progress: 50 })), {
+    phase: 'starting',
+    progress: null,
+  });
   // The same for anything else a board may claim about a deployment it holds.
   for (const state of ['verifying', 'rebooting', 'testing']) {
     assert.deepEqual(queued(board({ state, job: JOB, progress: 100 })), { phase: 'starting', progress: null }, state);
@@ -83,8 +93,10 @@ test('a board that says it has started is starting until AWS says so too, and is
     ['QUEUED', board({ state: 'downloading', job: JOB })],
     ['IN_PROGRESS', board({ state: 'downloading', job: JOB, progress: 10 })],
   ];
-  assert.deepEqual(asking.map(([status, device]) => phase({ status, step: 'downloading', device }).phase),
-    ['waiting_for_device', 'waiting_for_button', 'starting', 'downloading']);
+  assert.deepEqual(
+    asking.map(([status, device]) => phase({ status, step: 'downloading', device }).phase),
+    ['waiting_for_device', 'waiting_for_button', 'starting', 'downloading']
+  );
 
   // And one that does not ask never comes to a button.
   const notAsking = [
@@ -92,24 +104,36 @@ test('a board that says it has started is starting until AWS says so too, and is
     ['QUEUED', board({ state: 'downloading', job: JOB })],
     ['IN_PROGRESS', board({ state: 'downloading', job: JOB, progress: 10 })],
   ];
-  assert.deepEqual(notAsking.map(([status, device]) => phase({ status, step: 'downloading', device }).phase),
-    ['waiting_for_device', 'starting', 'downloading']);
+  assert.deepEqual(
+    notAsking.map(([status, device]) => phase({ status, step: 'downloading', device }).phase),
+    ['waiting_for_device', 'starting', 'downloading']
+  );
 });
 
 test('a running update shows the live step and progress from the shadow', () => {
   const running = (step, device) => phase({ status: 'IN_PROGRESS', step, device });
 
-  assert.deepEqual(running('downloading', board({ state: 'downloading', job: JOB, progress: 40 })),
-    { phase: 'downloading', progress: 40 });
-  assert.deepEqual(running('downloading', board({ state: 'verifying', job: JOB, progress: 100 })),
-    { phase: 'verifying', progress: 100 });
-  assert.deepEqual(running('rebooting', board({ state: 'rebooting', job: JOB, progress: 100 })),
-    { phase: 'rebooting', progress: 100 });
-  assert.deepEqual(running('rebooting', board({ state: 'testing', job: JOB, progress: 100 })),
-    { phase: 'testing', progress: 100 });
+  assert.deepEqual(running('downloading', board({ state: 'downloading', job: JOB, progress: 40 })), {
+    phase: 'downloading',
+    progress: 40,
+  });
+  assert.deepEqual(running('downloading', board({ state: 'verifying', job: JOB, progress: 100 })), {
+    phase: 'verifying',
+    progress: 100,
+  });
+  assert.deepEqual(running('rebooting', board({ state: 'rebooting', job: JOB, progress: 100 })), {
+    phase: 'rebooting',
+    progress: 100,
+  });
+  assert.deepEqual(running('rebooting', board({ state: 'testing', job: JOB, progress: 100 })), {
+    phase: 'testing',
+    progress: 100,
+  });
   // An offline board keeps the last step it reported.
-  assert.deepEqual(running('downloading', board({ online: false, state: 'downloading', job: JOB, progress: 70 })),
-    { phase: 'downloading', progress: 70 });
+  assert.deepEqual(running('downloading', board({ online: false, state: 'downloading', job: JOB, progress: 70 })), {
+    phase: 'downloading',
+    progress: 70,
+  });
 });
 
 test('without a shadow for this deployment the execution alone gives the step', () => {
@@ -119,15 +143,20 @@ test('without a shadow for this deployment the execution alone gives the step', 
   assert.deepEqual(running(null, null), { phase: 'downloading', progress: null });
   assert.deepEqual(running('something_else', board()), { phase: 'downloading', progress: null });
   // The shadow talks about another deployment, or about none.
-  assert.deepEqual(running('downloading', board({ state: 'testing', job: OTHER, progress: 100 })),
-    { phase: 'downloading', progress: null });
-  assert.deepEqual(running('rebooting', board({ state: 'downloading', job: null, progress: 30 })),
-    { phase: 'rebooting', progress: null });
+  assert.deepEqual(running('downloading', board({ state: 'testing', job: OTHER, progress: 100 })), {
+    phase: 'downloading',
+    progress: null,
+  });
+  assert.deepEqual(running('rebooting', board({ state: 'downloading', job: null, progress: 30 })), {
+    phase: 'rebooting',
+    progress: null,
+  });
   // The shadow names this deployment but is not in an update step.
-  assert.deepEqual(running('downloading', board({ state: 'awaiting_user', job: JOB })),
-    { phase: 'downloading', progress: null });
-  assert.deepEqual(running('rebooting', board({ state: 'idle', job: JOB })),
-    { phase: 'rebooting', progress: null });
+  assert.deepEqual(running('downloading', board({ state: 'awaiting_user', job: JOB })), {
+    phase: 'downloading',
+    progress: null,
+  });
+  assert.deepEqual(running('rebooting', board({ state: 'idle', job: JOB })), { phase: 'rebooting', progress: null });
 });
 
 test('an update only moves forward: the later of the two sources wins', () => {
@@ -141,15 +170,34 @@ test('an update only moves forward: the later of the two sources wins', () => {
   assert.deepEqual(running('downloading', 'testing'), { phase: 'testing', progress: 100 });
 });
 
-test('the board\'s reason tells rolled back from failed and declined from refused', () => {
+test("the board's reason tells rolled back from failed and declined from refused", () => {
   assert.equal(phase({ status: 'FAILED', reason: 'rolled_back' }).phase, 'rolled_back');
-  for (const reason of ['download_failed', 'digest_mismatch', 'header_mismatch', 'flash_error', 'interrupted',
-    'not_installed', 'declined', null, undefined, 'something_new']) {
+  for (const reason of [
+    'download_failed',
+    'digest_mismatch',
+    'header_mismatch',
+    'flash_error',
+    'interrupted',
+    'not_installed',
+    'declined',
+    null,
+    undefined,
+    'something_new',
+  ]) {
     assert.equal(phase({ status: 'FAILED', reason }).phase, 'failed', String(reason));
   }
   assert.equal(phase({ status: 'REJECTED', reason: 'declined' }).phase, 'declined');
-  for (const reason of ['bad_document', 'unsupported', 'url_not_allowed', 'not_newer', 'too_large', 'rolled_back',
-    null, undefined, 'something_new']) {
+  for (const reason of [
+    'bad_document',
+    'unsupported',
+    'url_not_allowed',
+    'not_newer',
+    'too_large',
+    'rolled_back',
+    null,
+    undefined,
+    'something_new',
+  ]) {
     assert.equal(phase({ status: 'REJECTED', reason }).phase, 'refused', String(reason));
   }
 });

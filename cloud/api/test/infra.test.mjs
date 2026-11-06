@@ -44,7 +44,10 @@ function statement(text, sid) {
 
 test('reads and writes have a request limit each, and neither is weaker than the old route', () => {
   assert.equal(template.includes('ANY /api/'), false);
-  for (const [resource, key] of [['ApiReadRoute', 'GET /api/{proxy+}'], ['ApiWriteRoute', 'POST /api/{proxy+}']]) {
+  for (const [resource, key] of [
+    ['ApiReadRoute', 'GET /api/{proxy+}'],
+    ['ApiWriteRoute', 'POST /api/{proxy+}'],
+  ]) {
     const route = block(template, resource);
     assert.ok(route.includes(`RouteKey: '${key}'`), resource);
     assert.ok(route.includes('AuthorizationType: JWT'), resource);
@@ -54,11 +57,22 @@ test('reads and writes have a request limit each, and neither is weaker than the
   }
   // Only the page itself, its files, what no route claims and the routes whose function
   // checks an API token itself are open, whatever a route is called.
-  const open = template.split(/\n(?= {2}\w+:\n)/)
-    .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE'))
+  const open = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter(
+      (resource) => resource.includes('Type: AWS::ApiGatewayV2::Route') && resource.includes('AuthorizationType: NONE')
+    )
     .map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(open.sort(), ['$default', 'GET /', 'GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'GET /app/{proxy+}',
-    'GET /assets/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
+  assert.deepEqual(open.sort(), [
+    '$default',
+    'GET /',
+    'GET /api/sidestore/{proxy+}',
+    'GET /api/t/{proxy+}',
+    'GET /app/{proxy+}',
+    'GET /assets/{proxy+}',
+    'POST /api/t/{proxy+}',
+    'PUT /api/t/{proxy+}',
+  ]);
 
   const stage = block(template, 'Stage');
   for (const name of ['ApiReadRoute', 'ApiWriteRoute']) assert.ok(block(stage, 'DependsOn', 4).includes(`- ${name}`));
@@ -73,7 +87,10 @@ test('reads and writes have a request limit each, and neither is weaker than the
 });
 
 test('API tokens have two routes of their own, to the API function, with limits below the session routes', () => {
-  for (const [resource, key] of [['ApiTokenReadRoute', 'GET /api/t/{proxy+}'], ['ApiTokenWriteRoute', 'POST /api/t/{proxy+}']]) {
+  for (const [resource, key] of [
+    ['ApiTokenReadRoute', 'GET /api/t/{proxy+}'],
+    ['ApiTokenWriteRoute', 'POST /api/t/{proxy+}'],
+  ]) {
     const route = block(template, resource);
     assert.ok(route.includes(`RouteKey: '${key}'`), resource);
     // The function checks the token: the gateway's authorizer only knows Cognito's.
@@ -99,17 +116,30 @@ test('the API role reads, adds and updates in the state table, and never deletes
   const role = block(template, 'ApiRole');
   const state = statement(role, 'ReadAndWriteReleasesAndTokens');
   // GetItem looks a token up, Query lists a person's tokens, UpdateItem revokes one.
-  assert.deepEqual([...state.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
-    ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']);
+  assert.deepEqual(
+    [...state.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem']
+  );
   assert.ok(state.includes('Resource: !GetAtt StateTable.Arn'));
   // Nothing else in the role names that table, and the only DynamoDB actions the role is
   // allowed are these, the audit table's two, and the events table's Query and the backfill's
   // PutItem (on the update history's partitions only): no delete, no scan, no wildcard.
   assert.equal((role.match(/StateTable\.Arn/g) ?? []).length, 1);
   const denied = statement(role, 'NeverChangeAuditEntries');
-  const allowed = role.replace(denied, '').match(/^\s*(?:Action: |- )dynamodb:\S+$/gm).map((line) => line.trim());
-  assert.deepEqual(allowed, ['- dynamodb:GetItem', '- dynamodb:Query', '- dynamodb:PutItem', '- dynamodb:UpdateItem',
-    '- dynamodb:PutItem', '- dynamodb:Query', 'Action: dynamodb:Query', 'Action: dynamodb:PutItem']);
+  const allowed = role
+    .replace(denied, '')
+    .match(/^\s*(?:Action: |- )dynamodb:\S+$/gm)
+    .map((line) => line.trim());
+  assert.deepEqual(allowed, [
+    '- dynamodb:GetItem',
+    '- dynamodb:Query',
+    '- dynamodb:PutItem',
+    '- dynamodb:UpdateItem',
+    '- dynamodb:PutItem',
+    '- dynamodb:Query',
+    'Action: dynamodb:Query',
+    'Action: dynamodb:PutItem',
+  ]);
 });
 
 test('a user cannot change their own e-mail address', () => {
@@ -118,8 +148,9 @@ test('a user cannot change their own e-mail address', () => {
   assert.deepEqual(allowed, ['name']);
 });
 
-test('the console\'s client and the phone apps\' client sign in with SRP, never by sending the password', () => {
-  const flows = (name) => [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
+test("the console's client and the phone apps' client sign in with SRP, never by sending the password", () => {
+  const flows = (name) =>
+    [...block(block(template, name), 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]);
   assert.deepEqual(flows('UserPoolClient'), ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
   // The phone apps sign in on their own screen with SRP, and through the managed login pages
   // with PKCE for the steps that screen does not do.
@@ -138,22 +169,42 @@ test('the sign-in trigger: version 2, on the pool, named the way the function is
   const config = block(block(pool, 'LambdaConfig', 6), 'PreTokenGenerationConfig', 8);
   assert.ok(config.includes('LambdaVersion: V2_0'));
   const arn = /LambdaArn: !Sub '([^']+)'/.exec(config)[1];
-  assert.equal(arn, 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-signin-scope');
+  assert.equal(
+    arn,
+    'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-signin-scope'
+  );
   // Only this trigger: no other step of the pool calls a function.
-  assert.deepEqual([...block(pool, 'LambdaConfig', 6).matchAll(/^ {8}(\w+):/gm)].map((match) => match[1]),
-    ['PreTokenGenerationConfig']);
+  assert.deepEqual(
+    [...block(pool, 'LambdaConfig', 6).matchAll(/^ {8}(\w+):/gm)].map((match) => match[1]),
+    ['PreTokenGenerationConfig']
+  );
   // By name, not with !GetAtt: the function is told the client, which belongs to the pool.
   assert.equal(/!(?:GetAtt|Ref) SignInScopeFn/.test(pool), false);
 
   const fn = block(template, 'SignInScopeFn');
-  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: SignInScopeLogGroup', "FunctionName: !Sub '${AWS::StackName}-signin-scope'",
-    'LogGroup: !Ref SignInScopeLogGroup', 'Runtime: nodejs22.x', '- arm64', 'Handler: signin-scope.handler',
-    'Role: !GetAtt SignInScopeRole.Arn', 'Code: ../api/src', 'Timeout: 5', '${DeployedCommit} (${DeployedTree})']) {
+  for (const line of [
+    'Type: AWS::Lambda::Function',
+    'DependsOn: SignInScopeLogGroup',
+    "FunctionName: !Sub '${AWS::StackName}-signin-scope'",
+    'LogGroup: !Ref SignInScopeLogGroup',
+    'Runtime: nodejs22.x',
+    '- arm64',
+    'Handler: signin-scope.handler',
+    'Role: !GetAtt SignInScopeRole.Arn',
+    'Code: ../api/src',
+    'Timeout: 5',
+    '${DeployedCommit} (${DeployedTree})',
+  ]) {
     assert.ok(fn.includes(line), line);
   }
   // It is told the two clients whose tokens it changes, and nothing else.
-  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+): (.+)$/gm)].map((match) => [match[1], match[2]]),
-    [['CONSOLE_CLIENT_ID', '!Ref UserPoolClient'], ['MOBILE_CLIENT_ID', '!Ref MobileUserPoolClient']]);
+  assert.deepEqual(
+    [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+): (.+)$/gm)].map((match) => [match[1], match[2]]),
+    [
+      ['CONSOLE_CLIENT_ID', '!Ref UserPoolClient'],
+      ['MOBILE_CLIENT_ID', '!Ref MobileUserPoolClient'],
+    ]
+  );
   const group = block(template, 'SignInScopeLogGroup');
   assert.ok(group.includes("LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-signin-scope'"));
   assert.ok(group.includes('RetentionInDays: 90'));
@@ -164,36 +215,52 @@ test('the sign-in trigger: version 2, on the pool, named the way the function is
 test('the sign-in trigger may write its log and nothing else, and only Cognito, for this pool, may call it', () => {
   const role = block(template, 'SignInScopeRole');
   assert.ok(role.includes('Service: lambda.amazonaws.com'));
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog']);
+  assert.deepEqual(
+    [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog']
+  );
   const own = statement(role, 'WriteOwnLog');
   assert.ok(own.includes('Resource: !GetAtt SignInScopeLogGroup.Arn'));
-  assert.deepEqual([...role.matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
-    ['logs:CreateLogStream', 'logs:PutLogEvents']);
+  assert.deepEqual(
+    [...role.matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['logs:CreateLogStream', 'logs:PutLogEvents']
+  );
   assert.equal(/Action: \S+:\*|Resource: '\*'|ManagedPolicyArns/.test(role), false);
 
-  const permissions = template.split(/\n(?= {2}\w+:\n)/)
+  const permissions = template
+    .split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('SignInScopeFn'));
   assert.equal(permissions.length, 1);
   const permission = block(template, 'SignInScopePermission');
-  for (const line of ['Action: lambda:InvokeFunction', 'FunctionName: !Ref SignInScopeFn', 'Principal: cognito-idp.amazonaws.com',
-    'SourceAccount: !Ref AWS::AccountId', 'SourceArn: !GetAtt UserPool.Arn']) {
+  for (const line of [
+    'Action: lambda:InvokeFunction',
+    'FunctionName: !Ref SignInScopeFn',
+    'Principal: cognito-idp.amazonaws.com',
+    'SourceAccount: !Ref AWS::AccountId',
+    'SourceArn: !GetAtt UserPool.Arn',
+  ]) {
     assert.ok(permission.includes(line), line);
   }
 });
 
-test('the web function is told the user pool, for the console\'s own sign-in page', () => {
+test("the web function is told the user pool, for the console's own sign-in page", () => {
   const variables = block(block(template, 'WebFn'), 'Variables', 8);
   assert.ok(variables.includes('USER_POOL_ID: !Ref UserPool'));
   // It still may call no AWS API: its role writes its log, and that is all.
-  assert.deepEqual([...block(template, 'WebRole').matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
-    ['logs:CreateLogStream', 'logs:PutLogEvents']);
+  assert.deepEqual(
+    [...block(template, 'WebRole').matchAll(/^\s*- ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['logs:CreateLogStream', 'logs:PutLogEvents']
+  );
 });
 
 test('the tables are protected from deletion once the stack exists, not while it is created', () => {
   assert.ok(template.includes('ProtectFromDeletion: !Equals [!Ref UserPoolDeletionProtection, ACTIVE]'));
   assert.ok(block(block(template, 'Parameters', 0), 'UserPoolDeletionProtection').includes('Default: INACTIVE'));
   for (const table of ['StateTable', 'AuditTable', 'EventsTable']) {
-    assert.ok(block(template, table).includes('DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]'), table);
+    assert.ok(
+      block(template, table).includes('DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]'),
+      table
+    );
     assert.ok(block(template, table).includes('DeletionPolicy: RetainExceptOnCreate'), table);
   }
 });
@@ -221,7 +288,9 @@ test('the API role reads images for the phone apps, and the bucket still refuses
   assert.ok(read.includes('Action: s3:GetObject\n'));
   assert.ok(read.includes("Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'"));
   // The others are the phone apps', on their APKs and IPAs alone (apps-infra.test.mjs).
-  const apks = ['CheckAndroidApks', 'ServeAndroidApks', 'CheckIphoneIpas', 'ServeIphoneIpas'].map((sid) => statement(role, sid));
+  const apks = ['CheckAndroidApks', 'ServeAndroidApks', 'CheckIphoneIpas', 'ServeIphoneIpas'].map((sid) =>
+    statement(role, sid)
+  );
   assert.equal((apks.reduce((rest, part) => rest.replace(part, ''), role).match(/s3:GetObject/g) ?? []).length, 1);
   assert.ok(block(template, 'FirmwareBucketPolicy').includes('Sid: DenyDownloadingRevokedFirmware'));
 });
@@ -255,13 +324,23 @@ test('a phone keeps its session up to 30 days, for the biometric unlock; the web
 test('the API role may only add to and read the audit table', () => {
   const role = block(template, 'ApiRole');
   const allowed = statement(role, 'AppendAndReadAudit');
-  assert.deepEqual([...allowed.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]), ['dynamodb:PutItem', 'dynamodb:Query']);
+  assert.deepEqual(
+    [...allowed.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:PutItem', 'dynamodb:Query']
+  );
   assert.ok(allowed.includes('Resource: !GetAtt AuditTable.Arn'));
 
   const denied = statement(role, 'NeverChangeAuditEntries');
   assert.ok(denied.includes('Effect: Deny'));
   assert.ok(denied.includes('Resource: !GetAtt AuditTable.Arn'));
-  for (const action of ['BatchWriteItem', 'DeleteItem', 'UpdateItem', 'DeleteTable', 'PartiQLUpdate', 'PartiQLDelete']) {
+  for (const action of [
+    'BatchWriteItem',
+    'DeleteItem',
+    'UpdateItem',
+    'DeleteTable',
+    'PartiQLUpdate',
+    'PartiQLDelete',
+  ]) {
     assert.ok(denied.includes(`dynamodb:${action}`), action);
   }
   // Nothing else in the role names that table.
@@ -300,22 +379,41 @@ test('the address API Gateway assigned stays a place to sign in, by decision', (
 
 test('the trail records management events in every Region, and nothing that costs extra', () => {
   const resource = block(trail, 'Trail');
-  for (const line of ['IsLogging: true', 'IsMultiRegionTrail: true', 'IncludeGlobalServiceEvents: true',
-    'EnableLogFileValidation: true', 'IncludeManagementEvents: true', 'S3BucketName: !Ref TrailBucket',
-    'DependsOn: TrailBucketPolicy']) {
+  for (const line of [
+    'IsLogging: true',
+    'IsMultiRegionTrail: true',
+    'IncludeGlobalServiceEvents: true',
+    'EnableLogFileValidation: true',
+    'IncludeManagementEvents: true',
+    'S3BucketName: !Ref TrailBucket',
+    'DependsOn: TrailBucketPolicy',
+  ]) {
     assert.ok(resource.includes(line), line);
   }
   // Data events, Insights, a KMS key and CloudWatch delivery are all billed.
-  for (const paid of ['DataResources', 'AdvancedEventSelectors', 'InsightSelectors', 'KMSKeyId', 'CloudWatchLogsLogGroupArn']) {
+  for (const paid of [
+    'DataResources',
+    'AdvancedEventSelectors',
+    'InsightSelectors',
+    'KMSKeyId',
+    'CloudWatchLogsLogGroupArn',
+  ]) {
     assert.equal(trail.includes(`${paid}:`), false, paid);
   }
 });
 
 test('the trail bucket is private, answers only over TLS and does not grow for ever', () => {
   const bucket = block(trail, 'TrailBucket');
-  for (const line of ['BlockPublicAcls: true', 'BlockPublicPolicy: true', 'IgnorePublicAcls: true',
-    'RestrictPublicBuckets: true', 'ObjectOwnership: BucketOwnerEnforced', 'Status: Enabled',
-    'ExpirationInDays: !Ref RetentionDays', 'NoncurrentDays: 30']) {
+  for (const line of [
+    'BlockPublicAcls: true',
+    'BlockPublicPolicy: true',
+    'IgnorePublicAcls: true',
+    'RestrictPublicBuckets: true',
+    'ObjectOwnership: BucketOwnerEnforced',
+    'Status: Enabled',
+    'ExpirationInDays: !Ref RetentionDays',
+    'NoncurrentDays: 30',
+  ]) {
     assert.ok(bucket.includes(line), line);
   }
   // No name: it could be taken first in another account. No lock that outlives the course.
@@ -343,8 +441,13 @@ test('teardown leaves the trail and its log files alone', () => {
 
 test('the events table is on demand, recoverable, protected, and lets DynamoDB expire items by their ttl', () => {
   const table = block(template, 'EventsTable');
-  for (const line of ['Type: AWS::DynamoDB::Table', 'BillingMode: PAY_PER_REQUEST', 'DeletionPolicy: RetainExceptOnCreate',
-    'PointInTimeRecoveryEnabled: true', 'DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]']) {
+  for (const line of [
+    'Type: AWS::DynamoDB::Table',
+    'BillingMode: PAY_PER_REQUEST',
+    'DeletionPolicy: RetainExceptOnCreate',
+    'PointInTimeRecoveryEnabled: true',
+    'DeletionProtectionEnabled: !If [ProtectFromDeletion, true, false]',
+  ]) {
     assert.ok(table.includes(line), line);
   }
   assert.ok(block(table, 'TimeToLiveSpecification', 6).includes('AttributeName: ttl\n        Enabled: true'));
@@ -357,20 +460,33 @@ test('the events table is on demand, recoverable, protected, and lets DynamoDB e
 
 test('the recorder is a function of its own: own log, own role, PutItem on the events table and the alerts alone', () => {
   const fn = block(template, 'EventsFn');
-  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: EventsLogGroup', 'LogGroup: !Ref EventsLogGroup',
-    'Runtime: nodejs22.x', '- arm64', 'Handler: events.handler', 'Role: !GetAtt EventsRole.Arn', 'Code: ../api/src',
-    'EVENTS_TABLE: !Ref EventsTable', '${DeployedCommit} (${DeployedTree})']) {
+  for (const line of [
+    'Type: AWS::Lambda::Function',
+    'DependsOn: EventsLogGroup',
+    'LogGroup: !Ref EventsLogGroup',
+    'Runtime: nodejs22.x',
+    '- arm64',
+    'Handler: events.handler',
+    'Role: !GetAtt EventsRole.Arn',
+    'Code: ../api/src',
+    'EVENTS_TABLE: !Ref EventsTable',
+    '${DeployedCommit} (${DeployedTree})',
+  ]) {
     assert.ok(fn.includes(line), line);
   }
   // It is told the events table, and for the alerts their topic and the console's address, and nothing else.
-  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['EVENTS_TABLE', 'ALERT_TOPIC_ARN', 'CONSOLE_URL']);
+  assert.deepEqual(
+    [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
+    ['EVENTS_TABLE', 'ALERT_TOPIC_ARN', 'CONSOLE_URL']
+  );
   assert.ok(block(template, 'EventsLogGroup').includes('RetentionInDays: 90'));
 
   const role = block(template, 'EventsRole');
   assert.ok(role.includes('Service: lambda.amazonaws.com'));
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
-    ['WriteOwnLog', 'RecordEvents', 'ReadAlerts', 'SendAlerts']);
+  assert.deepEqual(
+    [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog', 'RecordEvents', 'ReadAlerts', 'SendAlerts']
+  );
   const record = statement(role, 'RecordEvents');
   assert.ok(record.includes('Action: dynamodb:PutItem\n'));
   assert.ok(record.includes('Resource: !GetAtt EventsTable.Arn'));
@@ -386,14 +502,27 @@ test('the recorder is a function of its own: own log, own role, PutItem on the e
 });
 
 test('three IoT rules feed the recorder: shadow documents, presence and board logs, only for things named like the boards', () => {
-  const sql = (name) => block(template, name).split('Sql: >-\n')[1].split('\n').slice(0, 2).map((line) => line.trim()).join(' ');
-  assert.equal(sql('ShadowEventsRule'),
-    "SELECT *, topic(3) AS thing FROM '$aws/things/+/shadow/update/documents' WHERE startswith(topic(3), 'cranium-')");
-  assert.equal(sql('PresenceEventsRule'), "SELECT * FROM '$aws/events/presence/+/+' WHERE startswith(topic(5), 'cranium-')");
+  const sql = (name) =>
+    block(template, name)
+      .split('Sql: >-\n')[1]
+      .split('\n')
+      .slice(0, 2)
+      .map((line) => line.trim())
+      .join(' ');
+  assert.equal(
+    sql('ShadowEventsRule'),
+    "SELECT *, topic(3) AS thing FROM '$aws/things/+/shadow/update/documents' WHERE startswith(topic(3), 'cranium-')"
+  );
+  assert.equal(
+    sql('PresenceEventsRule'),
+    "SELECT * FROM '$aws/events/presence/+/+' WHERE startswith(topic(5), 'cranium-')"
+  );
   // The board's name from the topic and the time from AWS IoT, and no message that brings either of its own.
-  assert.equal(sql('BoardLogRule'),
+  assert.equal(
+    sql('BoardLogRule'),
     "SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/events' " +
-    "WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)");
+      "WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)"
+  );
   for (const name of ['ShadowEventsRule', 'PresenceEventsRule', 'BoardLogRule']) {
     const rule = block(template, name);
     assert.ok(rule.includes('Type: AWS::IoT::TopicRule'), name);
@@ -404,12 +533,20 @@ test('three IoT rules feed the recorder: shadow documents, presence and board lo
   }
   // AWS IoT may invoke the recorder for exactly these three rules of this account (and EventBridge for
   // the check of the alerts: map-infra.test.mjs).
-  const permissions = template.split(/\n(?= {2}\w+:\n)/)
-    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref EventsFn') &&
-      resource.includes('Principal: iot.amazonaws.com'));
+  const permissions = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter(
+      (resource) =>
+        resource.includes('Type: AWS::Lambda::Permission') &&
+        resource.includes('FunctionName: !Ref EventsFn') &&
+        resource.includes('Principal: iot.amazonaws.com')
+    );
   assert.equal(permissions.length, 3);
-  for (const [name, rule] of [['ShadowEventsPermission', 'ShadowEventsRule'], ['PresenceEventsPermission', 'PresenceEventsRule'],
-    ['BoardLogPermission', 'BoardLogRule']]) {
+  for (const [name, rule] of [
+    ['ShadowEventsPermission', 'ShadowEventsRule'],
+    ['PresenceEventsPermission', 'PresenceEventsRule'],
+    ['BoardLogPermission', 'BoardLogRule'],
+  ]) {
     const permission = block(template, name);
     assert.ok(permission.includes('Principal: iot.amazonaws.com'), name);
     assert.ok(permission.includes('Action: lambda:InvokeFunction'), name);
@@ -422,7 +559,8 @@ test('a board may publish its log on its own events topic, and do nothing else t
   const policy = block(template, 'DevicePolicy');
   // The fixed name stays: it is part of the provisioning contract, and a new name would replace the policy.
   assert.ok(policy.includes('PolicyName: cranium-device'));
-  const topic = "!Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'";
+  const topic =
+    "!Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'";
   const statements = policy.split(/\n {10}- Effect: /).slice(1);
   const publish = statements.find((text) => text.includes('Action: iot:Publish'));
   assert.ok(publish.includes(`- ${topic}`));
@@ -434,10 +572,11 @@ test('a board may publish its log on its own events topic, and do nothing else t
     assert.equal(text.includes('/events'), false);
   }
   // Every resource of the policy is the connection's own thing.
-  for (const resource of policy.match(/^\s+- !Sub '[^']+'$/gm)) assert.match(resource, /\$\{!iot:Connection\.Thing\.ThingName\}/);
+  for (const resource of policy.match(/^\s+- !Sub '[^']+'$/gm))
+    assert.match(resource, /\$\{!iot:Connection\.Thing\.ThingName\}/);
 });
 
-test('the API reads the events table, and writes only the update history\'s facts: Query, and PutItem on UPD#', () => {
+test("the API reads the events table, and writes only the update history's facts: Query, and PutItem on UPD#", () => {
   const role = block(template, 'ApiRole');
   const read = statement(role, 'ReadEvents');
   assert.ok(read.includes('Action: dynamodb:Query\n'));
@@ -447,7 +586,10 @@ test('the API reads the events table, and writes only the update history\'s fact
   assert.ok(backfill.includes('Action: dynamodb:PutItem\n'));
   assert.ok(backfill.includes('Resource: !GetAtt EventsTable.Arn'));
   assert.ok(backfill.includes('ForAllValues:StringLike:\n'));
-  assert.deepEqual(backfill.match(/^\s+- \S+$/gm).map((line) => line.trim()), ['- UPD#cranium-*']);
+  assert.deepEqual(
+    backfill.match(/^\s+- \S+$/gm).map((line) => line.trim()),
+    ['- UPD#cranium-*']
+  );
   assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 2);
   assert.ok(block(template, 'ApiFn').includes('EVENTS_TABLE: !Ref EventsTable'));
   assert.equal(block(template, 'WebRole').includes('EventsTable'), false);
@@ -456,8 +598,11 @@ test('the API reads the events table, and writes only the update history\'s fact
 // The fleet (docs/fleet.md): a release's note, the boards' attributes, and the schedule that moves
 // staged rollouts on.
 
-test('a release\'s note is changed with PUT, through a session route and a token route like POST\'s', () => {
-  for (const [resource, key, auth] of [['ApiPutRoute', 'PUT /api/{proxy+}', 'JWT'], ['ApiTokenPutRoute', 'PUT /api/t/{proxy+}', 'NONE']]) {
+test("a release's note is changed with PUT, through a session route and a token route like POST's", () => {
+  for (const [resource, key, auth] of [
+    ['ApiPutRoute', 'PUT /api/{proxy+}', 'JWT'],
+    ['ApiTokenPutRoute', 'PUT /api/t/{proxy+}', 'NONE'],
+  ]) {
     const route = block(template, resource);
     assert.ok(route.includes(`RouteKey: '${key}'`), resource);
     assert.ok(route.includes(`AuthorizationType: ${auth}`), resource);
@@ -476,7 +621,7 @@ test('a release\'s note is changed with PUT, through a session route and a token
   assert.ok(read('api/src/app.mjs').includes("route('PUT', '/api/firmware/{version}/notes'"));
 });
 
-test('the API reads a board\'s attributes for its type, on the boards of this project only', () => {
+test("the API reads a board's attributes for its type, on the boards of this project only", () => {
   const boards = statement(block(template, 'ApiRole'), 'ReadBoards');
   assert.ok(boards.includes('- iot:DescribeThing'));
   assert.ok(boards.includes(':thing/cranium-*'));
@@ -484,9 +629,16 @@ test('the API reads a board\'s attributes for its type, on the boards of this pr
 
 test('staged rollouts move on every minute, in a function of their own that can start jobs and little else', () => {
   const fn = block(template, 'RolloutTickFn');
-  for (const line of ['Type: AWS::Lambda::Function', 'DependsOn: RolloutTickLogGroup', 'LogGroup: !Ref RolloutTickLogGroup',
-    'Runtime: nodejs22.x', 'Handler: rollouts-tick.handler', 'Role: !GetAtt RolloutTickRole.Arn', 'Code: ../api/src',
-    '${DeployedCommit} (${DeployedTree})']) {
+  for (const line of [
+    'Type: AWS::Lambda::Function',
+    'DependsOn: RolloutTickLogGroup',
+    'LogGroup: !Ref RolloutTickLogGroup',
+    'Runtime: nodejs22.x',
+    'Handler: rollouts-tick.handler',
+    'Role: !GetAtt RolloutTickRole.Arn',
+    'Code: ../api/src',
+    '${DeployedCommit} (${DeployedTree})',
+  ]) {
     assert.ok(fn.includes(line), line);
   }
   assert.ok(block(template, 'RolloutTickLogGroup').includes('RetentionInDays: 90'));
@@ -497,28 +649,58 @@ test('staged rollouts move on every minute, in a function of their own that can 
   assert.ok(permission.includes('Principal: events.amazonaws.com'));
   assert.ok(permission.includes('SourceArn: !GetAtt RolloutTickRule.Arn'));
   // Only EventBridge, for this rule, may invoke it.
-  const invokers = template.split(/\n(?= {2}\w+:\n)/)
-    .filter((resource) => resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref RolloutTickFn'));
+  const invokers = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter(
+      (resource) =>
+        resource.includes('Type: AWS::Lambda::Permission') && resource.includes('FunctionName: !Ref RolloutTickFn')
+    );
   assert.equal(invokers.length, 1);
 
   const role = block(template, 'RolloutTickRole');
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog', 'ReadReleasesAndFleet',
-    'WriteRollouts', 'AppendAudit', 'StartAndReadDeployments', 'CancelAndReadJobs', 'ReadOneExecution', 'ReadBoards', 'ListBoards',
-    'ListDeployments', 'PassPresignRoleToIot', 'ReadAlerts', 'WriteAlerts', 'SendAlerts', 'NeverChangeAuditEntries']);
+  assert.deepEqual(
+    [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    [
+      'WriteOwnLog',
+      'ReadReleasesAndFleet',
+      'WriteRollouts',
+      'AppendAudit',
+      'StartAndReadDeployments',
+      'CancelAndReadJobs',
+      'ReadOneExecution',
+      'ReadBoards',
+      'ListBoards',
+      'ListDeployments',
+      'PassPresignRoleToIot',
+      'ReadAlerts',
+      'WriteAlerts',
+      'SendAlerts',
+      'NeverChangeAuditEntries',
+    ]
+  );
   // Writes in the state table only to a rollout; reads only of releases and the fleet's records.
   const writes = statement(role, 'WriteRollouts');
   assert.ok(writes.includes('Action: dynamodb:UpdateItem'));
-  assert.deepEqual([...writes.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]), ['ROL']);
+  assert.deepEqual(
+    [...writes.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['ROL']
+  );
   const reads = statement(role, 'ReadReleasesAndFleet');
-  assert.deepEqual([...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN']);
+  assert.deepEqual(
+    [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['REL', 'ROL', 'GRP', 'SEEN']
+  );
   assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
   // The events table only for the alerts' own part, and the alert topic only to publish to: the alert
   // of a rollout that stopped by itself.
   for (const sid of ['ReadAlerts', 'WriteAlerts']) {
     const alerts = statement(role, sid);
     assert.ok(alerts.includes('Resource: !GetAtt EventsTable.Arn'), sid);
-    assert.deepEqual([...alerts.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]), ['ALERTS'], sid);
+    assert.deepEqual(
+      [...alerts.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+      ['ALERTS'],
+      sid
+    );
   }
   assert.ok(statement(role, 'ReadAlerts').includes('Action: dynamodb:Query'));
   assert.ok(statement(role, 'WriteAlerts').includes('Action: dynamodb:PutItem'));
@@ -538,18 +720,31 @@ test('staged rollouts move on every minute, in a function of their own that can 
 test('customers have a pool of their own: invited by an admin, e-mail and 10 characters, a code if they like', () => {
   const pool = block(template, 'CustomerUserPool');
   for (const line of [
-    'Type: AWS::Cognito::UserPool', 'DeletionPolicy: RetainExceptOnCreate', 'UpdateReplacePolicy: Retain',
-    'UserPoolTier: ESSENTIALS', 'CaseSensitive: false', 'AllowAdminCreateUserOnly: !If [CustomerSelfSignUpAllowed, false, true]',
-    'MinimumLength: 10', "MfaConfiguration: 'OPTIONAL'", '- SOFTWARE_TOKEN_MFA', '- Name: verified_email',
+    'Type: AWS::Cognito::UserPool',
+    'DeletionPolicy: RetainExceptOnCreate',
+    'UpdateReplacePolicy: Retain',
+    'UserPoolTier: ESSENTIALS',
+    'CaseSensitive: false',
+    'AllowAdminCreateUserOnly: !If [CustomerSelfSignUpAllowed, false, true]',
+    'MinimumLength: 10',
+    "MfaConfiguration: 'OPTIONAL'",
+    '- SOFTWARE_TOKEN_MFA',
+    '- Name: verified_email',
     'DeletionProtection: !Ref UserPoolDeletionProtection',
   ]) {
     assert.ok(pool.includes(line), line);
   }
-  assert.deepEqual([...block(pool, 'UsernameAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['email']);
-  for (const kind of ['Uppercase', 'Lowercase', 'Numbers', 'Symbols']) assert.ok(pool.includes(`Require${kind}: false`), kind);
+  assert.deepEqual(
+    [...block(pool, 'UsernameAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['email']
+  );
+  for (const kind of ['Uppercase', 'Lowercase', 'Numbers', 'Symbols'])
+    assert.ok(pool.includes(`Require${kind}: false`), kind);
   // No trigger, no groups: a customer can never be a member of the console's groups, which are in the staff pool.
   assert.equal(pool.includes('LambdaConfig'), false);
-  const groups = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolGroup'));
+  const groups = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolGroup'));
   assert.ok(groups.length >= 2);
   for (const group of groups) assert.ok(group.includes('UserPoolId: !Ref UserPool\n'), group);
   // Self sign-up is off unless asked for.
@@ -558,42 +753,77 @@ test('customers have a pool of their own: invited by an admin, e-mail and 10 cha
   assert.ok(template.includes("CustomerSelfSignUpAllowed: !Equals [!Ref CustomerSelfSignUp, 'true']"));
   // The invitation names the site once it has an address, and no other link.
   const invite = block(pool, 'InviteMessageTemplate', 8);
-  assert.deepEqual([...invite.matchAll(/href="([^"]+)"/g)].map((match) => match[1]), ['https://${CustomerDomainName}/']);
+  assert.deepEqual(
+    [...invite.matchAll(/href="([^"]+)"/g)].map((match) => match[1]),
+    ['https://${CustomerDomainName}/']
+  );
   assert.ok(invite.includes('{username}') && invite.includes('{####}'));
 });
 
-test('the customer site\'s client signs in with SRP on its own pages, and never says whether an address exists', () => {
+test("the customer site's client signs in with SRP on its own pages, and never says whether an address exists", () => {
   const client = block(template, 'CustomerUserPoolClient');
   for (const line of [
-    'UserPoolId: !Ref CustomerUserPool', 'GenerateSecret: false', 'AllowedOAuthFlowsUserPoolClient: false',
-    'EnableTokenRevocation: true', 'PreventUserExistenceErrors: ENABLED', 'AccessTokenValidity: 60',
+    'UserPoolId: !Ref CustomerUserPool',
+    'GenerateSecret: false',
+    'AllowedOAuthFlowsUserPoolClient: false',
+    'EnableTokenRevocation: true',
+    'PreventUserExistenceErrors: ENABLED',
+    'AccessTokenValidity: 60',
   ]) {
     assert.ok(client.includes(line), line);
   }
-  assert.deepEqual([...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
-    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
-  assert.deepEqual([...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['name']);
-  for (const word of ['CallbackURLs', 'AllowedOAuthFlows:', 'AllowedOAuthScopes']) assert.equal(client.includes(word), false, word);
+  assert.deepEqual(
+    [...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']
+  );
+  assert.deepEqual(
+    [...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['name']
+  );
+  for (const word of ['CallbackURLs', 'AllowedOAuthFlows:', 'AllowedOAuthScopes'])
+    assert.equal(client.includes(word), false, word);
   // No managed login pages for customers: the only domain of a pool is the staff pool's.
-  const domains = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolDomain'));
+  const domains = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::Cognito::UserPoolDomain'));
   assert.equal(domains.length, 1);
   assert.ok(domains[0].includes('UserPoolId: !Ref UserPool\n'));
 });
 
-test('the phone apps\' client of the customer pool is the site\'s, with the staff phone client\'s 30-day refresh token', () => {
+test("the phone apps' client of the customer pool is the site's, with the staff phone client's 30-day refresh token", () => {
   const client = block(template, 'CustomerMobileUserPoolClient');
   for (const line of [
-    'Type: AWS::Cognito::UserPoolClient', 'UserPoolId: !Ref CustomerUserPool', 'GenerateSecret: false',
-    'AllowedOAuthFlowsUserPoolClient: false', 'EnableTokenRevocation: true', 'PreventUserExistenceErrors: ENABLED',
-    'AuthSessionValidity: 15', 'AccessTokenValidity: 60', 'IdTokenValidity: 60', 'RefreshTokenValidity: 30',
-    'AccessToken: minutes', 'IdToken: minutes', 'RefreshToken: days',
+    'Type: AWS::Cognito::UserPoolClient',
+    'UserPoolId: !Ref CustomerUserPool',
+    'GenerateSecret: false',
+    'AllowedOAuthFlowsUserPoolClient: false',
+    'EnableTokenRevocation: true',
+    'PreventUserExistenceErrors: ENABLED',
+    'AuthSessionValidity: 15',
+    'AccessTokenValidity: 60',
+    'IdTokenValidity: 60',
+    'RefreshTokenValidity: 30',
+    'AccessToken: minutes',
+    'IdToken: minutes',
+    'RefreshToken: days',
   ]) {
     assert.ok(client.includes(line), line);
   }
-  assert.deepEqual([...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
-    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']);
-  assert.deepEqual([...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]), ['name']);
-  for (const word of ['CallbackURLs', 'AllowedOAuthFlows:', 'AllowedOAuthScopes', '- ALLOW_USER_PASSWORD_AUTH', 'ADMIN_']) {
+  assert.deepEqual(
+    [...block(client, 'ExplicitAuthFlows', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['ALLOW_REFRESH_TOKEN_AUTH', 'ALLOW_USER_SRP_AUTH']
+  );
+  assert.deepEqual(
+    [...block(client, 'WriteAttributes', 6).matchAll(/- (\S+)/g)].map((match) => match[1]),
+    ['name']
+  );
+  for (const word of [
+    'CallbackURLs',
+    'AllowedOAuthFlows:',
+    'AllowedOAuthScopes',
+    '- ALLOW_USER_PASSWORD_AUTH',
+    'ADMIN_',
+  ]) {
     assert.equal(client.includes(word), false, word);
   }
   // The staff pool's phone client is the same lifetime: the apps keep a refresh token only behind biometrics.
@@ -603,10 +833,21 @@ test('the phone apps\' client of the customer pool is the site\'s, with the staf
   // configure.sh copies it into the apps' configuration, and the console's API hands it out on the Apps page.
   const outputs = block(template, 'Outputs', 0);
   assert.ok(block(outputs, 'CustomerMobileClientId').includes('Value: !Ref CustomerMobileUserPoolClient'));
-  assert.ok(block(block(template, 'ApiFn'), 'Variables', 8).includes('CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'));
+  assert.ok(
+    block(block(template, 'ApiFn'), 'Variables', 8).includes(
+      'CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'
+    )
+  );
   const configure = read('../apps/configure.sh');
-  for (const key of ['CustomerUserPoolId', 'CustomerMobileClientId', 'CustomerUrl', 'customerApiUrl', 'customerClientId',
-    'customerRegion', 'customerUserPoolId']) {
+  for (const key of [
+    'CustomerUserPoolId',
+    'CustomerMobileClientId',
+    'CustomerUrl',
+    'customerApiUrl',
+    'customerClientId',
+    'customerRegion',
+    'customerUserPoolId',
+  ]) {
     assert.ok(configure.includes(key), key);
   }
   // The site's own client stays off the phone.
@@ -615,85 +856,138 @@ test('the phone apps\' client of the customer pool is the site\'s, with the staf
   assert.equal(block(template, 'WebFn').includes('CustomerMobileUserPoolClient'), false);
 });
 
-test('a customer\'s token and a staff token each open their own API only, at the gateway', () => {
+test("a customer's token and a staff token each open their own API only, at the gateway", () => {
   const staff = block(template, 'Authorizer');
   assert.ok(staff.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'"));
-  assert.deepEqual([...block(staff, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
-    ['UserPoolClient', 'MobileUserPoolClient']);
+  assert.deepEqual(
+    [...block(staff, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
+    ['UserPoolClient', 'MobileUserPoolClient']
+  );
   assert.equal(staff.includes('Customer'), false);
 
   const customer = block(template, 'CustomerAuthorizer');
   assert.ok(customer.includes('AuthorizerType: JWT'));
   assert.ok(customer.includes("Issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${CustomerUserPool}'"));
-  assert.deepEqual([...block(customer, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
-    ['CustomerUserPoolClient', 'CustomerMobileUserPoolClient']);
+  assert.deepEqual(
+    [...block(customer, 'Audience', 8).matchAll(/- !Ref (\w+)/g)].map((match) => match[1]),
+    ['CustomerUserPoolClient', 'CustomerMobileUserPoolClient']
+  );
 
   const route = block(template, 'CustomerApiReadRoute');
-  for (const line of ["RouteKey: 'GET /api/c/{proxy+}'", 'AuthorizationType: JWT', 'AuthorizerId: !Ref CustomerAuthorizer',
-    '- aws.cognito.signin.user.admin', 'integrations/${CustomerApiIntegration}']) {
+  for (const line of [
+    "RouteKey: 'GET /api/c/{proxy+}'",
+    'AuthorizationType: JWT',
+    'AuthorizerId: !Ref CustomerAuthorizer',
+    '- aws.cognito.signin.user.admin',
+    'integrations/${CustomerApiIntegration}',
+  ]) {
     assert.ok(route.includes(line), line);
   }
   assert.ok(block(template, 'CustomerApiIntegration').includes('IntegrationUri: !GetAtt CustomerApiFn.Arn'));
   // Read only: no other route goes to the customer API, and every console route keeps the staff authorizer.
-  const routes = template.split(/\n(?= {2}\w+:\n)/).filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route'));
+  const routes = template
+    .split(/\n(?= {2}\w+:\n)/)
+    .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route'));
   assert.equal(routes.filter((resource) => resource.includes('integrations/${CustomerApiIntegration}')).length, 1);
   const keys = routes.map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
-  assert.deepEqual(keys.filter((key) => key.includes('/api/c/')), ['GET /api/c/{proxy+}']);
+  assert.deepEqual(
+    keys.filter((key) => key.includes('/api/c/')),
+    ['GET /api/c/{proxy+}']
+  );
   for (const resource of routes.filter((text) => text.includes('AuthorizerId: !Ref Authorizer\n'))) {
     assert.equal(/RouteKey: '[^']*\/api\/c\//.test(resource), false);
   }
   const stage = block(template, 'Stage');
   assert.ok(block(stage, 'DependsOn', 4).includes('- CustomerApiReadRoute'));
-  const settings = block(stage, 'RouteSettings', 6).split("'GET /api/c/{proxy+}':")[1].split('\n').slice(1, 3).join('\n');
+  const settings = block(stage, 'RouteSettings', 6)
+    .split("'GET /api/c/{proxy+}':")[1]
+    .split('\n')
+    .slice(1, 3)
+    .join('\n');
   assert.match(settings, /ThrottlingBurstLimit: \d+\n\s+ThrottlingRateLimit: \d+/);
 });
 
 test('the customer API may read the boards, their events, the ownership records and the customer pool, and nothing else', () => {
   const role = block(template, 'CustomerApiRole');
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
-    ['WriteOwnLog', 'ReadOwnership', 'ReadEvents', 'ReadShadows', 'CheckCustomers']);
-  assert.deepEqual([...role.matchAll(/Action: ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
-    ['sts:AssumeRole', 'dynamodb:Query', 'dynamodb:Query', 'iot:GetThingShadow', 'cognito-idp:AdminGetUser']);
+  assert.deepEqual(
+    [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog', 'ReadOwnership', 'ReadEvents', 'ReadShadows', 'CheckCustomers']
+  );
+  assert.deepEqual(
+    [...role.matchAll(/Action: ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
+    ['sts:AssumeRole', 'dynamodb:Query', 'dynamodb:Query', 'iot:GetThingShadow', 'cognito-idp:AdminGetUser']
+  );
   const ownership = statement(role, 'ReadOwnership');
   assert.ok(ownership.includes('Resource: !GetAtt StateTable.Arn'));
   assert.ok(ownership.includes('dynamodb:LeadingKeys:\n') && ownership.includes('- OWN'));
   assert.ok(statement(role, 'CheckCustomers').includes('Resource: !GetAtt CustomerUserPool.Arn'));
-  for (const word of ['AuditTable', 'FirmwareBucket', ' UserPool.Arn', 'iot:CreateJob', 'PutItem', 'UpdateItem', 'DeleteItem',
-    'ManagedPolicyArns', "Resource: '*'"]) {
+  for (const word of [
+    'AuditTable',
+    'FirmwareBucket',
+    ' UserPool.Arn',
+    'iot:CreateJob',
+    'PutItem',
+    'UpdateItem',
+    'DeleteItem',
+    'ManagedPolicyArns',
+    "Resource: '*'",
+  ]) {
     assert.equal(role.includes(word), false, word);
   }
   const fn = block(template, 'CustomerApiFn');
-  for (const line of ['Handler: customer.handler', 'Role: !GetAtt CustomerApiRole.Arn', 'Code: ../api/src', 'Runtime: nodejs22.x',
-    'LogGroup: !Ref CustomerApiLogGroup', '${DeployedCommit} (${DeployedTree})']) {
+  for (const line of [
+    'Handler: customer.handler',
+    'Role: !GetAtt CustomerApiRole.Arn',
+    'Code: ../api/src',
+    'Runtime: nodejs22.x',
+    'LogGroup: !Ref CustomerApiLogGroup',
+    '${DeployedCommit} (${DeployedTree})',
+  ]) {
     assert.ok(fn.includes(line), line);
   }
-  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID', 'CUSTOMER_MOBILE_CLIENT_ID']);
+  assert.deepEqual(
+    [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
+    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID', 'CUSTOMER_MOBILE_CLIENT_ID']
+  );
   assert.ok(block(fn, 'Variables', 8).includes('CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'));
   assert.ok(read('api/src/customer.mjs').includes('export const handler'));
   assert.ok(block(template, 'CustomerApiFnPermission').includes('FunctionName: !Ref CustomerApiFn'));
 });
 
-test('the console\'s API may invite, list and switch customers off and on, in the customer pool only', () => {
+test("the console's API may invite, list and switch customers off and on, in the customer pool only", () => {
   const role = block(template, 'ApiRole');
   const manage = statement(role, 'ManageCustomers');
-  assert.deepEqual([...manage.matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]),
-    ['cognito-idp:AdminCreateUser', 'cognito-idp:AdminGetUser', 'cognito-idp:ListUsers', 'cognito-idp:AdminDisableUser',
-      'cognito-idp:AdminEnableUser']);
+  assert.deepEqual(
+    [...manage.matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]),
+    [
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminGetUser',
+      'cognito-idp:ListUsers',
+      'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser',
+    ]
+  );
   assert.ok(manage.includes('Resource: !GetAtt CustomerUserPool.Arn'));
   // The staff pool's statement is unchanged: a look-up and the groups, nothing that makes or changes an account.
   const staff = statement(role, 'ReadUsers');
   assert.ok(staff.includes('Resource: !GetAtt UserPool.Arn'));
   assert.equal(/AdminCreateUser|ListUsers|AdminDisableUser/.test(staff), false);
-  for (const action of ['AdminDeleteUser', 'AdminSetUserPassword', 'AdminAddUserToGroup', 'AdminUpdateUserAttributes']) {
+  for (const action of [
+    'AdminDeleteUser',
+    'AdminSetUserPassword',
+    'AdminAddUserToGroup',
+    'AdminUpdateUserAttributes',
+  ]) {
     assert.equal(role.includes(action), false, action);
   }
   const variables = block(block(template, 'ApiFn'), 'Variables', 8);
   assert.ok(variables.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool'));
-  assert.ok(variables.includes("CUSTOMER_SITE_URL: !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/', '']"));
+  assert.ok(
+    variables.includes("CUSTOMER_SITE_URL: !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/', '']")
+  );
 });
 
-test('the customer site\'s address changes nothing until it is set, and then serves the name and www', () => {
+test("the customer site's address changes nothing until it is set, and then serves the name and www", () => {
   for (const name of ['CustomerDomainName', 'CustomerCertificateArn']) {
     assert.ok(block(template, name).includes("Default: ''"), name);
   }
@@ -704,7 +998,10 @@ test('the customer site\'s address changes nothing until it is set, and then ser
   assert.ok(block(template, 'CustomerWwwDomain').includes("DomainName: !Sub 'www.${CustomerDomainName}'"));
   for (const name of ['CustomerDomain', 'CustomerWwwDomain']) {
     const domain = block(template, name);
-    assert.ok(domain.includes('CertificateArn: !Ref CustomerCertificateArn') && domain.includes('SecurityPolicy: TLS_1_2'), name);
+    assert.ok(
+      domain.includes('CertificateArn: !Ref CustomerCertificateArn') && domain.includes('SecurityPolicy: TLS_1_2'),
+      name
+    );
   }
   const outputs = block(template, 'Outputs', 0);
   for (const output of ['CustomerUrl', 'CustomerDomainTarget', 'CustomerWwwDomainTarget']) {
@@ -712,12 +1009,18 @@ test('the customer site\'s address changes nothing until it is set, and then ser
   }
   const web = block(block(template, 'WebFn'), 'Variables', 8);
   assert.ok(web.includes("- !Sub '${CustomerDomainName},www.${CustomerDomainName}'"));
-  assert.ok(web.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool') && web.includes('CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient'));
+  assert.ok(
+    web.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool') &&
+      web.includes('CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient')
+  );
   // Admin mode is the console under /admin of that name: the staff client may return there, once the name is set.
   const client = block(template, 'UserPoolClient');
   for (const list of ['CallbackURLs', 'LogoutURLs']) {
     const urls = block(client, list, 6);
-    assert.ok(urls.includes("- !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/admin', !Ref AWS::NoValue]"), list);
+    assert.ok(
+      urls.includes("- !If [HasCustomerDomain, !Sub 'https://${CustomerDomainName}/admin', !Ref AWS::NoValue]"),
+      list
+    );
   }
   assert.equal(block(template, 'MobileUserPoolClient').includes('Customer'), false);
 });
@@ -728,11 +1031,16 @@ test('teardown removes the customer pool too, which the stack keeps like the sta
   assert.ok(block(block(template, 'Outputs', 0), 'CustomerUserPoolId').includes('Value: !Ref CustomerUserPool'));
 });
 
-test('the phone apps\' pages may call the API from any origin, with no credentials, and only these methods and headers', () => {
+test("the phone apps' pages may call the API from any origin, with no credentials, and only these methods and headers", () => {
   const api = block(template, 'Api');
   const cors = block(api, 'CorsConfiguration', 6);
-  const list = (key) => block(cors, key, 8).split('\n').slice(1).map((line) => line.trim())
-    .filter((line) => line.startsWith('- ')).map((line) => line.slice(2));
+  const list = (key) =>
+    block(cors, key, 8)
+      .split('\n')
+      .slice(1)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2));
   // Any origin: API Gateway refuses the iPhone app's cranium-app://bundle, which is not http or https,
   // so the app shell's two origins (apps/shared/bridge.json) can only be had with the wildcard. It
   // allows nothing more: no credentials, and only these methods and headers.
@@ -749,7 +1057,7 @@ test('the phone apps\' pages may call the API from any origin, with no credentia
   assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 1);
 });
 
-test('the phone apps\' bundle has a route of its own to the web function, public and with its own limits', () => {
+test("the phone apps' bundle has a route of its own to the web function, public and with its own limits", () => {
   const route = block(template, 'AppBundleRoute');
   assert.ok(route.includes("RouteKey: 'GET /app/{proxy+}'"));
   assert.ok(route.includes('AuthorizationType: NONE'));

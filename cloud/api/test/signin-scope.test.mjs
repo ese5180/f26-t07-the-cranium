@@ -14,7 +14,12 @@ const MOBILE = 'mobileclient0example';
 const GROUPS = { groupsToOverride: ['release-managers'], iamRolesToOverride: [], preferredRole: null };
 
 /** An event as Cognito sends it (the documentation's example, with this pool's values). */
-function event({ source = 'TokenGeneration_Authentication', client = WEB, scopes = [ADMIN_SCOPE], groups = GROUPS } = {}) {
+function event({
+  source = 'TokenGeneration_Authentication',
+  client = WEB,
+  scopes = [ADMIN_SCOPE],
+  groups = GROUPS,
+} = {}) {
   const request = {
     userAttributes: { sub: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d', 'cognito:user_status': 'CONFIRMED' },
     groupConfiguration: groups,
@@ -34,17 +39,25 @@ function event({ source = 'TokenGeneration_Authentication', client = WEB, scopes
 
 const handler = createScopeTrigger([WEB, MOBILE]);
 
-test('a sign-in through the user pool API gets the console\'s scope and loses the admin scope, on the web and the phone', async () => {
-  for (const [client, source] of [[WEB, 'TokenGeneration_Authentication'], [WEB, 'TokenGeneration_RefreshTokens'],
-    [MOBILE, 'TokenGeneration_Authentication'], [MOBILE, 'TokenGeneration_RefreshTokens']]) {
+test("a sign-in through the user pool API gets the console's scope and loses the admin scope, on the web and the phone", async () => {
+  for (const [client, source] of [
+    [WEB, 'TokenGeneration_Authentication'],
+    [WEB, 'TokenGeneration_RefreshTokens'],
+    [MOBILE, 'TokenGeneration_Authentication'],
+    [MOBILE, 'TokenGeneration_RefreshTokens'],
+  ]) {
     const given = event({ client, source });
     const before = structuredClone(given);
     const answer = await handler(given);
-    assert.deepEqual(answer.response.claimsAndScopeOverrideDetails, {
-      accessTokenGeneration: { scopesToAdd: [CONSOLE_SCOPE], scopesToSuppress: [ADMIN_SCOPE] },
-      // Handed back as they came: Cognito's documented way to keep the groups.
-      groupOverrideDetails: GROUPS,
-    }, `${client} ${source}`);
+    assert.deepEqual(
+      answer.response.claimsAndScopeOverrideDetails,
+      {
+        accessTokenGeneration: { scopesToAdd: [CONSOLE_SCOPE], scopesToSuppress: [ADMIN_SCOPE] },
+        // Handed back as they came: Cognito's documented way to keep the groups.
+        groupOverrideDetails: GROUPS,
+      },
+      `${client} ${source}`
+    );
     // Nothing else of the event changes, and the event that came in is left alone.
     assert.deepEqual({ ...answer, response: before.response }, before);
     assert.deepEqual(given, before);
@@ -81,28 +94,43 @@ test('every other token passes through untouched', async () => {
 
 test('only what is missing is added, and only what is there is taken away', async () => {
   const half = await handler(event({ scopes: [ADMIN_SCOPE, CONSOLE_SCOPE] }));
-  assert.deepEqual(half.response.claimsAndScopeOverrideDetails.accessTokenGeneration, { scopesToSuppress: [ADMIN_SCOPE] });
+  assert.deepEqual(half.response.claimsAndScopeOverrideDetails.accessTokenGeneration, {
+    scopesToSuppress: [ADMIN_SCOPE],
+  });
   const other = await handler(event({ scopes: ['openid'] }));
-  assert.deepEqual(other.response.claimsAndScopeOverrideDetails.accessTokenGeneration, { scopesToAdd: [CONSOLE_SCOPE] });
+  assert.deepEqual(other.response.claimsAndScopeOverrideDetails.accessTokenGeneration, {
+    scopesToAdd: [CONSOLE_SCOPE],
+  });
   // Without the list of scopes, both: the token gets the scope and cannot keep the other.
   const unknown = await handler(event({ scopes: undefined }));
-  assert.deepEqual(unknown.response.claimsAndScopeOverrideDetails.accessTokenGeneration,
-    { scopesToAdd: [CONSOLE_SCOPE], scopesToSuppress: [ADMIN_SCOPE] });
+  assert.deepEqual(unknown.response.claimsAndScopeOverrideDetails.accessTokenGeneration, {
+    scopesToAdd: [CONSOLE_SCOPE],
+    scopesToSuppress: [ADMIN_SCOPE],
+  });
   // No other scope is ever named.
   for (const answer of [half, other, unknown]) {
     const change = answer.response.claimsAndScopeOverrideDetails.accessTokenGeneration;
-    assert.deepEqual([...change.scopesToAdd ?? [], ...change.scopesToSuppress ?? []]
-      .filter((scope) => scope !== CONSOLE_SCOPE && scope !== ADMIN_SCOPE), []);
+    assert.deepEqual(
+      [...(change.scopesToAdd ?? []), ...(change.scopesToSuppress ?? [])].filter(
+        (scope) => scope !== CONSOLE_SCOPE && scope !== ADMIN_SCOPE
+      ),
+      []
+    );
     assert.equal('idTokenGeneration' in answer.response.claimsAndScopeOverrideDetails, false);
   }
 });
 
 test('the groups go back in the form of an answer, and an odd group setting is not passed on as it is', async () => {
-  const odd = await handler(event({
-    groups: { groupsToOverride: ['viewers', 7], iamRolesToOverride: null, preferredRole: ['arn:example'] },
-  }));
-  assert.deepEqual(odd.response.claimsAndScopeOverrideDetails.groupOverrideDetails,
-    { groupsToOverride: ['viewers'], iamRolesToOverride: [], preferredRole: null });
+  const odd = await handler(
+    event({
+      groups: { groupsToOverride: ['viewers', 7], iamRolesToOverride: null, preferredRole: ['arn:example'] },
+    })
+  );
+  assert.deepEqual(odd.response.claimsAndScopeOverrideDetails.groupOverrideDetails, {
+    groupsToOverride: ['viewers'],
+    iamRolesToOverride: [],
+    preferredRole: null,
+  });
   const none = await handler(event({ groups: [] }));
   assert.equal('groupOverrideDetails' in none.response.claimsAndScopeOverrideDetails, false);
   const missing = await handler(event({ groups: null }));
@@ -117,14 +145,26 @@ test('a trigger that does not know the client changes nothing; it never throws',
   // Told only one of the two clients, it changes the tokens of that one only.
   assert.deepEqual(await createScopeTrigger(WEB)(event({ client: MOBILE })), event({ client: MOBILE }));
   assert.deepEqual(await createScopeTrigger([undefined, MOBILE])(event()), event());
-  for (const odd of [null, undefined, 'text', 7, [], {}, { callerContext: null }, { triggerSource: 'TokenGeneration_Authentication' }]) {
+  for (const odd of [
+    null,
+    undefined,
+    'text',
+    7,
+    [],
+    {},
+    { callerContext: null },
+    { triggerSource: 'TokenGeneration_Authentication' },
+  ]) {
     assert.deepEqual(await handler(odd), odd);
   }
   // A response Cognito sent as a list, as in its documentation's example, gets an object.
   const listed = await handler({ ...event(), response: { claimsAndScopeOverrideDetails: [] } });
   assert.equal(Array.isArray(listed.response.claimsAndScopeOverrideDetails), false);
-  assert.deepEqual(withConsoleScope({ ...event(), response: undefined }, WEB).response.claimsAndScopeOverrideDetails
-    .accessTokenGeneration.scopesToAdd, [CONSOLE_SCOPE]);
+  assert.deepEqual(
+    withConsoleScope({ ...event(), response: undefined }, WEB).response.claimsAndScopeOverrideDetails
+      .accessTokenGeneration.scopesToAdd,
+    [CONSOLE_SCOPE]
+  );
 });
 
 test('the deployed handler is told both clients by its environment, and needs nothing else', async () => {
@@ -135,11 +175,16 @@ test('the deployed handler is told both clients by its environment, and needs no
     const { handler: deployed } = await import('../src/signin-scope.mjs?deployed');
     for (const client of [WEB, MOBILE]) {
       const answer = await deployed(event({ client }));
-      assert.deepEqual(answer.response.claimsAndScopeOverrideDetails.accessTokenGeneration.scopesToAdd, [CONSOLE_SCOPE]);
+      assert.deepEqual(answer.response.claimsAndScopeOverrideDetails.accessTokenGeneration.scopesToAdd, [
+        CONSOLE_SCOPE,
+      ]);
     }
     assert.deepEqual(await deployed(event({ client: 'someoneelse' })), event({ client: 'someoneelse' }));
   } finally {
-    for (const [name, value] of [['CONSOLE_CLIENT_ID', saved.web], ['MOBILE_CLIENT_ID', saved.mobile]]) {
+    for (const [name, value] of [
+      ['CONSOLE_CLIENT_ID', saved.web],
+      ['MOBILE_CLIENT_ID', saved.mobile],
+    ]) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }

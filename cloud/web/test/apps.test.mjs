@@ -10,7 +10,18 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  APPS, CORE, HISTORY, NEIGHBOURS, QR, VIEWS, all, click, controls, createDocument, one, textOf,
+  APPS,
+  CORE,
+  HISTORY,
+  NEIGHBOURS,
+  QR,
+  VIEWS,
+  all,
+  click,
+  controls,
+  createDocument,
+  one,
+  textOf,
 } from './page.mjs';
 
 const apps = await import(APPS);
@@ -22,26 +33,45 @@ globalThis.document = createDocument();
 
 const NOW = Date.parse('2026-11-04T18:00:00Z');
 const SHA = 'c0ffee'.padEnd(64, '0');
-const PRESIGNED = 'https://cranium-firmwarebucket-1.s3.us-east-1.amazonaws.com/apps/android/cranium-android-0.4.0.apk' +
+const PRESIGNED =
+  'https://cranium-firmwarebucket-1.s3.us-east-1.amazonaws.com/apps/android/cranium-android-0.4.0.apk' +
   `?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Security-Token=${'IQoJb3JpZ2luX2Vj'.repeat(60)}&X-Amz-Signature=${'ab'.repeat(32)}`;
 const RELEASES = [
   {
-    version: '0.4.0', versionCode: 4, size: 12_027_314, sha256: SHA, notes: 'Open the app with your fingerprint.',
-    filename: 'cranium-android-0.4.0.apk', publishedBy: { sub: 's', email: 'manager@preview.invalid' }, publishedAt: '2026-11-04T15:00:00.000Z',
+    version: '0.4.0',
+    versionCode: 4,
+    size: 12_027_314,
+    sha256: SHA,
+    notes: 'Open the app with your fingerprint.',
+    filename: 'cranium-android-0.4.0.apk',
+    publishedBy: { sub: 's', email: 'manager@preview.invalid' },
+    publishedAt: '2026-11-04T15:00:00.000Z',
   },
   {
-    version: '0.3.0', versionCode: 3, size: 11_760_344, sha256: 'b'.repeat(64), notes: 'A cleaner design.',
-    filename: 'cranium-android-0.3.0.apk', publishedBy: { sub: 's', email: 'manager@preview.invalid' }, publishedAt: '2026-11-03T19:00:00.000Z',
+    version: '0.3.0',
+    versionCode: 3,
+    size: 11_760_344,
+    sha256: 'b'.repeat(64),
+    notes: 'A cleaner design.',
+    filename: 'cranium-android-0.3.0.apk',
+    publishedBy: { sub: 's', email: 'manager@preview.invalid' },
+    publishedAt: '2026-11-03T19:00:00.000Z',
   },
 ];
 const VERSIONS = history.parseVersions({
   console: { version: '1.10.0', commit: 'a'.repeat(40) },
   changelogs: {
     console: ['1.10.0', '1.9.1', '1.9.0', '1.8.0', '1.7.1', '1.7.0'].map((version, index) => ({
-      version, note: `What ${version} brought.`, commit: '7f34f56', date: `2026-11-0${4 - Math.min(index, 3)}`,
+      version,
+      note: `What ${version} brought.`,
+      commit: '7f34f56',
+      date: `2026-11-0${4 - Math.min(index, 3)}`,
     })),
     ios: [{ version: '0.4.0', note: 'Open the app with Face ID.' }],
-    android: [{ version: '0.5.0', note: 'The board log.' }, { version: '0.4.0', note: 'Open the app with your fingerprint.' }],
+    android: [
+      { version: '0.5.0', note: 'The board log.' },
+      { version: '0.4.0', note: 'Open the app with your fingerprint.' },
+    ],
     firmware: [],
   },
 });
@@ -74,7 +104,9 @@ function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, a
   const state = {
     now: NOW,
     me: { canWrite },
-    apps: resource(apps.readApps({ android: { releases }, ios: { version: '0.4.0', notes: 'From the API.', releases: ipas } })),
+    apps: resource(
+      apps.readApps({ android: { releases }, ios: { version: '0.4.0', notes: 'From the API.', releases: ipas } })
+    ),
     versions: resource(versions),
   };
   const ctx = { state, actions: { copy: (value) => copied.push(value) } };
@@ -87,7 +119,13 @@ function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, a
       return answer ?? {};
     },
   };
-  apps.connect({ state, api, load: async () => {}, draw, notify: (message, tone = 'good') => notes.push([tone, message]) });
+  apps.connect({
+    state,
+    api,
+    load: async () => {},
+    draw,
+    notify: (message, tone = 'good') => notes.push([tone, message]),
+  });
   globalThis.window = { location: { origin: 'https://console.example', assign: () => {} } };
   draw();
   return { box, asked, notes, copied, state, draw, ctx };
@@ -95,12 +133,17 @@ function appsPage({ releases = RELEASES, canWrite = true, versions = VERSIONS, a
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-test('the QR encoder is the pinned library: its output is the C version\'s, module for module', () => {
+test("the QR encoder is the pinned library: its output is the C version's, module for module", () => {
   // Digests of the modules (rows of 0 and 1) that the C version of the same commit makes of these texts.
   const LONG = `https://cranium-firmwarebucket-1a2b3c4d5e6f.s3.us-east-1.amazonaws.com/apps/android/cranium-android-0.4.0.apk?X-Amz-Security-Token=${'IQoJb3JpZ2luX2VjEJr'.repeat(70).slice(0, 1300)}&X-Amz-Signature=${'ab'.repeat(32)}`;
   for (const [ecc, text, size, digest] of [
     [QrCode.Ecc.MEDIUM, 'Hello, world!', 21, '60e12c4292e429687bcfde01ea5bbfeb22f28963c13cac92d48e3cbfe60cb21a'],
-    [QrCode.Ecc.LOW, 'https://console.craniumiot.com/#/apps', 29, '9e9774615f6c760100dbb2e7e33047e41454fb609e9bde0538291db6d43ca2ae'],
+    [
+      QrCode.Ecc.LOW,
+      'https://console.craniumiot.com/#/apps',
+      29,
+      '9e9774615f6c760100dbb2e7e33047e41454fb609e9bde0538291db6d43ca2ae',
+    ],
     [QrCode.Ecc.LOW, LONG, 129, 'a9cc9e24c45bd5efaaab643a6e75f6ed4dfd688c27e2a6953cd4e2874ecfa8ff'],
   ]) {
     const qr = QrCode.encodeText(text, ecc);
@@ -122,7 +165,11 @@ test('the QR encoder is the pinned library: its output is the C version\'s, modu
   assert.match(licence, /MIT License\n\nCopyright \(c\) Project Nayuki\./);
   // Only the Apps page imports it.
   for (const name of ['app.js', 'core.js', 'views.js', 'history.js', 'fleet.js', 'telemetry.js', 'serial.js']) {
-    assert.equal(readFileSync(new URL(`../src/site/assets/${name}`, import.meta.url), 'utf8').includes('qrcode.js'), false, name);
+    assert.equal(
+      readFileSync(new URL(`../src/site/assets/${name}`, import.meta.url), 'utf8').includes('qrcode.js'),
+      false,
+      name
+    );
   }
 });
 
@@ -146,7 +193,9 @@ test('the SVG path of a code draws exactly its dark modules, inside a quiet zone
 
 test('Android: the newest version with its note, size and SHA-256, Download, and the older ones folded away', async () => {
   const { box, asked, notes, copied } = appsPage({
-    answers: { '/api/apps/android/0.4.0/download': { download: { url: PRESIGNED, expiresAt: '2026-11-04T18:15:00.000Z' } } },
+    answers: {
+      '/api/apps/android/0.4.0/download': { download: { url: PRESIGNED, expiresAt: '2026-11-04T18:15:00.000Z' } },
+    },
   });
   const android = cardOf(box, 'Android');
   assert.match(textOf(one(android, 'p.app-version')), /^0\.4\.0 Newest$/);
@@ -179,7 +228,11 @@ test('Android: the newest version with its note, size and SHA-256, Download, and
 
 test('the QR code is made when asked for, holds a presigned link, says until when, and runs out', async () => {
   const page = appsPage({
-    answers: { '/api/apps/android/0.4.0/download?via=qr': { download: { url: PRESIGNED, expiresAt: '2026-11-04T18:15:00.000Z' } } },
+    answers: {
+      '/api/apps/android/0.4.0/download?via=qr': {
+        download: { url: PRESIGNED, expiresAt: '2026-11-04T18:15:00.000Z' },
+      },
+    },
   });
   // Nothing is asked for, and no link made, until somebody wants one.
   assert.equal(all(page.box, 'svg.qr-code').length, 0);
@@ -206,8 +259,11 @@ test('the QR code is made when asked for, holds a presigned link, says until whe
   assert.ok(controls(page.box).includes('Make a new one'));
 });
 
-test('a refused link or a link that is not S3\'s says so, and draws no code', async () => {
-  const refused = Object.assign(new Error('There is no Android app 0.4.0 on the console.'), { status: 404, code: 'unknown_version' });
+test("a refused link or a link that is not S3's says so, and draws no code", async () => {
+  const refused = Object.assign(new Error('There is no Android app 0.4.0 on the console.'), {
+    status: 404,
+    code: 'unknown_version',
+  });
   const page = appsPage({
     answers: {
       '/api/apps/android/0.4.0/download?via=qr': refused,
@@ -231,18 +287,33 @@ test('iPhone: its version and note from versions.json, and how to install it wit
   assert.equal(textOf(one(iphone, 'p.app-version')), '0.4.0');
   assert.equal(textOf(one(iphone, 'p.app-note')), 'Open the app with Face ID.');
   const text = textOf(iphone);
-  for (const words of ['git clone https://github.com/ese5180/f26-t07-the-cranium.git', 'apps/ios/scripts/phone.sh',
-    'tap Trust', 'press Run', 'VPN & Device Management', 'apps/ios/scripts/renew.sh --schedule', 'Every 7 days',
-    'On any iPhone, with SideStore', 'with your own Apple ID', 'No iPhone version is published on the console yet',
-    'Make my SideStore link', 'every 7 days, over Wi-Fi', 'Face ID works', 'over the Mac\'s Wi-Fi']) {
+  for (const words of [
+    'git clone https://github.com/ese5180/f26-t07-the-cranium.git',
+    'apps/ios/scripts/phone.sh',
+    'tap Trust',
+    'press Run',
+    'VPN & Device Management',
+    'apps/ios/scripts/renew.sh --schedule',
+    'Every 7 days',
+    'On any iPhone, with SideStore',
+    'with your own Apple ID',
+    'No iPhone version is published on the console yet',
+    'Make my SideStore link',
+    'every 7 days, over Wi-Fi',
+    'Face ID works',
+    "over the Mac's Wi-Fi",
+  ]) {
     assert.ok(text.includes(words), words);
   }
   assert.equal(text.includes('TestFlight'), false);
-  const official = one(iphone, 'a', 'SideStore\'s own guide');
+  const official = one(iphone, 'a', "SideStore's own guide");
   assert.equal(official.getAttribute('href'), 'https://docs.sidestore.io/docs/installation/prerequisites');
   assert.equal(official.getAttribute('rel'), 'noopener noreferrer');
   const guide = one(iphone, 'a', 'the phone apps in the setup guide');
-  assert.equal(guide.getAttribute('href'), 'https://github.com/ese5180/f26-t07-the-cranium/blob/main/docs/new-board-setup.md#the-phone-apps');
+  assert.equal(
+    guide.getAttribute('href'),
+    'https://github.com/ese5180/f26-t07-the-cranium/blob/main/docs/new-board-setup.md#the-phone-apps'
+  );
   assert.equal(guide.getAttribute('rel'), 'noopener noreferrer');
   click(labelled(iphone, 'Copy apps/ios/scripts/phone.sh'));
   assert.deepEqual(copied, ['apps/ios/scripts/phone.sh']);
@@ -252,8 +323,14 @@ test('iPhone: its version and note from versions.json, and how to install it wit
 });
 
 const IPA = {
-  version: '0.6.0', buildVersion: '8', size: 15_432_100, sha256: 'd'.repeat(64), notes: 'Updates on every iPhone, with SideStore.',
-  filename: 'cranium-ios-0.6.0.ipa', publishedBy: { sub: 's', email: 'manager@preview.invalid' }, publishedAt: '2026-11-04T16:00:00.000Z',
+  version: '0.6.0',
+  buildVersion: '8',
+  size: 15_432_100,
+  sha256: 'd'.repeat(64),
+  notes: 'Updates on every iPhone, with SideStore.',
+  filename: 'cranium-ios-0.6.0.ipa',
+  publishedBy: { sub: 's', email: 'manager@preview.invalid' },
+  publishedAt: '2026-11-04T16:00:00.000Z',
 };
 const KEY = `crs_${'Ab1_-'.repeat(8)}abc`;
 const SOURCE_URL = `https://console.example/api/sidestore/${KEY}/source.json`;
@@ -264,7 +341,8 @@ const MADE = {
 };
 
 test('iPhone: the newest IPA on the console, with its note, build and a download of its own', async () => {
-  const presigned = 'https://cranium-firmwarebucket-1.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.6.0.ipa?X-Amz-Signature=ab';
+  const presigned =
+    'https://cranium-firmwarebucket-1.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.6.0.ipa?X-Amz-Signature=ab';
   const page = appsPage({ ipas: [IPA], answers: { '/api/apps/ios/0.6.0/download': { download: { url: presigned } } } });
   const iphone = cardOf(page.box, 'iPhone');
   assert.match(textOf(one(iphone, 'p.app-version')), /^0\.6\.0 Newest$/);
@@ -282,7 +360,7 @@ test('iPhone: the newest IPA on the console, with its note, build and a download
   assert.deepEqual(assigned, [presigned]);
 });
 
-test('SideStore: a member\'s own link, shown once as Add to SideStore, its address and a QR code', async () => {
+test("SideStore: a member's own link, shown once as Add to SideStore, its address and a QR code", async () => {
   const answers = { 'GET /api/apps/sidestore': { source: null }, 'POST /api/apps/sidestore': MADE };
   const page = appsPage({ ipas: [IPA], answers });
   await apps.refreshApps();
@@ -323,7 +401,9 @@ test('SideStore: after it is made, only when; a new link or turning it off is as
   const page = appsPage({
     ipas: [IPA],
     answers: {
-      'GET /api/apps/sidestore': known, 'POST /api/apps/sidestore': MADE, 'POST /api/apps/sidestore/revoke': { source: null },
+      'GET /api/apps/sidestore': known,
+      'POST /api/apps/sidestore': MADE,
+      'POST /api/apps/sidestore/revoke': { source: null },
     },
   });
   await apps.refreshApps();
@@ -338,12 +418,18 @@ test('SideStore: after it is made, only when; a new link or turning it off is as
   iphone = cardOf(page.box, 'iPhone');
   assert.ok(controls(iphone).includes('Turn it off: SideStore stops updating the app'));
   click(one(iphone, 'button', 'Keep it'));
-  assert.deepEqual(page.asked.filter((line) => line.startsWith('POST')), []);
+  assert.deepEqual(
+    page.asked.filter((line) => line.startsWith('POST')),
+    []
+  );
   click(one(cardOf(page.box, 'iPhone'), 'button', 'Turn it off'));
   click(one(cardOf(page.box, 'iPhone'), 'button', 'Turn it off: SideStore stops updating the app'));
   await settle();
   await settle();
-  assert.deepEqual(page.asked.filter((line) => line.startsWith('POST')), ['POST /api/apps/sidestore/revoke']);
+  assert.deepEqual(
+    page.asked.filter((line) => line.startsWith('POST')),
+    ['POST /api/apps/sidestore/revoke']
+  );
   assert.ok(controls(cardOf(page.box, 'iPhone')).includes('Make my SideStore link'));
   assert.match(page.notes.at(-1)[1], /^Turned off your SideStore link/);
 
@@ -351,8 +437,10 @@ test('SideStore: after it is made, only when; a new link or turning it off is as
   const refused = appsPage({
     answers: {
       'GET /api/apps/sidestore': known,
-      'POST /api/apps/sidestore': Object.assign(new Error('Your SideStore link was being changed at the same moment elsewhere.'),
-        { status: 409, code: 'source_conflict' }),
+      'POST /api/apps/sidestore': Object.assign(
+        new Error('Your SideStore link was being changed at the same moment elsewhere.'),
+        { status: 409, code: 'source_conflict' }
+      ),
     },
   });
   await apps.refreshApps();
@@ -370,19 +458,30 @@ test('a new link is taken only as the console makes one: its own address, and th
   const local = `http://127.0.0.1:8787/api/sidestore/${KEY}/source.json`;
   assert.ok(apps.readNewSource({ ...MADE, url: local, add: `sidestore://source?url=${encodeURIComponent(local)}` }));
   for (const change of [
-    { url: `http://console.example/api/sidestore/${KEY}/source.json` }, { url: `${SOURCE_URL}?x=1` },
-    { url: SOURCE_URL.replace(KEY, 'crs_short') }, { add: 'sidestore://source?url=https%3A%2F%2Felsewhere.example' },
-    { source: { id: 'nope' } }, { url: 5 },
+    { url: `http://console.example/api/sidestore/${KEY}/source.json` },
+    { url: `${SOURCE_URL}?x=1` },
+    { url: SOURCE_URL.replace(KEY, 'crs_short') },
+    { add: 'sidestore://source?url=https%3A%2F%2Felsewhere.example' },
+    { source: { id: 'nope' } },
+    { url: 5 },
   ]) {
     assert.equal(apps.readNewSource({ ...MADE, ...change }), null, JSON.stringify(change));
   }
-  assert.deepEqual(apps.readSource({ id: '0123456789abcdef', createdAt: 5 }), { id: '0123456789abcdef', createdAt: null, lastUsedAt: null });
+  assert.deepEqual(apps.readSource({ id: '0123456789abcdef', createdAt: 5 }), {
+    id: '0123456789abcdef',
+    createdAt: null,
+    lastUsedAt: null,
+  });
 });
 
 test('the configuration is saved as cranium.json, exactly as the API gives it; building Android yourself', async () => {
   const config = {
-    consoleUrl: 'https://console.example', loginDomain: 'https://login.example', mobileClientId: 'abc', redirectUri: 'cranium://signin',
-    region: 'us-east-1', userPoolId: 'us-east-1_x',
+    consoleUrl: 'https://console.example',
+    loginDomain: 'https://login.example',
+    mobileClientId: 'abc',
+    redirectUri: 'cranium://signin',
+    region: 'us-east-1',
+    userPoolId: 'us-east-1_x',
   };
   const page = appsPage({ answers: { '/api/apps/config': config } });
   const saved = [];
@@ -393,7 +492,14 @@ test('the configuration is saved as cranium.json, exactly as the API gives it; b
     blobs.push(blob);
     return 'blob:console/1';
   };
-  document.createElement = (tag) => (tag === 'a' ? { click() { saved.push([this.href, this.download]); } } : original(tag));
+  document.createElement = (tag) =>
+    tag === 'a'
+      ? {
+          click() {
+            saved.push([this.href, this.download]);
+          },
+        }
+      : original(tag);
   try {
     click(one(cardOf(page.box, 'iPhone'), 'button', 'Download the configuration'));
     await settle();
@@ -408,8 +514,12 @@ test('the configuration is saved as cranium.json, exactly as the API gives it; b
   assert.deepEqual(page.notes, [['good', 'Saved cranium.json. Put it in apps/config/ of your clone.']]);
 
   const build = cardOf(page.box, 'Build the Android app yourself');
-  for (const words of ['git clone https://github.com/ese5180/f26-t07-the-cranium.git', './gradlew assembleDebug',
-    'adb install -r app/build/outputs/apk/debug/app-debug.apk', 'Download the configuration']) {
+  for (const words of [
+    'git clone https://github.com/ese5180/f26-t07-the-cranium.git',
+    './gradlew assembleDebug',
+    'adb install -r app/build/outputs/apk/debug/app-debug.apk',
+    'Download the configuration',
+  ]) {
     assert.ok(textOf(build).includes(words), words);
   }
 });
@@ -430,27 +540,42 @@ test('what the API says is taken only where it has the form it should', () => {
     android: { releases: [{ version: '0.4', sha256: SHA, size: 1 }, { ...RELEASES[0], filename: '../x' }, null] },
     ios: { version: 'x', notes: 5 },
   });
-  assert.deepEqual(read.android.releases.map((release) => [release.version, release.filename]), [['0.4.0', 'cranium-android-0.4.0.apk']]);
+  assert.deepEqual(
+    read.android.releases.map((release) => [release.version, release.filename]),
+    [['0.4.0', 'cranium-android-0.4.0.apk']]
+  );
   assert.deepEqual(read.ios, { version: null, notes: '', latest: null, releases: [] });
 });
 
-test('the foot of every page says the console\'s version, and leads to what is new and to the apps', () => {
+test("the foot of every page says the console's version, and leads to what is new and to the apps", () => {
   const box = document.createElement('div');
-  views.render(box, views.footView({ state: { me: { console: { version: '1.9.1', commit: '1036507'.padEnd(40, 'a') } } } }));
+  views.render(
+    box,
+    views.footView({ state: { me: { console: { version: '1.9.1', commit: '1036507'.padEnd(40, 'a') } } } })
+  );
   assert.match(textOf(box), /^Console 1\.9\.1 · 1036507/);
-  assert.deepEqual(all(box, 'a').map((link) => [textOf(link), link.getAttribute('href')]),
-    [['What’s new', '#/history'], ['Phone apps', '#/apps']]);
+  assert.deepEqual(
+    all(box, 'a').map((link) => [textOf(link), link.getAttribute('href')]),
+    [
+      ['What’s new', '#/history'],
+      ['Phone apps', '#/apps'],
+    ]
+  );
   views.render(box, views.footView({ state: { me: { console: { version: null, commit: null } } } }));
   assert.match(textOf(box), /^Console version not known/);
   // /api/me's console part, as the page reads it: only a version and a full commit id.
   const api = core.createApi({
-    auth: { accessToken: () => 'T' }, crypto: globalThis.crypto, clock: { observe() {} }, onUnauthorized() {},
-    fetch: async () => new Response(JSON.stringify({ sub: 's', console: { version: '1.9.1<', commit: 'abc' } }), { status: 200 }),
+    auth: { accessToken: () => 'T' },
+    crypto: globalThis.crypto,
+    clock: { observe() {} },
+    onUnauthorized() {},
+    fetch: async () =>
+      new Response(JSON.stringify({ sub: 's', console: { version: '1.9.1<', commit: 'abc' } }), { status: 200 }),
   });
   return api.me().then((me) => assert.deepEqual(me.console, { version: null, commit: null }));
 });
 
-test('What\'s new on the History page: the console\'s versions with their notes, newest first, the rest folded away', async () => {
+test("What's new on the History page: the console's versions with their notes, newest first, the rest folded away", async () => {
   const box = document.createElement('div');
   const ctx = {
     state: { now: NOW, me: { canWrite: true }, commits: resource({ missing: true }), versions: resource(VERSIONS) },
@@ -460,7 +585,10 @@ test('What\'s new on the History page: the console\'s versions with their notes,
   const section = one(box, 'section.whats-new');
   assert.match(textOf(one(section, 'header')), /What’s new This console is 1\.10\.0/);
   const shown = all(all(section, 'ol.whats-new-list')[0], 'li.whats-new-row');
-  assert.deepEqual(shown.map((row) => textOf(one(row, 'p.whats-new-version')).split(' ')[0]), ['1.10.0', '1.9.1', '1.9.0', '1.8.0']);
+  assert.deepEqual(
+    shown.map((row) => textOf(one(row, 'p.whats-new-version')).split(' ')[0]),
+    ['1.10.0', '1.9.1', '1.9.0', '1.8.0']
+  );
   assert.match(textOf(shown[0]), /This console/);
   assert.equal(textOf(one(shown[1], 'p.whats-new-note')), 'What 1.9.1 brought.');
   assert.equal(textOf(one(section, 'summary')), 'Earlier versions (2)');
@@ -479,7 +607,13 @@ test('What\'s new on the History page: the console\'s versions with their notes,
   assert.deepEqual(asked, [`${NEIGHBOURS}versions.json`]);
   assert.deepEqual(answer.changelogs.console, [{ version: '1.9.1', note: 'n', commit: null, date: null }]);
   assert.deepEqual(await history.readVersions(async () => new Response('', { status: 404 })), { missing: true });
-  assert.ok((await history.readVersions(async () => { throw new Error('offline'); })).failed);
+  assert.ok(
+    (
+      await history.readVersions(async () => {
+        throw new Error('offline');
+      })
+    ).failed
+  );
 });
 
 test('the Apps page is a section of the console, in the masthead and in the address bar', () => {
@@ -492,12 +626,18 @@ test('the Apps page is a section of the console, in the masthead and in the addr
   assert.equal(link.getAttribute('aria-current'), 'page');
   // The page asks the API for its own reads and nothing else.
   const api = core.createApi({
-    auth: { accessToken: () => 'T' }, crypto: globalThis.crypto, clock: { observe() {} }, onUnauthorized() {},
+    auth: { accessToken: () => 'T' },
+    crypto: globalThis.crypto,
+    clock: { observe() {} },
+    onUnauthorized() {},
     fetch: async () => Response.json({}),
   });
   return Promise.all([
     assert.rejects(api.appsRequest('POST', '/api/apps/android/uploads'), /not a request of the Apps page/),
-    assert.rejects(api.appsRequest('GET', '/api/apps/android/0.4.0/download?via=mail'), /not a request of the Apps page/),
+    assert.rejects(
+      api.appsRequest('GET', '/api/apps/android/0.4.0/download?via=mail'),
+      /not a request of the Apps page/
+    ),
     assert.rejects(api.appsRequest('POST', '/api/apps/ios/uploads'), /not a request of the Apps page/),
     assert.rejects(api.appsRequest('POST', '/api/apps/sidestore/other'), /not a request of the Apps page/),
     api.appsRequest('GET', '/api/apps/android/0.4.0/download?via=qr'),
@@ -508,22 +648,48 @@ test('the Apps page is a section of the console, in the masthead and in the addr
   ]);
 });
 
-test('the audit log has words for the apps\' actions', () => {
-  const said = (action, outcome = 'ok') => core.describeAudit({ action, target: '0.4.0', outcome, detail: [['via', 'qr']] });
+test("the audit log has words for the apps' actions", () => {
+  const said = (action, outcome = 'ok') =>
+    core.describeAudit({ action, target: '0.4.0', outcome, detail: [['via', 'qr']] });
   assert.equal(said('app.publish').verb, 'published the Android app');
   assert.equal(said('app.download').verb, 'downloaded the Android app');
   assert.equal(said('app.upload', 'rejected').verb, 'tried to start publishing the Android app');
-  assert.deepEqual(said('app.download').facts.map((fact) => [fact.label, fact.words ?? fact.value]), [['As', 'a QR code for a phone']]);
+  assert.deepEqual(
+    said('app.download').facts.map((fact) => [fact.label, fact.words ?? fact.value]),
+    [['As', 'a QR code for a phone']]
+  );
   assert.equal(said('app.ios_publish').verb, 'published the iPhone app');
   assert.equal(said('app.ios_upload', 'rejected').verb, 'tried to start publishing the iPhone app');
   const sidestore = core.describeAudit({
-    action: 'app.ios_download', target: '0.6.0', outcome: 'ok', detail: [['via', 'sidestore'], ['source', '0123456789abcdef']],
+    action: 'app.ios_download',
+    target: '0.6.0',
+    outcome: 'ok',
+    detail: [
+      ['via', 'sidestore'],
+      ['source', '0123456789abcdef'],
+    ],
   });
   assert.equal(sidestore.verb, 'downloaded the iPhone app');
-  assert.deepEqual(sidestore.facts.map((fact) => [fact.label, fact.value]), [['As', 'SideStore, on an iPhone'], ['SideStore link', '0123456789abcdef']]);
-  const made = core.describeAudit({ action: 'app.source_create', target: '0123456789abcdef', outcome: 'ok', detail: [] });
+  assert.deepEqual(
+    sidestore.facts.map((fact) => [fact.label, fact.value]),
+    [
+      ['As', 'SideStore, on an iPhone'],
+      ['SideStore link', '0123456789abcdef'],
+    ]
+  );
+  const made = core.describeAudit({
+    action: 'app.source_create',
+    target: '0123456789abcdef',
+    outcome: 'ok',
+    detail: [],
+  });
   assert.equal(`${made.verb} ${made.label}`, 'made SideStore link 0123456789abcdef');
-  const off = core.describeAudit({ action: 'app.source_revoke', target: '', outcome: 'rejected', detail: [['code', 'no_source']] });
+  const off = core.describeAudit({
+    action: 'app.source_revoke',
+    target: '',
+    outcome: 'rejected',
+    detail: [['code', 'no_source']],
+  });
   assert.equal(off.verb, 'tried to turn off a SideStore link');
   assert.equal(off.facts[0].words, 'There was no SideStore link to turn off');
 });

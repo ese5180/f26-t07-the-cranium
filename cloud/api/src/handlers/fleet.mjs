@@ -41,7 +41,12 @@ import { HttpError, badRequest, field, notFound } from '../http.mjs';
 import { BOARD_TYPES, isBluetoothOnly, resolveBoard, resolveLayout } from '../lib/boards.mjs';
 import { eventFromItem, eventRange } from '../lib/events.mjs';
 import {
-  HEALTH_DAYS, attentionReasons, boardLabel, releasesByType, updateResults, versionsByType,
+  HEALTH_DAYS,
+  attentionReasons,
+  boardLabel,
+  releasesByType,
+  updateResults,
+  versionsByType,
 } from '../lib/fleet.mjs';
 import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
 import { deviceFromShadow } from '../lib/shadow.mjs';
@@ -59,25 +64,38 @@ const DAY_MS = 86_400_000;
 
 function incompatible(boards, release) {
   const names = boards.map((board) => board.thing);
-  return new HttpError(400, 'incompatible_board', `Release ${release.version} is for the ${boardLabel(release.board)}. ` +
-    `${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} ${boards.length === 1
-      ? `an ${boardLabel(boards[0].type)}` : 'of another type'}.`,
-  boards.map((board) => ({ thing: board.thing, type: board.type })));
+  return new HttpError(
+    400,
+    'incompatible_board',
+    `Release ${release.version} is for the ${boardLabel(release.board)}. ` +
+      `${names.length === 1 ? `${names[0]} is` : `${names.join(', ')} are`} ${
+        boards.length === 1 ? `an ${boardLabel(boards[0].type)}` : 'of another type'
+      }.`,
+    boards.map((board) => ({ thing: board.thing, type: board.type }))
+  );
 }
 
 function incompatibleLayout(boards, release) {
   const names = boards.map((board) => board.thing);
-  return new HttpError(400, 'incompatible_layout', `Release ${release.version} is built for flash layout ${release.layout}. ` +
-    `${names.join(', ')} ${names.length === 1 ? `has layout ${boards[0].layout}` : 'have another layout'}: its flash is ` +
-    'divided differently, and the board would refuse it.',
-  boards.map((board) => ({ thing: board.thing, layout: board.layout })));
+  return new HttpError(
+    400,
+    'incompatible_layout',
+    `Release ${release.version} is built for flash layout ${release.layout}. ` +
+      `${names.join(', ')} ${names.length === 1 ? `has layout ${boards[0].layout}` : 'have another layout'}: its flash is ` +
+      'divided differently, and the board would refuse it.',
+    boards.map((board) => ({ thing: board.thing, layout: board.layout }))
+  );
 }
 
 function bluetoothOnly(boards) {
   const names = boards.map((board) => board.thing);
-  return new HttpError(400, 'bluetooth_only', `${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no Wi-Fi ` +
-    'and never reach AWS IoT: update it over Bluetooth from the phone app.',
-  boards.map((board) => ({ thing: board.thing, type: board.type })));
+  return new HttpError(
+    400,
+    'bluetooth_only',
+    `${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no Wi-Fi ` +
+      'and never reach AWS IoT: update it over Bluetooth from the phone app.',
+    boards.map((board) => ({ thing: board.thing, type: board.type }))
+  );
 }
 
 /** A group item as the API shows it, with only the boards that are still registered. */
@@ -98,10 +116,10 @@ export function groupFromItem(item, registered) {
 }
 
 export function createFleetHandlers({ aws, config, now, log }, { devices, updates = () => null }) {
-  const attributes = new Map();   // thing -> { value, at }
-  let seenCache = null;           // { byThing, at }
-  let groupCache = null;          // { items, at }
-  let healthCache = null;         // { body, at }
+  const attributes = new Map(); // thing -> { value, at }
+  let seenCache = null; // { byThing, at }
+  let groupCache = null; // { items, at }
+  let healthCache = null; // { body, at }
 
   async function attributesOf(thing) {
     const cached = attributes.get(thing);
@@ -125,7 +143,10 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
     for (const item of await aws.listFleetItems('SEEN')) {
       if (isThing(item?.thing) && strictVersion(item.version) !== null) {
         byThing.set(item.thing, {
-          version: item.version, at: item.at, name: item.name ?? null, by: typeof item.by?.email === 'string' ? item.by.email : '',
+          version: item.version,
+          at: item.at,
+          name: item.name ?? null,
+          by: typeof item.by?.email === 'string' ? item.by.email : '',
         });
       }
     }
@@ -142,7 +163,9 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
 
   /** The named groups, with their registered boards only, by name. */
   async function groups(registered) {
-    return (await groupItems()).map((item) => groupFromItem(item, registered)).filter((group) => group !== null)
+    return (await groupItems())
+      .map((item) => groupFromItem(item, registered))
+      .filter((group) => group !== null)
       .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1));
   }
 
@@ -154,7 +177,9 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
     const registered = await devices.groupThings();
     const things = only === null ? registered : registered.filter((thing) => only.includes(thing));
     const [shadows, seen, named] = await Promise.all([
-      devices.loadShadows(things), sightings(), groups(new Set(registered)),
+      devices.loadShadows(things),
+      sightings(),
+      groups(new Set(registered)),
     ]);
     return mapLimit(things, MAX_IN_FLIGHT, async (thing, index) => {
       const shadow = shadows[index];
@@ -178,8 +203,8 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
         bluetoothOnly: viaPhone,
         online: viaPhone ? false : device.online,
         lastSeen: device.lastSeen,
-        version: viaPhone ? sighting?.version ?? null : device.fw?.version ?? null,
-        versionFrom: viaPhone ? (sighting === null ? null : 'phone') : (device.fw === null ? null : 'board'),
+        version: viaPhone ? (sighting?.version ?? null) : (device.fw?.version ?? null),
+        versionFrom: viaPhone ? (sighting === null ? null : 'phone') : device.fw === null ? null : 'board',
         seen: sighting,
         groups: named.filter((group) => group.things.includes(thing)).map((group) => group.id),
       };
@@ -188,7 +213,9 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
   }
 
   async function activeReleases() {
-    return (await aws.listReleases()).map(releaseFromItem).filter((release) => release !== null && release.status === 'active');
+    return (await aws.listReleases())
+      .map(releaseFromItem)
+      .filter((release) => release !== null && release.status === 'active');
   }
 
   /** Per type: its boards, and its newest and previous active releases. */
@@ -212,24 +239,41 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
     const sinceMs = toMs - HEALTH_DAYS * DAY_MS;
     const range = eventRange(sinceMs, toMs);
     const history = updates();
-    const lists = await mapLimit(fleetBoards.filter((board) => !board.bluetoothOnly), MAX_IN_FLIGHT, async (board) => {
-      let events = [];
-      let records = [];
-      try {
-        const items = await aws.queryEvents({ thing: board.thing, ...range, kinds: ['update'], limit: 500 });
-        events = items.map(eventFromItem).filter((event) => event !== null);
-      } catch (error) {
-        log({ level: 'warn', event: 'events_unreadable', thing: board.thing, error: String(error?.message ?? error).slice(0, 200) });
+    const lists = await mapLimit(
+      fleetBoards.filter((board) => !board.bluetoothOnly),
+      MAX_IN_FLIGHT,
+      async (board) => {
+        let events = [];
+        let records = [];
+        try {
+          const items = await aws.queryEvents({ thing: board.thing, ...range, kinds: ['update'], limit: 500 });
+          events = items.map(eventFromItem).filter((event) => event !== null);
+        } catch (error) {
+          log({
+            level: 'warn',
+            event: 'events_unreadable',
+            thing: board.thing,
+            error: String(error?.message ?? error).slice(0, 200),
+          });
+        }
+        try {
+          records = history === null ? [] : await history.recordsOf(board.thing);
+        } catch (error) {
+          log({
+            level: 'warn',
+            event: 'updates_unreadable',
+            thing: board.thing,
+            error: String(error?.message ?? error).slice(0, 200),
+          });
+        }
+        return { events, records };
       }
-      try {
-        records = history === null ? [] : await history.recordsOf(board.thing);
-      } catch (error) {
-        log({ level: 'warn', event: 'updates_unreadable', thing: board.thing, error: String(error?.message ?? error).slice(0, 200) });
-      }
-      return { events, records };
-    });
+    );
     const jobs = updateResults(lists.flatMap((part) => part.events));
-    const others = updateCounts(lists.flatMap((part) => part.records), { sinceMs });
+    const others = updateCounts(
+      lists.flatMap((part) => part.records),
+      { sinceMs }
+    );
     return {
       succeeded: jobs.succeeded + others.succeeded,
       failed: jobs.failed + others.failed,
@@ -262,12 +306,22 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       if (found.board.layout !== release.layout) throw incompatibleLayout([found.board], release);
     }
     if (layout !== null && layout !== release.layout) {
-      throw new HttpError(400, 'incompatible_layout', `Release ${release.version} is built for flash layout ` +
-        `${release.layout}, and the board says its layout is ${layout}. Do not send it.`, [{ thing, layout }]);
+      throw new HttpError(
+        400,
+        'incompatible_layout',
+        `Release ${release.version} is built for flash layout ` +
+          `${release.layout}, and the board says its layout is ${layout}. Do not send it.`,
+        [{ thing, layout }]
+      );
     }
     if (type !== null && type !== release.board) {
-      throw new HttpError(400, 'incompatible_board', `Release ${release.version} is for the ${boardLabel(release.board)}, ` +
-        `and the board says it is an ${boardLabel(type)}. Do not send it.`, [{ thing, type }]);
+      throw new HttpError(
+        400,
+        'incompatible_board',
+        `Release ${release.version} is for the ${boardLabel(release.board)}, ` +
+          `and the board says it is an ${boardLabel(type)}. Do not send it.`,
+        [{ thing, type }]
+      );
     }
   }
 
@@ -315,11 +369,16 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       const byType = releasesByType(releases);
       const newest = Object.fromEntries(BOARD_TYPES.map((type) => [type, byType[type]?.[0]?.version ?? null]));
       const attention = loaded
-        .map(({ board, device }) => ({ thing: board.thing, name: board.name, type: board.type, reasons: attentionReasons(board, device, now()) }))
+        .map(({ board, device }) => ({
+          thing: board.thing,
+          name: board.name,
+          type: board.type,
+          reasons: attentionReasons(board, device, now()),
+        }))
         .filter((entry) => entry.reasons.length > 0);
       const body = {
         types: versionsByType(fleetBoards, newest, BOARD_TYPES),
-        updates: { days: HEALTH_DAYS, ...await recentResults(fleetBoards) },
+        updates: { days: HEALTH_DAYS, ...(await recentResults(fleetBoards)) },
         attention,
         generatedAt: new Date(now()).toISOString(),
       };
@@ -332,10 +391,14 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       entry.target = thing;
       const body = json();
       const extra = Object.keys(body).filter((key) => !SEEN_FIELDS.includes(key));
-      if (extra.length > 0) throw badRequest('unexpected_field', 'A sighting is "version" and "name", and nothing else.');
+      if (extra.length > 0)
+        throw badRequest('unexpected_field', 'A sighting is "version" and "name", and nothing else.');
       const version = strictVersion(field(body, 'version'));
       if (version === null) {
-        throw badRequest('invalid_version', '"version" is the firmware the board told the phone it runs, like 1.13.0+0.');
+        throw badRequest(
+          'invalid_version',
+          '"version" is the firmware the board told the phone it runs, like 1.13.0+0.'
+        );
       }
       entry.detail.version = version.text;
       const name = requireBluetoothName(field(body, 'name'));
@@ -344,12 +407,18 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       if (!(await devices.groupThings()).includes(thing)) {
         throw notFound('unknown_device', 'No board with that name is registered.');
       }
-      if (await recentSightings(caller.sub) >= SEEN_PER_MINUTE) {
-        throw new HttpError(429, 'rate_limited', `At most ${SEEN_PER_MINUTE} sightings a minute are recorded for one person.`);
+      if ((await recentSightings(caller.sub)) >= SEEN_PER_MINUTE) {
+        throw new HttpError(
+          429,
+          'rate_limited',
+          `At most ${SEEN_PER_MINUTE} sightings a minute are recorded for one person.`
+        );
       }
       const at = new Date(now()).toISOString();
       await aws.putFleetItem({
-        pk: 'SEEN', sk: thing, replace: true,
+        pk: 'SEEN',
+        sk: thing,
+        replace: true,
         item: { thing, version: version.text, at, name, by: { sub: actor.sub, email: actor.email }, rev: 0 },
       });
       seenCache = null;

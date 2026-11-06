@@ -46,7 +46,12 @@ A cleaner design.
 let trees = 0;
 
 /** A repository of its own: apps/android with the script, its properties and its changelog, and an APK. */
-function tree({ name = '0.4.0', code = 4, changelog = CHANGELOG, bytes = Buffer.from('PK\u0003\u0004 the APK of 0.4.0') } = {}) {
+function tree({
+  name = '0.4.0',
+  code = 4,
+  changelog = CHANGELOG,
+  bytes = Buffer.from('PK\u0003\u0004 the APK of 0.4.0'),
+} = {}) {
   trees += 1;
   const root = join(work, `repo-${trees}`);
   const android = join(root, 'apps', 'android');
@@ -63,15 +68,22 @@ function tree({ name = '0.4.0', code = 4, changelog = CHANGELOG, bytes = Buffer.
 
 function run(script, args, env) {
   return new Promise((resolve) => {
-    const clean = Object.fromEntries(Object.entries(process.env)
-      .filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('CRANIUM_') && !name.startsWith('ANDROID_')));
+    const clean = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) => !name.startsWith('AWS_') && !name.startsWith('CRANIUM_') && !name.startsWith('ANDROID_')
+      )
+    );
     const home = mkdtempSync(join(work, 'home-'));
     // No SDK here: the APKs of these tests are not real ones for aapt2 to read.
     const child = spawn('bash', [script, ...args], { env: { ...clean, HOME: home, CRANIUM_AAPT2: 'none', ...env } });
     let out = '';
     let err = '';
-    child.stdout.on('data', (chunk) => { out += chunk; });
-    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      err += chunk;
+    });
     child.on('close', (status) => resolve({ status, out, err }));
   });
 }
@@ -91,7 +103,12 @@ async function consoleServer(t, { s3Refuses = false } = {}) {
     if (request.url.startsWith('/local-s3/')) {
       const answer = s3Refuses
         ? { status: 403, headers: {}, body: Buffer.from('<Error><Code>AccessDenied</Code></Error>') }
-        : console_.fake.s3Request({ method: request.method, url: `${base}${request.url}`, headers: request.headers, body });
+        : console_.fake.s3Request({
+            method: request.method,
+            url: `${base}${request.url}`,
+            headers: request.headers,
+            body,
+          });
       response.writeHead(answer.status, answer.headers);
       response.end(answer.body);
       return;
@@ -99,7 +116,9 @@ async function consoleServer(t, { s3Refuses = false } = {}) {
     console_.advance(5000);
     const headers = request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization };
     const text = body.toString('utf8');
-    const answer = await console_.app(apiEvent(request.method, request.url, { headers, body: text === '' ? undefined : text }));
+    const answer = await console_.app(
+      apiEvent(request.method, request.url, { headers, body: text === '' ? undefined : text })
+    );
     response.writeHead(answer.statusCode, answer.headers);
     response.end(answer.body);
   });
@@ -111,20 +130,28 @@ async function consoleServer(t, { s3Refuses = false } = {}) {
   return { console_, manager, seen, url: base, managerToken: await token(manager), viewerToken: await token(viewer) };
 }
 
-test('an APK is published: the URL, the file to S3, the check, with the changelog\'s note', { skip }, async (t) => {
+test("an APK is published: the URL, the file to S3, the check, with the changelog's note", { skip }, async (t) => {
   const { console_, seen, url, managerToken, manager } = await consoleServer(t);
   const { script, bytes } = tree();
   const { status, out, err } = await run(script, [], { CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url });
   assert.equal(status, 0, `${out}\n${err}`);
   assert.match(out, /Published Android app 0\.4\.0\./);
-  assert.deepEqual(seen, ['POST /api/t/apps/android/uploads', 'PUT /local-s3/apps/android/cranium-android-0.4.0.apk',
-    'POST /api/t/apps/android/releases/0.4.0']);
+  assert.deepEqual(seen, [
+    'POST /api/t/apps/android/uploads',
+    'PUT /local-s3/apps/android/cranium-android-0.4.0.apk',
+    'POST /api/t/apps/android/releases/0.4.0',
+  ]);
   const { body } = await console_.call('GET', '/api/apps', { as: manager });
   const [release] = body.android.releases;
   // The first paragraph of the version's entry, on one line, and nothing after it.
-  assert.equal(release.notes, 'Open the app with your fingerprint instead of the password and code, for up to 30 days.');
-  assert.deepEqual([release.version, release.versionCode, release.size, release.sha256],
-    ['0.4.0', 4, bytes.length, createHash('sha256').update(bytes).digest('hex')]);
+  assert.equal(
+    release.notes,
+    'Open the app with your fingerprint instead of the password and code, for up to 30 days.'
+  );
+  assert.deepEqual(
+    [release.version, release.versionCode, release.size, release.sha256],
+    ['0.4.0', 4, bytes.length, createHash('sha256').update(bytes).digest('hex')]
+  );
   for (const text of [out, err]) {
     assert.equal(text.includes(managerToken.slice(4)), false);
     assert.equal(text.includes('X-Amz-Signature'), false);
@@ -155,61 +182,82 @@ test('no token: nothing is tried, and the build is told how to make one', { skip
   assert.deepEqual(seen, []);
 });
 
-test('refusals: a viewer\'s token, a version not newer, a version with no changelog entry, and S3 saying no', { skip }, async (t) => {
-  const { url, managerToken, viewerToken, seen } = await consoleServer(t);
-  const viewer = await run(tree().script, [], { CRANIUM_TOKEN: viewerToken, CRANIUM_CONSOLE_URL: url });
-  assert.equal(viewer.status, 1);
-  assert.match(viewer.err, /refused to publish 0\.4\.0 \(403\)/);
-  assert.match(viewer.err, /release_manager_required/);
+test(
+  "refusals: a viewer's token, a version not newer, a version with no changelog entry, and S3 saying no",
+  { skip },
+  async (t) => {
+    const { url, managerToken, viewerToken, seen } = await consoleServer(t);
+    const viewer = await run(tree().script, [], { CRANIUM_TOKEN: viewerToken, CRANIUM_CONSOLE_URL: url });
+    assert.equal(viewer.status, 1);
+    assert.match(viewer.err, /refused to publish 0\.4\.0 \(403\)/);
+    assert.match(viewer.err, /release_manager_required/);
 
-  const env = { CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url };
-  assert.equal((await run(tree().script, [], env)).status, 0);
-  const lower = await run(tree({ name: '0.3.0', code: 3, bytes: Buffer.from('PK 0.3.0') }).script, [], env);
-  assert.equal(lower.status, 1);
-  assert.match(lower.err, /\(422\)/);
-  assert.match(lower.err, /version_not_newer/);
+    const env = { CRANIUM_TOKEN: managerToken, CRANIUM_CONSOLE_URL: url };
+    assert.equal((await run(tree().script, [], env)).status, 0);
+    const lower = await run(tree({ name: '0.3.0', code: 3, bytes: Buffer.from('PK 0.3.0') }).script, [], env);
+    assert.equal(lower.status, 1);
+    assert.match(lower.err, /\(422\)/);
+    assert.match(lower.err, /version_not_newer/);
 
-  const before = seen.length;
-  const unwritten = await run(tree({ name: '0.6.0', code: 6 }).script, [], env);
-  assert.equal(unwritten.status, 1);
-  assert.match(unwritten.err, /CHANGELOG\.md has no entry for 0\.6\.0/);
-  assert.equal(seen.length, before, 'nothing was sent');
+    const before = seen.length;
+    const unwritten = await run(tree({ name: '0.6.0', code: 6 }).script, [], env);
+    assert.equal(unwritten.status, 1);
+    assert.match(unwritten.err, /CHANGELOG\.md has no entry for 0\.6\.0/);
+    assert.equal(seen.length, before, 'nothing was sent');
 
-  // gradle.properties at another version: the versionCode has to be given.
-  const elsewhere = tree({ name: '0.5.0', code: 5 });
-  const named = join(elsewhere.root, 'apps', 'dist', 'cranium-android-0.3.0.apk');
-  copyFileSync(elsewhere.apk, named);
-  const unknownCode = await run(elsewhere.script, [named], env);
-  assert.equal(unknownCode.status, 1);
-  assert.match(unknownCode.err, /gradle\.properties is at 0\.5\.0, not 0\.3\.0/);
+    // gradle.properties at another version: the versionCode has to be given.
+    const elsewhere = tree({ name: '0.5.0', code: 5 });
+    const named = join(elsewhere.root, 'apps', 'dist', 'cranium-android-0.3.0.apk');
+    copyFileSync(elsewhere.apk, named);
+    const unknownCode = await run(elsewhere.script, [named], env);
+    assert.equal(unknownCode.status, 1);
+    assert.match(unknownCode.err, /gradle\.properties is at 0\.5\.0, not 0\.3\.0/);
 
-  const s3 = await consoleServer(t, { s3Refuses: true });
-  const blocked = await run(tree({ name: '0.5.0', code: 5 }).script, [], { CRANIUM_TOKEN: s3.managerToken, CRANIUM_CONSOLE_URL: s3.url });
-  assert.equal(blocked.status, 1);
-  assert.match(blocked.err, /S3 refused the APK \(403, AccessDenied\)/);
-  assert.equal(s3.seen.includes('POST /api/t/apps/android/releases/0.5.0'), false);
-});
+    const s3 = await consoleServer(t, { s3Refuses: true });
+    const blocked = await run(tree({ name: '0.5.0', code: 5 }).script, [], {
+      CRANIUM_TOKEN: s3.managerToken,
+      CRANIUM_CONSOLE_URL: s3.url,
+    });
+    assert.equal(blocked.status, 1);
+    assert.match(blocked.err, /S3 refused the APK \(403, AccessDenied\)/);
+    assert.equal(s3.seen.includes('POST /api/t/apps/android/releases/0.5.0'), false);
+  }
+);
 
-test('only https, except for the preview on this computer, and only an APK named as the build names it', { skip }, async () => {
-  const token = `crn_${'A'.repeat(43)}`;
-  const { script, root } = tree();
-  const plain = await run(script, [], { CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
-  assert.equal(plain.status, 1);
-  assert.match(plain.err, /must start with https:\/\//);
-  const odd = join(root, 'apps', 'dist', 'app-release.apk');
-  writeFileSync(odd, 'PK');
-  const misnamed = await run(script, [odd], { CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'https://console.example.com' });
-  assert.equal(misnamed.status, 1);
-  assert.match(misnamed.err, /not named as build-release\.sh names an APK/);
-});
+test(
+  'only https, except for the preview on this computer, and only an APK named as the build names it',
+  { skip },
+  async () => {
+    const token = `crn_${'A'.repeat(43)}`;
+    const { script, root } = tree();
+    const plain = await run(script, [], { CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
+    assert.equal(plain.status, 1);
+    assert.match(plain.err, /must start with https:\/\//);
+    const odd = join(root, 'apps', 'dist', 'app-release.apk');
+    writeFileSync(odd, 'PK');
+    const misnamed = await run(script, [odd], {
+      CRANIUM_TOKEN: token,
+      CRANIUM_CONSOLE_URL: 'https://console.example.com',
+    });
+    assert.equal(misnamed.status, 1);
+    assert.match(misnamed.err, /not named as build-release\.sh names an APK/);
+  }
+);
 
 test('build-release.sh publishes at the end unless told not to, and never an APK that cannot sign in', () => {
-  const script = spawnSync('bash', ['-n', fileURLToPath(new URL('../../../apps/android/build-release.sh', import.meta.url))]);
+  const script = spawnSync('bash', [
+    '-n',
+    fileURLToPath(new URL('../../../apps/android/build-release.sh', import.meta.url)),
+  ]);
   assert.equal(script.status, 0, String(script.stderr));
-  const text = spawnSync('cat', [fileURLToPath(new URL('../../../apps/android/build-release.sh', import.meta.url))]).stdout.toString();
+  const text = spawnSync('cat', [
+    fileURLToPath(new URL('../../../apps/android/build-release.sh', import.meta.url)),
+  ]).stdout.toString();
   assert.match(text, /--no-publish\) publish=false ;;/);
   assert.match(text, /"\$ANDROID_DIR\/publish\.sh" "\$OUT"/);
   // The example configuration is checked before the publish.
-  assert.ok(text.indexOf('Not published: it has the example configuration') < text.indexOf('"$ANDROID_DIR/publish.sh" "$OUT"'));
+  assert.ok(
+    text.indexOf('Not published: it has the example configuration') < text.indexOf('"$ANDROID_DIR/publish.sh" "$OUT"')
+  );
   assert.equal(spawnSync('bash', ['-n', PUBLISH]).status, 0);
 });

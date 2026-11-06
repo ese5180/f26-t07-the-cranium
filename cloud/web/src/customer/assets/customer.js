@@ -20,20 +20,60 @@
  */
 
 import {
-  CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, codeComplete, createAuth, enterCode, keyInCode,
+  CODE_LENGTH,
+  SESSION_CHANNEL,
+  SIGNED_OUT_SIGNAL,
+  codeComplete,
+  createAuth,
+  enterCode,
+  keyInCode,
 } from './core.js';
 import { h, render, toastView } from './views.js';
 import {
-  CUSTOMER_CHANNEL, CUSTOMER_PREFIX, PUBLIC_VIEWS, authConfig, createAccount, createCustomerApi, namespaced, parseRoute,
-  passwordProblem, readSiteConfig, routeHash,
+  CUSTOMER_CHANNEL,
+  CUSTOMER_PREFIX,
+  PUBLIC_VIEWS,
+  authConfig,
+  createAccount,
+  createCustomerApi,
+  namespaced,
+  parseRoute,
+  passwordProblem,
+  readSiteConfig,
+  routeHash,
 } from './customer-core.js';
 import {
-  accountView, aloneView, deviceView, devicesView, forgotView, helpView, mixesView, overviewView, sessionView, shellView,
+  accountView,
+  aloneView,
+  deviceView,
+  devicesView,
+  forgotView,
+  helpView,
+  mixesView,
+  overviewView,
+  sessionView,
+  shellView,
   signInView,
 } from './customer-views.js';
 import {
-  ImportProblem, LIMITS, RANGES, cleanJournal, demoJournal, emptyJournal, fileName, inRange, journalFile, mergeJournal,
-  momentOf, readImport, sampleFile, sessionsCsv, transitionsOf, withMoment, withoutMoment, withoutSession,
+  ImportProblem,
+  LIMITS,
+  RANGES,
+  cleanJournal,
+  demoJournal,
+  emptyJournal,
+  fileName,
+  inRange,
+  journalFile,
+  mergeJournal,
+  momentOf,
+  readImport,
+  sampleFile,
+  sessionsCsv,
+  transitionsOf,
+  withMoment,
+  withoutMoment,
+  withoutSession,
 } from './customer-mixes.js';
 
 const REFRESH_MS = 30000;
@@ -95,7 +135,10 @@ const customerChannel = channel(CUSTOMER_CHANNEL);
 const consoleChannel = channel(SESSION_CHANNEL);
 
 const common = {
-  location: window.location, history: window.history, fetch: window.fetch.bind(window), crypto: window.crypto,
+  location: window.location,
+  history: window.history,
+  fetch: window.fetch.bind(window),
+  crypto: window.crypto,
 };
 let customerAuth = null;
 let adminAuth = null;
@@ -153,22 +196,40 @@ function toast(message) {
 }
 
 const VIEWS = {
-  overview: overviewView, devices: devicesView, device: deviceView, mixes: mixesView, session: sessionView, account: accountView,
+  overview: overviewView,
+  devices: devicesView,
+  device: deviceView,
+  mixes: mixesView,
+  session: sessionView,
+  account: accountView,
   help: helpView,
 };
 const TITLES = {
   landing: 'Cranium · Your DJ controller, without the laptop',
-  'sign-in': 'Sign in', 'admin-sign-in': 'Admin sign-in', forgot: 'A new password', overview: 'Overview',
-  devices: 'Devices', device: 'Your board', mixes: 'Mixes', session: 'Session', account: 'Account', help: 'Help',
+  'sign-in': 'Sign in',
+  'admin-sign-in': 'Admin sign-in',
+  forgot: 'A new password',
+  overview: 'Overview',
+  devices: 'Devices',
+  device: 'Your board',
+  mixes: 'Mixes',
+  session: 'Session',
+  account: 'Account',
+  help: 'Help',
 };
-const MIX_TITLES = { sessions: 'Sessions', transitions: 'Transitions', library: 'Track library', moments: 'Saved moments' };
+const MIX_TITLES = {
+  sessions: 'Sessions',
+  transitions: 'Transitions',
+  library: 'Track library',
+  moments: 'Saved moments',
+};
 
 let drawnView = null;
 
 function draw() {
   if (!site) return;
   const { view } = state.route;
-  const title = view === 'mixes' ? MIX_TITLES[state.route.tab] ?? TITLES.mixes : TITLES[view];
+  const title = view === 'mixes' ? (MIX_TITLES[state.route.tab] ?? TITLES.mixes) : TITLES[view];
   document.title = view === 'landing' ? TITLES.landing : `${title ?? 'Cranium'} · Cranium`;
   if (view === 'landing') {
     landing.hidden = false;
@@ -266,7 +327,9 @@ function detailOf(id) {
 async function readProfile() {
   const profile = await account.profile();
   if (!profile.ok) {
-    throw new Error(profile.problem === 'session-ended' ? 'Your session has ended.' : 'Your account could not be read.');
+    throw new Error(
+      profile.problem === 'session-ended' ? 'Your session has ended.' : 'Your account could not be read.'
+    );
   }
   return profile;
 }
@@ -285,7 +348,8 @@ async function refresh(full) {
       const { id } = state.route;
       jobs.push(load(detailOf(id), () => api.board(id)));
     }
-    if (view === 'account' && (full || state.account.profile.value === null)) jobs.push(load(state.account.profile, readProfile));
+    if (view === 'account' && (full || state.account.profile.value === null))
+      jobs.push(load(state.account.profile, readProfile));
   }
   if (state.admin && state.staff.value === null) jobs.push(load(state.staff, staffMe));
   if (view === 'account' && full && state.app) jobs.push(readBiometric());
@@ -305,7 +369,9 @@ async function staffMe() {
   let response;
   try {
     response = await common.fetch(`${consoleApi}/api/me`, {
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' }, cache: 'no-store', credentials: 'omit',
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      cache: 'no-store',
+      credentials: 'omit',
     });
   } catch {
     throw new Error('The console could not be reached.');
@@ -363,7 +429,10 @@ let renewing = false;
 function checkSessions() {
   // In the app, the app renews a session that is about to end; it is over only if the app cannot.
   if (appBridge && !renewing) {
-    const due = [[state.customer, customerAuth], [state.admin, adminAuth]].filter(([on, auth]) => on && auth.inApp && auth.needsRenewal());
+    const due = [
+      [state.customer, customerAuth],
+      [state.admin, adminAuth],
+    ].filter(([on, auth]) => on && auth.inApp && auth.needsRenewal());
     if (due.length > 0) {
       renewing = true;
       Promise.all(due.map(([, auth]) => auth.renew())).finally(() => {
@@ -372,7 +441,8 @@ function checkSessions() {
       return;
     }
   }
-  if (state.customer && customerAuth.accessToken() === null) customerEnded('Your session has ended. Sign in again to carry on.');
+  if (state.customer && customerAuth.accessToken() === null)
+    customerEnded('Your session has ended. Sign in again to carry on.');
   if (state.admin && adminAuth.accessToken() === null) adminEnded();
   if (state.customer) state.sessionLeft = customerAuth.secondsLeft();
 }
@@ -407,7 +477,16 @@ const authOf = (kind) => (kind === 'admin' ? adminAuth : customerAuth);
 function beginSignIn(kind, lead = null) {
   if (state.signIn?.kind === kind && lead === null) return;
   authOf(kind).cancelPasswordSignIn();
-  state.signIn = { kind, step: 'password', email: lastEmail, digits: emptyCode(), busy: false, problem: null, tries: 0, lead };
+  state.signIn = {
+    kind,
+    step: 'password',
+    email: lastEmail,
+    digits: emptyCode(),
+    busy: false,
+    problem: null,
+    tries: 0,
+    lead,
+  };
 }
 
 function setSignIn(changes) {
@@ -431,7 +510,13 @@ function afterStep(outcome) {
     signedIn(kind);
   } else if (outcome.step === 'code') {
     const cleared = !outcome.problem || outcome.problem === 'wrong-code' || outcome.problem === 'too-many';
-    setSignIn({ step: 'code', busy: false, problem: outcome.problem ?? null, tries, digits: cleared ? emptyCode() : state.signIn.digits });
+    setSignIn({
+      step: 'code',
+      busy: false,
+      problem: outcome.problem ?? null,
+      tries,
+      digits: cleared ? emptyCode() : state.signIn.digits,
+    });
     if (cleared) focusBox('code', 0);
   } else if (outcome.step === 'new-password') {
     setSignIn({ step: 'new-password', busy: false, problem: outcome.problem ?? null, tries });
@@ -457,7 +542,9 @@ async function signedIn(kind) {
   go(after);
   const revoked = await authOf(kind).revocation();
   if (revoked === 'refused' || revoked === 'failed') {
-    toast('The sign-in service did not confirm that the unused refresh token was revoked. It expires by itself within the hour.');
+    toast(
+      'The sign-in service did not confirm that the unused refresh token was revoked. It expires by itself within the hour.'
+    );
   }
 }
 
@@ -537,14 +624,25 @@ const signInControls = {
     setSignIn({ step: 'password', busy: false, problem: null, digits: emptyCode() });
     focusOn('signin-password');
   },
-  ...boxes(() => state.signIn, setSignIn, 'code', () => signInControls.submitCode()),
+  ...boxes(
+    () => state.signIn,
+    setSignIn,
+    'code',
+    () => signInControls.submitCode()
+  ),
 };
 
 function signInModel() {
   // Between a finished sign-in and the page it leads to, the page it came from is drawn once more.
   const model = state.signIn ?? {
-    kind: state.route.view === 'admin-sign-in' ? 'admin' : 'customer', step: 'password', email: lastEmail,
-    digits: emptyCode(), busy: true, problem: null, tries: 0, lead: null,
+    kind: state.route.view === 'admin-sign-in' ? 'admin' : 'customer',
+    step: 'password',
+    email: lastEmail,
+    digits: emptyCode(),
+    busy: true,
+    problem: null,
+    tries: 0,
+    lead: null,
   };
   return { ...model, ...signInControls, adminPath: site.adminPath };
 }
@@ -583,7 +681,11 @@ const forgotControls = {
       for (const field of [newField, againField]) if (field) field.value = '';
       setForgot({ step: 'done', busy: false });
     } else {
-      setForgot({ busy: false, problem: result.problem, digits: result.problem === 'wrong-code' ? emptyCode() : state.forgot.digits });
+      setForgot({
+        busy: false,
+        problem: result.problem,
+        digits: result.problem === 'wrong-code' ? emptyCode() : state.forgot.digits,
+      });
     }
   },
   startOver() {
@@ -654,7 +756,10 @@ const authenticatorControls = {
     }
     await load(state.account.profile, readProfile);
     setAuthenticator({
-      step: 'idle', secret: '', busy: false, done: 'Two-step sign-in is on. From your next sign-in, Cranium asks for a code too.',
+      step: 'idle',
+      secret: '',
+      busy: false,
+      done: 'Two-step sign-in is on. From your next sign-in, Cranium asks for a code too.',
     });
   },
   askToStop() {
@@ -665,7 +770,9 @@ const authenticatorControls = {
     const result = await account.stopAuthenticator();
     if (result.ok) await load(state.account.profile, readProfile);
     setAuthenticator({
-      step: result.ok ? 'idle' : 'confirm-off', busy: false, problem: result.ok ? null : result.problem,
+      step: result.ok ? 'idle' : 'confirm-off',
+      busy: false,
+      problem: result.ok ? null : result.problem,
       done: result.ok ? 'Two-step sign-in is off.' : null,
     });
   },
@@ -682,7 +789,12 @@ const authenticatorControls = {
       toast('It could not be copied. Select the key and copy it by hand.');
     }
   },
-  ...boxes(() => state.account.authenticator, setAuthenticator, 'mfa', () => authenticatorControls.confirm()),
+  ...boxes(
+    () => state.account.authenticator,
+    setAuthenticator,
+    'mfa',
+    () => authenticatorControls.confirm()
+  ),
 };
 
 /** What the views are given: the state, with the controls of the account page beside its data. */
@@ -761,9 +873,12 @@ function followOwner() {
     prefs = null;
   }
   mixes.range = RANGES.some(([value]) => value === prefs?.range) ? prefs.range : 'all';
-  mixes.source = prefs?.source === 'demo' || prefs?.source === 'journal'
-    ? prefs.source
-    : mixes.journal.sessions.length > 0 ? 'journal' : 'demo';
+  mixes.source =
+    prefs?.source === 'demo' || prefs?.source === 'journal'
+      ? prefs.source
+      : mixes.journal.sessions.length > 0
+        ? 'journal'
+        : 'demo';
 }
 
 function keepJournal() {
@@ -793,19 +908,25 @@ function mixesContext() {
   const now = Date.now();
   if (mixes.demo === null) mixes.demo = demoJournal(now);
   const all = mixes.source === 'journal' ? mixes.journal.sessions : mixes.demo.sessions;
-  const pairs = new Map(transitionsOf([...mixes.demo.sessions, ...mixes.journal.sessions]).map((pair) => [pair.id, pair]));
+  const pairs = new Map(
+    transitionsOf([...mixes.demo.sessions, ...mixes.journal.sessions]).map((pair) => [pair.id, pair])
+  );
   return {
     ...mixes,
     sessions: inRange(all, mixes.range, now),
     pairs,
-    find: (id) => mixes.journal.sessions.find((session) => session.id === id) ?? mixes.demo.sessions.find((session) => session.id === id) ?? null,
+    find: (id) =>
+      mixes.journal.sessions.find((session) => session.id === id) ??
+      mixes.demo.sessions.find((session) => session.id === id) ??
+      null,
   };
 }
 
 function utf8Base64(text) {
   const bytes = new TextEncoder().encode(text);
   let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  for (let index = 0; index < bytes.length; index += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
   return window.btoa(binary);
 }
 
@@ -901,7 +1022,11 @@ const mixActions = {
     const model = mixes.dialog;
     if (model?.kind !== 'import' || !file) return;
     if (file.size > LIMITS.bytes) {
-      mixes.dialog = { ...model, problem: 'The file is larger than 1 MB. Import fewer sessions at a time.', done: null };
+      mixes.dialog = {
+        ...model,
+        problem: 'The file is larger than 1 MB. Import fewer sessions at a time.',
+        done: null,
+      };
       draw();
       return;
     }
@@ -915,8 +1040,12 @@ const mixActions = {
       mixes.source = 'journal';
       keepPrefs();
       const sessions = imported.sessions.length === 1 ? '1 session' : `${imported.sessions.length} sessions`;
-      const moments = imported.moments.length ? ` and ${imported.moments.length === 1 ? '1 saved moment' : `${imported.moments.length} saved moments`}` : '';
-      const skipped = imported.skipped ? ` ${imported.skipped === 1 ? 'One session' : `${imported.skipped} sessions`} had no start time or no named track, and stayed out.` : '';
+      const moments = imported.moments.length
+        ? ` and ${imported.moments.length === 1 ? '1 saved moment' : `${imported.moments.length} saved moments`}`
+        : '';
+      const skipped = imported.skipped
+        ? ` ${imported.skipped === 1 ? 'One session' : `${imported.skipped} sessions`} had no start time or no named track, and stayed out.`
+        : '';
       outcome = { done: `Imported ${sessions}${moments} into your journal.${skipped}`, problem: null };
     } catch (error) {
       outcome = { done: null, problem: error instanceof ImportProblem ? error.message : 'The file could not be read.' };
@@ -961,7 +1090,11 @@ async function readBiometric() {
     const kinds = { faceID: 'Face ID', touchID: 'Touch ID', fingerprint: 'fingerprint' };
     state.app = {
       ...state.app,
-      biometric: { available: answer.available === true, enabled: answer.enabled === true, name: kinds[answer.kind] ?? null },
+      biometric: {
+        available: answer.available === true,
+        enabled: answer.enabled === true,
+        name: kinds[answer.kind] ?? null,
+      },
     };
     draw();
   } catch {
@@ -1004,7 +1137,12 @@ async function start() {
     const vault = appBridge.has('auth');
     setUp({
       storage: () => bridgeScript.memoryStorage(),
-      vaults: vault ? { customer: bridgeScript.createVault(appBridge, 'customer'), admin: bridgeScript.createVault(appBridge, 'admin') } : null,
+      vaults: vault
+        ? {
+            customer: bridgeScript.createVault(appBridge, 'customer'),
+            admin: bridgeScript.createVault(appBridge, 'admin'),
+          }
+        : null,
       customerBase: site.customerApi,
     });
   } else {
@@ -1030,7 +1168,11 @@ async function start() {
   });
   setInterval(checkSessions, SESSION_CHECK_MS);
   document.getElementById('skip')?.addEventListener('click', () => {
-    (document.getElementById('content') ?? document.getElementById('page-title') ?? document.getElementById('landing-main'))?.focus();
+    (
+      document.getElementById('content') ??
+      document.getElementById('page-title') ??
+      document.getElementById('landing-main')
+    )?.focus();
   });
   follow();
   // The pages have started: the app keeps this bundle as a good one.

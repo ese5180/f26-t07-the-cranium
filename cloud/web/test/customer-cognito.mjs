@@ -37,14 +37,21 @@ const numberOf = (bytes) => BigInt(`0x${bytes.toString('hex') || '0'}`);
  * @param {(sub: string) => object} [options.issue]  the tokens of a sign-in that worked
  * @param {string} [options.resetCode]  the code a password reset e-mails
  */
-export function createCustomerCognito({ userPoolId, clientId, directory, now = Date.now, issue, resetCode = '135790' }) {
+export function createCustomerCognito({
+  userPoolId,
+  clientId,
+  directory,
+  now = Date.now,
+  issue,
+  resetCode = '135790',
+}) {
   const calls = [];
-  const credentials = new Map();   // sub -> { salt, verifier, code, authenticator, pendingCode }
-  const exchanges = new Map();     // secret block -> the server's half of an exchange
-  const sessions = new Map();      // Cognito's session -> the step it waits for
-  const tokens = new Map();        // access token -> { sub, expiresAt }
+  const credentials = new Map(); // sub -> { salt, verifier, code, authenticator, pendingCode }
+  const exchanges = new Map(); // secret block -> the server's half of an exchange
+  const sessions = new Map(); // Cognito's session -> the step it waits for
+  const tokens = new Map(); // access token -> { sub, expiresAt }
   const refreshTokens = new Set();
-  const resets = new Map();        // email -> code
+  const resets = new Map(); // email -> code
   let issued = 0;
 
   const refuse = (name, message = name) => ({ status: 400, body: { __type: name, message } });
@@ -69,13 +76,18 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
   function challenge(name, sub) {
     const session = token();
     sessions.set(session, { name, sub, expiresAt: now() + SESSION_MS });
-    return ok({ ChallengeName: name, Session: session, ChallengeParameters: name === 'NEW_PASSWORD_REQUIRED' ? { requiredAttributes: '[]' } : {} });
+    return ok({
+      ChallengeName: name,
+      Session: session,
+      ChallengeParameters: name === 'NEW_PASSWORD_REQUIRED' ? { requiredAttributes: '[]' } : {},
+    });
   }
 
   function initiate(body) {
     if (body.AuthFlow !== 'USER_SRP_AUTH') return refuse('InvalidParameterException');
     const { USERNAME: username, SRP_A: srpA } = body.AuthParameters ?? {};
-    if (typeof username !== 'string' || typeof srpA !== 'string' || !/^[0-9a-f]+$/i.test(srpA)) return refuse('InvalidParameterException');
+    if (typeof username !== 'string' || typeof srpA !== 'string' || !/^[0-9a-f]+$/i.test(srpA))
+      return refuse('InvalidParameterException');
     const A = BigInt(`0x${srpA}`);
     if (A % N === 0n) return refuse('NotAuthorizedException');
     const account = directory.find(username.toLowerCase());
@@ -89,7 +101,13 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
     exchanges.set(secretBlock, { account: known ? account : null, userId, verifier, A, b, B });
     return ok({
       ChallengeName: 'PASSWORD_VERIFIER',
-      ChallengeParameters: { SALT: salt.toString(16), SECRET_BLOCK: secretBlock, SRP_B: B.toString(16), USERNAME: userId, USER_ID_FOR_SRP: userId },
+      ChallengeParameters: {
+        SALT: salt.toString(16),
+        SECRET_BLOCK: secretBlock,
+        SRP_B: B.toString(16),
+        USERNAME: userId,
+        USER_ID_FOR_SRP: userId,
+      },
     });
   }
 
@@ -101,8 +119,14 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
     const at = timestampAt(String(answer.TIMESTAMP));
     if (Number.isNaN(at) || Math.abs(at - now()) > CLOCK_SKEW_MS) return refuse('NotAuthorizedException');
     const expected = expectedClaim({
-      userPoolId, userId: exchange.userId, verifier: exchange.verifier, A: exchange.A, b: exchange.b, B: exchange.B,
-      secretBlock: answer.PASSWORD_CLAIM_SECRET_BLOCK, timestamp: answer.TIMESTAMP,
+      userPoolId,
+      userId: exchange.userId,
+      verifier: exchange.verifier,
+      A: exchange.A,
+      b: exchange.b,
+      B: exchange.B,
+      secretBlock: answer.PASSWORD_CLAIM_SECRET_BLOCK,
+      timestamp: answer.TIMESTAMP,
     });
     const given = Buffer.from(String(answer.PASSWORD_CLAIM_SIGNATURE), 'utf8');
     const right = given.length === expected.length && timingSafeEqual(given, Buffer.from(expected, 'utf8'));
@@ -139,7 +163,8 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
   function verifyCode(body) {
     const { session, refusal } = step(body, 'SOFTWARE_TOKEN_MFA');
     if (refusal) return refusal;
-    if (body.ChallengeResponses.SOFTWARE_TOKEN_MFA_CODE !== credentials.get(session.sub)?.code) return refuse('CodeMismatchException');
+    if (body.ChallengeResponses.SOFTWARE_TOKEN_MFA_CODE !== credentials.get(session.sub)?.code)
+      return refuse('CodeMismatchException');
     sessions.delete(body.Session);
     return tokensFor(session.sub);
   }
@@ -158,7 +183,11 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
       const account = directory.bySub(sub);
       return ok({
         Username: sub,
-        UserAttributes: [{ Name: 'sub', Value: sub }, { Name: 'email', Value: account?.email ?? '' }, { Name: 'name', Value: account?.name ?? '' }],
+        UserAttributes: [
+          { Name: 'sub', Value: sub },
+          { Name: 'email', Value: account?.email ?? '' },
+          { Name: 'name', Value: account?.name ?? '' },
+        ],
         UserMFASettingList: credentials.get(sub)?.authenticator ? ['SOFTWARE_TOKEN_MFA'] : [],
       });
     },
@@ -167,8 +196,10 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
       if (refusal) return refusal;
       const known = credentials.get(sub);
       const x = passwordNumber({ userPoolId, userId: sub, password: String(body.PreviousPassword), salt: known.salt });
-      if (powMod(g, x, N) !== known.verifier) return refuse('NotAuthorizedException', 'Incorrect username or password.');
-      if (typeof body.ProposedPassword !== 'string' || body.ProposedPassword.length < PASSWORD_MIN) return refuse('InvalidPasswordException');
+      if (powMod(g, x, N) !== known.verifier)
+        return refuse('NotAuthorizedException', 'Incorrect username or password.');
+      if (typeof body.ProposedPassword !== 'string' || body.ProposedPassword.length < PASSWORD_MIN)
+        return refuse('InvalidPasswordException');
       setPassword(sub, body.ProposedPassword);
       return ok({});
     },
@@ -191,7 +222,8 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
       if (refusal) return refusal;
       const known = credentials.get(sub);
       const enabled = body.SoftwareTokenMfaSettings?.Enabled === true;
-      if (enabled && known.code === null) return refuse('InvalidParameterException', 'User has not verified software token mfa');
+      if (enabled && known.code === null)
+        return refuse('InvalidParameterException', 'User has not verified software token mfa');
       known.authenticator = enabled;
       return ok({});
     },
@@ -212,7 +244,8 @@ export function createCustomerCognito({ userPoolId, clientId, directory, now = D
     const email = String(body.Username ?? '').toLowerCase();
     const account = directory.find(email);
     if (!account || resets.get(email) !== body.ConfirmationCode) return refuse('CodeMismatchException');
-    if (typeof body.Password !== 'string' || body.Password.length < PASSWORD_MIN) return refuse('InvalidPasswordException');
+    if (typeof body.Password !== 'string' || body.Password.length < PASSWORD_MIN)
+      return refuse('InvalidPasswordException');
     resets.delete(email);
     setPassword(account.sub, body.Password);
     return ok({});

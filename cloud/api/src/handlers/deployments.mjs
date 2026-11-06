@@ -24,14 +24,32 @@
 
 import { conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import {
-  EXECUTION_STATUSES, IN_PROGRESS_TIMEOUT_MIN, MAX_IN_FLIGHT, URL_EXPIRES_SEC, buildJobDescription,
-  buildJobDocument, buildJobId, countExecutions, executionDetails, isActiveExecution, isSettled, isoTime,
-  mapLimit, summarizeJob,
+  EXECUTION_STATUSES,
+  IN_PROGRESS_TIMEOUT_MIN,
+  MAX_IN_FLIGHT,
+  URL_EXPIRES_SEC,
+  buildJobDescription,
+  buildJobDocument,
+  buildJobId,
+  countExecutions,
+  executionDetails,
+  isActiveExecution,
+  isSettled,
+  isoTime,
+  mapLimit,
+  summarizeJob,
 } from '../lib/jobs.mjs';
 import { unknownDevice } from '../lib/shadow.mjs';
 import { deriveTimeline } from '../lib/timeline.mjs';
 import {
-  MAX_NOTE, isThing, parseJobId, requireBoolean, requireJobId, requireText, requireThings, requireVersion,
+  MAX_NOTE,
+  isThing,
+  parseJobId,
+  requireBoolean,
+  requireJobId,
+  requireText,
+  requireThings,
+  requireVersion,
   strictVersion,
 } from '../lib/validate.mjs';
 import { releaseFromItem, releaseKey } from './firmware.mjs';
@@ -82,33 +100,43 @@ function alreadyCancelled(executions, { forced, stopping }) {
   } else if (forced) {
     rest = `${boardsAre(atWork)} still at work on it all the same. Cancel with force to try again.`;
   } else {
-    rest = `${boardsAre(atWork)} still at work on it, because a cancellation without force leaves boards ` +
+    rest =
+      `${boardsAre(atWork)} still at work on it, because a cancellation without force leaves boards ` +
       'that had started alone. Cancel with force to stop them.';
   }
-  return conflict('already_cancelled',
-    `This deployment is already cancelled${forced ? ' with force' : ''}. ${rest}`);
+  return conflict('already_cancelled', `This deployment is already cancelled${forced ? ' with force' : ''}. ${rest}`);
 }
 
 /** AWS refused a cancellation, and the deployment is not over: `executions` are still open. */
 function cancelRefused(executions) {
   const atWork = running(executions);
   if (atWork > 0) {
-    return conflict('cancel_refused', 'AWS did not accept the cancellation, and ' +
-      `${boardsAre(atWork)} still at work on this deployment. A board that is not stopped carries ` +
-      `on until it finishes or its ${IN_PROGRESS_TIMEOUT_MIN} minutes are over.`);
+    return conflict(
+      'cancel_refused',
+      'AWS did not accept the cancellation, and ' +
+        `${boardsAre(atWork)} still at work on this deployment. A board that is not stopped carries ` +
+        `on until it finishes or its ${IN_PROGRESS_TIMEOUT_MIN} minutes are over.`
+    );
   }
-  return conflict('cancel_refused', executions.length > 0
-    ? `AWS did not accept the cancellation, and ${boardsAre(executions.length)} still offered this ` +
-      'update. Try again in a moment.'
-    : 'AWS did not accept the cancellation, and the deployment is still open. Try again in a moment.');
+  return conflict(
+    'cancel_refused',
+    executions.length > 0
+      ? `AWS did not accept the cancellation, and ${boardsAre(executions.length)} still offered this ` +
+          'update. Try again in a moment.'
+      : 'AWS did not accept the cancellation, and the deployment is still open. Try again in a moment.'
+  );
 }
 
 function deviceBusy(busy, withdrawn = false) {
   const names = [...new Set(busy.map((item) => item.thing))];
   if (withdrawn) {
     const who = names.length === 1 ? `${names[0]} was` : `${names.length} boards were`;
-    return conflict('device_busy', `${who} given another update at the same moment, so this deployment ` +
-      'was withdrawn. Wait for the other update or cancel it first.', busy);
+    return conflict(
+      'device_busy',
+      `${who} given another update at the same moment, so this deployment ` +
+        'was withdrawn. Wait for the other update or cancel it first.',
+      busy
+    );
   }
   const who = names.length === 1 ? `${names[0]} still has` : `${names.length} boards still have`;
   return conflict('device_busy', `${who} an update that is not finished. Wait for it or cancel it first.`, busy);
@@ -153,16 +181,21 @@ function firmwareOf(row, device) {
 /** The execution of a board that a new job names: queued since the job was created. */
 function queuedRow(thing, createdAt) {
   return {
-    thing, status: 'QUEUED', queuedAt: createdAt, startedAt: null, lastUpdatedAt: createdAt,
-    details: executionDetails(null), secondsLeft: null,
+    thing,
+    status: 'QUEUED',
+    queuedAt: createdAt,
+    startedAt: null,
+    lastUpdatedAt: createdAt,
+    details: executionDetails(null),
+    secondsLeft: null,
   };
 }
 
 export function createDeploymentHandlers({ aws, config, now, randomHex, log }, { devices, fleet = null }) {
-  let listing = null;            // { jobs, at }: the result of ListJobs
-  const summaries = new Map();   // id -> { summary, settled, at }
-  const details = new Map();     // id -> { detail, at }
-  const closed = new Map();      // "id/thing" -> a described execution that has ended
+  let listing = null; // { jobs, at }: the result of ListJobs
+  const summaries = new Map(); // id -> { summary, settled, at }
+  const details = new Map(); // id -> { detail, at }
+  const closed = new Map(); // "id/thing" -> a described execution that has ended
 
   function forget(id) {
     listing = null;
@@ -195,8 +228,8 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
   async function describeExecution(id, listed) {
     const key = `${id}/${listed.thing}`;
     const cached = closed.get(key);
-    const unchanged = cached !== undefined && cached.status === listed.status &&
-      cached.lastUpdatedAt === listed.lastUpdatedAt;
+    const unchanged =
+      cached !== undefined && cached.status === listed.status && cached.lastUpdatedAt === listed.lastUpdatedAt;
     if (unchanged) return cached.row;
 
     let described = null;
@@ -215,8 +248,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       startedAt: source.startedAt ?? listed.startedAt ?? null,
       lastUpdatedAt: source.lastUpdatedAt ?? listed.lastUpdatedAt ?? null,
       details: executionDetails(complete ? described.statusDetails : null),
-      secondsLeft: complete && Number.isInteger(described.secondsLeft) && described.secondsLeft >= 0
-        ? described.secondsLeft : null,
+      secondsLeft:
+        complete && Number.isInteger(described.secondsLeft) && described.secondsLeft >= 0
+          ? described.secondsLeft
+          : null,
     };
     if (complete && !isActiveExecution(row.status)) {
       put(closed, key, { status: listed.status, lastUpdatedAt: listed.lastUpdatedAt, row });
@@ -227,7 +262,11 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
   /** An Execution as the API returns it. */
   function present(summary, row, device) {
     const { phase, progress } = deriveTimeline({
-      status: row.status, reason: row.details.reason, step: row.details.step, jobId: summary.id, device,
+      status: row.status,
+      reason: row.details.reason,
+      step: row.details.step,
+      jobId: summary.id,
+      device,
     });
     const queuedAt = isoTime(row.queuedAt) ?? isoTime(row.lastUpdatedAt) ?? summary.createdAt;
     return {
@@ -257,8 +296,9 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       forget(id);
       return null;
     }
-    const listed = (await aws.listJobExecutionsForJob(id))
-      .filter((execution) => isThing(execution.thing) && EXECUTION_STATUSES.includes(execution.status));
+    const listed = (await aws.listJobExecutionsForJob(id)).filter(
+      (execution) => isThing(execution.thing) && EXECUTION_STATUSES.includes(execution.status)
+    );
     const rows = await mapLimit(listed, MAX_IN_FLIGHT, (execution) => describeExecution(id, execution));
     const byThing = new Map(rows.map((row) => [row.thing, row]));
 
@@ -303,8 +343,13 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
    * still stopping the job's boards. `job` is a job as the adapter describes it.
    */
   function beingStopped(job) {
-    return job !== null && job.status === 'CANCELED' && job.forceCanceled === true &&
-      Number.isFinite(job.lastUpdatedAt) && now() - job.lastUpdatedAt < STOPPING_MS;
+    return (
+      job !== null &&
+      job.status === 'CANCELED' &&
+      job.forceCanceled === true &&
+      Number.isFinite(job.lastUpdatedAt) &&
+      now() - job.lastUpdatedAt < STOPPING_MS
+    );
   }
 
   /**
@@ -321,7 +366,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
   async function unfinishedOn(things, except = null) {
     const listed = await mapLimit(things, MAX_IN_FLIGHT, (thing) => aws.listJobExecutionsForThing(thing));
     const busy = [];
-    const rolledOut = new Set();   // "job thing" for every execution that exists
+    const rolledOut = new Set(); // "job thing" for every execution that exists
     things.forEach((thing, index) => {
       for (const execution of listed[index]) {
         if (typeof execution.jobId !== 'string' || !ANY_JOB_ID.test(execution.jobId)) continue;
@@ -331,8 +376,9 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         }
       }
     });
-    const open = (await listedJobs({ fresh: true })).filter((job) =>
-      job.jobId !== except && (job.status === 'IN_PROGRESS' || job.status === 'SCHEDULED'));
+    const open = (await listedJobs({ fresh: true })).filter(
+      (job) => job.jobId !== except && (job.status === 'IN_PROGRESS' || job.status === 'SCHEDULED')
+    );
     const summaries = await mapLimit(open, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId));
     for (const summary of summaries) {
       if (summary === null) continue;
@@ -342,9 +388,9 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         }
       }
     }
-    return busy.sort((a, b) => (a.thing === b.thing
-      ? (a.deployment < b.deployment ? -1 : 1)
-      : (a.thing < b.thing ? -1 : 1)));
+    return busy.sort((a, b) =>
+      a.thing === b.thing ? (a.deployment < b.deployment ? -1 : 1) : a.thing < b.thing ? -1 : 1
+    );
   }
 
   /**
@@ -362,7 +408,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     const others = await unfinishedOn(things, id);
     if (others.length === 0) return [];
     const own = await summaryOf(id);
-    const first = new Map();   // deployment -> whether it comes before this one
+    const first = new Map(); // deployment -> whether it comes before this one
     for (const deployment of new Set(others.map((item) => item.deployment))) {
       if (parseJobId(deployment) === null || own === null) {
         first.set(deployment, true);
@@ -411,7 +457,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         if (cancelledBefore && (await openExecutions(job.jobId)).length === 0) return;
 
         const result = await aws.cancelJob({
-          jobId: job.jobId, force: true, reasonCode: 'RELEASE_REVOKED', comment,
+          jobId: job.jobId,
+          force: true,
+          reasonCode: 'RELEASE_REVOKED',
+          comment,
         });
         forget(job.jobId);
         if (!result.ok && result.reason === 'not_found') return;
@@ -426,8 +475,12 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         }
         failed.push(job.jobId);
         log({
-          level: 'error', event: 'cancel_unconfirmed', deployment: job.jobId, accepted: result.ok,
-          open: left.length, atWork: running(left),
+          level: 'error',
+          event: 'cancel_unconfirmed',
+          deployment: job.jobId,
+          accepted: result.ok,
+          open: left.length,
+          atWork: running(left),
         });
       } catch (error) {
         failed.push(job.jobId);
@@ -445,20 +498,35 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
    * made here. `onCreated` hears the id as soon as the job exists, before the checks that may
    * withdraw it again.
    */
-  async function launch({ release, things, description, actorSub, rollout = null, abort = null, onCreated = () => {} }) {
+  async function launch({
+    release,
+    things,
+    description,
+    actorSub,
+    rollout = null,
+    abort = null,
+    onCreated = () => {},
+  }) {
     const { parts } = strictVersion(release.version);
     const sortKey = releaseKey(parts);
     const document = buildJobDocument({
-      version: release.version, size: release.size, sha256: release.sha256,
-      region: config.region, bucket: config.firmwareBucket,
+      version: release.version,
+      size: release.size,
+      sha256: release.sha256,
+      region: config.region,
+      bucket: config.firmwareBucket,
     });
 
     let id = null;
     for (let attempt = 0; attempt < 3 && id === null; attempt += 1) {
       const candidate = buildJobId(parts, now(), String(randomHex(4)).slice(0, 4));
       const created = await aws.createJob({
-        jobId: candidate, things, document, description,
-        urlExpiresInSec: URL_EXPIRES_SEC, inProgressTimeoutMinutes: IN_PROGRESS_TIMEOUT_MIN,
+        jobId: candidate,
+        things,
+        document,
+        description,
+        urlExpiresInSec: URL_EXPIRES_SEC,
+        inProgressTimeoutMinutes: IN_PROGRESS_TIMEOUT_MIN,
         // A wave of a staged rollout: AWS IoT paces it and stops it by itself (lib/fleet.mjs).
         ...(rollout === null ? {} : { rollout }),
         ...(abort === null ? {} : { abort }),
@@ -495,8 +563,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     if (current === null || current.status !== 'active') {
       await aws.cancelJob({ jobId: id, force: true, reasonCode: 'RELEASE_REVOKED', comment: actorSub });
       forget(id);
-      throw conflict('release_revoked',
-        `Release ${release.version} was revoked just now; the deployment was cancelled.`);
+      throw conflict(
+        'release_revoked',
+        `Release ${release.version} was revoked just now; the deployment was cancelled.`
+      );
     }
 
     // Another deployment to one of these boards may have been created in the same
@@ -528,11 +598,16 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     if (detail === null) {
       const createdAt = now();
       const summary = summarizeJob({
-        jobId: id, status: 'IN_PROGRESS', description, things, createdAt, lastUpdatedAt: createdAt,
-        completedAt: null, counts: {},
+        jobId: id,
+        status: 'IN_PROGRESS',
+        description,
+        things,
+        createdAt,
+        lastUpdatedAt: createdAt,
+        completedAt: null,
+        counts: {},
       });
-      const executions = things.map((thing) =>
-        present(summary, queuedRow(thing, createdAt), unknownDevice(thing)));
+      const executions = things.map((thing) => present(summary, queuedRow(thing, createdAt), unknownDevice(thing)));
       detail = { ...summary, counts: countExecutions(executions), executions };
     }
     return { id, detail };
@@ -547,7 +622,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     detail: (id) => detailOf(id, { fresh: true }),
 
     async list() {
-      const newest = [...await listedJobs()]
+      const newest = [...(await listedJobs())]
         .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || (a.jobId < b.jobId ? 1 : -1))
         .slice(0, LIST_LIMIT);
       const loaded = await mapLimit(newest, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId));
@@ -587,9 +662,12 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       const members = new Set(await devices.groupThings());
       const strangers = things.filter((thing) => !members.has(thing));
       if (strangers.length > 0) {
-        throw unprocessable('unknown_device', strangers.length === 1
-          ? `${strangers[0]} is not a registered board.`
-          : `These are not registered boards: ${strangers.join(', ')}.`);
+        throw unprocessable(
+          'unknown_device',
+          strangers.length === 1
+            ? `${strangers[0]} is not a registered board.`
+            : `These are not registered boards: ${strangers.join(', ')}.`
+        );
       }
 
       // Of the release's board type, and able to take a job at all (docs/fleet.md, Board types).
@@ -600,7 +678,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
 
       const description = buildJobDescription({ email: actor.email, sub: actor.sub, note });
       const { detail } = await launch({
-        release, things, description, actorSub: actor.sub,
+        release,
+        things,
+        description,
+        actorSub: actor.sub,
         onCreated: (id) => {
           entry.target = id;
         },
@@ -633,7 +714,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
       }
 
       const result = await aws.cancelJob({
-        jobId: job.id, force, reasonCode: 'CONSOLE_CANCEL', comment: actor.sub,
+        jobId: job.id,
+        force,
+        reasonCode: 'CONSOLE_CANCEL',
+        comment: actor.sub,
       });
       forget(job.id);
       if (!result.ok) {
@@ -667,7 +751,10 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         // the board is still listed as at work. It may be stopped in a few seconds or
         // not at all; the answer shows it as it is, and the log keeps the case.
         log({
-          level: 'warn', event: 'cancel_unconfirmed', deployment: job.id, accepted: true,
+          level: 'warn',
+          event: 'cancel_unconfirmed',
+          deployment: job.id,
+          accepted: true,
           atWork: detail.counts.inProgress,
         });
       }

@@ -21,8 +21,10 @@ const upload = () => ({
 // The client id is passed on exactly as given, undefined included.
 function refused(event, ...configured) {
   const clientId = configured.length === 0 ? CLIENT : configured[0];
-  assert.throws(() => authenticate(event, clientId),
-    (error) => error instanceof HttpError && error.status === 401 && error.code === 'unauthorized');
+  assert.throws(
+    () => authenticate(event, clientId),
+    (error) => error instanceof HttpError && error.status === 401 && error.code === 'unauthorized'
+  );
 }
 
 test('the group claim is read in the flattened form the gateway sends', () => {
@@ -94,11 +96,18 @@ test('a request without the expected claims is refused', () => {
 });
 
 test('the caller is described by sub, console groups, expiry and app client', () => {
-  const caller = authenticate(eventWith({
-    ...accessClaims({ sub: SUB, groups: ['viewers', 'some-other-group', 'release-managers'], exp: 1787988914 }),
-  }), CLIENT);
+  const caller = authenticate(
+    eventWith({
+      ...accessClaims({ sub: SUB, groups: ['viewers', 'some-other-group', 'release-managers'], exp: 1787988914 }),
+    }),
+    CLIENT
+  );
   assert.deepEqual(caller, {
-    sub: SUB, groups: ['release-managers', 'viewers'], expiresAt: 1787988914, clientId: CLIENT, authTime: null,
+    sub: SUB,
+    groups: ['release-managers', 'viewers'],
+    expiresAt: 1787988914,
+    clientId: CLIENT,
+    authTime: null,
   });
 
   const bare = authenticate(eventWith({ sub: SUB, token_use: 'access', client_id: CLIENT }), CLIENT);
@@ -121,9 +130,15 @@ test('the caller is described by sub, console groups, expiry and app client', ()
 test('every route answers 401 without valid claims and writes nothing', async () => {
   const { fake, call } = createTestConsole();
   const routes = [
-    ['GET', '/api/me'], ['GET', '/api/devices'], ['GET', `/api/devices/${THING}`], ['GET', '/api/firmware'],
-    ['GET', '/api/firmware/1.2.3+4'], ['GET', '/api/deployments'], ['GET', '/api/audit'],
-    ['GET', '/api/no-such-route'], ['DELETE', '/api/firmware'],
+    ['GET', '/api/me'],
+    ['GET', '/api/devices'],
+    ['GET', `/api/devices/${THING}`],
+    ['GET', '/api/firmware'],
+    ['GET', '/api/firmware/1.2.3+4'],
+    ['GET', '/api/deployments'],
+    ['GET', '/api/audit'],
+    ['GET', '/api/no-such-route'],
+    ['DELETE', '/api/firmware'],
   ];
   for (const [method, path] of routes) {
     for (const claims of [undefined, { sub: SUB, token_use: 'id', client_id: CLIENT }]) {
@@ -161,7 +176,7 @@ test('every route needs one of the console groups', async () => {
   assert.equal(missing.body.error.code, 'not_found');
 });
 
-test('GET /api/me reports the token\'s groups and the address from Cognito', async () => {
+test("GET /api/me reports the token's groups and the address from Cognito", async () => {
   const console_ = createTestConsole();
   const manager = console_.addUser('manager', ['release-managers', 'viewers']);
   const viewer = console_.addUser('viewer', ['viewers']);
@@ -169,14 +184,21 @@ test('GET /api/me reports the token\'s groups and the address from Cognito', asy
   const first = await console_.call('GET', '/api/me', { as: manager });
   assert.equal(first.status, 200);
   assert.deepEqual(first.body, {
-    sub: manager.sub, email: manager.email, groups: ['release-managers', 'viewers'], canWrite: true,
+    sub: manager.sub,
+    email: manager.email,
+    groups: ['release-managers', 'viewers'],
+    canWrite: true,
     expiresAt: 4102444800,
     // The console's own version and commit (handlers/apps.mjs): none in a test console.
     console: { version: null, commit: null },
   });
   const second = await console_.call('GET', '/api/me', { as: viewer });
   assert.deepEqual(second.body, {
-    sub: viewer.sub, email: viewer.email, groups: ['viewers'], canWrite: false, expiresAt: 4102444800,
+    sub: viewer.sub,
+    email: viewer.email,
+    groups: ['viewers'],
+    canWrite: false,
+    expiresAt: 4102444800,
     console: { version: null, commit: null },
   });
 
@@ -327,8 +349,10 @@ test('the live check is made again for every write', async () => {
   assert.equal(checks(), 1);
 
   console_.fake.user(manager.sub).setGroups([]);
-  const response = await console_.call('POST', '/api/deployments',
-    { as: manager, body: { version: '1.2.3+4', things: [THING] } });
+  const response = await console_.call('POST', '/api/deployments', {
+    as: manager,
+    body: { version: '1.2.3+4', things: [THING] },
+  });
   assert.equal(response.status, 403);
   assert.equal(checks(), 2);
   assert.equal(console_.fake.jobs.size, 0);
@@ -338,7 +362,10 @@ test('reading stops within a minute of an account being removed, disabled or lef
   const changes = {
     removed: { change: (user) => user.remove(), code: 'account_inactive' },
     disabled: { change: (user) => user.disable(), code: 'account_inactive' },
-    'back on a temporary password': { change: (user) => user.setStatus('FORCE_CHANGE_PASSWORD'), code: 'account_inactive' },
+    'back on a temporary password': {
+      change: (user) => user.setStatus('FORCE_CHANGE_PASSWORD'),
+      code: 'account_inactive',
+    },
     'in no group': { change: (user) => user.setGroups([]), code: 'forbidden' },
   };
   for (const [name, { change, code }] of Object.entries(changes)) {

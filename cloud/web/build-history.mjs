@@ -54,15 +54,25 @@ export function cleanSubject(subject) {
 }
 
 function git(repo, ...args) {
-  return execFileSync('git', [
-    '--no-optional-locks', '-C', repo, '-c', 'log.showSignature=false', '-c', 'core.quotepath=off', ...args,
-  ], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync(
+    'git',
+    ['--no-optional-locks', '-C', repo, '-c', 'log.showSignature=false', '-c', 'core.quotepath=off', ...args],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
 }
 
 /** The newest commits. A merge counts what it changed against its first parent. */
 export function readCommits(repo, limit = LIMIT) {
-  const text = git(repo, 'log', `--max-count=${limit}`, '--author-date-order', '--no-renames', '--diff-merges=first-parent',
-    '--name-only', '--format=%x01%H%x00%h%x00%aI%x00%s%x00');
+  const text = git(
+    repo,
+    'log',
+    `--max-count=${limit}`,
+    '--author-date-order',
+    '--no-renames',
+    '--diff-merges=first-parent',
+    '--name-only',
+    '--format=%x01%H%x00%h%x00%aI%x00%s%x00'
+  );
   const commits = [];
   for (const record of text.split('\u0001').slice(1)) {
     const [hash, short, date, subject, files] = record.split('\0');

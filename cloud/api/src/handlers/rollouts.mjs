@@ -47,9 +47,24 @@
 import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
 import { BOARD_TYPES, isBoardType } from '../lib/boards.mjs';
 import {
-  DEFAULT_ABORT_PERCENT, DEFAULT_CANARY, DEFAULT_WAVE, MAX_CANARY, MAX_ROLLOUT_BOARDS, MAX_WAVE, boardLabel,
-  canaryVerdict, chooseCanary, failureShare, isOpenRollout, requireGroupId, requireRolloutId, requireWhole,
-  rolloutConfigs, rolloutFromItem, rolloutId, selectTargets,
+  DEFAULT_ABORT_PERCENT,
+  DEFAULT_CANARY,
+  DEFAULT_WAVE,
+  MAX_CANARY,
+  MAX_ROLLOUT_BOARDS,
+  MAX_WAVE,
+  boardLabel,
+  canaryVerdict,
+  chooseCanary,
+  failureShare,
+  isOpenRollout,
+  requireGroupId,
+  requireRolloutId,
+  requireWhole,
+  rolloutConfigs,
+  rolloutFromItem,
+  rolloutId,
+  selectTargets,
 } from '../lib/fleet.mjs';
 import { buildJobDescription, isoTime } from '../lib/jobs.mjs';
 import { MAX_NOTE, isThing, parseJobId, requireBoolean, requireText, requireVersion } from '../lib/validate.mjs';
@@ -80,10 +95,15 @@ function unknownRollout() {
 }
 
 function nothingToDeploy(leftOut) {
-  const error = unprocessable('nothing_to_deploy', leftOut.length === 0
-    ? 'There is no board to update.'
-    : `No board would take it: ${leftOut.slice(0, 3).map((entry) => `${entry.thing}: ${entry.text}`).join('; ')}` +
-      `${leftOut.length > 3 ? `, and ${leftOut.length - 3} more` : ''}.`);
+  const error = unprocessable(
+    'nothing_to_deploy',
+    leftOut.length === 0
+      ? 'There is no board to update.'
+      : `No board would take it: ${leftOut
+          .slice(0, 3)
+          .map((entry) => `${entry.thing}: ${entry.text}`)
+          .join('; ')}` + `${leftOut.length > 3 ? `, and ${leftOut.length - 3} more` : ''}.`
+  );
   error.details = leftOut;
   return error;
 }
@@ -127,7 +147,10 @@ function stageNote(rollout, part) {
   return (rollout.note ? `${head}: ${rollout.note}` : head).slice(0, MAX_NOTE);
 }
 
-export function createRolloutHandlers({ aws, config, now, randomHex, log, alert = null }, { devices, deployments, fleet, audit }) {
+export function createRolloutHandlers(
+  { aws, config, now, randomHex, log, alert = null },
+  { devices, deployments, fleet, audit }
+) {
   async function findRelease(version) {
     const release = releaseFromItem(await aws.getRelease(releaseKey(version.parts)));
     if (release === null || release.version !== version.text) {
@@ -165,9 +188,13 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       if (!byMinute.has(minute)) byMinute.set(minute, { at: execution.queuedAt ?? start, things: [] });
       byMinute.get(minute).things.push(execution.thing);
     }
-    const waves = [...byMinute].sort(([a], [b]) => a - b).map(([, value], index) => ({
-      wave: index + 1, at: isoTime(value.at), things: value.things.sort(),
-    }));
+    const waves = [...byMinute]
+      .sort(([a], [b]) => a - b)
+      .map(([, value], index) => ({
+        wave: index + 1,
+        at: isoTime(value.at),
+        things: value.things.sort(),
+      }));
     const offered = new Set(listed.map((execution) => execution.thing));
     return { waves, notOffered: rollout.rest.things.filter((thing) => !offered.has(thing)) };
   }
@@ -196,16 +223,34 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     const id = rolloutId(now(), String(randomHex(6)).slice(0, 6));
     const createdAt = new Date(now()).toISOString();
     const record = {
-      id, version: release.version, board: release.board, layout: release.layout, purpose, target, note: options.note, createdAt,
-      createdBy: { sub: actor.sub, email: actor.email }, stage: 'canary', things, leftOut,
+      id,
+      version: release.version,
+      board: release.board,
+      layout: release.layout,
+      purpose,
+      target,
+      note: options.note,
+      createdAt,
+      createdBy: { sub: actor.sub, email: actor.email },
+      stage: 'canary',
+      things,
+      leftOut,
       canary: { size: canary.length, things: canary, job: null },
       rest: { things: things.filter((thing) => !canary.includes(thing)), leftOut: [], job: null, startedAt: null },
-      wave: options.wave, abortPercent: options.abortPercent, stopped: null, finishedAt: null, updatedAt: createdAt, rev: 0,
+      wave: options.wave,
+      abortPercent: options.abortPercent,
+      stopped: null,
+      finishedAt: null,
+      updatedAt: createdAt,
+      rev: 0,
     };
     const { abort } = rolloutConfigs(options);
     const description = buildJobDescription({ email: actor.email, sub: actor.sub, note: stageNote(record, 'canary') });
     const { id: job } = await deployments.launch({
-      release, things: canary, description, actorSub: actor.sub,
+      release,
+      things: canary,
+      description,
+      actorSub: actor.sub,
       // One canary needs no stop of its own: the console stops the rollout on its failure.
       abort: canary.length > 1 ? abort : null,
     });
@@ -218,8 +263,14 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       log({ level: 'error', event: 'rollout_unrecorded', rollout: id, error: describeError(error) });
     }
     if (!stored) {
-      await aws.cancelJob({ jobId: job, force: true, reasonCode: 'CONSOLE_CANCEL', comment: actor.sub }).catch(() => null);
-      throw new HttpError(500, 'rollout_unrecorded', 'The rollout could not be recorded, so its canary was cancelled again.');
+      await aws
+        .cancelJob({ jobId: job, force: true, reasonCode: 'CONSOLE_CANCEL', comment: actor.sub })
+        .catch(() => null);
+      throw new HttpError(
+        500,
+        'rollout_unrecorded',
+        'The rollout could not be recorded, so its canary was cancelled again.'
+      );
     }
     if (entry) {
       entry.detail.canary = canary.join(' ').length <= MAX_BOARDS_NAMED ? canary.join(' ') : String(canary.length);
@@ -232,24 +283,32 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     const registered = new Set(await devices.groupThings());
     const strangers = things.filter((thing) => !registered.has(thing));
     if (strangers.length > 0) {
-      throw unprocessable('unknown_device', strangers.length === 1
-        ? `${strangers[0]} is not a registered board.`
-        : `These are not registered boards: ${strangers.join(', ')}.`);
+      throw unprocessable(
+        'unknown_device',
+        strangers.length === 1
+          ? `${strangers[0]} is not a registered board.`
+          : `These are not registered boards: ${strangers.join(', ')}.`
+      );
     }
     const loaded = await fleet.requireJobTargets(things, release);
     const busy = await busyOf(things);
     if (busy.size > 0) {
       const list = [...busy].map(([thing, deployment]) => ({ thing, deployment }));
-      throw conflict('device_busy', `${list.length === 1 ? `${list[0].thing} still has` : `${list.length} boards still have`} ` +
-        'an update that is not finished. Wait for it or cancel it first.', list);
+      throw conflict(
+        'device_busy',
+        `${list.length === 1 ? `${list[0].thing} still has` : `${list.length} boards still have`} ` +
+          'an update that is not finished. Wait for it or cancel it first.',
+        list
+      );
     }
     return selectTargets({ release, candidates: loaded, nowMs: now() });
   }
 
   /** The boards a group, a type or the fleet stands for, with why the others are left out. */
   async function computedBoards(candidates, release, { leaveOutAway = false, older = false } = {}) {
-    const busy = await busyOf(candidates.filter((board) => !board.bluetoothOnly && board.type === release.board)
-      .map((board) => board.thing));
+    const busy = await busyOf(
+      candidates.filter((board) => !board.bluetoothOnly && board.type === release.board).map((board) => board.thing)
+    );
     return selectTargets({ release, candidates, busy, nowMs: now(), leaveOutAway, older });
   }
 
@@ -267,22 +326,40 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       const candidates = inScope.filter((board) => board.type === type);
       if (group !== null && candidates.length === 0) continue;
       const releases = byType[type] ?? [];
-      const release = rollback ? releases[1] ?? null : releases[0] ?? null;
-      const from = rollback ? releases[0]?.version ?? null : null;
+      const release = rollback ? (releases[1] ?? null) : (releases[0] ?? null);
+      const from = rollback ? (releases[0]?.version ?? null) : null;
       if (release === null) {
-        const text = rollback ? 'There is no older active release of this type' : 'There is no release of this type yet';
+        const text = rollback
+          ? 'There is no older active release of this type'
+          : 'There is no release of this type yet';
         types.push({
-          type, label: boardLabel(type), release: null, from, things: [],
-          leftOut: candidates.map((board) => ({ thing: board.thing, reason: rollback ? 'no_older' : 'no_release', text })),
+          type,
+          label: boardLabel(type),
+          release: null,
+          from,
+          things: [],
+          leftOut: candidates.map((board) => ({
+            thing: board.thing,
+            reason: rollback ? 'no_older' : 'no_release',
+            text,
+          })),
           canary: [],
         });
         continue;
       }
       const chosen = await computedBoards(candidates, release, { leaveOutAway: true, older: rollback });
       types.push({
-        type, label: boardLabel(type),
-        release: { version: release.version, layout: release.layout, uploadedAt: release.uploadedAt, notes: release.notes },
-        from, ...chosen, canary: chosen.things.length === 0 ? [] : chooseCanary(chosen.things, fleetBoards, DEFAULT_CANARY),
+        type,
+        label: boardLabel(type),
+        release: {
+          version: release.version,
+          layout: release.layout,
+          uploadedAt: release.uploadedAt,
+          notes: release.notes,
+        },
+        from,
+        ...chosen,
+        canary: chosen.things.length === 0 ? [] : chooseCanary(chosen.things, fleetBoards, DEFAULT_CANARY),
       });
     }
     return { types, generatedAt: new Date(now()).toISOString() };
@@ -293,7 +370,10 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     const options = rolloutOptions(body);
     const asked = field(body, 'types');
     if (!Array.isArray(asked) || asked.length < 1 || asked.length > BOARD_TYPES.length) {
-      throw badRequest('invalid_types', `"types" lists 1 to ${BOARD_TYPES.length} board types, each with its version and boards.`);
+      throw badRequest(
+        'invalid_types',
+        `"types" lists 1 to ${BOARD_TYPES.length} board types, each with its version and boards.`
+      );
     }
     const wanted = asked.map((item) => {
       if (item === null || typeof item !== 'object' || Array.isArray(item)) {
@@ -320,7 +400,10 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       const planned = now_.types.find((entry_) => entry_.type === item.type);
       if (!planned || planned.release === null) {
         if (purpose === 'rollback') {
-          throw conflict('no_older_release', `There is no older active release of the ${boardLabel(item.type)} to go back to.`);
+          throw conflict(
+            'no_older_release',
+            `There is no older active release of the ${boardLabel(item.type)} to go back to.`
+          );
         }
         throw planChanged(`There is no release of the ${boardLabel(item.type)}.`);
       }
@@ -329,20 +412,37 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       }
       const others = item.things.filter((thing) => typeOf.has(thing) && typeOf.get(thing) !== item.type);
       if (others.length > 0) {
-        throw new HttpError(400, 'incompatible_board', `Release ${item.version.text} is for the ${boardLabel(item.type)}: ` +
-          `${others.join(', ')} ${others.length === 1 ? 'is' : 'are'} not.`, others.map((thing) => ({ thing, type: typeOf.get(thing) })));
+        throw new HttpError(
+          400,
+          'incompatible_board',
+          `Release ${item.version.text} is for the ${boardLabel(item.type)}: ` +
+            `${others.join(', ')} ${others.length === 1 ? 'is' : 'are'} not.`,
+          others.map((thing) => ({ thing, type: typeOf.get(thing) }))
+        );
       }
       // Of the type, and of another flash layout: refused the same way, by name.
-      const laidOut = item.things.filter((thing) => layoutOf.has(thing) && layoutOf.get(thing) !== planned.release.layout);
+      const laidOut = item.things.filter(
+        (thing) => layoutOf.has(thing) && layoutOf.get(thing) !== planned.release.layout
+      );
       if (laidOut.length > 0) {
-        throw new HttpError(400, 'incompatible_layout', `Release ${item.version.text} is built for flash layout ` +
-          `${planned.release.layout}: ${laidOut.join(', ')} ${laidOut.length === 1 ? 'has' : 'have'} another.`,
-        laidOut.map((thing) => ({ thing, layout: layoutOf.get(thing) })));
+        throw new HttpError(
+          400,
+          'incompatible_layout',
+          `Release ${item.version.text} is built for flash layout ` +
+            `${planned.release.layout}: ${laidOut.join(', ')} ${laidOut.length === 1 ? 'has' : 'have'} another.`,
+          laidOut.map((thing) => ({ thing, layout: layoutOf.get(thing) }))
+        );
       }
       const outside = item.things.filter((thing) => !planned.things.includes(thing));
       if (outside.length > 0) {
-        const why = outside.map((thing) => planned.leftOut.find((left) => left.thing === thing) ??
-          { thing, reason: 'not_in_plan', text: 'Not part of this plan' });
+        const why = outside.map(
+          (thing) =>
+            planned.leftOut.find((left) => left.thing === thing) ?? {
+              thing,
+              reason: 'not_in_plan',
+              text: 'Not part of this plan',
+            }
+        );
         throw planChanged(`${outside.join(', ')} would not take it now: ${why[0].text}.`, why);
       }
       chosen.push({ planned, things: item.things });
@@ -352,16 +452,30 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     try {
       for (const { planned, things } of chosen) {
         const release = await findRelease(requireVersion(planned.release.version));
-        const leftOut = planned.leftOut.concat(planned.things.filter((thing) => !things.includes(thing))
-          .map((thing) => ({ thing, reason: 'unticked', text: 'Left out by hand' })));
-        started.push(await start({ release, things, leftOut, target: { ...target, type: planned.type }, purpose, options, actor }));
+        const leftOut = planned.leftOut.concat(
+          planned.things
+            .filter((thing) => !things.includes(thing))
+            .map((thing) => ({ thing, reason: 'unticked', text: 'Left out by hand' }))
+        );
+        started.push(
+          await start({ release, things, leftOut, target: { ...target, type: planned.type }, purpose, options, actor })
+        );
         entry.detail.rollouts = started.map((record) => record.id).join(' ');
       }
     } catch (error) {
       if (started.length === 0) throw error;
-      log({ level: 'error', event: 'plan_partly_started', started: started.map((record) => record.id), error: describeError(error) });
-      throw new HttpError(500, 'partly_started', `${started.length} of ${chosen.length} rollouts were started ` +
-        `(${started.map((record) => record.id).join(', ')}); the next could not be: ${error.message ?? 'see the log'}`);
+      log({
+        level: 'error',
+        event: 'plan_partly_started',
+        started: started.map((record) => record.id),
+        error: describeError(error),
+      });
+      throw new HttpError(
+        500,
+        'partly_started',
+        `${started.length} of ${chosen.length} rollouts were started ` +
+          `(${started.map((record) => record.id).join(', ')}); the next could not be: ${error.message ?? 'see the log'}`
+      );
     }
     return { status: 201, body: { rollouts: await Promise.all(started.map(detailOf)) } };
   }
@@ -371,15 +485,23 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
   /** Change a rollout if nobody changed it in the meantime; the item after it, or null. */
   async function change(item, set) {
     const result = await aws.updateFleetItem({
-      pk: 'ROL', sk: item.id, rev: item.rev, set: { ...set, updatedAt: new Date(now()).toISOString() },
+      pk: 'ROL',
+      sk: item.id,
+      rev: item.rev,
+      set: { ...set, updatedAt: new Date(now()).toISOString() },
     });
     return result.ok ? result.item : null;
   }
 
   async function note(item, action, detail) {
     await audit.recordOnce({
-      at: now(), requestId: `rollout.${item.id}.${action === 'rollout.advance' ? 'waves' : 'stop'}`, actor: CONSOLE_ACTOR,
-      action, target: item.id, outcome: 'ok', detail: { version: item.version, ...detail },
+      at: now(),
+      requestId: `rollout.${item.id}.${action === 'rollout.advance' ? 'waves' : 'stop'}`,
+      actor: CONSOLE_ACTOR,
+      action,
+      target: item.id,
+      outcome: 'ok',
+      detail: { version: item.version, ...detail },
     });
   }
 
@@ -403,7 +525,10 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     if (typeof deployment !== 'string') return;
     const line = `Staged rollout ${item.id} of ${item.version}: ${String(text ?? '').replace(/[^\x20-\x7e]/g, '?')}`;
     await alert({
-      kind: 'deployment', deployment, version: item.version, at,
+      kind: 'deployment',
+      deployment,
+      version: item.version,
+      at,
       text: line.length > ALERT_TEXT_MAX ? `${line.slice(0, ALERT_TEXT_MAX - 3)}...` : line,
     });
   }
@@ -418,8 +543,11 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     if (job.reasonCode === 'RELEASE_REVOKED') return ['revoked'];
     const share = failureShare(executions);
     if (job.reasonCode === null && share.executed > 0 && share.percent >= item.abortPercent) {
-      return ['aborted', `${share.failed} of ${share.executed} finished boards failed, which reaches ` +
-        `${item.abortPercent}%: AWS IoT stopped the rest`];
+      return [
+        'aborted',
+        `${share.failed} of ${share.executed} finished boards failed, which reaches ` +
+          `${item.abortPercent}%: AWS IoT stopped the rest`,
+      ];
     }
     return ['cancelled_elsewhere'];
   }
@@ -434,7 +562,9 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       } catch {
         // The status says enough.
       }
-      words.push(`${thing} ${status.toLowerCase().replace('_', ' ')}${reason && /^[a-z_]{1,32}$/.test(reason) ? ` (${reason})` : ''}`);
+      words.push(
+        `${thing} ${status.toLowerCase().replace('_', ' ')}${reason && /^[a-z_]{1,32}$/.test(reason) ? ` (${reason})` : ''}`
+      );
     }
     return `The canary did not confirm the update: ${words.join(', ')}`;
   }
@@ -446,15 +576,20 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     if (release === null || release.status !== 'active') return stop(item, 'revoked');
     const rest = item.rest?.things ?? [];
     const loaded = (await fleet.boards({ only: rest })).map(({ board }) => board);
-    const gone = rest.filter((thing) => !loaded.some((board) => board.thing === thing))
+    const gone = rest
+      .filter((thing) => !loaded.some((board) => board.thing === thing))
       .map((thing) => ({ thing, reason: 'gone', text: 'No longer registered' }));
     const chosen = await computedBoards(loaded, release, {
-      leaveOutAway: item.purpose !== 'deploy', older: item.purpose === 'rollback',
+      leaveOutAway: item.purpose !== 'deploy',
+      older: item.purpose === 'rollback',
     });
     const leftOut = [...gone, ...chosen.leftOut];
     const startedAt = new Date(now()).toISOString();
     if (chosen.things.length === 0) return finish(item, { rest: { things: [], leftOut, job: null, startedAt: null } });
-    const claimed = await change(item, { stage: 'waves', rest: { things: chosen.things, leftOut, job: null, startedAt } });
+    const claimed = await change(item, {
+      stage: 'waves',
+      rest: { things: chosen.things, leftOut, job: null, startedAt },
+    });
     if (claimed === null) return 'raced';
 
     const { rollout: pace, abort } = rolloutConfigs(item);
@@ -463,18 +598,29 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
     let job;
     try {
       ({ id: job } = await deployments.launch({
-        release, things: chosen.things, description, actorSub: by.sub || 'rollout', rollout: pace, abort,
+        release,
+        things: chosen.things,
+        description,
+        actorSub: by.sub || 'rollout',
+        rollout: pace,
+        abort,
       }));
     } catch (error) {
       log({ level: 'error', event: 'waves_not_started', rollout: item.id, error: describeError(error) });
-      return stop(claimed, 'job_failed', `The waves could not be started: ${String(error?.message ?? 'see the log').slice(0, 160)}`);
+      return stop(
+        claimed,
+        'job_failed',
+        `The waves could not be started: ${String(error?.message ?? 'see the log').slice(0, 160)}`
+      );
     }
     const named = await change(claimed, { rest: { things: chosen.things, leftOut, job, startedAt } });
     await note(item, 'rollout.advance', { things: String(chosen.things.length), job });
     // Cancelled while the job was being made: then it goes too.
-    const after = named ?? await aws.getFleetItem({ pk: 'ROL', sk: item.id });
+    const after = named ?? (await aws.getFleetItem({ pk: 'ROL', sk: item.id }));
     if (after?.stage === 'cancelled') {
-      await aws.cancelJob({ jobId: job, force: true, reasonCode: 'CONSOLE_CANCEL', comment: 'rollout cancelled' }).catch(() => null);
+      await aws
+        .cancelJob({ jobId: job, force: true, reasonCode: 'CONSOLE_CANCEL', comment: 'rollout cancelled' })
+        .catch(() => null);
       if (named === null) await change(after, { rest: { ...after.rest, job } });
     }
     return 'advanced';
@@ -497,7 +643,8 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       if (verdict.state === 'failed') {
         // What has not started of a larger canary does not start either.
         if (job.status === 'IN_PROGRESS') {
-          await aws.cancelJob({ jobId: item.canary.job, force: false, reasonCode: 'CANARY_FAILED', comment: item.id })
+          await aws
+            .cancelJob({ jobId: item.canary.job, force: false, reasonCode: 'CANARY_FAILED', comment: item.id })
             .catch(() => null);
         }
         return stop(item, 'canary_failed', await canaryWords(item.canary.job, verdict.failed));
@@ -511,9 +658,11 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
         // The start of the waves was cut off before it named its job: look for it once it is late.
         if (now() - (Date.parse(item.rest.startedAt ?? '') || 0) < LOST_START_MS) return 'waiting';
         const open = await deployments.unfinishedOn(item.rest.things);
-        const found = [...new Set(open.map((entry) => entry.deployment))]
-          .filter((id) => parseJobId(id)?.version === item.version);
-        if (found.length === 1) return (await change(item, { rest: { ...item.rest, job: found[0] } })) ? 'advanced' : 'raced';
+        const found = [...new Set(open.map((entry) => entry.deployment))].filter(
+          (id) => parseJobId(id)?.version === item.version
+        );
+        if (found.length === 1)
+          return (await change(item, { rest: { ...item.rest, job: found[0] } })) ? 'advanced' : 'raced';
         return stop(item, 'job_failed');
       }
       const job = await aws.describeJob(item.rest.job);
@@ -563,10 +712,14 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       entry.target = version.text;
       entry.detail.version = version.text;
       const target = field(body, 'target');
-      const kind = target !== null && typeof target === 'object' && !Array.isArray(target) ? field(target, 'kind') : undefined;
+      const kind =
+        target !== null && typeof target === 'object' && !Array.isArray(target) ? field(target, 'kind') : undefined;
       if (!['boards', 'group', 'type', 'fleet'].includes(kind)) {
-        throw badRequest('invalid_target', '"target" is { kind: "boards", things }, { kind: "group", group }, ' +
-          '{ kind: "type", type } or { kind: "fleet" }.');
+        throw badRequest(
+          'invalid_target',
+          '"target" is { kind: "boards", things }, { kind: "group", group }, ' +
+            '{ kind: "type", type } or { kind: "fleet" }.'
+        );
       }
       entry.detail.kind = kind;
       const options = rolloutOptions(body);
@@ -583,7 +736,9 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
         let candidates = loaded;
         if (kind === 'group') {
           const id = requireGroupId(field(target, 'group'));
-          const group = (await fleet.groups(new Set(loaded.map((board) => board.thing)))).find((item) => item.id === id);
+          const group = (await fleet.groups(new Set(loaded.map((board) => board.thing)))).find(
+            (item) => item.id === id
+          );
           if (group === undefined) throw notFound('unknown_group', 'There is no group with that id.');
           entry.detail.group = id;
           stored = { kind, group: id, groupName: group.name };
@@ -591,8 +746,11 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
         } else if (kind === 'type') {
           const type = requireBoardType(field(target, 'type'));
           if (type !== release.board) {
-            throw new HttpError(400, 'incompatible_board', `Release ${release.version} is for the ${boardLabel(release.board)}, ` +
-              `not the ${boardLabel(type)}.`);
+            throw new HttpError(
+              400,
+              'incompatible_board',
+              `Release ${release.version} is for the ${boardLabel(release.board)}, ` + `not the ${boardLabel(type)}.`
+            );
           }
           stored = { kind, type };
           candidates = loaded.filter((board) => board.type === type);
@@ -603,7 +761,14 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       nameBoards(entry, 'boards', chosen.things);
       if (chosen.things.length === 0) throw nothingToDeploy(chosen.leftOut);
       const record = await start({
-        release, things: chosen.things, leftOut: chosen.leftOut, target: stored, purpose: 'deploy', options, actor, entry,
+        release,
+        things: chosen.things,
+        leftOut: chosen.leftOut,
+        target: stored,
+        purpose: 'deploy',
+        options,
+        actor,
+        entry,
       });
       entry.target = record.id;
       return { status: 201, body: { rollout: await detailOf(record) } };
@@ -617,17 +782,25 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       let item = await readItem(id);
       entry.detail.version = item.version;
       for (let attempt = 0; ; attempt += 1) {
-        if (!isOpenRollout(item)) throw conflict('already_finished', 'This rollout has already ended; there is nothing left to cancel.');
+        if (!isOpenRollout(item))
+          throw conflict('already_finished', 'This rollout has already ended; there is nothing left to cancel.');
         const at = new Date(now()).toISOString();
         const changed = await change(item, {
-          stage: 'cancelled', finishedAt: at,
-          stopped: { code: 'cancelled', text: `Cancelled by ${actor.email || 'a release manager'}`, at, by: actor.email },
+          stage: 'cancelled',
+          finishedAt: at,
+          stopped: {
+            code: 'cancelled',
+            text: `Cancelled by ${actor.email || 'a release manager'}`,
+            at,
+            by: actor.email,
+          },
         });
         if (changed !== null) {
           item = changed;
           break;
         }
-        if (attempt >= 2) throw conflict('rollout_changed', 'The rollout moved on while it was being cancelled. Try again.');
+        if (attempt >= 2)
+          throw conflict('rollout_changed', 'The rollout moved on while it was being cancelled. Try again.');
         item = await readItem(id);
       }
       const cancelled = [];
@@ -661,7 +834,12 @@ export function createRolloutHandlers({ aws, config, now, randomHex, log, alert 
       const group = await liveGroup(id);
       entry.detail.group = group.name;
       return startPlan({
-        body: json(), actor, entry, purpose: 'rollback', target: { kind: 'group', group: id, groupName: group.name }, group,
+        body: json(),
+        actor,
+        entry,
+        purpose: 'rollback',
+        target: { kind: 'group', group: id, groupName: group.name },
+        group,
       });
     },
   };

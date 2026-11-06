@@ -18,7 +18,13 @@ function setup(options = {}) {
   const manager = console_.addUser('manager', ['release-managers']);
   const viewer = console_.addUser('viewer', ['viewers']);
   const session = (user, { authTime = SIGNED_IN, client = console_.config.userPoolClientId, exp = 4102444800 } = {}) =>
-    accessClaims({ sub: user.sub, groups: user === viewer ? ['viewers'] : ['release-managers'], clientId: client, authTime, exp });
+    accessClaims({
+      sub: user.sub,
+      groups: user === viewer ? ['viewers'] : ['release-managers'],
+      clientId: client,
+      authTime,
+      exp,
+    });
   const signIns = () => console_.fake.auditLog().filter((entry) => entry.action === 'account.sign_in');
   const changes = () => console_.fake.auditLog().filter((entry) => entry.action !== 'account.sign_in');
   return { ...console_, manager, viewer, session, signIns, changes };
@@ -57,21 +63,29 @@ test('the first request of a sign-in records it, once, with who, when, and wheth
   await call('GET', '/api/me', { claims: session(manager, { authTime: SIGNED_IN + 3600 }) });
   await call('GET', '/api/me', { claims: session(manager, { client: config.mobileClientId }) });
   await call('GET', '/api/devices', { claims: session(viewer) });
-  assert.deepEqual(signIns().map((item) => [item.actor.email, item.detail.client, item.at]), [
-    [manager.email, 'phone', iso], [manager.email, 'web', iso], [viewer.email, 'web', iso],
-    [manager.email, 'web', new Date((SIGNED_IN + 3600) * 1000).toISOString()],
-  ].sort((a, b) => (a[2] === b[2] ? 0 : a[2] < b[2] ? -1 : 1)));
+  assert.deepEqual(
+    signIns().map((item) => [item.actor.email, item.detail.client, item.at]),
+    [
+      [manager.email, 'phone', iso],
+      [manager.email, 'web', iso],
+      [viewer.email, 'web', iso],
+      [manager.email, 'web', new Date((SIGNED_IN + 3600) * 1000).toISOString()],
+    ].sort((a, b) => (a[2] === b[2] ? 0 : a[2] < b[2] ? -1 : 1))
+  );
   // No address of the caller anywhere in it.
   assert.equal(JSON.stringify(fake.auditLog()).includes('127.0.0.1'), false);
 });
 
-test('a write records the sign-in too, after the change\'s own entry, and the GET of the log lists it', async () => {
+test("a write records the sign-in too, after the change's own entry, and the GET of the log lists it", async () => {
   const { call, manager, session, signIns, changes } = setup();
   const made = await call('POST', '/api/tokens', { claims: session(manager), body: { name: 'laptop' } });
   assert.equal(made.status, 201);
   assert.deepEqual([changes().length, signIns().length], [1, 1]);
   const listed = (await call('GET', '/api/audit', { claims: session(manager) })).body.entries;
-  assert.deepEqual(listed.map((entry) => entry.action), ['token.create', 'account.sign_in']);
+  assert.deepEqual(
+    listed.map((entry) => entry.action),
+    ['token.create', 'account.sign_in']
+  );
 });
 
 test('every instance makes the same entry, and the log keeps one: the others are refused, quietly', async () => {
@@ -83,17 +97,23 @@ test('every instance makes the same entry, and the log keeps one: the others are
   assert.equal(response.statusCode, 200);
   assert.equal(signIns().length, 1);
   assert.equal(fake.calls.filter((call_) => call_.method === 'putAudit').length, 2);
-  assert.equal(logs.some((line) => line.level === 'error' || line.event === 'sign_in_unrecorded'), false);
+  assert.equal(
+    logs.some((line) => line.level === 'error' || line.event === 'sign_in_unrecorded'),
+    false
+  );
   // And each instance puts once per sign-in: from then on it asks nobody.
   await other(apiEvent('GET', '/api/me', { claims: session(manager) }));
   await app(apiEvent('GET', '/api/devices', { claims: session(manager) }));
   assert.equal(fake.calls.filter((call_) => call_.method === 'putAudit').length, 2);
-  assert.equal(signInRequestId({ sub: manager.sub, client: 'web', authTime: SIGNED_IN }), `signin.${manager.sub}.web.${SIGNED_IN}`);
+  assert.equal(
+    signInRequestId({ sub: manager.sub, client: 'web', authTime: SIGNED_IN }),
+    `signin.${manager.sub}.web.${SIGNED_IN}`
+  );
   assert.equal(signInRequestId({ sub: manager.sub, client: 'web', authTime: 0 }), null);
   assert.equal(signInRequestId({ sub: 'x'.repeat(128), client: 'web', authTime: SIGNED_IN }), null);
 });
 
-test('no sign-in without auth_time, for an API token, for a script\'s request, or for an account the live check refuses', async () => {
+test("no sign-in without auth_time, for an API token, for a script's request, or for an account the live check refuses", async () => {
   const { call, fake, manager, viewer, session, signIns, addUser } = setup();
   // A token without the claim.
   await call('GET', '/api/me', { as: manager });
@@ -108,15 +128,24 @@ test('no sign-in without auth_time, for an API token, for a script\'s request, o
   assert.deepEqual(signIns(), []);
   // An account that is disabled, or in neither group by now, is refused before it is a sign-in.
   const gone = addUser('gone', ['viewers'], { enabled: false });
-  assert.equal((await call('GET', '/api/me', { claims: { ...gone.claims, auth_time: String(SIGNED_IN) } })).status, 403);
+  assert.equal(
+    (await call('GET', '/api/me', { claims: { ...gone.claims, auth_time: String(SIGNED_IN) } })).status,
+    403
+  );
   const outsider = addUser('outsider', []);
   const outsiderClaims = accessClaims({ sub: outsider.sub, groups: [], authTime: SIGNED_IN });
   assert.equal((await call('GET', '/api/me', { claims: outsiderClaims })).status, 403);
   // A viewer's refused write is not one either; the viewer's next read is.
-  assert.equal((await call('POST', '/api/serial/commands', { claims: session(viewer), body: { command: 'WIFI' } })).status, 403);
+  assert.equal(
+    (await call('POST', '/api/serial/commands', { claims: session(viewer), body: { command: 'WIFI' } })).status,
+    403
+  );
   assert.deepEqual(signIns(), []);
   assert.equal((await call('GET', '/api/me', { claims: session(viewer) })).status, 200);
-  assert.deepEqual(signIns().map((entry) => entry.actor.sub), [viewer.sub]);
+  assert.deepEqual(
+    signIns().map((entry) => entry.actor.sub),
+    [viewer.sub]
+  );
   assert.ok(fake.auditLog().length > 1);
 });
 
@@ -137,7 +166,11 @@ test('a sign-in that cannot be recorded never fails or changes the request, and 
   assert.deepEqual(signIns(), []);
   assert.equal(logs.filter((line) => line.event === 'sign_in_unrecorded').length, 1);
   // The change made in the same breath is on record as usual.
-  assert.equal((await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'MQTT_RECONNECT' } })).status, 201);
+  assert.equal(
+    (await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'MQTT_RECONNECT' } }))
+      .status,
+    201
+  );
   assert.equal(signIns().length, 1);
 });
 
@@ -157,18 +190,24 @@ test('a sign-in whose write hangs is given up after its time, and the answer goe
 
 // Commands at a board's serial console.
 
-test('a release manager\'s command at the serial console is on record: which, on which board and firmware, never a value', async () => {
+test("a release manager's command at the serial console is on record: which, on which board and firmware, never a value", async () => {
   const { call, manager, session, changes } = setup();
   const posted = await call('POST', '/api/serial/commands', {
-    claims: session(manager), body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' },
+    claims: session(manager),
+    body: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' },
   });
   assert.equal(posted.status, 201, JSON.stringify(posted.body));
   assert.deepEqual(posted.body, { recorded: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } });
   const entry = changes().at(-1);
-  assert.deepEqual([entry.action, entry.outcome, entry.target, entry.detail, entry.actor.email],
-    ['serial.command', 'ok', 'CRVIHAAN01', { command: 'WIFI', version: '1.12.0+0' }, manager.email]);
+  assert.deepEqual(
+    [entry.action, entry.outcome, entry.target, entry.detail, entry.actor.email],
+    ['serial.command', 'ok', 'CRVIHAAN01', { command: 'WIFI', version: '1.12.0+0' }, manager.email]
+  );
   // A board in factory mode has no ID yet, and its firmware may not be known.
-  assert.equal((await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'INIT' } })).status, 201);
+  assert.equal(
+    (await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'INIT' } })).status,
+    201
+  );
   assert.deepEqual([changes().at(-1).target, changes().at(-1).detail], ['', { command: 'INIT' }]);
   assert.ok(SERIAL_COMMANDS.includes('FACTORY_RESET') && SERIAL_COMMANDS.includes('ENTER_BOOTLOADER'));
 });
@@ -179,7 +218,12 @@ test('a post with a value in it, or with what is not a command, a device ID or a
     const before = changes().length;
     const answer = await call('POST', '/api/serial/commands', { claims: session(manager), body });
     assert.deepEqual([answer.status, answer.body.error?.code], [400, code], JSON.stringify(body));
-    assert.deepEqual(changes().slice(before).map((entry) => [entry.outcome, entry.detail.code]), [['rejected', code]]);
+    assert.deepEqual(
+      changes()
+        .slice(before)
+        .map((entry) => [entry.outcome, entry.detail.code]),
+      [['rejected', code]]
+    );
   };
   await refused({ command: 'WIFI', ssid: 'HomeNet', password: 'hunter2222' }, 'unexpected_field');
   await refused({ command: 'WIFI|HomeNet|hunter2222' }, 'invalid_command');
@@ -202,11 +246,17 @@ test('only a release manager may post one, now; from the phone it needs no fresh
   assert.deepEqual([changes().at(-1).outcome, changes().at(-1).actor.sub], ['denied', viewer.sub]);
   // A token that still says release manager, of an account that is not one any more.
   fake.user(manager.sub).setGroups(['viewers']);
-  assert.equal((await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'REBOOT' } })).status, 403);
+  assert.equal(
+    (await call('POST', '/api/serial/commands', { claims: session(manager), body: { command: 'REBOOT' } })).status,
+    403
+  );
   fake.user(manager.sub).setGroups(['release-managers']);
   // Signed in on the phone two hours ago: a deployment would ask for a sign-in, this does not.
   const old = session(manager, { client: config.mobileClientId, authTime: SIGNED_IN - 7200 });
-  const phone = await call('POST', '/api/serial/commands', { claims: old, body: { command: 'CLEAR_WIFI', device: 'CRVIHAAN01' } });
+  const phone = await call('POST', '/api/serial/commands', {
+    claims: old,
+    body: { command: 'CLEAR_WIFI', device: 'CRVIHAAN01' },
+  });
   assert.equal(phone.status, 201);
   assert.equal(changes().at(-1).detail.from, 'phone');
   const { token } = (await call('POST', '/api/tokens', { as: manager, body: { name: 'provisioning' } })).body;

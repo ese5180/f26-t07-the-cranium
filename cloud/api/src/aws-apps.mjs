@@ -62,7 +62,11 @@
  */
 
 import {
-  DynamoDBClient, GetItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand,
+  DynamoDBClient,
+  GetItemCommand,
+  QueryCommand,
+  TransactWriteItemsCommand,
+  UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
@@ -81,8 +85,15 @@ const PLATFORMS = APP_PLATFORMS;
 const MAX_RANGE = 8 * 1024 * 1024 + 65_557;
 
 const THROTTLING = new Set([
-  'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException', 'RequestLimitExceeded',
-  'ProvisionedThroughputExceededException', 'RequestThrottled', 'RequestThrottledException', 'SlowDown',
+  'ThrottlingException',
+  'Throttling',
+  'ThrottledException',
+  'TooManyRequestsException',
+  'RequestLimitExceeded',
+  'ProvisionedThroughputExceededException',
+  'RequestThrottled',
+  'RequestThrottledException',
+  'SlowDown',
 ]);
 
 function nameOf(cause) {
@@ -97,8 +108,11 @@ function statusOf(cause) {
 function failure(operation, cause, code) {
   const error = new Error(`${operation}: ${nameOf(cause)}: ${String(cause?.message ?? cause).slice(0, 300)}`);
   error.name = 'AwsError';
-  error.code = code ?? (THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
-    ? 'throttled' : 'failed');
+  error.code =
+    code ??
+    (THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
+      ? 'throttled'
+      : 'failed');
   error.operation = operation;
   error.awsError = nameOf(cause);
   error.awsStatus = statusOf(cause);
@@ -175,16 +189,25 @@ export function createAppsAws(env) {
   function credentials(operation) {
     const accessKeyId = env.AWS_ACCESS_KEY_ID;
     const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
-    if (typeof accessKeyId !== 'string' || accessKeyId === '' || typeof secretAccessKey !== 'string' || secretAccessKey === '') {
+    if (
+      typeof accessKeyId !== 'string' ||
+      accessKeyId === '' ||
+      typeof secretAccessKey !== 'string' ||
+      secretAccessKey === ''
+    ) {
       throw failure(operation, new Error('the function has no credentials to sign with'), 'failed');
     }
     return { accessKeyId, secretAccessKey, sessionToken: env.AWS_SESSION_TOKEN };
   }
 
   async function highest(platform) {
-    const out = await dynamo.send(new GetItemCommand({
-      TableName: stateTable, Key: pointerKey(platform), ConsistentRead: true,
-    }));
+    const out = await dynamo.send(
+      new GetItemCommand({
+        TableName: stateTable,
+        Key: pointerKey(platform),
+        ConsistentRead: true,
+      })
+    );
     const sk = out.Item?.highest?.S;
     const code = Number(out.Item?.versionCode?.N);
     return typeof sk === 'string' ? { sk, versionCode: Number.isInteger(code) ? code : 0 } : null;
@@ -197,15 +220,17 @@ export function createAppsAws(env) {
       let start;
       try {
         for (let pages = 0; pages < MAX_PAGES; pages += 1) {
-          const out = await dynamo.send(new QueryCommand({
-            TableName: stateTable,
-            KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :platform)',
-            ExpressionAttributeNames: { '#pk': 'pk', '#sk': 'sk' },
-            ExpressionAttributeValues: { ':pk': { S: APP_PK }, ':platform': { S: `${platform}#` } },
-            ScanIndexForward: false,
-            ConsistentRead: true,
-            ExclusiveStartKey: start,
-          }));
+          const out = await dynamo.send(
+            new QueryCommand({
+              TableName: stateTable,
+              KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :platform)',
+              ExpressionAttributeNames: { '#pk': 'pk', '#sk': 'sk' },
+              ExpressionAttributeValues: { ':pk': { S: APP_PK }, ':platform': { S: `${platform}#` } },
+              ScanIndexForward: false,
+              ConsistentRead: true,
+              ExclusiveStartKey: start,
+            })
+          );
           for (const item of out.Items ?? []) items.push(fromItem(item));
           if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
           start = out.LastEvaluatedKey;
@@ -218,9 +243,13 @@ export function createAppsAws(env) {
 
     async getAppRelease(sk) {
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: APP_PK }, sk: { S: sk } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: APP_PK }, sk: { S: sk } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -240,29 +269,31 @@ export function createAppsAws(env) {
       const platform = sk.slice(0, sk.indexOf('#'));
       const key = pointerKey(platform);
       try {
-        await dynamo.send(new TransactWriteItemsCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: stateTable,
-                Item: toItem({ ...release, pk: APP_PK, sk }),
-                ConditionExpression: 'attribute_not_exists(#pk)',
-                ExpressionAttributeNames: { '#pk': 'pk' },
+        await dynamo.send(
+          new TransactWriteItemsCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: stateTable,
+                  Item: toItem({ ...release, pk: APP_PK, sk }),
+                  ConditionExpression: 'attribute_not_exists(#pk)',
+                  ExpressionAttributeNames: { '#pk': 'pk' },
+                },
               },
-            },
-            {
-              Update: {
-                TableName: stateTable,
-                Key: key,
-                UpdateExpression: 'SET #highest = :sk, #code = :code',
-                ConditionExpression: 'attribute_not_exists(#highest) OR (#highest < :sk AND #code < :code)',
-                ExpressionAttributeNames: { '#highest': 'highest', '#code': 'versionCode' },
-                ExpressionAttributeValues: { ':sk': { S: sk }, ':code': { N: String(versionCode) } },
-                ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+              {
+                Update: {
+                  TableName: stateTable,
+                  Key: key,
+                  UpdateExpression: 'SET #highest = :sk, #code = :code',
+                  ConditionExpression: 'attribute_not_exists(#highest) OR (#highest < :sk AND #code < :code)',
+                  ExpressionAttributeNames: { '#highest': 'highest', '#code': 'versionCode' },
+                  ExpressionAttributeValues: { ':sk': { S: sk }, ':code': { N: String(versionCode) } },
+                  ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+                },
               },
-            },
-          ],
-        }));
+            ],
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) !== 'TransactionCanceledException') throw failure('TransactWriteItems', cause);
@@ -270,9 +301,10 @@ export function createAppsAws(env) {
         const [put, pointer] = reasons;
         if (put?.Code === 'ConditionalCheckFailed') return { ok: false, reason: 'exists' };
         if (pointer?.Code === 'ConditionalCheckFailed') {
-          let top = typeof pointer.Item?.highest?.S === 'string'
-            ? { sk: pointer.Item.highest.S, versionCode: Number(pointer.Item.versionCode?.N ?? 0) }
-            : null;
+          let top =
+            typeof pointer.Item?.highest?.S === 'string'
+              ? { sk: pointer.Item.highest.S, versionCode: Number(pointer.Item.versionCode?.N ?? 0) }
+              : null;
           if (top === null) {
             try {
               top = await highest(platform);
@@ -283,8 +315,9 @@ export function createAppsAws(env) {
           return { ok: false, reason: 'not_newer', highest: top?.sk ?? null, versionCode: top?.versionCode ?? null };
         }
         if (reasons.some((reason) => reason?.Code === 'TransactionConflict')) return { ok: false, reason: 'conflict' };
-        const throttled = reasons.some((reason) =>
-          reason?.Code === 'ThrottlingError' || reason?.Code === 'ProvisionedThroughputExceeded');
+        const throttled = reasons.some(
+          (reason) => reason?.Code === 'ThrottlingError' || reason?.Code === 'ProvisionedThroughputExceeded'
+        );
         throw failure('TransactWriteItems', cause, throttled ? 'throttled' : 'failed');
       }
     },
@@ -303,14 +336,22 @@ export function createAppsAws(env) {
         sha256Base64: typeof out.ChecksumSHA256 === 'string' ? out.ChecksumSHA256 : null,
         checksumType: typeof out.ChecksumType === 'string' ? out.ChecksumType : null,
         // "null" is what S3 calls the version of an object stored while versioning was off.
-        versionId: typeof out.VersionId === 'string' && out.VersionId !== '' && out.VersionId !== 'null' ? out.VersionId : null,
+        versionId:
+          typeof out.VersionId === 'string' && out.VersionId !== '' && out.VersionId !== 'null' ? out.VersionId : null,
       };
     },
 
     async presignAppUpload({ key, size, sha256Base64, expiresIn }) {
       const headers = { 'content-length': String(size), 'x-amz-checksum-sha256': sha256Base64 };
       const signed = presignUrl({
-        method: 'PUT', host, key, region, credentials: credentials('PresignPutObject'), at: Date.now(), expiresIn, headers,
+        method: 'PUT',
+        host,
+        key,
+        region,
+        credentials: credentials('PresignPutObject'),
+        at: Date.now(),
+        expiresIn,
+        headers,
       });
       return { url: signed.url, headers, expiresAt: signed.expiresAt };
     },
@@ -334,13 +375,24 @@ export function createAppsAws(env) {
     },
 
     async readAppObject({ key, versionId, start, end }) {
-      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end - start + 1 > MAX_RANGE) {
+      if (
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        start < 0 ||
+        end < start ||
+        end - start + 1 > MAX_RANGE
+      ) {
         throw new TypeError('Not a range the console reads');
       }
       try {
-        const out = await s3.send(new GetObjectCommand({
-          Bucket: bucket, Key: key, VersionId: versionId, Range: `bytes=${start}-${end}`,
-        }));
+        const out = await s3.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            VersionId: versionId,
+            Range: `bytes=${start}-${end}`,
+          })
+        );
         return Buffer.from(await out.Body.transformToByteArray());
       } catch (cause) {
         throw failure('GetObject', cause);
@@ -349,9 +401,13 @@ export function createAppsAws(env) {
 
     async getSourceOwner(sub) {
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -360,9 +416,13 @@ export function createAppsAws(env) {
 
     async getSourceKey(digest) {
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -375,8 +435,15 @@ export function createAppsAws(env) {
           Put: {
             TableName: stateTable,
             Item: toItem({
-              pk: SOURCE_PK, sk: sourceKeySk(key.digest), id: key.id, ownerSub: sub, createdAt: key.createdAt,
-              revokedAt: null, window: 0, uses: 0, lastUsedAt: null,
+              pk: SOURCE_PK,
+              sk: sourceKeySk(key.digest),
+              id: key.id,
+              ownerSub: sub,
+              createdAt: key.createdAt,
+              revokedAt: null,
+              window: 0,
+              uses: 0,
+              lastUsedAt: null,
             }),
             ConditionExpression: 'attribute_not_exists(#pk)',
             ExpressionAttributeNames: { '#pk': 'pk' },
@@ -386,18 +453,24 @@ export function createAppsAws(env) {
           Put: {
             TableName: stateTable,
             Item: toItem({
-              pk: SOURCE_PK, sk: sourceOwnerSk(sub), digest: key.digest, id: key.id, createdAt: key.createdAt, revokedAt: null,
+              pk: SOURCE_PK,
+              sk: sourceOwnerSk(sub),
+              digest: key.digest,
+              id: key.id,
+              createdAt: key.createdAt,
+              revokedAt: null,
             }),
             // Only over what the handler saw: the key it is replacing, or none that counts.
-            ConditionExpression: previous === null
-              ? 'attribute_not_exists(#pk) OR NOT attribute_type(#revokedAt, :null)'
-              : '#digest = :previous AND attribute_type(#revokedAt, :null)',
-            ExpressionAttributeNames: previous === null
-              ? { '#pk': 'pk', '#revokedAt': 'revokedAt' }
-              : { '#digest': 'digest', '#revokedAt': 'revokedAt' },
-            ExpressionAttributeValues: previous === null
-              ? { ':null': { S: 'NULL' } }
-              : { ':previous': { S: previous }, ':null': { S: 'NULL' } },
+            ConditionExpression:
+              previous === null
+                ? 'attribute_not_exists(#pk) OR NOT attribute_type(#revokedAt, :null)'
+                : '#digest = :previous AND attribute_type(#revokedAt, :null)',
+            ExpressionAttributeNames:
+              previous === null
+                ? { '#pk': 'pk', '#revokedAt': 'revokedAt' }
+                : { '#digest': 'digest', '#revokedAt': 'revokedAt' },
+            ExpressionAttributeValues:
+              previous === null ? { ':null': { S: 'NULL' } } : { ':previous': { S: previous }, ':null': { S: 'NULL' } },
           },
         },
       ];
@@ -425,30 +498,32 @@ export function createAppsAws(env) {
     async revokeSourceKey({ sub, digest, at }) {
       const values = { ':null': { S: 'NULL' }, ':at': { S: at } };
       try {
-        await dynamo.send(new TransactWriteItemsCommand({
-          TransactItems: [
-            {
-              Update: {
-                TableName: stateTable,
-                Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } },
-                UpdateExpression: 'SET #revokedAt = :at',
-                ConditionExpression: '#digest = :digest AND attribute_type(#revokedAt, :null)',
-                ExpressionAttributeNames: { '#digest': 'digest', '#revokedAt': 'revokedAt' },
-                ExpressionAttributeValues: { ...values, ':digest': { S: digest } },
+        await dynamo.send(
+          new TransactWriteItemsCommand({
+            TransactItems: [
+              {
+                Update: {
+                  TableName: stateTable,
+                  Key: { pk: { S: SOURCE_PK }, sk: { S: sourceOwnerSk(sub) } },
+                  UpdateExpression: 'SET #revokedAt = :at',
+                  ConditionExpression: '#digest = :digest AND attribute_type(#revokedAt, :null)',
+                  ExpressionAttributeNames: { '#digest': 'digest', '#revokedAt': 'revokedAt' },
+                  ExpressionAttributeValues: { ...values, ':digest': { S: digest } },
+                },
               },
-            },
-            {
-              Update: {
-                TableName: stateTable,
-                Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } },
-                UpdateExpression: 'SET #revokedAt = :at',
-                ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
-                ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
-                ExpressionAttributeValues: { ...values, ':owner': { S: sub } },
+              {
+                Update: {
+                  TableName: stateTable,
+                  Key: { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } },
+                  UpdateExpression: 'SET #revokedAt = :at',
+                  ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+                  ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+                  ExpressionAttributeValues: { ...values, ':owner': { S: sub } },
+                },
               },
-            },
-          ],
-        }));
+            ],
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'TransactionCanceledException') return { ok: false, reason: 'not_active' };
@@ -458,22 +533,31 @@ export function createAppsAws(env) {
 
     async useSourceKey({ digest, window, max, at }) {
       const key = { pk: { S: SOURCE_PK }, sk: { S: sourceKeySk(digest) } };
-      const names = { '#pk': 'pk', '#revokedAt': 'revokedAt', '#window': 'window', '#uses': 'uses', '#last': 'lastUsedAt' };
+      const names = {
+        '#pk': 'pk',
+        '#revokedAt': 'revokedAt',
+        '#window': 'window',
+        '#uses': 'uses',
+        '#last': 'lastUsedAt',
+      };
       const values = { ':null': { S: 'NULL' }, ':w': { N: String(window) }, ':one': { N: '1' }, ':at': { S: at } };
       // One more use in this minute, or else the first of a new minute. Two requests that meet at the
       // turn of a minute may each find the other's change: then the first step is tried again.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const out = await dynamo.send(new UpdateItemCommand({
-            TableName: stateTable,
-            Key: key,
-            UpdateExpression: 'SET #uses = #uses + :one, #last = :at',
-            ConditionExpression: 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window = :w AND #uses < :max',
-            ExpressionAttributeNames: names,
-            ExpressionAttributeValues: { ...values, ':max': { N: String(max) } },
-            ReturnValues: 'ALL_NEW',
-            ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
-          }));
+          const out = await dynamo.send(
+            new UpdateItemCommand({
+              TableName: stateTable,
+              Key: key,
+              UpdateExpression: 'SET #uses = #uses + :one, #last = :at',
+              ConditionExpression:
+                'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window = :w AND #uses < :max',
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: { ...values, ':max': { N: String(max) } },
+              ReturnValues: 'ALL_NEW',
+              ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+            })
+          );
           return { ok: true, key: fromItem(out.Attributes) };
         } catch (cause) {
           if (nameOf(cause) !== 'ConditionalCheckFailedException') throw failure('UpdateItem', cause);
@@ -483,15 +567,17 @@ export function createAppsAws(env) {
           if (!(old.window < window)) return { ok: false, reason: 'limit' };
         }
         try {
-          const out = await dynamo.send(new UpdateItemCommand({
-            TableName: stateTable,
-            Key: key,
-            UpdateExpression: 'SET #window = :w, #uses = :one, #last = :at',
-            ConditionExpression: 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window < :w',
-            ExpressionAttributeNames: names,
-            ExpressionAttributeValues: values,
-            ReturnValues: 'ALL_NEW',
-          }));
+          const out = await dynamo.send(
+            new UpdateItemCommand({
+              TableName: stateTable,
+              Key: key,
+              UpdateExpression: 'SET #window = :w, #uses = :one, #last = :at',
+              ConditionExpression: 'attribute_exists(#pk) AND attribute_type(#revokedAt, :null) AND #window < :w',
+              ExpressionAttributeNames: names,
+              ExpressionAttributeValues: values,
+              ReturnValues: 'ALL_NEW',
+            })
+          );
           return { ok: true, key: fromItem(out.Attributes) };
         } catch (cause) {
           if (nameOf(cause) !== 'ConditionalCheckFailedException') throw failure('UpdateItem', cause);

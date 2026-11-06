@@ -13,9 +13,7 @@
  * No dependencies but core.js.
  */
 
-import {
-  ApiError, cognitoCall, parseVersion, plural, signalQuality, timeAgo,
-} from './core.js';
+import { ApiError, cognitoCall, parseVersion, plural, signalQuality, timeAgo } from './core.js';
 
 // Settings.
 
@@ -27,8 +25,12 @@ const HOME = /^https?:\/\/[^/?#\s]+\/$/;
 function pool(value) {
   if (value === null || typeof value !== 'object') return null;
   const { clientId, userPoolId } = value;
-  return typeof clientId === 'string' && CLIENT_ID.test(clientId) && typeof userPoolId === 'string' &&
-    USER_POOL_ID.test(userPoolId) ? { clientId, userPoolId } : null;
+  return typeof clientId === 'string' &&
+    CLIENT_ID.test(clientId) &&
+    typeof userPoolId === 'string' &&
+    USER_POOL_ID.test(userPoolId)
+    ? { clientId, userPoolId }
+    : null;
 }
 
 /** The settings the server put in the page, or null if they are unusable. */
@@ -87,12 +89,15 @@ export const MIXES_EYEBROW = 'Your mixes, remembered';
 export const MIXES_TITLE = 'Find your next great mix.';
 export const MIXES_LEDE = 'A home for the tracks, the transitions and the happy accidents of every set.';
 export const NOT_BUILT = 'Not built yet';
-export const WHY_EMPTY = 'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +
+export const WHY_EMPTY =
+  'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +
   'plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime.';
-export const MIXES_NOTE = 'When it is built, only what you played is kept: track names and times, never the music itself.';
+export const MIXES_NOTE =
+  'When it is built, only what you played is kept: track names and times, never the music itself.';
 export const TEASER_TITLE = 'Good mixes happen. Great ones get remembered.';
 export const TEASER_EYEBROW = 'After the last track';
-export const TEASER_TEXT = 'Your sessions, your transitions and the tracks you keep coming back to will live here, once your board ' +
+export const TEASER_TEXT =
+  'Your sessions, your transitions and the tracks you keep coming back to will live here, once your board ' +
   'can tell this site what you played. That part is not built yet.';
 export const TEASER_MORE = 'What is coming';
 // The Overview's part about the boards, and the foot of every page.
@@ -133,7 +138,15 @@ export function routeHash(route) {
 
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 const STATUSES = Object.freeze(['online', 'updating', 'restarting', 'offline', 'new']);
-const UPDATE_STATES = Object.freeze(['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth']);
+const UPDATE_STATES = Object.freeze([
+  'idle',
+  'awaiting_user',
+  'downloading',
+  'verifying',
+  'rebooting',
+  'testing',
+  'bluetooth',
+]);
 const RESULTS = Object.freeze(['none', 'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled']);
 const KINDS = Object.freeze(['connection', 'firmware', 'update', 'restart', 'bluetooth']);
 const WHAT = /^[a-z][a-z_]{0,23}$/;
@@ -155,15 +168,18 @@ function unreadable() {
 export function readBoard(raw) {
   if (raw === null || typeof raw !== 'object' || typeof raw.id !== 'string' || !BOARD_ID.test(raw.id)) return null;
   if (!STATUSES.includes(raw.status)) return null;
-  const firmware = raw.firmware && version(raw.firmware.version)
-    ? { version: raw.firmware.version, confirmed: raw.firmware.confirmed === true } : null;
-  const update = raw.update && UPDATE_STATES.includes(raw.update.state)
-    ? {
-      state: raw.update.state,
-      progress: whole(raw.update.progress, 0, 100) ?? 0,
-      last: RESULTS.includes(raw.update.last) ? raw.update.last : 'none',
-    }
-    : null;
+  const firmware =
+    raw.firmware && version(raw.firmware.version)
+      ? { version: raw.firmware.version, confirmed: raw.firmware.confirmed === true }
+      : null;
+  const update =
+    raw.update && UPDATE_STATES.includes(raw.update.state)
+      ? {
+          state: raw.update.state,
+          progress: whole(raw.update.progress, 0, 100) ?? 0,
+          last: RESULTS.includes(raw.update.last) ? raw.update.last : 'none',
+        }
+      : null;
   return {
     id: raw.id,
     name: label(raw.name) || null,
@@ -184,7 +200,13 @@ export function readBoard(raw) {
 /** One event of a board, or null if it is not one. */
 export function readEvent(raw) {
   if (raw === null || typeof raw !== 'object' || !instant(raw.at) || !KINDS.includes(raw.kind)) return null;
-  if (typeof raw.what !== 'string' || !WHAT.test(raw.what) || typeof raw.board !== 'string' || !BOARD_ID.test(raw.board)) return null;
+  if (
+    typeof raw.what !== 'string' ||
+    !WHAT.test(raw.what) ||
+    typeof raw.board !== 'string' ||
+    !BOARD_ID.test(raw.board)
+  )
+    return null;
   const event = { at: raw.at, board: raw.board, kind: raw.kind, what: raw.what };
   for (const field of ['version', 'from', 'to']) if (version(raw[field])) event[field] = raw[field];
   if (typeof raw.confirmed === 'boolean') event.confirmed = raw.confirmed;
@@ -368,7 +390,12 @@ export function createAccount({ fetch, site, accessToken }) {
         return typeof found === 'string' ? found : '';
       };
       const methods = Array.isArray(answer.reply.UserMFASettingList) ? answer.reply.UserMFASettingList : [];
-      return { ok: true, email: value('email').slice(0, 320), name: label(value('name')), authenticator: methods.includes('SOFTWARE_TOKEN_MFA') };
+      return {
+        ok: true,
+        email: value('email').slice(0, 320),
+        name: label(value('name')),
+        authenticator: methods.includes('SOFTWARE_TOKEN_MFA'),
+      };
     },
 
     async changePassword(current, next) {
@@ -388,19 +415,31 @@ export function createAccount({ fetch, site, accessToken }) {
     /** The first code from the new authenticator: once it is right, sign-in asks for a code. */
     async confirmAuthenticator(code) {
       if (!/^\d{6}$/.test(code ?? '')) return { ok: false, problem: 'short-code' };
-      const verified = await withToken('VerifySoftwareToken', { UserCode: code, FriendlyDeviceName: 'Cranium' }, 'authenticator');
+      const verified = await withToken(
+        'VerifySoftwareToken',
+        { UserCode: code, FriendlyDeviceName: 'Cranium' },
+        'authenticator'
+      );
       if (!verified.ok) return verified;
       if (verified.reply.Status !== 'SUCCESS') return { ok: false, problem: 'wrong-code' };
-      const set = await withToken('SetUserMFAPreference', {
-        SoftwareTokenMfaSettings: { Enabled: true, PreferredMfa: true },
-      }, 'authenticator');
+      const set = await withToken(
+        'SetUserMFAPreference',
+        {
+          SoftwareTokenMfaSettings: { Enabled: true, PreferredMfa: true },
+        },
+        'authenticator'
+      );
       return set.ok ? { ok: true } : set;
     },
 
     async stopAuthenticator() {
-      const answer = await withToken('SetUserMFAPreference', {
-        SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false },
-      }, 'authenticator');
+      const answer = await withToken(
+        'SetUserMFAPreference',
+        {
+          SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false },
+        },
+        'authenticator'
+      );
       return answer.ok ? { ok: true } : answer;
     },
 
@@ -409,7 +448,9 @@ export function createAccount({ fetch, site, accessToken }) {
      * whether or not the address has an account: the page says the same either way.
      */
     async forgotPassword(email) {
-      const username = String(email ?? '').trim().toLowerCase();
+      const username = String(email ?? '')
+        .trim()
+        .toLowerCase();
       if (username === '') return { ok: false, problem: 'missing-email' };
       const answer = await ask('ForgotPassword', { ClientId: site.customer.clientId, Username: username });
       return answer.reply ? { ok: true } : failed(answer, 'forgot');
@@ -419,7 +460,9 @@ export function createAccount({ fetch, site, accessToken }) {
       if (!/^\d{6}$/.test(code ?? '')) return { ok: false, problem: 'short-code' };
       const answer = await ask('ConfirmForgotPassword', {
         ClientId: site.customer.clientId,
-        Username: String(email ?? '').trim().toLowerCase(),
+        Username: String(email ?? '')
+          .trim()
+          .toLowerCase(),
         ConfirmationCode: code,
         Password: password,
       });
@@ -454,13 +497,16 @@ const STATUS_WORDS = Object.freeze({
 export function statusWords(board, nowMs) {
   const words = STATUS_WORDS[board.status] ?? STATUS_WORDS.offline;
   const seen = board.lastSeen ? timeAgo(board.lastSeen, nowMs) : '';
-  const text = {
-    online: 'Connected, and reporting every 30 seconds.',
-    updating: 'Installing an update that Cranium sent.',
-    restarting: 'Restarting to finish an update. This takes a few minutes.',
-    offline: seen ? `Last heard from ${seen}. It reports again once it is on and on Wi-Fi.` : 'Not heard from lately.',
-    new: 'It has not reported yet. Switch it on and connect it to Wi-Fi.',
-  }[board.status] ?? '';
+  const text =
+    {
+      online: 'Connected, and reporting every 30 seconds.',
+      updating: 'Installing an update that Cranium sent.',
+      restarting: 'Restarting to finish an update. This takes a few minutes.',
+      offline: seen
+        ? `Last heard from ${seen}. It reports again once it is on and on Wi-Fi.`
+        : 'Not heard from lately.',
+      new: 'It has not reported yet. Switch it on and connect it to Wi-Fi.',
+    }[board.status] ?? '';
   return { ...words, text };
 }
 
@@ -482,15 +528,17 @@ export function updateWords(board) {
     case 'bluetooth':
       return 'Its Bluetooth window is open, for an update from a phone.';
     default:
-      return {
-        succeeded: 'The last update finished.',
-        failed: 'The last update did not finish, and the board kept the firmware it had.',
-        rolled_back: 'The last update did not stick, so the board went back to the firmware it had before.',
-        declined: 'The last update was declined at the board.',
-        refused: 'The board turned the last update down.',
-        cancelled: 'The last update was called off before it was installed.',
-        none: 'No update has run on it yet.',
-      }[update.last] ?? null;
+      return (
+        {
+          succeeded: 'The last update finished.',
+          failed: 'The last update did not finish, and the board kept the firmware it had.',
+          rolled_back: 'The last update did not stick, so the board went back to the firmware it had before.',
+          declined: 'The last update was declined at the board.',
+          refused: 'The board turned the last update down.',
+          cancelled: 'The last update was called off before it was installed.',
+          none: 'No update has run on it yet.',
+        }[update.last] ?? null
+      );
   }
 }
 
@@ -502,7 +550,10 @@ export function signalWords(rssi) {
 /** How the boards stand, for the overview's figures. */
 export function summarize(boards) {
   const versions = [...new Set(boards.map((board) => board.firmware?.version).filter(Boolean))];
-  const seen = boards.map((board) => board.lastSeen).filter(Boolean).sort();
+  const seen = boards
+    .map((board) => board.lastSeen)
+    .filter(Boolean)
+    .sort();
   return {
     total: boards.length,
     online: boards.filter((board) => board.online).length,
@@ -542,11 +593,15 @@ export function eventWords(event) {
     case 'firmware changed':
       return {
         icon: 'package',
-        text: `${event.from ? `Firmware went from ${shortVersion(event.from)} to ${v}` : `Firmware is now ${v}`}` +
+        text:
+          `${event.from ? `Firmware went from ${shortVersion(event.from)} to ${v}` : `Firmware is now ${v}`}` +
           `${event.confirmed === false ? ', on trial' : ''}`,
       };
     case 'firmware confirmed':
-      return { icon: 'check', text: v ? `Kept firmware ${v} after its trial` : 'Kept its new firmware after its trial' };
+      return {
+        icon: 'check',
+        text: v ? `Kept firmware ${v} after its trial` : 'Kept its new firmware after its trial',
+      };
     case 'update step':
       return event.state === 'awaiting_user'
         ? { icon: 'press', text: v ? `Update to ${v} waits for Button 1` : 'An update waits for Button 1' }

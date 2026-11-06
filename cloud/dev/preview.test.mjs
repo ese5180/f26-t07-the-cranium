@@ -99,7 +99,9 @@ async function call(origin, token, method, path, body) {
   const headers = { authorization: `Bearer ${token}` };
   if (body !== undefined) headers['content-type'] = 'application/json';
   const response = await fetch(`${origin}${path}`, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, headers: response.headers, body: await response.json() };
 }
@@ -162,13 +164,16 @@ function requestTo(origin) {
 
     send(body) {
       const { method, headers } = this;
-      fetch(`${origin}${this.path}`, { method, headers, body }).then(async (answer) => {
-        this.answer = answer;
-        this.status = answer.status;
-        this.responseText = await answer.text();
-        this.upload.onload();
-        this.onload();
-      }, () => this.onerror());
+      fetch(`${origin}${this.path}`, { method, headers, body }).then(
+        async (answer) => {
+          this.answer = answer;
+          this.status = answer.status;
+          this.responseText = await answer.text();
+          this.upload.onload();
+          this.onload();
+        },
+        () => this.onerror()
+      );
     }
   };
 }
@@ -215,26 +220,47 @@ async function consoleClient(origin, clock, sent) {
 
 /** The error that a call of the console's client ends with. */
 function failure(promise) {
-  return promise.then(() => assert.fail('the call went through'), (error) => error);
+  return promise.then(
+    () => assert.fail('the call went through'),
+    (error) => error
+  );
 }
 
 test('the command line: defaults, both spellings of an option, nothing unknown', () => {
   assert.deepEqual(parseArguments([]), {
-    scenario: 'empty', viewer: false, live: false, home: false, customer: false, verbose: false, help: false,
-    host: '127.0.0.1', port: 8787, repeatedCancel: 'refused',
+    scenario: 'empty',
+    viewer: false,
+    live: false,
+    home: false,
+    customer: false,
+    verbose: false,
+    help: false,
+    host: '127.0.0.1',
+    port: 8787,
+    repeatedCancel: 'refused',
   });
   assert.equal(parseArguments(['--customer']).customer, true);
   assert.equal(parseArguments(['--scenario', 'revoked']).scenario, 'revoked');
   const options = parseArguments(['--scenario=downloading', '--viewer', '--live', '--port=9000']);
-  assert.deepEqual(pick(options, 'scenario', 'viewer', 'live', 'port'),
-    { scenario: 'downloading', viewer: true, live: true, port: 9000 });
+  assert.deepEqual(pick(options, 'scenario', 'viewer', 'live', 'port'), {
+    scenario: 'downloading',
+    viewer: true,
+    live: true,
+    port: 9000,
+  });
   assert.equal(parseArguments(['--home']).home, true);
   assert.equal(parseArguments(['-h']).help, true);
   assert.equal(parseArguments(['--repeated-cancel', 'accepted']).repeatedCancel, 'accepted');
   assert.equal(parseArguments(['--repeated-cancel=ignored']).repeatedCancel, 'ignored');
 
-  for (const argv of [['--bind', '0.0.0.0'], ['--port'], ['--port', 'http'], ['--scenario'], ['revoked'],
-    ['--repeated-cancel']]) {
+  for (const argv of [
+    ['--bind', '0.0.0.0'],
+    ['--port'],
+    ['--port', 'http'],
+    ['--scenario'],
+    ['revoked'],
+    ['--repeated-cancel'],
+  ]) {
     assert.throws(() => parseArguments(argv), UsageError, argv.join(' '));
   }
 });
@@ -255,11 +281,15 @@ test('the preview refuses to listen anywhere but on a loopback address', async (
 test('a request that is not addressed to the preview itself is turned away', async (t) => {
   const { preview } = await start(t);
   // What a page elsewhere sends once it has pointed a host name of its own at 127.0.0.1.
-  const status = (address, path) => new Promise((resolve, reject) => {
-    const { hostname, port } = new URL(address);
-    httpRequest({ host: hostname, port, path, headers: { host: 'console.example' } },
-      (response) => resolve(response.statusCode)).on('error', reject).end();
-  });
+  const status = (address, path) =>
+    new Promise((resolve, reject) => {
+      const { hostname, port } = new URL(address);
+      httpRequest({ host: hostname, port, path, headers: { host: 'console.example' } }, (response) =>
+        resolve(response.statusCode)
+      )
+        .on('error', reject)
+        .end();
+    });
   assert.equal(await status(preview.consoleUrl, '/'), 403);
   assert.equal(await status(preview.consoleUrl, '/api/me'), 403);
   assert.equal(await status(preview.loginOrigin, '/oauth2/authorize'), 403);
@@ -277,10 +307,19 @@ test('the gateway has the routes of the HTTP API, and the rest goes to the web f
 
   // No route of its own: the default route takes these to the web function, which
   // answers with its security headers. Only GET is answered, so that a HEAD gets a 405.
-  const unclaimed = [['GET', '/assets', 404], ['GET', '/api', 404], ['GET', '/index.html', 404],
-    ['GET', '/favicon.ico', 404], ['GET', '/oauth2/authorize', 404], ['POST', '/', 405],
-    ['HEAD', '/', 405], ['HEAD', '/assets/app.css', 405], ['DELETE', '/assets/app.css', 405],
-    ['DELETE', '/api/me', 405], ['PUT', '/firmware', 405]];
+  const unclaimed = [
+    ['GET', '/assets', 404],
+    ['GET', '/api', 404],
+    ['GET', '/index.html', 404],
+    ['GET', '/favicon.ico', 404],
+    ['GET', '/oauth2/authorize', 404],
+    ['POST', '/', 405],
+    ['HEAD', '/', 405],
+    ['HEAD', '/assets/app.css', 405],
+    ['DELETE', '/assets/app.css', 405],
+    ['DELETE', '/api/me', 405],
+    ['PUT', '/firmware', 405],
+  ];
   for (const [method, path, status] of unclaimed) {
     const answer = await fetch(`${origin}${path}`, { method });
     assert.equal(answer.status, status, `${method} ${path}`);
@@ -380,8 +419,12 @@ test('sign-in refuses what Cognito refuses, and insists on state and PKCE', asyn
   const ask = (changes) => fetch(authorization(config, changes).url, { redirect: 'manual' });
 
   // An unknown client or return address is never redirected to.
-  const strangers = [{ client_id: 'another-client' }, { redirect_uri: 'http://127.0.0.1:9/' },
-    { redirect_uri: config.redirectUri.slice(0, -1) }, { redirect_uri: `${config.redirectUri}callback` }];
+  const strangers = [
+    { client_id: 'another-client' },
+    { redirect_uri: 'http://127.0.0.1:9/' },
+    { redirect_uri: config.redirectUri.slice(0, -1) },
+    { redirect_uri: `${config.redirectUri}callback` },
+  ];
   for (const changes of strangers) {
     const answer = await ask(changes);
     assert.equal(answer.status, 400, JSON.stringify(changes));
@@ -429,8 +472,7 @@ test('sign-in refuses what Cognito refuses, and insists on state and PKCE', asyn
   ({ code, verifier } = await grant());
   await refused(await redeem(config, code, verifier, { client_id: 'another-client' }), 'invalid_client');
   ({ code, verifier } = await grant());
-  await refused(await redeem(config, code, verifier, { grant_type: 'refresh_token' }),
-    'unsupported_grant_type');
+  await refused(await redeem(config, code, verifier, { grant_type: 'refresh_token' }), 'unsupported_grant_type');
 
   ({ code, verifier } = await grant());
   const answer = await redeem(config, code, verifier);
@@ -439,15 +481,21 @@ test('sign-in refuses what Cognito refuses, and insists on state and PKCE', asyn
   assert.equal(answer.headers.get('access-control-allow-origin'), origin);
   assert.equal(answer.headers.get('cache-control'), 'no-store');
   const tokens = await answer.json();
-  assert.deepEqual(Object.keys(tokens).sort(),
-    ['access_token', 'expires_in', 'id_token', 'refresh_token', 'token_type']);
+  assert.deepEqual(Object.keys(tokens).sort(), [
+    'access_token',
+    'expires_in',
+    'id_token',
+    'refresh_token',
+    'token_type',
+  ]);
   assert.deepEqual([tokens.token_type, tokens.expires_in], ['Bearer', 3600]);
   await refused(await redeem(config, code, verifier), 'invalid_grant');
 
   // Sign-out comes back to the console, and only to the console.
-  const signOut = (uri) => fetch(
-    `${config.loginOrigin}/logout?${new URLSearchParams({ client_id: config.clientId, logout_uri: uri })}`,
-    { redirect: 'manual' });
+  const signOut = (uri) =>
+    fetch(`${config.loginOrigin}/logout?${new URLSearchParams({ client_id: config.clientId, logout_uri: uri })}`, {
+      redirect: 'manual',
+    });
   assert.equal((await signOut(config.redirectUri)).headers.get('location'), config.redirectUri);
   assert.equal((await signOut('http://127.0.0.1:9/')).status, 400);
 });
@@ -466,7 +514,10 @@ test('the console signs in with its own code and leaves no refresh token behind'
   assert.equal(preview.signIn.refreshTokensLeft(), 0);
 
   assert.deepEqual(await api.me(), {
-    sub: preview.user.sub, email: preview.user.email, groups: ['release-managers'], canWrite: true,
+    sub: preview.user.sub,
+    email: preview.user.email,
+    groups: ['release-managers'],
+    canWrite: true,
     // The console's own version, from this checkout's cloud/VERSION; a preview is built from no commit.
     console: { version: readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim(), commit: null },
   });
@@ -482,16 +533,24 @@ async function signInHere(origin, clock, email, password = PREVIEW_PASSWORD) {
   const config = await settings(origin);
   const tab = browserTab('#/devices');
   const auth = core.createAuth({
-    config, storage: tab.storage, location: tab.location, history: tab.history, fetch, crypto: webcrypto,
+    config,
+    storage: tab.storage,
+    location: tab.location,
+    history: tab.history,
+    fetch,
+    crypto: webcrypto,
     now: () => clock.ms,
   });
   const first = await auth.passwordSignIn(email, password);
   return { auth, tab, config, first };
 }
 
-test('the console\'s own sign-in page signs in through the user pool API, and the sign-in trigger lets it in', async (t) => {
+test("the console's own sign-in page signs in through the user pool API, and the sign-in trigger lets it in", async (t) => {
   const { preview, origin, clock } = await start(t);
-  for (const person of [preview.user, { email: 'viewer@preview.invalid', sub: '00000000-0000-4000-8000-000000000002' }]) {
+  for (const person of [
+    preview.user,
+    { email: 'viewer@preview.invalid', sub: '00000000-0000-4000-8000-000000000002' },
+  ]) {
     const { auth, tab, config, first } = await signInHere(origin, clock, person.email);
     assert.deepEqual(first, { step: 'code' });
     assert.deepEqual(await auth.sendCode('000000'), { step: 'code', problem: 'wrong-code' });
@@ -503,8 +562,10 @@ test('the console\'s own sign-in page signs in through the user pool API, and th
     // The gateway takes the token: the trigger gave it the console's scope. The API sees
     // whoever signed in, with that person's groups.
     const api = core.createApi({
-      auth, crypto: webcrypto, clock: core.createClock(() => clock.ms),
-      onUnauthorized: () => assert.fail('the API refused a token from the console\'s own sign-in page'),
+      auth,
+      crypto: webcrypto,
+      clock: core.createClock(() => clock.ms),
+      onUnauthorized: () => assert.fail("the API refused a token from the console's own sign-in page"),
       fetch: (path, init) => fetch(`${origin}${path}`, init),
     });
     const me = await api.me();
@@ -516,25 +577,32 @@ test('the console\'s own sign-in page signs in through the user pool API, and th
   assert.equal(preview.signIn.refreshTokensLeft(), 0);
 });
 
-test('the stand-in for the user pool API refuses what Cognito refuses, in Cognito\'s form', async (t) => {
+test("the stand-in for the user pool API refuses what Cognito refuses, in Cognito's form", async (t) => {
   const { origin, clock } = await start(t);
   const config = await settings(origin);
   // A wrong password and an address nobody has: the same answer.
-  for (const [email, password] of [['manager@preview.invalid', 'not-the-password'], ['nobody@preview.invalid', PREVIEW_PASSWORD]]) {
+  for (const [email, password] of [
+    ['manager@preview.invalid', 'not-the-password'],
+    ['nobody@preview.invalid', PREVIEW_PASSWORD],
+  ]) {
     const { first } = await signInHere(origin, clock, email, password);
     assert.deepEqual(first, { step: 'password', problem: 'wrong-password' }, email);
   }
 
-  const call = (operation, body, headers = {}) => fetch(`${config.idpOrigin}/`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-amz-json-1.1', 'x-amz-target': `AWSCognitoIdentityProviderService.${operation}`, ...headers,
-    },
-    body: JSON.stringify(body),
-  });
+  const call = (operation, body, headers = {}) =>
+    fetch(`${config.idpOrigin}/`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-amz-json-1.1',
+        'x-amz-target': `AWSCognitoIdentityProviderService.${operation}`,
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
   // The flow that would send the password is not on.
   const plain = await call('InitiateAuth', {
-    AuthFlow: 'USER_PASSWORD_AUTH', ClientId: config.clientId,
+    AuthFlow: 'USER_PASSWORD_AUTH',
+    ClientId: config.clientId,
     AuthParameters: { USERNAME: 'manager@preview.invalid', PASSWORD: PREVIEW_PASSWORD },
   });
   assert.equal(plain.status, 400);
@@ -546,14 +614,20 @@ test('the stand-in for the user pool API refuses what Cognito refuses, in Cognit
   // The browser asks first whether its page may call, and may.
   const preflight = await fetch(`${config.idpOrigin}/`, {
     method: 'OPTIONS',
-    headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-amz-target' },
+    headers: {
+      origin,
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'content-type,x-amz-target',
+    },
   });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
   assert.match(preflight.headers.get('access-control-allow-headers'), /x-amz-target/);
   // Something that is not the API's JSON is not read.
   const garbled = await fetch(`${config.idpOrigin}/`, {
-    method: 'POST', headers: { 'content-type': 'text/plain', 'x-amz-target': 'AWSCognitoIdentityProviderService.InitiateAuth' }, body: '{}',
+    method: 'POST',
+    headers: { 'content-type': 'text/plain', 'x-amz-target': 'AWSCognitoIdentityProviderService.InitiateAuth' },
+    body: '{}',
   });
   assert.equal(garbled.status, 400);
 });
@@ -562,7 +636,9 @@ test('a board can be seen offline, and on firmware that is not a release', async
   const boardIn = async (scenario) => {
     const { origin, clock } = await start(t, { scenario });
     const { api } = await consoleClient(origin, clock, []);
-    const { devices: [board] } = await api.devices();
+    const {
+      devices: [board],
+    } = await api.devices();
     const { releases } = await api.firmware();
     const detail = await api.device(board.thing);
     return { board, releases, detail, deployments: await api.deployments() };
@@ -576,7 +652,10 @@ test('a board can be seen offline, and on firmware that is not a release', async
   assert.equal(flashed.board.fw.version, '1.3.0+0');
   assert.equal(core.isUnregistered(flashed.board.fw.version, flashed.releases), true);
   // A declined, a cancelled and an installed deployment, and jobs the console had no part in.
-  assert.deepEqual(flashed.deployments.map((deployment) => deployment.status), ['COMPLETED', 'CANCELED', 'COMPLETED']);
+  assert.deepEqual(
+    flashed.deployments.map((deployment) => deployment.status),
+    ['COMPLETED', 'CANCELED', 'COMPLETED']
+  );
   assert.equal(flashed.detail.executions.filter((row) => row.version === null).length, 2);
   assert.equal(flashed.detail.olderExecutions, 0);
 
@@ -622,8 +701,10 @@ for (const scenario of Object.keys(SCENARIOS)) {
 
     const audit = await api.audit({ limit: 50 });
     assert.equal(audit.next, sent.at(-1).next);
-    assert.deepEqual(audit.entries.map((entry) => ({ ...entry, detail: Object.fromEntries(entry.detail) })),
-      sent.at(-1).entries);
+    assert.deepEqual(
+      audit.entries.map((entry) => ({ ...entry, detail: Object.fromEntries(entry.detail) })),
+      sent.at(-1).entries
+    );
     for (const entry of audit.entries) assert.notEqual(core.describeAudit(entry).verb, 'did something');
 
     // The event log of the boards, and each board's readings.
@@ -650,13 +731,29 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   assert.equal(cursor, null);
   assert.deepEqual([...new Set(events.map((event) => event.kind))].sort(), [...core.EVENT_KINDS].sort());
   const whats = new Set(events.map((event) => `${event.kind}/${event.what}`));
-  for (const what of ['connection/connected', 'connection/disconnected', 'firmware/changed', 'update/step', 'update/result',
-    'restart/restarted', 'restart/boot', 'restart/stuck', 'bluetooth/opened', 'bluetooth/closed', 'bluetooth/record',
-    'health/channel', 'health/memory', 'health/named']) {
+  for (const what of [
+    'connection/connected',
+    'connection/disconnected',
+    'firmware/changed',
+    'update/step',
+    'update/result',
+    'restart/restarted',
+    'restart/boot',
+    'restart/stuck',
+    'bluetooth/opened',
+    'bluetooth/closed',
+    'bluetooth/record',
+    'health/channel',
+    'health/memory',
+    'health/named',
+  ]) {
     assert.ok(whats.has(what), what);
   }
   // Newest first, and a warning where something went wrong.
-  assert.deepEqual(events.map((event) => event.at), [...events.map((event) => event.at)].sort().reverse());
+  assert.deepEqual(
+    events.map((event) => event.at),
+    [...events.map((event) => event.at)].sort().reverse()
+  );
   assert.ok(events.some((event) => event.level === 'warn' && event.what === 'stuck'));
 
   const { devices } = await api.devices();
@@ -665,7 +762,16 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   // The board with diagnostics reports its own name with them; the others are their thing names alone.
   // Two of the five are nRF5340 DKs, which never connect (the Fleet page has them). Three more, on 1.13.0,
   // are on the Map page with the board that took 1.13.0 in the staged rollout (campusMap in preview.mjs).
-  assert.deepEqual(devices.map((device) => device.name).sort(), ['CRVIHAAN01', null, null, null, null, null, null, null]);
+  assert.deepEqual(devices.map((device) => device.name).sort(), [
+    'CRVIHAAN01',
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
   assert.equal(withDiag[0].name, 'CRVIHAAN01');
   assert.ok(events.some((event) => event.what === 'named' && event.text === 'Reported its name CRVIHAAN01'));
   assert.equal(withDiag[0].diag.channel, 11);
@@ -686,27 +792,41 @@ test('fleet: the Events and Diagnostics pages have a history of every kind to sh
   assert.deepEqual([...new Set(lines.map((line) => line.tag))].sort(), ['CONSOLE', 'WIFI', 'app', 'cloud', 'net']);
   assert.ok(lines.some((line) => line.dropped === 2));
   const leaving = lines.find((line) => line.tag === 'net');
-  assert.deepEqual([leaving.level, leaving.text], ['warn', 'ERR: Leaving the network: its security mode (2) is not allowed']);
-  assert.equal(lines.some((line) => /passkey|123456/.test(line.text)), false);
+  assert.deepEqual(
+    [leaving.level, leaving.text],
+    ['warn', 'ERR: Leaving the network: its security mode (2) is not allowed']
+  );
+  assert.equal(
+    lines.some((line) => /passkey|123456/.test(line.text)),
+    false
+  );
   assert.ok(lines.some((line) => line.kind === 'setting' && /^WIFI done on the serial console/.test(line.text)));
   // And the activity log says who did that, and when they had signed in.
   const { entries } = await api.audit({ limit: 50 });
   const serial = entries.find((entry) => entry.action === 'serial.command');
-  assert.deepEqual([serial.target, Object.fromEntries(serial.detail)], ['CRVIHAAN01', { command: 'WIFI', version: '1.12.0+0' }]);
-  assert.equal(core.auditSentence(serial, devices), 'manager@preview.invalid set the Wi-Fi network of CRVIHAAN01 over USB');
-  assert.deepEqual(entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => Object.fromEntries(entry.detail)),
-    [{ client: 'web' }, { client: 'web' }, { client: 'web' }]);
+  assert.deepEqual(
+    [serial.target, Object.fromEntries(serial.detail)],
+    ['CRVIHAAN01', { command: 'WIFI', version: '1.12.0+0' }]
+  );
+  assert.equal(
+    core.auditSentence(serial, devices),
+    'manager@preview.invalid set the Wi-Fi network of CRVIHAAN01 over USB'
+  );
+  assert.deepEqual(
+    entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => Object.fromEntries(entry.detail)),
+    [{ client: 'web' }, { client: 'web' }, { client: 'web' }]
+  );
 });
 
-test('the console\'s client makes every change the way the API expects it', async (t) => {
+test("the console's client makes every change the way the API expects it", async (t) => {
   const { preview, origin, clock } = await start(t, { scenario: 'one-board-idle' });
   const sent = [];
   const { api } = await consoleClient(origin, clock, sent);
   const [board] = preview.boards;
   const { thing } = board;
   // The changes; the sign-in through the AWS sign-in page that made them is on record once, apart.
-  const outcomes = (entries) => entries.filter((entry) => entry.action !== 'account.sign_in')
-    .map((entry) => `${entry.action} ${entry.outcome}`);
+  const outcomes = (entries) =>
+    entries.filter((entry) => entry.action !== 'account.sign_in').map((entry) => `${entry.action} ${entry.outcome}`);
 
   // An upload, prepared as the Firmware page prepares it. What the page reads from the
   // file before sending is what the server reads from it afterwards.
@@ -714,11 +834,14 @@ test('the console\'s client makes every change the way the API expects it', asyn
   const bytes = new Uint8Array(fixture(file));
   const header = core.readImageHeader(bytes);
   const stages = [];
-  const release = await api.upload({
-    filename: core.recordedFilename(file),
-    notes: core.singleLine('  New pad layout.\n'),
-    data: core.toBase64(bytes),
-  }, (step) => stages.push(step.stage));
+  const release = await api.upload(
+    {
+      filename: core.recordedFilename(file),
+      notes: core.singleLine('  New pad layout.\n'),
+      data: core.toBase64(bytes),
+    },
+    (step) => stages.push(step.stage)
+  );
   assert.deepEqual(pick(release, 'version', 'sha256', 'size', 'headerSize', 'payloadSize'), {
     version: header.version,
     sha256: await core.sha256Hex(bytes),
@@ -726,19 +849,25 @@ test('the console\'s client makes every change the way the API expects it', asyn
     headerSize: header.headerSize,
     payloadSize: header.payloadSize,
   });
-  assert.deepEqual(pick(release, 'version', 'filename', 'notes', 'status'),
-    { version: '2.0.0+0', filename: file, notes: 'New pad layout.', status: 'active' });
+  assert.deepEqual(pick(release, 'version', 'filename', 'notes', 'status'), {
+    version: '2.0.0+0',
+    filename: file,
+    notes: 'New pad layout.',
+    status: 'active',
+  });
   assert.deepEqual([stages[0], stages.at(-1)], ['sending', 'checking']);
   const firmware = await api.firmware();
   assert.deepEqual(firmware.releases[0], release);
   // Chosen again, the page says that this file is registered already.
   const review = core.reviewImage({ header, size: bytes.length, digest: release.sha256 }, firmware);
-  assert.deepEqual(review.notes.map((note) => note.tone), ['good', 'warn']);
+  assert.deepEqual(
+    review.notes.map((note) => note.tone),
+    ['good', 'warn']
+  );
 
   const other = core.toBase64(new Uint8Array(fixture('signed-with-other-key.signed.bin')));
   const refused = await failure(api.upload({ filename: 'zephyr.signed.bin', notes: '', data: other }));
-  assert.deepEqual(pick(refused, 'name', 'status', 'code'),
-    { name: 'ApiError', status: 422, code: 'wrong_key' });
+  assert.deepEqual(pick(refused, 'name', 'status', 'code'), { name: 'ApiError', status: 422, code: 'wrong_key' });
   assert.match(refused.message, /signed with a different key/);
   assert.equal(typeof refused.requestId, 'string');
 
@@ -748,10 +877,17 @@ test('the console\'s client makes every change the way the API expects it', asyn
   const note = core.singleLine('Bench\u200b board\u2028first.\u200f');
   const deployment = await api.deploy({ version: '2.0.0+0', things: [thing], note });
   assert.deepEqual(deployment, sent.at(-1).deployment);
-  assert.deepEqual(pick(deployment, 'version', 'status', 'note', 'things'),
-    { version: '2.0.0+0', status: 'IN_PROGRESS', note: 'Bench board first.', things: [thing] });
+  assert.deepEqual(pick(deployment, 'version', 'status', 'note', 'things'), {
+    version: '2.0.0+0',
+    status: 'IN_PROGRESS',
+    note: 'Bench board first.',
+    things: [thing],
+  });
   assert.equal(deployment.createdBy.email, preview.user.email);
-  assert.deepEqual(deployment.executions.map((execution) => execution.phase), ['waiting_for_device']);
+  assert.deepEqual(
+    deployment.executions.map((execution) => execution.phase),
+    ['waiting_for_device']
+  );
 
   const busy = await failure(api.deploy({ version: '1.2.3+5', things: [thing], note: '' }));
   assert.deepEqual(pick(busy, 'status', 'code'), { status: 409, code: 'device_busy' });
@@ -765,8 +901,7 @@ test('the console\'s client makes every change the way the API expects it', asyn
   const withdrawn = await api.cancel(deployment.id, false);
   assert.deepEqual(withdrawn, sent.at(-1).deployment);
   assert.equal(withdrawn.status, 'CANCELED');
-  assert.deepEqual(pick(withdrawn.executions[0], 'status', 'phase'),
-    { status: 'IN_PROGRESS', phase: 'downloading' });
+  assert.deepEqual(pick(withdrawn.executions[0], 'status', 'phase'), { status: 'IN_PROGRESS', phase: 'downloading' });
   const repeated = await failure(api.cancel(deployment.id, false));
   assert.deepEqual(pick(repeated, 'status', 'code'), { status: 409, code: 'already_cancelled' });
   assert.match(repeated.message, /1 board is still at work/);
@@ -791,8 +926,11 @@ test('the console\'s client makes every change the way the API expects it', asyn
   // left at work, revoking again completes the revocation and records when.
   board.download(60);
   const ended = await api.deployment(deployment.id);
-  assert.deepEqual(pick(ended.executions[0], 'status', 'phase', 'reason'),
-    { status: 'FAILED', phase: 'failed', reason: 'download_failed' });
+  assert.deepEqual(pick(ended.executions[0], 'status', 'phase', 'reason'), {
+    status: 'FAILED',
+    phase: 'failed',
+    reason: 'download_failed',
+  });
   const revocation = await api.revoke('2.0.0+0', 'Finish it.');
   assert.deepEqual(revocation, sent.at(-1));
   assert.equal(revocation.release.status, 'revoked');
@@ -822,15 +960,26 @@ test('the console\'s client makes every change the way the API expects it', asyn
   // Each of these left its entry, newest first, a page at a time.
   const audit = await api.audit({ limit: 8 });
   assert.deepEqual(outcomes(audit.entries), [
-    'deployment.cancel rejected', 'deployment.cancel ok', 'deployment.create ok',
-    'deployment.create rejected', 'deployment.create rejected', 'firmware.revoke rejected',
-    'firmware.revoke ok', 'firmware.revoke error',
+    'deployment.cancel rejected',
+    'deployment.cancel ok',
+    'deployment.create ok',
+    'deployment.create rejected',
+    'deployment.create rejected',
+    'firmware.revoke rejected',
+    'firmware.revoke ok',
+    'firmware.revoke error',
   ]);
   const older = await api.audit({ limit: 50, before: audit.next });
   assert.deepEqual(outcomes(older.entries), [
-    'deployment.cancel rejected', 'deployment.cancel rejected', 'deployment.cancel ok',
-    'deployment.create rejected', 'deployment.create ok',
-    'firmware.upload rejected', 'firmware.upload ok', 'firmware.upload ok', 'firmware.upload ok',
+    'deployment.cancel rejected',
+    'deployment.cancel rejected',
+    'deployment.cancel ok',
+    'deployment.create rejected',
+    'deployment.create ok',
+    'firmware.upload rejected',
+    'firmware.upload ok',
+    'firmware.upload ok',
+    'firmware.upload ok',
   ]);
   assert.equal(older.next, null);
 });
@@ -841,7 +990,10 @@ test('the stand-in can be told what a second, forced cancellation does', async (
     const { preview, origin } = await start(t, { scenario: 'one-board-idle', repeatedCancel });
     const token = await accessToken(origin);
     const [board] = preview.boards;
-    const created = await call(origin, token, 'POST', '/api/deployments', { version: '1.2.3+5', things: [board.thing] });
+    const created = await call(origin, token, 'POST', '/api/deployments', {
+      version: '1.2.3+5',
+      things: [board.thing],
+    });
     const { id } = created.body.deployment;
     board.lookForJob();
     board.pressButton1();
@@ -855,7 +1007,10 @@ test('the stand-in can be told what a second, forced cancellation does', async (
   ({ forced, status } = await atWork('accepted'));
   assert.deepEqual([forced.status, forced.body.deployment.executions[0].status, status], [200, 'CANCELED', 'CANCELED']);
   ({ forced, status } = await atWork('ignored'));
-  assert.deepEqual([forced.status, forced.body.deployment.executions[0].status, status], [200, 'IN_PROGRESS', 'IN_PROGRESS']);
+  assert.deepEqual(
+    [forced.status, forced.body.deployment.executions[0].status, status],
+    [200, 'IN_PROGRESS', 'IN_PROGRESS']
+  );
 
   await assert.rejects(createPreview({ port: 0, repeatedCancel: 'sometimes' }), UsageError);
 });
@@ -898,20 +1053,36 @@ test('each scenario is in the state its name promises', async (t) => {
 
   state = await look('waiting-for-button');
   assert.equal(state.deployments[0].status, 'IN_PROGRESS');
-  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'online'),
-    { status: 'QUEUED', phase: 'waiting_for_button', progress: null, online: true });
-  assert.deepEqual(pick(state.devices[0].ota, 'state', 'job'),
-    { state: 'awaiting_user', job: state.deployments[0].id });
+  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'online'), {
+    status: 'QUEUED',
+    phase: 'waiting_for_button',
+    progress: null,
+    online: true,
+  });
+  assert.deepEqual(pick(state.devices[0].ota, 'state', 'job'), {
+    state: 'awaiting_user',
+    job: state.deployments[0].id,
+  });
 
   state = await look('downloading');
-  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'ranAtEnd', 'reported'),
-    { status: 'IN_PROGRESS', phase: 'downloading', progress: 40, ranAtEnd: null, reported: '1.2.3+4' });
+  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'ranAtEnd', 'reported'), {
+    status: 'IN_PROGRESS',
+    phase: 'downloading',
+    progress: 40,
+    ranAtEnd: null,
+    reported: '1.2.3+4',
+  });
   assert.equal(state.details[0].executions[0].secondsLeft > 29 * 60, true);
 
   state = await look('rolled-back');
   assert.equal(state.deployments[0].status, 'COMPLETED');
-  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'reason', 'ranAtEnd', 'reported'),
-    { status: 'FAILED', phase: 'rolled_back', reason: 'rolled_back', ranAtEnd: '1.2.3+4', reported: null });
+  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'reason', 'ranAtEnd', 'reported'), {
+    status: 'FAILED',
+    phase: 'rolled_back',
+    reason: 'rolled_back',
+    ranAtEnd: '1.2.3+4',
+    reported: null,
+  });
   assert.deepEqual(pick(state.devices[0], 'online', 'fw', 'ota'), {
     online: true,
     fw: { version: '1.2.3+4', confirmed: true },
@@ -920,12 +1091,18 @@ test('each scenario is in the state its name promises', async (t) => {
 
   state = await look('succeeded');
   assert.equal(state.deployments[0].status, 'COMPLETED');
-  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'ranAtEnd', 'reported'),
-    { status: 'SUCCEEDED', phase: 'succeeded', ranAtEnd: '1.2.3+5', reported: null });
+  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'ranAtEnd', 'reported'), {
+    status: 'SUCCEEDED',
+    phase: 'succeeded',
+    ranAtEnd: '1.2.3+5',
+    reported: null,
+  });
   assert.deepEqual(state.devices[0].fw, { version: '1.2.3+5', confirmed: true });
   assert.equal(state.devices[0].ota.last, 'succeeded');
-  assert.deepEqual(state.audit.map((entry) => `${entry.action} ${entry.outcome}`),
-    ['deployment.create ok', 'firmware.upload ok', 'firmware.upload ok']);
+  assert.deepEqual(
+    state.audit.map((entry) => `${entry.action} ${entry.outcome}`),
+    ['deployment.create ok', 'firmware.upload ok', 'firmware.upload ok']
+  );
 
   // A job made directly in AWS IoT: at work on it, and the console's deployments do not hold it.
   state = await look('outside-job');
@@ -938,30 +1115,47 @@ test('each scenario is in the state its name promises', async (t) => {
   // Gone quiet at 40%: the job stays open, and the board's last report stands.
   state = await look('lost-during-download');
   assert.equal(state.devices[0].online, false);
-  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'online', 'reported'),
-    { status: 'IN_PROGRESS', phase: 'downloading', progress: 40, online: false, reported: '1.2.3+4' });
+  assert.deepEqual(pick(state.details[0].executions[0], 'status', 'phase', 'progress', 'online', 'reported'), {
+    status: 'IN_PROGRESS',
+    phase: 'downloading',
+    progress: 40,
+    online: false,
+    reported: '1.2.3+4',
+  });
   assert.equal(state.details[0].executions[0].secondsLeft > 20 * 60, true);
 
   state = await look('revoked');
   assert.deepEqual(state.releases, ['2.0.0+0 revoked', '1.2.3+5 active', '1.2.3+4 active']);
-  assert.deepEqual(state.deployments.map((deployment) => `${deployment.version} ${deployment.status}`),
-    ['2.0.0+0 CANCELED', '1.2.3+5 COMPLETED']);
-  assert.deepEqual(pick(state.deployments[0].counts, 'canceled', 'queued', 'inProgress'),
-    { canceled: 2, queued: 0, inProgress: 0 });
+  assert.deepEqual(
+    state.deployments.map((deployment) => `${deployment.version} ${deployment.status}`),
+    ['2.0.0+0 CANCELED', '1.2.3+5 COMPLETED']
+  );
+  assert.deepEqual(pick(state.deployments[0].counts, 'canceled', 'queued', 'inProgress'), {
+    canceled: 2,
+    queued: 0,
+    inProgress: 0,
+  });
   const phases = (detail) => detail.executions.map((execution) => execution.phase).sort();
   assert.deepEqual(phases(state.details[0]), ['cancelled', 'cancelled']);
   assert.deepEqual(phases(state.details[1]), ['declined', 'succeeded']);
   // One board online, one switched off half an hour ago, one that never reported.
-  const [first, second, third] = state.preview.boards.map(
-    (board) => state.devices.find((device) => device.thing === board.thing));
+  const [first, second, third] = state.preview.boards.map((board) =>
+    state.devices.find((device) => device.thing === board.thing)
+  );
   assert.deepEqual([first.online, second.online, third.online], [true, false, false]);
   assert.deepEqual([first.fw.version, second.fw.version, third.fw], ['1.2.3+5', '1.2.3+4', null]);
   assert.deepEqual([first.ota.last, second.ota.last, third.lastSeen], ['cancelled', 'cancelled', null]);
   assert.equal(state.audit.length, 7);
-  assert.deepEqual(pick(state.audit[0], 'action', 'target', 'outcome'),
-    { action: 'firmware.revoke', target: '2.0.0+0', outcome: 'ok' });
+  assert.deepEqual(pick(state.audit[0], 'action', 'target', 'outcome'), {
+    action: 'firmware.revoke',
+    target: '2.0.0+0',
+    outcome: 'ok',
+  });
   const refusals = state.audit.filter((entry) => entry.outcome !== 'ok');
-  assert.deepEqual(refusals.map((entry) => entry.detail.code), ['wrong_key']);
+  assert.deepEqual(
+    refusals.map((entry) => entry.detail.code),
+    ['wrong_key']
+  );
   // The revoked image can no longer be downloaded: its object carries the tag.
   const tagged = [...state.preview.fake.objects.values()].filter((object) => object.tags.revoked === 'true');
   assert.equal(tagged.length, 1);
@@ -1001,16 +1195,21 @@ test('an upload goes through the gateway to the real handler and is stored or re
   // Seven changes tried, and the sign-in on the preview's own page that made them, once.
   const entries = (await call(origin, token, 'GET', '/api/audit')).body.entries;
   assert.equal(entries.length, 8);
-  assert.deepEqual(entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => [entry.actor.email, entry.detail]),
-    [[preview.user.email, { client: 'web' }]]);
+  assert.deepEqual(
+    entries.filter((entry) => entry.action === 'account.sign_in').map((entry) => [entry.actor.email, entry.detail]),
+    [[preview.user.email, { client: 'web' }]]
+  );
 });
 
 test('a viewer sees everything and changes nothing', async (t) => {
   const { preview, origin } = await start(t, { scenario: 'waiting-for-button', viewer: true });
   const token = await accessToken(origin);
   const me = await call(origin, token, 'GET', '/api/me');
-  assert.deepEqual(pick(me.body, 'email', 'groups', 'canWrite'),
-    { email: preview.user.email, groups: ['viewers'], canWrite: false });
+  assert.deepEqual(pick(me.body, 'email', 'groups', 'canWrite'), {
+    email: preview.user.email,
+    groups: ['viewers'],
+    canWrite: false,
+  });
 
   const { deployments } = (await call(origin, token, 'GET', '/api/deployments')).body;
   assert.equal(deployments.length, 1);
@@ -1083,16 +1282,23 @@ test('a live board picks up an offer, waits for Button 1 and carries the update 
   await type('1');
   assert.equal((await execution(id)).phase, 'downloading');
   seconds(8);
-  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'progress'),
-    { status: 'IN_PROGRESS', phase: 'downloading', progress: 40 });
+  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'progress'), {
+    status: 'IN_PROGRESS',
+    phase: 'downloading',
+    progress: 40,
+  });
 
   seconds(12);
   assert.deepEqual(pick(await execution(id), 'status', 'phase'), { status: 'IN_PROGRESS', phase: 'rebooting' });
   assert.equal((await device()).fw.version, '1.2.3+4');
 
   seconds(12);
-  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'ranAtEnd', 'reported'),
-    { status: 'SUCCEEDED', phase: 'succeeded', ranAtEnd: '1.2.3+5', reported: null });
+  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'ranAtEnd', 'reported'), {
+    status: 'SUCCEEDED',
+    phase: 'succeeded',
+    ranAtEnd: '1.2.3+5',
+    reported: null,
+  });
   const after = await device();
   assert.deepEqual(after.fw, { version: '1.2.3+5', confirmed: true });
   assert.deepEqual(after.ota, { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' });
@@ -1113,8 +1319,11 @@ test('a live board stops when its update is cancelled with force, and says so', 
   assert.equal(cancelled.body.deployment.status, 'CANCELED');
   seconds(1);
   assert.equal((await execution(id)).phase, 'cancelled');
-  assert.deepEqual(pick((await device()).ota, 'state', 'progress', 'last'),
-    { state: 'idle', progress: 0, last: 'cancelled' });
+  assert.deepEqual(pick((await device()).ota, 'state', 'progress', 'last'), {
+    state: 'idle',
+    progress: 0,
+    last: 'cancelled',
+  });
   // Nothing was installed.
   seconds(60);
   assert.equal((await device()).fw.version, '1.2.3+4');
@@ -1125,16 +1334,27 @@ test('a live board declines with Button 2, and refuses a version that is not new
   let id = await deploy('1.2.3+5');
   seconds(1);
   await type('2');
-  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'reason', 'ranAtEnd', 'reported'),
-    { status: 'REJECTED', phase: 'declined', reason: 'declined', ranAtEnd: '1.2.3+4', reported: null });
+  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'reason', 'ranAtEnd', 'reported'), {
+    status: 'REJECTED',
+    phase: 'declined',
+    reason: 'declined',
+    ranAtEnd: '1.2.3+4',
+    reported: null,
+  });
   assert.equal((await device()).ota.last, 'declined');
 
   id = await deploy('1.2.3+4');
   seconds(1);
-  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'reason'),
-    { status: 'REJECTED', phase: 'refused', reason: 'not_newer' });
-  assert.deepEqual(pick((await device()).ota, 'state', 'last', 'error'),
-    { state: 'idle', last: 'refused', error: 'not_newer' });
+  assert.deepEqual(pick(await execution(id), 'status', 'phase', 'reason'), {
+    status: 'REJECTED',
+    phase: 'refused',
+    reason: 'not_newer',
+  });
+  assert.deepEqual(pick((await device()).ota, 'state', 'last', 'error'), {
+    state: 'idle',
+    last: 'refused',
+    error: 'not_newer',
+  });
 });
 
 test('through a real restart the page keeps saying Restarting, and keeps asking every 3 s', () => {
@@ -1143,12 +1363,14 @@ test('through a real restart the page keeps saying Restarting, and keeps asking 
   const job = 'cranium-1-7-1-b0-20261101T191500Z-0000';
   const reportedAt = 1_790_000_000;
   const shadow = {
-    state: { reported: {
-      fw: { version: '1.7.0+0', confirmed: true },
-      ota: { state: 'rebooting', job, progress: 100, last: 'none', error: '' },
-      wifi: { rssi: -50 },
-      uptime: 500,
-    } },
+    state: {
+      reported: {
+        fw: { version: '1.7.0+0', confirmed: true },
+        ota: { state: 'rebooting', job, progress: 100, last: 'none', error: '' },
+        wifi: { rssi: -50 },
+        uptime: 500,
+      },
+    },
     metadata: { reported: { uptime: { timestamp: reportedAt } } },
   };
   const at = (seconds) => {
@@ -1156,9 +1378,16 @@ test('through a real restart the page keeps saying Restarting, and keeps asking 
     const device = deviceFromShadow('cranium-x', shadow, now);
     const { phase, progress } = deriveTimeline({ status: 'IN_PROGRESS', step: 'rebooting', jobId: job, device });
     const execution = {
-      thing: 'cranium-x', status: 'IN_PROGRESS', reason: null, phase, progress, online: device.online,
-      startedAt: new Date(now - 200_000).toISOString(), lastUpdatedAt: new Date(now - 100_000).toISOString(),
-      reported: '1.7.0+0', ranAtEnd: null,
+      thing: 'cranium-x',
+      status: 'IN_PROGRESS',
+      reason: null,
+      phase,
+      progress,
+      online: device.online,
+      startedAt: new Date(now - 200_000).toISOString(),
+      lastUpdatedAt: new Date(now - 100_000).toISOString(),
+      reported: '1.7.0+0',
+      ranAtEnd: null,
     };
     return {
       device,
@@ -1184,13 +1413,23 @@ test('fleet: boards around a campus are on the map, one moved, one heard too few
   const { devices } = await api.devices();
   const placed = devices.filter((device) => device.position !== null);
   // The board that took 1.13.0 in the rollout, and two of the three new ones.
-  assert.equal(placed.length, 3, JSON.stringify(devices.map((device) => [device.thing, device.fw?.version, device.location])));
+  assert.equal(
+    placed.length,
+    3,
+    JSON.stringify(devices.map((device) => [device.thing, device.fw?.version, device.location]))
+  );
   for (const device of placed) {
     // On Penn's campus or at Pennovation Works, within tens of metres.
-    assert.ok(Math.abs(device.position.lat - 39.95) < 0.02 && Math.abs(device.position.lon + 75.195) < 0.02, device.thing);
+    assert.ok(
+      Math.abs(device.position.lat - 39.95) < 0.02 && Math.abs(device.position.lon + 75.195) < 0.02,
+      device.thing
+    );
     assert.ok(device.position.accuracy >= 12 && device.position.accuracy < 200, String(device.position.accuracy));
   }
-  const reasons = devices.filter((device) => device.position === null).map((device) => core.unplacedReason(device).code).sort();
+  const reasons = devices
+    .filter((device) => device.position === null)
+    .map((device) => core.unplacedReason(device).code)
+    .sort();
   // CRVIHAAN01 and the board on 1.9.0 send no scan; the two nRF5340 DKs have no Wi-Fi; one board heard one access point.
   assert.deepEqual(reasons, ['bluetooth', 'bluetooth', 'no_scan', 'no_scan', 'too_few']);
 
@@ -1200,7 +1439,10 @@ test('fleet: boards around a campus are on the map, one moved, one heard too few
   const to = new Date(clock.ms).toISOString();
   const from = new Date(clock.ms - 86_400_000).toISOString();
   const { events } = await api.events({ from, to, thing: moved.thing });
-  assert.deepEqual(events.filter((event) => event.kind === 'health').map((event) => event.what), ['moved', 'located']);
+  assert.deepEqual(
+    events.filter((event) => event.kind === 'health').map((event) => event.what),
+    ['moved', 'located']
+  );
 
   // The release manager gets the alerts: the board offline for an hour, the stuck restart, the move.
   const alerts = await api.alerts();
@@ -1212,17 +1454,30 @@ test('fleet: boards around a campus are on the map, one moved, one heard too few
 
   // A board on 1.13.0 answers Identify in its log; one on older firmware does not hear it.
   const command = await api.command(placed[0].thing, 'identify', 15);
-  const { lines } = await api.boardLog({ from: new Date(clock.ms - 60_000).toISOString(), to: new Date(clock.ms + 1000).toISOString(),
-    thing: placed[0].thing, tags: ['CMD'] });
-  assert.deepEqual(lines.map((line) => line.text), [`identify for 15 s (${command.id})`]);
+  const { lines } = await api.boardLog({
+    from: new Date(clock.ms - 60_000).toISOString(),
+    to: new Date(clock.ms + 1000).toISOString(),
+    thing: placed[0].thing,
+    tags: ['CMD'],
+  });
+  assert.deepEqual(
+    lines.map((line) => line.text),
+    [`identify for 15 s (${command.id})`]
+  );
   assert.equal(preview.fake.commands.length, 1);
 });
 
-test('the Apps page: the fleet has the Android app\'s last two versions, a link downloads one, and the versions are the checkout\'s', async (t) => {
+test("the Apps page: the fleet has the Android app's last two versions, a link downloads one, and the versions are the checkout's", async (t) => {
   const { origin } = await start(t, { scenario: 'fleet' });
   const token = await accessToken(origin);
   const { body: listed } = await call(origin, token, 'GET', '/api/apps');
-  assert.deepEqual(listed.android.releases.map((release) => [release.version, release.versionCode]), [['0.4.0', 4], ['0.3.0', 3]]);
+  assert.deepEqual(
+    listed.android.releases.map((release) => [release.version, release.versionCode]),
+    [
+      ['0.4.0', 4],
+      ['0.3.0', 3],
+    ]
+  );
   assert.equal(listed.android.latest, '0.4.0');
   assert.match(listed.android.releases[0].notes, /fingerprint/);
   const version = readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim();
@@ -1232,7 +1487,9 @@ test('the Apps page: the fleet has the Android app\'s last two versions, a link 
   assert.equal(me.console.version, version);
 
   // The download link points at the preview's own stand-in for S3, and gives the APK under its name.
-  const { body: { download } } = await call(origin, token, 'GET', '/api/apps/android/0.4.0/download');
+  const {
+    body: { download },
+  } = await call(origin, token, 'GET', '/api/apps/android/0.4.0/download');
   assert.ok(download.url.startsWith(`${origin}/local-s3/apps/android/cranium-android-0.4.0.apk?`), download.url);
   const apk = await fetch(download.url);
   assert.equal(apk.status, 200);

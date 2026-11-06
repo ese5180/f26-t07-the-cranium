@@ -27,9 +27,7 @@
  * No dependencies.
  */
 
-import {
-  button, developerTabs, empty, h, icon, mono, notice, pageHead,
-} from './views.js';
+import { button, developerTabs, empty, h, icon, mono, notice, pageHead } from './views.js';
 
 const SEGGER_VENDOR_ID = 0x1366;
 const BAUD_RATE = 115200;
@@ -109,7 +107,10 @@ const PASSWORD_FIELD = {
 };
 const SECURITY_FIELD = { key: 'security', label: 'Security', choices: ['WPA2_PSK', 'WPA2_PSK_SHA256', 'WPA3_SAE'] };
 const SECTION_FIELD = {
-  key: 'section', label: 'Section', optional: true, choices: ['', 'device', 'wifi', 'cloud', 'certs', 'update'],
+  key: 'section',
+  label: 'Section',
+  optional: true,
+  choices: ['', 'device', 'wifi', 'cloud', 'certs', 'update'],
 };
 const HOST_FIELD = {
   key: 'host',
@@ -119,8 +120,22 @@ const HOST_FIELD = {
 };
 
 export const COMMANDS = Object.freeze([
-  { name: 'GET_ID', group: 'identity', factory: true, args: [0, 0], fields: [], text: 'Ask for the ID and the firmware version.' },
-  { name: 'SET_ID', group: 'identity', factory: false, args: [1, 1], fields: [ID_FIELD], text: 'Change the ID and keep everything else.' },
+  {
+    name: 'GET_ID',
+    group: 'identity',
+    factory: true,
+    args: [0, 0],
+    fields: [],
+    text: 'Ask for the ID and the firmware version.',
+  },
+  {
+    name: 'SET_ID',
+    group: 'identity',
+    factory: false,
+    args: [1, 1],
+    fields: [ID_FIELD],
+    text: 'Change the ID and keep everything else.',
+  },
   {
     name: 'INIT',
     group: 'identity',
@@ -130,7 +145,14 @@ export const COMMANDS = Object.freeze([
     confirm: 'INIT',
     text: 'First-time setup: erases everything on the board, stores the ID and restarts.',
   },
-  { name: 'WIFI', group: 'wifi', factory: false, args: [2, 2], fields: [SSID_FIELD, PASSWORD_FIELD], text: 'Save a WPA2 network and join it.' },
+  {
+    name: 'WIFI',
+    group: 'wifi',
+    factory: false,
+    args: [2, 2],
+    fields: [SSID_FIELD, PASSWORD_FIELD],
+    text: 'Save a WPA2 network and join it.',
+  },
   {
     name: 'WIFI_SEC',
     group: 'wifi',
@@ -139,10 +161,31 @@ export const COMMANDS = Object.freeze([
     fields: [SSID_FIELD, SECURITY_FIELD, PASSWORD_FIELD],
     text: 'The same, with the security mode named.',
   },
-  { name: 'CLEAR_WIFI', group: 'wifi', factory: false, args: [0, 0], fields: [], text: 'Erase the network and disconnect.' },
-  { name: 'NET', group: 'wifi', factory: false, args: [0, 0], fields: [], text: 'Show connection state, name, IP, signal and MAC.' },
+  {
+    name: 'CLEAR_WIFI',
+    group: 'wifi',
+    factory: false,
+    args: [0, 0],
+    fields: [],
+    text: 'Erase the network and disconnect.',
+  },
+  {
+    name: 'NET',
+    group: 'wifi',
+    factory: false,
+    args: [0, 0],
+    fields: [],
+    text: 'Show connection state, name, IP, signal and MAC.',
+  },
   // The MQTT panel draws these itself: see mqttPanel().
-  { name: 'MQTT', group: 'mqtt', factory: false, args: [0, 0], fields: [], text: 'Ask how the connection to AWS IoT stands.' },
+  {
+    name: 'MQTT',
+    group: 'mqtt',
+    factory: false,
+    args: [0, 0],
+    fields: [],
+    text: 'Ask how the connection to AWS IoT stands.',
+  },
   {
     name: 'MQTT_HOST',
     group: 'mqtt',
@@ -159,9 +202,31 @@ export const COMMANDS = Object.freeze([
     fields: [],
     text: 'Drop the MQTT connection and connect again now.',
   },
-  { name: 'STATS', group: 'status', factory: false, args: [0, 0], fields: [], text: 'State, ID, firmware, Wi-Fi, uptime, memory, last reset.' },
-  { name: 'STATUS', group: 'status', factory: false, args: [0, 1], fields: [SECTION_FIELD], text: 'Print the configuration, or one section of it.' },
-  { name: 'HELP', alias: '?', group: 'status', factory: true, args: [0, 0], fields: [], text: 'List the commands of this firmware.' },
+  {
+    name: 'STATS',
+    group: 'status',
+    factory: false,
+    args: [0, 0],
+    fields: [],
+    text: 'State, ID, firmware, Wi-Fi, uptime, memory, last reset.',
+  },
+  {
+    name: 'STATUS',
+    group: 'status',
+    factory: false,
+    args: [0, 1],
+    fields: [SECTION_FIELD],
+    text: 'Print the configuration, or one section of it.',
+  },
+  {
+    name: 'HELP',
+    alias: '?',
+    group: 'status',
+    factory: true,
+    args: [0, 0],
+    fields: [],
+    text: 'List the commands of this firmware.',
+  },
   { name: 'REBOOT', group: 'maintenance', factory: true, args: [0, 0], fields: [], text: 'Restart the board.' },
   {
     name: 'ENTER_BOOTLOADER',
@@ -199,9 +264,9 @@ export const COMMANDS = Object.freeze([
   { name: 'BUTTON', group: null, factory: false, args: [1, 1], fields: [] },
 ]);
 
-const KNOWN = new Map(COMMANDS.flatMap((command) => [
-  [command.name, command], ...(command.alias ? [[command.alias, command]] : []),
-]));
+const KNOWN = new Map(
+  COMMANDS.flatMap((command) => [[command.name, command], ...(command.alias ? [[command.alias, command]] : [])])
+);
 
 const GROUPS = [
   ['identity', 'Identity'],
@@ -218,8 +283,20 @@ const BEFORE_SECRET = { WIFI: 1, WIFI_SEC: 2 };
 // (cloud/api/src/handlers/serial.mjs): those that firmware 1.12.0 also reports to the cloud itself,
 // the two that erase it, and the two that restart it, one of them into its bootloader.
 export const RECORDED = new Set([
-  'INIT', 'SET_ID', 'RESET_CONFIG', 'FACTORY_RESET', 'WIFI', 'WIFI_SEC', 'CLEAR_WIFI', 'CLOUD', 'KEYGEN',
-  'MQTT_HOST', 'MQTT_RECONNECT', 'BUTTON', 'REBOOT', 'ENTER_BOOTLOADER',
+  'INIT',
+  'SET_ID',
+  'RESET_CONFIG',
+  'FACTORY_RESET',
+  'WIFI',
+  'WIFI_SEC',
+  'CLEAR_WIFI',
+  'CLOUD',
+  'KEYGEN',
+  'MQTT_HOST',
+  'MQTT_RECONNECT',
+  'BUTTON',
+  'REBOOT',
+  'ENTER_BOOTLOADER',
 ]);
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 
@@ -250,7 +327,8 @@ export function shownCommand(line) {
   if (Object.hasOwn(BEFORE_SECRET, name)) {
     const fields = text.slice(bar + 1).split('|');
     const before = BEFORE_SECRET[name];
-    const whole = fields.length > before &&
+    const whole =
+      fields.length > before &&
       (name !== 'WIFI_SEC' || SECURITY_FIELD.choices.includes(fields[1].trim().toUpperCase()));
     return [written, ...(whole ? fields.slice(0, before) : []), MASK].join('|');
   }
@@ -296,10 +374,15 @@ export function checkTyped(typed) {
   const name = commandName(line);
   const command = KNOWN.get(name);
   if (command?.confirm) {
-    return { refused: `${command.name} erases the board, so it asks for a typed confirmation: use its form on this page.` };
+    return {
+      refused: `${command.name} erases the board, so it asks for a typed confirmation: use its form on this page.`,
+    };
   }
   if (name === 'ECHO' && /\|\s*on\s*$/i.test(line)) {
-    return { refused: 'Echo stays off on this page, so that the board does not send back what is typed. A plain serial monitor can turn it on.' };
+    return {
+      refused:
+        'Echo stays off on this page, so that the board does not send back what is typed. A plain serial monitor can turn it on.',
+    };
   }
   return { line, keep: Boolean(command) && !Object.hasOwn(BEFORE_SECRET, name) };
 }
@@ -422,10 +505,12 @@ function shownOutput(text) {
 
 // Plain words for what can go wrong.
 
-const OTHER_PORT = 'No answer in 2 seconds, so this looks like the other port. The DK has two ' +
+const OTHER_PORT =
+  'No answer in 2 seconds, so this looks like the other port. The DK has two ' +
   'virtual COM ports and only one carries the console: disconnect and choose the other one.';
 const UNPLUGGED = 'The connection to the board ended. The USB cable may have come out, or the board lost power.';
-const NOT_CHOSEN = 'No port was chosen. If the list was empty, check that the DK is switched on and that ' +
+const NOT_CHOSEN =
+  'No port was chosen. If the list was empty, check that the DK is switched on and that ' +
   'its J-Link USB port is connected.';
 
 function chooseProblem(error) {
@@ -438,8 +523,10 @@ function openProblem(error) {
   if (error?.name === 'InvalidStateError') {
     return 'This port is already open, perhaps in another tab of this console. Close it there and try again.';
   }
-  return 'The port could not be opened. Another program, such as a serial monitor, probably has it: ' +
-    'close that program and try again.';
+  return (
+    'The port could not be opened. Another program, such as a serial monitor, probably has it: ' +
+    'close that program and try again.'
+  );
 }
 
 function clockNow(date) {
@@ -568,7 +655,8 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
         const at = waiting.indexOf(entry);
         if (at >= 0) waiting.splice(at, 1);
         if (!auto) note(`No reply to ${name} after ${wait / 1000} seconds.`, 'warn');
-        if (form && session.reply?.form === form) session.reply = { form, kind: 'none', text: 'No reply from the board.' };
+        if (form && session.reply?.form === form)
+          session.reply = { form, kind: 'none', text: 'No reply from the board.' };
         resolve(null);
         changed();
       }, wait);
@@ -615,14 +703,17 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
     markRecord(entry.form, 'sending');
     Promise.resolve()
       .then(() => record({ command: entry.name, device, version }))
-      .then(() => {
-        note(`${entry.name} is in the activity log, under your name.`);
-        markRecord(entry.form, 'done');
-      }, (error) => {
-        const why = error?.message ? ` ${error.message}` : '';
-        note(`${entry.name} was done on the board, but it could not be put in the activity log.${why}`, 'warn');
-        markRecord(entry.form, 'failed', `Done on the board, but not in the activity log.${why}`);
-      });
+      .then(
+        () => {
+          note(`${entry.name} is in the activity log, under your name.`);
+          markRecord(entry.form, 'done');
+        },
+        (error) => {
+          const why = error?.message ? ` ${error.message}` : '';
+          note(`${entry.name} was done on the board, but it could not be put in the activity log.${why}`, 'warn');
+          markRecord(entry.form, 'failed', `Done on the board, but not in the activity log.${why}`);
+        }
+      );
   }
 
   function finalLine(line) {
@@ -633,8 +724,8 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
       if (record && line.kind === 'ok' && !entry.auto && RECORDED.has(entry.name)) recordCommand(entry);
       if (entry.name === 'GET_ID' && line.kind === 'ok') {
         const bar = line.text.lastIndexOf('|');
-        session.board = bar < 0 ? { id: line.text, version: '' }
-          : { id: line.text.slice(0, bar), version: line.text.slice(bar + 1) };
+        session.board =
+          bar < 0 ? { id: line.text, version: '' } : { id: line.text.slice(0, bar), version: line.text.slice(bar + 1) };
       }
       if (entry.name === 'MQTT') {
         session.mqtt = line.kind === 'ok' ? { facts: mqttFacts(entry.lines), at: clockNow(now()), stale: false } : null;
@@ -706,7 +797,8 @@ export function createSerialSession({ serial, onChange = () => {}, now = () => n
       } catch (error) {
         if (closing) return;
         // These leave the port open, and the browser gives it a new stream.
-        if (current.readable && error?.name !== 'NetworkError') note('Some of what the board sent was lost on the way.', 'warn');
+        if (current.readable && error?.name !== 'NetworkError')
+          note('Some of what the board sent was lost on the way.', 'warn');
         else lost(UNPLUGGED);
       } finally {
         try {
@@ -865,7 +957,9 @@ let shared = null;
 
 function sharedSession(ctx) {
   shared ??= createSerialSession({
-    serial: navigator.serial, onChange: ctx.actions.redraw, record: (command) => ctx.actions.recordSerialCommand(command),
+    serial: navigator.serial,
+    onChange: ctx.actions.redraw,
+    record: (command) => ctx.actions.recordSerialCommand(command),
   });
   return shared;
 }
@@ -917,7 +1011,15 @@ function transcriptLine(line) {
       h('span', { class: 'serial-tag' }, `[${line.tag}]`),
       ' ',
       line.level
-        ? [h('span', { class: `serial-level is-${LEVELS[line.level][0]}` }, icon(LEVELS[line.level][1], 'is-small'), line.level), ' ']
+        ? [
+            h(
+              'span',
+              { class: `serial-level is-${LEVELS[line.level][0]}` },
+              icon(LEVELS[line.level][1], 'is-small'),
+              line.level
+            ),
+            ' ',
+          ]
         : null,
       lineText(line.text),
     ],
@@ -927,44 +1029,66 @@ function transcriptLine(line) {
   // A time on every row of a table takes the width that its columns need, and it would be copied
   // with them. The command above the table and the final line below it have theirs.
   const timed = !(line.kind === 'output' && COLUMNS.test(line.text));
-  return h('li', {
-    key: line.id,
-    class: `serial-line is-${line.kind} ${line.kind === 'note' ? `is-tone-${line.tone}` : ''}`.trim(),
-  }, parts[line.kind](), timed ? [' ', h('time', { class: 'serial-time' }, line.at)] : null);
+  return h(
+    'li',
+    {
+      key: line.id,
+      class: `serial-line is-${line.kind} ${line.kind === 'note' ? `is-tone-${line.tone}` : ''}`.trim(),
+    },
+    parts[line.kind](),
+    timed ? [' ', h('time', { class: 'serial-time' }, line.at)] : null
+  );
 }
 
 function transcript(session) {
   return [
-    h('div', {
-      id: TRANSCRIPT_ID,
-      class: 'serial-transcript',
-      key: 'transcript',
-      tabindex: '0',
-      role: 'group',
-      'aria-label': 'Transcript of what was sent and what the board said',
-      onScroll: (event) => {
-        const el = event.currentTarget;
-        session.setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_WITHIN);
+    h(
+      'div',
+      {
+        id: TRANSCRIPT_ID,
+        class: 'serial-transcript',
+        key: 'transcript',
+        tabindex: '0',
+        role: 'group',
+        'aria-label': 'Transcript of what was sent and what the board said',
+        onScroll: (event) => {
+          const el = event.currentTarget;
+          session.setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_WITHIN);
+        },
       },
-    },
-    session.lines.length === 0
-      ? h('p', { class: 'serial-blank' }, 'What is sent and what the board says will appear here.')
-      : h('ol', { class: 'serial-lines' },
-        session.linesDropped > 0
-          ? h('li', { key: 'dropped', class: 'serial-line is-note is-tone-idle' },
-            h('span', { class: 'serial-text' }, `${session.linesDropped} earlier lines are no longer kept.`))
-          : null,
-        session.lines.map(transcriptLine))),
+      session.lines.length === 0
+        ? h('p', { class: 'serial-blank' }, 'What is sent and what the board says will appear here.')
+        : h(
+            'ol',
+            { class: 'serial-lines' },
+            session.linesDropped > 0
+              ? h(
+                  'li',
+                  { key: 'dropped', class: 'serial-line is-note is-tone-idle' },
+                  h('span', { class: 'serial-text' }, `${session.linesDropped} earlier lines are no longer kept.`)
+                )
+              : null,
+            session.lines.map(transcriptLine)
+          )
+    ),
     !session.pinned && session.unseen > 0
-      ? button('is-small serial-latest', () => {
-        session.setPinned(true);
-        keepTranscriptInView();
-      }, icon('download'), `${session.unseen} new, go to the latest`)
+      ? button(
+          'is-small serial-latest',
+          () => {
+            session.setPinned(true);
+            keepTranscriptInView();
+          },
+          icon('download'),
+          `${session.unseen} new, go to the latest`
+        )
       : null,
     // Only the final line of a reply is read out. The sentence is the same when a reply
     // repeats, and a live region stays quiet then, so the two forms differ by a space.
-    h('p', { class: 'sr-only', key: 'said', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
-      session.said ? `${session.said}${session.saidCount % 2 ? '' : ' '}` : ''),
+    h(
+      'p',
+      { class: 'sr-only', key: 'said', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' },
+      session.said ? `${session.said}${session.saidCount % 2 ? '' : ' '}` : ''
+    ),
   ];
 }
 
@@ -980,33 +1104,71 @@ const PHASES = {
 function connectionState(session) {
   const [className, iconName, words] = PHASES[session.phase];
   const { board } = session;
-  return h('div', { class: 'serial-state', key: 'state' },
+  return h(
+    'div',
+    { class: 'serial-state', key: 'state' },
     h('p', { class: className, role: 'status' }, icon(iconName), words),
     session.phase === 'ready' && board
-      ? h('p', { class: 'serial-board' },
-        board.id ? mono(board.id) : 'No ID yet',
-        board.version ? [' · firmware ', mono(board.version)] : null)
-      : null);
+      ? h(
+          'p',
+          { class: 'serial-board' },
+          board.id ? mono(board.id) : 'No ID yet',
+          board.version ? [' · firmware ', mono(board.version)] : null
+        )
+      : null
+  );
 }
 
 function connectionTools(session) {
   const open = !['idle', 'opening'].includes(session.phase);
-  return h('div', { class: 'serial-tools', key: 'tools' },
+  return h(
+    'div',
+    { class: 'serial-tools', key: 'tools' },
     open
       ? [
-        session.phase === 'silent'
-          ? h('button', { type: 'button', key: 'again', class: 'btn is-small', onClick: session.probe }, icon('restart'), 'Ask again')
-          : null,
-        h('button', {
-          type: 'button', key: 'off', class: 'btn is-small', disabled: session.phase === 'closing', onClick: session.disconnect,
-        }, 'Disconnect'),
-      ]
-      : h('button', {
-        type: 'button', key: 'on', class: 'btn is-small is-primary', disabled: session.phase === 'opening', onClick: session.connect,
-      }, 'Connect a board'),
-    h('button', {
-      type: 'button', key: 'clear', class: 'btn is-small is-quiet', disabled: session.lines.length === 0, onClick: session.clear,
-    }, 'Clear'));
+          session.phase === 'silent'
+            ? h(
+                'button',
+                { type: 'button', key: 'again', class: 'btn is-small', onClick: session.probe },
+                icon('restart'),
+                'Ask again'
+              )
+            : null,
+          h(
+            'button',
+            {
+              type: 'button',
+              key: 'off',
+              class: 'btn is-small',
+              disabled: session.phase === 'closing',
+              onClick: session.disconnect,
+            },
+            'Disconnect'
+          ),
+        ]
+      : h(
+          'button',
+          {
+            type: 'button',
+            key: 'on',
+            class: 'btn is-small is-primary',
+            disabled: session.phase === 'opening',
+            onClick: session.connect,
+          },
+          'Connect a board'
+        ),
+    h(
+      'button',
+      {
+        type: 'button',
+        key: 'clear',
+        class: 'btn is-small is-quiet',
+        disabled: session.lines.length === 0,
+        onClick: session.clear,
+      },
+      'Clear'
+    )
+  );
 }
 
 const fieldById = (id) => document.getElementById(id);
@@ -1056,9 +1218,13 @@ function typedInput(session, ctx) {
     set(ui.recalling < 0 ? '' : typed[typed.length - 1 - ui.recalling]);
     noteHidden(false);
   };
-  return h('form', { class: 'serial-prompt', key: 'prompt', autocomplete: 'off', onSubmit: submit },
+  return h(
+    'form',
+    { class: 'serial-prompt', key: 'prompt', autocomplete: 'off', onSubmit: submit },
     h('label', { class: 'field-label', for: 'serial-typed' }, 'Command'),
-    h('div', { class: 'serial-prompt-row' },
+    h(
+      'div',
+      { class: 'serial-prompt-row' },
       h('input', {
         id: 'serial-typed',
         class: 'input mono',
@@ -1074,20 +1240,30 @@ function typedInput(session, ctx) {
         onInput: (event) => noteHidden(holdsSecret(event.currentTarget.value)),
         onKeydown: recall,
       }),
-      h('button', { type: 'submit', class: 'btn', disabled: !ready }, icon('send'), 'Send')),
-    h('p', { class: 'field-hint', id: 'serial-typed-hint' },
+      h('button', { type: 'submit', class: 'btn', disabled: !ready }, icon('send'), 'Send')
+    ),
+    h(
+      'p',
+      { class: 'field-hint', id: 'serial-typed-hint' },
       ui.typedHidden
         ? 'This line holds a password, so it stays hidden and will not be kept.'
-        : 'The up and down arrows bring back earlier commands. Wi-Fi commands are never kept.'),
+        : 'The up and down arrows bring back earlier commands. Wi-Fi commands are never kept.'
+    ),
     ui.typedProblem
       ? h('p', { class: 'serial-error', role: 'alert' }, icon('alert', 'is-small'), ui.typedProblem)
-      : null);
+      : null
+  );
 }
 
 function fieldError(command, key) {
   const error = ui.errors.get(command.name)?.[key];
   return error
-    ? h('p', { class: 'serial-error', id: `serial-${command.name}-${key}-error`, role: 'alert' }, icon('alert', 'is-small'), error)
+    ? h(
+        'p',
+        { class: 'serial-error', id: `serial-${command.name}-${key}-error`, role: 'alert' },
+        icon('alert', 'is-small'),
+        error
+      )
     : null;
 }
 
@@ -1109,27 +1285,35 @@ function formField(command, field) {
     'aria-describedby': describedBy(command, field.key, field.hint),
     'aria-invalid': ui.errors.get(command.name)?.[field.key] ? 'true' : null,
   };
-  return h('div', { class: 'field', key: field.key },
+  return h(
+    'div',
+    { class: 'field', key: field.key },
     h('label', { class: 'field-label', for: id }, field.label),
     field.choices
-      ? h('select', common, field.choices.map((choice) =>
-        h('option', { key: choice, value: choice }, SECTION_WORDS[choice] ?? choice)))
+      ? h(
+          'select',
+          common,
+          field.choices.map((choice) => h('option', { key: choice, value: choice }, SECTION_WORDS[choice] ?? choice))
+        )
       : h('input', {
-        ...common,
-        type: field.secret ? 'password' : 'text',
-        // Not the browser's to fill in, and not its to remember.
-        autocomplete: field.secret ? 'new-password' : 'off',
-        autocapitalize: 'none',
-        autocorrect: 'off',
-        spellcheck: 'false',
-      }),
+          ...common,
+          type: field.secret ? 'password' : 'text',
+          // Not the browser's to fill in, and not its to remember.
+          autocomplete: field.secret ? 'new-password' : 'off',
+          autocapitalize: 'none',
+          autocorrect: 'off',
+          spellcheck: 'false',
+        }),
     field.hint ? h('p', { class: 'field-hint', id: `${id}-hint` }, field.hint) : null,
-    fieldError(command, field.key));
+    fieldError(command, field.key)
+  );
 }
 
 function confirmField(command) {
   const id = `serial-${command.name}-confirm`;
-  return h('div', { class: 'field', key: 'confirm' },
+  return h(
+    'div',
+    { class: 'field', key: 'confirm' },
     h('label', { class: 'field-label', for: id }, 'Type ', mono(command.confirm), ' to confirm'),
     h('input', {
       id,
@@ -1142,7 +1326,8 @@ function confirmField(command) {
       'aria-describedby': describedBy(command, 'confirm', false),
       'aria-invalid': ui.errors.get(command.name)?.confirm ? 'true' : null,
     }),
-    fieldError(command, 'confirm'));
+    fieldError(command, 'confirm')
+  );
 }
 
 const REPLY_MARKS = {
@@ -1159,19 +1344,31 @@ function replyOf(command, session) {
   if (reply?.form !== command.name) return null;
   const [iconName, word] = REPLY_MARKS[reply.kind];
   return [
-    h('p', { class: `serial-result is-${reply.kind}`, key: 'reply' }, icon(iconName, 'is-small'), word ? `${word} ` : '', reply.text),
+    h(
+      'p',
+      { class: `serial-result is-${reply.kind}`, key: 'reply' },
+      icon(iconName, 'is-small'),
+      word ? `${word} ` : '',
+      reply.text
+    ),
     recordOf(reply),
   ];
 }
 
 /** Whether the command a form sent is in the activity log, said under the board's own answer. */
 function recordOf(reply) {
-  if (reply.record === 'sending') return h('p', { class: 'serial-record', key: 'record' }, 'Putting it in the activity log…');
+  if (reply.record === 'sending')
+    return h('p', { class: 'serial-record', key: 'record' }, 'Putting it in the activity log…');
   if (reply.record === 'done') {
     return h('p', { class: 'serial-record is-done', key: 'record' }, icon('check', 'is-small'), 'In the activity log.');
   }
   if (reply.record === 'failed') {
-    return h('p', { class: 'serial-record is-failed', key: 'record', role: 'alert' }, icon('alert', 'is-small'), reply.recordProblem);
+    return h(
+      'p',
+      { class: 'serial-record is-failed', key: 'record', role: 'alert' },
+      icon('alert', 'is-small'),
+      reply.recordProblem
+    );
   }
   return null;
 }
@@ -1211,19 +1408,28 @@ function commandRow(command, session, ctx) {
   };
   const reply = replyOf(command, session);
   if (command.fields.length === 0 && !command.confirm) {
-    return h('div', { class: 'serial-row is-plain', key: command.name },
+    return h(
+      'div',
+      { class: 'serial-row is-plain', key: command.name },
       h('button', { type: 'button', class: 'btn is-small mono', onClick: send }, command.name),
       h('p', { class: 'serial-does' }, command.text),
-      reply);
+      reply
+    );
   }
-  return h('form', { class: 'serial-row', key: command.name, autocomplete: 'off', noValidate: true, onSubmit: send },
+  return h(
+    'form',
+    { class: 'serial-row', key: command.name, autocomplete: 'off', noValidate: true, onSubmit: send },
     h('h3', { class: 'serial-name mono' }, command.name),
     h('p', { class: 'serial-does' }, command.text),
     command.fields.map((field) => formField(command, field)),
     command.confirm ? confirmField(command) : null,
-    h('div', { class: 'serial-row-foot' },
-      h('button', { type: 'submit', class: `btn is-small ${action} mono`.trim() }, command.name)),
-    reply);
+    h(
+      'div',
+      { class: 'serial-row-foot' },
+      h('button', { type: 'submit', class: `btn is-small ${action} mono`.trim() }, command.name)
+    ),
+    reply
+  );
 }
 
 // The MQTT panel: what MQTT says, a new server, and a new connection.
@@ -1247,21 +1453,39 @@ function sendPlain(name, session, ctx) {
 /** The reply to one of the panel's commands, with a word for firmware that does not know it. */
 function mqttReply(name, session) {
   const reply = replyOf(commandNamed(name), session);
-  const unknown = session.reply?.form === name && session.reply.kind === 'err' && /^unknown command/.test(session.reply.text);
+  const unknown =
+    session.reply?.form === name && session.reply.kind === 'err' && /^unknown command/.test(session.reply.text);
   return [reply, unknown ? h('p', { class: 'field-hint', key: 'old' }, OLD_FIRMWARE) : null];
 }
 
 function mqttFactList(mqtt) {
   return [
-    h('dl', { class: 'facts', key: 'facts', 'aria-label': 'MQTT connection' },
-      mqtt.facts.map((fact) => h('div', { class: 'fact', key: fact.key },
-        h('dt', null, fact.label),
-        h('dd', null, fact.values.map((value, index) => {
-          const shown = MONO_FACTS.has(fact.key) ? mono(value) : value;
-          return h('span', { key: String(index), class: fact.key === 'state' ? 'fact-strong' : null }, shown);
-        }))))),
-    h('p', { class: 'field-hint', key: 'when' },
-      mqtt.stale ? `As of ${mqtt.at}, before the last change: check again to see how it stands now.` : `As of ${mqtt.at}.`),
+    h(
+      'dl',
+      { class: 'facts', key: 'facts', 'aria-label': 'MQTT connection' },
+      mqtt.facts.map((fact) =>
+        h(
+          'div',
+          { class: 'fact', key: fact.key },
+          h('dt', null, fact.label),
+          h(
+            'dd',
+            null,
+            fact.values.map((value, index) => {
+              const shown = MONO_FACTS.has(fact.key) ? mono(value) : value;
+              return h('span', { key: String(index), class: fact.key === 'state' ? 'fact-strong' : null }, shown);
+            })
+          )
+        )
+      )
+    ),
+    h(
+      'p',
+      { class: 'field-hint', key: 'when' },
+      mqtt.stale
+        ? `As of ${mqtt.at}, before the last change: check again to see how it stands now.`
+        : `As of ${mqtt.at}.`
+    ),
   ];
 }
 
@@ -1315,10 +1539,14 @@ function mqttHostForm(session, ctx) {
     ctx.actions.redraw();
   };
 
-  return h('form', { class: 'serial-row', key: command.name, autocomplete: 'off', noValidate: true, onSubmit: ask },
+  return h(
+    'form',
+    { class: 'serial-row', key: command.name, autocomplete: 'off', noValidate: true, onSubmit: ask },
     h('h3', { class: 'serial-name' }, 'Set server'),
     h('p', { class: 'serial-does' }, command.text, ' Sends ', mono('MQTT_HOST|<endpoint>'), '.'),
-    h('div', { class: 'field', key: 'host' },
+    h(
+      'div',
+      { class: 'field', key: 'host' },
       h('label', { class: 'field-label', for: fieldId }, HOST_FIELD.label),
       h('input', {
         id: fieldId,
@@ -1339,84 +1567,158 @@ function mqttHostForm(session, ctx) {
           }
         },
       }),
-      h('p', { class: 'field-hint', id: `${fieldId}-hint` },
-        HOST_FIELD.hint, current ? [' Now: ', mono(current), '.'] : null),
-      fieldError(command, 'host')),
+      h(
+        'p',
+        { class: 'field-hint', id: `${fieldId}-hint` },
+        HOST_FIELD.hint,
+        current ? [' Now: ', mono(current), '.'] : null
+      ),
+      fieldError(command, 'host')
+    ),
     confirming === null
-      ? h('div', { class: 'serial-row-foot', key: 'foot' },
-        h('button', { type: 'submit', class: 'btn is-small' }, 'Set server'))
-      : h('div', { class: 'serial-row-foot', key: 'confirm', role: 'group', 'aria-labelledby': 'serial-MQTT_HOST-question' },
-        h('p', { class: 'serial-does', id: 'serial-MQTT_HOST-question' },
-          'Set the server to ', mono(confirming), '? The board drops its MQTT connection and connects to this one.'),
-        h('button', { type: 'button', id: 'serial-MQTT_HOST-yes', class: 'btn is-small is-primary', onClick: confirm }, 'Yes, set the server'),
-        ' ',
-        h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: cancel }, 'Cancel')),
-    mqttReply(command.name, session));
+      ? h(
+          'div',
+          { class: 'serial-row-foot', key: 'foot' },
+          h('button', { type: 'submit', class: 'btn is-small' }, 'Set server')
+        )
+      : h(
+          'div',
+          { class: 'serial-row-foot', key: 'confirm', role: 'group', 'aria-labelledby': 'serial-MQTT_HOST-question' },
+          h(
+            'p',
+            { class: 'serial-does', id: 'serial-MQTT_HOST-question' },
+            'Set the server to ',
+            mono(confirming),
+            '? The board drops its MQTT connection and connects to this one.'
+          ),
+          h(
+            'button',
+            { type: 'button', id: 'serial-MQTT_HOST-yes', class: 'btn is-small is-primary', onClick: confirm },
+            'Yes, set the server'
+          ),
+          ' ',
+          h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: cancel }, 'Cancel')
+        ),
+    mqttReply(command.name, session)
+  );
 }
 
 function mqttPanel(session, ctx) {
   const check = commandNamed('MQTT');
   const reconnect = commandNamed('MQTT_RECONNECT');
-  return h('section', { class: 'serial-group', key: 'mqtt' },
+  return h(
+    'section',
+    { class: 'serial-group', key: 'mqtt' },
     h('h2', { class: 'eyebrow' }, 'MQTT'),
-    h('div', { class: 'serial-row is-plain', key: check.name },
-      h('button', { type: 'button', class: 'btn is-small', onClick: () => sendPlain(check.name, session, ctx) }, icon('pulse'), 'Check MQTT'),
+    h(
+      'div',
+      { class: 'serial-row is-plain', key: check.name },
+      h(
+        'button',
+        { type: 'button', class: 'btn is-small', onClick: () => sendPlain(check.name, session, ctx) },
+        icon('pulse'),
+        'Check MQTT'
+      ),
       h('p', { class: 'serial-does' }, check.text),
-      mqttReply(check.name, session)),
+      mqttReply(check.name, session)
+    ),
     session.mqtt ? mqttFactList(session.mqtt) : null,
     mqttHostForm(session, ctx),
-    h('div', { class: 'serial-row is-plain', key: reconnect.name },
-      h('button', { type: 'button', class: 'btn is-small', onClick: () => sendPlain(reconnect.name, session, ctx) }, icon('restart'), 'Reconnect'),
+    h(
+      'div',
+      { class: 'serial-row is-plain', key: reconnect.name },
+      h(
+        'button',
+        { type: 'button', class: 'btn is-small', onClick: () => sendPlain(reconnect.name, session, ctx) },
+        icon('restart'),
+        'Reconnect'
+      ),
       h('p', { class: 'serial-does' }, reconnect.text),
-      mqttReply(reconnect.name, session)));
+      mqttReply(reconnect.name, session)
+    )
+  );
 }
 
 function commandForms(session, ctx) {
   const ready = session.phase === 'ready';
-  return h('div', { class: 'serial-forms', key: 'forms' },
-    h('fieldset', { class: 'serial-fieldset', disabled: !ready },
+  return h(
+    'div',
+    { class: 'serial-forms', key: 'forms' },
+    h(
+      'fieldset',
+      { class: 'serial-fieldset', disabled: !ready },
       h('legend', { class: 'sr-only' }, 'Commands'),
       ready ? null : h('p', { class: 'serial-waiting' }, icon('lock', 'is-small'), 'Connect a board to use these.'),
-      GROUPS.map(([group, title]) => (group === 'mqtt' ? mqttPanel(session, ctx) : h('section', { class: 'serial-group', key: group },
-        h('h2', { class: 'eyebrow' }, title),
-        COMMANDS.filter((command) => command.group === group).map((command) => commandRow(command, session, ctx)))))));
+      GROUPS.map(([group, title]) =>
+        group === 'mqtt'
+          ? mqttPanel(session, ctx)
+          : h(
+              'section',
+              { class: 'serial-group', key: group },
+              h('h2', { class: 'eyebrow' }, title),
+              COMMANDS.filter((command) => command.group === group).map((command) => commandRow(command, session, ctx))
+            )
+      )
+    )
+  );
 }
 
-const LEDE = 'Drive a board on its USB cable from this browser. What you type here goes only over the ' +
+const LEDE =
+  'Drive a board on its USB cable from this browser. What you type here goes only over the ' +
   'cable to the board, never to the server, and nothing is saved. A command that changes the board is put in the ' +
   'activity log once the board has done it, by its name only.';
 
 function explained(title, text, command) {
-  return h('div', { class: 'page', key: 'page' },
+  return h(
+    'div',
+    { class: 'page', key: 'page' },
     developerTabs('serial'),
     pageHead({ title: 'Serial console', lede: 'Drive a board on its USB cable from this browser.' }),
-    h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command })));
+    h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
+  );
 }
 
 /** The page. `session` is given by the tests; otherwise the tab has one connection. */
 export function serialView(ctx, session) {
   if (!ctx.state.me?.canWrite) {
-    return explained('The serial console is for release managers.',
+    return explained(
+      'The serial console is for release managers.',
       'It drives a board directly and can erase it, so a viewer does not get its controls. ' +
-      'Ask a release manager to do what you need, or to add you to their group.');
+        'Ask a release manager to do what you need, or to add you to their group.'
+    );
   }
   if (!session && !navigator.serial) {
-    return explained('This browser cannot reach a serial port.',
+    return explained(
+      'This browser cannot reach a serial port.',
       'Web Serial exists only in Chrome and Edge, on a secure (https) address. Open this page there, ' +
-      'or use a plain serial monitor at 115200 baud:',
-      'screen /dev/cu.usbmodem<port> 115200');
+        'or use a plain serial monitor at 115200 baud:',
+      'screen /dev/cu.usbmodem<port> 115200'
+    );
   }
   const current = session ?? sharedSession(ctx);
-  return h('div', { class: 'page serial-page', key: 'page' },
+  return h(
+    'div',
+    { class: 'page serial-page', key: 'page' },
     developerTabs('serial'),
     pageHead({ title: 'Serial console', lede: LEDE }),
-    h('div', { class: 'serial-layout', key: 'layout' },
-      h('section', { class: 'panel on-ink serial-panel', key: 'panel', 'aria-label': 'Connection and transcript' },
+    h(
+      'div',
+      { class: 'serial-layout', key: 'layout' },
+      h(
+        'section',
+        { class: 'panel on-ink serial-panel', key: 'panel', 'aria-label': 'Connection and transcript' },
         h('header', { class: 'serial-head', key: 'head' }, connectionState(current), connectionTools(current)),
         current.problem
-          ? notice(current.phase === 'silent' || current.problem === NOT_CHOSEN ? 'warn' : 'bad', 'alert', current.problem)
+          ? notice(
+              current.phase === 'silent' || current.problem === NOT_CHOSEN ? 'warn' : 'bad',
+              'alert',
+              current.problem
+            )
           : null,
         transcript(current),
-        typedInput(current, ctx)),
-      commandForms(current, ctx)));
+        typedInput(current, ctx)
+      ),
+      commandForms(current, ctx)
+    )
+  );
 }

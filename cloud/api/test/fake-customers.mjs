@@ -37,11 +37,11 @@ function subOf(count) {
 }
 
 export function createFakeCustomers({ now = Date.now } = {}) {
-  const accounts = new Map();   // sub -> { sub, email, name, enabled, status, createdAt }
-  const owned = new Map();      // thing -> item of the ownership partition
+  const accounts = new Map(); // sub -> { sub, email, name, enabled, status, createdAt }
+  const owned = new Map(); // thing -> item of the ownership partition
   const faults = new Map();
   const calls = [];
-  const invitations = [];       // { email, resent } in the order Cognito would have sent them
+  const invitations = []; // { email, resent } in the order Cognito would have sent them
   let made = 0;
 
   const clock = () => {
@@ -64,7 +64,11 @@ export function createFakeCustomers({ now = Date.now } = {}) {
       if (byEmail(email) !== null) return { ok: false, reason: 'exists' };
       made += 1;
       const account = {
-        sub: subOf(made), email: email.toLowerCase(), name: name ?? '', enabled: true, status: 'FORCE_CHANGE_PASSWORD',
+        sub: subOf(made),
+        email: email.toLowerCase(),
+        name: name ?? '',
+        enabled: true,
+        status: 'FORCE_CHANGE_PASSWORD',
         createdAt: clock(),
       };
       accounts.set(account.sub, account);
@@ -85,10 +89,15 @@ export function createFakeCustomers({ now = Date.now } = {}) {
       return { ok: true };
     },
     async listOwnership() {
-      return [...owned.values()].filter((item) => typeof item.owner === 'string')
+      return [...owned.values()]
+        .filter((item) => typeof item.owner === 'string')
         .map((item) => ({
-          thing: item.sk, owner: item.owner, ref: item.ref, label: item.label ?? '',
-          assignedAt: item.assignedAt, assignedBy: item.assignedBy,
+          thing: item.sk,
+          owner: item.owner,
+          ref: item.ref,
+          label: item.label ?? '',
+          assignedAt: item.assignedAt,
+          assignedBy: item.assignedBy,
         }));
     },
     async assignBoard({ thing, owner, ref, label, at, by }) {
@@ -124,13 +133,21 @@ export function createFakeCustomers({ now = Date.now } = {}) {
     failNext(method, { times = 1, code = 'failed' } = {}) {
       if (!Object.hasOwn(adapter, method)) throw new TypeError(`No adapter method ${method}`);
       const queued = faults.get(method) ?? [];
-      for (let count = 0; count < times; count += 1) queued.push(() => awsError(method, 'InternalErrorException', { code }));
+      for (let count = 0; count < times; count += 1)
+        queued.push(() => awsError(method, 'InternalErrorException', { code }));
       faults.set(method, queued);
     },
     /** An account as an admin would have made it, already through its first sign-in. */
     addCustomer({ email, name = '', enabled = true, status = 'CONFIRMED', sub } = {}) {
       made += 1;
-      const account = { sub: sub ?? subOf(made), email: email.toLowerCase(), name, enabled, status, createdAt: clock() };
+      const account = {
+        sub: sub ?? subOf(made),
+        email: email.toLowerCase(),
+        name,
+        enabled,
+        status,
+        createdAt: clock(),
+      };
       accounts.set(account.sub, account);
       return copy(account);
     },
@@ -184,7 +201,8 @@ export function customerEvent(path, { claims, method = 'GET' } = {}) {
   const event = apiEvent(method, path, {});
   event.routeKey = 'GET /api/c/{proxy+}';
   event.requestContext.routeKey = event.routeKey;
-  if (claims !== undefined) event.requestContext.authorizer = { jwt: { claims, scopes: ['aws.cognito.signin.user.admin'] } };
+  if (claims !== undefined)
+    event.requestContext.authorizer = { jwt: { claims, scopes: ['aws.cognito.signin.user.admin'] } };
   return event;
 }
 
@@ -200,7 +218,9 @@ const MAIL_DOMAIN = 'example.invalid';
  *   await world.customer('/api/c/boards', { as: customerSub });
  */
 export function createCustomerWorld({
-  startMs = Date.UTC(2026, 10, 4, 12, 0, 0), siteUrl = 'https://customer.example/', customers: wired = true,
+  startMs = Date.UTC(2026, 10, 4, 12, 0, 0),
+  siteUrl = 'https://customer.example/',
+  customers: wired = true,
   mobileClientId = CUSTOMER_MOBILE_CLIENT_ID,
 } = {}) {
   const clock = { ms: startMs };
@@ -220,12 +240,20 @@ export function createCustomerWorld({
     log: (line) => logs.push(line),
     randomHex: (count) => {
       draws += 1;
-      return createHash('sha256').update(`draw ${draws}`).digest('hex').repeat(4).slice(0, 2 * count);
+      return createHash('sha256')
+        .update(`draw ${draws}`)
+        .digest('hex')
+        .repeat(4)
+        .slice(0, 2 * count);
     },
   });
   const customerConfig = Object.freeze({
-    region: 'us-east-1', stateTable: 'local-state', eventsTable: 'local-events',
-    customerPoolId: CUSTOMER_POOL_ID, customerClientId: CUSTOMER_CLIENT_ID, customerMobileClientId: CUSTOMER_MOBILE_CLIENT_ID,
+    region: 'us-east-1',
+    stateTable: 'local-state',
+    eventsTable: 'local-events',
+    customerPoolId: CUSTOMER_POOL_ID,
+    customerClientId: CUSTOMER_CLIENT_ID,
+    customerMobileClientId: CUSTOMER_MOBILE_CLIENT_ID,
     issuer: issuerOf(CUSTOMER_POOL_ID),
   });
   const customerApp = createCustomerApp({
@@ -236,7 +264,11 @@ export function createCustomerWorld({
   });
   let people = 0;
 
-  const decoded = (response) => ({ status: response.statusCode, headers: response.headers, body: JSON.parse(response.body) });
+  const decoded = (response) => ({
+    status: response.statusCode,
+    headers: response.headers,
+    body: JSON.parse(response.body),
+  });
 
   return {
     fake,

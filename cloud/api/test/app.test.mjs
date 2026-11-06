@@ -10,7 +10,14 @@ import { loadConfig } from '../src/config.mjs';
 import { HttpError, describeError, errorCode, errorResponse, json } from '../src/http.mjs';
 import { auditDigest } from '../src/lib/audit.mjs';
 import {
-  accessClaims, apiEvent, awsError, createFakeAws, createTestConsole, fakeEnv, fixture, manualTimers,
+  accessClaims,
+  apiEvent,
+  awsError,
+  createFakeAws,
+  createTestConsole,
+  fakeEnv,
+  fixture,
+  manualTimers,
 } from './fake-aws.mjs';
 
 const BOARD = 'cranium-00000000000000aa';
@@ -51,12 +58,12 @@ test('every response is JSON that is never cached or sniffed', async () => {
   const context = setup();
   const { app, manager, viewer } = context;
   const events = [
-    apiEvent('GET', '/api/devices', { claims: viewer.claims }),                      // 200
+    apiEvent('GET', '/api/devices', { claims: viewer.claims }), // 200
     apiEvent('POST', '/api/firmware', { claims: manager.claims, body: uploadBody() }), // 201
-    apiEvent('POST', '/api/firmware', { claims: manager.claims, body: '{' }),          // 400
-    apiEvent('GET', '/api/devices'),                                                   // 401
-    apiEvent('POST', '/api/firmware', { claims: viewer.claims, body: uploadBody() }),  // 403
-    apiEvent('GET', '/api/nowhere', { claims: viewer.claims }),                        // 404
+    apiEvent('POST', '/api/firmware', { claims: manager.claims, body: '{' }), // 400
+    apiEvent('GET', '/api/devices'), // 401
+    apiEvent('POST', '/api/firmware', { claims: viewer.claims, body: uploadBody() }), // 403
+    apiEvent('GET', '/api/nowhere', { claims: viewer.claims }), // 404
     apiEvent('POST', '/api/firmware', { claims: manager.claims, body: uploadBody() }), // 409
     apiEvent('POST', '/api/firmware', { claims: manager.claims, body: 'x'.repeat(1_400_001) }), // 413
     apiEvent('POST', '/api/firmware', { claims: manager.claims, body: { filename: 'a', data: 'AAAA' } }), // 422
@@ -95,7 +102,8 @@ test('a server error says nothing about what went wrong inside', async () => {
   const context = setup();
   const { fake, viewer, logs } = context;
   const secretive = awsError('ListThingsInThingGroup', 'AccessDeniedException', { status: 403 });
-  secretive.message = 'User: arn:aws:sts::999999999999:assumed-role/ApiFnRole/fn is not authorized on thinggroup/cranium-devices';
+  secretive.message =
+    'User: arn:aws:sts::999999999999:assumed-role/ApiFnRole/fn is not authorized on thinggroup/cranium-devices';
   const original = fake.listGroupThings;
   fake.listGroupThings = async () => {
     throw secretive;
@@ -137,9 +145,16 @@ test('each request is logged once, without bodies, tokens or addresses', async (
   fake.device(BOARD).report({ uptime: 1 });
 
   await context.call('GET', '/api/devices', { as: viewer, requestId: 'req-1' });
-  assert.deepEqual(logs, [{
-    requestId: 'req-1', sub: viewer.sub, method: 'GET', route: 'GET /api/devices', status: 200, duration: 0,
-  }]);
+  assert.deepEqual(logs, [
+    {
+      requestId: 'req-1',
+      sub: viewer.sub,
+      method: 'GET',
+      route: 'GET /api/devices',
+      status: 200,
+      duration: 0,
+    },
+  ]);
 
   logs.length = 0;
   const secretQuery = { before: 'c2VjcmV0LWN1cnNvcg', limit: '5', token: 'query-string-secret' };
@@ -149,41 +164,64 @@ test('each request is logged once, without bodies, tokens or addresses', async (
   await context.call('GET', '/api/audit', { as: viewer, query: secretQuery, requestId: 'req-5' });
   await context.call('GET', '/api/secret-path-segment', { as: viewer, requestId: 'req-6' });
   await context.call('GET', '/api/devices', { requestId: 'req-7' });
-  await context.call('POST', '/api/deployments', { as: viewer, body: { version: '1.2.3+4', things: [BOARD] }, requestId: 'req-8' });
+  await context.call('POST', '/api/deployments', {
+    as: viewer,
+    body: { version: '1.2.3+4', things: [BOARD] },
+    requestId: 'req-8',
+  });
   await context.call('TRACE', '/api/devices', { as: viewer, requestId: 'req-9' });
 
   // A write also leaves the digest of its entry in the activity log, and nothing else
   // that it did not leave before.
   const digests = logs.filter((line) => line.event === 'audit_entry');
-  assert.deepEqual(digests.map((line) => Object.keys(line)),
-    Array(2).fill(['event', 'requestId', 'sub', 'action', 'outcome', 'digest']));
-  assert.deepEqual(digests.map((line) => [line.requestId, line.sub, line.action, line.outcome]), [
-    ['req-2', manager.sub, 'firmware.upload', 'ok'],
-    ['req-8', viewer.sub, 'deployment.create', 'denied'],
-  ]);
+  assert.deepEqual(
+    digests.map((line) => Object.keys(line)),
+    Array(2).fill(['event', 'requestId', 'sub', 'action', 'outcome', 'digest'])
+  );
+  assert.deepEqual(
+    digests.map((line) => [line.requestId, line.sub, line.action, line.outcome]),
+    [
+      ['req-2', manager.sub, 'firmware.upload', 'ok'],
+      ['req-8', viewer.sub, 'deployment.create', 'denied'],
+    ]
+  );
   for (const line of digests) {
     const stored = fake.auditLog().find((item) => item.requestId === line.requestId);
     assert.equal(line.digest, auditDigest(stored));
   }
 
   const requests = logs.filter((line) => line.event !== 'audit_entry');
-  assert.deepEqual(requests.map((line) => [line.requestId, line.sub, line.method, line.route, line.status]), [
-    ['req-2', manager.sub, 'POST', 'POST /api/firmware', 201],
-    ['req-3', viewer.sub, 'GET', 'GET /api/devices/{thing}', 200],
-    ['req-4', viewer.sub, 'GET', 'GET /api/firmware/{version}', 200],
-    ['req-5', viewer.sub, 'GET', 'GET /api/audit', 400],
-    ['req-6', viewer.sub, 'GET', 'unmatched', 404],
-    ['req-7', null, 'GET', 'GET /api/devices', 401],
-    ['req-8', viewer.sub, 'POST', 'POST /api/deployments', 403],
-    ['req-9', viewer.sub, 'OTHER', 'unmatched', 404],
-  ]);
+  assert.deepEqual(
+    requests.map((line) => [line.requestId, line.sub, line.method, line.route, line.status]),
+    [
+      ['req-2', manager.sub, 'POST', 'POST /api/firmware', 201],
+      ['req-3', viewer.sub, 'GET', 'GET /api/devices/{thing}', 200],
+      ['req-4', viewer.sub, 'GET', 'GET /api/firmware/{version}', 200],
+      ['req-5', viewer.sub, 'GET', 'GET /api/audit', 400],
+      ['req-6', viewer.sub, 'GET', 'unmatched', 404],
+      ['req-7', null, 'GET', 'GET /api/devices', 401],
+      ['req-8', viewer.sub, 'POST', 'POST /api/deployments', 403],
+      ['req-9', viewer.sub, 'OTHER', 'unmatched', 404],
+    ]
+  );
   for (const line of requests) {
     assert.deepEqual(Object.keys(line), ['requestId', 'sub', 'method', 'route', 'status', 'duration']);
     assert.equal(typeof line.duration, 'number');
   }
   const text = JSON.stringify(logs);
-  for (const hidden of ['never be logged', uploadBody().data.slice(0, 40), 'query-string-secret', 'c2VjcmV0',
-    'secret-path-segment', 'cognito:groups', 'token_use', manager.email, viewer.email, 'zephyr.signed.bin', BOARD]) {
+  for (const hidden of [
+    'never be logged',
+    uploadBody().data.slice(0, 40),
+    'query-string-secret',
+    'c2VjcmV0',
+    'secret-path-segment',
+    'cognito:groups',
+    'token_use',
+    manager.email,
+    viewer.email,
+    'zephyr.signed.bin',
+    BOARD,
+  ]) {
     assert.equal(text.includes(hidden), false, hidden);
   }
 
@@ -213,8 +251,11 @@ test('a write that runs out of time is answered and recorded, and goes no furthe
   fake.createJob = () => answer.promise;
   fake.calls.length = 0;
   logs.length = 0;
-  const pending = context.call('POST', '/api/deployments',
-    { as: manager, body: { version: '1.2.3+4', things: [BOARD] }, requestId: 'req-slow' });
+  const pending = context.call('POST', '/api/deployments', {
+    as: manager,
+    body: { version: '1.2.3+4', things: [BOARD] },
+    requestId: 'req-slow',
+  });
   await settle();
   // The request has 16 of the function's 20 seconds.
   assert.deepEqual(timers.waiting(), [16000]);
@@ -227,7 +268,8 @@ test('a write that runs out of time is answered and recorded, and goes no furthe
   assert.deepEqual(response.body, {
     error: {
       code: 'timeout',
-      message: 'The server ran out of time. The change may have been made in part or in full: ' +
+      message:
+        'The server ran out of time. The change may have been made in part or in full: ' +
         'check the result before you repeat it.',
       requestId: 'req-slow',
     },
@@ -237,19 +279,37 @@ test('a write that runs out of time is answered and recorded, and goes no furthe
   const entries = fake.auditLog();
   assert.equal(entries.length, 2);
   const entry = entries.at(-1);
-  assert.deepEqual([entry.action, entry.outcome, entry.target, entry.requestId],
-    ['deployment.create', 'error', '1.2.3+4', 'req-slow']);
-  assert.deepEqual(entry.detail, { version: '1.2.3+4', things: '1', boards: 'cranium-00000000000000aa', code: 'timeout' });
+  assert.deepEqual(
+    [entry.action, entry.outcome, entry.target, entry.requestId],
+    ['deployment.create', 'error', '1.2.3+4', 'req-slow']
+  );
+  assert.deepEqual(entry.detail, {
+    version: '1.2.3+4',
+    things: '1',
+    boards: 'cranium-00000000000000aa',
+    code: 'timeout',
+  });
   assert.deepEqual(entry.actor, { sub: manager.sub, email: manager.email });
   // And the three log lines: what happened, the digest of the entry, and the line every
   // request gets.
   assert.deepEqual(logs, [
     { level: 'error', event: 'request_timed_out', requestId: 'req-slow', budget: 16000 },
     {
-      event: 'audit_entry', requestId: 'req-slow', sub: manager.sub, action: 'deployment.create', outcome: 'error',
+      event: 'audit_entry',
+      requestId: 'req-slow',
+      sub: manager.sub,
+      action: 'deployment.create',
+      outcome: 'error',
       digest: auditDigest(entry),
     },
-    { requestId: 'req-slow', sub: manager.sub, method: 'POST', route: 'POST /api/deployments', status: 500, duration: 16000 },
+    {
+      requestId: 'req-slow',
+      sub: manager.sub,
+      method: 'POST',
+      route: 'POST /api/deployments',
+      status: 500,
+      duration: 16000,
+    },
   ]);
 
   // AWS answers after all: the job exists. The request was given up, so nothing it
@@ -288,8 +348,13 @@ test('a read that runs out of time is answered and logged', async () => {
   assert.deepEqual(response.body, {
     error: { code: 'timeout', message: 'The server ran out of time. Try again in a moment.', requestId: 'req-read' },
   });
-  assert.deepEqual(logs.map((line) => [line.event ?? 'request', line.requestId, line.status ?? null]),
-    [['request_timed_out', 'req-read', null], ['request', 'req-read', 500]]);
+  assert.deepEqual(
+    logs.map((line) => [line.event ?? 'request', line.requestId, line.status ?? null]),
+    [
+      ['request_timed_out', 'req-read', null],
+      ['request', 'req-read', 500],
+    ]
+  );
   assert.equal(fake.auditLog().length, 0);
 });
 
@@ -321,14 +386,19 @@ test('the time a request has follows what Lambda has left', async () => {
 
   // With no time left for the work it is not begun, and a write is still on record.
   fake.calls.length = 0;
-  const late = await context.call('POST', '/api/deployments',
-    { as: manager, body: { version: '1.2.3+4', things: [BOARD] }, invocation: left(3000) });
+  const late = await context.call('POST', '/api/deployments', {
+    as: manager,
+    body: { version: '1.2.3+4', things: [BOARD] },
+    invocation: left(3000),
+  });
   assert.equal(late.status, 500);
   assert.equal(late.body.error.code, 'timeout');
   assert.deepEqual(fake.methodsCalled(), ['putAudit']);
   const entry = fake.auditLog().at(-1);
-  assert.deepEqual([entry.action, entry.outcome, entry.target, entry.detail, entry.actor],
-    ['deployment.create', 'error', '', { code: 'timeout' }, { sub: manager.sub, email: '' }]);
+  assert.deepEqual(
+    [entry.action, entry.outcome, entry.target, entry.detail, entry.actor],
+    ['deployment.create', 'error', '', { code: 'timeout' }, { sub: manager.sub, email: '' }]
+  );
   assert.deepEqual(timers.waiting(), []);
 });
 
@@ -337,7 +407,10 @@ test('a request that has run out of time cannot change anything afterwards', asy
   const context = setup({ timers });
   const { fake, manager } = context;
   assert.equal((await context.call('POST', '/api/firmware', { as: manager, body: uploadBody() })).status, 201);
-  const created = await context.call('POST', '/api/deployments', { as: manager, body: { version: '1.2.3+4', things: [BOARD] } });
+  const created = await context.call('POST', '/api/deployments', {
+    as: manager,
+    body: { version: '1.2.3+4', things: [BOARD] },
+  });
   const jobId = created.body.deployment.id;
 
   // Revoking: the mark is written, then the tag gets no answer.
@@ -351,8 +424,10 @@ test('a request that has run out of time cannot change anything afterwards', asy
   assert.equal(response.status, 500);
   assert.equal(response.body.error.code, 'timeout');
   const entry = fake.auditLog().at(-1);
-  assert.deepEqual([entry.action, entry.outcome, entry.target, entry.detail],
-    ['firmware.revoke', 'error', '1.2.3+4', { reason: 'bad build', code: 'timeout' }]);
+  assert.deepEqual(
+    [entry.action, entry.outcome, entry.target, entry.detail],
+    ['firmware.revoke', 'error', '1.2.3+4', { reason: 'bad build', code: 'timeout' }]
+  );
 
   // The answer to the tag arrives late. The cancellation that would have followed is
   // not sent: the deployment is as it was, and the record says what is outstanding.
@@ -367,7 +442,10 @@ test('a request that has run out of time cannot change anything afterwards', asy
   assert.deepEqual([release.status, release.revoked.enforcedAt], ['revoked', null]);
 
   // Revoking again completes it.
-  const again = await context.call('POST', '/api/firmware/1.2.3+4/revoke', { as: manager, body: { reason: 'finish it' } });
+  const again = await context.call('POST', '/api/firmware/1.2.3+4/revoke', {
+    as: manager,
+    body: { reason: 'finish it' },
+  });
   assert.equal(again.status, 200);
   assert.deepEqual(again.body.cancelled, [jobId]);
   assert.equal(fake.jobs.get(jobId).status, 'CANCELED');
@@ -410,7 +488,9 @@ test('the request id comes from the gateway, or is made up if it is unusable', a
     made.push(id);
   }
   assert.equal(new Set(made).size, made.length);
-  assert.ok(logs.every((line) => typeof line.requestId === 'string' && /^[A-Za-z0-9+/=_.:-]{1,128}$/.test(line.requestId)));
+  assert.ok(
+    logs.every((line) => typeof line.requestId === 'string' && /^[A-Za-z0-9+/=_.:-]{1,128}$/.test(line.requestId))
+  );
 
   // Even with a source of random numbers that does not deliver, there is a usable id.
   for (const broken of [() => '', () => 'not hex at all!', () => undefined, () => 'ABCDEF0123456789']) {
@@ -428,9 +508,25 @@ test('only the listed routes exist', async () => {
   for (const path of ['/api/me', '/api/devices', '/api/firmware', '/api/deployments', '/api/audit']) {
     assert.equal((await get(path)).status, 200, path);
   }
-  for (const path of ['/', '/api', '/api/', '/api/devices/', '/api//devices', '/api/Devices', '/API/devices',
-    '/api/devices/x/y', '/api/firmware/1.2.3+4/revoke', '/api/deployments/x/cancel', '/devices', '/api/me/extra',
-    '/api/%64evices/../me', '/api/config', '/assets/app.js', '/api/devices%2F', `/${'a/'.repeat(300)}`]) {
+  for (const path of [
+    '/',
+    '/api',
+    '/api/',
+    '/api/devices/',
+    '/api//devices',
+    '/api/Devices',
+    '/API/devices',
+    '/api/devices/x/y',
+    '/api/firmware/1.2.3+4/revoke',
+    '/api/deployments/x/cancel',
+    '/devices',
+    '/api/me/extra',
+    '/api/%64evices/../me',
+    '/api/config',
+    '/assets/app.js',
+    '/api/devices%2F',
+    `/${'a/'.repeat(300)}`,
+  ]) {
     const response = await get(path);
     assert.equal(response.status, 404, path);
     assert.equal(response.body.error.code, 'not_found');
@@ -443,8 +539,12 @@ test('only the listed routes exist', async () => {
     }
   }
   // An empty path parameter is not a parameter.
-  for (const [method, path] of [['GET', '/api/firmware/'], ['GET', '/api/deployments/'],
-    ['POST', '/api/firmware//revoke'], ['POST', '/api/deployments//cancel']]) {
+  for (const [method, path] of [
+    ['GET', '/api/firmware/'],
+    ['GET', '/api/deployments/'],
+    ['POST', '/api/firmware//revoke'],
+    ['POST', '/api/deployments//cancel'],
+  ]) {
     const response = await context.call(method, path, { as: manager, body: { reason: 'x', force: true } });
     assert.equal(response.status, 404, `${method} ${path}`);
   }
@@ -480,8 +580,17 @@ test('a path is understood whether or not the gateway decoded it', async () => {
 
 test('the handler answers anything that is handed to it', async () => {
   const { app } = setup();
-  for (const event of [undefined, null, {}, 'GET /api/me', 42, [], { requestContext: null }, { rawPath: 7 },
-    { rawPath: '/api/me', requestContext: { http: { method: {} }, authorizer: 'x' } }]) {
+  for (const event of [
+    undefined,
+    null,
+    {},
+    'GET /api/me',
+    42,
+    [],
+    { requestContext: null },
+    { rawPath: 7 },
+    { rawPath: '/api/me', requestContext: { http: { method: {} }, authorizer: 'x' } },
+  ]) {
     const response = await app(event);
     assert.equal(response.statusCode, 401);
     assert.deepEqual(response.headers, HEADERS);
@@ -547,7 +656,12 @@ test('the configuration is complete or the function does not start', () => {
   const malformed = {
     AWS_REGION: ['US-EAST-1', 'us-east-1/../x', 'us east 1', 'useast1'],
     FIRMWARE_BUCKET: ['Has-Capitals', 'a', 'has/slash', 'x'.repeat(64), 'has space'],
-    PRESIGN_ROLE_ARN: ['presign-role', 'arn:aws:iam::12345:role/x', 'arn:aws:s3:::bucket', 'arn:aws:iam::000000000000:user/x'],
+    PRESIGN_ROLE_ARN: [
+      'presign-role',
+      'arn:aws:iam::12345:role/x',
+      'arn:aws:s3:::bucket',
+      'arn:aws:iam::000000000000:user/x',
+    ],
     USER_POOL_ID: ['us-east-1', 'pool id', '_x'],
     USER_POOL_CLIENT_ID: ['client id', 'x'.repeat(129), 'a-b'],
     THING_GROUP: ['cranium devices', 'x'.repeat(129), 'a/b'],
@@ -556,7 +670,12 @@ test('the configuration is complete or the function does not start', () => {
     EVENTS_TABLE: ['ab', 'has space', 'a/b'],
     SLOT_SIZE: ['0', '-5', '1.5', '0x1000', '933888 ', 'big', '99999999999'],
     LOAD_ADDRESS: ['-1', '0x30000', '1e5', '03', '99999999999'],
-    SIGNING_PUBLIC_KEY_B64: ['not base64!', 'AAAA', Buffer.from('not a key').toString('base64'), `${env.SIGNING_PUBLIC_KEY_B64}\n`],
+    SIGNING_PUBLIC_KEY_B64: [
+      'not base64!',
+      'AAAA',
+      Buffer.from('not a key').toString('base64'),
+      `${env.SIGNING_PUBLIC_KEY_B64}\n`,
+    ],
   };
   for (const [name, values] of Object.entries(malformed)) {
     for (const value of values) {
@@ -564,8 +683,10 @@ test('the configuration is complete or the function does not start', () => {
     }
   }
   // A message about a bad variable names it and does not repeat its value.
-  assert.throws(() => loadConfig({ ...env, USER_POOL_CLIENT_ID: 'secret value' }),
-    (error) => error.message.includes('USER_POOL_CLIENT_ID') && !error.message.includes('secret value'));
+  assert.throws(
+    () => loadConfig({ ...env, USER_POOL_CLIENT_ID: 'secret value' }),
+    (error) => error.message.includes('USER_POOL_CLIENT_ID') && !error.message.includes('secret value')
+  );
 
   // Only an ECDSA P-256 public key is a signing key. Keys of another kind, and private
   // keys of any kind, stop the function from starting.
@@ -574,10 +695,20 @@ test('the configuration is complete or the function does not start', () => {
   const p384 = generateKeyPairSync('ec', { namedCurve: 'secp384r1' });
   const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const ed25519 = generateKeyPairSync('ed25519');
-  assert.equal(loadConfig({ ...env, SIGNING_PUBLIC_KEY_B64: base64(p256.publicKey, 'spki') }).signingKeyFingerprint,
-    createHash('sha256').update(p256.publicKey.export({ type: 'spki', format: 'der' })).digest('hex'));
-  for (const value of [base64(p384.publicKey, 'spki'), base64(rsa.publicKey, 'spki'), base64(ed25519.publicKey, 'spki'),
-    base64(p256.privateKey, 'pkcs8'), base64(p256.privateKey, 'sec1'), base64(rsa.privateKey, 'pkcs8')]) {
+  assert.equal(
+    loadConfig({ ...env, SIGNING_PUBLIC_KEY_B64: base64(p256.publicKey, 'spki') }).signingKeyFingerprint,
+    createHash('sha256')
+      .update(p256.publicKey.export({ type: 'spki', format: 'der' }))
+      .digest('hex')
+  );
+  for (const value of [
+    base64(p384.publicKey, 'spki'),
+    base64(rsa.publicKey, 'spki'),
+    base64(ed25519.publicKey, 'spki'),
+    base64(p256.privateKey, 'pkcs8'),
+    base64(p256.privateKey, 'sec1'),
+    base64(rsa.privateKey, 'pkcs8'),
+  ]) {
     assert.throws(() => loadConfig({ ...env, SIGNING_PUBLIC_KEY_B64: value }), Error);
   }
   assert.equal(loadConfig({ ...env, LOAD_ADDRESS: '0' }).loadAddress, 0);
@@ -601,6 +732,9 @@ test('errors become responses in one place', () => {
   assert.equal(describeError(new Error('y'.repeat(1000))).message.length, 300);
   assert.deepEqual(describeError('just text'), { message: 'just text' });
   assert.deepEqual(json(200, { ok: true }), {
-    statusCode: 200, headers: HEADERS, body: '{"ok":true}', isBase64Encoded: false,
+    statusCode: 200,
+    headers: HEADERS,
+    body: '{"ok":true}',
+    isBase64Encoded: false,
   });
 });

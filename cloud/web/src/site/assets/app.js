@@ -8,17 +8,74 @@
  */
 
 import {
-  ApiError, CODE_LENGTH, SESSION_CHANNEL, SIGNED_OUT_SIGNAL, afterUnauthorized, alreadyRuns, boardChanges, boardName, boardOf,
-  cancelNotice, codeComplete, createApi, createAuth, createClock, describeExecution, deviceActivity, enterCode, executionActivity,
-  isUnderWay, isUnfinished, keyInCode, offeredBoards, onlyChoice, parseRoute,
-  pollInterval, readConfig, readImageHeader, recordedFilename, refreshPlan, revocationInPlace, revocationNotice,
-  routeHash, sha256Hex, shouldRenew, singleLine, staleAfter, stillFinishing, stillRunning, stillSettling, summaryActivity,
-  TOKEN_DAYS, toBase64, tokenDays, uploadInHand, versionOfDeployment,
+  ApiError,
+  CODE_LENGTH,
+  SESSION_CHANNEL,
+  SIGNED_OUT_SIGNAL,
+  afterUnauthorized,
+  alreadyRuns,
+  boardChanges,
+  boardName,
+  boardOf,
+  cancelNotice,
+  codeComplete,
+  createApi,
+  createAuth,
+  createClock,
+  describeExecution,
+  deviceActivity,
+  enterCode,
+  executionActivity,
+  isUnderWay,
+  isUnfinished,
+  keyInCode,
+  offeredBoards,
+  onlyChoice,
+  parseRoute,
+  pollInterval,
+  readConfig,
+  readImageHeader,
+  recordedFilename,
+  refreshPlan,
+  revocationInPlace,
+  revocationNotice,
+  routeHash,
+  sha256Hex,
+  shouldRenew,
+  singleLine,
+  staleAfter,
+  stillFinishing,
+  stillRunning,
+  stillSettling,
+  summaryActivity,
+  TOKEN_DAYS,
+  toBase64,
+  tokenDays,
+  uploadInHand,
+  versionOfDeployment,
 } from './core.js';
 import {
-  accountView, activityView, cancelDialog, createTokenDialog, deployDialog, deploymentView, deploymentsView, deviceView,
-  devicesView, firmwareView, gateView, navView, notesDialog, overviewView, render, revokeDialog, revokeTokenDialog,
-  scriptPending, signInView, toastView, tokensView,
+  accountView,
+  activityView,
+  cancelDialog,
+  createTokenDialog,
+  deployDialog,
+  deploymentView,
+  deploymentsView,
+  deviceView,
+  devicesView,
+  firmwareView,
+  gateView,
+  navView,
+  notesDialog,
+  overviewView,
+  render,
+  revokeDialog,
+  revokeTokenDialog,
+  scriptPending,
+  signInView,
+  toastView,
+  tokensView,
 } from './views.js';
 // The foot of every page: the console's own version (docs/versions.md).
 import { footView } from './views.js';
@@ -139,7 +196,7 @@ let heard = new Map();
 function announceBoards() {
   const { view, thing } = state.route;
   const detail = view === 'device' ? state.deviceDetails.get(thing)?.value : null;
-  const devices = detail ? [detail.device] : state.devices.value?.devices ?? [];
+  const devices = detail ? [detail.device] : (state.devices.value?.devices ?? []);
   const { seen, said } = boardChanges(heard, devices);
   heard = new Map([...heard, ...seen]);
   if (said.length > 0 && view !== 'deployment' && announcer) announcer.textContent = said.join(' ');
@@ -177,7 +234,8 @@ function paint() {
     node = gateView({
       iconName: 'alert',
       title: 'This page could not be shown',
-      text: 'The console ran into a problem of its own. Reload the page; if it happens again, ' +
+      text:
+        'The console ran into a problem of its own. Reload the page; if it happens again, ' +
         'report which page it was.',
       action: { label: 'Reload', run: () => location.reload() },
     });
@@ -238,7 +296,8 @@ function notify(message, tone = 'good') {
     const held = toast.contains(document.activeElement);
     toastsShown.delete(name);
     toast.remove();
-    if (held) (cameFrom?.isConnected ? cameFrom : document.getElementById('page-title'))?.focus({ preventScroll: true });
+    if (held)
+      (cameFrom?.isConnected ? cameFrom : document.getElementById('page-title'))?.focus({ preventScroll: true });
   };
   const stay = Math.max(tone === 'good' ? 5000 : 12000, message.length * READING_MS_PER_CHARACTER);
   const countDown = () => {
@@ -343,14 +402,21 @@ function fleetActivity() {
 /** Read the record of each open deployment: the list only says how many boards do what. */
 function readActiveDeployments() {
   return each(activeDeployments(), (deployment) =>
-    load(entry(state.deploymentDetails, deployment.id), () => api.deployment(deployment.id)));
+    load(entry(state.deploymentDetails, deployment.id), () => api.deployment(deployment.id))
+  );
 }
 
 /** True while a cancelled deployment can still change what one of its boards runs. */
 function settling(deployment) {
   const devices = state.devices.value?.devices ?? [];
-  return deployment.executions.some((execution) => stillSettling(execution,
-    devices.find((device) => device.thing === execution.thing), deployment.id, clock.now()));
+  return deployment.executions.some((execution) =>
+    stillSettling(
+      execution,
+      devices.find((device) => device.thing === execution.thing),
+      deployment.id,
+      clock.now()
+    )
+  );
 }
 
 /** True while the page of a deployment that is over invites somebody to offer its release again. */
@@ -358,13 +424,16 @@ function canBeOfferedAgain(detail) {
   const devices = state.devices.value?.devices ?? [];
   const release = state.firmware.value?.releases.find((item) => item.version === detail.version);
   if (release && release.status !== 'active') return false;
-  return detail.executions.some((execution) => describeExecution(execution, {
-    board: devices.find((device) => device.thing === execution.thing) ?? null,
-    deployment: detail.id,
-    version: detail.version,
-    history: null,
-    unread: state.devices.value === null,
-  }).retry);
+  return detail.executions.some(
+    (execution) =>
+      describeExecution(execution, {
+        board: devices.find((device) => device.thing === execution.thing) ?? null,
+        deployment: detail.id,
+        version: detail.version,
+        history: null,
+        unread: state.devices.value === null,
+      }).retry
+  );
 }
 
 // One entry per page: how it is drawn, what it loads, and how soon to load it again
@@ -419,8 +488,12 @@ const pages = {
       ]);
       // The board's own page says its last update: when that is not the list's newest, the list is behind.
       const last = state.deviceDetails.get(thing)?.value?.lastUpdate ?? null;
-      if (last !== null && own.value !== null && own.value.updates[0]?.id !== last.id &&
-          own.value.updates[0]?.endedAt !== last.endedAt) {
+      if (
+        last !== null &&
+        own.value !== null &&
+        own.value.updates[0]?.id !== last.id &&
+        own.value.updates[0]?.endedAt !== last.endedAt
+      ) {
         await load(own, () => api.updates({ thing, limit: UPDATES_SHOWN }));
       }
     },
@@ -433,11 +506,12 @@ const pages = {
     title: 'Firmware',
     view: firmwareView,
     resources: () => [state.firmware],
-    refresh: () => Promise.all([
-      load(state.firmware, api.firmware),
-      // Whether the release that was just uploaded has been deployed since.
-      state.upload.stage === 'done' ? load(state.deployments, api.deployments) : null,
-    ]),
+    refresh: () =>
+      Promise.all([
+        load(state.firmware, api.firmware),
+        // Whether the release that was just uploaded has been deployed since.
+        state.upload.stage === 'done' ? load(state.deployments, api.deployments) : null,
+      ]),
     interval: () => IDLE_REFRESH_MS,
     // A release that changes under an open dialog or a file in hand can wait for a moment.
     holdStill: () => dialogOpen() || uploadInHand(state.upload.stage),
@@ -484,8 +558,9 @@ const pages = {
       // A board that runs what was cancelled may have got it from another deployment.
       // Its own list of updates says, and the deployment's record does not. A copy from
       // before the board ran it cannot say, and a read that failed is tried again.
-      const runningIt = (detail?.executions ?? []).filter((execution) =>
-        execution.status === 'CANCELED' && execution.reported === detail.version);
+      const runningIt = (detail?.executions ?? []).filter(
+        (execution) => execution.status === 'CANCELED' && execution.reported === detail.version
+      );
       await each(runningIt, (execution) => {
         const known = entry(state.deviceDetails, execution.thing);
         const outdated = known.error !== null || known.value?.device.fw?.version !== execution.reported;
@@ -517,8 +592,11 @@ const pages = {
       ]);
       // An entry that names a board has its thing name, or for a command at its serial console its own
       // name; what the board is called now, and which board has that name, is in the list of boards.
-      const namesBoard = (state.audit.value?.entries ?? []).some((item) =>
-        item.detail.some(([key]) => key === 'thing' || key === 'boards') || (item.action === 'serial.command' && item.target));
+      const namesBoard = (state.audit.value?.entries ?? []).some(
+        (item) =>
+          item.detail.some(([key]) => key === 'thing' || key === 'boards') ||
+          (item.action === 'serial.command' && item.target)
+      );
       if (namesBoard && state.devices.loadedAt === 0) await load(state.devices, api.devices);
     },
     interval: () => IDLE_REFRESH_MS,
@@ -529,7 +607,8 @@ const pages = {
   // fetched when either is opened, so a cold load stays at five requests.
   events: {
     title: 'Events',
-    view: (ctx) => (telemetryScript ? telemetryScript.eventsView(ctx) : scriptPending(ctx, 'events', 'Events', { tabs: false })),
+    view: (ctx) =>
+      telemetryScript ? telemetryScript.eventsView(ctx) : scriptPending(ctx, 'events', 'Events', { tabs: false }),
     resources: () => telemetryScript?.eventsResources(state) ?? [],
     async refresh(full) {
       if (await telemetry()) await telemetryScript.refreshEvents(full);
@@ -539,10 +618,12 @@ const pages = {
     holdStill: () => telemetryScript?.eventsHoldStill(state) ?? false,
   },
   diagnostics: {
-    title: (route) => (route.thing ? `Diagnostics of ${boardName(knownBoard(route.thing), { short: true })}` : 'Diagnostics'),
-    view: (ctx) => (telemetryScript
-      ? telemetryScript.diagnosticsView(ctx)
-      : scriptPending(ctx, 'diagnostics', 'Diagnostics', { tabs: false })),
+    title: (route) =>
+      route.thing ? `Diagnostics of ${boardName(knownBoard(route.thing), { short: true })}` : 'Diagnostics',
+    view: (ctx) =>
+      telemetryScript
+        ? telemetryScript.diagnosticsView(ctx)
+        : scriptPending(ctx, 'diagnostics', 'Diagnostics', { tabs: false }),
     resources: () => telemetryScript?.diagnosticsResources(state) ?? [],
     async refresh(full) {
       if (await telemetry()) await telemetryScript.refreshDiagnostics(full);
@@ -607,7 +688,8 @@ const pages = {
   },
   rollout: {
     title: (route) => fleetScript?.rolloutTitle(route, state) ?? 'Staged rollout',
-    view: (ctx) => (fleetScript ? fleetScript.rolloutView(ctx) : scriptPending(ctx, 'rollout', 'Staged rollout', { tabs: false })),
+    view: (ctx) =>
+      fleetScript ? fleetScript.rolloutView(ctx) : scriptPending(ctx, 'rollout', 'Staged rollout', { tabs: false }),
     resources: () => fleetScript?.rolloutResources(state) ?? [],
     async refresh(full) {
       if (await fleetReady()) await fleetScript.refreshRollout(full);
@@ -630,9 +712,8 @@ const pages = {
   // Who is signed in, and their e-mail alerts (account.js).
   account: {
     title: 'Account',
-    view: (ctx) => (accountScript
-      ? accountScript.accountPageView(ctx)
-      : scriptPending(ctx, 'account', 'Account', { tabs: false })),
+    view: (ctx) =>
+      accountScript ? accountScript.accountPageView(ctx) : scriptPending(ctx, 'account', 'Account', { tabs: false }),
     resources: () => [state.alerts],
     async refresh() {
       accountScript ??= await pageScript(() => import('./account.js'));
@@ -645,9 +726,10 @@ const pages = {
   // An update over Bluetooth, in the phone app only (bluetooth.js): the classic apps' Bluetooth screens.
   bluetooth: {
     title: 'Bluetooth',
-    view: (ctx) => (bluetoothScript
-      ? bluetoothScript.bluetoothView({ ...ctx, bluetooth: bluetoothFlow })
-      : scriptPending(ctx, 'bluetooth', 'Update over Bluetooth', { tabs: false })),
+    view: (ctx) =>
+      bluetoothScript
+        ? bluetoothScript.bluetoothView({ ...ctx, bluetooth: bluetoothFlow })
+        : scriptPending(ctx, 'bluetooth', 'Update over Bluetooth', { tabs: false }),
     resources: () => [state.firmware],
     async refresh(full) {
       await bluetoothReady();
@@ -676,9 +758,10 @@ const pages = {
   // Its script is fetched when the page is opened, like the serial console's.
   customers: {
     title: 'Customers',
-    view: (ctx) => (customersScript
-      ? customersScript.customersView(ctx)
-      : scriptPending(ctx, 'customers', 'Customers', { tabs: false })),
+    view: (ctx) =>
+      customersScript
+        ? customersScript.customersView(ctx)
+        : scriptPending(ctx, 'customers', 'Customers', { tabs: false }),
     resources: () => customersScript?.resources(state) ?? [],
     async refresh(full) {
       if (!customersScript) {
@@ -703,7 +786,11 @@ async function bluetoothReady() {
   bluetoothScript ??= await pageScript(() => import('./bluetooth.js'));
   if (bluetoothScript && !bluetoothFlow && appBridge?.has('ble')) {
     bluetoothFlow = bluetoothScript.createBluetoothFlow({
-      api, bridge: appBridge, now: () => clock.now(), onChange: draw, devices: () => state.devices.value?.devices ?? [],
+      api,
+      bridge: appBridge,
+      now: () => clock.now(),
+      onChange: draw,
+      devices: () => state.devices.value?.devices ?? [],
     });
   }
   return bluetoothScript;
@@ -747,20 +834,31 @@ let fleetLoading = null;
  * rollouts. Until it is here, or if it cannot be fetched, the pages are as they were without it.
  */
 function fleetReady() {
-  fleetLoading ??= import('./fleet.js').then((module) => {
-    fleetScript = module;
-    module.connect({
-      state, api, load, draw, clock, refresh: () => refreshNow(true), notify, keep,
-      dialogs: { open: openDialog, submit: submitFrom, isOpen: dialogOpen, signIn: beginSignIn },
-      go: (route) => { location.hash = routeHash(route); },
+  fleetLoading ??= import('./fleet.js')
+    .then((module) => {
+      fleetScript = module;
+      module.connect({
+        state,
+        api,
+        load,
+        draw,
+        clock,
+        refresh: () => refreshNow(true),
+        notify,
+        keep,
+        dialogs: { open: openDialog, submit: submitFrom, isOpen: dialogOpen, signIn: beginSignIn },
+        go: (route) => {
+          location.hash = routeHash(route);
+        },
+      });
+      draw();
+      return module;
+    })
+    .catch((error) => {
+      console.error(error);
+      fleetLoading = null;
+      return null;
     });
-    draw();
-    return module;
-  }).catch((error) => {
-    console.error(error);
-    fleetLoading = null;
-    return null;
-  });
   return fleetLoading;
 }
 let customersScript = null;
@@ -819,7 +917,8 @@ async function refreshNow(full) {
     pageReading -= 1;
   }
   // What the page shows of the fleet: once fleet.js is here, it reads that itself.
-  if (fleetScript && !['fleet', 'rollout'].includes(state.route.view)) await fleetScript.refreshFor(state.route.view, full);
+  if (fleetScript && !['fleet', 'rollout'].includes(state.route.view))
+    await fleetScript.refreshFor(state.route.view, full);
   // A board's page also shows where the board was (map.js).
   await boardLocation(full);
   if (mine === turn) arm();
@@ -861,7 +960,8 @@ function beginSignIn(lead = null) {
     tries: 0,
     // Said when the console was in use until now, not after a message such as a sign-out.
     // `lead` is words only: as a button's handler this is given the click.
-    lead: (typeof lead === 'string' ? lead : null) ??
+    lead:
+      (typeof lead === 'string' ? lead : null) ??
       (started && !state.gate ? 'Your session has ended. Sign in again to carry on where you were.' : null),
   };
   showGate({ signIn: true });
@@ -886,14 +986,22 @@ function toAwsPage(challenge = null) {
   if (appBridge) {
     state.signIn = null;
     auth.cancelPasswordSignIn();
-    const opened = appBridge.has('open') && appConfig
-      ? appBridge.call('app.open', { url: `${appConfig.consoleUrl}/` }).then(() => true, () => false)
-      : Promise.resolve(false);
+    const opened =
+      appBridge.has('open') && appConfig
+        ? appBridge.call('app.open', { url: `${appConfig.consoleUrl}/` }).then(
+            () => true,
+            () => false
+          )
+        : Promise.resolve(false);
     opened.then((open) => {
-      const what = ELSEWHERE_WORDS[challenge] ?? (challenge ? 'Your account needs a step that only the console\u2019s website does.' : '');
+      const what =
+        ELSEWHERE_WORDS[challenge] ??
+        (challenge ? 'Your account needs a step that only the console\u2019s website does.' : '');
       // From the sign-in page to the sign-in page again, with the words of why.
       state.gate = null;
-      beginSignIn(`${what} ${open ? 'The console is open in the browser: do it there, then sign in here.' : 'Do it on the console\u2019s website, then sign in here.'}`.trim());
+      beginSignIn(
+        `${what} ${open ? 'The console is open in the browser: do it there, then sign in here.' : 'Do it on the console\u2019s website, then sign in here.'}`.trim()
+      );
     });
     return;
   }
@@ -916,10 +1024,16 @@ function toAwsPage(challenge = null) {
 function watchRevocation() {
   auth.revocation().then((result) => {
     if (result === 'not-kept') {
-      notify('The app could not keep this sign-in, so it will ask for your password and code the next time it opens.', 'warn');
+      notify(
+        'The app could not keep this sign-in, so it will ask for your password and code the next time it opens.',
+        'warn'
+      );
     } else if (result === 'failed' || result === 'refused') {
-      notify('The sign-in service did not confirm that the unused refresh token was revoked. ' +
-        'It expires by itself within the hour.', 'bad');
+      notify(
+        'The sign-in service did not confirm that the unused refresh token was revoked. ' +
+          'It expires by itself within the hour.',
+        'bad'
+      );
     }
   });
 }
@@ -948,7 +1062,10 @@ function afterStep(outcome) {
     // get through is kept to be sent again.
     const cleared = !outcome.problem || outcome.problem === 'wrong-code' || outcome.problem === 'too-many';
     setSignIn({
-      step: 'code', busy: false, problem: outcome.problem ?? null, tries,
+      step: 'code',
+      busy: false,
+      problem: outcome.problem ?? null,
+      tries,
       digits: cleared ? emptyCode() : state.signIn.digits,
     });
     if (cleared) focusBox(0);
@@ -982,7 +1099,12 @@ async function submitCode() {
   if (!model || model.busy || model.step !== 'code') return;
   if (!codeComplete(model.digits)) {
     setSignIn({ problem: 'short-code', tries: model.tries + 1 });
-    focusBox(Math.max(0, model.digits.findIndex((digit) => digit === '')));
+    focusBox(
+      Math.max(
+        0,
+        model.digits.findIndex((digit) => digit === '')
+      )
+    );
     return;
   }
   setSignIn({ busy: true, problem: null });
@@ -1051,7 +1173,8 @@ function signedOutGate({ reason, message }) {
     case 'unknown-reply':
       return {
         title: 'That sign-in did not start here',
-        text: 'The reply from the sign-in page did not belong to a sign-in started in this tab, ' +
+        text:
+          'The reply from the sign-in page did not belong to a sign-in started in this tab, ' +
           'so it was discarded unused.',
         action,
       };
@@ -1075,7 +1198,8 @@ function signedOutGate({ reason, message }) {
       return {
         iconName: 'alert',
         title: 'The server did not accept this sign-in',
-        text: 'You signed in, but the console’s API turned the new session away. Signing in again ' +
+        text:
+          'You signed in, but the console’s API turned the new session away. Signing in again ' +
           'will not help; whoever deployed the console needs to look at its API.',
         action: { label: 'Sign out', run: () => auth.signOut(), quiet: true },
       };
@@ -1083,8 +1207,8 @@ function signedOutGate({ reason, message }) {
       return {
         iconName: 'alert',
         title: 'This browser cannot sign in here',
-        text: 'The console needs session storage and a secure (HTTPS) page to sign in. ' +
-          'Check that neither is blocked.',
+        text:
+          'The console needs session storage and a secure (HTTPS) page to sign in. ' + 'Check that neither is blocked.',
       };
   }
 }
@@ -1282,16 +1406,22 @@ async function submitFrom(self, model, task) {
 function openDeploy(version) {
   if (!state.me.canWrite || dialogOpen()) return;
   let self = null;
-  const change = (apply) => (...args) => {
-    apply(...args);
-    model.error = null;
-    self.redraw();
-  };
+  const change =
+    (apply) =>
+    (...args) => {
+      apply(...args);
+      model.error = null;
+      self.redraw();
+    };
   // With a single board to choose from, it is ticked when the boards come up. From the
   // first tick by hand on, the selection is the user's own.
   // The boards of the chosen release's type: the only ones the dialog offers it to.
-  const offered = () => offeredBoards(model.devices ?? [], model.types,
-    (model.releases ?? []).find((release) => release.version === model.version) ?? null);
+  const offered = () =>
+    offeredBoards(
+      model.devices ?? [],
+      model.types,
+      (model.releases ?? []).find((release) => release.version === model.version) ?? null
+    );
   const suggest = () => {
     if (model.chosenByHand || model.step !== 1 || model.devices === null) return;
     const only = onlyChoice(offered(), model.busy, model.version);
@@ -1319,8 +1449,12 @@ function openDeploy(version) {
     // failures the rest is stopped.
     canary: 1,
     abortPercent: 20,
-    setCanary: change((value) => { model.canary = value; }),
-    setAbortPercent: change((value) => { model.abortPercent = value; }),
+    setCanary: change((value) => {
+      model.canary = value;
+    }),
+    setAbortPercent: change((value) => {
+      model.abortPercent = value;
+    }),
     close: () => self.close(),
     signIn: beginSignIn,
     choose: change((picked) => {
@@ -1334,7 +1468,9 @@ function openDeploy(version) {
       model.step += 1;
       suggest();
     }),
-    back: change(() => { model.step -= 1; }),
+    back: change(() => {
+      model.step -= 1;
+    }),
     setNote(text) {
       model.note = text;
     },
@@ -1346,8 +1482,7 @@ function openDeploy(version) {
     toggleAll: change(() => {
       model.chosenByHand = true;
       // Not the boards that would only refuse: those take a tick of their own.
-      const free = offered().filter((device) =>
-        !model.busy.has(device.thing) && !alreadyRuns(device, model.version));
+      const free = offered().filter((device) => !model.busy.has(device.thing) && !alreadyRuns(device, model.version));
       const all = free.every((device) => model.things.has(device.thing));
       model.things = new Set(all ? [] : [...model.things, ...free.map((device) => device.thing)]);
     }),
@@ -1357,7 +1492,9 @@ function openDeploy(version) {
       self.redraw();
       try {
         const [firmware, fleet, types] = await Promise.all([
-          api.firmware(), api.devices(), fleetScript ? fleetScript.boardTypes().catch(() => null) : null,
+          api.firmware(),
+          api.devices(),
+          fleetScript ? fleetScript.boardTypes().catch(() => null) : null,
         ]);
         model.types = types;
         // What this has found out is true of the page behind the dialog as well.
@@ -1385,7 +1522,7 @@ function openDeploy(version) {
           // Without a word on which release, the newest is the one to suggest. A release
           // that was asked for and has gone is not silently replaced by another.
           model.gone = model.version;
-          model.version = model.gone === null ? model.releases[0]?.version ?? null : null;
+          model.version = model.gone === null ? (model.releases[0]?.version ?? null) : null;
           model.step = 0;
         }
         suggest();
@@ -1395,40 +1532,46 @@ function openDeploy(version) {
       model.loading = false;
       self.redraw();
     },
-    submit: () => submitFrom(self, model, async () => {
-      let deployment;
-      try {
-        // More than one board: a staged rollout, a canary first (docs/fleet.md).
-        if (model.things.size > 1 && fleetScript) {
-          const rollout = await fleetScript.startRollout({
-            version: model.version, things: [...model.things].sort(), note: singleLine(model.note),
-            canary: model.canary, abortPercent: model.abortPercent,
+    submit: () =>
+      submitFrom(self, model, async () => {
+        let deployment;
+        try {
+          // More than one board: a staged rollout, a canary first (docs/fleet.md).
+          if (model.things.size > 1 && fleetScript) {
+            const rollout = await fleetScript.startRollout({
+              version: model.version,
+              things: [...model.things].sort(),
+              note: singleLine(model.note),
+              canary: model.canary,
+              abortPercent: model.abortPercent,
+            });
+            self.close(true);
+            notify(
+              `Staged rollout of ${rollout.version} started: ${rollout.canary.things.length === 1 ? 'one board' : `${rollout.canary.things.length} boards`} first.`
+            );
+            location.hash = routeHash({ view: 'rollout', id: rollout.id });
+            return;
+          }
+          deployment = await api.deploy({
+            version: model.version,
+            things: [...model.things].sort(),
+            note: singleLine(model.note),
           });
-          self.close(true);
-          notify(`Staged rollout of ${rollout.version} started: ${rollout.canary.things.length === 1 ? 'one board' : `${rollout.canary.things.length} boards`} first.`);
-          location.hash = routeHash({ view: 'rollout', id: rollout.id });
-          return;
+        } catch (error) {
+          // A conflict says that what the dialog offers is out of date: a board has become
+          // busy, or the release was revoked. Read both again, so that neither can be
+          // chosen once more, and go back to the boards where a busy one is named.
+          if (error?.status === 409) {
+            if (error.code === 'device_busy') model.step = 1;
+            model.reload();
+          }
+          throw error;
         }
-        deployment = await api.deploy({
-          version: model.version,
-          things: [...model.things].sort(),
-          note: singleLine(model.note),
-        });
-      } catch (error) {
-        // A conflict says that what the dialog offers is out of date: a board has become
-        // busy, or the release was revoked. Read both again, so that neither can be
-        // chosen once more, and go back to the boards where a busy one is named.
-        if (error?.status === 409) {
-          if (error.code === 'device_busy') model.step = 1;
-          model.reload();
-        }
-        throw error;
-      }
-      keep(state.deploymentDetails, deployment.id, deployment);
-      self.close(true);
-      notify(`Deployment of ${deployment.version ?? model.version} started.`);
-      location.hash = routeHash({ view: 'deployment', id: deployment.id });
-    }),
+        keep(state.deploymentDetails, deployment.id, deployment);
+        self.close(true);
+        notify(`Deployment of ${deployment.version ?? model.version} started.`);
+        location.hash = routeHash({ view: 'deployment', id: deployment.id });
+      }),
   };
   self = openDialog(() => deployDialog(model, { state, actions, fleet: fleetScript }));
   model.reload();
@@ -1453,15 +1596,16 @@ function openCancel(deployment) {
     },
     // `force` is what the dialog shows as chosen, which is not always what was ticked:
     // once the offer is withdrawn, stopping the boards is all that is left.
-    submit: (force) => submitFrom(self, model, async () => {
-      const before = model.deployment;
-      const started = before.executions.filter((execution) => execution.status === 'IN_PROGRESS').length;
-      const updated = await api.cancel(deployment.id, force);
-      keep(state.deploymentDetails, updated.id, updated);
-      self.close(true);
-      notify(cancelNotice({ force, withdrawn: before.status === 'CANCELED', started }));
-      refreshNow(true);
-    }),
+    submit: (force) =>
+      submitFrom(self, model, async () => {
+        const before = model.deployment;
+        const started = before.executions.filter((execution) => execution.status === 'IN_PROGRESS').length;
+        const updated = await api.cancel(deployment.id, force);
+        keep(state.deploymentDetails, updated.id, updated);
+        self.close(true);
+        notify(cancelNotice({ force, withdrawn: before.status === 'CANCELED', started }));
+        refreshNow(true);
+      }),
   };
   self = openDialog(() => cancelDialog(model));
 }
@@ -1499,35 +1643,35 @@ function openRevoke(release) {
       model.reason = text;
       self.redraw();
     },
-    submit: () => submitFrom(self, model, async () => {
-      const { again } = model;
-      const reason = again
-        ? singleLine(model.release.revoked?.reason) || REPEATED_REASON
-        : singleLine(model.reason);
-      let cancelled = null;
-      try {
-        const done = await api.revoke(release.version, reason);
-        ({ cancelled } = done);
-        const firmware = state.firmware.value;
-        if (firmware) {
-          firmware.releases = firmware.releases.map((item) =>
-            (item.version === done.release.version ? done.release : item));
+    submit: () =>
+      submitFrom(self, model, async () => {
+        const { again } = model;
+        const reason = again ? singleLine(model.release.revoked?.reason) || REPEATED_REASON : singleLine(model.reason);
+        let cancelled = null;
+        try {
+          const done = await api.revoke(release.version, reason);
+          ({ cancelled } = done);
+          const firmware = state.firmware.value;
+          if (firmware) {
+            firmware.releases = firmware.releases.map((item) =>
+              item.version === done.release.version ? done.release : item
+            );
+          }
+        } catch (error) {
+          // The server found the release revoked and went through the steps after the
+          // mark without a failure. That is what was asked for, answered as a refusal.
+          if (!revocationInPlace(error)) throw error;
         }
-      } catch (error) {
-        // The server found the release revoked and went through the steps after the
-        // mark without a failure. That is what was asked for, answered as a refusal.
-        if (!revocationInPlace(error)) throw error;
-      }
-      self.close(true);
-      refreshNow(true);
-      // Said at once: this cannot be undone, and its confirmation does not wait for a list.
-      notify(revocationNotice(release.version, { cancelled, again }));
-      // Revoking leaves a board that runs the release as it is. Whoever revokes should know
-      // which, as soon as that is known.
-      await load(state.devices, api.devices);
-      const running = (state.devices.value?.devices ?? []).filter((device) => device.fw?.version === release.version);
-      if (running.length > 0) notify(stillRunning(running));
-    }),
+        self.close(true);
+        refreshNow(true);
+        // Said at once: this cannot be undone, and its confirmation does not wait for a list.
+        notify(revocationNotice(release.version, { cancelled, again }));
+        // Revoking leaves a board that runs the release as it is. Whoever revokes should know
+        // which, as soon as that is known.
+        await load(state.devices, api.devices);
+        const running = (state.devices.value?.devices ?? []).filter((device) => device.fw?.version === release.version);
+        if (running.length > 0) notify(stillRunning(running));
+      }),
   };
   self = openDialog(() => revokeDialog(model, { state, actions }));
 }
@@ -1548,14 +1692,18 @@ function openNotes(release) {
       model.notes = text;
       self.redraw();
     },
-    submit: () => submitFrom(self, model, async () => {
-      const changed = await api.setNotes(release.version, singleLine(model.notes));
-      const firmware = state.firmware.value;
-      if (firmware) firmware.releases = firmware.releases.map((item) => (item.version === changed.version ? changed : item));
-      self.close(true);
-      notify(changed.notes ? `The note of ${changed.version} is saved.` : `The note of ${changed.version} is cleared.`);
-      draw();
-    }),
+    submit: () =>
+      submitFrom(self, model, async () => {
+        const changed = await api.setNotes(release.version, singleLine(model.notes));
+        const firmware = state.firmware.value;
+        if (firmware)
+          firmware.releases = firmware.releases.map((item) => (item.version === changed.version ? changed : item));
+        self.close(true);
+        notify(
+          changed.notes ? `The note of ${changed.version} is saved.` : `The note of ${changed.version} is cleared.`
+        );
+        draw();
+      }),
   };
   self = openDialog(() => notesDialog(model, { state, actions }));
 }
@@ -1590,14 +1738,15 @@ function openCreateToken() {
       model.error = null;
       self.redraw();
     },
-    submit: () => submitFrom(self, model, async () => {
-      const made = await api.createToken({ name: model.name.trim(), days: tokenDays(model.days) });
-      model.made = made;
-      model.sending = false;
-      self.busy = true;
-      self.redraw();
-      load(state.tokens, api.tokens);
-    }),
+    submit: () =>
+      submitFrom(self, model, async () => {
+        const made = await api.createToken({ name: model.name.trim(), days: tokenDays(model.days) });
+        model.made = made;
+        model.sending = false;
+        self.busy = true;
+        self.redraw();
+        load(state.tokens, api.tokens);
+      }),
   };
   self = openDialog(() => createTokenDialog(model, { state, actions }));
 }
@@ -1611,19 +1760,20 @@ function openRevokeToken(token) {
     error: null,
     close: () => self.close(),
     signIn: beginSignIn,
-    submit: () => submitFrom(self, model, async () => {
-      try {
-        const revoked = await api.revokeToken(token.id);
-        const listing = state.tokens.value;
-        if (listing) listing.tokens = listing.tokens.map((item) => (item.id === revoked.id ? revoked : item));
-      } catch (error) {
-        // Revoked already, from another tab: what was asked for is so.
-        if (!(error?.status === 409 && error.code === 'token_already_revoked')) throw error;
-      }
-      self.close(true);
-      notify(`Revoked the token “${token.name}”. A script that uses it is refused from now on.`);
-      refreshNow(true);
-    }),
+    submit: () =>
+      submitFrom(self, model, async () => {
+        try {
+          const revoked = await api.revokeToken(token.id);
+          const listing = state.tokens.value;
+          if (listing) listing.tokens = listing.tokens.map((item) => (item.id === revoked.id ? revoked : item));
+        } catch (error) {
+          // Revoked already, from another tab: what was asked for is so.
+          if (!(error?.status === 409 && error.code === 'token_already_revoked')) throw error;
+        }
+        self.close(true);
+        notify(`Revoked the token “${token.name}”. A script that uses it is refused from now on.`);
+        refreshNow(true);
+      }),
   };
   self = openDialog(() => revokeTokenDialog(model, { state, actions }));
 }
@@ -1660,7 +1810,12 @@ async function chooseFile(file) {
     console.error(error);
     if (mine === chosen) {
       state.upload = {
-        stage: 'ready', name, recordedAs: recordedFilename(name), size: file.size, digest: '', notes: '',
+        stage: 'ready',
+        name,
+        recordedAs: recordedFilename(name),
+        size: file.size,
+        digest: '',
+        notes: '',
         header: { ok: false, message: 'The file could not be read.' },
       };
       draw();
@@ -1694,7 +1849,8 @@ async function startUpload() {
         if (state.upload.stage !== 'sending' && state.upload.stage !== 'checking') return;
         state.upload = { ...state.upload, stage: progress.stage, sent: progress.sent };
         draw();
-      });
+      }
+    );
     // The panel itself says "Registered as …"; a toast on top of the list would only repeat it.
     state.upload = { stage: 'done', release };
     load(state.firmware, api.firmware);
@@ -1744,10 +1900,21 @@ async function sendCommand(thing, cmd) {
   draw();
   try {
     const command = await api.command(thing, cmd, cmd === 'identify' ? IDENTIFY_SECONDS : null);
-    state.commands.set(thing, { cmd, status: 'sent', id: command.id, answer: null, error: null, online: command.online });
-    notify(cmd === 'identify'
-      ? `Sent: ${name} should blink its two lights for ${command.seconds ?? IDENTIFY_SECONDS} s.`
-      : cmd === 'memfault' ? `Sent: ${name} sends its Memfault data at once.` : `Sent: ${name} reports at once.`);
+    state.commands.set(thing, {
+      cmd,
+      status: 'sent',
+      id: command.id,
+      answer: null,
+      error: null,
+      online: command.online,
+    });
+    notify(
+      cmd === 'identify'
+        ? `Sent: ${name} should blink its two lights for ${command.seconds ?? IDENTIFY_SECONDS} s.`
+        : cmd === 'memfault'
+          ? `Sent: ${name} sends its Memfault data at once.`
+          : `Sent: ${name} reports at once.`
+    );
     watchForAnswer(thing, command);
   } catch (error) {
     const problem = asProblem(error);
@@ -1766,9 +1933,11 @@ async function changeAlerts(subscribe) {
   try {
     if (subscribe) {
       const now = await api.subscribeAlerts();
-      notify(now === 'pending'
-        ? 'AWS Notifications is sending you an e-mail with a link. Alerts start once you follow it.'
-        : 'Alerts already go to your address.');
+      notify(
+        now === 'pending'
+          ? 'AWS Notifications is sending you an e-mail with a link. Alerts start once you follow it.'
+          : 'Alerts already go to your address.'
+      );
     } else {
       await api.unsubscribeAlerts();
       notify('No more alerts will be sent to your address.');
@@ -1871,33 +2040,38 @@ async function start() {
       showGate(signedOutGate({ reason: 'refused' }));
       return;
     }
-    const gate = fault.code === 'account_inactive'
-      ? {
-        title: 'Your account is not active',
-        text: 'It is disabled or removed, or it has not been confirmed. Ask a teammate who manages the console.',
-        action: { label: 'Sign out', run: () => auth.signOut(), quiet: true },
-      }
-      : null;
-    showGate(gate ?? (fault.status === 403
-      ? {
-        title: 'Your account has no access yet',
-        text: 'You are signed in, but your account is in neither the viewers nor the release ' +
-          'managers group. Ask a teammate who manages the console to add you.',
-        detail: fault.message,
-        action: { label: 'Sign out', run: () => auth.signOut(), quiet: true },
-      }
-      : {
-        iconName: 'alert',
-        title: 'The console could not reach its server',
-        text: fault.message,
-        action: {
-          label: 'Try again',
-          run() {
-            showGate({ iconName: 'clock', title: 'Loading the console…', waiting: true });
-            start();
-          },
-        },
-      }));
+    const gate =
+      fault.code === 'account_inactive'
+        ? {
+            title: 'Your account is not active',
+            text: 'It is disabled or removed, or it has not been confirmed. Ask a teammate who manages the console.',
+            action: { label: 'Sign out', run: () => auth.signOut(), quiet: true },
+          }
+        : null;
+    showGate(
+      gate ??
+        (fault.status === 403
+          ? {
+              title: 'Your account has no access yet',
+              text:
+                'You are signed in, but your account is in neither the viewers nor the release ' +
+                'managers group. Ask a teammate who manages the console to add you.',
+              detail: fault.message,
+              action: { label: 'Sign out', run: () => auth.signOut(), quiet: true },
+            }
+          : {
+              iconName: 'alert',
+              title: 'The console could not reach its server',
+              text: fault.message,
+              action: {
+                label: 'Try again',
+                run() {
+                  showGate({ iconName: 'clock', title: 'Loading the console…', waiting: true });
+                  start();
+                },
+              },
+            })
+    );
     return;
   }
   state.gate = null;
@@ -1940,10 +2114,14 @@ async function start() {
 async function boot() {
   // The console puts each page where it belongs: see placePage().
   history.scrollRestoration = 'manual';
-  window.addEventListener('scroll', () => {
-    const mark = history.state?.entry;
-    if (mark) scrolled.set(mark, window.scrollY);
-  }, { passive: true });
+  window.addEventListener(
+    'scroll',
+    () => {
+      const mark = history.state?.entry;
+      if (mark) scrolled.set(mark, window.scrollY);
+    },
+    { passive: true }
+  );
   document.getElementById('skip')?.addEventListener('click', () => {
     (document.getElementById('page-title') ?? main).focus();
   });
@@ -1981,7 +2159,9 @@ async function boot() {
     appBridge.on('auth.locked', ({ pool }) => {
       if (pool === 'admin') window.location.reload();
     });
-    appBridge.on('app.bundleReady', () => notify('The app has new pages from the console. They show the next time it opens.'));
+    appBridge.on('app.bundleReady', () =>
+      notify('The app has new pages from the console. They show the next time it opens.')
+    );
   } else {
     config = readConfig(document.querySelector('meta[name="cranium-config"]')?.content);
   }
@@ -1989,7 +2169,8 @@ async function boot() {
     showGate({
       iconName: 'alert',
       title: 'The console is not set up',
-      text: 'The page arrived without its sign-in settings. Reload it; if that does not help, ' +
+      text:
+        'The page arrived without its sign-in settings. Reload it; if that does not help, ' +
         'the console needs to be deployed again.',
     });
     return;
@@ -2022,7 +2203,8 @@ async function boot() {
       onUnauthorized,
       base: config.apiBase ?? '',
       // A change from the phone needs the password and code of the last 15 minutes.
-      onSignInAgain: () => beginSignIn('To change anything from the phone, sign in again first: your password and the code.'),
+      onSignInAgain: () =>
+        beginSignIn('To change anything from the phone, sign in again first: your password and the code.'),
     });
     outcome = await auth.resume();
   } catch (error) {
@@ -2037,14 +2219,19 @@ async function boot() {
       pagesReady();
       showGate({
         title: outcome.reason === 'network' ? 'No connection' : 'Cranium is locked',
-        text: outcome.reason === 'network'
-          ? 'The app could not reach Cognito to renew your sign-in. Check the connection.'
-          : 'Unlock it to go on, or sign in with your password and code.',
+        text:
+          outcome.reason === 'network'
+            ? 'The app could not reach Cognito to renew your sign-in. Check the connection.'
+            : 'Unlock it to go on, or sign in with your password and code.',
         action: { label: outcome.reason === 'network' ? 'Try again' : 'Unlock', run: () => window.location.reload() },
       });
       return;
     }
-    beginSignIn(outcome.reason === 'locked' ? 'Face ID or the fingerprint can no longer open the saved sign-in. Sign in with your password and code.' : null);
+    beginSignIn(
+      outcome.reason === 'locked'
+        ? 'Face ID or the fingerprint can no longer open the saved sign-in. Sign in with your password and code.'
+        : null
+    );
     return;
   }
   if (outcome.status === 'signed-out') {

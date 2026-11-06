@@ -14,14 +14,19 @@ async function setup() {
   const manager = console_.addUser('manager', ['release-managers']);
   const viewer = console_.addUser('viewer', ['viewers']);
   const uploaded = await console_.call('POST', '/api/firmware', {
-    as: manager, body: { filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+4.signed.bin').toString('base64'), notes: 'first' },
+    as: manager,
+    body: {
+      filename: 'zephyr.signed.bin',
+      data: fixture('valid-1.2.3+4.signed.bin').toString('base64'),
+      notes: 'first',
+    },
   });
   assert.equal(uploaded.status, 201);
   const entries = () => console_.fake.auditLog().filter((entry) => entry.action === 'firmware.notes');
   return { ...console_, manager, viewer, entries };
 }
 
-test('a release manager changes a release\'s note, and only its note, on record', async () => {
+test("a release manager changes a release's note, and only its note, on record", async () => {
   const { call, manager, fake, entries } = await setup();
   const before = { ...[...fake.releases.values()][0] };
   const notes = 'Reconnects faster after the Wi-Fi drops out. Fixes the LED stuck on after an update.';
@@ -41,11 +46,22 @@ test('a release manager changes a release\'s note, and only its note, on record'
   assert.deepEqual(entries().at(-1).detail, { notes: 'x'.repeat(200), oldLength: '0' });
 });
 
-test('a revoked release\'s note can be changed too', async () => {
+test("a revoked release's note can be changed too", async () => {
   const { call, manager } = await setup();
-  assert.equal((await call('POST', `/api/firmware/${encodeURIComponent(VERSION)}/revoke`, { as: manager, body: { reason: 'bad' } })).status, 200);
+  assert.equal(
+    (
+      await call('POST', `/api/firmware/${encodeURIComponent(VERSION)}/revoke`, {
+        as: manager,
+        body: { reason: 'bad' },
+      })
+    ).status,
+    200
+  );
   const response = await call('PUT', PATH, { as: manager, body: { notes: 'Revoked: bricks the encoder' } });
-  assert.deepEqual([response.status, response.body.release.status, response.body.release.notes], [200, 'revoked', 'Revoked: bricks the encoder']);
+  assert.deepEqual(
+    [response.status, response.body.release.status, response.body.release.notes],
+    [200, 'revoked', 'Revoked: bricks the encoder']
+  );
 });
 
 test('a note is one line of at most 500 characters, for a release that exists, from a release manager', async () => {
@@ -54,12 +70,18 @@ test('a note is one line of at most 500 characters, for a release that exists, f
     const response = await call('PUT', PATH, { as: manager, body });
     assert.deepEqual([response.status, response.body.error.code], [400, 'invalid_notes'], JSON.stringify(body));
   }
-  const unknown = await call('PUT', `/api/firmware/${encodeURIComponent('9.9.9+9')}/notes`, { as: manager, body: { notes: 'x' } });
+  const unknown = await call('PUT', `/api/firmware/${encodeURIComponent('9.9.9+9')}/notes`, {
+    as: manager,
+    body: { notes: 'x' },
+  });
   assert.deepEqual([unknown.status, unknown.body.error.code], [404, 'unknown_version']);
   const refused = await call('PUT', PATH, { as: viewer, body: { notes: 'mine' } });
   assert.deepEqual([refused.status, refused.body.error.code], [403, 'release_manager_required']);
   assert.equal([...fake.releases.values()][0].notes, 'first');
-  assert.deepEqual(entries().map((entry) => entry.outcome), ['rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'denied']);
+  assert.deepEqual(
+    entries().map((entry) => entry.outcome),
+    ['rejected', 'rejected', 'rejected', 'rejected', 'rejected', 'denied']
+  );
   // Only PUT: a POST there is no route.
   assert.equal((await call('POST', PATH, { as: manager, body: { notes: 'x' } })).status, 404);
 });
@@ -69,7 +91,8 @@ test('an API token sets a note, as scripts/release-notes.sh does, and the entry 
   const made = await call('POST', '/api/tokens', { as: manager, body: { name: 'release notes' } });
   assert.equal(made.status, 201);
   const response = await call('PUT', `/api/t/firmware/${encodeURIComponent(VERSION)}/notes`, {
-    token: made.body.token, body: { notes: 'From CHANGELOG.md' },
+    token: made.body.token,
+    body: { notes: 'From CHANGELOG.md' },
   });
   assert.equal(response.status, 200, JSON.stringify(response.body));
   assert.deepEqual([entries().at(-1).detail.token, entries().at(-1).outcome], [made.body.id, 'ok']);

@@ -25,20 +25,32 @@ export function createAuditHandlers({ aws, log }) {
         const stored = await aws.putAudit(item);
         if (stored.ok) {
           log({
-            event: 'audit_entry', requestId: item.requestId, sub: item.actor.sub, action: item.action,
-            outcome: item.outcome, digest: auditDigest(item),
+            event: 'audit_entry',
+            requestId: item.requestId,
+            sub: item.actor.sub,
+            action: item.action,
+            outcome: item.outcome,
+            digest: auditDigest(item),
           });
           return true;
         }
         log({
-          level: 'error', event: 'audit_write_failed', requestId: entry.requestId, action: entry.action,
-          outcome: entry.outcome, error: { message: 'an entry with this time and request id exists' },
+          level: 'error',
+          event: 'audit_write_failed',
+          requestId: entry.requestId,
+          action: entry.action,
+          outcome: entry.outcome,
+          error: { message: 'an entry with this time and request id exists' },
         });
         return false;
       } catch (error) {
         log({
-          level: 'error', event: 'audit_write_failed', requestId: entry.requestId, action: entry.action,
-          outcome: entry.outcome, error: describeError(error),
+          level: 'error',
+          event: 'audit_write_failed',
+          requestId: entry.requestId,
+          action: entry.action,
+          outcome: entry.outcome,
+          error: describeError(error),
         });
         return false;
       }
@@ -55,14 +67,22 @@ export function createAuditHandlers({ aws, log }) {
         const stored = await aws.putAudit(item);
         if (!stored.ok) return 'exists';
         log({
-          event: 'audit_entry', requestId: item.requestId, sub: item.actor.sub, action: item.action,
-          outcome: item.outcome, digest: auditDigest(item),
+          event: 'audit_entry',
+          requestId: item.requestId,
+          sub: item.actor.sub,
+          action: item.action,
+          outcome: item.outcome,
+          digest: auditDigest(item),
         });
         return 'stored';
       } catch (error) {
         log({
-          level: 'error', event: 'audit_write_failed', requestId: entry.requestId, action: entry.action,
-          outcome: entry.outcome, error: describeError(error),
+          level: 'error',
+          event: 'audit_write_failed',
+          requestId: entry.requestId,
+          action: entry.action,
+          outcome: entry.outcome,
+          error: describeError(error),
         });
         return 'failed';
       }

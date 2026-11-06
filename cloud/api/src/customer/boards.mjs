@@ -44,7 +44,8 @@ export function customerBoard(device, ownership) {
     online: device.online === true,
     lastSeen: device.lastSeen,
     firmware: device.fw === null ? null : { version: device.fw.version, confirmed: device.fw.confirmed },
-    update: device.ota === null ? null : { state: device.ota.state, progress: device.ota.progress, last: device.ota.last },
+    update:
+      device.ota === null ? null : { state: device.ota.state, progress: device.ota.progress, last: device.ota.last },
     rssi: device.rssi,
     uptime: device.uptime,
     // Where it is: the fleet work's location by Wi-Fi (docs/fleet.md) is not built yet.

@@ -23,11 +23,34 @@
  */
 
 import {
-  boardName, deviceHref, distanceWords, exactTime, markerTone, positionSteps, timeAgo, unplacedReason,
+  boardName,
+  deviceHref,
+  distanceWords,
+  exactTime,
+  markerTone,
+  positionSteps,
+  timeAgo,
+  unplacedReason,
 } from './core.js';
 import {
-  NO_BOARDS, boardLabel, boardThing, card, empty, freshness, h, icon, identifyButton, loadProblem, mapCredit,
-  mono, notice, pageHead, pending, presence, render, when,
+  NO_BOARDS,
+  boardLabel,
+  boardThing,
+  card,
+  empty,
+  freshness,
+  h,
+  icon,
+  identifyButton,
+  loadProblem,
+  mapCredit,
+  mono,
+  notice,
+  pageHead,
+  pending,
+  presence,
+  render,
+  when,
 } from './views.js';
 
 // The tile URL the tile usage policy names, exactly. The page's content security policy allows this
@@ -66,23 +89,32 @@ function leafletNow() {
   if (loading !== null) return null;
   // Both, before the first map is drawn: Leaflet measures its element when it starts, and without
   // its stylesheet that element is not yet laid out as a map.
-  const fetched = (element, check) => new Promise((resolve, reject) => {
-    element.addEventListener('load', () => (check() ? resolve() : reject(new Error('Leaflet is not what was fetched'))));
-    element.addEventListener('error', () => reject(new Error('Leaflet could not be fetched')));
-  });
+  const fetched = (element, check) =>
+    new Promise((resolve, reject) => {
+      element.addEventListener('load', () =>
+        check() ? resolve() : reject(new Error('Leaflet is not what was fetched'))
+      );
+      element.addEventListener('error', () => reject(new Error('Leaflet could not be fetched')));
+    });
   const style = document.createElement('link');
   style.rel = 'stylesheet';
   style.href = new URL('leaflet.css', import.meta.url).href;
   const script = document.createElement('script');
   script.src = new URL('leaflet.js', import.meta.url).href;
-  loading = Promise.all([fetched(style, () => true), fetched(script, () => typeof globalThis.L?.map === 'function')]).then(() => {
-    leaflet = globalThis.L;
-    tools?.draw?.();
-  }, (error) => {
-    console.error(error);
-    unavailable = true;
-    tools?.draw?.();
-  });
+  loading = Promise.all([
+    fetched(style, () => true),
+    fetched(script, () => typeof globalThis.L?.map === 'function'),
+  ]).then(
+    () => {
+      leaflet = globalThis.L;
+      tools?.draw?.();
+    },
+    (error) => {
+      console.error(error);
+      unavailable = true;
+      tools?.draw?.();
+    }
+  );
   document.head.append(style, script);
   return null;
 }
@@ -97,35 +129,60 @@ function element(node) {
 /** What a board's popup says: its name, its thing, what it runs, whether it is online, how sure its place is. */
 export function popupOf(device, now) {
   const { position } = device;
-  return h('div', { class: 'map-popup' },
+  return h(
+    'div',
+    { class: 'map-popup' },
     h('p', { class: 'map-popup-name' }, boardLabel(device), boardThing(device)),
     h('p', { class: 'map-popup-state' }, presence(device, now)),
-    h('dl', { class: 'map-popup-facts' },
+    h(
+      'dl',
+      { class: 'map-popup-facts' },
       h('div', null, h('dt', null, 'Firmware'), h('dd', null, device.fw ? mono(device.fw.version) : 'Not reported')),
-      h('div', null, h('dt', null, 'Placed'), h('dd', null, h('time', { datetime: position.at, title: exactTime(position.at) },
-        timeAgo(position.at, now)))),
-      h('div', null, h('dt', null, 'Within'), h('dd', null, distanceWords(position.accuracy)))),
-    h('a', { class: 'map-popup-link', href: deviceHref(device.thing) }, 'Open the board', icon('arrow-right', 'is-small')));
+      h(
+        'div',
+        null,
+        h('dt', null, 'Placed'),
+        h('dd', null, h('time', { datetime: position.at, title: exactTime(position.at) }, timeAgo(position.at, now)))
+      ),
+      h('div', null, h('dt', null, 'Within'), h('dd', null, distanceWords(position.accuracy)))
+    ),
+    h(
+      'a',
+      { class: 'map-popup-link', href: deviceHref(device.thing) },
+      'Open the board',
+      icon('arrow-right', 'is-small')
+    )
+  );
 }
 
 /** The places a map shows: for the Map page every board with a position, for a board's page its last positions. */
 export function placesOf(id, state) {
   if (id === 'fleet-map') {
-    return (state.devices.value?.devices ?? []).filter((device) => device.position)
+    return (state.devices.value?.devices ?? [])
+      .filter((device) => device.position)
       .map((device) => ({ device, position: device.position, tone: markerTone(device) }));
   }
   const thing = state.route.thing;
   const device = state.deviceDetails.get(thing)?.value?.device ?? null;
   if (!device?.position) return [];
   const known = state.positions.get(thing)?.value?.positions ?? [device.position];
-  return positionSteps(known).map((position, index) => ({ device, position, tone: index === 0 ? markerTone(device) : 'past' }));
+  return positionSteps(known).map((position, index) => ({
+    device,
+    position,
+    tone: index === 0 ? markerTone(device) : 'past',
+  }));
 }
 
 /** What a map shows, as text: drawn again only when this changes. */
 function signature(places, now) {
-  return places.map(({ device, position, tone }) =>
-    `${device.thing} ${position.lat} ${position.lon} ${position.accuracy} ${position.at} ${tone} ${device.online} ${device.fw?.version}`)
-    .join('|') + (places.length > 0 ? ` ${Math.floor(now / 60_000)}` : '');
+  return (
+    places
+      .map(
+        ({ device, position, tone }) =>
+          `${device.thing} ${position.lat} ${position.lon} ${position.accuracy} ${position.at} ${tone} ${device.online} ${device.fw?.version}`
+      )
+      .join('|') + (places.length > 0 ? ` ${Math.floor(now / 60_000)}` : '')
+  );
 }
 
 function mount(L, id, el) {
@@ -161,8 +218,10 @@ function draw(L, id, entry, places, now) {
   entry.markers.clear();
   const points = [];
   if (id === 'board-map' && places.length > 1) {
-    L.polyline(places.map(({ position }) => [position.lat, position.lon]), { className: 'map-trail', interactive: false })
-      .addTo(entry.layer);
+    L.polyline(
+      places.map(({ position }) => [position.lat, position.lon]),
+      { className: 'map-trail', interactive: false }
+    ).addTo(entry.layer);
   }
   // The oldest first, so that the newest is drawn on top.
   for (const { device, position, tone } of [...places].reverse()) {
@@ -170,9 +229,13 @@ function draw(L, id, entry, places, now) {
     points.push(at);
     const newest = tone !== 'past';
     if (newest) {
-      L.circle(at, { radius: position.accuracy, className: `map-accuracy is-${tone}`, interactive: false }).addTo(entry.layer);
+      L.circle(at, { radius: position.accuracy, className: `map-accuracy is-${tone}`, interactive: false }).addTo(
+        entry.layer
+      );
     }
-    const marker = L.circleMarker(at, { radius: newest ? 9 : 5, className: `map-marker is-${tone}` }).addTo(entry.layer);
+    const marker = L.circleMarker(at, { radius: newest ? 9 : 5, className: `map-marker is-${tone}` }).addTo(
+      entry.layer
+    );
     if (newest) {
       marker.bindPopup(element(popupOf(device, now)), { className: 'map-popup-frame', maxWidth: 280 });
       entry.markers.set(device.thing, marker);
@@ -180,9 +243,15 @@ function draw(L, id, entry, places, now) {
   }
   // Frame what is there the first time, and again when other boards come or go; otherwise the
   // view stays where the person put it.
-  const things = places.map(({ device }) => device.thing).sort().join(' ');
+  const things = places
+    .map(({ device }) => device.thing)
+    .sort()
+    .join(' ');
   if (things !== entry.things && points.length > 0) {
-    if (points.length === 1 || places.every(({ position }) => position.lat === points[0][0] && position.lon === points[0][1])) {
+    if (
+      points.length === 1 ||
+      places.every(({ position }) => position.lat === points[0][0] && position.lon === points[0][1])
+    ) {
       entry.map.setView(points[0], ONE_BOARD_ZOOM);
     } else {
       entry.map.fitBounds(points, { padding: [36, 36], maxZoom: ONE_BOARD_ZOOM + 1 });
@@ -231,38 +300,74 @@ export function mapUnavailable() {
 }
 
 function legend() {
-  return h('ul', { class: 'map-legend', key: 'legend', 'aria-label': 'What the colours mean' },
-    TONES.map(([tone, label]) => h('li', { key: tone }, h('span', { class: `map-swatch is-${tone}`, 'aria-hidden': 'true' }), label)),
-    h('li', { key: 'accuracy' }, h('span', { class: 'map-swatch is-ring', 'aria-hidden': 'true' }),
-      'How sure: the board is inside the circle two times out of three'));
+  return h(
+    'ul',
+    { class: 'map-legend', key: 'legend', 'aria-label': 'What the colours mean' },
+    TONES.map(([tone, label]) =>
+      h('li', { key: tone }, h('span', { class: `map-swatch is-${tone}`, 'aria-hidden': 'true' }), label)
+    ),
+    h(
+      'li',
+      { key: 'accuracy' },
+      h('span', { class: 'map-swatch is-ring', 'aria-hidden': 'true' }),
+      'How sure: the board is inside the circle two times out of three'
+    )
+  );
 }
 
 function placedRow(device, ctx) {
   const { position } = device;
-  return h('li', { class: 'map-row', key: device.thing },
+  return h(
+    'li',
+    { class: 'map-row', key: device.thing },
     h('span', { class: `map-swatch is-${markerTone(device)}`, 'aria-hidden': 'true' }),
-    h('div', { class: 'map-row-main' },
+    h(
+      'div',
+      { class: 'map-row-main' },
       h('p', { class: 'map-row-name' }, boardLabel(device), boardThing(device)),
-      h('p', { class: 'map-row-note' }, `Within ${distanceWords(position.accuracy)} · placed `, when(position.at, ctx.state.now),
-        device.online ? null : ' · offline')),
-    h('div', { class: 'map-row-tools' },
+      h(
+        'p',
+        { class: 'map-row-note' },
+        `Within ${distanceWords(position.accuracy)} · placed `,
+        when(position.at, ctx.state.now),
+        device.online ? null : ' · offline'
+      )
+    ),
+    h(
+      'div',
+      { class: 'map-row-tools' },
       identifyButton(device, ctx, { compact: true }),
       maps.has('fleet-map')
-        ? h('button', {
-          type: 'button', class: 'btn is-quiet is-icon', key: 'show',
-          title: 'Show it on the map', 'aria-label': `Show ${boardName(device, { short: true })} on the map`,
-          onClick: () => showOnMap(device.thing),
-        }, icon('pin'))
-        : null));
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn is-quiet is-icon',
+              key: 'show',
+              title: 'Show it on the map',
+              'aria-label': `Show ${boardName(device, { short: true })} on the map`,
+              onClick: () => showOnMap(device.thing),
+            },
+            icon('pin')
+          )
+        : null
+    )
+  );
 }
 
 function unplacedRow(device) {
   const reason = unplacedReason(device);
-  return h('li', { class: 'map-row', key: device.thing },
+  return h(
+    'li',
+    { class: 'map-row', key: device.thing },
     h('span', { class: 'map-swatch is-none', 'aria-hidden': 'true' }),
-    h('div', { class: 'map-row-main' },
+    h(
+      'div',
+      { class: 'map-row-main' },
       h('p', { class: 'map-row-name' }, boardLabel(device), boardThing(device)),
-      h('p', { class: 'map-row-note' }, h('strong', null, reason.title), '. ', reason.text)));
+      h('p', { class: 'map-row-note' }, h('strong', null, reason.title), '. ', reason.text)
+    )
+  );
 }
 
 export function mapView(ctx) {
@@ -274,46 +379,83 @@ export function mapView(ctx) {
     tools: freshness(state.devices, ctx),
   });
   if (devices === null) {
-    return h('div', { class: 'page is-map' }, head, loadProblem(state.devices, 'the boards', ctx), pending(state.devices, 'boards'));
+    return h(
+      'div',
+      { class: 'page is-map' },
+      head,
+      loadProblem(state.devices, 'the boards', ctx),
+      pending(state.devices, 'boards')
+    );
   }
   if (devices.length === 0) return h('div', { class: 'page is-map' }, head, card({ key: 'none' }, empty(NO_BOARDS)));
 
   const placed = devices.filter((device) => device.position);
   const unplaced = devices.filter((device) => !device.position);
   const named = (a, b) => boardName(a).localeCompare(boardName(b));
-  return h('div', { class: 'page is-map' },
+  return h(
+    'div',
+    { class: 'page is-map' },
     head,
     loadProblem(state.devices, 'the boards', ctx),
-    unavailable ? notice('warn', 'alert', 'The map itself could not be loaded. The lists below still say where each board is.') : null,
-    h('div', { class: 'map-layout', key: 'layout' },
-      h('section', { class: 'card map-card', key: 'map', 'aria-label': 'Map of the boards' },
+    unavailable
+      ? notice('warn', 'alert', 'The map itself could not be loaded. The lists below still say where each board is.')
+      : null,
+    h(
+      'div',
+      { class: 'map-layout', key: 'layout' },
+      h(
+        'section',
+        { class: 'card map-card', key: 'map', 'aria-label': 'Map of the boards' },
         placed.length > 0
           ? [
-            h('div', { class: 'map-frame is-fleet', key: 'frame' },
-              h('div', {
-                class: 'map-canvas', id: 'fleet-map', key: 'canvas', role: 'region',
-                'aria-label': `Map of ${placed.length === 1 ? 'one board' : `${placed.length} boards`}. The list beside it has the same.`,
-              }),
-              mapCredit()),
-            legend(),
-          ]
+              h(
+                'div',
+                { class: 'map-frame is-fleet', key: 'frame' },
+                h('div', {
+                  class: 'map-canvas',
+                  id: 'fleet-map',
+                  key: 'canvas',
+                  role: 'region',
+                  'aria-label': `Map of ${placed.length === 1 ? 'one board' : `${placed.length} boards`}. The list beside it has the same.`,
+                }),
+                mapCredit()
+              ),
+              legend(),
+            ]
           : empty({
-            iconName: 'pin',
-            title: 'No board has a position yet',
-            text: 'A board on firmware 1.13.0 or later sends what it hears of the Wi-Fi a minute after it connects, and ' +
-              'every 6 hours after that. Report now on its page asks for one at once.',
-          })),
-      h('div', { class: 'map-side stack', key: 'side' },
-        card({ key: 'placed', title: `On the map · ${placed.length}` },
+              iconName: 'pin',
+              title: 'No board has a position yet',
+              text:
+                'A board on firmware 1.13.0 or later sends what it hears of the Wi-Fi a minute after it connects, and ' +
+                'every 6 hours after that. Report now on its page asks for one at once.',
+            })
+      ),
+      h(
+        'div',
+        { class: 'map-side stack', key: 'side' },
+        card(
+          { key: 'placed', title: `On the map · ${placed.length}` },
           placed.length > 0
-            ? h('ul', { class: 'map-rows', key: 'rows' }, [...placed].sort(named).map((device) => placedRow(device, ctx)))
-            : h('p', { class: 'quiet' }, 'None yet.')),
+            ? h(
+                'ul',
+                { class: 'map-rows', key: 'rows' },
+                [...placed].sort(named).map((device) => placedRow(device, ctx))
+              )
+            : h('p', { class: 'quiet' }, 'None yet.')
+        ),
         unplaced.length > 0
-          ? card({ key: 'unplaced', title: `Not on the map · ${unplaced.length}` },
-            h('ul', { class: 'map-rows', key: 'rows' }, [...unplaced].sort(named).map(unplacedRow)))
+          ? card(
+              { key: 'unplaced', title: `Not on the map · ${unplaced.length}` },
+              h('ul', { class: 'map-rows', key: 'rows' }, [...unplaced].sort(named).map(unplacedRow))
+            )
           : null,
-        h('p', { class: 'card-note map-note', key: 'note' },
+        h(
+          'p',
+          { class: 'card-note map-note', key: 'note' },
           'Only the position is kept, and the last 20 of each board, never the access points it heard. ',
-          'The map is drawn from OpenStreetMap: this page fetches its tiles from tile.openstreetmap.org.'))));
+          'The map is drawn from OpenStreetMap: this page fetches its tiles from tile.openstreetmap.org.'
+        )
+      )
+    )
+  );
 }
-

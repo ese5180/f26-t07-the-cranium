@@ -8,14 +8,20 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import {
-  SERIAL, VIEWS, all, click, createDocument, descendants, one, textOf, withText,
-} from './page.mjs';
+import { SERIAL, VIEWS, all, click, createDocument, descendants, one, textOf, withText } from './page.mjs';
 
 const serial = await import(SERIAL);
 const views = await import(VIEWS);
 const {
-  COMMANDS, MASK, checkCommand, checkTyped, classifyLine, createLineReader, createSerialSession, holdsSecret, mqttFacts,
+  COMMANDS,
+  MASK,
+  checkCommand,
+  checkTyped,
+  classifyLine,
+  createLineReader,
+  createSerialSession,
+  holdsSecret,
+  mqttFacts,
   shownCommand,
 } = serial;
 
@@ -52,8 +58,9 @@ const MQTT_LINES = [
   'received       7',
   'last publish   5 s ago',
   'last receive   1 s ago',
-  ...['notify-next', '$next/get/accepted', '$next/get/rejected', '+/update/accepted', '+/update/rejected']
-    .map((suffix) => `subscribed     ${TOPIC}${suffix}`),
+  ...['notify-next', '$next/get/accepted', '$next/get/rejected', '+/update/accepted', '+/update/rejected'].map(
+    (suffix) => `subscribed     ${TOPIC}${suffix}`
+  ),
 ];
 
 const REPLIES = {
@@ -67,7 +74,10 @@ const REPLIES = {
   MQTT_RECONNECT: () => 'OK reconnecting\r\n',
 };
 
-function fakeBoard({ reply = (line) => (REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'), echo = false } = {}) {
+function fakeBoard({
+  reply = (line) => REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n',
+  echo = false,
+} = {}) {
   const decoder = new TextDecoder();
   let source = null;
   let incoming = '';
@@ -81,7 +91,11 @@ function fakeBoard({ reply = (line) => (REPLIES[line.split('|')[0].toUpperCase()
     port: null,
   };
   board.port = {
-    readable: new ReadableStream({ start(controller) { source = controller; } }),
+    readable: new ReadableStream({
+      start(controller) {
+        source = controller;
+      },
+    }),
     writable: new WritableStream({
       write(chunk) {
         // What a real port would have taken by now, and the array that was handed over.
@@ -100,8 +114,12 @@ function fakeBoard({ reply = (line) => (REPLIES[line.split('|')[0].toUpperCase()
         }
       },
     }),
-    open: async (options) => { board.opened = options; },
-    close: async () => { board.closed = true; },
+    open: async (options) => {
+      board.opened = options;
+    },
+    close: async () => {
+      board.closed = true;
+    },
   };
   return board;
 }
@@ -151,9 +169,9 @@ function drawn(session, me = { canWrite: true }) {
 const field = (box, id) => descendants(box).find((el) => el.getAttribute('id') === id);
 
 function everythingShown(box) {
-  return descendants(box).flatMap((el) => [
-    textOf(el), el.value, ...[...el.attributes.values()].map(String),
-  ]).join('\n');
+  return descendants(box)
+    .flatMap((el) => [textOf(el), el.value, ...[...el.attributes.values()].map(String)])
+    .join('\n');
 }
 
 /** Storage that says when it is used, in place of the browser's. */
@@ -167,7 +185,9 @@ function watchStorage(t) {
   };
   for (const name of ['localStorage', 'sessionStorage']) {
     Object.defineProperty(globalThis, name, { value: store, configurable: true, writable: true });
-    t.after(() => { delete globalThis[name]; });
+    t.after(() => {
+      delete globalThis[name];
+    });
   }
   return writes;
 }
@@ -201,17 +221,26 @@ test('a character split over two reads is one character', () => {
 test('a line that never ends is cut off at a limit', () => {
   const reader = createLineReader();
   const lines = reader.feed(bytes('x'.repeat(10000)));
-  assert.equal(lines.every((line) => line.length <= 4096), true);
+  assert.equal(
+    lines.every((line) => line.length <= 4096),
+    true
+  );
   assert.equal(lines.length, 2);
 });
 
 test('replies, logs and events are told apart', () => {
   assert.deepEqual(classifyLine('OK ABC123|1.0.0'), { kind: 'ok', text: 'ABC123|1.0.0' });
   assert.deepEqual(classifyLine('OK'), { kind: 'ok', text: '' });
-  assert.deepEqual(classifyLine('ERR id must be 1-32 letters or digits'),
-    { kind: 'err', text: 'id must be 1-32 letters or digits' });
-  assert.deepEqual(classifyLine('[WIFI] connected ip=192.168.1.42 rssi=-51'),
-    { kind: 'tag', tag: 'WIFI', level: null, text: 'connected ip=192.168.1.42 rssi=-51' });
+  assert.deepEqual(classifyLine('ERR id must be 1-32 letters or digits'), {
+    kind: 'err',
+    text: 'id must be 1-32 letters or digits',
+  });
+  assert.deepEqual(classifyLine('[WIFI] connected ip=192.168.1.42 rssi=-51'), {
+    kind: 'tag',
+    tag: 'WIFI',
+    level: null,
+    text: 'connected ip=192.168.1.42 rssi=-51',
+  });
   assert.deepEqual(classifyLine('[ota] WRN: weak'), { kind: 'tag', tag: 'ota', level: 'WRN', text: 'weak' });
   assert.deepEqual(classifyLine('[ota] ERR: failed'), { kind: 'tag', tag: 'ota', level: 'ERR', text: 'failed' });
   // Not a final line, whatever it starts with.
@@ -239,9 +268,15 @@ test('final lines and tagged lines that arrive in pieces and between each other 
   await settle();
   board.send('e\r\n');
   await settle();
-  assert.deepEqual(session.lines.slice(before).map((line) => [line.kind, line.text]), [
-    ['tag', 'Image verified'], ['output', 'ssid Lab'], ['tag', 'weak'], ['ok', 'done'],
-  ]);
+  assert.deepEqual(
+    session.lines.slice(before).map((line) => [line.kind, line.text]),
+    [
+      ['tag', 'Image verified'],
+      ['output', 'ssid Lab'],
+      ['tag', 'weak'],
+      ['ok', 'done'],
+    ]
+  );
   assert.equal(session.said, 'OK: done');
 });
 
@@ -309,7 +344,9 @@ test('a board that restarts is told again not to echo, and is asked who it is', 
 test('choosing no port, and a port another program holds, are said in plain words', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const refuses = (name) => ({
-    requestPort: async () => { throw Object.assign(new Error('x'), { name }); },
+    requestPort: async () => {
+      throw Object.assign(new Error('x'), { name });
+    },
   });
   const cancelled = createSerialSession({ serial: refuses('NotFoundError') });
   await cancelled.connect();
@@ -318,7 +355,11 @@ test('choosing no port, and a port another program holds, are said in plain word
 
   const held = createSerialSession({
     serial: {
-      requestPort: async () => ({ open: async () => { throw Object.assign(new Error('x'), { name: 'NetworkError' }); } }),
+      requestPort: async () => ({
+        open: async () => {
+          throw Object.assign(new Error('x'), { name: 'NetworkError' });
+        },
+      }),
     },
   });
   await held.connect();
@@ -347,7 +388,9 @@ test('a read error that leaves the port open is reported and reading goes on', a
       if (!fail) return streams.getReader();
       fail = false;
       return {
-        read: async () => { throw Object.assign(new Error('x'), { name: 'FramingError' }); },
+        read: async () => {
+          throw Object.assign(new Error('x'), { name: 'FramingError' });
+        },
         releaseLock() {},
       };
     },
@@ -357,7 +400,10 @@ test('a read error that leaves the port open is reported and reading goes on', a
   session.connect();
   await settle();
   assert.equal(session.phase, 'ready');
-  assert.equal(session.lines.some((line) => /was lost on the way/.test(line.text)), true);
+  assert.equal(
+    session.lines.some((line) => /was lost on the way/.test(line.text)),
+    true
+  );
 });
 
 test('disconnecting closes the port, and what never ended is shown once, masked', async (t) => {
@@ -369,12 +415,15 @@ test('disconnecting closes the port, and what never ended is shown once, masked'
   assert.equal(session.phase, 'idle');
   assert.equal(board.closed, true);
   assert.equal(JSON.stringify(session.lines).includes(PASSWORD), false);
-  assert.equal(session.lines.some((line) => line.text === `WIFI|Lab|${MASK}`), true);
+  assert.equal(
+    session.lines.some((line) => line.text === `WIFI|Lab|${MASK}`),
+    true
+  );
 });
 
 test('no reply to a command is said, and later replies still count', async (t) => {
   const { board, session } = await connected(t, {
-    reply: (line) => (line === 'STATS' ? '' : REPLIES[line.split('|')[0]]?.(line) ?? 'OK\r\n'),
+    reply: (line) => (line === 'STATS' ? '' : (REPLIES[line.split('|')[0]]?.(line) ?? 'OK\r\n')),
   });
   session.send('STATS');
   await settle();
@@ -458,8 +507,10 @@ test('what a rule says about a password never repeats it', () => {
 test('the security mode is one of the three the firmware takes', () => {
   const values = (security) => ({ ssid: 'Lab', security, password: '12345678' });
   for (const security of ['WPA2_PSK', 'WPA2_PSK_SHA256', 'WPA3_SAE']) {
-    assert.deepEqual(checkCommand(command('WIFI_SEC'), values(security)),
-      { errors: {}, line: `WIFI_SEC|Lab|${security}|12345678` });
+    assert.deepEqual(checkCommand(command('WIFI_SEC'), values(security)), {
+      errors: {},
+      line: `WIFI_SEC|Lab|${security}|12345678`,
+    });
   }
   assert.equal('security' in errorsOf('WIFI_SEC', values('WEP')), true);
 });
@@ -472,7 +523,9 @@ test('a section that is left out is left off the line', () => {
 
 test('what erases the board needs its name typed exactly, and INIT checks the ID as well', () => {
   assert.deepEqual(errorsOf('FACTORY_RESET', {}), { confirm: 'Type FACTORY_RESET to confirm' });
-  assert.deepEqual(errorsOf('FACTORY_RESET', { confirm: 'factory_reset' }), { confirm: 'Type FACTORY_RESET to confirm' });
+  assert.deepEqual(errorsOf('FACTORY_RESET', { confirm: 'factory_reset' }), {
+    confirm: 'Type FACTORY_RESET to confirm',
+  });
   assert.deepEqual(errorsOf('FACTORY_RESET', { confirm: 'FACTORY_RESET' }), {});
   assert.deepEqual(errorsOf('INIT', { id: 'ABC', confirm: 'nope' }), { confirm: 'Type INIT to confirm' });
   assert.deepEqual(errorsOf('INIT', { id: 'bad id!', confirm: 'INIT' }), { id: 'id must be 1-32 letters or digits' });
@@ -488,34 +541,51 @@ test('the forms hold the commands the page was asked for, in their groups', () =
 });
 
 // The real firmware, where this checkout has it. A copy of cloud/ alone does not.
-const FIRMWARE = new URL(process.env.CRANIUM_FIRMWARE_SRC ? `file://${process.env.CRANIUM_FIRMWARE_SRC}/` : '../../../firmware/app/src/', import.meta.url);
+const FIRMWARE = new URL(
+  process.env.CRANIUM_FIRMWARE_SRC ? `file://${process.env.CRANIUM_FIRMWARE_SRC}/` : '../../../firmware/app/src/',
+  import.meta.url
+);
 
-test('the table agrees with the firmware\'s table and limits', { skip: !existsSync(new URL('console_cmd.c', FIRMWARE)) }, () => {
-  // A command that only a build with a test fault has is no command of a released board's, so
-  // the page must not offer it. Nor what only a board with a static Bluetooth passkey has (the
-  // nRF5340 DK): tools/provision_device.py sets that passkey after registering it with the console,
-  // and a passkey sent from this page would be one the console does not know. Where such a block
-  // has an #else, that is the nRF7002 DK's, and it stays.
-  const source = readFileSync(new URL('console_cmd.c', FIRMWARE), 'utf8')
-    .replace(/#if defined\(CONFIG_APP_TEST_FAULT_\w+\)[\s\S]*?#endif/g, '')
-    .replace(/#if defined\(CONFIG_APP_BT_STATIC_PASSKEY\)[\s\S]*?(?=#else|#endif)/g, '');
-  const entry =/\{\s*"([A-Z_]+)",\s*(NULL|"\?"),\s*"[^"]*",\s*(?:"[^"]*"\s*)+,\s*SECTION_\w+,\s*(true|false),\s*(\d+),\s*(\d+),\s*cmd_\w+\s*\}/g;
-  const firmware = new Map([...source.matchAll(entry)].map(([, name, alias, factory, min, max]) =>
-    [name, { alias: alias === 'NULL' ? undefined : '?', factory: factory === 'true', args: [Number(min), Number(max)] }]));
-  assert.equal(firmware.size >= 20, true, `found ${firmware.size} commands in console_cmd.c`);
-  assert.deepEqual(COMMANDS.map((item) => item.name).sort(), [...firmware.keys()].sort());
-  for (const item of COMMANDS) {
-    const theirs = firmware.get(item.name);
-    assert.deepEqual([item.alias, item.factory, item.args], [theirs.alias, theirs.factory, theirs.args], item.name);
+test(
+  "the table agrees with the firmware's table and limits",
+  { skip: !existsSync(new URL('console_cmd.c', FIRMWARE)) },
+  () => {
+    // A command that only a build with a test fault has is no command of a released board's, so
+    // the page must not offer it. Nor what only a board with a static Bluetooth passkey has (the
+    // nRF5340 DK): tools/provision_device.py sets that passkey after registering it with the console,
+    // and a passkey sent from this page would be one the console does not know. Where such a block
+    // has an #else, that is the nRF7002 DK's, and it stays.
+    const source = readFileSync(new URL('console_cmd.c', FIRMWARE), 'utf8')
+      .replace(/#if defined\(CONFIG_APP_TEST_FAULT_\w+\)[\s\S]*?#endif/g, '')
+      .replace(/#if defined\(CONFIG_APP_BT_STATIC_PASSKEY\)[\s\S]*?(?=#else|#endif)/g, '');
+    const entry =
+      /\{\s*"([A-Z_]+)",\s*(NULL|"\?"),\s*"[^"]*",\s*(?:"[^"]*"\s*)+,\s*SECTION_\w+,\s*(true|false),\s*(\d+),\s*(\d+),\s*cmd_\w+\s*\}/g;
+    const firmware = new Map(
+      [...source.matchAll(entry)].map(([, name, alias, factory, min, max]) => [
+        name,
+        { alias: alias === 'NULL' ? undefined : '?', factory: factory === 'true', args: [Number(min), Number(max)] },
+      ])
+    );
+    assert.equal(firmware.size >= 20, true, `found ${firmware.size} commands in console_cmd.c`);
+    assert.deepEqual(COMMANDS.map((item) => item.name).sort(), [...firmware.keys()].sort());
+    for (const item of COMMANDS) {
+      const theirs = firmware.get(item.name);
+      assert.deepEqual([item.alias, item.factory, item.args], [theirs.alias, theirs.factory, theirs.args], item.name);
+    }
+    const define = (file, name) =>
+      Number(new RegExp(`#define\\s+${name}\\s+(\\d+)`).exec(readFileSync(new URL(file, FIRMWARE), 'utf8'))[1]);
+    assert.equal(define('device.h', 'DEVICE_ID_MAX'), 32);
+    assert.equal(define('net.h', 'NET_SSID_MAX'), 32);
+    assert.equal(define('net.h', 'NET_PASSWORD_MIN'), 8);
+    assert.equal(define('net.h', 'NET_PASSWORD_MAX'), 63);
+    assert.equal(define('console_parser.h', 'CONSOLE_LINE_MAX'), 384);
+    assert.equal(
+      define('identity.h', 'IDENTITY_ENDPOINT_MAX'),
+      128,
+      'the page allows one less, for the terminating zero'
+    );
   }
-  const define = (file, name) => Number(new RegExp(`#define\\s+${name}\\s+(\\d+)`).exec(readFileSync(new URL(file, FIRMWARE), 'utf8'))[1]);
-  assert.equal(define('device.h', 'DEVICE_ID_MAX'), 32);
-  assert.equal(define('net.h', 'NET_SSID_MAX'), 32);
-  assert.equal(define('net.h', 'NET_PASSWORD_MIN'), 8);
-  assert.equal(define('net.h', 'NET_PASSWORD_MAX'), 63);
-  assert.equal(define('console_parser.h', 'CONSOLE_LINE_MAX'), 384);
-  assert.equal(define('identity.h', 'IDENTITY_ENDPOINT_MAX'), 128, 'the page allows one less, for the terminating zero');
-});
+);
 
 // Secrets.
 
@@ -550,7 +620,12 @@ test('a password from the form reaches the board, and nowhere else: not the tran
   password.value = PASSWORD;
   assert.equal(password.getAttribute('type'), 'password');
   assert.equal(password.getAttribute('autocomplete'), 'new-password');
-  click(one(all(box, 'form').find((form) => textOf(form).includes('Save a WPA2')), 'button'));
+  click(
+    one(
+      all(box, 'form').find((form) => textOf(form).includes('Save a WPA2')),
+      'button'
+    )
+  );
   assert.equal(password.value, '', 'cleared at once, before anything comes back');
   await settle();
 
@@ -563,7 +638,10 @@ test('a password from the form reaches the board, and nowhere else: not the tran
   assert.deepEqual(writes, []);
   // The bytes that were handed to the port are overwritten once the port has them.
   const last = board.handed.at(-1);
-  assert.equal(last.every((byte) => byte === 0), true);
+  assert.equal(
+    last.every((byte) => byte === 0),
+    true
+  );
 });
 
 test('a password typed into the free input is hidden, masked, and left out of the history', async (t) => {
@@ -610,7 +688,10 @@ test('what the board echoes is masked too, even when it was not told to stop', a
   board.send(`> wifi_sec|Lab|WPA3_SAE|${PASSWORD}\r\n`);
   await settle();
   assert.equal(JSON.stringify(session).includes('battery'), false);
-  assert.deepEqual(session.lines.slice(-2).map((line) => line.text), [`WIFI|Lab|${MASK}`, `wifi_sec|Lab|WPA3_SAE|${MASK}`]);
+  assert.deepEqual(
+    session.lines.slice(-2).map((line) => line.text),
+    [`WIFI|Lab|${MASK}`, `wifi_sec|Lab|WPA3_SAE|${MASK}`]
+  );
   // HELP's list is not an echo: its lines start with a mark, and they are left as they are.
   board.send('  WIFI|<ssid>|<password>         save a WPA2 network and join it\r\n');
   await settle();
@@ -619,7 +700,7 @@ test('what the board echoes is masked too, even when it was not told to stop', a
 
 test('no password is sent unless the board confirms that its echo is off', async (t) => {
   const { board, session } = await connected(t, {
-    reply: (line) => (line === 'ECHO|OFF' ? '' : REPLIES[line.split('|')[0]]?.(line) ?? 'OK\r\n'),
+    reply: (line) => (line === 'ECHO|OFF' ? '' : (REPLIES[line.split('|')[0]]?.(line) ?? 'OK\r\n')),
   });
   t.mock.timers.tick(2000);
   await settle();
@@ -659,11 +740,18 @@ test('what erases the board, and turning the echo back on, cannot be typed here'
 });
 
 test('the case of a command or a keyword changes nothing about what the page allows', async () => {
-  const cases = (word) => [word.toUpperCase(), word.toLowerCase(), word[0].toUpperCase() + word.slice(1).toLowerCase(),
-    [...word].map((c, i) => (i % 2 ? c.toLowerCase() : c.toUpperCase())).join('')];
+  const cases = (word) => [
+    word.toUpperCase(),
+    word.toLowerCase(),
+    word[0].toUpperCase() + word.slice(1).toLowerCase(),
+    [...word].map((c, i) => (i % 2 ? c.toLowerCase() : c.toUpperCase())).join(''),
+  ];
 
   // What erases the board needs its form, in any case.
-  for (const [name, why] of [['FACTORY_RESET', /typed confirmation/], ['INIT', /typed confirmation/]]) {
+  for (const [name, why] of [
+    ['FACTORY_RESET', /typed confirmation/],
+    ['INIT', /typed confirmation/],
+  ]) {
     for (const spelled of cases(name)) {
       assert.match(checkTyped(spelled).refused, why, spelled);
       assert.match(checkTyped(`${spelled}|ABC123`).refused, why, spelled);
@@ -677,8 +765,19 @@ test('the case of a command or a keyword changes nothing about what the page all
   }
 
   // What may go, goes as it was typed, and the board reads it in any case.
-  for (const line of ['net', 'Stats', 'status|WIFI', 'STATUS|Certs', 'keygen|replace', 'KeyGen|Replace',
-    'stream_start|550|3|abcd|ca', 'STREAM_START|550|3|ABCD|Cert', 'wifi_sec|Lab|wpa3_sae|MiXeD-PaSs', 'help', '?']) {
+  for (const line of [
+    'net',
+    'Stats',
+    'status|WIFI',
+    'STATUS|Certs',
+    'keygen|replace',
+    'KeyGen|Replace',
+    'stream_start|550|3|abcd|ca',
+    'STREAM_START|550|3|ABCD|Cert',
+    'wifi_sec|Lab|wpa3_sae|MiXeD-PaSs',
+    'help',
+    '?',
+  ]) {
     assert.equal(checkTyped(line).line, line, line);
     assert.equal(checkTyped(line).refused, undefined, line);
   }
@@ -718,15 +817,23 @@ const HELP_TABLE = [
   '+------------------------------------------------------------------------------+',
 ];
 
-test('HELP\'s table keeps its columns, and what holds a time is what is above and below it', async (t) => {
-  const { board, session } = await connected(t, { reply: (line) => (line === 'help' ? `${HELP_TABLE.join('\r\n')}\r\nOK\r\n` : 'OK\r\n') });
+test("HELP's table keeps its columns, and what holds a time is what is above and below it", async (t) => {
+  const { board, session } = await connected(t, {
+    reply: (line) => (line === 'help' ? `${HELP_TABLE.join('\r\n')}\r\nOK\r\n` : 'OK\r\n'),
+  });
   session.clear();
   await session.send('help');
   await settle();
 
   // Each of its lines is there, as it was sent. Nothing was taken for an echo, a log or a secret.
-  assert.deepEqual(session.lines.filter((line) => line.kind === 'output').map((line) => line.text), HELP_TABLE);
-  assert.equal(session.lines.some((line) => line.kind === 'tag' || line.kind === 'err'), false);
+  assert.deepEqual(
+    session.lines.filter((line) => line.kind === 'output').map((line) => line.text),
+    HELP_TABLE
+  );
+  assert.equal(
+    session.lines.some((line) => line.kind === 'tag' || line.kind === 'err'),
+    false
+  );
   assert.equal(session.lines.filter((line) => line.kind === 'ok').length, 1);
   assert.equal(session.lines.at(-1).kind, 'ok');
 
@@ -748,14 +855,22 @@ test('HELP\'s table keeps its columns, and what holds a time is what is above an
   board.send('state connected\r\nOK\r\n');
   await settle();
   const plain = drawn(session).box;
-  assert.equal(one(one(plain, 'li.serial-line.is-output'), 'span.serial-text').getAttribute('class').includes('is-box'), false);
+  assert.equal(
+    one(one(plain, 'li.serial-line.is-output'), 'span.serial-text').getAttribute('class').includes('is-box'),
+    false
+  );
   assert.equal(all(one(plain, 'li.serial-line.is-output'), 'time').length, 1);
 });
 
 test('what counts as a row of a table is a line that starts like one, and only in a reply', async (t) => {
   const { board, session } = await connected(t, { reply: () => 'OK\r\n' });
   session.clear();
-  const rows = ['| Reset          software            |', '+----------------+', '* ECHO   <ON or OFF>', '  WIFI   <ssid>'];
+  const rows = [
+    '| Reset          software            |',
+    '+----------------+',
+    '* ECHO   <ON or OFF>',
+    '  WIFI   <ssid>',
+  ];
   const plain = ['*no blank after it', ' one blank in front', 'plain | with a bar'];
   board.send(`${[...rows, ...plain].join('\r\n')}\r\nOK\r\n`);
   await settle();
@@ -807,7 +922,7 @@ test('the free input sends, keeps commands for the arrow keys, and refuses in wo
 
 // The forms.
 
-test('a form shows the firmware\'s words next to the field and sends nothing', async (t) => {
+test("a form shows the firmware's words next to the field and sends nothing", async (t) => {
   const { board, session } = await connected(t);
   const { box } = drawn(session);
   board.lines.length = 0;
@@ -825,7 +940,13 @@ test('FACTORY_RESET and INIT go out only with the typed confirmation', async (t)
   const { board, session } = await connected(t);
   const { box } = drawn(session);
   board.lines.length = 0;
-  const submit = (name) => click(one(all(box, 'form').find((item) => all(item, 'h3').some((title) => textOf(title) === name)), 'button'));
+  const submit = (name) =>
+    click(
+      one(
+        all(box, 'form').find((item) => all(item, 'h3').some((title) => textOf(title) === name)),
+        'button'
+      )
+    );
 
   submit('FACTORY_RESET');
   await settle();
@@ -872,13 +993,18 @@ function recorder(failure = null) {
   };
 }
 
-test('a command the board did is put on record by its name, with the board\'s ID and firmware, and never a value', async (t) => {
+test("a command the board did is put on record by its name, with the board's ID and firmware, and never a value", async (t) => {
   const { records, record } = recorder();
   const { board, session } = await connected(t, {}, { record });
   const { box, redraw } = drawn(session);
   field(box, 'serial-WIFI-ssid').value = 'Lab';
   field(box, 'serial-WIFI-password').value = PASSWORD;
-  click(one(all(box, 'form').find((form) => textOf(form).includes('Save a WPA2')), 'button'));
+  click(
+    one(
+      all(box, 'form').find((form) => textOf(form).includes('Save a WPA2')),
+      'button'
+    )
+  );
   await settle();
   redraw();
   assert.equal(board.lines.at(-1), `WIFI|Lab|${PASSWORD}`);
@@ -887,7 +1013,9 @@ test('a command the board did is put on record by its name, with the board\'s ID
   assert.equal(JSON.stringify(records).includes('battery'), false);
   const form = all(box, 'form').find((item) => textOf(item).includes('Save a WPA2'));
   assert.equal(textOf(one(form, 'p.serial-record')), 'In the activity log.');
-  assert.ok(session.lines.some((line) => line.kind === 'note' && line.text === 'WIFI is in the activity log, under your name.'));
+  assert.ok(
+    session.lines.some((line) => line.kind === 'note' && line.text === 'WIFI is in the activity log, under your name.')
+  );
 
   // What only asks, what the page sends by itself, and what the board refused are not changes.
   click(one(box, 'button', 'NET'));
@@ -905,16 +1033,24 @@ test('a command the board did is put on record by its name, with the board\'s ID
 
 test('a command the board answered with ERR is not put on record', async (t) => {
   const { records, record } = recorder();
-  const reply = (line) => (/^SET_ID/i.test(line) ? 'ERR id must be 1-32 letters or digits\r\n' : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n');
+  const reply = (line) =>
+    /^SET_ID/i.test(line)
+      ? 'ERR id must be 1-32 letters or digits\r\n'
+      : (REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n');
   const { session } = await connected(t, { reply }, { record });
   session.send('SET_ID|NEW-ID');
   session.send('REBOOT');
   await settle();
-  assert.deepEqual(records.map((item) => item.command), ['REBOOT']);
+  assert.deepEqual(
+    records.map((item) => item.command),
+    ['REBOOT']
+  );
 });
 
 test('a record that does not get through leaves the command done, and says so beside it and in the transcript', async (t) => {
-  const { records, record } = recorder(new Error('At most 30 serial console commands a minute are recorded for one person.'));
+  const { records, record } = recorder(
+    new Error('At most 30 serial console commands a minute are recorded for one person.')
+  );
   const { session } = await connected(t, {}, { record });
   const { box, redraw } = drawn(session);
   click(one(box, 'button', 'Reconnect'));
@@ -923,8 +1059,10 @@ test('a record that does not get through leaves the command done, and says so be
   assert.equal(records.length, 1);
   const failed = one(box, 'p.serial-record.is-failed');
   assert.equal(failed.getAttribute('role'), 'alert');
-  assert.equal(textOf(failed),
-    'Done on the board, but not in the activity log. At most 30 serial console commands a minute are recorded for one person.');
+  assert.equal(
+    textOf(failed),
+    'Done on the board, but not in the activity log. At most 30 serial console commands a minute are recorded for one person.'
+  );
   // The board's own answer stays what it was.
   assert.match(textOf(one(box, 'p.serial-result.is-ok')), /reconnecting/);
   const note = session.lines.at(-1);
@@ -969,19 +1107,29 @@ function noDialogs(t) {
   for (const name of ['confirm', 'alert', 'prompt']) {
     const had = Object.hasOwn(globalThis, name);
     const before = globalThis[name];
-    globalThis[name] = () => { opened.push(name); return true; };
-    t.after(() => { if (had) globalThis[name] = before; else delete globalThis[name]; });
+    globalThis[name] = () => {
+      opened.push(name);
+      return true;
+    };
+    t.after(() => {
+      if (had) globalThis[name] = before;
+      else delete globalThis[name];
+    });
   }
   return opened;
 }
 
 test('the MQTT panel has the three MQTT commands, after Wi-Fi', async (t) => {
-  assert.deepEqual(COMMANDS.filter((item) => item.group === 'mqtt').map((item) => item.name),
-    ['MQTT', 'MQTT_HOST', 'MQTT_RECONNECT']);
+  assert.deepEqual(
+    COMMANDS.filter((item) => item.group === 'mqtt').map((item) => item.name),
+    ['MQTT', 'MQTT_HOST', 'MQTT_RECONNECT']
+  );
   const { session } = await connected(t);
   const { box } = drawn(session);
-  assert.deepEqual(all(box, 'section.serial-group').map((section) => textOf(one(section, 'h2'))),
-    ['Identity', 'Wi-Fi', 'MQTT', 'Status', 'Maintenance']);
+  assert.deepEqual(
+    all(box, 'section.serial-group').map((section) => textOf(one(section, 'h2'))),
+    ['Identity', 'Wi-Fi', 'MQTT', 'Status', 'Maintenance']
+  );
   const panel = mqttPanel(box);
   for (const label of ['Check MQTT', 'Set server', 'Reconnect']) one(panel, 'button', label);
   // Nothing about MQTT is known before the board is asked.
@@ -991,17 +1139,35 @@ test('the MQTT panel has the three MQTT commands, after Wi-Fi', async (t) => {
 test('a server is a host name, as valid_host_name() in identity.c has it', () => {
   const wrong = 'endpoint must be a host name of at most 127 letters, digits, dots and hyphens';
   const host = (value) => checkCommand(command('MQTT_HOST'), { host: value });
-  for (const good of ['example-ats.iot.us-east-1.amazonaws.com', 'Mixed-Case.Example.COM', 'a.b', '1.2', `${'a'.repeat(123)}.com`]) {
+  for (const good of [
+    'example-ats.iot.us-east-1.amazonaws.com',
+    'Mixed-Case.Example.COM',
+    'a.b',
+    '1.2',
+    `${'a'.repeat(123)}.com`,
+  ]) {
     assert.deepEqual(host(good), { errors: {}, line: `MQTT_HOST|${good}` }, good);
   }
-  for (const bad of ['', 'nodots', '.leading.dot', '-leading.hyphen', 'under_score.example.com', 'with space.com',
-    'https://example.com', 'example.com:8883', 'example.com/path', 'a|b.com', 'café.example.com', 'x.com\r\nFACTORY_RESET',
-    `${'a'.repeat(124)}.com`]) {
+  for (const bad of [
+    '',
+    'nodots',
+    '.leading.dot',
+    '-leading.hyphen',
+    'under_score.example.com',
+    'with space.com',
+    'https://example.com',
+    'example.com:8883',
+    'example.com/path',
+    'a|b.com',
+    'café.example.com',
+    'x.com\r\nFACTORY_RESET',
+    `${'a'.repeat(124)}.com`,
+  ]) {
     assert.deepEqual(host(bad).errors, { host: wrong }, bad);
   }
 });
 
-test('MQTT\'s reply is read as facts, a key that comes again as one with several values', () => {
+test("MQTT's reply is read as facts, a key that comes again as one with several values", () => {
   const facts = mqttFacts([...MQTT_LINES, 'not a key value line', 'future thing   new value']);
   assert.deepEqual(facts.slice(0, 3), [
     { key: 'state', label: 'State', values: ['connected'] },
@@ -1080,7 +1246,10 @@ test('Set server checks the name here, and sends it only once it is confirmed on
   await settle();
   assert.deepEqual(board.lines, []);
   assert.equal(host().getAttribute('aria-invalid'), null);
-  assert.match(textOf(mqttPanel(box)), /Set the server to other-ats\.iot\.eu-west-1\.amazonaws\.com\? The board drops its MQTT connection/);
+  assert.match(
+    textOf(mqttPanel(box)),
+    /Set the server to other-ats\.iot\.eu-west-1\.amazonaws\.com\? The board drops its MQTT connection/
+  );
   assert.equal(document.activeElement, field(box, 'serial-MQTT_HOST-yes'));
   click(one(mqttPanel(box), 'button', 'Cancel'));
   await settle();
@@ -1094,7 +1263,10 @@ test('Set server checks the name here, and sends it only once it is confirmed on
   await settle();
   redraw();
   assert.deepEqual(board.lines, ['MQTT_HOST|other-ats.iot.eu-west-1.amazonaws.com']);
-  assert.match(textOf(one(mqttPanel(box), 'p.serial-result')), /OK mqtt server set to other-ats\.iot\.eu-west-1\.amazonaws\.com, reconnecting/);
+  assert.match(
+    textOf(one(mqttPanel(box), 'p.serial-result')),
+    /OK mqtt server set to other-ats\.iot\.eu-west-1\.amazonaws\.com, reconnecting/
+  );
   assert.equal(withText(mqttPanel(box), 'button', 'Yes, set the server').length, 0, 'the question is gone');
   one(mqttPanel(box), 'button', 'Set server');
   assert.deepEqual(dialogs, []);
@@ -1116,8 +1288,10 @@ test('changing the name while it is being asked about takes the question back', 
 
 test('Reconnect sends MQTT_RECONNECT, and what the board answers shows beside it', async (t) => {
   const { board, session } = await connected(t, {
-    reply: (line) => (line === 'MQTT_RECONNECT' ? 'ERR no network: the board connects once Wi-Fi is up\r\n'
-      : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
+    reply: (line) =>
+      line === 'MQTT_RECONNECT'
+        ? 'ERR no network: the board connects once Wi-Fi is up\r\n'
+        : (REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
   });
   const { box, redraw } = drawn(session);
   click(one(mqttPanel(box), 'button', 'Check MQTT'));
@@ -1149,8 +1323,10 @@ test('after a change, what the panel shows is marked as from before it', async (
 
 test('a board with firmware from before the MQTT commands is told so in words', async (t) => {
   const { session } = await connected(t, {
-    reply: (line) => (line.startsWith('MQTT') ? `ERR unknown command ${line.split('|')[0]}, type HELP\r\n`
-      : REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
+    reply: (line) =>
+      line.startsWith('MQTT')
+        ? `ERR unknown command ${line.split('|')[0]}, type HELP\r\n`
+        : (REPLIES[line.split('|')[0].toUpperCase()]?.(line) ?? 'OK\r\n'),
   });
   const { box, redraw } = drawn(session);
   click(one(mqttPanel(box), 'button', 'Check MQTT'));
@@ -1200,7 +1376,11 @@ test('OK and ERR carry a word and an icon, and only final replies are read out',
   assert.equal(textOf(live[0]), 'Error: bad');
   assert.equal(field(box, 'serial-transcript').hasAttribute('aria-live'), false);
   assert.equal(field(box, 'serial-transcript').getAttribute('tabindex'), '0');
-  assert.equal(field(box, 'serial-transcript').getAttribute('role'), 'group', 'not role=log, which would read out every line');
+  assert.equal(
+    field(box, 'serial-transcript').getAttribute('role'),
+    'group',
+    'not role=log, which would read out every line'
+  );
 });
 
 test('a reply that repeats is still read out', async (t) => {

@@ -41,8 +41,7 @@ function sameGroups(configuration) {
 
 /** The client IDs given, as a list of the non-empty strings among them. */
 function served(clientIds) {
-  return (Array.isArray(clientIds) ? clientIds : [clientIds])
-    .filter((id) => typeof id === 'string' && id !== '');
+  return (Array.isArray(clientIds) ? clientIds : [clientIds]).filter((id) => typeof id === 'string' && id !== '');
 }
 
 /**

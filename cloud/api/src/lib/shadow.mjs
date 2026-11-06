@@ -35,10 +35,16 @@ export const RESTART_WINDOW_MS = 240_000;
 
 // `bluetooth`: a person opened the board's Bluetooth window, for an update from a phone. Cloud
 // updates wait until it closes.
-const OTA_STATES = Object.freeze(
-  ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth']);
-const OTA_RESULTS = Object.freeze(
-  ['none', 'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled']);
+const OTA_STATES = Object.freeze([
+  'idle',
+  'awaiting_user',
+  'downloading',
+  'verifying',
+  'rebooting',
+  'testing',
+  'bluetooth',
+]);
+const OTA_RESULTS = Object.freeze(['none', 'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled']);
 const SHORT_ASCII = /^[\x20-\x7e]{0,64}$/;
 // Later than any real timestamp, small enough to stay a valid date in milliseconds.
 const MAX_EPOCH_SEC = 99_999_999_999;
@@ -75,8 +81,15 @@ function oneOf(value, allowed) {
 // A stuck reason the console does not know yet is kept if it looks like one: a later firmware
 // may add a timer.
 const STUCK_REASON = /^[a-z][a-z_]{0,31}$/;
-export const BT_RESULTS = Object.freeze(
-  ['pending', 'succeeded', 'rolled_back', 'not_installed', 'trial_lost', 'superseded', 'flash_error']);
+export const BT_RESULTS = Object.freeze([
+  'pending',
+  'succeeded',
+  'rolled_back',
+  'not_installed',
+  'trial_lost',
+  'superseded',
+  'flash_error',
+]);
 export const BT_PROOFS = Object.freeze(['none', 'cloud', 'person']);
 const MAC = /^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/;
 // device_id_valid() in firmware/app/src/device.c: 1 to 32 letters and digits.
@@ -86,9 +99,21 @@ const DIARY_ENTRY = /^([0-9.+]{5,24})\/([0-9a-f]{1,8})\/(\d{1,3})$/;
 const DIARY_MAX = 16;
 // Zephyr's RESET_ bits (zephyr/drivers/hwinfo.h). The firmware reports the raw value.
 export const RESET_CAUSES = Object.freeze([
-  [0x1, 'pin'], [0x2, 'software'], [0x4, 'brownout'], [0x8, 'power_on'], [0x10, 'watchdog'],
-  [0x20, 'debugger'], [0x40, 'security'], [0x80, 'wake'], [0x100, 'lockup'], [0x200, 'parity'],
-  [0x400, 'pll'], [0x800, 'clock'], [0x1000, 'hardware'], [0x2000, 'user'], [0x4000, 'temperature'],
+  [0x1, 'pin'],
+  [0x2, 'software'],
+  [0x4, 'brownout'],
+  [0x8, 'power_on'],
+  [0x10, 'watchdog'],
+  [0x20, 'debugger'],
+  [0x40, 'security'],
+  [0x80, 'wake'],
+  [0x100, 'lockup'],
+  [0x200, 'parity'],
+  [0x400, 'pll'],
+  [0x800, 'clock'],
+  [0x1000, 'hardware'],
+  [0x2000, 'user'],
+  [0x4000, 'temperature'],
 ]);
 // Larger than any heap of this board, and still exact in a double.
 const MAX_HEAP = 2 ** 31;
@@ -153,7 +178,10 @@ function readDiary(reported) {
     const version = match ? strictVersion(match[1]) : null;
     if (version === null) continue;
     entries.push({
-      version: version.text, cause: match[2], causes: resetCauses(match[2]), stage: Number(match[3]),
+      version: version.text,
+      cause: match[2],
+      causes: resetCauses(match[2]),
+      stage: Number(match[3]),
     });
   }
   return { boots, entries: entries.reverse() };
@@ -181,7 +209,15 @@ function readBt(reported) {
  */
 export function readReported(reported, metadata) {
   const result = {
-    name: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null,
+    name: null,
+    fw: null,
+    ota: null,
+    rssi: null,
+    uptime: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
   };
   if (reported === undefined || reported === null || typeof reported !== 'object' || Array.isArray(reported)) {
     return result;
@@ -220,8 +256,18 @@ export function readReported(reported, metadata) {
  */
 export function unknownDevice(thing) {
   return {
-    thing, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
-    stuck: null, diag: null, diary: null, bt: null,
+    thing,
+    name: null,
+    online: false,
+    lastSeen: null,
+    fw: null,
+    ota: null,
+    rssi: null,
+    uptime: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
   };
 }
 

@@ -61,8 +61,9 @@ let runs = 0;
 
 /** The environment of a script: the stand-in first, and no trace of a real profile or git run. */
 function environment(extra = {}) {
-  const clean = Object.fromEntries(Object.entries(process.env)
-    .filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('GIT_')));
+  const clean = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith('AWS_') && !name.startsWith('GIT_'))
+  );
   return { ...clean, PATH: `${stubDir}:${process.env.PATH}`, ...extra };
 }
 
@@ -72,7 +73,9 @@ function bash(args, env = {}) {
   const log = join(work, `calls-${runs}`);
   writeFileSync(log, '');
   const result = spawnSync('bash', args, { env: environment({ STUB_LOG: log, ...env }), encoding: 'utf8' });
-  const calls = readFileSync(log, 'utf8').split('\n').filter((line) => line !== '' && line !== '--version');
+  const calls = readFileSync(log, 'utf8')
+    .split('\n')
+    .filter((line) => line !== '' && line !== '--version');
   return { status: result.status, out: result.stdout, err: result.stderr, calls };
 }
 
@@ -106,21 +109,39 @@ test('reset-mfa replaces the account with the same role, and never sets a passwo
   ]) {
     const { status, out, calls } = scriptWith({ STUB_GROUPS: groups }, 'users.sh', 'reset-mfa', 'a@example.org');
     assert.equal(status, 0, out);
-    const order = ['admin-user-global-sign-out', 'admin-delete-user', 'admin-create-user', 'admin-add-user-to-group']
-      .map((words) => position(calls, words));
-    assert.deepEqual(order, [...order].sort((a, b) => a - b), JSON.stringify(calls));
-    assert.ok(order.every((at) => at !== -1), JSON.stringify(calls));
+    const order = [
+      'admin-user-global-sign-out',
+      'admin-delete-user',
+      'admin-create-user',
+      'admin-add-user-to-group',
+    ].map((words) => position(calls, words));
+    assert.deepEqual(
+      order,
+      [...order].sort((a, b) => a - b),
+      JSON.stringify(calls)
+    );
+    assert.ok(
+      order.every((at) => at !== -1),
+      JSON.stringify(calls)
+    );
     assert.ok(calls[order[3]].includes(`--group-name ${group}`));
     assert.ok(out.includes(`cloud/users.sh add a@example.org ${role}`));
     assert.ok(out.includes('Done.'));
     // Cognito sends the password. The authenticator alone is no longer what goes.
-    assert.equal(calls.some((call) => /password|delete-software-token/.test(call)), false);
+    assert.equal(
+      calls.some((call) => /password|delete-software-token/.test(call)),
+      false
+    );
   }
 });
 
 test('reset-mfa says how to finish before it deletes anything', () => {
   const { status, out, calls } = scriptWith(
-    { STUB_GROUPS: 'release-managers', STUB_FAIL: 'admin-create-user' }, 'users.sh', 'reset-mfa', 'a@example.org');
+    { STUB_GROUPS: 'release-managers', STUB_FAIL: 'admin-create-user' },
+    'users.sh',
+    'reset-mfa',
+    'a@example.org'
+  );
   assert.notEqual(status, 0);
   assert.ok(position(calls, 'admin-delete-user') !== -1);
   assert.ok(out.includes('cloud/users.sh add a@example.org release-manager'));
@@ -138,7 +159,12 @@ test('reset-mfa leaves an account alone when replacing it would change more than
     const { status, out, err, calls } = scriptWith(env, 'users.sh', 'reset-mfa', 'a@example.org');
     assert.notEqual(status, 0, words);
     assert.ok(`${out}${err}`.includes(words), `${words}: ${out}${err}`);
-    for (const change of ['admin-delete-user', 'admin-create-user', 'admin-user-global-sign-out', 'admin-add-user-to-group']) {
+    for (const change of [
+      'admin-delete-user',
+      'admin-create-user',
+      'admin-user-global-sign-out',
+      'admin-add-user-to-group',
+    ]) {
       assert.equal(position(calls, change), -1, `${words}: ${change}`);
     }
   }
@@ -158,7 +184,13 @@ test('removing an address that has no account does not look like a success', () 
 });
 
 test('adding an address that has no account says what happens to one elsewhere', () => {
-  const { status, out } = scriptWith({ STUB_STATUS: 'NONE', STUB_GROUPS: 'viewers' }, 'users.sh', 'add', 'new@example.org', 'viewer');
+  const { status, out } = scriptWith(
+    { STUB_STATUS: 'NONE', STUB_GROUPS: 'viewers' },
+    'users.sh',
+    'add',
+    'new@example.org',
+    'viewer'
+  );
   assert.equal(status, 0);
   assert.ok(out.includes('cloud/users.sh list'));
 });
@@ -170,14 +202,24 @@ test('users.sh list keeps the form that scripts/ota.sh reads', () => {
   assert.match(out, /someone@example\.org\s+none\s+active\n/);
 });
 
-test('teardown switches a table\'s deletion protection off first', () => {
+test("teardown switches a table's deletion protection off first", () => {
   const protectedTable = inScript('teardown.sh', 'delete_table "audit table" t1', { STUB_TABLE: 'True' });
   assert.equal(protectedTable.status, 0, protectedTable.err);
-  const order = ['describe-table', 'update-table --table-name t1 --no-deletion-protection-enabled',
-    'wait table-exists', 'delete-table --table-name t1', 'wait table-not-exists']
-    .map((words) => position(protectedTable.calls, words));
-  assert.ok(order.every((at) => at !== -1), JSON.stringify(protectedTable.calls));
-  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  const order = [
+    'describe-table',
+    'update-table --table-name t1 --no-deletion-protection-enabled',
+    'wait table-exists',
+    'delete-table --table-name t1',
+    'wait table-not-exists',
+  ].map((words) => position(protectedTable.calls, words));
+  assert.ok(
+    order.every((at) => at !== -1),
+    JSON.stringify(protectedTable.calls)
+  );
+  assert.deepEqual(
+    order,
+    [...order].sort((a, b) => a - b)
+  );
 
   const open = inScript('teardown.sh', 'delete_table "audit table" t1', { STUB_TABLE: 'False' });
   assert.equal(open.status, 0);
@@ -194,7 +236,10 @@ test('teardown switches a table\'s deletion protection off first', () => {
   assert.equal(unknown.status, 0);
   assert.deepEqual(unknown.calls, []);
 
-  const refused = inScript('teardown.sh', 'delete_table "audit table" t1', { STUB_TABLE: 'True', STUB_FAIL: 'update-table' });
+  const refused = inScript('teardown.sh', 'delete_table "audit table" t1', {
+    STUB_TABLE: 'True',
+    STUB_FAIL: 'update-table',
+  });
   assert.notEqual(refused.status, 0);
   assert.equal(position(refused.calls, 'delete-table'), -1);
 });
@@ -202,10 +247,14 @@ test('teardown switches a table\'s deletion protection off first', () => {
 test('deploy.sh tells the commit and which deployed files differ from it', () => {
   const repo = join(work, 'repo');
   const git = (...args) => {
-    const result = spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.org',
-      '-c', 'commit.gpgsign=false', ...args], {
-      encoding: 'utf8', env: { ...environment(), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
-    });
+    const result = spawnSync(
+      'git',
+      ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.org', '-c', 'commit.gpgsign=false', ...args],
+      {
+        encoding: 'utf8',
+        env: { ...environment(), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      }
+    );
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
@@ -214,16 +263,22 @@ test('deploy.sh tells the commit and which deployed files differ from it', () =>
     mkdirSync(join(file, '..'), { recursive: true });
     writeFileSync(file, text);
   };
-  const state = (line) => inScript('deploy.sh', `REPO_DIR=${repo}; ${line}`,
-    { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
+  const state = (line) =>
+    inScript('deploy.sh', `REPO_DIR=${repo}; ${line}`, { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' });
 
   // No checkout at all.
   mkdirSync(repo);
   assert.equal(state('source_commit').out.trim(), 'unknown');
 
   git('init', '-q');
-  for (const path of ['cloud/api/src/index.mjs', 'cloud/web/src/server.mjs', 'cloud/infra/template.yaml',
-    'firmware/keys/fw_signing_pub.pem', 'firmware/app/src/main.c', 'README.md']) {
+  for (const path of [
+    'cloud/api/src/index.mjs',
+    'cloud/web/src/server.mjs',
+    'cloud/infra/template.yaml',
+    'firmware/keys/fw_signing_pub.pem',
+    'firmware/app/src/main.c',
+    'README.md',
+  ]) {
     place(path);
   }
   place('.gitignore', '.DS_Store\n');
@@ -242,8 +297,10 @@ test('deploy.sh tells the commit and which deployed files differ from it', () =>
 
   // What is deployed does: changed, new, ignored but packaged, and the signing key.
   const changed = [
-    ['cloud/api/src/index.mjs', 'changed\n'], ['cloud/web/src/new.mjs', 'new\n'],
-    ['cloud/web/src/.DS_Store', 'ignored\n'], ['cloud/infra/template.yaml', 'changed\n'],
+    ['cloud/api/src/index.mjs', 'changed\n'],
+    ['cloud/web/src/new.mjs', 'new\n'],
+    ['cloud/web/src/.DS_Store', 'ignored\n'],
+    ['cloud/infra/template.yaml', 'changed\n'],
     ['firmware/keys/fw_signing_pub.pem', 'changed\n'],
   ];
   for (const [path, text] of changed) {
@@ -286,8 +343,8 @@ function memfaultHome(files = {}) {
   return home;
 }
 
-const digestOf = (text) => spawnSync('openssl', ['dgst', '-sha256', '-hex'], { input: text, encoding: 'utf8' })
-  .stdout.trim().split(' ').at(-1);
+const digestOf = (text) =>
+  spawnSync('openssl', ['dgst', '-sha256', '-hex'], { input: text, encoding: 'utf8' }).stdout.trim().split(' ').at(-1);
 
 test('deploy.sh stores the Memfault key by the digest of its file, from the file, and never shows it', () => {
   const home = memfaultHome({ memfault_project_key: `${MEMFAULT_KEY}\n` });
@@ -303,19 +360,32 @@ test('deploy.sh stores the Memfault key by the digest of its file, from the file
   for (const text of [stored.out, stored.err, ...stored.calls]) assert.equal(text.includes(MEMFAULT_KEY), false);
 
   // The same key again adds no version.
-  const again = inScript('deploy.sh', 'store_memfault_key',
-    { HOME: home, STUB_STAGES: JSON.stringify({ [token]: ['AWSCURRENT'] }) });
+  const again = inScript('deploy.sh', 'store_memfault_key', {
+    HOME: home,
+    STUB_STAGES: JSON.stringify({ [token]: ['AWSCURRENT'] }),
+  });
   assert.equal(again.status, 0, again.err);
-  assert.equal(again.calls.some((call) => call.includes('put-secret-value') || call.includes('update-secret-version-stage')), false);
+  assert.equal(
+    again.calls.some((call) => call.includes('put-secret-value') || call.includes('update-secret-version-stage')),
+    false
+  );
   assert.ok(again.out.includes('stored already'));
 
   // A key stored before, and replaced since, is made the current one again.
-  const back = inScript('deploy.sh', 'store_memfault_key',
-    { HOME: home, STUB_STAGES: JSON.stringify({ [token]: ['AWSPREVIOUS'], 'other-version': ['AWSCURRENT'] }) });
+  const back = inScript('deploy.sh', 'store_memfault_key', {
+    HOME: home,
+    STUB_STAGES: JSON.stringify({ [token]: ['AWSPREVIOUS'], 'other-version': ['AWSCURRENT'] }),
+  });
   assert.equal(back.status, 0, back.err);
   const move = back.calls.find((call) => call.startsWith('secretsmanager update-secret-version-stage'));
-  assert.ok(move.includes(`--move-to-version-id ${token}`) && move.includes('--remove-from-version-id other-version'), move);
-  assert.equal(back.calls.some((call) => call.includes('put-secret-value')), false);
+  assert.ok(
+    move.includes(`--move-to-version-id ${token}`) && move.includes('--remove-from-version-id other-version'),
+    move
+  );
+  assert.equal(
+    back.calls.some((call) => call.includes('put-secret-value')),
+    false
+  );
 });
 
 test('deploy.sh without a Memfault key says how to add one, and asks nothing of AWS for it', () => {
@@ -335,12 +405,15 @@ test('deploy.sh without a Memfault key says how to add one, and asks nothing of 
 
 test('deploy.sh takes the Memfault slugs from the environment, else from ~/.cranium/memfault.json, and checks them', () => {
   const slugs = (env) => inScript('deploy.sh', 'memfault_slug_overrides', env);
-  const fromFile = slugs({ HOME: memfaultHome({ 'memfault.json': '{"org": "cranium-team", "project": "cranium-boards"}' }) });
+  const fromFile = slugs({
+    HOME: memfaultHome({ 'memfault.json': '{"org": "cranium-team", "project": "cranium-boards"}' }),
+  });
   assert.equal(fromFile.status, 0, fromFile.err);
   assert.equal(fromFile.out, 'MemfaultOrgSlug=cranium-team\nMemfaultProjectSlug=cranium-boards\n');
   const fromEnv = slugs({
     HOME: memfaultHome({ 'memfault.json': '{"org": "file-org", "project": "file-project"}' }),
-    MEMFAULT_ORG_SLUG: 'env-org', MEMFAULT_PROJECT_SLUG: 'env-project',
+    MEMFAULT_ORG_SLUG: 'env-org',
+    MEMFAULT_PROJECT_SLUG: 'env-project',
   });
   assert.equal(fromEnv.out, 'MemfaultOrgSlug=env-org\nMemfaultProjectSlug=env-project\n');
   // Neither: the stack keeps what it has.
@@ -374,12 +447,18 @@ test('trail.sh deploys its own stack, and not next to another trail', () => {
   const second = scriptWith({ STUB_TRAILS: 'other-trail\tus-east-1' }, 'trail.sh');
   assert.notEqual(second.status, 0);
   assert.ok(second.err.includes('$2.00 per 100,000'));
-  assert.equal(second.calls.some((call) => call.startsWith('cloudformation deploy')), false);
+  assert.equal(
+    second.calls.some((call) => call.startsWith('cloudformation deploy')),
+    false
+  );
 
   const status = scriptWith({ STUB_TRAIL_STACK: 'CREATE_COMPLETE' }, 'trail.sh', '--status');
   assert.equal(status.status, 0, status.err);
   assert.ok(status.out.includes('Logging: True'));
-  assert.equal(status.calls.some((call) => call.startsWith('cloudformation deploy')), false);
+  assert.equal(
+    status.calls.some((call) => call.startsWith('cloudformation deploy')),
+    false
+  );
 
   const none = scriptWith({ STUB_TRAIL_STACK: '' }, 'trail.sh', '--status');
   assert.equal(none.status, 0);
@@ -390,8 +469,10 @@ test('the event smoke.sh sends is one the API function takes, and it tells the t
   const console_ = createTestConsole();
   const member = console_.addUser('member', ['release-managers']);
   const eventFor = (sub) => {
-    const { status, out, err } = inScript('smoke.sh',
-      `API_HOST=abc.example.org; CLIENT_ID=${console_.config.userPoolClientId}; USER_POOL_ID=pool_1; api_event /api/devices ${sub}`);
+    const { status, out, err } = inScript(
+      'smoke.sh',
+      `API_HOST=abc.example.org; CLIENT_ID=${console_.config.userPoolClientId}; USER_POOL_ID=pool_1; api_event /api/devices ${sub}`
+    );
     assert.equal(status, 0, err);
     return JSON.parse(out);
   };
@@ -420,8 +501,12 @@ function ota(args, env) {
     const child = spawn('bash', [OTA, ...args], { env: environment(env) });
     let out = '';
     let err = '';
-    child.stdout.on('data', (chunk) => { out += chunk; });
-    child.stderr.on('data', (chunk) => { err += chunk; });
+    child.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      err += chunk;
+    });
     child.on('close', (status) => resolve({ status, out, err }));
   });
 }
@@ -444,108 +529,149 @@ async function consoleServer(t, { onRequest = () => {} } = {}) {
     console_.advance(5000);
     onRequest(console_, request.method, request.url);
     const headers = request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization };
-    const answer = await console_.app(apiEvent(request.method, request.url, { headers, body: body === '' ? undefined : body }));
+    const answer = await console_.app(
+      apiEvent(request.method, request.url, { headers, body: body === '' ? undefined : body })
+    );
     response.writeHead(answer.statusCode, answer.headers);
     response.end(answer.body);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
   const made = await console_.call('POST', '/api/tokens', { as: manager, body: { name: 'ota' } });
-  return { console_, manager, seen, token: made.body.token, id: made.body.id, url: `http://127.0.0.1:${server.address().port}` };
+  return {
+    console_,
+    manager,
+    seen,
+    token: made.body.token,
+    id: made.body.id,
+    url: `http://127.0.0.1:${server.address().port}`,
+  };
 }
 
-test('ota.sh with an API token uploads, deploys and follows the board through the console', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
-  const { console_, seen, token, id, url } = await consoleServer(t, {
-    // The board: it starts the update when the script first looks, and has it confirmed by the next look.
-    onRequest(context, method, path) {
-      const match = /^\/api\/t\/deployments\/([\w-]+)$/.exec(path);
-      if (method !== 'GET' || !match) return;
-      const execution = context.fake.execution(match[1], BOARD);
-      if (execution.get().status === 'QUEUED') execution.update('IN_PROGRESS', { step: 'downloading' });
-      else execution.update('SUCCEEDED', { running: '1.2.3+4' });
-    },
-  });
-  const home = mkdtempSync(join(work, 'home-'));
-  const { status, out, err } = await ota([IMAGE], {
-    HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: `${url}/`, CRANIUM_POLL_SECONDS: '1',
-  });
-  assert.equal(status, 0, `${out}\n${err}`);
-  assert.match(out, /Using the API token from CRANIUM_TOKEN/);
-  assert.match(out, /Uploaded release 1\.2\.3\+4/);
-  assert.match(out, new RegExp(`Done: ${BOARD} installed 1\\.2\\.3\\+4 and reported running 1\\.2\\.3\\+4\\.`));
-  // Never shown, and sent only as the header.
-  for (const text of [out, err]) assert.equal(text.includes(token.slice(4)), false);
-  assert.deepEqual(seen.map((request) => `${request.method} ${request.url.replace(/cranium-1-2-3-b4-\S+/, '<id>')}`).slice(0, 4),
-    ['GET /api/t/me', 'GET /api/t/devices', 'POST /api/t/firmware', 'POST /api/t/deployments']);
-  assert.ok(seen.every((request) => request.authorization === `Bearer ${token}`));
+test(
+  'ota.sh with an API token uploads, deploys and follows the board through the console',
+  { skip: !hasTools && 'needs curl and python3' },
+  async (t) => {
+    const { console_, seen, token, id, url } = await consoleServer(t, {
+      // The board: it starts the update when the script first looks, and has it confirmed by the next look.
+      onRequest(context, method, path) {
+        const match = /^\/api\/t\/deployments\/([\w-]+)$/.exec(path);
+        if (method !== 'GET' || !match) return;
+        const execution = context.fake.execution(match[1], BOARD);
+        if (execution.get().status === 'QUEUED') execution.update('IN_PROGRESS', { step: 'downloading' });
+        else execution.update('SUCCEEDED', { running: '1.2.3+4' });
+      },
+    });
+    const home = mkdtempSync(join(work, 'home-'));
+    const { status, out, err } = await ota([IMAGE], {
+      HOME: home,
+      CRANIUM_TOKEN: token,
+      CRANIUM_CONSOLE_URL: `${url}/`,
+      CRANIUM_POLL_SECONDS: '1',
+    });
+    assert.equal(status, 0, `${out}\n${err}`);
+    assert.match(out, /Using the API token from CRANIUM_TOKEN/);
+    assert.match(out, /Uploaded release 1\.2\.3\+4/);
+    assert.match(out, new RegExp(`Done: ${BOARD} installed 1\\.2\\.3\\+4 and reported running 1\\.2\\.3\\+4\\.`));
+    // Never shown, and sent only as the header.
+    for (const text of [out, err]) assert.equal(text.includes(token.slice(4)), false);
+    assert.deepEqual(
+      seen.map((request) => `${request.method} ${request.url.replace(/cranium-1-2-3-b4-\S+/, '<id>')}`).slice(0, 4),
+      ['GET /api/t/me', 'GET /api/t/devices', 'POST /api/t/firmware', 'POST /api/t/deployments']
+    );
+    assert.ok(seen.every((request) => request.authorization === `Bearer ${token}`));
 
-  // The changes are on record in the owner's name, with the token's id.
-  const entries = console_.fake.auditLog().filter((entry) => entry.detail.token === id);
-  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome]),
-    [['firmware.upload', 'ok'], ['deployment.create', 'ok']]);
-  assert.equal(console_.fake.releases.size, 1);
-});
+    // The changes are on record in the owner's name, with the token's id.
+    const entries = console_.fake.auditLog().filter((entry) => entry.detail.token === id);
+    assert.deepEqual(
+      entries.map((entry) => [entry.action, entry.outcome]),
+      [
+        ['firmware.upload', 'ok'],
+        ['deployment.create', 'ok'],
+      ]
+    );
+    assert.equal(console_.fake.releases.size, 1);
+  }
+);
 
-test('ota.sh takes a token file only if it is its owner\'s alone, and never prints a token', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
-  const { seen, token, url } = await consoleServer(t);
-  const home = mkdtempSync(join(work, 'home-'));
-  mkdirSync(join(home, '.cranium'));
-  const file = join(home, '.cranium', 'console-token');
-  const env = { HOME: home, CRANIUM_CONSOLE_URL: url };
+test(
+  "ota.sh takes a token file only if it is its owner's alone, and never prints a token",
+  { skip: !hasTools && 'needs curl and python3' },
+  async (t) => {
+    const { seen, token, url } = await consoleServer(t);
+    const home = mkdtempSync(join(work, 'home-'));
+    mkdirSync(join(home, '.cranium'));
+    const file = join(home, '.cranium', 'console-token');
+    const env = { HOME: home, CRANIUM_CONSOLE_URL: url };
 
-  writeFileSync(file, `${token}\n`, { mode: 0o644 });
-  chmodSync(file, 0o644);
-  let run = await ota([IMAGE, '--thing', BOARD], env);
-  assert.equal(run.status, 1);
-  assert.match(run.err, /can be read or changed by others \(mode 644\)/);
-  assert.match(run.err, /chmod 600/);
-  assert.deepEqual(seen, []);
+    writeFileSync(file, `${token}\n`, { mode: 0o644 });
+    chmodSync(file, 0o644);
+    let run = await ota([IMAGE, '--thing', BOARD], env);
+    assert.equal(run.status, 1);
+    assert.match(run.err, /can be read or changed by others \(mode 644\)/);
+    assert.match(run.err, /chmod 600/);
+    assert.deepEqual(seen, []);
 
-  // A link to a token is not a token file either.
-  const elsewhere = join(home, 'kept');
-  writeFileSync(elsewhere, token, { mode: 0o600 });
-  rmSync(file);
-  symlinkSync(elsewhere, file);
-  run = await ota([IMAGE], env);
-  assert.equal(run.status, 1);
-  assert.match(run.err, /is not a plain file/);
+    // A link to a token is not a token file either.
+    const elsewhere = join(home, 'kept');
+    writeFileSync(elsewhere, token, { mode: 0o600 });
+    rmSync(file);
+    symlinkSync(elsewhere, file);
+    run = await ota([IMAGE], env);
+    assert.equal(run.status, 1);
+    assert.match(run.err, /is not a plain file/);
 
-  // Not a token of the console: refused without showing what it was.
-  rmSync(file);
-  writeFileSync(file, `crn_${'x'.repeat(10)}\n`, { mode: 0o600 });
-  run = await ota([IMAGE], env);
-  assert.equal(run.status, 1);
-  assert.match(run.err, /is not one the console makes/);
-  assert.equal(run.err.includes('xxxxxxxxxx'), false);
-  assert.deepEqual(seen, []);
+    // Not a token of the console: refused without showing what it was.
+    rmSync(file);
+    writeFileSync(file, `crn_${'x'.repeat(10)}\n`, { mode: 0o600 });
+    run = await ota([IMAGE], env);
+    assert.equal(run.status, 1);
+    assert.match(run.err, /is not one the console makes/);
+    assert.equal(run.err.includes('xxxxxxxxxx'), false);
+    assert.deepEqual(seen, []);
 
-  // Well formed but unknown: the console says no, and the script says what to do.
-  const unknown = `crn_${'B'.repeat(42)}A`;
-  writeFileSync(file, `${unknown}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600);
-  run = await ota([IMAGE], env);
-  assert.equal(run.status, 1);
-  assert.match(run.err, /did not accept the API token/);
-  assert.match(run.err, /Developer > API tokens/);
-  for (const text of [run.out, run.err]) assert.equal(text.includes(unknown.slice(4)), false);
-  assert.deepEqual(seen.map((request) => request.url), ['/api/t/me']);
+    // Well formed but unknown: the console says no, and the script says what to do.
+    const unknown = `crn_${'B'.repeat(42)}A`;
+    writeFileSync(file, `${unknown}\n`, { mode: 0o600 });
+    chmodSync(file, 0o600);
+    run = await ota([IMAGE], env);
+    assert.equal(run.status, 1);
+    assert.match(run.err, /did not accept the API token/);
+    assert.match(run.err, /Developer > API tokens/);
+    for (const text of [run.out, run.err]) assert.equal(text.includes(unknown.slice(4)), false);
+    assert.deepEqual(
+      seen.map((request) => request.url),
+      ['/api/t/me']
+    );
 
-  // The address must be https, but for the local preview on this computer.
-  run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
-  assert.equal(run.status, 1);
-  assert.match(run.err, /must start with https:\/\//);
-  run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'https://console.example.com/x?y' });
-  assert.match(run.err, /not the address of a console/);
-});
+    // The address must be https, but for the local preview on this computer.
+    run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: token, CRANIUM_CONSOLE_URL: 'http://console.example.com' });
+    assert.equal(run.status, 1);
+    assert.match(run.err, /must start with https:\/\//);
+    run = await ota([IMAGE], {
+      HOME: home,
+      CRANIUM_TOKEN: token,
+      CRANIUM_CONSOLE_URL: 'https://console.example.com/x?y',
+    });
+    assert.match(run.err, /not the address of a console/);
+  }
+);
 
-test('ota.sh with a viewer\'s token stops before it uploads anything', { skip: !hasTools && 'needs curl and python3' }, async (t) => {
-  const { console_, seen, url } = await consoleServer(t);
-  const viewer = console_.addUser('viewer', ['viewers']);
-  const made = await console_.call('POST', '/api/tokens', { as: viewer, body: { name: 'read only' } });
-  const home = mkdtempSync(join(work, 'home-'));
-  const run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: made.body.token, CRANIUM_CONSOLE_URL: url });
-  assert.equal(run.status, 1);
-  assert.match(run.err, /viewer@example\.invalid, is not a release manager now, so it can only read/);
-  assert.deepEqual(seen.map((request) => request.url), ['/api/t/me']);
-  assert.equal(console_.fake.releases.size, 0);
-});
+test(
+  "ota.sh with a viewer's token stops before it uploads anything",
+  { skip: !hasTools && 'needs curl and python3' },
+  async (t) => {
+    const { console_, seen, url } = await consoleServer(t);
+    const viewer = console_.addUser('viewer', ['viewers']);
+    const made = await console_.call('POST', '/api/tokens', { as: viewer, body: { name: 'read only' } });
+    const home = mkdtempSync(join(work, 'home-'));
+    const run = await ota([IMAGE], { HOME: home, CRANIUM_TOKEN: made.body.token, CRANIUM_CONSOLE_URL: url });
+    assert.equal(run.status, 1);
+    assert.match(run.err, /viewer@example\.invalid, is not a release manager now, so it can only read/);
+    assert.deepEqual(
+      seen.map((request) => request.url),
+      ['/api/t/me']
+    );
+    assert.equal(console_.fake.releases.size, 0);
+  }
+);

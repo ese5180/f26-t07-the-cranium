@@ -43,7 +43,7 @@ function requireCustomerId(value) {
 function requireEmail(value) {
   const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (email.length > 254 || !EMAIL.test(email) || /[\p{C}]/u.test(email)) {
-    throw badRequest('invalid_email', 'Give the customer\'s e-mail address, such as name@example.com.');
+    throw badRequest('invalid_email', "Give the customer's e-mail address, such as name@example.com.");
   }
   return email;
 }
@@ -61,7 +61,8 @@ function view(customer, boards, id = customer?.sub) {
     name: customer?.name ?? '',
     status: statusOf(customer),
     createdAt: Number.isFinite(customer?.createdAt) ? new Date(customer.createdAt).toISOString() : null,
-    boards: boards.filter((item) => item.owner === id)
+    boards: boards
+      .filter((item) => item.owner === id)
       .map(({ thing, label, assignedAt }) => ({ thing, label, assignedAt }))
       .sort((a, b) => (a.thing < b.thing ? -1 : 1)),
   };
@@ -134,8 +135,11 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       entry.detail.email = email;
       const name = requireText(field(body, 'name'), 'name', { max: NAME_LIMIT });
       if (settings.siteUrl === '') {
-        throw conflict('customer_site_has_no_address', 'The customer site has no address yet, so an invitation ' +
-          'would lead nowhere. Set CustomerDomainName first (docs/customer-site.md).');
+        throw conflict(
+          'customer_site_has_no_address',
+          'The customer site has no address yet, so an invitation ' +
+            'would lead nowhere. Set CustomerDomainName first (docs/customer-site.md).'
+        );
       }
       const result = await aws.inviteCustomer({ email, name });
       if (!result.ok) throw conflict('customer_exists', 'There is a customer with this e-mail address already.');
@@ -149,13 +153,17 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       entry.target = id;
       const customer = await existing(id, entry);
       if (customer.status !== 'FORCE_CHANGE_PASSWORD') {
-        throw conflict('customer_not_invited', 'This customer has signed in already: there is no invitation to send again.');
+        throw conflict(
+          'customer_not_invited',
+          'This customer has signed in already: there is no invitation to send again.'
+        );
       }
       if (settings.siteUrl === '') {
         throw conflict('customer_site_has_no_address', 'The customer site has no address yet.');
       }
       const result = await aws.resendInvitation(customer.email);
-      if (!result.ok && result.reason === 'not_found') throw notFound('unknown_customer', 'There is no customer with this id.');
+      if (!result.ok && result.reason === 'not_found')
+        throw notFound('unknown_customer', 'There is no customer with this id.');
       if (!result.ok) throw conflict('customer_not_invited', 'This customer has signed in already.');
       return { body: { customer: await current(customer) } };
     },
@@ -174,7 +182,7 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
         throw notFound('unknown_device', 'No board with that name is registered.');
       }
       const owner = (await aws.listOwnership()).find((item) => item.thing === thing)?.owner;
-      if (owner === id) throw conflict('already_assigned', 'This board is this customer\'s already.');
+      if (owner === id) throw conflict('already_assigned', "This board is this customer's already.");
       if (owner !== undefined) {
         throw conflict('board_taken', 'This board belongs to another customer. Take it back from them first.');
       }
@@ -193,7 +201,7 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       const customer = await aws.getCustomer(id);
       if (customer !== null) entry.detail.email = customer.email;
       const result = await aws.unassignBoard({ thing, owner: id, at: iso() });
-      if (!result.ok) throw notFound('not_assigned', 'This board is not this customer\'s.');
+      if (!result.ok) throw notFound('not_assigned', "This board is not this customer's.");
       return { body: { customer: view(customer, await aws.listOwnership(), id) } };
     },
 

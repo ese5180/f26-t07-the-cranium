@@ -31,7 +31,8 @@ const SESSION_MS = 15 * 60 * 1000;
 const CODE_TRIES = 3;
 // How far the time in a claim may be from the server's.
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
-const TIMESTAMP = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12]\d|3[01]) (\d\d:\d\d:\d\d) UTC (\d{4})$/;
+const TIMESTAMP =
+  /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([1-9]|[12]\d|3[01]) (\d\d:\d\d:\d\d) UTC (\d{4})$/;
 
 /** A number of 0 or more as Java's BigInteger.toByteArray() writes it: bitLength / 8 + 1 bytes. */
 export function javaBytes(value) {
@@ -73,10 +74,16 @@ export function expectedClaim({ userPoolId, userId, verifier, A, b, B, secretBlo
   const S = powMod((A * powMod(verifier, u, N)) % N, b, N);
   const key = Buffer.from(hkdfSync('sha256', javaBytes(S), javaBytes(u), INFO, 16));
   const poolName = userPoolId.split('_')[1];
-  return createHmac('sha256', key).update(Buffer.concat([
-    Buffer.from(poolName, 'utf8'), Buffer.from(userId, 'utf8'), Buffer.from(secretBlock, 'base64'),
-    Buffer.from(timestamp, 'utf8'),
-  ])).digest('base64');
+  return createHmac('sha256', key)
+    .update(
+      Buffer.concat([
+        Buffer.from(poolName, 'utf8'),
+        Buffer.from(userId, 'utf8'),
+        Buffer.from(secretBlock, 'base64'),
+        Buffer.from(timestamp, 'utf8'),
+      ])
+    )
+    .digest('base64');
 }
 
 /** The instant a claim's timestamp names, or NaN if it is not written as Cognito writes it. */
@@ -148,7 +155,11 @@ export function createCognito({ userPoolId, clientId, users = [], now = Date.now
     return ok({
       ChallengeName: 'PASSWORD_VERIFIER',
       ChallengeParameters: {
-        SALT: salt.toString(16), SECRET_BLOCK: secretBlock, SRP_B: B.toString(16), USERNAME: userId, USER_ID_FOR_SRP: userId,
+        SALT: salt.toString(16),
+        SECRET_BLOCK: secretBlock,
+        SRP_B: B.toString(16),
+        USERNAME: userId,
+        USER_ID_FOR_SRP: userId,
       },
     });
   }
@@ -162,8 +173,14 @@ export function createCognito({ userPoolId, clientId, users = [], now = Date.now
     const at = timestampAt(String(answer.TIMESTAMP));
     if (Number.isNaN(at) || Math.abs(at - now()) > CLOCK_SKEW_MS) return refuse('NotAuthorizedException');
     const expected = expectedClaim({
-      userPoolId, userId: exchange.userId, verifier: exchange.verifier, A: exchange.A, b: exchange.b, B: exchange.B,
-      secretBlock: answer.PASSWORD_CLAIM_SECRET_BLOCK, timestamp: answer.TIMESTAMP,
+      userPoolId,
+      userId: exchange.userId,
+      verifier: exchange.verifier,
+      A: exchange.A,
+      b: exchange.b,
+      B: exchange.B,
+      secretBlock: answer.PASSWORD_CLAIM_SECRET_BLOCK,
+      timestamp: answer.TIMESTAMP,
     });
     const given = Buffer.from(String(answer.PASSWORD_CLAIM_SIGNATURE), 'utf8');
     const right = given.length === expected.length && timingSafeEqual(given, Buffer.from(expected, 'utf8'));
@@ -191,7 +208,10 @@ export function createCognito({ userPoolId, clientId, users = [], now = Date.now
     sessions.delete(body.Session);
     issued += 1;
     const tokens = issue?.(session.user) ?? {
-      AccessToken: `SRP-ACCESS-${issued}`, ExpiresIn: 3600, RefreshToken: `SRP-REFRESH-${issued}`, IdToken: `SRP-ID-${issued}`,
+      AccessToken: `SRP-ACCESS-${issued}`,
+      ExpiresIn: 3600,
+      RefreshToken: `SRP-REFRESH-${issued}`,
+      IdToken: `SRP-ID-${issued}`,
     };
     return ok({ AuthenticationResult: { TokenType: 'Bearer', ...tokens }, ChallengeParameters: {} });
   }
@@ -203,7 +223,8 @@ export function createCognito({ userPoolId, clientId, users = [], now = Date.now
     if (scripted) return refuse(scripted);
     if (body?.ClientId !== clientId) return refuse('ResourceNotFoundException');
     if (operation === 'InitiateAuth') return initiate(body);
-    if (operation === 'RespondToAuthChallenge' && body.ChallengeName === 'PASSWORD_VERIFIER') return verifyPassword(body);
+    if (operation === 'RespondToAuthChallenge' && body.ChallengeName === 'PASSWORD_VERIFIER')
+      return verifyPassword(body);
     if (operation === 'RespondToAuthChallenge' && body.ChallengeName === 'SOFTWARE_TOKEN_MFA') return verifyCode(body);
     return refuse('InvalidParameterException');
   }
@@ -214,8 +235,12 @@ export function createCognito({ userPoolId, clientId, users = [], now = Date.now
     /** The call as a browser makes it, to `${origin}/`, answered as fetch would be. */
     async fetch(origin, url, init = {}) {
       const target = /^AWSCognitoIdentityProviderService\.(\w+)$/.exec(init.headers?.['x-amz-target'] ?? '');
-      if (url !== `${origin}/` || init.method !== 'POST' || !target ||
-          init.headers?.['content-type'] !== 'application/x-amz-json-1.1') {
+      if (
+        url !== `${origin}/` ||
+        init.method !== 'POST' ||
+        !target ||
+        init.headers?.['content-type'] !== 'application/x-amz-json-1.1'
+      ) {
         return new Response(JSON.stringify({ __type: 'UnknownOperationException' }), { status: 400 });
       }
       const { status, body } = answer(target[1], JSON.parse(init.body));

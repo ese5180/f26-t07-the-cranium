@@ -90,16 +90,19 @@ export function readScan(message, { nowMs }) {
   if (Object.keys(message).some((key) => !FIELDS.has(key))) return { ignored: 'unexpected_field' };
   if (!whole(message.boot, 0, MAX_COUNT) || !whole(message.t, 0, MAX_UPTIME)) return { ignored: 'bad_count' };
   const received = message.received;
-  const receivedMs = Number.isSafeInteger(received) && received > 0 && Math.abs(received - nowMs) < 86_400_000
-    ? received
-    : nowMs;
+  const receivedMs =
+    Number.isSafeInteger(received) && received > 0 && Math.abs(received - nowMs) < 86_400_000 ? received : nowMs;
   const { aps } = message;
   if (!Array.isArray(aps)) return { ignored: 'no_access_points' };
   if (aps.length > MAX_APS) return { ignored: 'too_many' };
   const seen = new Set();
   const clean = [];
   for (const ap of aps) {
-    if (!isPlain(ap) || Object.keys(ap).length !== AP_FIELDS.length || !AP_FIELDS.every((key) => Object.hasOwn(ap, key))) {
+    if (
+      !isPlain(ap) ||
+      Object.keys(ap).length !== AP_FIELDS.length ||
+      !AP_FIELDS.every((key) => Object.hasOwn(ap, key))
+    ) {
       return { ignored: 'bad_access_point' };
     }
     if (typeof ap.mac !== 'string' || !MAC.test(ap.mac)) return { ignored: 'bad_mac' };
@@ -117,7 +120,10 @@ export function readScan(message, { nowMs }) {
 /** 16 hex digits for the set of access points a board heard: the same set, the same hash, in any order. */
 export function apSetHash(thing, aps) {
   const macs = aps.map((ap) => ap.mac.toLowerCase()).sort();
-  return createHash('sha256').update(`cranium location v1\n${thing}\n${macs.join(',')}`, 'utf8').digest('hex').slice(0, 16);
+  return createHash('sha256')
+    .update(`cranium location v1\n${thing}\n${macs.join(',')}`, 'utf8')
+    .digest('hex')
+    .slice(0, 16);
 }
 
 /** The request of GetPositionEstimate for a scan: the Wi-Fi solver, with nothing but BSSID and signal. */
@@ -202,8 +208,19 @@ export function decide(item, scan, nowMs) {
 /** The item as it is before anything about a board is known. */
 export function emptyLocation(thing) {
   return {
-    pk: LOCATION_PK, sk: thing, rev: 0, position: null, history: [], status: null, statusAt: null, apCount: null,
-    apHash: null, outcome: null, triedAt: null, seenAt: null, checkedAt: null,
+    pk: LOCATION_PK,
+    sk: thing,
+    rev: 0,
+    position: null,
+    history: [],
+    status: null,
+    statusAt: null,
+    apCount: null,
+    apHash: null,
+    outcome: null,
+    triedAt: null,
+    seenAt: null,
+    checkedAt: null,
   };
 }
 
@@ -223,7 +240,12 @@ export function withConfirmation(item, scan) {
 /** The item while a solve is under way: claimed, so that a second copy of the message does not solve again. */
 export function withAttempt(item, scan) {
   return {
-    ...item, apCount: scan.count, apHash: scan.hash, outcome: 'pending', triedAt: scan.receivedMs, seenAt: scan.receivedMs,
+    ...item,
+    apCount: scan.count,
+    apHash: scan.hash,
+    outcome: 'pending',
+    triedAt: scan.receivedMs,
+    seenAt: scan.receivedMs,
   };
 }
 
@@ -288,11 +310,18 @@ export function locationFromItem(item) {
 /** The positions of an item, newest first, at most HISTORY_KEPT. */
 export function historyFromItem(item) {
   const history = Array.isArray(item?.history) ? item.history : [];
-  return history.map(positionFromItem).filter((position) => position !== null).slice(0, HISTORY_KEPT);
+  return history
+    .map(positionFromItem)
+    .filter((position) => position !== null)
+    .slice(0, HISTORY_KEPT);
 }
 
 /** True for an item of a location this module made: its hash, if any, is the short kind. */
 export function isLocationItem(item) {
-  return isPlain(item) && item.pk === LOCATION_PK && isThing(item.sk) &&
-    (item.apHash === null || item.apHash === undefined || HASH.test(item.apHash));
+  return (
+    isPlain(item) &&
+    item.pk === LOCATION_PK &&
+    isThing(item.sk) &&
+    (item.apHash === null || item.apHash === undefined || HASH.test(item.apHash))
+  );
 }

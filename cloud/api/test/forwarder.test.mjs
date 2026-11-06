@@ -6,7 +6,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  CHUNK_MAX, FRAME_HEADER, KEY_CACHE_MS, ackPayload, createForwarder, readFrame, verdictOf,
+  CHUNK_MAX,
+  FRAME_HEADER,
+  KEY_CACHE_MS,
+  ackPayload,
+  createForwarder,
+  readFrame,
+  verdictOf,
 } from '../src/forwarder.mjs';
 
 const THING = 'cranium-0123456789abcdef';
@@ -21,7 +27,12 @@ function frame(seq, chunk, version = 1) {
   return bytes.toString('base64');
 }
 
-const message = (seq, chunk, extra = {}) => ({ frame: frame(seq, chunk), thing: THING, received: 1_700_000_000_000, ...extra });
+const message = (seq, chunk, extra = {}) => ({
+  frame: frame(seq, chunk),
+  thing: THING,
+  received: 1_700_000_000_000,
+  ...extra,
+});
 
 function world({ key = `${KEY}\n`, status = 202, post = null, publish = null } = {}) {
   const clock = { ms: Date.UTC(2026, 10, 4, 12) };
@@ -49,10 +60,23 @@ function world({ key = `${KEY}\n`, status = 202, post = null, publish = null } =
     log: (line) => logs.push(line),
     randomHex: (count) => {
       draws += 1;
-      return String(draws).padStart(2 * count, 'a').slice(0, 2 * count);
+      return String(draws)
+        .padStart(2 * count, 'a')
+        .slice(0, 2 * count);
     },
   });
-  return { handler, calls, logs, clock, setKey: (value) => { key = value; }, setStatus: (value) => { status = value; } };
+  return {
+    handler,
+    calls,
+    logs,
+    clock,
+    setKey: (value) => {
+      key = value;
+    },
+    setStatus: (value) => {
+      status = value;
+    },
+  };
 }
 
 test('a frame is version 1, a big-endian sequence number and one chunk of 1 to 460 bytes', () => {
@@ -78,7 +102,7 @@ test('a frame is version 1, a big-endian sequence number and one chunk of 1 to 4
   assert.equal(readFrame(message(1, [1], { thing: 'x' })).thing, undefined);
 });
 
-test('the chunk goes to Memfault without the frame\'s header, and the board is answered with its sequence number', async () => {
+test("the chunk goes to Memfault without the frame's header, and the board is answered with its sequence number", async () => {
   const { handler, calls, logs } = world();
   assert.deepEqual(await handler(message(513, [0xa1, 0xb2, 0xc3, 0xd4])), { outcome: 'forwarded' });
   assert.equal(calls.posts.length, 1);
@@ -105,7 +129,10 @@ test('the chunk goes to Memfault without the frame\'s header, and the board is a
 test('every answer has an id of its own', async () => {
   const { handler, calls } = world();
   for (let seq = 0; seq < 4; seq += 1) await handler(message(seq, [seq + 1]));
-  assert.deepEqual(calls.acks.map((ack) => ack.payload.seq), [0, 1, 2, 3]);
+  assert.deepEqual(
+    calls.acks.map((ack) => ack.payload.seq),
+    [0, 1, 2, 3]
+  );
   assert.equal(new Set(calls.acks.map((ack) => ack.payload.id)).size, 4);
   assert.deepEqual(ackPayload(7, 'aaaaaaaaaaaaaaaa'), { id: 'aaaaaaaaaaaaaaaa', cmd: 'memfault_ack', seq: 7 });
 });
@@ -123,7 +150,8 @@ test('a key that cannot be read drops the chunk unanswered, and is asked for aga
   let fail = true;
   const { handler, calls, logs } = world({
     key: () => {
-      if (fail) throw Object.assign(new Error('GetSecretValue: AccessDeniedException'), { name: 'AwsError', code: 'failed' });
+      if (fail)
+        throw Object.assign(new Error('GetSecretValue: AccessDeniedException'), { name: 'AwsError', code: 'failed' });
       return KEY;
     },
   });
@@ -159,7 +187,9 @@ test('what Memfault refuses for good is answered all the same, so that the board
     assert.deepEqual(await handler(message(3, [1, 2, 3])), { outcome: 'refused' }, String(status));
     assert.equal(calls.acks.length, 1);
     assert.equal(calls.acks[0].payload.seq, 3);
-    assert.deepEqual(logs, [{ level: 'warn', event: 'chunk_refused', thing: THING, seq: 3, bytes: 3, status, answered: true }]);
+    assert.deepEqual(logs, [
+      { level: 'warn', event: 'chunk_refused', thing: THING, seq: 3, bytes: 3, status, answered: true },
+    ]);
   }
 });
 
@@ -172,7 +202,9 @@ test('a busy or failing Memfault, a lost post and a time-out are not answered: t
   }
   for (const code of ['timeout', 'network']) {
     const { handler, calls, logs } = world({
-      post: () => { throw Object.assign(new Error('POST chunks: TimeoutError'), { name: 'ChunkPostError', code }); },
+      post: () => {
+        throw Object.assign(new Error('POST chunks: TimeoutError'), { name: 'ChunkPostError', code });
+      },
     });
     assert.deepEqual(await handler(message(5, [1])), { outcome: 'failed' });
     assert.equal(calls.acks.length, 0);
@@ -187,7 +219,9 @@ test('a key Memfault refuses is not answered, and is read again before the next 
     const { handler, calls, logs } = context;
     assert.deepEqual(await handler(message(6, [1])), { outcome: 'failed' });
     assert.equal(calls.acks.length, 0);
-    assert.deepEqual(logs, [{ level: 'error', event: 'chunk_failed', reason: 'key_refused', thing: THING, seq: 6, bytes: 1, status }]);
+    assert.deepEqual(logs, [
+      { level: 'error', event: 'chunk_failed', reason: 'key_refused', thing: THING, seq: 6, bytes: 1, status },
+    ]);
     context.setStatus(202);
     assert.deepEqual(await handler(message(6, [1])), { outcome: 'forwarded' });
     assert.equal(calls.keys, 2, String(status));
@@ -196,7 +230,9 @@ test('a key Memfault refuses is not answered, and is read again before the next 
 
 test('an answer that cannot be published is logged and not thrown', async () => {
   const { handler, calls, logs } = world({
-    publish: () => { throw Object.assign(new Error('Publish: InternalFailureException'), { name: 'AwsError', code: 'failed' }); },
+    publish: () => {
+      throw Object.assign(new Error('Publish: InternalFailureException'), { name: 'AwsError', code: 'failed' });
+    },
   });
   assert.deepEqual(await handler(message(7, [1])), { outcome: 'forwarded' });
   assert.equal(calls.acks.length, 0);

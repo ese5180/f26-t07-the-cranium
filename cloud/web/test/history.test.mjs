@@ -6,20 +6,24 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
-  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import {
-  LIMIT, buildHistory, cleanSubject, readCommits, tagsOf, writeHistory,
-} from '../build-history.mjs';
+import { LIMIT, buildHistory, cleanSubject, readCommits, tagsOf, writeHistory } from '../build-history.mjs';
 import { loadSite } from '../src/server.mjs';
-import {
-  HISTORY, VIEWS, all, click, createDocument, one, textOf,
-} from './page.mjs';
+import { HISTORY, VIEWS, all, click, createDocument, one, textOf } from './page.mjs';
 
 const history = await import(HISTORY);
 const views = await import(VIEWS);
@@ -67,8 +71,11 @@ commit('tools/board.py', 'Change a tool');
 commit('docs/aws-iot.md', 'Change the documents');
 commit('firmware/README.md', 'A Markdown file is documentation');
 commit('.gitignore', 'Touch nothing in particular');
-const NEWEST = commit('cloud/web/x.mjs', `Credit ${ADDRESS} in a subject`,
-  `Signed-off-by: Somebody <${ADDRESS}>\n\nA body that must not travel.`);
+const NEWEST = commit(
+  'cloud/web/x.mjs',
+  `Credit ${ADDRESS} in a subject`,
+  `Signed-off-by: Somebody <${ADDRESS}>\n\nA body that must not travel.`
+);
 
 // The data.
 
@@ -78,15 +85,22 @@ test('what a commit touched is worked out from its paths, in a fixed order', () 
   assert.deepEqual(tagsOf(['firmware/app/src/main.c']), ['firmware']);
   assert.deepEqual(tagsOf(['tools/board.py']), ['tools']);
   assert.deepEqual(tagsOf(['.github/workflows/ci.yml']), ['ci']);
-  assert.deepEqual(tagsOf(['docs/x.txt', 'README.md', 'cloud/README.md', 'firmware/README.md', '.github/x.md']), ['docs']);
-  assert.deepEqual(tagsOf(['docs/a.md', '.github/f.yml', 'tools/b.py', 'cloud/c.sh', 'firmware/d.c', 'cloud/web/e.js']),
-    ['website', 'firmware', 'cloud', 'tools', 'ci', 'docs']);
+  assert.deepEqual(tagsOf(['docs/x.txt', 'README.md', 'cloud/README.md', 'firmware/README.md', '.github/x.md']), [
+    'docs',
+  ]);
+  assert.deepEqual(
+    tagsOf(['docs/a.md', '.github/f.yml', 'tools/b.py', 'cloud/c.sh', 'firmware/d.c', 'cloud/web/e.js']),
+    ['website', 'firmware', 'cloud', 'tools', 'ci', 'docs']
+  );
   assert.deepEqual(tagsOf(['.gitignore', 'binaries/x.bin']), []);
 });
 
 test('the page and the script list the same tags in the same order', () => {
   const everything = tagsOf(['cloud/web/a', 'firmware/b', 'cloud/c', 'tools/d', '.github/f', 'docs/e']);
-  assert.deepEqual(history.TAGS.map(([tag]) => tag), everything);
+  assert.deepEqual(
+    history.TAGS.map(([tag]) => tag),
+    everything
+  );
 });
 
 test('a subject loses addresses, and very long ones are cut', () => {
@@ -127,8 +141,11 @@ test('it says what the deployment was built from, and when', () => {
   const built = buildHistory({ repo, commit: NEWEST, tree: 'dirty', now: new Date(NOW) });
   assert.deepEqual(built.deployment, { commit: NEWEST, tree: 'dirty', deployedAt: new Date(NOW).toISOString() });
   // Run by hand, it looks up the commit and does not claim to know the state of the tree.
-  assert.deepEqual(buildHistory({ repo, now: new Date(NOW) }).deployment,
-    { commit: NEWEST, tree: 'unknown', deployedAt: new Date(NOW).toISOString() });
+  assert.deepEqual(buildHistory({ repo, now: new Date(NOW) }).deployment, {
+    commit: NEWEST,
+    tree: 'unknown',
+    deployedAt: new Date(NOW).toISOString(),
+  });
 });
 
 test('a commit is dated by when it was written, not by when it was last rewritten', () => {
@@ -138,14 +155,21 @@ test('a commit is dated by when it was written, not by when it was last rewritte
   const written = [1700000000, 1700090000, 1700180000];
   let stream = '';
   written.forEach((at, index) => {
-    stream += `commit refs/heads/main\nauthor A <${ADDRESS}> ${at} +0000\ncommitter A <${ADDRESS}> 1700999000 +0000\n` +
+    stream +=
+      `commit refs/heads/main\nauthor A <${ADDRESS}> ${at} +0000\ncommitter A <${ADDRESS}> 1700999000 +0000\n` +
       `data ${`commit ${index}`.length}\ncommit ${index}\nM 100644 inline tools/f\ndata 1\n${index}\n\n`;
   });
   execFileSync('git', ['-C', rewritten, 'init', '-q', '-b', 'main']);
   execFileSync('git', ['-C', rewritten, 'fast-import', '--quiet'], { input: stream });
   const { commits } = buildHistory({ repo: rewritten });
-  assert.deepEqual(commits.map((item) => item.subject), ['commit 2', 'commit 1', 'commit 0']);
-  assert.deepEqual(commits.map((item) => Date.parse(item.date) / 1000), [...written].reverse());
+  assert.deepEqual(
+    commits.map((item) => item.subject),
+    ['commit 2', 'commit 1', 'commit 0']
+  );
+  assert.deepEqual(
+    commits.map((item) => Date.parse(item.date) / 1000),
+    [...written].reverse()
+  );
 });
 
 test('commits stand in the order of the dates they show, whatever order a rebase left them in', () => {
@@ -155,13 +179,17 @@ test('commits stand in the order of the dates they show, whatever order a rebase
   const written = [1700090000, 1700000000, 1700180000];
   let stream = '';
   written.forEach((at, index) => {
-    stream += `commit refs/heads/main\nauthor A <${ADDRESS}> ${at} +0000\ncommitter A <${ADDRESS}> 1700999000 +0000\n` +
+    stream +=
+      `commit refs/heads/main\nauthor A <${ADDRESS}> ${at} +0000\ncommitter A <${ADDRESS}> 1700999000 +0000\n` +
       `data ${`commit ${index}`.length}\ncommit ${index}\nM 100644 inline tools/f\ndata 1\n${index}\n\n`;
   });
   execFileSync('git', ['-C', reordered, 'init', '-q', '-b', 'main']);
   execFileSync('git', ['-C', reordered, 'fast-import', '--quiet'], { input: stream });
   const { commits } = buildHistory({ repo: reordered });
-  assert.deepEqual(commits.map((item) => item.subject), ['commit 2', 'commit 0', 'commit 1']);
+  assert.deepEqual(
+    commits.map((item) => item.subject),
+    ['commit 2', 'commit 0', 'commit 1']
+  );
 });
 
 test('of two branches, the commits kept are the newest by the date they show', () => {
@@ -171,13 +199,17 @@ test('of two branches, the commits kept are the newest by the date they show', (
     `commit refs/heads/${ref}\nmark :${mark}\nauthor A <${ADDRESS}> ${written} +0000\ncommitter A <${ADDRESS}> ${committed} +0000\n` +
     `data ${subject.length}\n${subject}\n${parents}M 100644 inline tools/${mark}\ndata 1\nx\n\n`;
   // Rewritten since: "written last" carries an old committer date, "written first" a new one.
-  const stream = commit('main', 1, 'root', 1700000000, 1700000000) +
+  const stream =
+    commit('main', 1, 'root', 1700000000, 1700000000) +
     commit('late', 2, 'written last', 1700300000, 1700100000, 'from :1\n') +
     commit('early', 3, 'written first', 1700100000, 1700300000, 'from :1\n') +
     commit('main', 4, 'merged', 1700400000, 1700400000, 'from :2\nmerge :3\n');
   execFileSync('git', ['-C', branched, 'init', '-q', '-b', 'main']);
   execFileSync('git', ['-C', branched, 'fast-import', '--quiet'], { input: stream });
-  assert.deepEqual(readCommits(branched, 2).map((item) => item.subject), ['merged', 'written last']);
+  assert.deepEqual(
+    readCommits(branched, 2).map((item) => item.subject),
+    ['merged', 'written last']
+  );
 });
 
 test('only the newest commits are kept', () => {
@@ -186,7 +218,8 @@ test('only the newest commits are kept', () => {
   const count = LIMIT + 5;
   let stream = '';
   for (let at = 1; at <= count; at += 1) {
-    stream += `commit refs/heads/main\ncommitter A <${ADDRESS}> ${1700000000 + at} +0000\ndata ${`commit ${at}`.length}\ncommit ${at}\n` +
+    stream +=
+      `commit refs/heads/main\ncommitter A <${ADDRESS}> ${1700000000 + at} +0000\ndata ${`commit ${at}`.length}\ncommit ${at}\n` +
       `M 100644 inline tools/f\ndata ${String(at).length}\n${at}\n\n`;
   }
   execFileSync('git', ['-C', big, 'init', '-q', '-b', 'main']);
@@ -201,8 +234,24 @@ test('only the newest commits are kept', () => {
 
 test('the file can be read by the function, whatever umask the deployment runs with', () => {
   const out = join(work, 'umask.json');
-  const run = spawnSync('sh', ['-c', 'umask 077; exec "$0" "$@"', process.execPath, SCRIPT, '--repo', repo,
-    '--out', out, '--commit', NEWEST, '--tree', 'clean'], { encoding: 'utf8' });
+  const run = spawnSync(
+    'sh',
+    [
+      '-c',
+      'umask 077; exec "$0" "$@"',
+      process.execPath,
+      SCRIPT,
+      '--repo',
+      repo,
+      '--out',
+      out,
+      '--commit',
+      NEWEST,
+      '--tree',
+      'clean',
+    ],
+    { encoding: 'utf8' }
+  );
   assert.equal(run.status, 0, run.stderr);
   assert.equal(statSync(out).mode & 0o777, 0o644);
   assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')).deployment.tree, 'clean');
@@ -223,7 +272,8 @@ test('when git cannot say, the old file does not stay behind looking current', (
   const elsewhere = join(work, 'no-repository');
   mkdirSync(elsewhere);
   const run = spawnSync(process.execPath, [SCRIPT, '--repo', elsewhere, '--out', out], {
-    encoding: 'utf8', env: { ...process.env, GIT_CEILING_DIRECTORIES: work },
+    encoding: 'utf8',
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: work },
   });
   assert.equal(run.status, 1);
   assert.match(run.stderr, /could not be written/);
@@ -242,11 +292,16 @@ test('it is a file of the console and only of the console, served as JSON', () =
   const withFile = loadSite(base);
 
   const path = `/assets/${withFile.console.buildId}/history.json`;
-  assert.deepEqual({ ...withFile.console.assets.get(path) },
-    { type: 'application/json; charset=utf-8', body: '{"commits":[]}\n' });
+  assert.deepEqual(
+    { ...withFile.console.assets.get(path) },
+    { type: 'application/json; charset=utf-8', body: '{"commits":[]}\n' }
+  );
   assert.notEqual(withFile.console.buildId, before.console.buildId, 'a new list is a new build of the console');
   assert.equal(withFile.home.buildId, before.home.buildId, 'and no change at all to the home page');
-  assert.equal([...withFile.home.assets.keys()].some((name) => name.includes('history')), false);
+  assert.equal(
+    [...withFile.home.assets.keys()].some((name) => name.includes('history')),
+    false
+  );
   assert.equal(withFile.home.page.includes('history'), false);
 
   // The console starts without it, and a home page file by that type is still refused.
@@ -257,8 +312,20 @@ test('it is a file of the console and only of the console, served as JSON', () =
 // The page.
 
 const COMMITS = [
-  { short: 'aaaaaaa', hash: 'a'.repeat(40), date: '2026-10-31T10:00:00Z', subject: 'Add the history page', tags: ['website', 'docs'] },
-  { short: 'bbbbbbb', hash: 'b'.repeat(40), date: '2026-10-30T10:00:00Z', subject: 'Fix the firmware', tags: ['firmware'] },
+  {
+    short: 'aaaaaaa',
+    hash: 'a'.repeat(40),
+    date: '2026-10-31T10:00:00Z',
+    subject: 'Add the history page',
+    tags: ['website', 'docs'],
+  },
+  {
+    short: 'bbbbbbb',
+    hash: 'b'.repeat(40),
+    date: '2026-10-30T10:00:00Z',
+    subject: 'Fix the firmware',
+    tags: ['firmware'],
+  },
   { short: 'ccccccc', hash: 'c'.repeat(40), date: '2026-10-20T10:00:00Z', subject: 'Touch the root', tags: [] },
 ];
 const FILE = {
@@ -282,8 +349,10 @@ const parsed = (changes = {}) => history.parseHistory({ ...FILE, ...changes });
 test('the timeline shows date, subject, tags and a link to the commit, newest first', () => {
   const box = pageWith(parsed());
   const rows = all(box, 'li.history-row');
-  assert.deepEqual(rows.map((row) => textOf(one(row, 'p.history-subject'))),
-    ['Add the history page', 'Fix the firmware', 'Touch the root']);
+  assert.deepEqual(
+    rows.map((row) => textOf(one(row, 'p.history-subject'))),
+    ['Add the history page', 'Fix the firmware', 'Touch the root']
+  );
   const [link] = all(rows[1], 'a');
   assert.equal(textOf(link), 'bbbbbbb');
   assert.equal(link.getAttribute('href'), `https://github.com/ese5180/f26-t07-the-cranium/commit/${'b'.repeat(40)}`);
@@ -296,7 +365,8 @@ test('the timeline shows date, subject, tags and a link to the commit, newest fi
 });
 
 test('it shows what this deployment was built from, whether that was clean, and when', () => {
-  const panel = (tree) => textOf(one(pageWith(parsed({ deployment: { ...FILE.deployment, tree } })), 'section.history-panel'));
+  const panel = (tree) =>
+    textOf(one(pageWith(parsed({ deployment: { ...FILE.deployment, tree } })), 'section.history-panel'));
   assert.match(panel('clean'), /aaaaaaa/);
   assert.match(panel('clean'), /Add the history page/);
   assert.match(panel('clean'), /Clean/);
@@ -338,13 +408,19 @@ test('without the file the page says so plainly, and with a broken one it says t
   assert.match(textOf(pageWith({ missing: true })), /no history in this copy/);
   assert.match(textOf(pageWith({ missing: true })), /never was/);
 
-  for (const broken of [new Response('nonsense'), new Response('{"commits":"x"}'), new Response('', { status: 500 }),
-    Response.json({ commits: [{ hash: '"><script>', subject: 'x', date: 'y' }] })]) {
+  for (const broken of [
+    new Response('nonsense'),
+    new Response('{"commits":"x"}'),
+    new Response('', { status: 500 }),
+    Response.json({ commits: [{ hash: '"><script>', subject: 'x', date: 'y' }] }),
+  ]) {
     const result = await history.readHistory(replying(broken));
     assert.match(result.failed, /could not be read/);
     assert.match(textOf(pageWith(result)), /could not be read/);
   }
-  const unreachable = await history.readHistory(async () => { throw new TypeError('offline'); });
+  const unreachable = await history.readHistory(async () => {
+    throw new TypeError('offline');
+  });
   assert.match(unreachable.failed, /could not be fetched/);
 });
 
@@ -359,7 +435,11 @@ test('it fetches the file beside its own script, with no sign-in token', async (
 
 test('no more than the bound is shown, and what is unknown in the file is left out', () => {
   const many = Array.from({ length: 320 }, (_, at) => ({
-    short: 'abcdef0', hash: `${at.toString(16).padStart(7, '0')}`, date: FILE.commits[0].date, subject: 's', tags: ['website', 'nonsense'],
+    short: 'abcdef0',
+    hash: `${at.toString(16).padStart(7, '0')}`,
+    date: FILE.commits[0].date,
+    subject: 's',
+    tags: ['website', 'nonsense'],
   }));
   const result = parsed({ commits: many });
   assert.equal(result.commits.length, 300);
@@ -367,10 +447,14 @@ test('no more than the bound is shown, and what is unknown in the file is left o
   assert.match(textOf(one(pageWith(result), 'p.history-summary')), /The newest 300 commits/);
 });
 
-test('the file on disk, where this checkout has one, holds what it may', { skip: !existsSync(join(SITE, 'assets', 'history.json')) }, () => {
-  const text = readFileSync(join(SITE, 'assets', 'history.json'), 'utf8');
-  assert.doesNotMatch(text, /[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
-  const data = JSON.parse(text);
-  assert.equal(data.commits.length <= 300, true);
-  assert.notEqual(history.parseHistory(data), null);
-});
+test(
+  'the file on disk, where this checkout has one, holds what it may',
+  { skip: !existsSync(join(SITE, 'assets', 'history.json')) },
+  () => {
+    const text = readFileSync(join(SITE, 'assets', 'history.json'), 'utf8');
+    assert.doesNotMatch(text, /[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    const data = JSON.parse(text);
+    assert.equal(data.commits.length <= 300, true);
+    assert.notEqual(history.parseHistory(data), null);
+  }
+);

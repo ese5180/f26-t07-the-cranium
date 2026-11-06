@@ -19,8 +19,20 @@
 
 import { describeError } from './http.mjs';
 import {
-  ALERTS_PK, alertOfEvent, applyPresence, boardKey, deploymentKey, dueOffline, emailOf, emptyBoard, emptyDeployment,
-  flushDue, presenceOf, putBack, sentItem, takeAlert,
+  ALERTS_PK,
+  alertOfEvent,
+  applyPresence,
+  boardKey,
+  deploymentKey,
+  dueOffline,
+  emailOf,
+  emptyBoard,
+  emptyDeployment,
+  flushDue,
+  presenceOf,
+  putBack,
+  sentItem,
+  takeAlert,
 } from './lib/alerts.mjs';
 import { readReported } from './lib/shadow.mjs';
 import { isThing } from './lib/validate.mjs';
@@ -39,7 +51,12 @@ const NAMES_KEPT = 512;
  * @param {() => number|Date} [options.now]
  * @param {(line: object) => void} [options.log]
  */
-export function createAlerter({ store, consoleUrl, now = Date.now, log = (line) => console.log(JSON.stringify(line)) }) {
+export function createAlerter({
+  store,
+  consoleUrl,
+  now = Date.now,
+  log = (line) => console.log(JSON.stringify(line)),
+}) {
   if (store === undefined || store === null) throw new TypeError('createAlerter needs a store');
   const clock = () => {
     const value = now();
@@ -121,13 +138,17 @@ export function createAlerter({ store, consoleUrl, now = Date.now, log = (line) 
     return safely('presence', async () => {
       const said = presenceOf(message, clock());
       if (said === null) return 0;
-      const mails = await update(boardKey(said.thing), () => emptyBoard(said.thing), (current) => {
-        const applied = applyPresence(current, said);
-        if (applied === null) return null;
-        if (applied.alert === null) return { state: applied.state, mails: [] };
-        const { state, mail } = takeAlert(applied.state, applied.alert, clock());
-        return { state, mails: mail === null ? [] : [mail] };
-      });
+      const mails = await update(
+        boardKey(said.thing),
+        () => emptyBoard(said.thing),
+        (current) => {
+          const applied = applyPresence(current, said);
+          if (applied === null) return null;
+          if (applied.alert === null) return { state: applied.state, mails: [] };
+          const { state, mail } = takeAlert(applied.state, applied.alert, clock());
+          return { state, mails: mail === null ? [] : [mail] };
+        }
+      );
       return send(mails);
     });
   }
@@ -136,8 +157,11 @@ export function createAlerter({ store, consoleUrl, now = Date.now, log = (line) 
   function noteName(thing, name) {
     if (!isThing(thing) || typeof name !== 'string' || names.get(thing) === name) return Promise.resolve(0);
     return safely('name', async () => {
-      await update(boardKey(thing), () => emptyBoard(thing), (current) =>
-        (current.name === name ? null : { state: { ...current, name }, mails: [] }));
+      await update(
+        boardKey(thing),
+        () => emptyBoard(thing),
+        (current) => (current.name === name ? null : { state: { ...current, name }, mails: [] })
+      );
       if (names.size >= NAMES_KEPT) names.clear();
       names.set(thing, name);
       return 0;
@@ -166,8 +190,9 @@ export function createAlerter({ store, consoleUrl, now = Date.now, log = (line) 
   /** The scheduled check: "offline" where it is due, and what was folded once its hour is up. */
   function check() {
     return safely('check', async () => {
-      const items = (await store.listAlertItems()).filter((item) =>
-        typeof item?.sk === 'string' && (item.sk.startsWith('B#') || item.sk.startsWith('D#')));
+      const items = (await store.listAlertItems()).filter(
+        (item) => typeof item?.sk === 'string' && (item.sk.startsWith('B#') || item.sk.startsWith('D#'))
+      );
       let sent = 0;
       for (const listed of items) {
         const nowMs = clock();
@@ -202,6 +227,10 @@ export function createAlerter({ store, consoleUrl, now = Date.now, log = (line) 
 
 /** True for what the EventBridge rule hands the recorder every 5 minutes. */
 export function isScheduledCheck(message) {
-  return message !== null && typeof message === 'object' && message.source === 'aws.events' &&
-    message['detail-type'] === 'Scheduled Event';
+  return (
+    message !== null &&
+    typeof message === 'object' &&
+    message.source === 'aws.events' &&
+    message['detail-type'] === 'Scheduled Event'
+  );
 }

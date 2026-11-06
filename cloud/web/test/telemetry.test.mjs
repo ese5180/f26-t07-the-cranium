@@ -28,9 +28,18 @@ const DEPLOYMENT = 'cranium-1-2-3-b5-20261102T110000Z-0a0a';
 
 function board(thing, changes = {}) {
   return {
-    thing, online: true, lastSeen: at(20_000), fw: { version: '1.10.0+0', confirmed: true },
-    ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' }, rssi: -52, uptime: 3600,
-    stuck: { count: 0, reason: 'none' }, diag: null, diary: null, bt: null, ...changes,
+    thing,
+    online: true,
+    lastSeen: at(20_000),
+    fw: { version: '1.10.0+0', confirmed: true },
+    ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
+    rssi: -52,
+    uptime: 3600,
+    stuck: { count: 0, reason: 'none' },
+    diag: null,
+    diary: null,
+    bt: null,
+    ...changes,
   };
 }
 
@@ -44,7 +53,13 @@ const loaded = (value) => ({ value, error: null, loadedAt: NOW, loading: false }
 
 /** The page's tools as app.js hands them over, with an API that answers from the test. */
 function setup({
-  devices = [board(A), board(B)], events = [], cursor = null, audit = [], route = { view: 'events' }, samples = [], lines = null,
+  devices = [board(A), board(B)],
+  events = [],
+  cursor = null,
+  audit = [],
+  route = { view: 'events' },
+  samples = [],
+  lines = null,
   linesCursor = null,
 } = {}) {
   const state = { now: NOW, route, interval: 0, me: { canWrite: false }, devices: loaded({ devices }) };
@@ -54,7 +69,9 @@ function setup({
   const api = {
     async events(query) {
       asked.push(['events', query]);
-      return query.cursor ? { events: [event(A, 5 * HOUR, 'firmware', 'changed', 'An older event')], cursor: null } : { events, cursor };
+      return query.cursor
+        ? { events: [event(A, 5 * HOUR, 'firmware', 'changed', 'An older event')], cursor: null }
+        : { events, cursor };
     },
     async audit(query) {
       asked.push(['audit', query]);
@@ -63,7 +80,8 @@ function setup({
     // An API from before the board log has no such route: the page goes on without it.
     async boardLog(query) {
       asked.push(['boardLog', query]);
-      if (lines === null) throw Object.assign(new Error('There is nothing at this address.'), { status: 404, code: 'not_found' });
+      if (lines === null)
+        throw Object.assign(new Error('There is nothing at this address.'), { status: 404, code: 'not_found' });
       return query.cursor
         ? { lines: [logLine(A, 9 * HOUR, 'app', 'Network is up', { id: '1.1' })], cursor: null }
         : { lines, cursor: linesCursor };
@@ -78,7 +96,12 @@ function setup({
     },
     async device(thing) {
       asked.push(['device', thing]);
-      return { device: devices.find((item) => item.thing === thing), certificates: ['0123456789abcdef'], executions: [], olderExecutions: 0 };
+      return {
+        device: devices.find((item) => item.thing === thing),
+        certificates: ['0123456789abcdef'],
+        executions: [],
+        olderExecutions: 0,
+      };
     },
   };
   async function load(target, fetcher) {
@@ -95,7 +118,11 @@ function setup({
   }
   const refreshed = [];
   telemetry.connect({
-    state, api, load, draw: () => {}, clock: { now: () => NOW },
+    state,
+    api,
+    load,
+    draw: () => {},
+    clock: { now: () => NOW },
     refresh: () => {
       refreshed.push(route.view);
       return route.view === 'events' ? telemetry.refreshEvents(true) : telemetry.refreshDiagnostics(true);
@@ -120,7 +147,10 @@ test('a preset ends now and moves with it; a range chosen by hand stays where it
   const day = telemetry.rangeOf({ preset: '24h' }, NOW);
   assert.deepEqual([day.fromMs, day.toMs, day.live], [NOW - DAY, NOW, true]);
   assert.equal(telemetry.rangeWords(day), 'the last 24 hours, up to now');
-  assert.deepEqual(telemetry.PRESETS.map((preset) => preset.label), ['1 h', '6 h', '24 h', '7 d', '30 d']);
+  assert.deepEqual(
+    telemetry.PRESETS.map((preset) => preset.label),
+    ['1 h', '6 h', '24 h', '7 d', '30 d']
+  );
   const fixed = telemetry.rangeOf({ fromMs: NOW - HOUR, toMs: NOW - MINUTE }, NOW + DAY);
   assert.deepEqual([fixed.fromMs, fixed.toMs, fixed.live], [NOW - HOUR, NOW - MINUTE, false]);
   assert.match(telemetry.rangeWords(fixed), / to /);
@@ -129,7 +159,12 @@ test('a preset ends now and moves with it; a range chosen by hand stays where it
 });
 
 test('the axis has a few ticks on whole steps of local time, and names the day where one begins', () => {
-  for (const [span, step] of [[HOUR, 10 * MINUTE], [DAY, 6 * HOUR], [7 * DAY, DAY], [30 * DAY, 7 * DAY]]) {
+  for (const [span, step] of [
+    [HOUR, 10 * MINUTE],
+    [DAY, 6 * HOUR],
+    [7 * DAY, DAY],
+    [30 * DAY, 7 * DAY],
+  ]) {
     const ticks = telemetry.timeTicks(NOW - span, NOW, 7);
     assert.ok(ticks.length >= 3 && ticks.length <= 8, `${span}: ${ticks.length}`);
     for (const [index, tick] of ticks.entries()) {
@@ -157,49 +192,90 @@ test('a range typed by hand is checked before anything is asked for', () => {
 test('every board of the group has a lane, in the order of their names, and the console has the last', () => {
   const events = [event(B, MINUTE, 'firmware', 'changed', 'x'), event(D, MINUTE, 'restart', 'restarted', 'y')];
   const lanes = telemetry.lanesOf({ events, devices: [board(B), board(A)], consoleEvents: [] });
-  assert.deepEqual(lanes.map((lane) => lane.id), [A, B, D, 'console']);
+  assert.deepEqual(
+    lanes.map((lane) => lane.id),
+    [A, B, D, 'console']
+  );
   assert.equal(lanes[0].events.length, 0);
   assert.equal(lanes[2].device, null, 'a board that is gone keeps its lane for its events');
-  assert.deepEqual(telemetry.lanesOf({ events, devices: [board(A), board(B)], thing: B }).map((lane) => lane.id), [B]);
+  assert.deepEqual(
+    telemetry.lanesOf({ events, devices: [board(A), board(B)], thing: B }).map((lane) => lane.id),
+    [B]
+  );
 });
 
 test('online bands follow connections, and the heartbeat where no connection says', () => {
   const span = { fromMs: NOW - HOUR, toMs: NOW };
   const presence = (msAgo, what) => event(A, msAgo, 'connection', what, what);
-  const bands = (events, options = {}) => telemetry.onlineBands(events, { ...span, ...options })
-    .map((band) => [(band.fromMs - span.fromMs) / MINUTE, (band.toMs - span.fromMs) / MINUTE, band.inferred]);
-  assert.deepEqual(bands([presence(50 * MINUTE, 'connected'), presence(40 * MINUTE, 'disconnected')]), [[10, 20, false]]);
+  const bands = (events, options = {}) =>
+    telemetry
+      .onlineBands(events, { ...span, ...options })
+      .map((band) => [(band.fromMs - span.fromMs) / MINUTE, (band.toMs - span.fromMs) / MINUTE, band.inferred]);
+  assert.deepEqual(bands([presence(50 * MINUTE, 'connected'), presence(40 * MINUTE, 'disconnected')]), [
+    [10, 20, false],
+  ]);
   // The first word is a disconnection: it was online until then.
   assert.deepEqual(bands([presence(45 * MINUTE, 'disconnected')]), [[0, 15, false]]);
   // AWS can say a thing twice.
-  assert.deepEqual(bands([presence(50 * MINUTE, 'connected'), presence(49 * MINUTE, 'connected'), presence(40 * MINUTE, 'disconnected'),
-    presence(39 * MINUTE, 'disconnected')]), [[10, 20, false]]);
+  assert.deepEqual(
+    bands([
+      presence(50 * MINUTE, 'connected'),
+      presence(49 * MINUTE, 'connected'),
+      presence(40 * MINUTE, 'disconnected'),
+      presence(39 * MINUTE, 'disconnected'),
+    ]),
+    [[10, 20, false]]
+  );
   // Nothing in the range: what the heartbeat says now, for a range that ends now; nothing otherwise.
   assert.deepEqual(bands([], { live: true, device: board(A) }), [[0, 60, false]]);
   assert.deepEqual(bands([], { live: true, device: board(A, { online: false }) }), []);
   assert.deepEqual(bands([], { live: false, device: board(A) }), []);
   // Connected, then quiet without a word: until its heartbeat stopped counting.
-  assert.deepEqual(bands([presence(50 * MINUTE, 'connected')], { live: true, device: board(A, { online: false, lastSeen: at(30 * MINUTE) }) }),
-    [[10, 31.5, false]]);
+  assert.deepEqual(
+    bands([presence(50 * MINUTE, 'connected')], {
+      live: true,
+      device: board(A, { online: false, lastSeen: at(30 * MINUTE) }),
+    }),
+    [[10, 31.5, false]]
+  );
   // Disconnected, and online now: since then, as far as is known.
-  assert.deepEqual(bands([presence(50 * MINUTE, 'disconnected')], { live: true, device: board(A) }), [[0, 10, false], [10, 60, true]]);
+  assert.deepEqual(bands([presence(50 * MINUTE, 'disconnected')], { live: true, device: board(A) }), [
+    [0, 10, false],
+    [10, 60, true],
+  ]);
 });
 
 test('switched-off kinds are left out, and what is left is newest first', () => {
-  const events = [event(A, 3 * MINUTE, 'update', 'step', 'old'), event(A, MINUTE, 'connection', 'connected', 'new'),
-    event(A, 2 * MINUTE, 'health', 'memory', 'mid')];
+  const events = [
+    event(A, 3 * MINUTE, 'update', 'step', 'old'),
+    event(A, MINUTE, 'connection', 'connected', 'new'),
+    event(A, 2 * MINUTE, 'health', 'memory', 'mid'),
+  ];
   const lanes = [{ events }];
-  assert.deepEqual(telemetry.shownEvents(lanes, new Set()).map((item) => item.text), ['new', 'mid', 'old']);
-  assert.deepEqual(telemetry.shownEvents(lanes, new Set(['connection', 'update'])).map((item) => item.text), ['mid']);
+  assert.deepEqual(
+    telemetry.shownEvents(lanes, new Set()).map((item) => item.text),
+    ['new', 'mid', 'old']
+  );
+  assert.deepEqual(
+    telemetry.shownEvents(lanes, new Set(['connection', 'update'])).map((item) => item.text),
+    ['mid']
+  );
 });
 
 test('events a few pixels apart are one spot with a count; zooming in or a wider plot pulls them apart', () => {
-  const events = [event(A, 3 * MINUTE, 'update', 'step', 'old'), event(A, MINUTE, 'connection', 'connected', 'new'),
-    event(A, 2 * MINUTE, 'health', 'memory', 'mid', { level: 'warn' }), event(A, 5 * HOUR, 'restart', 'boot', 'far')];
+  const events = [
+    event(A, 3 * MINUTE, 'update', 'step', 'old'),
+    event(A, MINUTE, 'connection', 'connected', 'new'),
+    event(A, 2 * MINUTE, 'health', 'memory', 'mid', { level: 'warn' }),
+    event(A, 5 * HOUR, 'restart', 'boot', 'far'),
+  ];
   const day = { fromMs: NOW - DAY, toMs: NOW };
   // A day on 390 px: the three minutes are one spot, newest first, standing for them by their warning.
   const narrow = telemetry.spotsOf(events, day, 358);
-  assert.deepEqual(narrow.map((spot) => spot.events.map((item) => item.text)), [['new', 'mid', 'old'], ['far']]);
+  assert.deepEqual(
+    narrow.map((spot) => spot.events.map((item) => item.text)),
+    [['new', 'mid', 'old'], ['far']]
+  );
   assert.equal(narrow[0].lead.text, 'mid');
   assert.equal(narrow[0].at, events[1].at);
   assert.ok(narrow[0].x > 99 && narrow[0].x < 100);
@@ -209,7 +285,11 @@ test('events a few pixels apart are one spot with a count; zooming in or a wider
 });
 
 test('every kind the API knows has a look, three hues by family and a shape of its own', () => {
-  for (const kind of core.EVENT_KINDS) assert.ok(telemetry.KINDS.some((look) => look.id === kind), kind);
+  for (const kind of core.EVENT_KINDS)
+    assert.ok(
+      telemetry.KINDS.some((look) => look.id === kind),
+      kind
+    );
   assert.equal(new Set(telemetry.KINDS.map((look) => look.shape)).size, telemetry.KINDS.length);
   assert.deepEqual([...new Set(telemetry.KINDS.map((look) => look.tone))].sort(), ['a', 'b', 'c', 'quiet']);
   assert.equal(telemetry.kindOf('connection').tone, 'quiet');
@@ -217,13 +297,21 @@ test('every kind the API knows has a look, three hues by family and a shape of i
   const item = event(A, MINUTE, 'update', 'step', 'x');
   assert.match(telemetry.eventKey(item), /^[A-Za-z0-9_-]+$/);
   assert.equal(telemetry.eventKey(item), telemetry.eventKey({ ...item }));
-  assert.match(telemetry.eventKey({ thing: null, at: item.at, id: 'Root=1-abc/def+=' }), /^console-\d+-Root_1_abc_def__$/);
+  assert.match(
+    telemetry.eventKey({ thing: null, at: item.at, id: 'Root=1-abc/def+=' }),
+    /^console-\d+-Root_1_abc_def__$/
+  );
 });
 
 test('an entry of the activity log is an event of the Console lane, a refusal a warning', () => {
   const entry = {
-    at: at(MINUTE), actor: { sub: 'x', email: 'manager@example.invalid' }, action: 'deployment.create', target: DEPLOYMENT,
-    outcome: 'ok', detail: [], requestId: 'req-1',
+    at: at(MINUTE),
+    actor: { sub: 'x', email: 'manager@example.invalid' },
+    action: 'deployment.create',
+    target: DEPLOYMENT,
+    outcome: 'ok',
+    detail: [],
+    requestId: 'req-1',
   };
   const made = telemetry.consoleEvent(entry);
   assert.equal(made.kind, 'console');
@@ -245,20 +333,28 @@ test('what a board reports is said in words: restarts, boots, memory and missing
   assert.equal(telemetry.stageWords(4), 'Reached the cloud');
   assert.equal(telemetry.stageWords(9), 'Stage 9');
 
-  const rows = telemetry.diaryRows({ boots: 9, entries: [
-    { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 4 },
-    { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
-  ] });
-  assert.deepEqual(rows.map((row) => [row.boot, row.running, row.before, row.reached, row.bad]), [
-    [9, true, 'the reset pin', 'Reached the cloud', false],
-    [8, false, 'the watchdog', 'Got onto the network', true],
-  ]);
+  const rows = telemetry.diaryRows({
+    boots: 9,
+    entries: [
+      { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 4 },
+      { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => [row.boot, row.running, row.before, row.reached, row.bad]),
+    [
+      [9, true, 'the reset pin', 'Reached the cloud', false],
+      [8, false, 'the watchdog', 'Got onto the network', true],
+    ]
+  );
   assert.deepEqual(telemetry.diaryRows(null), []);
 
   assert.equal(telemetry.stuckWords(null), null);
   assert.equal(telemetry.stuckWords({ count: 0, reason: 'none' }).tone, 'good');
-  assert.equal(telemetry.stuckWords({ count: 2, reason: 'wifi_silent' }).text,
-    'Restarted itself 2 times in a row for being stuck; the last time because the Wi-Fi chip stopped answering');
+  assert.equal(
+    telemetry.stuckWords({ count: 2, reason: 'wifi_silent' }).text,
+    'Restarted itself 2 times in a row for being stuck; the last time because the Wi-Fi chip stopped answering'
+  );
 
   const heap = telemetry.heapWords({ free: 21312, least: 9840, size: 44240 });
   assert.deepEqual([heap.tone, heap.used, heap.leastUsed, heap.text], ['live', 52, 78, '21 KiB free of 43 KiB']);
@@ -269,17 +365,33 @@ test('what a board reports is said in words: restarts, boots, memory and missing
   // Short earlier in this boot and fine now: the bar goes by now, the words say what happened.
   const earlier = telemetry.heapWords({ free: 20000, least: 6000, size: 44240 });
   assert.deepEqual([earlier.tone, earlier.ranLow], ['live', true]);
-  assert.deepEqual(telemetry.stuckWords({ count: 1, reason: 'no_cloud' }),
-    { tone: 'warn', badge: 'Once', text: 'Restarted itself once for being stuck, because no connection to the cloud for 15 minutes' });
+  assert.deepEqual(telemetry.stuckWords({ count: 1, reason: 'no_cloud' }), {
+    tone: 'warn',
+    badge: 'Once',
+    text: 'Restarted itself once for being stuck, because no connection to the cloud for 15 minutes',
+  });
   assert.equal(telemetry.heapWords(null), null);
 
-  assert.equal(telemetry.diagMissing(board(A, { fw: { version: '1.9.0+0', confirmed: true } })),
-    'Needs firmware 1.10.0 or later. This board runs 1.9.0+0.');
-  assert.equal(telemetry.diagMissing(board(A, { fw: null })), 'Needs firmware 1.10.0 or later. This board has not said what it runs.');
-  assert.match(telemetry.diagMissing(board(A, { fw: { version: '1.10.1+0', confirmed: true } })), /^No diagnostics report yet/);
-  assert.match(telemetry.diagMissing(board(A, { fw: { version: '2.0.0+0', confirmed: true } })), /^No diagnostics report yet/);
-  assert.equal(telemetry.diaryMissing(board(A, { fw: { version: '1.7.3+9', confirmed: true } })),
-    'Needs firmware 1.7.4 or later. This board runs 1.7.3+9.');
+  assert.equal(
+    telemetry.diagMissing(board(A, { fw: { version: '1.9.0+0', confirmed: true } })),
+    'Needs firmware 1.10.0 or later. This board runs 1.9.0+0.'
+  );
+  assert.equal(
+    telemetry.diagMissing(board(A, { fw: null })),
+    'Needs firmware 1.10.0 or later. This board has not said what it runs.'
+  );
+  assert.match(
+    telemetry.diagMissing(board(A, { fw: { version: '1.10.1+0', confirmed: true } })),
+    /^No diagnostics report yet/
+  );
+  assert.match(
+    telemetry.diagMissing(board(A, { fw: { version: '2.0.0+0', confirmed: true } })),
+    /^No diagnostics report yet/
+  );
+  assert.equal(
+    telemetry.diaryMissing(board(A, { fw: { version: '1.7.3+9', confirmed: true } })),
+    'Needs firmware 1.7.4 or later. This board runs 1.7.3+9.'
+  );
 
   assert.equal(telemetry.heartbeatAge(at(20_000), NOW), '20 s ago');
   assert.equal(telemetry.heartbeatAge(at(119_000), NOW), '119 s ago');
@@ -292,32 +404,65 @@ test('what a board reports is said in words: restarts, boots, memory and missing
 // Readings.
 
 test('a gap in the readings breaks the line, and the table has every hour', () => {
-  const points = [0, 30, 60, 90, 700, 730].map((seconds) => ({ ms: NOW - HOUR + seconds * 1000, v: -50 - seconds / 30 }));
+  const points = [0, 30, 60, 90, 700, 730].map((seconds) => ({
+    ms: NOW - HOUR + seconds * 1000,
+    v: -50 - seconds / 30,
+  }));
   const runs = telemetry.lineRuns(points, telemetry.gapFor(0));
-  assert.deepEqual(runs.map((run) => run.length), [4, 2]);
+  assert.deepEqual(
+    runs.map((run) => run.length),
+    [4, 2]
+  );
   assert.equal(telemetry.gapFor(0), 150_000);
   assert.equal(telemetry.gapFor(1008), 2_520_000);
   assert.deepEqual(telemetry.lineRuns([], 1), []);
 
-  const samples = [{ at: at(HOUR), rssi: -60, heapFree: null }, { at: at(HOUR - 1000), rssi: null, heapFree: 100 }];
+  const samples = [
+    { at: at(HOUR), rssi: -60, heapFree: null },
+    { at: at(HOUR - 1000), rssi: null, heapFree: 100 },
+  ];
   assert.deepEqual(telemetry.pointsOf(samples, 'rssi'), [{ ms: NOW - HOUR, v: -60 }]);
   assert.deepEqual(telemetry.pointsOf(samples, 'heapFree'), [{ ms: NOW - HOUR + 1000, v: 100 }]);
 
   const hours = telemetry.hourlyRows([
-    { ms: Date.parse('2026-11-02T10:05:00Z'), v: -60 }, { ms: Date.parse('2026-11-02T10:35:00Z'), v: -50 },
+    { ms: Date.parse('2026-11-02T10:05:00Z'), v: -60 },
+    { ms: Date.parse('2026-11-02T10:35:00Z'), v: -50 },
     { ms: Date.parse('2026-11-02T11:05:00Z'), v: -70 },
   ]);
-  assert.deepEqual(hours.map((row) => [row.low, row.mean, row.high, row.count]), [[-70, -70, -70, 1], [-60, -55, -50, 2]]);
+  assert.deepEqual(
+    hours.map((row) => [row.low, row.mean, row.high, row.count]),
+    [
+      [-70, -70, -70, 1],
+      [-60, -55, -50, 2],
+    ]
+  );
 });
 
 // The Events page.
 
 /** A line of a board's log, as the API's client reads it. */
 function logLine(thing, msAgo, tag, text, extra = {}) {
-  const kinds = { WIFI: 'health', net: 'health', BT: 'bluetooth', CONSOLE: 'setting', app: 'log', ota: 'update', STUCK: 'restart' };
+  const kinds = {
+    WIFI: 'health',
+    net: 'health',
+    BT: 'bluetooth',
+    CONSOLE: 'setting',
+    app: 'log',
+    ota: 'update',
+    STUCK: 'restart',
+  };
   return {
-    thing, at: at(msAgo), id: `42.${Math.round(msAgo / 1000)}`, kind: kinds[tag], tag, level: 'info', text, boot: 42,
-    seq: Math.round(msAgo / 1000), dropped: null, ...extra,
+    thing,
+    at: at(msAgo),
+    id: `42.${Math.round(msAgo / 1000)}`,
+    kind: kinds[tag],
+    tag,
+    level: 'info',
+    text,
+    boot: 42,
+    seq: Math.round(msAgo / 1000),
+    dropped: null,
+    ...extra,
   };
 }
 
@@ -325,17 +470,34 @@ function eventsWorld() {
   return {
     devices: [board(A), board(B, { online: false, lastSeen: at(2 * HOUR) })],
     events: [
-      event(A, 10 * MINUTE, 'update', 'result', 'Update to 1.2.3+5 failed: download_failed',
-        { level: 'warn', result: 'failed', error: 'download_failed', job: DEPLOYMENT }),
-      event(A, 30 * MINUTE, 'update', 'step', 'Downloading 1.2.3+5', { job: DEPLOYMENT, state: 'downloading', progress: 0 }),
+      event(A, 10 * MINUTE, 'update', 'result', 'Update to 1.2.3+5 failed: download_failed', {
+        level: 'warn',
+        result: 'failed',
+        error: 'download_failed',
+        job: DEPLOYMENT,
+      }),
+      event(A, 30 * MINUTE, 'update', 'step', 'Downloading 1.2.3+5', {
+        job: DEPLOYMENT,
+        state: 'downloading',
+        progress: 0,
+      }),
       event(B, 2 * HOUR, 'connection', 'disconnected', 'Disconnected from AWS IoT: the connection was lost'),
       event(A, 5 * HOUR, 'connection', 'connected', 'Connected to AWS IoT'),
-      event(B, 6 * HOUR, 'restart', 'boot', 'Last boot ended by the watchdog; it had reached the cloud', { level: 'warn' }),
+      event(B, 6 * HOUR, 'restart', 'boot', 'Last boot ended by the watchdog; it had reached the cloud', {
+        level: 'warn',
+      }),
     ],
-    audit: [{
-      at: at(40 * MINUTE), actor: { sub: 's', email: 'manager@example.invalid' }, action: 'deployment.create',
-      target: DEPLOYMENT, outcome: 'ok', detail: [], requestId: 'req-1',
-    }],
+    audit: [
+      {
+        at: at(40 * MINUTE),
+        actor: { sub: 's', email: 'manager@example.invalid' },
+        action: 'deployment.create',
+        target: DEPLOYMENT,
+        outcome: 'ok',
+        detail: [],
+        requestId: 'req-1',
+      },
+    ],
   };
 }
 
@@ -358,7 +520,10 @@ test('the timeline has a lane per board and the console, a marker per event and 
   const world = setup(eventsWorld());
   await telemetry.refreshEvents(true);
   const page = drawn(telemetry.eventsView(world.ctx));
-  assert.deepEqual(all(page, 'text.tl-lane-name').map((lane) => lane.childNodes[0].textContent), [A, B, 'Console']);
+  assert.deepEqual(
+    all(page, 'text.tl-lane-name').map((lane) => lane.childNodes[0].textContent),
+    [A, B, 'Console']
+  );
   assert.equal(all(page, 'svg.tl-mark').length, 6);
   assert.equal(all(page, 'svg.tl-mark.is-warn').length, 2);
   // One marker is reached with Tab; the arrow keys move between the rest.
@@ -367,9 +532,20 @@ test('the timeline has a lane per board and the console, a marker per event and 
   for (const mark of all(page, 'svg.tl-mark')) assert.match(mark.getAttribute('aria-label'), /: /);
   // The legend is the filter: one chip per kind, all on, with the counts of what is shown.
   const chips = all(page, 'button.chip');
-  assert.deepEqual(chips.map((chip) => chip.children.slice(1).map((part) => part.textContent)),
-    [['Update', '2'], ['Firmware'], ['Restart', '1'], ['Wi-Fi and memory'], ['Bluetooth'], ['Console', '1'], ['Settings'],
-      ['Other lines'], ['Connection', '2']]);
+  assert.deepEqual(
+    chips.map((chip) => chip.children.slice(1).map((part) => part.textContent)),
+    [
+      ['Update', '2'],
+      ['Firmware'],
+      ['Restart', '1'],
+      ['Wi-Fi and memory'],
+      ['Bluetooth'],
+      ['Console', '1'],
+      ['Settings'],
+      ['Other lines'],
+      ['Connection', '2'],
+    ]
+  );
   assert.ok(chips.every((chip) => chip.getAttribute('aria-pressed') === 'true'));
   // The table lists the same events, newest first, under their day.
   const rows = all(page, 'tr.event-row');
@@ -415,12 +591,14 @@ test('on a narrow plot, events close together are one marker with their number, 
   assert.equal(all(page, 'svg.tl-mark.is-selected').length, 1);
   assert.equal(all(page, 'div.timeline-tip').length, 1, 'the readout stays for the marker that was picked');
   // The key says what each drawn mark means, and only the kinds that are drawn.
-  assert.deepEqual(all(one(page, 'ul.tl-key'), 'li').map((item) => textOf(item)),
-    ['Update', 'Restart', 'Connection', 'A number: that many events close together', 'Board online']);
+  assert.deepEqual(
+    all(one(page, 'ul.tl-key'), 'li').map((item) => textOf(item)),
+    ['Update', 'Restart', 'Connection', 'A number: that many events close together', 'Board online']
+  );
   telemetry.measurePlot(5000);
 });
 
-test('the range last chosen is the next visit\'s, 6 h among them, and a browser that keeps nothing opens on 24 h', async () => {
+test("the range last chosen is the next visit's, 6 h among them, and a browser that keeps nothing opens on 24 h", async () => {
   const kept = new Map();
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -430,7 +608,12 @@ test('the range last chosen is the next visit\'s, 6 h among them, and a browser 
     let world = setup(eventsWorld());
     await telemetry.refreshEvents(true);
     let page = drawn(telemetry.eventsView(world.ctx));
-    assert.deepEqual(all(one(page, 'div.segmented'), 'button').slice(0, 4).map((button) => textOf(button)), ['1 h', '6 h', '24 h', '7 d']);
+    assert.deepEqual(
+      all(one(page, 'div.segmented'), 'button')
+        .slice(0, 4)
+        .map((button) => textOf(button)),
+      ['1 h', '6 h', '24 h', '7 d']
+    );
     assert.equal(one(page, 'button.segmented-option', '24 h').getAttribute('aria-pressed'), 'true');
     one(page, 'button.segmented-option', '6 h').dispatchEvent({ type: 'click' });
     await settle();
@@ -448,7 +631,14 @@ test('the range last chosen is the next visit\'s, 6 h among them, and a browser 
   } finally {
     delete globalThis.localStorage;
   }
-  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem() { throw new Error('blocked'); } } });
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem() {
+        throw new Error('blocked');
+      },
+    },
+  });
   try {
     const world = setup(eventsWorld());
     await telemetry.refreshEvents(true);
@@ -528,12 +718,19 @@ test('presets, the board, the kinds and a drag across the timeline each ask agai
   await settle();
   assert.deepEqual(lastQuery().kinds, ['connection', 'firmware', 'restart', 'bluetooth', 'health']);
   page = drawn(telemetry.eventsView(world.ctx));
-  assert.equal(all(page, 'svg.tl-mark').some((mark) => /AWS IoT/.test(mark.getAttribute('aria-label'))), false);
+  assert.equal(
+    all(page, 'svg.tl-mark').some((mark) => /AWS IoT/.test(mark.getAttribute('aria-label'))),
+    false
+  );
   assert.ok(all(page, 'rect.tl-band').length >= 1);
   one(page, 'button.chip', 'Console').dispatchEvent({ type: 'click' });
   const audits = world.asked.filter(([name]) => name === 'audit').length;
   await settle();
-  assert.equal(world.asked.filter(([name]) => name === 'audit').length, audits, 'the console lane is not read while it is off');
+  assert.equal(
+    world.asked.filter(([name]) => name === 'audit').length,
+    audits,
+    'the console lane is not read while it is off'
+  );
 
   // Dragging from a tenth to three tenths of the width zooms in there; Zoom out goes back.
   page = drawn(telemetry.eventsView(world.ctx));
@@ -544,8 +741,10 @@ test('presets, the board, the kinds and a drag across the timeline each ask agai
   plot.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 300 });
   plot.dispatchEvent({ type: 'pointerup', pointerId: 1, clientX: 300 });
   await settle();
-  assert.deepEqual([lastQuery().from, lastQuery().to], [new Date(NOW - 7 * DAY + 0.1 * 7 * DAY).toISOString(),
-    new Date(NOW - 7 * DAY + 0.3 * 7 * DAY).toISOString()]);
+  assert.deepEqual(
+    [lastQuery().from, lastQuery().to],
+    [new Date(NOW - 7 * DAY + 0.1 * 7 * DAY).toISOString(), new Date(NOW - 7 * DAY + 0.3 * 7 * DAY).toISOString()]
+  );
   assert.equal(telemetry.eventsInterval(world.state), 0, 'a range in the past is not refreshed');
   page = drawn(telemetry.eventsView(world.ctx));
   one(page, 'button', 'Zoom out').dispatchEvent({ type: 'click' });
@@ -602,26 +801,48 @@ function diagnosed(thing, changes = {}) {
   return board(thing, {
     stuck: { count: 2, reason: 'wifi_silent' },
     diag: { mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: at(4 * MINUTE) },
-    diary: { boots: 9, entries: [
-      { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 4 },
-      { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
-    ] },
+    diary: {
+      boots: 9,
+      entries: [
+        { version: '1.10.0+0', cause: '1', causes: ['pin'], stage: 4 },
+        { version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 3 },
+      ],
+    },
     bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
     ...changes,
   });
 }
 
 const SAMPLES = Array.from({ length: 48 }, (_, index) => ({
-  at: at(DAY - index * 30 * MINUTE), rssi: -60 + (index % 5), uptime: index * 1800, heapFree: 20000 + index * 10, heapLeast: 9000,
+  at: at(DAY - index * 30 * MINUTE),
+  rssi: -60 + (index % 5),
+  uptime: index * 1800,
+  heapFree: 20000 + index * 10,
+  heapLeast: 9000,
 }));
 
 test('the Diagnostics page has a card for each of a few boards, with what each reports and its charts', async () => {
   const old = board(B, { fw: { version: '1.9.0+0', confirmed: true }, online: false, lastSeen: at(3 * MINUTE) });
   const world = setup({ devices: [diagnosed(A), old], route: { view: 'diagnostics' }, samples: SAMPLES });
-  assert.match(textOf(drawn(telemetry.diagnosticsView({ ...world.ctx, state: { ...world.state, devices: { value: null, error: null, loading: true, loadedAt: 0 } } }))),
-    /Loading the boards/);
+  assert.match(
+    textOf(
+      drawn(
+        telemetry.diagnosticsView({
+          ...world.ctx,
+          state: { ...world.state, devices: { value: null, error: null, loading: true, loadedAt: 0 } },
+        })
+      )
+    ),
+    /Loading the boards/
+  );
   await telemetry.refreshDiagnostics(true);
-  assert.deepEqual(world.asked.filter(([name]) => name === 'samples').map(([, thing, hours]) => [thing, hours]), [[A, 24], [B, 24]]);
+  assert.deepEqual(
+    world.asked.filter(([name]) => name === 'samples').map(([, thing, hours]) => [thing, hours]),
+    [
+      [A, 24],
+      [B, 24],
+    ]
+  );
   const page = drawn(telemetry.diagnosticsView(world.ctx));
   const [first, second] = all(page, 'section.diag-card');
   assert.equal(all(page, 'section.diag-card').length, 2);
@@ -632,12 +853,17 @@ test('the Diagnostics page has a card for each of a few boards, with what each r
   assert.match(text, /Online/);
   assert.match(text, /Uptime 1 h/);
   assert.match(text, /1\.10\.0\+0 Confirmed/);
-  assert.match(text, /2 in a row Restarted itself 2 times in a row for being stuck; the last time because the Wi-Fi chip stopped answering/);
+  assert.match(
+    text,
+    /2 in a row Restarted itself 2 times in a row for being stuck; the last time because the Wi-Fi chip stopped answering/
+  );
   assert.match(text, /Excellent · −52 dBm/);
   assert.match(text, /Channel 6 · MAC f4:ce:36:12:34:56/);
   assert.match(text, /21 KiB free of 43 KiB/);
   assert.match(text, /0123456789abcdef…/);
-  const boots = all(first, 'table.boot-table')[0].children[2].children.map((row) => row.children.map((cell) => textOf(cell)));
+  const boots = all(first, 'table.boot-table')[0].children[2].children.map((row) =>
+    row.children.map((cell) => textOf(cell))
+  );
   assert.deepEqual(boots, [
     ['#9 (running)', '1.10.0+0', 'the reset pin', 'Reached the cloud so far'],
     ['#8', '1.10.0+0', 'Fault the watchdog', 'Got onto the network'],
@@ -670,7 +896,11 @@ test('the heartbeat age counts up every second, and a chart reads out where the 
   assert.match(textOf(one(page, 'span.chart-tip')), /^−58 dBm\s*Good/);
   // The keyboard's reading is said to a screen reader too.
   assert.match(textOf(one(one(page, 'figure.chart', 'Wi-Fi signal'), 'span.sr-only')), /^−58 dBm at /);
-  one(page, 'figure.chart', 'Wi-Fi signal').children[1].children[1].dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
+  one(page, 'figure.chart', 'Wi-Fi signal').children[1].children[1].dispatchEvent({
+    type: 'keydown',
+    key: 'Home',
+    preventDefault() {},
+  });
   page = drawn(telemetry.diagnosticsView(world.ctx));
   assert.match(textOf(one(page, 'span.chart-tip')), /^−60 dBm\s*Good/);
 });
@@ -679,14 +909,26 @@ test('with many boards there is a list to pick from and one card, and an unknown
   const devices = [A, B, C, D].map((thing) => diagnosed(thing));
   const world = setup({ devices, route: { view: 'diagnostics', thing: C }, samples: [] });
   await telemetry.refreshDiagnostics(true);
-  assert.deepEqual(world.asked.filter(([name]) => name === 'samples').map(([, thing]) => thing), [C]);
+  assert.deepEqual(
+    world.asked.filter(([name]) => name === 'samples').map(([, thing]) => thing),
+    [C]
+  );
   let page = drawn(telemetry.diagnosticsView(world.ctx));
   assert.equal(all(page, 'section.diag-card').length, 1);
   const links = all(page, 'a.picker-link');
-  assert.deepEqual(links.map((link) => link.getAttribute('href')), [A, B, C, D].map((thing) => `#/diagnostics/${thing}`));
+  assert.deepEqual(
+    links.map((link) => link.getAttribute('href')),
+    [A, B, C, D].map((thing) => `#/diagnostics/${thing}`)
+  );
   assert.equal(links[2].getAttribute('aria-current'), 'page');
   assert.match(textOf(one(page, 'figure.chart', 'Wi-Fi signal')), /No readings in the last 24 hours\./);
-  assert.equal(telemetry.shownBoards(devices, null).map((device) => device.thing).join(), A);
+  assert.equal(
+    telemetry
+      .shownBoards(devices, null)
+      .map((device) => device.thing)
+      .join(),
+    A
+  );
 
   world.state.route = { view: 'diagnostics', thing: 'cranium-00000000000000ee' };
   page = drawn(telemetry.diagnosticsView(world.ctx));
@@ -695,17 +937,25 @@ test('with many boards there is a list to pick from and one card, and an unknown
 
 // A board's own name: shown first, with its thing name second or in its tooltip.
 
-test('a lane is labelled with the board\'s name and keeps its thing name, in the order of the thing names', () => {
+test("a lane is labelled with the board's name and keeps its thing name, in the order of the thing names", () => {
   const events = [event(B, MINUTE, 'health', 'named', 'Reported its name CRVIHAAN01', { name: 'CRVIHAAN01' })];
   const lanes = telemetry.lanesOf({ events, devices: [board(B, { name: 'CRVIHAAN01' }), board(A)], consoleEvents: [] });
-  assert.deepEqual(lanes.map((lane) => [lane.id, lane.thing, lane.label]),
-    [[A, A, A], [B, B, 'CRVIHAAN01'], ['console', null, 'Console']]);
+  assert.deepEqual(
+    lanes.map((lane) => [lane.id, lane.thing, lane.label]),
+    [
+      [A, A, A],
+      [B, B, 'CRVIHAAN01'],
+      ['console', null, 'Console'],
+    ]
+  );
 });
 
 test('two boards that report the same name are told apart in the list to choose from', () => {
   const devices = [board(A, { name: 'CR01' }), board(B, { name: 'CR01' }), board(C, { name: 'CR02' }), board(D)];
-  assert.deepEqual(telemetry.boardChoices([A, B, C, D], devices).map((choice) => choice.label),
-    [`CR01 · ${A}`, `CR01 · ${B}`, 'CR02', D]);
+  assert.deepEqual(
+    telemetry.boardChoices([A, B, C, D], devices).map((choice) => choice.label),
+    [`CR01 · ${A}`, `CR01 · ${B}`, 'CR02', D]
+  );
 });
 
 test('the Events page calls a board by its name in its lane, its tooltip, its rows and the list to choose from', async () => {
@@ -734,8 +984,14 @@ test('the Events page calls a board by its name in its lane, its tooltip, its ro
 
   // The list to choose a board from: the name, for the thing name it stands for.
   const options = all(one(page, 'select', 'All boards'), 'option');
-  assert.deepEqual(options.map((option) => [option.value, textOf(option)]),
-    [['', 'All boards (2)'], [A, 'CRVIHAAN01'], [B, B]]);
+  assert.deepEqual(
+    options.map((option) => [option.value, textOf(option)]),
+    [
+      ['', 'All boards (2)'],
+      [A, 'CRVIHAAN01'],
+      [B, B],
+    ]
+  );
   assert.equal(options[1].getAttribute('title'), A);
 
   // The tooltip over a marker: the name and the thing name.
@@ -758,7 +1014,10 @@ test('the board log lists every line with its board, source and kind, ticks the 
   const card = one(page, 'section.log-card');
   const rows = all(card, 'tr.log-row');
   assert.equal(rows.length, 3);
-  assert.deepEqual(rows.map((row) => textOf(one(row, 'td.event-kind'))), ['WIFI', 'CONSOLE', 'ota']);
+  assert.deepEqual(
+    rows.map((row) => textOf(one(row, 'td.event-kind'))),
+    ['WIFI', 'CONSOLE', 'ota']
+  );
   assert.equal(textOf(one(one(rows[0], 'td.event-board'), 'a')), 'CRVIHAAN01');
   assert.match(textOf(rows[2]), /WRN: Download stalled at 40% Warning 3 lines lost before this one/);
   assert.equal(rows[2].getAttribute('title'), 'Boot 42, line 240 of that boot');
@@ -766,12 +1025,21 @@ test('the board log lists every line with its board, source and kind, ticks the 
   // Ticks at the foot of each board's lane, out of the way of the keyboard and the screen reader.
   assert.equal(all(page, 'line.tl-log-tick').length, 3);
   assert.equal(all(page, 'line.tl-log-tick.is-warn').length, 1);
-  assert.deepEqual(all(page, 'g.tl-log').map((group) => group.getAttribute('aria-hidden')), ['true', 'true']);
+  assert.deepEqual(
+    all(page, 'g.tl-log').map((group) => group.getAttribute('aria-hidden')),
+    ['true', 'true']
+  );
   // The markers and the table of events are what they were; the chips count lines with events.
   assert.equal(all(page, 'svg.tl-mark').length, 6);
   assert.equal(all(one(page, 'section.event-card'), 'tr.event-row').length, 6);
-  const chip = (label) => one(page, 'button.chip', label).children.slice(1).map((part) => part.textContent);
-  assert.deepEqual([chip('Settings'), chip('Update'), chip('Other lines')], [['Settings', '1'], ['Update', '3'], ['Other lines']]);
+  const chip = (label) =>
+    one(page, 'button.chip', label)
+      .children.slice(1)
+      .map((part) => part.textContent);
+  assert.deepEqual(
+    [chip('Settings'), chip('Update'), chip('Other lines')],
+    [['Settings', '1'], ['Update', '3'], ['Other lines']]
+  );
   assert.match(textOf(one(page, 'p.timeline-note')), /tick at the foot of a lane/);
 });
 
@@ -782,7 +1050,10 @@ test('the board log is narrowed by source, kind and board, can be hidden, and lo
   const lastQuery = () => world.asked.filter(([name]) => name === 'boardLog').at(-1)[1];
   let page = drawn(telemetry.eventsView(world.ctx));
   const select = one(page, 'select', 'All sources');
-  assert.deepEqual(all(select, 'option').map((option) => option.value), ['', ...core.LINE_TAGS]);
+  assert.deepEqual(
+    all(select, 'option').map((option) => option.value),
+    ['', ...core.LINE_TAGS]
+  );
   select.value = 'net';
   select.dispatchEvent({ type: 'change' });
   await settle();
@@ -835,17 +1106,31 @@ test('without the board log the Events page shows the events all the same, and s
 
 test('the Console lane says who did what in the words of the activity log, boards by their names', () => {
   const entry = {
-    at: at(MINUTE), actor: { sub: 's', email: 'manager@example.invalid' }, action: 'deployment.create', target: DEPLOYMENT,
-    outcome: 'ok', detail: [['version', '1.2.3+5'], ['things', '1'], ['boards', A]], requestId: 'req-9',
+    at: at(MINUTE),
+    actor: { sub: 's', email: 'manager@example.invalid' },
+    action: 'deployment.create',
+    target: DEPLOYMENT,
+    outcome: 'ok',
+    detail: [
+      ['version', '1.2.3+5'],
+      ['things', '1'],
+      ['boards', A],
+    ],
+    requestId: 'req-9',
   };
-  assert.equal(telemetry.consoleEvent(entry, [board(A, { name: 'CRVIHAAN01' })]).text,
-    'manager@example.invalid deployed 1.2.3+5 to CRVIHAAN01');
+  assert.equal(
+    telemetry.consoleEvent(entry, [board(A, { name: 'CRVIHAAN01' })]).text,
+    'manager@example.invalid deployed 1.2.3+5 to CRVIHAAN01'
+  );
   const signIn = { ...entry, action: 'account.sign_in', target: '', detail: [['client', 'web']] };
   assert.equal(telemetry.consoleEvent(signIn).text, 'manager@example.invalid signed in on the website');
 });
 
 test('the Diagnostics page calls a board by its name, with its thing name under it and in the list to pick from', async () => {
-  const named = diagnosed(A, { name: 'CRVIHAAN01', ota: { state: 'downloading', job: DEPLOYMENT, progress: 30, last: 'none', error: '' } });
+  const named = diagnosed(A, {
+    name: 'CRVIHAAN01',
+    ota: { state: 'downloading', job: DEPLOYMENT, progress: 30, last: 'none', error: '' },
+  });
   const world = setup({ devices: [named, diagnosed(B)], route: { view: 'diagnostics' }, samples: SAMPLES });
   await telemetry.refreshDiagnostics(true);
   let page = drawn(telemetry.diagnosticsView(world.ctx));
@@ -858,7 +1143,11 @@ test('the Diagnostics page calls a board by its name, with its thing name under 
   assert.equal(all(second, 'p.diag-thing').length, 0);
 
   // With more boards than cards, the list to pick from has the name, and the thing name as its tooltip.
-  const many = setup({ devices: [named, diagnosed(B), diagnosed(C), diagnosed(D)], route: { view: 'diagnostics', thing: A }, samples: [] });
+  const many = setup({
+    devices: [named, diagnosed(B), diagnosed(C), diagnosed(D)],
+    route: { view: 'diagnostics', thing: A },
+    samples: [],
+  });
   await telemetry.refreshDiagnostics(true);
   page = drawn(telemetry.diagnosticsView(many.ctx));
   const names = all(page, 'span.picker-name');

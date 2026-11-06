@@ -20,20 +20,26 @@ export const E = 'cranium-00000000000000ee';
 const key = imageKey();
 
 /** What a board on 1.13.0 reports: its version, and from its diagnostics its type. */
-export function report(version, {
-  board = null, layout = null, ota = 'idle', last = 'none', rssi = -55, uptime = 600, heap = null,
-} = {}) {
+export function report(
+  version,
+  { board = null, layout = null, ota = 'idle', last = 'none', rssi = -55, uptime = 600, heap = null } = {}
+) {
   return {
     fw: { version, confirmed: true },
     ota: { state: ota, progress: 0, last, error: '' },
     wifi: { rssi },
     uptime,
-    ...(board === null && layout === null && heap === null ? {} : {
-      diag: {
-        mac: '02:00:00:00:00:01', channel: 6, ...(board === null ? {} : { board }), ...(layout === null ? {} : { layout }),
-        ...(heap === null ? {} : { heap }),
-      },
-    }),
+    ...(board === null && layout === null && heap === null
+      ? {}
+      : {
+          diag: {
+            mac: '02:00:00:00:00:01',
+            channel: 6,
+            ...(board === null ? {} : { board }),
+            ...(layout === null ? {} : { layout }),
+            ...(heap === null ? {} : { heap }),
+          },
+        }),
   };
 }
 
@@ -46,13 +52,24 @@ export function fleetConsole(options = {}) {
   const known = new Set();
   let draws = 0;
   const tick = createRolloutTick({
-    aws: console_.fake, config: console_.config, now: () => console_.clock.ms, log: (line) => logs.push(line),
+    aws: console_.fake,
+    config: console_.config,
+    now: () => console_.clock.ms,
+    log: (line) => logs.push(line),
     // The alerter (src/alerts.mjs, tested in alerts.test.mjs), as far as the schedule sees it.
-    alerts: { raise: async (alert) => { raised.push(alert); return 1; } },
+    alerts: {
+      raise: async (alert) => {
+        raised.push(alert);
+        return 1;
+      },
+    },
     // Draws of its own, apart from the API's, and the same on every run.
     randomHex: (count) => {
       draws += 1;
-      return createHash('sha256').update(`tick ${draws}`).digest('hex').slice(0, 2 * count);
+      return createHash('sha256')
+        .update(`tick ${draws}`)
+        .digest('hex')
+        .slice(0, 2 * count);
     },
   });
   const call = (method, path, body, as = manager) => console_.call(method, path, { as, body });
@@ -70,7 +87,8 @@ export function fleetConsole(options = {}) {
     /** Upload a built image and return the release. */
     async release(version, board = null, extra = {}) {
       const response = await call('POST', '/api/firmware', {
-        filename: 'zephyr.signed.bin', data: buildImage({ version, key, board, ...extra }).toString('base64'),
+        filename: 'zephyr.signed.bin',
+        data: buildImage({ version, key, board, ...extra }).toString('base64'),
       });
       assert.equal(response.status, 201, JSON.stringify(response.body));
       return response.body.release;
@@ -89,7 +107,8 @@ export function fleetConsole(options = {}) {
     finish(job, thing, status = 'SUCCEEDED', version = null) {
       const execution = console_.fake.execution(job, thing);
       assert.equal(execution.update('IN_PROGRESS', { step: 'downloading' }).accepted, true, `${thing} took ${job}`);
-      const details = status === 'SUCCEEDED' ? { running: version ?? '0.0.0+0' } : { reason: 'rolled_back', running: '1.0.0+0' };
+      const details =
+        status === 'SUCCEEDED' ? { running: version ?? '0.0.0+0' } : { reason: 'rolled_back', running: '1.0.0+0' };
       assert.equal(execution.update(status, details).accepted, true);
     },
     entries: (action) => console_.fake.auditLog().filter((entry) => entry.action === action),

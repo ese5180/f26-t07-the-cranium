@@ -108,8 +108,11 @@ export function loadSigningKey(pem) {
   } catch {
     fail('bad_signing_key', 'The configured signing public key cannot be read');
   }
-  if (key.type !== 'public' || key.asymmetricKeyType !== 'ec' ||
-      key.asymmetricKeyDetails?.namedCurve !== 'prime256v1') {
+  if (
+    key.type !== 'public' ||
+    key.asymmetricKeyType !== 'ec' ||
+    key.asymmetricKeyDetails?.namedCurve !== 'prime256v1'
+  ) {
     fail('bad_signing_key', 'The configured signing key is not an ECDSA P-256 public key');
   }
   const der = key.export({ type: 'spki', format: 'der' });
@@ -218,7 +221,8 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
     const mask = (1 << bit) >>> 0;
     if ((header.flags & mask) >>> 0 === 0) continue;
     const name = FLAG_NAMES.get(mask);
-    if (name) flagNames.push(name); else unknownFlags.push(`0x${mask.toString(16)}`);
+    if (name) flagNames.push(name);
+    else unknownFlags.push(`0x${mask.toString(16)}`);
   }
   if (unknownFlags.length || (header.flags & ~IMAGE_F_ROM_FIXED) >>> 0 !== 0) {
     const refused = flagNames.filter((name) => name !== 'ROM_FIXED').concat(unknownFlags);
@@ -227,7 +231,7 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
 
   if (loadAddress !== undefined) {
     if ((header.flags & IMAGE_F_ROM_FIXED) === 0 || header.loadAddress !== loadAddress) {
-      fail('wrong_target', 'The image was not built for this product\'s flash layout');
+      fail('wrong_target', "The image was not built for this product's flash layout");
     }
   }
 
@@ -235,9 +239,11 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
   // TLVs whose values can be believed (lib/boards.mjs reads the board type from them).
   let protectedTlvs = [];
   if (header.protectedTlvSize !== 0) {
-    if (header.protectedTlvSize < TLV_INFO_SIZE ||
-        image.readUInt16LE(protectedStart) !== TLV_PROT_INFO_MAGIC ||
-        image.readUInt16LE(protectedStart + 2) !== header.protectedTlvSize) {
+    if (
+      header.protectedTlvSize < TLV_INFO_SIZE ||
+      image.readUInt16LE(protectedStart) !== TLV_PROT_INFO_MAGIC ||
+      image.readUInt16LE(protectedStart + 2) !== header.protectedTlvSize
+    ) {
       fail('malformed_tlv', 'The protected TLV area is malformed');
     }
     protectedTlvs = walkTlvs(image, protectedStart + TLV_INFO_SIZE, tlvStart, 'protected TLV');
@@ -254,8 +260,10 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
   if (tlvEnd !== image.length) {
     // A padded or pre-confirmed image carries a trailer here. Installing one would
     // make the update permanent with no trial and no way back.
-    fail('trailing_data', 'The file has data after the signature. Upload the plain ' +
-      '*.signed.bin, not a padded or confirmed image');
+    fail(
+      'trailing_data',
+      'The file has data after the signature. Upload the plain ' + '*.signed.bin, not a padded or confirmed image'
+    );
   }
 
   let imageHash;
@@ -283,13 +291,12 @@ export function validateImage(image, signingKey, { maxSize, loadAddress } = {}) 
   }
 
   if (!timingSafeEqual(keyHash, signingKey.keyHash)) {
-    fail('wrong_key', 'The image is signed with a different key than this project\'s');
+    fail('wrong_key', "The image is signed with a different key than this project's");
   }
 
   let valid = false;
   try {
-    valid = verify('sha256', signed, { key: signingKey.key, dsaEncoding: 'der' },
-      derSignature(signature));
+    valid = verify('sha256', signed, { key: signingKey.key, dsaEncoding: 'der' }, derSignature(signature));
   } catch (error) {
     if (error instanceof ImageError) throw error;
     valid = false;

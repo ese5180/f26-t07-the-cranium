@@ -74,12 +74,17 @@ export function boardOfImage(protectedTlvs) {
   // imgtool writes the text as it was given; a build that adds the C string's NUL is read the same.
   const text = asText(found[0].data);
   if (!TYPE_WORD.test(text)) {
-    throw new BoardTlvError('invalid_board_tlv',
-      'The board type in the image (TLV 0xA1) is not 1 to 16 lower-case letters and digits.');
+    throw new BoardTlvError(
+      'invalid_board_tlv',
+      'The board type in the image (TLV 0xA1) is not 1 to 16 lower-case letters and digits.'
+    );
   }
   if (!isBoardType(text)) {
-    throw new BoardTlvError('unknown_board', `The image is for a board of type "${text}", which this console ` +
-      `does not know. It knows ${BOARD_TYPES.join(' and ')}.`);
+    throw new BoardTlvError(
+      'unknown_board',
+      `The image is for a board of type "${text}", which this console ` +
+        `does not know. It knows ${BOARD_TYPES.join(' and ')}.`
+    );
   }
   return text;
 }
@@ -100,11 +105,14 @@ function asText(data) {
 export function layoutOfImage(protectedTlvs) {
   const found = (protectedTlvs ?? []).filter((entry) => entry.type === LAYOUT_TLV);
   if (found.length === 0) return DEFAULT_LAYOUT;
-  if (found.length > 1) throw new BoardTlvError('invalid_layout_tlv', 'The image names its flash layout more than once.');
+  if (found.length > 1)
+    throw new BoardTlvError('invalid_layout_tlv', 'The image names its flash layout more than once.');
   const text = asText(found[0].data);
   if (!LAYOUT_WORD.test(text)) {
-    throw new BoardTlvError('invalid_layout_tlv',
-      'The flash layout in the image (TLV 0xA2) is not a positive whole number in ASCII.');
+    throw new BoardTlvError(
+      'invalid_layout_tlv',
+      'The flash layout in the image (TLV 0xA2) is not a positive whole number in ASCII.'
+    );
   }
   return Number(text);
 }

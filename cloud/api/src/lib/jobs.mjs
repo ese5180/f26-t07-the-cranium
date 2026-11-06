@@ -25,8 +25,13 @@ const DOCUMENT_LIMIT = 512;
 // Limits of AWS IoT for a job description.
 const DESCRIPTION_LIMIT = 2028;
 
-export const JOB_STATUSES = Object.freeze(
-  ['IN_PROGRESS', 'COMPLETED', 'CANCELED', 'SCHEDULED', 'DELETION_IN_PROGRESS']);
+export const JOB_STATUSES = Object.freeze([
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELED',
+  'SCHEDULED',
+  'DELETION_IN_PROGRESS',
+]);
 
 const COUNT_NAMES = Object.freeze({
   QUEUED: 'queued',
@@ -72,7 +77,10 @@ export function buildJobId(parts, nowMs, suffix) {
   if (typeof suffix !== 'string' || !/^[0-9a-f]{4}$/.test(suffix)) {
     throw new TypeError('The job id suffix must be 4 lowercase hex digits');
   }
-  const stamp = new Date(nowMs).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const stamp = new Date(nowMs)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const id = `cranium-${parts.major}-${parts.minor}-${parts.revision}-b${parts.build}-${stamp}-${suffix}`;
   if (parseJobId(id) === null) throw new TypeError('The version or the time does not make a job id');
   return id;
@@ -113,8 +121,10 @@ export function buildJobDocument({ version, size, sha256, region, bucket }) {
 
 /** JSON in printable ASCII only, which every AWS text field accepts. */
 function asciiJson(value) {
-  return JSON.stringify(value).replace(/[\u007f-\uffff]/g,
-    (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  return JSON.stringify(value).replace(
+    /[\u007f-\uffff]/g,
+    (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`
+  );
 }
 
 /**
@@ -209,8 +219,13 @@ const DETAIL = /^[\x20-\x7e]{1,200}$/;
  * outside the trust boundary.
  */
 export function executionDetails(statusDetails) {
-  const read = (name) => (statusDetails !== null && typeof statusDetails === 'object' &&
-    !Array.isArray(statusDetails) && Object.hasOwn(statusDetails, name) ? statusDetails[name] : undefined);
+  const read = (name) =>
+    statusDetails !== null &&
+    typeof statusDetails === 'object' &&
+    !Array.isArray(statusDetails) &&
+    Object.hasOwn(statusDetails, name)
+      ? statusDetails[name]
+      : undefined;
   const reason = read('reason');
   const detail = read('detail');
   const step = read('step');

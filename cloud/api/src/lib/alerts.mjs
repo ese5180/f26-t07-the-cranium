@@ -94,11 +94,18 @@ export function alertOfEvent(item) {
   if (!isPlain(item) || !isThing(item.pk) || typeof item.text !== 'string' || !PRINTABLE.test(item.text)) return null;
   const at = Date.parse(String(item.sk ?? '').slice(2, 26));
   const base = { thing: item.pk, text: item.text, at: Number.isFinite(at) ? at : null };
-  if (item.kind === 'update' && item.what === 'result' && BAD_RESULTS.has(item.result)) return { kind: 'update', ...base };
-  if (item.kind === 'bluetooth' && item.what === 'record' && BAD_BLUETOOTH.has(item.result)) return { kind: 'update', ...base };
+  if (item.kind === 'update' && item.what === 'result' && BAD_RESULTS.has(item.result))
+    return { kind: 'update', ...base };
+  if (item.kind === 'bluetooth' && item.what === 'record' && BAD_BLUETOOTH.has(item.result))
+    return { kind: 'update', ...base };
   if (item.kind === 'restart' && item.what === 'stuck') return { kind: 'stuck', ...base };
   if (item.kind === 'health' && item.what === 'moved') return { kind: 'moved', ...base };
-  if (item.kind === 'update' && item.what === 'stopped' && typeof item.job === 'string' && DEPLOYMENT_ID.test(item.job)) {
+  if (
+    item.kind === 'update' &&
+    item.what === 'stopped' &&
+    typeof item.job === 'string' &&
+    DEPLOYMENT_ID.test(item.job)
+  ) {
     return { kind: 'deployment', ...base, deployment: item.job, version: parseJobId(item.job)?.version ?? null };
   }
   return null;
@@ -110,11 +117,14 @@ export function presenceOf(message, nowMs) {
   const state = { connected: 'online', disconnected: 'offline' }[message.eventType];
   if (state === undefined) return null;
   const stamp = message.timestamp;
-  const at = Number.isFinite(stamp) && stamp > nowMs - 86_400_000 && stamp < nowMs + 300_000 ? Math.floor(stamp) : nowMs;
-  const version = Number.isSafeInteger(message.versionNumber) && message.versionNumber >= 0 ? message.versionNumber : null;
-  const reason = state === 'offline' && typeof message.disconnectReason === 'string' && REASON.test(message.disconnectReason)
-    ? message.disconnectReason
-    : null;
+  const at =
+    Number.isFinite(stamp) && stamp > nowMs - 86_400_000 && stamp < nowMs + 300_000 ? Math.floor(stamp) : nowMs;
+  const version =
+    Number.isSafeInteger(message.versionNumber) && message.versionNumber >= 0 ? message.versionNumber : null;
+  const reason =
+    state === 'offline' && typeof message.disconnectReason === 'string' && REASON.test(message.disconnectReason)
+      ? message.disconnectReason
+      : null;
   return { thing: message.clientId, state, at, version, reason };
 }
 
@@ -131,11 +141,27 @@ export function isNewerPresence(kept, incoming) {
 
 /** A board's item as it is before anything about it is known. */
 export function emptyBoard(thing) {
-  return { pk: ALERTS_PK, sk: boardKey(thing), thing, name: null, presence: null, offlineAlerted: false, kinds: {}, rev: 0 };
+  return {
+    pk: ALERTS_PK,
+    sk: boardKey(thing),
+    thing,
+    name: null,
+    presence: null,
+    offlineAlerted: false,
+    kinds: {},
+    rev: 0,
+  };
 }
 
 export function emptyDeployment(id) {
-  return { pk: ALERTS_PK, sk: deploymentKey(id), deployment: id, version: parseJobId(id)?.version ?? null, kinds: {}, rev: 0 };
+  return {
+    pk: ALERTS_PK,
+    sk: deploymentKey(id),
+    deployment: id,
+    version: parseJobId(id)?.version ?? null,
+    kinds: {},
+    rev: 0,
+  };
 }
 
 /**
@@ -144,13 +170,21 @@ export function emptyDeployment(id) {
  */
 export function applyPresence(board, presence) {
   if (!isNewerPresence(board.presence, presence)) return null;
-  const next = { ...board, presence: { state: presence.state, at: presence.at, version: presence.version, reason: presence.reason } };
+  const next = {
+    ...board,
+    presence: { state: presence.state, at: presence.at, version: presence.version, reason: presence.reason },
+  };
   let alert = null;
   if (presence.state === 'online' && board.offlineAlerted) {
     const since = board.presence?.state === 'offline' ? board.presence.at : null;
     alert = {
-      kind: 'online', thing: board.thing, at: presence.at,
-      text: since === null ? 'Connected to AWS IoT again' : `Connected to AWS IoT again, after ${spell(presence.at - since)} offline`,
+      kind: 'online',
+      thing: board.thing,
+      at: presence.at,
+      text:
+        since === null
+          ? 'Connected to AWS IoT again'
+          : `Connected to AWS IoT again, after ${spell(presence.at - since)} offline`,
     };
     next.offlineAlerted = false;
   }
@@ -161,11 +195,15 @@ export function applyPresence(board, presence) {
 export function dueOffline(board, nowMs) {
   const presence = board.presence;
   if (presence?.state !== 'offline' || board.offlineAlerted || nowMs - presence.at < OFFLINE_AFTER_MS) return null;
-  const why = presence.reason ? `: ${DISCONNECT_WORDS[presence.reason] ?? `AWS IoT gave the reason ${presence.reason}`}` : '';
+  const why = presence.reason
+    ? `: ${DISCONNECT_WORDS[presence.reason] ?? `AWS IoT gave the reason ${presence.reason}`}`
+    : '';
   return {
     state: { ...board, offlineAlerted: true },
     alert: {
-      kind: 'offline', thing: board.thing, at: nowMs,
+      kind: 'offline',
+      thing: board.thing,
+      at: nowMs,
       text: `Offline since ${utc(presence.at)}, for ${spell(nowMs - presence.at)} now${why}`,
     },
   };
@@ -248,7 +286,7 @@ const LEADS = Object.freeze({
   online: 'This board is connected to AWS IoT again.',
   update: 'An update of this board failed or was rolled back.',
   stuck: 'This board restarted itself because it was stuck.',
-  moved: 'This board\'s position, worked out from the Wi-Fi it hears, moved by more than 1 km.',
+  moved: "This board's position, worked out from the Wi-Fi it hears, moved by more than 1 km.",
   deployment: 'This deployment stopped by itself: too many of its boards failed or rolled back.',
 });
 
@@ -266,9 +304,10 @@ export function emailOf(item, mail, consoleUrl) {
   const name = nameIn(item);
   const count = mail.lines.length + mail.more;
   const subject = `Cranium: ${SUBJECTS[mail.kind](name)}${count > 1 ? ` (${count} alerts)` : ''}`.slice(0, SUBJECT_MAX);
-  const who = typeof item.deployment === 'string'
-    ? `Deployment ${item.deployment}`
-    : `${name === item.thing ? item.thing : `${name} (AWS IoT thing ${item.thing})`}`;
+  const who =
+    typeof item.deployment === 'string'
+      ? `Deployment ${item.deployment}`
+      : `${name === item.thing ? item.thing : `${name} (AWS IoT thing ${item.thing})`}`;
   const lines = mail.lines.map((line) => `${utc(line.at)}  ${line.text}`);
   const link = typeof item.deployment === 'string' ? `#/deployments/${item.deployment}` : `#/devices/${item.thing}`;
   const base = typeof consoleUrl === 'string' && /^https:\/\/[^\s]+\/$/.test(consoleUrl) ? consoleUrl : null;

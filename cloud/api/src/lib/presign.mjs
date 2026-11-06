@@ -30,8 +30,10 @@ const HEADER_NAME = /^[a-z0-9-]{1,64}$/;
 
 /** RFC 3986 percent-encoding, as SigV4 asks for: everything but A-Z a-z 0-9 - . _ ~ */
 export function uriEncode(text) {
-  return encodeURIComponent(text).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(text).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 function hmac(key, text) {
@@ -79,10 +81,21 @@ function canonicalQuery(pairs) {
  * @returns {{ url: string, signedHeaders: string[], expiresAt: number }}
  */
 export function presignUrl({
-  method, host, protocol = 'https', pathPrefix = '', key, region, credentials, at, expiresIn, headers = {}, query = {},
+  method,
+  host,
+  protocol = 'https',
+  pathPrefix = '',
+  key,
+  region,
+  credentials,
+  at,
+  expiresIn,
+  headers = {},
+  query = {},
 }) {
   if (!['GET', 'PUT', 'HEAD'].includes(method)) throw new TypeError('method must be GET, PUT or HEAD');
-  if (typeof host !== 'string' || !/^[a-z0-9.-]+(?::\d{1,5})?$/.test(host)) throw new TypeError('host is not a host name');
+  if (typeof host !== 'string' || !/^[a-z0-9.-]+(?::\d{1,5})?$/.test(host))
+    throw new TypeError('host is not a host name');
   if (protocol !== 'https' && protocol !== 'http') throw new TypeError('protocol must be https or http');
   if (typeof key !== 'string' || key === '' || key.startsWith('/')) throw new TypeError('key must be an S3 key');
   if (!Number.isInteger(expiresIn) || expiresIn < 1 || expiresIn > MAX_EXPIRES) {
@@ -90,7 +103,12 @@ export function presignUrl({
   }
   if (!Number.isFinite(at)) throw new TypeError('at must be epoch milliseconds');
   const { accessKeyId, secretAccessKey, sessionToken } = credentials ?? {};
-  if (typeof accessKeyId !== 'string' || accessKeyId === '' || typeof secretAccessKey !== 'string' || secretAccessKey === '') {
+  if (
+    typeof accessKeyId !== 'string' ||
+    accessKeyId === '' ||
+    typeof secretAccessKey !== 'string' ||
+    secretAccessKey === ''
+  ) {
     throw new TypeError('credentials are missing');
   }
   for (const [name, value] of Object.entries(headers)) {

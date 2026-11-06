@@ -86,8 +86,9 @@ export function claimedSub(event) {
 export function authenticate(event, clientIds) {
   const claims = claimsOf(event);
   if (claims === null) throw unauthorized();
-  const accepted = (Array.isArray(clientIds) ? clientIds : [clientIds])
-    .filter((id) => typeof id === 'string' && id !== '');
+  const accepted = (Array.isArray(clientIds) ? clientIds : [clientIds]).filter(
+    (id) => typeof id === 'string' && id !== ''
+  );
   if (accepted.length === 0) throw unauthorized();
   if (claims.token_use !== 'access' || !accepted.includes(claims.client_id)) throw unauthorized();
   if (typeof claims.sub !== 'string' || !SUB.test(claims.sub)) throw unauthorized();
@@ -238,9 +239,12 @@ export function createDirectory({ aws, now, log = () => {} }) {
   async function requireLiveWriter(caller) {
     const { email, groups } = await liveAccount(caller.sub);
     if (!groups.includes(RELEASE_MANAGERS)) {
-      throw forbidden('release_manager_required', caller.groups.includes(RELEASE_MANAGERS)
-        ? 'You are no longer a release manager.'
-        : 'Only release managers can do this.');
+      throw forbidden(
+        'release_manager_required',
+        caller.groups.includes(RELEASE_MANAGERS)
+          ? 'You are no longer a release manager.'
+          : 'Only release managers can do this.'
+      );
     }
     return email;
   }
@@ -256,7 +260,13 @@ export function createDirectory({ aws, now, log = () => {} }) {
   }
 
   return {
-    emailOf, knownEmail, unreachable, liveAccount, requireLiveReader, requireLiveWriter, requireLiveMember,
+    emailOf,
+    knownEmail,
+    unreachable,
+    liveAccount,
+    requireLiveReader,
+    requireLiveWriter,
+    requireLiveMember,
   };
 }
 
@@ -268,7 +278,10 @@ export const PHONE_SIGN_IN_FRESH_SEC = 15 * 60;
 export function requireFreshSignIn(caller, nowMs) {
   const age = Number.isFinite(caller.authTime) ? Math.floor(nowMs / 1000) - caller.authTime : Infinity;
   if (!(age >= -60 && age <= PHONE_SIGN_IN_FRESH_SEC)) {
-    throw forbidden('phone_sign_in_again', 'To change anything from the phone, sign in again first: ' +
-      'a change from the phone needs a sign-in in the last 15 minutes.');
+    throw forbidden(
+      'phone_sign_in_again',
+      'To change anything from the phone, sign in again first: ' +
+        'a change from the phone needs a sign-in in the last 15 minutes.'
+    );
   }
 }

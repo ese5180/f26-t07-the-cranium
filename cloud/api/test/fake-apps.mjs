@@ -50,7 +50,11 @@ function fromAmzDate(text) {
 }
 
 function s3Error(status, code) {
-  return { status, headers: { 'content-type': 'application/xml' }, body: Buffer.from(`<Error><Code>${code}</Code></Error>`) };
+  return {
+    status,
+    headers: { 'content-type': 'application/xml' },
+    body: Buffer.from(`<Error><Code>${code}</Code></Error>`),
+  };
 }
 
 /**
@@ -60,10 +64,10 @@ function s3Error(status, code) {
  * @param {string} [options.region]
  */
 export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-east-1' }) {
-  const items = new Map();      // sk -> item
-  const sources = new Map();    // sk -> item, pk SRC
-  const pointers = new Map();   // platform -> { sk, versionCode }
-  const objects = new Map();    // key -> [{ versionId, body, sha256Base64 | null }], oldest first
+  const items = new Map(); // sk -> item
+  const sources = new Map(); // sk -> item, pk SRC
+  const pointers = new Map(); // platform -> { sk, versionCode }
+  const objects = new Map(); // key -> [{ versionId, body, sha256Base64 | null }], oldest first
   let endpoint = { protocol: 'https', host: `${bucket}.s3.${region}.amazonaws.com`, pathPrefix: '' };
   let versionsDrawn = 0;
 
@@ -95,14 +99,19 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
     const at = fromAmzDate(params.get('X-Amz-Date'));
     const expiresIn = Number(params.get('X-Amz-Expires'));
     const named = (params.get('X-Amz-SignedHeaders') ?? '').split(';').filter((name) => name !== 'host');
-    const lower = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), String(value)]));
+    const lower = Object.fromEntries(
+      Object.entries(headers).map(([name, value]) => [name.toLowerCase(), String(value)])
+    );
     if (named.some((name) => lower[name] === undefined)) return s3Error(403, 'SignatureDoesNotMatch');
     const query = {};
     for (const [name, value] of params) if (!name.startsWith('X-Amz-')) query[name] = value;
     let expected;
     try {
       expected = sign(method, key, {
-        at, expiresIn, headers: Object.fromEntries(named.map((name) => [name, lower[name]])), query,
+        at,
+        expiresIn,
+        headers: Object.fromEntries(named.map((name) => [name, lower[name]])),
+        query,
       }).url;
     } catch {
       return s3Error(403, 'AuthorizationQueryParametersError');
@@ -148,7 +157,10 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
   const adapter = {
     async listAppReleases(platform) {
       platformOf(platform);
-      return [...items.keys()].filter((sk) => sk.startsWith(`${platform}#`)).sort().reverse()
+      return [...items.keys()]
+        .filter((sk) => sk.startsWith(`${platform}#`))
+        .sort()
+        .reverse()
         .map((sk) => copy(items.get(sk)));
     },
 
@@ -194,7 +206,9 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
       const signed = sign('GET', key, {
         expiresIn,
         query: {
-          versionId, 'response-content-disposition': `attachment; filename="${filename}"`, 'response-content-type': contentType,
+          versionId,
+          'response-content-disposition': `attachment; filename="${filename}"`,
+          'response-content-type': contentType,
         },
       });
       return { url: signed.url, expiresAt: signed.expiresAt };
@@ -231,17 +245,33 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
       const ownerSk = sourceOwnerSk(sub);
       const owner = sources.get(ownerSk);
       if (sources.has(newSk)) return { ok: false, reason: 'conflict' };
-      if (previous === null && owner !== undefined && owner.revokedAt === null) return { ok: false, reason: 'conflict' };
-      if (previous !== null && (owner?.digest !== previous || owner.revokedAt !== null)) return { ok: false, reason: 'conflict' };
+      if (previous === null && owner !== undefined && owner.revokedAt === null)
+        return { ok: false, reason: 'conflict' };
+      if (previous !== null && (owner?.digest !== previous || owner.revokedAt !== null))
+        return { ok: false, reason: 'conflict' };
       const old = previous === null ? null : sources.get(sourceKeySk(previous));
       if (previous !== null && (old === undefined || old.ownerSub !== sub || old.revokedAt !== null)) {
         return { ok: false, reason: 'conflict' };
       }
       sources.set(newSk, {
-        pk: SOURCE_PK, sk: newSk, id: key.id, ownerSub: sub, createdAt: key.createdAt,
-        revokedAt: null, window: 0, uses: 0, lastUsedAt: null,
+        pk: SOURCE_PK,
+        sk: newSk,
+        id: key.id,
+        ownerSub: sub,
+        createdAt: key.createdAt,
+        revokedAt: null,
+        window: 0,
+        uses: 0,
+        lastUsedAt: null,
       });
-      sources.set(ownerSk, { pk: SOURCE_PK, sk: ownerSk, digest: key.digest, id: key.id, createdAt: key.createdAt, revokedAt: null });
+      sources.set(ownerSk, {
+        pk: SOURCE_PK,
+        sk: ownerSk,
+        digest: key.digest,
+        id: key.id,
+        createdAt: key.createdAt,
+        revokedAt: null,
+      });
       if (old) old.revokedAt = at;
       return { ok: true };
     },
@@ -282,7 +312,9 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
     setS3Endpoint(base) {
       const address = new URL(base);
       endpoint = {
-        protocol: address.protocol.replace(':', ''), host: address.host, pathPrefix: address.pathname.replace(/\/$/, ''),
+        protocol: address.protocol.replace(':', ''),
+        host: address.host,
+        pathPrefix: address.pathname.replace(/\/$/, ''),
       };
     },
     storeApk(key, body, { checksum = true } = {}) {
@@ -290,7 +322,9 @@ export function createFakeApps({ clock, bucket = 'local-firmware', region = 'us-
     },
     apkVersions(key) {
       return (objects.get(key) ?? []).map((version) => ({
-        versionId: version.versionId, size: version.body.length, sha256: sha256(version.body).toString('hex'),
+        versionId: version.versionId,
+        size: version.body.length,
+        sha256: sha256(version.body).toString('hex'),
       }));
     },
   };

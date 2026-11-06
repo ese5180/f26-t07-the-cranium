@@ -41,8 +41,10 @@ export function createPairingHandlers({ aws, now, log }) {
       // Two boards with the same four digits at once: the newest report is the one pairing now.
       found.sort((a, b) => (a.reportedAt < b.reportedAt ? 1 : -1));
       if (found.length === 0) {
-        throw notFound('no_pairing', `No board online is pairing as ${name} right now. ` +
-          'Its passkey is on its serial console.');
+        throw notFound(
+          'no_pairing',
+          `No board online is pairing as ${name} right now. ` + 'Its passkey is on its serial console.'
+        );
       }
       entry.detail.thing = found[0].thing;
       return { body: found[0] };

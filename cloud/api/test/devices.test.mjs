@@ -13,7 +13,8 @@ const CERT_1 = `${'1a2b3c4d5e6f7081'}${'9'.repeat(48)}`;
 const CERT_2 = `${'0f0e0d0c0b0a0908'}${'7'.repeat(48)}`;
 // What a board with no position from Wi-Fi has beside its Device (handlers/location.mjs).
 const UNPLACED = Object.freeze({
-  position: null, location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
+  position: null,
+  location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
 });
 
 const reported = (version = '1.0.0+3') => ({
@@ -53,18 +54,50 @@ test('boards are listed by name with what their shadows say', async () => {
   assert.equal(body.generatedAt, new Date(clock.ms).toISOString());
   assert.deepEqual(body.devices, [
     {
-      thing: BOARD_A, name: null, online: true, lastSeen: reportedAt,
+      thing: BOARD_A,
+      name: null,
+      online: true,
+      lastSeen: reportedAt,
       fw: { version: '1.0.0+3', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -61, uptime: 4321, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
+      rssi: -61,
+      uptime: 4321,
+      stuck: null,
+      diag: null,
+      diary: null,
+      bt: null,
+      ...UNPLACED,
     },
     // Registered, but it has never connected: there is no shadow.
-    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED },
     {
-      thing: BOARD_C, name: null, online: true, lastSeen: reportedAt,
+      thing: BOARD_B,
+      name: null,
+      online: false,
+      lastSeen: null,
+      fw: null,
+      ota: null,
+      rssi: null,
+      uptime: null,
+      stuck: null,
+      diag: null,
+      diary: null,
+      bt: null,
+      ...UNPLACED,
+    },
+    {
+      thing: BOARD_C,
+      name: null,
+      online: true,
+      lastSeen: reportedAt,
       fw: { version: '1.2.3+4', confirmed: true },
       ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-      rssi: -80, uptime: 12, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
+      rssi: -80,
+      uptime: 12,
+      stuck: null,
+      diag: null,
+      diary: null,
+      bt: null,
+      ...UNPLACED,
     },
   ]);
 });
@@ -152,23 +185,49 @@ test('a hostile shadow shows as little as it deserves', async () => {
   fake.addThing(BOARD_A);
   fake.addThing(BOARD_B);
   fake.device(BOARD_A).setRaw({
-    state: { reported: {
-      fw: { version: '<script>alert(1)</script>', confirmed: 'yes' },
-      ota: { state: 'idle', job: '../../admin', progress: 9999, last: 'pwned', error: 'x'.repeat(5000) },
-      wifi: { rssi: 'strong' },
-      uptime: -1,
-    } },
+    state: {
+      reported: {
+        fw: { version: '<script>alert(1)</script>', confirmed: 'yes' },
+        ota: { state: 'idle', job: '../../admin', progress: 9999, last: 'pwned', error: 'x'.repeat(5000) },
+        wifi: { rssi: 'strong' },
+        uptime: -1,
+      },
+    },
     metadata: { reported: { uptime: { timestamp: 'now' } } },
   });
   fake.device(BOARD_B).setRaw('not even an object');
   const body = await context.list();
   assert.deepEqual(body.devices, [
     {
-      thing: BOARD_A, name: null, online: false, lastSeen: null, fw: null,
-      ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' }, rssi: null, uptime: null,
-      stuck: null, diag: null, diary: null, bt: null, ...UNPLACED,
+      thing: BOARD_A,
+      name: null,
+      online: false,
+      lastSeen: null,
+      fw: null,
+      ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
+      rssi: null,
+      uptime: null,
+      stuck: null,
+      diag: null,
+      diary: null,
+      bt: null,
+      ...UNPLACED,
     },
-    { thing: BOARD_B, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null, stuck: null, diag: null, diary: null, bt: null, ...UNPLACED },
+    {
+      thing: BOARD_B,
+      name: null,
+      online: false,
+      lastSeen: null,
+      fw: null,
+      ota: null,
+      rssi: null,
+      uptime: null,
+      stuck: null,
+      diag: null,
+      diary: null,
+      bt: null,
+      ...UNPLACED,
+    },
   ]);
 });
 
@@ -193,7 +252,7 @@ test('shadows are cached for five seconds', async () => {
   assert.equal(count(fake, 'getShadow'), 4);
 });
 
-test('only things of the group with a board\'s name are listed', async () => {
+test("only things of the group with a board's name are listed", async () => {
   const context = setup();
   const { fake } = context;
   fake.addThing(BOARD_A);
@@ -201,9 +260,15 @@ test('only things of the group with a board\'s name are listed', async () => {
   fake.addThing('test-bench-rig');
   fake.addThing('cranium-UPPERCASE0000000');
   const body = await context.list();
-  assert.deepEqual(body.devices.map((device) => device.thing), [BOARD_A]);
+  assert.deepEqual(
+    body.devices.map((device) => device.thing),
+    [BOARD_A]
+  );
   // Nothing is asked about things that are not boards.
-  assert.deepEqual(fake.calls.filter((call) => call.method === 'getShadow').map((call) => call.args[0]), [BOARD_A]);
+  assert.deepEqual(
+    fake.calls.filter((call) => call.method === 'getShadow').map((call) => call.args[0]),
+    [BOARD_A]
+  );
 
   // A name that a listing repeats is one board.
   const original = fake.listGroupThings;
@@ -211,7 +276,10 @@ test('only things of the group with a board\'s name are listed', async () => {
   context.advance(6000);
   const repeated = await context.list();
   fake.listGroupThings = original;
-  assert.deepEqual(repeated.devices.map((device) => device.thing), [BOARD_A, BOARD_B]);
+  assert.deepEqual(
+    repeated.devices.map((device) => device.thing),
+    [BOARD_A, BOARD_B]
+  );
 });
 
 test('one board is shown with its certificates and update history', async () => {
@@ -223,8 +291,14 @@ test('one board is shown with its certificates and update history', async () => 
   const fresh = await context.call('GET', `/api/devices/${BOARD_A}`, { as: viewer });
   assert.equal(fresh.status, 200);
   // memfault: test/memfault-console.test.mjs. lastUpdate: test/updates.test.mjs.
-  assert.deepEqual(Object.keys(fresh.body).sort(),
-    ['certificates', 'device', 'executions', 'lastUpdate', 'memfault', 'olderExecutions']);
+  assert.deepEqual(Object.keys(fresh.body).sort(), [
+    'certificates',
+    'device',
+    'executions',
+    'lastUpdate',
+    'memfault',
+    'olderExecutions',
+  ]);
   assert.equal(fresh.body.lastUpdate, null);
   assert.equal(fresh.body.olderExecutions, 0);
   assert.equal(fresh.body.device.thing, BOARD_A);
@@ -235,10 +309,13 @@ test('one board is shown with its certificates and update history', async () => 
   assert.deepEqual(fresh.body.executions, []);
 
   // Two deployments and a job of another tool.
-  await context.call('POST', '/api/firmware', { as: manager,
-    body: { filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+4.signed.bin').toString('base64') } });
-  const first = (await context.call('POST', '/api/deployments',
-    { as: manager, body: { version: '1.2.3+4', things: [BOARD_A] } })).body.deployment.id;
+  await context.call('POST', '/api/firmware', {
+    as: manager,
+    body: { filename: 'zephyr.signed.bin', data: fixture('valid-1.2.3+4.signed.bin').toString('base64') },
+  });
+  const first = (
+    await context.call('POST', '/api/deployments', { as: manager, body: { version: '1.2.3+4', things: [BOARD_A] } })
+  ).body.deployment.id;
   const queuedAt = new Date(context.clock.ms).toISOString();
   context.advance(60_000);
   fake.execution(first, BOARD_A).update('IN_PROGRESS', { step: 'downloading' });
@@ -248,22 +325,35 @@ test('one board is shown with its certificates and update history', async () => 
   const failedAt = new Date(context.clock.ms).toISOString();
   context.advance(60_000);
   await fake.createJob({
-    jobId: 'factory-test-7', things: [BOARD_A], document: '{}', description: 'not ours',
-    urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+    jobId: 'factory-test-7',
+    things: [BOARD_A],
+    document: '{}',
+    description: 'not ours',
+    urlExpiresInSec: 600,
+    inProgressTimeoutMinutes: 30,
   });
   fake.execution('factory-test-7', BOARD_A).update('REJECTED', { reason: 'unsupported' });
   context.advance(60_000);
-  const second = (await context.call('POST', '/api/deployments',
-    { as: manager, body: { version: '1.2.3+4', things: [BOARD_A] } })).body.deployment.id;
+  const second = (
+    await context.call('POST', '/api/deployments', { as: manager, body: { version: '1.2.3+4', things: [BOARD_A] } })
+  ).body.deployment.id;
 
   const shown = await context.call('GET', `/api/devices/${BOARD_A}`, { as: viewer });
-  assert.deepEqual(shown.body.executions.map((entry) => [entry.deployment, entry.version, entry.status]), [
-    [second, '1.2.3+4', 'QUEUED'],
-    ['factory-test-7', null, 'REJECTED'],
-    [first, '1.2.3+4', 'FAILED'],
-  ]);
+  assert.deepEqual(
+    shown.body.executions.map((entry) => [entry.deployment, entry.version, entry.status]),
+    [
+      [second, '1.2.3+4', 'QUEUED'],
+      ['factory-test-7', null, 'REJECTED'],
+      [first, '1.2.3+4', 'FAILED'],
+    ]
+  );
   assert.deepEqual(shown.body.executions[2], {
-    deployment: first, version: '1.2.3+4', status: 'FAILED', queuedAt, startedAt, lastUpdatedAt: failedAt,
+    deployment: first,
+    version: '1.2.3+4',
+    status: 'FAILED',
+    queuedAt,
+    startedAt,
+    lastUpdatedAt: failedAt,
   });
   assert.equal(shown.body.executions[0].startedAt, null);
 });
@@ -276,14 +366,21 @@ test('the history shows the 50 newest executions, and says how many it left out'
     context.advance(60_000);
     const jobId = `cranium-1-0-${n}-b0-20261011T0000${String(n).padStart(2, '0')}Z-0000`;
     await fake.createJob({
-      jobId, things: [BOARD_A], document: '{}', description: '{}', urlExpiresInSec: 600, inProgressTimeoutMinutes: 30,
+      jobId,
+      things: [BOARD_A],
+      document: '{}',
+      description: '{}',
+      urlExpiresInSec: 600,
+      inProgressTimeoutMinutes: 30,
     });
     fake.execution(jobId, BOARD_A).update('SUCCEEDED', { running: `1.0.${n}+0` });
   }
   const shown = await context.call('GET', `/api/devices/${BOARD_A}`, { as: viewer });
   assert.equal(shown.body.executions.length, 50);
-  assert.deepEqual(shown.body.executions.map((entry) => entry.version),
-    Array.from({ length: 50 }, (_, n) => `1.0.${52 - n}+0`));
+  assert.deepEqual(
+    shown.body.executions.map((entry) => entry.version),
+    Array.from({ length: 50 }, (_, n) => `1.0.${52 - n}+0`)
+  );
   assert.equal(shown.body.olderExecutions, 3);
 });
 
@@ -304,8 +401,15 @@ test('a board that is not in the group does not exist for the console', async ()
   const asked = fake.methodsCalled().filter((method) => !['getUser', 'listUserGroups'].includes(method));
   assert.deepEqual([...new Set(asked)], ['listGroupThings']);
 
-  for (const text of ['cranium-00', 'CRANIUM-00000000000000AA', 'cranium-00000000000000aa%20', '*', '%2e%2e',
-    'cranium-00000000000000aa%2Fshadow', `${BOARD_A}x`]) {
+  for (const text of [
+    'cranium-00',
+    'CRANIUM-00000000000000AA',
+    'cranium-00000000000000aa%20',
+    '*',
+    '%2e%2e',
+    'cranium-00000000000000aa%2Fshadow',
+    `${BOARD_A}x`,
+  ]) {
     const response = await context.call('GET', `/api/devices/${text}`, { as: viewer });
     assert.equal(response.status, 400, text);
     assert.equal(response.body.error.code, 'invalid_thing');

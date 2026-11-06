@@ -62,8 +62,22 @@ function manualTimers() {
 }
 
 const HELLO = {
-  bridge: 1, platform: 'ios', shell: { version: '0.8.0', build: '14' }, bundle: { id: '0123456789abcdef', console: '2.1.1', source: 'downloaded' },
-  features: ['auth', 'biometric', 'ble', 'clipboard', 'haptics', 'share', 'open', 'keepAwake', 'settings', 'something-new'],
+  bridge: 1,
+  platform: 'ios',
+  shell: { version: '0.8.0', build: '14' },
+  bundle: { id: '0123456789abcdef', console: '2.1.1', source: 'downloaded' },
+  features: [
+    'auth',
+    'biometric',
+    'ble',
+    'clipboard',
+    'haptics',
+    'share',
+    'open',
+    'keepAwake',
+    'settings',
+    'something-new',
+  ],
 };
 
 test('on the website there is no app: no transport, and connectBridge answers null at once', async () => {
@@ -82,9 +96,18 @@ test('in the iPhone app: requests go to the message handler, answers come back a
   assert.deepEqual(await asked, { state: 'on' });
 
   const refused = line.call('app.open', { url: 'http://example.invalid/' });
-  phone.send({ id: 2, ok: false, error: { code: 'not_allowed', message: 'The app opens only https, SideStore and authenticator addresses.' } });
-  await assert.rejects(refused, (error) => error instanceof bridge.BridgeError && error.code === 'not_allowed' &&
-    error.message.startsWith('The app opens only'));
+  phone.send({
+    id: 2,
+    ok: false,
+    error: { code: 'not_allowed', message: 'The app opens only https, SideStore and authenticator addresses.' },
+  });
+  await assert.rejects(
+    refused,
+    (error) =>
+      error instanceof bridge.BridgeError &&
+      error.code === 'not_allowed' &&
+      error.message.startsWith('The app opens only')
+  );
 
   // An answer to nothing, a message that is not JSON, and an event: none upsets what is waiting.
   const seen = [];
@@ -104,7 +127,12 @@ test('in the Android app: the web message listener carries both ways', async () 
   const phone = androidWindow();
   const line = bridge.createBridge(bridge.findTransport(phone.win), { timers: manualTimers() });
   const asked = line.call('clipboard.write', { text: '123456', expiresIn: 120 });
-  assert.deepEqual(phone.posted[0], { v: 1, id: 1, method: 'clipboard.write', params: { text: '123456', expiresIn: 120 } });
+  assert.deepEqual(phone.posted[0], {
+    v: 1,
+    id: 1,
+    method: 'clipboard.write',
+    params: { text: '123456', expiresIn: 120 },
+  });
   phone.send({ id: 1, ok: true, result: {} });
   assert.deepEqual(await asked, {});
   // An error code the page does not know is a failure; its words are kept.
@@ -139,10 +167,14 @@ test('the hello: the version, the app and its pages, and only the features this 
   assert.equal(line.has('something-new'), false);
   assert.equal(phone.win.cranium.bridge, line, 'window.cranium.bridge, for feature detection');
   assert.equal(bridge.appWords(line.hello), 'iPhone app 0.8.0 (14), pages of console 2.1.1, from the console');
-  assert.equal(bridge.appWords({ ...line.hello, platform: 'android', bundle: { ...line.hello.bundle, source: 'built-in' } }),
-    'Android app 0.8.0 (14), pages of console 2.1.1, built into the app');
-  assert.equal(bridge.appWords({ ...line.hello, needsNewerApp: true }),
-    'iPhone app 0.8.0 (14), pages of console 2.1.1, from the console. The console has newer pages, which need a newer app');
+  assert.equal(
+    bridge.appWords({ ...line.hello, platform: 'android', bundle: { ...line.hello.bundle, source: 'built-in' } }),
+    'Android app 0.8.0 (14), pages of console 2.1.1, built into the app'
+  );
+  assert.equal(
+    bridge.appWords({ ...line.hello, needsNewerApp: true }),
+    'iPhone app 0.8.0 (14), pages of console 2.1.1, from the console. The console has newer pages, which need a newer app'
+  );
   assert.equal(line.hello.needsNewerApp, false);
   assert.equal(bridge.readHello({ bridge: 0 }), null);
   assert.equal(bridge.readHello('hello'), null);
@@ -165,13 +197,19 @@ const APP_CONFIG = {
   example: false,
 };
 
-test('the app\'s configuration gives the console the phone client, no managed login, and the API at its address', () => {
+test("the app's configuration gives the console the phone client, no managed login, and the API at its address", () => {
   const app = bridge.readAppConfig(APP_CONFIG);
   assert.equal(app.consoleUrl, 'https://console.example');
   const origin = 'cranium-app://bundle';
   assert.deepEqual(bridge.appConsoleConfig(app, origin), {
-    clientId: 'phoneclient0', loginOrigin: '', scope: '', redirectUri: 'cranium-app://bundle/admin', userPoolId: 'xx-test-1_Staff0Pool',
-    idpOrigin: 'https://cognito-idp.xx-test-1.amazonaws.com', apiBase: 'https://console.example', customerSite: '/',
+    clientId: 'phoneclient0',
+    loginOrigin: '',
+    scope: '',
+    redirectUri: 'cranium-app://bundle/admin',
+    userPoolId: 'xx-test-1_Staff0Pool',
+    idpOrigin: 'https://cognito-idp.xx-test-1.amazonaws.com',
+    apiBase: 'https://console.example',
+    customerSite: '/',
   });
   assert.deepEqual(bridge.appSiteConfig(app, origin), {
     customer: { clientId: 'customerphone0', userPoolId: 'xx-test-1_Customer0Pool' },
@@ -183,20 +221,31 @@ test('the app\'s configuration gives the console the phone client, no managed lo
     consoleApi: 'https://console.example',
   });
   // No customer pool: admin mode only, and no way back to a customer side.
-  const staffOnly = bridge.readAppConfig({ ...APP_CONFIG, customerApiUrl: null, customerRegion: null, customerUserPoolId: null, customerClientId: null });
+  const staffOnly = bridge.readAppConfig({
+    ...APP_CONFIG,
+    customerApiUrl: null,
+    customerRegion: null,
+    customerUserPoolId: null,
+    customerClientId: null,
+  });
   assert.equal(staffOnly.customer, null);
   assert.equal(bridge.appSiteConfig(staffOnly, origin), null);
   assert.equal(bridge.appConsoleConfig(staffOnly, origin).customerSite, undefined);
   // Anything that does not look right is not used.
-  for (const change of [{ consoleUrl: 'http://console.example' }, { consoleUrl: 'javascript:alert(1)' }, { region: 'Region 1' },
-    { userPoolId: 'yy-other-2_Staff0Pool' }, { mobileClientId: 'has space' }]) {
+  for (const change of [
+    { consoleUrl: 'http://console.example' },
+    { consoleUrl: 'javascript:alert(1)' },
+    { region: 'Region 1' },
+    { userPoolId: 'yy-other-2_Staff0Pool' },
+    { mobileClientId: 'has space' },
+  ]) {
     assert.equal(bridge.readAppConfig({ ...APP_CONFIG, ...change }), null, JSON.stringify(change));
   }
   assert.equal(bridge.readAppConfig({ ...APP_CONFIG, customerRegion: 'yy-other-2' }).customer, null);
   assert.equal(bridge.readAppConfig(null), null);
 });
 
-test('the page\'s storage in the app lasts as long as the page', () => {
+test("the page's storage in the app lasts as long as the page", () => {
   const storage = bridge.memoryStorage();
   storage.setItem('a', 1);
   assert.equal(storage.getItem('a'), '1');
@@ -209,7 +258,9 @@ test('the page\'s storage in the app lasts as long as the page', () => {
 
 test('every method a page asks the app for is in the contract, with only the parameters it lists', () => {
   const sources = [
-    ['src/site/assets/bridge.js', 'bridge.call'], ['src/site/assets/app.js', 'appBridge'], ['src/site/assets/bluetooth.js', 'bridge.call'],
+    ['src/site/assets/bridge.js', 'bridge.call'],
+    ['src/site/assets/app.js', 'appBridge'],
+    ['src/site/assets/bluetooth.js', 'bridge.call'],
     ['src/customer/assets/customer.js', 'appBridge'],
   ].map(([path]) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'));
   const asked = new Set();
@@ -228,13 +279,24 @@ test('every method a page asks the app for is in the contract, with only the par
     }
   }
   // The vault asks for the three of a sign-in.
-  for (const name of ['app.hello', 'app.config', 'app.ready', 'auth.store', 'auth.session', 'auth.signOut', 'ble.upload', 'ble.watch']) {
+  for (const name of [
+    'app.hello',
+    'app.config',
+    'app.ready',
+    'auth.store',
+    'auth.session',
+    'auth.signOut',
+    'ble.upload',
+    'ble.watch',
+  ]) {
     assert.ok(asked.has(name), `${name} is asked for`);
   }
   // The features the page knows are the contract's, and so is the version.
   assert.equal(CONTRACT.bridge, bridge.BRIDGE_VERSION);
-  assert.deepEqual([...CONTRACT.features].sort(), ['appUpdate', 'auth', 'ble', 'biometric', 'clipboard', 'haptics', 'keepAwake', 'open', 'settings',
-    'share'].sort());
+  assert.deepEqual(
+    [...CONTRACT.features].sort(),
+    ['appUpdate', 'auth', 'ble', 'biometric', 'clipboard', 'haptics', 'keepAwake', 'open', 'settings', 'share'].sort()
+  );
   for (const [name, method] of Object.entries(CONTRACT.methods)) {
     assert.ok(method.feature === null || CONTRACT.features.includes(method.feature), `${name}: ${method.feature}`);
   }
@@ -245,7 +307,12 @@ test('every method a page asks the app for is in the contract, with only the par
 const POOL = 'xx-test-1_Staff0Pool';
 const CLIENT = 'phoneclient0';
 const IDP = 'https://cognito-idp.xx-test-1.amazonaws.com';
-const USER = { email: 'person@example.invalid', userId: '6f1e2d3c-4b5a-4987-8a6b-5c4d3e2f1a0b', password: 'Correct-Horse-B4ttery', code: '246810' };
+const USER = {
+  email: 'person@example.invalid',
+  userId: '6f1e2d3c-4b5a-4987-8a6b-5c4d3e2f1a0b',
+  password: 'Correct-Horse-B4ttery',
+  code: '246810',
+};
 
 function appTab({ session = async () => ({ signedIn: false }), store = async () => ({}) } = {}) {
   const cognito = createCognito({ userPoolId: POOL, clientId: CLIENT, users: [USER] });
@@ -295,10 +362,15 @@ test('in the app the refresh token goes to the app, is never revoked, and the pa
   assert.match(tokens.accessToken, /\S{10,}/);
   assert.ok(tokens.expiresIn > 0);
   // Nothing was revoked, and only the user pool API was spoken to.
-  assert.equal(phone.cognito.calls.some(({ operation }) => operation === 'RevokeToken'), false);
+  assert.equal(
+    phone.cognito.calls.some(({ operation }) => operation === 'RevokeToken'),
+    false
+  );
   assert.ok(phone.fetches.every((url) => url.startsWith(IDP)));
   // The page's own storage holds the access token, never the refresh token.
-  const held = JSON.stringify([...['cranium.session', 'cranium.signin', 'cranium.signedout'].map((key) => phone.storage.getItem(key))]);
+  const held = JSON.stringify([
+    ...['cranium.session', 'cranium.signin', 'cranium.signedout'].map((key) => phone.storage.getItem(key)),
+  ]);
   assert.equal(held.includes(tokens.refreshToken), false);
   assert.equal(phone.auth.accessToken(), tokens.accessToken);
   assert.equal(phone.auth.inApp, true);
@@ -311,14 +383,25 @@ test('in the app the refresh token goes to the app, is never revoked, and the pa
 
 test('in the app a page that opens asks the app for an access token, and renews through it', async () => {
   let given = 0;
-  const phone = appTab({ session: async () => ({ signedIn: true, accessToken: `access-${(given += 1)}`, expiresIn: 3600 }) });
+  const phone = appTab({
+    session: async () => ({ signedIn: true, accessToken: `access-${(given += 1)}`, expiresIn: 3600 }),
+  });
   assert.deepEqual(await phone.auth.resume(), { status: 'signed-in', route: null });
   assert.equal(phone.auth.accessToken(), 'access-1');
   assert.equal(await phone.auth.renew(), true);
   assert.equal(phone.auth.accessToken(), 'access-2');
 
-  for (const [code, reason] of [['cancelled', 'cancelled'], ['locked', 'locked'], ['network', 'network'], ['failed', 'failed']]) {
-    const refusing = appTab({ session: async () => { throw Object.assign(new Error('no'), { code }); } });
+  for (const [code, reason] of [
+    ['cancelled', 'cancelled'],
+    ['locked', 'locked'],
+    ['network', 'network'],
+    ['failed', 'failed'],
+  ]) {
+    const refusing = appTab({
+      session: async () => {
+        throw Object.assign(new Error('no'), { code });
+      },
+    });
     assert.deepEqual(await refusing.auth.resume(), { status: 'sign-in', reason }, code);
     assert.equal(await refusing.auth.renew(), false);
   }
@@ -327,7 +410,7 @@ test('in the app a page that opens asks the app for an access token, and renews 
   assert.deepEqual(await odd.auth.resume(), { status: 'sign-in' });
 });
 
-test('the vault hands the app the pool and the tokens, in the contract\'s ranges', async () => {
+test("the vault hands the app the pool and the tokens, in the contract's ranges", async () => {
   const calls = [];
   const line = { call: async (method, params) => calls.push({ method, params }) };
   const vault = bridge.createVault(line, 'customer');
@@ -336,7 +419,10 @@ test('the vault hands the app the pool and the tokens, in the contract\'s ranges
   await vault.session();
   await vault.signOut();
   assert.deepEqual(calls, [
-    { method: 'auth.store', params: { pool: 'customer', refreshToken: 'r', accessToken: 'a', idToken: 'i', expiresIn: 3600 } },
+    {
+      method: 'auth.store',
+      params: { pool: 'customer', refreshToken: 'r', accessToken: 'a', idToken: 'i', expiresIn: 3600 },
+    },
     { method: 'auth.store', params: { pool: 'customer', refreshToken: 'r', accessToken: 'a', expiresIn: 86400 } },
     { method: 'auth.session', params: { pool: 'customer' } },
     { method: 'auth.signOut', params: { pool: 'customer' } },
@@ -346,7 +432,7 @@ test('the vault hands the app the pool and the tokens, in the contract\'s ranges
   assert.ok(calls[1].params.expiresIn <= store.expiresIn.max);
 });
 
-test('the API client in the app calls the console\'s address, and asks for a sign-in when a change needs a fresh one', async () => {
+test("the API client in the app calls the console's address, and asks for a sign-in when a change needs a fresh one", async () => {
   const urls = [];
   const signIns = [];
   const api = core.createApi({
@@ -354,8 +440,12 @@ test('the API client in the app calls the console\'s address, and asks for a sig
     fetch: async (url) => {
       urls.push(url);
       if (url.endsWith('/revoke')) {
-        return new Response(JSON.stringify({ error: { code: 'phone_sign_in_again', message: 'To change anything from the phone, sign in again first.' } }),
-          { status: 403 });
+        return new Response(
+          JSON.stringify({
+            error: { code: 'phone_sign_in_again', message: 'To change anything from the phone, sign in again first.' },
+          }),
+          { status: 403 }
+        );
       }
       return new Response(JSON.stringify({ email: 'a@example.invalid', groups: [], canWrite: false }), { status: 200 });
     },

@@ -17,7 +17,19 @@
 
 import { ApiError, boardName, boardOf, dateAndTime, exactTime, isCustomerId, isThing, timeAgo } from './core.js';
 import {
-  badge, boardLabel, button, card, empty, failure, h, icon, loadProblem, loading, mono, notice, pageHead,
+  badge,
+  boardLabel,
+  button,
+  card,
+  empty,
+  failure,
+  h,
+  icon,
+  loadProblem,
+  loading,
+  mono,
+  notice,
+  pageHead,
 } from './views.js';
 
 let app = null;
@@ -44,7 +56,12 @@ export function resources(state) {
 
 /** Hold the refresh while something is being typed or sent. */
 export function holdStill() {
-  return invite.busy || invite.email !== '' || [...rows.values()].some((row) => row.busy || row.thing !== '') || confirming !== null;
+  return (
+    invite.busy ||
+    invite.email !== '' ||
+    [...rows.values()].some((row) => row.busy || row.thing !== '') ||
+    confirming !== null
+  );
 }
 
 // Reading the reply into known shapes.
@@ -61,11 +78,13 @@ function readCustomer(raw) {
     name: text(raw.name, 60),
     status: STATUSES.includes(raw.status) ? raw.status : 'other',
     createdAt: typeof raw.createdAt === 'string' && TIME.test(raw.createdAt) ? raw.createdAt : null,
-    boards: (Array.isArray(raw.boards) ? raw.boards : []).filter((board) => isThing(board?.thing)).map((board) => ({
-      thing: board.thing,
-      label: text(board.label, 40),
-      assignedAt: typeof board.assignedAt === 'string' && TIME.test(board.assignedAt) ? board.assignedAt : null,
-    })),
+    boards: (Array.isArray(raw.boards) ? raw.boards : [])
+      .filter((board) => isThing(board?.thing))
+      .map((board) => ({
+        thing: board.thing,
+        label: text(board.label, 40),
+        assignedAt: typeof board.assignedAt === 'string' && TIME.test(board.assignedAt) ? board.assignedAt : null,
+      })),
   };
 }
 
@@ -156,43 +175,82 @@ function statusBadge(status) {
 
 function inviteCard(ctx, data) {
   const noAddress = data.siteUrl === '';
-  return card({ key: 'invite', title: 'Invite a customer' },
-    h('form', {
-      class: 'customer-invite',
-      novalidate: true,
-      'aria-busy': invite.busy ? 'true' : null,
-      onSubmit(event) {
-        event.preventDefault();
-        sendInvite();
+  return card(
+    { key: 'invite', title: 'Invite a customer' },
+    h(
+      'form',
+      {
+        class: 'customer-invite',
+        novalidate: true,
+        'aria-busy': invite.busy ? 'true' : null,
+        onSubmit(event) {
+          event.preventDefault();
+          sendInvite();
+        },
       },
-    },
-    h('label', { class: 'field' },
-      h('span', { class: 'field-label' }, 'E-mail address'),
-      h('input', {
-        class: 'input', id: 'customer-email', type: 'email', autocomplete: 'off', inputmode: 'email', autocapitalize: 'off',
-        spellcheck: 'false', value: invite.email, readonly: invite.busy,
-        onInput: (event) => {
-          invite.email = event.target.value;
-        },
-      })),
-    h('label', { class: 'field' },
-      h('span', { class: 'field-label' }, 'Name ', h('span', { class: 'quiet' }, '(optional)')),
-      h('input', {
-        class: 'input', id: 'customer-name', type: 'text', autocomplete: 'off', maxlength: '60', value: invite.name,
-        readonly: invite.busy,
-        onInput: (event) => {
-          invite.name = event.target.value;
-        },
-      })),
-    h('div', { class: 'button-row' },
-      h('button', {
-        type: 'submit', class: 'btn is-primary', 'aria-disabled': invite.busy || noAddress ? 'true' : null,
-      }, invite.busy ? 'Inviting…' : 'Invite'))),
-    h('p', { class: 'card-note' }, noAddress
-      ? 'Invitations wait for the customer site to have an address (CustomerDomainName): an invitation names it.'
-      : ['Cognito e-mails the invitation with a temporary password, which works for 7 days. The customer signs in at ',
-        h('a', { href: data.siteUrl }, data.siteUrl), '.']),
-    invite.error ? failure('Nobody was invited.', invite.error) : null);
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, 'E-mail address'),
+        h('input', {
+          class: 'input',
+          id: 'customer-email',
+          type: 'email',
+          autocomplete: 'off',
+          inputmode: 'email',
+          autocapitalize: 'off',
+          spellcheck: 'false',
+          value: invite.email,
+          readonly: invite.busy,
+          onInput: (event) => {
+            invite.email = event.target.value;
+          },
+        })
+      ),
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, 'Name ', h('span', { class: 'quiet' }, '(optional)')),
+        h('input', {
+          class: 'input',
+          id: 'customer-name',
+          type: 'text',
+          autocomplete: 'off',
+          maxlength: '60',
+          value: invite.name,
+          readonly: invite.busy,
+          onInput: (event) => {
+            invite.name = event.target.value;
+          },
+        })
+      ),
+      h(
+        'div',
+        { class: 'button-row' },
+        h(
+          'button',
+          {
+            type: 'submit',
+            class: 'btn is-primary',
+            'aria-disabled': invite.busy || noAddress ? 'true' : null,
+          },
+          invite.busy ? 'Inviting…' : 'Invite'
+        )
+      )
+    ),
+    h(
+      'p',
+      { class: 'card-note' },
+      noAddress
+        ? 'Invitations wait for the customer site to have an address (CustomerDomainName): an invitation names it.'
+        : [
+            'Cognito e-mails the invitation with a temporary password, which works for 7 days. The customer signs in at ',
+            h('a', { href: data.siteUrl }, data.siteUrl),
+            '.',
+          ]
+    ),
+    invite.error ? failure('Nobody was invited.', invite.error) : null
+  );
 }
 
 /** The boards nobody has, for the list of boards to give. */
@@ -204,58 +262,112 @@ function freeBoards(ctx, customers) {
 function assignForm(customer, free) {
   const row = rowOf(customer.id);
   if (free.length === 0) return h('p', { class: 'card-note' }, 'Every board has a customer already.');
-  return h('form', {
-    class: 'customer-assign',
-    novalidate: true,
-    onSubmit(event) {
-      event.preventDefault();
-      if (row.busy || !isThing(row.thing)) return;
-      const { thing, label } = row;
-      act(customer.id, async () => {
-        await app.api.assignBoard(customer.id, { thing, label: label.trim() });
-        row.thing = '';
-        row.label = '';
-      }, `${boardName(boardOf(thing, free))} is ${customer.email || 'the customer'}'s now.`);
-    },
-  },
-  h('label', { class: 'field' },
-    h('span', { class: 'field-label' }, 'Give a board'),
-    h('select', {
-      class: 'input', value: row.thing,
-      onChange: (event) => {
-        row.thing = event.target.value;
-        app.draw();
+  return h(
+    'form',
+    {
+      class: 'customer-assign',
+      novalidate: true,
+      onSubmit(event) {
+        event.preventDefault();
+        if (row.busy || !isThing(row.thing)) return;
+        const { thing, label } = row;
+        act(
+          customer.id,
+          async () => {
+            await app.api.assignBoard(customer.id, { thing, label: label.trim() });
+            row.thing = '';
+            row.label = '';
+          },
+          `${boardName(boardOf(thing, free))} is ${customer.email || 'the customer'}'s now.`
+        );
       },
     },
-    h('option', { value: '' }, 'Choose a board…'),
-    free.map((device) => h('option', { key: device.thing, value: device.thing }, boardName(device, { full: true }))))),
-  h('label', { class: 'field' },
-    h('span', { class: 'field-label' }, 'Called ', h('span', { class: 'quiet' }, '(optional, what the customer sees)')),
-    h('input', {
-      class: 'input', type: 'text', maxlength: '40', value: row.label, autocomplete: 'off',
-      onInput: (event) => {
-        row.label = event.target.value;
-      },
-    })),
-  h('div', { class: 'button-row' },
-    h('button', { type: 'submit', class: 'btn', 'aria-disabled': row.busy || !isThing(row.thing) ? 'true' : null },
-      icon('plus'), row.busy ? 'Giving…' : 'Give board')));
+    h(
+      'label',
+      { class: 'field' },
+      h('span', { class: 'field-label' }, 'Give a board'),
+      h(
+        'select',
+        {
+          class: 'input',
+          value: row.thing,
+          onChange: (event) => {
+            row.thing = event.target.value;
+            app.draw();
+          },
+        },
+        h('option', { value: '' }, 'Choose a board…'),
+        free.map((device) => h('option', { key: device.thing, value: device.thing }, boardName(device, { full: true })))
+      )
+    ),
+    h(
+      'label',
+      { class: 'field' },
+      h(
+        'span',
+        { class: 'field-label' },
+        'Called ',
+        h('span', { class: 'quiet' }, '(optional, what the customer sees)')
+      ),
+      h('input', {
+        class: 'input',
+        type: 'text',
+        maxlength: '40',
+        value: row.label,
+        autocomplete: 'off',
+        onInput: (event) => {
+          row.label = event.target.value;
+        },
+      })
+    ),
+    h(
+      'div',
+      { class: 'button-row' },
+      h(
+        'button',
+        { type: 'submit', class: 'btn', 'aria-disabled': row.busy || !isThing(row.thing) ? 'true' : null },
+        icon('plus'),
+        row.busy ? 'Giving…' : 'Give board'
+      )
+    )
+  );
 }
 
 function boardItem(customer, board, devices) {
   const key = `remove ${customer.id} ${board.thing}`;
   const known = boardOf(board.thing, devices);
-  return h('li', { class: 'customer-board', key: board.thing },
-    h('span', { class: 'customer-board-name' },
+  return h(
+    'li',
+    { class: 'customer-board', key: board.thing },
+    h(
+      'span',
+      { class: 'customer-board-name' },
       boardLabel(known),
-      board.label ? h('span', { class: 'quiet' }, ` · called “${board.label}”`) : null),
-    h('span', { class: 'customer-board-since quiet' }, board.assignedAt ? `since ${dateAndTime(board.assignedAt)}` : ''),
+      board.label ? h('span', { class: 'quiet' }, ` · called “${board.label}”`) : null
+    ),
+    h(
+      'span',
+      { class: 'customer-board-since quiet' },
+      board.assignedAt ? `since ${dateAndTime(board.assignedAt)}` : ''
+    ),
     confirming === key
-      ? h('span', { class: 'button-row' },
-        button('is-small is-danger', () => act(customer.id, () => app.api.unassignBoard(customer.id, board.thing),
-          `${boardName(known)} is taken back.`), 'Take it back'),
-        button('is-small is-quiet', () => ask(null), 'Keep'))
-      : button('is-small', () => ask(key), icon('undo'), 'Take back'));
+      ? h(
+          'span',
+          { class: 'button-row' },
+          button(
+            'is-small is-danger',
+            () =>
+              act(
+                customer.id,
+                () => app.api.unassignBoard(customer.id, board.thing),
+                `${boardName(known)} is taken back.`
+              ),
+            'Take it back'
+          ),
+          button('is-small is-quiet', () => ask(null), 'Keep')
+        )
+      : button('is-small', () => ask(key), icon('undo'), 'Take back')
+  );
 }
 
 function customerRow(ctx, customer, free) {
@@ -263,75 +375,168 @@ function customerRow(ctx, customer, free) {
   const devices = ctx.state.devices.value?.devices ?? [];
   const off = `disable ${customer.id}`;
   const name = customer.email || customer.name || 'This account';
-  return h('li', { class: 'customer', key: customer.id },
-    h('div', { class: 'customer-head' },
-      h('div', { class: 'customer-who' },
-        h('span', { class: 'customer-email' }, customer.email || h('span', { class: 'quiet' }, 'No address: the account is gone')),
-        h('span', { class: 'customer-meta quiet' },
+  return h(
+    'li',
+    { class: 'customer', key: customer.id },
+    h(
+      'div',
+      { class: 'customer-head' },
+      h(
+        'div',
+        { class: 'customer-who' },
+        h(
+          'span',
+          { class: 'customer-email' },
+          customer.email || h('span', { class: 'quiet' }, 'No address: the account is gone')
+        ),
+        h(
+          'span',
+          { class: 'customer-meta quiet' },
           customer.name ? `${customer.name} · ` : '',
-          customer.createdAt ? h('time', { datetime: customer.createdAt, title: exactTime(customer.createdAt) },
-            `invited ${timeAgo(customer.createdAt, ctx.state.now)}`) : '',
-          ' · ', mono(customer.id, 'customer-id'))),
-      statusBadge(customer.status)),
-    h('ul', { class: 'customer-boards' },
+          customer.createdAt
+            ? h(
+                'time',
+                { datetime: customer.createdAt, title: exactTime(customer.createdAt) },
+                `invited ${timeAgo(customer.createdAt, ctx.state.now)}`
+              )
+            : '',
+          ' · ',
+          mono(customer.id, 'customer-id')
+        )
+      ),
+      statusBadge(customer.status)
+    ),
+    h(
+      'ul',
+      { class: 'customer-boards' },
       customer.boards.length === 0
         ? h('li', { class: 'quiet' }, 'No boards yet.')
-        : customer.boards.map((board) => boardItem(customer, board, devices))),
+        : customer.boards.map((board) => boardItem(customer, board, devices))
+    ),
     customer.status === 'gone' ? null : assignForm(customer, free),
-    h('div', { class: 'button-row customer-actions' },
+    h(
+      'div',
+      { class: 'button-row customer-actions' },
       customer.status === 'invited'
-        ? button('is-small', () => act(customer.id, () => app.api.resendInvitation(customer.id),
-          `The invitation to ${name} is sent again.`), icon('send'), 'Send the invitation again')
+        ? button(
+            'is-small',
+            () =>
+              act(customer.id, () => app.api.resendInvitation(customer.id), `The invitation to ${name} is sent again.`),
+            icon('send'),
+            'Send the invitation again'
+          )
         : null,
       customer.status === 'disabled'
-        ? button('is-small', () => act(customer.id, () => app.api.setCustomerEnabled(customer.id, true),
-          `${name} can sign in again.`), icon('check'), 'Switch on')
+        ? button(
+            'is-small',
+            () => act(customer.id, () => app.api.setCustomerEnabled(customer.id, true), `${name} can sign in again.`),
+            icon('check'),
+            'Switch on'
+          )
         : null,
       customer.status === 'active' || customer.status === 'invited'
-        ? (confirming === off
-          ? [h('span', { class: 'card-note', key: 'ask' }, `${name} will not be able to sign in, and stops seeing their boards within a minute.`),
-            button('is-small is-danger', () => act(customer.id, () => app.api.setCustomerEnabled(customer.id, false),
-              `${name} is switched off.`), 'Switch off'),
-            button('is-small is-quiet', () => ask(null), 'Keep')]
-          : button('is-small', () => ask(off), icon('ban'), 'Switch off'))
-        : null),
-    row.error ? failure('That did not change.', row.error) : null);
+        ? confirming === off
+          ? [
+              h(
+                'span',
+                { class: 'card-note', key: 'ask' },
+                `${name} will not be able to sign in, and stops seeing their boards within a minute.`
+              ),
+              button(
+                'is-small is-danger',
+                () =>
+                  act(customer.id, () => app.api.setCustomerEnabled(customer.id, false), `${name} is switched off.`),
+                'Switch off'
+              ),
+              button('is-small is-quiet', () => ask(null), 'Keep'),
+            ]
+          : button('is-small', () => ask(off), icon('ban'), 'Switch off')
+        : null
+    ),
+    row.error ? failure('That did not change.', row.error) : null
+  );
 }
 
 export function customersView(ctx) {
   const data = listing.value;
   const head = pageHead({
     title: 'Customers',
-    lede: 'The people who sign in to the customer site, and the boards that are theirs. A customer sees their own boards ' +
+    lede:
+      'The people who sign in to the customer site, and the boards that are theirs. A customer sees their own boards ' +
       'and nothing else of the fleet. Every change here is in the activity log.',
-    tools: data?.siteUrl ? h('a', { class: 'btn is-small', href: data.siteUrl }, 'Open the customer site', icon('arrow-right')) : null,
+    tools: data?.siteUrl
+      ? h('a', { class: 'btn is-small', href: data.siteUrl }, 'Open the customer site', icon('arrow-right'))
+      : null,
   });
   if (data === null) {
-    return h('div', { class: 'page customers-page', key: 'page' }, head,
-      loadProblem(listing, 'the customers', ctx), listing.error ? null : loading('the customers'));
+    return h(
+      'div',
+      { class: 'page customers-page', key: 'page' },
+      head,
+      loadProblem(listing, 'the customers', ctx),
+      listing.error ? null : loading('the customers')
+    );
   }
   if (!data.configured) {
-    return h('div', { class: 'page customers-page', key: 'page' }, head,
-      notice('warn', 'alert', 'This deployment has no customer pool, so it has no customers. Deploying the stack again sets it up (docs/customer-site.md).'));
+    return h(
+      'div',
+      { class: 'page customers-page', key: 'page' },
+      head,
+      notice(
+        'warn',
+        'alert',
+        'This deployment has no customer pool, so it has no customers. Deploying the stack again sets it up (docs/customer-site.md).'
+      )
+    );
   }
   const free = freeBoards(ctx, data.customers);
-  return h('div', { class: 'page customers-page', key: 'page' }, head,
+  return h(
+    'div',
+    { class: 'page customers-page', key: 'page' },
+    head,
     loadProblem(listing, 'the customers', ctx),
     data.siteUrl === ''
-      ? h('div', { class: 'page-notice' }, notice('warn', 'alert', [
-        h('strong', null, 'The customer site has no address yet. '),
-        'Boards can be given out already; invitations wait until CustomerDomainName is set.',
-      ]))
+      ? h(
+          'div',
+          { class: 'page-notice' },
+          notice('warn', 'alert', [
+            h('strong', null, 'The customer site has no address yet. '),
+            'Boards can be given out already; invitations wait until CustomerDomainName is set.',
+          ])
+        )
       : null,
-    h('div', { class: 'customers-layout' },
-      card({ key: 'list', title: `${data.customers.length === 1 ? '1 customer' : `${data.customers.length} customers`}` },
+    h(
+      'div',
+      { class: 'customers-layout' },
+      card(
+        { key: 'list', title: `${data.customers.length === 1 ? '1 customer' : `${data.customers.length} customers`}` },
         data.customers.length === 0
-          ? empty({ iconName: 'user', title: 'No customers yet.', text: 'Invite the first one: they get an e-mail with a temporary password.' })
-          : h('ul', { class: 'customers' }, data.customers.map((customer) => customerRow(ctx, customer, free)))),
-      h('div', { class: 'customers-side' },
+          ? empty({
+              iconName: 'user',
+              title: 'No customers yet.',
+              text: 'Invite the first one: they get an e-mail with a temporary password.',
+            })
+          : h(
+              'ul',
+              { class: 'customers' },
+              data.customers.map((customer) => customerRow(ctx, customer, free))
+            )
+      ),
+      h(
+        'div',
+        { class: 'customers-side' },
         inviteCard(ctx, data),
-        card({ key: 'free', title: 'Boards nobody has' },
+        card(
+          { key: 'free', title: 'Boards nobody has' },
           free.length === 0
             ? h('p', { class: 'card-note' }, 'None: every board has a customer.')
-            : h('ul', { class: 'customers-free' }, free.map((device) => h('li', { key: device.thing }, boardLabel(device))))))));
+            : h(
+                'ul',
+                { class: 'customers-free' },
+                free.map((device) => h('li', { key: device.thing }, boardLabel(device)))
+              )
+        )
+      )
+    )
+  );
 }

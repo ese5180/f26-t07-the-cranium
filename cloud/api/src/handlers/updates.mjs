@@ -33,8 +33,20 @@ import { eventRange } from '../lib/events.mjs';
 import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
 import { lineRange } from '../lib/lines.mjs';
 import {
-  BACKFILL_KEY, afterCursor, backfillMarker, checkWindow, decodeUpdateCursor, encodeUpdateCursor, factFromItem,
-  factsFromItems, foldUpdates, newestFirst, pageSizeOf, personOf, pickCheck, presentUpdate,
+  BACKFILL_KEY,
+  afterCursor,
+  backfillMarker,
+  checkWindow,
+  decodeUpdateCursor,
+  encodeUpdateCursor,
+  factFromItem,
+  factsFromItems,
+  foldUpdates,
+  newestFirst,
+  pageSizeOf,
+  personOf,
+  pickCheck,
+  presentUpdate,
 } from '../lib/updates.mjs';
 import { parseJobId, requireThing } from '../lib/validate.mjs';
 
@@ -55,11 +67,11 @@ function remember(map, key, value) {
 }
 
 export function createUpdateHandlers({ aws, now, log }, { devices, deployments }) {
-  const lists = new Map();      // thing -> { records, at }
-  const unwritten = new Map();  // thing -> { facts, at }: a backfill whose facts could not all be put
-  const checks = new Map();     // update id + window -> the check before its send, or null
-  const names = new Map();      // sub -> the name its account has in the user pool, '' for none
-  const creators = new Map();   // deployment id -> who started it, or null
+  const lists = new Map(); // thing -> { records, at }
+  const unwritten = new Map(); // thing -> { facts, at }: a backfill whose facts could not all be put
+  const checks = new Map(); // update id + window -> the check before its send, or null
+  const names = new Map(); // sub -> the name its account has in the user pool, '' for none
+  const creators = new Map(); // deployment id -> who started it, or null
 
   function warn(event, fields, error) {
     log({ level: 'warn', event, ...fields, error: describeError(error).message });
@@ -70,7 +82,13 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
     const nowMs = now();
     const [events, lines] = await Promise.all([
       aws.queryEvents({ thing, ...eventRange(0, nowMs + 60_000), kinds: [...BACKFILL_KINDS], limit: BACKFILL_LIMIT }),
-      aws.queryEvents({ thing, ...lineRange(0, nowMs + 60_000), kinds: ['bluetooth'], tags: ['BT'], limit: BACKFILL_LIMIT }),
+      aws.queryEvents({
+        thing,
+        ...lineRange(0, nowMs + 60_000),
+        kinds: ['bluetooth'],
+        tags: ['BT'],
+        limit: BACKFILL_LIMIT,
+      }),
     ]);
     // One for each key, at its first time: the board says some of them again and again.
     const first = new Map();
@@ -81,9 +99,13 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
     try {
       await mapLimit(facts, MAX_IN_FLIGHT, (item) => aws.putUpdateFact(item));
       const oldest = facts.reduce((least, item) => Math.min(least, item.at), Infinity);
-      await aws.putUpdateFact(backfillMarker(thing, {
-        at: nowMs, facts: facts.length, oldest: Number.isFinite(oldest) ? oldest : null,
-      }));
+      await aws.putUpdateFact(
+        backfillMarker(thing, {
+          at: nowMs,
+          facts: facts.length,
+          oldest: Number.isFinite(oldest) ? oldest : null,
+        })
+      );
       unwritten.delete(thing);
     } catch (error) {
       warn('updates_backfill_unwritten', { thing }, error);
@@ -137,8 +159,13 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
 
   /** Who started each deployment among the records, from its job's description. */
   async function addCreators(records) {
-    const ids = [...new Set(records.filter((record) => record.how === 'deployment' && parseJobId(record.deployment) !== null)
-      .map((record) => record.deployment))].filter((id) => !creators.has(id));
+    const ids = [
+      ...new Set(
+        records
+          .filter((record) => record.how === 'deployment' && parseJobId(record.deployment) !== null)
+          .map((record) => record.deployment)
+      ),
+    ].filter((id) => !creators.has(id));
     await mapLimit(ids, MAX_IN_FLIGHT, async (id) => {
       try {
         const summary = await deployments.summary(id);
@@ -156,28 +183,34 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
   /** Who sent each update over Bluetooth among the records, from the check their phone made before the send. */
   async function addSenders(records) {
     const nowMs = now();
-    await mapLimit(records.filter((record) => record.how === 'bluetooth'), MAX_IN_FLIGHT, async (record) => {
-      const window = checkWindow(record);
-      const key = `${record.id} ${window.fromMs}`;
-      let found = checks.get(key);
-      if (found === undefined) {
-        try {
-          const entries = await aws.queryAudit({
-            before: `${iso(window.toMs)}~`, after: iso(window.fromMs), limit: CHECK_ENTRIES,
-          });
-          const check = pickCheck(record, entries);
-          found = check === null ? null : { who: await named(personOf(check.actor)), at: Date.parse(check.at) };
-          // A window that is over cannot gain an entry: remember what it held.
-          if (window.toMs < nowMs) remember(checks, key, found);
-        } catch (error) {
-          warn('checks_unreadable', { thing: record.thing }, error);
-          found = null;
+    await mapLimit(
+      records.filter((record) => record.how === 'bluetooth'),
+      MAX_IN_FLIGHT,
+      async (record) => {
+        const window = checkWindow(record);
+        const key = `${record.id} ${window.fromMs}`;
+        let found = checks.get(key);
+        if (found === undefined) {
+          try {
+            const entries = await aws.queryAudit({
+              before: `${iso(window.toMs)}~`,
+              after: iso(window.fromMs),
+              limit: CHECK_ENTRIES,
+            });
+            const check = pickCheck(record, entries);
+            found = check === null ? null : { who: await named(personOf(check.actor)), at: Date.parse(check.at) };
+            // A window that is over cannot gain an entry: remember what it held.
+            if (window.toMs < nowMs) remember(checks, key, found);
+          } catch (error) {
+            warn('checks_unreadable', { thing: record.thing }, error);
+            found = null;
+          }
         }
+        record.who = found?.who ?? null;
+        // The update began when the phone was about to send it.
+        if (found !== null && Number.isFinite(found.at)) record.startedAt = Math.min(record.startedAt, found.at);
       }
-      record.who = found?.who ?? null;
-      // The update began when the phone was about to send it.
-      if (found !== null && Number.isFinite(found.at)) record.startedAt = Math.min(record.startedAt, found.at);
-    });
+    );
   }
 
   /**
@@ -201,7 +234,7 @@ export function createUpdateHandlers({ aws, now, log }, { devices, deployments }
 
   /** Every registered board's updates (or those of `only`), newest first. */
   async function allRecords(only = null) {
-    const things = only ?? await devices.groupThings();
+    const things = only ?? (await devices.groupThings());
     const lists_ = await mapLimit(things, MAX_IN_FLIGHT, (thing) => recordsOf(thing));
     return lists_.flat().sort(newestFirst);
   }

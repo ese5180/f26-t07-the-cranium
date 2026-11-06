@@ -81,8 +81,17 @@ export const QR = scriptAddress('qrcode.js');
 // The phone app's bridge, the steps after a Bluetooth send, and the app's Bluetooth page (docs/mobile-apps.md).
 export const BRIDGE = scriptAddress('bridge.js');
 export const UPDATEWATCH = scriptAddress('updatewatch.js', { 'core.js': CORE });
-export const BLUETOOTH = scriptAddress('bluetooth.js', { 'core.js': CORE, 'views.js': VIEWS, 'updatewatch.js': UPDATEWATCH });
-export const APPS = scriptAddress('apps.js', { 'core.js': CORE, 'history.js': HISTORY, 'qrcode.js': QR, 'views.js': VIEWS });
+export const BLUETOOTH = scriptAddress('bluetooth.js', {
+  'core.js': CORE,
+  'views.js': VIEWS,
+  'updatewatch.js': UPDATEWATCH,
+});
+export const APPS = scriptAddress('apps.js', {
+  'core.js': CORE,
+  'history.js': HISTORY,
+  'qrcode.js': QR,
+  'views.js': VIEWS,
+});
 
 // The document.
 
@@ -250,7 +259,7 @@ class Element extends Node {
     sent.preventDefault = () => {
       sent.defaultPrevented = true;
     };
-    for (const listener of [...this.listeners.get(sent.type) ?? []]) listener(sent);
+    for (const listener of [...(this.listeners.get(sent.type) ?? [])]) listener(sent);
     return sent;
   }
 
@@ -294,7 +303,7 @@ export function createDocument(ids = []) {
       document.listeners.get(type).add(listener);
     },
     dispatchEvent(event) {
-      for (const listener of [...document.listeners.get(event.type) ?? []]) listener(event);
+      for (const listener of [...(document.listeners.get(event.type) ?? [])]) listener(event);
     },
   };
   document.body = new Element('body', null, document);
@@ -331,22 +340,46 @@ const classesOf = (el) => (el.getAttribute('class') ?? '').split(/\s+/).filter(B
  */
 export function all(root, selector) {
   const [tag, ...classes] = selector.split('.');
-  return descendants(root).filter((el) =>
-    (tag === '' || el.localName === tag) && classes.every((name) => classesOf(el).includes(name)));
+  return descendants(root).filter(
+    (el) => (tag === '' || el.localName === tag) && classes.every((name) => classesOf(el).includes(name))
+  );
 }
 
 // Elements that the stylesheet sets apart from what is next to them: blocks, and the
 // boxes that stand in a row with a gap between them.
 const SET_APART = new Set([
-  'article', 'button', 'code', 'dd', 'details', 'div', 'dl', 'dt', 'fieldset', 'footer', 'form', 'h1', 'h2',
-  'header', 'label', 'legend', 'li', 'ol', 'p', 'section', 'summary', 'textarea', 'ul',
+  'article',
+  'button',
+  'code',
+  'dd',
+  'details',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'footer',
+  'form',
+  'h1',
+  'h2',
+  'header',
+  'label',
+  'legend',
+  'li',
+  'ol',
+  'p',
+  'section',
+  'summary',
+  'textarea',
+  'ul',
 ]);
 const BOXES = ['badge', 'btn', 'tag', 'fact-note'];
 
 function reads(node) {
   if (node.nodeType === 3) return node.textContent;
   const text = node.childNodes.map(reads).join('');
-  const apart = SET_APART.has(node.localName) || classesOf(node).some((name) => BOXES.includes(name)) ||
+  const apart =
+    SET_APART.has(node.localName) ||
+    classesOf(node).some((name) => BOXES.includes(name)) ||
     // The facts of a "dotted" run stand side by side with a dot between them.
     (node.parentNode !== null && classesOf(node.parentNode).includes('dotted'));
   return apart ? ` ${text} ` : text;

@@ -32,7 +32,8 @@ function same(a, b) {
 
 function noBody(json) {
   const body = json();
-  if (Object.keys(body).length > 0) throw badRequest('unexpected_field', 'This takes no fields: the address is your own.');
+  if (Object.keys(body).length > 0)
+    throw badRequest('unexpected_field', 'This takes no fields: the address is your own.');
 }
 
 export function createAlertHandlers({ aws, now, directory }) {
@@ -50,7 +51,9 @@ export function createAlertHandlers({ aws, now, directory }) {
   async function recentSubscribes(sub) {
     const after = new Date(now() - HOUR_MS).toISOString();
     const items = await aws.queryAudit({ before: null, after, limit: 1000 });
-    return items.filter((item) => item?.action === 'alert.subscribe' && item?.outcome === 'ok' && item?.actor?.sub === sub).length;
+    return items.filter(
+      (item) => item?.action === 'alert.subscribe' && item?.outcome === 'ok' && item?.actor?.sub === sub
+    ).length;
   }
 
   return {
@@ -64,7 +67,11 @@ export function createAlertHandlers({ aws, now, directory }) {
           canSubscribe: caller.groups.includes(RELEASE_MANAGERS) && email !== '',
           subscribers: mine.subscribers,
           recent: sent.map(sentFromItem).filter((item) => item !== null),
-          rules: { offlineMinutes: OFFLINE_AFTER_MS / 60_000, everyMinutes: ALERT_EVERY_MS / 60_000, movedMetres: MOVED_METRES },
+          rules: {
+            offlineMinutes: OFFLINE_AFTER_MS / 60_000,
+            everyMinutes: ALERT_EVERY_MS / 60_000,
+            movedMetres: MOVED_METRES,
+          },
         },
       };
     },
@@ -76,9 +83,13 @@ export function createAlertHandlers({ aws, now, directory }) {
       entry.target = email;
       const mine = await subscriptionsOf(email);
       if (mine.state === 'confirmed') throw conflict('already_subscribed', 'Alerts already go to your address.');
-      if (await recentSubscribes(actor.sub) >= SUBSCRIBES_PER_HOUR) {
-        throw new HttpError(429, 'rate_limited', `Each request sends an e-mail, so at most ${SUBSCRIBES_PER_HOUR} are ` +
-          'taken an hour. Look for the e-mail from AWS Notifications, also among unwanted mail.');
+      if ((await recentSubscribes(actor.sub)) >= SUBSCRIBES_PER_HOUR) {
+        throw new HttpError(
+          429,
+          'rate_limited',
+          `Each request sends an e-mail, so at most ${SUBSCRIBES_PER_HOUR} are ` +
+            'taken an hour. Look for the e-mail from AWS Notifications, also among unwanted mail.'
+        );
       }
       const made = await aws.subscribeAlerts(email);
       const subscription = made.pending ? 'pending' : 'confirmed';
@@ -92,8 +103,11 @@ export function createAlertHandlers({ aws, now, directory }) {
       entry.target = email;
       const mine = await subscriptionsOf(email);
       if (mine.state === 'pending') {
-        throw conflict('not_confirmed', 'Your subscription waits for you to confirm it, so nothing is sent yet. ' +
-          'If you leave the e-mail from AWS Notifications alone, its link lapses after two days and nothing ever is.');
+        throw conflict(
+          'not_confirmed',
+          'Your subscription waits for you to confirm it, so nothing is sent yet. ' +
+            'If you leave the e-mail from AWS Notifications alone, its link lapses after two days and nothing ever is.'
+        );
       }
       if (mine.confirmed === null) throw notFound('not_subscribed', 'Alerts do not go to your address.');
       const removed = await aws.unsubscribeAlerts(mine.confirmed.arn);

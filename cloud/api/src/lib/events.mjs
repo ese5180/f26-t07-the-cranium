@@ -68,8 +68,15 @@ const REASON = /^[A-Z][A-Z_]{0,47}$/;
 const SHORT_ASCII = /^[\x20-\x7e]{0,64}$/;
 const PRINTABLE = /^[\x20-\x7e]{1,200}$/;
 const HEX = /^[0-9a-f]{1,8}$/;
-const OTA_STATES = Object.freeze(
-  ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth']);
+const OTA_STATES = Object.freeze([
+  'idle',
+  'awaiting_user',
+  'downloading',
+  'verifying',
+  'rebooting',
+  'testing',
+  'bluetooth',
+]);
 
 // The fields an event may carry, each with the check that it passes on its way in and out.
 const int = (min, max) => (value) => Number.isInteger(value) && value >= min && value <= max;
@@ -123,7 +130,7 @@ export function duration(seconds) {
 function ordinal(count) {
   const tens = count % 100;
   if (tens >= 11 && tens <= 13) return `${count}th`;
-  return `${count}${({ 1: 'st', 2: 'nd', 3: 'rd' })[count % 10] ?? 'th'}`;
+  return `${count}${{ 1: 'st', 2: 'nd', 3: 'rd' }[count % 10] ?? 'th'}`;
 }
 
 function kib(bytes) {
@@ -153,7 +160,17 @@ const CAUSE_WORDS = Object.freeze({
   temperature: 'a temperature reset',
 });
 // Causes that say that something went wrong, not that somebody restarted the board.
-const BAD_CAUSES = new Set(['brownout', 'watchdog', 'lockup', 'security', 'parity', 'pll', 'clock', 'hardware', 'temperature']);
+const BAD_CAUSES = new Set([
+  'brownout',
+  'watchdog',
+  'lockup',
+  'security',
+  'parity',
+  'pll',
+  'clock',
+  'hardware',
+  'temperature',
+]);
 
 const STAGE_WORDS = Object.freeze({
   1: 'started its program',
@@ -215,8 +232,10 @@ const BAD_BT = new Set(['rolled_back', 'not_installed', 'trial_lost', 'flash_err
 const PROOF_WORDS = Object.freeze({ person: ', kept by a person at the board', cloud: ', proved by the cloud' });
 
 function causeWords(causes) {
-  return causes.map((cause) => CAUSE_WORDS[cause] ?? 'an unknown cause').filter((words, index, all) =>
-    all.indexOf(words) === index).join(' and ');
+  return causes
+    .map((cause) => CAUSE_WORDS[cause] ?? 'an unknown cause')
+    .filter((words, index, all) => all.indexOf(words) === index)
+    .join(' and ');
 }
 
 function stageWords(stage) {
@@ -241,8 +260,13 @@ function diaryNews(before, now) {
   const reached = previous === undefined ? '' : `; it had ${stageWords(previous.stage)}`;
   const lead = newBoots > 1 ? `${newBoots} boots since the last report. ` : '';
   const bad = newest.causes.some((cause) => BAD_CAUSES.has(cause));
-  return change('restart', 'boot', `${lead}Last boot ended by ${causeWords(newest.causes)}${reached}`, fields,
-    bad ? 'warn' : 'info');
+  return change(
+    'restart',
+    'boot',
+    `${lead}Last boot ended by ${causeWords(newest.causes)}${reached}`,
+    fields,
+    bad ? 'warn' : 'info'
+  );
 }
 
 /**
@@ -266,8 +290,16 @@ export function changesBetween(previousReported, currentReported) {
   if (stuck !== null) {
     const { count, reason } = stuck;
     const why = STUCK_WORDS[reason] ?? `reason ${reason}`;
-    changes.push(change('restart', 'stuck', `Restarted itself for being stuck: ${why} (${ordinal(count)} time in a row` +
-      `${restarted ? `, after ${duration(before.uptime)} up` : ''})`, { count, reason, ...upFor }, 'warn'));
+    changes.push(
+      change(
+        'restart',
+        'stuck',
+        `Restarted itself for being stuck: ${why} (${ordinal(count)} time in a row` +
+          `${restarted ? `, after ${duration(before.uptime)} up` : ''})`,
+        { count, reason, ...upFor },
+        'warn'
+      )
+    );
   } else if (restarted) {
     const fields = { ...upFor };
     let why = '';
@@ -276,22 +308,41 @@ export function changesBetween(previousReported, currentReported) {
       if (news.fields.stage !== undefined) fields.stage = news.fields.stage;
       why = `. ${news.text}`;
     }
-    changes.push(change('restart', 'restarted', `Restarted after ${duration(before.uptime)} up${why}`, fields,
-      news?.level ?? 'info'));
+    changes.push(
+      change(
+        'restart',
+        'restarted',
+        `Restarted after ${duration(before.uptime)} up${why}`,
+        fields,
+        news?.level ?? 'info'
+      )
+    );
     news = null;
   }
   if (news !== null) changes.push(news);
 
   if (now.fw !== null && before.fw?.version !== now.fw.version) {
     const { version, confirmed } = now.fw;
-    changes.push(before.fw === null
-      ? change('firmware', 'reported', `Reported firmware ${version}${confirmed ? '' : ', on trial'}`,
-        { version, confirmed })
-      : change('firmware', 'changed', `Firmware changed from ${before.fw.version} to ${version}${confirmed ? '' : ', on trial'}`,
-        { version, from: before.fw.version, confirmed }));
+    changes.push(
+      before.fw === null
+        ? change('firmware', 'reported', `Reported firmware ${version}${confirmed ? '' : ', on trial'}`, {
+            version,
+            confirmed,
+          })
+        : change(
+            'firmware',
+            'changed',
+            `Firmware changed from ${before.fw.version} to ${version}${confirmed ? '' : ', on trial'}`,
+            { version, from: before.fw.version, confirmed }
+          )
+    );
   } else if (now.fw !== null && before.fw?.confirmed === false && now.fw.confirmed) {
-    changes.push(change('firmware', 'confirmed', `Firmware ${now.fw.version} confirmed`,
-      { version: now.fw.version, confirmed: true }));
+    changes.push(
+      change('firmware', 'confirmed', `Firmware ${now.fw.version} confirmed`, {
+        version: now.fw.version,
+        confirmed: true,
+      })
+    );
   }
 
   const was = before.ota?.state ?? null;
@@ -307,8 +358,13 @@ export function changesBetween(previousReported, currentReported) {
       const { last, error } = now.ota;
       const version = target(before.ota?.job ?? now.ota.job);
       const what = version === null ? 'Update' : `Update to ${version}`;
-      result = change('update', 'result', `${what} ${RESULT_WORDS[last]}${error ? `: ${error}` : ''}`,
-        { result: last, ...(error ? { error } : {}), ...jobField }, BAD_RESULTS.has(last) ? 'warn' : 'info');
+      result = change(
+        'update',
+        'result',
+        `${what} ${RESULT_WORDS[last]}${error ? `: ${error}` : ''}`,
+        { result: last, ...(error ? { error } : {}), ...jobField },
+        BAD_RESULTS.has(last) ? 'warn' : 'info'
+      );
     }
   }
   if (is !== null && was !== is) {
@@ -319,34 +375,59 @@ export function changesBetween(previousReported, currentReported) {
     }
     const fromNothing = was === null || was === 'idle' || was === 'bluetooth';
     if (is !== 'bluetooth' && !(is === 'idle' && (fromNothing || result !== null))) {
-      changes.push(change('update', 'step', STEP_WORDS[is](target(now.ota.job ?? before.ota?.job)),
-        { state: is, progress: now.ota.progress, ...jobField }));
+      changes.push(
+        change('update', 'step', STEP_WORDS[is](target(now.ota.job ?? before.ota?.job)), {
+          state: is,
+          progress: now.ota.progress,
+          ...jobField,
+        })
+      );
     }
   }
   if (result !== null) changes.push(result);
 
-  if (now.bt !== null && (before.bt === null || before.bt.result !== now.bt.result || before.bt.count !== now.bt.count ||
-      before.bt.to !== now.bt.to)) {
+  if (
+    now.bt !== null &&
+    (before.bt === null ||
+      before.bt.result !== now.bt.result ||
+      before.bt.count !== now.bt.count ||
+      before.bt.to !== now.bt.to)
+  ) {
     const { from, to, result: outcome, proof, count } = now.bt;
-    const proved = outcome === 'succeeded' ? PROOF_WORDS[proof] ?? '' : '';
-    changes.push(change('bluetooth', 'record', `Bluetooth update from ${from} to ${to} ${BT_WORDS[outcome]}${proved}`,
-      { from, to, result: outcome, proof, count }, BAD_BT.has(outcome) ? 'warn' : 'info'));
+    const proved = outcome === 'succeeded' ? (PROOF_WORDS[proof] ?? '') : '';
+    changes.push(
+      change(
+        'bluetooth',
+        'record',
+        `Bluetooth update from ${from} to ${to} ${BT_WORDS[outcome]}${proved}`,
+        { from, to, result: outcome, proof, count },
+        BAD_BT.has(outcome) ? 'warn' : 'info'
+      )
+    );
   }
 
   // The name a person gave the board at its serial console. A report without one says nothing
   // about it: older firmware has none to send.
   if (now.name !== null && before.name !== now.name) {
-    changes.push(before.name === null
-      ? change('health', 'named', `Reported its name ${now.name}`, { name: now.name })
-      : change('health', 'named', `Name changed from ${before.name} to ${now.name}`,
-        { name: now.name, nameBefore: before.name }));
+    changes.push(
+      before.name === null
+        ? change('health', 'named', `Reported its name ${now.name}`, { name: now.name })
+        : change('health', 'named', `Name changed from ${before.name} to ${now.name}`, {
+            name: now.name,
+            nameBefore: before.name,
+          })
+    );
   }
 
   const channel = now.diag?.channel ?? 0;
   const channelBefore = before.diag?.channel ?? 0;
   if (channel > 0 && channelBefore > 0 && channel !== channelBefore) {
-    changes.push(change('health', 'channel', `Wi-Fi channel changed from ${channelBefore} to ${channel}`,
-      { channel, before: channelBefore }));
+    changes.push(
+      change('health', 'channel', `Wi-Fi channel changed from ${channelBefore} to ${channel}`, {
+        channel,
+        before: channelBefore,
+      })
+    );
   }
 
   const heap = now.diag?.heap ?? null;
@@ -355,9 +436,15 @@ export function changesBetween(previousReported, currentReported) {
   // Once per boot: the least only goes down until the board restarts.
   if (low(heap) && (!low(heapBefore) || heap.least > heapBefore.least)) {
     const share = Math.round((heap.least / heap.size) * 100);
-    changes.push(change('health', 'memory',
-      `Memory ran low: at one point only ${kib(heap.least)} of ${kib(heap.size)} was free (${share}%)`,
-      { heapLeast: heap.least, heapSize: heap.size }, 'warn'));
+    changes.push(
+      change(
+        'health',
+        'memory',
+        `Memory ran low: at one point only ${kib(heap.least)} of ${kib(heap.size)} was free (${share}%)`,
+        { heapLeast: heap.least, heapSize: heap.size },
+        'warn'
+      )
+    );
   }
   return changes;
 }
@@ -442,7 +529,8 @@ export function recordsFromDocument(document, { nowMs, randomHex }) {
   const atMs = stamped(Number.isInteger(stamp) ? stamp * 1000 + tick : NaN, nowMs);
 
   // At most nine events a report: the tenth would take the place of the next version's first.
-  const items = changesBetween(previous, current).slice(0, 9)
+  const items = changesBetween(previous, current)
+    .slice(0, 9)
     .map((made, index) => eventItem(thing, atMs + index, draw(randomHex), made));
   const sample = sampleOf(current);
   if (sample !== null) {
@@ -463,8 +551,12 @@ export function recordsFromPresence(message, { nowMs, randomHex }) {
     const reason = own(message, 'disconnectReason');
     const known = typeof reason === 'string' && REASON.test(reason) ? reason : null;
     const words = known === null ? undefined : DISCONNECT_WORDS[known];
-    made = change('connection', 'disconnected', `Disconnected from AWS IoT${words ? `: ${words}` : ''}`,
-      known === null ? {} : { reason: known });
+    made = change(
+      'connection',
+      'disconnected',
+      `Disconnected from AWS IoT${words ? `: ${words}` : ''}`,
+      known === null ? {} : { reason: known }
+    );
   }
   return { thing, items: [eventItem(thing, atMs, draw(randomHex), made)] };
 }
@@ -489,8 +581,13 @@ export function eventFromItem(item) {
   if (typeof item.what !== 'string' || !WHAT.test(item.what)) return null;
   if (typeof item.text !== 'string' || !PRINTABLE.test(item.text)) return null;
   const event = {
-    thing: item.pk, at: key[1], id: key[2], kind: item.kind, what: item.what,
-    level: item.level === 'warn' ? 'warn' : 'info', text: item.text,
+    thing: item.pk,
+    at: key[1],
+    id: key[2],
+    kind: item.kind,
+    what: item.what,
+    level: item.level === 'warn' ? 'warn' : 'info',
+    text: item.text,
   };
   for (const [name, check] of Object.entries(FIELDS)) {
     if (Object.hasOwn(item, name) && check(item[name])) event[name] = item[name];
@@ -568,4 +665,3 @@ export function thinSamples(samples, { fromMs, toMs, max = 600 }) {
   }
   return { samples: thinned, bucketSeconds: Math.ceil(width / 1000) };
 }
-

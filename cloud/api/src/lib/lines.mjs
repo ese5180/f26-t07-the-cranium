@@ -56,10 +56,24 @@ import { EVENT_DAYS, stamped } from './events.mjs';
 import { isThing } from './validate.mjs';
 
 export const TAGS = Object.freeze([
-  'BT', 'WIFI', 'STUCK', 'CONSOLE',
+  'BT',
+  'WIFI',
+  'STUCK',
+  'CONSOLE',
   // A board's answer to a command from the console (docs/fleet.md, cranium/<thing>/commands), from 1.13.0.
   'CMD',
-  'app', 'boot_diary', 'bt_ota', 'cloud', 'factory', 'health', 'identity', 'net', 'ota', 'store', 'stuck', 'ui',
+  'app',
+  'boot_diary',
+  'bt_ota',
+  'cloud',
+  'factory',
+  'health',
+  'identity',
+  'net',
+  'ota',
+  'store',
+  'stuck',
+  'ui',
 ]);
 
 export const KIND_OF_TAG = Object.freeze({
@@ -89,7 +103,15 @@ export const SAME_LINE_MS = 10_000;
 // cloud_events.c never_anywhere[], in lower case: a line with any of these in it, in any case, is not
 // stored. "passkey" is also the rule of its own for BT and bt_ota.
 export const NEVER_STORED = Object.freeze([
-  'passkey', 'passphrase', 'password=', 'password:', 'psk=', 'secret', '-----begin', 'private key', 'x-amz-',
+  'passkey',
+  'passphrase',
+  'password=',
+  'password:',
+  'psk=',
+  'secret',
+  '-----begin',
+  'private key',
+  'x-amz-',
 ]);
 // The sources whose lines may hold a network's name between quotes (cloud_events.c RULE_QUOTES_HOLD_A_NETWORK).
 const QUOTES_HOLD_A_NETWORK = new Set(['WIFI', 'net']);
@@ -225,8 +247,15 @@ export function lineFromItem(item) {
   const seq = Number(key[3]);
   if (boot > MAX_COUNT || seq > MAX_COUNT) return null;
   const line = {
-    thing: item.pk, at: key[1], id: `${boot}.${seq}`, kind: item.kind, tag: item.tag,
-    level: item.level === 'warn' ? 'warn' : 'info', text: item.text, boot, seq,
+    thing: item.pk,
+    at: key[1],
+    id: `${boot}.${seq}`,
+    kind: item.kind,
+    tag: item.tag,
+    level: item.level === 'warn' ? 'warn' : 'info',
+    text: item.text,
+    boot,
+    seq,
   };
   if (whole(item.dropped, 1, MAX_COUNT)) line.dropped = item.dropped;
   return line;

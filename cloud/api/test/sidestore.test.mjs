@@ -22,10 +22,21 @@ function setup() {
 
   async function publish(version, build) {
     const bytes = ipa({ version, build, padding: 4096 + Number(build) });
-    const description = { version, buildVersion: build, sha256: sha256(bytes), size: bytes.length, notes: `What ${version} changed.` };
+    const description = {
+      version,
+      buildVersion: build,
+      sha256: sha256(bytes),
+      size: bytes.length,
+      notes: `What ${version} changed.`,
+    };
     const started = await call('POST', '/api/apps/ios/uploads', { as: manager, body: description });
     assert.equal(started.status, 201, JSON.stringify(started.body));
-    context.fake.s3Request({ method: 'PUT', url: started.body.upload.url, headers: started.body.upload.headers, body: bytes });
+    context.fake.s3Request({
+      method: 'PUT',
+      url: started.body.upload.url,
+      headers: started.body.upload.headers,
+      body: bytes,
+    });
     const { version: _, ...rest } = description;
     const done = await call('POST', `/api/apps/ios/releases/${version}`, { as: manager, body: rest });
     assert.equal(done.status, 201, JSON.stringify(done.body));
@@ -43,7 +54,10 @@ test('a member makes a link, shown once; SideStore reads the source with it, wit
   advance(60_000);
   const newest = await publish('0.6.1', '9');
 
-  assert.deepEqual((await call('GET', '/api/apps/sidestore', { as: viewer })).body, { source: null, perMinute: SOURCE_USES_PER_MINUTE });
+  assert.deepEqual((await call('GET', '/api/apps/sidestore', { as: viewer })).body, {
+    source: null,
+    perMinute: SOURCE_USES_PER_MINUTE,
+  });
   const made = await call('POST', '/api/apps/sidestore', { as: viewer, body: {} });
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const { url, add, source } = made.body;
@@ -69,7 +83,8 @@ test('a member makes a link, shown once; SideStore reads the source with it, wit
   const [app] = body.apps;
   assert.equal(body.apps.length, 1);
   assert.deepEqual([app.name, app.bundleIdentifier, app.category], ['Cranium', 'com.craniumiot.cranium', 'utilities']);
-  for (const field of ['developerName', 'localizedDescription', 'iconURL']) assert.equal(typeof app[field], 'string', field);
+  for (const field of ['developerName', 'localizedDescription', 'iconURL'])
+    assert.equal(typeof app[field], 'string', field);
   assert.deepEqual(app.appPermissions, {
     entitlements: [],
     privacy: {
@@ -78,11 +93,22 @@ test('a member makes a link, shown once; SideStore reads the source with it, wit
     },
   });
   // Newest first, each with what SideStore checks of the file it downloads, and a date it can read.
-  assert.deepEqual(app.versions.map((version) => [version.version, version.buildVersion]), [['0.6.1', '9'], ['0.6.0', '8']]);
+  assert.deepEqual(
+    app.versions.map((version) => [version.version, version.buildVersion]),
+    [
+      ['0.6.1', '9'],
+      ['0.6.0', '8'],
+    ]
+  );
   assert.deepEqual(app.versions[0], {
-    version: '0.6.1', buildVersion: '9', date: new Date(clock.ms).toISOString().replace('.000Z', 'Z'),
-    localizedDescription: 'What 0.6.1 changed.', downloadURL: `${CONSOLE}/api/sidestore/${key}/cranium-ios-0.6.1.ipa`,
-    size: newest.length, sha256: sha256(newest), minOSVersion: '16.0',
+    version: '0.6.1',
+    buildVersion: '9',
+    date: new Date(clock.ms).toISOString().replace('.000Z', 'Z'),
+    localizedDescription: 'What 0.6.1 changed.',
+    downloadURL: `${CONSOLE}/api/sidestore/${key}/cranium-ios-0.6.1.ipa`,
+    size: newest.length,
+    sha256: sha256(newest),
+    minOSVersion: '16.0',
   });
   assert.match(app.versions[0].date, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
@@ -96,14 +122,22 @@ test('a member makes a link, shown once; SideStore reads the source with it, wit
   assert.equal(location.searchParams.get('X-Amz-Expires'), '300');
   assert.ok(fake.s3Request({ method: 'GET', url: got.headers.location }).body.equals(newest));
   // On record in the owner's name, with the link's id; the source itself is not.
-  const entries = fake.auditLog().filter((entry) => entry.action.startsWith('app.source') || entry.action === 'app.ios_download');
-  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.actor.email, entry.target]), [
-    ['app.source_create', 'ok', viewer.sub, viewer.email, source.id],
-    ['app.ios_download', 'ok', viewer.sub, viewer.email, '0.6.1'],
-  ]);
+  const entries = fake
+    .auditLog()
+    .filter((entry) => entry.action.startsWith('app.source') || entry.action === 'app.ios_download');
+  assert.deepEqual(
+    entries.map((entry) => [entry.action, entry.outcome, entry.actor.sub, entry.actor.email, entry.target]),
+    [
+      ['app.source_create', 'ok', viewer.sub, viewer.email, source.id],
+      ['app.ios_download', 'ok', viewer.sub, viewer.email, '0.6.1'],
+    ]
+  );
   assert.deepEqual(entries[1].detail, { via: 'sidestore', source: source.id, sha256: sha256(newest) });
   // The owner sees when it was last used.
-  assert.equal((await call('GET', '/api/apps/sidestore', { as: viewer })).body.source.lastUsedAt, new Date(clock.ms).toISOString());
+  assert.equal(
+    (await call('GET', '/api/apps/sidestore', { as: viewer })).body.source.lastUsedAt,
+    new Date(clock.ms).toISOString()
+  );
   // A release manager's link is the same; each member has their own.
   const theirs = (await call('POST', '/api/apps/sidestore', { as: manager, body: {} })).body;
   assert.notEqual(theirs.source.id, source.id);
@@ -142,20 +176,37 @@ test('the log never holds the key; a dead key gets one 404 that names nothing, a
   // Made-up and malformed keys, another spelling of the same bytes, and other files.
   const made = `crs_${'A'.repeat(43)}`;
   const spelling = key.slice(0, -1) + String.fromCharCode(key.charCodeAt(key.length - 1) ^ 1);
-  for (const path of [`/api/sidestore/${made}/source.json`, '/api/sidestore/crs_short/source.json', `/api/sidestore/${spelling}/source.json`]) {
+  for (const path of [
+    `/api/sidestore/${made}/source.json`,
+    '/api/sidestore/crs_short/source.json',
+    `/api/sidestore/${spelling}/source.json`,
+  ]) {
     assert.equal((await call('GET', path)).body.error.code, 'unknown_source', path);
   }
-  for (const path of [`/api/sidestore/${made}/apps.json`, `/api/sidestore/${made}/cranium-ios-0.6.ipa`, `/api/sidestore/${made}`,
-    `/api/sidestore/${made}/source.json/more`]) {
+  for (const path of [
+    `/api/sidestore/${made}/apps.json`,
+    `/api/sidestore/${made}/cranium-ios-0.6.ipa`,
+    `/api/sidestore/${made}`,
+    `/api/sidestore/${made}/source.json/more`,
+  ]) {
     const answer = await call('GET', path);
     assert.ok([404].includes(answer.status), path);
   }
   // None of the refusals above went on record; the revocation and the two links did.
-  const added = fake.auditLog().slice(before).map((entry) => [entry.action, entry.outcome]);
-  assert.deepEqual(added, [['app.source_revoke', 'ok'], ['app.source_revoke', 'rejected']]);
+  const added = fake
+    .auditLog()
+    .slice(before)
+    .map((entry) => [entry.action, entry.outcome]);
+  assert.deepEqual(added, [
+    ['app.source_revoke', 'ok'],
+    ['app.source_revoke', 'rejected'],
+  ]);
   // Another member's revocation does not reach this member's link.
   const third = (await call('POST', '/api/apps/sidestore', { as: viewer, body: {} })).body;
-  assert.equal((await call('POST', '/api/apps/sidestore/revoke', { as: manager, body: {} })).body.error.code, 'no_source');
+  assert.equal(
+    (await call('POST', '/api/apps/sidestore/revoke', { as: manager, body: {} })).body.error.code,
+    'no_source'
+  );
   assert.equal((await sidestore(third.url)).status, 200);
 });
 
@@ -163,7 +214,8 @@ test('someone who is no longer a member takes their source with them; the use of
   const { call, viewer, publish, sidestore, fake, advance } = setup();
   await publish('0.6.0', '8');
   const { url } = (await call('POST', '/api/apps/sidestore', { as: viewer, body: {} })).body;
-  for (let use = 0; use < SOURCE_USES_PER_MINUTE; use += 1) assert.equal((await sidestore(url)).status, 200, String(use));
+  for (let use = 0; use < SOURCE_USES_PER_MINUTE; use += 1)
+    assert.equal((await sidestore(url)).status, 200, String(use));
   const limited = await sidestore(url);
   assert.deepEqual([limited.status, limited.body.error.code], [429, 'rate_limited']);
   advance(60_000);
@@ -187,27 +239,52 @@ test('a link is made and turned off on the website only, by its owner: not with 
   const byToken = await call('POST', '/api/t/apps/sidestore', { token, body: {} });
   assert.deepEqual([byToken.status, byToken.body.error.code], [403, 'token_not_allowed']);
   assert.equal((await call('GET', '/api/t/apps/sidestore', { token })).status, 403);
-  const phone = accessClaims({ sub: viewer.sub, groups: ['viewers'], clientId: config.mobileClientId, authTime: Math.floor(clock.ms / 1000) });
-  assert.deepEqual((await call('POST', '/api/apps/sidestore', { claims: phone, body: {} })).body.error.code, 'phone_not_allowed');
+  const phone = accessClaims({
+    sub: viewer.sub,
+    groups: ['viewers'],
+    clientId: config.mobileClientId,
+    authTime: Math.floor(clock.ms / 1000),
+  });
+  assert.deepEqual(
+    (await call('POST', '/api/apps/sidestore', { claims: phone, body: {} })).body.error.code,
+    'phone_not_allowed'
+  );
   // Another member's link is theirs alone.
   const other = await call('POST', '/api/apps/sidestore/revoke', { as: viewer, body: {} });
   assert.equal(other.body.error.code, 'no_source');
 });
 
-test('the source lists nothing until an IPA is published, and declares every version\'s usage descriptions', () => {
+test("the source lists nothing until an IPA is published, and declares every version's usage descriptions", () => {
   const empty = buildSource({ consoleUrl: `${CONSOLE}/`, key: 'crs_k', releases: [] });
   assert.deepEqual([empty.apps, empty.news, empty.sourceURL], [[], [], `${CONSOLE}/api/sidestore/crs_k/source.json`]);
   const release = (version, privacy, publishedAt = '2026-11-05T12:00:00.000Z') => ({
-    version, buildVersion: '1', publishedAt, notes: '', filename: `cranium-ios-${version}.ipa`, size: 1, sha256: 'a'.repeat(64),
-    minOSVersion: null, bundleId: 'com.craniumiot.cranium', privacy,
+    version,
+    buildVersion: '1',
+    publishedAt,
+    notes: '',
+    filename: `cranium-ios-${version}.ipa`,
+    size: 1,
+    sha256: 'a'.repeat(64),
+    minOSVersion: null,
+    bundleId: 'com.craniumiot.cranium',
+    privacy,
   });
   const built = buildSource({
     consoleUrl: CONSOLE,
     key: 'crs_k',
-    releases: [release('0.7.0', { NSFaceIDUsageDescription: 'new words' }), release('0.6.0', { NSCameraUsageDescription: 'c', NSFaceIDUsageDescription: 'old' }),
-      release('0.5.0', {}, null)],
+    releases: [
+      release('0.7.0', { NSFaceIDUsageDescription: 'new words' }),
+      release('0.6.0', { NSCameraUsageDescription: 'c', NSFaceIDUsageDescription: 'old' }),
+      release('0.5.0', {}, null),
+    ],
   });
-  assert.deepEqual(built.apps[0].appPermissions.privacy, { NSCameraUsageDescription: 'c', NSFaceIDUsageDescription: 'new words' });
-  assert.deepEqual(built.apps[0].versions.map((version) => version.version), ['0.7.0', '0.6.0']);
+  assert.deepEqual(built.apps[0].appPermissions.privacy, {
+    NSCameraUsageDescription: 'c',
+    NSFaceIDUsageDescription: 'new words',
+  });
+  assert.deepEqual(
+    built.apps[0].versions.map((version) => version.version),
+    ['0.7.0', '0.6.0']
+  );
   assert.equal(Object.hasOwn(built.apps[0].versions[0], 'minOSVersion'), false);
 });

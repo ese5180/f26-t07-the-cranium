@@ -91,8 +91,10 @@ export function requireJobId(value) {
 
 export function requireFilename(value) {
   if (typeof value !== 'string' || !FILENAME.test(value)) {
-    throw badRequest('invalid_filename',
-      'The file name may contain letters, digits, dots, dashes and underscores, 64 characters at most.');
+    throw badRequest(
+      'invalid_filename',
+      'The file name may contain letters, digits, dots, dashes and underscores, 64 characters at most.'
+    );
   }
   return value;
 }
@@ -176,7 +178,10 @@ export function requireSha256(value) {
 export function requireBluetoothName(value) {
   if (value === undefined) return null;
   if (typeof value !== 'string' || !BLUETOOTH_NAME.test(value)) {
-    throw badRequest('invalid_board', '"board" is the name the board advertises: Cranium- and four hexadecimal digits.');
+    throw badRequest(
+      'invalid_board',
+      '"board" is the name the board advertises: Cranium- and four hexadecimal digits.'
+    );
   }
   return value;
 }
@@ -188,8 +193,10 @@ export function requireTokenName(value) {
   }
   const name = value.trim();
   if (name === '' || name.length > MAX_TOKEN_NAME || CONTROL.test(name)) {
-    throw badRequest('invalid_token_name',
-      `A token's name is one line of 1 to ${MAX_TOKEN_NAME} characters, without control characters.`);
+    throw badRequest(
+      'invalid_token_name',
+      `A token's name is one line of 1 to ${MAX_TOKEN_NAME} characters, without control characters.`
+    );
   }
   return name;
 }
@@ -252,8 +259,12 @@ export function requireEventRange(fromMs, toMs) {
 export function requireKinds(value, known) {
   if (value === undefined) return null;
   const kinds = typeof value === 'string' ? value.split(',') : [];
-  if (kinds.length === 0 || kinds.length > known.length || kinds.some((kind) => !known.includes(kind)) ||
-      new Set(kinds).size !== kinds.length) {
+  if (
+    kinds.length === 0 ||
+    kinds.length > known.length ||
+    kinds.some((kind) => !known.includes(kind)) ||
+    new Set(kinds).size !== kinds.length
+  ) {
     throw badRequest('invalid_kinds', `"kinds" is a list of kinds separated by commas, from: ${known.join(', ')}.`);
   }
   return kinds;
@@ -263,8 +274,12 @@ export function requireKinds(value, known) {
 export function requireTags(value, known) {
   if (value === undefined) return null;
   const tags = typeof value === 'string' ? value.split(',') : [];
-  if (tags.length === 0 || tags.length > known.length || tags.some((tag) => !known.includes(tag)) ||
-      new Set(tags).size !== tags.length) {
+  if (
+    tags.length === 0 ||
+    tags.length > known.length ||
+    tags.some((tag) => !known.includes(tag)) ||
+    new Set(tags).size !== tags.length
+  ) {
     throw badRequest('invalid_tags', `"tags" is a list of sources separated by commas, from: ${known.join(', ')}.`);
   }
   return tags;

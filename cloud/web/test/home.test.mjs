@@ -19,10 +19,14 @@ const WWW = `www.${HOME}`;
 const CONSOLE = 'console.example.test';
 const LOGIN = 'https://cranium-0a1b2c3d.auth.region-1.login.test';
 const SETTINGS = {
-  clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console', userPoolId: 'xx-test-1_Pool0Tests',
+  clientId: 'client-id-for-tests',
+  loginOrigin: LOGIN,
+  scope: 'openid cranium/console',
+  userPoolId: 'xx-test-1_Pool0Tests',
 };
 
-const HOME_CSP = "default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; " +
+const HOME_CSP =
+  "default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; " +
   "form-action 'none'; frame-ancestors 'none'";
 
 const read = (name) => readFileSync(new URL(name, SITE), 'utf8');
@@ -45,26 +49,40 @@ test('a console host gets the same bytes and headers as when there is no home pa
   const paths = ['/', '/nothing', '/assets/000000000000/app.js', ...site.console.assets.keys()];
   for (const path of paths) {
     for (const method of ['GET', 'POST', 'HEAD']) {
-      assert.deepEqual(await serve(request(path, CONSOLE, method)), await without(request(path, CONSOLE, method)),
-        `${method} ${path}`);
+      assert.deepEqual(
+        await serve(request(path, CONSOLE, method)),
+        await without(request(path, CONSOLE, method)),
+        `${method} ${path}`
+      );
     }
   }
   const page = await serve(request('/', CONSOLE));
   assert.equal(page.statusCode, 200);
   assert.match(page.body, /<meta name="cranium-config" content="[^"]+">/);
   assert.match(page.body, /<meta name="robots" content="noindex, nofollow">/);
-  assert.match(page.headers['content-security-policy'],
-    new RegExp(`connect-src 'self' ${LOGIN} https://cognito-idp\\.xx-test-1\\.amazonaws\\.com;`));
+  assert.match(
+    page.headers['content-security-policy'],
+    new RegExp(`connect-src 'self' ${LOGIN} https://cognito-idp\\.xx-test-1\\.amazonaws\\.com;`)
+  );
 });
 
 test('an unknown host gets the console, and only the exact names get the home page', async () => {
-  for (const name of ['other.example.test', `x.${HOME}`, `www.${WWW}`, `${HOME}.evil.example`, 'example.test',
-    'a1b2c3d4e5.execute-api.region-1.cloud.test']) {
+  for (const name of [
+    'other.example.test',
+    `x.${HOME}`,
+    `www.${WWW}`,
+    `${HOME}.evil.example`,
+    'example.test',
+    'a1b2c3d4e5.execute-api.region-1.cloud.test',
+  ]) {
     const page = await serve(request('/', name));
     assert.equal(page.statusCode, 200, name);
     assert.match(page.body, /cranium-config/, name);
-    assert.equal(JSON.parse(/content="([^"]+)"/.exec(page.body.split('cranium-config')[1])[1].replaceAll('&quot;', '"'))
-      .redirectUri, `https://${name}/`);
+    assert.equal(
+      JSON.parse(/content="([^"]+)"/.exec(page.body.split('cranium-config')[1])[1].replaceAll('&quot;', '"'))
+        .redirectUri,
+      `https://${name}/`
+    );
     assert.match(page.headers['content-security-policy'], /script-src 'self'/, name);
   }
   // What is not a host name in lower case is refused as it always was, not repaired.
@@ -74,7 +92,7 @@ test('an unknown host gets the console, and only the exact names get the home pa
   }
 });
 
-test('a home host gets the home page, with a stricter policy and none of the console\'s settings', async () => {
+test("a home host gets the home page, with a stricter policy and none of the console's settings", async () => {
   for (const name of [HOME, WWW]) {
     const page = await serve(request('/', name));
     assert.equal(page.statusCode, 200);
@@ -84,7 +102,14 @@ test('a home host gets the home page, with a stricter policy and none of the con
     assert.match(page.body, /^<!doctype html>/);
     assert.doesNotMatch(page.body, /%BUILD%|%CONFIG%|cranium-config/);
     const everything = JSON.stringify(page);
-    for (const secretless of [SETTINGS.clientId, LOGIN, SETTINGS.userPoolId, 'cognito-idp', 'cranium/console', 'oauth2']) {
+    for (const secretless of [
+      SETTINGS.clientId,
+      LOGIN,
+      SETTINGS.userPoolId,
+      'cognito-idp',
+      'cranium/console',
+      'oauth2',
+    ]) {
       assert.equal(everything.includes(secretless), false, secretless);
     }
   }
@@ -93,17 +118,31 @@ test('a home host gets the home page, with a stricter policy and none of the con
 test('every reply on a home host carries the same security headers as the console', async () => {
   const consolePage = await serve(request('/', CONSOLE));
   const stylesheet = [...site.home.assets.keys()][0];
-  for (const [path, method] of [['/', 'GET'], [stylesheet, 'GET'], ['/nothing', 'GET'], ['/', 'HEAD'], ['/', 'POST']]) {
+  for (const [path, method] of [
+    ['/', 'GET'],
+    [stylesheet, 'GET'],
+    ['/nothing', 'GET'],
+    ['/', 'HEAD'],
+    ['/', 'POST'],
+  ]) {
     const { headers } = await serve(request(path, HOME, method));
     assert.equal(headers['content-security-policy'], HOME_CSP, `${method} ${path}`);
-    for (const name of ['strict-transport-security', 'x-content-type-options', 'referrer-policy',
-      'cross-origin-opener-policy', 'cross-origin-resource-policy']) {
+    for (const name of [
+      'strict-transport-security',
+      'x-content-type-options',
+      'referrer-policy',
+      'cross-origin-opener-policy',
+      'cross-origin-resource-policy',
+    ]) {
       assert.equal(headers[name], consolePage.headers[name], `${method} ${path}: ${name}`);
     }
     // The same, except that only the console has a page that uses a serial port.
     assert.match(headers['permissions-policy'], /(^|, )serial=\(\)(,|$)/, `${method} ${path}`);
-    assert.equal(headers['permissions-policy'],
-      consolePage.headers['permissions-policy'].replace('serial=(self)', 'serial=()'), `${method} ${path}`);
+    assert.equal(
+      headers['permissions-policy'],
+      consolePage.headers['permissions-policy'].replace('serial=(self)', 'serial=()'),
+      `${method} ${path}`
+    );
   }
   const head = await serve(request('/', HOME, 'HEAD'));
   assert.equal(head.statusCode, 405);
@@ -118,9 +157,16 @@ test('a home host serves its stylesheet and cannot reach a file of the console',
   assert.equal(stylesheet.headers['content-type'], 'text/css; charset=utf-8');
   assert.equal(stylesheet.headers['cache-control'], 'public, max-age=31536000, immutable');
 
-  const paths = [...site.console.assets.keys(), '/index.html', '/home.html',
-    `/assets/${site.home.buildId}/app.js`, `/assets/${site.home.buildId}/index.html`,
-    `/assets/${site.console.buildId}/home.css`, '/api/', '/api/me'];
+  const paths = [
+    ...site.console.assets.keys(),
+    '/index.html',
+    '/home.html',
+    `/assets/${site.home.buildId}/app.js`,
+    `/assets/${site.home.buildId}/index.html`,
+    `/assets/${site.console.buildId}/home.css`,
+    '/api/',
+    '/api/me',
+  ];
   for (const path of paths) {
     const reply = await serve(request(path, HOME));
     assert.equal(reply.statusCode, 404, path);
@@ -143,8 +189,17 @@ test('everything the home page refers to is served, from the same host', async (
 });
 
 test('a list of home hosts that is not a list of host names is refused when the handler is made', () => {
-  for (const homeHosts of ['one.example', [HOME.toUpperCase()], ['two words.example'], [`${HOME},${WWW}`], [''],
-    [7], [null], [`${HOME}:443`], ['-leading.example']]) {
+  for (const homeHosts of [
+    'one.example',
+    [HOME.toUpperCase()],
+    ['two words.example'],
+    [`${HOME},${WWW}`],
+    [''],
+    [7],
+    [null],
+    [`${HOME}:443`],
+    ['-leading.example'],
+  ]) {
     assert.throws(() => createWebHandler({ ...SETTINGS, homeHosts }), TypeError, JSON.stringify(homeHosts));
   }
 });
@@ -173,7 +228,10 @@ test('HOME_HOSTS names the home hosts, and left out or empty there are none', as
     return (await import(`../src/server.mjs?${tag}`)).handler;
   };
 
-  for (const [value, tag] of [[undefined, 'absent'], ['', 'empty']]) {
+  for (const [value, tag] of [
+    [undefined, 'absent'],
+    ['', 'empty'],
+  ]) {
     const page = await (await fresh(value, tag))(request('/', HOME));
     assert.match(page.body, /cranium-config/, tag);
   }
@@ -220,10 +278,18 @@ test('the function does not start with a file in the site that it does not expec
   const strays = [
     ['a page beside the two', unexpected, (directory) => writeFileSync(join(directory, 'about.html'), 'x')],
     ['a script for the home page', unexpected, (directory) => writeFileSync(join(directory, 'assets', 'home.js'), 'x')],
-    ['a second home stylesheet', unexpected, (directory) => writeFileSync(join(directory, 'assets', 'home.print.css'), 'x')],
+    [
+      'a second home stylesheet',
+      unexpected,
+      (directory) => writeFileSync(join(directory, 'assets', 'home.print.css'), 'x'),
+    ],
     ['an image', unexpected, (directory) => writeFileSync(join(directory, 'assets', 'logo.png'), 'x')],
     ['a subdirectory', unexpected, (directory) => mkdirSync(join(directory, 'assets', 'more'))],
-    ['settings in the home page', /must not contain %CONFIG%/, (directory) => writeFileSync(join(directory, 'home.html'), `${html}%CONFIG%`)],
+    [
+      'settings in the home page',
+      /must not contain %CONFIG%/,
+      (directory) => writeFileSync(join(directory, 'home.html'), `${html}%CONFIG%`),
+    ],
     ['no home page', /ENOENT/, (directory) => rmSync(join(directory, 'home.html'))],
     ['no home stylesheet', /home\.css is missing/, (directory) => rmSync(join(directory, 'assets', 'home.css'))],
   ];
@@ -245,9 +311,20 @@ test('the page has no script, no inline style and no event handler', () => {
 });
 
 test('the page says what it is, and that it is in development', () => {
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
-  for (const fact of ['mounted attachment', 'Pioneer FLX4', 'without the laptop', 'Bluetooth audio', 'Raspberry Pi',
-    'In development', 'student team at Penn', 'not for sale']) {
+  const text = html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ');
+  for (const fact of [
+    'mounted attachment',
+    'Pioneer FLX4',
+    'without the laptop',
+    'Bluetooth audio',
+    'Raspberry Pi',
+    'In development',
+    'student team at Penn',
+    'not for sale',
+  ]) {
     assert.ok(text.includes(fact), fact);
   }
   for (const fact of ['ECDSA P-256', 'MCUboot', 'Button 1', 'previous image back', 'Automatic rollback']) {
@@ -256,7 +333,10 @@ test('the page says what it is, and that it is in development', () => {
 });
 
 test('the page does not say that every update needs a button, and keeps what was measured with one', () => {
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/&ndash;/g, '-').replace(/\s+/g, ' ');
+  const text = html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&ndash;/g, '-')
+    .replace(/\s+/g, ' ');
   assert.doesNotMatch(text, /Button 1 pressed|person says yes|A person presses a button|Nothing is downloaded until/);
   assert.ok(text.includes('A release manager deploys it'));
   assert.ok(text.includes('the board then installs it with nobody at the board'));
@@ -269,8 +349,11 @@ test('the page does not say that every update needs a button, and keeps what was
   assert.ok(text.includes('that has not been timed'));
 });
 
-test('the page says no more than the project\'s own documents do', () => {
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/&ndash;/g, '-').replace(/\s+/g, ' ');
+test("the page says no more than the project's own documents do", () => {
+  const text = html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&ndash;/g, '-')
+    .replace(/\s+/g, ' ');
   // What the update path promises holds over the air, and it says so.
   assert.ok(text.includes('Over the air, a board takes only what was signed'));
   assert.doesNotMatch(text, /A board runs only what was signed/);
@@ -282,8 +365,17 @@ test('the page says no more than the project\'s own documents do', () => {
   assert.ok(text.includes('Updating the Raspberry Pi with RAUC'));
   assert.ok(text.includes('To be authenticated before it reaches your other devices'));
   // The limits that the documents state and a reader of them would look for.
-  for (const limit of ['Serial recovery', 'no version check', 'network core', 'device key', 'debug port is open', 'TLS 1.2',
-    'not encrypted', 'no hardware counter', 'no such build yet']) {
+  for (const limit of [
+    'Serial recovery',
+    'no version check',
+    'network core',
+    'device key',
+    'debug port is open',
+    'TLS 1.2',
+    'not encrypted',
+    'no hardware counter',
+    'no such build yet',
+  ]) {
     assert.ok(text.includes(limit), limit);
   }
   // The number of download attempts is the firmware's default.
@@ -300,15 +392,22 @@ test('the page links to the console and the repository, and fetches nothing else
   assert.match(html, /<a class="[^"]*" href="https:\/\/console\.craniumiot\.com">Developer console<\/a>/);
   const links = new Set([...html.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)].map((match) => match[1]));
   for (const link of links) {
-    assert.ok(/^(?:#[a-z]+|\/|https:\/\/console\.craniumiot\.com|https:\/\/github\.com\/ese5180\/f26-t07-the-cranium)$/.test(link), link);
+    assert.ok(
+      /^(?:#[a-z]+|\/|https:\/\/console\.craniumiot\.com|https:\/\/github\.com\/ese5180\/f26-t07-the-cranium)$/.test(
+        link
+      ),
+      link
+    );
   }
   assert.ok(links.has('https://github.com/ese5180/f26-t07-the-cranium'));
   // Every in-page link has somewhere to go.
   for (const link of links) {
     if (link.startsWith('#')) assert.ok(html.includes(` id="${link.slice(1)}"`), link);
   }
-  const resources = [...html.matchAll(/<link\b[^>]*\srel="([^"]+)"[^>]*\shref="([^"]+)"/g)]
-    .map((match) => [match[1], match[2].slice(0, 22)]);
+  const resources = [...html.matchAll(/<link\b[^>]*\srel="([^"]+)"[^>]*\shref="([^"]+)"/g)].map((match) => [
+    match[1],
+    match[2].slice(0, 22),
+  ]);
   assert.deepEqual(resources, [
     ['canonical', 'https://craniumiot.com'],
     ['icon', 'data:image/svg+xml,%3C'],
@@ -318,10 +417,33 @@ test('the page links to the console and the repository, and fetches nothing else
 
 test('the page invents nothing: no price, sale, customer, person or address', () => {
   const words = html.replace(/<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ');
-  for (const pattern of [/[$€£]/, /@/, /\bprices?\b/i, /\bbuy\b/i, /\bpurchase/i, /\bpre-?order/i, /\bcustomers?\b/i,
-    /\btestimonial/i, /\bmarket/i, /\brevenue/i, /\bships?\b/i, /\bshipping\b/i, /\bavailable\b/i, /\bsubscribe\b/i,
-    /\bwaitlist\b/i, /\bBosket\b/i, /\bShalabi\b/i, /\bDurante\b/i, /\bRavishankar\b/i, /\bupenn\b/i, /\bMemfault\b/i,
-    /\barn:/i, /amazonaws/i, /execute-api/i, /amazoncognito/i]) {
+  for (const pattern of [
+    /[$€£]/,
+    /@/,
+    /\bprices?\b/i,
+    /\bbuy\b/i,
+    /\bpurchase/i,
+    /\bpre-?order/i,
+    /\bcustomers?\b/i,
+    /\btestimonial/i,
+    /\bmarket/i,
+    /\brevenue/i,
+    /\bships?\b/i,
+    /\bshipping\b/i,
+    /\bavailable\b/i,
+    /\bsubscribe\b/i,
+    /\bwaitlist\b/i,
+    /\bBosket\b/i,
+    /\bShalabi\b/i,
+    /\bDurante\b/i,
+    /\bRavishankar\b/i,
+    /\bupenn\b/i,
+    /\bMemfault\b/i,
+    /\barn:/i,
+    /amazonaws/i,
+    /execute-api/i,
+    /amazoncognito/i,
+  ]) {
     assert.doesNotMatch(words, pattern);
   }
   // A year stands only where it dates a status or a measurement, not as a copyright or a claim.
@@ -330,12 +452,25 @@ test('the page invents nothing: no price, sale, customer, person or address', ()
 });
 
 test('the page does not depend on what is deployed or on the day it is read', () => {
-  const text = html.replace(/<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const text = html
+    .replace(/<svg[\s\S]*?<\/svg>/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ');
   // The status is dated, so that it stays true when things change. A date is added by hand
   // on purpose: one written at deployment would claim a check that nobody made.
   assert.ok(text.includes('Where it stands, as of November 2026'));
-  for (const pattern of [/\btoday\b/i, /\bdeployed\b/i, /\bright now\b/i, /\bcurrently\b/i, /\bat the moment\b/i,
-    /\bthese days\b/i, /\bthis build\b/i, /\bwhat works\b/i, /\bearlier firmware\b/i, /\blatest\b/i]) {
+  for (const pattern of [
+    /\btoday\b/i,
+    /\bdeployed\b/i,
+    /\bright now\b/i,
+    /\bcurrently\b/i,
+    /\bat the moment\b/i,
+    /\bthese days\b/i,
+    /\bthis build\b/i,
+    /\bwhat works\b/i,
+    /\bearlier firmware\b/i,
+    /\blatest\b/i,
+  ]) {
     assert.doesNotMatch(text, pattern);
   }
   // No run went through a console sign-in (docs/test-results.md, "These results have four limits").
@@ -373,7 +508,7 @@ function colours(text, after, start = 0) {
   return found;
 }
 
-test('the home page uses the console\'s colours, value for value, in both themes and on ink', () => {
+test("the home page uses the console's colours, value for value, in both themes and on ink", () => {
   const darkOf = (text) => text.indexOf('@media (prefers-color-scheme: dark)');
   const darkInkOf = (text) => text.indexOf('@media (prefers-color-scheme: dark)', darkOf(text) + 1);
   const blocks = [
@@ -411,7 +546,8 @@ test('the template sends what no route claims to the web function, and opens not
   assert.ok(route.includes('integrations/${WebIntegration}'));
 
   // The whole list of routes, whatever each one is called: every resource of that type.
-  const routes = template.split('\n')
+  const routes = template
+    .split('\n')
     .filter((line) => /^ {2}\w+:$/.test(line))
     .map((line) => block(template, line.trim().slice(0, -1)))
     .filter((text) => text.includes('Type: AWS::ApiGatewayV2::Route'));
@@ -424,23 +560,37 @@ test('the template sends what no route claims to the web function, and opens not
   // Open, and to the API function: only the routes whose API token the function checks, and SideStore's,
   // whose key in the path the function checks (docs/mobile-apps.md). PUT changes a release's note (docs/fleet.md).
   const tokens = open.filter((text) => !text.includes('integrations/${WebIntegration}'));
-  assert.deepEqual(tokens.map(keyOf).sort(),
-    ['GET /api/sidestore/{proxy+}', 'GET /api/t/{proxy+}', 'POST /api/t/{proxy+}', 'PUT /api/t/{proxy+}']);
+  assert.deepEqual(tokens.map(keyOf).sort(), [
+    'GET /api/sidestore/{proxy+}',
+    'GET /api/t/{proxy+}',
+    'POST /api/t/{proxy+}',
+    'PUT /api/t/{proxy+}',
+  ]);
   for (const text of tokens) assert.ok(text.includes('integrations/${ApiIntegration}'), keyOf(text));
 
   const guarded = routes.filter((text) => !text.includes('AuthorizationType: NONE'));
-  assert.deepEqual(guarded.map(keyOf).sort(),
-    ['GET /api/c/{proxy+}', 'GET /api/{proxy+}', 'POST /api/{proxy+}', 'PUT /api/{proxy+}']);
+  assert.deepEqual(guarded.map(keyOf).sort(), [
+    'GET /api/c/{proxy+}',
+    'GET /api/{proxy+}',
+    'POST /api/{proxy+}',
+    'PUT /api/{proxy+}',
+  ]);
   for (const text of guarded) {
     assert.ok(text.includes('AuthorizationType: JWT'), keyOf(text));
     // The customer site's API is a function of its own, behind an authorizer of its own (docs/customer-site.md).
     const customer = keyOf(text) === 'GET /api/c/{proxy+}';
-    assert.ok(text.includes(customer ? 'integrations/${CustomerApiIntegration}' : 'integrations/${ApiIntegration}'), keyOf(text));
-    assert.ok(text.includes(customer ? 'AuthorizerId: !Ref CustomerAuthorizer' : 'AuthorizerId: !Ref Authorizer'), keyOf(text));
+    assert.ok(
+      text.includes(customer ? 'integrations/${CustomerApiIntegration}' : 'integrations/${ApiIntegration}'),
+      keyOf(text)
+    );
+    assert.ok(
+      text.includes(customer ? 'AuthorizerId: !Ref CustomerAuthorizer' : 'AuthorizerId: !Ref Authorizer'),
+      keyOf(text)
+    );
   }
 });
 
-test('the home page\'s names are optional, and do nothing unless they are set', () => {
+test("the home page's names are optional, and do nothing unless they are set", () => {
   const parameters = block(template, 'Parameters', 0);
   for (const name of ['HomeDomainName', 'HomeCertificateArn']) {
     assert.ok(block(parameters, name).includes("Default: ''"), name);
@@ -448,8 +598,12 @@ test('the home page\'s names are optional, and do nothing unless they are set', 
   }
   assert.ok(template.includes("HasHomeDomain: !Not [!Equals [!Ref HomeDomainName, '']]"));
 
-  for (const [resource, type] of [['HomeDomain', 'DomainName'], ['HomeDomainMapping', 'ApiMapping'],
-    ['HomeWwwDomain', 'DomainName'], ['HomeWwwDomainMapping', 'ApiMapping']]) {
+  for (const [resource, type] of [
+    ['HomeDomain', 'DomainName'],
+    ['HomeDomainMapping', 'ApiMapping'],
+    ['HomeWwwDomain', 'DomainName'],
+    ['HomeWwwDomainMapping', 'ApiMapping'],
+  ]) {
     const text = block(template, resource);
     assert.ok(text.includes(`Type: AWS::ApiGatewayV2::${type}`), resource);
     assert.ok(text.includes('Condition: HasHomeDomain'), resource);
@@ -465,9 +619,11 @@ test('the home page\'s names are optional, and do nothing unless they are set', 
   assert.ok(hosts.includes('- !Ref AWS::NoValue'));
 
   const outputs = block(template, 'Outputs', 0);
-  for (const [output, value] of [['HomeUrl', "https://${HomeDomainName}/"],
+  for (const [output, value] of [
+    ['HomeUrl', 'https://${HomeDomainName}/'],
     ['HomeDomainTarget', '!GetAtt HomeDomain.RegionalDomainName'],
-    ['HomeWwwDomainTarget', '!GetAtt HomeWwwDomain.RegionalDomainName']]) {
+    ['HomeWwwDomainTarget', '!GetAtt HomeWwwDomain.RegionalDomainName'],
+  ]) {
     assert.ok(block(outputs, output).includes('Condition: HasHomeDomain'), output);
     assert.ok(block(outputs, output).includes(value), output);
   }
@@ -479,7 +635,7 @@ test('Cognito is not told about the home page', () => {
   }
 });
 
-test('deploy.sh takes the home page\'s two parameters', () => {
+test("deploy.sh takes the home page's two parameters", () => {
   const accepted = /^\s+([A-Za-z=*|]+)\)$/m;
   const line = deployScript.split('\n').find((text) => text.includes('ConsoleCertificateArn=*'));
   assert.match(line, accepted);

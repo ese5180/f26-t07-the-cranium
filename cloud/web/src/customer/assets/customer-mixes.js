@@ -18,13 +18,24 @@ export const MIX_FORMAT = 'cranium-mixes';
 export const MIX_FORMAT_VERSION = 1;
 
 /** The ranges a page can show, as [value, label]. */
-export const RANGES = Object.freeze([['all', 'All time'], ['7', 'Last 7 days'], ['30', 'Last 30 days']]);
+export const RANGES = Object.freeze([
+  ['all', 'All time'],
+  ['7', 'Last 7 days'],
+  ['30', 'Last 30 days'],
+]);
 const RANGE_DAYS = { 7: 7, 30: 30 };
 const DAY_MS = 86400000;
 
 // How much a journal holds, so that a file cannot fill the browser's storage or the page.
 export const LIMITS = Object.freeze({
-  bytes: 1_000_000, sessions: 200, tracks: 400, moments: 500, text: 120, note: 500, key: 4, seconds: 86400,
+  bytes: 1_000_000,
+  sessions: 200,
+  tracks: 400,
+  moments: 500,
+  text: 120,
+  note: 500,
+  key: 4,
+  seconds: 86400,
 });
 const CSV_COLUMNS = ['session', 'started', 'title', 'artist', 'deck', 'start', 'end', 'bpm', 'key'];
 
@@ -32,19 +43,28 @@ const CSV_COLUMNS = ['session', 'started', 'title', 'artist', 'deck', 'start', '
 function text(value, max = LIMITS.text) {
   if (typeof value !== 'string' && typeof value !== 'number') return '';
   // eslint-disable-next-line no-control-regex
-  return String(value).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
 }
 
 function seconds(value) {
   if (typeof value === 'string' && /^\d{1,3}:\d{2}(?::\d{2})?$/.test(value.trim())) {
-    return value.trim().split(':').reduce((total, part) => total * 60 + Number(part), 0);
+    return value
+      .trim()
+      .split(':')
+      .reduce((total, part) => total * 60 + Number(part), 0);
   }
-  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  const number =
+    typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
   return Number.isFinite(number) && number >= 0 && number <= LIMITS.seconds ? Math.round(number * 10) / 10 : null;
 }
 
 function bpmOf(value) {
-  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  const number =
+    typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
   return Number.isFinite(number) && number >= 40 && number <= 250 ? Math.round(number * 10) / 10 : null;
 }
 
@@ -80,9 +100,16 @@ export function cleanSession(raw, source = 'journal') {
     const start = seconds(item.start);
     let end = seconds(item.end);
     if (start === null || (end !== null && end <= start)) end = null;
-    const deck = typeof item.deck === 'string' && /^[ab]$/i.test(item.deck.trim()) ? item.deck.trim().toUpperCase() : null;
+    const deck =
+      typeof item.deck === 'string' && /^[ab]$/i.test(item.deck.trim()) ? item.deck.trim().toUpperCase() : null;
     tracks.push({
-      title: name, artist: text(item.artist), deck, start, end, bpm: bpmOf(item.bpm), key: text(item.key, LIMITS.key) || null,
+      title: name,
+      artist: text(item.artist),
+      deck,
+      start,
+      end,
+      bpm: bpmOf(item.bpm),
+      key: text(item.key, LIMITS.key) || null,
     });
   }
   if (tracks.length === 0) return null;
@@ -142,17 +169,27 @@ function csvRows(source) {
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
     if (quoted) {
-      if (char === '"' && source[index + 1] === '"') { cell += '"'; index += 1; }
-      else if (char === '"') quoted = false;
+      if (char === '"' && source[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') quoted = false;
       else cell += char;
     } else if (char === '"' && cell === '') quoted = true;
-    else if (char === ',') { row.push(cell); cell = ''; }
-    else if (char === '\n' || char === '\r') {
+    else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n' || char === '\r') {
       if (char === '\r' && source[index + 1] === '\n') index += 1;
-      row.push(cell); rows.push(row); row = []; cell = '';
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
     } else cell += char;
   }
-  if (cell !== '' || row.length > 0) { row.push(cell); rows.push(row); }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
   return rows.filter((cells) => cells.some((value) => value.trim() !== ''));
 }
 
@@ -160,7 +197,10 @@ function fromCsv(source) {
   const [header, ...rows] = csvRows(source);
   const columns = (header ?? []).map((name) => name.trim().toLowerCase());
   for (const required of ['started', 'title']) {
-    if (!columns.includes(required)) throw new ImportProblem(`The file has no "${required}" column. Its first line names the columns: ${CSV_COLUMNS.join(', ')}.`);
+    if (!columns.includes(required))
+      throw new ImportProblem(
+        `The file has no "${required}" column. Its first line names the columns: ${CSV_COLUMNS.join(', ')}.`
+      );
   }
   const sessions = new Map();
   for (const cells of rows) {
@@ -170,8 +210,13 @@ function fromCsv(source) {
     const key = `${started}\u0000${title}`;
     if (!sessions.has(key)) sessions.set(key, { title, startedAt: started, tracks: [] });
     sessions.get(key).tracks.push({
-      title: value('title'), artist: value('artist'), deck: value('deck'), start: value('start'), end: value('end'),
-      bpm: value('bpm'), key: value('key'),
+      title: value('title'),
+      artist: value('artist'),
+      deck: value('deck'),
+      start: value('start'),
+      end: value('end'),
+      bpm: value('bpm'),
+      key: value('key'),
     });
   }
   return { sessions: [...sessions.values()], moments: [] };
@@ -185,7 +230,8 @@ export class ImportProblem extends Error {}
  */
 export function readImport(source, name = '') {
   if (typeof source !== 'string' || source.trim() === '') throw new ImportProblem('The file is empty.');
-  if (source.length > LIMITS.bytes) throw new ImportProblem('The file is larger than 1 MB. Import fewer sessions at a time.');
+  if (source.length > LIMITS.bytes)
+    throw new ImportProblem('The file is larger than 1 MB. Import fewer sessions at a time.');
   let raw;
   const looksJson = /^\s*[[{]/.test(source) || /\.json$/i.test(name);
   if (looksJson) {
@@ -194,8 +240,12 @@ export function readImport(source, name = '') {
     } catch {
       throw new ImportProblem('The file is not JSON this site can read.');
     }
-    if (raw?.format !== MIX_FORMAT) throw new ImportProblem(`The file is not a Cranium session file: it has no "format": "${MIX_FORMAT}".`);
-    if (raw.version !== MIX_FORMAT_VERSION) throw new ImportProblem(`The file is version ${String(raw.version).slice(0, 10)} of the format; this site reads version ${MIX_FORMAT_VERSION}.`);
+    if (raw?.format !== MIX_FORMAT)
+      throw new ImportProblem(`The file is not a Cranium session file: it has no "format": "${MIX_FORMAT}".`);
+    if (raw.version !== MIX_FORMAT_VERSION)
+      throw new ImportProblem(
+        `The file is version ${String(raw.version).slice(0, 10)} of the format; this site reads version ${MIX_FORMAT_VERSION}.`
+      );
     if (raw.session && !raw.sessions) raw = { ...raw, sessions: [raw.session] };
   } else {
     raw = fromCsv(source);
@@ -211,19 +261,31 @@ export function readImport(source, name = '') {
 /** The journal with what was imported added: a session already there is replaced by the file's. */
 export function mergeJournal(journal, imported) {
   return cleanJournal({
-    sessions: [...imported.sessions, ...journal.sessions.filter((session) => !imported.sessions.some((other) => other.id === session.id))],
-    moments: [...imported.moments, ...journal.moments.filter((moment) => !imported.moments.some((other) => other.id === moment.id))],
+    sessions: [
+      ...imported.sessions,
+      ...journal.sessions.filter((session) => !imported.sessions.some((other) => other.id === session.id)),
+    ],
+    moments: [
+      ...imported.moments,
+      ...journal.moments.filter((moment) => !imported.moments.some((other) => other.id === moment.id)),
+    ],
   });
 }
 
 // Writing a file.
 
 export function journalFile(journal, now) {
-  return JSON.stringify({
-    format: MIX_FORMAT, version: MIX_FORMAT_VERSION, exportedAt: new Date(now).toISOString(),
-    sessions: journal.sessions.map(({ source, id, ...session }) => session),
-    moments: journal.moments,
-  }, null, 2);
+  return JSON.stringify(
+    {
+      format: MIX_FORMAT,
+      version: MIX_FORMAT_VERSION,
+      exportedAt: new Date(now).toISOString(),
+      sessions: journal.sessions.map(({ source, id, ...session }) => session),
+      moments: journal.moments,
+    },
+    null,
+    2
+  );
 }
 
 // A cell that a spreadsheet would read as a formula starts with a quote instead.
@@ -237,8 +299,21 @@ export function sessionsCsv(sessions) {
   const lines = [CSV_COLUMNS.join(',')];
   for (const session of sessions) {
     for (const track of session.tracks) {
-      lines.push([session.title, session.startedAt, track.title, track.artist, track.deck, track.start, track.end, track.bpm, track.key]
-        .map(csvCell).join(','));
+      lines.push(
+        [
+          session.title,
+          session.startedAt,
+          track.title,
+          track.artist,
+          track.deck,
+          track.start,
+          track.end,
+          track.bpm,
+          track.key,
+        ]
+          .map(csvCell)
+          .join(',')
+      );
     }
   }
   return `${lines.join('\r\n')}\r\n`;
@@ -247,7 +322,12 @@ export function sessionsCsv(sessions) {
 /** A file name for a download: the site's name, what it is, and the day. */
 export function fileName(what, now, extension) {
   const day = new Date(now).toISOString().slice(0, 10);
-  const slug = text(what).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'mixes';
+  const slug =
+    text(what)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'mixes';
   return `cranium-${slug}-${day}.${extension}`;
 }
 
@@ -267,9 +347,47 @@ const DEMO_TRACKS = [
 
 // [days ago, hour, title, [[track, seconds on the deck, seconds with the next one], ...]]
 const DEMO_SESSIONS = [
-  [1, 21, 'Saturday, no plan', [[0, 300, 39], [1, 330, 48], [2, 360, 27], [3, 300, 42], [4, 330, 54], [5, 300, 30], [6, 290, 36], [7, 300, 0]]],
-  [4, 23, 'One more before midnight', [[8, 290, 24], [0, 300, 39], [1, 320, 48], [2, 300, 30], [6, 310, 36], [7, 300, 0]]],
-  [9, 20, 'Finding the groove', [[7, 300, 30], [0, 290, 36], [3, 300, 42], [4, 280, 30], [1, 300, 45], [5, 290, 0]]],
+  [
+    1,
+    21,
+    'Saturday, no plan',
+    [
+      [0, 300, 39],
+      [1, 330, 48],
+      [2, 360, 27],
+      [3, 300, 42],
+      [4, 330, 54],
+      [5, 300, 30],
+      [6, 290, 36],
+      [7, 300, 0],
+    ],
+  ],
+  [
+    4,
+    23,
+    'One more before midnight',
+    [
+      [8, 290, 24],
+      [0, 300, 39],
+      [1, 320, 48],
+      [2, 300, 30],
+      [6, 310, 36],
+      [7, 300, 0],
+    ],
+  ],
+  [
+    9,
+    20,
+    'Finding the groove',
+    [
+      [7, 300, 30],
+      [0, 290, 36],
+      [3, 300, 42],
+      [4, 280, 30],
+      [1, 300, 45],
+      [5, 290, 0],
+    ],
+  ],
 ];
 
 export function demoJournal(now) {
@@ -300,8 +418,10 @@ export function inRange(sessions, range, now) {
 
 /** The seconds a session had music on a deck: two decks playing at once count once. */
 export function deckSeconds(session) {
-  const spans = session.tracks.filter((track) => track.start !== null && track.end !== null)
-    .map((track) => [track.start, track.end]).sort((a, b) => a[0] - b[0]);
+  const spans = session.tracks
+    .filter((track) => track.start !== null && track.end !== null)
+    .map((track) => [track.start, track.end])
+    .sort((a, b) => a[0] - b[0]);
   let total = 0;
   let current = null;
   for (const [start, end] of spans) {
@@ -333,7 +453,8 @@ const trackKey = (track) => `${track.title.toLowerCase()}\u0000${track.artist.to
 export function transitionsOf(sessions) {
   const pairs = [];
   for (const session of sessions) {
-    const order = session.tracks.map((track, index) => ({ track, index }))
+    const order = session.tracks
+      .map((track, index) => ({ track, index }))
       .sort((a, b) => (a.track.start ?? Infinity) - (b.track.start ?? Infinity) || a.index - b.index);
     for (let position = 1; position < order.length; position += 1) {
       const from = order[position - 1].track;
@@ -364,7 +485,15 @@ export function libraryOf(sessions) {
   for (const session of sessions) {
     for (const track of session.tracks) {
       const key = trackKey(track);
-      const entry = tracks.get(key) ?? { title: track.title, artist: track.artist, plays: 0, seconds: 0, bpm: null, key: null, last: '' };
+      const entry = tracks.get(key) ?? {
+        title: track.title,
+        artist: track.artist,
+        plays: 0,
+        seconds: 0,
+        bpm: null,
+        key: null,
+        last: '',
+      };
       entry.plays += 1;
       if (track.start !== null && track.end !== null) entry.seconds += track.end - track.start;
       if (session.startedAt >= entry.last) {
@@ -375,14 +504,20 @@ export function libraryOf(sessions) {
       tracks.set(key, entry);
     }
   }
-  return [...tracks.values()].sort((a, b) => b.plays - a.plays || b.seconds - a.seconds || a.title.localeCompare(b.title));
+  return [...tracks.values()].sort(
+    (a, b) => b.plays - a.plays || b.seconds - a.seconds || a.title.localeCompare(b.title)
+  );
 }
 
 /** The pair of the newest session that played together the longest: one to come back to. */
 export function momentToRevisit(sessions) {
   const [last] = newestFirst(sessions);
   if (!last) return null;
-  return transitionsOf([last]).filter((pair) => pair.overlap > 0).sort((a, b) => b.overlap - a.overlap)[0] ?? null;
+  return (
+    transitionsOf([last])
+      .filter((pair) => pair.overlap > 0)
+      .sort((a, b) => b.overlap - a.overlap)[0] ?? null
+  );
 }
 
 export function latest(sessions) {
@@ -410,7 +545,10 @@ export function momentOf(pair, note, now) {
 }
 
 export function withMoment(journal, moment) {
-  return cleanJournal({ sessions: journal.sessions, moments: [moment, ...journal.moments.filter((other) => other.id !== moment.id)] });
+  return cleanJournal({
+    sessions: journal.sessions,
+    moments: [moment, ...journal.moments.filter((other) => other.id !== moment.id)],
+  });
 }
 
 export function withoutMoment(journal, id) {
@@ -443,7 +581,9 @@ export function onDecks(total) {
 
 /** The first letters of a track's name, for its square. */
 export function trackInitials(title) {
-  const letters = text(title).replace(/[^\p{L}\p{N} ]/gu, '').trim();
+  const letters = text(title)
+    .replace(/[^\p{L}\p{N} ]/gu, '')
+    .trim();
   return (letters.slice(0, 2) || '♪').toUpperCase();
 }
 
@@ -462,8 +602,13 @@ export function sessionDay(iso) {
 /** A file to start from: one session in the format the site reads, made up like the demo. */
 export function sampleFile(now) {
   const [session] = demoJournal(now).sessions;
-  return JSON.stringify({
-    format: MIX_FORMAT, version: MIX_FORMAT_VERSION,
-    session: { title: 'My first session', startedAt: session.startedAt, tracks: session.tracks },
-  }, null, 2);
+  return JSON.stringify(
+    {
+      format: MIX_FORMAT,
+      version: MIX_FORMAT_VERSION,
+      session: { title: 'My first session', startedAt: session.startedAt, tracks: session.tracks },
+    },
+    null,
+    2
+  );
 }

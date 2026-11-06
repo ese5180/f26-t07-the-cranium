@@ -58,7 +58,8 @@ export function loadCustomerSite(base, siteBase) {
   const files = [{ name: CUSTOMER_PAGE, bytes: readFileSync(new URL(CUSTOMER_PAGE, base)) }];
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (entry.name.startsWith('.')) continue;
-    if (entry.name !== CUSTOMER_PAGE && entry.name !== 'assets') throw new Error(`Unexpected entry in customer/: ${entry.name}`);
+    if (entry.name !== CUSTOMER_PAGE && entry.name !== 'assets')
+      throw new Error(`Unexpected entry in customer/: ${entry.name}`);
   }
   const assetsDir = new URL('assets/', base);
   for (const entry of readdirSync(assetsDir, { withFileTypes: true })) {
@@ -67,7 +68,12 @@ export function loadCustomerSite(base, siteBase) {
     if (!entry.isFile() || !ASSET_NAME.test(entry.name) || !type || !entry.name.startsWith(OWN_PREFIX)) {
       throw new Error(`Unexpected entry in customer/assets/: ${entry.name}`);
     }
-    files.push({ name: `assets/${entry.name}`, file: entry.name, type, bytes: readFileSync(new URL(entry.name, assetsDir)) });
+    files.push({
+      name: `assets/${entry.name}`,
+      file: entry.name,
+      type,
+      bytes: readFileSync(new URL(entry.name, assetsDir)),
+    });
   }
   const siteAssets = new URL('assets/', siteBase);
   for (const name of SHARED_ASSETS) {

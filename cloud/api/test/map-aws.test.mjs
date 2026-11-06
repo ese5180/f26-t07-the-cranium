@@ -19,16 +19,36 @@ const REFERENCE = {
       PutItemCommand: {
         required: ['TableName', 'Item'],
         optional: [
-          'Expected', 'ReturnValues', 'ReturnConsumedCapacity', 'ReturnItemCollectionMetrics', 'ConditionalOperator',
-          'ConditionExpression', 'ExpressionAttributeNames', 'ExpressionAttributeValues', 'ReturnValuesOnConditionCheckFailure',
+          'Expected',
+          'ReturnValues',
+          'ReturnConsumedCapacity',
+          'ReturnItemCollectionMetrics',
+          'ConditionalOperator',
+          'ConditionExpression',
+          'ExpressionAttributeNames',
+          'ExpressionAttributeValues',
+          'ReturnValuesOnConditionCheckFailure',
         ],
       },
       QueryCommand: {
         required: ['TableName'],
         optional: [
-          'IndexName', 'Select', 'AttributesToGet', 'Limit', 'ConsistentRead', 'KeyConditions', 'QueryFilter',
-          'ConditionalOperator', 'ScanIndexForward', 'ExclusiveStartKey', 'ReturnConsumedCapacity', 'ProjectionExpression',
-          'FilterExpression', 'KeyConditionExpression', 'ExpressionAttributeNames', 'ExpressionAttributeValues',
+          'IndexName',
+          'Select',
+          'AttributesToGet',
+          'Limit',
+          'ConsistentRead',
+          'KeyConditions',
+          'QueryFilter',
+          'ConditionalOperator',
+          'ScanIndexForward',
+          'ExclusiveStartKey',
+          'ReturnConsumedCapacity',
+          'ProjectionExpression',
+          'FilterExpression',
+          'KeyConditionExpression',
+          'ExpressionAttributeNames',
+          'ExpressionAttributeValues',
         ],
       },
     },
@@ -39,8 +59,15 @@ const REFERENCE = {
       PublishCommand: {
         required: ['topic'],
         optional: [
-          'qos', 'retain', 'payload', 'userProperties', 'payloadFormatIndicator', 'contentType', 'responseTopic',
-          'correlationData', 'messageExpiry',
+          'qos',
+          'retain',
+          'payload',
+          'userProperties',
+          'payloadFormatIndicator',
+          'contentType',
+          'responseTopic',
+          'correlationData',
+          'messageExpiry',
         ],
       },
     },
@@ -50,7 +77,15 @@ const REFERENCE = {
     commands: {
       GetPositionEstimateCommand: {
         required: [],
-        optional: ['WiFiAccessPoints', 'CellTowers', 'Ip', 'Gnss', 'GnssMultiFrame', 'Timestamp', 'AdvancedConfiguration'],
+        optional: [
+          'WiFiAccessPoints',
+          'CellTowers',
+          'Ip',
+          'Gnss',
+          'GnssMultiFrame',
+          'Timestamp',
+          'AdvancedConfiguration',
+        ],
       },
     },
   },
@@ -61,11 +96,20 @@ const REFERENCE = {
       PublishCommand: {
         required: ['Message'],
         optional: [
-          'TopicArn', 'TargetArn', 'PhoneNumber', 'Subject', 'MessageStructure', 'MessageAttributes',
-          'MessageDeduplicationId', 'MessageGroupId',
+          'TopicArn',
+          'TargetArn',
+          'PhoneNumber',
+          'Subject',
+          'MessageStructure',
+          'MessageAttributes',
+          'MessageDeduplicationId',
+          'MessageGroupId',
         ],
       },
-      SubscribeCommand: { required: ['TopicArn', 'Protocol'], optional: ['Endpoint', 'Attributes', 'ReturnSubscriptionArn'] },
+      SubscribeCommand: {
+        required: ['TopicArn', 'Protocol'],
+        optional: ['Endpoint', 'Attributes', 'ReturnSubscriptionArn'],
+      },
       UnsubscribeCommand: { required: ['SubscriptionArn'], optional: [] },
     },
   },
@@ -123,8 +167,11 @@ function serialized(value) {
   if (value instanceof Uint8Array) return value;
   if (Array.isArray(value)) return value.map(serialized);
   if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [key, serialized(entry)]));
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, serialized(entry)])
+    );
   }
   return value;
 }
@@ -139,7 +186,10 @@ globalThis[Symbol.for('cranium.map-sdk-stand-in')] = {
     assert.ok(spec, `${commandName} is not a command of ${name}`);
     const input = serialized(command.input);
     for (const member of Object.keys(input)) {
-      assert.ok(spec.required.includes(member) || spec.optional.includes(member), `${commandName} has no input member "${member}"`);
+      assert.ok(
+        spec.required.includes(member) || spec.optional.includes(member),
+        `${commandName} has no input member "${member}"`
+      );
     }
     for (const member of spec.required) assert.ok(Object.hasOwn(input, member), `${commandName} needs "${member}"`);
     // Two packages have a PublishCommand: the key says which.
@@ -158,7 +208,9 @@ function sdkError(name, status = 400) {
   error.$metadata = { httpStatusCode: status };
   return error;
 }
-const fails = (name, status) => () => { throw sdkError(name, status); };
+const fails = (name, status) => () => {
+  throw sdkError(name, status);
+};
 
 const { commandTopic, createAlertStore, createLocationStore, createMapAws } = await import('../src/aws-map.mjs');
 
@@ -187,7 +239,12 @@ test('each part reads only the environment it needs, and no client waits without
   for (const { config } of sdk.clients) {
     assert.equal(config.region, 'us-east-1');
     assert.equal(config.maxAttempts, 2);
-    assert.deepEqual(config.requestHandler, { connectionTimeout: 1000, socketTimeout: 3000, requestTimeout: 4000, throwOnRequestTimeout: true });
+    assert.deepEqual(config.requestHandler, {
+      connectionTimeout: 1000,
+      socketTimeout: 3000,
+      requestTimeout: 4000,
+      throwOnRequestTimeout: true,
+    });
   }
   for (const name of Object.keys(ENV)) {
     assert.throws(() => createMapAws({ ...ENV, [name]: '' }), new RegExp(name));
@@ -200,7 +257,12 @@ test('the adapter and the in-memory stand-in have the same methods', () => {
   const real = createMapAws(ENV);
   const fake = createFakeAws();
   assert.deepEqual(Object.keys(real).sort(), [
-    'getLocation', 'listAlertSubscriptions', 'listLocations', 'listSentAlerts', 'publishCommand', 'subscribeAlerts',
+    'getLocation',
+    'listAlertSubscriptions',
+    'listLocations',
+    'listSentAlerts',
+    'publishCommand',
+    'subscribeAlerts',
     'unsubscribeAlerts',
   ]);
   for (const method of Object.keys(real)) assert.equal(typeof fake[method], 'function', method);
@@ -208,7 +270,7 @@ test('the adapter and the in-memory stand-in have the same methods', () => {
   assert.deepEqual(Object.keys(createLocationStore(ENV)).sort(), Object.keys(fake.locationStore()).sort());
 });
 
-test('a command is published with QoS 1 to the board\'s commands topic, as JSON', async () => {
+test("a command is published with QoS 1 to the board's commands topic, as JSON", async () => {
   const aws = fresh();
   sdk.reply('iot-data-plane:PublishCommand', {});
   await aws.publishCommand({ thing: THING, payload: { id: '3f9c2a1b7d4e6f80', cmd: 'identify', seconds: 15 } });
@@ -217,7 +279,11 @@ test('a command is published with QoS 1 to the board\'s commands topic, as JSON'
   assert.equal(commandTopic(THING), input.topic);
   assert.equal(input.qos, 1);
   assert.equal(input.contentType, 'application/json');
-  assert.deepEqual(JSON.parse(Buffer.from(input.payload).toString('utf8')), { id: '3f9c2a1b7d4e6f80', cmd: 'identify', seconds: 15 });
+  assert.deepEqual(JSON.parse(Buffer.from(input.payload).toString('utf8')), {
+    id: '3f9c2a1b7d4e6f80',
+    cmd: 'identify',
+    seconds: 15,
+  });
   assert.equal(Object.hasOwn(input, 'retain'), false);
   sdk.reply('iot-data-plane:PublishCommand', fails('ThrottlingException', 429));
   await rejectsWith(aws.publishCommand({ thing: THING, payload: {} }), { code: 'throttled', operation: 'Publish' });
@@ -225,14 +291,21 @@ test('a command is published with QoS 1 to the board\'s commands topic, as JSON'
 
 test('positions are read from their own partition, consistently, every page', async () => {
   const aws = fresh();
-  sdk.reply('dynamodb:QueryCommand',
-    { Items: [{ pk: { S: 'LOC' }, sk: { S: THING }, rev: { N: '3' }, position: { M: { lat: { N: '39.95' } } } }], LastEvaluatedKey: { pk: { S: 'LOC' } } },
-    { Items: [] });
+  sdk.reply(
+    'dynamodb:QueryCommand',
+    {
+      Items: [{ pk: { S: 'LOC' }, sk: { S: THING }, rev: { N: '3' }, position: { M: { lat: { N: '39.95' } } } }],
+      LastEvaluatedKey: { pk: { S: 'LOC' } },
+    },
+    { Items: [] }
+  );
   const items = await aws.listLocations();
   assert.deepEqual(items, [{ pk: 'LOC', sk: THING, rev: 3, position: { lat: 39.95 } }]);
   const [first, second] = sdk.inputs('dynamodb:QueryCommand');
-  assert.deepEqual([first.KeyConditionExpression, first.ExpressionAttributeValues, first.ConsistentRead],
-    ['#pk = :pk', { ':pk': { S: 'LOC' } }, true]);
+  assert.deepEqual(
+    [first.KeyConditionExpression, first.ExpressionAttributeValues, first.ConsistentRead],
+    ['#pk = :pk', { ':pk': { S: 'LOC' } }, true]
+  );
   assert.deepEqual(second.ExclusiveStartKey, { pk: { S: 'LOC' } });
 
   sdk.reply('dynamodb:QueryCommand', { Items: [] });
@@ -244,26 +317,45 @@ test('positions are read from their own partition, consistently, every page', as
   sdk.reply('dynamodb:QueryCommand', { Items: [] });
   await aws.listSentAlerts({ limit: 20 });
   const [sent] = sdk.inputs('dynamodb:QueryCommand').slice(-1);
-  assert.deepEqual([sent.KeyConditionExpression, sent.Limit, sent.ScanIndexForward],
-    ['#pk = :pk AND begins_with(#sk, :prefix)', 20, false]);
+  assert.deepEqual(
+    [sent.KeyConditionExpression, sent.Limit, sent.ScanIndexForward],
+    ['#pk = :pk AND begins_with(#sk, :prefix)', 20, false]
+  );
   assert.deepEqual(sent.ExpressionAttributeValues, { ':pk': { S: 'ALERTS' }, ':prefix': { S: 'S#' } });
 });
 
 test('subscriptions: only e-mail, the confirmed ones by their ARN, the pending ones without', async () => {
   const aws = fresh();
-  sdk.reply('sns:ListSubscriptionsByTopicCommand',
-    { Subscriptions: [{ SubscriptionArn: `${TOPIC}:1111`, Protocol: 'email', Endpoint: 'a@example.invalid' }], NextToken: 'next' },
-    { Subscriptions: [{ SubscriptionArn: 'PendingConfirmation', Protocol: 'email', Endpoint: 'b@example.invalid' }, { Protocol: 'sqs' }] });
+  sdk.reply(
+    'sns:ListSubscriptionsByTopicCommand',
+    {
+      Subscriptions: [{ SubscriptionArn: `${TOPIC}:1111`, Protocol: 'email', Endpoint: 'a@example.invalid' }],
+      NextToken: 'next',
+    },
+    {
+      Subscriptions: [
+        { SubscriptionArn: 'PendingConfirmation', Protocol: 'email', Endpoint: 'b@example.invalid' },
+        { Protocol: 'sqs' },
+      ],
+    }
+  );
   assert.deepEqual(await aws.listAlertSubscriptions(), [
     { arn: `${TOPIC}:1111`, endpoint: 'a@example.invalid', protocol: 'email' },
     { arn: null, endpoint: 'b@example.invalid', protocol: 'email' },
   ]);
-  assert.deepEqual(sdk.inputs('sns:ListSubscriptionsByTopicCommand'), [{ TopicArn: TOPIC }, { TopicArn: TOPIC, NextToken: 'next' }]);
+  assert.deepEqual(sdk.inputs('sns:ListSubscriptionsByTopicCommand'), [
+    { TopicArn: TOPIC },
+    { TopicArn: TOPIC, NextToken: 'next' },
+  ]);
 
   sdk.reply('sns:SubscribeCommand', { SubscriptionArn: 'pending confirmation' }, { SubscriptionArn: `${TOPIC}:2222` });
   assert.deepEqual(await aws.subscribeAlerts('c@example.invalid'), { pending: true });
   assert.deepEqual(await aws.subscribeAlerts('a@example.invalid'), { pending: false });
-  assert.deepEqual(sdk.inputs('sns:SubscribeCommand')[0], { TopicArn: TOPIC, Protocol: 'email', Endpoint: 'c@example.invalid' });
+  assert.deepEqual(sdk.inputs('sns:SubscribeCommand')[0], {
+    TopicArn: TOPIC,
+    Protocol: 'email',
+    Endpoint: 'c@example.invalid',
+  });
 
   sdk.reply('sns:UnsubscribeCommand', {}, fails('NotFoundException', 404), fails('AuthorizationErrorException', 403));
   assert.deepEqual(await aws.unsubscribeAlerts(`${TOPIC}:1111`), { ok: true });
@@ -276,32 +368,53 @@ test('the alert store writes only over the item it read, and publishes plain tex
   const store = fresh(createAlertStore);
   sdk.reply('dynamodb:PutItemCommand', {}, fails('ConditionalCheckFailedException'), {});
   assert.deepEqual(await store.putAlertItem({ pk: 'ALERTS', sk: `B#${THING}`, rev: 1 }, 0), { ok: true });
-  assert.deepEqual(await store.putAlertItem({ pk: 'ALERTS', sk: `B#${THING}`, rev: 2 }, 1), { ok: false, reason: 'conflict' });
+  assert.deepEqual(await store.putAlertItem({ pk: 'ALERTS', sk: `B#${THING}`, rev: 2 }, 1), {
+    ok: false,
+    reason: 'conflict',
+  });
   await store.putSentAlert({ pk: 'ALERTS', sk: 'S#x', kind: 'offline' });
   const [created, changed, sent] = sdk.inputs('dynamodb:PutItemCommand');
-  assert.deepEqual([created.ConditionExpression, created.ExpressionAttributeNames], ['attribute_not_exists(#pk)', { '#pk': 'pk' }]);
-  assert.deepEqual([changed.ConditionExpression, changed.ExpressionAttributeNames, changed.ExpressionAttributeValues],
-    ['#rev = :rev', { '#rev': 'rev' }, { ':rev': { N: '1' } }]);
+  assert.deepEqual(
+    [created.ConditionExpression, created.ExpressionAttributeNames],
+    ['attribute_not_exists(#pk)', { '#pk': 'pk' }]
+  );
+  assert.deepEqual(
+    [changed.ConditionExpression, changed.ExpressionAttributeNames, changed.ExpressionAttributeValues],
+    ['#rev = :rev', { '#rev': 'rev' }, { ':rev': { N: '1' } }]
+  );
   assert.equal(Object.hasOwn(sent, 'ConditionExpression'), false);
 
   sdk.reply('dynamodb:QueryCommand', { Items: [{ pk: { S: 'ALERTS' }, sk: { S: `B#${THING}` } }] }, { Items: [] });
   assert.equal((await store.listAlertItems()).length, 1);
-  assert.deepEqual(sdk.inputs('dynamodb:QueryCommand').map((input) => input.ExpressionAttributeValues[':prefix'].S), ['B#', 'D#']);
+  assert.deepEqual(
+    sdk.inputs('dynamodb:QueryCommand').map((input) => input.ExpressionAttributeValues[':prefix'].S),
+    ['B#', 'D#']
+  );
 
   sdk.reply('sns:PublishCommand', {});
   await store.publishAlert({ subject: 'Cranium: CRVIHAAN01 is offline', message: 'text' });
-  assert.deepEqual(sdk.inputs('sns:PublishCommand'), [{ TopicArn: TOPIC, Subject: 'Cranium: CRVIHAAN01 is offline', Message: 'text' }]);
+  assert.deepEqual(sdk.inputs('sns:PublishCommand'), [
+    { TopicArn: TOPIC, Subject: 'Cranium: CRVIHAAN01 is offline', Message: 'text' },
+  ]);
 });
 
 test('GetPositionEstimate gets the Wi-Fi access points and gives back its GeoJSON; a 404 is no position', async () => {
   const store = fresh(createLocationStore);
-  const geoJson = '{"coordinates":[13.376077,52.51823,80.1],"type":"Point","properties":{"horizontalAccuracy":303,"horizontalConfidenceLevel":0.68}}';
-  sdk.reply('iot-wireless:GetPositionEstimateCommand',
+  const geoJson =
+    '{"coordinates":[13.376077,52.51823,80.1],"type":"Point","properties":{"horizontalAccuracy":303,"horizontalConfidenceLevel":0.68}}';
+  sdk.reply(
+    'iot-wireless:GetPositionEstimateCommand',
     { GeoJsonPayload: new TextEncoder().encode(geoJson) },
     fails('ResourceNotFoundException', 404),
     fails('ThrottlingException', 429),
-    fails('AccessDeniedException', 403));
-  const request = { WiFiAccessPoints: [{ MacAddress: 'a4:2b:b0:12:34:56', Rss: -51 }, { MacAddress: 'f0:9f:c2:65:43:21', Rss: -70 }] };
+    fails('AccessDeniedException', 403)
+  );
+  const request = {
+    WiFiAccessPoints: [
+      { MacAddress: 'a4:2b:b0:12:34:56', Rss: -51 },
+      { MacAddress: 'f0:9f:c2:65:43:21', Rss: -70 },
+    ],
+  };
   assert.deepEqual(await store.solvePosition(request), { found: true, geoJson });
   assert.deepEqual(sdk.inputs('iot-wireless:GetPositionEstimateCommand'), [request]);
   assert.deepEqual(await store.solvePosition(request), { found: false });

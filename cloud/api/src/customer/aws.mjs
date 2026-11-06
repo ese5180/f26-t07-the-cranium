@@ -40,14 +40,27 @@
  */
 
 import {
-  AdminCreateUserCommand, AdminDisableUserCommand, AdminEnableUserCommand, AdminGetUserCommand,
-  CognitoIdentityProviderClient, ListUsersCommand,
+  AdminCreateUserCommand,
+  AdminDisableUserCommand,
+  AdminEnableUserCommand,
+  AdminGetUserCommand,
+  CognitoIdentityProviderClient,
+  ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { DynamoDBClient, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 
 import {
-  clientSettings, everyPage, failure, fromItem, millis, nameOf, queryEventTable, required, statusOf, toItem,
+  clientSettings,
+  everyPage,
+  failure,
+  fromItem,
+  millis,
+  nameOf,
+  queryEventTable,
+  required,
+  statusOf,
+  toItem,
 } from '../aws.mjs';
 
 export const OWNERSHIP_PK = 'OWN';
@@ -100,11 +113,20 @@ export function createCustomerStore(env) {
     async listCustomers() {
       try {
         return await everyPage('ListUsers', async (PaginationToken) => {
-          const out = await cognito.send(new ListUsersCommand({ UserPoolId: poolId, Limit: USER_PAGE_SIZE, PaginationToken }));
-          const items = (out.Users ?? []).map((user) => customerOf({
-            attributes: user?.Attributes, enabled: user?.Enabled, status: user?.UserStatus,
-            created: user?.UserCreateDate, username: user?.Username,
-          })).filter((customer) => customer.sub !== '');
+          const out = await cognito.send(
+            new ListUsersCommand({ UserPoolId: poolId, Limit: USER_PAGE_SIZE, PaginationToken })
+          );
+          const items = (out.Users ?? [])
+            .map((user) =>
+              customerOf({
+                attributes: user?.Attributes,
+                enabled: user?.Enabled,
+                status: user?.UserStatus,
+                created: user?.UserCreateDate,
+                username: user?.Username,
+              })
+            )
+            .filter((customer) => customer.sub !== '');
           return { items, next: out.PaginationToken };
         });
       } catch (cause) {
@@ -116,8 +138,11 @@ export function createCustomerStore(env) {
       try {
         const out = await cognito.send(new AdminGetUserCommand({ UserPoolId: poolId, Username: sub }));
         return customerOf({
-          attributes: out.UserAttributes, enabled: out.Enabled, status: out.UserStatus,
-          created: out.UserCreateDate, username: out.Username,
+          attributes: out.UserAttributes,
+          enabled: out.Enabled,
+          status: out.UserStatus,
+          created: out.UserCreateDate,
+          username: out.Username,
         });
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return null;
@@ -126,18 +151,29 @@ export function createCustomerStore(env) {
     },
 
     async inviteCustomer({ email, name }) {
-      const attributes = [{ Name: 'email', Value: email }, { Name: 'email_verified', Value: 'true' }];
+      const attributes = [
+        { Name: 'email', Value: email },
+        { Name: 'email_verified', Value: 'true' },
+      ];
       if (name) attributes.push({ Name: 'name', Value: name });
       try {
-        const out = await cognito.send(new AdminCreateUserCommand({
-          UserPoolId: poolId, Username: email, UserAttributes: attributes, DesiredDeliveryMediums: ['EMAIL'],
-        }));
+        const out = await cognito.send(
+          new AdminCreateUserCommand({
+            UserPoolId: poolId,
+            Username: email,
+            UserAttributes: attributes,
+            DesiredDeliveryMediums: ['EMAIL'],
+          })
+        );
         const user = out.User ?? {};
         return {
           ok: true,
           customer: customerOf({
-            attributes: user.Attributes, enabled: user.Enabled, status: user.UserStatus,
-            created: user.UserCreateDate, username: user.Username,
+            attributes: user.Attributes,
+            enabled: user.Enabled,
+            status: user.UserStatus,
+            created: user.UserCreateDate,
+            username: user.Username,
           }),
         };
       } catch (cause) {
@@ -150,9 +186,14 @@ export function createCustomerStore(env) {
 
     async resendInvitation(email) {
       try {
-        await cognito.send(new AdminCreateUserCommand({
-          UserPoolId: poolId, Username: email, MessageAction: 'RESEND', DesiredDeliveryMediums: ['EMAIL'],
-        }));
+        await cognito.send(
+          new AdminCreateUserCommand({
+            UserPoolId: poolId,
+            Username: email,
+            MessageAction: 'RESEND',
+            DesiredDeliveryMediums: ['EMAIL'],
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
@@ -177,14 +218,16 @@ export function createCustomerStore(env) {
         const items = [];
         let start;
         for (let pages = 0; pages < 40; pages += 1) {
-          const out = await dynamo.send(new QueryCommand({
-            TableName: stateTable,
-            KeyConditionExpression: '#pk = :pk',
-            ExpressionAttributeNames: { '#pk': 'pk' },
-            ExpressionAttributeValues: { ':pk': { S: OWNERSHIP_PK } },
-            ConsistentRead: true,
-            ExclusiveStartKey: start,
-          }));
+          const out = await dynamo.send(
+            new QueryCommand({
+              TableName: stateTable,
+              KeyConditionExpression: '#pk = :pk',
+              ExpressionAttributeNames: { '#pk': 'pk' },
+              ExpressionAttributeValues: { ':pk': { S: OWNERSHIP_PK } },
+              ConsistentRead: true,
+              ExclusiveStartKey: start,
+            })
+          );
           for (const item of out.Items ?? []) items.push(fromItem(item));
           if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) {
             return items.map(ownershipOf).filter((item) => item !== null);
@@ -201,13 +244,15 @@ export function createCustomerStore(env) {
       const item = { pk: OWNERSHIP_PK, sk: thing, owner, ref, assignedAt: at, assignedBy: by };
       if (label) item.label = label;
       try {
-        await dynamo.send(new PutItemCommand({
-          TableName: stateTable,
-          Item: toItem(item),
-          // A board nobody owns: never seen, or given back. Never one somebody owns.
-          ConditionExpression: 'attribute_not_exists(#sk) OR attribute_not_exists(#owner)',
-          ExpressionAttributeNames: { '#sk': 'sk', '#owner': 'owner' },
-        }));
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: stateTable,
+            Item: toItem(item),
+            // A board nobody owns: never seen, or given back. Never one somebody owns.
+            ConditionExpression: 'attribute_not_exists(#sk) OR attribute_not_exists(#owner)',
+            ExpressionAttributeNames: { '#sk': 'sk', '#owner': 'owner' },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'taken' };
@@ -217,17 +262,23 @@ export function createCustomerStore(env) {
 
     async unassignBoard({ thing, owner, at }) {
       try {
-        await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: toItem({ pk: OWNERSHIP_PK, sk: thing }),
-          UpdateExpression: 'REMOVE #owner, #ref, #label, #assignedAt, #assignedBy SET #unassignedAt = :at',
-          ConditionExpression: '#owner = :owner',
-          ExpressionAttributeNames: {
-            '#owner': 'owner', '#ref': 'ref', '#label': 'label', '#assignedAt': 'assignedAt',
-            '#assignedBy': 'assignedBy', '#unassignedAt': 'unassignedAt',
-          },
-          ExpressionAttributeValues: { ':owner': { S: owner }, ':at': { S: at } },
-        }));
+        await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: toItem({ pk: OWNERSHIP_PK, sk: thing }),
+            UpdateExpression: 'REMOVE #owner, #ref, #label, #assignedAt, #assignedBy SET #unassignedAt = :at',
+            ConditionExpression: '#owner = :owner',
+            ExpressionAttributeNames: {
+              '#owner': 'owner',
+              '#ref': 'ref',
+              '#label': 'label',
+              '#assignedAt': 'assignedAt',
+              '#assignedBy': 'assignedBy',
+              '#unassignedAt': 'unassignedAt',
+            },
+            ExpressionAttributeValues: { ':owner': { S: owner }, ':at': { S: at } },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_owner' };

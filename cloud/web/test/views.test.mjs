@@ -11,12 +11,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { CORE, VIEWS, all, click, controls, createDocument, descendants, one, textOf, withText } from './page.mjs';
 import {
-  CORE, VIEWS, all, click, controls, createDocument, descendants, one, textOf, withText,
-} from './page.mjs';
-import {
-  EMPTY, FINGERPRINT, INSTALLING, LOOKALIKE, MANAGER, NAMELESS, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN,
-  WORLD, ago, deployment, device, entry, execution, release, repliesFor, revoked,
+  EMPTY,
+  FINGERPRINT,
+  INSTALLING,
+  LOOKALIKE,
+  MANAGER,
+  NAMELESS,
+  NEVER,
+  NOW,
+  OFFERED,
+  REASON,
+  WAITING,
+  WITHDRAWN,
+  WORLD,
+  ago,
+  deployment,
+  device,
+  entry,
+  execution,
+  release,
+  repliesFor,
+  revoked,
 } from './world.mjs';
 
 const core = await import(CORE);
@@ -71,11 +88,16 @@ async function consoleState(world, { viewer = false, ...changes } = {}) {
  */
 function recorder() {
   const calls = [];
-  const actions = new Proxy({}, {
-    get: (_target, name) => (...args) => {
-      calls.push([name, ...args.filter((value) => !(value?.type && value.currentTarget))]);
-    },
-  });
+  const actions = new Proxy(
+    {},
+    {
+      get:
+        (_target, name) =>
+        (...args) => {
+          calls.push([name, ...args.filter((value) => !(value?.type && value.currentTarget))]);
+        },
+    }
+  );
   return { actions, calls };
 }
 
@@ -112,7 +134,10 @@ const escaped = (text) => text.replace(/[.+?()]/g, '\\$&');
 test('a string is written as text, whatever it contains', () => {
   const hostile = '<img src=x onerror=alert(1)><script>alert(2)</script>';
   const box = draw(views.h('p', { title: hostile }, hostile, views.h('span', null, hostile)));
-  assert.deepEqual(descendants(box).map((el) => el.localName), ['p', 'span']);
+  assert.deepEqual(
+    descendants(box).map((el) => el.localName),
+    ['p', 'span']
+  );
   assert.equal(box.textContent, hostile + hostile);
   assert.equal(one(box, 'p').getAttribute('title'), hostile);
 });
@@ -130,11 +155,30 @@ test('inline styles, inline handlers and markup in an attribute are refused outr
 
 test('a page that is drawn again keeps its elements and changes only what differs', () => {
   const box = document.createElement('div');
-  const list = (items) => views.h('ul', null, items.map(([key, text]) => views.h('li', { key }, text)));
-  views.render(box, list([['a', 'one'], ['b', 'two'], ['c', 'three']]));
+  const list = (items) =>
+    views.h(
+      'ul',
+      null,
+      items.map(([key, text]) => views.h('li', { key }, text))
+    );
+  views.render(
+    box,
+    list([
+      ['a', 'one'],
+      ['b', 'two'],
+      ['c', 'three'],
+    ])
+  );
   const [first, second, third] = all(box, 'li');
 
-  views.render(box, list([['c', 'three'], ['a', 'ONE'], ['d', 'four']]));
+  views.render(
+    box,
+    list([
+      ['c', 'three'],
+      ['a', 'ONE'],
+      ['d', 'four'],
+    ])
+  );
   const after = all(box, 'li');
   assert.deepEqual(after.map(textOf), ['three', 'ONE', 'four']);
   assert.equal(after[0], third, 'moved, not made again');
@@ -168,9 +212,13 @@ test('a select shows the option its value names, however its options came after 
   document.createElement = (tag) => (tag === 'select' ? new Select(tag, null, document) : createElement(tag));
   try {
     const box = createElement('div');
-    const filter = (value, things) => views.h('select', { value },
-      views.h('option', { value: '', key: 'all' }, `All boards (${things.length})`),
-      things.map((thing) => views.h('option', { value: thing, key: thing }, thing)));
+    const filter = (value, things) =>
+      views.h(
+        'select',
+        { value },
+        views.h('option', { value: '', key: 'all' }, `All boards (${things.length})`),
+        things.map((thing) => views.h('option', { value: thing, key: thing }, thing))
+      );
 
     views.render(box, filter('', ['a', 'b']));
     const select = box.firstChild;
@@ -200,14 +248,26 @@ test('a handler is attached once and replaced in place', () => {
 });
 
 test('every icon that a description names is drawn', () => {
-  const shapes = (name) =>
-    JSON.stringify(views.icon(name).children.map((shape) => [shape.tag, shape.props]));
+  const shapes = (name) => JSON.stringify(views.icon(name).children.map((shape) => [shape.tag, shape.props]));
   const fallback = shapes('no such icon');
   const named = new Set();
 
   const phases = [
-    'waiting_for_device', 'waiting_for_button', 'starting', 'downloading', 'verifying', 'rebooting', 'testing',
-    'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled', 'timed_out', 'removed',
+    'waiting_for_device',
+    'waiting_for_button',
+    'starting',
+    'downloading',
+    'verifying',
+    'rebooting',
+    'testing',
+    'succeeded',
+    'failed',
+    'rolled_back',
+    'declined',
+    'refused',
+    'cancelled',
+    'timed_out',
+    'removed',
     'a_new_phase',
   ];
   for (const phase of phases) {
@@ -216,7 +276,15 @@ test('every icon that a description names is drawn', () => {
     }
   }
   const statuses = [
-    'QUEUED', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED', 'NEW',
+    'QUEUED',
+    'IN_PROGRESS',
+    'SUCCEEDED',
+    'FAILED',
+    'TIMED_OUT',
+    'REJECTED',
+    'REMOVED',
+    'CANCELED',
+    'NEW',
   ];
   for (const status of statuses) named.add(core.describeStatus(status).icon);
   const states = ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'new'];
@@ -228,7 +296,14 @@ test('every icon that a description names is drawn', () => {
     }
   }
   const counts = {
-    queued: 1, inProgress: 1, succeeded: 1, failed: 1, rejected: 1, canceled: 1, timedOut: 1, removed: 1,
+    queued: 1,
+    inProgress: 1,
+    succeeded: 1,
+    failed: 1,
+    rejected: 1,
+    canceled: 1,
+    timedOut: 1,
+    removed: 1,
   };
   for (const status of ['IN_PROGRESS', 'COMPLETED', 'CANCELED', 'SCHEDULED', 'DELETION_IN_PROGRESS', 'NEW']) {
     for (const some of [counts, { ...counts, inProgress: 0 }, { ...counts, succeeded: 0 }]) {
@@ -236,8 +311,18 @@ test('every icon that a description names is drawn', () => {
     }
   }
   for (const counted of core.describeCounts(counts)) named.add(counted.icon);
-  const actions = ['firmware.upload', 'firmware.revoke', 'deployment.create', 'deployment.cancel',
-    'firmware.download', 'pairing.read', 'firmware.bluetooth_send', 'token.create', 'token.revoke', 'new'];
+  const actions = [
+    'firmware.upload',
+    'firmware.revoke',
+    'deployment.create',
+    'deployment.cancel',
+    'firmware.download',
+    'pairing.read',
+    'firmware.bluetooth_send',
+    'token.create',
+    'token.revoke',
+    'new',
+  ];
   for (const action of actions) {
     for (const outcome of ['ok', 'rejected', 'denied', 'error', 'new']) {
       const line = core.describeAudit({ action, target: 'x', outcome, detail: [] });
@@ -255,9 +340,20 @@ test('every icon that a description names is drawn', () => {
 // Who may do what.
 
 const WRITE_CONTROLS = new Set([
-  'Deploy', 'Revoke', 'Finish revoking', 'Apply the revocation again', 'New deployment',
-  'Upload firmware first', 'Cancel deployment', 'Stop boards that have started', 'Offer again',
-  'Upload for verification', 'Try again', 'Choose another file', 'Deploy this release', 'Upload another',
+  'Deploy',
+  'Revoke',
+  'Finish revoking',
+  'Apply the revocation again',
+  'New deployment',
+  'Upload firmware first',
+  'Cancel deployment',
+  'Stop boards that have started',
+  'Offer again',
+  'Upload for verification',
+  'Try again',
+  'Choose another file',
+  'Deploy this release',
+  'Upload another',
 ]);
 // The buttons of a release are named with its version, as in "Revoke 1.2.3+5".
 const writes = (root) => controls(root).filter((label) => WRITE_CONTROLS.has(label.replace(/ \d\S*$/, '')));
@@ -281,8 +377,13 @@ test('a release manager gets the controls, each on the page it belongs to', asyn
   const pages = everyPage(await consoleState(WORLD), actions);
 
   assert.deepEqual(writes(pages.get('firmware')), [
-    'Finish revoking', 'Deploy 1.2.4+0', 'Revoke 1.2.4+0', 'Deploy 1.2.3+5', 'Revoke 1.2.3+5',
-    'Deploy 1.2.3+4', 'Revoke 1.2.3+4',
+    'Finish revoking',
+    'Deploy 1.2.4+0',
+    'Revoke 1.2.4+0',
+    'Deploy 1.2.3+5',
+    'Revoke 1.2.3+5',
+    'Deploy 1.2.3+4',
+    'Revoke 1.2.3+4',
   ]);
   assert.equal(all(pages.get('firmware'), 'label.drop').length, 1);
   assert.deepEqual(writes(pages.get('deployments')), ['New deployment']);
@@ -296,8 +397,14 @@ test('a release manager gets the controls, each on the page it belongs to', asyn
   click(one(pages.get('deployments'), 'button', 'New deployment'));
   click(withText(pages.get('firmware'), 'button', 'Revoke')[0]);
   click(withText(pages.get('firmware'), 'button', 'Deploy')[0]);
-  assert.deepEqual(calls.map(([name, argument]) => [name, argument?.version ?? argument]),
-    [['openDeploy', null], ['openRevoke', '1.2.4+0'], ['openDeploy', '1.2.4+0']]);
+  assert.deepEqual(
+    calls.map(([name, argument]) => [name, argument?.version ?? argument]),
+    [
+      ['openDeploy', null],
+      ['openRevoke', '1.2.4+0'],
+      ['openDeploy', '1.2.4+0'],
+    ]
+  );
 });
 
 // Nothing there yet.
@@ -311,8 +418,10 @@ test('an empty console says what to do next and shows no rows', async () => {
     // The overview is the way in, not five cards that each say "nothing yet".
     const overview = pages.get('overview');
     assert.deepEqual(titles(overview), ['Getting started']);
-    assert.deepEqual(all(overview, 'li.guide-step').map((step) => textOf(one(step, 'p.guide-title'))),
-      ['Register a board', 'Upload a signed image', 'Deploy it']);
+    assert.deepEqual(
+      all(overview, 'li.guide-step').map((step) => textOf(one(step, 'p.guide-title'))),
+      ['Register a board', 'Upload a signed image', 'Deploy it']
+    );
     assert.equal(textOf(overview).split('python3 tools/provision_device.py').length - 1, 1);
 
     const devices = pages.get('devices');
@@ -372,7 +481,10 @@ test('"no update is in progress" is ticked only once there has been an update', 
 test('a cancelled deployment whose board is still installing counts as in progress', async () => {
   const overview = page(views.overviewView, await consoleState(WORLD));
   const runs = all(overview, 'li.run');
-  assert.deepEqual(runs.map((run) => textOf(one(run, 'a.run-version'))), ['1.2.3+5', '1.2.4+0']);
+  assert.deepEqual(
+    runs.map((run) => textOf(one(run, 'a.run-version'))),
+    ['1.2.3+5', '1.2.4+0']
+  );
   assert.match(textOf(runs[1]), /This deployment was cancelled\. A board that had already started/);
   assert.match(textOf(runs[1]), /Downloading 40%/);
   assert.doesNotMatch(textOf(runs[0]), /was cancelled/);
@@ -386,14 +498,20 @@ test('a cancelled deployment whose board is still installing counts as in progre
   });
   const idle = [device(WAITING), device(INSTALLING)];
   const later = await consoleState({ ...WORLD, devices: idle, deployments: [stopped, WORLD.deployments[2]] });
-  assert.match(textOf(page(views.overviewView, later)),
-    /No update is in progress\. Last deployment: 1\.2\.4\+0 Cancelled started 20 min ago/);
+  assert.match(
+    textOf(page(views.overviewView, later)),
+    /No update is in progress\. Last deployment: 1\.2\.4\+0 Cancelled started 20 min ago/
+  );
 });
 
 test('the overview does not read as all well right after a rollout went wrong', async () => {
-  const ended = (executions, changes = {}) => deployment(OFFERED, {
-    status: 'COMPLETED', completedAt: ago(120), executions, ...changes,
-  });
+  const ended = (executions, changes = {}) =>
+    deployment(OFFERED, {
+      status: 'COMPLETED',
+      completedAt: ago(120),
+      executions,
+      ...changes,
+    });
   const updates = async (executions, changes, devices = [device(WAITING), device(INSTALLING)]) => {
     const state = await consoleState({ ...EMPTY, devices, deployments: [ended(executions, changes)] });
     return one(page(views.overviewView, state), 'section.overview-updates');
@@ -420,8 +538,9 @@ test('the overview does not read as all well right after a rollout went wrong', 
   assert.equal(textOf(titleOf(declined)), 'No update is in progress.');
   assert.equal(titleOf(declined).getAttribute('class'), 'calm-title is-idle');
 
-  const fine = await updates([execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })], {},
-    [device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } })]);
+  const fine = await updates([execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })], {}, [
+    device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }),
+  ]);
   // Gone through, and that is what the board reports right now: said out loud, not only with a tick.
   assert.equal(textOf(titleOf(fine)), '1.2.3+5 is installed and confirmed.');
   assert.equal(titleOf(fine).getAttribute('class'), 'calm-title is-good');
@@ -430,9 +549,13 @@ test('the overview does not read as all well right after a rollout went wrong', 
 });
 
 test('a last deployment that went wrong opens the panel with its outcome, and a calm one does not', async () => {
-  const ended = (executions, changes = {}) => deployment(OFFERED, {
-    status: 'COMPLETED', completedAt: ago(120), executions, ...changes,
-  });
+  const ended = (executions, changes = {}) =>
+    deployment(OFFERED, {
+      status: 'COMPLETED',
+      completedAt: ago(120),
+      executions,
+      ...changes,
+    });
   const onIt = [WAITING, INSTALLING].map((thing) => device(thing, { fw: { version: '1.2.3+5', confirmed: true } }));
   const updates = async (executions, devices = WORLD.devices) => {
     const state = await consoleState({ ...EMPTY, devices, deployments: [ended(executions)] });
@@ -444,7 +567,8 @@ test('a last deployment that went wrong opens the panel with its outcome, and a 
   assert.equal(all(failed, 'div.calm-outcome').length, 0);
   assert.equal(all(failed, 'ul.counts').length, 0);
   const allFailed = await updates([
-    execution(WAITING, 'failed', { status: 'FAILED' }), execution(INSTALLING, 'failed', { status: 'FAILED' }),
+    execution(WAITING, 'failed', { status: 'FAILED' }),
+    execution(INSTALLING, 'failed', { status: 'FAILED' }),
   ]);
   assert.equal(all(one(allFailed, 'div.calm-outcome'), 'div.segments').length, 1);
   assert.equal(one(allFailed, 'div.segments').getAttribute('aria-label'), 'Boards: 2 failed.');
@@ -458,10 +582,13 @@ test('a last deployment that went wrong opens the panel with its outcome, and a 
 
   const fine = await updates([execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })]);
   assert.equal(all(fine, 'div.calm-outcome').length, 0, 'one board that made it needs no bar');
-  const fineTwo = await updates([
-    execution(WAITING, 'succeeded', { status: 'SUCCEEDED' }),
-    execution(INSTALLING, 'succeeded', { status: 'SUCCEEDED' }),
-  ], onIt);
+  const fineTwo = await updates(
+    [
+      execution(WAITING, 'succeeded', { status: 'SUCCEEDED' }),
+      execution(INSTALLING, 'succeeded', { status: 'SUCCEEDED' }),
+    ],
+    onIt
+  );
   assert.equal(all(fineTwo, 'div.calm-outcome').length, 1);
   const called = await updates([execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined' })]);
   assert.equal(all(called, 'div.calm-outcome').length, 0);
@@ -474,12 +601,16 @@ test('the overview keeps the log at full width below two columns, and only so ma
   const panel = one(overview, 'div.overview-panel');
   assert.equal(panel.getAttribute('class').split(' ').includes('on-ink'), true);
   assert.equal(all(panel, 'section.overview-updates').length, 1);
-  assert.deepEqual(all(one(panel, 'div.fleet'), 'section.card').map((card) => textOf(one(card, 'h2'))),
-    ['Fleet', 'Firmware in the fleet', 'Newest release']);
+  assert.deepEqual(
+    all(one(panel, 'div.fleet'), 'section.card').map((card) => textOf(one(card, 'h2'))),
+    ['Fleet', 'Firmware in the fleet', 'Newest release']
+  );
   assert.match(textOf(panel), /9 of 9 boards online/);
   const grid = one(overview, 'div.overview');
-  assert.deepEqual(grid.children.map((child) => child.getAttribute('class').replace('card ', '')),
-    ['overview-boards', 'overview-activity']);
+  assert.deepEqual(
+    grid.children.map((child) => child.getAttribute('class').replace('card ', '')),
+    ['overview-boards', 'overview-activity']
+  );
   const boards = one(grid, 'section.overview-boards');
   assert.equal(all(boards, 'li.board-line').length, 6);
   assert.equal(textOf(one(boards, 'p.board-more')), 'and 3 more boards');
@@ -504,22 +635,42 @@ test('one problem with four things to read is one notice', async () => {
   assert.equal(all(notice, 'button').length, 1);
 
   // One that fails is named, and so are two that fail for reasons of their own.
-  assert.match(textOf(one(drawn({ devices: failing(state.devices) }), 'div.notice.is-bad')),
-    /^Could not refresh the boards\./);
+  assert.match(
+    textOf(one(drawn({ devices: failing(state.devices) }), 'div.notice.is-bad')),
+    /^Could not refresh the boards\./
+  );
   const other = new core.ApiError(500, 'internal', 'Something else.');
-  assert.equal(all(drawn({
-    devices: failing(state.devices),
-    firmware: { ...state.firmware, error: other },
-  }), 'div.notice.is-bad').length, 2);
+  assert.equal(
+    all(
+      drawn({
+        devices: failing(state.devices),
+        firmware: { ...state.firmware, error: other },
+      }),
+      'div.notice.is-bad'
+    ).length,
+    2
+  );
 });
 
 test('a board or a deployment that does not exist is not a failure to try again', async () => {
-  const none = (resource) => new Map([[resource, {
-    value: null, loading: false, loadedAt: 0, error: new core.ApiError(404, 'unknown', 'There is none.'),
-  }]]);
+  const none = (resource) =>
+    new Map([
+      [
+        resource,
+        {
+          value: null,
+          loading: false,
+          loadedAt: 0,
+          error: new core.ApiError(404, 'unknown', 'There is none.'),
+        },
+      ],
+    ]);
   const state = await consoleState(WORLD);
-  const board = page(views.deviceView, { ...state, deviceDetails: none('cranium-0000000000000000') },
-    { thing: 'cranium-0000000000000000' });
+  const board = page(
+    views.deviceView,
+    { ...state, deviceDetails: none('cranium-0000000000000000') },
+    { thing: 'cranium-0000000000000000' }
+  );
   assert.deepEqual(controls(board), ['All devices']);
   assert.equal(one(board, 'a.btn').getAttribute('href'), '#/devices');
   assert.equal(all(board, 'div.notice').length, 0);
@@ -535,7 +686,10 @@ test('a board or a deployment that does not exist is not a failure to try again'
 test('a board that runs a revoked release is flagged wherever it is shown', async () => {
   const world = {
     ...EMPTY,
-    releases: [release('2.0.0+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(100) }) }), release('1.2.3+5')],
+    releases: [
+      release('2.0.0+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(100) }) }),
+      release('1.2.3+5'),
+    ],
     devices: [device(WAITING, { fw: { version: '2.0.0+0', confirmed: true } }), device(INSTALLING)],
   };
   const state = await consoleState(world);
@@ -551,7 +705,10 @@ test('a board that runs a revoked release is flagged wherever it is shown', asyn
 });
 
 test('the devices page shows a board that has an update waiting for it', async () => {
-  const away = device(WAITING, { online: false, ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' } });
+  const away = device(WAITING, {
+    online: false,
+    ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
+  });
   const offer = deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_device', { online: false })] });
   const state = await consoleState({ ...WORLD, devices: [away, WORLD.devices[2]], deployments: [offer] });
   const [offered, never] = all(page(views.devicesView, state), 'article.device');
@@ -572,11 +729,26 @@ test('a board says what state it is in and when its last heartbeat arrived, in t
     [device(WAITING, { lastSeen: ago(6) }), 'Online, heartbeat 6 s ago', 'Online', 'Last heartbeat 6 s ago'],
     [device(WAITING, { lastSeen: ago(2) }), 'Online, heartbeat just now', 'Online', 'Last heartbeat just now'],
     [device(WAITING, { lastSeen: ago(61) }), 'Online, heartbeat 1 min ago', 'Online', 'Last heartbeat 1 min ago'],
-    [device(WAITING, { online: false, lastSeen: ago(180) }), 'Offline, last heartbeat 3 min ago', 'Offline', /^Last heartbeat /],
-    [device(WAITING, { online: false, lastSeen: ago(7200) }), 'Offline, last heartbeat 2 h ago', 'Offline', /^Last heartbeat /],
+    [
+      device(WAITING, { online: false, lastSeen: ago(180) }),
+      'Offline, last heartbeat 3 min ago',
+      'Offline',
+      /^Last heartbeat /,
+    ],
+    [
+      device(WAITING, { online: false, lastSeen: ago(7200) }),
+      'Offline, last heartbeat 2 h ago',
+      'Offline',
+      /^Last heartbeat /,
+    ],
     [device(WAITING, { ota: rebooting, lastSeen: ago(20) }), 'Restarting, last heartbeat 20 s ago', 'Restarting', null],
     // Restarting is only what a board said while it counts as online. After that it is offline.
-    [device(WAITING, { online: false, ota: rebooting, lastSeen: ago(200) }), 'Offline, last heartbeat 3 min ago', 'Offline', /^Last heartbeat /],
+    [
+      device(WAITING, { online: false, ota: rebooting, lastSeen: ago(200) }),
+      'Offline, last heartbeat 3 min ago',
+      'Offline',
+      /^Last heartbeat /,
+    ],
   ]) {
     const state = await consoleState({ ...WORLD, devices: [board], deployments: [] });
     const overview = page(views.overviewView, state);
@@ -587,7 +759,8 @@ test('a board says what state it is in and when its last heartbeat arrived, in t
     const shown = one(one(list, 'header.device-head'), 'span.badge');
     assert.equal(textOf(shown), badge);
     // Offline, the tooltip gives the moment itself, and not how long ago that was.
-    if (title instanceof RegExp) assert.equal(shown.getAttribute('title'), `Last heartbeat ${core.exactTime(board.lastSeen)}`);
+    if (title instanceof RegExp)
+      assert.equal(shown.getAttribute('title'), `Last heartbeat ${core.exactTime(board.lastSeen)}`);
     else if (title) assert.equal(shown.getAttribute('title'), title);
     else assert.equal(shown.hasAttribute('title'), false);
 
@@ -604,7 +777,10 @@ test('a board that is restarting does not count as up, whatever its connection s
   const fleet = [device(WAITING, { ota: rebooting, lastSeen: ago(100) }), device(INSTALLING, { lastSeen: ago(5) })];
   const overview = page(views.overviewView, await consoleState({ ...WORLD, devices: fleet, deployments: [] }));
   const dots = all(overview, 'span.presence-dot');
-  assert.deepEqual(dots.map((dot) => dot.getAttribute('class')), ['presence-dot', 'presence-dot is-on']);
+  assert.deepEqual(
+    dots.map((dot) => dot.getAttribute('class')),
+    ['presence-dot', 'presence-dot is-on']
+  );
   assert.equal(textOf(all(overview, 'p.figure')[0]), '1 of 2 boards online');
   assert.match(textOf(one(overview, 'p.tile-words')), /^1 online ?1 offline$/);
   assert.equal(all(overview, 'span.tile.is-on').length, 1, 'the tiles say what the figure says');
@@ -617,7 +793,11 @@ test('a board that is restarting does not count as up, whatever its connection s
 });
 
 test('a board that has never had a heartbeat says so, and the list of devices keeps its columns', async () => {
-  const state = await consoleState({ ...WORLD, devices: [device(NEVER, { online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null })], deployments: [] });
+  const state = await consoleState({
+    ...WORLD,
+    devices: [device(NEVER, { online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null })],
+    deployments: [],
+  });
   assert.equal(textOf(one(page(views.overviewView, state), 'span.board-line-note')), 'Never connected');
   const list = page(views.devicesView, state);
   assert.equal(textOf(one(list, 'p.device-seen')), 'Has not reported to AWS IoT yet.');
@@ -627,13 +807,20 @@ test('a board that has never had a heartbeat says so, and the list of devices ke
   assert.doesNotMatch(textOf(own), /heartbeat [\d]/i);
 });
 
-test('the page takes the API\'s word for whether a board is online, whatever the time of its heartbeat', async () => {
+test("the page takes the API's word for whether a board is online, whatever the time of its heartbeat", async () => {
   // The API knows the window. The page has only the flag, and a clock that may be wrong.
   const old = await consoleState({ ...WORLD, devices: [device(WAITING, { lastSeen: ago(600) })], deployments: [] });
   assert.equal(textOf(one(page(views.overviewView, old), 'span.board-line-note')), 'Online, heartbeat 10 min ago');
   assert.equal(textOf(one(one(page(views.devicesView, old), 'header.device-head'), 'span.badge')), 'Online');
-  const fresh = await consoleState({ ...WORLD, devices: [device(WAITING, { online: false, lastSeen: ago(1) })], deployments: [] });
-  assert.equal(textOf(one(page(views.overviewView, fresh), 'span.board-line-note')), 'Offline, last heartbeat just now');
+  const fresh = await consoleState({
+    ...WORLD,
+    devices: [device(WAITING, { online: false, lastSeen: ago(1) })],
+    deployments: [],
+  });
+  assert.equal(
+    textOf(one(page(views.overviewView, fresh), 'span.board-line-note')),
+    'Offline, last heartbeat just now'
+  );
   assert.equal(textOf(one(one(page(views.devicesView, fresh), 'header.device-head'), 'span.badge')), 'Offline');
 });
 
@@ -659,19 +846,23 @@ test('a board that waits for its button is the one thing on the page that asks f
   const card = one(page(views.deploymentView, state, { id: OFFERED }), 'article.execution');
   assert.equal(card.getAttribute('class'), 'card execution is-act');
   assert.equal(textOf(one(card, 'p.execution-title')), 'Press Button 1 on the board');
-  assert.equal(all(one(card, 'p.execution-title'), 'span').filter((item) => item.getAttribute('role') === 'status').length, 1);
+  assert.equal(
+    all(one(card, 'p.execution-title'), 'span').filter((item) => item.getAttribute('role') === 'status').length,
+    1
+  );
 
   // The step it is at does not read as done.
   const steps = all(card, 'li.step');
-  assert.deepEqual(steps.map((step) => textOf(one(step, 'span.step-label'))),
-    ['Offered', 'Waiting for Button 1', 'Downloading', 'Download checked', 'Restarting', 'On trial', 'Confirmed']);
+  assert.deepEqual(
+    steps.map((step) => textOf(one(step, 'span.step-label'))),
+    ['Offered', 'Waiting for Button 1', 'Downloading', 'Download checked', 'Restarting', 'On trial', 'Confirmed']
+  );
   assert.equal(steps[1].getAttribute('aria-current'), 'step');
   assert.equal(textOf(steps[1]), 'Waiting for Button 1: your turn');
   assert.equal(textOf(steps[0]), 'Offered: done');
 
   // The same on the overview and on the board's own card, and nowhere else.
-  assert.equal(textOf(one(page(views.overviewView, state), 'span.status.is-act')),
-    'Press Button 1 on the board');
+  assert.equal(textOf(one(page(views.overviewView, state), 'span.status.is-act')), 'Press Button 1 on the board');
   assert.equal(all(page(views.devicesView, state), 'span.status.is-act').length, 1);
   assert.equal(all(page(views.deploymentView, state, { id: WITHDRAWN }), 'article.is-act').length, 0);
 });
@@ -680,13 +871,20 @@ test('a board that does not ask is not said to wait for a button, on any page', 
   // Firmware from 1.7.2 on: the board has taken the job on, and AWS has not agreed yet.
   const started = {
     ...WORLD,
-    devices: [device(WAITING, { fw: { version: '1.7.2+0', confirmed: true }, ota: { state: 'downloading', job: OFFERED, progress: 0, last: 'none', error: '' } })],
+    devices: [
+      device(WAITING, {
+        fw: { version: '1.7.2+0', confirmed: true },
+        ota: { state: 'downloading', job: OFFERED, progress: 0, last: 'none', error: '' },
+      }),
+    ],
     deployments: [deployment(OFFERED, { executions: [execution(WAITING, 'starting')] })],
   };
   const state = await consoleState(started);
   const pages = [
-    page(views.deploymentView, state, { id: OFFERED }), page(views.deploymentsView, state),
-    page(views.devicesView, state), page(views.overviewView, state),
+    page(views.deploymentView, state, { id: OFFERED }),
+    page(views.deploymentsView, state),
+    page(views.devicesView, state),
+    page(views.overviewView, state),
   ];
   for (const drawn of pages) {
     assert.equal(all(drawn, '.is-act').length, 0);
@@ -702,7 +900,7 @@ test('the steps of a board are kept in place while what they are called changes'
   const box = document.createElement('div');
   const at = async (item) => {
     const world = { ...WORLD, deployments: [deployment(OFFERED, { executions: [item] })] };
-    const state = { ...await consoleState(world), route: { view: 'deployment', id: OFFERED } };
+    const state = { ...(await consoleState(world)), route: { view: 'deployment', id: OFFERED } };
     views.render(box, views.deploymentView({ state, actions: recorder().actions }));
     return all(box, 'li.step');
   };
@@ -737,7 +935,9 @@ test('the steps of a board are kept in place while what they are called changes'
 // What the deployment page draws for each state of a board.
 
 const PHASES = [
-  ['waiting_for_device', {}], ['waiting_for_button', {}], ['starting', {}],
+  ['waiting_for_device', {}],
+  ['waiting_for_button', {}],
+  ['starting', {}],
   ['downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) }],
   ['verifying', { status: 'IN_PROGRESS', startedAt: ago(30) }],
   ['rebooting', { status: 'IN_PROGRESS', startedAt: ago(30) }],
@@ -783,7 +983,10 @@ test('the whole line of steps turns green only once the update is confirmed', as
 });
 
 test('a board that said no is amber, and one that failed is red', async () => {
-  for (const [phase, reason] of [['declined', 'declined'], ['refused', 'not_newer']]) {
+  for (const [phase, reason] of [
+    ['declined', 'declined'],
+    ['refused', 'not_newer'],
+  ]) {
     const card = await oneCard(phase, { status: 'REJECTED', reason });
     assert.equal(one(card, 'ol.steps').getAttribute('class'), 'steps is-warn', phase);
     assert.equal(one(card, 'div.return-path').getAttribute('class').includes('is-warn'), true, phase);
@@ -839,8 +1042,14 @@ test('with several boards only what needs the eye keeps the whole panel, and not
     execution(boards[2], 'waiting_for_device'),
   ]);
   assert.deepEqual(looks(three), [true, false, true]);
-  assert.deepEqual(three.map((card) => textOf(one(card, 'h2.execution-name'))), boards.slice(0, 3));
-  assert.deepEqual(three.map((card) => all(card, 'section.flash').length), [0, 1, 0]);
+  assert.deepEqual(
+    three.map((card) => textOf(one(card, 'h2.execution-name'))),
+    boards.slice(0, 3)
+  );
+  assert.deepEqual(
+    three.map((card) => all(card, 'section.flash').length),
+    [0, 1, 0]
+  );
   assert.equal(all(three[0], 'ol.steps.is-compact').length, 1);
 
   // More than that, and all of them take a line.
@@ -858,10 +1067,15 @@ test('the map of a cancelled update says the same as the words above it', async 
   const primary = (card) => slot(card, 'Primary slot');
   const secondary = (card) => slot(card, 'Secondary slot');
   const withBoard = async (executionChanges, board, history = []) => {
-    const run = deployment(id, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { ...started, ...executionChanges })] });
-    const others = history.map((item) => deployment(item.id, {
-      executions: [execution(WAITING, 'succeeded', { status: item.status, startedAt: ago(50) })],
-    }));
+    const run = deployment(id, {
+      status: 'CANCELED',
+      executions: [execution(WAITING, 'cancelled', { ...started, ...executionChanges })],
+    });
+    const others = history.map((item) =>
+      deployment(item.id, {
+        executions: [execution(WAITING, 'succeeded', { status: item.status, startedAt: ago(50) })],
+      })
+    );
     const state = await consoleState({ ...WORLD, devices: [board], deployments: [run, ...others] });
     return one(page(views.deploymentView, state, { id }), 'article.execution');
   };
@@ -872,30 +1086,49 @@ test('the map of a cancelled update says the same as the words above it', async 
   assert.match(secondary(stopped), /1\.2\.3\+5 Not installed/);
 
   // Too far along to be stopped.
-  const restart = await withBoard({}, device(WAITING, { ota: { state: 'rebooting', job: id, progress: 0, last: 'none', error: '' } }));
+  const restart = await withBoard(
+    {},
+    device(WAITING, { ota: { state: 'rebooting', job: id, progress: 0, last: 'none', error: '' } })
+  );
   assert.equal(textOf(one(restart, 'p.execution-title')), 'Finishing despite the cancellation');
   assert.match(primary(restart), /Being replaced/);
   assert.doesNotMatch(secondary(restart), /Not installed/);
 
   // And there it is.
   const wentThrough = { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' };
-  const installed = await withBoard({ reported: '1.2.3+5' }, device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough }));
+  const installed = await withBoard(
+    { reported: '1.2.3+5' },
+    device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough })
+  );
   assert.equal(textOf(one(installed, 'p.execution-title')), 'Installed despite the cancellation');
   assert.match(textOf(one(installed, 'section.flash')), /^Flash memory now/);
   assert.match(primary(installed), /1\.2\.3\+5 Runs from here, confirmed/);
   assert.doesNotMatch(secondary(installed), /Not installed/);
   // Without the board's word for it, or on its way out of a trial: nothing is claimed.
-  const trial = await withBoard({ reported: '1.2.3+5' }, device(WAITING, { fw: { version: '1.2.3+5', confirmed: false }, ota: wentThrough }));
+  const trial = await withBoard(
+    { reported: '1.2.3+5' },
+    device(WAITING, { fw: { version: '1.2.3+5', confirmed: false }, ota: wentThrough })
+  );
   assert.match(primary(trial), /1\.2\.3\+5 What the board reports/);
   assert.match(secondary(trial), /How this update ended is not known/);
   assert.equal(textOf(one(trial, 'p.execution-title')), 'Cancelled');
-  assert.match(textOf(one(trial, 'p.execution-text')), /The board now runs 1\.2\.3\+5; how it got there is not on record\./);
+  assert.match(
+    textOf(one(trial, 'p.execution-text')),
+    /The board now runs 1\.2\.3\+5; how it got there is not on record\./
+  );
 
   // Since then it has moved on to something newer. How this one ended is not on record, so
   // there is no map of that, only what the board reports today, and no way to offer it again.
   const movedOnPage = async () => {
-    const run = deployment(id, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { ...started, reported: '1.3.0+0' })] });
-    const state = await consoleState({ ...WORLD, devices: [device(WAITING, { fw: { version: '1.3.0+0', confirmed: true } })], deployments: [run] });
+    const run = deployment(id, {
+      status: 'CANCELED',
+      executions: [execution(WAITING, 'cancelled', { ...started, reported: '1.3.0+0' })],
+    });
+    const state = await consoleState({
+      ...WORLD,
+      devices: [device(WAITING, { fw: { version: '1.3.0+0', confirmed: true } })],
+      deployments: [run],
+    });
     return page(views.deploymentView, state, { id });
   };
   const movedOnDrawn = await movedOnPage();
@@ -907,18 +1140,27 @@ test('the map of a cancelled update says the same as the words above it', async 
   assert.equal(controls(movedOnDrawn).includes('Offer again'), false);
 
   // Cancelled at the button, and a later deployment installed it: not what ran when this ended.
-  const atButton = await withBoard({ startedAt: null, reported: '1.2.3+5' }, device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }));
+  const atButton = await withBoard(
+    { startedAt: null, reported: '1.2.3+5' },
+    device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } })
+  );
   assert.match(primary(atButton), /Previous firmware Stayed in place/);
   assert.match(secondary(atButton), /Nothing written/);
   assert.doesNotMatch(textOf(atButton), /To try again/);
 
   // The board runs that version because of another deployment: this one stopped.
   const later = 'cranium-1-2-3-b5-20261010T115800Z-0d0d';
-  const replaced = await withBoard({ reported: '1.2.3+5' },
-    device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }), [{ id: later, status: 'SUCCEEDED' }]);
+  const replaced = await withBoard(
+    { reported: '1.2.3+5' },
+    device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }),
+    [{ id: later, status: 'SUCCEEDED' }]
+  );
   assert.equal(textOf(one(replaced, 'p.execution-title')), 'Cancelled');
   assert.match(textOf(replaced), /Another deployment installed 1\.2\.3\+5\./);
-  assert.equal(one(replaced, 'a', 'Open the deployment that installed it').getAttribute('href'), `#/deployments/${later}`);
+  assert.equal(
+    one(replaced, 'a', 'Open the deployment that installed it').getAttribute('href'),
+    `#/deployments/${later}`
+  );
   assert.equal(all(replaced, 'p.execution-next').length, 1, 'and nothing about trying again');
   assert.match(secondary(replaced), /1\.2\.3\+5 Not installed/);
   assert.doesNotMatch(primary(replaced), /1\.2\.3\+5/);
@@ -931,15 +1173,25 @@ test('a board that a cancellation found restarting is not shown as online', asyn
       executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100) })],
     });
     const board = device(WAITING, { ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' } });
-    return one(page(views.deploymentView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }),
-      { id: OFFERED }), 'article.execution');
+    return one(
+      page(views.deploymentView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }), {
+        id: OFFERED,
+      }),
+      'article.execution'
+    );
   })();
   assert.equal(textOf(one(one(restarting, 'header.execution-head'), 'span.badge')), 'Restarting');
 });
 
-test('a copy of a board\'s history from before it ran this version does not settle how it got there', async () => {
-  const running = { fw: { version: '1.2.3+5', confirmed: true }, ota: { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' } };
-  const run = deployment(OFFERED, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.2.3+5' })] });
+test("a copy of a board's history from before it ran this version does not settle how it got there", async () => {
+  const running = {
+    fw: { version: '1.2.3+5', confirmed: true },
+    ota: { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' },
+  };
+  const run = deployment(OFFERED, {
+    status: 'CANCELED',
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.2.3+5' })],
+  });
   const world = { ...WORLD, devices: [device(WAITING, running)], deployments: [run] };
   const state = await consoleState(world);
   const drawn = (changes) => page(views.deploymentView, { ...state, ...changes }, { id: OFFERED });
@@ -965,8 +1217,14 @@ test('a copy of a board\'s history from before it ran this version does not sett
 });
 
 test('before the board list has been read, a cancelled update that had started claims nothing', async () => {
-  const run = deployment(OFFERED, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100) })] });
-  const state = await consoleState({ ...WORLD, deployments: [run] }, { devices: { value: null, error: null, loading: true, loadedAt: 0 } });
+  const run = deployment(OFFERED, {
+    status: 'CANCELED',
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100) })],
+  });
+  const state = await consoleState(
+    { ...WORLD, deployments: [run] },
+    { devices: { value: null, error: null, loading: true, loadedAt: 0 } }
+  );
   const drawn = page(views.deploymentView, state, { id: OFFERED });
   const card = one(drawn, 'article.execution');
   assert.equal(textOf(one(one(card, 'header.execution-head'), 'span.badge')), 'Not known yet');
@@ -977,7 +1235,10 @@ test('before the board list has been read, a cancelled update that had started c
 });
 
 test('the overview does not say that nothing is going on while a board restarts after a forced cancel', async () => {
-  const run = deployment(OFFERED, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100) })] });
+  const run = deployment(OFFERED, {
+    status: 'CANCELED',
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100) })],
+  });
   const board = device(WAITING, { ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' } });
   const overview = page(views.overviewView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }));
   assert.doesNotMatch(textOf(overview), /No update is in progress/);
@@ -1002,7 +1263,9 @@ test('with the deployments out of date the overview does not say that nothing is
 });
 
 test('the same download has one percentage on the overview', async () => {
-  const run = deployment(OFFERED, { executions: [execution(WAITING, 'downloading', { status: 'IN_PROGRESS', progress: 70, startedAt: ago(30) })] });
+  const run = deployment(OFFERED, {
+    executions: [execution(WAITING, 'downloading', { status: 'IN_PROGRESS', progress: 70, startedAt: ago(30) })],
+  });
   const board = device(WAITING, { ota: { state: 'downloading', job: OFFERED, progress: 50, last: 'none', error: '' } });
   const overview = page(views.overviewView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }));
   assert.match(textOf(one(overview, 'span.board-line-update')), /70%/);
@@ -1010,7 +1273,7 @@ test('the same download has one percentage on the overview', async () => {
   assert.match(textOf(one(overview, 'p.board-run-figure')), /70/);
 });
 
-test('a board\'s panel holds what the board is doing, and claims no report that never came', async () => {
+test("a board's panel holds what the board is doing, and claims no report that never came", async () => {
   const state = await consoleState(WORLD);
   const panelOf = (thing, details = state.deviceDetails) =>
     one(page(views.deviceView, { ...state, deviceDetails: details }, { thing }), 'section.board-panel');
@@ -1035,13 +1298,19 @@ test('a board\'s panel holds what the board is doing, and claims no report that 
   assert.doesNotMatch(textOf(never), /As last reported|Worked out/);
 
   // Offline in the middle of an update: the map and the rows below it say the same.
-  const quiet = device(WAITING, { online: false, ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' } });
+  const quiet = device(WAITING, {
+    online: false,
+    ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' },
+  });
   const details = new Map(state.deviceDetails);
   details.set(WAITING, { ...details.get(WAITING), value: { ...details.get(WAITING).value, device: quiet } });
   const gone = panelOf(WAITING, details);
   assert.match(textOf(one(gone, 'section.flash')), /^Flash memory when last seen/);
   assert.equal(all(gone, 'h2').length, 1, 'one heading');
-  assert.match(textOf(one(gone, 'li.flash-row', 'Secondary slot')), /1\.2\.3\+5.*Was restarting into 1\.2\.3\+5 when last seen/);
+  assert.match(
+    textOf(one(gone, 'li.flash-row', 'Secondary slot')),
+    /1\.2\.3\+5.*Was restarting into 1\.2\.3\+5 when last seen/
+  );
   assert.doesNotMatch(textOf(gone), /No update under way|As last reported/);
   assert.equal(all(gone, 'div.flash-swap').length, 0);
 
@@ -1055,7 +1324,9 @@ test('a board\'s panel holds what the board is doing, and claims no report that 
 });
 
 test('the list of deployments does not show one board as a full bar, and says how far it is', async () => {
-  const run = deployment(OFFERED, { executions: [execution(WAITING, 'downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) })] });
+  const run = deployment(OFFERED, {
+    executions: [execution(WAITING, 'downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) })],
+  });
   const board = device(WAITING, { ota: { state: 'downloading', job: OFFERED, progress: 40, last: 'none', error: '' } });
   const list = page(views.deploymentsView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }));
   assert.equal(all(list, 'div.segments').length, 0);
@@ -1063,19 +1334,45 @@ test('the list of deployments does not show one board as a full bar, and says ho
   assert.match(textOf(one(list, 'ul.legend')), /^1 updating · 40%$/);
 
   // Waiting for a person: said alike in the panel and on the row.
-  const waiting = page(views.deploymentsView, await consoleState({ ...WORLD, deployments: [deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] })] }));
+  const waiting = page(
+    views.deploymentsView,
+    await consoleState({
+      ...WORLD,
+      deployments: [deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] })],
+    })
+  );
   assert.match(textOf(one(waiting, 'ul.legend')), /1 waiting for Button/);
   assert.match(textOf(one(waiting, 'ul.counts')), /1 waiting for Button/);
 
   // Several boards are a share of something.
-  const two = page(views.deploymentsView, await consoleState({ ...WORLD, deployments: [deployment(OFFERED, {
-    executions: [execution(WAITING, 'waiting_for_button'), execution(INSTALLING, 'downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) })],
-  })] }));
+  const two = page(
+    views.deploymentsView,
+    await consoleState({
+      ...WORLD,
+      deployments: [
+        deployment(OFFERED, {
+          executions: [
+            execution(WAITING, 'waiting_for_button'),
+            execution(INSTALLING, 'downloading', { status: 'IN_PROGRESS', progress: 40, startedAt: ago(30) }),
+          ],
+        }),
+      ],
+    })
+  );
   assert.equal(all(two, 'div.segments').length, 2);
 });
 
 test('a line of the activity log from a script says that nobody signed in', async () => {
-  const state = await consoleState({ ...WORLD, entries: [entry('firmware.revoke', '2.0.0+0', { at: ago(10), requestId: 'bench-0123456789abcdef', detail: { reason: 'x', cancelled: '0' } })] });
+  const state = await consoleState({
+    ...WORLD,
+    entries: [
+      entry('firmware.revoke', '2.0.0+0', {
+        at: ago(10),
+        requestId: 'bench-0123456789abcdef',
+        detail: { reason: 'x', cancelled: '0' },
+      }),
+    ],
+  });
   const line = one(page(views.activityView, state), 'li.log-line');
   assert.match(textOf(line), /Script, no sign-in/);
   const normal = await consoleState(WORLD);
@@ -1083,7 +1380,11 @@ test('a line of the activity log from a script says that nobody signed in', asyn
 });
 
 test('a viewer is not told it is their turn, or to upload', async () => {
-  const held = deployment(OFFERED, { status: 'COMPLETED', completedAt: ago(10), executions: [execution(WAITING, 'rolled_back', { status: 'FAILED', reason: 'rolled_back', startedAt: ago(100) })] });
+  const held = deployment(OFFERED, {
+    status: 'COMPLETED',
+    completedAt: ago(10),
+    executions: [execution(WAITING, 'rolled_back', { status: 'FAILED', reason: 'rolled_back', startedAt: ago(100) })],
+  });
   const viewer = await consoleState({ ...WORLD, deployments: [held] }, { viewer: true });
   const ended = page(views.deploymentView, viewer, { id: OFFERED });
   assert.equal(all(ended, 'p.execution-next').length, 0);
@@ -1112,11 +1413,22 @@ test('a size that says the same twice is said once', async () => {
 });
 
 test('a deployment cancelled by hand before its release was revoked is not put down to the revocation', async () => {
-  const run = deployment(WITHDRAWN, { version: '2.0.0+0', status: 'CANCELED', createdAt: ago(9000), executions: [execution(WAITING, 'cancelled', { status: 'CANCELED' })] });
+  const run = deployment(WITHDRAWN, {
+    version: '2.0.0+0',
+    status: 'CANCELED',
+    createdAt: ago(9000),
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED' })],
+  });
   const cancelledBy = (at) => [entry('deployment.cancel', WITHDRAWN, { at: ago(at), detail: { force: 'false' } })];
-  const after = page(views.deploymentView, await consoleState({ ...WORLD, deployments: [run], entries: cancelledBy(5000) }), { id: WITHDRAWN });
+  const after = page(
+    views.deploymentView,
+    await consoleState({ ...WORLD, deployments: [run], entries: cancelledBy(5000) }),
+    { id: WITHDRAWN }
+  );
   assert.doesNotMatch(textOf(one(after, 'div.notice.is-idle', 'was revoked')), /Revoking cancels/);
-  const none = page(views.deploymentView, await consoleState({ ...WORLD, deployments: [run], entries: [] }), { id: WITHDRAWN });
+  const none = page(views.deploymentView, await consoleState({ ...WORLD, deployments: [run], entries: [] }), {
+    id: WITHDRAWN,
+  });
   assert.match(textOf(one(none, 'div.notice.is-idle', 'was revoked')), /Revoking cancels every open deployment/);
 });
 
@@ -1124,10 +1436,13 @@ test('a board page shows the offer a board has not picked up, from its own histo
   const away = device(WAITING, { online: false, ota: null });
   const run = deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_device', { online: false })] });
   // As after a reload: the list of deployments has not been read on this page.
-  const state = await consoleState({ ...WORLD, devices: [away], deployments: [run] }, {
-    deployments: { value: null, error: null, loading: false, loadedAt: 0 },
-    deploymentDetails: new Map(),
-  });
+  const state = await consoleState(
+    { ...WORLD, devices: [away], deployments: [run] },
+    {
+      deployments: { value: null, error: null, loading: false, loadedAt: 0 },
+      deploymentDetails: new Map(),
+    }
+  );
   const update = one(page(views.deviceView, state, { thing: WAITING }), 'dd', 'Offered');
   assert.match(textOf(update), /Offered 1\.2\.3\+5\. It will see the offer when it connects\./);
   assert.equal(one(update, 'a.fact-link').getAttribute('href'), `#/deployments/${OFFERED}`);
@@ -1143,10 +1458,16 @@ test('wherever a person is named, the account id is within reach', async () => {
   // The log: two accounts that show the same address are told apart on the line itself.
   const lines = all(pages.get('activity'), 'li.log-line');
   const refs = lines.map((line) => one(line, 'span.log-ref', 'Account'));
-  assert.deepEqual(refs.map(textOf),
-    ['Account 0b1c2d3e…', 'Account f9e8d7c6…', 'Account 0b1c2d3e…', 'Account 7a7a7a7a…']);
-  assert.deepEqual(refs.map((ref) => ref.getAttribute('title')),
-    [account(MANAGER), account(LOOKALIKE), account(MANAGER), account(NAMELESS)]);
+  assert.deepEqual(refs.map(textOf), [
+    'Account 0b1c2d3e…',
+    'Account f9e8d7c6…',
+    'Account 0b1c2d3e…',
+    'Account 7a7a7a7a…',
+  ]);
+  assert.deepEqual(
+    refs.map((ref) => ref.getAttribute('title')),
+    [account(MANAGER), account(LOOKALIKE), account(MANAGER), account(NAMELESS)]
+  );
   assert.equal(textOf(one(lines[1], 'span.log-actor')), textOf(one(lines[2], 'span.log-actor')));
   // An entry without an address is named by its account, not as "someone".
   assert.equal(textOf(one(lines[3], 'span.log-actor')), 'account 7a7a7a7a…');
@@ -1167,11 +1488,16 @@ test('wherever a person is named, the account id is within reach', async () => {
   assert.deepEqual(named(pages.get('deployment')), [[MANAGER.email, account(MANAGER)]]);
   const firmware = named(pages.get('firmware'));
   assert.equal(firmware.length, 5, 'four uploads and a revocation');
-  assert.equal(firmware.every(([, title]) => /^Account [0-9a-f-]{36}$/.test(title)), true);
+  assert.equal(
+    firmware.every(([, title]) => /^Account [0-9a-f-]{36}$/.test(title)),
+    true
+  );
   assert.deepEqual(firmware.at(-1), ['account 7a7a7a7a…', account(NAMELESS)]);
   // And written out where a tooltip cannot be read: in the details of a release.
-  assert.match(textOf(one(pages.get('firmware'), 'li.release', '2.0.0+0')),
-    new RegExp(`by ${escaped(MANAGER.email)} · account ${MANAGER.sub}`));
+  assert.match(
+    textOf(one(pages.get('firmware'), 'li.release', '2.0.0+0')),
+    new RegExp(`by ${escaped(MANAGER.email)} · account ${MANAGER.sub}`)
+  );
   // The masthead says which account is signed in.
   const signedIn = one(page(views.accountView, state), 'span.account-email');
   assert.equal(signedIn.getAttribute('title'), `${MANAGER.email} · ${account(MANAGER)}`);
@@ -1181,25 +1507,38 @@ test('wherever a person is named, the account id is within reach', async () => {
 
 test('the log says what happened in the words of the console', async () => {
   const lines = all(page(views.activityView, await consoleState(WORLD)), 'li.log-line');
-  assert.deepEqual(lines.map((line) => textOf(one(line, 'p.log-what'))), [
-    `${MANAGER.email} revoked firmware 2.0.0+0`,
-    `${MANAGER.email} cancelled the deployment of 1.2.4+0`,
-    // An entry from before the log named the boards: they come from the deployment.
-    `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`,
-    'account 7a7a7a7a… tried to upload zephyr.signed.bin Refused',
-  ]);
+  assert.deepEqual(
+    lines.map((line) => textOf(one(line, 'p.log-what'))),
+    [
+      `${MANAGER.email} revoked firmware 2.0.0+0`,
+      `${MANAGER.email} cancelled the deployment of 1.2.4+0`,
+      // An entry from before the log named the boards: they come from the deployment.
+      `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`,
+      'account 7a7a7a7a… tried to upload zephyr.signed.bin Refused',
+    ]
+  );
   const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
-  assert.deepEqual(detail(lines[0]),
-    [`Reason: ${REASON}`, 'Deployments cancelled 1', 'Account 0b1c2d3e…', 'Request req-1']);
-  assert.deepEqual(detail(lines[1]),
-    ['Asked to withdraw the offer', `Deployment ${WITHDRAWN}`, 'Account f9e8d7c6…', 'Request req-1']);
-  assert.deepEqual(detail(lines[2]),
-    [`Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
+  assert.deepEqual(detail(lines[0]), [
+    `Reason: ${REASON}`,
+    'Deployments cancelled 1',
+    'Account 0b1c2d3e…',
+    'Request req-1',
+  ]);
+  assert.deepEqual(detail(lines[1]), [
+    'Asked to withdraw the offer',
+    `Deployment ${WITHDRAWN}`,
+    'Account f9e8d7c6…',
+    'Request req-1',
+  ]);
+  assert.deepEqual(detail(lines[2]), [`Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
   // A refusal in words, with its code only for whoever points at them; the file is what the sentence names already,
   // and a digest is shortened beside a button that copies all of it.
   assert.deepEqual(detail(lines[3]), [
-    'Signed with a different key than this project’s.', 'Size 1,264 bytes',
-    `SHA-256 ${'c'.repeat(12)}…`, 'Account 7a7a7a7a…', 'Request req-1',
+    'Signed with a different key than this project’s.',
+    'Size 1,264 bytes',
+    `SHA-256 ${'c'.repeat(12)}…`,
+    'Account 7a7a7a7a…',
+    'Request req-1',
   ]);
   assert.equal(one(lines[3], 'button').getAttribute('aria-label'), `Copy the SHA-256 of ${'c'.repeat(12)}…`);
   // A reason is prose; an identifier is set as one.
@@ -1212,14 +1551,22 @@ test('the log says what happened in the words of the console', async () => {
 
 test('the log says how a deployment that is over ended, and leaves the others alone', async () => {
   const over = deployment(OFFERED, {
-    status: 'COMPLETED', completedAt: ago(100),
+    status: 'COMPLETED',
+    completedAt: ago(100),
     executions: [execution(WAITING, 'rolled_back', { status: 'FAILED', reason: 'rolled_back' })],
   });
-  const line = async (deployments) => textOf(one(one(page(views.activityView,
-    await consoleState({ ...WORLD, deployments })), 'li.log-line', 'deployed'), 'p.log-what'));
+  const line = async (deployments) =>
+    textOf(
+      one(
+        one(page(views.activityView, await consoleState({ ...WORLD, deployments })), 'li.log-line', 'deployed'),
+        'p.log-what'
+      )
+    );
   assert.equal(await line([over]), `${MANAGER.email} deployed 1.2.3+5 to ${WAITING} Failed`);
-  assert.equal(await line([deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] })]),
-    `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`);
+  assert.equal(
+    await line([deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] })]),
+    `${MANAGER.email} deployed 1.2.3+5 to ${WAITING}`
+  );
   // Without the deployment, the entry's own count.
   assert.equal(await line([]), `${MANAGER.email} deployed 1.2.3+5 to 1 board`);
 });
@@ -1227,30 +1574,44 @@ test('the log says how a deployment that is over ended, and leaves the others al
 test('the log names the boards a deployment went to, a board changed over USB and a sign-in, each by its name now', async () => {
   const named = WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item));
   const entries = [
-    entry('deployment.create', OFFERED, { detail: { version: '1.2.3+5', things: '2', boards: `${WAITING} ${INSTALLING}`, from: 'phone' } }),
+    entry('deployment.create', OFFERED, {
+      detail: { version: '1.2.3+5', things: '2', boards: `${WAITING} ${INSTALLING}`, from: 'phone' },
+    }),
     entry('serial.command', 'CRVIHAAN01', { detail: { command: 'WIFI', version: '1.12.0+0' } }),
     entry('serial.command', 'NOTLISTED', { detail: { command: 'REBOOT' } }),
     entry('account.sign_in', '', { detail: { client: 'phone' }, requestId: `signin.${MANAGER.sub}.phone.1793700000` }),
   ];
   const lines = all(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'li.log-line');
-  assert.deepEqual(lines.map((line) => textOf(one(line, 'p.log-what'))), [
-    `${MANAGER.email} deployed 1.2.3+5 to CRVIHAAN01 and ${INSTALLING}`,
-    `${MANAGER.email} set the Wi-Fi network of CRVIHAAN01 over USB`,
-    `${MANAGER.email} restarted NOTLISTED over USB`,
-    `${MANAGER.email} signed in on the phone app`,
-  ]);
+  assert.deepEqual(
+    lines.map((line) => textOf(one(line, 'p.log-what'))),
+    [
+      `${MANAGER.email} deployed 1.2.3+5 to CRVIHAAN01 and ${INSTALLING}`,
+      `${MANAGER.email} set the Wi-Fi network of CRVIHAAN01 over USB`,
+      `${MANAGER.email} restarted NOTLISTED over USB`,
+      `${MANAGER.email} signed in on the phone app`,
+    ]
+  );
   // Each board links to its page, the one found by its name too; one not in the list is said as it is.
-  assert.deepEqual(all(lines[0], 'a.log-target').map((link) => link.getAttribute('href')),
-    [`#/deployments/${OFFERED}`, `#/devices/${WAITING}`, `#/devices/${INSTALLING}`]);
+  assert.deepEqual(
+    all(lines[0], 'a.log-target').map((link) => link.getAttribute('href')),
+    [`#/deployments/${OFFERED}`, `#/devices/${WAITING}`, `#/devices/${INSTALLING}`]
+  );
   assert.equal(one(lines[1], 'a.log-target').getAttribute('href'), `#/devices/${WAITING}`);
   assert.equal(all(lines[2], 'a.log-target').length, 0);
   const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
-  assert.deepEqual(detail(lines[0]), ['From the phone app', `Deployment ${OFFERED}`, 'Account 0b1c2d3e…', 'Request req-1']);
+  assert.deepEqual(detail(lines[0]), [
+    'From the phone app',
+    `Deployment ${OFFERED}`,
+    'Account 0b1c2d3e…',
+    'Request req-1',
+  ]);
   assert.deepEqual(detail(lines[1]), ['Running 1.12.0+0', 'Command WIFI', 'Account 0b1c2d3e…', 'Request req-1']);
   // A sign-in's id is made of the sign-in, not a request's: it is not shown as one.
   assert.deepEqual(detail(lines[3]), ['Account 0b1c2d3e…']);
-  assert.match(textOf(one(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'p.log-summary')),
-    /2 commands over USB.*1 sign-in/);
+  assert.match(
+    textOf(one(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'p.log-summary')),
+    /2 commands over USB.*1 sign-in/
+  );
 });
 
 test('a reason as long as the dialog accepts is shown whole', async () => {
@@ -1289,10 +1650,15 @@ test('a deployment that was cancelled says so next to what its board is still do
   const { actions, calls } = recorder();
   const drawn = page(views.deploymentView, state, { id: WITHDRAWN }, actions);
   assert.match(textOf(one(drawn, 'h1')), /Cancelled, 1 board still working$/);
-  assert.match(textOf(one(drawn, 'div.page-notice')),
-    /This deployment was cancelled\. A board that had already started carries on unless it is stopped\./);
+  assert.match(
+    textOf(one(drawn, 'div.page-notice')),
+    /This deployment was cancelled\. A board that had already started carries on unless it is stopped\./
+  );
   click(one(drawn, 'button', 'Stop boards that have started'));
-  assert.deepEqual(calls.map(([name]) => name), ['openCancel']);
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    ['openCancel']
+  );
   // Who cancelled it is in the log.
   assert.match(textOf(one(drawn, 'div.page-meta')), /Cancelled 15 min ago \(.+\) by /);
 });
@@ -1300,8 +1666,10 @@ test('a deployment that was cancelled says so next to what its board is still do
 test('a board on the deployment page: what it is and what it has done are not contradicted', async () => {
   const card = async (execution_, devices = WORLD.devices) => {
     const run = deployment(OFFERED, { executions: [execution_] });
-    return one(page(views.deploymentView, await consoleState({ ...WORLD, devices, deployments: [run] }),
-      { id: OFFERED }), 'article.execution');
+    return one(
+      page(views.deploymentView, await consoleState({ ...WORLD, devices, deployments: [run] }), { id: OFFERED }),
+      'article.execution'
+    );
   };
   const never = await card(execution(NEVER, 'waiting_for_device', { online: false }));
   assert.match(textOf(never), /Never connected/);
@@ -1311,9 +1679,14 @@ test('a board on the deployment page: what it is and what it has done are not co
   assert.equal(textOf(one(one(restarting, 'header.execution-head'), 'span.badge')), 'Restarting');
 
   // While the board is at it, the record of AWS does not move with the download.
-  const busy = await card(execution(WAITING, 'downloading', {
-    status: 'IN_PROGRESS', progress: 40, startedAt: ago(100), lastUpdatedAt: ago(100),
-  }));
+  const busy = await card(
+    execution(WAITING, 'downloading', {
+      status: 'IN_PROGRESS',
+      progress: 40,
+      startedAt: ago(100),
+      lastUpdatedAt: ago(100),
+    })
+  );
   assert.doesNotMatch(textOf(one(busy, 'p.execution-foot')), /Last report|Ended/);
   // The figure is not read out at every change. The bar has it.
   const title = one(busy, 'p.execution-title');
@@ -1321,16 +1694,21 @@ test('a board on the deployment page: what it is and what it has done are not co
   assert.equal(withText(title, 'span', '40%').at(-1).getAttribute('aria-hidden'), 'true');
   assert.equal(one(busy, 'div.meter').getAttribute('aria-valuenow'), '40');
 
-  const ended = await card(execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', lastUpdatedAt: ago(30) }));
+  const ended = await card(
+    execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', lastUpdatedAt: ago(30) })
+  );
   assert.match(textOf(one(ended, 'p.execution-foot')), /Ended 30 s ago \(.+\)/);
   assert.match(textOf(one(ended, 'p.execution-next')), /start a new deployment/);
 });
 
 test('an update that ended short can be offered again, if the release is still there', async () => {
-  const short = (id, version) => deployment(id, {
-    status: 'COMPLETED', completedAt: ago(100), version,
-    executions: [execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined' })],
-  });
+  const short = (id, version) =>
+    deployment(id, {
+      status: 'COMPLETED',
+      completedAt: ago(100),
+      version,
+      executions: [execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined' })],
+    });
   const active = 'cranium-1-2-3-b5-20261010T115400Z-0a0a';
   const gone = 'cranium-2-0-0-b0-20261010T115400Z-0a0a';
   const world = { ...WORLD, deployments: [short(active, '1.2.3+5'), short(gone, '2.0.0+0')] };
@@ -1338,14 +1716,23 @@ test('an update that ended short can be offered again, if the release is still t
   const state = await consoleState(world);
   const open = page(views.deploymentView, state, { id: active }, actions);
   click(one(open, 'button', 'Offer again'));
-  assert.deepEqual(calls.map(([name, version]) => [name, version]), [['openDeploy', '1.2.3+5']]);
+  assert.deepEqual(
+    calls.map(([name, version]) => [name, version]),
+    [['openDeploy', '1.2.3+5']]
+  );
 
   const revokedOne = page(views.deploymentView, state, { id: gone });
-  assert.equal(all(revokedOne, 'button').some((item) => textOf(item).includes('Offer again')), false);
+  assert.equal(
+    all(revokedOne, 'button').some((item) => textOf(item).includes('Offer again')),
+    false
+  );
   assert.equal(all(revokedOne, 'p.execution-next').length, 0);
 
   const viewer = page(views.deploymentView, await consoleState(world, { viewer: true }), { id: active });
-  assert.equal(all(viewer, 'button').some((item) => textOf(item).includes('Offer again')), false);
+  assert.equal(
+    all(viewer, 'button').some((item) => textOf(item).includes('Offer again')),
+    false
+  );
 });
 
 test('a detail page names what it is about in its heading', async () => {
@@ -1375,10 +1762,17 @@ test('a board is shown by its own name first and its thing name second, on every
   assert.equal(textOf(one(overview, 'a.board-line-name', INSTALLING)), INSTALLING);
   const run = one(overview, 'a.board-run-name', 'CRVIHAAN01');
   assert.equal(run.getAttribute('title'), WAITING);
-  assert.equal(withText(overview, 'li.board-line', WAITING).length, 0, 'the thing name is not written out in the table');
+  assert.equal(
+    withText(overview, 'li.board-line', WAITING).length,
+    0,
+    'the thing name is not written out in the table'
+  );
   // Each tile that stands for it says both.
-  assert.deepEqual([...new Set(all(overview, 'span.tile').map((tile) => tile.getAttribute('title')))].sort(),
-    [`CRVIHAAN01 · ${WAITING}`, INSTALLING, NEVER]);
+  assert.deepEqual([...new Set(all(overview, 'span.tile').map((tile) => tile.getAttribute('title')))].sort(), [
+    `CRVIHAAN01 · ${WAITING}`,
+    INSTALLING,
+    NEVER,
+  ]);
 
   // The list of devices has room for both: the name, and the thing name under it.
   const list = page(views.devicesView, state);
@@ -1438,29 +1832,44 @@ test('choosing boards to deploy to: each by its name, with its thing name beside
 
   // The last step, at the moment of commitment, says the same.
   const review = wizard({ step: 2, devices: [named, plain], things: new Set([WAITING, INSTALLING]) }).dialog;
-  assert.deepEqual(all(review, 'li.board-pick').map((item) => textOf(item).split(' Online')[0]),
-    [`CRVIHAAN01 ${WAITING}`, INSTALLING]);
+  assert.deepEqual(
+    all(review, 'li.board-pick').map((item) => textOf(item).split(' Online')[0]),
+    [`CRVIHAAN01 ${WAITING}`, INSTALLING]
+  );
 
   // A refusal: the server names the board by its thing name; the console adds its own.
-  const busy = new core.ApiError(409, 'device_busy',
+  const busy = new core.ApiError(
+    409,
+    'device_busy',
     `${WAITING} still has an update that is not finished. Wait for it or cancel it first.`,
-    { details: [{ thing: WAITING, deployment: OFFERED }] });
+    { details: [{ thing: WAITING, deployment: OFFERED }] }
+  );
   const notice = one(wizard({ devices: [named], error: busy }).dialog, 'div.notice.is-bad');
   assert.match(textOf(notice), /cancel it first\. That update on CRVIHAAN01 is the deployment of 1\.2\.3\+5\./);
-  const several = new core.ApiError(409, 'device_busy', '2 boards still have an update that is not finished.',
-    { details: [{ thing: WAITING, deployment: OFFERED }, { thing: INSTALLING, deployment: OFFERED }] });
+  const several = new core.ApiError(409, 'device_busy', '2 boards still have an update that is not finished.', {
+    details: [
+      { thing: WAITING, deployment: OFFERED },
+      { thing: INSTALLING, deployment: OFFERED },
+    ],
+  });
   const held = one(wizard({ devices: [named, plain], error: several }).dialog, 'ul.plain-list');
-  assert.deepEqual(all(held, 'li').map(textOf),
-    [`CRVIHAAN01 ${WAITING}: the deployment of 1.2.3+5`, `${INSTALLING}: the deployment of 1.2.3+5`]);
+  assert.deepEqual(all(held, 'li').map(textOf), [
+    `CRVIHAAN01 ${WAITING}: the deployment of 1.2.3+5`,
+    `${INSTALLING}: the deployment of 1.2.3+5`,
+  ]);
 });
 
 test('a name that is not one is never shown, and a name is only ever text', async () => {
   const hostile = '<img src=x onerror=alert(1)>';
   const state = await consoleState({
-    ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: hostile } : item)),
+    ...WORLD,
+    devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: hostile } : item)),
   });
   for (const drawn of everyPage(state).values()) {
-    assert.equal(descendants(drawn).some((el) => el.localName === 'img'), false);
+    assert.equal(
+      descendants(drawn).some((el) => el.localName === 'img'),
+      false
+    );
     assert.equal(textOf(drawn).includes(hostile), false);
   }
   assert.equal(textOf(one(page(views.deviceView, state, { thing: WAITING }), 'h1')), `Board ${WAITING}`);
@@ -1468,8 +1877,22 @@ test('a name that is not one is never shown, and a name is only ever text', asyn
 
 test('the sections keep their place: each link holds the room its name takes in bold', async () => {
   const nav = draw(views.navView({ state: { route: { view: 'overview' } } }));
-  assert.deepEqual(all(nav, 'a').map((link) => link.getAttribute('data-label')),
-    ['Overview', 'Devices', 'Map', 'Diagnostics', 'Events', 'Firmware', 'Deployments', 'Fleet', 'Activity', 'Apps', 'Developer']);
+  assert.deepEqual(
+    all(nav, 'a').map((link) => link.getAttribute('data-label')),
+    [
+      'Overview',
+      'Devices',
+      'Map',
+      'Diagnostics',
+      'Events',
+      'Firmware',
+      'Deployments',
+      'Fleet',
+      'Activity',
+      'Apps',
+      'Developer',
+    ]
+  );
 });
 
 test('the Developer section leads to what the account can use, and is current on both of its pages', () => {
@@ -1485,7 +1908,8 @@ test('the Developer section leads to what the account can use, and is current on
 
 test('the masthead says when the session is over, not that it ends in no time', () => {
   const state = (sessionLeft) => ({
-    state: { me: { email: 'x', sub: 'y', canWrite: true }, sessionLeft }, actions: recorder().actions,
+    state: { me: { email: 'x', sub: 'y', canWrite: true }, sessionLeft },
+    actions: recorder().actions,
   });
   assert.equal(textOf(one(draw(views.accountView(state(3600))), 'span.account-session')), 'Session ends in 1 h');
   assert.equal(textOf(one(draw(views.accountView(state(0))), 'span.account-session')), 'Session ended');
@@ -1507,15 +1931,19 @@ test('versions and file names in a sentence are set like everywhere else', async
     status: 'COMPLETED',
   });
   const onIt = device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } });
-  const drawn = page(views.deploymentView, await consoleState({ ...WORLD, devices: [onIt], deployments: [run] }), { id: OFFERED });
+  const drawn = page(views.deploymentView, await consoleState({ ...WORLD, devices: [onIt], deployments: [run] }), {
+    id: OFFERED,
+  });
   assert.equal(textOf(one(drawn, 'p.execution-text')), 'The board runs 1.2.3+5 and has confirmed it.');
   assert.equal(textOf(one(one(drawn, 'p.execution-text'), 'span.mono')), '1.2.3+5');
 });
 
 test('a release row reads from top to bottom, and its buttons say which release they act on', async () => {
   const row = one(page(views.firmwareView, await consoleState(WORLD)), 'li.release', '1.2.3+5');
-  assert.deepEqual(row.children.map((child) => child.getAttribute('class')),
-    ['release-main', 'release-actions', 'more']);
+  assert.deepEqual(
+    row.children.map((child) => child.getAttribute('class')),
+    ['release-main', 'release-actions', 'more']
+  );
   assert.equal(textOf(one(row, 'summary')), 'Details of 1.2.3+5');
   assert.equal(one(row, 'button', 'Revoke').getAttribute('aria-label'), 'Revoke 1.2.3+5');
 });
@@ -1532,8 +1960,14 @@ test('how fresh a page is: the rate is a part of its own, so that a narrow row c
 
 const HEADER = { ok: true, headerSize: 512, payloadSize: 600, version: '2.0.1+0' };
 const chosen = (changes = {}) => ({
-  stage: 'ready', name: 'zephyr.signed.bin', recordedAs: 'zephyr.signed.bin', size: 1264,
-  digest: 'd'.repeat(64), header: HEADER, notes: '', ...changes,
+  stage: 'ready',
+  name: 'zephyr.signed.bin',
+  recordedAs: 'zephyr.signed.bin',
+  size: 1264,
+  digest: 'd'.repeat(64),
+  header: HEADER,
+  notes: '',
+  ...changes,
 });
 
 /** The upload panel of the Firmware page for a chosen file, and what pressing in it asked for. */
@@ -1548,10 +1982,14 @@ const refusedWith = (failure) => uploadPanel(chosen({ stage: 'refused', error: f
 test('a chosen file is not shown as checked before the server has checked it', async () => {
   const { panel } = await uploadPanel(chosen());
   const checks = all(panel, 'li.check');
-  assert.deepEqual(checks.map((check) => check.getAttribute('class')),
-    ['check is-good', 'check is-good', 'check is-wait']);
-  assert.equal(textOf(checks[2]),
-    'Signature: not checked yet. The server checks it against the project key when you upload.');
+  assert.deepEqual(
+    checks.map((check) => check.getAttribute('class')),
+    ['check is-good', 'check is-good', 'check is-wait']
+  );
+  assert.equal(
+    textOf(checks[2]),
+    'Signature: not checked yet. The server checks it against the project key when you upload.'
+  );
   assert.deepEqual(controls(panel), ['Choose another file', 'Upload for verification']);
 
   // A file that cannot be sent says nothing about a check that will not happen.
@@ -1562,11 +2000,13 @@ test('a chosen file is not shown as checked before the server has checked it', a
 });
 
 test('a refused image leads to another file; only a request that failed is offered again', async () => {
-  const wrongKey = error(422, 'wrong_key', 'The image is signed with a different key than this project\'s');
+  const wrongKey = error(422, 'wrong_key', "The image is signed with a different key than this project's");
   const refused = await refusedWith(wrongKey);
   // The server's sentence is finished.
-  assert.equal(textOf(one(refused.panel, 'span.notice-said')),
-    'The server refused this image. The image is signed with a different key than this project\'s.');
+  assert.equal(
+    textOf(one(refused.panel, 'span.notice-said')),
+    "The server refused this image. The image is signed with a different key than this project's."
+  );
   // One way on, and it is not the same bytes again.
   assert.deepEqual(controls(refused.panel), ['Choose another file']);
   assert.equal(one(refused.panel, 'button', 'Choose another file').getAttribute('class'), 'btn is-primary');
@@ -1584,10 +2024,11 @@ test('a refused image leads to another file; only a request that failed is offer
   }
 
   // A refusal of the account is not put down to the image, and is not offered again either.
-  const noRole = await refusedWith(
-    error(403, 'release_manager_required', 'You are no longer a release manager.'));
-  assert.equal(textOf(one(noRole.panel, 'span.notice-said')),
-    'The image was not stored. You are no longer a release manager.');
+  const noRole = await refusedWith(error(403, 'release_manager_required', 'You are no longer a release manager.'));
+  assert.equal(
+    textOf(one(noRole.panel, 'span.notice-said')),
+    'The image was not stored. You are no longer a release manager.'
+  );
   assert.deepEqual(controls(noRole.panel), ['Choose another file']);
 
   const uncertain = /^It is not certain whether this went through\./;
@@ -1649,7 +2090,8 @@ test('once refused, a file is not told what was expected of it', async () => {
   const refused = page(views.firmwareView, {
     ...state,
     upload: chosen({
-      stage: 'refused', error: error(422, 'wrong_key', 'The image is signed with a different key.'),
+      stage: 'refused',
+      error: error(422, 'wrong_key', 'The image is signed with a different key.'),
     }),
   });
   assert.doesNotMatch(textOf(refused), /This will be the first release/);
@@ -1699,35 +2141,52 @@ test('with a file in hand the end of the session is said in time', async () => {
 test('from a file to the boards: the panel says where a file stands, in words', async () => {
   const stages = async (upload) => all((await uploadPanel(upload)).panel, 'span.upload-stage-words').map(textOf);
   assert.deepEqual(await stages({ stage: 'idle', over: false }), [
-    'Choose a signed image: your turn', 'The server verifies it: not started', 'Deploy it to boards: not started',
+    'Choose a signed image: your turn',
+    'The server verifies it: not started',
+    'Deploy it to boards: not started',
   ]);
-  assert.equal((await stages(chosen({ stage: 'checking', sent: 1 })))[1], 'The server verifies it: the server is verifying');
+  assert.equal(
+    (await stages(chosen({ stage: 'checking', sent: 1 })))[1],
+    'The server verifies it: the server is verifying'
+  );
   assert.deepEqual((await stages({ stage: 'done', release: release('2.0.1+0') })).slice(1), [
-    'The server verifies it: signature valid', 'Deploy it to boards: your turn',
+    'The server verifies it: signature valid',
+    'Deploy it to boards: your turn',
   ]);
   // Deployed since: the next move is not still the reader's, and the panel leads to it.
   const deployed = await uploadPanel({ stage: 'done', release: release('1.2.3+5') });
   assert.equal(textOf(all(deployed.panel, 'span.upload-stage-words')[2]), 'Deploy it to boards: started');
   assert.equal(one(deployed.panel, 'a', 'Open its deployment').getAttribute('href'), `#/deployments/${OFFERED}`);
-  assert.equal(all(deployed.panel, 'button').some((item) => textOf(item) === 'Deploy this release'), false);
+  assert.equal(
+    all(deployed.panel, 'button').some((item) => textOf(item) === 'Deploy this release'),
+    false
+  );
   // Finished is ink, and green is for what was proved.
-  assert.deepEqual(all(deployed.panel, 'li.upload-stage').map((stage) => stage.getAttribute('class')),
-    ['upload-stage is-done', 'upload-stage is-good', 'upload-stage is-done']);
+  assert.deepEqual(
+    all(deployed.panel, 'li.upload-stage').map((stage) => stage.getAttribute('class')),
+    ['upload-stage is-done', 'upload-stage is-good', 'upload-stage is-done']
+  );
   const refused = await stages(chosen({ stage: 'refused', error: error(422, 'wrong_key', 'Signed differently.') }));
   assert.equal(refused[1], 'The server verifies it: refused, nothing stored');
   assert.equal(refused[2], 'Deploy it to boards: not started');
   // What the server cannot be asked about is stopped at the first stage.
-  assert.equal((await stages(chosen({ header: { ...HEADER, version: '1.0.0+0' } })))[0],
-    'Choose a signed image: cannot be used');
+  assert.equal(
+    (await stages(chosen({ header: { ...HEADER, version: '1.0.0+0' } })))[0],
+    'Choose a signed image: cannot be used'
+  );
   // A request that fell through was not refused for what the file is.
-  assert.equal((await stages(chosen({ stage: 'refused', error: error(503, 'gateway', 'Unavailable.') })))[1],
-    'The server verifies it: not finished');
+  assert.equal(
+    (await stages(chosen({ stage: 'refused', error: error(503, 'gateway', 'Unavailable.') })))[1],
+    'The server verifies it: not finished'
+  );
 });
 
 test('the way in says where the newest build is', async () => {
   const { panel } = await uploadPanel({ stage: 'idle', over: false });
-  assert.match(textOf(one(panel, 'label.drop')),
-    /Each build leaves its signed image in binaries\/latest\.signed\.bin in your checkout\. Git does not track that folder\./);
+  assert.match(
+    textOf(one(panel, 'label.drop')),
+    /Each build leaves its signed image in binaries\/latest\.signed\.bin in your checkout\. Git does not track that folder\./
+  );
 });
 
 test('while the server checks, the panel says that the server is checking', async () => {
@@ -1739,27 +2198,47 @@ test('while the server checks, the panel says that the server is checking', asyn
 
 test('a verified upload shows what the server answered, and leads straight to the boards', async () => {
   const answered = release('2.0.1+0', {
-    size: 769211, sha256: 'd'.repeat(64), keyHash: FINGERPRINT, headerSize: 512, payloadSize: 768000, loadAddress: 196608,
+    size: 769211,
+    sha256: 'd'.repeat(64),
+    keyHash: FINGERPRINT,
+    headerSize: 512,
+    payloadSize: 768000,
+    loadAddress: 196608,
   });
   const { panel, calls } = await uploadPanel({ stage: 'done', release: answered });
   assert.equal(textOf(one(panel, 'p.verified-title')), 'Verified by the server');
-  const facts = Object.fromEntries(all(panel, 'div.fact')
-    .map((fact) => [textOf(one(fact, 'dt')), textOf(one(fact, 'dd'))]));
+  const facts = Object.fromEntries(
+    all(panel, 'div.fact').map((fact) => [textOf(one(fact, 'dt')), textOf(one(fact, 'dd'))])
+  );
   assert.equal(facts.Signature, 'ECDSA P-256, valid');
   assert.equal(facts['Signing key'], `${FINGERPRINT} The fingerprint of this project’s signing key.`);
   assert.match(facts.Version, /^2\.0\.1\+0 /);
-  assert.equal(facts.Size, '769,211 bytes (751 KiB) 512 bytes of header, 768,000 bytes of firmware, then the signature.');
+  assert.equal(
+    facts.Size,
+    '769,211 bytes (751 KiB) 512 bytes of header, 768,000 bytes of firmware, then the signature.'
+  );
   assert.equal(facts['SHA-256'], 'd'.repeat(64));
   assert.equal(facts['Load address'], '0x30000');
   // What was checked, each with its tick: next to the verdict, in the column beside it.
-  const proof = one(page(views.firmwareView, await consoleState(WORLD, { upload: { stage: 'done', release: answered } })), 'div.verified-checks');
-  assert.deepEqual(all(proof, 'li.check').map((check) => check.getAttribute('class')),
-    core.IMAGE_CHECKS.map(() => 'check is-good'));
-  assert.deepEqual(all(proof, 'li.check').map(textOf), core.IMAGE_CHECKS.map((check) => check.passed));
+  const proof = one(
+    page(views.firmwareView, await consoleState(WORLD, { upload: { stage: 'done', release: answered } })),
+    'div.verified-checks'
+  );
+  assert.deepEqual(
+    all(proof, 'li.check').map((check) => check.getAttribute('class')),
+    core.IMAGE_CHECKS.map(() => 'check is-good')
+  );
+  assert.deepEqual(
+    all(proof, 'li.check').map(textOf),
+    core.IMAGE_CHECKS.map((check) => check.passed)
+  );
   assert.equal(all(panel, 'li.check').length, 0, 'and not a second time');
   assert.doesNotMatch(textOf(proof), new RegExp(FINGERPRINT), 'nor the fingerprint that is on the left already');
   // The first release has nothing before it to be newer than.
-  const onlyOne = await consoleState({ ...EMPTY, releases: [release('2.0.1+0')] }, { upload: { stage: 'done', release: answered } });
+  const onlyOne = await consoleState(
+    { ...EMPTY, releases: [release('2.0.1+0')] },
+    { upload: { stage: 'done', release: answered } }
+  );
   assert.match(textOf(one(page(views.firmwareView, onlyOne), 'div.verified-checks')), /no release came before it/);
 
   // The main action is what comes next, and it knows which release.
@@ -1771,7 +2250,10 @@ test('a verified upload shows what the server answered, and leads straight to th
 
 test('only what the server answered is shown as its answer', async () => {
   // A reply without these fields, as the console's client reads one: no line for them, and nothing made up.
-  const { panel } = await uploadPanel({ stage: 'done', release: release('2.0.1+0', { loadAddress: null, keyHash: '' }) });
+  const { panel } = await uploadPanel({
+    stage: 'done',
+    release: release('2.0.1+0', { loadAddress: null, keyHash: '' }),
+  });
   const terms = all(panel, 'dt').map(textOf);
   assert.equal(terms.includes('Load address'), false);
   assert.equal(terms.includes('Signing key'), false);
@@ -1785,10 +2267,22 @@ test('a refused image names the check that failed and says that nothing was stor
     const { panel } = await refusedWith(failure);
     return textOf(one(panel, 'p.upload-refusal'));
   };
-  assert.equal(await facts(error(422, 'wrong_key', 'Signed differently.')), 'Check that failed: Signing key. Nothing was stored.');
-  assert.equal(await facts(error(422, 'bad_signature', 'Not valid.')), 'Check that failed: Signature. Nothing was stored.');
-  assert.equal(await facts(error(422, 'hash_mismatch', 'Damaged.')), 'Check that failed: Image hash. Nothing was stored.');
-  assert.equal(await facts(error(422, 'version_not_newer', 'Older.')), 'Check that failed: Version. Nothing was stored.');
+  assert.equal(
+    await facts(error(422, 'wrong_key', 'Signed differently.')),
+    'Check that failed: Signing key. Nothing was stored.'
+  );
+  assert.equal(
+    await facts(error(422, 'bad_signature', 'Not valid.')),
+    'Check that failed: Signature. Nothing was stored.'
+  );
+  assert.equal(
+    await facts(error(422, 'hash_mismatch', 'Damaged.')),
+    'Check that failed: Image hash. Nothing was stored.'
+  );
+  assert.equal(
+    await facts(error(422, 'version_not_newer', 'Older.')),
+    'Check that failed: Version. Nothing was stored.'
+  );
   assert.equal(await facts(error(409, 'version_exists', 'Exists.')), 'Check that failed: Version. Nothing was stored.');
   // Refused by the gateway: the file did not get as far as a check.
   assert.equal(await facts(error(413, 'gateway', 'Too large.')), 'Nothing was stored.');
@@ -1799,7 +2293,9 @@ test('a refused image names the check that failed and says that nothing was stor
 
   // What is not known is not claimed.
   for (const failure of [
-    error(503, 'gateway', 'Unavailable.'), error(0, 'network', 'Lost.'), error(403, 'release_manager_required', 'No.'),
+    error(503, 'gateway', 'Unavailable.'),
+    error(0, 'network', 'Lost.'),
+    error(403, 'release_manager_required', 'No.'),
   ]) {
     const { panel: open } = await refusedWith(failure);
     assert.equal(all(open, 'p.upload-refusal').length, 0, failure.code);
@@ -1832,7 +2328,10 @@ test('a revocation that is not finished says so, and can be finished from the re
   assert.match(textOf(open.row), /Finish revoking to make sure\./);
   assert.deepEqual(writes(open.row), ['Finish revoking']);
   click(one(open.row, 'button', 'Finish revoking'));
-  assert.deepEqual(open.calls.map(([name, item]) => [name, item.version]), [['openRevoke', '2.0.0+0']]);
+  assert.deepEqual(
+    open.calls.map(([name, item]) => [name, item.version]),
+    [['openRevoke', '2.0.0+0']]
+  );
 
   // A viewer is told as well, and told who can act.
   const seen = await row(revoked({ enforcedAt: null }), true);
@@ -1936,7 +2435,10 @@ test('choosing boards: what speaks for or against a board is said before it is t
   assert.equal(all(choices[0], 'span.choice-warning').length + all(choices[0], 'span.choice-hint').length, 0);
   assert.match(textOf(choices[1]), /already runs this version or a newer one, so it will refuse the offer\./);
   assert.match(textOf(choices[2]), /Offline: it will see the offer when it reconnects\./);
-  assert.equal(all(dialog, 'input').every((input) => input.checked === false), true);
+  assert.equal(
+    all(dialog, 'input').every((input) => input.checked === false),
+    true
+  );
 
   // Why "Next" cannot be used yet is said next to it.
   const next = one(dialog, 'button', 'Next');
@@ -1967,7 +2469,10 @@ test('choosing boards: never connected, busy and refusing boards are told apart'
   // "All" leaves out the board that would only refuse.
   assert.equal(textOf(one(dialog, 'button', 'Select all')), 'Select all 2 available boards');
   const allTicked = wizard({ devices: [older, same, never], things: new Set([WAITING, NEVER]) }).dialog;
-  assert.equal(all(allTicked, 'button').some((item) => textOf(item) === 'Clear the selection'), true);
+  assert.equal(
+    all(allTicked, 'button').some((item) => textOf(item) === 'Clear the selection'),
+    true
+  );
 
   // A board that is held up leads to what holds it.
   const busy = new Map([[WAITING, { deployment: OFFERED, version: '1.2.4+0' }]]);
@@ -1982,14 +2487,25 @@ test('the last step repeats what was said about a board at the moment of commitm
   const [refusing, unseen] = all(dialog, 'dd')[1].children[0].children;
   assert.match(textOf(refusing), /so it will refuse the offer\./);
   assert.doesNotMatch(textOf(unseen), /refuse/);
-  assert.match(textOf(one(dialog, 'div.callout')), /1 board has never connected and will see the update when first connected\./);
+  assert.match(
+    textOf(one(dialog, 'div.callout')),
+    /1 board has never connected and will see the update when first connected\./
+  );
 });
 
 test('what happens next when deploying tells of a button only where a board has one', () => {
   const on = (thing, version) => board(thing, { fw: { version, confirmed: true } });
-  const callout = (...devices) => textOf(one(wizard({
-    step: 2, devices, things: new Set(devices.map((item) => item.thing)),
-  }).dialog, 'div.callout'));
+  const callout = (...devices) =>
+    textOf(
+      one(
+        wizard({
+          step: 2,
+          devices,
+          things: new Set(devices.map((item) => item.thing)),
+        }).dialog,
+        'div.callout'
+      )
+    );
 
   // Nothing tells anybody to press what does nothing.
   const fresh = callout(on(WAITING, '1.7.2+0'));
@@ -1998,7 +2514,10 @@ test('what happens next when deploying tells of a button only where a board has 
 
   // The golden image and every other older one do wait.
   const older = callout(on(WAITING, '1.5.0+0'));
-  assert.match(older, /1 board runs older firmware, which installs nothing until someone presses Button 1 on the board; Button 2 declines\./);
+  assert.match(
+    older,
+    /1 board runs older firmware, which installs nothing until someone presses Button 1 on the board; Button 2 declines\./
+  );
   const mixed = callout(on(WAITING, '1.7.1+0'), on(INSTALLING, '1.5.0+0'), on(NEVER, '1.8.0+0'));
   assert.match(mixed, /2 boards run older firmware/);
 
@@ -2016,16 +2535,25 @@ test('moving between the steps of a dialog is said to a screen reader', () => {
 
 test('a release that was revoked since the dialog was asked for is not silently replaced', () => {
   const { dialog } = wizard({ step: 0, version: null, gone: '2.0.0+0', devices: [board(WAITING)] });
-  assert.match(textOf(one(dialog, 'div.notice.is-warn')), /^2\.0\.0\+0 has been revoked, so it cannot be deployed any more\./);
-  assert.equal(all(dialog, 'input').every((input) => !input.checked), true);
+  assert.match(
+    textOf(one(dialog, 'div.notice.is-warn')),
+    /^2\.0\.0\+0 has been revoked, so it cannot be deployed any more\./
+  );
+  assert.equal(
+    all(dialog, 'input').every((input) => !input.checked),
+    true
+  );
   assert.equal(one(dialog, 'button', 'Next').disabled, true);
   assert.equal(textOf(one(dialog, 'span.dialog-hint')), 'Choose a release.');
 });
 
 test('a refused deployment names the board once and leads to what holds it', () => {
-  const busy = new core.ApiError(409, 'device_busy',
+  const busy = new core.ApiError(
+    409,
+    'device_busy',
     `${WAITING} still has an update that is not finished. Wait for it or cancel it first.`,
-    { details: [{ thing: WAITING, deployment: OFFERED }] });
+    { details: [{ thing: WAITING, deployment: OFFERED }] }
+  );
   const notice = one(wizard({ devices: [board(WAITING)], error: busy }).dialog, 'div.notice.is-bad');
   assert.equal(textOf(notice).split(WAITING).length - 1, 1, 'named by the server, and only there');
   const link = one(notice, 'a');
@@ -2035,11 +2563,17 @@ test('a refused deployment names the board once and leads to what holds it', () 
   assert.match(textOf(notice), /cancel it first\. That update is the deployment of 1\.2\.3\+5\./);
 
   // With several boards the server gives a number; then each board is named with what holds it.
-  const several = new core.ApiError(409, 'device_busy', '2 boards still have an update that is not finished.',
-    { details: [{ thing: WAITING, deployment: OFFERED }, { thing: INSTALLING, deployment: 'not-an-id' }] });
+  const several = new core.ApiError(409, 'device_busy', '2 boards still have an update that is not finished.', {
+    details: [
+      { thing: WAITING, deployment: OFFERED },
+      { thing: INSTALLING, deployment: 'not-an-id' },
+    ],
+  });
   const list = one(wizard({ devices: [board(WAITING)], error: several }).dialog, 'ul.plain-list');
-  assert.deepEqual(all(list, 'li').map(textOf),
-    [`${WAITING}: the deployment of 1.2.3+5`, `${INSTALLING}: another deployment`]);
+  assert.deepEqual(all(list, 'li').map(textOf), [
+    `${WAITING}: the deployment of 1.2.3+5`,
+    `${INSTALLING}: another deployment`,
+  ]);
   assert.equal(all(list, 'a').length, 1, 'no link to an id that is not one');
 });
 
@@ -2081,7 +2615,10 @@ test('cancelling: the dialog counts from the newest record and offers only what 
   });
   const first = cancelling(open);
   assert.match(textOf(first.dialog), /Right now 1 board is waiting and 1 board has started\./);
-  assert.deepEqual(choicesOf(first.dialog), [[true, false], [false, false]]);
+  assert.deepEqual(choicesOf(first.dialog), [
+    [true, false],
+    [false, false],
+  ]);
   assert.equal(textOf(one(first.dialog, 'button.is-danger')), 'Cancel the deployment');
   submit(first.dialog);
   assert.deepEqual(first.calls, [['submit', false]]);
@@ -2090,10 +2627,14 @@ test('cancelling: the dialog counts from the newest record and offers only what 
 
   // Somebody else was faster, or the last board finished: nothing is left, and nothing can be sent.
   const over = deployment(OFFERED, {
-    status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED' })],
+    status: 'CANCELED',
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED' })],
   });
-  const finished = error(409, 'already_finished',
-    'This deployment has already finished; there is nothing left to cancel.');
+  const finished = error(
+    409,
+    'already_finished',
+    'This deployment has already finished; there is nothing left to cancel.'
+  );
   const late = cancelling(over, { error: finished });
   assert.match(textOf(late.dialog), /Nothing is left to cancel\. No board is waiting for this update/);
   assert.doesNotMatch(textOf(late.dialog), /Right now/);
@@ -2107,7 +2648,10 @@ test('cancelling: the dialog counts from the newest record and offers only what 
   // withdrawn already, and stopping that board is all that is left.
   const withdrawn = cancelling(WORLD.deployments[1]);
   assert.match(textOf(withdrawn.dialog), /Right now 0 boards are waiting and 1 board has started\./);
-  assert.deepEqual(choicesOf(withdrawn.dialog), [[false, true], [true, false]]);
+  assert.deepEqual(choicesOf(withdrawn.dialog), [
+    [false, true],
+    [true, false],
+  ]);
   const [plain] = all(withdrawn.dialog, 'label.choice');
   assert.match(textOf(plain), /Done already: this deployment was cancelled before/);
   // It is called what it is, and the safe button does not offer to keep what is gone.
@@ -2121,8 +2665,9 @@ test('cancelling: the dialog counts from the newest record and offers only what 
 });
 
 test('a request on its way keeps the button and the keyboard, and is not sent twice', () => {
-  const sending = cancelling(deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] }),
-    { sending: true });
+  const sending = cancelling(deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_button')] }), {
+    sending: true,
+  });
   const go = one(sending.dialog, 'button.is-danger');
   assert.equal(go.disabled, false, 'a disabled button would lose the focus');
   assert.equal(go.getAttribute('aria-disabled'), 'true');
@@ -2135,9 +2680,14 @@ test('a dialog whose session has ended says so, with the way on, and keeps what 
   const ended = new core.ApiError(401, 'unauthorized', 'Your session has ended. Sign in again to continue.');
   const signIn = [];
   const { dialog } = revoking(clientRelease('1.2.3+5'), {
-    reason: 'Pads stop responding.', error: ended, signIn: () => signIn.push('sign in'),
+    reason: 'Pads stop responding.',
+    error: ended,
+    signIn: () => signIn.push('sign in'),
   });
-  assert.equal(textOf(one(dialog, 'span.notice-said')), 'Not revoked. Your session has ended. Sign in again to continue.');
+  assert.equal(
+    textOf(one(dialog, 'span.notice-said')),
+    'Not revoked. Your session has ended. Sign in again to continue.'
+  );
   assert.doesNotMatch(textOf(one(dialog, 'div.dialog-error')), /unauthorized/);
   assert.equal(one(dialog, 'textarea').value, 'Pads stop responding.');
   click(one(dialog, 'button', 'Sign in again'));
@@ -2172,8 +2722,10 @@ test('revoking: the reason is asked for as what it is, required and limited', ()
   assert.equal(one(empty.dialog, 'button.is-danger').disabled, true);
   // The field can lie below what a small window shows; the button says what it waits for.
   assert.equal(textOf(one(empty.dialog, 'span.dialog-hint')), 'Give a reason first.');
-  assert.equal(one(empty.dialog, 'button.is-danger').getAttribute('aria-describedby'),
-    one(empty.dialog, 'span.dialog-hint').getAttribute('id'));
+  assert.equal(
+    one(empty.dialog, 'button.is-danger').getAttribute('aria-describedby'),
+    one(empty.dialog, 'span.dialog-hint').getAttribute('id')
+  );
   submit(empty.dialog);
   assert.deepEqual(empty.calls, [], 'nothing is sent without a reason');
 
@@ -2192,7 +2744,10 @@ test('revoking: the reason is asked for as what it is, required and limited', ()
 
   // The keyboard starts in the reason, except on a touch screen, where it starts on
   // the safe choice.
-  assert.deepEqual(focused(empty.dialog).map((el) => el.localName), ['textarea']);
+  assert.deepEqual(
+    focused(empty.dialog).map((el) => el.localName),
+    ['textarea']
+  );
   const touch = revoking(active, { focusReason: false });
   assert.deepEqual(focused(touch.dialog).map(textOf), ['Keep the release']);
 });
@@ -2204,8 +2759,10 @@ test('revoking again: a release that is revoked already is finished, not asked f
   assert.equal(textOf(one(finish.dialog, 'h2')), 'Finish revoking 2.0.0+0?');
   assert.equal(all(finish.dialog, 'textarea').length, 0);
   assert.match(textOf(finish.dialog), /has not recorded that the two steps after the mark were completed/);
-  assert.match(textOf(finish.dialog),
-    new RegExp(`Revoked 33 min ago by ${escaped(MANAGER.email)}: ${escaped(REASON)}`));
+  assert.match(
+    textOf(finish.dialog),
+    new RegExp(`Revoked 33 min ago by ${escaped(MANAGER.email)}: ${escaped(REASON)}`)
+  );
   assert.deepEqual(controls(finish.dialog), ['Close', 'Close', 'Finish revoking']);
   const go = one(finish.dialog, 'button', 'Finish revoking');
   assert.equal(go.getAttribute('class'), 'btn is-primary');
@@ -2219,11 +2776,17 @@ test('revoking again: a release that is revoked already is finished, not asked f
   assert.deepEqual(controls(again.dialog), ['Close', 'Close', 'Apply again']);
 
   // A failure is said in the server's words, and that nothing is certain.
-  const failed = error(500, 'revoke_incomplete',
-    'Release 2.0.0+0 is marked revoked, but its image could not be blocked. Revoke it again to finish.');
+  const failed = error(
+    500,
+    'revoke_incomplete',
+    'Release 2.0.0+0 is marked revoked, but its image could not be blocked. Revoke it again to finish.'
+  );
   const notice = one(revoking(open, { error: failed }).dialog, 'span.notice-said');
   assert.equal(textOf(notice), `It is not certain whether this went through. ${failed.message}`);
-  assert.equal(one(revoking(open, { sending: true }).dialog, 'button', 'Finishing…').getAttribute('aria-disabled'), 'true');
+  assert.equal(
+    one(revoking(open, { sending: true }).dialog, 'button', 'Finishing…').getAttribute('aria-disabled'),
+    'true'
+  );
 });
 
 test('a dialog says that a request failed next to its buttons, outside the part that scrolls', () => {
@@ -2244,8 +2807,11 @@ test('a dialog says that a request failed next to its buttons, outside the part 
     const dialog = open({ error: failed });
     assert.deepEqual(parts(dialog), ['dialog-head', 'dialog-body', 'dialog-error', 'dialog-foot'], name);
     assert.equal(all(one(dialog, 'div.dialog-body'), 'div.notice').length, 0, name);
-    assert.equal(textOf(one(one(dialog, 'div.dialog-error'), 'span.notice-said')),
-      `It is not certain whether this went through. ${failed.message}`, name);
+    assert.equal(
+      textOf(one(one(dialog, 'div.dialog-error'), 'span.notice-said')),
+      `It is not certain whether this went through. ${failed.message}`,
+      name
+    );
   }
 });
 
@@ -2254,19 +2820,26 @@ test('a dialog says that a request failed next to its buttons, outside the part 
 const CURRENT = 'cranium-1-2-3-b5-20261010T090000Z-0e0e';
 const onVersion = (version, changes = {}) => device(WAITING, { fw: { version, confirmed: true }, ...changes });
 const quiet = { online: false, lastSeen: ago(3600) };
-const installedRun = (changes = {}) => deployment(CURRENT, {
-  status: 'COMPLETED',
-  createdAt: ago(7200),
-  completedAt: ago(7000),
-  executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', startedAt: ago(7100), ranAtEnd: '1.2.3+5', ...changes })],
-});
+const installedRun = (changes = {}) =>
+  deployment(CURRENT, {
+    status: 'COMPLETED',
+    createdAt: ago(7200),
+    completedAt: ago(7000),
+    executions: [
+      execution(WAITING, 'succeeded', { status: 'SUCCEEDED', startedAt: ago(7100), ranAtEnd: '1.2.3+5', ...changes }),
+    ],
+  });
 const RELEASES = [release('1.2.3+5'), release('1.2.3+4')];
-const worldOf = (board, run = installedRun({ online: board.online })) =>
-  ({ ...EMPTY, devices: [board], releases: RELEASES, deployments: [run] });
+const worldOf = (board, run = installedRun({ online: board.online })) => ({
+  ...EMPTY,
+  devices: [board],
+  releases: RELEASES,
+  deployments: [run],
+});
 const titleOf = (drawn) => one(drawn, 'p.calm-title');
 const fleetOf = (drawn) => one(drawn, 'section.card', 'Firmware in the fleet');
 
-test('an offline board\'s last report is told as that, with when, across the overview', async () => {
+test("an offline board's last report is told as that, with when, across the overview", async () => {
   const drawn = page(views.overviewView, await consoleState(worldOf(onVersion('1.2.3+5', quiet))));
   assert.equal(textOf(titleOf(drawn)), '1.2.3+5 was installed and confirmed.');
   assert.match(textOf(one(drawn, 'p.calm-since')), /^As last reported: the board is offline, last seen 1 h ago\.$/);
@@ -2281,13 +2854,26 @@ test('an offline board\'s last report is told as that, with when, across the ove
   assert.equal(all(live, 'p.fleet-note').length, 0);
 
   // Several boards, some offline: the note counts them and says how old the oldest report is.
-  const two = [onVersion('1.2.3+5', quiet), device(INSTALLING, { online: false, lastSeen: ago(7200), fw: { version: '1.2.3+5', confirmed: true } })];
+  const two = [
+    onVersion('1.2.3+5', quiet),
+    device(INSTALLING, { online: false, lastSeen: ago(7200), fw: { version: '1.2.3+5', confirmed: true } }),
+  ];
   const run = deployment(CURRENT, {
-    status: 'COMPLETED', completedAt: ago(9000),
-    executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', online: false }), execution(INSTALLING, 'succeeded', { status: 'SUCCEEDED', online: false })],
+    status: 'COMPLETED',
+    completedAt: ago(9000),
+    executions: [
+      execution(WAITING, 'succeeded', { status: 'SUCCEEDED', online: false }),
+      execution(INSTALLING, 'succeeded', { status: 'SUCCEEDED', online: false }),
+    ],
   });
-  const fleet = page(views.overviewView, await consoleState({ ...EMPTY, devices: two, releases: RELEASES, deployments: [run] }));
-  assert.match(textOf(one(fleet, 'p.calm-since')), /^As last reported: 2 of them are offline, the oldest report 2 h ago\.$/);
+  const fleet = page(
+    views.overviewView,
+    await consoleState({ ...EMPTY, devices: two, releases: RELEASES, deployments: [run] })
+  );
+  assert.match(
+    textOf(one(fleet, 'p.calm-since')),
+    /^As last reported: 2 of them are offline, the oldest report 2 h ago\.$/
+  );
   assert.match(textOf(one(fleet, 'p.fleet-note')), /^As last reported, the oldest 2 h ago\.$/);
 });
 
@@ -2299,20 +2885,32 @@ test('a deployment page does not say what an offline board runs now', async () =
 
   // Waiting for it, or how an update ended unknown: the flash map is of when it was last seen.
   const waiting = deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_device', { online: false })] });
-  const away = page(views.deploymentView, await consoleState({ ...WORLD, devices: [onVersion('1.2.3+4', quiet)], deployments: [waiting] }), { id: OFFERED });
+  const away = page(
+    views.deploymentView,
+    await consoleState({ ...WORLD, devices: [onVersion('1.2.3+4', quiet)], deployments: [waiting] }),
+    { id: OFFERED }
+  );
   assert.match(textOf(one(away, 'section.flash')), /^Flash memory when last seen/);
 
   const cancelled = deployment(OFFERED, {
     status: 'CANCELED',
-    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.3.0+0', online: false })],
+    executions: [
+      execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.3.0+0', online: false }),
+    ],
   });
-  const forced = page(views.deploymentView, await consoleState({ ...WORLD, devices: [onVersion('1.3.0+0', quiet)], deployments: [cancelled] }), { id: OFFERED });
+  const forced = page(
+    views.deploymentView,
+    await consoleState({ ...WORLD, devices: [onVersion('1.3.0+0', quiet)], deployments: [cancelled] }),
+    { id: OFFERED }
+  );
   const flash = one(forced, 'section.flash');
   assert.match(textOf(flash), /^Flash memory when last seen/);
   assert.match(textOf(flash), /1\.3\.0\+0 ?What the board last reported/);
   assert.doesNotMatch(textOf(forced), /Flash memory now|What the board reports/);
-  assert.equal(textOf(one(forced, 'p.execution-text')),
-    'Cancelled after the board had started. When last seen, the board reported 1.3.0+0. This page cannot tell how this update ended.');
+  assert.equal(
+    textOf(one(forced, 'p.execution-text')),
+    'Cancelled after the board had started. When last seen, the board reported 1.3.0+0. This page cannot tell how this update ended.'
+  );
 });
 
 test('the newest release says when no board runs it, and says nothing when one does', async () => {
@@ -2324,7 +2922,10 @@ test('the newest release says when no board runs it, and says nothing when one d
   const on = (version, extra = {}) => device(WAITING, { fw: { version, confirmed: true }, ...extra });
 
   assert.match(await noteOf([on('1.3.0+0')]), /The board runs 1\.3\.0\+0, not this release\./);
-  assert.match(await noteOf([on('1.3.0+0', { online: false })]), /The board last reported 1\.3\.0\+0, not this release\./);
+  assert.match(
+    await noteOf([on('1.3.0+0', { online: false })]),
+    /The board last reported 1\.3\.0\+0, not this release\./
+  );
   const other = 'cranium-0000000000000000';
   assert.match(await noteOf([on('1.3.0+0'), on('1.1.0+0', { thing: other })]), /No board runs this release\./);
 
@@ -2343,7 +2944,10 @@ test('a board on firmware that is no release does not read as behind, and says w
   assert.equal(titleOf(drawn).getAttribute('class'), 'calm-title is-warn');
   assert.equal(all(drawn, 'div.calm.is-warn').length, 1);
   // The last deployment is still told as what it was, and does not stand as what the board runs.
-  assert.match(textOf(one(drawn, 'p.calm-note')), /^Last deployment from this console: 1\.2\.3\+5 Succeeded 1 h ago\. No update is in progress\.$/);
+  assert.match(
+    textOf(one(drawn, 'p.calm-note')),
+    /^Last deployment from this console: 1\.2\.3\+5 Succeeded 1 h ago\. No update is in progress\.$/
+  );
   // Nor does the newest release: the card says that this is not what the board runs.
   const newestCard = all(drawn, 'section.card').find((item) => textOf(one(item, 'h2')) === 'Newest release');
   assert.match(textOf(newestCard), /The board runs 1\.3\.0\+0, not this release\./);
@@ -2358,7 +2962,10 @@ test('a board on firmware that is no release does not read as behind, and says w
   // On the other pages too, and offline it is told as what the board last reported.
   const state = await consoleState(worldOf(usb));
   assert.match(textOf(one(page(views.devicesView, state), 'article.device')), /Not a registered release/);
-  assert.match(textOf(one(page(views.deviceView, state, { thing: WAITING }), 'section.device')), /Not a registered release/);
+  assert.match(
+    textOf(one(page(views.deviceView, state, { thing: WAITING }), 'section.device')),
+    /Not a registered release/
+  );
   const gone = page(views.overviewView, await consoleState(worldOf(onVersion('1.3.0+0', quiet))));
   assert.equal(textOf(titleOf(gone)), 'The board last reported 1.3.0+0, which is not a registered release.');
   assert.match(textOf(one(gone, 'p.calm-since')), /last seen 1 h ago/);
@@ -2376,17 +2983,23 @@ test('among several boards one on firmware that is no release is one row, and th
     device(NEVER, { fw: { version: '1.2.3+4', confirmed: true } }),
   ];
   const run = deployment(CURRENT, {
-    status: 'COMPLETED', completedAt: ago(100),
+    status: 'COMPLETED',
+    completedAt: ago(100),
     executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', ranAtEnd: '1.2.3+5' })],
   });
-  const drawn = page(views.overviewView, await consoleState({ ...EMPTY, devices: boards, releases: RELEASES, deployments: [run] }));
+  const drawn = page(
+    views.overviewView,
+    await consoleState({ ...EMPTY, devices: boards, releases: RELEASES, deployments: [run] })
+  );
   // What the last deployment installed is what its board runs now, so that is the news.
   assert.equal(textOf(titleOf(drawn)), '1.2.3+5 is installed and confirmed.');
   const fleet = fleetOf(drawn);
   assert.equal(textOf(one(fleet, 'p.fleet-headline')), '1 of 3 on the newest release');
   const rows = all(fleet, 'li.fleet-line');
-  assert.deepEqual(rows.map((row) => all(row, 'span.tag').map(textOf)),
-    [['Not a registered release'], ['Newest release'], []]);
+  assert.deepEqual(
+    rows.map((row) => all(row, 'span.tag').map(textOf)),
+    [['Not a registered release'], ['Newest release'], []]
+  );
   assert.equal(all(rows[0], 'span.tile.is-unregistered').length, 1);
   assert.equal(all(rows[2], 'span.tile.is-older-1').length, 1, 'the first older release is the first step back');
   // Without a deployment that is what the boards run, the board off the list is what there is to say.
@@ -2394,8 +3007,7 @@ test('among several boards one on firmware that is no release is one row, and th
   assert.equal(textOf(titleOf(none)), '1 board runs firmware that is not a registered release.');
   assert.match(textOf(one(none, 'section.overview-updates')), /No update is in progress\./);
   // A revoked release is on the list, and has its own tag. Before any upload there is no list to be off.
-  const onRevoked = page(views.overviewView, await consoleState(worldOf(onVersion('2.0.0+0'),
-    installedRun())));
+  const onRevoked = page(views.overviewView, await consoleState(worldOf(onVersion('2.0.0+0'), installedRun())));
   assert.match(textOf(fleetOf(onRevoked)), /Not a registered release/);
   const revokedOne = page(views.devicesView, await consoleState({ ...WORLD, devices: [onVersion('2.0.0+0')] }));
   assert.doesNotMatch(textOf(revokedOne), /Not a registered release/);
@@ -2412,12 +3024,20 @@ test('a board that moved on to another release is said to have, and nothing is t
   assert.equal(textOf(one(gone, 'p.calm-since')), 'When last seen, 1 h ago, the board had moved to 1.2.3+4.');
 
   // Of several, the note counts them.
-  const boards = [onVersion('1.2.3+4'), device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true } }), device(NEVER, { fw: { version: '1.2.3+5', confirmed: true } })];
+  const boards = [
+    onVersion('1.2.3+4'),
+    device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true } }),
+    device(NEVER, { fw: { version: '1.2.3+5', confirmed: true } }),
+  ];
   const run = deployment(CURRENT, {
-    status: 'COMPLETED', completedAt: ago(100),
+    status: 'COMPLETED',
+    completedAt: ago(100),
     executions: [WAITING, INSTALLING, NEVER].map((thing) => execution(thing, 'succeeded', { status: 'SUCCEEDED' })),
   });
-  const three = page(views.overviewView, await consoleState({ ...EMPTY, devices: boards, releases: RELEASES, deployments: [run] }));
+  const three = page(
+    views.overviewView,
+    await consoleState({ ...EMPTY, devices: boards, releases: RELEASES, deployments: [run] })
+  );
   assert.equal(textOf(one(three, 'p.calm-since')), '1 of 3 boards has moved to other firmware since.');
 });
 
@@ -2433,9 +3053,18 @@ test('nothing is said about what can be deployed while the releases have not bee
 });
 
 test('the release list does not say a board is on a release when it was last seen so', async () => {
-  const count = async (board) => textOf(one(one(page(views.firmwareView, await consoleState({ ...WORLD, devices: [board] })), 'li.station.is-newest'), 'span.station-boards'));
+  const count = async (board) =>
+    textOf(
+      one(
+        one(page(views.firmwareView, await consoleState({ ...WORLD, devices: [board] })), 'li.station.is-newest'),
+        'span.station-boards'
+      )
+    );
   assert.equal(await count(device(WAITING, { fw: { version: '1.2.4+0', confirmed: true } })), '1 board on it');
-  assert.equal(await count(device(WAITING, { fw: { version: '1.2.4+0', confirmed: true }, ...quiet })), '1 board on it when last seen');
+  assert.equal(
+    await count(device(WAITING, { fw: { version: '1.2.4+0', confirmed: true }, ...quiet })),
+    '1 board on it when last seen'
+  );
 });
 
 test('a signal an offline board last gave is not told as a signal it has', async () => {
@@ -2464,12 +3093,26 @@ test('a signal an offline board last gave is not told as a signal it has', async
   assert.equal(all(page(views.deviceView, heard, { thing: WAITING }), 'span.signal-needle').length, 1);
 });
 
-test('a board\'s update history says when it is cut, and an arrow means a link', async () => {
+test("a board's update history says when it is cut, and an arrow means a link", async () => {
   const OUTSIDE = 'cranium-bench-20261010T100000-0a0a';
   const state = await consoleState(worldOf(onVersion('1.2.3+5')));
   const rows = [
-    { deployment: CURRENT, version: '1.2.3+5', status: 'SUCCEEDED', queuedAt: ago(7200), startedAt: ago(7100), lastUpdatedAt: ago(7000) },
-    { deployment: OUTSIDE, version: null, status: 'FAILED', queuedAt: ago(9000), startedAt: ago(8900), lastUpdatedAt: ago(8800) },
+    {
+      deployment: CURRENT,
+      version: '1.2.3+5',
+      status: 'SUCCEEDED',
+      queuedAt: ago(7200),
+      startedAt: ago(7100),
+      lastUpdatedAt: ago(7000),
+    },
+    {
+      deployment: OUTSIDE,
+      version: null,
+      status: 'FAILED',
+      queuedAt: ago(9000),
+      startedAt: ago(8900),
+      lastUpdatedAt: ago(8800),
+    },
   ];
   const withRows = (older) => {
     const details = new Map(state.deviceDetails);
@@ -2503,14 +3146,21 @@ test('the activity log says what it covers, without claiming more', async () => 
   const deployments = textOf(one(page(views.deploymentsView, await consoleState(WORLD)), 'p.page-lede'));
   assert.match(deployments, /A job made directly in AWS IoT is not listed here/);
   // What a board does depends on what it runs, and this says so.
-  assert.match(deployments, /A board on firmware 1\.7\.2 or newer starts as soon as it sees it, and older firmware waits for someone to press Button 1/);
+  assert.match(
+    deployments,
+    /A board on firmware 1\.7\.2 or newer starts as soon as it sees it, and older firmware waits for someone to press Button 1/
+  );
 });
 
 test('the activity log counts the sends over Bluetooth a phone was cleared for', async () => {
   const sha = 'ab'.repeat(32);
   const entries = [
     entry('firmware.bluetooth_send', '2.0.0+0', { at: ago(30), detail: { sha256: sha, board: 'Cranium-1A2B' } }),
-    entry('firmware.bluetooth_send', '2.0.0+0', { at: ago(20), outcome: 'rejected', detail: { sha256: sha, code: 'release_revoked' } }),
+    entry('firmware.bluetooth_send', '2.0.0+0', {
+      at: ago(20),
+      outcome: 'rejected',
+      detail: { sha256: sha, code: 'release_revoked' },
+    }),
   ];
   const drawn = page(views.activityView, await consoleState({ ...WORLD, entries }));
   const summary = textOf(one(drawn, 'p.log-summary'));
@@ -2527,17 +3177,22 @@ test('a declined deployment is told as what it was, and is offered again only wh
   const run = deployment(OFFERED, {
     status: 'COMPLETED',
     completedAt: ago(100),
-    executions: [execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', ranAtEnd: '1.2.3+3', online: false })],
+    executions: [
+      execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', ranAtEnd: '1.2.3+3', online: false }),
+    ],
   });
-  const pageOf = async (board) => page(views.deploymentView,
-    await consoleState({ ...WORLD, devices: [board], deployments: [run] }), { id: OFFERED });
+  const pageOf = async (board) =>
+    page(views.deploymentView, await consoleState({ ...WORLD, devices: [board], deployments: [run] }), { id: OFFERED });
   const offered = (drawn) => all(drawn, 'button').some((item) => textOf(item).includes('Offer again'));
 
   // It has moved past what this release is, so it would refuse it.
   const ahead = await pageOf(onVersion('1.2.4+0', quiet));
   const text = textOf(one(ahead, 'p.execution-text'));
-  assert.equal(text, 'Someone pressed Button 2 on the board to decline this update. Nothing was installed. ' +
-    'The board was running 1.2.3+3 at the time. When last seen, it had moved to 1.2.4+0.');
+  assert.equal(
+    text,
+    'Someone pressed Button 2 on the board to decline this update. Nothing was installed. ' +
+      'The board was running 1.2.3+3 at the time. When last seen, it had moved to 1.2.4+0.'
+  );
   assert.doesNotMatch(textOf(ahead), /reports that it runs|Still on|To try again/);
   assert.equal(textOf(one(ahead, 'p.return-label')), 'Nothing was installed. It stayed on 1.2.3+3');
   assert.match(textOf(one(ahead, 'li.flash-row', 'Primary slot')), /1\.2\.3\+3.*Ran from here, not touched/);
@@ -2553,23 +3208,39 @@ test('a declined deployment is told as what it was, and is offered again only wh
   assert.doesNotMatch(textOf(one(behind, 'p.execution-text')), /moved/);
   // Until the boards have been read it cannot be told, so it is not offered.
   const unread = await consoleState({ ...WORLD, devices: [onVersion('1.2.3+3')], deployments: [run] });
-  const notYet = page(views.deploymentView, { ...unread, devices: { ...unread.devices, value: null } }, { id: OFFERED });
+  const notYet = page(
+    views.deploymentView,
+    { ...unread, devices: { ...unread.devices, value: null } },
+    { id: OFFERED }
+  );
   assert.equal(offered(notYet), false);
 });
 
-test('the tag on a script\'s line is explained once, in words on the page', async () => {
-  const scripted = (seconds, target) => entry('deployment.create', target, {
-    at: ago(seconds), requestId: `bench-${seconds}`, detail: { version: target, things: '1' },
-  });
+test("the tag on a script's line is explained once, in words on the page", async () => {
+  const scripted = (seconds, target) =>
+    entry('deployment.create', target, {
+      at: ago(seconds),
+      requestId: `bench-${seconds}`,
+      detail: { version: target, things: '1' },
+    });
   const entries = [scripted(10, '1.2.3+5'), scripted(20, '1.2.3+4'), WORLD.entries[0]];
   const state = await consoleState({ ...WORLD, entries });
-  for (const drawn of [page(views.activityView, state), one(page(views.overviewView, state), 'section.overview-activity')]) {
+  for (const drawn of [
+    page(views.activityView, state),
+    one(page(views.overviewView, state), 'section.overview-activity'),
+  ]) {
     assert.equal(all(drawn, 'li.log-line').filter((line) => textOf(line).includes('Script, no sign-in')).length, 2);
     const key = one(drawn, 'p.log-key');
     assert.equal(all(drawn, 'p.log-key').length, 1, 'once');
     // What the code that sets the tag and the API function do: see SCRIPTED_REQUEST and the README.
-    assert.match(textOf(key), /^Script, no sign-in Sent by a script .* with AWS credentials, directly to the API function\. Nobody signed in\./);
-    assert.match(textOf(key), /has to be an active release manager, so the entry does not show that this person did it\.$/);
+    assert.match(
+      textOf(key),
+      /^Script, no sign-in Sent by a script .* with AWS credentials, directly to the API function\. Nobody signed in\./
+    );
+    assert.match(
+      textOf(key),
+      /has to be an active release manager, so the entry does not show that this person did it\.$/
+    );
     // A tooltip cannot be reached on a touch screen, and would only say it again.
     for (const tag of all(drawn, 'span.tag.is-warn')) assert.equal(tag.getAttribute('title'), null);
   }
@@ -2580,7 +3251,10 @@ test('the tag on a script\'s line is explained once, in words on the page', asyn
 
 test('a line under a day says the time of that day, and old times do not say their day twice', async () => {
   const old = ago(30 * 86400);
-  const state = await consoleState({ ...WORLD, entries: [entry('firmware.upload', '1.2.3+4', { at: old, detail: { size: '1' } })] });
+  const state = await consoleState({
+    ...WORLD,
+    entries: [entry('firmware.upload', '1.2.3+4', { at: old, detail: { size: '1' } })],
+  });
   const when = one(page(views.activityView, state), 'span.log-when');
   assert.equal(textOf(when), core.timeOfDay(old));
   assert.equal(one(when, 'time').getAttribute('datetime'), old);
@@ -2589,8 +3263,16 @@ test('a line under a day says the time of that day, and old times do not say the
   const short = one(one(page(views.overviewView, state), 'section.overview-activity'), 'span.log-when');
   assert.equal(textOf(short), core.timeAgo(old, NOW));
 
-  const run = deployment(OFFERED, { status: 'COMPLETED', createdAt: old, completedAt: old, executions: [execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', queuedAt: old })] });
-  const meta = one(page(views.deploymentView, await consoleState({ ...WORLD, deployments: [run] }), { id: OFFERED }), 'div.page-meta');
+  const run = deployment(OFFERED, {
+    status: 'COMPLETED',
+    createdAt: old,
+    completedAt: old,
+    executions: [execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', queuedAt: old })],
+  });
+  const meta = one(
+    page(views.deploymentView, await consoleState({ ...WORLD, deployments: [run] }), { id: OFFERED }),
+    'div.page-meta'
+  );
   const told = core.dateAndTime(old);
   assert.ok(textOf(meta).includes(`Started ${told} by`), textOf(meta));
   assert.ok(textOf(meta).includes(`finished ${told}`), textOf(meta));
@@ -2602,13 +3284,21 @@ test('a line under a day says the time of that day, and old times do not say the
 
 test('a release signed with an earlier key says so, and the panel says what that means', async () => {
   const OTHER = 'a'.repeat(64);
-  const world = { ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: OTHER }), release('1.2.3+3', { keyHash: OTHER })] };
+  const world = {
+    ...WORLD,
+    releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: OTHER }), release('1.2.3+3', { keyHash: OTHER })],
+  };
   const drawn = page(views.firmwareView, await consoleState(world));
   const signed = (version) => textOf(one(one(drawn, 'li.release', version), 'div.fact', 'Signed with'));
   assert.match(signed('1.2.3+5'), /Matches this project’s signing key\.$/);
-  assert.match(signed('1.2.3+4'), /Not the current signing key\. This release was signed with an earlier key, which has been replaced since\.$/);
-  assert.equal(textOf(one(drawn, 'p.fingerprint-note')),
-    '2 older releases were signed with an earlier key, which has been replaced since, so they show another fingerprint.');
+  assert.match(
+    signed('1.2.3+4'),
+    /Not the current signing key\. This release was signed with an earlier key, which has been replaced since\.$/
+  );
+  assert.equal(
+    textOf(one(drawn, 'p.fingerprint-note')),
+    '2 older releases were signed with an earlier key, which has been replaced since, so they show another fingerprint.'
+  );
 
   const same = page(views.firmwareView, await consoleState(WORLD));
   assert.equal(all(same, 'p.fingerprint-note').length, 0);
@@ -2618,13 +3308,22 @@ test('the firmware rows of one board have no tile to look like a box to tick', a
   const one_ = page(views.overviewView, await consoleState(worldOf(onVersion('1.2.3+5'))));
   assert.equal(all(fleetOf(one_), 'span.tile').length, 0);
   assert.match(textOf(one(fleetOf(one_), 'li.fleet-line')), /1 board$/);
-  const two = page(views.overviewView, await consoleState({ ...worldOf(onVersion('1.2.3+5')), devices: [onVersion('1.2.3+5'), device(INSTALLING)] }));
+  const two = page(
+    views.overviewView,
+    await consoleState({ ...worldOf(onVersion('1.2.3+5')), devices: [onVersion('1.2.3+5'), device(INSTALLING)] })
+  );
   assert.equal(all(fleetOf(two), 'span.tile').length, 2);
 });
 
 test('the wizard does not say what an offline board runs', async () => {
   const model = {
-    step: 1, version: '1.2.3+5', things: new Set(), busy: new Map(), releases: RELEASES, loading: false, loadError: null,
+    step: 1,
+    version: '1.2.3+5',
+    things: new Set(),
+    busy: new Map(),
+    releases: RELEASES,
+    loading: false,
+    loadError: null,
     devices: [onVersion('1.2.3+4', quiet), device(INSTALLING)],
   };
   const drawn = draw(views.deployDialog(model, { state: { now: NOW, me: { canWrite: true } }, actions: {} }));
@@ -2635,25 +3334,65 @@ test('the wizard does not say what an offline board runs', async () => {
 
 // What a page may say about a board, for every state that reaches it.
 
-const finishedRun = (phase, status, changes = {}) => deployment(CURRENT, {
-  status: 'COMPLETED',
-  createdAt: ago(7200),
-  completedAt: ago(7000),
-  executions: [execution(WAITING, phase, { status, startedAt: ago(7100), ranAtEnd: null, ...changes })],
-});
+const finishedRun = (phase, status, changes = {}) =>
+  deployment(CURRENT, {
+    status: 'COMPLETED',
+    createdAt: ago(7200),
+    completedAt: ago(7000),
+    executions: [execution(WAITING, phase, { status, startedAt: ago(7100), ranAtEnd: null, ...changes })],
+  });
 const primaryOf = (drawn) => textOf(one(drawn, 'li.flash-row', 'Primary slot'));
 const secondaryOf = (drawn) => textOf(one(drawn, 'li.flash-row', 'Secondary slot'));
-const pageOfRun = async (run, board) => page(views.deploymentView,
-  await consoleState({ ...EMPTY, devices: [board], releases: RELEASES, deployments: [run] }), { id: run.id });
+const pageOfRun = async (run, board) =>
+  page(
+    views.deploymentView,
+    await consoleState({ ...EMPTY, devices: [board], releases: RELEASES, deployments: [run] }),
+    { id: run.id }
+  );
 
 test('an update with no version on record says so by naming none, whatever the board runs today', async () => {
   const today = onVersion('1.3.0+0');
   const cases = [
-    ['succeeded', 'SUCCEEDED', {}, /^Primary slot ?1\.2\.3\+5 ?Ran from here, confirmed/, /^Secondary slot ?Previous firmware ?No longer needed/, null],
-    ['declined', 'REJECTED', { reason: 'declined' }, /^Primary slot ?Previous firmware ?Ran from here, not touched/, /Nothing written/, 'Nothing was installed'],
-    ['refused', 'REJECTED', { reason: 'too_large' }, /^Primary slot ?Previous firmware ?Ran from here, not touched/, /Nothing written/, 'Nothing was installed'],
-    ['failed', 'FAILED', { reason: 'digest_mismatch' }, /^Primary slot ?Previous firmware ?Ran from here, not touched/, /1\.2\.3\+5 ?Not installed/, 'It stayed on the firmware it had'],
-    ['rolled_back', 'FAILED', { reason: 'rolled_back' }, /^Primary slot ?Previous firmware ?Put back by the bootloader/, /1\.2\.3\+5 ?Started but never confirmed/, 'It went back to the previous firmware'],
+    [
+      'succeeded',
+      'SUCCEEDED',
+      {},
+      /^Primary slot ?1\.2\.3\+5 ?Ran from here, confirmed/,
+      /^Secondary slot ?Previous firmware ?No longer needed/,
+      null,
+    ],
+    [
+      'declined',
+      'REJECTED',
+      { reason: 'declined' },
+      /^Primary slot ?Previous firmware ?Ran from here, not touched/,
+      /Nothing written/,
+      'Nothing was installed',
+    ],
+    [
+      'refused',
+      'REJECTED',
+      { reason: 'too_large' },
+      /^Primary slot ?Previous firmware ?Ran from here, not touched/,
+      /Nothing written/,
+      'Nothing was installed',
+    ],
+    [
+      'failed',
+      'FAILED',
+      { reason: 'digest_mismatch' },
+      /^Primary slot ?Previous firmware ?Ran from here, not touched/,
+      /1\.2\.3\+5 ?Not installed/,
+      'It stayed on the firmware it had',
+    ],
+    [
+      'rolled_back',
+      'FAILED',
+      { reason: 'rolled_back' },
+      /^Primary slot ?Previous firmware ?Put back by the bootloader/,
+      /1\.2\.3\+5 ?Started but never confirmed/,
+      'It went back to the previous firmware',
+    ],
   ];
   for (const [phase, status, changes, primary, secondary, way] of cases) {
     const drawn = await pageOfRun(finishedRun(phase, status, changes), today);
@@ -2666,7 +3405,10 @@ test('an update with no version on record says so by naming none, whatever the b
     if (way) assert.equal(textOf(one(drawn, 'p.return-label')), way, phase);
     // It is said once, as what it is.
     assert.match(textOf(one(drawn, 'section.moments')), /Board now reports 1\.3\.0\+0/, phase);
-    const gone = await pageOfRun(finishedRun(phase, status, { ...changes, online: false }), onVersion('1.3.0+0', quiet));
+    const gone = await pageOfRun(
+      finishedRun(phase, status, { ...changes, online: false }),
+      onVersion('1.3.0+0', quiet)
+    );
     assert.match(textOf(one(gone, 'section.moments')), /Board last reported 1\.3\.0\+0/, phase);
     assert.doesNotMatch(textOf(gone), /Board now reports/, phase);
   }
@@ -2681,7 +3423,10 @@ test('an update with no version on record says so by naming none, whatever the b
   assert.match(primaryOf(back), /^Primary slot ?1\.2\.3\+3 ?Put back by the bootloader/);
   const done = await pageOfRun(finishedRun('succeeded', 'SUCCEEDED', { ranAtEnd: '1.2.3+5' }), today);
   assert.match(primaryOf(done), /^Primary slot ?1\.2\.3\+5 ?Ran from here, confirmed/);
-  assert.match(textOf(one(done, 'p.execution-text')), /^The board confirmed 1\.2\.3\+5 when this update ended\. It has since moved to 1\.3\.0\+0\.$/);
+  assert.match(
+    textOf(one(done, 'p.execution-text')),
+    /^The board confirmed 1\.2\.3\+5 when this update ended\. It has since moved to 1\.3\.0\+0\.$/
+  );
 });
 
 test('a map of now names what the execution says of the board, or else the board list', async () => {
@@ -2693,23 +3438,35 @@ test('a map of now names what the execution says of the board, or else the board
 });
 
 test('the map of when an update went through names what the job recorded, or else what it offered', async () => {
-  const done = (changes) => deployment(CURRENT, {
-    status: 'COMPLETED',
-    executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', startedAt: ago(100), ...changes })],
-  });
-  assert.match(primaryOf(await pageOfRun(done({ ranAtEnd: '1.2.3+6' }), onVersion('1.3.0+0'))), /^Primary slot ?1\.2\.3\+6 ?Ran from here/);
-  assert.match(primaryOf(await pageOfRun(done({ ranAtEnd: null }), onVersion('1.3.0+0'))), /^Primary slot ?1\.2\.3\+5 ?Ran from here/);
+  const done = (changes) =>
+    deployment(CURRENT, {
+      status: 'COMPLETED',
+      executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', startedAt: ago(100), ...changes })],
+    });
+  assert.match(
+    primaryOf(await pageOfRun(done({ ranAtEnd: '1.2.3+6' }), onVersion('1.3.0+0'))),
+    /^Primary slot ?1\.2\.3\+6 ?Ran from here/
+  );
+  assert.match(
+    primaryOf(await pageOfRun(done({ ranAtEnd: null }), onVersion('1.3.0+0'))),
+    /^Primary slot ?1\.2\.3\+5 ?Ran from here/
+  );
 });
 
 test('the map of when a cancelled update ended does not hold what the board reports today', async () => {
-  const run = (changes) => deployment(CURRENT, {
-    status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', ...changes })],
-  });
+  const run = (changes) =>
+    deployment(CURRENT, {
+      status: 'CANCELED',
+      executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', ...changes })],
+    });
   for (const [online, board, words] of [
     [true, onVersion('1.2.3+3'), /The board reports that it runs 1\.2\.3\+3\.$/],
     [false, onVersion('1.2.3+3', quiet), /When last seen, the board reported 1\.2\.3\+3\.$/],
   ]) {
-    for (const [startedAt, secondary] of [[null, /Nothing written/], [ago(100), /1\.2\.3\+5 ?Not installed/]]) {
+    for (const [startedAt, secondary] of [
+      [null, /Nothing written/],
+      [ago(100), /1\.2\.3\+5 ?Not installed/],
+    ]) {
       const drawn = await pageOfRun(run({ reported: '1.2.3+3', online, startedAt }), board);
       assert.match(textOf(one(drawn, 'section.flash')), /^Flash memory when this update ended/);
       assert.match(primaryOf(drawn), /^Primary slot ?Previous firmware ?Stayed in place/);
@@ -2723,20 +3480,59 @@ test('the map of when a cancelled update ended does not hold what the board repo
 });
 
 test('a board that goes offline during an update is told as that wherever the update is shown', async () => {
-  const run = (phase, online, changes = {}) => deployment(OFFERED, {
-    executions: [execution(WAITING, phase, {
-      status: 'IN_PROGRESS', startedAt: ago(700), secondsLeft: 1200, reported: '1.2.3+4', online, ...changes,
-    })],
+  const run = (phase, online, changes = {}) =>
+    deployment(OFFERED, {
+      executions: [
+        execution(WAITING, phase, {
+          status: 'IN_PROGRESS',
+          startedAt: ago(700),
+          secondsLeft: 1200,
+          reported: '1.2.3+4',
+          online,
+          ...changes,
+        }),
+      ],
+    });
+  const board = (state, online) =>
+    device(WAITING, {
+      online,
+      lastSeen: online ? ago(20) : ago(600),
+      ota: { state, job: OFFERED, progress: 40, last: 'none', error: '' },
+    });
+  const world = (phase, state, online, changes) => ({
+    ...WORLD,
+    devices: [board(state, online)],
+    deployments: [run(phase, online, changes)],
   });
-  const board = (state, online) => device(WAITING, {
-    online, lastSeen: online ? ago(20) : ago(600), ota: { state, job: OFFERED, progress: 40, last: 'none', error: '' },
-  });
-  const world = (phase, state, online, changes) => ({ ...WORLD, devices: [board(state, online)], deployments: [run(phase, online, changes)] });
   const cases = [
-    ['downloading', 'downloading', 'Was downloading 1.2.3+5 when last seen', /1\.2\.3\+5 ?Was receiving the image/, /^Primary slot ?1\.2\.3\+4 ?Ran from here, not touched/],
-    ['verifying', 'verifying', 'Was checking the download of 1.2.3+5 when last seen', /1\.2\.3\+5 ?Was being checked/, /^Primary slot ?1\.2\.3\+4 ?Ran from here, not touched/],
-    ['rebooting', 'rebooting', 'Was restarting into 1.2.3+5 when last seen', /1\.2\.3\+5 ?Was with the bootloader/, /^Primary slot ?1\.2\.3\+4 ?Was being replaced/],
-    ['testing', 'testing', 'Was on trial with 1.2.3+5 when last seen', /Kept to fall back on/, /^Primary slot ?1\.2\.3\+5 ?Was on trial/],
+    [
+      'downloading',
+      'downloading',
+      'Was downloading 1.2.3+5 when last seen',
+      /1\.2\.3\+5 ?Was receiving the image/,
+      /^Primary slot ?1\.2\.3\+4 ?Ran from here, not touched/,
+    ],
+    [
+      'verifying',
+      'verifying',
+      'Was checking the download of 1.2.3+5 when last seen',
+      /1\.2\.3\+5 ?Was being checked/,
+      /^Primary slot ?1\.2\.3\+4 ?Ran from here, not touched/,
+    ],
+    [
+      'rebooting',
+      'rebooting',
+      'Was restarting into 1.2.3+5 when last seen',
+      /1\.2\.3\+5 ?Was with the bootloader/,
+      /^Primary slot ?1\.2\.3\+4 ?Was being replaced/,
+    ],
+    [
+      'testing',
+      'testing',
+      'Was on trial with 1.2.3+5 when last seen',
+      /Kept to fall back on/,
+      /^Primary slot ?1\.2\.3\+5 ?Was on trial/,
+    ],
   ];
   for (const [phase, state, title, secondary, primary] of cases) {
     const progress = phase === 'downloading' ? { progress: 40 } : {};
@@ -2766,11 +3562,25 @@ test('a board that goes offline during an update is told as that wherever the up
     assert.equal(all(line, 'p.board-run-figure').length, 0, phase);
     assert.equal(all(line, 'li.step.is-current').length, 0, phase);
   }
-  assert.equal(textOf(one(one(page(views.overviewView, await consoleState(world('downloading', 'downloading', false, { progress: 40 }))), 'li.board-run'), 'span.board-run-note')),
-    'The board went offline with the download at 40%. Last seen 10 min ago.');
+  assert.equal(
+    textOf(
+      one(
+        one(
+          page(views.overviewView, await consoleState(world('downloading', 'downloading', false, { progress: 40 }))),
+          'li.board-run'
+        ),
+        'span.board-run-note'
+      )
+    ),
+    'The board went offline with the download at 40%. Last seen 10 min ago.'
+  );
 
   // A board that is there is at it, in the present and with its bar.
-  const heard = page(views.deploymentView, await consoleState(world('downloading', 'downloading', true, { progress: 40 })), { id: OFFERED });
+  const heard = page(
+    views.deploymentView,
+    await consoleState(world('downloading', 'downloading', true, { progress: 40 })),
+    { id: OFFERED }
+  );
   assert.match(textOf(one(heard, 'p.execution-title')), /^Downloading 40%/);
   assert.match(textOf(one(heard, 'section.flash')), /^Flash memory now/);
   assert.match(primaryOf(heard), /Runs from here, not touched/);
@@ -2779,31 +3589,48 @@ test('a board that goes offline during an update is told as that wherever the up
   assert.equal(one(heard, 'li.flash-row.is-receiving').getAttribute('class'), 'flash-row is-live is-receiving');
   assert.equal(all(heard, 'div.meter').length, 1);
   assert.equal(textOf(one(one(heard, 'li.step.is-current'), 'span.step-state')), 'in progress');
-  const overview = one(page(views.overviewView, await consoleState(world('downloading', 'downloading', true, { progress: 40 }))), 'li.board-run');
+  const overview = one(
+    page(views.overviewView, await consoleState(world('downloading', 'downloading', true, { progress: 40 }))),
+    'li.board-run'
+  );
   assert.equal(all(overview, 'p.board-run-figure').length, 1);
   assert.doesNotMatch(textOf(overview), /Last seen/);
-  const restarting = page(views.deploymentView, await consoleState(world('rebooting', 'rebooting', true)), { id: OFFERED });
+  const restarting = page(views.deploymentView, await consoleState(world('rebooting', 'rebooting', true)), {
+    id: OFFERED,
+  });
   assert.match(primaryOf(restarting), /Being replaced/);
   assert.match(secondaryOf(restarting), /Bootloader checks the signature/);
   assert.equal(all(restarting, 'li.flash-swap').length, 1);
   const trial = page(views.deploymentView, await consoleState(world('testing', 'testing', true)), { id: OFFERED });
   assert.match(primaryOf(trial), /1\.2\.3\+5 ?Runs on trial/);
-  const checking = page(views.deploymentView, await consoleState(world('verifying', 'verifying', true)), { id: OFFERED });
+  const checking = page(views.deploymentView, await consoleState(world('verifying', 'verifying', true)), {
+    id: OFFERED,
+  });
   assert.match(secondaryOf(checking), /Written, being checked/);
 });
 
 test('the overview does not say that nothing is going on while a board reports an update', async () => {
-  const OUTSIDE = (changes = {}) => ({ ota: { state: 'downloading', job: null, progress: 40, last: 'none', error: '' }, ...changes });
-  const OWN = (changes = {}) => ({ ota: { state: 'downloading', job: CURRENT, progress: 40, last: 'none', error: '' }, ...changes });
-  const card = async (devices, deployments = []) => one(page(views.overviewView,
-    await consoleState({ ...EMPTY, devices, releases: RELEASES, deployments })), 'section.overview-updates');
+  const OUTSIDE = (changes = {}) => ({
+    ota: { state: 'downloading', job: null, progress: 40, last: 'none', error: '' },
+    ...changes,
+  });
+  const OWN = (changes = {}) => ({
+    ota: { state: 'downloading', job: CURRENT, progress: 40, last: 'none', error: '' },
+    ...changes,
+  });
+  const card = async (devices, deployments = []) =>
+    one(
+      page(views.overviewView, await consoleState({ ...EMPTY, devices, releases: RELEASES, deployments })),
+      'section.overview-updates'
+    );
   const title = (drawn) => textOf(one(drawn, 'p.calm-title'));
   const b = (thing, changes) => device(thing, { fw: { version: '1.2.3+5', confirmed: true }, ...changes });
 
   // Made directly in AWS IoT, and nothing else to tell: that is the headline.
   const direct = await card([b(WAITING, OUTSIDE())]);
   assert.equal(title(direct), 'The board is working on an update that this console did not start.');
-  const shape = (svg) => svg.childNodes.map((part) => part.getAttribute('d') ?? part.getAttribute('points') ?? part.localName).join(' ');
+  const shape = (svg) =>
+    svg.childNodes.map((part) => part.getAttribute('d') ?? part.getAttribute('points') ?? part.localName).join(' ');
   const pictured = (name) => shape(one(draw(views.icon(name)), 'svg'));
   assert.equal(shape(one(one(direct, 'p.calm-title'), 'svg.icon')), pictured('restart'));
   assert.equal(shape(one(one(await card([b(WAITING)]), 'p.calm-title'), 'svg.icon')), pictured('minus-circle'));
@@ -2812,27 +3639,58 @@ test('the overview does not say that nothing is going on while a board reports a
   assert.equal(textOf(one(direct, 'h2')), 'Updates');
 
   // Several, and some of several.
-  assert.equal(title(await card([b(WAITING, OUTSIDE()), b(INSTALLING, OUTSIDE())])), '2 boards are working on updates that this console did not start.');
-  assert.equal(title(await card([b(WAITING, OUTSIDE()), b(INSTALLING)])), '1 board is working on an update that this console did not start.');
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE()), b(INSTALLING, OUTSIDE())])),
+    '2 boards are working on updates that this console did not start.'
+  );
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE()), b(INSTALLING)])),
+    '1 board is working on an update that this console did not start.'
+  );
 
   // Offline, where it can only be said of when it was last seen.
-  assert.equal(title(await card([b(WAITING, OUTSIDE(quiet))])), 'When last seen, the board was working on an update that this console did not start.');
-  assert.equal(title(await card([b(WAITING, OUTSIDE(quiet)), b(INSTALLING, OUTSIDE(quiet))])), 'When last seen, 2 boards were working on updates that this console did not start.');
-  assert.equal(title(await card([b(WAITING, OUTSIDE(quiet)), b(INSTALLING, OUTSIDE())])), 'When last seen, 2 boards were working on updates that this console did not start.');
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE(quiet))])),
+    'When last seen, the board was working on an update that this console did not start.'
+  );
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE(quiet)), b(INSTALLING, OUTSIDE(quiet))])),
+    'When last seen, 2 boards were working on updates that this console did not start.'
+  );
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE(quiet)), b(INSTALLING, OUTSIDE())])),
+    'When last seen, 2 boards were working on updates that this console did not start.'
+  );
 
   // Naming a deployment of this console that is over: this console did start that one.
   assert.equal(title(await card([b(WAITING, OWN())])), 'The board reports an update in progress.');
   assert.equal(title(await card([b(WAITING, OWN()), b(INSTALLING, OWN())])), '2 boards report updates in progress.');
-  assert.equal(title(await card([b(WAITING, OWN(quiet))])), 'When last seen, the board reported an update in progress.');
-  assert.equal(title(await card([b(WAITING, OWN(quiet)), b(INSTALLING, OWN(quiet))])), 'When last seen, 2 boards reported updates in progress.');
-  assert.equal(title(await card([b(WAITING, OUTSIDE()), b(INSTALLING, OWN())])), '2 boards report updates in progress.');
+  assert.equal(
+    title(await card([b(WAITING, OWN(quiet))])),
+    'When last seen, the board reported an update in progress.'
+  );
+  assert.equal(
+    title(await card([b(WAITING, OWN(quiet)), b(INSTALLING, OWN(quiet))])),
+    'When last seen, 2 boards reported updates in progress.'
+  );
+  assert.equal(
+    title(await card([b(WAITING, OUTSIDE()), b(INSTALLING, OWN())])),
+    '2 boards report updates in progress.'
+  );
 
   // With a finished deployment to tell about, that stays the headline, and this goes under it.
-  const last = deployment(CURRENT, { status: 'COMPLETED', completedAt: ago(3600), executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })] });
+  const last = deployment(CURRENT, {
+    status: 'COMPLETED',
+    completedAt: ago(3600),
+    executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })],
+  });
   const beside = await card([b(WAITING, OUTSIDE())], [last]);
   assert.equal(title(beside), '1.2.3+5 is installed and confirmed.');
   assert.equal(textOf(one(beside, 'p.calm-note')), '1.2.3+5 Succeeded 1 h ago');
-  assert.equal(textOf(one(beside, 'p.calm-work')), 'The board is working on an update that this console did not start.');
+  assert.equal(
+    textOf(one(beside, 'p.calm-work')),
+    'The board is working on an update that this console did not start.'
+  );
   assert.doesNotMatch(textOf(beside), /No update is in progress/);
 
   // A board that is idle says that it is: the sentence is true, and stays.
@@ -2845,7 +3703,10 @@ test('the overview does not say that nothing is going on while a board reports a
   assert.match(textOf(one(off, 'div.calm')), /No update is in progress\. Deployments from this console appear here/);
   const offAtWork = await card([b(WAITING, { fw: { version: '9.9.9+9', confirmed: true }, ...OUTSIDE() })]);
   assert.doesNotMatch(textOf(offAtWork), /No update is in progress/);
-  assert.equal(textOf(one(offAtWork, 'p.calm-work')), 'The board is working on an update that this console did not start.');
+  assert.equal(
+    textOf(one(offAtWork, 'p.calm-work')),
+    'The board is working on an update that this console did not start.'
+  );
 
   // The boards have not been read, or could not be: nothing is said about it.
   const base = await consoleState({ ...EMPTY, devices: [b(WAITING)], releases: RELEASES, deployments: [last] });
@@ -2856,30 +3717,62 @@ test('the overview does not say that nothing is going on while a board reports a
   // A deployment that is under way does not wait for them.
   const open = deployment(OFFERED, { executions: [execution(WAITING, 'waiting_for_device', { online: false })] });
   const underWay = await consoleState({ ...EMPTY, devices: [b(WAITING)], releases: RELEASES, deployments: [open] });
-  assert.equal(all(one(page(views.overviewView, { ...underWay, devices: { value: null, error: null, loading: true, loadedAt: 0 } }), 'section.overview-updates'), 'li.run').length, 1);
+  assert.equal(
+    all(
+      one(
+        page(views.overviewView, { ...underWay, devices: { value: null, error: null, loading: true, loadedAt: 0 } }),
+        'section.overview-updates'
+      ),
+      'li.run'
+    ).length,
+    1
+  );
   const error = new core.ApiError(503, 'gateway', 'Service Unavailable');
   const unread = drawnWith({ value: null, error, loading: false, loadedAt: 0 });
   assert.doesNotMatch(textOf(unread), /No update is in progress/);
   assert.equal(title(unread), '1.2.3+5 was installed and confirmed.');
   assert.equal(all(unread, 'p.calm-work').length, 0);
   const none = await consoleState({ ...EMPTY, devices: [b(WAITING)], releases: RELEASES, deployments: [] });
-  assert.equal(title(one(page(views.overviewView, { ...none, devices: { value: null, error, loading: false, loadedAt: 0 } }), 'section.overview-updates')),
-    'Whether an update is in progress cannot be told right now.');
+  assert.equal(
+    title(
+      one(
+        page(views.overviewView, { ...none, devices: { value: null, error, loading: false, loadedAt: 0 } }),
+        'section.overview-updates'
+      )
+    ),
+    'Whether an update is in progress cannot be told right now.'
+  );
   const stale = drawnWith({ ...base.devices, error });
   assert.doesNotMatch(textOf(stale), /No update is in progress/);
   // A list that could not be read again says nothing about a job either.
-  const staleAtWork = await consoleState({ ...EMPTY, devices: [b(WAITING, OUTSIDE())], releases: RELEASES, deployments: [] });
-  const quietly = one(page(views.overviewView, { ...staleAtWork, devices: { ...staleAtWork.devices, error } }), 'section.overview-updates');
+  const staleAtWork = await consoleState({
+    ...EMPTY,
+    devices: [b(WAITING, OUTSIDE())],
+    releases: RELEASES,
+    deployments: [],
+  });
+  const quietly = one(
+    page(views.overviewView, { ...staleAtWork, devices: { ...staleAtWork.devices, error } }),
+    'section.overview-updates'
+  );
   assert.equal(title(quietly), 'Whether an update is in progress cannot be told right now.');
 });
 
 test('in a fleet, the note under the unregistered headline is about the boards it names', async () => {
   const A = device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } });
   const stranger = (changes) => device(INSTALLING, { fw: { version: '1.3.0+0', confirmed: true }, ...changes });
-  const run = deployment(CURRENT, { status: 'COMPLETED', completedAt: ago(3600), executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', online: false })] });
-  const moved = deployment(CURRENT, { status: 'COMPLETED', completedAt: ago(3600), executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })] });
-  const drawn = async (devices, deployments = [run]) => page(views.overviewView,
-    await consoleState({ ...EMPTY, devices, releases: RELEASES, deployments }));
+  const run = deployment(CURRENT, {
+    status: 'COMPLETED',
+    completedAt: ago(3600),
+    executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED', online: false })],
+  });
+  const moved = deployment(CURRENT, {
+    status: 'COMPLETED',
+    completedAt: ago(3600),
+    executions: [execution(WAITING, 'succeeded', { status: 'SUCCEEDED' })],
+  });
+  const drawn = async (devices, deployments = [run]) =>
+    page(views.overviewView, await consoleState({ ...EMPTY, devices, releases: RELEASES, deployments }));
 
   // Board A, of the deployment, is offline. The stranger is online: nothing to hedge about it.
   const online = await drawn([{ ...A, ...quiet }, stranger()]);
@@ -2893,16 +3786,32 @@ test('in a fleet, the note under the unregistered headline is about the boards i
 
   // One of several that the deployment put it on: the count is of those.
   const three = deployment(CURRENT, {
-    status: 'COMPLETED', completedAt: ago(3600),
+    status: 'COMPLETED',
+    completedAt: ago(3600),
     executions: [WAITING, INSTALLING].map((thing) => execution(thing, 'succeeded', { status: 'SUCCEEDED' })),
   });
-  const someAway = await drawn([device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }), device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true }, ...quiet })], [three]);
+  const someAway = await drawn(
+    [
+      device(WAITING, { fw: { version: '1.2.3+5', confirmed: true } }),
+      device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true }, ...quiet }),
+    ],
+    [three]
+  );
   assert.equal(textOf(one(someAway, 'p.calm-since')), 'As last reported: 1 of them is offline, last seen 1 h ago.');
 
   // Several of them.
-  const both = await drawn([stranger(quiet), device(WAITING, { fw: { version: '1.3.0+1', confirmed: true }, online: false, lastSeen: ago(7200) })], [moved]);
+  const both = await drawn(
+    [
+      stranger(quiet),
+      device(WAITING, { fw: { version: '1.3.0+1', confirmed: true }, online: false, lastSeen: ago(7200) }),
+    ],
+    [moved]
+  );
   assert.equal(textOf(titleOf(both)), '2 boards last reported firmware that is not a registered release.');
-  assert.equal(textOf(one(both, 'p.calm-since')), 'As last reported: 2 of them are offline, the oldest report 2 h ago.');
+  assert.equal(
+    textOf(one(both, 'p.calm-since')),
+    'As last reported: 2 of them are offline, the oldest report 2 h ago.'
+  );
 
   // Of one board in the fleet, "the board" is the one.
   const alone = await drawn([onVersion('1.3.0+0', quiet)]);
@@ -2915,13 +3824,28 @@ test('in a fleet, the note under the unregistered headline is about the boards i
 
 test('a stranger on the list does not take the headline from a deployment that went wrong, or from a list out of date', async () => {
   const usb = onVersion('1.3.0+0');
-  const run = (executions, changes = {}) => deployment(CURRENT, { status: 'COMPLETED', completedAt: ago(3600), executions, ...changes });
-  const drawnWith = async (executions) => page(views.overviewView,
-    await consoleState({ ...EMPTY, devices: [usb, device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true } })], releases: RELEASES, deployments: [run(executions)] }));
-  const failed = await drawnWith([execution(WAITING, 'failed', { status: 'FAILED' }), execution(INSTALLING, 'failed', { status: 'FAILED' })]);
+  const run = (executions, changes = {}) =>
+    deployment(CURRENT, { status: 'COMPLETED', completedAt: ago(3600), executions, ...changes });
+  const drawnWith = async (executions) =>
+    page(
+      views.overviewView,
+      await consoleState({
+        ...EMPTY,
+        devices: [usb, device(INSTALLING, { fw: { version: '1.2.3+5', confirmed: true } })],
+        releases: RELEASES,
+        deployments: [run(executions)],
+      })
+    );
+  const failed = await drawnWith([
+    execution(WAITING, 'failed', { status: 'FAILED' }),
+    execution(INSTALLING, 'failed', { status: 'FAILED' }),
+  ]);
   assert.equal(textOf(titleOf(failed)), 'The last deployment failed.');
   assert.equal(titleOf(failed).getAttribute('class'), 'calm-title is-bad');
-  const partly = await drawnWith([execution(WAITING, 'succeeded', { status: 'SUCCEEDED' }), execution(INSTALLING, 'failed', { status: 'FAILED' })]);
+  const partly = await drawnWith([
+    execution(WAITING, 'succeeded', { status: 'SUCCEEDED' }),
+    execution(INSTALLING, 'failed', { status: 'FAILED' }),
+  ]);
   assert.equal(textOf(titleOf(partly)), 'The last deployment partly succeeded.');
   assert.equal(titleOf(partly).getAttribute('class'), 'calm-title is-warn');
 
@@ -2933,12 +3857,21 @@ test('a stranger on the list does not take the headline from a deployment that w
   assert.equal(all(dated, 'p.calm-since').length, 0);
   // Nor a note on where the boards of a deployment stand.
   const away = await consoleState(worldOf(onVersion('1.2.3+5', quiet)));
-  assert.equal(all(page(views.overviewView, { ...away, deployments: { ...away.deployments, error: failure.error } }), 'p.calm-since').length, 0);
+  assert.equal(
+    all(
+      page(views.overviewView, { ...away, deployments: { ...away.deployments, error: failure.error } }),
+      'p.calm-since'
+    ).length,
+    0
+  );
 });
 
 test('of an offline board, the version and its confirmation are told as last seen, and its place on the list is not', async () => {
   const facts = (drawn) => one(drawn, 'div.fact', 'Firmware');
-  for (const view of [(state) => page(views.devicesView, state), (state) => page(views.deviceView, state, { thing: WAITING })]) {
+  for (const view of [
+    (state) => page(views.devicesView, state),
+    (state) => page(views.deviceView, state, { thing: WAITING }),
+  ]) {
     const gone = view(await consoleState(worldOf(onVersion('1.2.3+5', { ...quiet, uptime: 3700 }))));
     assert.match(textOf(facts(gone)), /^Firmware ?1\.2\.3\+5 when last seen ?Confirmed/);
     assert.match(textOf(one(gone, 'div.fact', 'Uptime')), /when last seen$/);
@@ -2950,8 +3883,9 @@ test('of an offline board, the version and its confirmation are told as last see
   }
 });
 
-test('the flash map on a board\'s page is in the past for a board that is offline', async () => {
-  const map = async (board) => primaryOf(page(views.deviceView, await consoleState(worldOf(board)), { thing: WAITING }));
+test("the flash map on a board's page is in the past for a board that is offline", async () => {
+  const map = async (board) =>
+    primaryOf(page(views.deviceView, await consoleState(worldOf(board)), { thing: WAITING }));
   assert.match(await map(onVersion('1.2.3+5')), /Runs from here, confirmed/);
   assert.match(await map(onVersion('1.2.3+5', quiet)), /Ran from here, confirmed/);
   const trial = { fw: { version: '1.2.3+5', confirmed: false } };
@@ -2964,19 +3898,30 @@ test('the flash map on a board\'s page is in the past for a board that is offlin
 
 test('the note on an earlier signing key fits the count, and a key is only called earlier against a current one', async () => {
   const OTHER = 'a'.repeat(64);
-  const drawn = page(views.firmwareView, await consoleState({ ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: OTHER })] }));
-  assert.equal(textOf(one(drawn, 'p.fingerprint-note')),
-    '1 older release was signed with an earlier key, which has been replaced since, so it shows another fingerprint.');
+  const drawn = page(
+    views.firmwareView,
+    await consoleState({ ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: OTHER })] })
+  );
+  assert.equal(
+    textOf(one(drawn, 'p.fingerprint-note')),
+    '1 older release was signed with an earlier key, which has been replaced since, so it shows another fingerprint.'
+  );
 
   // A server that names no key of its own: nothing to compare with.
   const world = { ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: OTHER })] };
   const state = await consoleState(world);
-  const nameless = page(views.firmwareView, { ...state, firmware: { ...state.firmware, value: { ...state.firmware.value, fingerprint: '' } } });
+  const nameless = page(views.firmwareView, {
+    ...state,
+    firmware: { ...state.firmware, value: { ...state.firmware.value, fingerprint: '' } },
+  });
   const signed = (version) => textOf(one(one(nameless, 'li.release', version), 'div.fact', 'Signed with'));
   assert.doesNotMatch(signed('1.2.3+4'), /Not the current signing key/);
   assert.match(signed('1.2.3+4'), /Fingerprint of the key that signed it\.$/);
   // A release that names no key is not signed with an earlier one.
-  const unnamed = page(views.firmwareView, await consoleState({ ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: '' })] }));
+  const unnamed = page(
+    views.firmwareView,
+    await consoleState({ ...WORLD, releases: [release('1.2.3+5'), release('1.2.3+4', { keyHash: '' })] })
+  );
   assert.equal(all(unnamed, 'p.fingerprint-note').length, 0);
 });
 
@@ -2987,23 +3932,42 @@ test('the number of older updates the client read is what the board page says', 
     crypto: globalThis.crypto,
     clock: core.createClock(() => NOW),
     onUnauthorized: () => assert.fail('the token was refused'),
-    fetch: async () => Response.json({
-      device: onVersion('1.2.3+5'),
-      certificates: [],
-      executions: [{ deployment: CURRENT, version: '1.2.3+5', status: 'SUCCEEDED', queuedAt: ago(7200), startedAt: ago(7100), lastUpdatedAt: ago(7000) }],
-      olderExecutions: 3,
-    }),
+    fetch: async () =>
+      Response.json({
+        device: onVersion('1.2.3+5'),
+        certificates: [],
+        executions: [
+          {
+            deployment: CURRENT,
+            version: '1.2.3+5',
+            status: 'SUCCEEDED',
+            queuedAt: ago(7200),
+            startedAt: ago(7100),
+            lastUpdatedAt: ago(7000),
+          },
+        ],
+        olderExecutions: 3,
+      }),
   });
   const details = new Map(state.deviceDetails);
   details.set(WAITING, loaded(await api.device(WAITING)));
-  assert.equal(textOf(one(page(views.deviceView, { ...state, deviceDetails: details }, { thing: WAITING }), 'p.history-cut')),
-    'The newest 1 are shown. 3 older updates are not listed.');
+  assert.equal(
+    textOf(one(page(views.deviceView, { ...state, deviceDetails: details }, { thing: WAITING }), 'p.history-cut')),
+    'The newest 1 are shown. 3 older updates are not listed.'
+  );
 });
 
 test('a cancelled update on a board with a cut list of updates is not said to have gone through', async () => {
   const wentThrough = { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' };
-  const run = deployment(OFFERED, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.2.3+5' })] });
-  const state = await consoleState({ ...WORLD, devices: [device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough })], deployments: [run] });
+  const run = deployment(OFFERED, {
+    status: 'CANCELED',
+    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.2.3+5' })],
+  });
+  const state = await consoleState({
+    ...WORLD,
+    devices: [device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough })],
+    deployments: [run],
+  });
   const withOlder = (older) => {
     const details = new Map(state.deviceDetails);
     const resource = details.get(WAITING);
@@ -3013,12 +3977,30 @@ test('a cancelled update on a board with a cut list of updates is not said to ha
   assert.equal(textOf(one(withOlder(0), 'p.execution-title')), 'Installed despite the cancellation');
   const cut = withOlder(2);
   assert.equal(textOf(one(cut, 'p.execution-title')), 'Cancelled');
-  assert.equal(textOf(one(cut, 'p.execution-text')), 'Cancelled after the board had started. The board now runs 1.2.3+5; how it got there is not on record.');
+  assert.equal(
+    textOf(one(cut, 'p.execution-text')),
+    'Cancelled after the board had started. The board now runs 1.2.3+5; how it got there is not on record.'
+  );
   assert.match(textOf(one(cut, 'li.flash-row', 'Secondary slot')), /How this update ended is not known/);
 
   // Offline: the map is of when it was last seen, in the past.
-  const gone = await consoleState({ ...WORLD, devices: [device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough, ...quiet })],
-    deployments: [deployment(OFFERED, { status: 'CANCELED', executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), reported: '1.2.3+5', online: false })] })] });
+  const gone = await consoleState({
+    ...WORLD,
+    devices: [device(WAITING, { fw: { version: '1.2.3+5', confirmed: true }, ota: wentThrough, ...quiet })],
+    deployments: [
+      deployment(OFFERED, {
+        status: 'CANCELED',
+        executions: [
+          execution(WAITING, 'cancelled', {
+            status: 'CANCELED',
+            startedAt: ago(100),
+            reported: '1.2.3+5',
+            online: false,
+          }),
+        ],
+      }),
+    ],
+  });
   const away = page(views.deploymentView, gone, { id: OFFERED });
   assert.match(textOf(one(away, 'section.flash')), /^Flash memory when last seen/);
   assert.match(textOf(one(away, 'li.flash-row', 'Primary slot')), /1\.2\.3\+5 ?Ran from here, confirmed/);
@@ -3031,9 +4013,30 @@ const later = (seconds) => new Date(NOW + seconds * 1000).toISOString();
 const SECRET = `crn_${'Q'.repeat(42)}A`;
 const TOKEN_LIST = {
   tokens: [
-    { id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(3600), expiresAt: later(29 * DAY_S), revokedAt: null, status: 'active' },
-    { id: 'bbbbbbbbbbbbbbbb', name: 'old ci', createdAt: ago(40 * DAY_S), expiresAt: ago(10 * DAY_S), revokedAt: null, status: 'expired' },
-    { id: 'cccccccccccccccc', name: 'leaked', createdAt: ago(5 * DAY_S), expiresAt: later(DAY_S), revokedAt: ago(DAY_S), status: 'revoked' },
+    {
+      id: 'aaaaaaaaaaaaaaaa',
+      name: 'laptop',
+      createdAt: ago(3600),
+      expiresAt: later(29 * DAY_S),
+      revokedAt: null,
+      status: 'active',
+    },
+    {
+      id: 'bbbbbbbbbbbbbbbb',
+      name: 'old ci',
+      createdAt: ago(40 * DAY_S),
+      expiresAt: ago(10 * DAY_S),
+      revokedAt: null,
+      status: 'expired',
+    },
+    {
+      id: 'cccccccccccccccc',
+      name: 'leaked',
+      createdAt: ago(5 * DAY_S),
+      expiresAt: later(DAY_S),
+      revokedAt: ago(DAY_S),
+      status: 'revoked',
+    },
   ],
   limit: 10,
   maxDays: 90,
@@ -3051,7 +4054,7 @@ function tokensPage({ listing = TOKEN_LIST, viewer = false, actions = recorder()
   return draw(views.tokensView({ state, actions }));
 }
 
-test('the API tokens page lists the person\'s own tokens with their state, and revokes only one that works', () => {
+test("the API tokens page lists the person's own tokens with their state, and revokes only one that works", () => {
   const { actions, calls } = recorder();
   const drawn = tokensPage({ actions });
   assert.equal(textOf(one(drawn, 'h1')), 'API tokens');
@@ -3059,17 +4062,28 @@ test('the API tokens page lists the person\'s own tokens with their state, and r
   assert.equal(one(drawn, 'a', 'API tokens').getAttribute('aria-current'), 'page');
 
   const rows = all(drawn, 'li.token');
-  assert.deepEqual(rows.map((row) => textOf(one(row, 'span.badge'))), ['Active', 'Expired', 'Revoked']);
+  assert.deepEqual(
+    rows.map((row) => textOf(one(row, 'span.badge'))),
+    ['Active', 'Expired', 'Revoked']
+  );
   assert.match(textOf(rows[0]), /laptop .*ID aaaaaaaaaaaaaaaa .*Made 1 h ago .*Expires in 29 d/);
   assert.match(textOf(rows[1]), /Expired 10 d ago/);
   assert.match(textOf(rows[2]), /Revoked 1 d ago/);
   assert.deepEqual(all(drawn, 'li.token.is-over').length, 2);
   // Only the token that still works can be revoked, and its button says which it is.
-  assert.deepEqual(controls(drawn).filter((label) => label.startsWith('Revoke')), ['Revoke the token laptop']);
+  assert.deepEqual(
+    controls(drawn).filter((label) => label.startsWith('Revoke')),
+    ['Revoke the token laptop']
+  );
   click(one(drawn, 'button', 'New token'));
   click(all(rows[0], 'button')[0]);
-  assert.deepEqual(calls.map(([name, argument]) => [name, argument?.id ?? argument ?? null]),
-    [['openCreateToken', null], ['openRevokeToken', 'aaaaaaaaaaaaaaaa']]);
+  assert.deepEqual(
+    calls.map(([name, argument]) => [name, argument?.id ?? argument ?? null]),
+    [
+      ['openCreateToken', null],
+      ['openRevokeToken', 'aaaaaaaaaaaaaaaa'],
+    ]
+  );
 
   // How to use one, with this console's own address; and nowhere a token.
   assert.match(textOf(drawn), /curl -H "Authorization: Bearer \$CRANIUM_TOKEN" https:\/\/console\.test\/api\/t\/me/);
@@ -3084,7 +4098,11 @@ test('with no tokens, with all ten in use, and for a viewer, the page says so', 
   assert.equal(one(none, 'button', 'New token').disabled, false);
 
   const active = TOKEN_LIST.tokens[0];
-  const ten = Array.from({ length: 10 }, (_, index) => ({ ...active, id: `${index}`.padStart(16, 'a'), name: `t${index}` }));
+  const ten = Array.from({ length: 10 }, (_, index) => ({
+    ...active,
+    id: `${index}`.padStart(16, 'a'),
+    name: `t${index}`,
+  }));
   const full = tokensPage({ listing: { ...TOKEN_LIST, tokens: ten } });
   assert.equal(one(full, 'button', 'New token').disabled, true);
   assert.equal(one(full, 'button', 'New token').getAttribute('title'), 'Revoke a token you no longer use first.');
@@ -3105,7 +4123,11 @@ test('the Developer section is current on the API tokens page too', () => {
 function tokenDialog(changes = {}) {
   const calls = [];
   const model = {
-    name: '', days: '30', made: null, sending: false, error: null,
+    name: '',
+    days: '30',
+    made: null,
+    sending: false,
+    error: null,
     setName: (text) => calls.push(['setName', text]),
     setDays: (text) => calls.push(['setDays', text]),
     submit: () => calls.push(['submit']),
@@ -3130,7 +4152,10 @@ test('a token is made with a name and a lifetime, and the dialog says what is mi
   name.dispatchEvent({ type: 'input', target: name });
   days.value = '7';
   days.dispatchEvent({ type: 'input', target: days });
-  assert.deepEqual(blank.calls, [['setName', 'laptop'], ['setDays', '7']]);
+  assert.deepEqual(blank.calls, [
+    ['setName', 'laptop'],
+    ['setDays', '7'],
+  ]);
 
   const tooLong = tokenDialog({ name: 'laptop', days: '91' });
   assert.equal(textOf(one(tooLong.dialog, 'span.dialog-hint')), 'Choose 1 to 90 days.');
@@ -3145,7 +4170,13 @@ test('a token is made with a name and a lifetime, and the dialog says what is mi
 });
 
 test('a new token is shown once, with a copy button and a plain warning that it will not be shown again', () => {
-  const made = { token: SECRET, id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(0), expiresAt: later(30 * DAY_S) };
+  const made = {
+    token: SECRET,
+    id: 'aaaaaaaaaaaaaaaa',
+    name: 'laptop',
+    createdAt: ago(0),
+    expiresAt: later(30 * DAY_S),
+  };
   const { dialog, calls, done } = tokenDialog({ name: 'laptop', made });
   assert.equal(textOf(one(dialog, 'h2')), 'Your new API token');
   assert.equal(textOf(one(dialog, 'code.token-value')), SECRET);
@@ -3158,10 +4189,16 @@ test('a new token is shown once, with a copy button and a plain warning that it 
   assert.deepEqual(calls, [['close']]);
 });
 
-test('revoking a token is asked for in the page\'s own dialog, which says what follows', () => {
+test("revoking a token is asked for in the page's own dialog, which says what follows", () => {
   const calls = [];
   const token = TOKEN_LIST.tokens[0];
-  const model = { token, sending: false, error: null, submit: () => calls.push('submit'), close: () => calls.push('close') };
+  const model = {
+    token,
+    sending: false,
+    error: null,
+    submit: () => calls.push('submit'),
+    close: () => calls.push('close'),
+  };
   const dialog = draw(views.revokeTokenDialog(model, { state: { now: NOW } }));
   assert.equal(textOf(one(dialog, 'h2')), 'Revoke the token “laptop”?');
   assert.match(textOf(dialog), /A script that uses it is refused from its next request on\./);
@@ -3177,14 +4214,29 @@ test('revoking a token is asked for in the page\'s own dialog, which says what f
 
 function signInModel(changes = {}) {
   const calls = [];
-  const note = (name) => (...args) => calls.push([name, ...args]);
+  const note =
+    (name) =>
+    (...args) =>
+      calls.push([name, ...args]);
   return {
     calls,
     model: {
-      step: 'password', email: '', digits: ['', '', '', '', '', ''], busy: false, problem: null, tries: 0, lead: null,
-      passwordRef: note('passwordRef'), setEmail: note('setEmail'), submitPassword: note('submitPassword'),
-      submitCode: note('submitCode'), startOver: note('startOver'), useAwsPage: note('useAwsPage'),
-      forgotPassword: note('forgotPassword'), enterDigits: note('enterDigits'), pasteDigits: note('pasteDigits'),
+      step: 'password',
+      email: '',
+      digits: ['', '', '', '', '', ''],
+      busy: false,
+      problem: null,
+      tries: 0,
+      lead: null,
+      passwordRef: note('passwordRef'),
+      setEmail: note('setEmail'),
+      submitPassword: note('submitPassword'),
+      submitCode: note('submitCode'),
+      startOver: note('startOver'),
+      useAwsPage: note('useAwsPage'),
+      forgotPassword: note('forgotPassword'),
+      enterDigits: note('enterDigits'),
+      pasteDigits: note('pasteDigits'),
       keyInBox: note('keyInBox'),
       ...changes,
     },
@@ -3198,8 +4250,10 @@ test('the sign-in page: an address and a password that the page never holds, and
   assert.equal(one(drawn, 'h1').id, 'page-title');
   const email = all(drawn, 'input').find((el) => el.id === 'signin-email');
   const password = all(drawn, 'input').find((el) => el.id === 'signin-password');
-  assert.deepEqual(['type', 'autocomplete', 'inputmode', 'autocapitalize', 'spellcheck'].map((name) => email.getAttribute(name)),
-    ['email', 'username', 'email', 'off', 'false']);
+  assert.deepEqual(
+    ['type', 'autocomplete', 'inputmode', 'autocapitalize', 'spellcheck'].map((name) => email.getAttribute(name)),
+    ['email', 'username', 'email', 'off', 'false']
+  );
   assert.equal(textOf(email.parentNode), 'E-mail address', 'labelled by the label it stands in');
   assert.equal(password.getAttribute('type'), 'password');
   assert.equal(password.getAttribute('autocomplete'), 'current-password');
@@ -3208,7 +4262,10 @@ test('the sign-in page: an address and a password that the page never holds, and
   assert.equal(password.value, '');
   assert.equal(password.hasAttribute('name'), false);
   assert.equal(email.hasAttribute('name'), false);
-  assert.deepEqual(calls.filter(([name]) => name === 'passwordRef').map(([, el]) => el), [password]);
+  assert.deepEqual(
+    calls.filter(([name]) => name === 'passwordRef').map(([, el]) => el),
+    [password]
+  );
 
   const form = one(drawn, 'form.signin-form');
   assert.equal(form.hasAttribute('novalidate'), true);
@@ -3224,12 +4281,20 @@ test('the sign-in page: an address and a password that the page never holds, and
   const waiting = draw(views.signInView(busy.model));
   assert.equal(textOf(one(waiting, 'button', 'Checking')), 'Checking…');
   assert.equal(one(waiting, 'button', 'Checking').getAttribute('aria-disabled'), 'true');
-  assert.equal(all(waiting, 'input').every((el) => el.hasAttribute('readonly') && !el.disabled), true);
+  assert.equal(
+    all(waiting, 'input').every((el) => el.hasAttribute('readonly') && !el.disabled),
+    true
+  );
   one(waiting, 'form.signin-form').dispatchEvent({ type: 'submit' });
-  assert.deepEqual(busy.calls.filter(([name]) => name === 'submitPassword'), []);
+  assert.deepEqual(
+    busy.calls.filter(([name]) => name === 'submitPassword'),
+    []
+  );
 
   // What went wrong is said at once, tied to both fields.
-  const wrong = draw(views.signInView(signInModel({ problem: 'wrong-password', email: 'someone@example.invalid', tries: 2 }).model));
+  const wrong = draw(
+    views.signInView(signInModel({ problem: 'wrong-password', email: 'someone@example.invalid', tries: 2 }).model)
+  );
   const problem = one(wrong, 'p.signin-problem');
   assert.equal(textOf(problem), 'The e-mail address or password is wrong.');
   assert.equal(problem.getAttribute('role'), 'alert');
@@ -3241,7 +4306,11 @@ test('the sign-in page: an address and a password that the page never holds, and
 });
 
 test('the six boxes: labelled one by one and as a group, digits only, and the first one takes a whole code', () => {
-  const { model, calls } = signInModel({ step: 'code', email: 'someone@example.invalid', digits: ['1', '2', '', '', '', ''] });
+  const { model, calls } = signInModel({
+    step: 'code',
+    email: 'someone@example.invalid',
+    digits: ['1', '2', '', '', '', ''],
+  });
   const drawn = draw(views.signInView(model));
   assert.equal(textOf(one(drawn, 'h1')), 'Enter the code');
   assert.match(textOf(drawn), /Signing in as someone@example\.invalid\./);
@@ -3253,10 +4322,18 @@ test('the six boxes: labelled one by one and as a group, digits only, and the fi
 
   const boxes = all(group, 'input.code-digit');
   assert.equal(boxes.length, 6);
-  assert.deepEqual(boxes.map((el) => el.getAttribute('aria-label')),
-    ['Digit 1 of 6', 'Digit 2 of 6', 'Digit 3 of 6', 'Digit 4 of 6', 'Digit 5 of 6', 'Digit 6 of 6']);
-  assert.deepEqual(boxes.map((el) => el.id), [1, 2, 3, 4, 5, 6].map((n) => `code-digit-${n}`));
-  assert.deepEqual(boxes.map((el) => el.value), ['1', '2', '', '', '', '']);
+  assert.deepEqual(
+    boxes.map((el) => el.getAttribute('aria-label')),
+    ['Digit 1 of 6', 'Digit 2 of 6', 'Digit 3 of 6', 'Digit 4 of 6', 'Digit 5 of 6', 'Digit 6 of 6']
+  );
+  assert.deepEqual(
+    boxes.map((el) => el.id),
+    [1, 2, 3, 4, 5, 6].map((n) => `code-digit-${n}`)
+  );
+  assert.deepEqual(
+    boxes.map((el) => el.value),
+    ['1', '2', '', '', '', '']
+  );
   for (const el of boxes) {
     assert.equal(el.getAttribute('inputmode'), 'numeric');
     assert.equal(el.getAttribute('type'), 'text');
@@ -3264,21 +4341,38 @@ test('the six boxes: labelled one by one and as a group, digits only, and the fi
     // No limit of one character: a whole code pasted or filled in must arrive whole.
     assert.equal(el.hasAttribute('maxlength'), false);
   }
-  assert.deepEqual(boxes.map((el) => el.getAttribute('autocomplete')), ['one-time-code', 'off', 'off', 'off', 'off', 'off']);
+  assert.deepEqual(
+    boxes.map((el) => el.getAttribute('autocomplete')),
+    ['one-time-code', 'off', 'off', 'off', 'off', 'off']
+  );
 
   // Each box says which box it is: typed text, a paste and a key all go with the index.
   boxes[3].dispatchEvent({ type: 'input', target: boxes[3], data: '7' });
   boxes[4].dispatchEvent({ type: 'input', target: { value: '' }, data: null });
   boxes[2].dispatchEvent({ type: 'keydown', key: 'Backspace' });
   boxes[5].dispatchEvent({ type: 'paste', clipboardData: { getData: () => '123 456' } });
-  assert.deepEqual(calls.map(([name, index, value]) => [name, index, typeof value === 'string' ? value : value?.type]), [
-    ['enterDigits', 3, '7'], ['enterDigits', 4, ''], ['keyInBox', 2, 'keydown'], ['pasteDigits', 5, 'paste'],
-  ]);
+  assert.deepEqual(
+    calls.map(([name, index, value]) => [name, index, typeof value === 'string' ? value : value?.type]),
+    [
+      ['enterDigits', 3, '7'],
+      ['enterDigits', 4, ''],
+      ['keyInBox', 2, 'keydown'],
+      ['pasteDigits', 5, 'paste'],
+    ]
+  );
   assert.deepEqual(controls(drawn), ['Sign in', 'Start again', 'Use the AWS sign-in page']);
 
   // A wrong code: said, and the boxes marked.
-  const wrong = draw(views.signInView(signInModel({ step: 'code', email: 'x@example.invalid', problem: 'wrong-code' }).model));
-  assert.equal(textOf(one(wrong, 'p.signin-problem')), 'That code is not right. Try the next one from your authenticator app.');
+  const wrong = draw(
+    views.signInView(signInModel({ step: 'code', email: 'x@example.invalid', problem: 'wrong-code' }).model)
+  );
+  assert.equal(
+    textOf(one(wrong, 'p.signin-problem')),
+    'That code is not right. Try the next one from your authenticator app.'
+  );
   assert.equal(one(wrong, 'div.code-boxes').getAttribute('aria-describedby'), 'signin-problem code-hint');
-  assert.equal(all(wrong, 'input.code-digit').every((el) => el.getAttribute('aria-invalid') === 'true'), true);
+  assert.equal(
+    all(wrong, 'input.code-digit').every((el) => el.getAttribute('aria-invalid') === 'true'),
+    true
+  );
 });

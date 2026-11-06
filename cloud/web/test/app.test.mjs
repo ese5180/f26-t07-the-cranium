@@ -16,20 +16,48 @@ import { test } from 'node:test';
 
 import { createCognito } from './cognito.mjs';
 import {
-  CORE, HISTORY, NEIGHBOURS, SERIAL, TELEMETRY, VIEWS, all, click, controls, createDocument, descendants, one, scriptAddress,
+  CORE,
+  HISTORY,
+  NEIGHBOURS,
+  SERIAL,
+  TELEMETRY,
+  VIEWS,
+  all,
+  click,
+  controls,
+  createDocument,
+  descendants,
+  one,
+  scriptAddress,
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
 import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, MAP } from './page.mjs';
 import {
-  INSTALLING, MANAGER, NEVER, NOW, OFFERED, REASON, WAITING, WITHDRAWN, WORLD, ago, deployment, device,
-  execution, release, repliesFor, revoked,
+  INSTALLING,
+  MANAGER,
+  NEVER,
+  NOW,
+  OFFERED,
+  REASON,
+  WAITING,
+  WITHDRAWN,
+  WORLD,
+  ago,
+  deployment,
+  device,
+  execution,
+  release,
+  repliesFor,
+  revoked,
 } from './world.mjs';
 
 // The scripts app.js fetches when it needs them (fleet.js once it has started, the others with their
 // pages): read here first, each arrives at once, as from a browser's cache, and not part way through
 // a test's clock.
-await Promise.all([FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY, BRIDGE, BLUETOOTH].map((address) => import(address)));
+await Promise.all(
+  [FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY, BRIDGE, BLUETOOTH].map((address) => import(address))
+);
 
 // The real timer, kept for waiting on work that is not on the test's clock (hashing).
 const realTimeout = globalThis.setTimeout;
@@ -61,10 +89,16 @@ const CONFIG = {
 };
 // The account the console's own sign-in page signs in with. Made up for these tests.
 const PERSON = {
-  email: MANAGER.email, userId: MANAGER.sub, password: 'Only-For-Tests-7', code: '135790',
+  email: MANAGER.email,
+  userId: MANAGER.sub,
+  password: 'Only-For-Tests-7',
+  code: '135790',
 };
 const TOKENS = {
-  access_token: 'FRESH-TOKEN', refresh_token: 'REFRESH', token_type: 'Bearer', expires_in: 3600,
+  access_token: 'FRESH-TOKEN',
+  refresh_token: 'REFRESH',
+  token_type: 'Bearer',
+  expires_in: 3600,
 };
 
 const refusal = (status, code, message, details) =>
@@ -77,7 +111,9 @@ let copies = 0;
 /** Give the tab's browser Web Serial, with no port to offer. */
 function navigatorSerial() {
   globalThis.navigator.serial = {
-    requestPort: async () => { throw Object.assign(new Error('none'), { name: 'NotFoundError' }); },
+    requestPort: async () => {
+      throw Object.assign(new Error('none'), { name: 'NotFoundError' });
+    },
     addEventListener() {},
   };
 }
@@ -106,9 +142,19 @@ function navigatorSerial() {
  */
 async function openTab(t, options = {}) {
   const {
-    world = WORLD, viewer = false, hash = '#/overview', search = '', session = 3600, stored = {},
-    touch = false, answer = () => null, upload = () => ({ status: 500, body: {} }), BroadcastChannel,
-    users = [PERSON], fail, app = null,
+    world = WORLD,
+    viewer = false,
+    hash = '#/overview',
+    search = '',
+    session = 3600,
+    stored = {},
+    touch = false,
+    answer = () => null,
+    upload = () => ({ status: 500, body: {} }),
+    BroadcastChannel,
+    users = [PERSON],
+    fail,
+    app = null,
   } = options;
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const cognito = createCognito({ userPoolId: CONFIG.userPoolId, clientId: CONFIG.clientId, users, fail });
@@ -119,7 +165,7 @@ async function openTab(t, options = {}) {
   const navigations = [];
   const document = createDocument(['skip', 'main', 'nav', 'account', 'toasts', 'announcer']);
   document.querySelector = (selector) =>
-    (selector === 'meta[name="cranium-config"]' ? { content: JSON.stringify(CONFIG) } : null);
+    selector === 'meta[name="cranium-config"]' ? { content: JSON.stringify(CONFIG) } : null;
 
   const storage = new Map(Object.entries(stored));
   if (session !== null) {
@@ -135,7 +181,7 @@ async function openTab(t, options = {}) {
 
   const listeners = new Map();
   const tell = (type) => {
-    for (const listener of [...listeners.get(type) ?? []]) listener({ type });
+    for (const listener of [...(listeners.get(type) ?? [])]) listener({ type });
   };
   let address = hash;
   const location = {
@@ -233,11 +279,14 @@ async function openTab(t, options = {}) {
             queueMicrotask(() => {
               const result = typeof reply === 'function' ? reply(message.params) : reply;
               let detail;
-              if (result === undefined) detail = { id: message.id, ok: false, error: { code: 'unknown_method', message: 'No such method.' } };
-              else if (result.refuse) detail = { id: message.id, ok: false, error: { code: result.refuse, message: 'Refused.' } };
+              if (result === undefined)
+                detail = { id: message.id, ok: false, error: { code: 'unknown_method', message: 'No such method.' } };
+              else if (result.refuse)
+                detail = { id: message.id, ok: false, error: { code: result.refuse, message: 'Refused.' } };
               else detail = { id: message.id, ok: true, result };
               detail = JSON.stringify(detail);
-              for (const listener of [...listeners.get('cranium-native') ?? []]) listener({ type: 'cranium-native', detail });
+              for (const listener of [...(listeners.get('cranium-native') ?? [])])
+                listener({ type: 'cranium-native', detail });
             });
           },
         },
@@ -251,10 +300,24 @@ async function openTab(t, options = {}) {
 
   // A copy of app.js of its own: the script starts the console when it is loaded.
   copies += 1;
-  await import(scriptAddress('app.js', {
-    'core.js': CORE, 'views.js': VIEWS, 'serial.js': SERIAL, 'history.js': HISTORY, 'telemetry.js': TELEMETRY,
-    'map.js': MAP, 'account.js': ACCOUNT, 'fleet.js': FLEET, 'bridge.js': BRIDGE, 'bluetooth.js': BLUETOOTH,
-  }, `tab ${copies}`));
+  await import(
+    scriptAddress(
+      'app.js',
+      {
+        'core.js': CORE,
+        'views.js': VIEWS,
+        'serial.js': SERIAL,
+        'history.js': HISTORY,
+        'telemetry.js': TELEMETRY,
+        'map.js': MAP,
+        'account.js': ACCOUNT,
+        'fleet.js': FLEET,
+        'bridge.js': BRIDGE,
+        'bluetooth.js': BLUETOOTH,
+      },
+      `tab ${copies}`
+    )
+  );
   await settle();
 
   const main = document.getElementById('main');
@@ -319,12 +382,22 @@ const sentTo = (tab, url) => tab.requests.filter((request) => request.url === ur
 const APP_API = 'https://console.example';
 const APP_ANSWERS = {
   'app.hello': {
-    bridge: 1, platform: 'ios', shell: { version: '0.8.0', build: '14' }, bundle: { id: '0123456789abcdef', console: '2.1.1', source: 'downloaded' },
+    bridge: 1,
+    platform: 'ios',
+    shell: { version: '0.8.0', build: '14' },
+    bundle: { id: '0123456789abcdef', console: '2.1.1', source: 'downloaded' },
     features: ['auth', 'biometric', 'ble', 'clipboard', 'haptics', 'share', 'open', 'keepAwake', 'settings'],
   },
   'app.config': {
-    consoleUrl: APP_API, region: 'xx-test-1', userPoolId: CONFIG.userPoolId, mobileClientId: 'phoneclient0',
-    customerApiUrl: null, customerRegion: null, customerUserPoolId: null, customerClientId: null, example: false,
+    consoleUrl: APP_API,
+    region: 'xx-test-1',
+    userPoolId: CONFIG.userPoolId,
+    mobileClientId: 'phoneclient0',
+    customerApiUrl: null,
+    customerRegion: null,
+    customerUserPoolId: null,
+    customerClientId: null,
+    example: false,
   },
   'app.ready': {},
   'auth.session': { signedIn: true, accessToken: 'APP-TOKEN', expiresIn: 3600 },
@@ -332,8 +405,13 @@ const APP_ANSWERS = {
   'clipboard.write': {},
 };
 const WRITES = new Set([
-  'Deploy', 'Revoke', 'Finish revoking', 'Apply the revocation again', 'New deployment',
-  'Cancel deployment', 'Upload for verification',
+  'Deploy',
+  'Revoke',
+  'Finish revoking',
+  'Apply the revocation again',
+  'New deployment',
+  'Cancel deployment',
+  'Upload for verification',
 ]);
 // The buttons of a release are named with its version, as in "Revoke 1.2.3+5".
 const writes = (root) => controls(root).filter((label) => WRITES.has(label.replace(/ \d\S*$/, '')));
@@ -352,19 +430,28 @@ test('the console starts on the page in the address and loads what that page sho
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ends in 1 h');
 
   assert.deepEqual(tab.since(0).sort(), [
-    'GET /api/audit?limit=6', 'GET /api/deployments', `GET /api/deployments/${OFFERED}`,
+    'GET /api/audit?limit=6',
+    'GET /api/deployments',
+    `GET /api/deployments/${OFFERED}`,
     // Cancelled, but its board is still installing: its boards are followed too.
     `GET /api/deployments/${WITHDRAWN}`,
-    'GET /api/devices', 'GET /api/firmware',
+    'GET /api/devices',
+    'GET /api/firmware',
     // What fleet.js shows on the overview: the boards' types and groups, and the fleet's health.
-    'GET /api/fleet', 'GET /api/fleet/health',
+    'GET /api/fleet',
+    'GET /api/fleet/health',
     'GET /api/me',
     // Every update of every board however it came, for the Updates card.
     'GET /api/updates?limit=25',
   ]);
-  assert.equal(tab.requests.every((request) => request.token === 'Bearer TOKEN'), true);
-  assert.deepEqual(all(tab.main, 'li.run').map((run) => textOf(one(run, 'a.run-version'))),
-    ['1.2.3+5', '1.2.4+0']);
+  assert.equal(
+    tab.requests.every((request) => request.token === 'Bearer TOKEN'),
+    true
+  );
+  assert.deepEqual(
+    all(tab.main, 'li.run').map((run) => textOf(one(run, 'a.run-version'))),
+    ['1.2.3+5', '1.2.4+0']
+  );
   assert.deepEqual(tab.navigations, []);
 });
 
@@ -391,9 +478,12 @@ test('the title of the tab tells open tabs apart', async (t) => {
 });
 
 test('a board with a name of its own has its tab called by it, once the board has been read', async (t) => {
-  const named = { ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)) };
+  const named = {
+    ...WORLD,
+    devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)),
+  };
   const tab = await openTab(t, { world: named, hash: `#/devices/${WAITING}` });
-  await until(() => tab.document.title === 'CRVIHAAN01 · Cranium', 'the title with the board\'s name');
+  await until(() => tab.document.title === 'CRVIHAAN01 · Cranium', "the title with the board's name");
   assert.equal(textOf(one(tab.main, 'h1')), 'Board CRVIHAAN01');
   await tab.goto(`#/devices/${INSTALLING}`);
   assert.equal(tab.document.title, 'cranium-0000… · Cranium');
@@ -404,13 +494,19 @@ test('a screen reader hears a board change state on every page but the one that 
   const tab = await openTab(t, { world: waiting });
   const heard = () => textOf(tab.document.getElementById('announcer'));
   assert.equal(heard(), '', 'the first look at a board is not news');
-  const moved = { ...WORLD.devices[0], ota: { state: 'downloading', job: OFFERED, progress: 10, last: 'none', error: '' } };
+  const moved = {
+    ...WORLD.devices[0],
+    ota: { state: 'downloading', job: OFFERED, progress: 10, last: 'none', error: '' },
+  };
   tab.becomes({ ...WORLD, devices: [moved] });
   await tab.wait(3000);
   assert.equal(heard(), 'cranium-0000…: Downloading 1.2.3+5.');
 });
 
-const NAMED_WORLD = { ...WORLD, devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)) };
+const NAMED_WORLD = {
+  ...WORLD,
+  devices: WORLD.devices.map((item) => (item.thing === WAITING ? { ...item, name: 'CRVIHAAN01' } : item)),
+};
 
 test('the activity log does not read the list of boards when no entry names a board', async (t) => {
   const tab = await openTab(t, { world: NAMED_WORLD, hash: '#/activity' });
@@ -421,10 +517,19 @@ test('the activity log does not read the list of boards when no entry names a bo
 test('the activity log reads the list of boards when an entry names a board, to call it by its name', async (t) => {
   const named = NAMED_WORLD;
   const read = {
-    at: ago(30), actor: MANAGER, action: 'pairing.read', target: 'Cranium-1A2B', outcome: 'ok', detail: { thing: WAITING }, requestId: 'req-2',
+    at: ago(30),
+    actor: MANAGER,
+    action: 'pairing.read',
+    target: 'Cranium-1A2B',
+    outcome: 'ok',
+    detail: { thing: WAITING },
+    requestId: 'req-2',
   };
   const tab = await openTab(t, { world: { ...named, entries: [read, ...named.entries] }, hash: '#/activity' });
-  await until(() => all(tab.main, 'li.log-line').length > 0 && sentTo(tab, '/api/devices').length > 0, 'the log and the boards');
+  await until(
+    () => all(tab.main, 'li.log-line').length > 0 && sentTo(tab, '/api/devices').length > 0,
+    'the log and the boards'
+  );
   await settle();
   assert.match(textOf(all(tab.main, 'li.log-line')[0]), new RegExp(`Board CRVIHAAN01 ${WAITING}`));
 });
@@ -534,9 +639,8 @@ test('a deployment that ends while its cancel button has the focus does not hand
 
 test('an account that was removed or disabled is told that, and not that it can be added to a group', async (t) => {
   const tab = await openTab(t, {
-    answer: (method, url) => (url === '/api/me'
-      ? refusal(403, 'account_inactive', 'Your account is disabled or not confirmed.')
-      : null),
+    answer: (method, url) =>
+      url === '/api/me' ? refusal(403, 'account_inactive', 'Your account is disabled or not confirmed.') : null,
   });
   const words = textOf(tab.main);
   assert.match(words, /^.*Your account is not active/);
@@ -591,10 +695,16 @@ test('a page is read again while boards are busy, and not while the tab is hidde
   await tab.wait(2900);
   assert.deepEqual(tab.since(mark), []);
   await tab.wait(100);
-  assert.deepEqual(tab.since(mark).sort(), [
-    'GET /api/deployments', `GET /api/deployments/${OFFERED}`, `GET /api/deployments/${WITHDRAWN}`,
-    'GET /api/devices',
-  ], 'the releases and the log are not asked for every time');
+  assert.deepEqual(
+    tab.since(mark).sort(),
+    [
+      'GET /api/deployments',
+      `GET /api/deployments/${OFFERED}`,
+      `GET /api/deployments/${WITHDRAWN}`,
+      'GET /api/devices',
+    ],
+    'the releases and the log are not asked for every time'
+  );
 
   await tab.hide(true);
   mark = tab.requests.length;
@@ -674,10 +784,11 @@ test('the log does not take away the pages that were loaded by hand', async (t) 
 
 test('a board that a forced cancellation found restarting is followed until it is back', async (t) => {
   const started = { status: 'CANCELED', startedAt: ago(100), lastUpdatedAt: ago(1) };
-  const run = (reported) => deployment(OFFERED, {
-    status: 'CANCELED',
-    executions: [execution(WAITING, 'cancelled', { ...started, reported })],
-  });
+  const run = (reported) =>
+    deployment(OFFERED, {
+      status: 'CANCELED',
+      executions: [execution(WAITING, 'cancelled', { ...started, reported })],
+    });
   const restarting = device(WAITING, {
     ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' },
   });
@@ -688,14 +799,19 @@ test('a board that a forced cancellation found restarting is followed until it i
   await tab.wait(0);
   assert.match(textOf(one(tab.main, 'p.execution-title')), /^Finishing despite the cancellation/);
   assert.match(textOf(one(tab.main, 'span.freshness-live')), /every 3 s/);
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'), false);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'),
+    false
+  );
 
   tab.becomes({
     ...WORLD,
-    devices: [device(WAITING, {
-      fw: { version: '1.2.3+5', confirmed: true },
-      ota: { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' },
-    })],
+    devices: [
+      device(WAITING, {
+        fw: { version: '1.2.3+5', confirmed: true },
+        ota: { state: 'idle', job: null, progress: 0, last: 'succeeded', error: '' },
+      }),
+    ],
     deployments: [run('1.2.3+5')],
   });
   await tab.wait(3000);
@@ -707,16 +823,26 @@ test('a board that a forced cancellation found restarting is followed until it i
   assert.deepEqual(tab.since(mark), []);
 });
 
-test('a board\'s list of updates is not read again while the copy in hand is of what it reports now', async (t) => {
+test("a board's list of updates is not read again while the copy in hand is of what it reports now", async (t) => {
   const board = device(WAITING, {
     fw: { version: '1.2.3+5', confirmed: true },
     ota: { state: 'testing', job: OFFERED, progress: 0, last: 'none', error: '' },
   });
   const run = deployment(OFFERED, {
     status: 'CANCELED',
-    executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), lastUpdatedAt: ago(1), reported: '1.2.3+5' })],
+    executions: [
+      execution(WAITING, 'cancelled', {
+        status: 'CANCELED',
+        startedAt: ago(100),
+        lastUpdatedAt: ago(1),
+        reported: '1.2.3+5',
+      }),
+    ],
   });
-  const tab = await openTab(t, { hash: `#/deployments/${OFFERED}`, world: { ...WORLD, devices: [board], deployments: [run] } });
+  const tab = await openTab(t, {
+    hash: `#/deployments/${OFFERED}`,
+    world: { ...WORLD, devices: [board], deployments: [run] },
+  });
   await tab.wait(0);
   assert.match(textOf(one(tab.main, 'span.freshness-live')), /every 3 s/);
   const mark = tab.requests.length;
@@ -735,16 +861,24 @@ test('a release revoked elsewhere stops being offered again on a page that is al
   });
   const world = { ...WORLD, deployments: [declined] };
   const tab = await openTab(t, { hash: `#/deployments/${OFFERED}`, world });
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'), true);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'),
+    true
+  );
 
   tab.becomes({
     ...world,
-    releases: WORLD.releases.map((item) => (item.version === '1.2.3+5'
-      ? release('1.2.3+5', { status: 'revoked', revoked: revoked({ enforcedAt: ago(1) }) })
-      : item)),
+    releases: WORLD.releases.map((item) =>
+      item.version === '1.2.3+5'
+        ? release('1.2.3+5', { status: 'revoked', revoked: revoked({ enforcedAt: ago(1) }) })
+        : item
+    ),
   });
   await tab.wait(30000);
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'), false);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'),
+    false
+  );
   assert.match(textOf(tab.main), /was revoked/);
   // There is no more to wait for.
   const mark = tab.requests.length;
@@ -752,7 +886,7 @@ test('a release revoked elsewhere stops being offered again on a page that is al
   assert.deepEqual(tab.since(mark), []);
 });
 
-test('a copy of a board\'s history from before it ran the version is read again, and a failed read is said and retried', async (t) => {
+test("a copy of a board's history from before it ran the version is read again, and a failed read is said and retried", async (t) => {
   const board = (version) => device(WAITING, { fw: { version, confirmed: true } });
   const cancelled = deployment(OFFERED, {
     status: 'CANCELED',
@@ -782,7 +916,10 @@ test('a copy of a board\'s history from before it ran the version is read again,
   const words = () => textOf(tab.main);
   assert.doesNotMatch(words(), /Installed despite/);
   assert.match(words(), /Could not refresh the board’s list of updates/);
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'), false);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Offer again'),
+    false
+  );
 
   down = false;
   await tab.press(tab.main, 'button', 'Try again');
@@ -795,7 +932,9 @@ test('while a board restarts after a forced cancel the overview follows it and d
     status: 'CANCELED',
     executions: [execution(WAITING, 'cancelled', { status: 'CANCELED', startedAt: ago(100), lastUpdatedAt: ago(1) })],
   });
-  const restarting = device(WAITING, { ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' } });
+  const restarting = device(WAITING, {
+    ota: { state: 'rebooting', job: OFFERED, progress: 0, last: 'none', error: '' },
+  });
   const tab = await openTab(t, { world: { ...WORLD, devices: [restarting], deployments: [run] } });
   assert.doesNotMatch(textOf(tab.main), /No update is in progress/);
   assert.match(textOf(one(tab.main, 'li.run')), /Finishing despite the cancellation/);
@@ -840,7 +979,10 @@ const signInPage = (tab) => all(tab.main, 'form.signin-form')[0] ?? null;
 const asked = (tab) => until(() => signInPage(tab) !== null, 'the sign-in page');
 const focused = (tab) => tab.document.activeElement?.id ?? null;
 const box = (tab, n) => tab.document.getElementById(`code-digit-${n}`);
-const digits = (tab) => all(tab.main, 'input.code-digit').map((el) => el.value).join('');
+const digits = (tab) =>
+  all(tab.main, 'input.code-digit')
+    .map((el) => el.value)
+    .join('');
 const codeCalls = (tab) => tab.cognito.calls.filter((call) => call.body.ChallengeName === 'SOFTWARE_TOKEN_MFA');
 
 /** Type into the box that has the keyboard, as a keyboard does. */
@@ -860,7 +1002,10 @@ async function hit(tab, name) {
 
 /** Paste into a box; what the boxes hold straight after, before anything was answered. */
 async function paste(tab, el, text) {
-  const event = el.dispatchEvent({ type: 'paste', clipboardData: { getData: (type) => (type === 'text' ? text : '') } });
+  const event = el.dispatchEvent({
+    type: 'paste',
+    clipboardData: { getData: (type) => (type === 'text' ? text : '') },
+  });
   const held = digits(tab);
   await settle();
   return { event, held };
@@ -874,8 +1019,11 @@ async function givePassword(tab, email = PERSON.email, password = PERSON.passwor
   await settle();
 }
 
-const atCode = (tab) => until(() => box(tab, 1) !== null && !one(tab.main, 'form.signin-form').hasAttribute('aria-busy'),
-  'the boxes for the code');
+const atCode = (tab) =>
+  until(
+    () => box(tab, 1) !== null && !one(tab.main, 'form.signin-form').hasAttribute('aria-busy'),
+    'the boxes for the code'
+  );
 const settled = (tab) => until(() => !signInPage(tab)?.hasAttribute('aria-busy'), 'an answer from Cognito');
 
 /** From the password to the console, on the console's own page. */
@@ -891,7 +1039,9 @@ async function signInHere(tab) {
 function consoleSpy(t) {
   const written = [];
   for (const name of ['log', 'info', 'warn', 'error', 'debug']) {
-    t.mock.method(console, name, (...items) => written.push(items.map((item) => String(item?.stack ?? item)).join(' ')));
+    t.mock.method(console, name, (...items) =>
+      written.push(items.map((item) => String(item?.stack ?? item)).join(' '))
+    );
   }
   return written;
 }
@@ -913,7 +1063,10 @@ test('without a session the console asks on its own page, and opens at the addre
   assert.equal(textOf(one(tab.main, 'h1')), 'Enter the code');
   assert.match(textOf(tab.main), new RegExp(`Signing in as ${PERSON.email.replace('.', '\\.')}\\.`));
   // The password field is gone with its step, and it was emptied before that.
-  assert.equal(all(tab.main, 'input').some((el) => el.getAttribute('type') === 'password'), false);
+  assert.equal(
+    all(tab.main, 'input').some((el) => el.getAttribute('type') === 'password'),
+    false
+  );
   assert.equal(focused(tab), 'code-digit-1');
 
   // Each digit moves the keyboard on; the sixth sends the code by itself.
@@ -950,7 +1103,10 @@ test('a wrong password, and an address nobody has, get the same words; the field
   const tab = await openTab(t, { session: null, hash: '#/firmware' });
   await asked(tab);
   const said = [];
-  for (const [email, password] of [[PERSON.email, 'Not-It-At-All-1'], ['nobody@example.invalid', PERSON.password]]) {
+  for (const [email, password] of [
+    [PERSON.email, 'Not-It-At-All-1'],
+    ['nobody@example.invalid', PERSON.password],
+  ]) {
     await givePassword(tab, email, password);
     await settled(tab);
     said.push(textOf(one(tab.main, 'p.signin-problem')));
@@ -1016,7 +1172,10 @@ test('the boxes: Backspace goes back and clears, the arrows move, anything but a
   await hit(tab, 'ArrowLeft');
   assert.equal(focused(tab), 'code-digit-2');
   await hit(tab, 'Backspace');
-  assert.deepEqual(all(tab.main, 'input.code-digit').map((el) => el.value), ['1', '', '', '', '', '']);
+  assert.deepEqual(
+    all(tab.main, 'input.code-digit').map((el) => el.value),
+    ['1', '', '', '', '', '']
+  );
   assert.equal(focused(tab), 'code-digit-2');
   await hit(tab, 'ArrowRight');
   await hit(tab, 'ArrowRight');
@@ -1031,7 +1190,10 @@ test('the boxes: Backspace goes back and clears, the arrows move, anything but a
 });
 
 test('a whole code pasted or filled in, with or without a space, fills every box and is sent once', async (t) => {
-  for (const [text, where] of [[PERSON.code, 1], [`${PERSON.code.slice(0, 3)} ${PERSON.code.slice(3)}`, 4]]) {
+  for (const [text, where] of [
+    [PERSON.code, 1],
+    [`${PERSON.code.slice(0, 3)} ${PERSON.code.slice(3)}`, 4],
+  ]) {
     const tab = await openTab(t, { session: null });
     await asked(tab);
     await givePassword(tab);
@@ -1077,7 +1239,7 @@ test('a code sent from the button needs all six digits; Start again goes back to
   assert.equal(focused(tab), 'signin-password');
 });
 
-test('limits, an ended sign-in and a lost connection are said in words, never in Cognito\'s', async (t) => {
+test("limits, an ended sign-in and a lost connection are said in words, never in Cognito's", async (t) => {
   let rule = null;
   const tab = await openTab(t, { session: null, fail: (operation, body) => rule?.(operation, body) ?? null });
   await asked(tab);
@@ -1093,8 +1255,10 @@ test('limits, an ended sign-in and a lost connection are said in words, never in
   await settled(tab);
   // Cognito ended its sign-in: back to the password.
   assert.equal(textOf(one(tab.main, 'h1')), 'Sign in');
-  assert.equal(textOf(one(tab.main, 'p.signin-problem')),
-    'The sign-in took too long, so it starts again. Enter your password once more.');
+  assert.equal(
+    textOf(one(tab.main, 'p.signin-problem')),
+    'The sign-in took too long, so it starts again. Enter your password once more.'
+  );
   assert.equal(focused(tab), 'signin-password');
   assert.doesNotMatch(textOf(tab.main), /Exception|Incorrect|Invalid session/);
 });
@@ -1221,7 +1385,10 @@ test('a request made after the session has ended says so, and keeps the dialog w
   assert.equal(tab.requests.filter((request) => request.method === 'POST').length, mark, 'nothing was sent');
   assert.equal(signInPage(tab), null, 'and the console has not asked');
   assert.equal(tab.dialog(), dialog);
-  assert.equal(textOf(one(dialog, 'span.notice-said')), 'Not revoked. Your session has ended. Sign in again to continue.');
+  assert.equal(
+    textOf(one(dialog, 'span.notice-said')),
+    'Not revoked. Your session has ended. Sign in again to continue.'
+  );
   assert.equal(one(dialog, 'textarea').value, REASON);
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ended');
 
@@ -1255,7 +1422,10 @@ test('a chosen file is not thrown away by the end of the session, nor by signing
   // the file is not on offer any more, and the masthead says the same.
   await tab.wait(45000);
   assert.match(textOf(one(tab.main, 'div.notice.is-warn')), /^Your session has ended\./);
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'), false);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'),
+    false
+  );
   assert.equal(textOf(one(tab.account, 'span.account-session')), 'Session ended');
   await tab.press(tab.main, 'button', 'Sign in again');
   await asked(tab);
@@ -1264,7 +1434,10 @@ test('a chosen file is not thrown away by the end of the session, nor by signing
   await signInHere(tab);
   await until(() => all(tab.main, 'p.upload-title').length > 0, 'the firmware page');
   assert.equal(textOf(one(tab.main, 'p.upload-title')), 'zephyr.signed.bin');
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'), true);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item) === 'Upload for verification'),
+    true
+  );
   assert.deepEqual(tab.navigations, []);
 });
 
@@ -1350,8 +1523,9 @@ test('a token the API refuses leads back to sign-in, on the page the user was on
 });
 
 test('a token refused straight after signing in does not send the user round in circles', async (t) => {
-  const tab = await returning(t, '#/overview',
-    (method, url) => (url === '/api/me' ? gateway(401, 'Unauthorized') : null));
+  const tab = await returning(t, '#/overview', (method, url) =>
+    url === '/api/me' ? gateway(401, 'Unauthorized') : null
+  );
   await until(() => all(tab.main, 'h1').length > 0, 'a message');
   assert.equal(textOf(one(tab.main, 'h1')), 'The server did not accept this sign-in');
   assert.deepEqual(tab.navigations, []);
@@ -1363,14 +1537,20 @@ test('a token refused straight after signing in does not send the user round in 
   for (const status of [401, 403]) {
     const here = await openTab(t, {
       session: null,
-      answer: (method, url) => (url === '/api/me' ? gateway(status, status === 401 ? 'Unauthorized' : 'Forbidden') : null),
+      answer: (method, url) =>
+        url === '/api/me' ? gateway(status, status === 401 ? 'Unauthorized' : 'Forbidden') : null,
     });
     await asked(here);
     await givePassword(here);
     await atCode(here);
     for (const digit of PERSON.code) await key(here, digit);
-    await until(() => signInPage(here) === null && all(here.main, 'h1').length > 0 &&
-      textOf(one(here.main, 'h1')) !== 'Loading the console…', 'a message');
+    await until(
+      () =>
+        signInPage(here) === null &&
+        all(here.main, 'h1').length > 0 &&
+        textOf(one(here.main, 'h1')) !== 'Loading the console…',
+      'a message'
+    );
     assert.equal(textOf(one(here.main, 'h1')), 'The server did not accept this sign-in', String(status));
     assert.deepEqual(controls(here.main), ['Sign out']);
     t.mock.timers.reset();
@@ -1382,7 +1562,8 @@ test('a token refused straight after signing in does not send the user round in 
 /** The world once revoking `version` has been carried out as far as `mark` says. */
 function afterRevoking(version, mark) {
   const releases = WORLD.releases.map((item) =>
-    (item.version === version ? { ...item, status: 'revoked', revoked: mark } : item));
+    item.version === version ? { ...item, status: 'revoked', revoked: mark } : item
+  );
   return { ...WORLD, releases };
 }
 
@@ -1409,7 +1590,10 @@ test('revoking sends the reason, says what it cancelled and shows the release as
   await tab.submit();
 
   assert.deepEqual(tab.requests[mark], {
-    method: 'POST', url: '/api/firmware/1.2.4+0/revoke', body: { reason: REASON }, token: 'Bearer TOKEN',
+    method: 'POST',
+    url: '/api/firmware/1.2.4+0/revoke',
+    body: { reason: REASON },
+    token: 'Bearer TOKEN',
   });
   assert.equal(tab.dialog(), null);
   assert.deepEqual(tab.toasts(), ['Revoked 1.2.4+0. 1 unfinished deployment was cancelled.']);
@@ -1430,10 +1614,15 @@ test('a revocation is confirmed at once; which boards still run the release foll
     hash: '#/firmware',
     answer(method, url) {
       if (method === 'POST' && url === '/api/firmware/1.2.4+0/revoke') {
-        return Response.json({ release: release('1.2.4+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(0) }) }), cancelled: [] });
+        return Response.json({
+          release: release('1.2.4+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(0) }) }),
+          cancelled: [],
+        });
       }
       if (url === '/api/devices' && holding) {
-        return new Promise((resolve) => { answerBoards = () => resolve(Response.json(replies.get(url))); });
+        return new Promise((resolve) => {
+          answerBoards = () => resolve(Response.json(replies.get(url)));
+        });
       }
       return null;
     },
@@ -1455,11 +1644,21 @@ test('a revocation is confirmed at once; which boards still run the release foll
 const REVOKED_AWAY = { online: false, lastSeen: ago(3600) };
 const onRevoked = (thing, changes) => device(thing, { fw: { version: '1.2.4+0', confirmed: true }, ...changes });
 for (const [who, devices, said] of [
-  ['one board offline', [onRevoked(WAITING, REVOKED_AWAY)],
-    `${WAITING} last reported running it; to replace it there, upload a newer version and deploy that.`],
-  ['one board online and one offline', [onRevoked(WAITING), onRevoked(INSTALLING, REVOKED_AWAY)],
-    '1 board still runs it and 1 board last reported running it; to replace it there, upload a newer version and deploy that.'],
-  ['an offline board on something else', [device(WAITING, REVOKED_AWAY)], 'Revoked 1.2.4+0. No deployment of it was still open.'],
+  [
+    'one board offline',
+    [onRevoked(WAITING, REVOKED_AWAY)],
+    `${WAITING} last reported running it; to replace it there, upload a newer version and deploy that.`,
+  ],
+  [
+    'one board online and one offline',
+    [onRevoked(WAITING), onRevoked(INSTALLING, REVOKED_AWAY)],
+    '1 board still runs it and 1 board last reported running it; to replace it there, upload a newer version and deploy that.',
+  ],
+  [
+    'an offline board on something else',
+    [device(WAITING, REVOKED_AWAY)],
+    'Revoked 1.2.4+0. No deployment of it was still open.',
+  ],
 ]) {
   test(`after a revocation, an offline board is told by what it last reported: ${who}`, async (t) => {
     const tab = await openTab(t, {
@@ -1467,7 +1666,10 @@ for (const [who, devices, said] of [
       hash: '#/firmware',
       answer(method, url) {
         if (method === 'POST' && url === '/api/firmware/1.2.4+0/revoke') {
-          return Response.json({ release: release('1.2.4+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(0) }) }), cancelled: [] });
+          return Response.json({
+            release: release('1.2.4+0', { status: 'revoked', revoked: revoked({ enforcedAt: ago(0) }) }),
+            cancelled: [],
+          });
         }
         return null;
       },
@@ -1515,8 +1717,7 @@ test('a revocation that stopped half way is finished from the release, reason an
   assert.equal(tab.requests[mark].url, '/api/firmware/2.0.0+0/revoke');
   assert.deepEqual(tab.requests[mark].body, { reason: REASON });
   assert.equal(tab.dialog(), null);
-  assert.deepEqual(tab.toasts(),
-    ['The revocation of 2.0.0+0 is in place. No deployment of it was still open.']);
+  assert.deepEqual(tab.toasts(), ['The revocation of 2.0.0+0 is in place. No deployment of it was still open.']);
   assert.deepEqual(badges(releaseRow(tab, '2.0.0+0')), ['Revoked']);
   assert.deepEqual(writes(releaseRow(tab, '2.0.0+0')), []);
 });
@@ -1532,8 +1733,11 @@ test('a revocation that fails half way leaves a dialog that offers to finish it'
       if (posted.length > 1) return refusal(409, 'already_revoked', 'Release 1.2.4+0 is already revoked.');
       // The mark is written; the step after it failed.
       tab.becomes(afterRevoking('1.2.4+0', { ...revoked({ enforcedAt: null }), reason }));
-      return refusal(500, 'revoke_incomplete',
-        'Release 1.2.4+0 is marked revoked, but its image could not be blocked. Revoke it again to finish.');
+      return refusal(
+        500,
+        'revoke_incomplete',
+        'Release 1.2.4+0 is marked revoked, but its image could not be blocked. Revoke it again to finish.'
+      );
     },
   });
   const dialog = await openRevoke(tab, '1.2.4+0');
@@ -1553,8 +1757,9 @@ test('a revocation that fails half way leaves a dialog that offers to finish it'
   await tab.submit();
   assert.deepEqual(posted, [{ reason }, { reason }], 'the second request carries the reason on record');
   assert.equal(tab.dialog(), null);
-  assert.deepEqual(tab.toasts(),
-    ['The revocation of 1.2.4+0 is in place: its image is refused and no deployment of it is open.']);
+  assert.deepEqual(tab.toasts(), [
+    'The revocation of 1.2.4+0 is in place: its image is refused and no deployment of it is open.',
+  ]);
 });
 
 test('on a touch screen the revoke dialog does not open with the keyboard over what it says', async (t) => {
@@ -1575,25 +1780,35 @@ test('a new deployment: the only free board is ticked, and a refusal updates the
       // Somebody else was faster: the board has an update now.
       const taken = deployment(rival, { executions: [offline] });
       tab.becomes({ ...WORLD, deployments: [taken, ...WORLD.deployments] });
-      return refusal(409, 'device_busy',
+      return refusal(
+        409,
+        'device_busy',
         `${NEVER} still has an update that is not finished. Wait for it or cancel it first.`,
-        [{ thing: NEVER, deployment: rival }]);
+        [{ thing: NEVER, deployment: rival }]
+      );
     },
   });
   await tab.press(tab.main, 'button', 'New deployment');
   const dialog = tab.dialog();
   // Only releases that can be deployed are offered, the newest first and chosen.
-  assert.deepEqual(all(dialog, 'label.choice').map((choice) => textOf(one(choice, 'span.choice-title'))),
-    ['1.2.4+0', '1.2.3+5', '1.2.3+4']);
+  assert.deepEqual(
+    all(dialog, 'label.choice').map((choice) => textOf(one(choice, 'span.choice-title'))),
+    ['1.2.4+0', '1.2.3+5', '1.2.3+4']
+  );
   assert.equal(all(dialog, 'input')[0].checked, true);
   await tab.press(dialog, 'button', 'Next');
 
   // Two boards have an unfinished update. The third is the only choice, and is made.
-  const boards = () => all(tab.dialog(), 'label.choice').map((choice) => {
-    const box = one(choice, 'input');
-    return [textOf(one(one(choice, 'span.choice-title'), 'span.mono')), box.checked, box.disabled];
-  });
-  assert.deepEqual(boards(), [[WAITING, false, true], [INSTALLING, false, true], [NEVER, true, false]]);
+  const boards = () =>
+    all(tab.dialog(), 'label.choice').map((choice) => {
+      const box = one(choice, 'input');
+      return [textOf(one(one(choice, 'span.choice-title'), 'span.mono')), box.checked, box.disabled];
+    });
+  assert.deepEqual(boards(), [
+    [WAITING, false, true],
+    [INSTALLING, false, true],
+    [NEVER, true, false],
+  ]);
   assert.equal(all(dialog, 'span.dialog-hint').length, 0);
   await tab.press(dialog, 'button', 'Next');
   assert.equal(textOf(one(dialog, 'button.is-primary')), 'Deploy to 1 board');
@@ -1603,7 +1818,11 @@ test('a new deployment: the only free board is ticked, and a refusal updates the
   assert.deepEqual(tab.requests[mark].body, { version: '1.2.4+0', things: [NEVER] });
 
   // Back at the boards, read again: the board cannot be chosen once more.
-  assert.deepEqual(boards(), [[WAITING, false, true], [INSTALLING, false, true], [NEVER, false, true]]);
+  assert.deepEqual(boards(), [
+    [WAITING, false, true],
+    [INSTALLING, false, true],
+    [NEVER, false, true],
+  ]);
   assert.equal(textOf(one(dialog, 'span.dialog-hint')), 'Every board has an unfinished update.');
   assert.equal(one(dialog, 'button', 'Next').disabled, true);
   const notice = one(dialog, 'div.notice.is-bad');
@@ -1621,12 +1840,16 @@ test('pressing Deploy on a release that was revoked since says so, and suggests 
   tab.becomes({
     ...WORLD,
     releases: WORLD.releases.map((item) =>
-      (item.version === '1.2.4+0' ? { ...item, status: 'revoked', revoked: mark } : item)),
+      item.version === '1.2.4+0' ? { ...item, status: 'revoked', revoked: mark } : item
+    ),
   });
   await tab.press(releaseRow(tab, '1.2.4+0'), 'button', 'Deploy');
   const dialog = tab.dialog();
   assert.match(textOf(one(dialog, 'div.notice.is-warn')), /^1\.2\.4\+0 has been revoked/);
-  assert.equal(all(dialog, 'input').every((input) => !input.checked), true);
+  assert.equal(
+    all(dialog, 'input').every((input) => !input.checked),
+    true
+  );
   assert.equal(one(dialog, 'button', 'Next').disabled, true);
   // The page behind the dialog has learned it too.
   assert.deepEqual(badges(releaseRow(tab, '1.2.4+0')), ['Revoked']);
@@ -1672,8 +1895,7 @@ test('cancelling a deployment that somebody else has cancelled: the dialog comes
       if (method !== 'POST') return null;
       const over = deployment(OFFERED, { status: 'CANCELED', executions: [cancelled] });
       tab.replies.set(`/api/deployments/${OFFERED}`, { deployment: over });
-      return refusal(409, 'already_finished',
-        'This deployment has already finished; there is nothing left to cancel.');
+      return refusal(409, 'already_finished', 'This deployment has already finished; there is nothing left to cancel.');
     },
   });
   await tab.press(tab.main, 'button', 'Cancel deployment');
@@ -1716,8 +1938,13 @@ test('a deployment that was cancelled without force can still have its boards st
   assert.match(textOf(one(tab.main, 'span.freshness-live')), /every 3 s/);
   await tab.press(tab.main, 'button', 'Stop boards that have started');
   // Withdrawing the offer is done already; stopping the board is what is left, and chosen.
-  assert.deepEqual(all(tab.dialog(), 'input').map((input) => [input.checked, input.disabled]),
-    [[false, true], [true, false]]);
+  assert.deepEqual(
+    all(tab.dialog(), 'input').map((input) => [input.checked, input.disabled]),
+    [
+      [false, true],
+      [true, false],
+    ]
+  );
   const mark = tab.requests.length;
   await tab.submit();
 
@@ -1747,9 +1974,15 @@ test('a board that runs what was cancelled: its own list of updates says who ins
   });
   assert.equal(sentTo(tab, `/api/devices/${WAITING}`).length, 1);
   assert.equal(textOf(one(tab.main, 'p.execution-title')), 'Cancelled');
-  assert.equal(one(tab.main, 'a', 'Open the deployment that installed it').getAttribute('href'), `#/deployments/${later}`);
+  assert.equal(
+    one(tab.main, 'a', 'Open the deployment that installed it').getAttribute('href'),
+    `#/deployments/${later}`
+  );
   // It does not offer again what the board runs already.
-  assert.equal(all(tab.main, 'button').some((item) => textOf(item).includes('Offer again')), false);
+  assert.equal(
+    all(tab.main, 'button').some((item) => textOf(item).includes('Offer again')),
+    false
+  );
 });
 
 test('a deployment page reads no list of updates that it has no use for', async (t) => {
@@ -1841,7 +2074,7 @@ test('an upload: read in the browser, verified by the server, and said once when
   const registered = release('2.0.1+0', { uploadedAt: ago(0), notes: 'Fixes the pads.' });
   const wrongKey = {
     code: 'wrong_key',
-    message: 'The image is signed with a different key than this project\'s',
+    message: "The image is signed with a different key than this project's",
     requestId: 'req-9',
   };
   const answers = [
@@ -1859,13 +2092,16 @@ test('an upload: read in the browser, verified by the server, and said once when
   const panel = () => one(tab.main, 'div.upload-state');
 
   await chooseFile(tab);
-  const facts = Object.fromEntries(all(panel(), 'div.fact')
-    .map((fact) => [textOf(one(fact, 'dt')), textOf(one(fact, 'dd'))]));
+  const facts = Object.fromEntries(
+    all(panel(), 'div.fact').map((fact) => [textOf(one(fact, 'dt')), textOf(one(fact, 'dd'))])
+  );
   assert.equal(facts.Version, '2.0.1+0');
   assert.equal(facts.Size, '1,264 bytes (1 KiB)');
   assert.match(facts['SHA-256'], /^[0-9a-f]{64}$/);
-  assert.deepEqual(all(tab.main, 'li.check').map((check) => check.getAttribute('class')),
-    ['check is-good', 'check is-good', 'check is-wait']);
+  assert.deepEqual(
+    all(tab.main, 'li.check').map((check) => check.getAttribute('class')),
+    ['check is-good', 'check is-good', 'check is-wait']
+  );
   assert.deepEqual(sent, [], 'nothing is sent before it is asked for');
 
   await tab.type(one(tab.main, 'textarea'), 'Fixes the pads.\n');
@@ -1877,8 +2113,10 @@ test('an upload: read in the browser, verified by the server, and said once when
   assert.equal(Buffer.from(sent[0].data, 'base64').length, 1264);
 
   // Refused for what the file is: the way on is another file.
-  assert.equal(textOf(one(tab.main, 'span.notice-said')),
-    'The server refused this image. The image is signed with a different key than this project\'s.');
+  assert.equal(
+    textOf(one(tab.main, 'span.notice-said')),
+    "The server refused this image. The image is signed with a different key than this project's."
+  );
   assert.deepEqual(controls(panel()), ['Choose another file']);
 
   await tab.press(tab.main, 'button', 'Choose another file');
@@ -1946,13 +2184,24 @@ test('the history page says plainly that a checkout that was never deployed has 
   await tab.wait(0);
   assert.equal(textOf(one(tab.main, 'h1')), 'History');
   assert.match(textOf(tab.main), /no history in this copy/);
-  assert.equal(tab.requests.some(({ url }) => url === `${NEIGHBOURS}history.json`), true);
+  assert.equal(
+    tab.requests.some(({ url }) => url === `${NEIGHBOURS}history.json`),
+    true
+  );
 });
 
 test('the history page shows the file beside its script, and fetches it once', async (t) => {
   const file = {
     deployment: { commit: 'a'.repeat(40), tree: 'clean', deployedAt: new Date(NOW - 60000).toISOString() },
-    commits: [{ short: 'aaaaaaa', hash: 'a'.repeat(40), date: new Date(NOW - 3600000).toISOString(), subject: 'Add a page', tags: ['website'] }],
+    commits: [
+      {
+        short: 'aaaaaaa',
+        hash: 'a'.repeat(40),
+        date: new Date(NOW - 3600000).toISOString(),
+        subject: 'Add a page',
+        tags: ['website'],
+      },
+    ],
   };
   const tab = await openTab(t, {
     hash: '#/history',
@@ -1963,7 +2212,10 @@ test('the history page shows the file beside its script, and fetches it once', a
   await tab.goto('#/overview');
   const mark = tab.requests.length;
   await tab.goto('#/history');
-  assert.equal(tab.since(mark).some((request) => request.includes('history.json')), false);
+  assert.equal(
+    tab.since(mark).some((request) => request.includes('history.json')),
+    false
+  );
   assert.match(textOf(tab.main), /Add a page/);
 });
 
@@ -1975,9 +2227,19 @@ const IN_30_DAYS = new Date(NOW + 30 * 86400000).toISOString();
 /** The API's side of the tokens page: a list that a POST adds to and a revocation changes. */
 function tokenServer() {
   const server = {
-    tokens: [{ id: 'aaaaaaaaaaaaaaaa', name: 'laptop', createdAt: ago(3600), expiresAt: IN_30_DAYS, revokedAt: null, status: 'active' }],
+    tokens: [
+      {
+        id: 'aaaaaaaaaaaaaaaa',
+        name: 'laptop',
+        createdAt: ago(3600),
+        expiresAt: IN_30_DAYS,
+        revokedAt: null,
+        status: 'active',
+      },
+    ],
     answer(method, url, body) {
-      if (method === 'GET' && url === '/api/tokens') return Response.json({ tokens: server.tokens, limit: 10, maxDays: 90 });
+      if (method === 'GET' && url === '/api/tokens')
+        return Response.json({ tokens: server.tokens, limit: 10, maxDays: 90 });
       if (method === 'POST' && url === '/api/tokens') {
         const made = { id: 'bbbbbbbbbbbbbbbb', name: body.name, createdAt: ago(0), expiresAt: IN_30_DAYS };
         server.tokens = [{ ...made, revokedAt: null, status: 'active' }, ...server.tokens];
@@ -2001,15 +2263,20 @@ test('a token is made on its own page, shown once in its dialog, and gone with t
   const tab = await openTab(t, { hash: '#/tokens', answer: server.answer });
   assert.equal(tab.document.title, 'API tokens · Cranium');
   assert.equal(one(tab.nav, 'a', 'Developer').getAttribute('aria-current'), 'page');
-  assert.deepEqual(tab.since(0).filter((line) => line.includes('/api/tokens')), ['GET /api/tokens']);
+  assert.deepEqual(
+    tab.since(0).filter((line) => line.includes('/api/tokens')),
+    ['GET /api/tokens']
+  );
   assert.equal(all(tab.main, 'li.token').length, 1);
 
   await tab.press(tab.main, 'button', 'New token');
   const [name] = all(tab.dialog(), 'input');
   await tab.type(name, '  ci runner ');
   await tab.press(tab.dialog(), 'button', 'Make token');
-  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => [request.url, request.body]),
-    [['/api/tokens', { name: 'ci runner', days: 30 }]]);
+  assert.deepEqual(
+    tab.requests.filter((request) => request.method === 'POST').map((request) => [request.url, request.body]),
+    [['/api/tokens', { name: 'ci runner', days: 30 }]]
+  );
 
   // Shown once, and not to be lost by a stray Escape or a click beside the dialog.
   const dialog = tab.dialog();
@@ -2042,7 +2309,7 @@ test('the copy button puts the new token on the clipboard and says so', async (t
   assert.deepEqual(tab.toasts(), ['Copied the token.']);
 });
 
-test('a token is revoked through the page\'s own dialog, never a browser prompt', async (t) => {
+test("a token is revoked through the page's own dialog, never a browser prompt", async (t) => {
   const server = tokenServer();
   const tab = await openTab(t, { hash: '#/tokens', answer: server.answer });
   const prompts = [];
@@ -2054,16 +2321,24 @@ test('a token is revoked through the page\'s own dialog, never a browser prompt'
   // Keeping it sends nothing.
   await tab.press(tab.dialog(), 'button', 'Keep the token');
   assert.equal(tab.dialog(), null);
-  assert.equal(tab.requests.some((request) => request.method === 'POST'), false);
+  assert.equal(
+    tab.requests.some((request) => request.method === 'POST'),
+    false
+  );
 
   await tab.press(tab.main, 'button', 'Revoke');
   await tab.press(tab.dialog(), 'button', 'Revoke token');
   assert.equal(tab.dialog(), null);
-  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => request.url),
-    ['/api/tokens/aaaaaaaaaaaaaaaa/revoke']);
+  assert.deepEqual(
+    tab.requests.filter((request) => request.method === 'POST').map((request) => request.url),
+    ['/api/tokens/aaaaaaaaaaaaaaaa/revoke']
+  );
   assert.deepEqual(tab.toasts(), ['Revoked the token “laptop”. A script that uses it is refused from now on.']);
   assert.equal(textOf(one(tab.main, 'li.token', 'laptop')).includes('Revoked'), true);
-  assert.equal(all(tab.main, 'button').some((el) => textOf(el) === 'Revoke'), false);
+  assert.equal(
+    all(tab.main, 'button').some((el) => textOf(el) === 'Revoke'),
+    false
+  );
   assert.deepEqual(prompts, []);
 });
 
@@ -2081,7 +2356,10 @@ test('a refused token is said in the dialog, which keeps what was typed', async 
   await tab.press(tab.main, 'button', 'New token');
   await tab.type(all(tab.dialog(), 'input')[0], 'eleventh');
   await tab.press(tab.dialog(), 'button', 'Make token');
-  assert.match(textOf(one(tab.dialog(), 'div.dialog-error')), /No token was made\. You have 10 API tokens that are still valid\./);
+  assert.match(
+    textOf(one(tab.dialog(), 'div.dialog-error')),
+    /No token was made\. You have 10 API tokens that are still valid\./
+  );
   assert.equal(all(tab.dialog(), 'input')[0].value, 'eleventh');
   assert.equal(all(tab.dialog(), 'code.token-value').length, 0);
 });
@@ -2090,7 +2368,7 @@ test('a refused token is said in the dialog, which keeps what was typed', async 
 
 const COMMAND_ID = '3f9c2a1b7d4e6f80';
 
-test('Identify sends the command, and the page shows the board\'s answer when its log brings it', async (t) => {
+test("Identify sends the command, and the page shows the board's answer when its log brings it", async (t) => {
   let answered = false;
   const posted = [];
   const tab = await openTab(t, {
@@ -2098,12 +2376,26 @@ test('Identify sends the command, and the page shows the board\'s answer when it
     answer(method, url, body) {
       if (method === 'POST' && url === `/api/devices/${WAITING}/commands`) {
         posted.push(body);
-        return Response.json({ command: { id: COMMAND_ID, cmd: 'identify', seconds: 15, thing: WAITING, sentAt: ago(0), online: true } },
-          { status: 202 });
+        return Response.json(
+          { command: { id: COMMAND_ID, cmd: 'identify', seconds: 15, thing: WAITING, sentAt: ago(0), online: true } },
+          { status: 202 }
+        );
       }
       if (method === 'GET' && url.startsWith('/api/events/log?')) {
         const lines = answered
-          ? [{ thing: WAITING, at: ago(0), id: '42.9', kind: 'setting', tag: 'CMD', level: 'info', text: `identify for 15 s (${COMMAND_ID})`, boot: 42, seq: 9 }]
+          ? [
+              {
+                thing: WAITING,
+                at: ago(0),
+                id: '42.9',
+                kind: 'setting',
+                tag: 'CMD',
+                level: 'info',
+                text: `identify for 15 s (${COMMAND_ID})`,
+                boot: 42,
+                seq: 9,
+              },
+            ]
           : [];
         return Response.json({ lines, cursor: null, from: ago(60), to: ago(0) });
       }
@@ -2137,7 +2429,11 @@ test('a viewer has no Identify, and the Map and Account pages open from the mast
     answer(method, url) {
       if (method === 'GET' && url === '/api/alerts') {
         return Response.json({
-          email: MANAGER.email, subscription: 'none', canSubscribe: false, subscribers: 1, recent: [],
+          email: MANAGER.email,
+          subscription: 'none',
+          canSubscribe: false,
+          subscribers: 1,
+          recent: [],
           rules: { offlineMinutes: 15, everyMinutes: 60, movedMetres: 1000 },
         });
       }
@@ -2162,7 +2458,11 @@ test('a release manager asks for the e-mail alerts and is told to confirm them',
     answer(method, url) {
       if (method === 'GET' && url === '/api/alerts') {
         return Response.json({
-          email: MANAGER.email, subscription, canSubscribe: true, subscribers: 0, recent: [],
+          email: MANAGER.email,
+          subscription,
+          canSubscribe: true,
+          subscribers: 0,
+          recent: [],
           rules: { offlineMinutes: 15, everyMinutes: 60, movedMetres: 1000 },
         });
       }
@@ -2174,14 +2474,17 @@ test('a release manager asks for the e-mail alerts and is told to confirm them',
     },
   });
   await tab.press(tab.main, 'button', `Send alerts to ${MANAGER.email}`);
-  assert.deepEqual(tab.requests.filter((request) => request.method === 'POST').map((request) => request.url), ['/api/alerts/subscribe']);
+  assert.deepEqual(
+    tab.requests.filter((request) => request.method === 'POST').map((request) => request.url),
+    ['/api/alerts/subscribe']
+  );
   assert.ok(tab.toasts().some((text) => /AWS Notifications is sending you an e-mail with a link/.test(text)));
   assert.match(textOf(tab.main), /Waiting for you to confirm/);
 });
 
 // In the phone app (docs/mobile-apps.md, "The app shell").
 
-test('in the phone app the console takes its settings and its session from the app, and calls the API at the console\'s address', async (t) => {
+test("in the phone app the console takes its settings and its session from the app, and calls the API at the console's address", async (t) => {
   const tab = await openTab(t, { session: null, app: {} });
   await until(() => textOf(tab.main).includes('Overview'), 'the overview');
   const asked = tab.appCalls.map((message) => message.method);
@@ -2192,7 +2495,11 @@ test('in the phone app the console takes its settings and its session from the a
   assert.equal(me.address, `${APP_API}/api/me`);
   assert.equal(me.token, 'Bearer APP-TOKEN');
   // Every request of the API went to the console's address, none to the page's own origin.
-  assert.ok(tab.requests.filter((request) => request.url.startsWith('/api/')).every((request) => request.address.startsWith(APP_API)));
+  assert.ok(
+    tab.requests
+      .filter((request) => request.url.startsWith('/api/'))
+      .every((request) => request.address.startsWith(APP_API))
+  );
   // Nothing of the session in the tab's storage: the app holds it.
   assert.equal(tab.storage.size, 0);
   // Bluetooth is in the masthead of a release manager in the app, and the app's own settings in the account box.
@@ -2214,7 +2521,11 @@ test('on the website, and for a viewer in the app, there is no Bluetooth page in
 test('in the app, Face ID cancelled leaves the console locked with a way to unlock, and the sign-in kept', async (t) => {
   const tab = await openTab(t, { session: null, app: { 'auth.session': { refuse: 'cancelled' } } });
   await until(() => textOf(tab.main).includes('Cranium is locked'), 'the locked page');
-  assert.equal(tab.appCalls.some((message) => message.method === 'auth.signOut'), false, 'nothing is forgotten');
+  assert.equal(
+    tab.appCalls.some((message) => message.method === 'auth.signOut'),
+    false,
+    'nothing is forgotten'
+  );
   await tab.press(tab.main, 'button', 'Unlock');
   assert.deepEqual(tab.navigations, ['reload']);
 });

@@ -186,7 +186,10 @@ export function loadAppBundle(consoleSite, customer) {
   const tag = escapeAttribute(APP_CONFIG);
   const files = [
     { path: 'index.html', bytes: Buffer.from(customer.pageHead + tag + customer.pageTail, 'utf8') },
-    { path: 'admin/index.html', bytes: Buffer.from(consoleSite.console.pageHead + tag + consoleSite.console.pageTail, 'utf8') },
+    {
+      path: 'admin/index.html',
+      bytes: Buffer.from(consoleSite.console.pageHead + tag + consoleSite.console.pageTail, 'utf8'),
+    },
   ];
   let versions = null;
   for (const assets of [consoleSite.console.assets, customer.assets]) {
@@ -199,7 +202,9 @@ export function loadAppBundle(consoleSite, customer) {
   return {
     manifest,
     manifestBody: `${JSON.stringify(manifest)}\n`,
-    objects: new Map([...objects].map(([digest, { type, bytes }]) => [digest, { type, body: bytes.toString('utf8'), bytes }])),
+    objects: new Map(
+      [...objects].map(([digest, { type, bytes }]) => [digest, { type, body: bytes.toString('utf8'), bytes }])
+    ),
   };
 }
 
@@ -290,7 +295,15 @@ function writeLog(entry) {
  * @param {(entry: object) => void} [options.log]  receives one entry per request
  */
 export function createWebHandler({
-  clientId, loginOrigin, scope, userPoolId, idpOrigin, redirectUri, homeHosts = [], customer = null, log = writeLog,
+  clientId,
+  loginOrigin,
+  scope,
+  userPoolId,
+  idpOrigin,
+  redirectUri,
+  homeHosts = [],
+  customer = null,
+  log = writeLog,
 } = {}) {
   requireText('clientId', clientId);
   requireText('scope', scope);
@@ -319,10 +332,15 @@ export function createWebHandler({
   let customerHeaders = null;
   if (customer !== null) {
     const { hosts, userPoolId: customerPoolId, clientId: customerClientId } = customer ?? {};
-    if (!Array.isArray(hosts) || hosts.length === 0 || !hosts.every((host) => typeof host === 'string' && HOST.test(host))) {
+    if (
+      !Array.isArray(hosts) ||
+      hosts.length === 0 ||
+      !hosts.every((host) => typeof host === 'string' && HOST.test(host))
+    ) {
       throw new TypeError('customer.hosts must be a list of host names in lower case');
     }
-    if (hosts.some((host) => homeNames.has(host))) throw new TypeError('a name cannot be the home page and the customer site');
+    if (hosts.some((host) => homeNames.has(host)))
+      throw new TypeError('a name cannot be the home page and the customer site');
     requireText('customer.clientId', customerClientId);
     const customerPool = USER_POOL_ID.exec(String(customerPoolId ?? ''));
     if (!customerPool || customerPool[1] !== pool[1]) {
@@ -363,8 +381,13 @@ export function createWebHandler({
       returnTo = `https://${host}/`;
     }
     const config = JSON.stringify({
-      clientId, loginOrigin, scope, redirectUri: admin ? `${returnTo}${ADMIN_PATH.slice(1)}` : returnTo, userPoolId,
-      idpOrigin: userPoolApi, ...(admin ? { customerSite: '/' } : {}),
+      clientId,
+      loginOrigin,
+      scope,
+      redirectUri: admin ? `${returnTo}${ADMIN_PATH.slice(1)}` : returnTo,
+      userPoolId,
+      idpOrigin: userPoolApi,
+      ...(admin ? { customerSite: '/' } : {}),
     });
     const { pageHead, pageTail } = site.console;
     return respond(consoleHeaders, 200, HTML, CACHE_PAGE, pageHead + escapeAttribute(config) + pageTail);
@@ -404,7 +427,8 @@ export function createWebHandler({
     if (path === ADMIN_PATH) return page(event, true);
     const bundled = bundleAnswer(customerHeaders, path);
     if (bundled) return bundled;
-    const asset = typeof path === 'string' ? customerSite.assets.get(path) ?? site.console.assets.get(path) : undefined;
+    const asset =
+      typeof path === 'string' ? (customerSite.assets.get(path) ?? site.console.assets.get(path)) : undefined;
     if (asset) return respond(customerHeaders, 200, asset.type, CACHE_ASSET, asset.body);
     return respond(customerHeaders, 404, PLAIN, CACHE_NEVER, 'Not found\n');
   }
@@ -455,10 +479,10 @@ function settingsFromEnvironment(env) {
     // The same for the customer site, whose first name is the one it is served on.
     customer: env.CUSTOMER_HOSTS
       ? {
-        hosts: env.CUSTOMER_HOSTS.split(',').filter((name) => name !== ''),
-        userPoolId: env.CUSTOMER_POOL_ID,
-        clientId: env.CUSTOMER_CLIENT_ID,
-      }
+          hosts: env.CUSTOMER_HOSTS.split(',').filter((name) => name !== ''),
+          userPoolId: env.CUSTOMER_POOL_ID,
+          clientId: env.CUSTOMER_CLIENT_ID,
+        }
       : null,
   };
 }

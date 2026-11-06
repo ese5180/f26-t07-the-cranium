@@ -107,7 +107,9 @@ export function createRecorder({
       throw error;
     }
     log({
-      event: 'recorded', thing: made.thing, kinds: events.map((item) => item.kind),
+      event: 'recorded',
+      thing: made.thing,
+      kinds: events.map((item) => item.kind),
       samples: made.items.length - events.length,
     });
     // After the events are on record, and never in their way: the alerter logs its own failures.

@@ -25,36 +25,49 @@ function world(env = {}) {
 
 const keyChecks = (fake) => fake.calls.filter((call) => call.method === 'memfaultKeyStored').length;
 
-test('firmware 1.14.0 and later sends Memfault\'s data, and nothing before it does', () => {
-  for (const version of ['1.14.0+0', '1.14.0', '1.14.3+2', '1.15.0+0', '2.0.0+0']) assert.equal(sendsMemfault(version), true, version);
+test("firmware 1.14.0 and later sends Memfault's data, and nothing before it does", () => {
+  for (const version of ['1.14.0+0', '1.14.0', '1.14.3+2', '1.15.0+0', '2.0.0+0'])
+    assert.equal(sendsMemfault(version), true, version);
   for (const version of ['1.13.9+0', '1.13.0+7', '0.14.0+0', '1.9.99+0', '', 'v1.14.0', null, undefined, 1.14]) {
     assert.equal(sendsMemfault(version), false, String(version));
   }
 });
 
 test('the link to a board in Memfault needs both slugs, and names the board by its thing name', () => {
-  assert.equal(memfaultUrl(THING, { org: 'cranium-team', project: 'cranium-boards' }),
-    `https://app.memfault.com/organizations/cranium-team/projects/cranium-boards/devices/${THING}`);
-  for (const slugs of [{ org: '', project: 'p' }, { org: 'o', project: '' }, {}, { org: 'Has-Capitals', project: 'p' },
-    { org: 'o/../x', project: 'p' }]) {
+  assert.equal(
+    memfaultUrl(THING, { org: 'cranium-team', project: 'cranium-boards' }),
+    `https://app.memfault.com/organizations/cranium-team/projects/cranium-boards/devices/${THING}`
+  );
+  for (const slugs of [
+    { org: '', project: 'p' },
+    { org: 'o', project: '' },
+    {},
+    { org: 'Has-Capitals', project: 'p' },
+    { org: 'o/../x', project: 'p' },
+  ]) {
     assert.equal(memfaultUrl(THING, slugs), null, JSON.stringify(slugs));
   }
-  assert.deepEqual(memfaultView({ thing: THING, fw: { version: '1.14.0+0' } }, { keyStored: true, org: '', project: '' }),
-    { keyStored: true, firmware: true, url: null });
+  assert.deepEqual(
+    memfaultView({ thing: THING, fw: { version: '1.14.0+0' } }, { keyStored: true, org: '', project: '' }),
+    { keyStored: true, firmware: true, url: null }
+  );
   assert.deepEqual(memfaultView(null, { keyStored: 'yes' }), { keyStored: false, firmware: false, url: null });
 });
 
 test('the slugs are optional in the configuration, and a malformed one stops the function', () => {
   assert.deepEqual({ ...loadConfig(fakeEnv()).memfault }, { org: '', project: '' });
   assert.deepEqual({ ...loadConfig(fakeEnv(SLUGS)).memfault }, { org: 'cranium-team', project: 'cranium-boards' });
-  assert.deepEqual({ ...loadConfig(fakeEnv({ MEMFAULT_ORG_SLUG: '', MEMFAULT_PROJECT_SLUG: '' })).memfault }, { org: '', project: '' });
+  assert.deepEqual(
+    { ...loadConfig(fakeEnv({ MEMFAULT_ORG_SLUG: '', MEMFAULT_PROJECT_SLUG: '' })).memfault },
+    { org: '', project: '' }
+  );
   for (const value of ['Capitals', 'has space', '-leading', 'x'.repeat(64), 'a/b']) {
     assert.throws(() => loadConfig(fakeEnv({ MEMFAULT_ORG_SLUG: value })), /MEMFAULT_ORG_SLUG/, value);
     assert.throws(() => loadConfig(fakeEnv({ MEMFAULT_PROJECT_SLUG: value })), /MEMFAULT_PROJECT_SLUG/, value);
   }
 });
 
-test('a board\'s page says no key, then the firmware, then forwarding on, with the link once the slugs are set', async () => {
+test("a board's page says no key, then the firmware, then forwarding on, with the link once the slugs are set", async () => {
   const { page, report, fake, advance } = world(SLUGS);
   const url = `https://app.memfault.com/organizations/cranium-team/projects/cranium-boards/devices/${THING}`;
   report('1.13.0+0');
@@ -105,8 +118,10 @@ test('"memfault" is a command like report: published with an id and nothing else
   const sent = await call('POST', path, { as: manager, body: { cmd: 'memfault' } });
   assert.equal(sent.status, 202, JSON.stringify(sent.body));
   assert.equal(sent.body.command.cmd, 'memfault');
-  assert.deepEqual(fake.commands.map(({ thing, payload }) => [thing, Object.keys(payload), payload.cmd]),
-    [[THING, ['id', 'cmd'], 'memfault']]);
+  assert.deepEqual(
+    fake.commands.map(({ thing, payload }) => [thing, Object.keys(payload), payload.cmd]),
+    [[THING, ['id', 'cmd'], 'memfault']]
+  );
   const entry = fake.auditLog().find((item) => item.action === 'board.command');
   assert.deepEqual([entry.outcome, entry.detail.cmd], ['ok', 'memfault']);
 
@@ -117,9 +132,13 @@ test('"memfault" is a command like report: published with an id and nothing else
   assert.deepEqual([ack.status, ack.body.error.code], [400, 'invalid_command']);
   assert.match(ack.body.error.message, /identify, report, memfault/);
 
-  const phone = (ageSeconds) => accessClaims({
-    sub: manager.sub, groups: ['release-managers'], clientId: 'localmobile', authTime: Math.floor(clock.ms / 1000) - ageSeconds,
-  });
+  const phone = (ageSeconds) =>
+    accessClaims({
+      sub: manager.sub,
+      groups: ['release-managers'],
+      clientId: 'localmobile',
+      authTime: Math.floor(clock.ms / 1000) - ageSeconds,
+    });
   const stale = await call('POST', path, { claims: phone(16 * 60), body: { cmd: 'memfault' } });
   assert.deepEqual([stale.status, stale.body.error.code], [403, 'phone_sign_in_again']);
   assert.equal((await call('POST', path, { claims: phone(60), body: { cmd: 'memfault' } })).status, 202);

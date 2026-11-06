@@ -159,8 +159,11 @@ export function readJsonObject(event, maxChars) {
 }
 
 function tooLarge(maxChars) {
-  return new HttpError(413, 'payload_too_large',
-    `The request is too large: at most ${maxChars} characters are accepted.`);
+  return new HttpError(
+    413,
+    'payload_too_large',
+    `The request is too large: at most ${maxChars} characters are accepted.`
+  );
 }
 
 /** The value of a field the caller sent, or undefined. Inherited names never count. */

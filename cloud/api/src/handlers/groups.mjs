@@ -36,9 +36,7 @@
 
 import { HttpError, badRequest, conflict, field, notFound, unprocessable } from '../http.mjs';
 import { BOARD_TYPES } from '../lib/boards.mjs';
-import {
-  MAX_GROUPS, MAX_GROUP_BOARDS, boardLabel, requireGroupId, requireGroupName,
-} from '../lib/fleet.mjs';
+import { MAX_GROUPS, MAX_GROUP_BOARDS, boardLabel, requireGroupId, requireGroupName } from '../lib/fleet.mjs';
 import { isThing } from '../lib/validate.mjs';
 import { groupFromItem } from './fleet.mjs';
 
@@ -58,7 +56,10 @@ function requireMembers(value, { optional }) {
   if (value === undefined && optional) return undefined;
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > MAX_GROUP_BOARDS || !value.every(isThing)) {
-    throw badRequest('invalid_things', `A group holds up to ${MAX_GROUP_BOARDS} boards, named "cranium-" and 16 hex digits.`);
+    throw badRequest(
+      'invalid_things',
+      `A group holds up to ${MAX_GROUP_BOARDS} boards, named "cranium-" and 16 hex digits.`
+    );
   }
   if (new Set(value).size !== value.length) throw badRequest('invalid_things', 'A board is listed twice.');
   return [...value].sort();
@@ -80,9 +81,12 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
     const registered = await devices.groupThings();
     const strangers = things.filter((thing) => !registered.includes(thing));
     if (strangers.length > 0) {
-      throw unprocessable('unknown_device', strangers.length === 1
-        ? `${strangers[0]} is not a registered board.`
-        : `These are not registered boards: ${strangers.join(', ')}.`);
+      throw unprocessable(
+        'unknown_device',
+        strangers.length === 1
+          ? `${strangers[0]} is not a registered board.`
+          : `These are not registered boards: ${strangers.join(', ')}.`
+      );
     }
     return new Set(registered);
   }
@@ -134,7 +138,16 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       for (let attempt = 0; attempt < 3 && item === null; attempt += 1) {
         const id = `grp-${String(randomHex(8)).slice(0, 8)}`;
         const candidate = {
-          id, name, things, createdAt: at, createdBy: by, updatedAt: at, updatedBy: by, deletedAt: null, deletedBy: null, rev: 0,
+          id,
+          name,
+          things,
+          createdAt: at,
+          createdBy: by,
+          updatedAt: at,
+          updatedBy: by,
+          deletedAt: null,
+          deletedBy: null,
+          rev: 0,
         };
         if ((await aws.putFleetItem({ pk: 'GRP', sk: id, item: candidate })).ok) item = candidate;
       }
@@ -172,7 +185,7 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       const changed = await aws.updateFleetItem({ pk: 'GRP', sk: id, rev: item.rev, set });
       if (!changed.ok) throw groupChanged();
       fleet.forgetGroups();
-      const all = new Set([...registered, ...await devices.groupThings()]);
+      const all = new Set([...registered, ...(await devices.groupThings())]);
       return { body: { group: groupFromItem(changed.item, all) } };
     },
 
@@ -183,7 +196,10 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       entry.detail.name = item.name;
       const at = new Date(now()).toISOString();
       const changed = await aws.updateFleetItem({
-        pk: 'GRP', sk: id, rev: item.rev, set: { deletedAt: at, deletedBy: { sub: actor.sub, email: actor.email } },
+        pk: 'GRP',
+        sk: id,
+        rev: item.rev,
+        set: { deletedAt: at, deletedBy: { sub: actor.sub, email: actor.email } },
       });
       if (!changed.ok) throw groupChanged();
       fleet.forgetGroups();

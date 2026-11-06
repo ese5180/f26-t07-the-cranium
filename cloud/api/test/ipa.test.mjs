@@ -39,19 +39,23 @@ test('an IPA says its bundle ID, version, build, oldest iOS, usage descriptions 
       const file = ipa({ version: '0.6.0', build: '8', plist, zip64, padding: 200_000 });
       const { asked, source } = reader(file);
       const read = await readIpa(source);
-      assert.deepEqual(read, {
-        app: 'Cranium',
-        bundleId: 'com.craniumiot.cranium',
-        version: '0.6.0',
-        build: '8',
-        minOS: '16.0',
-        privacy: {
-          NSBluetoothAlwaysUsageDescription: 'Cranium uses Bluetooth to find a board whose Bluetooth window is open.',
-          NSFaceIDUsageDescription: 'Cranium uses Face ID to open your saved sign-in.',
+      assert.deepEqual(
+        read,
+        {
+          app: 'Cranium',
+          bundleId: 'com.craniumiot.cranium',
+          version: '0.6.0',
+          build: '8',
+          minOS: '16.0',
+          privacy: {
+            NSBluetoothAlwaysUsageDescription: 'Cranium uses Bluetooth to find a board whose Bluetooth window is open.',
+            NSFaceIDUsageDescription: 'Cranium uses Face ID to open your saved sign-in.',
+          },
+          config: { consoleUrl: 'https://console.example.invalid', mobileClientId: 'localmobile' },
+          exampleConfig: false,
         },
-        config: { consoleUrl: 'https://console.example.invalid', mobileClientId: 'localmobile' },
-        exampleConfig: false,
-      }, `${plist} ${zip64}`);
+        `${plist} ${zip64}`
+      );
       // Never the whole file: the end, the list of files, and two small entries.
       const bytes = asked.reduce((sum, [start, end]) => sum + end - start + 1, 0);
       assert.ok(bytes < file.length / 2, `${bytes} of ${file.length}`);
@@ -69,15 +73,32 @@ test('what is not an IPA as Xcode makes one is refused, saying why', async () =>
   await refused(Buffer.alloc(10), /too small/);
   const two = ipa({ more: [{ name: 'Payload/Other.app/Info.plist', data: binaryPlist(infoPlist()) }] });
   await refused(two, /more than one app/);
-  await refused(zip([{ name: 'Payload/', data: '' }, { name: 'readme.txt', data: 'hi' }]), /outside Payload/);
+  await refused(
+    zip([
+      { name: 'Payload/', data: '' },
+      { name: 'readme.txt', data: 'hi' },
+    ]),
+    /outside Payload/
+  );
   await refused(zip([{ name: 'Payload/Cranium.app/Cranium', data: 'x' }]), /no Info\.plist/);
   await refused(zip([{ name: 'Payload/', data: '' }]), /no Payload\/<Name>\.app/);
   // The checksum, the compression, encryption, and an offset outside the file.
-  await refused(zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), crc: 1 }]), /checksum does not match/);
-  await refused(zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), method: 12 }]), /compressed in a way/);
-  await refused(zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), flags: 1 }]), /encrypted/);
-  await refused(zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), localOffset: 10_000_000 }]),
-    /out of the file/);
+  await refused(
+    zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), crc: 1 }]),
+    /checksum does not match/
+  );
+  await refused(
+    zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), method: 12 }]),
+    /compressed in a way/
+  );
+  await refused(
+    zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), flags: 1 }]),
+    /encrypted/
+  );
+  await refused(
+    zip([{ name: 'Payload/Cranium.app/Info.plist', data: binaryPlist(infoPlist()), localOffset: 10_000_000 }]),
+    /out of the file/
+  );
   // A list that points at another entry's header: the names do not agree.
   const swapped = zip([
     { name: 'Payload/Cranium.app/help.json', data: '{}' },
@@ -95,7 +116,10 @@ test('what is not an IPA as Xcode makes one is refused, saying why', async () =>
   await refused(badConfig, /cranium\.json is not JSON/);
   // A file that ends early: S3 hands back fewer bytes than asked for.
   const file = ipa();
-  await assert.rejects(readIpa({ size: file.length + 100, read: async (start, end) => file.subarray(start, end + 1) }), IpaError);
+  await assert.rejects(
+    readIpa({ size: file.length + 100, read: async (start, end) => file.subarray(start, end + 1) }),
+    IpaError
+  );
 });
 
 test('a binary plist is read as Xcode writes one; a broken or hostile one is refused', () => {
@@ -110,7 +134,11 @@ test('a binary plist is read as Xcode writes one; a broken or hostile one is ref
   assert.equal(source.CFBundleShortVersionString, '$(MARKETING_VERSION)');
   assert.match(source.NSFaceIDUsageDescription, /Face ID/);
 
-  const broken = (bytes, pattern) => assert.throws(() => parsePlist(bytes), (error) => error instanceof PlistError && pattern.test(error.message));
+  const broken = (bytes, pattern) =>
+    assert.throws(
+      () => parsePlist(bytes),
+      (error) => error instanceof PlistError && pattern.test(error.message)
+    );
   broken(Buffer.alloc(0), /empty/);
   broken(Buffer.from('bplist00'), /truncated/);
   const good = binaryPlist({ a: ['b'] });
@@ -128,7 +156,10 @@ test('a binary plist is read as Xcode writes one; a broken or hostile one is ref
   const badTable = Buffer.from(good);
   badTable.writeBigUInt64BE(BigInt(good.length), good.length - 8);
   broken(badTable, /bad offset table/);
-  broken(Buffer.from('<?xml version="1.0"?><plist version="1.0"><dict><key>a</key></dict></plist>'), /expected a tag|unexpected|bad/);
+  broken(
+    Buffer.from('<?xml version="1.0"?><plist version="1.0"><dict><key>a</key></dict></plist>'),
+    /expected a tag|unexpected|bad/
+  );
   broken(Buffer.from('<plist><string>a</string><string>b</string></plist>'), /more than one value/);
   broken(Buffer.from('<plist><string>a &bogus; b</string></plist>'), /unknown entity/);
   broken(Buffer.alloc(2 * 1024 * 1024, 0x20), /too large/);

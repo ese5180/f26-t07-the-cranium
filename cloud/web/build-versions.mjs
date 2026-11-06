@@ -78,7 +78,10 @@ export function parseChangelog(text) {
     index = end - 1;
     if (paragraphs.length === 0 || COMMIT_LINE.test(paragraphs[0])) continue;
     const entry = { version: heading[1], note: oneLine(paragraphs[0]) };
-    const named = paragraphs.slice(1).map((paragraph) => COMMIT_LINE.exec(paragraph.trim())).find(Boolean);
+    const named = paragraphs
+      .slice(1)
+      .map((paragraph) => COMMIT_LINE.exec(paragraph.trim()))
+      .find(Boolean);
     if (named) {
       entry.commit = named[1].slice(0, 12);
       if (named[2]) entry.date = named[2];
@@ -91,7 +94,8 @@ export function parseChangelog(text) {
 /** The console's version, from cloud/VERSION. */
 export function readConsoleVersion(repo) {
   const version = readFileSync(join(repo, 'cloud', 'VERSION'), 'utf8').trim();
-  if (!VERSION.test(version)) throw new Error(`cloud/VERSION holds no version: ${JSON.stringify(version.slice(0, 40))}`);
+  if (!VERSION.test(version))
+    throw new Error(`cloud/VERSION holds no version: ${JSON.stringify(version.slice(0, 40))}`);
   return version;
 }
 
@@ -139,7 +143,9 @@ function main(args) {
       tree: options(args, '--tree')[0] ?? 'unknown',
     });
     for (const out of targets) writeVersions(versions, out);
-    const counts = Object.entries(versions.changelogs).map(([name, entries]) => `${entries.length} ${name}`).join(', ');
+    const counts = Object.entries(versions.changelogs)
+      .map(([name, entries]) => `${entries.length} ${name}`)
+      .join(', ');
     console.log(`Console ${versions.console.version}; changelog entries: ${counts}. Wrote ${targets.join(' and ')}`);
   } catch (error) {
     for (const out of targets) rmSync(out, { force: true });

@@ -25,10 +25,29 @@ const HELLO_TIMEOUT_MS = 5000;
 // Methods that wait for a person (a biometric prompt, the pairing box, a share sheet) or for a board
 // (an upload): no time limit of the page's own.
 const UNTIMED = new Set([
-  'auth.store', 'auth.session', 'biometric.set', 'file.share', 'update.install',
-  'ble.connect', 'ble.images', 'ble.upload', 'ble.status', 'ble.watch',
+  'auth.store',
+  'auth.session',
+  'biometric.set',
+  'file.share',
+  'update.install',
+  'ble.connect',
+  'ble.images',
+  'ble.upload',
+  'ble.status',
+  'ble.watch',
 ]);
-const FEATURES = new Set(['auth', 'biometric', 'ble', 'clipboard', 'haptics', 'share', 'open', 'keepAwake', 'settings', 'appUpdate']);
+const FEATURES = new Set([
+  'auth',
+  'biometric',
+  'ble',
+  'clipboard',
+  'haptics',
+  'share',
+  'open',
+  'keepAwake',
+  'settings',
+  'appUpdate',
+]);
 const MAX_ID = 2147483647;
 
 export class BridgeError extends Error {
@@ -112,7 +131,10 @@ export function createBridge(transport, { timers = globalThis } = {}) {
     } else {
       const error = isRecord(message.error) ? message.error : {};
       const code = typeof error.code === 'string' && /^[a-z_]{1,32}$/.test(error.code) ? error.code : 'failed';
-      const words = typeof error.message === 'string' && error.message !== '' ? error.message.slice(0, 500) : 'The app could not do that.';
+      const words =
+        typeof error.message === 'string' && error.message !== ''
+          ? error.message.slice(0, 500)
+          : 'The app could not do that.';
       settle(message.id, ({ reject }) => reject(new BridgeError(code, words)));
     }
   }
@@ -123,9 +145,12 @@ export function createBridge(transport, { timers = globalThis } = {}) {
     next = next >= MAX_ID ? 1 : next + 1;
     const id = next;
     return new Promise((resolve, reject) => {
-      const timer = timeoutMs === null ? null : timers.setTimeout(() => {
-        settle(id, (waiting) => waiting.reject(new BridgeError('failed', 'The app did not answer.')));
-      }, timeoutMs);
+      const timer =
+        timeoutMs === null
+          ? null
+          : timers.setTimeout(() => {
+              settle(id, (waiting) => waiting.reject(new BridgeError('failed', 'The app did not answer.')));
+            }, timeoutMs);
       pending.set(id, { resolve, reject, timer });
       try {
         transport.send(JSON.stringify({ v: BRIDGE_VERSION, id, method, params }));
@@ -208,10 +233,20 @@ export function readAppConfig(value) {
   if (typeof mobileClientId !== 'string' || !CLIENT.test(mobileClientId)) return null;
   let customer = null;
   const { customerApiUrl, customerRegion, customerUserPoolId, customerClientId } = value;
-  if (typeof customerApiUrl === 'string' && HTTPS.test(customerApiUrl) && customerRegion === region &&
-      typeof customerUserPoolId === 'string' && POOL.exec(customerUserPoolId)?.[1] === region &&
-      typeof customerClientId === 'string' && CLIENT.test(customerClientId)) {
-    customer = { apiUrl: customerApiUrl.replace(/\/+$/, ''), userPoolId: customerUserPoolId, clientId: customerClientId };
+  if (
+    typeof customerApiUrl === 'string' &&
+    HTTPS.test(customerApiUrl) &&
+    customerRegion === region &&
+    typeof customerUserPoolId === 'string' &&
+    POOL.exec(customerUserPoolId)?.[1] === region &&
+    typeof customerClientId === 'string' &&
+    CLIENT.test(customerClientId)
+  ) {
+    customer = {
+      apiUrl: customerApiUrl.replace(/\/+$/, ''),
+      userPoolId: customerUserPoolId,
+      clientId: customerClientId,
+    };
   }
   return {
     consoleUrl: consoleUrl.replace(/\/+$/, ''),
@@ -279,10 +314,14 @@ export function memoryStorage() {
  */
 export function createVault(bridge, pool) {
   return {
-    store: ({ refreshToken, accessToken, idToken = null, expiresIn }) => bridge.call('auth.store', {
-      pool, refreshToken, accessToken, ...(typeof idToken === 'string' && idToken !== '' ? { idToken } : {}),
-      expiresIn: Math.max(1, Math.min(86400, Math.floor(expiresIn))),
-    }),
+    store: ({ refreshToken, accessToken, idToken = null, expiresIn }) =>
+      bridge.call('auth.store', {
+        pool,
+        refreshToken,
+        accessToken,
+        ...(typeof idToken === 'string' && idToken !== '' ? { idToken } : {}),
+        expiresIn: Math.max(1, Math.min(86400, Math.floor(expiresIn))),
+      }),
     session: () => bridge.call('auth.session', { pool }),
     signOut: () => bridge.call('auth.signOut', { pool }),
   };
@@ -292,7 +331,9 @@ export function createVault(bridge, pool) {
 export function appWords(hello) {
   if (!hello) return null;
   const name = hello.platform === 'ios' ? 'iPhone app' : hello.platform === 'android' ? 'Android app' : 'The app';
-  const shell = hello.shell.version ? ` ${hello.shell.version}${hello.shell.build ? ` (${hello.shell.build})` : ''}` : '';
+  const shell = hello.shell.version
+    ? ` ${hello.shell.version}${hello.shell.build ? ` (${hello.shell.build})` : ''}`
+    : '';
   const pages = hello.bundle.console ? `pages of console ${hello.bundle.console}` : 'pages';
   const source = hello.bundle.source === 'built-in' ? 'built into the app' : 'from the console';
   const newer = hello.needsNewerApp ? '. The console has newer pages, which need a newer app' : '';

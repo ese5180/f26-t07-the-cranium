@@ -30,8 +30,20 @@ import { strictVersion } from '../lib/validate.mjs';
 // commands_that_change_the_board, the two that erase it (INIT, FACTORY_RESET), and the two
 // that restart it, one of them into the bootloader that takes an image over the cable.
 export const SERIAL_COMMANDS = Object.freeze([
-  'INIT', 'SET_ID', 'RESET_CONFIG', 'FACTORY_RESET', 'WIFI', 'WIFI_SEC', 'CLEAR_WIFI', 'CLOUD', 'KEYGEN',
-  'MQTT_HOST', 'MQTT_RECONNECT', 'BUTTON', 'REBOOT', 'ENTER_BOOTLOADER',
+  'INIT',
+  'SET_ID',
+  'RESET_CONFIG',
+  'FACTORY_RESET',
+  'WIFI',
+  'WIFI_SEC',
+  'CLEAR_WIFI',
+  'CLOUD',
+  'KEYGEN',
+  'MQTT_HOST',
+  'MQTT_RECONNECT',
+  'BUTTON',
+  'REBOOT',
+  'ENTER_BOOTLOADER',
 ]);
 export const SERIAL_FIELDS = Object.freeze(['command', 'device', 'version']);
 export const SERIAL_PER_MINUTE = 30;
@@ -50,8 +62,10 @@ export function createSerialHandlers({ aws, config, now }) {
       const body = json();
       const extra = Object.keys(body).filter((key) => !SERIAL_FIELDS.includes(key));
       if (extra.length > 0) {
-        throw badRequest('unexpected_field', 'Only "command", "device" and "version" are recorded: ' +
-          'never what was typed after the command.');
+        throw badRequest(
+          'unexpected_field',
+          'Only "command", "device" and "version" are recorded: ' + 'never what was typed after the command.'
+        );
       }
       const command = field(body, 'command');
       if (typeof command !== 'string' || !SERIAL_COMMANDS.includes(command)) {
@@ -71,9 +85,13 @@ export function createSerialHandlers({ aws, config, now }) {
       if (parsed !== null) entry.detail.version = parsed.text;
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
 
-      if (await recentRecords(caller.sub) >= SERIAL_PER_MINUTE) {
-        throw new HttpError(429, 'rate_limited', `At most ${SERIAL_PER_MINUTE} serial console commands a minute are ` +
-          'recorded for one person. The command was done on the board all the same.');
+      if ((await recentRecords(caller.sub)) >= SERIAL_PER_MINUTE) {
+        throw new HttpError(
+          429,
+          'rate_limited',
+          `At most ${SERIAL_PER_MINUTE} serial console commands a minute are ` +
+            'recorded for one person. The command was done on the board all the same.'
+        );
       }
       return { status: 201, body: { recorded: { command, device, version: parsed?.text ?? null } } };
     },

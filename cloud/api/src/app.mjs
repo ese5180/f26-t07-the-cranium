@@ -75,7 +75,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 
 import {
-  RELEASE_MANAGERS, authenticate, claimedSub, createDirectory, requireFreshSignIn, requireMember,
+  RELEASE_MANAGERS,
+  authenticate,
+  claimedSub,
+  createDirectory,
+  requireFreshSignIn,
+  requireMember,
 } from './auth.mjs';
 import { createAlertHandlers } from './handlers/alerts.mjs';
 import { createAppHandlers } from './handlers/apps.mjs';
@@ -97,7 +102,15 @@ import { createSidestoreHandlers } from './handlers/sidestore.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import { createUpdateHandlers } from './handlers/updates.mjs';
 import {
-  HttpError, SMALL_BODY_LIMIT, binary, errorCode, errorResponse, forbidden, json, notFound, readJsonObject,
+  HttpError,
+  SMALL_BODY_LIMIT,
+  binary,
+  errorCode,
+  errorResponse,
+  forbidden,
+  json,
+  notFound,
+  readJsonObject,
 } from './http.mjs';
 import { REQUEST_ID, signInRequestId } from './lib/audit.mjs';
 
@@ -131,7 +144,14 @@ const SCRIPTED = /^(?:bench|smoke)-/;
  */
 function route(method, path, run, write = null, { token = true, phone = true, atTheBoard = false } = {}) {
   return Object.freeze({
-    method, name: `${method} ${path}`, segments: path.split('/').slice(1), run, write, token, phone, atTheBoard,
+    method,
+    name: `${method} ${path}`,
+    segments: path.split('/').slice(1),
+    run,
+    write,
+    token,
+    phone,
+    atTheBoard,
   });
 }
 
@@ -142,7 +162,13 @@ function isTokenPath(segments) {
 
 /** Whether a request is SideStore's: a GET of /api/sidestore/ and something after it. */
 function isSourcePath(method, segments) {
-  return method === 'GET' && segments !== null && segments.length >= 3 && segments[0] === 'api' && segments[1] === SOURCE_SEGMENT;
+  return (
+    method === 'GET' &&
+    segments !== null &&
+    segments.length >= 3 &&
+    segments[0] === 'api' &&
+    segments[1] === SOURCE_SEGMENT
+  );
 }
 
 function notForTokens() {
@@ -150,7 +176,10 @@ function notForTokens() {
 }
 
 function notForPhones() {
-  return forbidden('phone_not_allowed', 'The phone app\'s sign-in cannot be used for this. Sign in to the console instead.');
+  return forbidden(
+    'phone_not_allowed',
+    "The phone app's sign-in cannot be used for this. Sign in to the console instead."
+  );
 }
 
 /**
@@ -217,9 +246,8 @@ function outcomeOf(error) {
  * request gets the fixed budget.
  */
 function budgetOf(invocation) {
-  const left = typeof invocation?.getRemainingTimeInMillis === 'function'
-    ? Number(invocation.getRemainingTimeInMillis())
-    : NaN;
+  const left =
+    typeof invocation?.getRemainingTimeInMillis === 'function' ? Number(invocation.getRemainingTimeInMillis()) : NaN;
   return Number.isFinite(left) ? Math.min(REQUEST_BUDGET_MS, left - RESERVE_MS) : REQUEST_BUDGET_MS;
 }
 
@@ -242,9 +270,8 @@ function guarded(aws, requests) {
   const adapter = {};
   for (const name of Object.keys(aws)) {
     if (typeof aws[name] !== 'function') continue;
-    adapter[name] = (...args) => (requests.getStore()?.expired === true
-      ? Promise.reject(abandoned(name))
-      : aws[name](...args));
+    adapter[name] = (...args) =>
+      requests.getStore()?.expired === true ? Promise.reject(abandoned(name)) : aws[name](...args);
   }
   return Object.freeze(adapter);
 }
@@ -350,26 +377,39 @@ export function createApp({
     route('GET', '/api/firmware/{version}/image', firmware.image, { action: 'firmware.download', maxBody: 0 }, atBoard),
     // A phone asks every few seconds until the board has a passkey, so an answer of "none yet" is
     // not recorded: only a passkey handed out, and a caller refused.
-    route('GET', '/api/pairing/{name}', pairing.get, { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] },
-      { token: false, atTheBoard: true }),
+    route(
+      'GET',
+      '/api/pairing/{name}',
+      pairing.get,
+      { action: 'pairing.read', maxBody: 0, unrecorded: ['rejected'] },
+      { token: false, atTheBoard: true }
+    ),
     // What a phone asks right before every Bluetooth send, from whatever image it holds: is this
     // release, with this SHA-256, still active? It changes nothing, and goes on record like a
     // write, so that a send of an image the phone kept leaves a trace too.
-    route('POST', '/api/firmware/{version}/bluetooth', firmware.bluetooth,
-      { action: 'firmware.bluetooth_send', maxBody: SMALL_BODY_LIMIT }, atBoard),
-    route('POST', '/api/firmware/{version}/revoke', firmware.revoke,
-      { action: 'firmware.revoke', maxBody: SMALL_BODY_LIMIT }),
+    route(
+      'POST',
+      '/api/firmware/{version}/bluetooth',
+      firmware.bluetooth,
+      { action: 'firmware.bluetooth_send', maxBody: SMALL_BODY_LIMIT },
+      atBoard
+    ),
+    route('POST', '/api/firmware/{version}/revoke', firmware.revoke, {
+      action: 'firmware.revoke',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // An update over the internet from the phone app too, and stopping one. From the phone a
     // deployment is to one board, and needs a sign-in in the last 15 minutes: see
     // deployments.create. Uploading and revoking stay on the website.
     route('GET', '/api/deployments', deployments.list),
     // Every update of every board, however it came: a deployment, over Bluetooth, by USB or another tool.
     route('GET', '/api/updates', updates.list),
-    route('POST', '/api/deployments', deployments.create,
-      { action: 'deployment.create', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/deployments', deployments.create, { action: 'deployment.create', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/deployments/{id}', deployments.get),
-    route('POST', '/api/deployments/{id}/cancel', deployments.cancel,
-      { action: 'deployment.cancel', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/deployments/{id}/cancel', deployments.cancel, {
+      action: 'deployment.cancel',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     route('GET', '/api/audit', audit.list),
     // A person's own API tokens, from a signed-in session only: a token never makes or ends one.
     route('GET', '/api/tokens', tokens.list, null, websiteOnly),
@@ -379,20 +419,33 @@ export function createApp({
     // the calls for Bluetooth, from a person at the board with a cable in hand, and after the
     // board has done it: a fresh sign-in asked of a phone would not undo the change, only keep it
     // off the record. A post over the limit leaves no entry (handlers/serial.mjs).
-    route('POST', '/api/serial/commands', serial.record,
-      { action: 'serial.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    route(
+      'POST',
+      '/api/serial/commands',
+      serial.record,
+      { action: 'serial.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] },
+      atBoard
+    ),
     // A board's last 20 positions from Wi-Fi (handlers/location.mjs).
     route('GET', '/api/devices/{thing}/positions', location.positions),
     // A command to a board, now: identify (blink) or report (handlers/commands.mjs). Release managers
     // only. From a phone, identify is like the calls at a board, with no fresh sign-in asked for: it
     // blinks two LEDs and changes nothing. The handler asks one of report, which can be sent from
     // anywhere and costs a position estimate. A command over the limit leaves no entry.
-    route('POST', '/api/devices/{thing}/commands', commands.send,
-      { action: 'board.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    route(
+      'POST',
+      '/api/devices/{thing}/commands',
+      commands.send,
+      { action: 'board.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] },
+      atBoard
+    ),
     // E-mail alerts, on the Account page (handlers/alerts.mjs): a release manager's own address.
     route('GET', '/api/alerts', alerts.get),
     route('POST', '/api/alerts/subscribe', alerts.subscribe, { action: 'alert.subscribe', maxBody: SMALL_BODY_LIMIT }),
-    route('POST', '/api/alerts/unsubscribe', alerts.unsubscribe, { action: 'alert.unsubscribe', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/alerts/unsubscribe', alerts.unsubscribe, {
+      action: 'alert.unsubscribe',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // The fleet (docs/fleet.md): board types and groups, staged rollouts, and how the fleet is doing.
     // Reads for every member; every change for release managers, on record, and from a phone only
     // with a sign-in in the last 15 minutes, as every change is.
@@ -405,21 +458,37 @@ export function createApp({
     route('GET', '/api/rollouts', rollouts.list),
     route('POST', '/api/rollouts', rollouts.create, { action: 'rollout.create', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/rollouts/{id}', rollouts.get),
-    route('POST', '/api/rollouts/{id}/cancel', rollouts.cancel, { action: 'rollout.cancel', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/rollouts/{id}/cancel', rollouts.cancel, {
+      action: 'rollout.cancel',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // "Update everything": for each board type its newest release, to every board of the type not on it.
     route('GET', '/api/fleet/update-everything', rollouts.everythingPlan),
-    route('POST', '/api/fleet/update-everything', rollouts.everything,
-      { action: 'fleet.update_everything', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/fleet/update-everything', rollouts.everything, {
+      action: 'fleet.update_everything',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // A group back to the release before the newest of each of its types, for the boards that can take it.
     route('GET', '/api/groups/{id}/rollback', rollouts.rollbackPlan),
-    route('POST', '/api/groups/{id}/rollback', rollouts.rollback, { action: 'group.rollback', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/groups/{id}/rollback', rollouts.rollback, {
+      action: 'group.rollback',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // What a phone saw of a board over Bluetooth: how a board without Wi-Fi shows at all. Like the other
     // calls of a person at a board, no fresh sign-in; at most 60 a minute, and one over that leaves no entry.
-    route('POST', '/api/devices/{thing}/seen', fleet.seen,
-      { action: 'device.seen', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] }, atBoard),
+    route(
+      'POST',
+      '/api/devices/{thing}/seen',
+      fleet.seen,
+      { action: 'device.seen', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] },
+      atBoard
+    ),
     // A release's note, changed after its upload: release managers, with a session or an API token
     // (scripts/release-notes.sh). Active and revoked releases alike (handlers/firmware.mjs).
-    route('PUT', '/api/firmware/{version}/notes', firmware.notes, { action: 'firmware.notes', maxBody: SMALL_BODY_LIMIT }),
+    route('PUT', '/api/firmware/{version}/notes', firmware.notes, {
+      action: 'firmware.notes',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // The phone apps (handlers/apps.mjs). Reads for every member. Publishing an APK is two writes, for
     // release managers, with a session or an API token (apps/android/publish.sh): the URL to send it to
     // S3 with, then the check of what arrived. A download link is for every member, viewers too, and
@@ -427,27 +496,60 @@ export function createApp({
     route('GET', '/api/apps', apps.list),
     route('GET', '/api/apps/config', apps.config),
     route('POST', '/api/apps/android/uploads', apps.startUpload, { action: 'app.upload', maxBody: SMALL_BODY_LIMIT }),
-    route('POST', '/api/apps/android/releases/{version}', apps.publish, { action: 'app.publish', maxBody: SMALL_BODY_LIMIT }),
-    route('GET', '/api/apps/android/{version}/download', apps.download,
-      { action: 'app.download', maxBody: 0, member: true, read: true }),
+    route('POST', '/api/apps/android/releases/{version}', apps.publish, {
+      action: 'app.publish',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('GET', '/api/apps/android/{version}/download', apps.download, {
+      action: 'app.download',
+      maxBody: 0,
+      member: true,
+      read: true,
+    }),
     // The iPhone app's unsigned IPAs, the same way (apps/ios/scripts/publish.sh), for SideStore.
-    route('POST', '/api/apps/ios/uploads', apps.startIosUpload, { action: 'app.ios_upload', maxBody: SMALL_BODY_LIMIT }),
-    route('POST', '/api/apps/ios/releases/{version}', apps.publishIos, { action: 'app.ios_publish', maxBody: SMALL_BODY_LIMIT }),
-    route('GET', '/api/apps/ios/{version}/download', apps.downloadIos,
-      { action: 'app.ios_download', maxBody: 0, member: true, read: true }),
+    route('POST', '/api/apps/ios/uploads', apps.startIosUpload, {
+      action: 'app.ios_upload',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('POST', '/api/apps/ios/releases/{version}', apps.publishIos, {
+      action: 'app.ios_publish',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('GET', '/api/apps/ios/{version}/download', apps.downloadIos, {
+      action: 'app.ios_download',
+      maxBody: 0,
+      member: true,
+      read: true,
+    }),
     // A member's own SideStore source link (handlers/sidestore.mjs). What SideStore itself asks for is
     // under /api/sidestore/, with no sign-in, outside this table.
     route('GET', '/api/apps/sidestore', sidestore.get, null, websiteSession),
-    route('POST', '/api/apps/sidestore', sidestore.create, { action: 'app.source_create', ...ownTokens }, websiteSession),
-    route('POST', '/api/apps/sidestore/revoke', sidestore.revoke, { action: 'app.source_revoke', ...ownTokens },
-      websiteSession),
+    route(
+      'POST',
+      '/api/apps/sidestore',
+      sidestore.create,
+      { action: 'app.source_create', ...ownTokens },
+      websiteSession
+    ),
+    route(
+      'POST',
+      '/api/apps/sidestore/revoke',
+      sidestore.revoke,
+      { action: 'app.source_revoke', ...ownTokens },
+      websiteSession
+    ),
     // Customers of the customer site. The customer API itself is another function (customer/app.mjs).
     route('GET', '/api/customers', customers.list, null, customerAdmin),
     route('POST', '/api/customers', customers.create, customerChange('customer.create'), customerAdmin),
     route('POST', '/api/customers/{id}/resend', customers.resend, customerChange('customer.resend'), customerAdmin),
     route('POST', '/api/customers/{id}/boards', customers.assign, customerChange('customer.assign'), customerAdmin),
-    route('POST', '/api/customers/{id}/boards/{thing}/remove', customers.unassign, customerChange('customer.unassign'),
-      customerAdmin),
+    route(
+      'POST',
+      '/api/customers/{id}/boards/{thing}/remove',
+      customers.unassign,
+      customerChange('customer.unassign'),
+      customerAdmin
+    ),
     route('POST', '/api/customers/{id}/disable', customers.disable, customerChange('customer.disable'), customerAdmin),
     route('POST', '/api/customers/{id}/enable', customers.enable, customerChange('customer.enable'), customerAdmin),
   ]);
@@ -532,25 +634,29 @@ export function createApp({
     let result = null;
     let failure = null;
     try {
-      result = await withinDeadline(request, async () => {
-        const known = await identify(found, event, request);
-        const { caller } = known;
-        // A read that goes on record (`read`) is no change: it needs no fresh sign-in either.
-        if (caller.clientId === config.mobileClientId && !found.route.atTheBoard && found.route.write.read !== true) {
-          requireFreshSignIn(caller, clock());
-        }
-        actor.email = await liveWriter(found, request, known);
-        if (!request.viaToken) request.signIn = signInOf(caller, request.id);
-        return found.route.run({
-          caller,
-          actor: { sub: caller.sub, email: actor.email },
-          params: found.params,
-          query: queryOf(event),
-          entry,
-          json: () => readJsonObject(event, maxBody),
-        });
-      }, 'The server ran out of time. The change may have been made in part or in full: ' +
-        'check the result before you repeat it.');
+      result = await withinDeadline(
+        request,
+        async () => {
+          const known = await identify(found, event, request);
+          const { caller } = known;
+          // A read that goes on record (`read`) is no change: it needs no fresh sign-in either.
+          if (caller.clientId === config.mobileClientId && !found.route.atTheBoard && found.route.write.read !== true) {
+            requireFreshSignIn(caller, clock());
+          }
+          actor.email = await liveWriter(found, request, known);
+          if (!request.viaToken) request.signIn = signInOf(caller, request.id);
+          return found.route.run({
+            caller,
+            actor: { sub: caller.sub, email: actor.email },
+            params: found.params,
+            query: queryOf(event),
+            entry,
+            json: () => readJsonObject(event, maxBody),
+          });
+        },
+        'The server ran out of time. The change may have been made in part or in full: ' +
+          'check the result before you repeat it.'
+      );
     } catch (error) {
       failure = error;
     }
@@ -578,14 +684,25 @@ export function createApp({
           : await context.directory.emailOf(request.sub);
       }
     }
-    if (failure !== null && (unrecorded.includes(outcome) || unrecordedCodes.includes(errorCode(failure)))) throw failure;
+    if (failure !== null && (unrecorded.includes(outcome) || unrecordedCodes.includes(errorCode(failure))))
+      throw failure;
     const recorded = await audit.record({
-      at: clock(), requestId: request.id, actor: { sub, email }, action, target, outcome, detail,
+      at: clock(),
+      requestId: request.id,
+      actor: { sub, email },
+      action,
+      target,
+      outcome,
+      detail,
     });
     if (failure !== null) throw failure;
     if (!recorded) {
-      throw new HttpError(500, 'audit_failed', 'The change was made, but it could not be written to ' +
-        'the activity log. Check the result before you repeat it.');
+      throw new HttpError(
+        500,
+        'audit_failed',
+        'The change was made, but it could not be written to ' +
+          'the activity log. Check the result before you repeat it.'
+      );
     }
     return result;
   }
@@ -597,8 +714,10 @@ export function createApp({
   function signInOf(caller, requestId) {
     if (SCRIPTED.test(requestId)) return null;
     if (!Number.isSafeInteger(caller.authTime) || caller.authTime <= 0) return null;
-    if (caller.clientId === config.userPoolClientId) return { sub: caller.sub, authTime: caller.authTime, client: 'web' };
-    if (caller.clientId === config.mobileClientId) return { sub: caller.sub, authTime: caller.authTime, client: 'phone' };
+    if (caller.clientId === config.userPoolClientId)
+      return { sub: caller.sub, authTime: caller.authTime, client: 'web' };
+    if (caller.clientId === config.mobileClientId)
+      return { sub: caller.sub, authTime: caller.authTime, client: 'phone' };
     return null;
   }
 
@@ -618,7 +737,7 @@ export function createApp({
       timer = timers.set(() => resolve('late'), SIGN_IN_WAIT_MS);
     });
     const recording = (async () => {
-      const email = context.directory.knownEmail(signIn.sub) || await context.directory.emailOf(signIn.sub);
+      const email = context.directory.knownEmail(signIn.sub) || (await context.directory.emailOf(signIn.sub));
       return audit.recordOnce({
         at: signIn.authTime * 1000,
         requestId: id,
@@ -656,22 +775,35 @@ export function createApp({
     // `sub` is filled in once the caller is identified, which for an API token means a token
     // that is active, and `token` ({ id, status }) once an API token is found at all.
     const request = {
-      id: requestId, sub: null, viaToken, token: null, budget: budgetOf(invocation), timedOut: false, signIn: null,
+      id: requestId,
+      sub: null,
+      viaToken,
+      token: null,
+      budget: budgetOf(invocation),
+      timedOut: false,
+      signIn: null,
       // For SideStore's requests: the route's name and the key's id, once known (handlers/sidestore.mjs).
-      routeName: null, source: null,
+      routeName: null,
+      source: null,
     };
 
     let response;
     try {
       let result;
       if (viaSource) {
-        result = await withinDeadline(request, () => sidestore.serve({ segments, request }),
-          'The server ran out of time. Try again in a moment.');
+        result = await withinDeadline(
+          request,
+          () => sidestore.serve({ segments, request }),
+          'The server ran out of time. Try again in a moment.'
+        );
       } else if (found !== null && found.route.write !== null) {
         result = await write(found, event, request);
       } else {
-        result = await withinDeadline(request, () => read(found, event, request),
-          'The server ran out of time. Try again in a moment.');
+        result = await withinDeadline(
+          request,
+          () => read(found, event, request),
+          'The server ran out of time. Try again in a moment.'
+        );
       }
       if (result.response !== undefined) response = result.response;
       else if (result.file !== undefined) response = binary(result.status ?? 200, result.file.data, result.file.name);
@@ -691,7 +823,11 @@ export function createApp({
       requestId,
       sub: request.sub,
       method,
-      route: viaSource ? request.routeName ?? 'GET /api/sidestore/unmatched' : found === null ? 'unmatched' : found.route.name,
+      route: viaSource
+        ? (request.routeName ?? 'GET /api/sidestore/unmatched')
+        : found === null
+          ? 'unmatched'
+          : found.route.name,
       status: response.statusCode,
       duration: clock() - started,
     };

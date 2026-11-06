@@ -44,7 +44,11 @@ import { DynamoDBClient, PutItemCommand, QueryCommand } from '@aws-sdk/client-dy
 import { IoTDataPlaneClient, PublishCommand as IotPublishCommand } from '@aws-sdk/client-iot-data-plane';
 import { GetPositionEstimateCommand, IoTWirelessClient } from '@aws-sdk/client-iot-wireless';
 import {
-  ListSubscriptionsByTopicCommand, PublishCommand as SnsPublishCommand, SNSClient, SubscribeCommand, UnsubscribeCommand,
+  ListSubscriptionsByTopicCommand,
+  PublishCommand as SnsPublishCommand,
+  SNSClient,
+  SubscribeCommand,
+  UnsubscribeCommand,
 } from '@aws-sdk/client-sns';
 
 import { ALERTS_PK } from './lib/alerts.mjs';
@@ -58,8 +62,15 @@ const MAX_ATTEMPTS = 2;
 const MAX_PAGES = 40;
 
 const THROTTLING = new Set([
-  'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException', 'RequestLimitExceeded',
-  'ProvisionedThroughputExceededException', 'RequestThrottled', 'RequestThrottledException', 'SlowDown',
+  'ThrottlingException',
+  'Throttling',
+  'ThrottledException',
+  'TooManyRequestsException',
+  'RequestLimitExceeded',
+  'ProvisionedThroughputExceededException',
+  'RequestThrottled',
+  'RequestThrottledException',
+  'SlowDown',
 ]);
 
 function nameOf(cause) {
@@ -74,8 +85,11 @@ function statusOf(cause) {
 function failure(operation, cause, code) {
   const error = new Error(`${operation}: ${nameOf(cause)}: ${String(cause?.message ?? cause).slice(0, 300)}`);
   error.name = 'AwsError';
-  error.code = code ?? (THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
-    ? 'throttled' : 'failed');
+  error.code =
+    code ??
+    (THROTTLING.has(nameOf(cause)) || statusOf(cause) === 429 || cause?.$retryable?.throttling === true
+      ? 'throttled'
+      : 'failed');
   error.operation = operation;
   error.awsError = nameOf(cause);
   error.awsStatus = statusOf(cause);
@@ -233,12 +247,14 @@ export function createMapAws(env) {
   return Object.freeze({
     async publishCommand({ thing, payload }) {
       try {
-        await iotData.send(new IotPublishCommand({
-          topic: commandTopic(thing),
-          qos: 1,
-          payload: Buffer.from(JSON.stringify(payload), 'utf8'),
-          contentType: 'application/json',
-        }));
+        await iotData.send(
+          new IotPublishCommand({
+            topic: commandTopic(thing),
+            qos: 1,
+            payload: Buffer.from(JSON.stringify(payload), 'utf8'),
+            contentType: 'application/json',
+          })
+        );
       } catch (cause) {
         throw failure('Publish', cause);
       }
@@ -260,9 +276,10 @@ export function createMapAws(env) {
           const out = await sns.send(new ListSubscriptionsByTopicCommand({ TopicArn: topicArn, NextToken: token }));
           for (const entry of out.Subscriptions ?? []) {
             if (typeof entry?.Endpoint !== 'string' || typeof entry?.Protocol !== 'string') continue;
-            const arn = typeof entry.SubscriptionArn === 'string' && entry.SubscriptionArn.startsWith('arn:')
-              ? entry.SubscriptionArn
-              : null;
+            const arn =
+              typeof entry.SubscriptionArn === 'string' && entry.SubscriptionArn.startsWith('arn:')
+                ? entry.SubscriptionArn
+                : null;
             all.push({ arn, endpoint: entry.Endpoint, protocol: entry.Protocol });
           }
           if (typeof out.NextToken !== 'string' || out.NextToken === '') return all;
@@ -288,7 +305,8 @@ export function createMapAws(env) {
         await sns.send(new UnsubscribeCommand({ SubscriptionArn: arn }));
         return { ok: true };
       } catch (cause) {
-        if (nameOf(cause) === 'NotFoundException' || nameOf(cause) === 'NotFound') return { ok: false, reason: 'not_found' };
+        if (nameOf(cause) === 'NotFoundException' || nameOf(cause) === 'NotFound')
+          return { ok: false, reason: 'not_found' };
         throw failure('Unsubscribe', cause);
       }
     },

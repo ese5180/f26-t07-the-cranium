@@ -97,8 +97,14 @@ export function execution(thing, phase, changes = {}) {
 }
 
 const COUNT_NAMES = {
-  QUEUED: 'queued', IN_PROGRESS: 'inProgress', SUCCEEDED: 'succeeded', FAILED: 'failed',
-  REJECTED: 'rejected', CANCELED: 'canceled', TIMED_OUT: 'timedOut', REMOVED: 'removed',
+  QUEUED: 'queued',
+  IN_PROGRESS: 'inProgress',
+  SUCCEEDED: 'succeeded',
+  FAILED: 'failed',
+  REJECTED: 'rejected',
+  CANCELED: 'canceled',
+  TIMED_OUT: 'timedOut',
+  REMOVED: 'removed',
 };
 
 /** A deployment with its executions; the counts and the boards follow from those. */
@@ -123,7 +129,14 @@ export function deployment(id, changes = {}) {
 
 export function entry(action, target, changes = {}) {
   return {
-    at: ago(600), actor: MANAGER, action, target, outcome: 'ok', detail: {}, requestId: 'req-1', ...changes,
+    at: ago(600),
+    actor: MANAGER,
+    action,
+    target,
+    outcome: 'ok',
+    detail: {},
+    requestId: 'req-1',
+    ...changes,
   };
 }
 
@@ -151,9 +164,15 @@ export const WORLD = Object.freeze({
     deployment(WITHDRAWN, {
       status: 'CANCELED',
       createdAt: ago(1200),
-      executions: [execution(INSTALLING, 'downloading', {
-        status: 'IN_PROGRESS', progress: 40, startedAt: ago(100), lastUpdatedAt: ago(20), secondsLeft: 1700,
-      })],
+      executions: [
+        execution(INSTALLING, 'downloading', {
+          status: 'IN_PROGRESS',
+          progress: 40,
+          startedAt: ago(100),
+          lastUpdatedAt: ago(20),
+          secondsLeft: 1700,
+        }),
+      ],
     }),
     deployment(FINISHED, {
       status: 'COMPLETED',
@@ -180,16 +199,24 @@ export const EMPTY = Object.freeze({ devices: [], releases: [], deployments: [],
 /** What the API answers for a world, by request path: every GET the console makes. */
 export function repliesFor(world, { viewer = false } = {}) {
   const replies = new Map([
-    ['/api/me', {
-      ...MANAGER,
-      groups: [viewer ? 'viewers' : 'release-managers'],
-      canWrite: !viewer,
-      expiresAt: NOW / 1000 + 3000,
-    }],
+    [
+      '/api/me',
+      {
+        ...MANAGER,
+        groups: [viewer ? 'viewers' : 'release-managers'],
+        canWrite: !viewer,
+        expiresAt: NOW / 1000 + 3000,
+      },
+    ],
     ['/api/devices', { devices: world.devices, generatedAt: ago(0) }],
-    ['/api/firmware', {
-      releases: world.releases, signingKey: { fingerprint: FINGERPRINT }, slotSize: SLOT_SIZE,
-    }],
+    [
+      '/api/firmware',
+      {
+        releases: world.releases,
+        signingKey: { fingerprint: FINGERPRINT },
+        slotSize: SLOT_SIZE,
+      },
+    ],
     ['/api/deployments', { deployments: world.deployments.map(({ executions, ...summary }) => summary) }],
     ['/api/audit?limit=50', { entries: world.entries, next: null }],
     ['/api/audit?limit=6', { entries: world.entries.slice(0, 6), next: null }],
@@ -202,7 +229,9 @@ export function repliesFor(world, { viewer = false } = {}) {
   replies.set('/api/updates?limit=25', { updates, cursor: null, generatedAt: ago(0) });
   for (const item of world.devices) {
     replies.set(`/api/updates?thing=${item.thing}&limit=25`, {
-      updates: updates.filter((update) => update.thing === item.thing), cursor: null, generatedAt: ago(0),
+      updates: updates.filter((update) => update.thing === item.thing),
+      cursor: null,
+      generatedAt: ago(0),
     });
   }
   for (const item of world.deployments) replies.set(`/api/deployments/${item.id}`, { deployment: item });
@@ -215,8 +244,12 @@ export function repliesFor(world, { viewer = false } = {}) {
         .map((candidate) => {
           const own = candidate.executions.find((part) => part.thing === item.thing);
           return {
-            deployment: candidate.id, version: candidate.version, status: own.status,
-            queuedAt: own.queuedAt, startedAt: own.startedAt, lastUpdatedAt: own.lastUpdatedAt,
+            deployment: candidate.id,
+            version: candidate.version,
+            status: own.status,
+            queuedAt: own.queuedAt,
+            startedAt: own.startedAt,
+            lastUpdatedAt: own.lastUpdatedAt,
           };
         }),
     });

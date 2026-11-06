@@ -43,13 +43,15 @@ function main(args) {
       maxSize: templateDefault(template, 'SlotSize'),
       loadAddress: templateDefault(template, 'LoadAddress'),
     });
-    console.log(JSON.stringify({
-      version: info.version,
-      size: info.size,
-      sha256: info.sha256,
-      imageHash: info.imageHash,
-      keyHash: info.keyHash,
-    }));
+    console.log(
+      JSON.stringify({
+        version: info.version,
+        size: info.size,
+        sha256: info.sha256,
+        imageHash: info.imageHash,
+        keyHash: info.keyHash,
+      })
+    );
     return 0;
   } catch (error) {
     console.error(`${args[0]}: ${error instanceof ImageError ? `${error.code}: ` : ''}${error.message}`);
@@ -58,4 +60,5 @@ function main(args) {
 }
 
 // Node gives this module's real path, and the command line whatever path it was called by.
-if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1]))
+  process.exitCode = main(process.argv.slice(2));

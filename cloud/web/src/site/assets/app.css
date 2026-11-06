@@ -827,7 +827,10 @@ body:has(.boot) .masthead {
   letter-spacing: -0.006em;
   text-decoration: none;
   white-space: nowrap;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -1736,7 +1739,9 @@ body:has(.boot) .masthead {
   display: flex;
   align-self: center;
   color: var(--ink-3);
-  transition: transform 0.2s var(--ease), color 0.2s ease;
+  transition:
+    transform 0.2s var(--ease),
+    color 0.2s ease;
 }
 
 /* A link that makes its whole row or card the target. */
@@ -1764,7 +1769,9 @@ body:has(.boot) .masthead {
 .row:has(> .row-main .cover-link:hover),
 .row:has(> .cover-link:hover) {
   background: var(--well);
-  box-shadow: -12px 0 0 var(--well), 12px 0 0 var(--well);
+  box-shadow:
+    -12px 0 0 var(--well),
+    12px 0 0 var(--well);
 }
 
 .row:has(> .row-main .cover-link:hover) .row-chevron {
@@ -2229,7 +2236,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding: 13px 0;
   border-top: 1px solid var(--line);
 }
-
 
 /* The names of the columns, where they stand as columns. */
 .board-head {
@@ -3041,7 +3047,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 @container page (min-width: 64rem) {
   .device-grid {
     /* A board's name with its arrow, and the longest badge, "Never connected", have their columns at every width. */
-    --device-columns: minmax(14.5rem, 1.5fr) minmax(8.5rem, 0.7fr) minmax(0, 1.1fr) minmax(0, 1.25fr) minmax(0, 0.9fr) minmax(0, 0.7fr);
+    --device-columns: minmax(14.5rem, 1.5fr) minmax(8.5rem, 0.7fr) minmax(0, 1.1fr) minmax(0, 1.25fr) minmax(0, 0.9fr)
+      minmax(0, 0.7fr);
     display: block;
     border-top: 2px solid var(--rule);
   }
@@ -3827,7 +3834,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border-radius: var(--radius);
   cursor: pointer;
   text-align: center;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .drop:hover,
@@ -5140,7 +5149,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding: 11px 16px;
   border-radius: var(--radius);
   background: var(--ink);
-  box-shadow: 0 0 0 1px var(--paper), var(--lift);
+  box-shadow:
+    0 0 0 1px var(--paper),
+    var(--lift);
   color: var(--paper);
   font-size: 0.9rem;
   pointer-events: auto;
@@ -9280,17 +9291,31 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .bt-step.is-likely {
   color: var(--ink);
 }
-.bt-step.is-done > svg { color: var(--good); }
-.bt-step.is-current > svg { color: var(--work); }
-.bt-step.is-likely > svg { color: var(--warn); }
-.bt-step.is-failed { color: var(--bad); }
+.bt-step.is-done > svg {
+  color: var(--good);
+}
+.bt-step.is-current > svg {
+  color: var(--work);
+}
+.bt-step.is-likely > svg {
+  color: var(--warn);
+}
+.bt-step.is-failed {
+  color: var(--bad);
+}
 .bt-step-text {
   display: grid;
   gap: 0.15rem;
 }
-.bt-step-title { font-weight: 600; }
-.bt-step-detail { color: var(--ink-2); }
-.bt-countdown { color: var(--work); }
+.bt-step-title {
+  font-weight: 600;
+}
+.bt-step-detail {
+  color: var(--ink-2);
+}
+.bt-countdown {
+  color: var(--work);
+}
 
 /* The timeline's group markers, its readout of a group, and its key. */
 .tl-count circle {

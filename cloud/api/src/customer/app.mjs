@@ -76,7 +76,11 @@ function clientsOf(config) {
 export function authenticateCustomer(event, config) {
   const claims = claimsOf(event);
   if (claims === null) throw unauthorized();
-  if (claims.token_use !== 'access' || typeof claims.client_id !== 'string' || !clientsOf(config).includes(claims.client_id)) {
+  if (
+    claims.token_use !== 'access' ||
+    typeof claims.client_id !== 'string' ||
+    !clientsOf(config).includes(claims.client_id)
+  ) {
     throw unauthorized();
   }
   // The gateway checked the issuer; a token of another pool must not get this far even if it did not.
@@ -110,7 +114,10 @@ function routeOf(method, segments) {
  * @param {(line: object) => void} [options.log]
  */
 export function createCustomerApp({
-  aws, config, now = Date.now, log = (line) => console.log(JSON.stringify(line)),
+  aws,
+  config,
+  now = Date.now,
+  log = (line) => console.log(JSON.stringify(line)),
   timers = { set: setTimeout, clear: clearTimeout },
 }) {
   if (!aws || !config) throw new TypeError('createCustomerApp needs an adapter and a configuration');
@@ -132,20 +139,21 @@ export function createCustomerApp({
         throw new HttpError(503, 'unavailable', 'Your account could not be checked just now. Try again in a minute.');
       }
     }
-    if (known.refusal) throw forbidden('account_inactive', 'This account is switched off. Ask Cranium to turn it back on.');
+    if (known.refusal)
+      throw forbidden('account_inactive', 'This account is switched off. Ask Cranium to turn it back on.');
     return known;
   }
 
   /** The boards this customer owns now, each with its Device. */
   async function ownedBoards(sub) {
-    const mine = (await aws.listOwnership()).filter((item) => item.owner === sub && REF.test(item.ref))
+    const mine = (await aws.listOwnership())
+      .filter((item) => item.owner === sub && REF.test(item.ref))
       .sort((a, b) => ((a.assignedAt ?? '') < (b.assignedAt ?? '') ? -1 : 1));
     const settled = await Promise.allSettled(mine.map((item) => aws.getShadow(item.thing)));
     return mine.map((item, index) => {
       const result = settled[index];
-      const device = result.status === 'fulfilled'
-        ? deviceFromShadow(item.thing, result.value, now())
-        : unknownDevice(item.thing);
+      const device =
+        result.status === 'fulfilled' ? deviceFromShadow(item.thing, result.value, now()) : unknownDevice(item.thing);
       if (result.status === 'rejected') {
         log({ level: 'warn', event: 'shadow_unreadable', error: describeError(result.reason).message });
       }
@@ -157,12 +165,26 @@ export function createCustomerApp({
   async function activityOf(owned, days, limit) {
     const range = eventRange(now() - days * DAY_MS, now());
     const nowSec = now() / 1000;
-    const parts = await Promise.all(owned.map(({ ownership }) => aws.queryEvents({
-      thing: ownership.thing, low: range.low, high: range.high, kinds: [...CUSTOMER_KINDS], limit,
-    }).then((items) => items
-      .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
-      .map((item) => customerEvent(eventFromItem(item), ownership.ref)))));
-    return parts.flat().filter((event) => event !== null)
+    const parts = await Promise.all(
+      owned.map(({ ownership }) =>
+        aws
+          .queryEvents({
+            thing: ownership.thing,
+            low: range.low,
+            high: range.high,
+            kinds: [...CUSTOMER_KINDS],
+            limit,
+          })
+          .then((items) =>
+            items
+              .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
+              .map((item) => customerEvent(eventFromItem(item), ownership.ref))
+          )
+      )
+    );
+    return parts
+      .flat()
+      .filter((event) => event !== null)
       .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
       .slice(0, limit);
   }
@@ -198,15 +220,19 @@ export function createCustomerApp({
 
   function requestIdOf(event) {
     const given = event?.requestContext?.requestId;
-    return typeof given === 'string' && /^[A-Za-z0-9+/=_.:-]{1,128}$/.test(given) ? given : randomBytes(8).toString('hex');
+    return typeof given === 'string' && /^[A-Za-z0-9+/=_.:-]{1,128}$/.test(given)
+      ? given
+      : randomBytes(8).toString('hex');
   }
 
   /** The work of a request, given up after REQUEST_BUDGET_MS with a 503 instead of no answer at all. */
   function withinBudget(work) {
     let timer = null;
     const late = new Promise((_, reject) => {
-      timer = timers.set(() => reject(new HttpError(503, 'timeout', 'That took too long. Try again in a moment.')),
-        REQUEST_BUDGET_MS);
+      timer = timers.set(
+        () => reject(new HttpError(503, 'timeout', 'That took too long. Try again in a moment.')),
+        REQUEST_BUDGET_MS
+      );
     });
     return Promise.race([work(), late]).finally(() => timers.clear(timer));
   }
@@ -233,8 +259,14 @@ export function createCustomerApp({
       response = failed.response;
     }
     log({
-      api: 'customer', requestId, sub, client, method, route: route === null ? 'unmatched' : route.name,
-      status: response.statusCode, duration: now() - started,
+      api: 'customer',
+      requestId,
+      sub,
+      client,
+      method,
+      route: route === null ? 'unmatched' : route.name,
+      status: response.statusCode,
+      duration: now() - started,
     });
     return response;
   };

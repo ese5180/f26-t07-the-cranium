@@ -7,8 +7,19 @@ import { test } from 'node:test';
 
 import { createAlerter, isScheduledCheck } from '../src/alerts.mjs';
 import {
-  ALERT_EVERY_MS, FOLDED_KEPT, OFFLINE_AFTER_MS, alertOfEvent, applyPresence, emailOf, emptyBoard, isNewerPresence,
-  presenceOf, sentFromItem, spell, takeAlert, utc,
+  ALERT_EVERY_MS,
+  FOLDED_KEPT,
+  OFFLINE_AFTER_MS,
+  alertOfEvent,
+  applyPresence,
+  emailOf,
+  emptyBoard,
+  isNewerPresence,
+  presenceOf,
+  sentFromItem,
+  spell,
+  takeAlert,
+  utc,
 } from '../src/lib/alerts.mjs';
 import { createRecorder } from '../src/recorder.mjs';
 import { createFakeAws, createTestConsole } from './fake-aws.mjs';
@@ -19,9 +30,21 @@ const CONSOLE = 'https://console.example.com/';
 const MINUTE = 60_000;
 
 const event = (kind, what, changes = {}) => ({
-  pk: THING, sk: `E#${new Date(NOW).toISOString()}#0a0b0c`, kind, what, level: 'warn', text: 'Something happened', ...changes,
+  pk: THING,
+  sk: `E#${new Date(NOW).toISOString()}#0a0b0c`,
+  kind,
+  what,
+  level: 'warn',
+  text: 'Something happened',
+  ...changes,
 });
-const presence = (eventType, at, changes = {}) => ({ clientId: THING, eventType, timestamp: at, versionNumber: 3, ...changes });
+const presence = (eventType, at, changes = {}) => ({
+  clientId: THING,
+  eventType,
+  timestamp: at,
+  versionNumber: 3,
+  ...changes,
+});
 
 /** The alerter on the stand-in's store, with a clock the test moves. */
 function alerter({ failPublish = 0 } = {}) {
@@ -67,7 +90,8 @@ test('a failed or rolled-back update, a bad Bluetooth update, a restart for bein
     [event('update', 'stopped', { job: 'cranium-1-2-3-b5-20261104T110000Z-0a0a' }), 'deployment'],
     [event('update', 'stopped'), null],
   ];
-  for (const [item, kind] of cases) assert.equal(alertOfEvent(item)?.kind ?? null, kind, `${item.kind} ${item.what} ${item.result}`);
+  for (const [item, kind] of cases)
+    assert.equal(alertOfEvent(item)?.kind ?? null, kind, `${item.kind} ${item.what} ${item.result}`);
   const stopped = alertOfEvent(cases.at(-2)[0]);
   assert.deepEqual([stopped.deployment, stopped.version], ['cranium-1-2-3-b5-20261104T110000Z-0a0a', '1.2.3+5']);
   // Not an event of a board, or a text the log would not keep.
@@ -76,7 +100,7 @@ test('a failed or rolled-back update, a bad Bluetooth update, a restart for bein
   assert.equal(alertOfEvent({ ...event('restart', 'stuck') }).at, NOW);
 });
 
-test('presence: a newer message by time, else by AWS\'s version, and within one connection the disconnect last', () => {
+test("presence: a newer message by time, else by AWS's version, and within one connection the disconnect last", () => {
   const kept = presenceOf(presence('disconnected', NOW, { disconnectReason: 'CONNECTION_LOST' }), NOW);
   assert.deepEqual(kept, { thing: THING, state: 'offline', at: NOW, version: 3, reason: 'CONNECTION_LOST' });
   const of = (type, at, version) => presenceOf(presence(type, at, { versionNumber: version }), at);
@@ -119,7 +143,11 @@ test('at most one e-mail per board and kind an hour: the rest are folded, at mos
 
 test('the e-mail is plain, names the board by its name, and links to the console', () => {
   const item = { ...emptyBoard(THING), name: 'CRVIHAAN01' };
-  const mail = { kind: 'offline', lines: [{ at: NOW, text: 'Offline since 2026-11-04 11:44 UTC, for 16 min now' }], more: 0 };
+  const mail = {
+    kind: 'offline',
+    lines: [{ at: NOW, text: 'Offline since 2026-11-04 11:44 UTC, for 16 min now' }],
+    more: 0,
+  };
   const { subject, message } = emailOf(item, mail, CONSOLE);
   assert.equal(subject, 'Cranium: CRVIHAAN01 is offline');
   assert.match(message, /^CRVIHAAN01 \(AWS IoT thing cranium-0123456789abcdef\)\n/);
@@ -135,7 +163,10 @@ test('the e-mail is plain, names the board by its name, and links to the console
   assert.equal(emailOf({ ...item, name: 'CR"V\n' }, mail, CONSOLE).subject, `Cranium: ${THING} is offline`);
   // Without a console address there is no link at all, rather than a wrong one.
   assert.doesNotMatch(emailOf(item, mail, 'javascript:alert(1)').message, /Open it|javascript/);
-  assert.deepEqual([spell(16 * MINUTE), spell(125 * MINUTE), spell(52 * 60 * MINUTE)], ['16 min', '2 h 5 min', '2 d 4 h']);
+  assert.deepEqual(
+    [spell(16 * MINUTE), spell(125 * MINUTE), spell(52 * 60 * MINUTE)],
+    ['16 min', '2 h 5 min', '2 d 4 h']
+  );
   assert.equal(utc(NOW), '2026-11-04 12:00 UTC');
 });
 
@@ -193,9 +224,15 @@ test('what was folded goes out with the scheduled check once its hour is up', as
 
 test('an e-mail that cannot be sent is put back and goes with the next check', async () => {
   const { run, clock, emails, logs } = alerter({ failPublish: 1 });
-  assert.equal(await run.raise({ kind: 'update', thing: THING, text: 'Update to 1.2.3+5 failed: download_failed', at: NOW }), 0);
+  assert.equal(
+    await run.raise({ kind: 'update', thing: THING, text: 'Update to 1.2.3+5 failed: download_failed', at: NOW }),
+    0
+  );
   assert.equal(emails.length, 0);
-  assert.equal(logs.some((line) => line.event === 'alert_unsent'), true);
+  assert.equal(
+    logs.some((line) => line.event === 'alert_unsent'),
+    true
+  );
   clock.ms = NOW + 5 * MINUTE;
   assert.equal(await run.check(), 1);
   assert.ok(emails[0].message.includes('Update to 1.2.3+5 failed: download_failed'));
@@ -211,12 +248,24 @@ test('two invocations at once never both send: every change is conditional on th
 test('the alerter never throws: a store that fails is logged, and the caller goes on', async () => {
   const logs = [];
   const broken = createAlerter({
-    store: { getAlertItem: async () => { throw new Error('Query: InternalServerError'); } },
-    consoleUrl: CONSOLE, now: () => NOW, log: (line) => logs.push(line),
+    store: {
+      getAlertItem: async () => {
+        throw new Error('Query: InternalServerError');
+      },
+    },
+    consoleUrl: CONSOLE,
+    now: () => NOW,
+    log: (line) => logs.push(line),
   });
   assert.equal(await broken.raise({ kind: 'stuck', thing: THING, text: 'x', at: NOW }), 0);
   assert.equal(await broken.check(), 0);
-  assert.deepEqual(logs.map((line) => [line.event, line.what]), [['alert_failed', 'stuck'], ['alert_failed', 'check']]);
+  assert.deepEqual(
+    logs.map((line) => [line.event, line.what]),
+    [
+      ['alert_failed', 'stuck'],
+      ['alert_failed', 'check'],
+    ]
+  );
 });
 
 // The recorder.
@@ -252,19 +301,25 @@ test('end to end on the stand-in: a restart for being stuck makes an e-mail, and
   fake.enableAlerts(CONSOLE);
   fake.addThing(THING);
   const device = fake.device(THING);
-  device.report({ fw: { version: '1.12.0+0', confirmed: true }, uptime: 500, stuck: { count: 0, reason: 'none' },
-    diag: { id: 'CRVIHAAN01' } });
+  device.report({
+    fw: { version: '1.12.0+0', confirmed: true },
+    uptime: 500,
+    stuck: { count: 0, reason: 'none' },
+    diag: { id: 'CRVIHAAN01' },
+  });
   clock.ms += 1000;
   device.report({ uptime: 5, stuck: { count: 1, reason: 'wifi_silent' } });
   clock.ms += 1000;
-  device.report({ ota: { state: 'downloading', job: 'cranium-1-2-3-b5-20261104T110000Z-0a0a', progress: 40, last: 'none', error: '' } });
+  device.report({
+    ota: { state: 'downloading', job: 'cranium-1-2-3-b5-20261104T110000Z-0a0a', progress: 40, last: 'none', error: '' },
+  });
   clock.ms += 1000;
   device.report({ ota: { state: 'idle', progress: 0, last: 'failed', error: 'download_failed' } });
   await fake.alertsSettled();
-  assert.deepEqual(fake.alertEmails.map((mail) => mail.subject), [
-    'Cranium: CRVIHAAN01 restarted itself for being stuck',
-    'Cranium: An update did not go through on CRVIHAAN01',
-  ]);
+  assert.deepEqual(
+    fake.alertEmails.map((mail) => mail.subject),
+    ['Cranium: CRVIHAAN01 restarted itself for being stuck', 'Cranium: An update did not go through on CRVIHAAN01']
+  );
   assert.match(fake.alertEmails[1].message, /Update to 1\.2\.3\+5 failed: download_failed/);
 });
 
@@ -281,8 +336,10 @@ test('a release manager subscribes their own address, confirms it by e-mail, and
   const { call, manager, fake } = accountWorld();
   const before = await call('GET', '/api/alerts', { as: manager });
   assert.equal(before.status, 200);
-  assert.deepEqual([before.body.email, before.body.subscription, before.body.canSubscribe, before.body.subscribers],
-    [manager.email, 'none', true, 0]);
+  assert.deepEqual(
+    [before.body.email, before.body.subscription, before.body.canSubscribe, before.body.subscribers],
+    [manager.email, 'none', true, 0]
+  );
   assert.deepEqual(before.body.rules, { offlineMinutes: 15, everyMinutes: 60, movedMetres: 1000 });
 
   const made = await call('POST', '/api/alerts/subscribe', { as: manager, body: {} });
@@ -304,13 +361,16 @@ test('a release manager subscribes their own address, confirms it by e-mail, and
   assert.deepEqual([gone.status, gone.body.error.code], [404, 'not_subscribed']);
 
   const entries = fake.auditLog().filter((entry) => entry.action.startsWith('alert.'));
-  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome, entry.target, entry.detail.code ?? entry.detail.subscription]), [
-    ['alert.subscribe', 'ok', manager.email, 'pending'],
-    ['alert.unsubscribe', 'rejected', manager.email, 'not_confirmed'],
-    ['alert.subscribe', 'rejected', manager.email, 'already_subscribed'],
-    ['alert.unsubscribe', 'ok', manager.email, undefined],
-    ['alert.unsubscribe', 'rejected', manager.email, 'not_subscribed'],
-  ]);
+  assert.deepEqual(
+    entries.map((entry) => [entry.action, entry.outcome, entry.target, entry.detail.code ?? entry.detail.subscription]),
+    [
+      ['alert.subscribe', 'ok', manager.email, 'pending'],
+      ['alert.unsubscribe', 'rejected', manager.email, 'not_confirmed'],
+      ['alert.subscribe', 'rejected', manager.email, 'already_subscribed'],
+      ['alert.unsubscribe', 'ok', manager.email, undefined],
+      ['alert.unsubscribe', 'rejected', manager.email, 'not_subscribed'],
+    ]
+  );
 });
 
 test('only release managers subscribe, only their own address, and at most 3 times an hour', async () => {
@@ -320,14 +380,21 @@ test('only release managers subscribe, only their own address, and at most 3 tim
   const refused = await call('POST', '/api/alerts/subscribe', { as: viewer, body: {} });
   assert.deepEqual([refused.status, refused.body.error.code], [403, 'release_manager_required']);
   // Somebody else's address is not something the request can even say.
-  const other = await call('POST', '/api/alerts/subscribe', { as: manager, body: { email: 'someone@example.invalid' } });
+  const other = await call('POST', '/api/alerts/subscribe', {
+    as: manager,
+    body: { email: 'someone@example.invalid' },
+  });
   assert.deepEqual([other.status, other.body.error.code], [400, 'unexpected_field']);
-  for (let index = 0; index < 3; index += 1) assert.equal((await call('POST', '/api/alerts/subscribe', { as: manager, body: {} })).status, 202);
+  for (let index = 0; index < 3; index += 1)
+    assert.equal((await call('POST', '/api/alerts/subscribe', { as: manager, body: {} })).status, 202);
   const fourth = await call('POST', '/api/alerts/subscribe', { as: manager, body: {} });
   assert.deepEqual([fourth.status, fourth.body.error.code], [429, 'rate_limited']);
   advance(61 * MINUTE);
   assert.equal((await call('POST', '/api/alerts/subscribe', { as: manager, body: {} })).status, 202);
-  assert.deepEqual((await fake.listAlertSubscriptions()).map((entry) => entry.endpoint), [manager.email]);
+  assert.deepEqual(
+    (await fake.listAlertSubscriptions()).map((entry) => entry.endpoint),
+    [manager.email]
+  );
 });
 
 test('the Account page lists the e-mails that went out, newest first', async () => {
@@ -339,9 +406,15 @@ test('the Account page lists the e-mails that went out, newest first', async () 
   await fake.alertsSettled();
   assert.equal(await fake.checkAlerts(), 1);
   const page = await call('GET', '/api/alerts', { as: viewer });
-  assert.deepEqual(page.body.recent, [{
-    at: new Date(clock.ms).toISOString(), kind: 'offline', subject: `Cranium: ${THING} is offline`, count: 1, thing: THING,
-  }]);
+  assert.deepEqual(page.body.recent, [
+    {
+      at: new Date(clock.ms).toISOString(),
+      kind: 'offline',
+      subject: `Cranium: ${THING} is offline`,
+      count: 1,
+      thing: THING,
+    },
+  ]);
   assert.equal(sentFromItem({ sk: 'S#bad', kind: 'offline', subject: 'x' }), null);
   // The stand-in's e-mail says the same as the console.
   assert.equal(fake.alertEmails[0].subject, page.body.recent[0].subject);

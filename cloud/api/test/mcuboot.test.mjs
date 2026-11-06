@@ -10,7 +10,12 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
-  ImageError, compareVersions, formatVersion, loadSigningKey, parseVersion, validateImage,
+  ImageError,
+  compareVersions,
+  formatVersion,
+  loadSigningKey,
+  parseVersion,
+  validateImage,
 } from '../src/lib/mcuboot.mjs';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
@@ -21,9 +26,11 @@ const options = { maxSize: 0x10000, loadAddress: 0x30000 };
 const valid = fixture('valid-1.2.3+4.signed.bin');
 
 function refuses(image, code, opts = options, signingKey = key) {
-  assert.throws(() => validateImage(image, signingKey, opts),
+  assert.throws(
+    () => validateImage(image, signingKey, opts),
     (error) => error instanceof ImageError && error.code === code,
-    `expected the image to be refused with ${code}`);
+    `expected the image to be refused with ${code}`
+  );
 }
 
 // Offsets inside the fixtures: 0x200 header, 600 bytes of payload, then the TLV area.
@@ -86,7 +93,10 @@ test('refuses a changed payload even when the attacker fixes the hash', () => {
   const tampered = Buffer.from(valid);
   tampered[0x200 + 17] ^= 0x01;
   // The SHA256 entry is first in the TLV area: info (4) + entry header (4) + 32 bytes.
-  createHash('sha256').update(tampered.subarray(0, TLV_START)).digest().copy(tampered, TLV_START + 8);
+  createHash('sha256')
+    .update(tampered.subarray(0, TLV_START))
+    .digest()
+    .copy(tampered, TLV_START + 8);
   refuses(tampered, 'bad_signature');
 });
 
@@ -99,9 +109,10 @@ test('refuses a changed header, including the version', () => {
 test('refuses a damaged signature', () => {
   const tampered = Buffer.from(valid);
   tampered[tampered.length - 5] ^= 0x40;
-  assert.throws(() => validateImage(tampered, key, options),
-    (error) => error instanceof ImageError &&
-      ['bad_signature', 'bad_signature_encoding'].includes(error.code));
+  assert.throws(
+    () => validateImage(tampered, key, options),
+    (error) => error instanceof ImageError && ['bad_signature', 'bad_signature_encoding'].includes(error.code)
+  );
 });
 
 test('refuses flags this product does not use', () => {
@@ -182,17 +193,45 @@ test('enforces the slot size', () => {
 });
 
 test('only an ECDSA P-256 public key can be the signing key', () => {
-  assert.throws(() => loadSigningKey('not a key'), (error) => error.code === 'bad_signing_key');
+  assert.throws(
+    () => loadSigningKey('not a key'),
+    (error) => error.code === 'bad_signing_key'
+  );
 });
 
 test('versions parse exactly like the firmware parses them', () => {
   assert.deepEqual(parseVersion('1.2.3+4'), { major: 1, minor: 2, revision: 3, build: 4 });
   assert.deepEqual(parseVersion('0.0.0'), { major: 0, minor: 0, revision: 0, build: 0 });
-  assert.deepEqual(parseVersion('255.255.65535+4294967295'),
-    { major: 255, minor: 255, revision: 65535, build: 4294967295 });
-  for (const bad of ['', '1', '1.2', '1.2.3.4', '1.2.3+', '+1', 'v1.2.3', '1.2.3 ', ' 1.2.3', '01.2.3',
-    '1.02.3', '1.2.3+04', '256.0.0', '0.256.0', '0.0.65536', '0.0.0+4294967296', '1.2.3-rc1',
-    '1.2.3+4+5', '1..3', null, undefined, 123]) {
+  assert.deepEqual(parseVersion('255.255.65535+4294967295'), {
+    major: 255,
+    minor: 255,
+    revision: 65535,
+    build: 4294967295,
+  });
+  for (const bad of [
+    '',
+    '1',
+    '1.2',
+    '1.2.3.4',
+    '1.2.3+',
+    '+1',
+    'v1.2.3',
+    '1.2.3 ',
+    ' 1.2.3',
+    '01.2.3',
+    '1.02.3',
+    '1.2.3+04',
+    '256.0.0',
+    '0.256.0',
+    '0.0.65536',
+    '0.0.0+4294967296',
+    '1.2.3-rc1',
+    '1.2.3+4+5',
+    '1..3',
+    null,
+    undefined,
+    123,
+  ]) {
     assert.equal(parseVersion(bad), null, `"${bad}" must not parse`);
   }
 });

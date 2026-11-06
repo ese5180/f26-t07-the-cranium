@@ -177,16 +177,30 @@ import { createRequire } from 'node:module';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import {
-  AdminGetUserCommand, AdminListGroupsForUserCommand, CognitoIdentityProviderClient,
+  AdminGetUserCommand,
+  AdminListGroupsForUserCommand,
+  CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
 import {
-  DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, TransactWriteItemsCommand,
+  DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
+  QueryCommand,
+  TransactWriteItemsCommand,
   UpdateItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import {
-  CancelJobCommand, CreateJobCommand, DescribeJobCommand, DescribeJobExecutionCommand, DescribeThingCommand, IoTClient,
-  ListJobExecutionsForJobCommand, ListJobExecutionsForThingCommand, ListJobsCommand,
-  ListThingPrincipalsCommand, ListThingsInThingGroupCommand,
+  CancelJobCommand,
+  CreateJobCommand,
+  DescribeJobCommand,
+  DescribeJobExecutionCommand,
+  DescribeThingCommand,
+  IoTClient,
+  ListJobExecutionsForJobCommand,
+  ListJobExecutionsForThingCommand,
+  ListJobsCommand,
+  ListThingPrincipalsCommand,
+  ListThingsInThingGroupCommand,
 } from '@aws-sdk/client-iot';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
@@ -219,9 +233,15 @@ const TOKEN_PK = 'TOK';
 const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
 
 const THROTTLING = new Set([
-  'ThrottlingException', 'Throttling', 'ThrottledException', 'TooManyRequestsException',
-  'RequestLimitExceeded', 'ProvisionedThroughputExceededException', 'RequestThrottled',
-  'RequestThrottledException', 'SlowDown',
+  'ThrottlingException',
+  'Throttling',
+  'ThrottledException',
+  'TooManyRequestsException',
+  'RequestLimitExceeded',
+  'ProvisionedThroughputExceededException',
+  'RequestThrottled',
+  'RequestThrottledException',
+  'SlowDown',
 ]);
 
 /**
@@ -369,13 +389,18 @@ function clientSettings(region) {
  * Query one board's part of the events table between two sort keys, every page of it, up to
  * `limit` items. `filter` is a FilterExpression with its values, or null.
  */
-async function queryEventTable(dynamo, table, {
-  thing, low, high, forward, limit = Infinity, kinds = null, tags = null,
-}) {
+async function queryEventTable(
+  dynamo,
+  table,
+  { thing, low, high, forward, limit = Infinity, kinds = null, tags = null }
+) {
   const names = { '#pk': 'pk', '#sk': 'sk' };
   const values = { ':pk': { S: thing }, ':low': { S: low }, ':high': { S: high } };
   const filters = [];
-  for (const [attribute, prefix, wanted] of [['kind', 'k', kinds], ['tag', 't', tags]]) {
+  for (const [attribute, prefix, wanted] of [
+    ['kind', 'k', kinds],
+    ['tag', 't', tags],
+  ]) {
     if (wanted === null) continue;
     names[`#${attribute}`] = attribute;
     wanted.forEach((value, index) => {
@@ -416,13 +441,15 @@ async function putFact(dynamo, table, item) {
     throw new TypeError('a fact of the update history has a pk "UPD#<thing>" and an `at` in ms');
   }
   try {
-    await dynamo.send(new PutItemCommand({
-      TableName: table,
-      Item: toItem(item),
-      ConditionExpression: 'attribute_not_exists(#sk) OR #at > :at',
-      ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
-      ExpressionAttributeValues: { ':at': { N: String(item.at) } },
-    }));
+    await dynamo.send(
+      new PutItemCommand({
+        TableName: table,
+        Item: toItem(item),
+        ConditionExpression: 'attribute_not_exists(#sk) OR #at > :at',
+        ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+        ExpressionAttributeValues: { ':at': { N: String(item.at) } },
+      })
+    );
     return { ok: true };
   } catch (cause) {
     if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'kept' };
@@ -500,9 +527,13 @@ export function createAws(env) {
   }
 
   async function highestRegistered() {
-    const out = await dynamo.send(new GetItemCommand({
-      TableName: stateTable, Key: POINTER_KEY, ConsistentRead: true,
-    }));
+    const out = await dynamo.send(
+      new GetItemCommand({
+        TableName: stateTable,
+        Key: POINTER_KEY,
+        ConsistentRead: true,
+      })
+    );
     const highest = out.Item?.highest?.S;
     return typeof highest === 'string' ? highest : null;
   }
@@ -511,9 +542,13 @@ export function createAws(env) {
     async listGroupThings() {
       try {
         return await everyPage('ListThingsInThingGroup', async (nextToken) => {
-          const out = await iot.send(new ListThingsInThingGroupCommand({
-            thingGroupName: thingGroup, maxResults: PAGE_SIZE, nextToken,
-          }));
+          const out = await iot.send(
+            new ListThingsInThingGroupCommand({
+              thingGroupName: thingGroup,
+              maxResults: PAGE_SIZE,
+              nextToken,
+            })
+          );
           const items = (out.things ?? []).filter((name) => typeof name === 'string');
           return { items, next: out.nextToken };
         });
@@ -525,9 +560,13 @@ export function createAws(env) {
     async listThingPrincipals(thing) {
       try {
         return await everyPage('ListThingPrincipals', async (nextToken) => {
-          const out = await iot.send(new ListThingPrincipalsCommand({
-            thingName: thing, maxResults: PAGE_SIZE, nextToken,
-          }));
+          const out = await iot.send(
+            new ListThingPrincipalsCommand({
+              thingName: thing,
+              maxResults: PAGE_SIZE,
+              nextToken,
+            })
+          );
           const items = (out.principals ?? []).filter((arn) => typeof arn === 'string');
           return { items, next: out.nextToken };
         });
@@ -611,9 +650,13 @@ export function createAws(env) {
     async listJobExecutionsForJob(jobId) {
       try {
         return await everyPage('ListJobExecutionsForJob', async (nextToken) => {
-          const out = await iot.send(new ListJobExecutionsForJobCommand({
-            jobId, maxResults: PAGE_SIZE, nextToken,
-          }));
+          const out = await iot.send(
+            new ListJobExecutionsForJobCommand({
+              jobId,
+              maxResults: PAGE_SIZE,
+              nextToken,
+            })
+          );
           const items = [];
           for (const entry of out.executionSummaries ?? []) {
             const thing = thingOfArn(entry?.thingArn);
@@ -654,9 +697,13 @@ export function createAws(env) {
     async listJobExecutionsForThing(thing) {
       try {
         return await everyPage('ListJobExecutionsForThing', async (nextToken) => {
-          const out = await iot.send(new ListJobExecutionsForThingCommand({
-            thingName: thing, maxResults: PAGE_SIZE, nextToken,
-          }));
+          const out = await iot.send(
+            new ListJobExecutionsForThingCommand({
+              thingName: thing,
+              maxResults: PAGE_SIZE,
+              nextToken,
+            })
+          );
           const items = [];
           for (const entry of out.executionSummaries ?? []) {
             if (typeof entry?.jobId === 'string') {
@@ -672,21 +719,30 @@ export function createAws(env) {
     },
 
     async createJob({
-      jobId, things, document, description, urlExpiresInSec, inProgressTimeoutMinutes, rollout = null, abort = null,
+      jobId,
+      things,
+      document,
+      description,
+      urlExpiresInSec,
+      inProgressTimeoutMinutes,
+      rollout = null,
+      abort = null,
     }) {
       try {
-        await iot.send(new CreateJobCommand({
-          jobId,
-          targets: things.map(thingArn),
-          targetSelection: 'SNAPSHOT',
-          document,
-          description,
-          presignedUrlConfig: { roleArn: presignRoleArn, expiresInSec: urlExpiresInSec },
-          timeoutConfig: { inProgressTimeoutInMinutes: inProgressTimeoutMinutes },
-          // A wave of a staged rollout: how fast AWS offers it, and when it stops by itself.
-          ...(rollout === null ? {} : { jobExecutionsRolloutConfig: rollout }),
-          ...(abort === null ? {} : { abortConfig: abort }),
-        }));
+        await iot.send(
+          new CreateJobCommand({
+            jobId,
+            targets: things.map(thingArn),
+            targetSelection: 'SNAPSHOT',
+            document,
+            description,
+            presignedUrlConfig: { roleArn: presignRoleArn, expiresInSec: urlExpiresInSec },
+            timeoutConfig: { inProgressTimeoutInMinutes: inProgressTimeoutMinutes },
+            // A wave of a staged rollout: how fast AWS offers it, and when it stops by itself.
+            ...(rollout === null ? {} : { jobExecutionsRolloutConfig: rollout }),
+            ...(abort === null ? {} : { abortConfig: abort }),
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ResourceAlreadyExistsException') return { ok: false, reason: 'exists' };
@@ -713,17 +769,19 @@ export function createAws(env) {
     async putFirmwareObject({ key, body, sha256Base64 }) {
       for (let attempt = 0; ; attempt += 1) {
         try {
-          await s3.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: body,
-            ContentType: 'application/octet-stream',
-            // S3 checks the bytes it received against this digest before it stores them.
-            ChecksumAlgorithm: 'SHA256',
-            ChecksumSHA256: sha256Base64,
-            // Write once: refuse if the key exists. The bucket policy demands this header.
-            IfNoneMatch: '*',
-          }));
+          await s3.send(
+            new PutObjectCommand({
+              Bucket: bucket,
+              Key: key,
+              Body: body,
+              ContentType: 'application/octet-stream',
+              // S3 checks the bytes it received against this digest before it stores them.
+              ChecksumAlgorithm: 'SHA256',
+              ChecksumSHA256: sha256Base64,
+              // Write once: refuse if the key exists. The bucket policy demands this header.
+              IfNoneMatch: '*',
+            })
+          );
           return { stored: true };
         } catch (cause) {
           if (statusOf(cause) === 412 || nameOf(cause) === 'PreconditionFailed') {
@@ -743,20 +801,27 @@ export function createAws(env) {
         return Buffer.from(await answer.Body.transformToByteArray());
       } catch (cause) {
         // A revoked image is refused by the bucket policy: 403, the same as missing here.
-        if (nameOf(cause) === 'NoSuchKey' || nameOf(cause) === 'AccessDenied'
-          || statusOf(cause) === 404 || statusOf(cause) === 403) return null;
+        if (
+          nameOf(cause) === 'NoSuchKey' ||
+          nameOf(cause) === 'AccessDenied' ||
+          statusOf(cause) === 404 ||
+          statusOf(cause) === 403
+        )
+          return null;
         throw failure('GetObject', cause);
       }
     },
 
     async tagFirmwareRevoked(key) {
       try {
-        await s3.send(new PutObjectTaggingCommand({
-          Bucket: bucket,
-          Key: key,
-          ChecksumAlgorithm: 'SHA256',
-          Tagging: { TagSet: [{ Key: 'revoked', Value: 'true' }] },
-        }));
+        await s3.send(
+          new PutObjectTaggingCommand({
+            Bucket: bucket,
+            Key: key,
+            ChecksumAlgorithm: 'SHA256',
+            Tagging: { TagSet: [{ Key: 'revoked', Value: 'true' }] },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'NoSuchKey' || statusOf(cause) === 404) return { ok: false, reason: 'not_found' };
@@ -766,9 +831,13 @@ export function createAws(env) {
 
     async getRelease(sk) {
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: RELEASE_PK }, sk: { S: sk } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined || out.Item === null ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -794,29 +863,31 @@ export function createAws(env) {
     async registerRelease({ sk, release }) {
       const item = toItem({ ...release, pk: RELEASE_PK, sk });
       try {
-        await dynamo.send(new TransactWriteItemsCommand({
-          TransactItems: [
-            {
-              Put: {
-                TableName: stateTable,
-                Item: item,
-                ConditionExpression: 'attribute_not_exists(#pk)',
-                ExpressionAttributeNames: { '#pk': 'pk' },
+        await dynamo.send(
+          new TransactWriteItemsCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: stateTable,
+                  Item: item,
+                  ConditionExpression: 'attribute_not_exists(#pk)',
+                  ExpressionAttributeNames: { '#pk': 'pk' },
+                },
               },
-            },
-            {
-              Update: {
-                TableName: stateTable,
-                Key: POINTER_KEY,
-                UpdateExpression: 'SET #highest = :sk',
-                ConditionExpression: 'attribute_not_exists(#highest) OR #highest < :sk',
-                ExpressionAttributeNames: { '#highest': 'highest' },
-                ExpressionAttributeValues: { ':sk': { S: sk } },
-                ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+              {
+                Update: {
+                  TableName: stateTable,
+                  Key: POINTER_KEY,
+                  UpdateExpression: 'SET #highest = :sk',
+                  ConditionExpression: 'attribute_not_exists(#highest) OR #highest < :sk',
+                  ExpressionAttributeNames: { '#highest': 'highest' },
+                  ExpressionAttributeValues: { ':sk': { S: sk } },
+                  ReturnValuesOnConditionCheckFailure: 'ALL_OLD',
+                },
               },
-            },
-          ],
-        }));
+            ],
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) !== 'TransactionCanceledException') throw failure('TransactWriteItems', cause);
@@ -838,8 +909,9 @@ export function createAws(env) {
         if (reasons.some((reason) => reason?.Code === 'TransactionConflict')) {
           return { ok: false, reason: 'conflict' };
         }
-        const throttled = reasons.some((reason) =>
-          reason?.Code === 'ThrottlingError' || reason?.Code === 'ProvisionedThroughputExceeded');
+        const throttled = reasons.some(
+          (reason) => reason?.Code === 'ThrottlingError' || reason?.Code === 'ProvisionedThroughputExceeded'
+        );
         throw failure('TransactWriteItems', cause, throttled ? 'throttled' : 'failed');
       }
     },
@@ -847,18 +919,22 @@ export function createAws(env) {
     async markReleaseRevoked({ sk, revoked }) {
       const info = toAttribute(revoked);
       try {
-        const out = await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
-          UpdateExpression: 'SET #status = :revoked, #revoked = :info',
-          // False for an item that does not exist, too.
-          ConditionExpression: '#status = :active',
-          ExpressionAttributeNames: { '#status': 'status', '#revoked': 'revoked' },
-          ExpressionAttributeValues: {
-            ':active': { S: 'active' }, ':revoked': { S: 'revoked' }, ':info': info,
-          },
-          ReturnValues: 'ALL_NEW',
-        }));
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+            UpdateExpression: 'SET #status = :revoked, #revoked = :info',
+            // False for an item that does not exist, too.
+            ConditionExpression: '#status = :active',
+            ExpressionAttributeNames: { '#status': 'status', '#revoked': 'revoked' },
+            ExpressionAttributeValues: {
+              ':active': { S: 'active' },
+              ':revoked': { S: 'revoked' },
+              ':info': info,
+            },
+            ReturnValues: 'ALL_NEW',
+          })
+        );
         return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_active' };
@@ -868,17 +944,19 @@ export function createAws(env) {
 
     async markRevocationEnforced({ sk, at }) {
       try {
-        const out = await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
-          UpdateExpression: 'SET #revoked.#enforcedAt = :at',
-          // Only a revoked release, and only once: the first time stays on record.
-          // False for an item that does not exist, too.
-          ConditionExpression: '#status = :revoked AND attribute_not_exists(#revoked.#enforcedAt)',
-          ExpressionAttributeNames: { '#status': 'status', '#revoked': 'revoked', '#enforcedAt': 'enforcedAt' },
-          ExpressionAttributeValues: { ':revoked': { S: 'revoked' }, ':at': { S: at } },
-          ReturnValues: 'ALL_NEW',
-        }));
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+            UpdateExpression: 'SET #revoked.#enforcedAt = :at',
+            // Only a revoked release, and only once: the first time stays on record.
+            // False for an item that does not exist, too.
+            ConditionExpression: '#status = :revoked AND attribute_not_exists(#revoked.#enforcedAt)',
+            ExpressionAttributeNames: { '#status': 'status', '#revoked': 'revoked', '#enforcedAt': 'enforcedAt' },
+            ExpressionAttributeValues: { ':revoked': { S: 'revoked' }, ':at': { S: at } },
+            ReturnValues: 'ALL_NEW',
+          })
+        );
         return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_pending' };
@@ -888,16 +966,18 @@ export function createAws(env) {
 
     async setReleaseNotes({ sk, notes }) {
       try {
-        const out = await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
-          UpdateExpression: 'SET #notes = :notes',
-          // Never makes an item: only a release that is registered.
-          ConditionExpression: 'attribute_exists(#pk)',
-          ExpressionAttributeNames: { '#notes': 'notes', '#pk': 'pk' },
-          ExpressionAttributeValues: { ':notes': { S: notes } },
-          ReturnValues: 'ALL_NEW',
-        }));
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: RELEASE_PK }, sk: { S: sk } },
+            UpdateExpression: 'SET #notes = :notes',
+            // Never makes an item: only a release that is registered.
+            ConditionExpression: 'attribute_exists(#pk)',
+            ExpressionAttributeNames: { '#notes': 'notes', '#pk': 'pk' },
+            ExpressionAttributeValues: { ':notes': { S: notes } },
+            ReturnValues: 'ALL_NEW',
+          })
+        );
         return { ok: true, release: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_found' };
@@ -907,9 +987,13 @@ export function createAws(env) {
 
     async getToken(sk) {
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: TOKEN_PK }, sk: { S: sk } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: TOKEN_PK }, sk: { S: sk } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined || out.Item === null ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -922,15 +1006,17 @@ export function createAws(env) {
       try {
         for (let pages = 0; pages < MAX_PAGES; pages += 1) {
           // The filter is applied by DynamoDB, so other people's items never leave the table.
-          const out = await dynamo.send(new QueryCommand({
-            TableName: stateTable,
-            KeyConditionExpression: '#pk = :pk',
-            FilterExpression: '#owner = :owner',
-            ExpressionAttributeNames: { '#pk': 'pk', '#owner': 'ownerSub' },
-            ExpressionAttributeValues: { ':pk': { S: TOKEN_PK }, ':owner': { S: ownerSub } },
-            ConsistentRead: true,
-            ExclusiveStartKey: start,
-          }));
+          const out = await dynamo.send(
+            new QueryCommand({
+              TableName: stateTable,
+              KeyConditionExpression: '#pk = :pk',
+              FilterExpression: '#owner = :owner',
+              ExpressionAttributeNames: { '#pk': 'pk', '#owner': 'ownerSub' },
+              ExpressionAttributeValues: { ':pk': { S: TOKEN_PK }, ':owner': { S: ownerSub } },
+              ConsistentRead: true,
+              ExclusiveStartKey: start,
+            })
+          );
           for (const item of out.Items ?? []) items.push(fromItem(item));
           if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
           start = out.LastEvaluatedKey;
@@ -944,12 +1030,14 @@ export function createAws(env) {
     async putToken({ sk, token }) {
       const item = toItem({ ...token, pk: TOKEN_PK, sk });
       try {
-        await dynamo.send(new PutItemCommand({
-          TableName: stateTable,
-          Item: item,
-          ConditionExpression: 'attribute_not_exists(#pk)',
-          ExpressionAttributeNames: { '#pk': 'pk' },
-        }));
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: stateTable,
+            Item: item,
+            ConditionExpression: 'attribute_not_exists(#pk)',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
@@ -959,16 +1047,18 @@ export function createAws(env) {
 
     async markTokenRevoked({ sk, ownerSub, at }) {
       try {
-        const out = await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: { pk: { S: TOKEN_PK }, sk: { S: sk } },
-          UpdateExpression: 'SET #revokedAt = :at',
-          // Only the owner's token, and only once. False for an item that does not exist, too.
-          ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
-          ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
-          ExpressionAttributeValues: { ':owner': { S: ownerSub }, ':null': { S: 'NULL' }, ':at': { S: at } },
-          ReturnValues: 'ALL_NEW',
-        }));
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: TOKEN_PK }, sk: { S: sk } },
+            UpdateExpression: 'SET #revokedAt = :at',
+            // Only the owner's token, and only once. False for an item that does not exist, too.
+            ConditionExpression: '#owner = :owner AND attribute_type(#revokedAt, :null)',
+            ExpressionAttributeNames: { '#owner': 'ownerSub', '#revokedAt': 'revokedAt' },
+            ExpressionAttributeValues: { ':owner': { S: ownerSub }, ':null': { S: 'NULL' }, ':at': { S: at } },
+            ReturnValues: 'ALL_NEW',
+          })
+        );
         return { ok: true, token: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_active' };
@@ -979,12 +1069,14 @@ export function createAws(env) {
     async putAudit(item) {
       const stored = toItem({ ...item, pk: AUDIT_PK });
       try {
-        await dynamo.send(new PutItemCommand({
-          TableName: auditTable,
-          Item: stored,
-          ConditionExpression: 'attribute_not_exists(#pk)',
-          ExpressionAttributeNames: { '#pk': 'pk' },
-        }));
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: auditTable,
+            Item: stored,
+            ConditionExpression: 'attribute_not_exists(#pk)',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
@@ -1027,14 +1119,16 @@ export function createAws(env) {
       let start;
       try {
         for (let pages = 0; pages < MAX_PAGES; pages += 1) {
-          const out = await dynamo.send(new QueryCommand({
-            TableName: eventsTable,
-            KeyConditionExpression: '#pk = :pk',
-            ExpressionAttributeNames: { '#pk': 'pk' },
-            ExpressionAttributeValues: { ':pk': { S: factPartition(thing) } },
-            ConsistentRead: true,
-            ExclusiveStartKey: start,
-          }));
+          const out = await dynamo.send(
+            new QueryCommand({
+              TableName: eventsTable,
+              KeyConditionExpression: '#pk = :pk',
+              ExpressionAttributeNames: { '#pk': 'pk' },
+              ExpressionAttributeValues: { ':pk': { S: factPartition(thing) } },
+              ConsistentRead: true,
+              ExclusiveStartKey: start,
+            })
+          );
           for (const item of out.Items ?? []) items.push(fromItem(item));
           if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return items;
           start = out.LastEvaluatedKey;
@@ -1069,11 +1163,15 @@ export function createAws(env) {
     async listUserGroups(sub) {
       try {
         return await everyPage('AdminListGroupsForUser', async (NextToken) => {
-          const out = await cognito.send(new AdminListGroupsForUserCommand({
-            UserPoolId: userPoolId, Username: sub, Limit: GROUP_PAGE_SIZE, NextToken,
-          }));
-          const items = (out.Groups ?? []).map((group) => group?.GroupName)
-            .filter((name) => typeof name === 'string');
+          const out = await cognito.send(
+            new AdminListGroupsForUserCommand({
+              UserPoolId: userPoolId,
+              Username: sub,
+              Limit: GROUP_PAGE_SIZE,
+              NextToken,
+            })
+          );
+          const items = (out.Groups ?? []).map((group) => group?.GroupName).filter((name) => typeof name === 'string');
           return { items, next: out.NextToken };
         });
       } catch (cause) {
@@ -1102,9 +1200,13 @@ export function createAws(env) {
     async getFleetItem({ pk, sk }) {
       fleetPartition(pk);
       try {
-        const out = await dynamo.send(new GetItemCommand({
-          TableName: stateTable, Key: { pk: { S: pk }, sk: { S: sk } }, ConsistentRead: true,
-        }));
+        const out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: pk }, sk: { S: sk } },
+            ConsistentRead: true,
+          })
+        );
         return out.Item === undefined || out.Item === null ? null : fromItem(out.Item);
       } catch (cause) {
         throw failure('GetItem', cause);
@@ -1124,11 +1226,15 @@ export function createAws(env) {
       fleetPartition(pk);
       const stored = toItem({ ...item, pk, sk });
       try {
-        await dynamo.send(new PutItemCommand({
-          TableName: stateTable,
-          Item: stored,
-          ...(replace ? {} : { ConditionExpression: 'attribute_not_exists(#pk)', ExpressionAttributeNames: { '#pk': 'pk' } }),
-        }));
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: stateTable,
+            Item: stored,
+            ...(replace
+              ? {}
+              : { ConditionExpression: 'attribute_not_exists(#pk)', ExpressionAttributeNames: { '#pk': 'pk' } }),
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
@@ -1149,16 +1255,18 @@ export function createAws(env) {
       });
       parts.push('#rev = :next');
       try {
-        const out = await dynamo.send(new UpdateItemCommand({
-          TableName: stateTable,
-          Key: { pk: { S: pk }, sk: { S: sk } },
-          UpdateExpression: `SET ${parts.join(', ')}`,
-          // False for an item that does not exist, too.
-          ConditionExpression: '#rev = :rev',
-          ExpressionAttributeNames: names,
-          ExpressionAttributeValues: values,
-          ReturnValues: 'ALL_NEW',
-        }));
+        const out = await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: { pk: { S: pk }, sk: { S: sk } },
+            UpdateExpression: `SET ${parts.join(', ')}`,
+            // False for an item that does not exist, too.
+            ConditionExpression: '#rev = :rev',
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
+            ReturnValues: 'ALL_NEW',
+          })
+        );
         return { ok: true, item: out.Attributes ? fromItem(out.Attributes) : null };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'changed' };
@@ -1197,19 +1305,21 @@ export function createEventStore(env) {
 
     async claimLine({ pk, sk, at, ttl }) {
       try {
-        await dynamo.send(new PutItemCommand({
-          TableName: table,
-          Item: toItem({ pk, sk, at, ttl }),
-          // Nobody's yet; this very line again (Lambda's retry); or another life of the board,
-          // which counts its boots from 1 again after a factory reset.
-          ConditionExpression: 'attribute_not_exists(#sk) OR #at = :at OR #at < :low OR #at > :high',
-          ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
-          ExpressionAttributeValues: {
-            ':at': { N: String(at) },
-            ':low': { N: String(at - SAME_LINE_MS) },
-            ':high': { N: String(at + SAME_LINE_MS) },
-          },
-        }));
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: table,
+            Item: toItem({ pk, sk, at, ttl }),
+            // Nobody's yet; this very line again (Lambda's retry); or another life of the board,
+            // which counts its boots from 1 again after a factory reset.
+            ConditionExpression: 'attribute_not_exists(#sk) OR #at = :at OR #at < :low OR #at > :high',
+            ExpressionAttributeNames: { '#sk': 'sk', '#at': 'at' },
+            ExpressionAttributeValues: {
+              ':at': { N: String(at) },
+              ':low': { N: String(at - SAME_LINE_MS) },
+              ':high': { N: String(at + SAME_LINE_MS) },
+            },
+          })
+        );
         return { ok: true };
       } catch (cause) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'same_line' };

@@ -112,7 +112,9 @@ function firstLine(events) {
 
 function main([auditFile, logFile]) {
   if (auditFile === undefined || logFile === undefined) {
-    process.stderr.write('usage: node verify-audit.mjs <aws dynamodb query output> <aws logs filter-log-events output>\n');
+    process.stderr.write(
+      'usage: node verify-audit.mjs <aws dynamodb query output> <aws logs filter-log-events output>\n'
+    );
     return 2;
   }
   let result;
@@ -123,7 +125,11 @@ function main([auditFile, logFile]) {
       process.stderr.write(`error: nothing to compare: ${items.length} entries and ${events.length} log lines\n`);
       return 2;
     }
-    result = compareAudit(items, events.map((event) => event.message), { logStart: firstLine(events) });
+    result = compareAudit(
+      items,
+      events.map((event) => event.message),
+      { logStart: firstLine(events) }
+    );
   } catch (error) {
     process.stderr.write(`error: ${error.message}\n`);
     return 2;
@@ -135,9 +141,11 @@ function main([auditFile, logFile]) {
   for (const id of result.unlogged) {
     process.stdout.write(`UNLOGGED ${id}: the entry is younger than the first line in the log and has none\n`);
   }
-  process.stdout.write(`${result.verified.length} entries match their digest, ${result.changed.length} do not, ` +
-    `${result.missing.length} are missing, ${result.unlogged.length} should have a line and have none. ` +
-    `${result.noLine.length} are older than the log, and cannot be compared.\n`);
+  process.stdout.write(
+    `${result.verified.length} entries match their digest, ${result.changed.length} do not, ` +
+      `${result.missing.length} are missing, ${result.unlogged.length} should have a line and have none. ` +
+      `${result.noLine.length} are older than the log, and cannot be compared.\n`
+  );
   return result.changed.length + result.missing.length + result.unlogged.length === 0 ? 0 : 1;
 }
 

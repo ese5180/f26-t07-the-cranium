@@ -87,7 +87,8 @@ async function directoryOf(read, size) {
     directorySize = Number(record.readBigUInt64LE(40));
     offset = Number(record.readBigUInt64LE(48));
   }
-  if (!Number.isSafeInteger(entries) || entries < 1 || entries > MAX_ENTRIES) refuse('It lists too many files, or none.');
+  if (!Number.isSafeInteger(entries) || entries < 1 || entries > MAX_ENTRIES)
+    refuse('It lists too many files, or none.');
   if (!Number.isSafeInteger(directorySize) || directorySize < 46 || directorySize > MAX_DIRECTORY) {
     refuse('Its list of files is too large, or empty.');
   }
@@ -106,7 +107,7 @@ function zip64Fields(extra, entry) {
     if (id === 0x0001) {
       let field = 0;
       const next = () => {
-        if (field + 8 > body.length) refuse('An entry\'s ZIP64 sizes are damaged.');
+        if (field + 8 > body.length) refuse("An entry's ZIP64 sizes are damaged.");
         const value = Number(body.readBigUInt64LE(field));
         field += 8;
         return value;
@@ -151,16 +152,22 @@ function entriesOf(directory, count) {
 async function contentOf(read, fileSize, entry, limit) {
   if (entry.flags & 0x0001) refuse(`${entry.name} is encrypted.`);
   if (!Number.isSafeInteger(entry.size) || entry.size > limit) refuse(`${entry.name} is too large.`);
-  if (!Number.isSafeInteger(entry.compressedSize) || entry.compressedSize > limit) refuse(`${entry.name} is too large.`);
-  if (!Number.isSafeInteger(entry.localOffset) || entry.localOffset + 30 > fileSize) refuse(`${entry.name} is out of the file.`);
+  if (!Number.isSafeInteger(entry.compressedSize) || entry.compressedSize > limit)
+    refuse(`${entry.name} is too large.`);
+  if (!Number.isSafeInteger(entry.localOffset) || entry.localOffset + 30 > fileSize)
+    refuse(`${entry.name} is out of the file.`);
   const header = await readExactly(read, entry.localOffset, 30);
   if (header.readUInt32LE(0) !== LOCAL) refuse(`${entry.name} is damaged.`);
   const nameLength = header.readUInt16LE(26);
   const skip = nameLength + header.readUInt16LE(28);
   const start = entry.localOffset + 30 + skip;
-  if (30 + skip > MAX_LOCAL_HEADER || start + entry.compressedSize > fileSize) refuse(`${entry.name} is out of the file.`);
+  if (30 + skip > MAX_LOCAL_HEADER || start + entry.compressedSize > fileSize)
+    refuse(`${entry.name} is out of the file.`);
   // The local header names the same file as the list does, or the list points at something else.
-  if (nameLength === 0 || (await readExactly(read, entry.localOffset + 30, nameLength)).toString('utf8') !== entry.name) {
+  if (
+    nameLength === 0 ||
+    (await readExactly(read, entry.localOffset + 30, nameLength)).toString('utf8') !== entry.name
+  ) {
     refuse(`${entry.name} is damaged.`);
   }
   const stored = entry.compressedSize === 0 ? Buffer.alloc(0) : await readExactly(read, start, entry.compressedSize);
@@ -176,7 +183,8 @@ async function contentOf(read, fileSize, entry, limit) {
   } else {
     refuse(`${entry.name} is compressed in a way the console does not read.`);
   }
-  if (bytes.length !== entry.size || (crc32(bytes) >>> 0) !== entry.crc) refuse(`${entry.name} is damaged: its checksum does not match.`);
+  if (bytes.length !== entry.size || crc32(bytes) >>> 0 !== entry.crc)
+    refuse(`${entry.name} is damaged: its checksum does not match.`);
   return bytes;
 }
 
@@ -193,12 +201,16 @@ export async function readIpa({ size, read }) {
   for (const entry of entries) {
     const match = APP_DIR.exec(entry.name);
     if (match) apps.add(match[1]);
-    else if (!entry.name.startsWith('Payload/') && !entry.name.startsWith('__MACOSX/')
-      && !['META-INF/', 'iTunesMetadata.plist', 'iTunesArtwork', 'Symbols/'].some((top) => entry.name.startsWith(top))) {
+    else if (
+      !entry.name.startsWith('Payload/') &&
+      !entry.name.startsWith('__MACOSX/') &&
+      !['META-INF/', 'iTunesMetadata.plist', 'iTunesArtwork', 'Symbols/'].some((top) => entry.name.startsWith(top))
+    ) {
       refuse(`It holds ${entry.name.slice(0, 80)}, outside Payload/: it is not an IPA.`);
     }
   }
-  if (apps.size !== 1) refuse(apps.size === 0 ? 'It has no Payload/<Name>.app: it is not an IPA.' : 'It holds more than one app.');
+  if (apps.size !== 1)
+    refuse(apps.size === 0 ? 'It has no Payload/<Name>.app: it is not an IPA.' : 'It holds more than one app.');
   const [app] = apps;
   const named = (file) => entries.filter((entry) => entry.name === `Payload/${app}.app/${file}`);
 
@@ -211,7 +223,8 @@ export async function readIpa({ size, read }) {
     if (error instanceof PlistError) refuse(`Its Info.plist cannot be read (${error.message}).`);
     throw error;
   }
-  if (info === null || typeof info !== 'object' || Array.isArray(info) || Buffer.isBuffer(info)) refuse('Its Info.plist is not a dictionary.');
+  if (info === null || typeof info !== 'object' || Array.isArray(info) || Buffer.isBuffer(info))
+    refuse('Its Info.plist is not a dictionary.');
 
   const privacy = {};
   for (const key of Object.keys(info).sort()) {

@@ -5,9 +5,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  IN_PROGRESS_TIMEOUT_MIN, URL_EXPIRES_SEC, buildJobDescription, buildJobDocument, buildJobId,
-  countExecutions, emptyCounts, executionDetails, isActiveExecution, isSettled, isoTime, mapLimit,
-  parseJobDescription, summarizeJob,
+  IN_PROGRESS_TIMEOUT_MIN,
+  URL_EXPIRES_SEC,
+  buildJobDescription,
+  buildJobDocument,
+  buildJobId,
+  countExecutions,
+  emptyCounts,
+  executionDetails,
+  isActiveExecution,
+  isSettled,
+  isoTime,
+  mapLimit,
+  parseJobDescription,
+  summarizeJob,
 } from '../src/lib/jobs.mjs';
 import { parseJobId } from '../src/lib/validate.mjs';
 
@@ -21,8 +32,10 @@ test('a job id carries the version, the time and four random hex digits', () => 
   assert.equal(id, 'cranium-1-1-0-b7-20261010T221500Z-9f3a');
   assert.equal(parseJobId(id).version, '1.1.0+7');
   // The fraction of a second is dropped, not rounded.
-  assert.equal(buildJobId({ major: 0, minor: 0, revision: 1, build: 0 }, NOW + 999, '0000'),
-    'cranium-0-0-1-b0-20261010T221500Z-0000');
+  assert.equal(
+    buildJobId({ major: 0, minor: 0, revision: 1, build: 0 }, NOW + 999, '0000'),
+    'cranium-0-0-1-b0-20261010T221500Z-0000'
+  );
 });
 
 test('the id of the highest possible version fits the 64 characters AWS allows', () => {
@@ -44,7 +57,11 @@ test('a job id is only built from a proper random suffix', () => {
 
 test('the job document is what the device contract says', () => {
   const text = buildJobDocument({
-    version: '1.1.0+7', size: 815284, sha256: SHA, region: 'us-east-1', bucket: 'cranium-ota-firmware-1abc2def3ghi',
+    version: '1.1.0+7',
+    size: 815284,
+    sha256: SHA,
+    region: 'us-east-1',
+    bucket: 'cranium-ota-firmware-1abc2def3ghi',
   });
   assert.deepEqual(JSON.parse(text), {
     op: 'fw_update',
@@ -74,21 +91,45 @@ test('the largest possible job document stays below 512 bytes', () => {
   assert.equal(JSON.parse(text).fw.url.includes('b'.repeat(61)), true);
   assert.equal(Buffer.byteLength(text), 407);
   assert.ok(Buffer.byteLength(text) < 512);
-  assert.throws(() => buildJobDocument({
-    version: '1.0.0+0', size: 1, sha256: 'f'.repeat(64), region: 'r'.repeat(33), bucket: 'firmware-bucket',
-  }), TypeError);
+  assert.throws(
+    () =>
+      buildJobDocument({
+        version: '1.0.0+0',
+        size: 1,
+        sha256: 'f'.repeat(64),
+        region: 'r'.repeat(33),
+        bucket: 'firmware-bucket',
+      }),
+    TypeError
+  );
 });
 
 test('a job document is never built from values that do not fit', () => {
   const good = { version: '1.1.0+7', size: 815284, sha256: SHA, region: 'us-east-1', bucket: 'firmware-bucket' };
   assert.ok(buildJobDocument(good));
   const bad = [
-    { version: '1.1.0' }, { version: '01.1.0+7' }, { version: null },
-    { size: 0 }, { size: -1 }, { size: 1.5 }, { size: '815284' },
-    { sha256: SHA.toUpperCase() }, { sha256: SHA.slice(1) }, { sha256: `${SHA}0` }, { sha256: null },
-    { region: 'us-east-1/../x' }, { region: 'US-EAST-1' }, { region: '' }, { region: 'us east 1' },
-    { bucket: 'Has-Capitals' }, { bucket: 'has/slash' }, { bucket: 'a}b' }, { bucket: 'ab' }, { bucket: 'x'.repeat(64) },
-    { bucket: 'has space' }, { bucket: '' },
+    { version: '1.1.0' },
+    { version: '01.1.0+7' },
+    { version: null },
+    { size: 0 },
+    { size: -1 },
+    { size: 1.5 },
+    { size: '815284' },
+    { sha256: SHA.toUpperCase() },
+    { sha256: SHA.slice(1) },
+    { sha256: `${SHA}0` },
+    { sha256: null },
+    { region: 'us-east-1/../x' },
+    { region: 'US-EAST-1' },
+    { region: '' },
+    { region: 'us east 1' },
+    { bucket: 'Has-Capitals' },
+    { bucket: 'has/slash' },
+    { bucket: 'a}b' },
+    { bucket: 'ab' },
+    { bucket: 'x'.repeat(64) },
+    { bucket: 'has space' },
+    { bucket: '' },
   ];
   for (const change of bad) {
     assert.throws(() => buildJobDocument({ ...good, ...change }), TypeError, JSON.stringify(change));
@@ -127,12 +168,18 @@ test('a description written by someone else is not trusted', () => {
   }
   assert.deepEqual(parseJobDescription('{"by":"x","note":"hello"}'), { createdBy: null, note: 'hello' });
   assert.deepEqual(parseJobDescription('{"sub":5,"by":["a"],"note":{"a":1}}'), nobody);
-  assert.deepEqual(parseJobDescription('{"sub":"abc","by":"line\\nbreak","note":"bell\\u0007"}'),
-    { createdBy: { sub: 'abc', email: '' }, note: '' });
-  assert.deepEqual(parseJobDescription(JSON.stringify({ sub: 'abc', by: 'x', note: 'n'.repeat(201) })),
-    { createdBy: { sub: 'abc', email: 'x' }, note: '' });
-  assert.deepEqual(parseJobDescription('{"sub":"abc","__proto__":{"note":"inherited"}}'),
-    { createdBy: { sub: 'abc', email: '' }, note: '' });
+  assert.deepEqual(parseJobDescription('{"sub":"abc","by":"line\\nbreak","note":"bell\\u0007"}'), {
+    createdBy: { sub: 'abc', email: '' },
+    note: '',
+  });
+  assert.deepEqual(parseJobDescription(JSON.stringify({ sub: 'abc', by: 'x', note: 'n'.repeat(201) })), {
+    createdBy: { sub: 'abc', email: 'x' },
+    note: '',
+  });
+  assert.deepEqual(parseJobDescription('{"sub":"abc","__proto__":{"note":"inherited"}}'), {
+    createdBy: { sub: 'abc', email: '' },
+    note: '',
+  });
   // A sub that is not a line of reasonable length names nobody.
   for (const sub of ['a\\u0000b', 'a\\nb', '\\u202eabc', 'x'.repeat(129), '']) {
     assert.deepEqual(parseJobDescription(`{"sub":"${sub}","by":"x","note":"n"}`), { createdBy: null, note: 'n' }, sub);
@@ -163,28 +210,60 @@ test('a job becomes a DeploymentSummary', () => {
     counts: { ...emptyCounts(), queued: 1, inProgress: 1 },
   });
 
-  const done = summarizeJob({ ...job, status: 'COMPLETED', completedAt: NOW + 60000, counts: { ...emptyCounts(), succeeded: 2 } });
+  const done = summarizeJob({
+    ...job,
+    status: 'COMPLETED',
+    completedAt: NOW + 60000,
+    counts: { ...emptyCounts(), succeeded: 2 },
+  });
   assert.equal(done.completedAt, '2026-10-10T22:16:00.000Z');
   assert.equal(isSettled(done), true);
   assert.equal(isSettled(summarizeJob(job)), false);
   // Cancelled without force: boards that had started are still running.
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 1, inProgress: 1 } })), false);
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 2 } })), true);
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 1, inProgress: 1 } })),
+    false
+  );
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 2 } })),
+    true
+  );
   // The status can be ahead of the counts: not settled until every board is counted.
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 1 } })), false);
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: { ...emptyCounts(), canceled: 1 } })),
+    false
+  );
   assert.equal(isSettled(summarizeJob({ ...job, status: 'CANCELED', counts: emptyCounts() })), false);
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), succeeded: 1 } })), false);
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), succeeded: 1, queued: 1 } })), false);
-  assert.equal(isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), failed: 1, timedOut: 1 } })), true);
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), succeeded: 1 } })),
+    false
+  );
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), succeeded: 1, queued: 1 } })),
+    false
+  );
+  assert.equal(
+    isSettled(summarizeJob({ ...job, status: 'COMPLETED', counts: { ...emptyCounts(), failed: 1, timedOut: 1 } })),
+    true
+  );
   for (const status of ['IN_PROGRESS', 'SCHEDULED', 'DELETION_IN_PROGRESS']) {
-    assert.equal(isSettled(summarizeJob({ ...job, status, counts: { ...emptyCounts(), succeeded: 2 } })), false, status);
+    assert.equal(
+      isSettled(summarizeJob({ ...job, status, counts: { ...emptyCounts(), succeeded: 2 } })),
+      false,
+      status
+    );
   }
 });
 
 test('boards of a new job count as queued until AWS has created their executions', () => {
   const job = {
-    jobId: 'cranium-1-1-0-b7-20261010T221500Z-9f3a', status: 'IN_PROGRESS', description: '',
-    things: [THING, 'cranium-0000000000000001'], createdAt: NOW, lastUpdatedAt: NOW, completedAt: null,
+    jobId: 'cranium-1-1-0-b7-20261010T221500Z-9f3a',
+    status: 'IN_PROGRESS',
+    description: '',
+    things: [THING, 'cranium-0000000000000001'],
+    createdAt: NOW,
+    lastUpdatedAt: NOW,
+    completedAt: null,
     counts: emptyCounts(),
   };
   assert.equal(summarizeJob(job).counts.queued, 2);
@@ -197,8 +276,14 @@ test('boards of a new job count as queued until AWS has created their executions
 
 test('jobs of other tools and malformed jobs are not deployments', () => {
   const job = {
-    jobId: 'cranium-1-1-0-b7-20261010T221500Z-9f3a', status: 'IN_PROGRESS', description: '', things: [THING],
-    createdAt: NOW, lastUpdatedAt: NOW, completedAt: null, counts: emptyCounts(),
+    jobId: 'cranium-1-1-0-b7-20261010T221500Z-9f3a',
+    status: 'IN_PROGRESS',
+    description: '',
+    things: [THING],
+    createdAt: NOW,
+    lastUpdatedAt: NOW,
+    completedAt: null,
+    counts: emptyCounts(),
   };
   assert.ok(summarizeJob(job));
   assert.equal(summarizeJob(null), null);
@@ -210,16 +295,27 @@ test('jobs of other tools and malformed jobs are not deployments', () => {
   // Without a creation time from AWS, the time in the id is used.
   assert.equal(summarizeJob({ ...job, createdAt: null }).createdAt, '2026-10-10T22:15:00.000Z');
   // Counts that are not counts are ignored.
-  const odd = summarizeJob({ ...job, status: 'CANCELED', things: 'x', counts: { queued: -3, failed: '2', succeeded: 1.5, canceled: 1 } });
+  const odd = summarizeJob({
+    ...job,
+    status: 'CANCELED',
+    things: 'x',
+    counts: { queued: -3, failed: '2', succeeded: 1.5, canceled: 1 },
+  });
   assert.deepEqual(odd.counts, { ...emptyCounts(), canceled: 1 });
   assert.deepEqual(odd.things, []);
 });
 
 test('what a board wrote into its execution is reduced to the contract', () => {
-  assert.deepEqual(executionDetails({ step: 'downloading' }),
-    { reason: null, detail: null, step: 'downloading', running: null });
-  assert.deepEqual(executionDetails({ reason: 'digest_mismatch', detail: 'sha256 differs at 0x1000', running: '1.0.0+3' }),
-    { reason: 'digest_mismatch', detail: 'sha256 differs at 0x1000', step: null, running: '1.0.0+3' });
+  assert.deepEqual(executionDetails({ step: 'downloading' }), {
+    reason: null,
+    detail: null,
+    step: 'downloading',
+    running: null,
+  });
+  assert.deepEqual(
+    executionDetails({ reason: 'digest_mismatch', detail: 'sha256 differs at 0x1000', running: '1.0.0+3' }),
+    { reason: 'digest_mismatch', detail: 'sha256 differs at 0x1000', step: null, running: '1.0.0+3' }
+  );
 
   const nothing = { reason: null, detail: null, step: null, running: null };
   for (const value of [null, undefined, 'reason=declined', 5, [], [{ reason: 'declined' }]]) {
@@ -251,11 +347,21 @@ test('what a board wrote into its execution is reduced to the contract', () => {
 });
 
 test('execution statuses are counted and classified', () => {
-  assert.deepEqual(countExecutions([
-    { status: 'QUEUED' }, { status: 'QUEUED' }, { status: 'IN_PROGRESS' }, { status: 'SUCCEEDED' },
-    { status: 'FAILED' }, { status: 'REJECTED' }, { status: 'CANCELED' }, { status: 'TIMED_OUT' },
-    { status: 'REMOVED' }, { status: 'toString' },
-  ]), { queued: 2, inProgress: 1, succeeded: 1, failed: 1, rejected: 1, canceled: 1, timedOut: 1, removed: 1 });
+  assert.deepEqual(
+    countExecutions([
+      { status: 'QUEUED' },
+      { status: 'QUEUED' },
+      { status: 'IN_PROGRESS' },
+      { status: 'SUCCEEDED' },
+      { status: 'FAILED' },
+      { status: 'REJECTED' },
+      { status: 'CANCELED' },
+      { status: 'TIMED_OUT' },
+      { status: 'REMOVED' },
+      { status: 'toString' },
+    ]),
+    { queued: 2, inProgress: 1, succeeded: 1, failed: 1, rejected: 1, canceled: 1, timedOut: 1, removed: 1 }
+  );
   assert.equal(isActiveExecution('QUEUED'), true);
   assert.equal(isActiveExecution('IN_PROGRESS'), true);
   for (const status of ['SUCCEEDED', 'FAILED', 'REJECTED', 'CANCELED', 'TIMED_OUT', 'REMOVED', undefined]) {
@@ -283,12 +389,15 @@ test('mapLimit keeps the order and never runs more tasks than allowed', async ()
 
   // After a failure no further task is started.
   let started = 0;
-  await assert.rejects(mapLimit([1, 2, 3, 4, 5, 6], 2, async (value) => {
-    started += 1;
-    if (value === 2) throw new Error('stop');
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    return value;
-  }), /stop/);
+  await assert.rejects(
+    mapLimit([1, 2, 3, 4, 5, 6], 2, async (value) => {
+      started += 1;
+      if (value === 2) throw new Error('stop');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return value;
+    }),
+    /stop/
+  );
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.ok(started <= 3, `${started} tasks started`);
 });

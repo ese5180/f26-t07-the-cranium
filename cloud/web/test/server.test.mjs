@@ -18,10 +18,16 @@ const LOGIN = 'https://cranium-0a1b2c3d.auth.region-1.login.test';
 // A made-up Region: the pool's ID names it, and the address of the user pool API follows.
 const POOL = 'xx-test-1_Pool0Tests';
 const USER_POOL_API = 'https://cognito-idp.xx-test-1.amazonaws.com';
-const SETTINGS = { clientId: 'client-id-for-tests', loginOrigin: LOGIN, scope: 'openid cranium/console', userPoolId: POOL };
+const SETTINGS = {
+  clientId: 'client-id-for-tests',
+  loginOrigin: LOGIN,
+  scope: 'openid cranium/console',
+  userPoolId: POOL,
+};
 
 // Images also from OpenStreetMap's tile server, for the map (assets/map.js), and from nowhere else.
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; " +
+const CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https://tile.openstreetmap.org; " +
   `connect-src 'self' ${LOGIN} ${USER_POOL_API}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 /** An event as API Gateway sends it. A value given as undefined stays undefined. */
@@ -105,16 +111,28 @@ test('the page may talk to itself, the login pages and the user pool API, and to
   // Each pool talks to the API of its own Region.
   const elsewhere = await quiet({ ...SETTINGS, userPoolId: 'yy-other-2_AbC123' })(request('/'));
   assert.equal(settingsIn(elsewhere.body).idpOrigin, 'https://cognito-idp.yy-other-2.amazonaws.com');
-  assert.match(elsewhere.headers['content-security-policy'],
-    /connect-src 'self' \S+ https:\/\/cognito-idp\.yy-other-2\.amazonaws\.com;/);
+  assert.match(
+    elsewhere.headers['content-security-policy'],
+    /connect-src 'self' \S+ https:\/\/cognito-idp\.yy-other-2\.amazonaws\.com;/
+  );
   // Sending a form stays forbidden: the sign-in page never posts one.
   assert.match(policy, /(^|; )form-action 'none'(;|$)/);
 });
 
 test('a user pool ID that is not one is refused when the handler is made', () => {
   const refused = [
-    'xx-test-1_Pool0Tests evil.example', 'xx-test-1_Pool;script-src *', 'xx-test-1_', '_Pool0Tests', 'xx-test-1',
-    'XX-TEST-1_Pool0Tests', 'xx-test-1_Pool-0', 'xx-test-1_Pool0Tests\n', '', undefined, null, 5,
+    'xx-test-1_Pool0Tests evil.example',
+    'xx-test-1_Pool;script-src *',
+    'xx-test-1_',
+    '_Pool0Tests',
+    'xx-test-1',
+    'XX-TEST-1_Pool0Tests',
+    'xx-test-1_Pool-0',
+    'xx-test-1_Pool0Tests\n',
+    '',
+    undefined,
+    null,
+    5,
   ];
   for (const userPoolId of refused) {
     assert.throws(() => createWebHandler({ ...SETTINGS, userPoolId }), TypeError, String(userPoolId));
@@ -146,7 +164,7 @@ test('settings cannot break out of the attribute they are written into', async (
     '</head><body onload=alert(1)>',
     '&quot;&lt;&amp;#39;',
     'a&b<c>d"e\'f',
-    '$& $\' $` $1 $$',
+    "$& $' $` $1 $$",
     '%BUILD% %CONFIG%',
     'line\nbreak\ttab\u2028separator',
     '<!-- --!> ]]>',
@@ -165,8 +183,19 @@ test('settings cannot break out of the attribute they are written into', async (
 });
 
 test('a domain name that is not a host name is refused, not written into the page', async () => {
-  for (const domainName of ['evil.example"><script>alert(1)</script>', "evil.example'", 'two words.example',
-    'evil.example/path', 'evil.example:8443', 'UPPER.example', '-leading.example', '', undefined, null, 42]) {
+  for (const domainName of [
+    'evil.example"><script>alert(1)</script>',
+    "evil.example'",
+    'two words.example',
+    'evil.example/path',
+    'evil.example:8443',
+    'UPPER.example',
+    '-leading.example',
+    '',
+    undefined,
+    null,
+    42,
+  ]) {
     const response = await serve(request('/', { domainName }));
     assert.equal(response.statusCode, 400, String(domainName));
     assert.equal(response.body, 'Bad request\n');
@@ -204,7 +233,9 @@ test('a login origin that could alter the security policy is refused when the ha
 test('every file of the site is served under the build id and may be cached for ever', async () => {
   const build = await currentBuild();
   const types = {
-    css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8', json: 'application/json; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8',
     // Leaflet's licence, beside it.
     txt: 'text/plain; charset=utf-8',
   };
@@ -223,9 +254,12 @@ test('every file of the site is served under the build id and may be cached for 
 });
 
 test('the build id is the first 12 hex digits of a SHA-256 over the names and contents', async () => {
-  const names = ['index.html', ...readdirSync(new URL('assets/', SITE))
-    .filter(ofConsole)
-    .map((name) => `assets/${name}`)].sort();
+  const names = [
+    'index.html',
+    ...readdirSync(new URL('assets/', SITE))
+      .filter(ofConsole)
+      .map((name) => `assets/${name}`),
+  ].sort();
   const hash = createHash('sha256');
   for (const name of names) {
     const bytes = readFileSync(new URL(name, SITE));
@@ -347,7 +381,13 @@ test('only GET is answered', async () => {
 
 test('an event without the expected outline is refused without throwing', async () => {
   const events = [
-    undefined, null, {}, { rawPath: '/' }, { requestContext: {} }, { requestContext: { http: {} } }, 'GET /',
+    undefined,
+    null,
+    {},
+    { rawPath: '/' },
+    { requestContext: {} },
+    { requestContext: { http: {} } },
+    'GET /',
   ];
   for (const event of events) {
     const response = await serve(event);
@@ -361,16 +401,21 @@ test('one line is logged per request, and never the query string', async () => {
   const logged = createWebHandler({ ...SETTINGS, log: (entry) => lines.push(entry) });
   const build = await currentBuild();
 
-  await logged(request('/', {
-    rawQueryString: 'code=AUTHORIZATION-CODE&state=STATE-VALUE',
-    queryStringParameters: { code: 'AUTHORIZATION-CODE', state: 'STATE-VALUE' },
-    headers: { referer: 'https://example.invalid/?code=AUTHORIZATION-CODE', cookie: 'session=COOKIE-VALUE' },
-  }));
+  await logged(
+    request('/', {
+      rawQueryString: 'code=AUTHORIZATION-CODE&state=STATE-VALUE',
+      queryStringParameters: { code: 'AUTHORIZATION-CODE', state: 'STATE-VALUE' },
+      headers: { referer: 'https://example.invalid/?code=AUTHORIZATION-CODE', cookie: 'session=COOKIE-VALUE' },
+    })
+  );
   await logged(request(`/assets/${build}/app.js`));
   await logged(request(`/${'x'.repeat(5000)}`));
   await logged(request('/', { method: 'POST' }));
 
-  assert.deepEqual(lines.map((line) => line.status), [200, 200, 404, 405]);
+  assert.deepEqual(
+    lines.map((line) => line.status),
+    [200, 200, 404, 405]
+  );
   assert.deepEqual(lines[0], { requestId: 'request-1', method: 'GET', path: '/', status: 200 });
   assert.equal(lines[2].path.length, 200);
   const everything = JSON.stringify(lines);

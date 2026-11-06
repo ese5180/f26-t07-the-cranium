@@ -31,7 +31,9 @@ const config = Object.freeze({ ...loadConfig(process.env), customers });
 // project key is stored (aws-memfault.mjs).
 export const handler = createApp({
   aws: {
-    ...createAws(process.env), ...createMapAws(process.env), ...createAppsAws(process.env),
+    ...createAws(process.env),
+    ...createMapAws(process.env),
+    ...createAppsAws(process.env),
     ...createMemfaultStatus(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },

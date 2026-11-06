@@ -43,9 +43,14 @@ const IPAS = "Resource: !Sub '${FirmwareBucket.Arn}/apps/ios/cranium-ios-*.ipa'"
 
 test('the API role has one S3 action for each step of a publish and a download, on the APKs and IPAs alone', () => {
   const role = block(template, 'ApiRole');
-  for (const [sid, action, files] of [['SendAndroidApks', 's3:PutObject', APKS], ['CheckAndroidApks', 's3:GetObject', APKS],
-    ['ServeAndroidApks', 's3:GetObjectVersion', APKS], ['SendIphoneIpas', 's3:PutObject', IPAS],
-    ['CheckIphoneIpas', 's3:GetObject', IPAS], ['ServeIphoneIpas', 's3:GetObjectVersion', IPAS]]) {
+  for (const [sid, action, files] of [
+    ['SendAndroidApks', 's3:PutObject', APKS],
+    ['CheckAndroidApks', 's3:GetObject', APKS],
+    ['ServeAndroidApks', 's3:GetObjectVersion', APKS],
+    ['SendIphoneIpas', 's3:PutObject', IPAS],
+    ['CheckIphoneIpas', 's3:GetObject', IPAS],
+    ['ServeIphoneIpas', 's3:GetObjectVersion', IPAS],
+  ]) {
     const part = statement(role, sid);
     assert.ok(part.includes('Effect: Allow'), sid);
     assert.ok(part.includes(`Action: ${action}\n`), sid);
@@ -58,7 +63,13 @@ test('the API role has one S3 action for each step of a publish and a download, 
   assert.equal((role.match(/\/apps\//g) ?? []).length, 6);
   assert.equal(role.includes("${FirmwareBucket.Arn}/*'"), false);
   assert.equal(/\n\s*Resource: !GetAtt FirmwareBucket\.Arn/.test(role), false);
-  for (const action of ['s3:ListBucket', 's3:ListBucketVersions', 's3:DeleteObject', 's3:DeleteObjectVersion', 's3:*']) {
+  for (const action of [
+    's3:ListBucket',
+    's3:ListBucketVersions',
+    's3:DeleteObject',
+    's3:DeleteObjectVersion',
+    's3:*',
+  ]) {
     assert.equal(role.includes(action), false, action);
   }
   // The firmware stays where it was: put and read under firmware/ only, by the statements of before.
@@ -74,28 +85,42 @@ test('the bucket keeps every version of an object, which a download names; board
   // No rule that would expire an old version of an APK that a release still names.
   assert.equal(bucket.includes('LifecycleConfiguration'), false);
   // TLS only, for the APKs as for the firmware.
-  assert.ok(statement(block(template, 'FirmwareBucketPolicy'), 'DenyRequestsWithoutTls').includes("- !Sub '${FirmwareBucket.Arn}/*'"));
+  assert.ok(
+    statement(block(template, 'FirmwareBucketPolicy'), 'DenyRequestsWithoutTls').includes(
+      "- !Sub '${FirmwareBucket.Arn}/*'"
+    )
+  );
   // What a board downloads from, and what AWS IoT presigns for it, stay under firmware/.
   assert.ok(block(template, 'FirmwareDownloadPrefix').includes('amazonaws.com/firmware/'));
   assert.ok(block(template, 'PresignRole').includes("Resource: !Sub '${FirmwareBucket.Arn}/firmware/*'"));
   assert.equal(block(template, 'PresignRole').includes('/apps/'), false);
 });
 
-test('the API is told the console\'s address and its login pages, as the other functions and the outputs say', () => {
+test("the API is told the console's address and its login pages, as the other functions and the outputs say", () => {
   const variables = block(block(template, 'ApiFn'), 'Variables', 8);
-  const consoleUrl = "CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']";
+  const consoleUrl =
+    "CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']";
   assert.ok(variables.includes(consoleUrl));
   assert.ok(variables.includes("LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'"));
   assert.ok(block(template, 'ConsoleUrl').includes(consoleUrl.slice('CONSOLE_URL: '.length)));
   assert.ok(block(template, 'LoginDomain').includes("!Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'"));
   // The web function's page config gives the website's own client the same login pages.
-  assert.ok(block(block(template, 'WebFn'), 'Variables', 8).includes("LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'"));
+  assert.ok(
+    block(block(template, 'WebFn'), 'Variables', 8).includes(
+      "LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'"
+    )
+  );
 });
 
 test('an APK never passes through API Gateway: its routes are the ones the API already has', () => {
   const app = read('api/src/app.mjs');
-  for (const route of ["route('POST', '/api/apps/android/uploads'", "route('POST', '/api/apps/android/releases/{version}'",
-    "route('GET', '/api/apps/android/{version}/download'", "route('GET', '/api/apps'", "route('GET', '/api/apps/config'"]) {
+  for (const route of [
+    "route('POST', '/api/apps/android/uploads'",
+    "route('POST', '/api/apps/android/releases/{version}'",
+    "route('GET', '/api/apps/android/{version}/download'",
+    "route('GET', '/api/apps'",
+    "route('GET', '/api/apps/config'",
+  ]) {
     assert.ok(app.includes(route), route);
   }
   // No new gateway route: GET and POST under /api/ and /api/t/ reach them.
@@ -112,7 +137,11 @@ test('SideStore reads a source through one route of its own: GET only, no author
   assert.equal((template.match(/RouteKey: '[A-Z]+ \/api\/sidestore\//g) ?? []).length, 1);
   const stage = block(template, 'Stage');
   assert.ok(block(stage, 'DependsOn', 4).includes('- ApiSidestoreRoute'));
-  const part = block(stage, 'RouteSettings', 6).split("'GET /api/sidestore/{proxy+}':")[1].split('\n').slice(1, 3).join('\n');
+  const part = block(stage, 'RouteSettings', 6)
+    .split("'GET /api/sidestore/{proxy+}':")[1]
+    .split('\n')
+    .slice(1, 3)
+    .join('\n');
   const burst = Number(/ThrottlingBurstLimit: (\d+)/.exec(part)[1]);
   const rate = Number(/ThrottlingRateLimit: (\d+)/.exec(part)[1]);
   assert.ok(burst >= 1 && burst <= 5 && rate >= 1 && rate <= 2, part);

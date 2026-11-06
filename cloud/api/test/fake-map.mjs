@@ -81,7 +81,7 @@ export function createFakeMap({ clock, put, get, list }) {
   const commands = [];
   const listeners = [];
   const alertEmails = [];
-  const subscriptions = new Map();  // address in lower case -> { endpoint, arn }
+  const subscriptions = new Map(); // address in lower case -> { endpoint, arn }
   let subscriptionCount = 0;
   let solve = () => ({ found: false });
   // The alerts are off until enableAlerts(); then each message is handled by an alerter whose clock
@@ -114,7 +114,8 @@ export function createFakeMap({ clock, put, get, list }) {
       put(copy(item));
     },
     async publishAlert({ subject, message }) {
-      if (typeof message !== 'string' || message === '') throw awsError('Publish', 'InvalidParameterException', { status: 400 });
+      if (typeof message !== 'string' || message === '')
+        throw awsError('Publish', 'InvalidParameterException', { status: 400 });
       if (typeof subject !== 'string' || subject.length > 100 || /[^\x20-\x7e]/.test(subject)) {
         throw awsError('Publish', 'InvalidParameterException', { status: 400 });
       }
@@ -149,7 +150,10 @@ export function createFakeMap({ clock, put, get, list }) {
       now: clock,
       randomHex: (count) => {
         draws += 1;
-        return createHash('sha256').update(`location ${draws}`).digest('hex').slice(0, 2 * count);
+        return createHash('sha256')
+          .update(`location ${draws}`)
+          .digest('hex')
+          .slice(0, 2 * count);
       },
       log: () => {},
     });
@@ -177,11 +181,16 @@ export function createFakeMap({ clock, put, get, list }) {
     },
 
     async listAlertSubscriptions() {
-      return [...subscriptions.values()].map((entry) => ({ arn: entry.arn, endpoint: entry.endpoint, protocol: 'email' }));
+      return [...subscriptions.values()].map((entry) => ({
+        arn: entry.arn,
+        endpoint: entry.endpoint,
+        protocol: 'email',
+      }));
     },
 
     async subscribeAlerts(email) {
-      if (typeof email !== 'string' || !EMAIL.test(email)) throw awsError('Subscribe', 'InvalidParameterException', { status: 400 });
+      if (typeof email !== 'string' || !EMAIL.test(email))
+        throw awsError('Subscribe', 'InvalidParameterException', { status: 400 });
       const known = subscriptions.get(email.toLowerCase());
       if (known?.arn) return { pending: false };
       subscriptions.set(email.toLowerCase(), { endpoint: email, arn: null });

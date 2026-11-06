@@ -52,18 +52,28 @@ export function createLocationHandlers({ aws, now, log }, { devices }) {
    * thing's attribute `board`, as provisioning sets it (and as handlers/fleet.mjs reads it).
    */
   async function bluetoothOnly(listed) {
-    const silent = listed.filter((device) => device.lastSeen === null && device.fw === null).map((device) => device.thing);
+    const silent = listed
+      .filter((device) => device.lastSeen === null && device.fw === null)
+      .map((device) => device.thing);
     if (typeof aws.describeThing !== 'function' || silent.length === 0) return new Map();
     const read = await Promise.allSettled(silent.map(attributesOf));
-    return new Map(silent.map((thing, index) =>
-      [thing, read[index].status === 'fulfilled' && read[index].value?.board === 'nrf5340dk']));
+    return new Map(
+      silent.map((thing, index) => [
+        thing,
+        read[index].status === 'fulfilled' && read[index].value?.board === 'nrf5340dk',
+      ])
+    );
   }
 
   function placed(device, items, viaPhone) {
     const only = viaPhone.get(device.thing) === true;
     if (items === null) return { ...device, position: null, location: { ...UNKNOWN, bluetoothOnly: only } };
     const item = items.get(device.thing) ?? null;
-    return { ...device, position: positionFromItem(item?.position), location: { ...locationFromItem(item), bluetoothOnly: only } };
+    return {
+      ...device,
+      position: positionFromItem(item?.position),
+      location: { ...locationFromItem(item), bluetoothOnly: only },
+    };
   }
 
   async function readItems() {
@@ -83,7 +93,10 @@ export function createLocationHandlers({ aws, now, log }, { devices }) {
         const listed = result?.body?.devices;
         if (!Array.isArray(listed)) return result;
         const [items, viaPhone] = await Promise.all([readItems(), bluetoothOnly(listed)]);
-        return { ...result, body: { ...result.body, devices: listed.map((device) => placed(device, items, viaPhone)) } };
+        return {
+          ...result,
+          body: { ...result.body, devices: listed.map((device) => placed(device, items, viaPhone)) },
+        };
       };
     },
 
@@ -99,7 +112,12 @@ export function createLocationHandlers({ aws, now, log }, { devices }) {
           const item = await aws.getLocation(device.thing);
           items = new Map(item === null ? [] : [[device.thing, item]]);
         } catch (error) {
-          log({ level: 'warn', event: 'positions_unreadable', thing: device.thing, error: describeError(error).message });
+          log({
+            level: 'warn',
+            event: 'positions_unreadable',
+            thing: device.thing,
+            error: describeError(error).message,
+          });
         }
         return { ...result, body: { ...result.body, device: placed(device, items, await viaPhone) } };
       };

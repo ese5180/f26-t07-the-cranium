@@ -27,8 +27,17 @@ import { randomBytes } from 'node:crypto';
 import { describeError } from './http.mjs';
 import { EVENT_DAYS, eventKey } from './lib/events.mjs';
 import {
-  changeText, decide, emptyLocation, estimateRequest, positionFromGeoJson, readScan, withAnswer, withAttempt,
-  withConfirmation, withFailure, withTooFew,
+  changeText,
+  decide,
+  emptyLocation,
+  estimateRequest,
+  positionFromGeoJson,
+  readScan,
+  withAnswer,
+  withAttempt,
+  withConfirmation,
+  withFailure,
+  withTooFew,
 } from './lib/position.mjs';
 
 /**
@@ -82,7 +91,8 @@ export function createLocator({
       return { outcome: decision.why };
     }
     if (decision.act === 'too_few' || decision.act === 'confirm') {
-      const next = decision.act === 'too_few' ? withTooFew(known, scan.tooFew, scan.receivedMs) : withConfirmation(known, scan);
+      const next =
+        decision.act === 'too_few' ? withTooFew(known, scan.tooFew, scan.receivedMs) : withConfirmation(known, scan);
       const put = await store.putLocation({ ...next, rev: rev + 1 }, rev);
       log({ event: put.ok ? 'scan_noted' : 'scan_raced', thing, act: decision.act });
       return { outcome: put.ok ? decision.act : 'raced' };
@@ -107,8 +117,12 @@ export function createLocator({
     const { item, change, distance } = withAnswer(claimed, scan, found);
     const stored = await store.putLocation({ ...item, rev: rev + 2 }, rev + 1);
     log({
-      event: found === null ? 'solve_unplaced' : 'solved', thing, accessPoints: scan.count, accuracy: found?.accuracy ?? null,
-      change, stored: stored.ok,
+      event: found === null ? 'solve_unplaced' : 'solved',
+      thing,
+      accessPoints: scan.count,
+      accuracy: found?.accuracy ?? null,
+      change,
+      stored: stored.ok,
     });
     if (!stored.ok || change === null) return { outcome: found === null ? 'unsolved' : 'solved' };
 

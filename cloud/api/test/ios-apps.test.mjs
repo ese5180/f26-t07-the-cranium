@@ -49,7 +49,8 @@ test('an IPA is published in two calls, checked inside, listed, and each step is
   assert.equal(address.pathname, '/apps/ios/cranium-ios-0.6.0.ipa');
   assert.equal(address.searchParams.get('X-Amz-SignedHeaders'), 'content-length;host;x-amz-checksum-sha256');
   assert.deepEqual(started.body.upload.headers, {
-    'content-length': String(bytes.length), 'x-amz-checksum-sha256': Buffer.from(sha256(bytes), 'hex').toString('base64'),
+    'content-length': String(bytes.length),
+    'x-amz-checksum-sha256': Buffer.from(sha256(bytes), 'hex').toString('base64'),
   });
   assert.equal(put(started.body.upload.url, started.body.upload.headers, bytes).status, 200);
 
@@ -57,9 +58,16 @@ test('an IPA is published in two calls, checked inside, listed, and each step is
   const published = await call('POST', '/api/apps/ios/releases/0.6.0', { as: manager, body: rest });
   assert.equal(published.status, 201, JSON.stringify(published.body));
   assert.deepEqual(published.body.release, {
-    version: '0.6.0', buildVersion: '8', size: bytes.length, sha256: sha256(bytes), notes: 'What 0.6.0 changed.',
-    filename: 'cranium-ios-0.6.0.ipa', bundleId: 'com.craniumiot.cranium', minOSVersion: '16.0',
-    publishedBy: { sub: manager.sub, email: manager.email }, publishedAt: new Date(clock.ms).toISOString(),
+    version: '0.6.0',
+    buildVersion: '8',
+    size: bytes.length,
+    sha256: sha256(bytes),
+    notes: 'What 0.6.0 changed.',
+    filename: 'cranium-ios-0.6.0.ipa',
+    bundleId: 'com.craniumiot.cranium',
+    minOSVersion: '16.0',
+    publishedBy: { sub: manager.sub, email: manager.email },
+    publishedAt: new Date(clock.ms).toISOString(),
   });
   // What SideStore needs is kept on the record: the usage descriptions of the Info.plist.
   const item = fake.appItems.get('ios#000.006.00000');
@@ -73,9 +81,13 @@ test('an IPA is published in two calls, checked inside, listed, and each step is
   assert.deepEqual(listed.body.android, { latest: null, releases: [] });
 
   const entries = fake.auditLog().filter((entry) => entry.action.startsWith('app.'));
-  assert.deepEqual(entries.map((entry) => [entry.action, entry.outcome, entry.target]), [
-    ['app.ios_upload', 'ok', '0.6.0'], ['app.ios_publish', 'ok', '0.6.0'],
-  ]);
+  assert.deepEqual(
+    entries.map((entry) => [entry.action, entry.outcome, entry.target]),
+    [
+      ['app.ios_upload', 'ok', '0.6.0'],
+      ['app.ios_publish', 'ok', '0.6.0'],
+    ]
+  );
   assert.deepEqual(entries[1].detail, { sha256: sha256(bytes), size: String(bytes.length), build: '8' });
 });
 
@@ -95,8 +107,14 @@ test('the IPA must be the app, of the version and build described, configured fo
     [ipa({ build: '9' }), /is build 9, not 8/],
     [ipa({ example: true }), /example configuration/],
     [ipa({ config: null }), /example configuration, or none/],
-    [ipa({ config: { consoleUrl: 'https://another.example.invalid', mobileClientId: 'localmobile' } }), /another console/],
-    [ipa({ config: { consoleUrl: 'https://console.example.invalid/', mobileClientId: 'someone-else' } }), /another console/],
+    [
+      ipa({ config: { consoleUrl: 'https://another.example.invalid', mobileClientId: 'localmobile' } }),
+      /another console/,
+    ],
+    [
+      ipa({ config: { consoleUrl: 'https://console.example.invalid/', mobileClientId: 'someone-else' } }),
+      /another console/,
+    ],
   ]) {
     const answer = await attempt(bytes);
     assert.deepEqual([answer.status, answer.body.error.code], [422, 'ipa_mismatch'], pattern.source);
@@ -106,10 +124,15 @@ test('the IPA must be the app, of the version and build described, configured fo
   assert.deepEqual([notZip.status, notZip.body.error.code], [422, 'ipa_unreadable']);
   assert.match(notZip.body.error.message, /cannot be read as an iPhone app: It is not a zip/);
   // A trailing slash on the console's address in cranium.json is the same console.
-  const slash = await attempt(ipa({ config: { consoleUrl: 'https://console.example.invalid/', mobileClientId: 'localmobile' } }));
+  const slash = await attempt(
+    ipa({ config: { consoleUrl: 'https://console.example.invalid/', mobileClientId: 'localmobile' } })
+  );
   assert.equal(slash.status, 201, JSON.stringify(slash.body));
   // Refused ones are on record with their codes, and nothing else was published.
-  const codes = fake.auditLog().filter((entry) => entry.action === 'app.ios_publish').map((entry) => entry.detail.code ?? 'ok');
+  const codes = fake
+    .auditLog()
+    .filter((entry) => entry.action === 'app.ios_publish')
+    .map((entry) => entry.detail.code ?? 'ok');
   assert.deepEqual(codes, [...Array(7).fill('ipa_mismatch'), 'ipa_unreadable', 'ok']);
 });
 
@@ -120,7 +143,8 @@ test('what arrived is checked as for an APK: missing, another size, another SHA-
   const finish = (body) => call('POST', '/api/apps/ios/releases/0.6.0', { as: manager, body });
   const missing = await finish(rest);
   assert.deepEqual([missing.status, missing.body.error.code], [409, 'ipa_missing']);
-  const { upload } = (await call('POST', '/api/apps/ios/uploads', { as: manager, body: describe('0.6.0', '8', bytes) })).body;
+  const { upload } = (await call('POST', '/api/apps/ios/uploads', { as: manager, body: describe('0.6.0', '8', bytes) }))
+    .body;
   assert.equal(put(upload.url, upload.headers, bytes).status, 200);
   assert.deepEqual((await finish({ ...rest, size: bytes.length + 1 })).body.error.code, 'size_mismatch');
   assert.deepEqual((await finish({ ...rest, sha256: 'e'.repeat(64) })).body.error.code, 'sha256_mismatch');
@@ -141,11 +165,22 @@ test('a version is published once and only upward, by version and by build', asy
   assert.deepEqual([sameBuild.status, sameBuild.body.error.code], [422, 'build_not_higher']);
   assert.equal((await publish('0.10.0', '10')).status, 201);
   const listed = (await call('GET', '/api/apps', { as: manager })).body.ios;
-  assert.deepEqual(listed.releases.map((release) => release.version), ['0.10.0', '0.6.0']);
+  assert.deepEqual(
+    listed.releases.map((release) => release.version),
+    ['0.10.0', '0.6.0']
+  );
   // Android's versions are its own: an Android 0.6.0 is no iPhone 0.6.0.
-  for (const [change, code] of [[{ buildVersion: 8 }, 'invalid_build'], [{ buildVersion: '08' }, 'invalid_build'],
-    [{ buildVersion: '1.2' }, 'invalid_build'], [{ size: 100 * 1024 * 1024 + 1 }, 'invalid_size'], [{ version: 'x' }, 'invalid_version']]) {
-    const answer = await call('POST', '/api/apps/ios/uploads', { as: manager, body: { ...describe('0.11.0', '11', ipa()), ...change } });
+  for (const [change, code] of [
+    [{ buildVersion: 8 }, 'invalid_build'],
+    [{ buildVersion: '08' }, 'invalid_build'],
+    [{ buildVersion: '1.2' }, 'invalid_build'],
+    [{ size: 100 * 1024 * 1024 + 1 }, 'invalid_size'],
+    [{ version: 'x' }, 'invalid_version'],
+  ]) {
+    const answer = await call('POST', '/api/apps/ios/uploads', {
+      as: manager,
+      body: { ...describe('0.11.0', '11', ipa()), ...change },
+    });
     assert.deepEqual([answer.status, answer.body.error.code], [400, code], JSON.stringify(change));
   }
 });
@@ -167,7 +202,10 @@ test('only release managers publish, with a session or an API token; every membe
   const link = await call('GET', '/api/apps/ios/0.6.0/download', { as: viewer });
   assert.equal(link.status, 200, JSON.stringify(link.body));
   const address = new URL(link.body.download.url);
-  assert.equal(address.searchParams.get('response-content-disposition'), 'attachment; filename="cranium-ios-0.6.0.ipa"');
+  assert.equal(
+    address.searchParams.get('response-content-disposition'),
+    'attachment; filename="cranium-ios-0.6.0.ipa"'
+  );
   assert.equal(address.searchParams.get('response-content-type'), 'application/octet-stream');
   assert.equal(address.searchParams.get('X-Amz-Expires'), '900');
   assert.ok(fake.s3Request({ method: 'GET', url: link.body.download.url }).body.equals(bytes));
@@ -175,13 +213,20 @@ test('only release managers publish, with a session or an API token; every membe
   const unknown = await call('GET', '/api/apps/ios/0.9.9/download', { as: viewer });
   assert.deepEqual([unknown.status, unknown.body.error.code], [404, 'unknown_version']);
   const downloads = fake.auditLog().filter((entry) => entry.action === 'app.ios_download');
-  assert.deepEqual(downloads.map((entry) => [entry.outcome, entry.actor.sub, entry.target, entry.detail.via]), [
-    ['ok', viewer.sub, '0.6.0', 'link'], ['rejected', viewer.sub, '0.9.9', 'link'],
-  ]);
+  assert.deepEqual(
+    downloads.map((entry) => [entry.outcome, entry.actor.sub, entry.target, entry.detail.via]),
+    [
+      ['ok', viewer.sub, '0.6.0', 'link'],
+      ['rejected', viewer.sub, '0.9.9', 'link'],
+    ]
+  );
 
   // From a phone: a download is a read; publishing needs a fresh sign-in.
   const phone = accessClaims({
-    sub: manager.sub, groups: ['release-managers'], clientId: config.mobileClientId, authTime: Math.floor(clock.ms / 1000) - 3600,
+    sub: manager.sub,
+    groups: ['release-managers'],
+    clientId: config.mobileClientId,
+    authTime: Math.floor(clock.ms / 1000) - 3600,
   });
   assert.equal((await call('GET', '/api/apps/ios/0.6.0/download', { claims: phone })).status, 200);
   const change = await call('POST', '/api/apps/ios/uploads', { claims: phone, body: describe('0.7.0', '9', ipa()) });
@@ -196,6 +241,15 @@ test('the Android app may ask for its own update link, which says so in the log'
   put(upload.url, upload.headers, bytes);
   const { version: _, ...rest } = body;
   assert.equal((await call('POST', '/api/apps/android/releases/0.6.0', { as: manager, body: rest })).status, 201);
-  assert.equal((await call('GET', '/api/apps/android/0.6.0/download', { as: viewer, query: { via: 'app' } })).status, 200);
-  assert.equal(fake.auditLog().filter((entry) => entry.action === 'app.download').at(-1).detail.via, 'app');
+  assert.equal(
+    (await call('GET', '/api/apps/android/0.6.0/download', { as: viewer, query: { via: 'app' } })).status,
+    200
+  );
+  assert.equal(
+    fake
+      .auditLog()
+      .filter((entry) => entry.action === 'app.download')
+      .at(-1).detail.via,
+    'app'
+  );
 });

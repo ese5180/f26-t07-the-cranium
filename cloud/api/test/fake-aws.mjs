@@ -91,7 +91,10 @@ const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
 const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
 const FAILURE_TYPES = Object.freeze({
-  FAILED: ['FAILED'], REJECTED: ['REJECTED'], TIMED_OUT: ['TIMED_OUT'], ALL: ['FAILED', 'REJECTED', 'TIMED_OUT'],
+  FAILED: ['FAILED'],
+  REJECTED: ['REJECTED'],
+  TIMED_OUT: ['TIMED_OUT'],
+  ALL: ['FAILED', 'REJECTED', 'TIMED_OUT'],
 });
 const EXECUTED = new Set(['SUCCEEDED', 'FAILED', 'REJECTED', 'TIMED_OUT']);
 const ACCOUNT = '000000000000';
@@ -175,26 +178,29 @@ function mergeReported(state, metadata, update, stamp) {
  *                                               succeeds and changes nothing)
  */
 export function createFakeAws({
-  now = Date.now, rolloutDelayMs = 0, cancelDelayMs = 0, repeatedCancel = 'refused',
+  now = Date.now,
+  rolloutDelayMs = 0,
+  cancelDelayMs = 0,
+  repeatedCancel = 'refused',
 } = {}) {
   if (!REPEATED_CANCEL.includes(repeatedCancel)) {
     throw new TypeError(`repeatedCancel must be one of: ${REPEATED_CANCEL.join(', ')}`);
   }
-  const things = new Map();     // name -> { inGroup, principals, attributes }
+  const things = new Map(); // name -> { inGroup, principals, attributes }
   const fleetItems = new Map(); // "pk sk" -> item: the fleet's partitions of the state table
-  const shadows = new Map();    // name -> shadow document
-  const booted = new Map();     // name -> when the board's uptime started, in ms
-  const jobs = new Map();       // jobId -> job
-  const objects = new Map();    // key -> { body, contentType, sha256Base64, tags }
-  const releases = new Map();   // sk -> item
+  const shadows = new Map(); // name -> shadow document
+  const booted = new Map(); // name -> when the board's uptime started, in ms
+  const jobs = new Map(); // jobId -> job
+  const objects = new Map(); // key -> { body, contentType, sha256Base64, tags }
+  const releases = new Map(); // sk -> item
   const auditItems = new Map(); // sk -> item
-  const tokens = new Map();     // sk (the digest of a token) -> item
+  const tokens = new Map(); // sk (the digest of a token) -> item
   const eventItems = new Map(); // thing -> Map(sk -> item): the events table
   const lineCounters = new Map(); // thing -> { boot, seq }: the board log's numbers
-  const users = new Map();      // sub -> { email, enabled, status, groups }
-  const faults = new Map();     // method -> [error | () => error]
+  const users = new Map(); // sub -> { email, enabled, status, groups }
+  const faults = new Map(); // method -> [error | () => error]
   const calls = [];
-  let highest;                  // the pointer item's value
+  let highest; // the pointer item's value
   let eventDraws = 0;
 
   const clock = () => {
@@ -204,8 +210,14 @@ export function createFakeAws({
 
   function newExecution(at) {
     return {
-      status: 'QUEUED', queuedAt: at, startedAt: null, lastUpdatedAt: at, executionNumber: 1,
-      versionNumber: 1, statusDetails: {}, forceCanceled: false,
+      status: 'QUEUED',
+      queuedAt: at,
+      startedAt: null,
+      lastUpdatedAt: at,
+      executionNumber: 1,
+      versionNumber: 1,
+      statusDetails: {},
+      forceCanceled: false,
     };
   }
 
@@ -235,8 +247,10 @@ export function createFakeAws({
       const step = plan.exponentialRate.rateIncreaseCriteria.numberOfSucceededThings;
       while (succeeded - job.paced.counted >= step) {
         job.paced.counted += step;
-        job.paced.rate = Math.min(plan.maximumPerMinute,
-          Math.max(job.paced.rate + 1, Math.floor(job.paced.rate * plan.exponentialRate.incrementFactor)));
+        job.paced.rate = Math.min(
+          plan.maximumPerMinute,
+          Math.max(job.paced.rate + 1, Math.floor(job.paced.rate * plan.exponentialRate.incrementFactor))
+        );
       }
       const when = job.rolloutAt + job.paced.minute * 60_000;
       for (const thing of job.things.slice(job.paced.offered, job.paced.offered + job.paced.rate)) {
@@ -252,9 +266,14 @@ export function createFakeAws({
     const executions = [...job.executions.values()];
     const executed = executions.filter((execution) => EXECUTED.has(execution.status)).length;
     for (const criterion of job.abort.criteriaList) {
-      const failed = executions.filter((execution) => FAILURE_TYPES[criterion.failureType].includes(execution.status)).length;
-      if (executed >= criterion.minNumberOfExecutedThings && executed > 0 &&
-          (100 * failed) / executed >= criterion.thresholdPercentage) {
+      const failed = executions.filter((execution) =>
+        FAILURE_TYPES[criterion.failureType].includes(execution.status)
+      ).length;
+      if (
+        executed >= criterion.minNumberOfExecutedThings &&
+        executed > 0 &&
+        (100 * failed) / executed >= criterion.thresholdPercentage
+      ) {
         job.status = 'CANCELED';
         job.lastUpdatedAt = at;
         job.aborted = true;
@@ -292,8 +311,12 @@ export function createFakeAws({
     }
     abortIfDue(job, at);
     const allOffered = job.rollout === null || (job.paced !== null && job.paced.offered >= job.things.length);
-    if (job.status === 'IN_PROGRESS' && job.rolledOut && allOffered &&
-        [...job.executions.values()].every((execution) => TERMINAL.has(execution.status))) {
+    if (
+      job.status === 'IN_PROGRESS' &&
+      job.rolledOut &&
+      allOffered &&
+      [...job.executions.values()].every((execution) => TERMINAL.has(execution.status))
+    ) {
       job.status = 'COMPLETED';
       job.completedAt = Math.max(job.createdAt, ...[...job.executions.values()].map((e) => e.lastUpdatedAt));
       job.lastUpdatedAt = job.completedAt;
@@ -302,10 +325,25 @@ export function createFakeAws({
   }
 
   function countsOf(job) {
-    const counts = { queued: 0, inProgress: 0, succeeded: 0, failed: 0, rejected: 0, canceled: 0, timedOut: 0, removed: 0 };
+    const counts = {
+      queued: 0,
+      inProgress: 0,
+      succeeded: 0,
+      failed: 0,
+      rejected: 0,
+      canceled: 0,
+      timedOut: 0,
+      removed: 0,
+    };
     const names = {
-      QUEUED: 'queued', IN_PROGRESS: 'inProgress', SUCCEEDED: 'succeeded', FAILED: 'failed',
-      REJECTED: 'rejected', CANCELED: 'canceled', TIMED_OUT: 'timedOut', REMOVED: 'removed',
+      QUEUED: 'queued',
+      IN_PROGRESS: 'inProgress',
+      SUCCEEDED: 'succeeded',
+      FAILED: 'failed',
+      REJECTED: 'rejected',
+      CANCELED: 'canceled',
+      TIMED_OUT: 'timedOut',
+      REMOVED: 'removed',
     };
     for (const execution of job.executions.values()) counts[names[execution.status]] += 1;
     return counts;
@@ -313,8 +351,11 @@ export function createFakeAws({
 
   function summaryOf(execution) {
     return {
-      status: execution.status, queuedAt: execution.queuedAt, startedAt: execution.startedAt,
-      lastUpdatedAt: execution.lastUpdatedAt, executionNumber: execution.executionNumber,
+      status: execution.status,
+      queuedAt: execution.queuedAt,
+      startedAt: execution.startedAt,
+      lastUpdatedAt: execution.lastUpdatedAt,
+      executionNumber: execution.executionNumber,
     };
   }
 
@@ -376,7 +417,10 @@ export function createFakeAws({
       nowMs: clock(),
       randomHex: (count) => {
         eventDraws += 1;
-        return createHash('sha256').update(`event ${eventDraws}`).digest('hex').slice(0, 2 * count);
+        return createHash('sha256')
+          .update(`event ${eventDraws}`)
+          .digest('hex')
+          .slice(0, 2 * count);
       },
     });
     for (const fact of factsFromItems(made.items ?? [])) putFactItem(fact);
@@ -392,12 +436,18 @@ export function createFakeAws({
       throw new TypeError('thing, low and high are required');
     }
     const part = eventItems.get(thing) ?? new Map();
-    return [...part.keys()].filter((sk) => sk >= low && sk <= high).sort().map((sk) => part.get(sk));
+    return [...part.keys()]
+      .filter((sk) => sk >= low && sk <= high)
+      .sort()
+      .map((sk) => part.get(sk));
   }
 
   const adapter = {
     async listGroupThings() {
-      return [...things].filter(([, thing]) => thing.inGroup).map(([name]) => name).reverse();
+      return [...things]
+        .filter(([, thing]) => thing.inGroup)
+        .map(([name]) => name)
+        .reverse();
     },
 
     async listThingPrincipals(thing) {
@@ -412,7 +462,10 @@ export function createFakeAws({
 
     async listJobs() {
       return [...jobs.values()].map(settle).map((job) => ({
-        jobId: job.jobId, status: job.status, createdAt: job.createdAt, lastUpdatedAt: job.lastUpdatedAt,
+        jobId: job.jobId,
+        status: job.status,
+        createdAt: job.createdAt,
+        lastUpdatedAt: job.lastUpdatedAt,
         completedAt: job.completedAt,
       }));
     },
@@ -422,9 +475,16 @@ export function createFakeAws({
       if (!jobs.has(jobId)) return null;
       const job = settle(jobs.get(jobId));
       return {
-        jobId: job.jobId, status: job.status, description: job.description, things: [...job.things],
-        createdAt: job.createdAt, lastUpdatedAt: job.lastUpdatedAt, completedAt: job.completedAt,
-        forceCanceled: job.forceCanceled, reasonCode: job.reasonCode, counts: countsOf(job),
+        jobId: job.jobId,
+        status: job.status,
+        description: job.description,
+        things: [...job.things],
+        createdAt: job.createdAt,
+        lastUpdatedAt: job.lastUpdatedAt,
+        completedAt: job.completedAt,
+        forceCanceled: job.forceCanceled,
+        reasonCode: job.reasonCode,
+        counts: countsOf(job),
       };
     },
 
@@ -441,11 +501,15 @@ export function createFakeAws({
       const job = jobs.has(jobId) ? settle(jobs.get(jobId)) : null;
       const execution = job?.executions.get(thing);
       if (execution === undefined) return null;
-      const left = execution.status === 'IN_PROGRESS'
-        ? Math.max(0, Math.ceil((execution.startedAt + job.timeoutMs - clock()) / 1000))
-        : null;
+      const left =
+        execution.status === 'IN_PROGRESS'
+          ? Math.max(0, Math.ceil((execution.startedAt + job.timeoutMs - clock()) / 1000))
+          : null;
       return {
-        thing, ...summaryOf(execution), statusDetails: { ...execution.statusDetails }, secondsLeft: left,
+        thing,
+        ...summaryOf(execution),
+        statusDetails: { ...execution.statusDetails },
+        secondsLeft: left,
         forceCanceled: execution.forceCanceled,
       };
     },
@@ -462,7 +526,14 @@ export function createFakeAws({
     },
 
     async createJob({
-      jobId, things: targets, document, description, urlExpiresInSec, inProgressTimeoutMinutes, rollout = null, abort = null,
+      jobId,
+      things: targets,
+      document,
+      description,
+      urlExpiresInSec,
+      inProgressTimeoutMinutes,
+      rollout = null,
+      abort = null,
     }) {
       checkJobId('CreateJob', jobId);
       checkRollout(rollout);
@@ -481,19 +552,42 @@ export function createFakeAws({
       if (!Number.isInteger(urlExpiresInSec) || urlExpiresInSec < 60 || urlExpiresInSec > 3600) {
         throw invalid('CreateJob', 'presignedUrlConfig.expiresInSec');
       }
-      if (!Number.isInteger(inProgressTimeoutMinutes) || inProgressTimeoutMinutes < 1 || inProgressTimeoutMinutes > 10080) {
+      if (
+        !Number.isInteger(inProgressTimeoutMinutes) ||
+        inProgressTimeoutMinutes < 1 ||
+        inProgressTimeoutMinutes > 10080
+      ) {
         throw invalid('CreateJob', 'timeoutConfig.inProgressTimeoutInMinutes');
       }
       if (jobs.has(jobId)) return { ok: false, reason: 'exists' };
       if (targets.some((thing) => !things.has(thing))) return { ok: false, reason: 'target_not_found' };
       const at = clock();
-      jobs.set(jobId, settle({
-        jobId, status: 'IN_PROGRESS', description, document, things: [...targets], createdAt: at,
-        lastUpdatedAt: at, completedAt: null, forceCanceled: false, reasonCode: null, comment: null,
-        urlExpiresInSec, timeoutMs: inProgressTimeoutMinutes * 60_000, executions: new Map(),
-        rolloutAt: at + rolloutDelayMs, rolledOut: false, cancellations: [],
-        rollout: copy(rollout) ?? null, abort: copy(abort) ?? null, paced: null, aborted: false,
-      }));
+      jobs.set(
+        jobId,
+        settle({
+          jobId,
+          status: 'IN_PROGRESS',
+          description,
+          document,
+          things: [...targets],
+          createdAt: at,
+          lastUpdatedAt: at,
+          completedAt: null,
+          forceCanceled: false,
+          reasonCode: null,
+          comment: null,
+          urlExpiresInSec,
+          timeoutMs: inProgressTimeoutMinutes * 60_000,
+          executions: new Map(),
+          rolloutAt: at + rolloutDelayMs,
+          rolledOut: false,
+          cancellations: [],
+          rollout: copy(rollout) ?? null,
+          abort: copy(abort) ?? null,
+          paced: null,
+          aborted: false,
+        })
+      );
       return { ok: true };
     },
 
@@ -541,7 +635,10 @@ export function createFakeAws({
       }
       if (objects.has(key)) return { stored: false, reason: 'exists' };
       objects.set(key, {
-        body: Buffer.from(body), contentType: 'application/octet-stream', sha256Base64, tags: {},
+        body: Buffer.from(body),
+        contentType: 'application/octet-stream',
+        sha256Base64,
+        tags: {},
       });
       return { stored: true };
     },
@@ -566,7 +663,10 @@ export function createFakeAws({
     },
 
     async listReleases() {
-      return [...releases.keys()].sort().reverse().map((sk) => copy(releases.get(sk)));
+      return [...releases.keys()]
+        .sort()
+        .reverse()
+        .map((sk) => copy(releases.get(sk)));
     },
 
     async highestReleaseKey() {
@@ -653,7 +753,9 @@ export function createFakeAws({
 
     async queryAudit({ before, after = null, limit }) {
       if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
-      return [...auditItems.keys()].sort().reverse()
+      return [...auditItems.keys()]
+        .sort()
+        .reverse()
         .filter((sk) => before === null || before === undefined || sk < before)
         .filter((sk) => after === null || after === undefined || sk > after)
         .slice(0, limit)
@@ -668,7 +770,8 @@ export function createFakeAws({
         throw new TypeError('tags must be null or a list of 1 to 16 tags');
       }
       if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
-      return eventPart(thing, low, high).reverse()
+      return eventPart(thing, low, high)
+        .reverse()
         .filter((item) => kinds === null || kinds.includes(item.kind))
         .filter((item) => tags === null || tags.includes(item.tag))
         .slice(0, limit)
@@ -691,7 +794,9 @@ export function createFakeAws({
 
     async getUser(sub) {
       const user = users.get(sub);
-      return user === undefined ? null : { enabled: user.enabled, status: user.status, email: user.email, name: user.name ?? '' };
+      return user === undefined
+        ? null
+        : { enabled: user.enabled, status: user.status, email: user.email, name: user.name ?? '' };
     },
 
     async listUserGroups(sub) {
@@ -713,8 +818,10 @@ export function createFakeAws({
 
     async listFleetItems(pk) {
       checkFleetKey(pk, 'x');
-      return [...fleetItems.values()].filter((item) => item.pk === pk)
-        .sort((a, b) => (a.sk < b.sk ? 1 : -1)).map(copy);
+      return [...fleetItems.values()]
+        .filter((item) => item.pk === pk)
+        .sort((a, b) => (a.sk < b.sk ? 1 : -1))
+        .map(copy);
     },
 
     async putFleetItem({ pk, sk, item, replace = false }) {
@@ -750,9 +857,13 @@ export function createFakeAws({
     const rate = rollout?.exponentialRate;
     const criteria = rate?.rateIncreaseCriteria;
     const whole = (value, low, high) => Number.isInteger(value) && value >= low && value <= high;
-    if (!whole(rollout.maximumPerMinute, 1, 1000) || !whole(rate?.baseRatePerMinute, 1, 1000) ||
-        !(rate.incrementFactor >= 1.1 && rate.incrementFactor <= 5) ||
-        !whole(criteria?.numberOfSucceededThings, 1, 2 ** 31) || rate.baseRatePerMinute > rollout.maximumPerMinute) {
+    if (
+      !whole(rollout.maximumPerMinute, 1, 1000) ||
+      !whole(rate?.baseRatePerMinute, 1, 1000) ||
+      !(rate.incrementFactor >= 1.1 && rate.incrementFactor <= 5) ||
+      !whole(criteria?.numberOfSucceededThings, 1, 2 ** 31) ||
+      rate.baseRatePerMinute > rollout.maximumPerMinute
+    ) {
       throw invalid('CreateJob', 'jobExecutionsRolloutConfig');
     }
   }
@@ -761,11 +872,19 @@ export function createFakeAws({
   function checkAbort(abort) {
     if (abort === null) return;
     const list = abort?.criteriaList;
-    const fine = Array.isArray(list) && list.length >= 1 && list.every((criterion) =>
-      Object.hasOwn(FAILURE_TYPES, criterion.failureType) && criterion.action === 'CANCEL' &&
-      typeof criterion.thresholdPercentage === 'number' && criterion.thresholdPercentage > 0 &&
-      criterion.thresholdPercentage <= 100 && Number.isInteger(criterion.minNumberOfExecutedThings) &&
-      criterion.minNumberOfExecutedThings >= 1);
+    const fine =
+      Array.isArray(list) &&
+      list.length >= 1 &&
+      list.every(
+        (criterion) =>
+          Object.hasOwn(FAILURE_TYPES, criterion.failureType) &&
+          criterion.action === 'CANCEL' &&
+          typeof criterion.thresholdPercentage === 'number' &&
+          criterion.thresholdPercentage > 0 &&
+          criterion.thresholdPercentage <= 100 &&
+          Number.isInteger(criterion.minNumberOfExecutedThings) &&
+          criterion.minNumberOfExecutedThings >= 1
+      );
     if (!fine) throw invalid('CreateJob', 'abortConfig');
   }
 
@@ -861,15 +980,21 @@ export function createFakeAws({
           const stamp = Math.floor(at / 1000);
           if (Number.isFinite(reported.uptime)) booted.set(thing, at - reported.uptime * 1000);
           else if (!booted.has(thing)) booted.set(thing, at);
-          const update = reported.uptime === undefined
-            ? { ...reported, uptime: Math.floor((at - booted.get(thing)) / 1000) }
-            : reported;
+          const update =
+            reported.uptime === undefined
+              ? { ...reported, uptime: Math.floor((at - booted.get(thing)) / 1000) }
+              : reported;
 
           let shadow = shadows.get(thing);
-          const wellFormed = shadow !== null && typeof shadow === 'object' &&
-            typeof shadow.state?.reported === 'object' && shadow.state.reported !== null &&
-            typeof shadow.metadata?.reported === 'object' && shadow.metadata.reported !== null;
-          if (!wellFormed) shadow = { state: { reported: {} }, metadata: { reported: {} }, version: 0, timestamp: stamp };
+          const wellFormed =
+            shadow !== null &&
+            typeof shadow === 'object' &&
+            typeof shadow.state?.reported === 'object' &&
+            shadow.state.reported !== null &&
+            typeof shadow.metadata?.reported === 'object' &&
+            shadow.metadata.reported !== null;
+          if (!wellFormed)
+            shadow = { state: { reported: {} }, metadata: { reported: {} }, version: 0, timestamp: stamp };
           const previous = copy({ state: shadow.state, metadata: shadow.metadata, version: shadow.version });
           mergeReported(shadow.state.reported, shadow.metadata.reported, update, stamp);
           shadow.version = (Number.isInteger(shadow.version) ? shadow.version : 0) + 1;
@@ -891,7 +1016,10 @@ export function createFakeAws({
         /** The connection ends, for the reason AWS IoT gives (disconnectReason). */
         disconnect(reason = 'CONNECTION_LOST') {
           record({
-            clientId: thing, timestamp: clock(), eventType: 'disconnected', disconnectReason: reason,
+            clientId: thing,
+            timestamp: clock(),
+            eventType: 'disconnected',
+            disconnectReason: reason,
             clientInitiatedDisconnect: reason === 'CLIENT_INITIATED_DISCONNECT',
           });
         },
@@ -910,7 +1038,14 @@ export function createFakeAws({
           if (boot !== undefined) counter.boot = boot;
           lineCounters.set(thing, counter);
           const message = {
-            t: Math.max(0, up - waitedMs), seq: counter.seq, boot: counter.boot, up, tag, text, thing, received,
+            t: Math.max(0, up - waitedMs),
+            seq: counter.seq,
+            boot: counter.boot,
+            up,
+            tag,
+            text,
+            thing,
+            received,
           };
           if (dropped !== undefined) message.dropped = dropped;
           return record(message);
@@ -936,9 +1071,11 @@ export function createFakeAws({
             const execution = settle(job).executions.get(thing);
             if (execution !== undefined && !TERMINAL.has(execution.status)) pending.push({ job, execution });
           }
-          pending.sort((a, b) =>
-            (a.execution.status === 'IN_PROGRESS' ? 0 : 1) - (b.execution.status === 'IN_PROGRESS' ? 0 : 1) ||
-            a.execution.queuedAt - b.execution.queuedAt);
+          pending.sort(
+            (a, b) =>
+              (a.execution.status === 'IN_PROGRESS' ? 0 : 1) - (b.execution.status === 'IN_PROGRESS' ? 0 : 1) ||
+              a.execution.queuedAt - b.execution.queuedAt
+          );
           if (pending.length === 0) return null;
           const [{ job, execution }] = pending;
           return { jobId: job.jobId, status: execution.status, document: JSON.parse(job.document) };
@@ -963,9 +1100,17 @@ export function createFakeAws({
           if (!DEVICE_STATUSES.has(status)) return { accepted: false, code: 'InvalidRequest' };
           if (details !== undefined) {
             const entries = details === null || typeof details !== 'object' ? null : Object.entries(details);
-            const valid = entries !== null && entries.length <= 10 && entries.every(([key, value]) =>
-              DETAIL_KEY.test(key) && typeof value === 'string' && value.length >= 1 && value.length <= 1024 &&
-              NO_CONTROL.test(value));
+            const valid =
+              entries !== null &&
+              entries.length <= 10 &&
+              entries.every(
+                ([key, value]) =>
+                  DETAIL_KEY.test(key) &&
+                  typeof value === 'string' &&
+                  value.length >= 1 &&
+                  value.length <= 1024 &&
+                  NO_CONTROL.test(value)
+              );
             if (!valid) return { accepted: false, code: 'InvalidRequest' };
           }
           const job = jobs.has(jobId) ? settle(jobs.get(jobId)) : null;
@@ -1145,7 +1290,8 @@ export function apiEvent(method, path, { claims, body, query, requestId, base64 
   let routeKey = `${method} /api/{proxy+}`;
   if (typeof path === 'string' && path.startsWith('/api/t/')) routeKey = `${method} /api/t/{proxy+}`;
   // SideStore's requests, with no authorizer either (src/handlers/sidestore.mjs).
-  if (typeof path === 'string' && method === 'GET' && path.startsWith('/api/sidestore/')) routeKey = 'GET /api/sidestore/{proxy+}';
+  if (typeof path === 'string' && method === 'GET' && path.startsWith('/api/sidestore/'))
+    routeKey = 'GET /api/sidestore/{proxy+}';
   const event = {
     version: '2.0',
     routeKey,
@@ -1184,7 +1330,7 @@ export function apiEvent(method, path, { claims, body, query, requestId, base64 
  *   timers.expire();            // its time is up
  */
 export function manualTimers() {
-  const pending = new Map();   // id -> { run, ms }
+  const pending = new Map(); // id -> { run, ms }
   let last = 0;
   return {
     set(run, ms) {
@@ -1221,8 +1367,13 @@ const MAIL_DOMAIN = 'example.invalid';
  *   const { status, body } = await console_.call('GET', '/api/firmware', { as: manager });
  */
 export function createTestConsole({
-  rolloutDelayMs = 0, cancelDelayMs = 0, repeatedCancel, timers, env = {},
-  startMs = Date.UTC(2026, 9, 10, 22, 15, 0), versions,
+  rolloutDelayMs = 0,
+  cancelDelayMs = 0,
+  repeatedCancel,
+  timers,
+  env = {},
+  startMs = Date.UTC(2026, 9, 10, 22, 15, 0),
+  versions,
 } = {}) {
   const clock = { ms: startMs };
   const now = () => clock.ms;
@@ -1242,7 +1393,11 @@ export function createTestConsole({
     // Repeatable, so that ids in a test are the same on every run.
     randomHex: (count) => {
       draws += 1;
-      return createHash('sha256').update(`draw ${draws}`).digest('hex').repeat(4).slice(0, 2 * count);
+      return createHash('sha256')
+        .update(`draw ${draws}`)
+        .digest('hex')
+        .repeat(4)
+        .slice(0, 2 * count);
     },
   });
   let people = 0;
@@ -1273,14 +1428,17 @@ export function createTestConsole({
      * API token, sent as "Bearer <token>" (`authorization` sends that header as given);
      * `invocation` is what Lambda passes as the second argument, if the test has a use for it.
      */
-    async call(method, path, {
-      as, claims, body, query, requestId, base64, invocation, token, authorization,
-    } = {}) {
+    async call(method, path, { as, claims, body, query, requestId, base64, invocation, token, authorization } = {}) {
       const headers = {};
       if (token !== undefined) headers.authorization = `Bearer ${token}`;
       if (authorization !== undefined) headers.authorization = authorization;
       const event = apiEvent(method, path, {
-        claims: claims ?? as?.claims, body, query, requestId, base64, headers,
+        claims: claims ?? as?.claims,
+        body,
+        query,
+        requestId,
+        base64,
+        headers,
       });
       const response = await app(event, invocation);
       // A firmware image comes back as base64 bytes, a redirect with no body; everything else is JSON.

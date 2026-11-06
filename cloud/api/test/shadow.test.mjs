@@ -45,7 +45,10 @@ test('a well-formed shadow becomes a Device', () => {
     ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
     rssi: -52,
     uptime: 1234,
-    stuck: null, diag: null, diary: null, bt: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
   });
 
   const busy = read({
@@ -59,26 +62,50 @@ test('a well-formed shadow becomes a Device', () => {
 
 test('a thing without a shadow has never reported', () => {
   const never = {
-    thing: THING, name: null, online: false, lastSeen: null, fw: null, ota: null, rssi: null, uptime: null,
-    stuck: null, diag: null, diary: null, bt: null,
+    thing: THING,
+    name: null,
+    online: false,
+    lastSeen: null,
+    fw: null,
+    ota: null,
+    rssi: null,
+    uptime: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
   };
   assert.deepEqual(deviceFromShadow(THING, null, NOW), never);
   assert.deepEqual(unknownDevice(THING), never);
-  for (const document of [undefined, {}, { state: {} }, { state: null }, { state: { desired: { x: 1 } } },
-    'shadow', 7, [], [healthy()], true]) {
+  for (const document of [
+    undefined,
+    {},
+    { state: {} },
+    { state: null },
+    { state: { desired: { x: 1 } } },
+    'shadow',
+    7,
+    [],
+    [healthy()],
+    true,
+  ]) {
     assert.deepEqual(deviceFromShadow(THING, document, NOW), never);
   }
 });
 
 const KCONFIG = new URL('../../../firmware/app/Kconfig', import.meta.url);
 
-test('the window has room for a late heartbeat at the interval that the firmware has by default', { skip: !existsSync(KCONFIG) }, () => {
-  const seconds = /config APP_SHADOW_INTERVAL_SECONDS\n[^\n]*\n\s*default (\d+)/.exec(readFileSync(KCONFIG, 'utf8'));
-  assert.notEqual(seconds, null);
-  const interval = Number(seconds[1]);
-  assert.equal(interval, 30);
-  assert.equal(ONLINE_WINDOW_MS, interval * 3 * 1000);
-});
+test(
+  'the window has room for a late heartbeat at the interval that the firmware has by default',
+  { skip: !existsSync(KCONFIG) },
+  () => {
+    const seconds = /config APP_SHADOW_INTERVAL_SECONDS\n[^\n]*\n\s*default (\d+)/.exec(readFileSync(KCONFIG, 'utf8'));
+    assert.notEqual(seconds, null);
+    const interval = Number(seconds[1]);
+    assert.equal(interval, 30);
+    assert.equal(ONLINE_WINDOW_MS, interval * 3 * 1000);
+  }
+);
 
 test('what a board says about being stuck is for the Diagnostics page, and nothing in it upsets the rest', () => {
   const said = { ...healthy(), stuck: { count: 2, reason: 'no_cloud' } };
@@ -95,7 +122,8 @@ test('a board that said it is restarting has the time a restart takes, and only 
     return read(reported, { seen: Math.floor(NOW / 1000) - secondsAgo }).online;
   };
   assert.equal(RESTART_WINDOW_MS, 240_000);
-  for (const seconds of [0, 21, 89, 90, 102, 113, 120, 239]) assert.equal(seenAgo('rebooting', seconds), true, `${seconds} s`);
+  for (const seconds of [0, 21, 89, 90, 102, 113, 120, 239])
+    assert.equal(seenAgo('rebooting', seconds), true, `${seconds} s`);
   assert.equal(seenAgo('rebooting', 240), false);
   assert.equal(seenAgo('rebooting', 86400), false);
   for (const state of ['idle', 'awaiting_user', 'downloading', 'verifying', 'testing']) {
@@ -128,21 +156,41 @@ test('online means AWS received the uptime less than 90 seconds ago', () => {
     assert.equal(device.uptime, 1234);
   }
   // The board cannot make itself look online through its own state.
-  const forged = deviceFromShadow(THING, {
-    state: { reported: { ...healthy(), online: true, lastSeen: 'now', metadata: { uptime: { timestamp: SEEN } } } },
-    metadata: { reported: {} },
-  }, NOW);
+  const forged = deviceFromShadow(
+    THING,
+    {
+      state: { reported: { ...healthy(), online: true, lastSeen: 'now', metadata: { uptime: { timestamp: SEEN } } } },
+      metadata: { reported: {} },
+    },
+    NOW
+  );
   assert.equal(forged.online, false);
   assert.equal(forged.lastSeen, null);
 });
 
 test('a firmware version must be exact or it is not shown', () => {
   const fw = (value) => read({ ...healthy(), fw: value }).fw;
-  assert.deepEqual(fw({ version: '255.255.65535+4294967295', confirmed: true }),
-    { version: '255.255.65535+4294967295', confirmed: true });
+  assert.deepEqual(fw({ version: '255.255.65535+4294967295', confirmed: true }), {
+    version: '255.255.65535+4294967295',
+    confirmed: true,
+  });
 
-  for (const version of ['1.0.0', 'v1.0.0+3', '1.0.0+3 ', '01.0.0+3', '256.0.0+0', '1.0.0+3\n', '<b>1.0.0+3</b>',
-    '', null, undefined, 1, 1.0, ['1.0.0+3'], { major: 1 }]) {
+  for (const version of [
+    '1.0.0',
+    'v1.0.0+3',
+    '1.0.0+3 ',
+    '01.0.0+3',
+    '256.0.0+0',
+    '1.0.0+3\n',
+    '<b>1.0.0+3</b>',
+    '',
+    null,
+    undefined,
+    1,
+    1.0,
+    ['1.0.0+3'],
+    { major: 1 },
+  ]) {
     assert.equal(fw({ version, confirmed: true }), null, JSON.stringify(version));
   }
   for (const value of [null, undefined, '1.0.0+3', 5, [], [{ version: '1.0.0+3' }]]) {
@@ -161,8 +209,20 @@ test('the update state is checked field by field', () => {
     assert.equal(ota({ state }).state, state);
   }
   // Without a known state there is nothing to show.
-  for (const state of ['IDLE', 'done', 'idle ', '', null, undefined, 0, ['idle'], { state: 'idle' }, 'constructor',
-    'toString', '__proto__']) {
+  for (const state of [
+    'IDLE',
+    'done',
+    'idle ',
+    '',
+    null,
+    undefined,
+    0,
+    ['idle'],
+    { state: 'idle' },
+    'constructor',
+    'toString',
+    '__proto__',
+  ]) {
     assert.equal(ota({ state, job: JOB, progress: 10, last: 'failed', error: 'x' }), null, JSON.stringify(state));
   }
   for (const value of [null, undefined, 'idle', 3, [], [{ state: 'idle' }]]) {
@@ -173,8 +233,17 @@ test('the update state is checked field by field', () => {
   assert.equal(ota({ state: 'idle' }).job, null);
   assert.equal(ota({ state: 'idle', job: null }).job, null);
   assert.equal(ota({ state: 'awaiting_user', job: JOB }).job, JOB);
-  for (const job of ['other-job', `${JOB} `, `${JOB}/../x`, 'cranium-256-0-0-b0-20261010T221500Z-9f3a', '', 5,
-    [JOB], { id: JOB }, '<img src=x onerror=alert(1)>']) {
+  for (const job of [
+    'other-job',
+    `${JOB} `,
+    `${JOB}/../x`,
+    'cranium-256-0-0-b0-20261010T221500Z-9f3a',
+    '',
+    5,
+    [JOB],
+    { id: JOB },
+    '<img src=x onerror=alert(1)>',
+  ]) {
     assert.equal(ota({ state: 'awaiting_user', job }).job, null, JSON.stringify(job));
   }
 
@@ -191,9 +260,25 @@ test('the update state is checked field by field', () => {
   }
 
   assert.equal(ota({ state: 'idle', error: 'x'.repeat(64) }).error, 'x'.repeat(64));
-  assert.equal(ota({ state: 'idle', error: 'download: http 403 (attempt 3/3)' }).error, 'download: http 403 (attempt 3/3)');
-  for (const error of ['x'.repeat(65), 'line\nbreak', 'tab\there', 'nul\u0000', 'del\u007f', 'café', 'ünïcode',
-    '\u202eevil', 5, null, undefined, ['x'], { message: 'x' }]) {
+  assert.equal(
+    ota({ state: 'idle', error: 'download: http 403 (attempt 3/3)' }).error,
+    'download: http 403 (attempt 3/3)'
+  );
+  for (const error of [
+    'x'.repeat(65),
+    'line\nbreak',
+    'tab\there',
+    'nul\u0000',
+    'del\u007f',
+    'café',
+    'ünïcode',
+    '\u202eevil',
+    5,
+    null,
+    undefined,
+    ['x'],
+    { message: 'x' },
+  ]) {
     assert.equal(ota({ state: 'idle', error }).error, '', JSON.stringify(error));
   }
 });
@@ -241,7 +326,10 @@ test('nothing a board adds to its shadow reaches the output', () => {
     ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
     rssi: -40,
     uptime: 9,
-    stuck: null, diag: null, diary: null, bt: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
   });
   assert.equal({}.polluted, undefined);
   assert.equal({}.admin, undefined);
@@ -249,7 +337,10 @@ test('nothing a board adds to its shadow reaches the output', () => {
 });
 
 test('fields inherited from a prototype are not read', () => {
-  const inherited = Object.create({ state: { reported: healthy() }, metadata: { reported: { uptime: { timestamp: SEEN } } } });
+  const inherited = Object.create({
+    state: { reported: healthy() },
+    metadata: { reported: { uptime: { timestamp: SEEN } } },
+  });
   assert.deepEqual(deviceFromShadow(THING, inherited, NOW), unknownDevice(THING));
 
   const reported = Object.create(healthy());
@@ -270,20 +361,28 @@ test('deeply nested and oversized shadows are handled without effort', () => {
 
 test('the reports beside the heartbeat are read field by field: stuck, diagnostics, boot diary, Bluetooth record', () => {
   const metadata = { uptime: { timestamp: SEEN }, diag: { channel: { timestamp: SEEN - 60 } } };
-  const device = deviceFromShadow(THING, {
-    state: { reported: {
-      ...healthy(),
-      stuck: { count: 2, reason: 'wifi_silent' },
-      diag: { mac: 'F4:CE:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
-      diary: { boots: 42, log: ['1.7.4+0/8/4', '1.10.0+0/10/3', '1.10.0+0/1/1'] },
-      bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
-      btpair: { name: 'Cranium-1A2B', passkey: '480913' },
-    } },
-    metadata: { reported: metadata },
-  }, NOW);
+  const device = deviceFromShadow(
+    THING,
+    {
+      state: {
+        reported: {
+          ...healthy(),
+          stuck: { count: 2, reason: 'wifi_silent' },
+          diag: { mac: 'F4:CE:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 } },
+          diary: { boots: 42, log: ['1.7.4+0/8/4', '1.10.0+0/10/3', '1.10.0+0/1/1'] },
+          bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'succeeded', proof: 'person', count: 3 },
+          btpair: { name: 'Cranium-1A2B', passkey: '480913' },
+        },
+      },
+      metadata: { reported: metadata },
+    },
+    NOW
+  );
   assert.deepEqual(device.stuck, { count: 2, reason: 'wifi_silent' });
   assert.deepEqual(device.diag, {
-    mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 },
+    mac: 'f4:ce:36:12:34:56',
+    channel: 6,
+    heap: { free: 21312, least: 9840, size: 44240 },
     at: new Date((SEEN - 60) * 1000).toISOString(),
   });
   // Newest first: the boot that is running, why the one before it ended, how far each got.
@@ -302,30 +401,59 @@ test('the reports beside the heartbeat are read field by field: stuck, diagnosti
 
 test('a report beside the heartbeat that is not what the firmware sends is left out', () => {
   const read2 = (extra) => read({ ...healthy(), ...extra });
-  for (const stuck of [{ count: -1, reason: 'none' }, { count: 1, reason: 'Wi-Fi!' }, { count: '1', reason: 'none' }, 'stuck']) {
+  for (const stuck of [
+    { count: -1, reason: 'none' },
+    { count: 1, reason: 'Wi-Fi!' },
+    { count: '1', reason: 'none' },
+    'stuck',
+  ]) {
     assert.equal(read2({ stuck }).stuck, null, JSON.stringify(stuck));
   }
   // An address that is not one, a channel out of range and a heap without statistics are each dropped alone.
   assert.deepEqual(read2({ diag: { mac: 'unknown', channel: 300, heap: { free: 0, least: 0, size: 0 } } }).diag, null);
-  assert.deepEqual(read2({ diag: { mac: 'unknown', channel: 0, heap: { free: 5, least: 9, size: 8 } } }).diag,
-    { mac: null, channel: 0, heap: null, at: null });
+  assert.deepEqual(read2({ diag: { mac: 'unknown', channel: 0, heap: { free: 5, least: 9, size: 8 } } }).diag, {
+    mac: null,
+    channel: 0,
+    heap: null,
+    at: null,
+  });
   assert.equal(read2({ diag: 'x' }).diag, null);
   // Entries that are not entries go; a diary that is not one is none.
-  assert.deepEqual(read2({ diary: { boots: 3, log: ['1.0.0+0/8/4', 'x/y/z', '1.0.0/8/4', '1.0.0+0/8g/4', 7, '1.0.0+0/4000/2'] } }).diary,
-    { boots: 3, entries: [
-      { version: '1.0.0+0', cause: '4000', causes: ['temperature'], stage: 2 },
-      { version: '1.0.0+0', cause: '8', causes: ['power_on'], stage: 4 },
-    ] });
-  for (const diary of [{ boots: -1, log: [] }, { boots: 1, log: 'x' }, { boots: 1, log: Array(17).fill('1.0.0+0/8/4') }]) {
+  assert.deepEqual(
+    read2({ diary: { boots: 3, log: ['1.0.0+0/8/4', 'x/y/z', '1.0.0/8/4', '1.0.0+0/8g/4', 7, '1.0.0+0/4000/2'] } })
+      .diary,
+    {
+      boots: 3,
+      entries: [
+        { version: '1.0.0+0', cause: '4000', causes: ['temperature'], stage: 2 },
+        { version: '1.0.0+0', cause: '8', causes: ['power_on'], stage: 4 },
+      ],
+    }
+  );
+  for (const diary of [
+    { boots: -1, log: [] },
+    { boots: 1, log: 'x' },
+    { boots: 1, log: Array(17).fill('1.0.0+0/8/4') },
+  ]) {
     assert.equal(read2({ diary }).diary, null);
   }
-  assert.deepEqual(read2({ diary: { boots: 1, log: ['1.0.0+0/0/1', '1.0.0+0/8000/1'] } }).diary.entries.map((entry) => entry.causes),
-    [['unknown'], ['power_on']]);
-  for (const bt of [{ from: '1.5.0', to: '1.6.0+0', result: 'succeeded' }, { from: '1.5.0+0', to: '1.6.0+0', result: 'great' }]) {
+  assert.deepEqual(
+    read2({ diary: { boots: 1, log: ['1.0.0+0/0/1', '1.0.0+0/8000/1'] } }).diary.entries.map((entry) => entry.causes),
+    [['unknown'], ['power_on']]
+  );
+  for (const bt of [
+    { from: '1.5.0', to: '1.6.0+0', result: 'succeeded' },
+    { from: '1.5.0+0', to: '1.6.0+0', result: 'great' },
+  ]) {
     assert.equal(read2({ bt }).bt, null);
   }
-  assert.deepEqual(read2({ bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'magic', count: -2 } }).bt,
-    { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'none', count: 0 });
+  assert.deepEqual(read2({ bt: { from: '1.5.0+0', to: '1.6.0+0', result: 'pending', proof: 'magic', count: -2 } }).bt, {
+    from: '1.5.0+0',
+    to: '1.6.0+0',
+    result: 'pending',
+    proof: 'none',
+    count: 0,
+  });
 });
 
 test('the name a board reports with its diagnostics is shown beside its thing name, and only a valid one', () => {
@@ -346,13 +474,35 @@ test('the name a board reports with its diagnostics is shown beside its thing na
   assert.equal(read({ ...healthy(), diag: { id: 'A'.repeat(32) } }).name, 'A'.repeat(32));
 
   // device_id_valid() in the firmware: 1 to 32 letters and digits. Anything else is no name.
-  for (const id of ['', 'A'.repeat(33), 'CR VIHAAN', 'CR-01', 'CR_01', 'CR.01', ' CR01', 'CR01\n', 'Crânium', 'CR\u0000',
-    '<b>x</b>', '\u202eCR01', 7, 1e3, null, true, ['CR01'], { id: 'CR01' }]) {
+  for (const id of [
+    '',
+    'A'.repeat(33),
+    'CR VIHAAN',
+    'CR-01',
+    'CR_01',
+    'CR.01',
+    ' CR01',
+    'CR01\n',
+    'Crânium',
+    'CR\u0000',
+    '<b>x</b>',
+    '\u202eCR01',
+    7,
+    1e3,
+    null,
+    true,
+    ['CR01'],
+    { id: 'CR01' },
+  ]) {
     assert.equal(read({ ...healthy(), diag: { id, ...diag } }).name, null, JSON.stringify(id));
   }
   // Only the diagnostics say it: a name elsewhere in the shadow is not one.
-  for (const reported of [{ ...healthy(), name: 'CR01' }, { ...healthy(), id: 'CR01' }, { ...healthy(), fw: { version: '1.0.0+3', id: 'CR01' } },
-    { ...healthy(), diag: Object.create({ id: 'CR01' }) }]) {
+  for (const reported of [
+    { ...healthy(), name: 'CR01' },
+    { ...healthy(), id: 'CR01' },
+    { ...healthy(), fw: { version: '1.0.0+3', id: 'CR01' } },
+    { ...healthy(), diag: Object.create({ id: 'CR01' }) },
+  ]) {
     assert.equal(read(reported).name, null);
   }
 });

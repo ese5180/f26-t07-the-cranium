@@ -25,7 +25,11 @@ import { createRolloutHandlers, runRolloutTick } from './handlers/rollouts.mjs';
  * @returns {() => Promise<object>} one run: { checked, advanced, stopped, done, failed }
  */
 export function createRolloutTick({
-  aws, config, alerts = null, now = Date.now, randomHex = (count) => randomBytes(count).toString('hex'),
+  aws,
+  config,
+  alerts = null,
+  now = Date.now,
+  randomHex = (count) => randomBytes(count).toString('hex'),
   log = (line) => console.log(JSON.stringify(line)),
 }) {
   const alert = alerts === null ? null : (raised) => alerts.raise(raised);

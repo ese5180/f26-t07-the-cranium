@@ -56,7 +56,9 @@ export function loadCustomerAdminConfig(env = process.env) {
   return Object.freeze({
     customerPoolId: read(env, 'CUSTOMER_POOL_ID'),
     siteUrl: read({ CUSTOMER_SITE_URL: env.CUSTOMER_SITE_URL ?? '' }, 'CUSTOMER_SITE_URL'),
-    mobileClientId: env.CUSTOMER_MOBILE_CLIENT_ID === undefined || env.CUSTOMER_MOBILE_CLIENT_ID === ''
-      ? '' : read(env, 'CUSTOMER_MOBILE_CLIENT_ID'),
+    mobileClientId:
+      env.CUSTOMER_MOBILE_CLIENT_ID === undefined || env.CUSTOMER_MOBILE_CLIENT_ID === ''
+        ? ''
+        : read(env, 'CUSTOMER_MOBILE_CLIENT_ID'),
   });
 }

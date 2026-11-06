@@ -82,7 +82,7 @@ function parseBinary(buffer) {
   const lengthOf = (at, nibble) => {
     if (nibble !== 0x0f) return { length: nibble, start: at + 1 };
     const marker = buffer[at + 1];
-    if (marker === undefined || (marker >> 4) !== 0x1) broken('bad length');
+    if (marker === undefined || marker >> 4 !== 0x1) broken('bad length');
     const size = 1 << (marker & 0x0f);
     if (size > 8) broken('bad length');
     return { length: asNumber(readUInt(buffer, at + 2, size)), start: at + 2 + size };
@@ -118,7 +118,9 @@ function parseBinary(buffer) {
         let value = readUInt(buffer, at + 1, size);
         // An 8-byte integer is signed; shorter ones are not.
         if (size === 8 && value >= 1n << 63n) value -= 1n << 64n;
-        return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value;
+        return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
+          ? Number(value)
+          : value;
       }
       case 0x2: {
         const size = 1 << nibble;

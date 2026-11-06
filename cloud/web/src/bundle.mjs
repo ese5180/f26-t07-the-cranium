@@ -71,7 +71,7 @@ export const LIMITS = Object.freeze({ files: 300, fileBytes: 8 * 1024 * 1024, to
 /** The type of a file by its path, or null for a kind a bundle may not hold. */
 export function typeOf(path) {
   const dot = path.lastIndexOf('.');
-  return dot < 0 ? null : TYPES[path.slice(dot + 1)] ?? null;
+  return dot < 0 ? null : (TYPES[path.slice(dot + 1)] ?? null);
 }
 
 function sha256(bytes) {
@@ -92,8 +92,10 @@ function sha256(bytes) {
  */
 export function canonicalText({ format, bridge, routes, files }) {
   const lines = [`cranium-bundle ${format}`, `bridge ${bridge}`];
-  for (const key of Object.keys(routes).sort(byBytes)) lines.push(`route ${key} ${routes[key].file} ${routes[key].policy}`);
-  for (const file of [...files].sort((a, b) => byBytes(a.path, b.path))) lines.push(`file ${file.path} ${file.size} ${file.sha256}`);
+  for (const key of Object.keys(routes).sort(byBytes))
+    lines.push(`route ${key} ${routes[key].file} ${routes[key].policy}`);
+  for (const file of [...files].sort((a, b) => byBytes(a.path, b.path)))
+    lines.push(`file ${file.path} ${file.size} ${file.sha256}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -148,7 +150,8 @@ export function makeBundle(files, about = { version: null, commit: null, builtAt
   for (const [key, route] of Object.entries(ROUTES)) {
     if (!listed.has(route.file)) throw new Error(`The bundle has no ${route.file} for ${key}`);
   }
-  if (listed.size > LIMITS.files || total > LIMITS.totalBytes) throw new Error('The bundle is larger than the apps take');
+  if (listed.size > LIMITS.files || total > LIMITS.totalBytes)
+    throw new Error('The bundle is larger than the apps take');
 
   const body = {
     format: BUNDLE_FORMAT,
@@ -186,12 +189,18 @@ export function readManifest(text) {
   if (!isRecord(value.routes)) throw new Error('no routes');
   const routes = {};
   for (const [key, route] of Object.entries(value.routes)) {
-    if (!(key in ROUTES) || !isRecord(route) || typeof route.file !== 'string' || !['console', 'customer'].includes(route.policy)) {
+    if (
+      !(key in ROUTES) ||
+      !isRecord(route) ||
+      typeof route.file !== 'string' ||
+      !['console', 'customer'].includes(route.policy)
+    ) {
       throw new Error(`a route that is not one: ${key}`);
     }
     routes[key] = { file: route.file, policy: route.policy };
   }
-  if (!Array.isArray(value.files) || value.files.length === 0 || value.files.length > LIMITS.files) throw new Error('no files');
+  if (!Array.isArray(value.files) || value.files.length === 0 || value.files.length > LIMITS.files)
+    throw new Error('no files');
   const paths = new Set();
   let total = 0;
   const files = value.files.map((file) => {
@@ -200,7 +209,8 @@ export function readManifest(text) {
     }
     if (paths.has(file.path)) throw new Error(`${file.path} twice`);
     paths.add(file.path);
-    if (!Number.isInteger(file.size) || file.size < 0 || file.size > LIMITS.fileBytes) throw new Error(`${file.path}: no size`);
+    if (!Number.isInteger(file.size) || file.size < 0 || file.size > LIMITS.fileBytes)
+      throw new Error(`${file.path}: no size`);
     if (typeof file.sha256 !== 'string' || !SHA256.test(file.sha256)) throw new Error(`${file.path}: no SHA-256`);
     total += file.size;
     return { path: file.path, size: file.size, sha256: file.sha256 };

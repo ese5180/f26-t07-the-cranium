@@ -57,7 +57,8 @@ export function readFrame(message) {
   if (!isThing(thing)) return { ignored: 'bad_thing' };
   if (typeof frame !== 'string' || !BASE64.test(frame)) return { ignored: 'bad_frame', thing };
   const bytes = Buffer.from(frame, 'base64');
-  if (bytes.length < FRAME_HEADER + 1 || bytes.length > FRAME_HEADER + CHUNK_MAX) return { ignored: 'frame_size', thing };
+  if (bytes.length < FRAME_HEADER + 1 || bytes.length > FRAME_HEADER + CHUNK_MAX)
+    return { ignored: 'frame_size', thing };
   if (bytes[0] !== FRAME_VERSION) return { ignored: 'frame_version', thing };
   return { thing, seq: bytes.readUInt16BE(1), chunk: bytes.subarray(FRAME_HEADER) };
 }
@@ -127,7 +128,12 @@ export function createForwarder({
   return async function handler(message) {
     const frame = readFrame(message);
     if (frame.ignored !== undefined) {
-      log({ level: 'warn', event: 'frame_ignored', reason: frame.ignored, ...(frame.thing ? { thing: frame.thing } : {}) });
+      log({
+        level: 'warn',
+        event: 'frame_ignored',
+        reason: frame.ignored,
+        ...(frame.thing ? { thing: frame.thing } : {}),
+      });
       return { outcome: 'ignored' };
     }
     const { thing, seq, chunk } = frame;
@@ -136,7 +142,14 @@ export function createForwarder({
     try {
       key = await projectKey();
     } catch (error) {
-      log({ level: 'error', event: 'chunk_dropped', reason: 'key_unreadable', thing, seq, error: describeError(error) });
+      log({
+        level: 'error',
+        event: 'chunk_dropped',
+        reason: 'key_unreadable',
+        thing,
+        seq,
+        error: describeError(error),
+      });
       return { outcome: 'dropped' };
     }
     if (key === null) {

@@ -10,9 +10,7 @@
  */
 
 import { dayLabel, exactTime, plural, timeAgo } from './core.js';
-import {
-  badge, button, developerTabs, empty, h, icon, loading, mono, notice, pageHead,
-} from './views.js';
+import { badge, button, developerTabs, empty, h, icon, loading, mono, notice, pageHead } from './views.js';
 
 // A link that a person follows. Nothing is fetched from there.
 const COMMIT_BASE = 'https://github.com/ese5180/f26-t07-the-cranium/commit/';
@@ -97,7 +95,8 @@ function changelogEntry(raw) {
 
 /** versions.json with only what the pages use, or null if it is not what was written. */
 export function parseVersions(data) {
-  if (data === null || typeof data !== 'object' || typeof data.changelogs !== 'object' || data.changelogs === null) return null;
+  if (data === null || typeof data !== 'object' || typeof data.changelogs !== 'object' || data.changelogs === null)
+    return null;
   const changelogs = {};
   for (const name of CHANGELOGS) {
     const entries = data.changelogs[name];
@@ -130,14 +129,28 @@ export async function readVersions(fetch, address = new URL('versions.json', imp
 }
 
 function newEntry(entry, current) {
-  return h('li', { key: entry.version, class: `whats-new-row ${entry.version === current ? 'is-current' : ''}`.trim() },
-    h('p', { class: 'whats-new-version' },
+  return h(
+    'li',
+    { key: entry.version, class: `whats-new-row ${entry.version === current ? 'is-current' : ''}`.trim() },
+    h(
+      'p',
+      { class: 'whats-new-version' },
       mono(entry.version),
-      entry.date ? h('span', { class: 'quiet' }, ` · ${new Date(`${entry.date}T12:00:00Z`).toLocaleDateString(undefined, {
-        day: 'numeric', month: 'short', year: 'numeric',
-      })}`) : null,
-      entry.version === current ? [' ', badge('idle', 'package', 'This console')] : null),
-    h('p', { class: 'whats-new-note' }, entry.note));
+      entry.date
+        ? h(
+            'span',
+            { class: 'quiet' },
+            ` · ${new Date(`${entry.date}T12:00:00Z`).toLocaleDateString(undefined, {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            })}`
+          )
+        : null,
+      entry.version === current ? [' ', badge('idle', 'package', 'This console')] : null
+    ),
+    h('p', { class: 'whats-new-note' }, entry.note)
+  );
 }
 
 /** The console's versions, newest first, each with its note: the first paragraph of cloud/CHANGELOG.md's entry. */
@@ -145,37 +158,66 @@ function whatsNew(ctx) {
   const data = ctx.state.versions?.value;
   if (!data) return ctx.state.versions ? h('p', { class: 'loading', key: 'whats-new' }, 'Loading what is new…') : null;
   if (data.missing || data.failed || data.changelogs.console.length === 0) {
-    return h('section', { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+    return h(
+      'section',
+      { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
       h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
-      h('p', { class: 'quiet' }, data.failed ?? 'This copy of the console was never deployed, so it has no list of its versions: ' +
-        'cloud/CHANGELOG.md has them.'));
+      h(
+        'p',
+        { class: 'quiet' },
+        data.failed ??
+          'This copy of the console was never deployed, so it has no list of its versions: ' +
+            'cloud/CHANGELOG.md has them.'
+      )
+    );
   }
   const entries = data.changelogs.console;
   const current = data.console.version;
-  return h('section', { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
-    h('header', { class: 'card-head' },
+  return h(
+    'section',
+    { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+    h(
+      'header',
+      { class: 'card-head' },
       h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
-      current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null),
-    h('ol', { class: 'whats-new-list' }, entries.slice(0, NEW_SHOWN).map((entry) => newEntry(entry, current))),
+      current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null
+    ),
+    h(
+      'ol',
+      { class: 'whats-new-list' },
+      entries.slice(0, NEW_SHOWN).map((entry) => newEntry(entry, current))
+    ),
     entries.length > NEW_SHOWN
-      ? h('details', { class: 'whats-new-more' },
-        h('summary', null, `Earlier versions (${entries.length - NEW_SHOWN})`),
-        h('ol', { class: 'whats-new-list' }, entries.slice(NEW_SHOWN).map((entry) => newEntry(entry, current))))
-      : null);
+      ? h(
+          'details',
+          { class: 'whats-new-more' },
+          h('summary', null, `Earlier versions (${entries.length - NEW_SHOWN})`),
+          h(
+            'ol',
+            { class: 'whats-new-list' },
+            entries.slice(NEW_SHOWN).map((entry) => newEntry(entry, current))
+          )
+        )
+      : null
+  );
 }
 
 // The filter is the reader's only choice here. It is not worth an address of its own.
 let shownTag = 'all';
 
 function commitLink(hash, short) {
-  return h('a', {
-    class: 'history-hash mono',
-    href: `${COMMIT_BASE}${hash}`,
-    target: '_blank',
-    rel: 'noopener noreferrer',
-    title: `Commit ${hash} on GitHub`,
-    'aria-label': `Commit ${short} on GitHub, opens in a new tab`,
-  }, short);
+  return h(
+    'a',
+    {
+      class: 'history-hash mono',
+      href: `${COMMIT_BASE}${hash}`,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      title: `Commit ${hash} on GitHub`,
+      'aria-label': `Commit ${short} on GitHub, opens in a new tab`,
+    },
+    short
+  );
 }
 
 const TREES = {
@@ -188,25 +230,41 @@ function deploymentPanel({ deployment, commits }, now) {
   const { commit, tree, deployedAt } = deployment;
   const [tone, iconName, word, meaning] = TREES[tree];
   const built = commits.find((item) => item.hash === commit);
-  return h('section', { class: 'panel on-ink history-panel', key: 'panel', 'aria-label': 'This deployment' },
-    h('div', { class: 'history-built' },
+  return h(
+    'section',
+    { class: 'panel on-ink history-panel', key: 'panel', 'aria-label': 'This deployment' },
+    h(
+      'div',
+      { class: 'history-built' },
       h('h2', { class: 'eyebrow' }, 'This deployment was built from'),
       commit
         ? h('p', { class: 'history-figure' }, commitLink(commit, built?.short ?? commit.slice(0, 7)))
         : h('p', { class: 'history-figure' }, 'An unknown commit'),
-      built ? h('p', { class: 'history-built-subject' }, built.subject) : null),
-    h('div', { class: 'history-fact' },
+      built ? h('p', { class: 'history-built-subject' }, built.subject) : null
+    ),
+    h(
+      'div',
+      { class: 'history-fact' },
       h('h2', { class: 'eyebrow' }, 'Its files'),
       h('p', { class: `status is-${tone} history-state` }, icon(iconName), word),
-      h('p', { class: 'history-note' }, meaning)),
-    h('div', { class: 'history-fact' },
+      h('p', { class: 'history-note' }, meaning)
+    ),
+    h(
+      'div',
+      { class: 'history-fact' },
       h('h2', { class: 'eyebrow' }, 'Deployed'),
       deployedAt
         ? [
-          h('p', { class: 'history-state' }, h('time', { datetime: deployedAt, title: exactTime(deployedAt) }, timeAgo(deployedAt, now))),
-          h('p', { class: 'history-note' }, exactTime(deployedAt)),
-        ]
-        : h('p', { class: 'history-state' }, 'Not known')));
+            h(
+              'p',
+              { class: 'history-state' },
+              h('time', { datetime: deployedAt, title: exactTime(deployedAt) }, timeAgo(deployedAt, now))
+            ),
+            h('p', { class: 'history-note' }, exactTime(deployedAt)),
+          ]
+        : h('p', { class: 'history-state' }, 'Not known')
+    )
+  );
 }
 
 function tagFilter(commits, ctx) {
@@ -214,34 +272,53 @@ function tagFilter(commits, ctx) {
     shownTag = tag;
     ctx.actions.redraw();
   };
-  const choice = (tag, label, count) => h('button', {
-    type: 'button',
-    key: tag,
-    class: 'btn is-small history-choice',
-    'aria-pressed': shownTag === tag ? 'true' : 'false',
-    onClick: choose(tag),
-  },
-  shownTag === tag ? icon('check') : null,
-  label,
-  h('span', { class: 'history-count' }, String(count)));
-  return h('div', { class: 'history-filter', key: 'filter', role: 'group', 'aria-label': 'Show the commits that touched' },
+  const choice = (tag, label, count) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        key: tag,
+        class: 'btn is-small history-choice',
+        'aria-pressed': shownTag === tag ? 'true' : 'false',
+        onClick: choose(tag),
+      },
+      shownTag === tag ? icon('check') : null,
+      label,
+      h('span', { class: 'history-count' }, String(count))
+    );
+  return h(
+    'div',
+    { class: 'history-filter', key: 'filter', role: 'group', 'aria-label': 'Show the commits that touched' },
     choice('all', 'All', commits.length),
-    TAGS.map(([tag, label]) => choice(tag, label, commits.filter((commit) => commit.tags.includes(tag)).length)));
+    TAGS.map(([tag, label]) => choice(tag, label, commits.filter((commit) => commit.tags.includes(tag)).length))
+  );
 }
 
 function commitRow(commit, deployed) {
   const here = commit.hash === deployed;
-  return h('li', { key: commit.hash, class: `history-row ${here ? 'is-deployed' : ''}`.trim() },
-    h('time', { class: 'history-time', datetime: commit.date, title: exactTime(commit.date) },
-      new Date(commit.date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })),
-    h('div', { class: 'history-body' },
+  return h(
+    'li',
+    { key: commit.hash, class: `history-row ${here ? 'is-deployed' : ''}`.trim() },
+    h(
+      'time',
+      { class: 'history-time', datetime: commit.date, title: exactTime(commit.date) },
+      new Date(commit.date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    ),
+    h(
+      'div',
+      { class: 'history-body' },
       h('p', { class: 'history-subject' }, commit.subject),
       commit.tags.length > 0 || here
-        ? h('p', { class: 'history-tags' },
-          here ? badge('idle', 'package', 'This deployment') : null,
-          commit.tags.map((tag) => h('span', { key: tag, class: 'tag' }, TAG_NAMES.get(tag))))
-        : null),
-    commitLink(commit.hash, commit.short));
+        ? h(
+            'p',
+            { class: 'history-tags' },
+            here ? badge('idle', 'package', 'This deployment') : null,
+            commit.tags.map((tag) => h('span', { key: tag, class: 'tag' }, TAG_NAMES.get(tag)))
+          )
+        : null
+    ),
+    commitLink(commit.hash, commit.short)
+  );
 }
 
 function timeline(commits, deployed, now) {
@@ -251,9 +328,18 @@ function timeline(commits, deployed, now) {
     if (days.at(-1)?.label !== label) days.push({ label, commits: [] });
     days.at(-1).commits.push(commit);
   }
-  return days.map((day) => h('section', { key: day.label, class: 'log-day' },
-    h('h2', { class: 'log-day-title' }, day.label),
-    h('ol', { class: 'history-list' }, day.commits.map((commit) => commitRow(commit, deployed)))));
+  return days.map((day) =>
+    h(
+      'section',
+      { key: day.label, class: 'log-day' },
+      h('h2', { class: 'log-day-title' }, day.label),
+      h(
+        'ol',
+        { class: 'history-list' },
+        day.commits.map((commit) => commitRow(commit, deployed))
+      )
+    )
+  );
 }
 
 function historyBody(ctx) {
@@ -261,13 +347,18 @@ function historyBody(ctx) {
   const data = resource.value;
   if (!data) return loading('the history');
   if (data.missing) {
-    return h('section', { class: 'card', key: 'missing' }, empty({
-      iconName: 'list',
-      title: 'There is no history in this copy of the console.',
-      text: 'The list of commits is written when the console is deployed, and this copy never was. ' +
-        'To see the page here, write the file by hand:',
-      command: 'node cloud/web/build-history.mjs',
-    }));
+    return h(
+      'section',
+      { class: 'card', key: 'missing' },
+      empty({
+        iconName: 'list',
+        title: 'There is no history in this copy of the console.',
+        text:
+          'The list of commits is written when the console is deployed, and this copy never was. ' +
+          'To see the page here, write the file by hand:',
+        command: 'node cloud/web/build-history.mjs',
+      })
+    );
   }
   if (data.failed) {
     return notice('bad', 'alert', data.failed, { action: button('is-small', () => location.reload(), 'Reload') });
@@ -277,11 +368,14 @@ function historyBody(ctx) {
   return [
     deploymentPanel(data, ctx.state.now),
     tagFilter(commits, ctx),
-    h('p', { class: 'history-summary', key: 'summary', role: 'status' },
+    h(
+      'p',
+      { class: 'history-summary', key: 'summary', role: 'status' },
       shownTag === 'all'
         ? `${commits.length >= COMMITS_KEPT ? 'The newest ' : ''}${plural(commits.length, 'commit')}`
         : `${shown.length} of ${plural(commits.length, 'commit')} touched ${TAG_NAMES.get(shownTag).toLowerCase()}`,
-      '. Each hash opens the commit on GitHub.'),
+      '. Each hash opens the commit on GitHub.'
+    ),
     shown.length > 0
       ? h('div', { key: 'timeline' }, timeline(shown, deployment.commit, ctx.state.now))
       : h('p', { class: 'quiet', key: 'none' }, 'No commit here touched that.'),
@@ -289,12 +383,21 @@ function historyBody(ctx) {
 }
 
 export function historyView(ctx) {
-  return h('div', { class: 'page history-page', key: 'page' },
+  return h(
+    'div',
+    { class: 'page history-page', key: 'page' },
     developerTabs('history'),
     pageHead({
       title: 'History',
-      lede: h('span', null, 'Every change to the project, newest first, as ', mono('git log'), ' had it when this console was deployed.'),
+      lede: h(
+        'span',
+        null,
+        'Every change to the project, newest first, as ',
+        mono('git log'),
+        ' had it when this console was deployed.'
+      ),
     }),
     whatsNew(ctx),
-    historyBody(ctx));
+    historyBody(ctx)
+  );
 }

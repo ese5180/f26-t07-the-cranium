@@ -31,16 +31,35 @@ const CONFIG = {
 // Grammar.
 
 test('versions are major.minor.revision+build within u8.u8.u16+u32', () => {
-  assert.deepEqual(core.parseVersion('1.10.300+4000000000'),
-    { major: 1, minor: 10, revision: 300, build: 4000000000 });
+  assert.deepEqual(core.parseVersion('1.10.300+4000000000'), { major: 1, minor: 10, revision: 300, build: 4000000000 });
   assert.deepEqual(core.parseVersion('0.0.0+0'), { major: 0, minor: 0, revision: 0, build: 0 });
-  assert.deepEqual(core.parseVersion('255.255.65535+4294967295'),
-    { major: 255, minor: 255, revision: 65535, build: 4294967295 });
+  assert.deepEqual(core.parseVersion('255.255.65535+4294967295'), {
+    major: 255,
+    minor: 255,
+    revision: 65535,
+    build: 4294967295,
+  });
 
   const others = [
-    '1.0.0', '1.0+1', '256.0.0+0', '0.256.0+0', '0.0.65536+0', '0.0.0+4294967296', '01.0.0+0',
-    '1.0.0+01', ' 1.0.0+1', '1.0.0+1 ', '1.0.0+1\n', 'v1.0.0+1', '1.0.0-rc+1', '1.0.0+', '',
-    null, undefined, 100, {},
+    '1.0.0',
+    '1.0+1',
+    '256.0.0+0',
+    '0.256.0+0',
+    '0.0.65536+0',
+    '0.0.0+4294967296',
+    '01.0.0+0',
+    '1.0.0+01',
+    ' 1.0.0+1',
+    '1.0.0+1 ',
+    '1.0.0+1\n',
+    'v1.0.0+1',
+    '1.0.0-rc+1',
+    '1.0.0+',
+    '',
+    null,
+    undefined,
+    100,
+    {},
   ];
   for (const text of others) {
     assert.equal(core.parseVersion(text), null, String(text));
@@ -61,8 +80,16 @@ test('versions compare by number, not by text', () => {
 test('board names and deployment ids follow their patterns exactly', () => {
   assert.equal(core.isThing(THING), true);
   const notThings = [
-    'cranium-FE5B26C0C5B1DCD7', 'cranium-fe5b26c0c5b1dcd', 'cranium-fe5b26c0c5b1dcd77',
-    'cranium-fe5b26c0c5b1dcdg', `${THING}/`, `x${THING}`, 'cranium-*', '', null, undefined,
+    'cranium-FE5B26C0C5B1DCD7',
+    'cranium-fe5b26c0c5b1dcd',
+    'cranium-fe5b26c0c5b1dcd77',
+    'cranium-fe5b26c0c5b1dcdg',
+    `${THING}/`,
+    `x${THING}`,
+    'cranium-*',
+    '',
+    null,
+    undefined,
   ];
   for (const name of notThings) {
     assert.equal(core.isThing(name), false, String(name));
@@ -73,9 +100,14 @@ test('board names and deployment ids follow their patterns exactly', () => {
   assert.equal(core.isDeploymentId(DEPLOYMENT), true);
   assert.equal(core.isDeploymentId(LARGEST_DEPLOYMENT), true);
   const notDeployments = [
-    'cranium-1-1-0-7-20261010T221500Z-9f3a', 'cranium-1-1-0-b7-20261010T221500-9f3a',
-    'cranium-1-1-0-b7-20261010T221500Z-9F3A', 'cranium-1-1-0-b7-20261010T221500Z-9f3',
-    `${DEPLOYMENT}/cancel`, `../${DEPLOYMENT}`, '', null,
+    'cranium-1-1-0-7-20261010T221500Z-9f3a',
+    'cranium-1-1-0-b7-20261010T221500-9f3a',
+    'cranium-1-1-0-b7-20261010T221500Z-9F3A',
+    'cranium-1-1-0-b7-20261010T221500Z-9f3',
+    `${DEPLOYMENT}/cancel`,
+    `../${DEPLOYMENT}`,
+    '',
+    null,
   ];
   for (const id of notDeployments) {
     assert.equal(core.isDeploymentId(id), false, String(id));
@@ -85,8 +117,23 @@ test('board names and deployment ids follow their patterns exactly', () => {
 });
 
 test('a board is called by its own name where it has one, and by its thing name where it has not', () => {
-  for (const name of ['CRVIHAAN01', 'b', '7', 'A'.repeat(32), 'crBench2']) assert.equal(core.isBoardName(name), true, name);
-  for (const name of ['', 'A'.repeat(33), 'CR VIHAAN', 'CR-01', 'CR_01', THING, 'Crânium', 'CR01\n', '<b>', 7, null, undefined, ['CR01']]) {
+  for (const name of ['CRVIHAAN01', 'b', '7', 'A'.repeat(32), 'crBench2'])
+    assert.equal(core.isBoardName(name), true, name);
+  for (const name of [
+    '',
+    'A'.repeat(33),
+    'CR VIHAAN',
+    'CR-01',
+    'CR_01',
+    THING,
+    'Crânium',
+    'CR01\n',
+    '<b>',
+    7,
+    null,
+    undefined,
+    ['CR01'],
+  ]) {
     assert.equal(core.isBoardName(name), false, String(name));
   }
 
@@ -109,7 +156,10 @@ test('a board is called by its own name where it has one, and by its thing name 
   // A view that has only the thing name finds the board in the list, or one without a name.
   const other = { thing: 'cranium-00000000000000aa', name: 'CRBENCH02', online: true };
   assert.equal(core.boardOf(other.thing, [named, other]), other);
-  assert.deepEqual(core.boardOf('cranium-00000000000000bb', [named, other]), { thing: 'cranium-00000000000000bb', name: null });
+  assert.deepEqual(core.boardOf('cranium-00000000000000bb', [named, other]), {
+    thing: 'cranium-00000000000000bb',
+    name: null,
+  });
   assert.deepEqual(core.boardOf(THING, null), { thing: THING, name: null });
   assert.equal(core.boardName(core.boardOf(THING, [named])), 'CRVIHAAN01');
 });
@@ -125,8 +175,16 @@ test('the version is recovered from a deployment id', () => {
 // Routes.
 
 const ROUTES = [
-  '#/overview', '#/devices', `#/devices/${THING}`, '#/diagnostics', `#/diagnostics/${THING}`, '#/events', '#/firmware',
-  '#/deployments', `#/deployments/${DEPLOYMENT}`, '#/activity',
+  '#/overview',
+  '#/devices',
+  `#/devices/${THING}`,
+  '#/diagnostics',
+  `#/diagnostics/${THING}`,
+  '#/events',
+  '#/firmware',
+  '#/deployments',
+  `#/deployments/${DEPLOYMENT}`,
+  '#/activity',
 ];
 
 test('the console has exactly ten kinds of route', () => {
@@ -147,13 +205,36 @@ test('the console has exactly ten kinds of route', () => {
 
 test('anything else is not a route, and never becomes one', () => {
   const others = [
-    '', '#', '#/', '#overview', '/overview', '#/Overview', '#/overview/', '#/overview/x',
-    '#/device', '#/devices/', '#/devices/cranium-xyz', `#/devices/${THING}/x`,
-    `#/deployments/${THING}`, `#/devices/${DEPLOYMENT}`, '#/firmware/1.1.0+7', '#/settings', '#/events/x',
-    `#/events/${THING}`, '#/diagnostics/cranium-xyz', `#/diagnostics/${DEPLOYMENT}`,
-    '#//evil.example', '#/https://evil.example', 'https://evil.example/#/overview',
-    'javascript:alert(1)', '#/overview?next=https://evil.example', '#/devices/../firmware',
-    null, undefined, 3, {},
+    '',
+    '#',
+    '#/',
+    '#overview',
+    '/overview',
+    '#/Overview',
+    '#/overview/',
+    '#/overview/x',
+    '#/device',
+    '#/devices/',
+    '#/devices/cranium-xyz',
+    `#/devices/${THING}/x`,
+    `#/deployments/${THING}`,
+    `#/devices/${DEPLOYMENT}`,
+    '#/firmware/1.1.0+7',
+    '#/settings',
+    '#/events/x',
+    `#/events/${THING}`,
+    '#/diagnostics/cranium-xyz',
+    `#/diagnostics/${DEPLOYMENT}`,
+    '#//evil.example',
+    '#/https://evil.example',
+    'https://evil.example/#/overview',
+    'javascript:alert(1)',
+    '#/overview?next=https://evil.example',
+    '#/devices/../firmware',
+    null,
+    undefined,
+    3,
+    {},
   ];
   for (const hash of others) {
     assert.equal(core.parseRoute(hash), null, String(hash));
@@ -245,8 +326,12 @@ function imageHeader(fields = {}) {
 }
 
 test('the image header is read at the offsets MCUboot uses', () => {
-  assert.deepEqual(core.readImageHeader(imageHeader()),
-    { ok: true, headerSize: 512, payloadSize: 814000, version: '1.2.300+70000' });
+  assert.deepEqual(core.readImageHeader(imageHeader()), {
+    ok: true,
+    headerSize: 512,
+    payloadSize: 814000,
+    version: '1.2.300+70000',
+  });
   const largest = imageHeader({ version: [255, 255, 65535, 4294967295] });
   assert.equal(core.readImageHeader(largest).version, '255.255.65535+4294967295');
 
@@ -275,8 +360,7 @@ test('the preview agrees with a real signed image', async (t) => {
     return;
   }
   const bytes = new Uint8Array(readFileSync(fixture));
-  assert.deepEqual(core.readImageHeader(bytes),
-    { ok: true, headerSize: 512, payloadSize: 600, version: '1.2.3+4' });
+  assert.deepEqual(core.readImageHeader(bytes), { ok: true, headerSize: 512, payloadSize: 600, version: '1.2.3+4' });
   assert.equal(await core.sha256Hex(bytes), createHash('sha256').update(bytes).digest('hex'));
   assert.equal(core.toBase64(bytes), Buffer.from(bytes).toString('base64'));
 });
@@ -290,8 +374,10 @@ test('base64 is the standard, padded form at every length', () => {
 });
 
 test('SHA-256 is computed with the platform, as lowercase hex', async () => {
-  assert.equal(await core.sha256Hex(new TextEncoder().encode('abc')),
-    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.equal(
+    await core.sha256Hex(new TextEncoder().encode('abc')),
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+  );
 });
 
 test('the recorded file name uses only what the API accepts', () => {
@@ -440,12 +526,21 @@ async function returned(options = {}) {
 test('sign-in settings are read from the page, or not at all', () => {
   assert.deepEqual(core.readConfig(JSON.stringify(CONFIG)), CONFIG);
   const local = {
-    ...CONFIG, loginOrigin: 'http://127.0.0.1:8787', idpOrigin: 'http://127.0.0.1:8787', redirectUri: 'http://127.0.0.1:8787/',
+    ...CONFIG,
+    loginOrigin: 'http://127.0.0.1:8787',
+    idpOrigin: 'http://127.0.0.1:8787',
+    redirectUri: 'http://127.0.0.1:8787/',
   };
   assert.deepEqual(core.readConfig(JSON.stringify({ ...local, extra: 1 })), local);
 
   const unusable = [
-    undefined, null, '', '%CONFIG%', 'null', '[]', '{}',
+    undefined,
+    null,
+    '',
+    '%CONFIG%',
+    'null',
+    '[]',
+    '{}',
     JSON.stringify({ ...CONFIG, clientId: '' }),
     JSON.stringify({ ...CONFIG, scope: 5 }),
     JSON.stringify({ ...CONFIG, loginOrigin: 'javascript:alert(1)' }),
@@ -471,7 +566,14 @@ test('starting a sign-in sends the browser to the login page with state and an S
   assert.equal(`${authorize.origin}${authorize.pathname}`, 'https://login.example/oauth2/authorize');
   const query = authorize.searchParams;
   assert.deepEqual([...query.keys()].sort(), [
-    'client_id', 'code_challenge', 'code_challenge_method', 'prompt', 'redirect_uri', 'response_type', 'scope', 'state',
+    'client_id',
+    'code_challenge',
+    'code_challenge_method',
+    'prompt',
+    'redirect_uri',
+    'response_type',
+    'scope',
+    'state',
   ]);
   // Every sign-in asks for the password and the code, also while the login page's cookie is valid.
   assert.equal(query.get('prompt'), 'login');
@@ -496,8 +598,8 @@ test('starting a sign-in sends the browser to the login page with state and an S
 test('state and verifier are 32 bytes each from the CSPRNG, and the challenge matches RFC 7636', async () => {
   // The verifier of RFC 7636 appendix B, as the bytes it is the encoding of.
   const octets = [
-    116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186,
-    22, 212, 37, 77, 105, 214, 191, 240, 91, 88, 5, 88, 83, 132, 141, 121,
+    116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173, 187, 186, 22, 212, 37, 77, 105, 214, 191, 240, 91,
+    88, 5, 88, 83, 132, 141, 121,
   ];
   const asked = [];
   const crypto = {
@@ -514,8 +616,7 @@ test('state and verifier are 32 bytes each from the CSPRNG, and the challenge ma
 
   assert.deepEqual(asked, [32, 32]);
   assert.equal(tab.pending().verifier, 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk');
-  assert.equal(tab.navigations()[0].searchParams.get('code_challenge'),
-    'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  assert.equal(tab.navigations()[0].searchParams.get('code_challenge'), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
 });
 
 test('two sign-ins never share a state or a verifier', async () => {
@@ -554,7 +655,10 @@ test('coming back with the right state redeems the code and keeps only the acces
 
   // The address bar is cleaned before anything is requested.
   assert.deepEqual(tab.events[0], { type: 'replaceState', url: '/' });
-  assert.equal(tab.events.slice(1).every((event) => event.type === 'fetch'), true);
+  assert.equal(
+    tab.events.slice(1).every((event) => event.type === 'fetch'),
+    true
+  );
 
   const [token] = tab.fetches();
   assert.equal(token.url, 'https://login.example/oauth2/token');
@@ -562,8 +666,7 @@ test('coming back with the right state redeems the code and keeps only the acces
   assert.equal(token.options.headers['content-type'], 'application/x-www-form-urlencoded');
   assert.equal(token.options.credentials, 'omit');
   const sent = new URLSearchParams(token.options.body);
-  assert.deepEqual([...sent.keys()].sort(),
-    ['client_id', 'code', 'code_verifier', 'grant_type', 'redirect_uri']);
+  assert.deepEqual([...sent.keys()].sort(), ['client_id', 'code', 'code_verifier', 'grant_type', 'redirect_uri']);
   assert.equal(sent.get('grant_type'), 'authorization_code');
   assert.equal(sent.get('client_id'), 'client-1');
   assert.equal(sent.get('code'), 'THE-CODE');
@@ -573,8 +676,10 @@ test('coming back with the right state redeems the code and keeps only the acces
   // What is left in storage: the access token and when it ends.
   const kept = tab.storage.contents();
   assert.deepEqual(Object.keys(kept), ['cranium.session']);
-  assert.deepEqual(JSON.parse(kept['cranium.session']),
-    { accessToken: 'ACCESS-TOKEN', expiresAt: Date.parse('2026-10-10T13:00:00Z') / 1000 });
+  assert.deepEqual(JSON.parse(kept['cranium.session']), {
+    accessToken: 'ACCESS-TOKEN',
+    expiresAt: Date.parse('2026-10-10T13:00:00Z') / 1000,
+  });
   assert.equal(tab.auth.accessToken(), 'ACCESS-TOKEN');
   assert.equal(tab.navigations().length, 0);
 });
@@ -588,8 +693,10 @@ test('the refresh token is revoked at once and never stored, nor the ID token or
   assert.equal(revoke.url, 'https://login.example/oauth2/revoke');
   assert.equal(revoke.options.method, 'POST');
   assert.equal(revoke.options.credentials, 'omit');
-  assert.deepEqual(Object.fromEntries(new URLSearchParams(revoke.options.body)),
-    { token: 'REFRESH-TOKEN', client_id: 'client-1' });
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(revoke.options.body)), {
+    token: 'REFRESH-TOKEN',
+    client_id: 'client-1',
+  });
   assert.equal(await tab.auth.revocation(), 'revoked');
 
   for (const [, value] of tab.storage.writes) {
@@ -608,7 +715,10 @@ test('the hash of the address is kept when the query string is removed', async (
 test('a reply with an unknown state is discarded without redeeming the code', async () => {
   const { state } = await began();
   const replies = [
-    '?code=STOLEN&state=someone-elses', '?code=STOLEN', `?code=STOLEN&state=${state}x`, '?code=STOLEN&state=',
+    '?code=STOLEN&state=someone-elses',
+    '?code=STOLEN',
+    `?code=STOLEN&state=${state}x`,
+    '?code=STOLEN&state=',
   ];
   for (const search of replies) {
     const tab = browser({ search });
@@ -641,8 +751,11 @@ test('an error from the login page is reported without redeeming anything', asyn
   const { storage, state } = await began();
   const search = `?error=access_denied&error_description=%3Cb%3Ehello%3C%2Fb%3E&state=${state}`;
   const tab = browser({ search, storage });
-  assert.deepEqual(await tab.auth.resume(''),
-    { status: 'signed-out', reason: 'login-error', message: 'access_denied' });
+  assert.deepEqual(await tab.auth.resume(''), {
+    status: 'signed-out',
+    reason: 'login-error',
+    message: 'access_denied',
+  });
   assert.equal(tab.fetches().length, 0);
   assert.deepEqual(storage.contents(), {});
 
@@ -652,18 +765,24 @@ test('an error from the login page is reported without redeeming anything', asyn
     search: `?error=%3Cscript%3Ealert(1)%3C%2Fscript%3E&state=${other.state}`,
     storage: other.storage,
   });
-  assert.deepEqual(await hostile.auth.resume(''),
-    { status: 'signed-out', reason: 'login-error', message: '' });
+  assert.deepEqual(await hostile.auth.resume(''), { status: 'signed-out', reason: 'login-error', message: '' });
 });
 
 test('a failed token request signs nobody in and is not retried', async () => {
   const unreadable = /could not read/;
   const cases = [
-    [() => reply(400, { error: 'invalid_grant', error_description: '<b>hello</b>' }),
-      /refused to issue a token \(invalid_grant\)\.$/],
+    [
+      () => reply(400, { error: 'invalid_grant', error_description: '<b>hello</b>' }),
+      /refused to issue a token \(invalid_grant\)\.$/,
+    ],
     [() => reply(400, { error: '<script>' }), /refused to issue a token\.$/],
     [() => reply(500), /refused to issue a token\.$/],
-    [() => { throw new TypeError('network down'); }, /could not be reached/],
+    [
+      () => {
+        throw new TypeError('network down');
+      },
+      /could not be reached/,
+    ],
     [() => reply(200, { ...TOKENS, access_token: '' }), unreadable],
     [() => reply(200, { ...TOKENS, access_token: undefined }), unreadable],
     [() => reply(200, { ...TOKENS, token_type: 'mac' }), unreadable],
@@ -687,8 +806,7 @@ test('a failed token request signs nobody in and is not retried', async () => {
 
 test('how the revocation went is known even when its reply cannot be read', async () => {
   const run = async (answerRevoke) => {
-    const answer = (url, options) =>
-      (url.endsWith('/oauth2/token') ? reply(200, TOKENS) : answerRevoke(options));
+    const answer = (url, options) => (url.endsWith('/oauth2/token') ? reply(200, TOKENS) : answerRevoke(options));
     const tab = await returned({ answer });
     await tab.auth.resume('');
     return { result: await tab.auth.revocation(), revokes: tab.fetches().slice(1) };
@@ -708,7 +826,9 @@ test('how the revocation went is known even when its reply cannot be read', asyn
   assert.equal(blocked.revokes[1].options.mode, 'no-cors');
   assert.equal(blocked.revokes[1].options.body, blocked.revokes[0].options.body);
 
-  const offline = await run(() => { throw new TypeError('Failed to fetch'); });
+  const offline = await run(() => {
+    throw new TypeError('Failed to fetch');
+  });
   assert.equal(offline.result, 'failed');
 
   // Without a refresh token in the reply there is nothing to revoke.
@@ -718,7 +838,7 @@ test('how the revocation went is known even when its reply cannot be read', asyn
   assert.equal(none.fetches().length, 1);
 });
 
-test('without a session, loading the page asks for a sign-in on the console\'s own page, and goes nowhere', async () => {
+test("without a session, loading the page asks for a sign-in on the console's own page, and goes nowhere", async () => {
   const tab = browser({ hash: `#/devices/${THING}` });
   assert.deepEqual(await tab.auth.resume(), { status: 'sign-in' });
   // Nothing is asked of anybody, the address stays as it is, and no sign-in is pending.
@@ -764,7 +884,11 @@ test('the session ends with the token, and is renewed a minute before', async ()
 
 test('a damaged session record counts as none', async () => {
   const damaged = [
-    '', 'null', '[]', '{}', 'not json',
+    '',
+    'null',
+    '[]',
+    '{}',
+    'not json',
     JSON.stringify({ accessToken: 5, expiresAt: 9e9 }),
     JSON.stringify({ accessToken: 'x', expiresAt: 'soon' }),
     JSON.stringify({ accessToken: '', expiresAt: 9e9 }),
@@ -790,8 +914,10 @@ test('signing out clears the tab and ends the session at the login pages', async
   assert.equal(tab.auth.accessToken(), null);
   const [logout] = tab.navigations();
   assert.equal(`${logout.origin}${logout.pathname}`, 'https://login.example/logout');
-  assert.deepEqual(Object.fromEntries(logout.searchParams),
-    { client_id: 'client-1', logout_uri: 'https://console.example/' });
+  assert.deepEqual(Object.fromEntries(logout.searchParams), {
+    client_id: 'client-1',
+    logout_uri: 'https://console.example/',
+  });
 
   // Back from the login pages: signed out, and no sign-in starts by itself.
   const back = browser({ storage });
@@ -813,8 +939,12 @@ function client({ answers, token = 'TOKEN-1' }) {
     auth: { accessToken: () => token },
     crypto: globalThis.crypto,
     clock: core.createClock(),
-    onUnauthorized: () => { refused += 1; },
-    pause: async (ms) => { pauses.push(ms); },
+    onUnauthorized: () => {
+      refused += 1;
+    },
+    pause: async (ms) => {
+      pauses.push(ms);
+    },
     fetch: async (path, options) => {
       calls.push({ path, options });
       const next = queue.shift();
@@ -917,7 +1047,7 @@ test('a POST is retried on 429 only', async () => {
   }
 });
 
-test('a failed request carries the server\'s own message', async () => {
+test("a failed request carries the server's own message", async () => {
   const busy = {
     code: 'device_busy',
     message: 'A board still has an unfinished update.',
@@ -978,16 +1108,18 @@ test('paths and bodies are what the API expects', async () => {
     status: 'revoked',
     revoked: { by: { sub: 's', email: 'e' }, at: NOON, reason: 'r' },
   };
-  const { api, calls } = client({ answers: [
-    reply(200, { device: { thing: THING }, certificates: [], executions: [] }),
-    reply(200, deployment),
-    reply(200, { entries: [], next: null }),
-    reply(200, { entries: [], next: null }),
-    reply(201, deployment),
-    reply(201, deployment),
-    reply(200, deployment),
-    reply(200, { release: revokedRelease, cancelled: [DEPLOYMENT, 'not-an-id'] }),
-  ] });
+  const { api, calls } = client({
+    answers: [
+      reply(200, { device: { thing: THING }, certificates: [], executions: [] }),
+      reply(200, deployment),
+      reply(200, { entries: [], next: null }),
+      reply(200, { entries: [], next: null }),
+      reply(201, deployment),
+      reply(201, deployment),
+      reply(200, deployment),
+      reply(200, { release: revokedRelease, cancelled: [DEPLOYMENT, 'not-an-id'] }),
+    ],
+  });
 
   await api.device(THING);
   await api.deployment(DEPLOYMENT);
@@ -998,16 +1130,19 @@ test('paths and bodies are what the API expects', async () => {
   await api.cancel(DEPLOYMENT, false);
   const revoked = await api.revoke('1.1.0+7', 'the reason');
 
-  assert.deepEqual(calls.map((call) => `${call.options.method} ${call.path}`), [
-    `GET /api/devices/${THING}`,
-    `GET /api/deployments/${DEPLOYMENT}`,
-    'GET /api/audit?limit=50',
-    'GET /api/audit?limit=6&before=MjAyNi0xMC0xMA_-',
-    'POST /api/deployments',
-    'POST /api/deployments',
-    `POST /api/deployments/${DEPLOYMENT}/cancel`,
-    'POST /api/firmware/1.1.0+7/revoke',
-  ]);
+  assert.deepEqual(
+    calls.map((call) => `${call.options.method} ${call.path}`),
+    [
+      `GET /api/devices/${THING}`,
+      `GET /api/deployments/${DEPLOYMENT}`,
+      'GET /api/audit?limit=50',
+      'GET /api/audit?limit=6&before=MjAyNi0xMC0xMA_-',
+      'POST /api/deployments',
+      'POST /api/deployments',
+      `POST /api/deployments/${DEPLOYMENT}/cancel`,
+      'POST /api/firmware/1.1.0+7/revoke',
+    ]
+  );
   const sent = (index) => JSON.parse(calls[index].options.body);
   assert.deepEqual(sent(4), { version: '1.1.0+7', things: [THING], note: 'a note' });
   assert.deepEqual(sent(5), { version: '1.1.0+7', things: [THING] });
@@ -1050,11 +1185,27 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(generatedAt, null);
   assert.equal(devices.length, 2, 'a row without a name is dropped');
   const [bad, good] = devices;
-  assert.deepEqual(Object.keys(bad).sort(),
-    ['bt', 'diag', 'diary', 'fw', 'lastSeen', 'location', 'name', 'online', 'ota', 'position', 'rssi', 'stuck', 'thing', 'uptime']);
+  assert.deepEqual(Object.keys(bad).sort(), [
+    'bt',
+    'diag',
+    'diary',
+    'fw',
+    'lastSeen',
+    'location',
+    'name',
+    'online',
+    'ota',
+    'position',
+    'rssi',
+    'stuck',
+    'thing',
+    'uptime',
+  ]);
   // No position, and nothing said of where it is (docs/fleet.md).
-  assert.deepEqual([bad.position, bad.location],
-    [null, { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false }]);
+  assert.deepEqual(
+    [bad.position, bad.location],
+    [null, { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false }]
+  );
   assert.deepEqual([bad.name, bad.stuck, bad.diag, bad.diary, bad.bt], [null, null, null, null, null]);
   assert.equal(bad.online, false);
   assert.equal(bad.lastSeen, null);
@@ -1068,19 +1219,34 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(bad.ota.error.length, 64);
   assert.match(bad.ota.error, /^[\x20-\x7e]*$/);
   assert.deepEqual(good, {
-    ...honest, name: null, stuck: null, diag: null, diary: null, bt: null, position: null,
+    ...honest,
+    name: null,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
+    position: null,
     location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
   });
 
   // From firmware 1.11.4 a board reports its own name; only letters and digits, at most 32, are one.
   const names = ['CRVIHAAN01', 'A'.repeat(33), 'CR 01', 'CR\u202e01', 7, null];
   const { api: named } = answering(200, { devices: names.map((name) => ({ ...honest, name })) });
-  assert.deepEqual((await named.devices()).devices.map((device) => device.name), ['CRVIHAAN01', null, null, null, null, null]);
+  assert.deepEqual(
+    (await named.devices()).devices.map((device) => device.name),
+    ['CRVIHAAN01', null, null, null, null, null]
+  );
 });
 
 test('what a board reports beside its heartbeat is read field by field, and nothing else of it', async () => {
   const board = {
-    thing: THING, online: true, lastSeen: NOON, fw: null, ota: null, rssi: -52, uptime: 60,
+    thing: THING,
+    online: true,
+    lastSeen: NOON,
+    fw: null,
+    ota: null,
+    rssi: -52,
+    uptime: 60,
     stuck: { count: 2, reason: 'wifi_silent' },
     diag: { mac: 'f4:ce:36:12:34:56', channel: 6, heap: { free: 21312, least: 9840, size: 44240 }, at: NOON },
     diary: { boots: 9, entries: [{ version: '1.10.0+0', cause: '10', causes: ['watchdog'], stage: 4 }] },
@@ -1096,7 +1262,13 @@ test('what a board reports beside its heartbeat is read field by field, and noth
   };
   const odd = {
     thing: THING,
-    diary: { boots: 3, entries: [{ version: '1.0.0+0', cause: 'zz', causes: [], stage: 1 }, { version: '1.0.0+0', cause: '4', causes: ['brownout', 'rm -rf'], stage: 2 }] },
+    diary: {
+      boots: 3,
+      entries: [
+        { version: '1.0.0+0', cause: 'zz', causes: [], stage: 1 },
+        { version: '1.0.0+0', cause: '4', causes: ['brownout', 'rm -rf'], stage: 2 },
+      ],
+    },
   };
   const { api } = answering(200, { devices: [board, hostile, odd] });
   const [read, bad, partial] = (await api.devices()).devices;
@@ -1107,48 +1279,102 @@ test('what a board reports beside its heartbeat is read field by field, and noth
   assert.equal(JSON.stringify(read).includes('480913'), false);
   assert.deepEqual([bad.stuck, bad.diary, bad.bt], [null, null, null]);
   assert.deepEqual(bad.diag, { mac: null, channel: null, heap: null, at: null });
-  assert.deepEqual(partial.diary, { boots: 3, entries: [{ version: '1.0.0+0', cause: '4', causes: ['brownout'], stage: 2 }] });
+  assert.deepEqual(partial.diary, {
+    boots: 3,
+    entries: [{ version: '1.0.0+0', cause: '4', causes: ['brownout'], stage: 2 }],
+  });
 });
 
 test('the event log is read event by event: a board, a time and a kind, or it is left out', async () => {
   const event = {
-    thing: THING, at: NOON, id: 'a1b2c3', kind: 'update', what: 'result', level: 'warn',
-    text: 'Update to 1.2.3+5 failed: download_failed', result: 'failed', error: 'download_failed', job: DEPLOYMENT,
-    progress: 40, admin: true,
+    thing: THING,
+    at: NOON,
+    id: 'a1b2c3',
+    kind: 'update',
+    what: 'result',
+    level: 'warn',
+    text: 'Update to 1.2.3+5 failed: download_failed',
+    result: 'failed',
+    error: 'download_failed',
+    job: DEPLOYMENT,
+    progress: 40,
+    admin: true,
   };
   const { api, calls } = answering(200, {
-    events: [event, { ...event, thing: 'nope' }, { ...event, kind: 'gossip' }, { ...event, at: 'soon' }, 'x',
-      { ...event, text: 'line\u0007bell', level: 'panic', job: '../x', id: '<>' }],
-    cursor: 'abc_DEF-1', from: NOON, to: NOON,
+    events: [
+      event,
+      { ...event, thing: 'nope' },
+      { ...event, kind: 'gossip' },
+      { ...event, at: 'soon' },
+      'x',
+      { ...event, text: 'line\u0007bell', level: 'panic', job: '../x', id: '<>' },
+    ],
+    cursor: 'abc_DEF-1',
+    from: NOON,
+    to: NOON,
   });
   const read = await api.events({ from: NOON, to: NOON, thing: THING, kinds: ['update', 'restart'], cursor: 'xyz' });
   assert.deepEqual(read.events[0], {
-    thing: THING, at: NOON, id: 'a1b2c3', kind: 'update', what: 'result', level: 'warn',
-    text: 'Update to 1.2.3+5 failed: download_failed', result: 'failed', error: 'download_failed', job: DEPLOYMENT, progress: 40,
+    thing: THING,
+    at: NOON,
+    id: 'a1b2c3',
+    kind: 'update',
+    what: 'result',
+    level: 'warn',
+    text: 'Update to 1.2.3+5 failed: download_failed',
+    result: 'failed',
+    error: 'download_failed',
+    job: DEPLOYMENT,
+    progress: 40,
   });
   assert.equal(read.events.length, 2);
-  assert.deepEqual([read.events[1].text, read.events[1].level, read.events[1].id, read.events[1].job], ['line?bell', 'info', '000000', undefined]);
+  assert.deepEqual(
+    [read.events[1].text, read.events[1].level, read.events[1].id, read.events[1].job],
+    ['line?bell', 'info', '000000', undefined]
+  );
   assert.equal(read.cursor, 'abc_DEF-1');
   const asked = new URL(calls[0].path, 'https://console.test');
   assert.equal(asked.pathname, '/api/events');
-  assert.deepEqual(Object.fromEntries(asked.searchParams), { from: NOON, to: NOON, thing: THING, kinds: 'update,restart', cursor: 'xyz' });
+  assert.deepEqual(Object.fromEntries(asked.searchParams), {
+    from: NOON,
+    to: NOON,
+    thing: THING,
+    kinds: 'update,restart',
+    cursor: 'xyz',
+  });
   await assert.rejects(api.events({ from: NOON, to: NOON, kinds: ['gossip'] }), /not valid/);
   await assert.rejects(api.events({ from: 'soon', to: NOON }), /not valid/);
 
   // A name the board reported, or changed, comes with its event; one that is not a name does not.
-  const renamed = { ...event, kind: 'health', what: 'named', level: 'info', text: 'Name changed from CRVIHAAN01 to CRBENCH02' };
+  const renamed = {
+    ...event,
+    kind: 'health',
+    what: 'named',
+    level: 'info',
+    text: 'Name changed from CRVIHAAN01 to CRBENCH02',
+  };
   const { api: names } = answering(200, {
-    events: [{ ...renamed, name: 'CRBENCH02', nameBefore: 'CRVIHAAN01' }, { ...renamed, name: '<b>', nameBefore: 'x'.repeat(33) }],
+    events: [
+      { ...renamed, name: 'CRBENCH02', nameBefore: 'CRVIHAAN01' },
+      { ...renamed, name: '<b>', nameBefore: 'x'.repeat(33) },
+    ],
   });
   const [kept, dropped] = (await names.events({ from: NOON, to: NOON })).events;
   assert.deepEqual([kept.name, kept.nameBefore], ['CRBENCH02', 'CRVIHAAN01']);
   assert.deepEqual([Object.hasOwn(dropped, 'name'), Object.hasOwn(dropped, 'nameBefore')], [false, false]);
 });
 
-test('a board\'s readings are read with their times, and a reading that is not one is left out', async () => {
+test("a board's readings are read with their times, and a reading that is not one is left out", async () => {
   const { api, calls } = answering(200, {
-    samples: [{ at: NOON, rssi: -60, uptime: 5, heapFree: 100, heapLeast: 50 }, { at: 'x', rssi: -1 }, { at: NOON, rssi: 7, heapFree: -1 }],
-    hours: 24, bucketSeconds: 0, from: NOON, to: NOON,
+    samples: [
+      { at: NOON, rssi: -60, uptime: 5, heapFree: 100, heapLeast: 50 },
+      { at: 'x', rssi: -1 },
+      { at: NOON, rssi: 7, heapFree: -1 },
+    ],
+    hours: 24,
+    bucketSeconds: 0,
+    from: NOON,
+    to: NOON,
   });
   const read = await api.samples(THING, 24);
   assert.deepEqual(read.samples, [
@@ -1160,7 +1386,7 @@ test('a board\'s readings are read with their times, and a reading that is not o
   await assert.rejects(api.samples('board', 24), /not valid/);
 });
 
-test('a board\'s reason and note are plain ASCII and short', async () => {
+test("a board's reason and note are plain ASCII and short", async () => {
   const execution = {
     thing: THING,
     status: 'FAILED',
@@ -1176,24 +1402,34 @@ test('a board\'s reason and note are plain ASCII and short', async () => {
     lastUpdatedAt: 'x',
     secondsLeft: -3,
   };
-  const { api } = answering(200, { deployment: {
-    id: DEPLOYMENT,
-    version: '1.1.0+7',
-    status: 'COMPLETED',
-    createdAt: NOON,
-    completedAt: null,
-    createdBy: null,
-    note: 4,
-    things: [THING, 9],
-    counts: { failed: 1, queued: 'many' },
-    executions: [execution, { thing: null }],
-  } });
+  const { api } = answering(200, {
+    deployment: {
+      id: DEPLOYMENT,
+      version: '1.1.0+7',
+      status: 'COMPLETED',
+      createdAt: NOON,
+      completedAt: null,
+      createdBy: null,
+      note: 4,
+      things: [THING, 9],
+      counts: { failed: 1, queued: 'many' },
+      executions: [execution, { thing: null }],
+    },
+  });
   const deployment = await api.deployment(DEPLOYMENT);
 
   assert.deepEqual(deployment.things, [THING]);
   assert.equal(deployment.note, '');
-  assert.deepEqual(deployment.counts,
-    { queued: 0, inProgress: 0, succeeded: 0, failed: 1, rejected: 0, canceled: 0, timedOut: 0, removed: 0 });
+  assert.deepEqual(deployment.counts, {
+    queued: 0,
+    inProgress: 0,
+    succeeded: 0,
+    failed: 1,
+    rejected: 0,
+    canceled: 0,
+    timedOut: 0,
+    removed: 0,
+  });
   assert.equal(deployment.executions.length, 1);
   const [read] = deployment.executions;
   assert.equal(read.reason, 'caf??<script>');
@@ -1252,11 +1488,13 @@ test('releases, the audit log and the caller are read field by field', async () 
     detail: { size: 815284, nested: { a: 1 }, code: 'x' },
     requestId: 'r-1',
   };
-  const { api } = client({ answers: [
-    reply(200, { releases: [release], signingKey: { fingerprint: 'd'.repeat(64) }, slotSize: 933888 }),
-    reply(200, { entries: [entry], next: 'not a cursor!' }),
-    reply(200, { sub: 's', email: 'e', groups: ['release-managers', 4], canWrite: 'yes', expiresAt: 1 }),
-  ] });
+  const { api } = client({
+    answers: [
+      reply(200, { releases: [release], signingKey: { fingerprint: 'd'.repeat(64) }, slotSize: 933888 }),
+      reply(200, { entries: [entry], next: 'not a cursor!' }),
+      reply(200, { sub: 's', email: 'e', groups: ['release-managers', 4], canWrite: 'yes', expiresAt: 1 }),
+    ],
+  });
 
   const firmware = await api.firmware();
   assert.equal(firmware.fingerprint, 'd'.repeat(64));
@@ -1266,11 +1504,17 @@ test('releases, the audit log and the caller are read field by field', async () 
   assert.equal('extra' in firmware.releases[0], false);
 
   const audit = await api.audit();
-  assert.deepEqual(audit.entries[0].detail, [['size', '815284'], ['code', 'x']]);
+  assert.deepEqual(audit.entries[0].detail, [
+    ['size', '815284'],
+    ['code', 'x'],
+  ]);
   assert.equal(audit.next, null);
 
   assert.deepEqual(await api.me(), {
-    sub: 's', email: 'e', groups: ['release-managers'], canWrite: false,
+    sub: 's',
+    email: 'e',
+    groups: ['release-managers'],
+    canWrite: false,
     // The console's own version and commit (docs/versions.md): none in this answer.
     console: { version: null, commit: null },
   });
@@ -1322,8 +1566,12 @@ test('uploading reports progress and returns the release', async () => {
     crypto: globalThis.crypto,
     clock: core.createClock(),
     onUnauthorized: () => {},
-    pause: async (ms) => { pauses.push(ms); },
-    fetch: async () => { throw new Error('the upload does not use fetch'); },
+    pause: async (ms) => {
+      pauses.push(ms);
+    },
+    fetch: async () => {
+      throw new Error('the upload does not use fetch');
+    },
   });
 
   const image = { filename: 'zephyr.signed.bin', notes: '', data: 'AAAA' };
@@ -1349,7 +1597,7 @@ test('uploading reports progress and returns the release', async () => {
   assert.equal(JSON.parse(sent[2].body).notes, 'with notes');
 });
 
-test('a clock that is far off is corrected from the server\'s Date header', () => {
+test("a clock that is far off is corrected from the server's Date header", () => {
   let local = Date.parse('2026-10-10T10:00:00Z');
   const clock = core.createClock(() => local);
   assert.equal(clock.now(), local);
@@ -1383,8 +1631,20 @@ test('a deployment is polled every 3 s while a board can move, every 10 s while 
   // Someone may be standing at a board that is online: the summary is watched as closely
   // as a board that is at work, once the board list has said that one is.
   const waiting = { ...counts({ queued: 1 }), things: ['a', 'b'] };
-  assert.equal(core.summaryActivity(waiting, [{ thing: 'a', online: false }, { thing: 'b', online: false }]), 'QUEUED');
-  assert.equal(core.summaryActivity(waiting, [{ thing: 'a', online: false }, { thing: 'b', online: true }]), 'IN_PROGRESS');
+  assert.equal(
+    core.summaryActivity(waiting, [
+      { thing: 'a', online: false },
+      { thing: 'b', online: false },
+    ]),
+    'QUEUED'
+  );
+  assert.equal(
+    core.summaryActivity(waiting, [
+      { thing: 'a', online: false },
+      { thing: 'b', online: true },
+    ]),
+    'IN_PROGRESS'
+  );
   assert.equal(core.summaryActivity(waiting, [{ thing: 'c', online: true }]), 'QUEUED');
 
   assert.equal(core.executionActivity({ status: 'QUEUED', online: true }), 'IN_PROGRESS');
@@ -1406,8 +1666,10 @@ test('a deployment is polled every 3 s while a board can move, every 10 s while 
 });
 
 test('a deployment is under way while a board is waiting or at work, whatever the job says', () => {
-  const deployment = (status, counts = {}) =>
-    ({ status, counts: { queued: 0, inProgress: 0, succeeded: 0, canceled: 0, ...counts } });
+  const deployment = (status, counts = {}) => ({
+    status,
+    counts: { queued: 0, inProgress: 0, succeeded: 0, canceled: 0, ...counts },
+  });
   assert.equal(core.isUnderWay(deployment('IN_PROGRESS', { queued: 1 })), true);
   assert.equal(core.isUnderWay(deployment('IN_PROGRESS', { inProgress: 1 })), true);
   // AWS creates the executions a moment after the job.
@@ -1543,16 +1805,29 @@ test('a failed request is a refusal, or it is not known whether it went through'
 test('an upload is offered again only where the same file could end differently', () => {
   const error = (status, code) => new core.ApiError(status, code, 'No.');
   const final = [
-    [422, 'wrong_key'], [422, 'unsigned'], [422, 'bad_signature'], [422, 'trailing_data'],
-    [422, 'wrong_target'], [422, 'version_zero'], [422, 'version_not_newer'], [409, 'version_exists'],
-    [413, 'gateway'], [400, 'invalid_data'], [403, 'release_manager_required'],
+    [422, 'wrong_key'],
+    [422, 'unsigned'],
+    [422, 'bad_signature'],
+    [422, 'trailing_data'],
+    [422, 'wrong_target'],
+    [422, 'version_zero'],
+    [422, 'version_not_newer'],
+    [409, 'version_exists'],
+    [413, 'gateway'],
+    [400, 'invalid_data'],
+    [403, 'release_manager_required'],
   ];
   for (const [status, code] of final) {
     assert.equal(core.canRetryUpload(error(status, code)), false, code);
   }
   const passing = [
-    [429, 'gateway'], [409, 'upload_conflict'], [500, 'internal'], [503, 'gateway'], [0, 'network'],
-    [0, 'timeout'], [0, 'bad_response'],
+    [429, 'gateway'],
+    [409, 'upload_conflict'],
+    [500, 'internal'],
+    [503, 'gateway'],
+    [0, 'network'],
+    [0, 'timeout'],
+    [0, 'bad_response'],
   ];
   for (const [status, code] of passing) {
     assert.equal(core.canRetryUpload(error(status, code)), true, code);
@@ -1560,10 +1835,14 @@ test('an upload is offered again only where the same file could end differently'
 });
 
 test('a message of the server is finished as a sentence', () => {
-  assert.equal(core.sentence('The image is signed with a different key than this project\'s'),
-    'The image is signed with a different key than this project\'s.');
-  assert.equal(core.sentence('This is not an MCUboot image (upload the *.signed.bin file)'),
-    'This is not an MCUboot image (upload the *.signed.bin file).');
+  assert.equal(
+    core.sentence("The image is signed with a different key than this project's"),
+    "The image is signed with a different key than this project's."
+  );
+  assert.equal(
+    core.sentence('This is not an MCUboot image (upload the *.signed.bin file)'),
+    'This is not an MCUboot image (upload the *.signed.bin file).'
+  );
   assert.equal(core.sentence('There is no release 1.2.3+4.'), 'There is no release 1.2.3+4.');
   assert.equal(core.sentence('Is it?'), 'Is it?');
   assert.equal(core.sentence('Wait…'), 'Wait…');
@@ -1595,8 +1874,15 @@ test('a revocation counts as complete only when the server has recorded that it 
 
   // 'unknown' is a server that keeps no record at all; the field is then left out here
   // too, so that the console holds exactly what the API sent.
-  assert.deepEqual(releases.map(core.revocationState),
-    [null, 'unknown', 'incomplete', 'complete', 'incomplete', 'incomplete', 'unknown']);
+  assert.deepEqual(releases.map(core.revocationState), [
+    null,
+    'unknown',
+    'incomplete',
+    'complete',
+    'incomplete',
+    'incomplete',
+    'unknown',
+  ]);
   assert.deepEqual(Object.keys(releases[1].revoked), ['by', 'at', 'reason']);
   assert.deepEqual(Object.keys(releases[2].revoked), ['by', 'at', 'reason', 'enforcedAt']);
   assert.equal(releases[2].revoked.enforcedAt, null);
@@ -1621,27 +1907,46 @@ test('a repeated revocation that finds everything in place is a success, and is 
   // A board that runs the release is not touched by the revocation. That has to be said.
   const online = { thing: THING, online: true };
   const offline = { thing: THING, online: false };
-  assert.match(notice({ cancelled: [], again: false, running: [online] }),
-    new RegExp(`^Revoked 1\\.1\\.0\\+7\\. No deployment of it was still open\\. ${THING} still runs it; `));
+  assert.match(
+    notice({ cancelled: [], again: false, running: [online] }),
+    new RegExp(`^Revoked 1\\.1\\.0\\+7\\. No deployment of it was still open\\. ${THING} still runs it; `)
+  );
   assert.match(notice({ cancelled: null, again: true, running: [online, online] }), /2 boards still run it; /);
   // Of a board that is offline it is only known what it last reported.
-  assert.equal(core.stillRunning([online]), `${THING} still runs it; to replace it there, upload a newer version and deploy that.`);
-  assert.equal(core.stillRunning([offline]), `${THING} last reported running it; to replace it there, upload a newer version and deploy that.`);
+  assert.equal(
+    core.stillRunning([online]),
+    `${THING} still runs it; to replace it there, upload a newer version and deploy that.`
+  );
+  assert.equal(
+    core.stillRunning([offline]),
+    `${THING} last reported running it; to replace it there, upload a newer version and deploy that.`
+  );
   assert.match(core.stillRunning([online, online]), /^2 boards still run it; /);
   assert.match(core.stillRunning([offline, offline]), /^2 boards last reported running it; /);
   assert.match(core.stillRunning([online, offline]), /^1 board still runs it and 1 board last reported running it; /);
-  assert.match(core.stillRunning([online, online, offline, offline]), /^2 boards still run it and 2 boards last reported running it; /);
-  assert.match(notice({ cancelled: [], again: false, running: [offline] }), new RegExp(`${THING} last reported running it; `));
+  assert.match(
+    core.stillRunning([online, online, offline, offline]),
+    /^2 boards still run it and 2 boards last reported running it; /
+  );
+  assert.match(
+    notice({ cancelled: [], again: false, running: [offline] }),
+    new RegExp(`${THING} last reported running it; `)
+  );
   assert.match(core.stillRunning([{ ...online, name: 'CRVIHAAN01' }]), /^CRVIHAAN01 still runs it; /);
   assert.doesNotMatch(notice({ cancelled: [], again: false, running: [] }), /still run/);
-  assert.equal(notice({ cancelled: [], again: false }),
-    'Revoked 1.1.0+7. No deployment of it was still open.');
-  assert.equal(notice({ cancelled: [DEPLOYMENT], again: false }),
-    'Revoked 1.1.0+7. 1 unfinished deployment was cancelled.');
-  assert.equal(notice({ cancelled: [DEPLOYMENT, DEPLOYMENT], again: true }),
-    'The revocation of 1.1.0+7 is in place. 2 unfinished deployments were cancelled.');
-  assert.equal(notice({ cancelled: [], again: true }),
-    'The revocation of 1.1.0+7 is in place. No deployment of it was still open.');
+  assert.equal(notice({ cancelled: [], again: false }), 'Revoked 1.1.0+7. No deployment of it was still open.');
+  assert.equal(
+    notice({ cancelled: [DEPLOYMENT], again: false }),
+    'Revoked 1.1.0+7. 1 unfinished deployment was cancelled.'
+  );
+  assert.equal(
+    notice({ cancelled: [DEPLOYMENT, DEPLOYMENT], again: true }),
+    'The revocation of 1.1.0+7 is in place. 2 unfinished deployments were cancelled.'
+  );
+  assert.equal(
+    notice({ cancelled: [], again: true }),
+    'The revocation of 1.1.0+7 is in place. No deployment of it was still open.'
+  );
   // The server only said "already revoked": nothing is claimed about what it cancelled.
   assert.match(notice({ cancelled: null, again: true }), /^The revocation of 1\.1\.0\+7 is in place: /);
   assert.match(notice({ cancelled: null, again: false }), /^1\.1\.0\+7 was revoked already, and that /);
@@ -1678,8 +1983,10 @@ test('the only free board is chosen without being asked, unless it would refuse 
 
 test('which boards hold an update until Button 1 is pressed goes by the firmware they report', () => {
   const on = (version) => ({ fw: { version, confirmed: true } });
-  for (const version of ['1.5.0+0', '1.7.1+0', '1.7.1+99', '0.9.0+1']) assert.equal(core.asksForButton(on(version)), true, version);
-  for (const version of ['1.7.2+0', '1.7.2+1', '1.7.10+0', '1.8.0+0', '2.0.0+0']) assert.equal(core.asksForButton(on(version)), false, version);
+  for (const version of ['1.5.0+0', '1.7.1+0', '1.7.1+99', '0.9.0+1'])
+    assert.equal(core.asksForButton(on(version)), true, version);
+  for (const version of ['1.7.2+0', '1.7.2+1', '1.7.10+0', '1.8.0+0', '2.0.0+0'])
+    assert.equal(core.asksForButton(on(version)), false, version);
   // A board that has reported nothing, or nothing that can be read, is not said to ask.
   assert.equal(core.asksForButton({ fw: null }), false);
   assert.equal(core.asksForButton({ fw: { version: 'nonsense' } }), false);
@@ -1688,13 +1995,32 @@ test('which boards hold an update until Button 1 is pressed goes by the firmware
 // Words.
 
 const PHASES = [
-  'waiting_for_device', 'waiting_for_button', 'starting', 'downloading', 'verifying', 'rebooting', 'testing',
-  'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled', 'timed_out', 'removed',
+  'waiting_for_device',
+  'waiting_for_button',
+  'starting',
+  'downloading',
+  'verifying',
+  'rebooting',
+  'testing',
+  'succeeded',
+  'failed',
+  'rolled_back',
+  'declined',
+  'refused',
+  'cancelled',
+  'timed_out',
+  'removed',
 ];
 const TONES = ['act', 'wait', 'live', 'good', 'warn', 'bad', 'idle'];
 const STEP_STATES = ['done', 'current', 'failed', 'stopped', 'skipped', 'upcoming', 'unknown'];
 const STEP_NAMES = [
-  'Offered', 'Accepted by the board', 'Downloading', 'Download checked', 'Restarting', 'On trial', 'Confirmed',
+  'Offered',
+  'Accepted by the board',
+  'Downloading',
+  'Download checked',
+  'Restarting',
+  'On trial',
+  'Confirmed',
 ];
 const STARTED = '2026-10-10T12:01:00Z';
 
@@ -1719,8 +2045,10 @@ function execution(phase, extra = {}) {
 
 const describe = (phase, extra) => core.describeExecution(execution(phase, extra));
 /** The version on an execution in this phase, under the name the API gives it there. */
-const recorded = (phase, version) => (['succeeded', 'failed', 'rolled_back', 'declined', 'refused'].includes(phase)
-  ? { ranAtEnd: version } : { reported: version });
+const recorded = (phase, version) =>
+  ['succeeded', 'failed', 'rolled_back', 'declined', 'refused'].includes(phase)
+    ? { ranAtEnd: version }
+    : { reported: version };
 const states = (description) => description.steps.map((step) => step.state);
 const labels = (description) => description.steps.map((step) => step.label);
 
@@ -1732,8 +2060,15 @@ function everyDescription() {
     { ranAtEnd: '1.0.0+3', reported: '1.0.0+3', startedAt: STARTED, reason: 'something_new' },
   ];
   const reasons = [
-    'download_failed', 'digest_mismatch', 'header_mismatch', 'flash_error', 'interrupted', 'not_installed',
-    'not_newer', 'declined', 'rolled_back',
+    'download_failed',
+    'digest_mismatch',
+    'header_mismatch',
+    'flash_error',
+    'interrupted',
+    'not_installed',
+    'not_newer',
+    'declined',
+    'rolled_back',
   ];
   const all = [];
   for (const phase of PHASES) {
@@ -1751,11 +2086,20 @@ test('every phase has plain words, a tone, an icon and seven steps', () => {
     assert.match(description.text, /\.$/, `${phase}: a full sentence`);
     assert.equal(description.text.startsWith(description.brief), true);
     assert.equal(description.steps.length, 7, phase);
-    assert.equal(states(description).every((state) => STEP_STATES.includes(state)), true);
+    assert.equal(
+      states(description).every((state) => STEP_STATES.includes(state)),
+      true
+    );
     assert.equal(states(description).filter((state) => state === 'current').length <= 1, true);
-    assert.equal(labels(description).every((label) => label.length > 3), true);
+    assert.equal(
+      labels(description).every((label) => label.length > 3),
+      true
+    );
   }
-  assert.deepEqual(core.STEPS.map((step) => step.name), STEP_NAMES);
+  assert.deepEqual(
+    core.STEPS.map((step) => step.name),
+    STEP_NAMES
+  );
 });
 
 test('a step is called by what is true of it: done, being waited for, or where it stopped', () => {
@@ -1833,13 +2177,16 @@ test('the installing phases move along the steps, with the download in percent',
   assert.equal(downloading.title, 'Downloading 40%');
   assert.equal(downloading.progress, 40);
   assert.equal(downloading.tone, 'live');
-  assert.deepEqual(states(downloading),
-    ['done', 'done', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming']);
+  assert.deepEqual(states(downloading), ['done', 'done', 'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming']);
   // Without a figure from the board there is no percentage to show.
   assert.equal(describe('downloading').title, 'Downloading');
   assert.equal(describe('downloading').progress, null);
 
-  for (const [phase, step] of [['verifying', 3], ['rebooting', 4], ['testing', 5]]) {
+  for (const [phase, step] of [
+    ['verifying', 3],
+    ['rebooting', 4],
+    ['testing', 5],
+  ]) {
     assert.equal(states(describe(phase)).indexOf('current'), step);
     assert.equal(describe(phase).progress, null);
   }
@@ -1888,24 +2235,29 @@ test('the ways an update ends are said plainly', () => {
 });
 
 test('a board that has never connected is not said to be offline, or to come back', () => {
-  const never = core.describeExecution(execution('waiting_for_device', { online: false }),
-    { board: { lastSeen: null } });
+  const never = core.describeExecution(execution('waiting_for_device', { online: false }), {
+    board: { lastSeen: null },
+  });
   assert.equal(never.title, 'Never connected');
   assert.match(never.text, /Power it up and check that it was provisioned/);
   assert.match(never.text, /when it first connects/);
   assert.doesNotMatch(never.text, /reconnect/);
 
   // A board that has been seen is offline; without the board list that is all that is known.
-  const seen = core.describeExecution(execution('waiting_for_device', { online: false }),
-    { board: { lastSeen: NOON } });
+  const seen = core.describeExecution(execution('waiting_for_device', { online: false }), {
+    board: { lastSeen: NOON },
+  });
   assert.equal(seen.title, 'Board offline');
   assert.equal(describe('waiting_for_device', { online: false }).title, 'Board offline');
 });
 
 test('a cancelled update says what became of the board, not only that it was cancelled', () => {
   const id = 'cranium-1-1-0-b7-20261010T115900Z-0a0a';
-  const known = (ota, fw = { version: '1.0.0+3', confirmed: true }) =>
-    ({ board: { lastSeen: NOON, fw, ota }, deployment: id, version: '1.1.0+7' });
+  const known = (ota, fw = { version: '1.0.0+3', confirmed: true }) => ({
+    board: { lastSeen: NOON, fw, ota },
+    deployment: id,
+    version: '1.1.0+7',
+  });
   const cancelled = (changes, board) =>
     core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.0.0+3', ...changes }), board);
 
@@ -1916,7 +2268,10 @@ test('a cancelled update says what became of the board, not only that it was can
   assert.equal(verifying.retry, true);
 
   // Too far along to be stopped: the page does not claim that it was.
-  for (const [state, step] of [['rebooting', 4], ['testing', 5]]) {
+  for (const [state, step] of [
+    ['rebooting', 4],
+    ['testing', 5],
+  ]) {
     const finishing = cancelled({}, known({ state, job: id }));
     assert.equal(finishing.title, 'Finishing despite the cancellation');
     assert.equal(finishing.tone, 'live');
@@ -1928,23 +2283,29 @@ test('a cancelled update says what became of the board, not only that it was can
   assert.equal(cancelled({}, known({ state: 'rebooting', job: 'another' })).title, 'Cancelled');
 
   // And there it is: the board runs what was cancelled.
-  const installed = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }),
-    { ...known({ state: 'idle', job: null, last: 'succeeded' }, { version: '1.1.0+7', confirmed: true }), history: [] });
+  const installed = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }), {
+    ...known({ state: 'idle', job: null, last: 'succeeded' }, { version: '1.1.0+7', confirmed: true }),
+    history: [],
+  });
   assert.equal(installed.title, 'Installed despite the cancellation');
   assert.equal(installed.tone, 'warn');
   assert.deepEqual(states(installed), new Array(7).fill('done'));
   assert.match(installed.text, /It now runs 1\.1\.0\+7\.$/);
   assert.match(installed.next, /upload a newer version/);
   // On something else: that its last update went through is not about this one.
-  const other = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.0.0+3' }),
-    { ...known({ state: 'idle', job: null, last: 'succeeded' }), history: [] });
+  const other = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.0.0+3' }), {
+    ...known({ state: 'idle', job: null, last: 'succeeded' }),
+    history: [],
+  });
   assert.equal(other.title, 'Cancelled');
   assert.equal(other.installed, undefined);
   assert.match(other.text, /it stops there and keeps the firmware it had/);
 
   // Not confirmed: the board has not said that its update went through.
-  const onTrial = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }),
-    { ...known({ state: 'idle', job: null, last: 'succeeded' }, { version: '1.1.0+7', confirmed: false }), history: [] });
+  const onTrial = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }), {
+    ...known({ state: 'idle', job: null, last: 'succeeded' }, { version: '1.1.0+7', confirmed: false }),
+    history: [],
+  });
   assert.equal(onTrial.unsure, true);
   assert.equal(onTrial.installed, undefined);
 });
@@ -1952,11 +2313,20 @@ test('a cancelled update says what became of the board, not only that it was can
 test('a version on a board that another deployment put there is not put down to this one', () => {
   const id = 'cranium-1-1-0-b7-20261010T115900Z-0a0a';
   const other = 'cranium-1-1-0-b7-20261010T120500Z-0b0b';
-  const board = { lastSeen: NOON, fw: { version: '1.1.0+7', confirmed: true }, ota: { state: 'idle', job: null, last: 'succeeded' } };
+  const board = {
+    lastSeen: NOON,
+    fw: { version: '1.1.0+7', confirmed: true },
+    ota: { state: 'idle', job: null, last: 'succeeded' },
+  };
   const entry = (deployment, status, version = '1.1.0+7') => ({ deployment, version, status });
-  const told = (history, known) => core.describeExecution(
-    execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }),
-    { board, deployment: id, version: '1.1.0+7', history, ...known });
+  const told = (history, known) =>
+    core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }), {
+      board,
+      deployment: id,
+      version: '1.1.0+7',
+      history,
+      ...known,
+    });
 
   // Offered again, and installed by that: this deployment stopped where it was told to.
   const later = told([entry(id, 'CANCELED'), entry(other, 'SUCCEEDED')]);
@@ -1967,11 +2337,19 @@ test('a version on a board that another deployment put there is not put down to 
   assert.match(later.text, /and it stopped there\. Another deployment installed 1\.1\.0\+7\.$/);
   assert.deepEqual(states(later), ['done', 'done', 'stopped', ...new Array(4).fill('skipped')]);
   assert.equal(later.retry, false, 'the board runs it already: offering it again would be refused');
-  assert.equal(told([entry(id, 'CANCELED'), entry(other, 'IN_PROGRESS')]).installedBy, other, 'on trial under the other');
+  assert.equal(
+    told([entry(id, 'CANCELED'), entry(other, 'IN_PROGRESS')]).installedBy,
+    other,
+    'on trial under the other'
+  );
 
   // Nobody else installed it, and the board says that its last update went through: it did so all the same.
-  for (const history of [[], [entry(id, 'CANCELED')], [entry(id, 'CANCELED'), entry(other, 'REJECTED')],
-    [entry(id, 'CANCELED'), entry(other, 'SUCCEEDED', '1.0.0+3')]]) {
+  for (const history of [
+    [],
+    [entry(id, 'CANCELED')],
+    [entry(id, 'CANCELED'), entry(other, 'REJECTED')],
+    [entry(id, 'CANCELED'), entry(other, 'SUCCEEDED', '1.0.0+3')],
+  ]) {
     const installed = told(history);
     assert.equal(installed.title, 'Installed despite the cancellation');
     assert.equal(installed.installed, true);
@@ -1984,7 +2362,10 @@ test('a version on a board that another deployment put there is not put down to 
   const unknown = told(null);
   assert.equal(unknown.title, 'Cancelled');
   assert.equal(unknown.unsure, true);
-  assert.equal(unknown.text, 'Cancelled after the board had started. The board now runs 1.1.0+7; how it got there is not on record.');
+  assert.equal(
+    unknown.text,
+    'Cancelled after the board had started. The board now runs 1.1.0+7; how it got there is not on record.'
+  );
   assert.doesNotMatch(unknown.text, /keeps the firmware it had/);
   assert.equal(unknown.retry, false);
   assert.equal(told(undefined).unsure, true, 'where the list is not asked for, the same');
@@ -1998,7 +2379,9 @@ test('a version on a board that another deployment put there is not put down to 
   assert.equal(told([entry(other, 'SUCCEEDED')], { historyCut: true }).installedBy, other);
 
   // It came some other way, for all anyone knows: flashed over USB, which leaves no record.
-  const flashed = told([entry(id, 'CANCELED')], { board: { ...board, ota: { state: 'idle', job: null, last: 'none' } } });
+  const flashed = told([entry(id, 'CANCELED')], {
+    board: { ...board, ota: { state: 'idle', job: null, last: 'none' } },
+  });
   assert.equal(flashed.title, 'Cancelled');
   assert.equal(flashed.unsure, true);
   assert.equal(flashed.installed, undefined);
@@ -2013,30 +2396,49 @@ test('a version on a board that another deployment put there is not put down to 
   assert.equal(outside('FAILED').installed, true, 'a job that failed installed nothing');
 
   // When last seen.
-  const quiet = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7', online: false }),
-    { board: { ...board, online: false }, deployment: id, version: '1.1.0+7', history: [] });
+  const quiet = core.describeExecution(
+    execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7', online: false }),
+    { board: { ...board, online: false }, deployment: id, version: '1.1.0+7', history: [] }
+  );
   assert.match(quiet.text, /had gone too far to be stopped\. When last seen, it ran 1\.1\.0\+7\.$/);
-  const quietUnsure = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7', online: false }),
-    { board: { ...board, online: false }, deployment: id, version: '1.1.0+7', history: null });
-  assert.equal(quietUnsure.text, 'Cancelled after the board had started. When last seen, the board ran 1.1.0+7; how it got there is not on record.');
+  const quietUnsure = core.describeExecution(
+    execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7', online: false }),
+    { board: { ...board, online: false }, deployment: id, version: '1.1.0+7', history: null }
+  );
+  assert.equal(
+    quietUnsure.text,
+    'Cancelled after the board had started. When last seen, the board ran 1.1.0+7; how it got there is not on record.'
+  );
 
   // A board that is still restarting says so, whatever its list holds.
-  const restarting = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }),
-    { board: { ...board, ota: { state: 'rebooting', job: id } }, deployment: id, version: '1.1.0+7', history: null });
+  const restarting = core.describeExecution(execution('cancelled', { startedAt: STARTED, reported: '1.1.0+7' }), {
+    board: { ...board, ota: { state: 'rebooting', job: id } },
+    deployment: id,
+    version: '1.1.0+7',
+    history: null,
+  });
   assert.equal(restarting.title, 'Finishing despite the cancellation');
 });
 
 test('how a cancelled update ended is not claimed where it cannot be known', () => {
   const id = 'cranium-1-1-0-b7-20261010T115900Z-0a0a';
-  const board = (fw, ota = { state: 'idle', job: null }) => ({ lastSeen: NOON, fw: { version: fw, confirmed: true }, ota });
-  const said = (changes, known) => core.describeExecution(execution('cancelled', changes), { deployment: id, version: '1.1.0+7', ...known });
+  const board = (fw, ota = { state: 'idle', job: null }) => ({
+    lastSeen: NOON,
+    fw: { version: fw, confirmed: true },
+    ota,
+  });
+  const said = (changes, known) =>
+    core.describeExecution(execution('cancelled', changes), { deployment: id, version: '1.1.0+7', ...known });
 
   // A newer version came later. Whether this one had finished before that is on no record.
   const movedOn = said({ startedAt: STARTED, reported: '2.0.0+0' }, { board: board('2.0.0+0'), history: [] });
   assert.equal(movedOn.title, 'Cancelled');
   assert.equal(movedOn.unsure, true);
   assert.equal(movedOn.retry, false, 'the board would refuse an older version');
-  assert.equal(movedOn.text, 'Cancelled after the board had started. The board reports that it runs 2.0.0+0. This page cannot tell how this update ended.');
+  assert.equal(
+    movedOn.text,
+    'Cancelled after the board had started. The board reports that it runs 2.0.0+0. This page cannot tell how this update ended.'
+  );
   assert.doesNotMatch(movedOn.text, /stops there|keeps the firmware/);
   assert.deepEqual(states(movedOn), ['done', 'done', ...new Array(5).fill('unknown')]);
 
@@ -2061,7 +2463,10 @@ test('how a cancelled update ended is not claimed where it cannot be known', () 
     assert.equal(later.retry, false);
     assert.equal(later.next, null);
     // Whether that came before the offer or after it is on no record either.
-    assert.equal(later.text, `Cancelled before the board started, so this deployment installed nothing. The board reports that it runs ${reported}.`);
+    assert.equal(
+      later.text,
+      `Cancelled before the board started, so this deployment installed nothing. The board reports that it runs ${reported}.`
+    );
     assert.doesNotMatch(later.text, /since|moved/);
     // How it got there is not known: no deployment gets the credit.
     assert.doesNotMatch(later.text, /later one|another deployment/i);
@@ -2104,7 +2509,8 @@ test('what the server checks about an image has a name for every way it can refu
   const named = new Set(core.IMAGE_CHECKS.flatMap((check) => check.codes));
   // The one that is not about an image: the server's own key does not load.
   const refusals = [...readFileSync(source, 'utf8').matchAll(/\bfail\('([a-z_]+)'/g)]
-    .map((match) => match[1]).filter((code) => code !== 'bad_signing_key');
+    .map((match) => match[1])
+    .filter((code) => code !== 'bad_signing_key');
   assert.equal(refusals.length > 10, true);
   for (const code of refusals) {
     assert.equal(named.has(code), true, `the refusal ${code} has no check`);
@@ -2125,8 +2531,12 @@ test('an update that ended short says what to do next, and whether offering it a
   assert.match(rolledBack.next, /upload a newer version/);
   assert.equal(rolledBack.retry, false, 'the same image would only roll back again');
   for (const [phase, extra] of [
-    ['declined', {}], ['refused', { reason: 'too_large' }], ['failed', { reason: 'download_failed' }],
-    ['failed', { reason: 'something_new' }], ['cancelled', {}], ['timed_out', {}],
+    ['declined', {}],
+    ['refused', { reason: 'too_large' }],
+    ['failed', { reason: 'download_failed' }],
+    ['failed', { reason: 'something_new' }],
+    ['cancelled', {}],
+    ['timed_out', {}],
   ]) {
     const ended = describe(phase, extra);
     assert.equal(ended.retry, true, phase);
@@ -2138,7 +2548,7 @@ test('an update that ended short says what to do next, and whether offering it a
   }
 });
 
-test('the newest entry of a board\'s history uses the board\'s own word for how it ended', () => {
+test("the newest entry of a board's history uses the board's own word for how it ended", () => {
   const label = (status, last) => core.describeHistory(status, last).label;
   assert.equal(label('FAILED', 'rolled_back'), 'Rolled back');
   assert.equal(label('REJECTED', 'declined'), 'Declined on the board');
@@ -2198,7 +2608,12 @@ test('a failure is pinned to the step the board names, and only then', () => {
   assert.equal(failedAt(null), -1);
 
   const known = [
-    'download_failed', 'digest_mismatch', 'header_mismatch', 'flash_error', 'interrupted', 'not_installed',
+    'download_failed',
+    'digest_mismatch',
+    'header_mismatch',
+    'flash_error',
+    'interrupted',
+    'not_installed',
   ];
   for (const reason of known) {
     const description = describe('failed', { reason });
@@ -2245,7 +2660,14 @@ test('a word from a board is never mistaken for something every object has', () 
 
 test('an execution status has words even when the phase is not known', () => {
   const statuses = [
-    'QUEUED', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED',
+    'QUEUED',
+    'IN_PROGRESS',
+    'SUCCEEDED',
+    'FAILED',
+    'TIMED_OUT',
+    'REJECTED',
+    'REMOVED',
+    'CANCELED',
     'NEW_STATUS',
   ];
   for (const status of statuses) {
@@ -2256,8 +2678,7 @@ test('an execution status has words even when the phase is not known', () => {
 });
 
 test('what a board last reported about updates is put into words', () => {
-  const ota = (state, extra = {}) =>
-    ({ state, job: DEPLOYMENT, progress: 0, last: 'none', error: '', ...extra });
+  const ota = (state, extra = {}) => ({ state, job: DEPLOYMENT, progress: 0, last: 'none', error: '', ...extra });
   const update = (report, online = true) => core.describeUpdate({ thing: THING, online, ota: report });
   const idle = (extra = {}) => update(ota('idle', { job: null, ...extra }));
 
@@ -2291,7 +2712,15 @@ test('what a board last reported about updates is put into words', () => {
   assert.equal(gone.title, 'Was waiting for Button\u00a01 when last seen');
   assert.equal(gone.tone, 'idle');
   assert.equal(gone.text, '');
-  for (const state of ['awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth', 'a_new_state']) {
+  for (const state of [
+    'awaiting_user',
+    'downloading',
+    'verifying',
+    'rebooting',
+    'testing',
+    'bluetooth',
+    'a_new_state',
+  ]) {
     assert.match(update(ota(state), false).title, /^Was [a-z].* when last seen$/, state);
   }
 
@@ -2307,7 +2736,14 @@ test('what a board last reported about updates is put into words', () => {
 
 test('a deployment as a whole is summed up from its boards', () => {
   const none = {
-    queued: 0, inProgress: 0, succeeded: 0, failed: 0, rejected: 0, canceled: 0, timedOut: 0, removed: 0,
+    queued: 0,
+    inProgress: 0,
+    succeeded: 0,
+    failed: 0,
+    rejected: 0,
+    canceled: 0,
+    timedOut: 0,
+    removed: 0,
   };
   const summary = (status, counts) =>
     core.describeDeployment({ status, things: [THING, THING], counts: { ...none, ...counts } }).label;
@@ -2334,17 +2770,24 @@ test('a deployment as a whole is summed up from its boards', () => {
   assert.equal(core.describeDeployment(through).said, '1.1.0+7 was installed and confirmed.');
   const board = (changes) => ({ thing: THING, online: true, fw: { version: '1.1.0+7', confirmed: true }, ...changes });
   assert.equal(core.describeDeployment(through, [board()]).said, '1.1.0+7 is installed and confirmed.');
-  assert.equal(core.describeDeployment(through, [board({ online: false })]).said, '1.1.0+7 was installed and confirmed.');
-  assert.equal(core.describeDeployment(through, [board({ fw: { version: '2.0.0+0', confirmed: true } })]).said,
-    '1.1.0+7 was installed and confirmed.');
+  assert.equal(
+    core.describeDeployment(through, [board({ online: false })]).said,
+    '1.1.0+7 was installed and confirmed.'
+  );
+  assert.equal(
+    core.describeDeployment(through, [board({ fw: { version: '2.0.0+0', confirmed: true } })]).said,
+    '1.1.0+7 was installed and confirmed.'
+  );
   assert.equal(said('CANCELED', { canceled: 2 }), null);
   assert.equal(summary('SCHEDULED', {}), 'Scheduled');
   assert.equal(summary('DELETION_IN_PROGRESS', {}), 'Being deleted');
   assert.equal(summary('SOMETHING_NEW', {}), 'Unknown');
 
   const counted = core.describeCounts({ ...none, queued: 2, inProgress: 1, failed: 1 });
-  assert.deepEqual(counted.map((entry) => `${entry.count} ${entry.label}`),
-    ['1 updating', '2 waiting', '1 failed']);
+  assert.deepEqual(
+    counted.map((entry) => `${entry.count} ${entry.label}`),
+    ['1 updating', '2 waiting', '1 failed']
+  );
   // A board that waits for a person is told apart from one that only has yet to come online.
   const words = (counts, atButton) =>
     core.describeCounts({ ...none, ...counts }, atButton).map((entry) => `${entry.count} ${entry.label}`);
@@ -2360,24 +2803,56 @@ test('an entry of the activity log reads as a sentence and links only to what ex
   const said = (line) => [line.verb, line.label, line.tail, core.auditBoards(line)].filter(Boolean).join(' ');
 
   assert.deepEqual(entry('firmware.upload', '1.1.0+7'), {
-    icon: 'upload', verb: 'uploaded firmware', label: '1.1.0+7', tail: '', outcome: null, href: '#/firmware', facts: [],
-    scripted: false, boards: [], boardCount: 0, byName: false,
+    icon: 'upload',
+    verb: 'uploaded firmware',
+    label: '1.1.0+7',
+    tail: '',
+    outcome: null,
+    href: '#/firmware',
+    facts: [],
+    scripted: false,
+    boards: [],
+    boardCount: 0,
+    byName: false,
   });
   // What a script sent past the gateway is told apart. A request through the gateway cannot carry this id.
-  assert.equal(core.describeAudit({ action: 'firmware.revoke', target: '1.1.0+7', outcome: 'ok', detail: [], requestId: 'bench-0123' }).scripted, true);
-  assert.equal(core.describeAudit({ action: 'firmware.revoke', target: '1.1.0+7', outcome: 'ok', detail: [], requestId: 'LvC5hbench-=' }).scripted, false);
+  assert.equal(
+    core.describeAudit({
+      action: 'firmware.revoke',
+      target: '1.1.0+7',
+      outcome: 'ok',
+      detail: [],
+      requestId: 'bench-0123',
+    }).scripted,
+    true
+  );
+  assert.equal(
+    core.describeAudit({
+      action: 'firmware.revoke',
+      target: '1.1.0+7',
+      outcome: 'ok',
+      detail: [],
+      requestId: 'LvC5hbench-=',
+    }).scripted,
+    false
+  );
   assert.equal(said(entry('firmware.revoke', '1.1.0+7')), 'revoked firmware 1.1.0+7');
 
   // A deployment is called by the version it installs. Its id is one of the details,
   // and the version is not said twice.
   // Which boards it went to: by name where the entry names them, else how many.
-  const started = entry('deployment.create', DEPLOYMENT, 'ok', [['version', '1.1.0+7'], ['things', '2']]);
+  const started = entry('deployment.create', DEPLOYMENT, 'ok', [
+    ['version', '1.1.0+7'],
+    ['things', '2'],
+  ]);
   assert.equal(said(started), 'deployed 1.1.0+7 to 2 boards');
   assert.equal(started.href, `#/deployments/${DEPLOYMENT}`);
-  assert.deepEqual(started.facts.map((fact) => [fact.label, fact.value, fact.code]), [['Deployment', DEPLOYMENT, true]]);
+  assert.deepEqual(
+    started.facts.map((fact) => [fact.label, fact.value, fact.code]),
+    [['Deployment', DEPLOYMENT, true]]
+  );
   assert.equal(said(entry('deployment.cancel', DEPLOYMENT)), 'cancelled the deployment of 1.1.0+7');
-  assert.equal(said(entry('deployment.cancel', DEPLOYMENT, 'rejected')),
-    'tried to cancel the deployment of 1.1.0+7');
+  assert.equal(said(entry('deployment.cancel', DEPLOYMENT, 'rejected')), 'tried to cancel the deployment of 1.1.0+7');
   assert.equal(said(entry('deployment.create', '1.1.0+7', 'rejected')), 'tried to deploy 1.1.0+7');
   assert.equal(said(entry('deployment.create', DEPLOYMENT, 'rejected')), 'tried to deploy 1.1.0+7');
   assert.equal(said(entry('deployment.create', DEPLOYMENT)), 'deployed 1.1.0+7');
@@ -2402,80 +2877,143 @@ test('an entry of the activity log reads as a sentence and links only to what ex
   assert.equal(entry('something.new', 'x', 'odd').verb, 'something.new');
 });
 
-test('the details of an entry are put in the words of the console, not in the API\'s field names', () => {
-  const facts = (action, outcome, detail) =>
-    core.describeAudit({ action, target: '1.1.0+7', outcome, detail }).facts;
+test("the details of an entry are put in the words of the console, not in the API's field names", () => {
+  const facts = (action, outcome, detail) => core.describeAudit({ action, target: '1.1.0+7', outcome, detail }).facts;
   const said = (list) => list.map((fact) => `${fact.label}${fact.phrase ? '' : ':'} ${fact.value}`);
   const digest = 'ab'.repeat(32);
 
   // In an order that reads well, whatever order the API sent them in.
-  const upload = facts('firmware.upload', 'rejected',
-    [['sha256', digest], ['size', '1264'], ['filename', 'zephyr.signed.bin'], ['code', 'wrong_key']]);
-  assert.deepEqual(said(upload),
-    ['Refused with wrong_key', 'File zephyr.signed.bin', 'Size 1,264 bytes', `SHA-256 ${digest}`]);
+  const upload = facts('firmware.upload', 'rejected', [
+    ['sha256', digest],
+    ['size', '1264'],
+    ['filename', 'zephyr.signed.bin'],
+    ['code', 'wrong_key'],
+  ]);
+  assert.deepEqual(said(upload), [
+    'Refused with wrong_key',
+    'File zephyr.signed.bin',
+    'Size 1,264 bytes',
+    `SHA-256 ${digest}`,
+  ]);
   // Identifiers are marked as such; a size or a count is not one.
-  assert.deepEqual(upload.map((fact) => fact.code), [true, true, false, true]);
+  assert.deepEqual(
+    upload.map((fact) => fact.code),
+    [true, true, false, true]
+  );
   // A refusal is said in words where there are words for it, and only there.
   assert.equal(upload[0].words, 'Signed with a different key than this project’s');
   assert.equal(facts('firmware.upload', 'rejected', [['code', 'something_new']])[0].words, null);
   // The name of the file is not said twice, when it is what the entry is about.
   const named = core.describeAudit({
-    action: 'firmware.upload', target: 'x.bin', outcome: 'rejected', detail: [['filename', 'x.bin']],
+    action: 'firmware.upload',
+    target: 'x.bin',
+    outcome: 'rejected',
+    detail: [['filename', 'x.bin']],
   });
   assert.deepEqual(named.facts, []);
 
   // A reason is prose, kept whole, and a revocation counts the deployments it cancelled.
   const reason = 'Pads stop responding after a few minutes of use.';
-  const revoke = facts('firmware.revoke', 'ok', [['reason', reason], ['cancelled', '1']]);
+  const revoke = facts('firmware.revoke', 'ok', [
+    ['reason', reason],
+    ['cancelled', '1'],
+  ]);
   assert.deepEqual(said(revoke), [`Reason: ${reason}`, 'Deployments cancelled 1']);
   assert.equal(revoke[0].code, false);
 
-  assert.deepEqual(said(facts('deployment.cancel', 'ok', [['force', 'true']])),
-    ['Asked to withdraw the offer and stop boards that had started']);
-  assert.deepEqual(said(facts('deployment.cancel', 'error', [['force', 'false'], ['cancelled', 'true'],
-    ['code', 'internal']])), ['Failed with internal', 'Asked to withdraw the offer', 'Cancelled all the same']);
-  assert.deepEqual(said(facts('deployment.create', 'rejected', [['version', '1.1.0+7'], ['things', '2'],
-    ['code', 'device_busy']])), ['Refused with device_busy']);
+  assert.deepEqual(said(facts('deployment.cancel', 'ok', [['force', 'true']])), [
+    'Asked to withdraw the offer and stop boards that had started',
+  ]);
+  assert.deepEqual(
+    said(
+      facts('deployment.cancel', 'error', [
+        ['force', 'false'],
+        ['cancelled', 'true'],
+        ['code', 'internal'],
+      ])
+    ),
+    ['Failed with internal', 'Asked to withdraw the offer', 'Cancelled all the same']
+  );
+  assert.deepEqual(
+    said(
+      facts('deployment.create', 'rejected', [
+        ['version', '1.1.0+7'],
+        ['things', '2'],
+        ['code', 'device_busy'],
+      ])
+    ),
+    ['Refused with device_busy']
+  );
   // A version that is not the target is said.
   assert.deepEqual(said(facts('deployment.create', 'ok', [['version', '9.9.9+9']])), ['Version 9.9.9+9']);
 
   // A revocation that could not be completed says which steps are left. One that
   // completes what an earlier request began says so in its sentence.
-  assert.deepEqual(said(facts('firmware.revoke', 'error', [['reason', 'A fault.'], ['cancelled', '0'],
-    ['incomplete', 'tag cancel record'], ['code', 'revoke_incomplete']])), [
-    'Failed with revoke_incomplete',
-    'Left undone: refusing the image, cancelling the deployments, recording that it is done',
-    'Reason: A fault.', 'Deployments cancelled 0',
+  assert.deepEqual(
+    said(
+      facts('firmware.revoke', 'error', [
+        ['reason', 'A fault.'],
+        ['cancelled', '0'],
+        ['incomplete', 'tag cancel record'],
+        ['code', 'revoke_incomplete'],
+      ])
+    ),
+    [
+      'Failed with revoke_incomplete',
+      'Left undone: refusing the image, cancelling the deployments, recording that it is done',
+      'Reason: A fault.',
+      'Deployments cancelled 0',
+    ]
+  );
+  assert.deepEqual(said(facts('firmware.revoke', 'error', [['incomplete', 'a_new_step']])), [
+    'Left undone: a_new_step',
   ]);
-  assert.deepEqual(said(facts('firmware.revoke', 'error', [['incomplete', 'a_new_step']])),
-    ['Left undone: a_new_step']);
   const finished = core.describeAudit({
     action: 'firmware.revoke',
     target: '1.1.0+7',
     outcome: 'ok',
-    detail: [['cancelled', '1'], ['resumed', 'true']],
+    detail: [
+      ['cancelled', '1'],
+      ['resumed', 'true'],
+    ],
   });
   assert.equal(finished.verb, 'finished revoking firmware');
   assert.deepEqual(said(finished.facts), ['Deployments cancelled 1']);
 
   // What the console has no word for is shown as the API named it, last.
-  assert.deepEqual(said(facts('firmware.upload', 'ok', [['somethingNew', 'x'], ['size', 'unknown'],
-    ['constructor', 'y']])), ['Size unknown', 'somethingNew: x', 'constructor: y']);
+  assert.deepEqual(
+    said(
+      facts('firmware.upload', 'ok', [
+        ['somethingNew', 'x'],
+        ['size', 'unknown'],
+        ['constructor', 'y'],
+      ])
+    ),
+    ['Size unknown', 'somethingNew: x', 'constructor: y']
+  );
 });
 
 test('a detail of the activity log is kept as long as the API stores it', async () => {
   const reason = 'r'.repeat(200);
-  const { api } = answering(200, { entries: [{
-    at: NOON,
-    actor: { sub: 's', email: 'e' },
-    action: 'firmware.revoke',
-    target: '1.1.0+7',
-    outcome: 'ok',
-    detail: { reason: `${reason}and more`, ['k'.repeat(30)]: 'v' },
-    requestId: 'r-1',
-  }], next: null });
+  const { api } = answering(200, {
+    entries: [
+      {
+        at: NOON,
+        actor: { sub: 's', email: 'e' },
+        action: 'firmware.revoke',
+        target: '1.1.0+7',
+        outcome: 'ok',
+        detail: { reason: `${reason}and more`, ['k'.repeat(30)]: 'v' },
+        requestId: 'r-1',
+      },
+    ],
+    next: null,
+  });
   const [entry] = (await api.audit()).entries;
-  assert.deepEqual(entry.detail, [['reason', reason], ['k'.repeat(24), 'v']]);
+  assert.deepEqual(entry.detail, [
+    ['reason', reason],
+    ['k'.repeat(24), 'v'],
+  ]);
 });
 
 test('a person is named by the address, and the account id is never far', () => {
@@ -2504,28 +3042,53 @@ test('entries of the log are filed under the day they happened', () => {
 
 test('an update that is over is told in the past, from what its job recorded', () => {
   const version = '1.1.0+7';
-  const board = (fw, online = true) => ({ thing: THING, online, lastSeen: NOON, fw: { version: fw, confirmed: true }, ota: null });
-  const said = (phase, changes, known) => core.describeExecution(execution(phase, { ...recorded(phase, '1.0.0+3'), ...changes }), { version, ...known });
+  const board = (fw, online = true) => ({
+    thing: THING,
+    online,
+    lastSeen: NOON,
+    fw: { version: fw, confirmed: true },
+    ota: null,
+  });
+  const said = (phase, changes, known) =>
+    core.describeExecution(execution(phase, { ...recorded(phase, '1.0.0+3'), ...changes }), { version, ...known });
 
   // Still so, as far as a board online can say: in the present.
-  assert.equal(said('succeeded', { ranAtEnd: version }, { board: board(version) }).text,
-    'The board runs 1.1.0+7 and has confirmed it.');
+  assert.equal(
+    said('succeeded', { ranAtEnd: version }, { board: board(version) }).text,
+    'The board runs 1.1.0+7 and has confirmed it.'
+  );
   // Not said of a board that cannot say so, or that has left it, or that has not confirmed it.
-  assert.equal(said('succeeded', { ranAtEnd: version, online: false }, { board: board(version, false) }).text,
-    'The board confirmed 1.1.0+7 when this update ended.');
-  assert.equal(said('succeeded', { ranAtEnd: version }, { board: board('2.0.0+0') }).text,
-    'The board confirmed 1.1.0+7 when this update ended. It has since moved to 2.0.0+0.');
-  assert.equal(said('succeeded', { ranAtEnd: version, online: false }, { board: board('2.0.0+0', false) }).text,
-    'The board confirmed 1.1.0+7 when this update ended. When last seen, it had moved to 2.0.0+0.');
-  assert.equal(said('succeeded', { ranAtEnd: version }, {
-    board: { ...board(version), fw: { version, confirmed: false } },
-  }).text, 'The board confirmed 1.1.0+7 when this update ended.');
+  assert.equal(
+    said('succeeded', { ranAtEnd: version, online: false }, { board: board(version, false) }).text,
+    'The board confirmed 1.1.0+7 when this update ended.'
+  );
+  assert.equal(
+    said('succeeded', { ranAtEnd: version }, { board: board('2.0.0+0') }).text,
+    'The board confirmed 1.1.0+7 when this update ended. It has since moved to 2.0.0+0.'
+  );
+  assert.equal(
+    said('succeeded', { ranAtEnd: version, online: false }, { board: board('2.0.0+0', false) }).text,
+    'The board confirmed 1.1.0+7 when this update ended. When last seen, it had moved to 2.0.0+0.'
+  );
+  assert.equal(
+    said(
+      'succeeded',
+      { ranAtEnd: version },
+      {
+        board: { ...board(version), fw: { version, confirmed: false } },
+      }
+    ).text,
+    'The board confirmed 1.1.0+7 when this update ended.'
+  );
 
   // Every ending keeps to what was recorded, whatever the board says today.
   const later = board('2.0.0+0');
   for (const [phase, changes] of [
-    ['declined', { reason: 'declined' }], ['refused', { reason: 'too_large' }], ['failed', { reason: 'download_failed' }],
-    ['failed', { reason: 'something_new' }], ['rolled_back', { reason: 'rolled_back' }],
+    ['declined', { reason: 'declined' }],
+    ['refused', { reason: 'too_large' }],
+    ['failed', { reason: 'download_failed' }],
+    ['failed', { reason: 'something_new' }],
+    ['rolled_back', { reason: 'rolled_back' }],
   ]) {
     const told = said(phase, changes, { board: later });
     assert.match(told.text, /1\.0\.0\+3/, phase);
@@ -2535,18 +3098,34 @@ test('an update that is over is told in the past, from what its job recorded', (
   // Timed out and cancelled have no such record: what they name is the board's own latest report.
   assert.match(said('timed_out').text, /The board reports that it runs 1\.0\.0\+3\.$/);
   assert.match(said('timed_out', { online: false }).text, /When last seen, the board reported 1\.0\.0\+3\.$/);
-  assert.match(said('cancelled', { online: false }).text, /Nothing was installed\. When last seen, the board reported 1\.0\.0\+3\.$/);
-  assert.equal(said('cancelled', { reported: '2.0.0+0', online: false }).text,
-    'Cancelled before the board started, so this deployment installed nothing. When last seen, the board reported 2.0.0+0.');
+  assert.match(
+    said('cancelled', { online: false }).text,
+    /Nothing was installed\. When last seen, the board reported 1\.0\.0\+3\.$/
+  );
+  assert.equal(
+    said('cancelled', { reported: '2.0.0+0', online: false }).text,
+    'Cancelled before the board started, so this deployment installed nothing. When last seen, the board reported 2.0.0+0.'
+  );
 });
 
 test('an update is offered again only where the board would not refuse it: the rule of the dialog', () => {
   const version = '1.1.0+7';
-  const board = (fw) => ({ thing: THING, online: true, lastSeen: NOON, fw: { version: fw, confirmed: true }, ota: null });
-  const said = (phase, changes, known) => core.describeExecution(execution(phase, { ...recorded(phase, '1.0.0+3'), ...changes }), { version, ...known });
+  const board = (fw) => ({
+    thing: THING,
+    online: true,
+    lastSeen: NOON,
+    fw: { version: fw, confirmed: true },
+    ota: null,
+  });
+  const said = (phase, changes, known) =>
+    core.describeExecution(execution(phase, { ...recorded(phase, '1.0.0+3'), ...changes }), { version, ...known });
   const endings = [
-    ['declined', { reason: 'declined' }], ['refused', { reason: 'too_large' }], ['failed', { reason: 'download_failed' }],
-    ['failed', { reason: 'something_new' }], ['timed_out', {}], ['cancelled', {}],
+    ['declined', { reason: 'declined' }],
+    ['refused', { reason: 'too_large' }],
+    ['failed', { reason: 'download_failed' }],
+    ['failed', { reason: 'something_new' }],
+    ['timed_out', {}],
+    ['cancelled', {}],
   ];
   for (const [phase, changes] of endings) {
     const behind = said(phase, changes, { board: board('1.0.0+3') });
@@ -2587,10 +3166,19 @@ test('where the boards of a finished deployment stand is for the boards to say',
   assert.equal(stateOf([]), 'unheard');
   const moved = core.installStanding(run, [board('a'), board('b', { fw: { version: '2.0.0+0', confirmed: true } })]);
   assert.equal(moved.state, 'moved');
-  assert.deepEqual(moved.moved.map((device) => device.thing), ['b']);
-  assert.equal(stateOf([board('a', { fw: { version: '2.0.0+0', confirmed: true } })], { version: null, things: ['a'] }), 'unheard');
+  assert.deepEqual(
+    moved.moved.map((device) => device.thing),
+    ['b']
+  );
+  assert.equal(
+    stateOf([board('a', { fw: { version: '2.0.0+0', confirmed: true } })], { version: null, things: ['a'] }),
+    'unheard'
+  );
   // A board outside the deployment has no say in it.
-  assert.equal(stateOf([board('a'), board('b'), board('c', { fw: { version: '9.9.9+9', confirmed: true } })]), 'current');
+  assert.equal(
+    stateOf([board('a'), board('b'), board('c', { fw: { version: '9.9.9+9', confirmed: true } })]),
+    'current'
+  );
 });
 
 test('every code the API can put in a log entry has words', () => {
@@ -2621,7 +3209,9 @@ test('every code the API can put in a log entry has words', () => {
     assert.doesNotMatch(words, /[a-z]_[a-z]/, 'words, not a code');
     assert.doesNotMatch(words, /\.$/, 'the page ends the sentence');
   }
-  const word = (code) => core.describeAudit({ action: 'firmware.upload', target: '', outcome: 'rejected', detail: [['code', code]] }).facts[0].words;
+  const word = (code) =>
+    core.describeAudit({ action: 'firmware.upload', target: '', outcome: 'rejected', detail: [['code', code]] })
+      .facts[0].words;
   assert.equal(word('release_manager_required'), 'Only a release manager can do this');
   assert.equal(word('invalid_filename'), 'The file name has characters the server does not accept, or is too long');
 });
@@ -2642,9 +3232,15 @@ test('times are told once: by how long ago with the time of day, or by the date 
 });
 
 test('the client reads how many older updates the server left out, and only a whole number of them', async () => {
-  const older = async (olderExecutions) => (await answering(200, {
-    device: { thing: THING }, certificates: [], executions: [], olderExecutions,
-  }).api.device(THING)).olderExecutions;
+  const older = async (olderExecutions) =>
+    (
+      await answering(200, {
+        device: { thing: THING },
+        certificates: [],
+        executions: [],
+        olderExecutions,
+      }).api.device(THING)
+    ).olderExecutions;
   assert.equal(await older(3), 3);
   assert.equal(await older(0), 0);
   assert.equal(await older(2 ** 32), 2 ** 32);
@@ -2654,10 +3250,20 @@ test('the client reads how many older updates the server left out, and only a wh
 });
 
 test('the client reads what a job recorded and what a board reports as two things', async () => {
-  const read = async (fields) => (await answering(200, { deployment: {
-    id: DEPLOYMENT, version: '1.1.0+7', status: 'COMPLETED', createdAt: NOON, things: [THING], counts: {},
-    executions: [{ thing: THING, status: 'SUCCEEDED', phase: 'succeeded', ...fields }],
-  } }).api.deployment(DEPLOYMENT)).executions[0];
+  const read = async (fields) =>
+    (
+      await answering(200, {
+        deployment: {
+          id: DEPLOYMENT,
+          version: '1.1.0+7',
+          status: 'COMPLETED',
+          createdAt: NOON,
+          things: [THING],
+          counts: {},
+          executions: [{ thing: THING, status: 'SUCCEEDED', phase: 'succeeded', ...fields }],
+        },
+      }).api.deployment(DEPLOYMENT)
+    ).executions[0];
   const both = async (fields) => {
     const { ranAtEnd, reported } = await read(fields);
     return [ranAtEnd, reported];
@@ -2672,17 +3278,30 @@ test('the client reads what a job recorded and what a board reports as two thing
 
 test('a finished update with no version on record names none, and not what the board runs today', () => {
   const today = { thing: THING, online: true, lastSeen: NOON, fw: { version: '2.0.0+0', confirmed: true }, ota: null };
-  const told = (phase, reason) => core.describeExecution(execution(phase, { reason }), { board: today, version: '1.1.0+7' });
+  const told = (phase, reason) =>
+    core.describeExecution(execution(phase, { reason }), { board: today, version: '1.1.0+7' });
   assert.equal(told('succeeded').text, 'The board confirmed the new firmware.');
-  assert.equal(told('declined', 'declined').text, 'Someone pressed Button 2 on the board to decline this update. Nothing was installed.');
+  assert.equal(
+    told('declined', 'declined').text,
+    'Someone pressed Button 2 on the board to decline this update. Nothing was installed.'
+  );
   assert.equal(told('refused', 'too_large').text, 'Refused: the image was larger than the board’s update slot.');
   assert.match(told('failed', 'download_failed').text, / It kept running the firmware it had\.$/);
   assert.match(told('rolled_back', 'rolled_back').text, /so it was never confirmed\.$/);
-  for (const [phase, reason] of [['succeeded'], ['declined', 'declined'], ['refused', 'too_large'], ['failed', 'download_failed'], ['rolled_back', 'rolled_back']]) {
+  for (const [phase, reason] of [
+    ['succeeded'],
+    ['declined', 'declined'],
+    ['refused', 'too_large'],
+    ['failed', 'download_failed'],
+    ['rolled_back', 'rolled_back'],
+  ]) {
     assert.doesNotMatch(told(phase, reason).text, /2\.0\.0\+0|moved/, phase);
   }
   // What a board reports is not taken for the record, should it ever stand there.
-  const reportedOnly = core.describeExecution(execution('declined', { reason: 'declined', reported: '2.0.0+0' }), { board: today, version: '1.1.0+7' });
+  const reportedOnly = core.describeExecution(execution('declined', { reason: 'declined', reported: '2.0.0+0' }), {
+    board: today,
+    version: '1.1.0+7',
+  });
   assert.doesNotMatch(reportedOnly.text, /2\.0\.0\+0/);
 });
 
@@ -2704,14 +3323,26 @@ test('an update that ended with no reason on record does not say which way it we
   const failed = describe('failed');
   assert.equal(failed.title, 'Failed');
   assert.deepEqual(states(failed), ['done', 'done', ...new Array(5).fill('unknown')]);
-  assert.deepEqual(states(describe('failed', { reason: 'something_new' })), ['done', 'done', 'stopped', ...new Array(4).fill('skipped')]);
+  assert.deepEqual(states(describe('failed', { reason: 'something_new' })), [
+    'done',
+    'done',
+    'stopped',
+    ...new Array(4).fill('skipped'),
+  ]);
 });
 
 test('a board that a cancellation found restarting and that has gone offline since is told as last seen', () => {
   const id = 'cranium-1-1-0-b7-20261010T115900Z-0a0a';
-  const told = (state, online) => core.describeExecution(
-    execution('cancelled', { status: 'CANCELED', startedAt: STARTED, reported: '1.0.0+3', online }),
-    { board: { online, lastSeen: NOON, fw: { version: '1.0.0+3', confirmed: true }, ota: { state, job: id } }, deployment: id, version: '1.1.0+7', history: [] });
+  const told = (state, online) =>
+    core.describeExecution(
+      execution('cancelled', { status: 'CANCELED', startedAt: STARTED, reported: '1.0.0+3', online }),
+      {
+        board: { online, lastSeen: NOON, fw: { version: '1.0.0+3', confirmed: true }, ota: { state, job: id } },
+        deployment: id,
+        version: '1.1.0+7',
+        history: [],
+      }
+    );
   const restart = told('rebooting', false);
   assert.equal(restart.title, 'Was restarting into 1.1.0+7 when last seen');
   assert.equal(restart.tone, 'idle');
@@ -2728,21 +3359,29 @@ test('a board that a cancellation found restarting and that has gone offline sin
 
 test('a board that went offline in the middle of an update is told by where it was, not by what it is doing', () => {
   const version = '1.1.0+7';
-  const off = (phase, changes) => core.describeExecution(execution(phase, { status: 'IN_PROGRESS', online: false, ...changes }), { version });
-  const on = (phase, changes) => core.describeExecution(execution(phase, { status: 'IN_PROGRESS', online: true, ...changes }), { version });
+  const off = (phase, changes) =>
+    core.describeExecution(execution(phase, { status: 'IN_PROGRESS', online: false, ...changes }), { version });
+  const on = (phase, changes) =>
+    core.describeExecution(execution(phase, { status: 'IN_PROGRESS', online: true, ...changes }), { version });
 
   const download = off('downloading', { progress: 40 });
   assert.equal(download.title, 'Was downloading 1.1.0+7 when last seen');
   assert.equal(download.tone, 'idle');
   assert.equal(download.progress, null, 'no bar that says it is moving');
   assert.equal(download.said, undefined);
-  assert.equal(download.text, 'The board went offline with the download at 40%. The update stays open until the board reports back or the time limit ends.');
+  assert.equal(
+    download.text,
+    'The board went offline with the download at 40%. The update stays open until the board reports back or the time limit ends.'
+  );
   assert.equal(download.brief, 'The board went offline with the download at 40%.');
   assert.deepEqual(states(download), ['done', 'done', 'stopped', 'unknown', 'unknown', 'unknown', 'unknown']);
   assert.equal(download.steps[2].word, 'last seen here');
   assert.equal(download.steps[2].label, 'Downloading');
   assert.equal(download.steps[1].word, undefined);
-  assert.equal(off('downloading').text, 'The board went offline during the download. The update stays open until the board reports back or the time limit ends.');
+  assert.equal(
+    off('downloading').text,
+    'The board went offline during the download. The update stays open until the board reports back or the time limit ends.'
+  );
 
   const checking = off('verifying');
   assert.equal(checking.title, 'Was checking the download of 1.1.0+7 when last seen');
@@ -2762,7 +3401,10 @@ test('a board that went offline in the middle of an update is told by where it w
     assert.equal(states(told).includes('current'), false);
   }
   // Without the version, in words.
-  assert.equal(core.describeExecution(execution('downloading', { online: false }), {}).title, 'Was downloading an update when last seen');
+  assert.equal(
+    core.describeExecution(execution('downloading', { online: false }), {}).title,
+    'Was downloading an update when last seen'
+  );
 
   // A board that is there is at it.
   const live = on('downloading', { progress: 40 });
@@ -2780,20 +3422,38 @@ test('a board that went offline in the middle of an update is told by where it w
 
 test('a rollback gives no advice on a build the board has since left behind', () => {
   const version = '1.1.0+7';
-  const board = (fw) => ({ thing: THING, online: true, lastSeen: NOON, fw: { version: fw, confirmed: true }, ota: null });
-  const rolled = (known) => core.describeExecution(execution('rolled_back', { reason: 'rolled_back', ranAtEnd: '1.0.0+3' }), { version, ...known });
+  const board = (fw) => ({
+    thing: THING,
+    online: true,
+    lastSeen: NOON,
+    fw: { version: fw, confirmed: true },
+    ota: null,
+  });
+  const rolled = (known) =>
+    core.describeExecution(execution('rolled_back', { reason: 'rolled_back', ranAtEnd: '1.0.0+3' }), {
+      version,
+      ...known,
+    });
   const advice = 'Fix the build, then upload a newer version and deploy that.';
   assert.equal(rolled({ board: board('1.0.0+3') }).next, advice);
   assert.equal(rolled({}).next, advice);
   assert.equal(rolled({ board: board('2.0.0+0') }).next, null);
   assert.equal(rolled({ board: board(version) }).next, null);
   assert.equal(rolled({ board: null, unread: true }).next, null);
-  assert.match(rolled({ board: board('2.0.0+0') }).text, /That left the board on 1\.0\.0\+3\. It has since moved to 2\.0\.0\+0\.$/);
+  assert.match(
+    rolled({ board: board('2.0.0+0') }).text,
+    /That left the board on 1\.0\.0\+3\. It has since moved to 2\.0\.0\+0\.$/
+  );
   assert.equal(rolled({ board: board('2.0.0+0') }).retry, false);
 });
 
-test('an offline board\'s silence on updates is told as of when it was last seen', () => {
-  const update = (online) => core.describeUpdate({ thing: THING, online, ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' } });
+test("an offline board's silence on updates is told as of when it was last seen", () => {
+  const update = (online) =>
+    core.describeUpdate({
+      thing: THING,
+      online,
+      ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
+    });
   assert.equal(update(true).title, 'No update in progress');
   assert.equal(update(false).title, 'No update in progress when last seen');
   assert.equal(update(false).quiet, true);
@@ -2812,9 +3472,15 @@ test('the API tokens page has a route of its own, in the Developer section', () 
   }
 });
 
-test('a token\'s lifetime is a whole number of days from 1 to 90, as typed into its field', () => {
+test("a token's lifetime is a whole number of days from 1 to 90, as typed into its field", () => {
   assert.deepEqual(core.TOKEN_DAYS, { least: 1, most: 90, usual: 30 });
-  for (const [typed, days] of [['30', 30], [' 7 ', 7], ['1', 1], ['90', 90], [90, 90]]) {
+  for (const [typed, days] of [
+    ['30', 30],
+    [' 7 ', 7],
+    ['1', 1],
+    ['90', 90],
+    [90, 90],
+  ]) {
     assert.equal(core.tokenDays(typed), days, String(typed));
   }
   for (const typed of ['', '0', '91', '1.5', '-3', '1e1', 'thirty', '0x10', null, undefined]) {
@@ -2826,31 +3492,51 @@ test('tokens are listed, made and revoked at the addresses the API has, and read
   const listed = {
     tokens: [
       { id: TOKEN_ID, name: 'laptop', createdAt: NOON, expiresAt: NOON, revokedAt: null, status: 'active' },
-      { id: 'fedcba9876543210', name: 'x'.repeat(80), createdAt: NOON, expiresAt: NOON, revokedAt: NOON, status: 'odd' },
+      {
+        id: 'fedcba9876543210',
+        name: 'x'.repeat(80),
+        createdAt: NOON,
+        expiresAt: NOON,
+        revokedAt: NOON,
+        status: 'odd',
+      },
       { id: 'not an id', name: 'dropped', status: 'active' },
     ],
     limit: 10,
     maxDays: 90,
   };
   const made = { token: A_TOKEN, id: TOKEN_ID, name: 'laptop', createdAt: NOON, expiresAt: NOON };
-  const { api, calls } = client({ answers: [
-    reply(200, listed),
-    reply(201, made),
-    reply(200, { token: { ...listed.tokens[0], revokedAt: NOON, status: 'revoked' } }),
-  ] });
+  const { api, calls } = client({
+    answers: [
+      reply(200, listed),
+      reply(201, made),
+      reply(200, { token: { ...listed.tokens[0], revokedAt: NOON, status: 'revoked' } }),
+    ],
+  });
 
   const tokens = await api.tokens();
-  assert.deepEqual(tokens.tokens.map((token) => [token.id, token.name.length, token.status]),
-    [[TOKEN_ID, 6, 'active'], ['fedcba9876543210', 40, 'expired']]);
+  assert.deepEqual(
+    tokens.tokens.map((token) => [token.id, token.name.length, token.status]),
+    [
+      [TOKEN_ID, 6, 'active'],
+      ['fedcba9876543210', 40, 'expired'],
+    ]
+  );
   assert.deepEqual([tokens.limit, tokens.maxDays], [10, 90]);
   assert.deepEqual(await api.createToken({ name: 'laptop', days: 30 }), made);
   assert.equal((await api.revokeToken(TOKEN_ID)).status, 'revoked');
-  assert.deepEqual(calls.map((call) => `${call.options.method} ${call.path}`),
-    ['GET /api/tokens', 'POST /api/tokens', `POST /api/tokens/${TOKEN_ID}/revoke`]);
+  assert.deepEqual(
+    calls.map((call) => `${call.options.method} ${call.path}`),
+    ['GET /api/tokens', 'POST /api/tokens', `POST /api/tokens/${TOKEN_ID}/revoke`]
+  );
   assert.deepEqual(JSON.parse(calls[1].options.body), { name: 'laptop', days: 30 });
 
   // A reply that does not carry a token of the right form is not taken for one.
-  for (const odd of [{ ...made, token: 'crn_short' }, { ...made, token: undefined }, { ...made, id: 'x' }]) {
+  for (const odd of [
+    { ...made, token: 'crn_short' },
+    { ...made, token: undefined },
+    { ...made, id: 'x' },
+  ]) {
     assert.equal((await failure(answering(201, odd).api.createToken({ name: 'a', days: 1 }))).code, 'bad_response');
   }
   // An id is checked before it is put into a path.
@@ -2863,24 +3549,57 @@ test('the check before a Bluetooth send reads as what it was, with its board and
   const said = (line) => [line.verb, line.label, line.tail].filter(Boolean).join(' ');
   const sha = 'ab'.repeat(32);
   const cleared = core.describeAudit({
-    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'ok', detail: [['sha256', sha], ['board', 'Cranium-1A2B']],
+    action: 'firmware.bluetooth_send',
+    target: '1.1.0+7',
+    outcome: 'ok',
+    detail: [
+      ['sha256', sha],
+      ['board', 'Cranium-1A2B'],
+    ],
   });
-  assert.deepEqual([cleared.icon, said(cleared), cleared.href], ['chip', 'was cleared to send 1.1.0+7 over Bluetooth', '#/firmware']);
-  assert.deepEqual(cleared.facts.map((fact) => [fact.label, fact.value, fact.code]),
-    [['SHA-256', sha, true], ['To board', 'Cranium-1A2B', true]]);
+  assert.deepEqual(
+    [cleared.icon, said(cleared), cleared.href],
+    ['chip', 'was cleared to send 1.1.0+7 over Bluetooth', '#/firmware']
+  );
+  assert.deepEqual(
+    cleared.facts.map((fact) => [fact.label, fact.value, fact.code]),
+    [
+      ['SHA-256', sha, true],
+      ['To board', 'Cranium-1A2B', true],
+    ]
+  );
   const refused = core.describeAudit({
-    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'rejected', detail: [['code', 'release_revoked'], ['sha256', sha]],
+    action: 'firmware.bluetooth_send',
+    target: '1.1.0+7',
+    outcome: 'rejected',
+    detail: [
+      ['code', 'release_revoked'],
+      ['sha256', sha],
+    ],
   });
   assert.equal(said(refused), 'tried to send 1.1.0+7 over Bluetooth');
   assert.equal(refused.facts[0].words, 'The release is revoked');
-  const alone = core.describeAudit({ action: 'firmware.bluetooth_send', target: '', outcome: 'rejected', detail: [['code', 'invalid_version']] });
+  const alone = core.describeAudit({
+    action: 'firmware.bluetooth_send',
+    target: '',
+    outcome: 'rejected',
+    detail: [['code', 'invalid_version']],
+  });
   assert.equal(said(alone), 'tried to send firmware over Bluetooth');
   const other = core.describeAudit({
-    action: 'firmware.bluetooth_send', target: '1.1.0+7', outcome: 'rejected', detail: [['code', 'sha256_mismatch']],
+    action: 'firmware.bluetooth_send',
+    target: '1.1.0+7',
+    outcome: 'rejected',
+    detail: [['code', 'sha256_mismatch']],
   });
   assert.equal(other.facts[0].words, 'The phone’s image is not the release’s');
   // A phone app's sign-in where it may not go.
-  const phone = core.describeAudit({ action: 'deployment.create', target: '1.1.0+7', outcome: 'denied', detail: [['code', 'phone_not_allowed']] });
+  const phone = core.describeAudit({
+    action: 'deployment.create',
+    target: '1.1.0+7',
+    outcome: 'denied',
+    detail: [['code', 'phone_not_allowed']],
+  });
   assert.equal(phone.facts[0].words, 'The phone app’s sign-in cannot be used for that');
 });
 
@@ -2888,35 +3607,73 @@ test('a deployment says which boards it went to, by the name each has now, and a
   const A = 'cranium-0123456789abcdef';
   const B = 'cranium-fedcba9876543210';
   const C = 'cranium-00000000000000aa';
-  const devices = [{ thing: A, name: 'CRVIHAAN01' }, { thing: B, name: null }];
+  const devices = [
+    { thing: A, name: 'CRVIHAAN01' },
+    { thing: B, name: null },
+  ];
   const deployed = (boards, things = String(boards.length)) => ({
-    action: 'deployment.create', target: DEPLOYMENT, outcome: 'ok', actor: { sub: 's', email: 'vihaan@example.invalid' },
+    action: 'deployment.create',
+    target: DEPLOYMENT,
+    outcome: 'ok',
+    actor: { sub: 's', email: 'vihaan@example.invalid' },
     detail: [['version', '1.1.0+7'], ['things', things], ...(boards.length > 0 ? [['boards', boards.join(' ')]] : [])],
   });
   assert.equal(core.auditSentence(deployed([A]), devices), 'vihaan@example.invalid deployed 1.1.0+7 to CRVIHAAN01');
-  assert.equal(core.auditSentence(deployed([A, B]), devices), `vihaan@example.invalid deployed 1.1.0+7 to CRVIHAAN01 and ${B}`);
+  assert.equal(
+    core.auditSentence(deployed([A, B]), devices),
+    `vihaan@example.invalid deployed 1.1.0+7 to CRVIHAAN01 and ${B}`
+  );
   // Three and more: how many in the sentence, and every one among the details.
   const three = core.describeAudit(deployed([A, B, C]));
   assert.equal(core.auditSentence(deployed([A, B, C]), devices), 'vihaan@example.invalid deployed 1.1.0+7 to 3 boards');
-  assert.deepEqual(three.facts.map((fact) => [fact.key, fact.value]), [['boards', `${A} ${B} ${C}`], ['target', DEPLOYMENT]]);
+  assert.deepEqual(
+    three.facts.map((fact) => [fact.key, fact.value]),
+    [
+      ['boards', `${A} ${B} ${C}`],
+      ['target', DEPLOYMENT],
+    ]
+  );
   // More than the entry could name; and an entry from before the names were recorded.
   assert.equal(core.auditSentence(deployed([], '12'), devices), 'vihaan@example.invalid deployed 1.1.0+7 to 12 boards');
   assert.equal(core.auditBoards(core.describeAudit(deployed([], 'x'))), '');
   // A name that is not a thing name is not taken for one.
   assert.deepEqual(core.describeAudit(deployed(['CRVIHAAN01'])).boards, []);
 
-  const download = { action: 'firmware.download', target: '1.1.0+7', outcome: 'ok', actor: { email: 'a@b' }, detail: [] };
+  const download = {
+    action: 'firmware.download',
+    target: '1.1.0+7',
+    outcome: 'ok',
+    actor: { email: 'a@b' },
+    detail: [],
+  };
   assert.equal(core.auditSentence(download), 'a@b downloaded 1.1.0+7 to a phone');
   assert.equal(core.auditSentence({ ...download, target: '' }), 'a@b downloaded firmware to a phone');
   assert.equal(core.auditSentence({ ...download, outcome: 'denied' }), 'a@b tried to download 1.1.0+7');
-  const fromPhone = core.describeAudit({ ...deployed([A]), detail: [['things', '1'], ['boards', A], ['from', 'phone']] });
-  assert.deepEqual(fromPhone.facts.map((fact) => [fact.label, fact.value]), [['From', 'the phone app'], ['Deployment', DEPLOYMENT]]);
+  const fromPhone = core.describeAudit({
+    ...deployed([A]),
+    detail: [
+      ['things', '1'],
+      ['boards', A],
+      ['from', 'phone'],
+    ],
+  });
+  assert.deepEqual(
+    fromPhone.facts.map((fact) => [fact.label, fact.value]),
+    [
+      ['From', 'the phone app'],
+      ['Deployment', DEPLOYMENT],
+    ]
+  );
 });
 
 test('a sign-in says where it was made, and nothing more', () => {
   const signIn = (client) => ({
-    action: 'account.sign_in', target: '', outcome: 'ok', actor: { sub: 's', email: 'vihaan@example.invalid' },
-    detail: [['client', client]], requestId: `signin.s.${client}.1793700000`,
+    action: 'account.sign_in',
+    target: '',
+    outcome: 'ok',
+    actor: { sub: 's', email: 'vihaan@example.invalid' },
+    detail: [['client', client]],
+    requestId: `signin.s.${client}.1793700000`,
   });
   assert.equal(core.auditSentence(signIn('web')), 'vihaan@example.invalid signed in on the website');
   assert.equal(core.auditSentence(signIn('phone')), 'vihaan@example.invalid signed in on the phone app');
@@ -2925,49 +3682,99 @@ test('a sign-in says where it was made, and nothing more', () => {
   assert.deepEqual([line.icon, line.label, line.facts, line.href, line.scripted], ['user', '', [], null, false]);
 });
 
-test('a command at a board\'s serial console reads as what it did, to which board, never with a value', () => {
+test("a command at a board's serial console reads as what it did, to which board, never with a value", () => {
   const command = (name, device = 'CRVIHAAN01', outcome = 'ok', extra = []) => ({
-    action: 'serial.command', target: device, outcome, actor: { email: 'a@b' },
+    action: 'serial.command',
+    target: device,
+    outcome,
+    actor: { email: 'a@b' },
     detail: [['command', name], ['version', '1.12.0+0'], ...extra],
   });
   assert.equal(core.auditSentence(command('WIFI')), 'a@b set the Wi-Fi network of CRVIHAAN01 over USB');
   assert.equal(core.auditSentence(command('SET_ID')), 'a@b changed the device ID of CRVIHAAN01 over USB');
   assert.equal(core.auditSentence(command('INIT', '')), 'a@b set up a board from factory mode over USB');
-  assert.equal(core.auditSentence(command('ENTER_BOOTLOADER')), 'a@b restarted CRVIHAAN01 into its bootloader over USB');
+  assert.equal(
+    core.auditSentence(command('ENTER_BOOTLOADER')),
+    'a@b restarted CRVIHAAN01 into its bootloader over USB'
+  );
   assert.equal(core.auditSentence(command('NEWER_ONE')), 'a@b ran a command on CRVIHAAN01 over USB');
-  assert.equal(core.auditSentence(command('WIFI', 'CRVIHAAN01', 'rejected', [['code', 'unexpected_field']])),
-    'a@b tried to put on record a command on CRVIHAAN01 over USB');
+  assert.equal(
+    core.auditSentence(command('WIFI', 'CRVIHAAN01', 'rejected', [['code', 'unexpected_field']])),
+    'a@b tried to put on record a command on CRVIHAAN01 over USB'
+  );
   assert.equal(core.auditSentence(command('WIFI', '', 'denied')), 'a@b tried to put on record a command run over USB');
   // Every command the API records has its own words, each with a place for the board.
-  for (const name of ['INIT', 'SET_ID', 'RESET_CONFIG', 'FACTORY_RESET', 'WIFI', 'WIFI_SEC', 'CLEAR_WIFI', 'CLOUD', 'KEYGEN',
-    'MQTT_HOST', 'MQTT_RECONNECT', 'BUTTON', 'REBOOT', 'ENTER_BOOTLOADER']) {
+  for (const name of [
+    'INIT',
+    'SET_ID',
+    'RESET_CONFIG',
+    'FACTORY_RESET',
+    'WIFI',
+    'WIFI_SEC',
+    'CLEAR_WIFI',
+    'CLOUD',
+    'KEYGEN',
+    'MQTT_HOST',
+    'MQTT_RECONNECT',
+    'BUTTON',
+    'REBOOT',
+    'ENTER_BOOTLOADER',
+  ]) {
     assert.match(core.SERIAL_WORDS[name], /\{\}/, name);
   }
   const line = core.describeAudit(command('WIFI', 'CRVIHAAN01', 'ok', [['from', 'phone']]));
   assert.equal(line.byName, true);
-  assert.deepEqual(line.facts.map((fact) => [fact.label, fact.value, fact.code]),
-    [['Running', '1.12.0+0', true], ['Command', 'WIFI', true], ['From', 'the phone app', false]]);
+  assert.deepEqual(
+    line.facts.map((fact) => [fact.label, fact.value, fact.code]),
+    [
+      ['Running', '1.12.0+0', true],
+      ['Command', 'WIFI', true],
+      ['From', 'the phone app', false],
+    ]
+  );
   assert.equal(core.describeAudit(command('WIFI', '')).byName, false);
 });
 
-test('a command at the serial console is posted once, with its name, the board\'s ID and version, and nothing else', async () => {
-  const sent = client({ answers: [reply(201, { recorded: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } })] });
-  assert.deepEqual(await sent.api.recordSerialCommand({ command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' }),
-    { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' });
+test("a command at the serial console is posted once, with its name, the board's ID and version, and nothing else", async () => {
+  const sent = client({
+    answers: [reply(201, { recorded: { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' } })],
+  });
+  assert.deepEqual(await sent.api.recordSerialCommand({ command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' }), {
+    command: 'WIFI',
+    device: 'CRVIHAAN01',
+    version: '1.12.0+0',
+  });
   assert.equal(sent.calls[0].path, '/api/serial/commands');
   assert.equal(sent.calls[0].options.method, 'POST');
-  assert.deepEqual(JSON.parse(sent.calls[0].options.body), { command: 'WIFI', device: 'CRVIHAAN01', version: '1.12.0+0' });
+  assert.deepEqual(JSON.parse(sent.calls[0].options.body), {
+    command: 'WIFI',
+    device: 'CRVIHAAN01',
+    version: '1.12.0+0',
+  });
   const bare = client({ answers: [reply(201, { recorded: { command: 'INIT', device: null, version: null } })] });
   await bare.api.recordSerialCommand({ command: 'INIT' });
   assert.deepEqual(JSON.parse(bare.calls[0].options.body), { command: 'INIT' });
   // Too many in a minute is not waited out: one try, and the refusal as the server put it.
-  const limited = client({ answers: [reply(429, { error: { code: 'rate_limited', message: 'At most 30 a minute.' } }), reply(201, {})] });
+  const limited = client({
+    answers: [reply(429, { error: { code: 'rate_limited', message: 'At most 30 a minute.' } }), reply(201, {})],
+  });
   const error = await failure(limited.api.recordSerialCommand({ command: 'REBOOT' }));
-  assert.deepEqual([error.status, error.code, limited.calls.length, limited.pauses.length], [429, 'rate_limited', 1, 0]);
+  assert.deepEqual(
+    [error.status, error.code, limited.calls.length, limited.pauses.length],
+    [429, 'rate_limited', 1, 0]
+  );
   // What is not a command name, a device ID or a version is not sent at all.
   const none = client({ answers: [] });
-  for (const body of [{ command: 'WIFI|Lab|secret' }, { command: 'WIFI', device: 'CR-01' }, { command: 'WIFI', version: '1.12.0' }]) {
-    assert.equal((await failure(none.api.recordSerialCommand(body))) instanceof core.ApiError, true, JSON.stringify(body));
+  for (const body of [
+    { command: 'WIFI|Lab|secret' },
+    { command: 'WIFI', device: 'CR-01' },
+    { command: 'WIFI', version: '1.12.0' },
+  ]) {
+    assert.equal(
+      (await failure(none.api.recordSerialCommand(body))) instanceof core.ApiError,
+      true,
+      JSON.stringify(body)
+    );
   }
   assert.equal(none.calls.length, 0);
 });
@@ -2976,22 +3783,58 @@ test('the board log is asked for with its range, board, kinds and sources, and r
   const thing = 'cranium-0123456789abcdef';
   const { api, calls } = answering(200, {
     lines: [
-      { thing, at: NOON, id: '42.17', kind: 'health', tag: 'WIFI', level: 'warn', text: 'connected\u0007 é', boot: 42, seq: 17, dropped: 3 },
+      {
+        thing,
+        at: NOON,
+        id: '42.17',
+        kind: 'health',
+        tag: 'WIFI',
+        level: 'warn',
+        text: 'connected\u0007 é',
+        boot: 42,
+        seq: 17,
+        dropped: 3,
+      },
       { thing, at: NOON, id: '42.18', kind: 'connection', tag: 'WIFI', text: 'not a kind of the log' },
       { thing, at: NOON, id: '42.19', kind: 'log', tag: 'zephyr', text: 'not a source of the log' },
       { thing: 'someone', at: NOON, id: '42.20', kind: 'log', tag: 'app', text: 'not a board' },
     ],
-    cursor: 'abc_-1', from: NOON, to: NOON,
+    cursor: 'abc_-1',
+    from: NOON,
+    to: NOON,
   });
-  const read = await api.boardLog({ from: NOON, to: NOON, thing, kinds: ['health', 'setting'], tags: ['WIFI', 'net'], cursor: 'xyz' });
+  const read = await api.boardLog({
+    from: NOON,
+    to: NOON,
+    thing,
+    kinds: ['health', 'setting'],
+    tags: ['WIFI', 'net'],
+    cursor: 'xyz',
+  });
   const asked = new URL(calls[0].path, 'https://console.example');
   assert.equal(asked.pathname, '/api/events/log');
   assert.deepEqual(Object.fromEntries(asked.searchParams), {
-    from: NOON, to: NOON, thing, kinds: 'health,setting', tags: 'WIFI,net', cursor: 'xyz',
+    from: NOON,
+    to: NOON,
+    thing,
+    kinds: 'health,setting',
+    tags: 'WIFI,net',
+    cursor: 'xyz',
   });
-  assert.deepEqual(read.lines, [{
-    thing, at: NOON, id: '42.17', kind: 'health', tag: 'WIFI', level: 'warn', text: 'connected? ?', boot: 42, seq: 17, dropped: 3,
-  }]);
+  assert.deepEqual(read.lines, [
+    {
+      thing,
+      at: NOON,
+      id: '42.17',
+      kind: 'health',
+      tag: 'WIFI',
+      level: 'warn',
+      text: 'connected? ?',
+      boot: 42,
+      seq: 17,
+      dropped: 3,
+    },
+  ]);
   assert.equal(read.cursor, 'abc_-1');
   const none = client({ answers: [] });
   for (const query of [{ kinds: ['connection'] }, { tags: ['zephyr'] }]) {
@@ -3002,33 +3845,79 @@ test('the board log is asked for with its range, board, kinds and sources, and r
 
 test('a passkey that was read names its board by its thing name, for the page to call it by its own', () => {
   const read = core.describeAudit({
-    action: 'pairing.read', target: 'Cranium-1A2B', outcome: 'ok', detail: [['thing', THING]],
+    action: 'pairing.read',
+    target: 'Cranium-1A2B',
+    outcome: 'ok',
+    detail: [['thing', THING]],
   });
   assert.equal(`${read.verb} ${read.label}`, 'read the Bluetooth passkey of Cranium-1A2B');
-  assert.deepEqual(read.facts.map((fact) => [fact.key, fact.label, fact.value, fact.code]), [['thing', 'Board', THING, true]]);
+  assert.deepEqual(
+    read.facts.map((fact) => [fact.key, fact.label, fact.value, fact.code]),
+    [['thing', 'Board', THING, true]]
+  );
 });
 
 test('the log says what was done with a token, and which token made a change', () => {
   const made = core.describeAudit({
-    action: 'token.create', target: TOKEN_ID, outcome: 'ok', detail: [['name', 'laptop'], ['days', '30']],
+    action: 'token.create',
+    target: TOKEN_ID,
+    outcome: 'ok',
+    detail: [
+      ['name', 'laptop'],
+      ['days', '30'],
+    ],
   });
   assert.deepEqual([made.icon, made.verb, made.label, made.href], ['key', 'made API token', TOKEN_ID, null]);
-  assert.deepEqual(made.facts.map((fact) => [fact.label, fact.value]), [['Named', 'laptop'], ['Valid for', '30 days']]);
-  const ended = core.describeAudit({ action: 'token.revoke', target: TOKEN_ID, outcome: 'ok', detail: [['name', 'laptop']] });
+  assert.deepEqual(
+    made.facts.map((fact) => [fact.label, fact.value]),
+    [
+      ['Named', 'laptop'],
+      ['Valid for', '30 days'],
+    ]
+  );
+  const ended = core.describeAudit({
+    action: 'token.revoke',
+    target: TOKEN_ID,
+    outcome: 'ok',
+    detail: [['name', 'laptop']],
+  });
   assert.equal(ended.verb, 'revoked API token');
-  const refused = core.describeAudit({ action: 'token.create', target: '', outcome: 'rejected', detail: [['code', 'too_many_tokens']] });
+  const refused = core.describeAudit({
+    action: 'token.create',
+    target: '',
+    outcome: 'rejected',
+    detail: [['code', 'too_many_tokens']],
+  });
   assert.equal(refused.verb, 'tried to make an API token');
   assert.equal(refused.facts[0].words, 'That person already had as many API tokens as one may have');
 
   const scripted = core.describeAudit({
-    action: 'deployment.create', target: DEPLOYMENT, outcome: 'ok', detail: [['token', TOKEN_ID], ['version', '1.1.0+7']],
+    action: 'deployment.create',
+    target: DEPLOYMENT,
+    outcome: 'ok',
+    detail: [
+      ['token', TOKEN_ID],
+      ['version', '1.1.0+7'],
+    ],
   });
   const token = scripted.facts.find((fact) => fact.key === 'token');
   assert.deepEqual([token.label, token.value, token.code], ['With API token', TOKEN_ID, true]);
   const late = core.describeAudit({
-    action: 'firmware.upload', target: '', outcome: 'denied',
-    detail: [['token', TOKEN_ID], ['tokenState', 'revoked'], ['code', 'invalid_token']],
+    action: 'firmware.upload',
+    target: '',
+    outcome: 'denied',
+    detail: [
+      ['token', TOKEN_ID],
+      ['tokenState', 'revoked'],
+      ['code', 'invalid_token'],
+    ],
   });
-  assert.deepEqual(late.facts.map((fact) => [fact.label, fact.value]),
-    [['Refused with', 'invalid_token'], ['With API token', TOKEN_ID], ['The token had', 'been revoked']]);
+  assert.deepEqual(
+    late.facts.map((fact) => [fact.label, fact.value]),
+    [
+      ['Refused with', 'invalid_token'],
+      ['With API token', TOKEN_ID],
+      ['The token had', 'been revoked'],
+    ]
+  );
 });

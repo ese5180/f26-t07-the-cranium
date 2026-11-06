@@ -19,16 +19,37 @@ const SENT = Date.parse('2026-11-05T12:13:00.000Z');
 const t = (seconds) => SENT + seconds * 1000;
 const iso = (seconds) => new Date(t(seconds)).toISOString();
 
-const line = (seconds, text, { tag = 'BT', seq = 1 } = {}) =>
-  ({ thing: THING, at: iso(seconds), id: `7.${seq}`, kind: 'bluetooth', tag, text, boot: 7, seq });
+const line = (seconds, text, { tag = 'BT', seq = 1 } = {}) => ({
+  thing: THING,
+  at: iso(seconds),
+  id: `7.${seq}`,
+  kind: 'bluetooth',
+  tag,
+  text,
+  boot: 7,
+  seq,
+});
 const connection = (seconds, what) => ({ thing: THING, at: iso(seconds), kind: 'connection', what });
 
 /** A board that reported at `seen` s after the send, up for `uptime` s, running `version`. */
-const device = ({ seen, uptime, version, confirmed, online = true, bt = null }) =>
-  ({ thing: THING, online, lastSeen: iso(seen), fw: { version, confirmed }, uptime, bt });
+const device = ({ seen, uptime, version, confirmed, online = true, bt = null }) => ({
+  thing: THING,
+  online,
+  lastSeen: iso(seen),
+  fw: { version, confirmed },
+  uptime,
+  bt,
+});
 
 function facts({ thing = THING, onConsole = true, dropped = null } = {}) {
-  return watch.facts({ version: '1.13.0+0', from: '1.12.0+0', sentAt: SENT, thing, onConsole, linkDroppedAt: dropped === null ? null : t(dropped) });
+  return watch.facts({
+    version: '1.13.0+0',
+    from: '1.12.0+0',
+    sentAt: SENT,
+    thing,
+    onConsole,
+    linkDroppedAt: dropped === null ? null : t(dropped),
+  });
 }
 
 const states = (line) => line.rows.map((row) => row.state);
@@ -36,9 +57,17 @@ const titles = (line) => line.rows.map((row) => row.title);
 
 test('waiting for a button counts down', () => {
   const line = watch.timeline(facts());
-  assert.deepEqual(titles(line), ['Sent 1.13.0+0', 'Button 1 pressed, accepted', 'Installing and restarting',
-    'Running 1.13.0+0 on trial', 'Kept 1.13.0+0']);
-  assert.equal(line.rows[0].detail, 'Press Button 1 on the board within 2 minutes to install it (Button 2 throws it away).');
+  assert.deepEqual(titles(line), [
+    'Sent 1.13.0+0',
+    'Button 1 pressed, accepted',
+    'Installing and restarting',
+    'Running 1.13.0+0 on trial',
+    'Kept 1.13.0+0',
+  ]);
+  assert.equal(
+    line.rows[0].detail,
+    'Press Button 1 on the board within 2 minutes to install it (Button 2 throws it away).'
+  );
   assert.equal(line.rows[0].at, SENT);
   assert.deepEqual(states(line), ['done', 'current', 'waiting', 'waiting', 'waiting']);
   assert.equal(line.waitingForButton, true);
@@ -69,7 +98,11 @@ test('kept', () => {
   assert.equal(trial.rows[3].detail, 'Back online with the new version, not yet kept.');
   assert.equal(trial.rows[3].at, t(52));
 
-  f.lines.push(line(61, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, update 3 of this board', { seq: 9 }));
+  f.lines.push(
+    line(61, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, update 3 of this board', {
+      seq: 9,
+    })
+  );
   const kept = watch.timeline(f);
   assert.deepEqual(states(kept), ['done', 'done', 'done', 'done', 'done']);
   assert.equal(kept.rows[4].title, 'Kept 1.13.0+0');
@@ -80,11 +113,17 @@ test('kept', () => {
   assert.equal(kept.finished, true);
   assert.equal(kept.note, null);
   assert.equal(kept.acceptedAt, t(45));
-  assert.deepEqual(watch.followedRecord(f, kept),
-    { thing: THING, version: '1.13.0+0', at: t(45), outcome: 'kept', tentative: false, rolledBackTo: null });
+  assert.deepEqual(watch.followedRecord(f, kept), {
+    thing: THING,
+    version: '1.13.0+0',
+    at: t(45),
+    outcome: 'kept',
+    tentative: false,
+    rolledBackTo: null,
+  });
 });
 
-test('kept from the board\'s report alone', () => {
+test("kept from the board's report alone", () => {
   // No lines (firmware before 1.12.0, or lost from a full queue): the board's report says it.
   const f = facts({ dropped: 47 });
   f.device = device({ seen: 70, uptime: 12, version: '1.13.0+0', confirmed: false });
@@ -92,7 +131,10 @@ test('kept from the board\'s report alone', () => {
   assert.deepEqual(states(trial), ['done', 'done', 'done', 'current', 'waiting']);
   assert.equal(trial.rows[3].at, t(58));
   f.device = device({
-    seen: 75, uptime: 17, version: '1.13.0+0', confirmed: true,
+    seen: 75,
+    uptime: 17,
+    version: '1.13.0+0',
+    confirmed: true,
     bt: { from: '1.12.0+0', to: '1.13.0+0', result: 'succeeded', proof: 'cloud', count: 3 },
   });
   const kept = watch.timeline(f);
@@ -107,8 +149,12 @@ test('kept from the board\'s report alone', () => {
 test('rolled back', () => {
   const f = facts({ dropped: 40 });
   f.events = [connection(38, 'disconnected'), connection(400, 'connected')];
-  f.lines = [line(52, 'on trial: 1.13.0+0 from 1.12.0+0, pending, proof none, update 3 of this board', { seq: 1 }),
-    line(395, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, rolled_back, proof none, update 3 of this board', { seq: 2 })];
+  f.lines = [
+    line(52, 'on trial: 1.13.0+0 from 1.12.0+0, pending, proof none, update 3 of this board', { seq: 1 }),
+    line(395, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, rolled_back, proof none, update 3 of this board', {
+      seq: 2,
+    }),
+  ];
   const line1 = watch.timeline(f);
   assert.deepEqual(states(line1), ['done', 'done', 'done', 'done', 'failed']);
   assert.equal(line1.rows[4].title, 'Rolled back to 1.12.0+0');
@@ -119,7 +165,9 @@ test('rolled back', () => {
   assert.equal(line1.rolledBackTo, '1.12.0+0');
 
   // Not installed at all: it never ran on trial.
-  f.lines = [line(60, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, not_installed, proof none, update 3 of this board')];
+  f.lines = [
+    line(60, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, not_installed, proof none, update 3 of this board'),
+  ];
   const notInstalled = watch.timeline(f);
   assert.deepEqual(states(notInstalled), ['done', 'done', 'done', 'waiting', 'failed']);
   assert.equal(notInstalled.rows[4].detail, 'The bootloader did not install the new image.');
@@ -168,7 +216,10 @@ test('the window ran out', () => {
   const likely = watch.timeline(f);
   assert.deepEqual(titles(likely), ['Sent 1.13.0+0', 'The 2 minutes ran out']);
   assert.equal(likely.rows[1].state, 'likely');
-  assert.equal(likely.rows[1].detail, 'The board closed the link at the end of its 2 minutes: it has most likely thrown the image away.');
+  assert.equal(
+    likely.rows[1].detail,
+    'The board closed the link at the end of its 2 minutes: it has most likely thrown the image away.'
+  );
   assert.equal(likely.outcome, 'expired');
   assert.equal(likely.tentative, true);
   assert.equal(likely.finished, false);
@@ -182,7 +233,10 @@ test('an offline board', () => {
   const line1 = watch.timeline(facts({ onConsole: false, dropped: 40 }));
   assert.deepEqual(states(line1), ['done', 'likely', 'waiting', 'waiting', 'waiting']);
   assert.equal(line1.rows[1].detail, 'The board closed the link: it is installing.');
-  assert.equal(line1.note, 'The board is not on the console, so the app can\'t follow it from here. After it restarts, check its version over Bluetooth.');
+  assert.equal(
+    line1.note,
+    "The board is not on the console, so the app can't follow it from here. After it restarts, check its version over Bluetooth."
+  );
   assert.equal(line1.finished, true);
   assert.equal(line1.outcome, null);
   // While the link is up the link is what is followed: nothing to say yet.
@@ -214,7 +268,10 @@ test('five minutes without an end', () => {
   assert.equal(failing.finished, false);
   f.gaveUp = true;
   const gaveUp = watch.timeline(f);
-  assert.equal(gaveUp.note, '5 minutes have passed, so the app has stopped following it. The board\'s page shows how it ends.');
+  assert.equal(
+    gaveUp.note,
+    "5 minutes have passed, so the app has stopped following it. The board's page shows how it ends."
+  );
   assert.equal(gaveUp.finished, true);
 });
 
@@ -225,28 +282,37 @@ test('only this send counts', () => {
     line(-200, 'closed: by Button 2'),
     line(60, 'update over Bluetooth: 1.12.0+0 from 1.11.0+0, succeeded, proof cloud, update 2 of this board'),
     // Not a line of the Bluetooth update, though it says the words.
-    line(61, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, update 3 of this board', { tag: 'CMD' }),
+    line(61, 'update over Bluetooth: 1.13.0+0 from 1.12.0+0, succeeded, proof cloud, update 3 of this board', {
+      tag: 'CMD',
+    }),
   ];
   f.events = [connection(-100, 'disconnected'), { thing: THING, at: iso(45), kind: 'bluetooth', what: 'closed' }];
   const line1 = watch.timeline(f);
   assert.equal(line1.outcome, null);
   assert.deepEqual(states(line1), ['done', 'likely', 'waiting', 'waiting', 'waiting']);
   // The record of the board's restart into the bootloader, if it ever gets out before the restart, is Button 1.
-  f.lines = [line(44, 'restarting into the bootloader: 1.13.0+0 from 1.12.0+0, pending, proof none, update 3 of this board')];
+  f.lines = [
+    line(44, 'restarting into the bootloader: 1.13.0+0 from 1.12.0+0, pending, proof none, update 3 of this board'),
+  ];
   const restarting = watch.timeline(f);
   assert.equal(restarting.rows[1].state, 'done');
   assert.equal(restarting.rows[1].at, t(44));
 });
 
-test('the board\'s page', () => {
+test("the board's page", () => {
   const time = () => '12:14';
   const kept = { thing: THING, version: '1.13.0+0', at: t(45), outcome: 'kept', tentative: false, rolledBackTo: null };
   assert.equal(watch.summary(kept, null, time), '1.13.0+0 over Bluetooth at 12:14, kept');
   const back = { ...kept, outcome: 'rolled_back', rolledBackTo: '1.12.0+0' };
   assert.equal(watch.summary(back, null, time), '1.13.0+0 over Bluetooth at 12:14, rolled back to 1.12.0+0');
-  assert.equal(watch.summary({ ...kept, at: t(0), outcome: 'declined' }, null, time), '1.13.0+0 over Bluetooth at 12:14, thrown away with Button 2');
-  assert.equal(watch.summary({ ...kept, at: t(0), outcome: 'expired' }, null, time),
-    '1.13.0+0 over Bluetooth at 12:14, not installed: the 2 minutes ran out');
+  assert.equal(
+    watch.summary({ ...kept, at: t(0), outcome: 'declined' }, null, time),
+    '1.13.0+0 over Bluetooth at 12:14, thrown away with Button 2'
+  );
+  assert.equal(
+    watch.summary({ ...kept, at: t(0), outcome: 'expired' }, null, time),
+    '1.13.0+0 over Bluetooth at 12:14, not installed: the 2 minutes ran out'
+  );
   // Not followed to the end here: the board's own record finishes the sentence.
   const open = { ...kept, outcome: null };
   const record = { from: '1.12.0+0', to: '1.13.0+0', result: 'succeeded', proof: 'cloud', count: 3 };
@@ -270,9 +336,26 @@ const HASH = 'deadbeef01020304';
 /** A status as parseStatus gives it, with what a case changes. */
 function status(fields) {
   return {
-    window: 'closed', secondsLeft: 0, image: 'none', refusal: 'none', imageBytes: 0, imageVersion: null, result: 'none',
-    closedReason: 0, running: '1.12.0+0', onTrial: false, swap: 'none', lastVia: 'none', lastOutcome: 'none',
-    lastProof: 'none', lastTarget: null, lastFrom: null, lastHash: null, lastCount: 0, uptime: 0, ...fields,
+    window: 'closed',
+    secondsLeft: 0,
+    image: 'none',
+    refusal: 'none',
+    imageBytes: 0,
+    imageVersion: null,
+    result: 'none',
+    closedReason: 0,
+    running: '1.12.0+0',
+    onTrial: false,
+    swap: 'none',
+    lastVia: 'none',
+    lastOutcome: 'none',
+    lastProof: 'none',
+    lastTarget: null,
+    lastFrom: null,
+    lastHash: null,
+    lastCount: 0,
+    uptime: 0,
+    ...fields,
   };
 }
 
@@ -281,10 +364,22 @@ function onLink(seconds, { window = 'offer', left = 100, image = 'verified', res
   const installing = result === 'installing';
   return {
     status: status({
-      window, secondsLeft: left, image, refusal, imageBytes: 872000, imageVersion: '1.13.0+0', result, running: '1.12.0+0',
-      lastVia: 'bluetooth', lastOutcome: installing ? 'pending' : 'kept', lastProof: installing ? 'none' : 'cloud',
-      lastTarget: installing ? '1.13.0+0' : '1.12.0+0', lastFrom: installing ? '1.12.0+0' : '1.11.4+0',
-      lastHash: installing ? HASH : '0102030405060708', lastCount: installing ? 3 : 2, uptime: 4000,
+      window,
+      secondsLeft: left,
+      image,
+      refusal,
+      imageBytes: 872000,
+      imageVersion: '1.13.0+0',
+      result,
+      running: '1.12.0+0',
+      lastVia: 'bluetooth',
+      lastOutcome: installing ? 'pending' : 'kept',
+      lastProof: installing ? 'none' : 'cloud',
+      lastTarget: installing ? '1.13.0+0' : '1.12.0+0',
+      lastFrom: installing ? '1.12.0+0' : '1.11.4+0',
+      lastHash: installing ? HASH : '0102030405060708',
+      lastCount: installing ? 3 : 2,
+      uptime: 4000,
     }),
     at: t(seconds),
     afterRestart: false,
@@ -292,11 +387,25 @@ function onLink(seconds, { window = 'offer', left = 100, image = 'verified', res
 }
 
 /** What the board says after its restart, to a phone that reads it with no pairing. */
-function afterRestart(seconds, { running = '1.13.0+0', onTrial = true, outcome = 'pending', proof = 'none', target = '1.13.0+0', hash = HASH } = {}) {
+function afterRestart(
+  seconds,
+  { running = '1.13.0+0', onTrial = true, outcome = 'pending', proof = 'none', target = '1.13.0+0', hash = HASH } = {}
+) {
   return {
     status: status({
-      window: 'status', secondsLeft: 100, running, onTrial, swap: onTrial ? 'revert' : 'none', lastVia: 'bluetooth',
-      lastOutcome: outcome, lastProof: proof, lastTarget: target, lastFrom: '1.12.0+0', lastHash: hash, lastCount: 3, uptime: 20,
+      window: 'status',
+      secondsLeft: 100,
+      running,
+      onTrial,
+      swap: onTrial ? 'revert' : 'none',
+      lastVia: 'bluetooth',
+      lastOutcome: outcome,
+      lastProof: proof,
+      lastTarget: target,
+      lastFrom: '1.12.0+0',
+      lastHash: hash,
+      lastCount: 3,
+      uptime: 20,
     }),
     at: t(seconds),
     afterRestart: true,
@@ -326,7 +435,10 @@ test('Button 1 from the board', () => {
   assert.equal(pressed.rows[1].title, 'Button 1 pressed, accepted');
   assert.equal(pressed.rows[1].detail, 'The board said so over Bluetooth, and is restarting to install it.');
   assert.equal(pressed.rows[1].at, t(30));
-  assert.equal(pressed.rows[2].detail, 'The board is restarting into the bootloader, which checks the image and swaps it in.');
+  assert.equal(
+    pressed.rows[2].detail,
+    'The board is restarting into the bootloader, which checks the image and swaps it in.'
+  );
   assert.equal(pressed.rows[2].at, t(30));
   assert.equal(pressed.waitingForButton, false);
   assert.equal(pressed.acceptedAt, t(30));
@@ -366,8 +478,12 @@ test('kept from the board after its restart', () => {
 
 test('rolled back from the board', () => {
   // On trial, and 5 minutes later back on the old image, which says so.
-  const f = told({ dropped: 31 }, onLink(30, { result: 'installing' }), afterRestart(140),
-    afterRestart(500, { running: '1.12.0+0', onTrial: false, outcome: 'rolledBack' }));
+  const f = told(
+    { dropped: 31 },
+    onLink(30, { result: 'installing' }),
+    afterRestart(140),
+    afterRestart(500, { running: '1.12.0+0', onTrial: false, outcome: 'rolledBack' })
+  );
   const line1 = watch.timeline(f);
   assert.deepEqual(states(line1), ['done', 'done', 'done', 'done', 'failed']);
   assert.equal(line1.rows[4].title, 'Rolled back to 1.12.0+0');
@@ -378,8 +494,13 @@ test('rolled back from the board', () => {
   assert.equal(line1.finished, true);
 
   // The bootloader did not take it, a bad signature for one: it never ran on trial.
-  const notInstalled = watch.timeline(told({ dropped: 31 }, onLink(30, { result: 'installing' }),
-    afterRestart(130, { running: '1.12.0+0', onTrial: false, outcome: 'notInstalled' })));
+  const notInstalled = watch.timeline(
+    told(
+      { dropped: 31 },
+      onLink(30, { result: 'installing' }),
+      afterRestart(130, { running: '1.12.0+0', onTrial: false, outcome: 'notInstalled' })
+    )
+  );
   assert.deepEqual(states(notInstalled), ['done', 'done', 'done', 'waiting', 'failed']);
   assert.equal(notInstalled.rows[4].detail, 'The bootloader did not install the new image.');
 });
@@ -392,7 +513,9 @@ test('Button 2 and the time, from the board', () => {
   assert.equal(discarded.outcome, 'declined');
   assert.equal(discarded.finished, true);
 
-  const expired = watch.timeline(told({ dropped: 121 }, onLink(5), onLink(120, { window: 'closed', left: 0, result: 'timedOut' })));
+  const expired = watch.timeline(
+    told({ dropped: 121 }, onLink(5), onLink(120, { window: 'closed', left: 0, result: 'timedOut' }))
+  );
   assert.deepEqual(titles(expired), ['Sent 1.13.0+0', 'The 2 minutes ran out: the image was thrown away']);
   assert.equal(expired.rows[1].state, 'failed');
   assert.equal(expired.rows[1].detail, 'The board said so over Bluetooth.');
@@ -402,22 +525,35 @@ test('Button 2 and the time, from the board', () => {
 });
 
 test('a refusal from the board says why', () => {
-  const line1 = watch.timeline(told({}, onLink(3, { window: 'closed', image: 'refused', result: 'closed', refusal: 'incompatibleLayout' })));
+  const line1 = watch.timeline(
+    told({}, onLink(3, { window: 'closed', image: 'refused', result: 'closed', refusal: 'incompatibleLayout' }))
+  );
   assert.deepEqual(titles(line1), ['Sent 1.13.0+0', 'The board did not take the image']);
   assert.equal(line1.rows[1].detail, 'It is for another flash layout.');
   assert.equal(line1.outcome, 'refused');
   assert.equal(line1.finished, true);
 });
 
-test('only this send\'s status counts after the restart', () => {
+test("only this send's status counts after the restart", () => {
   // Another board's, or another image of the same version: nothing.
-  const other = told({ dropped: 31 }, onLink(30, { result: 'installing' }), afterRestart(140, { hash: '0000000000000001' }));
+  const other = told(
+    { dropped: 31 },
+    onLink(30, { result: 'installing' }),
+    afterRestart(140, { hash: '0000000000000001' })
+  );
   assert.deepEqual(states(watch.timeline(other)), ['done', 'done', 'current', 'waiting', 'waiting']);
-  const otherVersion = told({ dropped: 31 }, onLink(30, { result: 'installing' }),
-    afterRestart(140, { onTrial: false, outcome: 'kept', target: '1.12.0+0' }));
+  const otherVersion = told(
+    { dropped: 31 },
+    onLink(30, { result: 'installing' }),
+    afterRestart(140, { onTrial: false, outcome: 'kept', target: '1.12.0+0' })
+  );
   assert.equal(watch.timeline(otherVersion).outcome, null);
   // An image the app could not read the hash of: the version alone.
-  const noHash = told({ dropped: 31 }, onLink(30, { result: 'installing' }), afterRestart(140, { onTrial: false, outcome: 'kept' }));
+  const noHash = told(
+    { dropped: 31 },
+    onLink(30, { result: 'installing' }),
+    afterRestart(140, { onTrial: false, outcome: 'kept' })
+  );
   noHash.sentHash = null;
   assert.equal(watch.timeline(noHash).outcome, 'kept');
 });
@@ -426,7 +562,10 @@ test('a board with no console is followed over Bluetooth', () => {
   // A board with no Wi-Fi, which the console does not know: before 1.14.0 the app could not follow it.
   const f = told({ dropped: 31, thing: null, onConsole: null }, onLink(30, { result: 'installing' }));
   const looking = watch.timeline(f);
-  assert.equal(looking.note, 'Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing.');
+  assert.equal(
+    looking.note,
+    'Looking for the board over Bluetooth: for 2 minutes after its restart, a phone can read how it went with no pairing.'
+  );
   assert.equal(looking.finished, false);
 
   f.readings.push(afterRestart(140));
@@ -444,7 +583,10 @@ test('a board with no console is followed over Bluetooth', () => {
   const lost = told({ dropped: 31, thing: null, onConsole: null }, onLink(30, { result: 'installing' }));
   lost.gaveUp = true;
   const gaveUp = watch.timeline(lost);
-  assert.equal(gaveUp.note, 'The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again.');
+  assert.equal(
+    gaveUp.note,
+    'The board was not seen over Bluetooth again, so the app has stopped looking for it. Its version shows when Button 1 opens its window again.'
+  );
   assert.equal(gaveUp.finished, true);
 });
 
@@ -461,10 +603,11 @@ test('how long the board is followed', () => {
 // (`build/bt_status_tests --print`), and BoardStatusTests.swift and BoardStatusTest.kt read it too.
 
 /** An offer of 1.14.1+0 on a board that runs 1.14.0+0 on trial, after an update over Bluetooth before. */
-const SAMPLE = '010302010300384e0d00010e0100000000000000010e00000000000007010100010e000000000000010d020007000000deadbeef010203040300040302010000';
+const SAMPLE =
+  '010302010300384e0d00010e0100000000000000010e00000000000007010100010e000000000000010d020007000000deadbeef010203040300040302010000';
 const bytes = (hex) => Uint8Array.from(hex.match(/../g) ?? [], (pair) => parseInt(pair, 16));
 
-test('the firmware\'s sample', () => {
+test("the firmware's sample", () => {
   const read = watch.parseStatus(bytes(SAMPLE));
   assert.equal(read.window, 'offer');
   assert.equal(read.secondsLeft, 258);
@@ -559,12 +702,12 @@ test('words for each refusal and outcome', () => {
   assert.equal(watch.proofWord('unknown'), 'none');
 });
 
-test('the UUIDs are the firmware\'s', () => {
+test("the UUIDs are the firmware's", () => {
   assert.equal(watch.STATUS_SERVICE, '9112B1B4-2A51-40F0-94D3-A76440F0E6CC');
   assert.equal(watch.STATUS_CHARACTERISTIC, '9112B1B5-2A51-40F0-94D3-A76440F0E6CC');
 });
 
-test('the image\'s own hash, which the board keeps: from the TLV area, not the SHA-256 of the file', () => {
+test("the image's own hash, which the board keeps: from the TLV area, not the SHA-256 of the file", () => {
   const file = new Uint8Array(32 + 16);
   file.set([0x3d, 0xb8, 0xf3, 0x96], 0);
   file[8] = 32; // header size

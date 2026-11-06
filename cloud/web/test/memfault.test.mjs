@@ -20,9 +20,21 @@ const NONE = Object.freeze({ status: 'none', at: null, apCount: null, checkedAt:
 
 function board(changes = {}) {
   return {
-    thing: A, name: 'CRVIHAAN01', online: true, lastSeen: new Date(NOW - 20_000).toISOString(),
-    fw: { version: '1.14.0+0', confirmed: true }, ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
-    rssi: -52, uptime: 3600, stuck: null, diag: null, diary: null, bt: null, position: null, location: NONE, ...changes,
+    thing: A,
+    name: 'CRVIHAAN01',
+    online: true,
+    lastSeen: new Date(NOW - 20_000).toISOString(),
+    fw: { version: '1.14.0+0', confirmed: true },
+    ota: { state: 'idle', job: null, progress: 0, last: 'none', error: '' },
+    rssi: -52,
+    uptime: 3600,
+    stuck: null,
+    diag: null,
+    diary: null,
+    bt: null,
+    position: null,
+    location: NONE,
+    ...changes,
   };
 }
 
@@ -31,14 +43,29 @@ const loaded = (value) => ({ value, error: null, loadedAt: NOW, loading: false }
 function page(memfault, { device = board(), canWrite = true } = {}) {
   const pressed = [];
   const state = {
-    now: NOW, route: { view: 'device', thing: A }, me: { canWrite, email: 'manager@example.invalid', sub: 'sub-1' },
-    sessionLeft: 1800, interval: 0, devices: loaded({ devices: [device] }), deviceDetails: new Map(), positions: new Map(),
-    commands: new Map(), deployments: loaded([]), firmware: loaded(null), alerts: { ...loaded(null), busy: false },
+    now: NOW,
+    route: { view: 'device', thing: A },
+    me: { canWrite, email: 'manager@example.invalid', sub: 'sub-1' },
+    sessionLeft: 1800,
+    interval: 0,
+    devices: loaded({ devices: [device] }),
+    deviceDetails: new Map(),
+    positions: new Map(),
+    commands: new Map(),
+    deployments: loaded([]),
+    firmware: loaded(null),
+    alerts: { ...loaded(null), busy: false },
   };
   state.deviceDetails.set(A, loaded({ device, certificates: [], executions: [], olderExecutions: 0, memfault }));
-  const actions = new Proxy({}, {
-    get: (target, name) => (...args) => pressed.push([name, ...args.filter((arg) => arg === null || typeof arg !== 'object')]),
-  });
+  const actions = new Proxy(
+    {},
+    {
+      get:
+        (target, name) =>
+        (...args) =>
+          pressed.push([name, ...args.filter((arg) => arg === null || typeof arg !== 'object')]),
+    }
+  );
   const root = document.createElement('div');
   document.body.replaceChildren(root);
   views.render(root, views.deviceView({ state, actions }));
@@ -47,36 +74,62 @@ function page(memfault, { device = board(), canWrite = true } = {}) {
 
 const memfaultCard = (root) => all(root, 'section.card').find((card) => textOf(card).startsWith('Memfault')) ?? null;
 
-test('the client keeps what the server says of Memfault, and only a link to Memfault\'s own pages', async () => {
+test("the client keeps what the server says of Memfault, and only a link to Memfault's own pages", async () => {
   const detail = async (memfault) => {
     const api = core.createApi({
-      auth: { accessToken: () => 'TOKEN' }, crypto: globalThis.crypto, clock: core.createClock(), onUnauthorized: () => {},
+      auth: { accessToken: () => 'TOKEN' },
+      crypto: globalThis.crypto,
+      clock: core.createClock(),
+      onUnauthorized: () => {},
       pause: async () => {},
-      fetch: async () => Response.json({ device: { thing: A }, certificates: [], executions: [], olderExecutions: 0, memfault }),
+      fetch: async () =>
+        Response.json({ device: { thing: A }, certificates: [], executions: [], olderExecutions: 0, memfault }),
     });
     return (await api.device(A)).memfault;
   };
-  assert.deepEqual(await detail({ keyStored: true, firmware: true, url: LINK }), { keyStored: true, firmware: true, url: LINK });
-  assert.deepEqual(await detail({ keyStored: 'yes', firmware: 1, url: null }), { keyStored: false, firmware: false, url: null });
-  for (const url of ['https://evil.example/organizations/a/projects/b/devices/x', 'javascript:alert(1)',
-    `http://app.memfault.com/organizations/a/projects/b/devices/${A}`, `${LINK}/../../x`]) {
+  assert.deepEqual(await detail({ keyStored: true, firmware: true, url: LINK }), {
+    keyStored: true,
+    firmware: true,
+    url: LINK,
+  });
+  assert.deepEqual(await detail({ keyStored: 'yes', firmware: 1, url: null }), {
+    keyStored: false,
+    firmware: false,
+    url: null,
+  });
+  for (const url of [
+    'https://evil.example/organizations/a/projects/b/devices/x',
+    'javascript:alert(1)',
+    `http://app.memfault.com/organizations/a/projects/b/devices/${A}`,
+    `${LINK}/../../x`,
+  ]) {
     assert.equal((await detail({ keyStored: true, firmware: true, url })).url, null, url);
   }
   // A server from before Memfault says nothing of it.
   assert.equal(await detail(undefined), null);
 });
 
-test('a board\'s page says whether forwarding is on, and why not', () => {
+test("a board's page says whether forwarding is on, and why not", () => {
   const said = (memfault, options) => textOf(memfaultCard(page(memfault, options).root));
   assert.match(said({ keyStored: true, firmware: true, url: null }), /Memfault: forwarding on\./);
-  assert.match(said({ keyStored: false, firmware: true, url: null }), /Memfault: off\. No project key is stored in AWS/);
+  assert.match(
+    said({ keyStored: false, firmware: true, url: null }),
+    /Memfault: off\. No project key is stored in AWS/
+  );
   // No key says so first: it is the same for every board.
   assert.match(said({ keyStored: false, firmware: false, url: null }), /No project key is stored/);
   assert.match(said({ keyStored: true, firmware: false, url: null }), /Memfault: needs firmware 1\.14\.0\./);
   // Nothing from a server that says nothing of it, and nothing for a board that never reaches AWS IoT.
   assert.equal(memfaultCard(page(null).root), null);
-  assert.equal(memfaultCard(page({ keyStored: true, firmware: true, url: null },
-    { device: board({ location: { ...NONE, bluetoothOnly: true } }) }).root), null);
+  assert.equal(
+    memfaultCard(
+      page(
+        { keyStored: true, firmware: true, url: null },
+        { device: board({ location: { ...NONE, bluetoothOnly: true } }) }
+      ).root
+    ),
+    null
+  );
 });
 
 test('the link to the board in Memfault is there when the server gives one, and opens apart from the console', () => {
@@ -88,7 +141,7 @@ test('the link to the board in Memfault is there when the server gives one, and 
   assert.equal(all(memfaultCard(page({ keyStored: true, firmware: true, url: null }).root), 'a').length, 0);
 });
 
-test('Send Memfault data now is in the board\'s menu, beside Report now, for release managers', () => {
+test("Send Memfault data now is in the board's menu, beside Report now, for release managers", () => {
   const { root, pressed } = page({ keyStored: true, firmware: true, url: null });
   const menu = one(root, 'details.menu');
   const items = all(menu, 'button.menu-item').map((item) => textOf(item));
@@ -101,7 +154,10 @@ test('Send Memfault data now is in the board\'s menu, beside Report now, for rel
   const offline = page({ keyStored: true, firmware: true, url: null }, { device: board({ online: false }) });
   assert.equal(one(one(offline.root, 'details.menu'), 'button.menu-item', 'Send Memfault data now').disabled, true);
   // Viewers have no menu at all.
-  assert.equal(all(page({ keyStored: true, firmware: true, url: null }, { canWrite: false }).root, 'details.menu').length, 0);
+  assert.equal(
+    all(page({ keyStored: true, firmware: true, url: null }, { canWrite: false }).root, 'details.menu').length,
+    0
+  );
 });
 
 test('the command and what the activity log says of it', () => {

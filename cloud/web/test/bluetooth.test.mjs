@@ -32,7 +32,9 @@ function image(version) {
   header.writeUInt16LE(revision, 22);
   header.writeUInt32LE(build, 24);
   const payload = Buffer.alloc(64, 7);
-  const own = createHash('sha256').update(Buffer.concat([header, payload])).digest();
+  const own = createHash('sha256')
+    .update(Buffer.concat([header, payload]))
+    .digest();
   const tlv = Buffer.concat([Buffer.from([0x07, 0x69, 40, 0x00, 0x10, 0x00, 0x20, 0x00]), own]);
   const bytes = new Uint8Array(Buffer.concat([header, payload, tlv]));
   return { bytes, sha256: createHash('sha256').update(bytes).digest('hex'), hash: own.toString('hex').slice(0, 16) };
@@ -51,8 +53,18 @@ const RESULT = { none: 0, installing: 1, discarded: 2, timedOut: 3, closed: 4 };
 const OUTCOME = { none: 0, pending: 1, kept: 2, rolledBack: 3 };
 
 /** The board's status characteristic, in base64, as the app sends it. */
-function status({ window = 'linked', left = 0, result = 'none', running = '1.12.0+0', onTrial = false, via = 1, outcome = 'none',
-  proof = 0, target = null, hash = null } = {}) {
+function status({
+  window = 'linked',
+  left = 0,
+  result = 'none',
+  running = '1.12.0+0',
+  onTrial = false,
+  via = 1,
+  outcome = 'none',
+  proof = 0,
+  target = null,
+  hash = null,
+} = {}) {
   const b = Buffer.alloc(64);
   const version = (at, text) => {
     if (!text) return;
@@ -89,7 +101,9 @@ function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {})
   const answers = {
     'ble.state': () => ({ state: radio }),
     'ble.connect': () => ({ name: BOARD.name }),
-    'ble.images': () => ({ images: [{ slot: 0, version: '1.12.0', active: true, confirmed: true, pending: false, permanent: false }] }),
+    'ble.images': () => ({
+      images: [{ slot: 0, version: '1.12.0', active: true, confirmed: true, pending: false, permanent: false }],
+    }),
     'ble.status': () => ({ supported: true, payload: status() }),
   };
   const bridge = {
@@ -100,7 +114,11 @@ function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {})
     },
     on(event, listener) {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
-      return () => listeners.set(event, (listeners.get(event) ?? []).filter((item) => item !== listener));
+      return () =>
+        listeners.set(
+          event,
+          (listeners.get(event) ?? []).filter((item) => item !== listener)
+        );
     },
   };
   const api = {
@@ -152,7 +170,11 @@ function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {})
     for (let round = 0; round < 20; round += 1) await new Promise((resolve) => setImmediate(resolve));
   };
   return {
-    flow, api, calls, apiCalls, bridge,
+    flow,
+    api,
+    calls,
+    apiCalls,
+    bridge,
     asked: (method) => calls.filter((call) => call.method === method),
     hold(method) {
       waiting.set(method, []);
@@ -203,7 +225,10 @@ async function atTheBoard(options) {
   const w = world(options);
   await w.flow.lookForBoards();
   w.emit('ble.boards', { boards: [BOARD, { id: 'x', name: 'Not-A-Board', rssi: -10 }] });
-  assert.deepEqual(w.flow.flow.boards.map((board) => board.name), [BOARD.name]);
+  assert.deepEqual(
+    w.flow.flow.boards.map((board) => board.name),
+    [BOARD.name]
+  );
   // The passkey arrives while the phone's pairing box is up.
   w.hold('ble.images');
   const connecting = w.flow.connect(w.flow.flow.boards[0]);
@@ -215,14 +240,20 @@ async function atTheBoard(options) {
   return w;
 }
 
-test('a board\'s version from its image list, and only active releases newer than it, newest first', () => {
+test("a board's version from its image list, and only active releases newer than it, newest first", () => {
   assert.equal(bt.boardVersion('1.12.0'), '1.12.0+0');
   assert.equal(bt.boardVersion('1.12.0.5'), '1.12.0+5');
   assert.equal(bt.boardVersion('1.12.0+5'), '1.12.0+5');
   assert.equal(bt.boardVersion('1.12'), null);
   assert.equal(bt.boardVersion(null), null);
-  assert.deepEqual(bt.offerable(RELEASES, '1.12.0+0').map((release) => release.version), ['1.13.0+0', '1.12.5+0']);
-  assert.deepEqual(bt.offerable(RELEASES, null).map((release) => release.version), ['1.13.0+0', '1.12.5+0', '1.11.0+0']);
+  assert.deepEqual(
+    bt.offerable(RELEASES, '1.12.0+0').map((release) => release.version),
+    ['1.13.0+0', '1.12.5+0']
+  );
+  assert.deepEqual(
+    bt.offerable(RELEASES, null).map((release) => release.version),
+    ['1.13.0+0', '1.12.5+0', '1.11.0+0']
+  );
   assert.deepEqual(bt.offerable(RELEASES, '1.13.0+0'), []);
 });
 
@@ -235,7 +266,7 @@ test('the newest active release is chosen; Bluetooth that is off is said, and no
   assert.equal(w.asked('ble.scan').length, 0);
 });
 
-test('pairing: the passkey from the console, pinned and on this phone\'s clipboard for 2 minutes, until the board has paired', async () => {
+test("pairing: the passkey from the console, pinned and on this phone's clipboard for 2 minutes, until the board has paired", async () => {
   const w = world();
   await w.flow.lookForBoards();
   assert.deepEqual(w.asked('ble.scan')[0].params, { on: true });
@@ -254,7 +285,10 @@ test('pairing: the passkey from the console, pinned and on this phone\'s clipboa
   // The same passkey again is not copied again.
   await w.pass(3000);
   assert.equal(w.asked('clipboard.write').length, 1);
-  const view = bt.bluetoothView({ state: { app: { ble: true }, me: { canWrite: true }, now: w.now() }, bluetooth: w.flow });
+  const view = bt.bluetoothView({
+    state: { app: { ble: true }, me: { canWrite: true }, now: w.now() },
+    bluetooth: w.flow,
+  });
   assert.equal(view.children[0].props.class, 'bt-passkey', 'the passkey is the first thing on the page');
   w.release('ble.images', { images: [{ slot: 0, version: '1.12.0', active: true }] });
   await connecting;
@@ -298,34 +332,49 @@ test('nothing is sent when the console says no, or cannot be reached, or answers
   }
 });
 
-test('an image that is not the release\'s is not sent, and the console is not even asked', async () => {
+test("an image that is not the release's is not sent, and the console is not even asked", async () => {
   const other = image('1.13.0+0');
   other.bytes[100] ^= 1;
   const w = await atTheBoard({ imageBytes: other.bytes });
   await w.flow.send();
   await w.settle();
-  assert.equal(w.apiCalls.some(([name]) => name === 'clearSend'), false);
+  assert.equal(
+    w.apiCalls.some(([name]) => name === 'clearSend'),
+    false
+  );
   assert.equal(w.asked('ble.upload').length, 0);
   assert.match(w.flow.flow.problem, /SHA-256 differs.*Nothing was sent/);
-  assert.match(await bt.imageProblem(image('1.12.0+0').bytes, { ...RELEASES[1], sha256: image('1.12.0+0').sha256 }), /header says 1\.12\.0\+0/);
+  assert.match(
+    await bt.imageProblem(image('1.12.0+0').bytes, { ...RELEASES[1], sha256: image('1.12.0+0').sha256 }),
+    /header says 1\.12\.0\+0/
+  );
 });
 
-test('a send: the console\'s yes, then the upload, then the board followed to the end', async () => {
+test("a send: the console's yes, then the upload, then the board followed to the end", async () => {
   const w = await atTheBoard();
   await w.flow.send();
   await w.settle();
   // In this order: the image, the console's yes for this board, then the board's status and the upload.
-  assert.deepEqual(w.apiCalls.filter(([name]) => name !== 'pairing').map(([name]) => name), ['image', 'clearSend']);
+  assert.deepEqual(
+    w.apiCalls.filter(([name]) => name !== 'pairing').map(([name]) => name),
+    ['image', 'clearSend']
+  );
   assert.deepEqual(w.apiCalls.find(([name]) => name === 'clearSend')[2], { sha256: SENT.sha256, board: BOARD.name });
   const upload = w.asked('ble.upload')[0].params;
   assert.equal(upload.sha256, SENT.sha256);
   assert.deepEqual(new Uint8Array(Buffer.from(upload.image, 'base64')), SENT.bytes);
-  assert.ok(w.calls.findIndex((call) => call.method === 'ble.status') < w.calls.findIndex((call) => call.method === 'ble.upload'));
+  assert.ok(
+    w.calls.findIndex((call) => call.method === 'ble.status') <
+      w.calls.findIndex((call) => call.method === 'ble.upload')
+  );
   assert.equal(w.flow.flow.step, 'following');
   assert.equal(w.flow.flow.facts.sentHash, SENT.hash);
   assert.equal(w.flow.flow.facts.thing, THING);
   assert.equal(w.flow.flow.facts.onConsole, true);
-  assert.deepEqual(w.flow.flow.line.rows.map((row) => row.state), ['done', 'current', 'waiting', 'waiting', 'waiting']);
+  assert.deepEqual(
+    w.flow.flow.line.rows.map((row) => row.state),
+    ['done', 'current', 'waiting', 'waiting', 'waiting']
+  );
 
   // The board offers it, counts down, and takes Button 1.
   w.emit('ble.status', { payload: status({ window: 'offer', left: 100 }), afterRestart: false });
@@ -333,8 +382,17 @@ test('a send: the console\'s yes, then the upload, then the board followed to th
   const reads = w.asked('ble.images').length;
   await w.pass(6500);
   assert.equal(w.asked('ble.images').length, reads + 2, 'the link is read every 3 s while it waits for a button');
-  w.emit('ble.status', { payload: status({ window: 'offer', left: 90, result: 'installing', outcome: 'pending', target: '1.13.0+0', hash: SENT.hash }),
-    afterRestart: false });
+  w.emit('ble.status', {
+    payload: status({
+      window: 'offer',
+      left: 90,
+      result: 'installing',
+      outcome: 'pending',
+      target: '1.13.0+0',
+      hash: SENT.hash,
+    }),
+    afterRestart: false,
+  });
   assert.equal(w.flow.flow.line.rows[1].detail, 'The board said so over Bluetooth, and is restarting to install it.');
 
   // The link goes: the board is looked for after its restart, and the console is asked.
@@ -348,11 +406,29 @@ test('a send: the console\'s yes, then the upload, then the board followed to th
   assert.equal(Date.parse(log.from), w.flow.flow.facts.sentAt - 30000);
 
   // After the restart, the board says it on trial and then kept, with no pairing.
-  w.emit('ble.status', { payload: status({ window: 'status', running: '1.13.0+0', onTrial: true, outcome: 'pending', target: '1.13.0+0', hash: SENT.hash }),
-    afterRestart: true });
+  w.emit('ble.status', {
+    payload: status({
+      window: 'status',
+      running: '1.13.0+0',
+      onTrial: true,
+      outcome: 'pending',
+      target: '1.13.0+0',
+      hash: SENT.hash,
+    }),
+    afterRestart: true,
+  });
   assert.equal(w.flow.flow.line.rows[3].state, 'current');
-  w.emit('ble.status', { payload: status({ window: 'status', running: '1.13.0+0', outcome: 'kept', proof: 1, target: '1.13.0+0', hash: SENT.hash }),
-    afterRestart: true });
+  w.emit('ble.status', {
+    payload: status({
+      window: 'status',
+      running: '1.13.0+0',
+      outcome: 'kept',
+      proof: 1,
+      target: '1.13.0+0',
+      hash: SENT.hash,
+    }),
+    afterRestart: true,
+  });
   assert.equal(w.flow.flow.line.outcome, 'kept');
   assert.equal(w.flow.flow.line.finished, true);
   await w.settle();
@@ -377,7 +453,10 @@ test('an upload that breaks off says how to go on, and nothing is followed', asy
   await sending;
   assert.equal(w.flow.flow.step, 'failed');
   assert.equal(w.flow.flow.facts, null);
-  assert.equal(w.flow.flow.problem, 'The board went out of range. Open a new window and send it again: it starts over.');
+  assert.equal(
+    w.flow.flow.problem,
+    'The board went out of range. Open a new window and send it again: it starts over.'
+  );
   assert.equal(w.asked('ble.watch').length, 0);
   assert.deepEqual(w.asked('app.keepAwake').at(-1).params, { on: false });
   // Start again lets go of the board.

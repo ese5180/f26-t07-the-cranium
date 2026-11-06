@@ -53,7 +53,8 @@ test('a board publishes its chunks on its own memfault topic, and never subscrib
   const of = (action) => statements.find((text) => text.includes(`Action: ${action}\n`));
   assert.ok(of('iot:Publish').includes(`- !Sub '${ARN}:topic/cranium/${OWN}/memfault'`));
   assert.equal(policy.split('/memfault').length - 1, 1);
-  for (const action of ['iot:Subscribe', 'iot:Receive', 'iot:Connect']) assert.equal(of(action).includes('/memfault'), false, action);
+  for (const action of ['iot:Subscribe', 'iot:Receive', 'iot:Connect'])
+    assert.equal(of(action).includes('/memfault'), false, action);
   // The answers come on the commands topic the board already has: nothing new to subscribe to.
   assert.ok(of('iot:Subscribe').includes(`topicfilter/cranium/${OWN}/commands'`));
   assert.equal(/cranium\/\+|cranium\/#|cranium\/\*/.test(policy), false);
@@ -61,11 +62,24 @@ test('a board publishes its chunks on its own memfault topic, and never subscrib
 
 test('the rule hands every chunk to the forwarder, as base64, with the board from the topic, and logs what it cannot', () => {
   const rule = block(template, 'MemfaultRule');
-  const sql = rule.split('Sql: >-\n')[1].split('\n').slice(0, 2).map((line) => line.trim()).join(' ');
-  assert.equal(sql, "SELECT encode(*, 'base64') AS frame, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/memfault' " +
-    "WHERE startswith(topic(2), 'cranium-')");
-  for (const line of ['Type: AWS::IoT::TopicRule', "AwsIotSqlVersion: '2016-03-23'", 'RuleDisabled: false',
-    'FunctionArn: !GetAtt MemfaultFn.Arn']) assert.ok(rule.includes(line), line);
+  const sql = rule
+    .split('Sql: >-\n')[1]
+    .split('\n')
+    .slice(0, 2)
+    .map((line) => line.trim())
+    .join(' ');
+  assert.equal(
+    sql,
+    "SELECT encode(*, 'base64') AS frame, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/memfault' " +
+      "WHERE startswith(topic(2), 'cranium-')"
+  );
+  for (const line of [
+    'Type: AWS::IoT::TopicRule',
+    "AwsIotSqlVersion: '2016-03-23'",
+    'RuleDisabled: false',
+    'FunctionArn: !GetAtt MemfaultFn.Arn',
+  ])
+    assert.ok(rule.includes(line), line);
   assert.equal(/Republish|S3:|DynamoDBv2/.test(rule), false);
   const error = block(rule, 'ErrorAction', 8);
   assert.ok(error.includes('CloudwatchLogs:'));
@@ -74,15 +88,26 @@ test('the rule hands every chunk to the forwarder, as base64, with the board fro
   assert.ok(block(template, 'MemfaultRuleErrorLogGroup').includes('RetentionInDays: 90'));
 
   const permission = block(template, 'MemfaultPermission');
-  for (const line of ['FunctionName: !Ref MemfaultFn', 'Principal: iot.amazonaws.com', 'SourceAccount: !Ref AWS::AccountId',
-    'SourceArn: !GetAtt MemfaultRule.Arn', 'Action: lambda:InvokeFunction']) assert.ok(permission.includes(line), line);
+  for (const line of [
+    'FunctionName: !Ref MemfaultFn',
+    'Principal: iot.amazonaws.com',
+    'SourceAccount: !Ref AWS::AccountId',
+    'SourceArn: !GetAtt MemfaultRule.Arn',
+    'Action: lambda:InvokeFunction',
+  ])
+    assert.ok(permission.includes(line), line);
   // Exactly one way into the forwarder.
-  assert.equal(resources.filter((text) => text.includes('Type: AWS::Lambda::Permission') && text.includes('FunctionName: !Ref MemfaultFn')).length, 1);
+  assert.equal(
+    resources.filter(
+      (text) => text.includes('Type: AWS::Lambda::Permission') && text.includes('FunctionName: !Ref MemfaultFn')
+    ).length,
+    1
+  );
   // And only one rule reads the memfault topics.
   assert.equal(template.split("FROM 'cranium/+/memfault'").length - 1, 1);
 });
 
-test('the rule\'s error log may be written by AWS IoT for this account\'s rules, and nothing else', () => {
+test("the rule's error log may be written by AWS IoT for this account's rules, and nothing else", () => {
   const role = block(template, 'MemfaultRuleErrorRole');
   assert.ok(role.includes('Service: iot.amazonaws.com'));
   assert.match(role, /aws:SourceAccount: !Ref AWS::AccountId/);
@@ -105,11 +130,23 @@ test('the project key is a secret the stack makes empty, and no key is ever in t
 
 test('the forwarder has its own log and role, is not retried, and is told the secret and the host only', () => {
   const fn = block(template, 'MemfaultFn');
-  for (const line of ['Type: AWS::Lambda::Function', 'Handler: memfault.handler', 'Role: !GetAtt MemfaultRole.Arn', 'Code: ../api/src',
-    'Runtime: nodejs22.x', '- arm64', 'LogGroup: !Ref MemfaultLogGroup', 'DependsOn: MemfaultLogGroup', 'Timeout: 15',
-    '${DeployedCommit} (${DeployedTree})']) assert.ok(fn.includes(line), line);
-  assert.deepEqual([...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['MEMFAULT_KEY_SECRET_ARN', 'MEMFAULT_CHUNKS_HOST']);
+  for (const line of [
+    'Type: AWS::Lambda::Function',
+    'Handler: memfault.handler',
+    'Role: !GetAtt MemfaultRole.Arn',
+    'Code: ../api/src',
+    'Runtime: nodejs22.x',
+    '- arm64',
+    'LogGroup: !Ref MemfaultLogGroup',
+    'DependsOn: MemfaultLogGroup',
+    'Timeout: 15',
+    '${DeployedCommit} (${DeployedTree})',
+  ])
+    assert.ok(fn.includes(line), line);
+  assert.deepEqual(
+    [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
+    ['MEMFAULT_KEY_SECRET_ARN', 'MEMFAULT_CHUNKS_HOST']
+  );
   assert.ok(fn.includes('MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey'));
   assert.ok(fn.includes('MEMFAULT_CHUNKS_HOST: !Ref MemfaultChunksHost'));
   assert.ok(block(template, 'MemfaultLogGroup').includes('RetentionInDays: 90'));
@@ -120,11 +157,19 @@ test('the forwarder has its own log and role, is not retried, and is told the se
   assert.ok(block(block(template, 'Outputs', 0), 'MemfaultFunctionName').includes('Value: !Ref MemfaultFn'));
 });
 
-test('the forwarder\'s role: its log, the key, and the boards\' commands topics, and nothing else', () => {
+test("the forwarder's role: its log, the key, and the boards' commands topics, and nothing else", () => {
   const role = block(template, 'MemfaultRole');
   assert.ok(role.includes('Service: lambda.amazonaws.com'));
-  assert.deepEqual([...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]), ['WriteOwnLog', 'ReadProjectKey', 'AnswerBoards']);
-  assert.deepEqual(allowed(role), ['logs:CreateLogStream', 'logs:PutLogEvents', 'secretsmanager:GetSecretValue', 'iot:Publish']);
+  assert.deepEqual(
+    [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
+    ['WriteOwnLog', 'ReadProjectKey', 'AnswerBoards']
+  );
+  assert.deepEqual(allowed(role), [
+    'logs:CreateLogStream',
+    'logs:PutLogEvents',
+    'secretsmanager:GetSecretValue',
+    'iot:Publish',
+  ]);
   assert.ok(statement(role, 'WriteOwnLog').includes('Resource: !GetAtt MemfaultLogGroup.Arn'));
   assert.ok(statement(role, 'ReadProjectKey').includes('Resource: !Ref MemfaultProjectKey'));
   assert.ok(statement(role, 'AnswerBoards').includes(`Resource: !Sub '${ARN}:topic/cranium/cranium-*/commands'`));
@@ -132,7 +177,15 @@ test('the forwarder\'s role: its log, the key, and the boards\' commands topics,
 });
 
 test('no other role may read the key; the API may only see whether there is one', () => {
-  for (const name of ['ApiRole', 'EventsRole', 'WebRole', 'LocationRole', 'SignInScopeRole', 'PresignRole', 'RolloutTickRole']) {
+  for (const name of [
+    'ApiRole',
+    'EventsRole',
+    'WebRole',
+    'LocationRole',
+    'SignInScopeRole',
+    'PresignRole',
+    'RolloutTickRole',
+  ]) {
     assert.equal(block(template, name).includes('secretsmanager:GetSecretValue'), false, name);
   }
   assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 1);
@@ -140,13 +193,20 @@ test('no other role may read the key; the API may only see whether there is one'
   const see = statement(api, 'SeeMemfaultKey');
   assert.ok(see.includes('Action: secretsmanager:DescribeSecret\n'));
   assert.ok(see.includes('Resource: !Ref MemfaultProjectKey'));
-  assert.deepEqual(allowed(api).filter((action) => action.startsWith('secretsmanager:')), ['secretsmanager:DescribeSecret']);
+  assert.deepEqual(
+    allowed(api).filter((action) => action.startsWith('secretsmanager:')),
+    ['secretsmanager:DescribeSecret']
+  );
   const variables = block(block(template, 'ApiFn'), 'Variables', 8);
-  for (const line of ['MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey', 'MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug',
-    'MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug']) assert.ok(variables.includes(line), line);
+  for (const line of [
+    'MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey',
+    'MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug',
+    'MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug',
+  ])
+    assert.ok(variables.includes(line), line);
 });
 
-test('the parameters: two hosts of Memfault\'s chunks API, nRF Cloud\'s first, and slugs that are no secret', () => {
+test("the parameters: two hosts of Memfault's chunks API, nRF Cloud's first, and slugs that are no secret", () => {
   const parameters = block(template, 'Parameters', 0);
   const host = block(parameters, 'MemfaultChunksHost');
   assert.ok(host.includes('Default: chunks-nrf.memfault.com'));

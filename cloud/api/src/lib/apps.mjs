@@ -64,7 +64,7 @@ export function parseAppVersion(value) {
 
 /** Negative, zero or positive, as a is below, equal to or above b. */
 export function compareAppVersions(a, b) {
-  return (a.major - b.major) || (a.minor - b.minor) || (a.patch - b.patch);
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
 }
 
 /** The sort key of a release: Android's unless another platform is named. */
@@ -106,14 +106,17 @@ export function ipaKey(version) {
 export function requireAppVersion(value) {
   const parts = parseAppVersion(value);
   if (parts === null) {
-    throw badRequest('invalid_version', 'The app\'s version is three numbers with dots, such as 0.4.0.');
+    throw badRequest('invalid_version', "The app's version is three numbers with dots, such as 0.4.0.");
   }
   return parts;
 }
 
 export function requireVersionCode(value) {
   if (!Number.isInteger(value) || value < 1 || value > MAX_VERSION_CODE) {
-    throw badRequest('invalid_version_code', `"versionCode" is the app's versionCode: a whole number from 1 to ${MAX_VERSION_CODE}.`);
+    throw badRequest(
+      'invalid_version_code',
+      `"versionCode" is the app's versionCode: a whole number from 1 to ${MAX_VERSION_CODE}.`
+    );
   }
   return value;
 }
@@ -154,8 +157,11 @@ export function requireApkDescription(body, pathVersion = null) {
 /** CFBundleVersion of an IPA, as the text it is in Info.plist and as a number, or 400. */
 export function requireBuildVersion(value) {
   if (typeof value !== 'string' || !BUILD_VERSION.test(value) || Number(value) > MAX_VERSION_CODE) {
-    throw badRequest('invalid_build', '"buildVersion" is the app\'s CFBundleVersion (CURRENT_PROJECT_VERSION in ' +
-      `apps/ios/project.yml): a whole number from 1 to ${MAX_VERSION_CODE}, as text.`);
+    throw badRequest(
+      'invalid_build',
+      '"buildVersion" is the app\'s CFBundleVersion (CURRENT_PROJECT_VERSION in ' +
+        `apps/ios/project.yml): a whole number from 1 to ${MAX_VERSION_CODE}, as text.`
+    );
   }
   return { text: value, number: Number(value) };
 }
@@ -213,7 +219,8 @@ export function iosReleaseFromItem(item) {
     notes: text(item.notes, MAX_NOTES),
     filename: ipaName(parts.text),
     bundleId: typeof item.bundleId === 'string' && BUNDLE_ID.test(item.bundleId) ? item.bundleId : IOS_BUNDLE_ID,
-    minOSVersion: typeof item.minOSVersion === 'string' && OS_VERSION.test(item.minOSVersion) ? item.minOSVersion : null,
+    minOSVersion:
+      typeof item.minOSVersion === 'string' && OS_VERSION.test(item.minOSVersion) ? item.minOSVersion : null,
     privacy: privacyOf(item.privacy),
     publishedBy: { sub: text(item.publishedBy?.sub, 128), email: text(item.publishedBy?.email, 320) },
     publishedAt: ISO_TIME.test(item.publishedAt ?? '') ? item.publishedAt : null,

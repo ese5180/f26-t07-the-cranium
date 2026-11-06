@@ -42,9 +42,11 @@ const DIGEST = /^[0-9a-f]{64}$/;
 const IPA_FILE = /^cranium-ios-((?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,2})\.(?:0|[1-9]\d{0,4}))\.ipa$/;
 // The app's icon and colour, as in apps/ios/App/Assets.xcassets. The icon is the public repository's
 // copy: the console has no address for it that stays the same from one deployment to the next.
-export const ICON_URL = 'https://raw.githubusercontent.com/ese5180/f26-t07-the-cranium/main/apps/ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png';
+export const ICON_URL =
+  'https://raw.githubusercontent.com/ese5180/f26-t07-the-cranium/main/apps/ios/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png';
 const TINT = '#B7410E';
-const DESCRIPTION = 'The Cranium console on your iPhone: the boards, firmware releases and deployments, the activity ' +
+const DESCRIPTION =
+  'The Cranium console on your iPhone: the boards, firmware releases and deployments, the activity ' +
   'log, and firmware sent to a board over Bluetooth. Sign in with your console account.';
 
 /** A new key, from the system's CSPRNG. */
@@ -121,8 +123,9 @@ export function buildSource({ consoleUrl, key, releases }) {
     name: 'Cranium',
     identifier: SOURCE_IDENTIFIER,
     sourceURL: links.url,
-    subtitle: 'The team\'s iPhone app, from its console',
-    description: 'Your own source, from the console\'s Apps page. Keep its address to yourself: it downloads the app ' +
+    subtitle: "The team's iPhone app, from its console",
+    description:
+      "Your own source, from the console's Apps page. Keep its address to yourself: it downloads the app " +
       'without a sign-in. Make a new one there if it got out.',
     iconURL: ICON_URL,
     website: String(consoleUrl).replace(/\/+$/, ''),
@@ -158,7 +161,14 @@ export function buildSource({ consoleUrl, key, releases }) {
       if (release.minOSVersion !== null) version.minOSVersion = release.minOSVersion;
       return version;
     }),
-    appPermissions: { entitlements: [], privacy: Object.fromEntries(Object.keys(privacy).sort().map((name) => [name, privacy[name]])) },
+    appPermissions: {
+      entitlements: [],
+      privacy: Object.fromEntries(
+        Object.keys(privacy)
+          .sort()
+          .map((name) => [name, privacy[name]])
+      ),
+    },
   });
   return source;
 }

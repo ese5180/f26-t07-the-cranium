@@ -16,8 +16,17 @@
 
 import { HttpError, conflict, describeError, field, notFound } from '../http.mjs';
 import {
-  MAX_ACTIVE_TOKENS, MAX_TOKEN_DAYS, TOKEN_ID, bearerToken, expiryAfter, newToken, presentToken, sameDigest,
-  tokenDigest, tokenFromItem, tokenStatus,
+  MAX_ACTIVE_TOKENS,
+  MAX_TOKEN_DAYS,
+  TOKEN_ID,
+  bearerToken,
+  expiryAfter,
+  newToken,
+  presentToken,
+  sameDigest,
+  tokenDigest,
+  tokenFromItem,
+  tokenStatus,
 } from '../lib/tokens.mjs';
 import { requireTokenDays, requireTokenId, requireTokenName } from '../lib/validate.mjs';
 
@@ -26,13 +35,20 @@ import { requireTokenDays, requireTokenId, requireTokenName } from '../lib/valid
  * revoked or expired alike, so that the answer tells nobody which.
  */
 function tokenRefused() {
-  return new HttpError(401, 'invalid_token', 'This API token is not valid: it is unknown, revoked or ' +
-    'expired, or it was not sent as "Authorization: Bearer crn_…". Make a new one on the console.');
+  return new HttpError(
+    401,
+    'invalid_token',
+    'This API token is not valid: it is unknown, revoked or ' +
+      'expired, or it was not sent as "Authorization: Bearer crn_…". Make a new one on the console.'
+  );
 }
 
 function tooMany() {
-  return conflict('too_many_tokens', `You have ${MAX_ACTIVE_TOKENS} API tokens that are still valid, ` +
-    'which is as many as one person may have. Revoke one you no longer use first.');
+  return conflict(
+    'too_many_tokens',
+    `You have ${MAX_ACTIVE_TOKENS} API tokens that are still valid, ` +
+      'which is as many as one person may have. Revoke one you no longer use first.'
+  );
 }
 
 /** The Authorization header of a request, as the gateway passes it on (names in lower case). */
@@ -149,7 +165,11 @@ export function createTokenHandlers({ aws, now, randomHex, log, directory }) {
       return {
         status: 201,
         body: {
-          token, id: record.id, name, createdAt: record.createdAt, expiresAt: record.expiresAt,
+          token,
+          id: record.id,
+          name,
+          createdAt: record.createdAt,
+          expiresAt: record.expiresAt,
         },
       };
     },
