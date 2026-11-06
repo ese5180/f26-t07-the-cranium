@@ -97,7 +97,7 @@ jobs:
               echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
               exit 1
             fi
-            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            if [ "$(git rev-parse "refs/tags/${tag}^{commit}")" != "$(git rev-parse HEAD)" ]; then
               echo "::error::The tag $tag names another commit than the one checked out."
               exit 1
             fi
@@ -260,7 +260,7 @@ jobs:
               echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
               exit 1
             fi
-            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            if [ "$(git rev-parse "refs/tags/${tag}^{commit}")" != "$(git rev-parse HEAD)" ]; then
               echo "::error::The tag $tag names another commit than the one checked out."
               exit 1
             fi
@@ -403,12 +403,12 @@ jobs:
               echo "::error::There is no tag $tag. Tag the commit and push the tag first (docs/versions.md)."
               exit 1
             fi
-            if [ "$(git rev-parse "refs/tags/$tag^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            if [ "$(git rev-parse "refs/tags/${tag}^{commit}")" != "$(git rev-parse HEAD)" ]; then
               echo "::error::The tag $tag names another commit than the one checked out."
               exit 1
             fi
           fi
-          if ! grep -q "^## $version[[:space:]]*$" "apps/desktop/CHANGELOG.$platform.md"; then
+          if ! grep -q "^## ${version}[[:space:]]*$" "apps/desktop/CHANGELOG.$platform.md"; then
             echo "::error file=apps/desktop/CHANGELOG.$platform.md::There is no entry for $version."
             exit 1
           fi
@@ -470,6 +470,8 @@ jobs:
             # GitHub refuses a file over 100 MB in git: such a file stays out of apps/dist/ (docs/desktop-app.md).
             if [ "$size" -gt 104857600 ]; then echo "::warning::$name is $size bytes, more than git on GitHub takes."; fi
           done <<< "$names"
+          # One name a line: the split is meant.
+          # shellcheck disable=SC2086
           (cd release-out && sha256sum $names > SHA256SUMS)
           echo >> "$GITHUB_STEP_SUMMARY"
           echo "Put into apps/dist/ with: \`apps/fetch-desktop-builds.sh $PLATFORM $VERSION\`" >> "$GITHUB_STEP_SUMMARY"
