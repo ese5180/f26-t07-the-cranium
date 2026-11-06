@@ -66,6 +66,8 @@ jobs:
 
       - name: Start the app once from the checkout
         run: |
+          # Electron's own binary: npm ci does not fetch it.
+          node node_modules/electron/install.js
           # Electron's setuid sandbox helper, as the .deb's install script sets it where it must (docs/desktop-linux.md).
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
