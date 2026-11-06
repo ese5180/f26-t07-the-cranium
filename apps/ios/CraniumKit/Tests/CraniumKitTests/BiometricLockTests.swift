@@ -189,6 +189,22 @@ struct Phone {
         #expect(!off.lock.becameActive())
     }
 
+    @Test func theMacChoosesHowLongAwayBeforeItAsksAgain() {
+        let mac = Phone(on: true, gate: MemoryBiometricGate(biometry: .touchID))
+        #expect(mac.lock.relockInterval == BiometricLock.relockAfter)
+        mac.lock.relockInterval = 60
+        mac.lock.enteredBackground()
+        mac.clock.now += 59
+        #expect(!mac.lock.becameActive())
+        mac.lock.enteredBackground()
+        mac.clock.now += 60
+        #expect(mac.lock.becameActive())
+        // 0: each time it comes back, however soon.
+        mac.lock.relockInterval = 0
+        mac.lock.enteredBackground()
+        #expect(mac.lock.becameActive())
+    }
+
     // MARK: Without Face ID: 60 minutes
 
     @Test func withoutFaceIDTheRefreshTokenIsForgotten60MinutesAfterTheSignIn() async throws {

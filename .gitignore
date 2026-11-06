@@ -78,3 +78,10 @@ apps/ios/*.xcodeproj/
 
 # Personal study notes and diagrams (notes/README.md says what is there): kept on this computer only.
 /notes/
+
+# The Mac app (apps/macos): its project comes from project.yml, and every local build stays out;
+# apps/fetch-builds.sh adds a published .dmg to apps/dist on purpose.
+apps/macos/build/
+apps/macos/*.xcodeproj/
+apps/macos/**/xcuserdata/
+*.dmg

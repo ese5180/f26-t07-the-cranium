@@ -59,6 +59,9 @@ public final class BiometricLock {
     private let session: AuthSession
     private let now: () -> Date
     private var backgroundedAt: Date?
+    /// How long away before it asks again. `relockAfter` on the phones; the Mac app lets the person
+    /// choose it (apps/macos, Settings). 0 asks each time the app comes back.
+    public var relockInterval: TimeInterval = BiometricLock.relockAfter
 
     public init(gate: BiometricGate, settings: BiometricSettingsStore, session: AuthSession,
                 now: @escaping () -> Date = { Date() }) {
@@ -153,7 +156,7 @@ public final class BiometricLock {
     public func becameActive() -> Bool {
         defer { backgroundedAt = nil }
         guard isOn, let since = backgroundedAt else { return false }
-        return now().timeIntervalSince(since) >= Self.relockAfter
+        return now().timeIntervalSince(since) >= relockInterval
     }
 
     // MARK: Turning it on and off

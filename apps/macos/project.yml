@@ -1,0 +1,109 @@
+# The Xcode project of the Cranium Mac app, for XcodeGen. The .xcodeproj it makes is not in git: run
+# scripts/generate.sh after a change here or after a pull. See README.md and docs/mac-app.md.
+#
+# A native SwiftUI app, not a web view: its own windows, sidebar, tables and menus. What it shares
+# with the iPhone app is the logic, not the screens:
+#   - CraniumKit and CraniumBLE (apps/ios/CraniumKit): configuration, sign-in, the console's API,
+#     the words, Touch ID's gate (MacBiometrics.swift), live updates (Live.swift), the serial console;
+#   - the iPhone app's models (apps/ios/App: AppModel, CustomerModel, BluetoothModel, WebSignIn and
+#     the demo data), compiled here as they are, so the sign-in, the lock, the Bluetooth update and
+#     every check behave as on the phone.
+
+name: Cranium
+
+options:
+  bundleIdPrefix: com.craniumiot
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    # The version people see (apps/macos/CHANGELOG.md, docs/versions.md).
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  CraniumKit:
+    path: ../ios/CraniumKit
+
+targets:
+  Cranium:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Cranium
+      # The iPhone app's models, shared as they are (see above).
+      - path: ../ios/App/AppModel.swift
+      - path: ../ios/App/CustomerModel.swift
+      - path: ../ios/App/BluetoothModel.swift
+      - path: ../ios/App/WebSignIn.swift
+      - path: ../ios/App/DemoData.swift
+      # The website's icon names as SF Symbols (Icon), and the console's colours.
+      - path: ../ios/App/Theme.swift
+      # The Help topics, which both phone apps read too.
+      - path: ../shared/help.json
+        buildPhase: resources
+    dependencies:
+      - package: CraniumKit
+        product: CraniumKit
+      - package: CraniumKit
+        product: CraniumBLE
+    settings:
+      base:
+        PRODUCT_NAME: Cranium
+        # com.craniumiot.cranium.mac unless scripts/generate.sh is given another.
+        PRODUCT_BUNDLE_IDENTIFIER: "${CRANIUM_MAC_BUNDLE_ID}"
+        INFOPLIST_FILE: Cranium/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Cranium/Cranium.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_VERSION: "5.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        # A team's signing (scripts/generate.sh) gives Touch ID in the Keychain itself; without one,
+        # "Sign to Run Locally" (docs/mac-app.md, "Touch ID").
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "${CRANIUM_TEAM_ID}"
+        CODE_SIGN_IDENTITY: "${CRANIUM_MAC_SIGN_IDENTITY}"
+        # The configuration script reads apps/config/, outside the sandbox Xcode gives scripts.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        COMBINE_HIDPI_IMAGES: YES
+    postBuildScripts:
+      - name: Copy the configuration
+        # Into the built app, never into the source tree: apps/config/cranium.json names the AWS account.
+        # The iPhone app's script, which works for a Mac app's Contents/Resources as it is.
+        script: '"${SRCROOT}/../ios/scripts/copy-config.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+      - name: Record the commit
+        # CraniumCommit in the built Info.plist, for About. Never fails the build.
+        script: '"${SRCROOT}/../ios/scripts/stamp-commit.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+    scheme:
+      testTargets:
+        - CraniumMacTests
+
+  # The Mac app's own logic that is not in CraniumKit: the sidebar, the windows' routes. CraniumKit's
+  # tests (swift test) cover the rest, the Mac's Touch ID gate and live client among them.
+  CraniumMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Tests
+      - path: Cranium/Sections.swift
+    dependencies:
+      - package: CraniumKit
+        product: CraniumKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.craniumiot.cranium.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "${CRANIUM_TEAM_ID}"
+        CODE_SIGN_IDENTITY: "${CRANIUM_MAC_SIGN_IDENTITY}"
