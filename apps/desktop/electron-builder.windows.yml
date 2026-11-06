@@ -1,0 +1,35 @@
+# The Windows installers of the desktop app (docs/desktop-windows.md), over electron-builder.base.yml:
+#
+#   Cranium-Setup-<version>.exe     an installer for x64: Start menu entry, a desktop shortcut if wanted,
+#                                   an uninstaller in Settings > Apps
+#   Cranium-<version>-portable.exe  the same app in one file that runs without installing
+#
+# Neither is signed: there is no code-signing certificate (docs/desktop-windows.md, "SmartScreen").
+extends: electron-builder.base.yml
+# This build's version (docs/versions.md): bump it with an entry in CHANGELOG.windows.md.
+extraMetadata:
+  version: 0.1.0
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # electron-builder makes the .ico from it.
+  icon: resources/icon.png
+nsis:
+  # The assisted installer: the person sees each step, may pick the folder, and installs for themselves.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createStartMenuShortcut: true
+  shortcutName: Cranium
+  uninstallDisplayName: Cranium
+  # resources/installer.nsh asks whether to put a shortcut on the desktop, and removes it with the app.
+  createDesktopShortcut: false
+  include: resources/installer.nsh
+  # The person's sign-in and pages stay when the app is removed, as they do on a reinstall.
+  deleteAppDataOnUninstall: false
+  artifactName: Cranium-Setup-${version}.${ext}
+portable:
+  artifactName: Cranium-${version}-portable.${ext}

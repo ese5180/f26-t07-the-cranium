@@ -1,0 +1,125 @@
+# The desktop app's Windows installers (docs/desktop-windows.md), on Windows, for every push that touches the app:
+# its tests, the app started once from the checkout, the installers built, the installer tried silently (installed,
+# its Start menu entry and its uninstaller there, then uninstalled), and the installers kept as the run's artifact.
+#
+# Built with the example configuration only: this repository is public, and a configured build names the stack, so
+# these installers show the pages but sign nobody in. A release that signs in is release-apps.yml's job, for a tag
+# desktop-windows-v<version> (docs/desktop-app.md, "Releases").
+
+name: Desktop app for Windows
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/shared/**'
+      - 'apps/config/cranium.example.json'
+      - 'cloud/web/src/**'
+      - 'cloud/web/build-bundle.mjs'
+      - 'cloud/VERSION'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  windows:
+    name: Windows installers
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install (Electron and electron-builder, at the lockfile's versions)
+        run: npm ci --no-audit --no-fund
+
+      - name: Tests
+        run: npm test
+
+      - name: Start the app once from the checkout
+        run: |
+          node scripts/prepare.mjs --example
+          CRANIUM_DESKTOP_SMOKE="$RUNNER_TEMP/desktop.png" timeout 120 npx electron . | tee "$RUNNER_TEMP/desktop.log"
+          # The picture is there only if the page drew; the line, where Windows hands Electron's output on.
+          test -s "$RUNNER_TEMP/desktop.png" || { echo "::error::The app did not draw its first page."; exit 1; }
+          if grep -q '"smoke":"done"' "$RUNNER_TEMP/desktop.log"; then
+            grep -q '"smoke":"done","url":"cranium-app://bundle/#/sign-in"' "$RUNNER_TEMP/desktop.log"
+            grep -q '"name":"Cranium"' "$RUNNER_TEMP/desktop.log"
+          else
+            echo "::warning::Electron's output did not reach the log on Windows; the picture says the page drew."
+          fi
+
+      - name: Build the installers
+        run: npm run dist -- windows --example
+
+      - name: Check what was built
+        id: built
+        run: |
+          version="$(node scripts/version-of.mjs windows)"
+          names="$(node scripts/installers.mjs windows "$version")"
+          for name in "Cranium-Setup-$version.exe" "Cranium-$version-portable.exe"; do
+            grep -qx "$name" <<< "$names" || { echo "::error::$name was not built."; exit 1; }
+          done
+          # The app is Cranium: its program and the name in its file's details.
+          test -f dist/win-unpacked/Cranium.exe || { echo "::error::The program is not Cranium.exe."; ls dist/win-unpacked; exit 1; }
+          product="$(powershell -NoProfile -Command "(Get-Item 'dist/win-unpacked/Cranium.exe').VersionInfo.ProductName" | tr -d '\r')"
+          [ "$product" = Cranium ] || { echo "::error::The program says it is \"$product\", not Cranium."; exit 1; }
+          mkdir -p ../../desktop-out
+          {
+            echo "## Windows installers, $version (example configuration)"
+            echo
+            echo "| File | Bytes | SHA-256 |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r name; do
+            cp "dist/$name" "../../desktop-out/$name"
+            size="$(wc -c < "dist/$name" | tr -d ' ')"
+            echo "| $name | $size | \`$(sha256sum "dist/$name" | cut -d ' ' -f 1)\` |" >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$names"
+          (cd ../../desktop-out && sha256sum $names > SHA256SUMS)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install it silently, then uninstall it
+        env:
+          VERSION: ${{ steps.built.outputs.version }}
+        run: |
+          ./dist/"Cranium-Setup-$VERSION.exe" /S
+          dir="$LOCALAPPDATA/Programs/Cranium"
+          test -f "$dir/Cranium.exe" || { echo "::error::Not installed in $dir."; ls "$LOCALAPPDATA/Programs" || true; exit 1; }
+          test -f "$APPDATA/Microsoft/Windows/Start Menu/Programs/Cranium.lnk" || { echo "::error::No Start menu entry."; exit 1; }
+          # A silent install asks nothing, so it puts no shortcut on the desktop.
+          test ! -e "$USERPROFILE/Desktop/Cranium.lnk" || { echo "::error::A silent install made a desktop shortcut."; exit 1; }
+          uninstaller="$(ls "$dir"/Uninstall*.exe | head -n 1)"
+          "$uninstaller" /S
+          # The uninstaller hands over to a copy of itself and returns at once: wait for it.
+          for _ in $(seq 1 60); do [ -e "$dir/Cranium.exe" ] || break; sleep 1; done
+          test ! -e "$dir/Cranium.exe" || { echo "::error::The uninstaller left the app."; exit 1; }
+          test ! -e "$APPDATA/Microsoft/Windows/Start Menu/Programs/Cranium.lnk" || { echo "::error::The uninstaller left the Start menu entry."; exit 1; }
+          echo "Installed, found in the Start menu, and uninstalled."
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cranium-desktop-windows-${{ steps.built.outputs.version }}-example
+          path: desktop-out/
+          if-no-files-found: error
+          retention-days: 14
