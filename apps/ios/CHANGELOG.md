@@ -4,6 +4,18 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.2
+
+The customer site's features work in the app as on the website: Explore demo, My journal, saved moments, imported
+sessions and the date range are kept across launches, instead of being lost every time the app closed.
+
+The shell's web view keeps no data on disk (`WKWebsiteDataStore.nonPersistent()`), so the page's `localStorage` lasted
+only as long as the web view, and the page could not tell. The bridge has a new feature, `storage` (`storage.get`,
+`storage.set`, `storage.remove`; `apps/shared/bridge.json`), with a store in Application Support (`Shell/PageStore.swift`:
+keys `cranium.…`, 3 MB a value, 64 keys, 12 MB in all, excluded from backup, file-protected). The site keeps the journal
+and its choices there, and moves over once what an older app left in the page's own storage. Help's answer on the
+journal now says "kept on this device only".
+
 ## 0.8.1
 
 Live updates in the app: a board that connects, restarts or takes an update shows it within about a second, as the

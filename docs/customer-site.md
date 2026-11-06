@@ -46,8 +46,8 @@ on, and neither is built. So the mixes come from two places (`customer-mixes.js`
 
 - **Explore demo**: three made-up sessions of made-up tracks, dated from today so that the ranges show something. Every
   page that shows them says so ("Made-up sessions, to show what this will be"), and each card has a Demo tag.
-- **My journal**: the sessions the customer imports, kept in their browser's `localStorage` under their e-mail address,
-  never on Cranium's servers. A file is a CSV of tracks, one line each (`session, started, title, artist, deck, start,
+- **My journal**: the sessions the customer imports, kept under their e-mail address in their browser's `localStorage`, or in the phone app
+  (`storage.*`, [docs/mobile-apps.md](mobile-apps.md)), never on Cranium's servers. A file is a CSV of tracks, one line each (`session, started, title, artist, deck, start,
   end, bpm, key`; only `started` and `title` are needed, times in seconds or m:ss from the start of the set), or a JSON
   file of this site (`"format": "cranium-mixes", "version": 1`). At most 1 MB, 200 sessions of 400 tracks; every field is
   checked and cut to size, and a session imported again replaces itself. The journal is empty until a file is imported,

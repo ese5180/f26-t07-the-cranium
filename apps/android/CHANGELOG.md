@@ -4,6 +4,19 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.2
+
+The customer site's features work in the app as on the website: Import session opens the file picker, the back button
+goes back through the site's pages, and Explore demo, My journal, saved moments and the date range are kept by the app.
+
+Import session (and the console's firmware upload) could not pick a file: the chooser asked for the first entry of the
+page's `accept` list (".json", ".bin") as the MIME type, which is no type. The picker is now `ACTION_GET_CONTENT` with
+the MIME types those names stand for, and any file when a name is unknown (`shell/ShellFiles.kt`). The back button left
+the app instead of going back through the site's routes; it now follows the web view's history first. The bridge has a
+new feature, `storage` (`storage.get`, `storage.set`, `storage.remove`; `apps/shared/bridge.json`), with a store in
+`noBackupFilesDir` (`shell/PageStore.kt`: keys `cranium.…`, 3 MB a value, 64 keys, 12 MB in all, never backed up). The
+site keeps the journal there, and moves over once what an older app left in the page's own storage.
+
 ## 0.8.1
 
 Live updates in the app: a board that connects, restarts or takes an update shows it within about a second, as the

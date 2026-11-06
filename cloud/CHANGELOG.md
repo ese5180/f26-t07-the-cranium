@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.3
+
+The customer site keeps the journal in the phone app, so that Explore demo, My journal, saved moments and imported sessions last across launches on the iPhone, and its Help answer on the journal says "kept on this device only" in a browser and in the app.
+
+In the app, when it offers `storage.*` (phone apps from 0.8.2), the site reads and writes the journal and its choices there instead of in the page's `localStorage`, moves over once what an older app left in the page, and says "this app" where the website says "this browser". The website is as before.
+
 ## 2.4.2
 
 The Apps page's Download the configuration has the live API's address too, so that phone apps built from it, from 0.8.1, show a board's change within about a second.

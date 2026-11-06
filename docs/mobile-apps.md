@@ -127,6 +127,7 @@ from the kind of phone. `window.cranium.bridge` is the same object, for feature 
 | `clipboard` | `clipboard.write` | With `expiresIn`: this phone only, gone after that time (the passkey, 2 minutes) |
 | `haptics` | `haptics.play` | success, warning, error, selection, impact |
 | `share` | `file.share` | A file (base64, a name, CSV, JSON, text or PDF) through the share sheet: save to Files, AirDrop, mail. For exports to come |
+| `storage` | `storage.get`, `storage.set`, `storage.remove` | What the page means to keep across launches (the customer site's journal and choices), on the phone only: keys `cranium.` plus up to 200 printable characters, values up to 3,000,000 characters, 64 keys and 12 MB in all; one file per key, named by its SHA-256, not backed up (iPhone: Application Support, excluded from backup and file-protected; Android: `noBackupFilesDir`). The iPhone's web view keeps no data of its own, so its `localStorage` lasts only until the app closes |
 | `open` | `app.open` | An `https:`, `sidestore:` or `otpauth:` address outside the app; anything else `not_allowed` |
 | `keepAwake` | `app.keepAwake` | The screen stays on during an update over Bluetooth |
 | `settings` | `app.settings` | The shell's own settings: versions, Look for newer pages, Classic app (and Reload on the iPhone) |
@@ -377,16 +378,22 @@ and code. The setting is per phone and per person, and is in the Account screen,
 
 ## Customers
 
-The customer side of the apps is the customer website ([docs/customer-site.md](customer-site.md)) on a phone:
-the same sections, the same words, the same API and the same customer accounts. What a customer sees:
+The customer side of the apps is the customer website ([docs/customer-site.md](customer-site.md)) in the shell's web
+view: the same sections, the same words, the same API and the same customer accounts, from the pages in the bundle
+(the iPhone: `cranium-app://bundle`; Android: `https://appassets.androidplatform.net`). The native customer screens
+of 0.6 to 0.8.1 are no longer the way in. How the site's features work in a shell:
 
-| Tab | What |
+| Feature | In the app |
 | --- | --- |
-| Overview | "Hello, {name}.", how many boards are online, four figures (online now, boards, firmware, last heard from), the boards, what they did in the last week (`GET /api/c/activity`, the newest 8), and a card on the mixes to come |
-| Devices | The boards (`GET /api/c/boards`), each with its state, firmware, last report and update; one board (`GET /api/c/boards/{id}`): state, firmware and whether it is on trial, last heard from, the update in plain words, Wi-Fi signal, how long it has run, location ("Not reported: boards cannot tell where they are yet."), since when it is the customer's, and the last 30 days of what it did |
-| Mixes | Sessions, Transitions, Track library, Saved moments: each **Not built yet**, and why (boards do not report what is played) |
-| Account | E-mail and name, a password change, two-step sign-in on or off (the setup key in groups of four, Copy the key, and an `otpauth://` link that opens an authenticator app on the phone, then the first code in six boxes), Face ID or a fingerprint, and Sign out |
-| Help | The website's questions and answers, and that there is no support address yet |
+| Tabs, safe areas | The site's phone layout and tab bar (Overview, Sessions, Transitions, Library, Devices); the web view keeps clear of the top, the site draws to the bottom as on a phone browser |
+| Import session | The file picker: iPhone, the web view's own; Android, `ACTION_GET_CONTENT` with the MIME types the `accept` list names (`.csv`, `.json`, `.bin`), any file when a name is unknown |
+| Export, Back up, CSV | `file.share` through the share sheet (Save to Files, AirDrop, mail). A backup over about 3 MB passes the bridge's 4 MiB request limit and is refused |
+| Explore demo, My journal, saved moments, range | Kept by the app (`storage.*`), so they last across launches on both phones; what an older app left in the page's `localStorage` is moved over once. An app without `storage` says "This app cannot keep the journal" |
+| Connect device | The site's dialog, with Bluetooth through the bridge where the phone has it |
+| Links | `https:` addresses open in the system browser (`app.open`) |
+| Sign-in, account | As below; the refresh token goes to the app, never into the page |
+| Live updates | The site's live connection (`liveUrl` in `app.config`), as in a browser |
+| Back (Android) | The back button goes back through the site's routes before it leaves the app |
 
 Overview, Devices and a board are read again every 30 seconds while they are on screen, and on a pull. A
 board is only ever named by the id of its assignment (16 hex digits), as the API gives it, never by a thing
