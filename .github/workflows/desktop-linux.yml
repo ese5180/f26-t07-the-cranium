@@ -98,7 +98,8 @@ jobs:
           grep -qx 'Name=Cranium' <<< "$entry" || fail "The menu entry is not named Cranium."
           grep -qx 'Icon=cranium' <<< "$entry" || fail "The menu entry has no icon of its own."
           grep -q '^Exec=/opt/Cranium/cranium' <<< "$entry" || fail "The menu entry does not start /opt/Cranium/cranium."
-          grep -q './usr/share/icons/hicolor/512x512/apps/cranium.png$' "$RUNNER_TEMP/deb.list" || fail "The .deb has no 512 px icon."
+          # electron-builder ships the icon at the size of resources/icon.png (1024 px).
+          grep -qE './usr/share/icons/hicolor/[0-9]+x[0-9]+/apps/cranium\.png$' "$RUNNER_TEMP/deb.list" || fail "The .deb has no icon."
 
           [ "$(rpm -qp --queryformat '%{NAME}' "$rpm" 2>/dev/null)" = cranium ] || fail "The .rpm's package is not cranium."
           rpm -qlp "$rpm" 2>/dev/null | grep -qx /usr/lib/udev/rules.d/70-cranium-jlink.rules || fail "The .rpm has no udev rule."
