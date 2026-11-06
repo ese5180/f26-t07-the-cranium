@@ -7,6 +7,14 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.2
+
+The Apps page's Download the configuration has the live API's address too, so that phone apps built from it, from 0.8.1, show a board's change within about a second.
+
+GET /api/apps/config has `liveUrl`, the stack's LiveUrl, before `loginDomain`, as apps/configure.sh writes it; the API
+function has it as LIVE_URL, and takes nothing but wss://<API id>.execute-api.<region>.amazonaws.com/<stage> (an empty
+or missing one leaves the key out). The apps put its origin into their pages' policy (apps/shared/bridge.json, `{live}`).
+
 ## 2.4.1
 
 The phone apps reach the console again: every request of their pages failed with "The console could not reach its server", because the browser's check before each one was refused.

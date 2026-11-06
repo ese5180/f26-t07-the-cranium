@@ -14,6 +14,8 @@ data class ShellConfig(
     val customerUserPoolId: String?,
     val customerClientId: String?,
     val example: Boolean,
+    /** The live API's WebSocket (docs/live.md), from the build's configuration; null without one, and the pages poll. */
+    val liveUrl: String? = null,
 ) {
     val hasCustomer: Boolean get() = customerApiUrl != null && customerRegion != null && customerUserPoolId != null && customerClientId != null
 
@@ -31,6 +33,7 @@ data class ShellConfig(
             customerUserPoolId = config.customerUserPoolId.takeIf { config.hasCustomer },
             customerClientId = config.customerClientId.takeIf { config.hasCustomer },
             example = config.isExample,
+            liveUrl = config.liveUrl.takeIf { it.isNotEmpty() },
         )
     }
 }
@@ -46,10 +49,10 @@ object ShellPolicy {
 
     /** bridge.json's templates, word for word (ShellPolicyTest compares them). */
     const val CONSOLE_TEMPLATE = "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; " +
-        "img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp}; " +
+        "img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp} {live}; " +
         "base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'"
     const val CUSTOMER_TEMPLATE = "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; " +
-        "img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp}; " +
+        "img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp} {live}; " +
         "base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; " +
         "require-trusted-types-for 'script'; trusted-types 'none'"
 
@@ -71,6 +74,16 @@ object ShellPolicy {
 
     fun idpOrigin(region: String) = "https://cognito-idp.$region.amazonaws.com"
 
+    /**
+     * The origin of the live API's address, `wss://<id>.execute-api.<region>.amazonaws.com`, if [url] is
+     * exactly what the stack's LiveUrl output is in [region] ([CraniumConfig.isLiveUrl]); null otherwise.
+     * It comes from the build's configuration only, never from what a server says.
+     */
+    fun liveOrigin(url: String?, region: String): String? {
+        if (url == null || !CraniumConfig.isLiveUrl(url, region)) return null
+        return url.substring(0, url.indexOf('/', "wss://".length))
+    }
+
     /** The policy of a page of the bundle, by its route's policy ("console" or "customer"). */
     fun csp(policy: String, config: ShellConfig): String {
         val template = if (policy == "customer") CUSTOMER_TEMPLATE else CONSOLE_TEMPLATE
@@ -80,6 +93,7 @@ object ShellPolicy {
             .replace("{console}", origin(config.consoleUrl).orEmpty())
             .replace("{customer}", origin(config.customerApiUrl).orEmpty())
             .replace("{idp}", idp.joinToString(" "))
+            .replace("{live}", liveOrigin(config.liveUrl, config.region).orEmpty())
         // Each source once, and no space left where a value was left out.
         return filled.split(";").joinToString("; ") { directive -> directive.trim().split(Regex("\\s+")).distinct().joinToString(" ") }
     }

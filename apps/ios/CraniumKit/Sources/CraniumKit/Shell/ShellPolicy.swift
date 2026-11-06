@@ -10,8 +10,8 @@ public enum ShellPolicy {
 
     /// bridge.json's `policies`, word for word; BridgeSpecTests compares them with the file.
     public static let templates: [String: String] = [
-        "console": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'",
-        "customer": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'",
+        "console": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp} {live}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'",
+        "customer": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp} {live}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'",
     ]
 
     /// The schemes an address may have to be opened outside the app: the system browser, SideStore, an
@@ -41,6 +41,8 @@ public enum ShellPolicy {
             .replacingOccurrences(of: "{console}", with: console)
             .replacingOccurrences(of: "{customer}", with: customer == console ? "" : customer ?? "")
             .replacingOccurrences(of: "{idp}", with: idp.joined(separator: " "))
+            // The live API (docs/live.md), from the app's own configuration only: wss://<id>.execute-api....
+            .replacingOccurrences(of: "{live}", with: config.liveURL.flatMap(origin(of:)) ?? "")
         // A value left out leaves two spaces, and a directive must not end in one.
         return text.split(separator: ";").map { directive in
             directive.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")

@@ -57,6 +57,31 @@ class ShellPolicyTest {
     }
 
     @Test
+    fun `the live API is in both policies, its origin only, and only as the build's configuration has it`() {
+        val live = withCustomer.copy(liveUrl = "wss://abc123def4.execute-api.us-east-1.amazonaws.com/live")
+        for (policy in listOf("console", "customer")) {
+            val csp = ShellPolicy.csp(policy, live)
+            assertTrue("https://cognito-idp.us-east-1.amazonaws.com wss://abc123def4.execute-api.us-east-1.amazonaws.com;" in csp)
+            assertFalse("/live" in csp)
+            val without = ShellPolicy.csp(policy, withCustomer)
+            assertFalse("wss:" in without || "{live}" in without || "  " in without)
+        }
+        for (wrong in listOf(
+            "wss://example.com/live",
+            "ws://abc123def4.execute-api.us-east-1.amazonaws.com/live",
+            "wss://abc123def4.execute-api.eu-west-1.amazonaws.com/live",
+            "wss://ABC123DEF4.execute-api.us-east-1.amazonaws.com/live",
+            "wss://abc123def4.execute-api.us-east-1.amazonaws.com",
+            "wss://abc123def4.execute-api.us-east-1.amazonaws.com/live/more",
+            "wss://abc123def4.execute-api.us-east-1.amazonaws.com.example.com/live",
+            "wss://user@abc123def4.execute-api.us-east-1.amazonaws.com/live",
+        )) {
+            assertNull(wrong, ShellPolicy.liveOrigin(wrong, "us-east-1"))
+            assertFalse(wrong, "wss:" in ShellPolicy.csp("console", withCustomer.copy(liveUrl = wrong)))
+        }
+    }
+
+    @Test
     fun `only the bundle's origin stays in the web view`() {
         assertEquals(Navigation.IN_APP, ShellPolicy.navigation("https://appassets.androidplatform.net/"))
         assertEquals(Navigation.IN_APP, ShellPolicy.navigation("https://appassets.androidplatform.net/admin#/devices"))

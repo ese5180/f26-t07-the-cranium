@@ -76,6 +76,8 @@ object ShellChecks {
         put("customerRegion", config.customerRegion?.let(::JsonPrimitive) ?: JsonNull)
         put("customerUserPoolId", config.customerUserPoolId?.let(::JsonPrimitive) ?: JsonNull)
         put("customerClientId", config.customerClientId?.let(::JsonPrimitive) ?: JsonNull)
+        // The live API's WebSocket (docs/live.md), only as the page policy lets it through; null otherwise.
+        put("liveUrl", config.liveUrl?.takeIf { ShellPolicy.liveOrigin(it, config.region) != null }?.let(::JsonPrimitive) ?: JsonNull)
         put("example", config.example)
     }
 

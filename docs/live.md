@@ -84,11 +84,22 @@ nothing.
 
 ## The phone apps
 
-The pages inside the apps (0.8.0, [mobile-apps.md](mobile-apps.md#the-app-shell)) have the same code, and use the
-live API when the app's configuration names it (`liveUrl` in `app.config`). The shells of 0.8.0 do not yet: their
-pages' policy allows only the console, the customer API and Cognito (`apps/shared/bridge.json`, `policies`), and
-their configuration (`apps/config/cranium.json`) has no `liveUrl`. Until a shell that passes it on and allows its
-origin is released, the pages in the apps poll as before. The classic screens poll.
+The pages inside the apps ([mobile-apps.md](mobile-apps.md#the-app-shell)) have the same code, and use the live API
+when the app gives them its address: `liveUrl` in `app.config`, from 0.8.1. The address comes from the app's own
+configuration (`apps/config/cranium.json`, key `liveUrl`), which `apps/configure.sh` writes from the stack's `LiveUrl`
+output and the Apps page's **Download the configuration** hands out (console 2.4.2). Each shell takes it only when it is
+exactly `wss://<API id>.execute-api.<region>.amazonaws.com/<stage>` in the user pool's Region, and puts its origin into
+both pages' policy (`{live}` in `apps/shared/bridge.json`, `policies`). It is never taken from what the console says,
+such as the bundle's manifest: the pages' policy is the app's own, so that whoever could change what the web function
+serves still could not widen where the pages may connect.
+
+A page in the app connects from the bundle's origin (`cranium-app://bundle` on the iPhone,
+`https://appassets.androidplatform.net` on Android). The live function does not look at the origin: the token in the
+`Sec-WebSocket-Protocol` header is what counts, as in a browser. The app's pages send the phone apps' client's access
+token, which the function accepts for the staff pool and, with the customer pool's phone client, for customers.
+
+An app built from a configuration without `liveUrl` (written before console 2.4.0, or a 0.8.0 build) has pages that
+poll, as before. The classic screens poll.
 
 ## Costs and limits
 

@@ -315,9 +315,10 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
     },
 
     /**
-     * The values of apps/config/cranium.json, from this stack, in that file's order: six, and the four
-     * of the apps' customer side once the stack has the phone apps' client of the customer pool. The
-     * customer API is this API under /api/c/, on the customer site's name once it has one.
+     * The values of apps/config/cranium.json, from this stack, in that file's order: six, the four
+     * of the apps' customer side once the stack has the phone apps' client of the customer pool, and
+     * liveUrl once it has the live API (docs/live.md). The customer API is this API under /api/c/, on
+     * the customer site's name once it has one.
      */
     config() {
       const customers = config.customers?.mobileClientId ? config.customers : null;
@@ -332,6 +333,7 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
                 customerRegion: config.region,
                 customerUserPoolId: customers.customerPoolId,
               }),
+          ...(config.liveUrl ? { liveUrl: config.liveUrl } : {}),
           loginDomain: `https://${config.loginDomain}`,
           mobileClientId: config.mobileClientId,
           redirectUri: APP_REDIRECT_URI,

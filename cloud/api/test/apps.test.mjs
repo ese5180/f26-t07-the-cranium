@@ -471,6 +471,31 @@ test("with the customer pool's phone client, the configuration has the apps' cus
   ]);
 });
 
+test('with the live API, the configuration has its address, which the apps put into their pages’ policy', async () => {
+  const LIVE = 'wss://abc123def4.execute-api.us-east-1.amazonaws.com/live';
+  const live = createTestConsole({ env: { LIVE_URL: LIVE } });
+  const someone = live.addUser('someone', ['viewers']);
+  const body = (await live.call('GET', '/api/apps/config', { as: someone })).body;
+  assert.equal(body.liveUrl, LIVE);
+  // In the file's order: after the customer keys, before loginDomain.
+  assert.deepEqual(Object.keys(body).slice(1, 3), ['liveUrl', 'loginDomain']);
+  // Without it, as a stack from before console 2.4.0: no key at all.
+  const older = createTestConsole({ env: { LIVE_URL: '' } });
+  const viewer = older.addUser('viewer', ['viewers']);
+  assert.equal('liveUrl' in (await older.call('GET', '/api/apps/config', { as: viewer })).body, false);
+  // Anything but the live API's address stops the function: the apps would put it into a policy.
+  for (const wrong of [
+    'wss://example.com/live',
+    'ws://abc123def4.execute-api.us-east-1.amazonaws.com/live',
+    'wss://abc123def4.execute-api.us-east-1.amazonaws.com',
+    'wss://ABC123DEF4.execute-api.us-east-1.amazonaws.com/live',
+    'wss://abc123def4.execute-api.us-east-1.amazonaws.com.example.com/live',
+    'https://abc123def4.execute-api.us-east-1.amazonaws.com/live',
+  ]) {
+    assert.throws(() => createTestConsole({ env: { LIVE_URL: wrong } }), /LIVE_URL is malformed/, wrong);
+  }
+});
+
 test("GET /api/me carries the console's version and commit; without versions.json they are null", async () => {
   const { call, viewer } = setup();
   const me = await call('GET', '/api/me', { as: viewer });

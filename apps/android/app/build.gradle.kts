@@ -73,6 +73,16 @@ if (hasCustomer && !customerUserPoolId.startsWith("${customerRegion}_")) {
     throw GradleException("Cranium: \"customerUserPoolId\" in apps/config/${configFile.name} is not in its \"customerRegion\" (the values are not printed)")
 }
 
+// The live API's WebSocket (docs/live.md), from console 2.4.0: the pages keep it open, so that a board's
+// change shows at once. A configuration without it builds an app whose pages poll. It goes into the
+// pages' policy, so it must be exactly what the stack's LiveUrl output is, in the user pool's Region
+// (CraniumConfig.isLiveUrl checks the same).
+val liveUrl = if (craniumConfig["liveUrl"] != null) {
+    configValue("liveUrl", Regex("^wss://[a-z0-9]{10}\\.execute-api\\.${Regex.escape(region)}\\.amazonaws\\.com/[A-Za-z0-9_-]{1,128}$"))
+} else {
+    ""
+}
+
 // Help: apps/shared/help.json, the topics both phone apps show, goes into the app as an asset when
 // it is there. Without it the Help screen says that this build has none.
 val helpFile: File = rootDir.resolve("../shared/help.json").canonicalFile
@@ -194,6 +204,8 @@ android {
         buildConfigField("String", "CUSTOMER_CLIENT_ID", "\"$customerClientId\"")
         buildConfigField("String", "CUSTOMER_REGION", "\"$customerRegion\"")
         buildConfigField("String", "CUSTOMER_USER_POOL_ID", "\"$customerUserPoolId\"")
+        // Empty when the configuration has no live API: the pages poll.
+        buildConfigField("String", "LIVE_URL", "\"$liveUrl\"")
         buildConfigField("boolean", "EXAMPLE_CONFIG", usingExampleConfig.toString())
         // AppAuth's redirect receiver listens for this scheme: cranium://signin.
         manifestPlaceholders["appAuthRedirectScheme"] = redirectUri.substringBefore("://")

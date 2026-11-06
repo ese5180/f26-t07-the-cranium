@@ -22,6 +22,11 @@ data class CraniumConfig(
     val customerClientId: String = "",
     val customerRegion: String = "",
     val customerUserPoolId: String = "",
+    /**
+     * The live API's WebSocket (docs/live.md), `wss://<id>.execute-api.<region>.amazonaws.com/<stage>`.
+     * Empty for a configuration written before console 2.4.0 had it: then the pages poll.
+     */
+    val liveUrl: String = "",
 ) {
     /** All four customer values are there: customers can sign in. The build takes all four or none. */
     val hasCustomer: Boolean
@@ -44,6 +49,26 @@ data class CraniumConfig(
             customerClientId = BuildConfig.CUSTOMER_CLIENT_ID,
             customerRegion = BuildConfig.CUSTOMER_REGION,
             customerUserPoolId = BuildConfig.CUSTOMER_USER_POOL_ID,
+            liveUrl = BuildConfig.LIVE_URL,
         )
+
+        private val REGION = Regex("^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$")
+        private val STAGE = Regex("^[A-Za-z0-9_-]{1,128}$")
+        private val API_ID = Regex("^[a-z0-9]{10}$")
+
+        /**
+         * Whether [url] is the live API's address in [region], as the stack's LiveUrl output is: `wss://`,
+         * the API's ID (ten lower-case letters and digits), `.execute-api.<region>.amazonaws.com`, `/` and
+         * a stage. The build checks the same; this keeps anything else out of the pages' policy all the same.
+         */
+        fun isLiveUrl(url: String, region: String): Boolean {
+            if (!REGION.matches(region) || url.length > 300 || !url.startsWith("wss://")) return false
+            val rest = url.removePrefix("wss://")
+            val slash = rest.indexOf('/')
+            if (slash < 0) return false
+            val host = rest.substring(0, slash)
+            val suffix = ".execute-api.$region.amazonaws.com"
+            return host.endsWith(suffix) && API_ID.matches(host.removeSuffix(suffix)) && STAGE.matches(rest.substring(slash + 1))
+        }
     }
 }

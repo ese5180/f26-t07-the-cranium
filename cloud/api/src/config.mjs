@@ -35,6 +35,11 @@ const PATTERNS = Object.freeze({
 // Memfault (docs/memfault.md), for a board's page: the slugs of the link to a board in Memfault. Each may
 // be empty, and a stack from before them has neither: then there is no link. Neither is a secret.
 const MEMFAULT_SLUG = /^(?:|[a-z0-9][a-z0-9-]{0,62})$/;
+// The live API's WebSocket (docs/live.md), for the phone apps' configuration (handlers/apps.mjs): the
+// stack's LiveUrl output, wss://<API id>.execute-api.<region>.amazonaws.com/<stage>. A stack from before
+// console 2.4.0 has none. The apps put its origin into their pages' policy, so nothing else is taken.
+const LIVE_URL =
+  /^(?:|wss:\/\/[a-z0-9]{10}\.execute-api\.[a-z]{2}(?:-[a-z]+)+-\d{1,2}\.amazonaws\.com\/[A-Za-z0-9_-]{1,128})$/;
 
 /** A value that may be missing or empty, which is then ''. A value that is there must match. */
 function optional(env, name, pattern) {
@@ -100,6 +105,8 @@ export function loadConfig(env = process.env) {
     // Without the slash at the end, as apps/configure.sh writes it.
     consoleUrl: read(env, 'CONSOLE_URL').replace(/\/$/, ''),
     loginDomain: read(env, 'LOGIN_DOMAIN'),
+    // '' without live updates.
+    liveUrl: optional(env, 'LIVE_URL', LIVE_URL),
     // The link to a board in Memfault, when both are set (lib/memfault.mjs).
     memfault: Object.freeze({
       org: optional(env, 'MEMFAULT_ORG_SLUG', MEMFAULT_SLUG),

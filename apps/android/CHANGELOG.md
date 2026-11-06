@@ -4,6 +4,20 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.1
+
+Live updates in the app: a board that connects, restarts or takes an update shows it within about a second, as the
+console and the customer site do in a browser since console 2.4.0, instead of on the next 30-second refresh.
+
+The configuration has a new key, `liveUrl`, the live API's WebSocket (docs/live.md), which `apps/configure.sh` writes
+from the stack's `LiveUrl` and the Apps page's **Download the configuration** hands out. The build checks it and puts it
+into `BuildConfig.LIVE_URL`; the app gives it to its pages in `app.config`, and its origin,
+`wss://<id>.execute-api.<region>.amazonaws.com`, goes into both pages' policy as `{live}` (apps/shared/bridge.json):
+from the app's own configuration only, never from what the console says, and only when it is exactly the live API's
+address in the user pool's Region; anything else stops the build, naming the key. A configuration without it, as
+before, builds an app whose pages poll. Nothing else changed: the bridge is still version 1, so the console's bundle
+works with 0.8.0 and 0.8.1 alike.
+
 ## 0.8.0
 
 The app is now a thin shell around the website's own pages, kept on the phone and updated from the console by itself,

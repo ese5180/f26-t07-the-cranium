@@ -1904,6 +1904,8 @@ Resources:
           MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug
           # The phone apps' customer side, in their configuration (GET /api/apps/config).
           CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
+          # The live API's WebSocket in that configuration too (docs/live.md): the LiveUrl output.
+          LIVE_URL: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'
 
   # ---------------------------------------------------------------------------------
   # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own

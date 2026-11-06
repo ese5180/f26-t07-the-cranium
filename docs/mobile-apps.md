@@ -170,7 +170,8 @@ page, "over Bluetooth from" whose phone it was, as on the website: the pages are
   build, reads files, or allows mixed content.
 - **A policy on every page.** The app sends each page the policy of its route (`apps/shared/bridge.json`, `policies`),
   built from its own configuration: scripts and styles from the bundle only; network to the console's API, the customer
-  API and Cognito's user pool API only; images from the bundle, `data:` and, on the console, OpenStreetMap's tiles;
+  API, Cognito's user pool API and, from 0.8.1, the live API's WebSocket ([live.md](live.md#the-phone-apps)) only;
+  images from the bundle, `data:` and, on the console, OpenStreetMap's tiles;
   no form, no frame, no plugin, no base; and on the customer site, Trusted Types, as on the website.
 - **What a page gets from the app.** An access token, which the page on the website holds anyway; never a refresh
   token after the sign-in that made it. Bluetooth that can only upload, never test, confirm or reset, and only after
@@ -258,7 +259,7 @@ bridge; the share sheet, the file chooser and the quick actions.
 
 ## Configuration
 
-The apps need ten values from the deployed stack. They are not in git: the repository is public,
+The apps need eleven values from the deployed stack. They are not in git: the repository is public,
 and they name the AWS account. `apps/configure.sh` writes them from `cloud/.deploy/outputs.json`
 into `apps/config/cranium.json`, which git ignores, and each app reads that file at build time.
 
@@ -269,6 +270,7 @@ into `apps/config/cranium.json`, which git ignores, and each app reads that file
   "customerClientId": "yyyyyyyyyyyyyyyyyyyyyyyyyy",
   "customerRegion": "us-east-1",
   "customerUserPoolId": "us-east-1_yyyyyyyyy",
+  "liveUrl": "wss://zzzzzzzzzz.execute-api.us-east-1.amazonaws.com/live",
   "loginDomain": "https://login.example.com",
   "mobileClientId": "xxxxxxxxxxxxxxxxxxxxxxxxxx",
   "redirectUri": "cranium://signin",
@@ -284,6 +286,13 @@ and where the customer API is, which is the console's API under `/api/c/`: on th
 console 2.0.1 gets a file without them (`configure.sh` says so), and an app built from it signs in admins
 only, and says on its customer sign-in that this build has no customer sign-in. Some of them without the
 others, or one that does not look right, stops the build, naming the key and never its value.
+
+`liveUrl` is the live API's WebSocket ([live.md](live.md#the-phone-apps)), the stack's `LiveUrl` from console 2.4.0;
+apps from 0.8.1 give it to their pages and allow its origin in their policy, so that a board's change shows at once.
+A stack from before 2.4.0 gets a file without it (`configure.sh` says so), and an app built from it polls. One that is
+not exactly `wss://<API id>.execute-api.<region>.amazonaws.com/<stage>`, in the user pool's Region, stops the build.
+The release workflow takes the configuration from the `CRANIUM_CONFIG_JSON` secret, so the secret needs the new key
+too: run `apps/configure.sh` after deploying 2.4.0 or later, then set the secret from the file again.
 
 `apps/config/cranium.example.json` has this shape with made-up values, for building without a stack.
 

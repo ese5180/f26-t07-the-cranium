@@ -86,6 +86,8 @@ final class ShellBridgeHost {
                 "customerRegion": .string(customer?.pool.region),
                 "customerUserPoolId": .string(customer?.pool.id),
                 "customerClientId": .string(customer?.clientId),
+                // The live API's WebSocket (docs/live.md); null for a build whose configuration has none.
+                "liveUrl": .string(config.liveURL?.absoluteString),
                 "example": .bool(loaded.source == .example),
             ]
         }

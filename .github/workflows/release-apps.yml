@@ -161,11 +161,14 @@ jobs:
           data = json.load(open(sys.argv[1]))
           keys = ["consoleUrl", "loginDomain", "mobileClientId", "redirectUri", "region", "userPoolId"]
           assert isinstance(data, dict) and all(isinstance(data.get(key), str) and data[key] for key in keys)
-          # What names the AWS account; the redirect URI and the region are the same for every stack.
-          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId"]:
+          # What names the AWS account or the stack; the redirect URI and the region are the same for every stack.
+          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId", "liveUrl"]:
+              if key not in data:
+                  continue
               print("::add-mask::" + data[key])
               if "://" in data[key]:
                   print("::add-mask::" + data[key].split("://", 1)[1].rstrip("/"))
+                  print("::add-mask::" + data[key].split("://", 1)[1].split("/", 1)[0])
           ' apps/config/cranium.json; then
             echo "::error::CRANIUM_CONFIG_JSON is not apps/config/cranium.json as apps/configure.sh writes it."
             exit 1
@@ -293,11 +296,14 @@ jobs:
           data = json.load(open(sys.argv[1]))
           keys = ["consoleUrl", "loginDomain", "mobileClientId", "redirectUri", "region", "userPoolId"]
           assert isinstance(data, dict) and all(isinstance(data.get(key), str) and data[key] for key in keys)
-          # What names the AWS account; the redirect URI and the region are the same for every stack.
-          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId"]:
+          # What names the AWS account or the stack; the redirect URI and the region are the same for every stack.
+          for key in ["consoleUrl", "loginDomain", "mobileClientId", "userPoolId", "liveUrl"]:
+              if key not in data:
+                  continue
               print("::add-mask::" + data[key])
               if "://" in data[key]:
                   print("::add-mask::" + data[key].split("://", 1)[1].rstrip("/"))
+                  print("::add-mask::" + data[key].split("://", 1)[1].split("/", 1)[0])
           ' apps/config/cranium.json; then
             echo "::error::CRANIUM_CONFIG_JSON is not apps/config/cranium.json as apps/configure.sh writes it."
             exit 1

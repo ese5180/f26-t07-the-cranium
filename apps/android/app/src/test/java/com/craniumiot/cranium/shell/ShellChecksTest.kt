@@ -101,10 +101,19 @@ class ShellChecksTest {
 
         val shown = ShellChecks.configJson(config)
         assertEquals(
-            setOf("consoleUrl", "region", "userPoolId", "mobileClientId", "customerApiUrl", "customerRegion", "customerUserPoolId", "customerClientId", "example"),
+            setOf(
+                "consoleUrl", "region", "userPoolId", "mobileClientId", "customerApiUrl", "customerRegion", "customerUserPoolId",
+                "customerClientId", "liveUrl", "example",
+            ),
             shown.keys,
         )
         assertEquals(JsonNull, shown["customerApiUrl"])
+        assertEquals(JsonNull, shown["liveUrl"])
+        // The live API's address goes to the pages only as the policy lets it through.
+        val live = "wss://abc123def4.execute-api.us-east-1.amazonaws.com/live"
+        assertEquals(live, ShellChecks.configJson(config.copy(liveUrl = live))["liveUrl"]!!.jsonPrimitive.content)
+        val elsewhere = "wss://abc123def4.execute-api.eu-west-1.amazonaws.com/live"
+        assertEquals(JsonNull, ShellChecks.configJson(config.copy(liveUrl = elsewhere))["liveUrl"])
     }
 
     @Test

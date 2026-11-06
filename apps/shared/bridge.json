@@ -37,7 +37,7 @@
     "app.config": {
       "feature": null,
       "params": {},
-      "result": "The app's public configuration (apps/config/cranium.json): {consoleUrl, region, userPoolId, mobileClientId, customerApiUrl, customerRegion, customerUserPoolId, customerClientId, example}. The four customer values are null for a configuration without the customer pool; example is true for a build with cranium.example.json."
+      "result": "The app's public configuration (apps/config/cranium.json): {consoleUrl, region, userPoolId, mobileClientId, customerApiUrl, customerRegion, customerUserPoolId, customerClientId, liveUrl, example}. The four customer values are null for a configuration without the customer pool; liveUrl, the live API's WebSocket (docs/live.md), is null for one without it, and the pages then poll; example is true for a build with cranium.example.json."
     },
     "app.ready": {
       "feature": null,
@@ -209,9 +209,9 @@
     "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}"
   },
   "policies": {
-    "about": "The Content-Security-Policy the shell sends with each page of the bundle, by the route's policy. {self} is the bundle's origin, {console} and {customer} the origins of consoleUrl and customerApiUrl (customer left out when there is none), {idp} https://cognito-idp.<region>.amazonaws.com of each pool (the same origin once when both pools are in one Region).",
-    "console": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'",
-    "customer": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
+    "about": "The Content-Security-Policy the shell sends with each page of the bundle, by the route's policy. {self} is the bundle's origin, {console} and {customer} the origins of consoleUrl and customerApiUrl (customer left out when there is none), {idp} https://cognito-idp.<region>.amazonaws.com of each pool (the same origin once when both pools are in one Region), {live} the origin of liveUrl, wss://<id>.execute-api.<region>.amazonaws.com, from the app's own configuration only (left out when there is none).",
+    "console": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data: https://tile.openstreetmap.org; connect-src 'self' {self} {console} {customer} {idp} {live}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'",
+    "customer": "default-src 'none'; script-src 'self' {self}; style-src 'self' {self}; img-src 'self' {self} data:; connect-src 'self' {self} {console} {customer} {idp} {live}; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types 'none'"
   },
   "navigation": "The web view shows the bundle's origin and nothing else. A link, a form or a script that would take the main frame anywhere else, or open a window, is cancelled, and an https:, sidestore: or otpauth: address goes to the system instead (app.open's rule). No frame of another origin is loaded.",
   "bundle": {

@@ -22,6 +22,11 @@ public struct CraniumConfig: Equatable, Sendable {
     /// client of it and the customer API. Nil for a `cranium.json` written before the stack had
     /// them: then the app signs in admins only, and says so.
     public let customer: CustomerConfig?
+    /// The live API's WebSocket (docs/live.md), for example
+    /// `wss://abc123def4.execute-api.us-east-1.amazonaws.com/live`: the pages keep it open so that a
+    /// board's change shows at once. Nil for a `cranium.json` written before console 2.4.0 had it: then
+    /// the pages poll, as they always did.
+    public let liveURL: URL?
 
     /// The only redirect URI the mobile app client allows.
     public static let expectedRedirectURI = "cranium://signin"
@@ -31,13 +36,14 @@ public struct CraniumConfig: Equatable, Sendable {
 
     public init(consoleURL: URL, loginDomain: URL, mobileClientId: String,
                 redirectURI: String = CraniumConfig.expectedRedirectURI, userPool: CognitoUserPool? = nil,
-                customer: CustomerConfig? = nil) {
+                customer: CustomerConfig? = nil, liveURL: URL? = nil) {
         self.consoleURL = consoleURL
         self.loginDomain = loginDomain
         self.mobileClientId = mobileClientId
         self.redirectURI = redirectURI
         self.userPool = userPool
         self.customer = customer
+        self.liveURL = liveURL
     }
 }
 
@@ -181,6 +187,7 @@ extension CraniumConfig {
         let customerClientId: String?
         let customerRegion: String?
         let customerUserPoolId: String?
+        let liveUrl: String?
     }
 
     /// Parses and checks the JSON that `apps/configure.sh` writes.
@@ -200,9 +207,42 @@ extension CraniumConfig {
         guard raw.redirectUri == expectedRedirectURI else {
             throw ConfigError.invalid(key: "redirectUri", reason: "is not \(expectedRedirectURI), the only one the app client allows")
         }
+        let pool = try userPool(id: raw.userPoolId, region: raw.region)
         return CraniumConfig(consoleURL: console, loginDomain: login, mobileClientId: clientId,
-                             redirectURI: raw.redirectUri, userPool: try userPool(id: raw.userPoolId, region: raw.region),
-                             customer: try customer(raw))
+                             redirectURI: raw.redirectUri, userPool: pool,
+                             customer: try customer(raw), liveURL: try live(raw.liveUrl, region: pool?.region))
+    }
+
+    /// The live API's address, or nil when the file has none. It goes into the pages' policy, so it is
+    /// held to exactly what the stack's LiveUrl output is (`liveAddress`). Anything else is an error, as
+    /// for the other keys; so is one without the user pool's Region to hold it to.
+    static func live(_ text: String?, region: String?) throws -> URL? {
+        guard let text else { return nil }
+        guard let region, let url = liveAddress(text, region: region) else {
+            throw ConfigError.invalid(key: "liveUrl",
+                                      reason: "is not the live API's address (wss://<id>.execute-api.<region>.amazonaws.com/<stage>)")
+        }
+        return url
+    }
+
+    /// `text` if it is the live API's address in `region`, as the stack's LiveUrl output is: `wss://`,
+    /// the API's ID (ten lower-case letters and digits), `.execute-api.<region>.amazonaws.com`, `/` and a
+    /// stage of letters, digits, `_` and `-`. Nil otherwise.
+    public static func liveAddress(_ text: String, region: String) -> URL? {
+        guard CognitoUserPool.isRegion(region), text.utf8.count <= 300, text.hasPrefix("wss://") else { return nil }
+        let rest = text.dropFirst("wss://".count)
+        guard let slash = rest.firstIndex(of: "/") else { return nil }
+        let host = rest[..<slash]
+        let stage = rest[rest.index(after: slash)...]
+        let suffix = ".execute-api.\(region).amazonaws.com"
+        guard host.hasSuffix(suffix) else { return nil }
+        let id = host.dropLast(suffix.count)
+        let lowerOrDigit = { (scalar: Unicode.Scalar) in ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) }
+        guard id.count == 10, id.unicodeScalars.allSatisfy(lowerOrDigit) else { return nil }
+        guard (1...128).contains(stage.count),
+              stage.unicodeScalars.allSatisfy({ lowerOrDigit($0) || ("A"..."Z").contains($0) || $0 == "_" || $0 == "-" })
+        else { return nil }
+        return URL(string: text)
     }
 
     /// Letters and digits, 1 to 128: what Cognito's app client IDs are.

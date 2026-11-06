@@ -41,6 +41,21 @@ import Testing
         #expect(shared.components(separatedBy: "cognito-idp").count == 2)
     }
 
+    @Test func theLiveAPIIsInBothPoliciesOnlyFromTheAppsOwnConfiguration() throws {
+        let live = URL(string: "wss://abc123def4.execute-api.xx-test-1.amazonaws.com/live")!
+        let withLive = CraniumConfig(consoleURL: Self.config.consoleURL, loginDomain: Self.config.loginDomain,
+                                     mobileClientId: "client", userPool: Self.pool, customer: Self.config.customer, liveURL: live)
+        for policy in ["console", "customer"] {
+            let csp = try #require(ShellPolicy.contentSecurityPolicy(policy, config: withLive))
+            // Its origin, after the user pools': never its path.
+            #expect(csp.contains("https://cognito-idp.xx-test-2.amazonaws.com wss://abc123def4.execute-api.xx-test-1.amazonaws.com;"))
+            #expect(!csp.contains("/live"))
+            // Without it, nothing is left where it would be.
+            let without = try #require(ShellPolicy.contentSecurityPolicy(policy, config: Self.config))
+            #expect(!without.contains("wss:") && !without.contains("{live}") && !without.contains("  "))
+        }
+    }
+
     @Test func onlyTheBundleIsShown() {
         let bundle = URL(string: "cranium-app://bundle/admin#/devices")!
         #expect(ShellPolicy.navigation(to: bundle, mainFrame: true, newWindow: false) == .allow)

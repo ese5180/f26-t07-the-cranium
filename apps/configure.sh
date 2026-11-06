@@ -8,7 +8,8 @@
 #
 # The customer side of the apps (docs/mobile-apps.md, "Customers") needs the customer pool and the
 # phone apps' client of it, from console 2.0.1 on. A stack without them gets a file without the
-# four customer keys: the apps then sign in admins only, and say so.
+# four customer keys: the apps then sign in admins only, and say so. Likewise liveUrl, the live API
+# (console 2.4.0): without it the apps' pages poll.
 
 set -euo pipefail
 
@@ -44,6 +45,17 @@ if len(customer) == 2:
     })
 else:
     print("note: the stack has no CustomerMobileClientId yet (console 2.0.1): the apps will sign in admins only."
+          " Deploy the current cloud/infra/template.yaml, then run this again.", file=sys.stderr)
+# The live API's WebSocket (docs/live.md, console 2.4.0): the apps' pages keep it open, so that a board's
+# change shows at once. It goes into the pages' policy, so it must be exactly what LiveUrl is.
+live = (outputs.get("LiveUrl") or "").rstrip("/")
+if live:
+    import re
+    if not re.fullmatch(r"wss://[a-z0-9]{10}\.execute-api\." + re.escape(outputs["Region"]) + r"\.amazonaws\.com/[A-Za-z0-9_-]{1,128}", live):
+        sys.exit("error: the stack's LiveUrl is not a live API's address in " + outputs["Region"])
+    config["liveUrl"] = live
+else:
+    print("note: the stack has no LiveUrl yet (console 2.4.0): the apps' pages will poll."
           " Deploy the current cloud/infra/template.yaml, then run this again.", file=sys.stderr)
 config.update({
     "loginDomain": "https://" + outputs["LoginDomain"].removeprefix("https://").rstrip("/"),

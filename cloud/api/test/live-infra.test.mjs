@@ -171,3 +171,13 @@ test('the live function may keep connections, read ownership and the streams, te
   }
   assert.ok(block(template, 'LiveLogGroup').includes('RetentionInDays: 90'));
 });
+
+test("the phone apps take the live API's address from their own configuration, which configure.sh and the Apps page write", () => {
+  // The API hands it out with the rest of cranium.json (GET /api/apps/config).
+  assert.ok(block(template, 'ApiFn').includes("LIVE_URL: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'"));
+  const configure = readFileSync(new URL('../../../apps/configure.sh', import.meta.url), 'utf8');
+  assert.ok(configure.includes('outputs.get("LiveUrl")'));
+  assert.ok(configure.includes('config["liveUrl"] = live'));
+  // Only the live API's address, in the stack's Region, ever reaches a page's policy.
+  assert.ok(configure.includes(String.raw`wss://[a-z0-9]{10}\.execute-api\.`));
+});
