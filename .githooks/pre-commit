@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Checks of what is about to be committed, the same as the Lint workflow and the Prettier check of
+# CI, on the staged files only (docs/ci.md, "Repository tools"). Each tool is used if it is installed
+# (brew install shellcheck actionlint gitleaks; Prettier comes through npx), and skipped otherwise.
+#
+# Turn it on once per checkout:   git config core.hooksPath .githooks
+# Skip it once:                   git commit --no-verify
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+failed=0
+staged() { git diff --cached --name-only --diff-filter=ACMR -z -- "$@"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Prettier, on cloud/'s files: .prettierignore says which (the HTML pages and vendored files are not).
+if have npx && [ -n "$(staged 'cloud/*.js' 'cloud/*.mjs' 'cloud/*.css' 'cloud/*.json' | tr -d '\0')" ]; then
+  if ! staged 'cloud/*.js' 'cloud/*.mjs' 'cloud/*.css' 'cloud/*.json' |
+    xargs -0 npx --yes prettier@3.3.3 --check --log-level warn; then
+    echo "pre-commit: Prettier would change those files: npx --yes prettier@3.3.3 --write <file>, then add them again." >&2
+    failed=1
+  fi
+fi
+
+# ShellCheck on the shell scripts (build_image.sh is zsh, which shellcheck does not read).
+if have shellcheck && [ -n "$(staged '*.sh' ':!firmware/tests/hil/build_image.sh' | tr -d '\0')" ]; then
+  staged '*.sh' ':!firmware/tests/hil/build_image.sh' | xargs -0 shellcheck -S warning -f gcc || failed=1
+fi
+
+# actionlint, when a workflow changes.
+if have actionlint && [ -n "$(staged '.github/workflows/*.yml' | tr -d '\0')" ]; then
+  actionlint || failed=1
+fi
+
+# gitleaks, on the staged changes: a secret is refused before it is in the history at all.
+if have gitleaks; then
+  gitleaks git --pre-commit --staged --redact --no-banner --log-level error --config .gitleaks.toml . || {
+    echo "pre-commit: gitleaks found what looks like a secret in the staged changes (shown redacted above)." >&2
+    failed=1
+  }
+fi
+
+exit "$failed"

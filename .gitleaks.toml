@@ -1,0 +1,22 @@
+# gitleaks (free, MIT): looks for secrets in what is committed. docs/ci.md, "Repository tools".
+# The default rules, without the false alarms that a scan of the whole history found on 2026-11-06:
+# the SRP test vectors and the made-up tokens of the tests, the public key's hash in firmware/golden.json,
+# and the names of browser storage keys. Nothing real was found.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test vectors and made-up values of the tests"
+paths = [
+  '''^apps/android/app/src/test/''',
+  '''^apps/ios/CraniumKit/Tests/''',
+  '''^cloud/(api|web)/test/''',
+]
+
+[[allowlists]]
+description = "The signing key's public hash, which every image carries anyway"
+paths = ['''^firmware/golden\.json$''']
+
+[[allowlists]]
+description = "Names of the browser's storage keys, such as cranium.mixes.prefs.v1"
+regexes = ['''^cranium\.[a-z0-9.]+\.v[0-9]+$''']

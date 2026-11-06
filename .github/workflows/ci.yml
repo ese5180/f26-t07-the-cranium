@@ -191,6 +191,7 @@ jobs:
           node-version: '22'
       - name: Use the newest Xcode on the runner
         run: |
+          # shellcheck disable=SC2012 # the Xcode folders have plain names
           xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
           sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version

@@ -136,7 +136,7 @@ case "$board_type" in
     BOARD=nrf5340dk/nrf5340/cpuapp/ns
     BUILD_DIR="$REPO_DIR/build-nrf5340dk"
     name_prefix=cranium-nrf5340dk-
-    latest=latest-nrf5340dk
+    latest='latest-nrf5340dk'
     ;;
   *) die "--board takes nrf7002dk or nrf5340dk, not $board_type" ;;
 esac

@@ -72,6 +72,28 @@ To format before a commit: `npx --yes prettier@3.3.3 --write .` The one commit t
 `.git-blame-ignore-revs`, so `git blame` (with `git config blame.ignoreRevsFile .git-blame-ignore-revs`, which GitHub
 does by itself) shows who wrote a line rather than the reformat.
 
+## Repository tools
+
+Free tools that keep the repository itself in order, beside the builds and tests above:
+
+| Tool | Where | What it does |
+| --- | --- | --- |
+| Prettier 3.3.3 | `ci.yml`, the pre-commit hook | Formats `cloud/`'s JavaScript, CSS and JSON ([Formatting](#formatting)) |
+| actionlint | `lint.yml`, the hook | Checks the workflows, and the shell of each `run:` step with shellcheck |
+| shellcheck | `lint.yml`, the hook | Checks the shell scripts, warnings and errors (`build_image.sh` is zsh, so not it) |
+| gitleaks | `lint.yml` (the whole history), the hook (the staged changes) | Refuses secrets. `.gitleaks.toml` leaves out the tests' made-up tokens and SRP vectors, the public key's hash and storage key names: a scan of the whole history on 2026-11-06 found nothing else |
+| CodeQL | `codeql.yml` | GitHub's security analysis of the JavaScript, the Python and the workflows, on pushes to main, pull requests and every Monday; findings on the Security tab. Kotlin and Swift need full builds and are left out |
+| Dependabot | `.github/dependabot.yml` | A weekly pull request, grouped, when an action, a Gradle or Swift package or a Python tool has a newer version |
+| EditorConfig | `.editorconfig` | UTF-8, LF, a final newline, two-space indents (four in C, Swift, Kotlin, Python; tabs in Kconfig and Makefiles) |
+
+`lint.yml` fetches actionlint and gitleaks as their release binaries and checks each against the release's
+own SHA-256 sums before it runs them. The pre-commit hook (`.githooks/pre-commit`) runs the same checks on what
+is staged, with whichever tools are installed (`brew install shellcheck actionlint gitleaks`); turn it on once
+per checkout with `git config core.hooksPath .githooks`, and skip it once with `git commit --no-verify`.
+
+GitHub's own secret scanning, push protection and Dependabot alerts are free for a public repository, and are
+switched on in the repository's settings (Settings → Code security), by an admin.
+
 ## What this does not show
 
 - **No hardware.** No job touches a board. A green run says nothing about whether an image boots,

@@ -1,0 +1,39 @@
+# Dependabot (free, GitHub's own): a pull request when something this repository uses has a newer
+# version. Weekly, grouped, a few at a time. docs/ci.md, "Repository tools".
+version: 2
+updates:
+  # The workflows' actions, pinned by commit: Dependabot moves the pin and its comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: gradle
+    directory: /apps/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      android:
+        patterns: ['*']
+
+  - package-ecosystem: swift
+    directory: /apps/ios/CraniumKit
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: pip
+    directories:
+      - /tools
+      - /firmware/tests
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      python:
+        patterns: ['*']

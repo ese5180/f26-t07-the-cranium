@@ -118,6 +118,7 @@ iphone() {
 }
 
 check() {
+  # shellcheck disable=SC2034 # a function of that name follows; the local only keeps it from leaking
   local have
   have() { command -v "$1" >/dev/null 2>&1 && echo "yes" || echo "no"; }
   say "This computer:"

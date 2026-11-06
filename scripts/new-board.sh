@@ -141,6 +141,7 @@ helper() {
 
 # A path in the home folder as ~/..., to show it.
 tilde() {
+  # shellcheck disable=SC2088 # a literal ~ is what is shown
   case "$1" in
     "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;;
     *) printf '%s' "$1" ;;

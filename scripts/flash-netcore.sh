@@ -72,6 +72,7 @@ print("\n".join(sorted(seen)))')"
   serial="$probes"
 fi
 
+# shellcheck disable=SC2054 # the commas belong to the one --options value
 program=("$NRFUTIL" device program --serial-number "$serial" --core Network --firmware "$HEX"
   --options chip_erase_mode=ERASE_RANGES_TOUCHED_BY_FIRMWARE,verify=VERIFY_READ)
 reset=("$NRFUTIL" device reset --serial-number "$serial" --reset-kind RESET_PIN)
