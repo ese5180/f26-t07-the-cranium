@@ -120,8 +120,9 @@ jobs:
           test ! -e "$home/Desktop/Cranium.lnk" || { echo "::error::A silent install made a desktop shortcut."; exit 1; }
           uninstaller="$(ls "$dir"/Uninstall*.exe | head -n 1)"
           "$uninstaller" /S
-          # The uninstaller hands over to a copy of itself and returns at once: wait for it.
-          for _ in $(seq 1 90); do [ -e "$dir/Cranium.exe" ] || break; sleep 1; done
+          # The uninstaller hands over to a copy of itself and returns at once, and removes the Start menu entry
+          # after the program: wait for both.
+          for _ in $(seq 1 90); do [ -e "$dir/Cranium.exe" ] || [ -e "$start_menu" ] || break; sleep 1; done
           test ! -e "$dir/Cranium.exe" || { echo "::error::The uninstaller left the app."; exit 1; }
           test ! -e "$start_menu" || { echo "::error::The uninstaller left the Start menu entry."; exit 1; }
           echo "Installed, found in the Start menu, and uninstalled."
