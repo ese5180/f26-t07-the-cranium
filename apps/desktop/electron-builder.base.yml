@@ -10,6 +10,8 @@ directories:
 files:
   - package.json
   - src/**/*
+  # The window's own icon; the installers take resources/icon.png by themselves (buildResources).
+  - resources/icon.png
 extraResources:
   - from: build/bundle
     to: bundle

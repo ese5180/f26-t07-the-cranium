@@ -455,6 +455,7 @@ async function start() {
       minHeight: 480,
       show: false,
       title: 'Cranium',
+      icon: join(HERE, '..', 'resources', 'icon.png'),
       backgroundColor: '#faf7f2',
       ...platform.windowOptions(),
       webPreferences: {
