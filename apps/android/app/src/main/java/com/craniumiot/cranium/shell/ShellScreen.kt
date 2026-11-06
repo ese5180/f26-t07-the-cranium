@@ -6,6 +6,7 @@ import android.net.Uri
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -55,6 +56,11 @@ fun ShellScreen(vm: ShellViewModel, onClassic: () -> Unit) {
     val generation by vm.generation.collectAsStateWithLifecycle()
     val colors = console
 
+    // Back goes back through the pages first (a session to Sessions, a board to Devices), as in a browser;
+    // only from the first page does it leave the app.
+    val canGoBack by vm.canGoBack.collectAsStateWithLifecycle()
+    BackHandler(enabled = canGoBack) { vm.goBack() }
+
     // The Bluetooth permissions, when ble.* first needs them.
     val asked by vm.permissions.pending.collectAsStateWithLifecycle()
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -69,7 +75,7 @@ fun ShellScreen(vm: ShellViewModel, onClassic: () -> Unit) {
         }
     }
 
-    // A file for <input type=file>: the console's firmware upload.
+    // A file for <input type=file>: the console's firmware upload, and the customer site's Import session.
     var fileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     val files = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = fileCallback
@@ -82,7 +88,7 @@ fun ShellScreen(vm: ShellViewModel, onClassic: () -> Unit) {
         fileCallback?.onReceiveValue(null)
         fileCallback = callback
         try {
-            files.launch(params.createIntent())
+            files.launch(ShellFiles.intentFor(params))
         } catch (e: ActivityNotFoundException) {
             fileCallback = null
             callback.onReceiveValue(null)

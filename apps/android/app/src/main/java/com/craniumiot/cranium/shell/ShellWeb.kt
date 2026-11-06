@@ -97,6 +97,11 @@ fun shellWebView(
             vm.pageStarted()
         }
 
+        // Each of the pages' #/... routes is an entry of the history, as in a browser: the back button follows them.
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            vm.historyChanged(view)
+        }
+
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
             vm.rendererGone()
             return true
