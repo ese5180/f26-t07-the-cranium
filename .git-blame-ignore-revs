@@ -1,0 +1,3 @@
+# Commits that only reformat, for git blame (git config blame.ignoreRevsFile .git-blame-ignore-revs).
+# Format cloud/ with Prettier 3.3.3
+775b59d715bfa63c81255cc25f3604959e588f62
