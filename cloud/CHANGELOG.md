@@ -7,6 +7,15 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.4
+
+An admin on the customer site sees the customer's Overview itself, with its mixes, and admin mode where a customer sees their boards, instead of a card that only described it.
+
+customer-views.js adminOverview: the Overview's own head, tools and mixes (from the demo or the admin's journal),
+then the admin-mode panel. The card "What customers see" and the heading "Signed in as an admin." are gone from the
+site; the phone apps' classic screens keep their own words, and the parity lists of CustomerText and the iPhone
+tests no longer expect them on the site.
+
 ## 2.4.3
 
 The customer site keeps the journal in the phone app, so that Explore demo, My journal, saved moments and imported sessions last across launches on the iPhone, and its Help answer on the journal says "kept on this device only" in a browser and in the app.

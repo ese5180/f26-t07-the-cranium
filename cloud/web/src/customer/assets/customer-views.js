@@ -467,38 +467,37 @@ function activityList(events, boards, now, { compact = false } = {}) {
   );
 }
 
+/**
+ * An admin without a customer account sees the customer's Overview as it is (the mixes work from the demo or
+ * their own journal, kept in this browser), with admin mode where a customer sees their boards: the boards of a
+ * customer come from the customer API, which an admin's sign-in does not open.
+ */
 function adminOverview(ctx) {
   const me = ctx.state.staff.value;
   return h(
     'div',
     { class: 'cs-page', key: 'admin' },
     head({
-      eyebrow: 'Admin',
-      title: 'Signed in as an admin.',
-      lede: me?.email ? `${me.email} · ${me.canWrite ? 'release manager' : 'viewer'}` : 'Your account on the console.',
+      eyebrow: MIXES_EYEBROW,
+      title: MIXES_TITLE,
+      lede: `${WELCOME} ${MIXES_LEDE}`,
+      tools: mixTools(ctx),
     }),
+    overviewMixes(ctx),
     h(
       'section',
-      { class: 'panel on-ink cs-admin-panel' },
+      { class: 'panel on-ink cs-admin-panel', key: 'admin-panel' },
       h('p', { class: 'eyebrow' }, 'Admin mode'),
       h('h2', { class: 'cs-admin-title' }, 'The console, for every board.'),
       h(
         'p',
         { class: 'cs-admin-text' },
-        'Admin mode opens the firmware console here, with the sign-in you just made: the boards, firmware, ' +
-          'deployments, the activity log, and the Customers page, where you invite customers and give them their boards.'
+        (me?.email ? `Signed in as ${`${me.email} · ${me.canWrite ? 'release manager' : 'viewer'}`}. ` : '') +
+          'A customer sees their own boards here. Admin mode opens the firmware console with this sign-in: the ' +
+          'boards, firmware, deployments, the activity log, and the Customers page, where you invite customers and ' +
+          'give them their boards.'
       ),
       h('a', { class: 'btn is-primary is-large', href: ctx.site.adminPath }, icon('key'), 'Open admin mode')
-    ),
-    card(
-      { title: 'What customers see' },
-      h(
-        'p',
-        { class: 'card-note' },
-        'A customer signs in on this site with the account you invite them to, and sees their own boards: whether each ' +
-          'is online, the firmware it runs, when it was last heard from and how its updates went. Never another ' +
-          'customer, the activity log, firmware or anything of AWS.'
-      )
     )
   );
 }

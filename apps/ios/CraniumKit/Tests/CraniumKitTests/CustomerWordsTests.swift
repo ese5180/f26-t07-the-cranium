@@ -57,8 +57,8 @@ import Testing
             w.lastHeardFrom, w.reportsNote, w.onYourAccount, w.notSameNote, w.keptUpNote, w.noReportYet, w.dash,
             w.yourBoardsTitle, w.allDevices, w.noBoardsTitle, w.noBoardsText, w.lately, w.nothingThisWeek, w.heardFrom,
             w.notHeardYet, w.aBoard, w.teaserEyebrow, w.teaserTitle, w.teaserText, w.teaserLink,
-            w.adminEyebrow, w.adminTitle, w.adminLedeUnknown, w.accountUnreadable, w.accountSessionEnded, w.adminPanelTitle, w.adminPanelText, w.openAdminMode, w.whatCustomersSee,
-            w.whatCustomersSeeText,
+            // The site's admin overview is the customer's own since console 2.4.4: only these admin words stay on it.
+            w.adminEyebrow, w.accountUnreadable, w.accountSessionEnded, w.adminPanelTitle, w.openAdminMode,
             w.devicesLede, w.boardColumn, w.stateColumn, w.updateColumn, w.theBoard, w.notYoursTitle, w.notYoursText, w.howItIs,
             w.onTrial, w.notReportedYet, w.notYet, w.wifiSignal, w.notReported, w.runningFor, w.location, w.locationNotReported,
             w.yoursSince, w.updatesNote, w.whatItDid, w.nothingThisMonth,

@@ -1151,7 +1151,7 @@ test('an admin signs in with password and code, and is offered admin mode, which
   const first = tab.document.getElementById('code-digit-1');
   first.value = STAFF.code;
   first.dispatchEvent({ type: 'input', target: first, data: STAFF.code });
-  await until(() => /Signed in as an admin\./.test(tab.text()), 'the admin overview');
+  await until(() => /The console, for every board\./.test(tab.text()), 'the admin overview');
   // The session is under the console's own keys: the console at /admin reads it from this tab.
   assert.equal(JSON.parse(tab.stored.get('cranium.session')).accessToken, 'STAFF-TOKEN');
   const ways = all(tab.app, 'a').filter((link) => link.getAttribute('href') === '/admin');
@@ -1163,7 +1163,7 @@ test('an admin signs in with password and code, and is offered admin mode, which
   // Every link of the side panel (and of the tab bar of a small screen) opens its own page for an admin, who has no
   // boards of their own: not the overview, which Devices and Account once fell back to.
   const titles = new Map([
-    ['overview', 'Signed in as an admin.'],
+    ['overview', 'Find your next great mix.'],
     ['devices', 'Boards, for admins'],
     ...MIX_TITLES,
     ['account', 'Your account'],
@@ -1288,7 +1288,7 @@ test('in the phone app, signing out of the customer side makes the app forget bo
     },
   });
   // The admin is signed in already, from the app: the customer signs in as well.
-  await until(() => /Signed in as an admin/.test(tab.text()), 'the admin overview');
+  await until(() => /The console, for every board/.test(tab.text()), 'the admin overview');
   tab.go('#/sign-in');
   await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
   await tab.type('signin-email', 'ada@example.invalid');

@@ -436,8 +436,7 @@ the customer's words ("instead of your password": a customer may have no code).
 **Admin mode.** The team signs in with **Admin sign-in**, as before (staff pool, phone client, password and
 code), and the app opens admin mode: the whole app as it was. **Leave admin mode** (under More on the iPhone,
 under More and Account on Android) goes back to the customer side, the admin still signed in. There, an admin
-who is not also signed in as a customer sees the website's admin overview ("Signed in as an admin.", **Open admin
-mode**, "What customers see"), Mixes and Help, and can sign a customer in too; a customer side with an admin
+who is not also signed in as a customer sees the website's Overview as a customer sees it, with its mixes, and **Open admin mode** where a customer's boards would be, Mixes and Help, and can sign a customer in too; a customer side with an admin
 signed in as well has **Admin mode** in its top bar and on Account. The app opens on the customer side when a
 customer is signed in, else in admin mode when an admin is, else on the customer sign-in. Sign out on the
 customer side signs out both, as the website's does; Sign out in admin mode signs the admin out only.
