@@ -64,8 +64,8 @@ def known_spelling(ssid: str) -> str | None:
 
 
 def wifi(unlocked: bool = False) -> None:
-    if os.name != "posix":
-        sys.exit("Locking the file is only implemented for macOS and Linux")
+    if os.name != "posix" and not unlocked:
+        sys.exit("Locking the file is only implemented for macOS and Linux: use --unlocked")
 
     ssid = input("Wi-Fi network name (SSID): ").strip()
     if not 1 <= len(ssid.encode()) <= 32:
