@@ -136,7 +136,9 @@ run() {
 }
 
 helper() {
-  python3 "$HELPER" "$@"
+  # The toolchain's PYTHONPATH points at its own Python's library; with another python3 that
+  # breaks ctypes (and so pyserial) on Windows. The helper uses this python3's own library.
+  env -u PYTHONHOME -u PYTHONPATH python3 "$HELPER" "$@"
 }
 
 # A path in the home folder as ~/..., to show it.
@@ -262,9 +264,16 @@ use_nrfutil_path() {
 load_toolchain() {
   [ "$TOOLCHAIN_LOADED" = true ] && return 0
   [ -x "$NRFUTIL" ] || return 1
-  if "$NRFUTIL" sdk-manager toolchain env --ncs-version "$NCS_VERSION" --as-script sh > "$WORK/env.sh" 2> /dev/null; then
+  if "$NRFUTIL" sdk-manager toolchain env --ncs-version "$NCS_VERSION" --as-script sh > "$WORK/env.sh" 2> /dev/null; then 
+    # Windows: env.sh puts the toolchain on the PATH before it calls cygpath, and the toolchain's
+    # own cygpath gets the paths wrong (NRFUTIL_HOME became /nrfutil/home). Keep Git Bash's.
+    if command -v cygpath > /dev/null 2>&1; then
+      CYGPATH_BIN="$(command -v cygpath)"
+      cygpath() { "$CYGPATH_BIN" "$@"; }
+    fi
     # shellcheck disable=SC1091
     . "$WORK/env.sh"
+    unset -f cygpath 2> /dev/null || true
     export ZEPHYR_BASE="$NCS_DIR/zephyr"
     TOOLCHAIN_LOADED=true
     return 0
