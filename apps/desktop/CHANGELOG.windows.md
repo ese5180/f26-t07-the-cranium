@@ -4,6 +4,15 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.3
+
+The console's Memfault page comes with the app: the issue list, an issue's traces, backtraces and registers, and the In Memfault card on a board's page, with its reboots, events and issues. A test now fails if a console page is missing from the app.
+
+The window shows the console's own pages, so the Memfault page comes with the console (2.6.0 and later).
+`test/pages.test.mjs` reads `apps/shared/pages.json` with the console's sources and checks each page: its section,
+its script in the bundle, its API routes open to the app's sign-in, and the window's rules (docs/mobile-apps.md,
+"Pages in every app").
+
 ## 0.1.2
 
 Staged rollouts as on the console from 2.8.0: after the canary, the boards update in stages, all of a stage at once, with the number of stages, the batch size, the wait between stages and the failure limit chosen in the Roll out form from the console's suggestion. A rollout's page shows each stage as it goes.
