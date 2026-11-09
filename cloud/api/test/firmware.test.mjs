@@ -213,10 +213,11 @@ test('an image larger than the slot is refused', async () => {
 
 test('an image that fills the slot fits in one request', async () => {
   const { fake, upload } = setupWithBuiltImages();
-  // As large as an image can be: at most two bytes short of the slot, depending on
-  // the length of its signature.
+  // As large as an image can be: up to four bytes short of the slot. The overhead counts a
+  // 72-byte signature, and an ECDSA P-256 signature in DER is 72 bytes at most: shorter, at
+  // random, when r or s needs no padding byte or starts with zero bytes (68 is already rare).
   const largest = builtImage('3.0.0+1', { payloadSize: SLOT_SIZE - IMAGE_OVERHEAD });
-  assert.ok(largest.length <= SLOT_SIZE && largest.length >= SLOT_SIZE - 2, String(largest.length));
+  assert.ok(largest.length <= SLOT_SIZE && largest.length >= SLOT_SIZE - 4, String(largest.length));
   const body = JSON.stringify(bodyFor(largest, { notes: 'n'.repeat(500) }));
   assert.ok(body.length < 1_400_000, String(body.length));
 
