@@ -5,6 +5,67 @@
     "size": 13307937,
     "version": "0.8.2"
   },
+  "desktop-linux": {
+    "file": "Cranium-0.1.0.AppImage",
+    "files": [
+      {
+        "file": "Cranium-0.1.0.AppImage",
+        "parts": [
+          "Cranium-0.1.0.AppImage.part01",
+          "Cranium-0.1.0.AppImage.part02"
+        ],
+        "sha256": "f5a0d1f7e1d3a7fddd7a7dc09908c4290c23bbda3b335315b0171bdb4e3206da",
+        "size": 125675470
+      },
+      {
+        "file": "cranium_0.1.0_amd64.deb",
+        "sha256": "213b4fdfb8bbe3a96abfc6572cc8d702631ae8f7aca83bab041435ad68ff1e8a",
+        "size": 99341824
+      },
+      {
+        "file": "cranium-0.1.0.x86_64.rpm",
+        "sha256": "b158828ebd00653b6eed8071df841c9dad9ea64badeb8f2e9408e157cf3c73d8",
+        "size": 88967369
+      }
+    ],
+    "parts": [
+      "Cranium-0.1.0.AppImage.part01",
+      "Cranium-0.1.0.AppImage.part02"
+    ],
+    "sha256": "f5a0d1f7e1d3a7fddd7a7dc09908c4290c23bbda3b335315b0171bdb4e3206da",
+    "size": 125675470,
+    "version": "0.1.0"
+  },
+  "desktop-windows": {
+    "file": "Cranium-Setup-0.1.0.exe",
+    "files": [
+      {
+        "file": "Cranium-Setup-0.1.0.exe",
+        "parts": [
+          "Cranium-Setup-0.1.0.exe.part01",
+          "Cranium-Setup-0.1.0.exe.part02"
+        ],
+        "sha256": "bd33668e4e377c32ce829e5e8671696b26c066845105e8dc4a5510f542a7971f",
+        "size": 120932034
+      },
+      {
+        "file": "Cranium-0.1.0-portable.exe",
+        "parts": [
+          "Cranium-0.1.0-portable.exe.part01",
+          "Cranium-0.1.0-portable.exe.part02"
+        ],
+        "sha256": "418d0bc9090f9c30031b3da334263faf4401dbd104a8f0667b94356375332df8",
+        "size": 120701814
+      }
+    ],
+    "parts": [
+      "Cranium-Setup-0.1.0.exe.part01",
+      "Cranium-Setup-0.1.0.exe.part02"
+    ],
+    "sha256": "bd33668e4e377c32ce829e5e8671696b26c066845105e8dc4a5510f542a7971f",
+    "size": 120932034,
+    "version": "0.1.0"
+  },
   "ios": {
     "file": "cranium-ios-0.8.2.ipa",
     "sha256": "8c34b9d6b1fa4fac0612a0bb7ffccb0cd59551edfa19d143fc08ce71dd887eea",
