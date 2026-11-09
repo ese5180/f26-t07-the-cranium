@@ -7,6 +7,21 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.6.0
+
+The console shows what Memfault knows: a Memfault page with the boards' issues, each issue with its traces, backtraces and registers, and on each board's page its reboots with their reasons, its update events and its issues.
+
+The API reads Memfault's REST API on the server, with GETs only, and the browser never talks to Memfault
+(handlers/memfault.mjs, aws-memfault-api.mjs, lib/memfault-data.mjs). New read routes for viewers and release
+managers: `GET /api/memfault/issues`, `GET /api/memfault/issues/{id}`, `GET /api/devices/{thing}/memfault` and
+`GET /api/memfault/fleet` (devices, releases with their symbols, reboots by reason, the latest heartbeat metrics
+of every key, and what Memfault could not process). Memfault's answers are kept a minute, a failure 15 s; when
+Memfault cannot be read the answer is still 200 and says why in words. The token is a new secret,
+`<stack>/memfault-org-token` (output MemfaultOrgTokenArn), which only the API function may read; deploy.sh
+stores it from `~/.cranium/memfault_org_token`, the Deploy console workflow from the repository secret
+`MEMFAULT_ORG_TOKEN`. Metric charts, and the fleet route's metrics and reboot reasons on the Memfault page,
+come in a later version.
+
 ## 2.4.5
 
 The customer site has one sign-in for everybody: the e-mail address and the password, then the code when the account asks for one. A team account lands in admin mode, a customer on their own pages; "Admin sign-in" and "Customer sign-in" are gone.

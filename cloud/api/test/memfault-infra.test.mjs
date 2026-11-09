@@ -177,26 +177,27 @@ test("the forwarder's role: its log, the key, and the boards' commands topics, a
 });
 
 test('no other role may read the key; the API may only see whether there is one', () => {
-  for (const name of [
-    'ApiRole',
-    'EventsRole',
-    'WebRole',
-    'LocationRole',
-    'SignInScopeRole',
-    'PresignRole',
-    'RolloutTickRole',
-  ]) {
+  for (const name of ['EventsRole', 'WebRole', 'LocationRole', 'SignInScopeRole', 'PresignRole', 'RolloutTickRole']) {
     assert.equal(block(template, name).includes('secretsmanager:GetSecretValue'), false, name);
   }
-  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 1);
+  // The forwarder's project key, and the API's Memfault token: one reader each.
+  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 2);
   const api = block(template, 'ApiRole');
   const see = statement(api, 'SeeMemfaultKey');
   assert.ok(see.includes('Action: secretsmanager:DescribeSecret\n'));
   assert.ok(see.includes('Resource: !Ref MemfaultProjectKey'));
   assert.deepEqual(
     allowed(api).filter((action) => action.startsWith('secretsmanager:')),
-    ['secretsmanager:DescribeSecret']
+    ['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']
   );
+  // The API's GetSecretValue is on the Memfault token and on nothing else: never the project key.
+  for (const sid of [...api.matchAll(/- Sid: (\w+)/g)].map((match) => match[1])) {
+    const text = statement(api, sid);
+    if (text.includes('secretsmanager:GetSecretValue')) {
+      assert.equal(sid, 'ReadMemfaultOrgToken');
+      assert.equal(text.includes('MemfaultProjectKey'), false);
+    }
+  }
   const variables = block(block(template, 'ApiFn'), 'Variables', 8);
   for (const line of [
     'MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey',
@@ -222,8 +223,37 @@ test("the parameters: two hosts of Memfault's chunks API, nRF Cloud's first, and
 test('deploy.sh stores the key from its file, by its digest, and never prints it or makes it a parameter', () => {
   const deploy = read('deploy.sh');
   assert.ok(deploy.includes('MEMFAULT_KEY_FILE="$HOME/.cranium/memfault_project_key"'));
-  assert.ok(deploy.includes('--secret-string "file://$MEMFAULT_KEY_FILE"'));
+  assert.ok(deploy.includes('--secret-string "file://$file"'));
+  assert.ok(deploy.includes('store_secret_file "$MEMFAULT_KEY_FILE" MemfaultProjectKeyArn'));
   assert.ok(deploy.includes('--client-request-token "$token"'));
   assert.equal(/cat "\$MEMFAULT_KEY_FILE"|\$\(cat|echo "\$\(<|MemfaultProjectKey=/.test(deploy), false);
   assert.ok(deploy.includes('MemfaultChunksHost=*'));
+});
+
+test('the Memfault token is a secret the stack makes empty, read by the API alone, stored by deploy.sh and the workflow', () => {
+  const secret = block(template, 'MemfaultOrgToken');
+  assert.ok(secret.includes('Type: AWS::SecretsManager::Secret'));
+  assert.ok(secret.includes("Name: !Sub '${AWS::StackName}/memfault-org-token'"));
+  assert.equal(/SecretString|GenerateSecretString/.test(secret), false);
+  assert.ok(block(block(template, 'Outputs', 0), 'MemfaultOrgTokenArn').includes('Value: !Ref MemfaultOrgToken'));
+  const reading = statement(block(template, 'ApiRole'), 'ReadMemfaultOrgToken');
+  assert.ok(reading.includes('Action: secretsmanager:GetSecretValue\n'));
+  assert.ok(reading.includes('Resource: !Ref MemfaultOrgToken'));
+  // The API's role, the API's environment and the output name it; nothing else does.
+  assert.equal(template.split('!Ref MemfaultOrgToken').length - 1, 3);
+  assert.equal(block(template, 'MemfaultRole').includes('MemfaultOrgToken'), false);
+  assert.ok(
+    block(block(template, 'ApiFn'), 'Variables', 8).includes('MEMFAULT_TOKEN_SECRET_ARN: !Ref MemfaultOrgToken')
+  );
+  assert.equal(block(block(template, 'MemfaultFn'), 'Variables', 8).includes('TOKEN'), false);
+
+  const deploy = read('deploy.sh');
+  assert.ok(deploy.includes('MEMFAULT_TOKEN_FILE="$HOME/.cranium/memfault_org_token"'));
+  assert.ok(deploy.includes('store_secret_file "$MEMFAULT_TOKEN_FILE" MemfaultOrgTokenArn'));
+  assert.equal(/cat "\$file"|cat "\$MEMFAULT_TOKEN_FILE"|MemfaultOrgToken=/.test(deploy), false);
+  const workflow = read('../.github/workflows/deploy-console.yml');
+  assert.ok(workflow.includes('MEMFAULT_ORG_TOKEN: ${{ secrets.MEMFAULT_ORG_TOKEN }}'));
+  assert.ok(workflow.includes(`printf '%s' "$MEMFAULT_ORG_TOKEN" > "$HOME/.cranium/memfault_org_token"`));
+  assert.ok(workflow.includes('rm -f "$HOME/.cranium/memfault_project_key" "$HOME/.cranium/memfault_org_token"'));
+  assert.equal(/echo "\$MEMFAULT_ORG_TOKEN"/.test(workflow), false);
 });

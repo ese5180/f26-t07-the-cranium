@@ -9415,3 +9415,23 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     padding-left: 18px;
   }
 }
+
+/* Memfault (memfault-page.js): a trace's threads, backtraces and registers. */
+.thread {
+  margin-top: 12px;
+}
+.thread > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.backtrace {
+  margin: 8px 0;
+  padding-left: 28px;
+  overflow-wrap: anywhere;
+}
+.backtrace li {
+  margin: 2px 0;
+}
+.registers {
+  max-width: 360px;
+}

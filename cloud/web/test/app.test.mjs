@@ -32,7 +32,7 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LIVE, MAP } from './page.mjs';
+import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LIVE, MAP, MEMFAULT } from './page.mjs';
 import {
   INSTALLING,
   MANAGER,
@@ -56,7 +56,7 @@ import {
 // pages): read here first, each arrives at once, as from a browser's cache, and not part way through
 // a test's clock.
 await Promise.all(
-  [FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY, BRIDGE, BLUETOOTH].map((address) => import(address))
+  [FLEET, MAP, ACCOUNT, SERIAL, HISTORY, TELEMETRY, BRIDGE, BLUETOOTH, MEMFAULT].map((address) => import(address))
 );
 
 // The real timer, kept for waiting on work that is not on the test's clock (hashing).
@@ -327,6 +327,7 @@ async function openTab(t, options = {}) {
         'bridge.js': BRIDGE,
         'bluetooth.js': BLUETOOTH,
         'live.js': LIVE,
+        'memfault-page.js': MEMFAULT,
       },
       `tab ${copies}`
     )

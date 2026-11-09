@@ -1888,6 +1888,7 @@ test('the sections keep their place: each link holds the room its name takes in 
       'Firmware',
       'Deployments',
       'Fleet',
+      'Memfault',
       'Activity',
       'Apps',
       'Developer',

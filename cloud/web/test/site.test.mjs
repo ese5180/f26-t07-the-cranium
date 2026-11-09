@@ -57,6 +57,7 @@ const ON_DEMAND = [
   'history.js',
   'live.js',
   'map.js',
+  'memfault-page.js',
   'serial.js',
   'telemetry.js',
 ];

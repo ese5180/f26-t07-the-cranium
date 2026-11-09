@@ -1675,6 +1675,8 @@ const SECTIONS = [
   ['bluetooth', 'Bluetooth'],
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
   ['fleet', 'Fleet'],
+  // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
+  ['memfault', 'Memfault'],
   ['activity', 'Activity'],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   ['apps', 'Apps'],
@@ -1689,6 +1691,7 @@ const SECTION_OF = {
   history: 'developer',
   tokens: 'developer',
   rollout: 'fleet',
+  issue: 'memfault',
 };
 
 /** Where Developer leads: a viewer has no use for the serial console's controls. */
@@ -3579,6 +3582,8 @@ export function deviceView(ctx) {
         // Its type and flash layout, and the releases it can take (fleet.js).
         ctx.fleet?.compatibilityCard(device, ctx) ?? null,
         memfaultCard(device, memfault ?? null),
+        // What Memfault knows of it: reboots with their reasons, events and issues (memfault-page.js).
+        ctx.memfault?.boardSection(thing, ctx) ?? null,
         card(
           { key: 'certificates', title: 'Certificates' },
           certificates.length === 0

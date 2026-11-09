@@ -147,6 +147,37 @@ firmware 1.14.0, with "Open in Memfault" when the slugs are set, and its menu ha
 or a chunk's bytes; the rule's error log would hold a chunk that AWS IoT could not deliver, which is board data and no
 secret.
 
+## In the console
+
+From console 2.6.0 the console shows what Memfault knows, read on the server from Memfault's REST API
+(`https://api.memfault.com/api/v0/organizations/<org>/projects/<project>/...`) with GETs only. The browser never
+talks to Memfault, so the page's content security policy is as strict as before.
+
+- **The Memfault page** (`#/memfault`): the issues, crashes and other traces grouped by kind, with how many traces on
+  how many boards and the versions. An issue's page (`#/memfault/<id>`) shows each trace: the board, the version,
+  and for a coredump each thread with its backtrace (function, file and line) and registers, the crashed one first.
+  A backtrace needs the build's symbols in Memfault (below).
+- **A board's page**, card "In Memfault": its reboots with their reasons (an unexpected one, such as `KernelPanic`
+  or `HardwareWatchdog`, marked), its trace events such as `update_succeeded`, and the issues its traces belong to.
+- **The routes**, for viewers and release managers, never on record: `GET /api/memfault/issues`,
+  `GET /api/memfault/issues/{id}`, `GET /api/devices/{thing}/memfault?hours=1..168` (reboots, the heartbeat metrics
+  of every key as series, events, traces, issues) and `GET /api/memfault/fleet` (devices tied to boards, releases
+  and whether their symbols are there, reboots of the week by reason, each board's latest metrics, and what Memfault
+  could not process, such as missing symbols). A board's device serial is its thing name.
+- **Plain words when Memfault cannot be read**: no token stored, the token refused, Memfault limiting requests or
+  unreachable. The answer is still 200; the page says which. Answers are kept a minute and failures 15 s, so the
+  console never sends Memfault more than a few requests a minute.
+- **The token** is the secret `<stack>/memfault-org-token` (output `MemfaultOrgTokenArn`), made empty by the stack;
+  only the API function may read it (`secretsmanager:GetSecretValue` on that one secret). `cloud/deploy.sh` stores
+  `~/.cranium/memfault_org_token` in it, by its digest and never printed, and the Deploy console workflow does the
+  same from the repository secret `MEMFAULT_ORG_TOKEN` when it is set. Memfault's organization auth tokens have a
+  project manager's rights and no read-only kind. For the console, a Memfault user with the **Viewer** role is
+  safer: store `<that user's e-mail>:<their user API key>` in the file instead, and the console reads as that user,
+  who can change nothing.
+
+Not yet: metric charts on a board's page, and the fleet's metrics and reboot reasons on the Memfault page (the
+fleet route already answers them).
+
 ## Symbols and releases
 
 Memfault turns a coredump into a backtrace only with the symbols of the build that crashed, found by its GNU build
