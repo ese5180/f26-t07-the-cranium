@@ -10,7 +10,7 @@ the manual asks for. The TA agreed that Memfault in nRF Cloud may get its data t
    releases are on the Firmware page (the crash demonstration `1.14.0+1` and `1.14.2`, the release that ends it),
    how the board is, and whether Memfault has the board and the releases.
 2. Plug the board in. It joins Wi-Fi and the console shows it online within a minute, on `1.14.0+0`.
-3. `aws login --profile cranium --region us-east-1` in the Terminal app (not through Claude Code's `!`), for the live
+3. `aws login --profile cranium --region us-east-1` in the Terminal app, for the live
    logs: `cloud/logs.sh memfault` shows each chunk the board sends to Memfault.
 4. Open Memfault (app.memfault.com, the project in nRF Cloud) on Devices, Issues and Software, and the console on the
    board's page.
