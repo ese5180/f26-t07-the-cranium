@@ -17,7 +17,8 @@ the `console` class of the page's body, so that the customer site, which shares 
 goes back in the history when that is where it leads. New: the glance strip on the Overview (Online, Updating, Need
 attention or Offline, Newest release), one icon per section, and a mark of each board's state at the start of its row. On a phone the Devices page opens with a strip (Online,
 Offline, Bluetooth only, Updating) over one list of boards, the Map's legend is at the foot of its sheet, and the
-choices in a dialog are rows of one group.
+choices in a dialog are rows of one group. 2.6.0's Memfault page and a board's Memfault cards are drawn the same
+way: issues, reboots and events as rows, a trace's threads as rows of its group.
 
 ## 2.8.2
 

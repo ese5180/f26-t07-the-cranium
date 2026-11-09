@@ -1937,7 +1937,17 @@ test('on a phone four sections are tabs and the rest are under More, in a sheet 
   const links = all(open, 'a.nav-sheet-link');
   assert.deepEqual(
     links.map((link) => link.getAttribute('href')),
-    ['#/diagnostics', '#/events', '#/firmware', '#/fleet', '#/activity', '#/apps', '#/history', '#/account']
+    [
+      '#/diagnostics',
+      '#/events',
+      '#/firmware',
+      '#/fleet',
+      '#/memfault',
+      '#/activity',
+      '#/apps',
+      '#/history',
+      '#/account',
+    ]
   );
   assert.equal(one(open, 'a.nav-sheet-link', 'Events').getAttribute('aria-current'), 'page');
 });

@@ -12,7 +12,7 @@
  */
 
 import { isThing, plural } from './core.js';
-import { badge, card, empty, h, loadProblem, loading, mono, notice, pageHead, pending, when } from './views.js';
+import { badge, card, empty, h, icon, loadProblem, loading, mono, notice, pageHead, pending, when } from './views.js';
 
 // One read of the server per page a minute is plenty: the server keeps Memfault's answers a minute.
 export const MEMFAULT_REFRESH_MS = 60_000;
@@ -229,19 +229,24 @@ function issueRows(issues, now) {
     issues.map((one) =>
       h(
         'li',
-        { key: String(one.id), class: 'row' },
+        { key: String(one.id), class: 'row issue-row' },
         h(
           'div',
           { class: 'row-main' },
-          h('a', { href: issueHref(one.id) }, one.title),
+          h('a', { href: issueHref(one.id), class: 'row-title cover-link' }, one.title),
           h(
-            'p',
-            { class: 'row-sub quiet' },
-            `${plural(one.traces, 'trace', 'traces')} on ${plural(one.boards, 'board', 'boards')}`,
-            one.lastVersion ? [' · last on ', mono(one.lastVersion)] : null,
-            one.lastSeen ? [' · last ', when(one.lastSeen, now)] : null
+            'span',
+            { class: 'row-note dotted' },
+            h(
+              'span',
+              { key: 'traces' },
+              `${plural(one.traces, 'trace', 'traces')} on ${plural(one.boards, 'board', 'boards')}`
+            ),
+            one.lastVersion ? h('span', { key: 'version' }, 'last on ', mono(one.lastVersion)) : null,
+            one.lastSeen ? h('span', { key: 'seen' }, 'last ', when(one.lastSeen, now)) : null
           )
-        )
+        ),
+        h('span', { class: 'row-chevron' }, icon('arrow-right'))
       )
     )
   );
@@ -326,14 +331,18 @@ function traceCard(trace, index, now) {
     { key: `trace-${trace.id ?? index}`, title: trace.title ?? trace.reason ?? 'Trace' },
     h(
       'p',
-      { class: 'quiet' },
-      trace.thing
-        ? h('a', { href: `#/devices/${trace.thing}`, class: 'mono' }, trace.thing)
-        : mono(trace.serial ?? 'Unknown board'),
-      trace.version ? [' on ', mono(trace.version)] : null,
-      trace.capturedAt ? [' · ', when(trace.capturedAt, now)] : null
+      { class: 'trace-meta row-note dotted' },
+      h(
+        'span',
+        { key: 'board' },
+        trace.thing
+          ? h('a', { href: `#/devices/${trace.thing}`, class: 'mono' }, trace.thing)
+          : mono(trace.serial ?? 'Unknown board')
+      ),
+      trace.version ? h('span', { key: 'version' }, 'on ', mono(trace.version)) : null,
+      trace.capturedAt ? h('span', { key: 'when' }, when(trace.capturedAt, now)) : null
     ),
-    trace.message ? h('p', null, trace.message) : null,
+    trace.message ? h('p', { class: 'trace-message' }, trace.message) : null,
     trace.threads.length === 0
       ? h('p', { class: 'quiet' }, 'This trace has no threads: it is a trace event, not a coredump.')
       : trace.threads.map(threadBlock)
@@ -401,11 +410,14 @@ export function boardSection(thing, ctx) {
               data.reboots.map((one, index) =>
                 h(
                   'li',
-                  { key: `${one.at}-${index}`, class: 'row' },
+                  { key: `${one.at}-${index}`, class: 'row reboot-row' },
                   reasonBadge(one.reason),
-                  ' ',
-                  when(one.at, ctx.state.now),
-                  one.version ? h('span', { class: 'quiet' }, ' on ', mono(one.version)) : null
+                  h(
+                    'span',
+                    { class: 'row-note dotted' },
+                    h('span', { key: 'when' }, when(one.at, ctx.state.now)),
+                    one.version ? h('span', { key: 'version' }, 'on ', mono(one.version)) : null
+                  )
                 )
               )
             ),
@@ -418,11 +430,18 @@ export function boardSection(thing, ctx) {
                 data.events.map((one, index) =>
                   h(
                     'li',
-                    { key: `${one.at}-${index}`, class: 'row' },
-                    mono(one.name),
-                    one.detail ? h('span', { class: 'quiet' }, ' ', one.detail) : null,
-                    ' ',
-                    when(one.at, ctx.state.now)
+                    { key: `${one.at}-${index}`, class: 'row event-row' },
+                    h(
+                      'div',
+                      { class: 'row-main' },
+                      h('span', { class: 'mono row-title' }, one.name),
+                      h(
+                        'span',
+                        { class: 'row-note dotted' },
+                        one.detail ? h('span', { key: 'detail' }, one.detail) : null,
+                        h('span', { key: 'when' }, when(one.at, ctx.state.now))
+                      )
+                    )
                   )
                 )
               ),
@@ -432,5 +451,5 @@ export function boardSection(thing, ctx) {
           ? [h('h3', { class: 'card-sub', key: 'issues-head' }, 'Issues'), issueRows(data.issues, ctx.state.now)]
           : null,
       ];
-  return card({ key: 'memfault-data', title: 'In Memfault' }, body);
+  return card({ key: 'memfault-data', title: 'In Memfault', className: 'memfault-section' }, body);
 }

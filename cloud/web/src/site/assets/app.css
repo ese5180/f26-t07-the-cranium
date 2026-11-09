@@ -81,7 +81,7 @@
   --page: 1720px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
-  /* The app's system (console 2.5, docs/console-design.md): a grouped page, groups on it, bars over it. */
+  /* The app's system (console 2.7, docs/console-design.md): a grouped page, groups on it, bars over it. */
   --grouped: #f3eee6;
   /* Nearly opaque, and not blurred: a filter on the bar would hold the tab bar and its sheet inside it. */
   --bar: rgb(250 247 242 / 0.97);
@@ -398,7 +398,7 @@ strong {
 }
 
 /*
- * The frame (console 2.5, docs/console-design.md): on a phone a top bar with the page's title once
+ * The frame (console 2.7, docs/console-design.md): on a phone a top bar with the page's title once
  * its large title has scrolled away, and a tab bar of the primary sections at the foot, the rest
  * under More; from 861 px a sidebar with every section and who is signed in. The masthead is the
  * console's own (the customer site and home page have theirs), so none of this is scoped.
@@ -9743,7 +9743,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /*
- * Console 2.5: grouped lists (docs/console-design.md).
+ * Console 2.7: grouped lists (docs/console-design.md).
  *
  * The console's pages share pieces with the customer site (card, panel, facts, badge), which has a
  * look of its own; so what follows is the console's only, under the class of its <body>. A page is
@@ -10672,4 +10672,100 @@ span.glance-item:hover {
     font-size: 0.6875rem;
     line-height: 1.3;
   }
+}
+
+/*
+ * Memfault in the console (memfault-page.js, views.js memfaultCard), drawn as the rest: issues as rows
+ * that lead to their page, a trace as a group with its threads as rows, a board's reboots and events as
+ * rows under small headings, and the way to Memfault as the last row of its group.
+ */
+.console .issue-row,
+.console .event-row,
+.console .reboot-row {
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--tap);
+}
+
+.console .issue-row .row-title {
+  overflow-wrap: anywhere;
+}
+
+.console .reboot-row > .row-note {
+  flex: 1 1 200px;
+}
+
+.console .card-sub {
+  margin: var(--space-5) 0 var(--space-2);
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.console .memfault-section .card-body > .card-sub:first-child,
+.console .memfault-section .card-body > .page-notice + .card-sub,
+.console .memfault-section .card-body > p.quiet + .card-sub {
+  margin-top: var(--space-2);
+}
+
+.console .trace-meta {
+  margin: 0 0 var(--space-2) -18px;
+}
+
+.console .trace-message {
+  margin: 0 0 var(--space-2);
+  font-size: 0.9375rem;
+}
+
+.console .thread {
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.console .thread > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--tap);
+  font-size: 0.9375rem;
+}
+
+.console .backtrace {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-3) + 24px);
+  border-radius: 10px;
+  background: var(--well);
+  font-size: 0.8125rem;
+}
+
+.console .registers {
+  max-width: none;
+  margin-bottom: var(--space-3);
+  font-size: 0.8125rem;
+}
+
+.console .memfault-line {
+  margin: 0;
+}
+
+.console .memfault-open {
+  margin: var(--space-3) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  border-top: 1px solid var(--line);
+}
+
+.console .memfault-open > a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: 0 var(--space-4);
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.console .memfault-open > a:hover {
+  background: var(--well);
 }

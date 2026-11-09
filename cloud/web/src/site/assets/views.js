@@ -346,7 +346,7 @@ const ICONS = {
   ],
   bell: [['path', { d: 'M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14zM10 20.5h4' }]],
   more: [['path', { d: 'M5.5 12v.1M12 12v.1M18.5 12v.1' }]],
-  // The sections of the console (console 2.5): one set, the same stroke as every icon above.
+  // The sections of the console (console 2.7): one set, the same stroke as every icon above.
   home: [['path', { d: 'M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6h-6v6H5.5A1.5 1.5 0 0 1 4 19z' }]],
   layers: [['path', { d: 'M12 4l8.5 4.5L12 13 3.5 8.5zM3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5' }]],
   phone: [
@@ -936,7 +936,7 @@ function card({ key, title, more, className = '' }, ...body) {
           more ? h('a', { class: 'card-more', href: more.href }, more.label, icon('chevron-right')) : null
         )
       : null,
-    // The body is the group of a grouped list (console 2.5): the heading stands above it.
+    // The body is the group of a grouped list (console 2.7): the heading stands above it.
     h('div', { class: 'card-body' }, body)
   );
 }
@@ -3205,7 +3205,7 @@ function oldestRead(resources) {
 }
 
 /**
- * The fleet at a glance (console 2.5): a few figures in one strip, each a way to the page that has
+ * The fleet at a glance (console 2.7): a few figures in one strip, each a way to the page that has
  * the rest. What is not known yet is a dash, never a nought.
  */
 function glanceStrip(ctx, devices, newest) {
@@ -6889,7 +6889,11 @@ function memfaultCard(device, memfault) {
     { key: 'memfault', title: 'Memfault' },
     h('p', { class: 'memfault-line', key: 'line' }, ...line),
     memfault.url
-      ? h('p', { key: 'link' }, h('a', { href: memfault.url, rel: 'noreferrer', target: '_blank' }, 'Open in Memfault'))
+      ? h(
+          'p',
+          { key: 'link', class: 'memfault-open' },
+          h('a', { href: memfault.url, rel: 'noreferrer', target: '_blank' }, 'Open in Memfault', icon('arrow-right'))
+        )
       : null
   );
 }

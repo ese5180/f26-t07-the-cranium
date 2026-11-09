@@ -214,7 +214,7 @@ function announceBoards() {
 function paint() {
   drawQueued = false;
   state.now = clock.now();
-  // The app's frame (console 2.5): the sidebar or the tab bar, only around the pages themselves.
+  // The app's frame (console 2.7): the sidebar or the tab bar, only around the pages themselves.
   document.body?.classList?.toggle('is-framed', !state.gate);
   if (state.gate) {
     nav.hidden = true;
@@ -265,7 +265,7 @@ function paint() {
   if (dialogOpen()) dialog.redraw();
 }
 
-// The large title (console 2.5): on a phone the page's own heading stands large under the top bar,
+// The large title (console 2.7): on a phone the page's own heading stands large under the top bar,
 // and once it has scrolled away the bar shows it, small. Only the eye needs this; the heading
 // itself is what a screen reader reads, so the bar's copy is hidden from it (index.html).
 let titleWatcher = null;
