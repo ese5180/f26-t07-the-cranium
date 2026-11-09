@@ -115,13 +115,13 @@ static int hex_value(char c)
 	return -1;
 }
 
-static bool parse_sha256(const char *text, uint8_t *out)
+static bool parse_hex(const char *text, uint8_t *out, size_t size)
 {
-	if (text == NULL || strlen(text) != 2 * OTA_SHA256_SIZE) {
+	if (text == NULL || strlen(text) != 2 * size) {
 		return false;
 	}
 
-	for (size_t i = 0; i < OTA_SHA256_SIZE; i++) {
+	for (size_t i = 0; i < size; i++) {
 		int high = hex_value(text[2 * i]);
 		int low = hex_value(text[2 * i + 1]);
 
@@ -132,6 +132,37 @@ static bool parse_sha256(const char *text, uint8_t *out)
 		out[i] = (uint8_t)((high << 4) | low);
 	}
 
+	return true;
+}
+
+static bool parse_sha256(const char *text, uint8_t *out)
+{
+	return parse_hex(text, out, OTA_SHA256_SIZE);
+}
+
+/* A Pi image's version: it goes into the signed manifest (pi_image.h), so nothing that breaks a line. */
+static bool copy_pi_version(const char *text, char *out)
+{
+	size_t length;
+
+	if (text == NULL) {
+		return false;
+	}
+
+	length = strlen(text);
+	if (length == 0 || length > OTA_PI_VERSION_MAX) {
+		return false;
+	}
+
+	for (size_t i = 0; i < length; i++) {
+		char c = text[i];
+
+		if (!isalnum((unsigned char)c) && c != '.' && c != '-' && c != '_' && c != '+') {
+			return false;
+		}
+	}
+
+	memcpy(out, text, length + 1);
 	return true;
 }
 
@@ -215,6 +246,35 @@ static enum ota_job_result split_url(const char *url, const char *allowed_prefix
 	return OTA_JOB_OK;
 }
 
+static enum ota_job_result parse_pi_document(const cJSON *document, const char *allowed_url_prefix,
+					     struct ota_job *job)
+{
+	const cJSON *image = cJSON_GetObjectItemCaseSensitive(document, "pi");
+
+	if (!cJSON_IsObject(image)) {
+		return OTA_JOB_BAD_DOCUMENT;
+	}
+
+	job->kind = OTA_JOB_KIND_PI_IMAGE;
+	if (!copy_pi_version(string_member(image, "version"), job->pi_version) ||
+	    !integer_member(image, "size", 1, UINT32_MAX, &job->size) ||
+	    !parse_sha256(string_member(image, "sha256"), job->sha256) ||
+	    !parse_hex(string_member(image, "sig"), job->pi_sig, OTA_PI_SIG_SIZE)) {
+		return OTA_JOB_BAD_DOCUMENT;
+	}
+
+	/* Optional, and if it is there it has to be a version. */
+	if (cJSON_GetObjectItemCaseSensitive(image, "minFirmware") != NULL) {
+		if (fw_version_parse(string_member(image, "minFirmware"), &job->pi_min_firmware) !=
+		    0) {
+			return OTA_JOB_BAD_DOCUMENT;
+		}
+		job->pi_has_min_firmware = true;
+	}
+
+	return split_url(string_member(image, "url"), allowed_url_prefix, job);
+}
+
 static enum ota_job_result parse_document(const cJSON *document, const char *allowed_url_prefix,
 					  struct ota_job *job)
 {
@@ -228,6 +288,11 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 	}
 
 	operation = string_member(document, "op");
+	if (operation != NULL && strcmp(operation, "pi_image") == 0 &&
+	    integer_member(document, "v", 1, 1, &document_version)) {
+		return parse_pi_document(document, allowed_url_prefix, job);
+	}
+
 	if (operation == NULL || strcmp(operation, "fw_update") != 0 ||
 	    !integer_member(document, "v", 1, 1, &document_version)) {
 		return OTA_JOB_UNSUPPORTED;
@@ -327,6 +392,68 @@ enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allo
 		job->in_progress = in_progress;
 	}
 
+	return result;
+}
+
+/* The first job in a list of summaries that is not a Pi image's, by its ID. */
+static bool first_firmware_job(const cJSON *list, struct ota_job *job)
+{
+	const cJSON *entry;
+
+	if (list == NULL) {
+		return false;
+	}
+
+	cJSON_ArrayForEach(entry, list) {
+		const char *id = string_member(entry, "jobId");
+
+		if (id == NULL ||
+		    strncmp(id, OTA_PI_JOB_ID_PREFIX, strlen(OTA_PI_JOB_ID_PREFIX)) == 0) {
+			continue;
+		}
+
+		if (copy_job_id(id, job->id)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+enum ota_job_result ota_job_list_parse(const char *json, size_t len, struct ota_job *job)
+{
+	const cJSON *in_progress;
+	const cJSON *queued;
+	enum ota_job_result result = OTA_JOB_NONE;
+	cJSON *root;
+
+	if (json == NULL || job == NULL) {
+		return OTA_JOB_MALFORMED;
+	}
+
+	memset(job, 0, sizeof(*job));
+
+	if (!depth_within_limit(json, len)) {
+		return OTA_JOB_MALFORMED;
+	}
+
+	root = cJSON_ParseWithLength(json, len);
+	in_progress = cJSON_GetObjectItemCaseSensitive(root, "inProgressJobs");
+	queued = cJSON_GetObjectItemCaseSensitive(root, "queuedJobs");
+	if (!cJSON_IsObject(root) || (in_progress != NULL && !cJSON_IsArray(in_progress)) ||
+	    (queued != NULL && !cJSON_IsArray(queued))) {
+		cJSON_Delete(root);
+		return OTA_JOB_MALFORMED;
+	}
+
+	if (first_firmware_job(in_progress, job)) {
+		job->in_progress = true;
+		result = OTA_JOB_OK;
+	} else if (first_firmware_job(queued, job)) {
+		result = OTA_JOB_OK;
+	}
+
+	cJSON_Delete(root);
 	return result;
 }
 

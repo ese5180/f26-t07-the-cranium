@@ -16,7 +16,7 @@ BUILD := build
 CC ?= cc
 SANITIZE := -fsanitize=address,undefined -fno-sanitize-recover=undefined
 # The firmware's sources are in folders under src/, each on the include path, as in its CMakeLists.txt.
-SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt bt_only cloud mflt ota policy)
+SRC_DIRS := $(SRC) $(addprefix $(SRC)/,bt bt_only cloud mflt ota pi policy)
 CFLAGS := -std=c11 -O1 -g $(SANITIZE) $(addprefix -I,$(SRC_DIRS)) -Istubs -I$(CJSON_DIR)
 WARNINGS := -Wall -Wextra -Werror
 
@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/pi_ota_tests $(BUILD)/ota_pi_tests $(BUILD)/pi_link_harness
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -78,6 +78,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/bt_only_ota_tests
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
+	./$(BUILD)/pi_ota_tests
+	./$(BUILD)/ota_pi_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -286,6 +288,31 @@ $(BUILD)/bt_only_ota_tests: test_bt_only_ota.c $(SRC)/bt_only/bt_only_ota.c $(SR
 $(BUILD)/console_bt_only_tests: test_console_bt_only.c $(CONSOLE_SOURCES) $(SRC)/policy/bt_passkey_policy.c $(BUILD)/base64.o \
 		$(CONSOLE_HEADERS)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_BT_ONLY_DEFINES) -o $@ $(filter-out %.h,$^)
+
+# Raspberry Pi images, from 1.15.0 (docs/pi-ota.md). The first: SHA-256, CRC-32, the job document
+# and the list of jobs, the signed manifest, the SD card's layer on an in-memory file system, and the
+# download onto it with a fake HTTP server. The second: ota.c with CONFIG_APP_PI_OTA, the same tests
+# as ota_bt_no_consent_tests and the order of a firmware and a Pi image (test_ota_bt.c, TEST_PI).
+# The third is no test by itself: firmware/tests/hil/test_pi_link.py runs it against the simulator
+# of the Pi's end, tools/pi_link_sim.py.
+PI_SOURCES := $(SRC)/pi/pi_dl.c $(SRC)/pi/pi_image.c $(SRC)/pi/pi_sd.c $(SRC)/pi/pi_sha256.c
+PI_HEADERS := $(SRC)/pi/pi_dl.h $(SRC)/pi/pi_image.h $(SRC)/pi/pi_sd.h $(SRC)/pi/pi_sha256.h stubs/zephyr/fs/fs.h
+$(BUILD)/pi_ota_tests: test_pi_ota.c $(PI_SOURCES) $(PI_HEADERS) $(SRC)/ota/ota_job.c $(SRC)/ota/ota_job.h \
+		$(SRC)/ota/version.c $(BUILD)/cJSON.o
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -DCONFIG_APP_PI_OTA_CHECKPOINT_KB=1024 -o $@ test_pi_ota.c $(PI_SOURCES) \
+		$(SRC)/ota/ota_job.c $(SRC)/ota/version.c $(BUILD)/cJSON.o -lm
+
+$(BUILD)/ota_pi_tests: $(OTA_DEPS) $(SRC)/pi/pi_ota.h $(SRC)/pi/pi_image.c $(SRC)/pi/pi_sha256.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) $(COMPAT_DEFINES) -DTEST_NO_CONSENT=1 -DTEST_PI=1 -DCONFIG_APP_PI_OTA=1 \
+		-o $@ $(OTA_SOURCES) $(SRC)/pi/pi_image.c $(SRC)/pi/pi_sha256.c
+
+$(BUILD)/pi_link_harness: pi_link_harness.c $(SRC)/pi/pi_link.c $(SRC)/pi/pi_link.h $(SRC)/pi/pi_image.c \
+		$(SRC)/pi/pi_sha256.c $(SRC)/ota/version.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ pi_link_harness.c $(SRC)/pi/pi_link.c $(SRC)/pi/pi_image.c \
+		$(SRC)/pi/pi_sha256.c $(SRC)/ota/version.c
 
 # LED3 and LED4, included by their test to get at the pattern they show.
 $(BUILD)/bt_only_leds_tests: test_bt_only_leds.c $(SRC)/bt_only/bt_only_leds.c $(SRC)/bt_only/bt_only.h

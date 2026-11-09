@@ -14,6 +14,8 @@
 #                                      the bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem,
 #                                      and the application is signed with a throwaway key, which that bootloader
 #                                      refuses. binaries/ is left as it was. No release is ever built this way
+#   scripts/firmware/build.sh --pi              from 1.16.0, for an nrf7002dk wired to a Raspberry Pi: Pi image
+#                                      updates and no Bluetooth (docs/pi-ota.md)
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
@@ -54,7 +56,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -93,6 +95,7 @@ EOF
 
 jobs=4
 keep=false
+pi=false
 upload=true
 without_key=false
 version=""
@@ -102,6 +105,7 @@ while [ $# -gt 0 ]; do
     --keep) keep=true ;;
     --no-upload) upload=false ;;
     --without-key) without_key=true ;;
+    --pi) pi=true ;;
     --board)
       [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk or nrf5340dk"
       board_type="$2"
@@ -130,6 +134,14 @@ while [ $# -gt 0 ]; do
 done
 
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a number, not $jobs"
+
+# From 1.16.0, a board wired to a Raspberry Pi: Pi image updates, and no Bluetooth (docs/pi-ota.md).
+pi_args=()
+if $pi; then
+  [ "$board_type" = nrf7002dk ] || die "--pi is for an nrf7002dk: the nRF5340 DK has no cloud"
+  pi_args=(-DSB_EXTRA_CONF_FILE=pi_ota_sysbuild.conf)
+  echo "A build for a board with a Raspberry Pi, and without Bluetooth: deploy it only to such boards."
+fi
 
 # The board types of docs/fleet.md. An nRF7002 DK keeps the names and the build directory it always had.
 case "$board_type" in
@@ -214,7 +226,7 @@ open(sys.argv[1], "wb").write(key.private_bytes(serialization.Encoding.PEM, seri
 fi
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
 if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
-    --sysbuild "$REPO_DIR/firmware/app" -- ${key_args[@]+"${key_args[@]}"} ) > "$log" 2>&1; then
+    --sysbuild "$REPO_DIR/firmware/app" -- ${key_args[@]+"${key_args[@]}"} ${pi_args[@]+"${pi_args[@]}"} ) > "$log" 2>&1; then
   mkdir -p "$BUILD_DIR"
   cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true
