@@ -288,9 +288,25 @@ config APP_CRASH_DEMO
 	  restarts, still on this image, and sends the coredump. Its log line starts with "Test
 	  image:", so scripts/release/github-release.sh refuses it. See docs/memfault.md.
 
+config APP_FAULT_DEMO
+	bool "Five different faults, one per boot, after the image is confirmed: for Memfault issues"
+	depends on APP_MEMFAULT && !APP_TEST_FAULT_WIFI_DEAD && !APP_CRASH_DEMO
+	help
+	  A demonstration image, never a release, from 1.15.0's sources. It goes through its
+	  trial and is confirmed like any other. Then, at each boot, once it has been connected
+	  for APP_CRASH_DEMO_AFTER_SECONDS and Memfault has taken the last coredump, it faults
+	  once, each time in a different way, so that Memfault shows five distinct issues: a
+	  failed MEMFAULT_ASSERT, a write to the image's own flash (a memory management fault), an
+	  undefined instruction (a usage fault), a stack overflow of the main thread (caught by
+	  the stack limit register), and a hang of the main loop that Memfault's software
+	  watchdog catches. Which comes next is kept in storage, under the record of
+	  APP_TEST_FAULT_WIFI_DEAD, and moves on before each fault, so each happens once per
+	  install; after the fifth the board runs normally. Its log lines start with "Test
+	  image:". See docs/memfault.md.
+
 config APP_CRASH_DEMO_AFTER_SECONDS
 	int "Seconds of connection after the confirmation before the crash"
-	depends on APP_CRASH_DEMO
+	depends on APP_CRASH_DEMO || APP_FAULT_DEMO
 	default 60
 	range 10 3600
 

@@ -25,6 +25,8 @@
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/random/random.h>
 #include <zephyr/sys/atomic.h>
+#include <hal/nrf_saadc.h>
+#include <hal/nrf_usbreg.h>
 
 #include "app_events.h"
 #if defined(CONFIG_APP_BT_OTA)
@@ -36,7 +38,10 @@
 #include "net.h"
 #include "ota.h"
 #include "reset_cause.h"
-#if defined(CONFIG_APP_CRASH_DEMO)
+#if defined(CONFIG_APP_CRASH_DEMO) || defined(CONFIG_APP_FAULT_DEMO)
+#include <memfault/panics/assert.h>
+#include <memfault/panics/coredump.h>
+#include <memfault/ports/watchdog.h>
 #include "store.h"
 #include "version.h"
 #endif
@@ -115,12 +120,86 @@ void memfault_reboot_reason_get(sResetBootupInfo *info)
 	};
 }
 
-/* ---- the heartbeat ------------------------------------------------------------------------ */
+/* ---- the heartbeat, and the power status in it ------------------------------------------- */
+
+/*
+ * The DK has no battery: it runs from USB. So in place of a state of charge, the heartbeat says
+ * whether the USB regulator sees VBUS, and the supply voltage VDD in mV, one sample of the SAADC
+ * against its internal reference (gain 1/6, so 3.6 V full scale), not calibrated. Both
+ * peripherals are non-secure under TF-M, and nothing else here uses the SAADC.
+ */
+static bool usb_power_present(void)
+{
+	return (nrf_usbreg_status_get(NRF_USBREGULATOR) & NRF_USBREG_STATUS_VBUSDETECT_MASK) != 0;
+}
+
+static bool saadc_wait(nrf_saadc_event_t event)
+{
+	for (int us = 0; us < 1000; us++) {
+		if (nrf_saadc_event_check(NRF_SAADC, event)) {
+			nrf_saadc_event_clear(NRF_SAADC, event);
+			return true;
+		}
+		k_busy_wait(1);
+	}
+	return false;
+}
+
+/* The supply in mV, or 0 if the SAADC did not answer. */
+static uint32_t supply_millivolts(void)
+{
+	static nrf_saadc_value_t sample;
+	const nrf_saadc_channel_config_t config = {
+		.resistor_p = NRF_SAADC_RESISTOR_DISABLED,
+		.resistor_n = NRF_SAADC_RESISTOR_DISABLED,
+		.gain = NRF_SAADC_GAIN1_6,
+		.reference = NRF_SAADC_REFERENCE_INTERNAL,
+		.acq_time = NRF_SAADC_ACQTIME_10US,
+		.mode = NRF_SAADC_MODE_SINGLE_ENDED,
+		.burst = NRF_SAADC_BURST_DISABLED,
+	};
+	bool ok;
+
+	sample = 0;
+	nrf_saadc_int_disable(NRF_SAADC, NRF_SAADC_INT_ALL);
+	nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_STARTED);
+	nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_END);
+	nrf_saadc_event_clear(NRF_SAADC, NRF_SAADC_EVENT_STOPPED);
+	nrf_saadc_resolution_set(NRF_SAADC, NRF_SAADC_RESOLUTION_12BIT);
+	nrf_saadc_oversample_set(NRF_SAADC, NRF_SAADC_OVERSAMPLE_DISABLED);
+	nrf_saadc_channel_init(NRF_SAADC, 0, &config);
+	nrf_saadc_channel_input_set(NRF_SAADC, 0, NRF_SAADC_INPUT_VDD, NRF_SAADC_INPUT_DISABLED);
+	nrf_saadc_buffer_init(NRF_SAADC, &sample, 1);
+	nrf_saadc_enable(NRF_SAADC);
+
+	nrf_saadc_task_trigger(NRF_SAADC, NRF_SAADC_TASK_START);
+	ok = saadc_wait(NRF_SAADC_EVENT_STARTED);
+	if (ok) {
+		nrf_saadc_task_trigger(NRF_SAADC, NRF_SAADC_TASK_SAMPLE);
+		ok = saadc_wait(NRF_SAADC_EVENT_END);
+	}
+	nrf_saadc_task_trigger(NRF_SAADC, NRF_SAADC_TASK_STOP);
+	(void)saadc_wait(NRF_SAADC_EVENT_STOPPED);
+	nrf_saadc_channel_input_set(NRF_SAADC, 0, NRF_SAADC_INPUT_DISABLED, NRF_SAADC_INPUT_DISABLED);
+	nrf_saadc_disable(NRF_SAADC);
+
+	if (!ok || sample <= 0) {
+		return 0;
+	}
+	/* 12 bits over 0.6 V x 6. */
+	return ((uint32_t)sample * 3600U) / 4096U;
+}
 
 /* On the system work queue, every hour, or on the main loop for the memfault command. */
 void memfault_metrics_heartbeat_collect_data(void)
 {
+	uint32_t mv = supply_millivolts();
+
 	MEMFAULT_METRIC_SET_UNSIGNED(stuck_restart_count, stuck_count());
+	MEMFAULT_METRIC_SET_UNSIGNED(power_usb_present, usb_power_present() ? 1 : 0);
+	if (mv != 0) {
+		MEMFAULT_METRIC_SET_UNSIGNED(supply_mv, mv);
+	}
 }
 
 static void read_wifi_metrics(void)
@@ -184,22 +263,119 @@ void mflt_on_answer(uint16_t seq)
 	(void)app_event_post(&event);
 }
 
-/* ---- the crash demonstration ---------------------------------------------------------------- */
+/* ---- the crash and fault demonstrations ------------------------------------------------------ */
 
-#if defined(CONFIG_APP_CRASH_DEMO)
-#define CRASHED_MAGIC 0x43525348 /* "CRSH" */
+#if defined(CONFIG_APP_CRASH_DEMO) || defined(CONFIG_APP_FAULT_DEMO)
+#define FAULTED_MAGIC 0x464c5431 /* "FLT1" */
 
-struct crashed_record {
+/* How many of the faults this version has made, kept before each one. */
+struct faulted_record {
 	uint32_t magic;
 	struct fw_version version;
+	uint32_t done;
+};
+
+enum demo_fault {
+	DEMO_OOPS,
+	DEMO_ASSERT,
+	DEMO_BAD_WRITE,
+	DEMO_UNDEFINED_INSTRUCTION,
+	DEMO_STACK_OVERFLOW,
+	DEMO_HANG,
+};
+
+#if defined(CONFIG_APP_FAULT_DEMO)
+/* One per boot, in this order, each a different issue in Memfault. */
+static const uint8_t demo_faults[] = {
+	DEMO_ASSERT, DEMO_BAD_WRITE, DEMO_UNDEFINED_INSTRUCTION, DEMO_STACK_OVERFLOW, DEMO_HANG,
+};
+#else
+static const uint8_t demo_faults[] = {DEMO_OOPS};
+#endif
+
+static const char *const demo_fault_names[] = {
+	[DEMO_OOPS] = "k_oops()",
+	[DEMO_ASSERT] = "a failed assert",
+	[DEMO_BAD_WRITE] = "a write to flash",
+	[DEMO_UNDEFINED_INSTRUCTION] = "an undefined instruction",
+	[DEMO_STACK_OVERFLOW] = "a stack overflow",
+	[DEMO_HANG] = "a hang of the main loop",
 };
 
 static int crash_seconds;
 static bool crash_over;
 
+/* Each fault in a function of its own, so that each backtrace, and so each issue, is its own. */
+static __noinline void fault_demo_assert(void)
+{
+	volatile bool fine = false;
+
+	MEMFAULT_ASSERT(fine);
+}
+
+static __noinline void fault_demo_bad_write(void)
+{
+	/* This function's own code, in flash, which the MPU lets nothing write: a MemManage fault. */
+	volatile uint32_t *code = (volatile uint32_t *)((uintptr_t)fault_demo_bad_write & ~1UL);
+
+	*code = 0xDEADBEEFU;
+}
+
+static __noinline void fault_demo_undefined_instruction(void)
+{
+	/* A permanently undefined instruction: a usage fault (UNDEFINSTR). */
+	__asm__ volatile("udf #0x42");
+}
+
+static __noinline uint32_t fault_demo_recurse(uint32_t depth)
+{
+	/* Until the stack limit register (CONFIG_BUILTIN_STACK_GUARD) stops it: a usage fault. */
+	volatile uint8_t frame[128];
+
+	frame[0] = (uint8_t)depth;
+	if (depth == UINT32_MAX) {
+		return frame[0];
+	}
+	return fault_demo_recurse(depth + 1) + frame[0];
+}
+
+static __noinline void fault_demo_hang(void)
+{
+	/* Memfault's software watchdog (15 s) stops it, before the hardware watchdog (120 s). */
+	(void)memfault_software_watchdog_enable();
+	while (true) {
+		arch_nop();
+	}
+}
+
+static void fault_demo_make(enum demo_fault fault)
+{
+	switch (fault) {
+	case DEMO_ASSERT:
+		fault_demo_assert();
+		break;
+	case DEMO_BAD_WRITE:
+		fault_demo_bad_write();
+		break;
+	case DEMO_UNDEFINED_INSTRUCTION:
+		fault_demo_undefined_instruction();
+		break;
+	case DEMO_STACK_OVERFLOW:
+		(void)fault_demo_recurse(0);
+		break;
+	case DEMO_HANG:
+		fault_demo_hang();
+		break;
+	default:
+		k_oops();
+		break;
+	}
+}
+
 static void crash_demo_on_tick(void)
 {
-	struct crashed_record record;
+	struct faulted_record record;
+	enum demo_fault fault;
 
 	if (crash_over) {
 		return;
@@ -215,28 +391,41 @@ static void crash_demo_on_tick(void)
 		return;
 	}
 
+	/* The coredump of the fault before goes to Memfault first: a new one would not replace it. */
+	if (memfault_coredump_has_valid_coredump(NULL)) {
+		return;
+	}
+
 	crash_over = true;
 
-	if (store_read(STORE_TEST_FAULT, &record, sizeof(record)) == 0 &&
-	    record.magic == CRASHED_MAGIC &&
-	    fw_version_compare(&record.version, fw_version_running()) == 0) {
+	if (store_read(STORE_TEST_FAULT, &record, sizeof(record)) != 0 ||
+	    record.magic != FAULTED_MAGIC ||
+	    fw_version_compare(&record.version, fw_version_running()) != 0) {
+		memset(&record, 0, sizeof(record));
+		record.magic = FAULTED_MAGIC;
+		record.version = *fw_version_running();
+	}
+
+	if (record.done >= ARRAY_SIZE(demo_faults)) {
 		return;
 	}
 
-	/* First the record: a board that cannot remember must not crash at every boot. */
-	memset(&record, 0, sizeof(record));
-	record.magic = CRASHED_MAGIC;
-	record.version = *fw_version_running();
+	/* First the record: a board that cannot remember must not fault at every boot. */
+	fault = (enum demo_fault)demo_faults[record.done];
+	record.done++;
 	if (store_write(STORE_TEST_FAULT, &record, sizeof(record)) != 0) {
-		LOG_ERR("Test image: nothing to remember the crash by, so there is none");
+		LOG_ERR("Test image: nothing to remember the fault by, so there is none");
 		return;
 	}
 
-	LOG_ERR("Test image: crashing once on purpose, for a coredump in Memfault");
+	LOG_ERR("Test image: fault %u of %u on purpose, %s, for a coredump in Memfault",
+		(unsigned int)record.done, (unsigned int)ARRAY_SIZE(demo_faults),
+		demo_fault_names[fault]);
 	LOG_PANIC();
-	k_oops();
+	fault_demo_make(fault);
+	LOG_ERR("Test image: the fault did not happen");
 }
-#endif /* CONFIG_APP_CRASH_DEMO */
+#endif /* CONFIG_APP_CRASH_DEMO || CONFIG_APP_FAULT_DEMO */
 
 /* ---- what the rest of the firmware calls ------------------------------------------------------ */
 
@@ -297,7 +486,7 @@ void mflt_on_tick(void)
 		read_wifi_metrics();
 	}
 
-#if defined(CONFIG_APP_CRASH_DEMO)
+#if defined(CONFIG_APP_CRASH_DEMO) || defined(CONFIG_APP_FAULT_DEMO)
 	crash_demo_on_tick();
 #endif
 

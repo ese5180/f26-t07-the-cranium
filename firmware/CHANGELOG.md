@@ -7,6 +7,24 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.15.0
+
+The release after the fault demonstration (1.14.6+1), for every board at once. Memfault's heartbeat now has the power status (USB present and the supply in mV, as the DK has no battery) and Zephyr's default metrics: CPU use and the stack use of the idle thread and the system work queue. Nothing else changes in what the board does.
+
+Power status, in place of a battery's state of charge: `power_usb_present`, 1 when the USB regulator sees VBUS
+(USBREGSTATUS), and `supply_mv`, the supply VDD from one uncalibrated SAADC sample (gain 1/6, internal reference),
+read when the heartbeat is taken (src/mflt.c). Both peripherals are non-secure under TF-M. Zephyr's default metrics:
+`CONFIG_INIT_STACKS=y` turns on the SDK's default set (`cpu_usage_pct`, `TimerTaskCpuUsage`, `AllTasksCpuUsage`,
+`TimerTaskFreeStack`) and its thread metrics (`memory_idle_pct_max`, `memory_sysworkq_pct_max`); the heap
+(`Heap_BytesFree`, `memory_pct_max`), the connection (`connectivity_connected_time`, `sync_successful`,
+`sync_failure`) and `boot_time_ms` were on already. Left out: the TCP/IP counters (they need `CONFIG_NET_STATISTICS`,
+whose counters cost RAM there is not), the SDK's Wi-Fi metrics (the access point's OUI, docs/fleet.md), the CPU
+temperature (no TEMP peripheral on the application core) and NCS's stack metrics (the thread analyzer).
+
+The fault demonstration (`CONFIG_APP_FAULT_DEMO`, docs/memfault.md) is in these sources and off in this build. Flash
+746,488 of 794,474 bytes; RAM 404,404 of 405,504 (1,100 free; 1.14.0 used 404,284); signed image 877,733
+bytes.
+
 ## 1.14.2
 
 The same firmware as 1.14.0, released after the crash demonstration (1.14.0+1) to put a board back on an ordinary build. No change in what the board does.

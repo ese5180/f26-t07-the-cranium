@@ -9,8 +9,8 @@ symbols of the very build that crashed, which it finds by the ELF's GNU build ID
 goes on a board needs its symbols uploaded, a demonstration image too. The signed image goes up as
 an OTA payload of software type "app", for the board type as hardware version, so that Memfault's
 releases list each version. That is a record only: boards are updated through AWS IoT, never from
-Memfault. A build with a test fault, or the crash demonstration (CONFIG_APP_CRASH_DEMO), gets its
-symbols and no release.
+Memfault. A build with a test fault, the crash demonstration (CONFIG_APP_CRASH_DEMO) or the fault
+demonstration (CONFIG_APP_FAULT_DEMO) gets its symbols and no release.
 
 Nothing happens, and that is no error, unless all of these are there:
 
@@ -126,7 +126,7 @@ def main() -> int:
     software = settings.get("CONFIG_MEMFAULT_NCS_FW_TYPE", "")
     if not hardware or not software:
         sys.exit("memfault_upload: the build does not say its Memfault hardware version and software type")
-    test_image = settings.get("CONFIG_APP_CRASH_DEMO") == "y" or any(
+    test_image = any(settings.get(name) == "y" for name in ("CONFIG_APP_CRASH_DEMO", "CONFIG_APP_FAULT_DEMO")) or any(
         name.startswith("CONFIG_APP_TEST_FAULT_") and name != "CONFIG_APP_TEST_FAULT_NONE" and value == "y"
         for name, value in settings.items())
 
