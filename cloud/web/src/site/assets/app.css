@@ -9572,3 +9572,71 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   overflow-x: auto;
   white-space: pre-wrap;
 }
+
+/* The Database page (db-page.js): the tables, their filters, a page of items, an item's fields. */
+.db-tables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.db-table {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 180px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.db-table[aria-current="page"] {
+  border-color: var(--line-mark);
+  font-weight: 600;
+}
+
+.db-table-size {
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+.db-about {
+  margin: 0 0 16px;
+}
+
+.db-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.db-filter-buttons,
+.db-filters > .notice {
+  grid-column: 1 / -1;
+}
+
+.db-row .row-title,
+.db-row .row-note,
+.db-fields dd {
+  overflow-wrap: anywhere;
+}
+
+.db-json {
+  display: block;
+  max-height: 24em;
+  overflow: auto;
+  white-space: pre;
+}
+
+.db-inline > summary {
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .db-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

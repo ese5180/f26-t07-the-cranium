@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.7
+
+The console's Database page comes with the app, under Developer, for release managers: the console's tables, read only, with filters, each item's fields, and an export as CSV or JSON that goes to the share sheet.
+
+The page is the console's own (2.9.0 and later); `PagesParityTests` checks it through `apps/shared/pages.json`. The
+activity log reads the new `db.export` entries, and the five new refusals of the Database page, in the website's words
+(`Words.swift`, checked by `ParityTests`).
+
 ## 0.8.6
 
 The console's Memfault page comes with the app: the issue list, an issue's traces, backtraces and registers, and the In Memfault card on a board's page, with its reboots, events and issues. A test now fails if a console page is missing from the app.

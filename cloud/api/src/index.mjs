@@ -16,6 +16,7 @@
 
 import { createApp } from './app.mjs';
 import { createAppsAws } from './aws-apps.mjs';
+import { createDbAws } from './aws-db.mjs';
 import { createMapAws } from './aws-map.mjs';
 import { createMemfaultReader } from './aws-memfault-api.mjs';
 import { createMemfaultStatus } from './aws-memfault.mjs';
@@ -44,6 +45,8 @@ export const handler = createApp({
     ...createProvisionAws(process.env),
     // Board setup's Wi-Fi defaults: the one secret of them, read by this function alone.
     ...createWifiDefaultsReader(process.env),
+    // The Database page: DescribeTable, Query and Scan of the three tables, read only (aws-db.mjs).
+    ...createDbAws(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },
   config,

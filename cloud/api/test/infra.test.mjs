@@ -126,9 +126,11 @@ test('the API role reads, adds and updates in the state table, and never deletes
   );
   assert.ok(state.includes('Resource: !GetAtt StateTable.Arn'));
   // Nothing else in the role names that table, and the only DynamoDB actions the role is
-  // allowed are these, the audit table's two, and the events table's Query and the backfill's
-  // PutItem (on the update history's partitions only): no delete, no scan, no wildcard.
-  assert.equal((role.match(/StateTable\.Arn/g) ?? []).length, 1);
+  // allowed are these, the audit table's two, the events table's Query and the backfill's
+  // PutItem (on the update history's partitions only), and the Database page's DescribeTable and
+  // Scan on the three tables: no delete, no wildcard.
+  const browse = statement(role, 'BrowseDatabase');
+  assert.equal((role.replace(browse, '').match(/StateTable\.Arn/g) ?? []).length, 1);
   const denied = statement(role, 'NeverChangeAuditEntries');
   const allowed = role
     .replace(denied, '')
@@ -143,7 +145,31 @@ test('the API role reads, adds and updates in the state table, and never deletes
     '- dynamodb:Query',
     'Action: dynamodb:Query',
     'Action: dynamodb:PutItem',
+    '- dynamodb:DescribeTable',
+    '- dynamodb:Scan',
   ]);
+});
+
+test('the Database page may describe and scan the three tables, and nothing else: read only, no other table', () => {
+  const role = block(template, 'ApiRole');
+  const browse = statement(role, 'BrowseDatabase');
+  assert.ok(browse.includes('Effect: Allow'));
+  assert.deepEqual(
+    [...browse.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:DescribeTable', 'dynamodb:Scan']
+  );
+  assert.deepEqual(
+    [...browse.matchAll(/- !GetAtt (\w+)\.Arn/g)].map((match) => match[1]),
+    ['StateTable', 'AuditTable', 'EventsTable']
+  );
+  assert.equal(/\*|Condition|Item|Write|Delete|Update|PartiQL|Index/.test(browse.replace(/#.*$/gm, '')), false);
+  // The only Scan and DescribeTable of the role; the page's Query is the one the role had.
+  assert.equal((role.match(/dynamodb:Scan\b/g) ?? []).length, 1);
+  assert.equal((role.match(/dynamodb:DescribeTable\b/g) ?? []).length, 1);
+  // No other role of the stack may scan these tables.
+  for (const name of ['CustomerApiRole', 'EventsRole', 'WebRole']) {
+    assert.equal(block(template, name).includes('dynamodb:Scan'), false, name);
+  }
 });
 
 test('a user cannot change their own e-mail address', () => {
@@ -347,8 +373,9 @@ test('the API role may only add to and read the audit table', () => {
   ]) {
     assert.ok(denied.includes(`dynamodb:${action}`), action);
   }
-  // Nothing else in the role names that table.
-  assert.equal((role.match(/!GetAtt AuditTable\.Arn/g) ?? []).length, 2);
+  // Nothing else in the role names that table, but the Database page's reads (db-infra below).
+  const browse = statement(role, 'BrowseDatabase');
+  assert.equal((role.replace(browse, '').match(/!GetAtt AuditTable\.Arn/g) ?? []).length, 2);
 });
 
 test('the IoT logging role keeps its published trust policy unless asked', () => {
@@ -594,7 +621,8 @@ test("the API reads the events table, and writes only the update history's facts
     backfill.match(/^\s+- \S+$/gm).map((line) => line.trim()),
     ['- UPD#cranium-*']
   );
-  assert.equal((role.match(/EventsTable\.Arn/g) ?? []).length, 2);
+  // And the Database page's reads, which are BrowseDatabase's.
+  assert.equal((role.replace(statement(role, 'BrowseDatabase'), '').match(/EventsTable\.Arn/g) ?? []).length, 2);
   assert.ok(block(template, 'ApiFn').includes('EVENTS_TABLE: !Ref EventsTable'));
   assert.equal(block(template, 'WebRole').includes('EventsTable'), false);
 });

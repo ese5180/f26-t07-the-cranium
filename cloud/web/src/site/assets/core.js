@@ -126,7 +126,11 @@ const SECTIONS = [
   'bluetooth',
   // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
   'memfault',
+  // The console's DynamoDB tables, read only, for release managers, under Developer (db-page.js).
+  'database',
 ];
+// The tables of the Database page (cloud/api/src/lib/db.mjs TABLES).
+const DB_TABLES = ['state', 'audit', 'events'];
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
 const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
 
@@ -153,6 +157,8 @@ export function parseRoute(hash) {
   if (section === 'rollouts' && isRolloutId(item)) return { view: 'rollout', id: item };
   // One Memfault issue: its traces and backtraces (memfault-page.js).
   if (section === 'memfault' && /^[1-9]\d{0,15}$/.test(item)) return { view: 'issue', id: item };
+  // One table of the Database page (db-page.js).
+  if (section === 'database' && DB_TABLES.includes(item)) return { view: 'database', table: item };
   return null;
 }
 
@@ -163,6 +169,7 @@ export function routeHash(route) {
   if (route?.view === 'diagnostics' && isThing(route.thing)) return `#/diagnostics/${route.thing}`;
   if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
   if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
+  if (route?.view === 'database' && DB_TABLES.includes(route.table)) return `#/database/${route.table}`;
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }
@@ -2630,6 +2637,17 @@ export function createApi({
       if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Memfault pages.');
       return record(await request('GET', path));
     },
+    /**
+     * The Database page's reads (db-page.js reads its own answers): the tables, a page of a table, an item,
+     * and an export, which the console puts on record. An export is tried once: it is on record each time.
+     */
+    async dbRequest(path, { once = false } = {}) {
+      const read =
+        typeof path === 'string' &&
+        /^\/api\/db\/(?:tables|(?:state|audit|events)(?:\/item|\/export)?(?:\?[A-Za-z0-9=&%._~*!'()-]*)?)$/.test(path);
+      if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Database page.');
+      return record(await request('GET', path, undefined, { once }));
+    },
     async appsRequest(method, path) {
       const read =
         method === 'GET' &&
@@ -4094,6 +4112,14 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to read the Wi-Fi defaults',
     icon: 'lock',
   },
+  // An export of the Database page, by its table: which filters and how many items are its facts.
+  'db.export': {
+    done: 'exported the {} table',
+    doneAlone: 'exported from the database',
+    tried: 'tried to export the {} table',
+    triedAlone: 'tried to export from the database',
+    icon: 'download',
+  },
 };
 
 // What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
@@ -4304,6 +4330,12 @@ export const REFUSAL_WORDS = {
   // Board setup's Wi-Fi defaults (cloud/api/src/handlers/setup.mjs).
   wifi_defaults_unavailable: 'The console could not read its Wi-Fi defaults just then',
   wifi_defaults_invalid: 'The stored Wi-Fi defaults break the firmware’s rules',
+  // The Database page (cloud/api/src/handlers/db.mjs).
+  unknown_table: 'There is no such table',
+  invalid_filter: 'A filter of the Database page was not valid',
+  invalid_key: 'An item’s key was empty, too long or not plain text',
+  invalid_format: 'An export is CSV or JSON',
+  unknown_item: 'There is no item with that key',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */
@@ -4412,6 +4444,20 @@ const AUDIT_DETAILS = {
   email: { label: 'E-mail' },
   customer: { label: 'Customer', code: true },
   label: { label: 'Called', sentence: true },
+  // An export of the Database page: its file, its filters, how many items, and what stopped it early.
+  format: { label: 'As', say: (value) => String(value).toUpperCase() },
+  filters: { label: 'Filters', code: true },
+  items: { label: 'Items' },
+  capped: {
+    label: 'Stopped early at',
+    say: (value) =>
+      ({
+        items: 'the cap of items',
+        size: 'the size of one answer',
+        reads: 'the reads allowed',
+        time: 'the time allowed',
+      })[value] ?? value,
+  },
 };
 
 function auditFact(entry, key, value) {

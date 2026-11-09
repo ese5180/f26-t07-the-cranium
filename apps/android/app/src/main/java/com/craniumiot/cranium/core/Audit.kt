@@ -185,6 +185,11 @@ object AuditText {
         "setup.wifi_defaults" to Action(
             "read the Wi-Fi defaults", "tried to read the Wi-Fi defaults", "tried to read the Wi-Fi defaults", Glyph.LOCK,
         ),
+        // An export of the console's Database page, by its table (docs/database.md).
+        "db.export" to Action(
+            "exported the {} table", "tried to export the {} table", "tried to export from the database", Glyph.DOWNLOAD,
+            doneAlone = "exported from the database",
+        ),
     )
 
     /** The customer actions whose target is a board, and whose sentence ends with the customer. */
@@ -390,6 +395,12 @@ object AuditText {
         // Board setup's Wi-Fi defaults (docs/new-board-setup.md).
         "wifi_defaults_unavailable" to "The console could not read its Wi-Fi defaults just then",
         "wifi_defaults_invalid" to "The stored Wi-Fi defaults break the firmware’s rules",
+        // The console's Database page (docs/database.md).
+        "unknown_table" to "There is no such table",
+        "invalid_filter" to "A filter of the Database page was not valid",
+        "invalid_key" to "An item’s key was empty, too long or not plain text",
+        "invalid_format" to "An export is CSV or JSON",
+        "unknown_item" to "There is no item with that key",
     )
 
     private val REVOCATION_STEPS = mapOf(

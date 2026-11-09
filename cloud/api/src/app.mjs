@@ -87,6 +87,7 @@ import { createAppHandlers } from './handlers/apps.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createCommandHandlers } from './handlers/commands.mjs';
 import { createCustomerHandlers } from './handlers/customers.mjs';
+import { createDbHandlers } from './handlers/db.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
@@ -354,6 +355,8 @@ export function createApp({
   const customers = createCustomerHandlers(context, { devices });
   // Each member's SideStore source, which keeps the iPhone app on their iPhone up to date.
   const sidestore = createSidestoreHandlers(context, { apps, audit });
+  // The Database page (docs/database.md): the three tables, read only, for release managers.
+  const db = createDbHandlers(context);
   // Tokens from the console and from the phone apps are both tokens of this console; which
   // routes take the phone apps' is up to each route (`phone`).
   const clientIds = [config.userPoolClientId, config.mobileClientId];
@@ -371,6 +374,8 @@ export function createApp({
   const customerChange = (action) => ({ action, maxBody: SMALL_BODY_LIMIT });
   // A member's SideStore link, like their API tokens: made and turned off on the website, by themselves.
   const websiteSession = { token: false, phone: false };
+  // The Database page: a session of the website or of the apps, never an API token.
+  const noTokens = { token: false };
 
   const routes = Object.freeze([
     route('GET', '/api/me', apps.withConsole(me.get)),
@@ -589,6 +594,13 @@ export function createApp({
     ),
     route('POST', '/api/customers/{id}/disable', customers.disable, customerChange('customer.disable'), customerAdmin),
     route('POST', '/api/customers/{id}/enable', customers.enable, customerChange('customer.enable'), customerAdmin),
+    // The Database page (handlers/db.mjs): the console's DynamoDB tables, read only, never a secret field.
+    // Release managers, asked of Cognito now, on the website or in the apps; never with an API token. An
+    // export goes on record like a write, and needs no fresh sign-in from the apps: it changes nothing.
+    route('GET', '/api/db/tables', db.tables, null, noTokens),
+    route('GET', '/api/db/{table}', db.list, null, noTokens),
+    route('GET', '/api/db/{table}/item', db.item, null, noTokens),
+    route('GET', '/api/db/{table}/export', db.exportItems, { action: 'db.export', maxBody: 0, read: true }, noTokens),
   ]);
 
   /**

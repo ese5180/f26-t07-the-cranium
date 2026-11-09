@@ -803,6 +803,31 @@ const pages = {
     interval: () => IDLE_REFRESH_MS,
     holdStill: () => dialogOpen(),
   },
+  // The console's DynamoDB tables, read only, for release managers (db-page.js, docs/database.md). Read
+  // when opened and by hand, never by a timer: every read costs a Query or a Scan of one page.
+  database: {
+    title: (route) => (route.table ? `Database: ${route.table}` : 'Database'),
+    view: (ctx) => (dbScript ? dbScript.databaseView(ctx) : scriptPending(ctx, 'database', 'Database')),
+    resources: () => dbScript?.databaseResources(state) ?? [],
+    async refresh(full) {
+      if (!dbScript) {
+        dbScript = await pageScript(() => import('./db-page.js'));
+        // In an app, an export goes to the app's share sheet or save dialog where it has one (file.share).
+        dbScript?.connect({
+          state,
+          api,
+          load,
+          draw,
+          inApp: appBridge !== null,
+          share: appBridge?.has('share') ? (file) => appBridge.call('file.share', file) : null,
+        });
+      }
+      if (dbScript) await dbScript.refreshDatabase(full);
+      draw();
+    },
+    interval: () => 0,
+    holdStill: () => dbScript?.holdStill() ?? false,
+  },
   // The customer site's customers and their boards (docs/customer-site.md), for release managers.
   // Its script is fetched when the page is opened, like the serial console's.
   customers: {
@@ -912,6 +937,7 @@ function fleetReady() {
   return fleetLoading;
 }
 let customersScript = null;
+let dbScript = null;
 let memfaultScript = null;
 
 /** memfault-page.js, fetched once, when a Memfault page or a board's page is first opened. */

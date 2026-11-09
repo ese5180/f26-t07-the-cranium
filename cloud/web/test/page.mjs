@@ -79,6 +79,8 @@ export const ACCOUNT = scriptAddress('account.js', { 'core.js': CORE, 'views.js'
 export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS });
 // What Memfault knows (docs/memfault.md).
 export const MEMFAULT = scriptAddress('memfault-page.js', { 'core.js': CORE, 'views.js': VIEWS });
+// The Database page (docs/database.md).
+export const DB = scriptAddress('db-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
 // Board setup over USB, and the serial recovery it speaks (docs/new-board-setup.md).
 export const RECOVERY = scriptAddress('recovery.js');

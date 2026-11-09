@@ -53,6 +53,7 @@ const ON_DEMAND = [
   'bluetooth.js',
   'bridge.js',
   'customers.js',
+  'db-page.js',
   'fleet.js',
   'history.js',
   'live.js',

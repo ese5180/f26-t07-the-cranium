@@ -7,6 +7,18 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.9.0
+
+A Database page under Developer, for release managers: the console's three DynamoDB tables (state, audit and events), read only. Each table with its rough item count and size, a page of items with filters (kind or partition, board, time range, text), an item's page with all its fields, and an export of the filtered items as CSV or JSON, up to 10,000 items, which goes in the activity log. Token digests, keys, passphrases, certificates and anything else credential-like read "hidden", for everybody.
+
+Four routes, `GET /api/db/tables`, `/api/db/{table}`, `/api/db/{table}/item` and `/api/db/{table}/export`, refused to
+viewers and to API tokens; the apps' sign-in reads them as the website's does (`handlers/db.mjs`, `lib/db.mjs`,
+`aws-db.mjs`). A filter that names a partition is a Query of it; anything else is a Scan of one page with a Limit, never
+a whole table for one view, and the page reads only when asked. The API role gains `dynamodb:DescribeTable` and
+`dynamodb:Scan` on the three tables and nothing else (`BrowseDatabase`). A new activity log action, `db.export`, with
+its table, format, filters and count. In an app with the share bridge the export goes to the share sheet or a save
+dialog (docs/database.md).
+
 ## 2.8.2
 
 The Deployments page no longer fails with "AWS is limiting requests right now" when it loads many deployments at once. Reads of jobs are paced and tried again when AWS throttles them, and finished deployments are kept for ten minutes instead of being read on every load.

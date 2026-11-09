@@ -1717,7 +1717,8 @@ Resources:
               # way). A token is looked up with GetItem, a person's tokens are read with Query,
               # and revoking one sets its revokedAt with UpdateItem, as revoking a release sets
               # its status; a source key's use is counted with UpdateItem. TransactWriteItems is authorized through PutItem
-              # and UpdateItem; IAM has no action of its own for it. No Scan and no DeleteItem.
+              # and UpdateItem; IAM has no action of its own for it. No DeleteItem; the Database page's Scan is
+              # BrowseDatabase below.
               - Sid: ReadAndWriteReleasesAndTokens
                 Effect: Allow
                 Action:
@@ -1750,6 +1751,19 @@ Resources:
                   ForAllValues:StringLike:
                     dynamodb:LeadingKeys:
                       - UPD#cranium-*
+              # The Database page (docs/database.md, cloud/api/src/handlers/db.mjs), for release managers: the
+              # three tables' rough size, and a page of items where no filter names a partition. Read only. Every
+              # Scan has a Limit, so a view of the page reads at most 100 items, never a whole table; an export
+              # reads at most 60 times. Query, which the page uses for a partition and for one item, is above.
+              - Sid: BrowseDatabase
+                Effect: Allow
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt StateTable.Arn
+                  - !GetAtt AuditTable.Arn
+                  - !GetAtt EventsTable.Arn
               # Nothing above allows these. Said outright so that no later Allow can.
               - Sid: NeverChangeAuditEntries
                 Effect: Deny

@@ -1691,6 +1691,7 @@ const SECTION_OF = {
   setup: 'developer',
   history: 'developer',
   tokens: 'developer',
+  database: 'developer',
   rollout: 'fleet',
   issue: 'memfault',
 };
@@ -1808,6 +1809,8 @@ export function developerTabs(current) {
       ['setup', 'Board setup'],
       ['history', 'History'],
       ['tokens', 'API tokens'],
+      // The console's DynamoDB tables, read only, for release managers (db-page.js).
+      ['database', 'Database'],
     ].map(([view, label]) =>
       h(
         'a',
