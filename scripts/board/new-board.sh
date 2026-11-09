@@ -555,7 +555,7 @@ check_wifi() {
     pass "the Wi-Fi network for the board, ~/.cranium/wifi_secrets.h (not read here)"
   else
     failed "no Wi-Fi network for the board at ~/.cranium/wifi_secrets.h" \
-      "python3 tools/secrets.py wifi. Copy a phone hotspot's name exactly: it often has a curly apostrophe"
+      "python3 tools/cranium_secrets.py wifi. Copy a phone hotspot's name exactly: it often has a curly apostrophe"
   fi
 }
 

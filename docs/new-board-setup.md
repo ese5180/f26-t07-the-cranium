@@ -103,7 +103,7 @@ page puts them straight into the fields and keeps them nowhere else.
 
 They live in AWS only, in the stack's secret `<stack>/wifi-defaults` (output `WifiDefaultsArn`), as JSON
 `{ "ssid": "...", "passphrase": "...", "security": "WPA2_PSK" }`. Only the console's API function may read it. To set
-them, write `~/.cranium/wifi_secrets.h` with `python tools/secrets.py wifi` and run `cloud/deploy.sh`, which stores it
+them, write `~/.cranium/wifi_secrets.h` with `python tools/cranium_secrets.py wifi` and run `cloud/deploy.sh`, which stores it
 the way it stores the Memfault token; a deployment from GitHub Actions takes the repository secret
 `WIFI_DEFAULTS_JSON` (that JSON) instead, when it is set. Neither prints it. A network the firmware would refuse is not
 stored. Without one the fields start empty, and the page says so. The GitHub deploy role needs the updated
@@ -160,7 +160,7 @@ list are simulated, and it never reads the Wi-Fi defaults. The same run is a tes
 | Git, the AWS CLI v2, and Python 3.10 or later with `pyserial` and `cbor2` | The repository, AWS IoT, and the tools that talk to the board | [Install the tools](#install-the-tools) |
 | A console token of a release manager, `~/.cranium/console-token` | Registering the board through the console, and the newest release | The console: Developer > API tokens. See [Who needs what](#who-needs-what) |
 | The golden image, `binaries/golden/cranium-1.5.0-0.signed.bin` | The bootloader only restores that exact file | In git. A rebuild won't match it |
-| The Wi-Fi network, `~/.cranium/wifi_secrets.h` | The board's network | `python tools/secrets.py wifi`, on your own computer. A phone hotspot's name often has a curly apostrophe: copy the exact spelling. Only on macOS does the tool offer the spelling the computer knows |
+| The Wi-Fi network, `~/.cranium/wifi_secrets.h` | The board's network | `python tools/cranium_secrets.py wifi`, on your own computer. A phone hotspot's name often has a curly apostrophe: copy the exact spelling. Only on macOS does the tool offer the spelling the computer knows |
 | Only without a console token: an AWS sign-in with administrator rights, and `cloud/.deploy/outputs.json` | Registering the board with the AWS CLI | `aws login --profile cranium --region us-east-1`; the file is written by `cloud/deploy.sh` on a laptop (a deployment from GitHub Actions keeps none): copy it from the owner |
 | Only to build releases: the signing key, `~/.cranium/mcuboot_signing_key.pem` | Every image a board runs must be signed with it | Its custodian: see [`secrets/README.md`](../secrets/README.md). Setting up a board does without it |
 
@@ -173,7 +173,7 @@ list are simulated, and it never reads the Wi-Fi defaults. The same run is a tes
 | AWS account | None | An administrator's sign-in, to deploy the cloud; provisioning takes it where there is no token |
 | Signing key | None: the build makes the bootloader with the team's public key, `firmware/keys/fw_signing_pub.pem` in git, and signs its own application with a throwaway key, which that bootloader refuses. The board gets the golden image from git and the console's newest release, both signed by the key's custodian | `~/.cranium/mcuboot_signing_key.pem`, to build releases |
 | Golden image | In git | In git |
-| Wi-Fi network | `~/.cranium/wifi_secrets.h` on their own computer (`python tools/secrets.py wifi`) | The same |
+| Wi-Fi network | `~/.cranium/wifi_secrets.h` on their own computer (`python tools/cranium_secrets.py wifi`) | The same |
 
 So a teammate runs `scripts/board/new-board.sh check`, then `scripts/board/new-board.sh`, with nothing of the owner's
 but a console token. `check` says FAIL for AWS and `outputs.json` only when there is no release manager's token.
@@ -213,7 +213,7 @@ Run everything in WSL2, Windows' own Linux, and hand the board's USB to it with
 | Shell | What works | What breaks |
 | --- | --- | --- |
 | **WSL2, with usbipd-win** | Everything, as on Linux | Setting up USB once, and attaching the board each time it is plugged in. While WSL has the board, Windows programs can't use it |
-| Git Bash | `west`, and the tools that only read | `scripts/firmware/build.sh` looks for the SDK in `/opt/nordic/ncs`, which Git Bash doesn't have. `provision_device.py` stops at registering the board: it hands the AWS CLI a temporary file that Windows keeps locked. `secrets.py wifi` refuses to run. A token file can't pass the scripts' mode 600 check. The scripts call `python3`, which Windows may not have |
+| Git Bash | `west`, and the tools that only read | `scripts/firmware/build.sh` looks for the SDK in `/opt/nordic/ncs`, which Git Bash doesn't have. `provision_device.py` stops at registering the board: it hands the AWS CLI a temporary file that Windows keeps locked. `cranium_secrets.py wifi` refuses to run. A token file can't pass the scripts' mode 600 check. The scripts call `python3`, which Windows may not have |
 | nRF Connect terminal (cmd or PowerShell) | `west build`, `west flash`, and the tools that only read | No bash script runs at all, and the Python tools break as under Git Bash |
 
 Once, in PowerShell as administrator:
@@ -439,7 +439,7 @@ themselves.
 | `golden.py check` fails | Your golden file isn't the frozen one: `git checkout -- binaries/golden` |
 | Provisioning says the board was registered before | It was wiped since. Run it again with `--new-identity`, which retires the old certificate |
 | The gesture gives three slow blinks and `refused` | Neither copy is the pinned golden image. Run step 4's `restore` again |
-| Provisioning can't find the network | Usually the hotspot isn't on, or its name differs by a character. Keep the phone on the hotspot screen, and check the name with `python tools/secrets.py wifi` |
+| Provisioning can't find the network | Usually the hotspot isn't on, or its name differs by a character. Keep the phone on the hotspot screen, and check the name with `python tools/cranium_secrets.py wifi` |
 | Provisioning fails at AWS | Your AWS sign-in has expired, or isn't an administrator's. Run `aws login` again, or provision through the console: `--via console` with a console token |
 | The board is offline afterwards | Usually the hotspot: give it a few minutes. `python tools/provision_device.py --wifi` sends the network again |
 | You need to start over | `west flash --recover` and begin at step 3. Provisioning again needs `--new-identity` |

@@ -17,7 +17,6 @@ import io
 import json
 import os
 import re
-import secrets  # noqa: F401  Before tools/ is on the path: tools/secrets.py would hide it.
 import stat
 import struct
 import subprocess

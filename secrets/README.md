@@ -8,7 +8,7 @@ The firmware tools and the build read the two files below from that folder.
 | File in `~/.cranium/` | What it is | How it gets there |
 | --- | --- | --- |
 | `mcuboot_signing_key.pem` | ECDSA P-256 private key that signs every firmware image. The boards only run images signed with it. | `python tools/keys.py generate`, or from the key custodian over a secure channel. The custodian today is the owner. |
-| `wifi_secrets.h` | Wi-Fi network name and passphrase used when provisioning a board. Owned by root, mode 600: reading it needs an administrator password. With `--unlocked` it stays yours, mode 600. | `python tools/secrets.py wifi` |
+| `wifi_secrets.h` | Wi-Fi network name and passphrase used when provisioning a board. Owned by root, mode 600: reading it needs an administrator password. With `--unlocked` it stays yours, mode 600. | `python tools/cranium_secrets.py wifi` |
 
 `wifi_secrets.h.example` in this directory shows the format of the second file.
 
@@ -25,12 +25,12 @@ it is made, is in the document named:
 `memfault.json` there holds the Memfault organization's and project's names, which are not secret but
 stay out of the repository too. The release workflow on GitHub has four repository secrets of its own,
 copied from the Android files, the token and the apps' configuration: [`docs/ci.md`](../docs/ci.md#releasing-the-apps).
-`python tools/secrets.py status` lists what exists and who can read it.
+`python tools/cranium_secrets.py status` lists what exists and who can read it.
 
 The test benches' logs are not secrets, but keep them private too. `build-hil/` and the other `build-*`
 folders, which git ignores, hold the Wi-Fi network's name, AWS endpoints and the like.
 
-`python tools/secrets.py wifi --unlocked` writes the file owned by you instead of by root. Then
+`python tools/cranium_secrets.py wifi --unlocked` writes the file owned by you instead of by root. Then
 no administrator password is needed, so a test bench can provision a board with nobody at the
 keyboard. The cost is that any program running as you can read it. Use it only on a bench
 machine. The passphrase is still typed without echo and never appears on a command line.

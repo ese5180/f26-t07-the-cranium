@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of tools/board.py, tools/secrets.py and firmware/tests/hil/console_bench.py, without a
+"""Tests of tools/board.py, tools/cranium_secrets.py and firmware/tests/hil/console_bench.py, without a
 board.
 
     python3 firmware/tests/hil/test_board.py
@@ -24,7 +24,6 @@ import json
 import os
 import pty
 import re
-import secrets  # noqa: F401  Before tools/ is on the path: tools/secrets.py would hide it.
 import signal
 import subprocess
 import sys
@@ -3639,7 +3638,7 @@ class SecretsFileTest(unittest.TestCase):
     """The hint the bench gives has to work on the file it is given for."""
 
     def load_tool(self, path):
-        spec = importlib.util.spec_from_file_location("cranium_secrets", REPO / "tools/secrets.py")
+        spec = importlib.util.spec_from_file_location("cranium_secrets", REPO / "tools/cranium_secrets.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         module.WIFI = path

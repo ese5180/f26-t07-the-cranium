@@ -20,7 +20,7 @@ this prints holds the network's name, or what names the AWS account.
 A step that erases the board is followed by restoring it with tools/provision_device.py
 --profile <profile>, which provisions it again unattended: it needs that script's AWS
 profile, cloud/.deploy/outputs.json, and a Wi-Fi secrets file that can be read without sudo
-(python tools/secrets.py wifi --unlocked replaces a locked one). `run --erase` checks all of
+(python tools/cranium_secrets.py wifi --unlocked replaces a locked one). `run --erase` checks all of
 that before it does anything. Stopped with Ctrl-C it restores nothing, says what state the
 board is in, and leaves that in --out, where the `restore` command finds it.
 
@@ -1228,7 +1228,7 @@ def preflight_problems(args, table: list, undone: set[str]) -> list[str]:
     if args.erase or args.command == "restore":
         if not os.access(WIFI_SECRETS, os.R_OK):
             problems.append(f"{WIFI_SECRETS} cannot be read without sudo, so the board could not "
-                            "be provisioned again unattended: run python tools/secrets.py wifi "
+                            "be provisioned again unattended: run python tools/cranium_secrets.py wifi "
                             "--unlocked, which replaces a locked file")
         if not OUTPUTS.exists():
             problems.append(f"{OUTPUTS} is missing, and provisioning needs it: deploy the cloud "

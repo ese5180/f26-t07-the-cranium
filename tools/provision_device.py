@@ -93,8 +93,7 @@ BOARD_TYPES = ("nrf7002dk", "nrf5340dk")
 DEFAULT_BOARD = "nrf7002dk"
 # What the board advertises as, before the four hex digits: CONFIG_BT_DEVICE_NAME.
 BT_NAME_PREFIX = "Cranium-"
-# The operating system's random source (os.urandom). Not the secrets module: tools/secrets.py, which
-# keeps the Wi-Fi secrets file, has that name, and comes first on the path of a tool run from here.
+# The operating system's random source (os.urandom), the same source as the standard secrets module.
 SYSTEM_RANDOM = random.SystemRandom()
 # Provisioning through the console (docs/new-board-setup.md): its route, and what its answer must look like.
 REGISTER_PATH = "/devices/register"
@@ -133,7 +132,7 @@ class Aws:
 
 def read_wifi_secrets() -> tuple[str, str, str]:
     if not WIFI_SECRETS.exists():
-        fail(f"{WIFI_SECRETS} does not exist: run `python tools/secrets.py wifi`")
+        fail(f"{WIFI_SECRETS} does not exist: run `python tools/cranium_secrets.py wifi`")
     try:
         text = WIFI_SECRETS.read_text()
     except PermissionError:
@@ -616,7 +615,7 @@ def main() -> None:
 
             if not has_network:
                 print("The board is registered and has its certificate. It connects once it "
-                      "has a network:\n  python tools/secrets.py wifi\n"
+                      "has a network:\n  python tools/cranium_secrets.py wifi\n"
                       "  python tools/provision_device.py --wifi")
                 return
 
