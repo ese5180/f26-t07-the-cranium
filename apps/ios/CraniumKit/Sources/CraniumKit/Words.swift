@@ -1136,6 +1136,10 @@ public enum Words {
         // Board setup's Wi-Fi defaults handed to a release manager (docs/new-board-setup.md).
         "setup.wifi_defaults": AuditAction(done: "read the Wi-Fi defaults", tried: "tried to read the Wi-Fi defaults",
                                            triedAlone: "tried to read the Wi-Fi defaults", icon: "lock"),
+        // An export of the console's Database page, by its table (docs/database.md).
+        "db.export": AuditAction(done: "exported the {} table", doneAlone: "exported from the database",
+                                 tried: "tried to export the {} table", triedAlone: "tried to export from the database",
+                                 icon: "download"),
     ]
 
     /// The customer actions whose target is a board, and whose sentence ends with the customer.
@@ -1323,6 +1327,12 @@ public enum Words {
         // Board setup's Wi-Fi defaults (docs/new-board-setup.md).
         "wifi_defaults_unavailable": "The console could not read its Wi-Fi defaults just then",
         "wifi_defaults_invalid": "The stored Wi-Fi defaults break the firmware’s rules",
+        // The console's Database page (docs/database.md).
+        "unknown_table": "There is no such table",
+        "invalid_filter": "A filter of the Database page was not valid",
+        "invalid_key": "An item’s key was empty, too long or not plain text",
+        "invalid_format": "An export is CSV or JSON",
+        "unknown_item": "There is no item with that key",
     ]
 
     struct AuditDetail {

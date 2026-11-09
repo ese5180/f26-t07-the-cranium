@@ -4115,8 +4115,8 @@ test("the API tokens page lists the person's own tokens with their state, and re
   const { actions, calls } = recorder();
   const drawn = tokensPage({ actions });
   assert.equal(textOf(one(drawn, 'h1')), 'API tokens');
-  // The eyebrow, then Serial console, Board setup, History and API tokens.
-  assert.equal(one(drawn, 'nav.dev-tabs').childNodes.length, 5);
+  // The eyebrow, then Serial console, Board setup, History, API tokens and Database.
+  assert.equal(one(drawn, 'nav.dev-tabs').childNodes.length, 6);
   assert.equal(one(drawn, 'a', 'API tokens').getAttribute('aria-current'), 'page');
 
   const rows = all(drawn, 'li.token');
