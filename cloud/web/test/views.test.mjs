@@ -804,6 +804,17 @@ test('a board that is restarting does not count as up, whatever its connection s
   assert.equal(one(alone, 'span.presence-dot').getAttribute('class'), 'presence-dot');
 });
 
+test('on a phone the Devices page opens with a strip of figures that lead nowhere but to the updates', async () => {
+  const devices = page(views.devicesView, await consoleState(WORLD));
+  const strip = one(devices, 'div.glance');
+  assert.equal(strip.getAttribute('role'), 'group');
+  assert.deepEqual(all(strip, 'span.glance-label').map(textOf), ['Online', 'Offline', 'Bluetooth only', 'Updating']);
+  assert.deepEqual(
+    all(strip, 'a').map((link) => link.getAttribute('href')),
+    ['#/deployments']
+  );
+});
+
 test('a board that has never had a heartbeat says so, and the list of devices keeps its columns', async () => {
   const state = await consoleState({
     ...WORLD,

@@ -3222,9 +3222,21 @@ function glanceStrip(ctx, devices, newest) {
       : ['attention', '#/devices', String(attention), 'Need attention'],
     ['newest', '#/firmware', newest ? newest.version : '–', 'Newest release'],
   ];
+  return glance(items);
+}
+
+/** A strip of figures: [key, href, value, label] each. `className` says where it is shown. */
+function glance(items, className = '') {
+  // A way to other pages is a nav; figures that lead nowhere are a group.
+  const leads = items.every(([, href]) => href);
   return h(
-    'nav',
-    { class: 'glance', key: 'glance', 'aria-label': 'The fleet at a glance' },
+    leads ? 'nav' : 'div',
+    {
+      class: `glance ${className}`.trim(),
+      key: 'glance',
+      role: leads ? null : 'group',
+      'aria-label': 'The fleet at a glance',
+    },
     h(
       'ul',
       { class: 'glance-list' },
@@ -3233,7 +3245,7 @@ function glanceStrip(ctx, devices, newest) {
           'li',
           { key },
           h(
-            'a',
+            href ? 'a' : 'span',
             { class: `glance-item is-${key}`, href },
             h('span', { class: 'glance-value' }, value),
             h('span', { class: 'glance-label' }, label)
@@ -3501,7 +3513,23 @@ export function devicesView(ctx) {
   } else if (devices.length === 0) {
     body = card({ key: 'none' }, empty(NO_BOARDS));
   } else {
+    const counted = boardsCounted(devices, phoneOnly(ctx));
     body = [
+      // On a phone a strip of figures; wider, the panel with the firmware in the fleet.
+      glance(
+        [
+          ['online', null, `${counted.online}/${devices.length - counted.bluetooth}`, 'Online'],
+          ['offline', null, String(counted.quiet + counted.never), 'Offline'],
+          ['bluetooth', null, String(counted.bluetooth), 'Bluetooth only'],
+          [
+            'updating',
+            '#/deployments',
+            String(devices.filter((device) => deviceActivity(device) !== null).length),
+            'Updating',
+          ],
+        ],
+        'is-compact'
+      ),
       devicesPanel(devices, ctx),
       h(
         'div',

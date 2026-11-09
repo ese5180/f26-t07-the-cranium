@@ -10457,3 +10457,219 @@ body.console {
     opacity: 0.45;
   }
 }
+
+/* Devices: on a phone a strip of figures over the list of boards; wider, the panel instead. */
+.glance.is-compact {
+  margin-bottom: var(--space-5);
+}
+
+.glance.is-compact .glance-item {
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+}
+
+span.glance-item:hover {
+  background: none;
+}
+
+@media (min-width: 861px) {
+  .glance.is-compact {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .console .devices-panel {
+    display: none;
+  }
+
+  .glance.is-compact .glance-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .glance.is-compact .glance-list > li {
+    border-top: 0;
+  }
+
+  .glance.is-compact .glance-list > li + li {
+    border-left: 1px solid var(--line);
+  }
+
+  .glance.is-compact .glance-value {
+    font-size: 1.125rem;
+  }
+
+  .glance.is-compact .glance-label {
+    font-size: 0.6875rem;
+  }
+
+  /* A board's row: its mark, its name, how it is in words, what it runs, and a chevron. */
+  .console .device-grid .device-head {
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .console .device-grid .device-head > .badge,
+  .console .device-grid .device-head > .btn,
+  .console .device-grid .device-head .fleet-chips,
+  .console .device-grid .device-head .device-help,
+  .console .device-grid .device-head .device-thing {
+    display: none;
+  }
+
+  .console .device-grid .device-name {
+    font-size: 0.9375rem;
+  }
+
+  .console .device-grid .device-seen {
+    font-size: 0.8125rem;
+  }
+
+  .console .device-grid > .card.device {
+    padding-block: 10px;
+  }
+}
+
+/* Choices in a dialog: one group, a row each, a check at the start of the chosen ones. */
+.console .choices {
+  gap: 0;
+}
+
+.console .choice {
+  min-height: var(--tap);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.console .choice + .choice {
+  border-top-width: 0;
+}
+
+.console .choice:first-of-type {
+  border-radius: var(--radius-group) var(--radius-group) 0 0;
+}
+
+.console .choice:last-of-type {
+  border-radius: 0 0 var(--radius-group) var(--radius-group);
+}
+
+.console .choice:only-of-type {
+  border-radius: var(--radius-group);
+}
+
+.console .choice:hover {
+  border-color: var(--line);
+  background: var(--well);
+}
+
+.console .choice:has(input:checked) {
+  border-color: var(--line);
+  background: var(--accent-wash);
+}
+
+.console .choice:has(input:focus-visible) {
+  outline-offset: -2px;
+}
+
+.console .choice input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.console .choice.is-disabled,
+.console .choice.is-disabled:hover {
+  background: var(--well);
+}
+
+.console .choice-title {
+  font-weight: 500;
+}
+
+@media (max-width: 860px) {
+  /* What a board runs, in the row's own size; only a mark that warns stays beside it. */
+  .console .device-grid .device .fact dt {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .console .device-grid .device-version {
+    font-family: var(--mono);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .console .device-grid .fact .badge.is-good {
+    display: none;
+  }
+
+  .console .device-grid .fact dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+  }
+
+  .console .map-side .map-legend {
+    padding: 0 var(--space-1);
+  }
+}
+
+/* The deployments' figures: a group like the rest, not a rule across the page. */
+.console .jobs-panel {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border-top: 0;
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+@media (max-width: 860px) {
+  .console .map-side.stack {
+    gap: var(--space-4);
+  }
+}
+
+/* Figures on a phone: compact, two to a row, not four big tiles. */
+@media (max-width: 860px) {
+  .console .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3) 0;
+  }
+
+  .console .stat:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .console .stat-label,
+  .console .stat-note {
+    overflow-wrap: normal;
+  }
+
+  .console .stat {
+    gap: 2px;
+    padding: 0 var(--space-2);
+  }
+
+  .console .stat-value {
+    font-size: 1.375rem;
+  }
+
+  .console .stat-label {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .console .stat-note {
+    font-size: 0.6875rem;
+    line-height: 1.3;
+  }
+}

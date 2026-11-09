@@ -15,7 +15,9 @@ The design and the principles behind it are in docs/console-design.md. The frame
 frame", views.js navView, app.js showMore and watchTitle); the pages keep their markup and words, and are drawn under
 the `console` class of the page's body, so that the customer site, which shares app.css, is as it was. Back on a page
 goes back in the history when that is where it leads. New: the glance strip on the Overview (Online, Updating, Need
-attention or Offline, Newest release), one icon per section, and a mark of each board's state at the start of its row.
+attention or Offline, Newest release), one icon per section, and a mark of each board's state at the start of its row. On a phone the Devices page opens with a strip (Online,
+Offline, Bluetooth only, Updating) over one list of boards, the Map's legend is at the foot of its sheet, and the
+choices in a dialog are rows of one group.
 
 ## 2.8.2
 
