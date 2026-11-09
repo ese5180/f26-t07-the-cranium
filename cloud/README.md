@@ -251,11 +251,11 @@ the next sign-in, and whoever signed in first would register an app of their own
 new account has a new account id, and earlier entries in the activity log keep the old
 one. It refuses a disabled account, because the new one would be enabled.
 
-The customer site's admins are these same accounts: a release manager signs in with
-**Admin sign-in** on the customer site and opens admin mode. All four of the team have
+The customer site's admins are these same accounts: a release manager signs in on the
+customer site's one sign-in form, which tries this pool first, and lands in admin mode. All four of the team have
 `release-manager`, the top role. Customers are not made here but on the console's Customers
 page, in a pool of their own ([docs/customer-site.md](../docs/customer-site.md#accounts)).
-One sign-in for both, with roles, is planned and not built.
+One form for both since console 2.4.5; the two pools stay apart.
 
 `remove` on an address that has no account fails and lists the accounts there are,
 because the person may be listed under another address. An address can only be changed

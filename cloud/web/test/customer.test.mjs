@@ -419,7 +419,9 @@ test('routes: the pages of the site, a board by its assignment id, and nothing e
   assert.equal(site.routeHash({ view: 'device', id: '0123456789abcdef' }), '#/devices/0123456789abcdef');
   assert.equal(site.routeHash({ view: 'device', id: 'cranium-x' }), '#/');
   assert.equal(site.routeHash({ view: 'nowhere' }), '#/');
-  assert.deepEqual([...site.PUBLIC_VIEWS], ['landing', 'sign-in', 'forgot', 'admin-sign-in', 'help']);
+  assert.deepEqual([...site.PUBLIC_VIEWS], ['landing', 'sign-in', 'forgot', 'help']);
+  // One sign-in for everybody: the admin sign-in of before is no page any more.
+  assert.equal(site.parseRoute('#/admin-sign-in'), null);
 });
 
 test('the settings in the page are read with care, and each sign-in gets its own pool and no managed login', () => {
@@ -733,6 +735,199 @@ test("a customer with an authenticator app gives the code in the same step as th
   assert.deepEqual(await auth.sendCode('246810'), { step: 'done' });
 });
 
+// One sign-in for everybody (customer-core.js signInEither): the team's pool first, then the customer pool.
+
+const TEAM = {
+  email: 'manager@example.invalid',
+  userId: '0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d',
+  password: 'Only-For-Tests-7',
+  code: '135790',
+};
+
+/** Both pools behind one fetch, as the site has them: the team's (with its code always) and the customer pool. */
+function bothPools({ status = 'CONFIRMED', authenticator = false, fail } = {}) {
+  const { cognito: customers, accounts } = customerWorld({ status, authenticator });
+  const team = createCognito({
+    userPoolId: STAFF_POOL,
+    clientId: 'staffclient',
+    users: [{ ...TEAM, groups: ['release-managers'] }],
+    now: () => NOW,
+    fail,
+  });
+  const fetch = (url, init) => {
+    const body = JSON.parse(init.body);
+    return body.ClientId === 'staffclient' ? team.fetch(IDP, url, init) : customers.fetch(IDP, url, init);
+  };
+  const kept = new Map();
+  const tabStorage = {
+    getItem: (key) => kept.get(key) ?? null,
+    setItem: (key, value) => kept.set(key, value),
+    removeItem: (key) => kept.delete(key),
+  };
+  const authOf = (which) =>
+    core.createAuth({
+      config: site.authConfig(SITE_CONFIG, which),
+      storage: site.namespaced(tabStorage, which === 'customer' ? 'customer:' : ''),
+      location: { search: '', hash: '', pathname: '/', assign() {} },
+      history: { replaceState() {} },
+      fetch,
+      crypto: globalThis.crypto,
+      now: () => NOW,
+      newPasswordHere: which === 'customer',
+    });
+  const signIns = { admin: authOf('admin'), customer: authOf('customer') };
+  return { team, customers, accounts, signIns, fetch };
+}
+
+const initiations = (pool) => pool.calls.filter((call) => call.operation === 'InitiateAuth');
+
+test('one form: a team account signs in at the team pool, with its code, and the customer pool is never asked', async () => {
+  const { team, customers, signIns } = bothPools();
+  const first = await site.signInEither(signIns, TEAM.email, TEAM.password);
+  assert.deepEqual(first, { kind: 'admin', outcome: { step: 'code' } });
+  assert.deepEqual(await signIns.admin.sendCode('000000'), { step: 'code', problem: 'wrong-code' });
+  assert.deepEqual(await signIns.admin.sendCode(TEAM.code), { step: 'done' });
+  assert.equal(initiations(team).length, 1);
+  assert.equal(initiations(customers).length, 0);
+});
+
+test('one form: a customer is refused by the team pool, then signed in by the customer pool, one try each', async () => {
+  const { team, customers, signIns } = bothPools();
+  assert.deepEqual(await site.signInEither(signIns, 'ada@example.invalid', 'her own password'), {
+    kind: 'customer',
+    outcome: { step: 'done' },
+  });
+  assert.equal(initiations(team).length, 1);
+  assert.equal(initiations(customers).length, 1);
+  // Her own authenticator, and a first sign-in's new password, are the customer pool's steps as before.
+  const coded = bothPools({ authenticator: true });
+  assert.deepEqual(await site.signInEither(coded.signIns, 'ada@example.invalid', 'her own password'), {
+    kind: 'customer',
+    outcome: { step: 'code' },
+  });
+  assert.deepEqual(await coded.signIns.customer.sendCode('246810'), { step: 'done' });
+  const invited = bothPools({ status: 'FORCE_CHANGE_PASSWORD' });
+  assert.deepEqual(await site.signInEither(invited.signIns, 'ada@example.invalid', 'her own password'), {
+    kind: 'customer',
+    outcome: { step: 'new-password' },
+  });
+});
+
+test('one form: a wrong password and an unknown address get the same words, whichever pool has the account', async () => {
+  const wrong = core.SIGN_IN_WORDS['wrong-password'];
+  assert.equal(wrong, 'The e-mail address or password is wrong.');
+  for (const [email, password] of [
+    [TEAM.email, 'not the password'],
+    ['ada@example.invalid', 'not the password'],
+    ['nobody@example.invalid', 'any password at all'],
+  ]) {
+    const { team, customers, signIns } = bothPools();
+    const answer = await site.signInEither(signIns, email, password);
+    assert.deepEqual(answer.outcome, { step: 'password', problem: 'wrong-password' }, email);
+    // One try at each pool, never more: the brute-force limits of each pool count every one.
+    assert.equal(initiations(team).length, 1, email);
+    assert.equal(initiations(customers).length, 1, email);
+  }
+  // Nothing is asked of either pool without an address and a password.
+  const { team, customers, signIns } = bothPools();
+  assert.deepEqual((await site.signInEither(signIns, '', 'x')).outcome, { step: 'password', problem: 'missing' });
+  assert.equal(team.calls.length + customers.calls.length, 0);
+});
+
+test("one form: the team pool's throttling stops there, with its own words, and the customer pool is not asked", async () => {
+  const { customers, signIns } = bothPools({
+    fail: (operation) => (operation === 'InitiateAuth' ? 'TooManyRequestsException' : null),
+  });
+  assert.deepEqual(await site.signInEither(signIns, TEAM.email, TEAM.password), {
+    kind: 'admin',
+    outcome: { step: 'password', problem: 'too-many' },
+  });
+  assert.equal(initiations(customers).length, 0);
+  assert.equal(core.SIGN_IN_WORDS['too-many'], 'Too many tries. Wait a minute.');
+});
+
+test('one form: the address goes to the team pool in lower case, as users.sh keeps its names', async () => {
+  const { team, signIns } = bothPools();
+  assert.deepEqual(await site.signInEither(signIns, '  Manager@Example.INVALID ', TEAM.password), {
+    kind: 'admin',
+    outcome: { step: 'code' },
+  });
+  assert.equal(initiations(team)[0].body.AuthParameters.USERNAME, 'manager@example.invalid');
+});
+
+test('one form for a forgotten password: both pools are asked once, and the page says the same either way', async () => {
+  // The team pool hides unknown names: it answers as if a code went out. A team account resets with an admin.
+  const teamSays = [];
+  const world = bothPools();
+  const fetch = (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.ClientId !== 'staffclient') return world.fetch(url, init);
+    const target = init.headers['x-amz-target'].split('.').pop();
+    teamSays.push([target, body.Username]);
+    if (target === 'ForgotPassword') return Response.json({ CodeDeliveryDetails: { DeliveryMedium: 'EMAIL' } });
+    return Response.json({ __type: 'CodeMismatchException' }, { status: 400 });
+  };
+  const account = site.createAccount({ fetch, site: SITE_CONFIG, accessToken: () => null });
+  // A customer: the code comes from the customer pool, and the new password is set there.
+  assert.deepEqual(await account.forgotPassword(' Ada@Example.invalid'), { ok: true });
+  const asked = world.customers.calls.filter((call) => call.operation === 'ForgotPassword');
+  assert.deepEqual(
+    asked.map((call) => call.body.Username),
+    ['ada@example.invalid']
+  );
+  assert.deepEqual(await account.confirmForgotPassword('ada@example.invalid', '000000', 'a new long password'), {
+    ok: false,
+    problem: 'wrong-code',
+  });
+  assert.deepEqual(await account.confirmForgotPassword('ada@example.invalid', '135790', 'a new long password'), {
+    ok: true,
+  });
+  assert.deepEqual(await site.signInEither(world.signIns, 'ada@example.invalid', 'a new long password'), {
+    kind: 'customer',
+    outcome: { step: 'done' },
+  });
+  // An address no pool has: the same answers, and still one request to each pool.
+  const before = teamSays.length;
+  assert.deepEqual(await account.forgotPassword('nobody@example.invalid'), { ok: true });
+  assert.deepEqual(await account.confirmForgotPassword('nobody@example.invalid', '135790', 'a new long password'), {
+    ok: false,
+    problem: 'wrong-code',
+  });
+  assert.deepEqual(teamSays.slice(before), [
+    ['ForgotPassword', 'nobody@example.invalid'],
+    ['ConfirmForgotPassword', 'nobody@example.invalid'],
+  ]);
+  assert.deepEqual(await account.forgotPassword('  '), { ok: false, problem: 'missing-email' });
+});
+
+test('one form for a forgotten password: a team account whose pool sends codes resets there, and stops there', async () => {
+  const customerCalls = [];
+  const fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const target = init.headers['x-amz-target'].split('.').pop();
+    if (body.ClientId !== 'staffclient') {
+      customerCalls.push(target);
+      if (target === 'ForgotPassword') return Response.json({ CodeDeliveryDetails: { DeliveryMedium: 'EMAIL' } });
+      return Response.json({ __type: 'CodeMismatchException' }, { status: 400 });
+    }
+    if (target === 'ForgotPassword') return Response.json({ CodeDeliveryDetails: { DeliveryMedium: 'EMAIL' } });
+    if (body.ConfirmationCode === '999999') return Response.json({ __type: 'ExpiredCodeException' }, { status: 400 });
+    return Response.json({});
+  };
+  const account = site.createAccount({ fetch, site: SITE_CONFIG, accessToken: () => null });
+  assert.deepEqual(await account.forgotPassword(TEAM.email), { ok: true });
+  assert.deepEqual(customerCalls, ['ForgotPassword']);
+  // The team pool's own refusal is the one shown: the customer pool's "not right" says nothing about this account.
+  assert.deepEqual(await account.confirmForgotPassword(TEAM.email, '999999', 'a new long password'), {
+    ok: false,
+    problem: 'expired-code',
+  });
+  assert.deepEqual(await account.confirmForgotPassword(TEAM.email, '123456', 'a new long password'), { ok: true });
+  assert.deepEqual(customerCalls, ['ForgotPassword', 'ConfirmForgotPassword']);
+  assert.equal(site.plainestProblem(['wrong-code', 'too-many']), 'too-many');
+  assert.equal(site.plainestProblem(['failed', 'wrong-code']), 'wrong-code');
+});
+
 // The site in a tab.
 
 const realTimeout = globalThis.setTimeout;
@@ -1005,7 +1200,13 @@ test('signed out, the home page is shown; a page of the studio asks for a sign-i
   );
   assert.equal(tab.landing.hidden, true);
   assert.match(tab.text(), /Sign in With the e-mail address and the password of your Cranium account\./);
-  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/admin-sign-in'));
+  // One form for everybody: no choice of admin or customer, and the way to a new password for all.
+  assert.doesNotMatch(tab.text(), /Admin sign-in|Customer sign-in/);
+  assert.equal(
+    all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/admin-sign-in'),
+    false
+  );
+  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/forgot'));
   tab.go('#/help');
   await until(() => /How can we help\?/.test(tab.text()), 'the help page');
   assert.equal(tab.location.hash, '#/help');
@@ -1138,12 +1339,13 @@ test('an invited customer chooses a password on the page, and signs in with it',
   assert.equal(tab.accounts.get('5d0e1f2a-3b4c-4d5e-8f60-718293a4b5c6').status, 'CONFIRMED');
 });
 
-test('an admin signs in with password and code, and is offered admin mode, which is the console at /admin', async (t) => {
+test('an admin signs in on the one form with password and code, lands in admin mode at /admin, and has the site too', async (t) => {
   const tab = await openSite(t);
-  tab.go('#/admin-sign-in');
-  await until(() => tab.document.getElementById('signin-email') !== null, 'the admin sign-in');
-  assert.match(tab.text(), /Admin sign-in/);
-  await tab.type('signin-email', STAFF.email);
+  tab.go('#/sign-in');
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in');
+  assert.doesNotMatch(tab.text(), /Admin sign-in/);
+  // Typed with capitals: the team pool's names are lower case.
+  await tab.type('signin-email', 'Manager@Example.invalid');
   tab.document.getElementById('signin-password').value = STAFF.password;
   tab.submit();
   await until(() => tab.document.getElementById('code-digit-1') !== null, 'the six boxes');
@@ -1151,9 +1353,19 @@ test('an admin signs in with password and code, and is offered admin mode, which
   const first = tab.document.getElementById('code-digit-1');
   first.value = STAFF.code;
   first.dispatchEvent({ type: 'input', target: first, data: STAFF.code });
-  await until(() => /The console, for every board\./.test(tab.text()), 'the admin overview');
+  await until(() => tab.navigations.includes('/admin'), 'admin mode');
+  assert.deepEqual(tab.navigations, ['/admin']);
   // The session is under the console's own keys: the console at /admin reads it from this tab.
   assert.equal(JSON.parse(tab.stored.get('cranium.session')).accessToken, 'STAFF-TOKEN');
+  assert.equal(tab.stored.has('customer:cranium.session'), false);
+  assert.equal(
+    tab.requests.filter((line) => line === 'POST https://idp.example/').length,
+    4,
+    "the team pool's three steps and the revocation: the customer pool is never asked"
+  );
+  // The customer site stays open to the admin, with admin mode where a customer has their boards.
+  tab.go('#/overview');
+  await until(() => /The console, for every board\./.test(tab.text()), 'the admin overview');
   const ways = all(tab.app, 'a').filter((link) => link.getAttribute('href') === '/admin');
   assert.ok(ways.length >= 2, 'the panel and the sidebar');
   assert.ok(ways.every((link) => /admin mode/i.test(textOf(link))));
@@ -1287,7 +1499,7 @@ test('in the phone app, signing out of the customer side makes the app forget bo
       'auth.signOut': {},
     },
   });
-  // The admin is signed in already, from the app: the customer signs in as well.
+  // The admin is signed in already, from the app: the customer signs in as well, on the same one form.
   await until(() => /The console, for every board/.test(tab.text()), 'the admin overview');
   tab.go('#/sign-in');
   await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');

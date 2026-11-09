@@ -246,8 +246,8 @@ planned and not built. A customer sees their own boards, by an id of the
 board's assignment, never by its thing name; a token of the customer pool opens only the customer API, and a staff token
 only the console's, at the gateway and again in each function. Release managers invite customers and give them boards
 on the console's Customers page, each change in the activity log. On that name the console is the site's **admin
-mode**, at `/admin`: an admin signs in once, with the staff account's password and code, on the site's Admin sign-in,
-and the console opens with that session.
+mode**, at `/admin`: an admin signs in once, with the staff account's password and code, on the site's one sign-in form
+(the staff pool is tried first, then the customer pool), and the console opens with that session.
 
 ### Sign-in
 

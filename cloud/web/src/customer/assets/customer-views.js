@@ -1036,7 +1036,7 @@ export function accountView(ctx) {
     return h(
       'div',
       { class: 'cs-page', key: 'admin-account' },
-      head({ eyebrow: 'Admin', title: 'Your account', lede: 'Your admin sign-in.' }),
+      head({ eyebrow: 'Admin', title: 'Your account', lede: 'Your team account.' }),
       card(
         { title: 'Signed in as' },
         facts([
@@ -1270,7 +1270,7 @@ export function helpView(ctx) {
 
 // Sign-in pages: the console's own layout (app.css .gate), with the site's words.
 
-function gate(kind, ...message) {
+function gate(...message) {
   return h(
     'div',
     { class: 'gate is-signin cs-gate' },
@@ -1285,17 +1285,11 @@ function gate(kind, ...message) {
           'span',
           { class: 'gate-brand-text' },
           h('span', { class: 'gate-brand-name' }, 'Cranium'),
-          h('span', { class: 'gate-brand-sub' }, kind === 'admin' ? 'Admin sign-in' : 'Your studio')
+          h('span', { class: 'gate-brand-sub' }, 'Your studio')
         )
       ),
       message,
-      h(
-        'p',
-        { class: 'gate-foot' },
-        kind === 'admin'
-          ? 'For the Cranium team: the same account as on the firmware console, with its code.'
-          : 'See your boards, how they are and what they did.'
-      )
+      h('p', { class: 'gate-foot' }, 'See your boards, how they are and what they did.')
     ),
     h('div', { class: 'gate-art' }, domeArt())
   );
@@ -1361,7 +1355,7 @@ function passwordStep(model) {
       'div',
       { class: 'signin-actions', key: 'actions' },
       submit(model.busy, 'Continue', 'Checking…'),
-      model.kind === 'customer' ? h('a', { class: 'btn is-quiet', href: '#/forgot' }, 'Forgot your password?') : null
+      h('a', { class: 'btn is-quiet', href: '#/forgot' }, 'Forgot your password?')
     )
   );
 }
@@ -1407,15 +1401,16 @@ function newPasswordStep(model) {
 }
 
 const TITLES_OF_STEP = {
-  password: (kind) => (kind === 'admin' ? 'Admin sign-in' : 'Sign in'),
+  password: () => 'Sign in',
   code: () => 'Enter the code',
   'new-password': () => 'Choose your password',
   elsewhere: () => 'One more step',
 };
 
 /**
- * A sign-in page. `model` has kind (customer or admin), step (password, code, new-password or
- * elsewhere), email, digits, busy, problem, tries, and what each control does.
+ * The one sign-in page, for customers and the team alike. `model` has kind (null until a pool has
+ * taken the password, then customer or admin), step (password, code, new-password or elsewhere),
+ * email, digits, busy, problem, tries, and what each control does.
  */
 export function signInView(model) {
   const { kind, step } = model;
@@ -1446,29 +1441,18 @@ export function signInView(model) {
     lead = h(
       'p',
       { class: 'gate-text' },
-      model.lead ??
-        (kind === 'admin'
-          ? 'With your Cranium team account: your e-mail address, your password and the code from your authenticator app.'
-          : 'With the e-mail address and the password of your Cranium account.')
+      model.lead ?? 'With the e-mail address and the password of your Cranium account.'
     );
     body = passwordStep(model);
   }
   return gate(
-    kind,
     h(
       'div',
-      { class: 'gate-message signin', key: `${kind}-${step}` },
-      h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, TITLES_OF_STEP[step](kind)),
+      { class: 'gate-message signin', key: `signin-${step}` },
+      h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, TITLES_OF_STEP[step]()),
       lead,
       body,
-      h(
-        'div',
-        { class: 'signin-other', key: 'other' },
-        kind === 'admin'
-          ? h('a', { class: 'btn is-quiet', href: '#/sign-in' }, 'Customer sign-in', icon('arrow-right'))
-          : h('a', { class: 'btn is-quiet', href: '#/admin-sign-in' }, 'Admin sign-in', icon('arrow-right')),
-        h('a', { class: 'btn is-quiet', href: '#/' }, 'Home')
-      )
+      h('div', { class: 'signin-other', key: 'other' }, h('a', { class: 'btn is-quiet', href: '#/' }, 'Home'))
     )
   );
 }
@@ -1533,7 +1517,6 @@ export function forgotView(model) {
     ];
   }
   return gate(
-    'customer',
     h(
       'div',
       { class: 'gate-message signin', key: `forgot-${model.step}` },
@@ -1574,5 +1557,5 @@ export function aloneView(page) {
 
 /** A message alone on the page, while the site starts or signs out. */
 export function waitingView(text) {
-  return gate('customer', h('div', { class: 'gate-message' }, h('p', { class: 'gate-text', role: 'status' }, text)));
+  return gate(h('div', { class: 'gate-message' }, h('p', { class: 'gate-text', role: 'status' }, text)));
 }

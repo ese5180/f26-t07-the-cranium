@@ -598,7 +598,7 @@ function createSignIn({ clientId, userPoolId, user, host, consoleOrigin, redirec
     } else if (ofCustomer) {
       reply = customerPool.answer(operation, call);
     } else if (operation === 'RevokeToken' && call.ClientId === clientId) {
-      // The admin sign-in of the customer site revokes its refresh token through this API.
+      // The customer site's sign-in revokes an admin's refresh token through this API.
       refreshTokens.delete(String(call.Token ?? ''));
       reply = { status: 200, body: {} };
     } else {
@@ -2291,12 +2291,12 @@ function banner({ consoleUrl, loginOrigin, user, scenario, live, home, customer 
   Cranium customer site: LOCAL PREVIEW
 
     Customer site  ${consoleUrl}
-    Admin mode     ${consoleUrl}admin  (the console, signed in with the admin sign-in)
+    Admin mode     ${consoleUrl}admin  (the console, where an admin lands after signing in)
     Sign-in        emulated at ${loginOrigin}
                    customers of the "customers" scenario: ada@${MAIL_DOMAIN}, ben@${MAIL_DOMAIN},
                    password ${PREVIEW_CUSTOMER_PASSWORD}; cleo@${MAIL_DOMAIN} has the invitation's
                    password ${PREVIEW_TEMPORARY_PASSWORD} and chooses her own
-                   admins on "Admin sign-in": ${USERS.manager.email} or ${USERS.viewer.email},
+                   admins, on the same form: ${USERS.manager.email} or ${USERS.viewer.email},
                    password ${PREVIEW_PASSWORD}, code ${PREVIEW_CODE}
     Scenario       ${scenario}
                    ${SCENARIOS[scenario].summary}

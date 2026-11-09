@@ -7,6 +7,19 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.4.5
+
+The customer site has one sign-in for everybody: the e-mail address and the password, then the code when the account asks for one. A team account lands in admin mode, a customer on their own pages; "Admin sign-in" and "Customer sign-in" are gone.
+
+customer-core.js signInEither: the team's pool first (USER_SRP_AUTH with the console's client, the address in lower
+case), and only if it says the address or the password is wrong, the customer pool, the same way. One submission tries
+each pool once at most, and a refusal by both is the one "The e-mail address or password is wrong.", whichever pool
+has the account. The team's code (TOTP), a customer's first new password and the throttling words are as before. An
+admin who signs in goes to `/admin` with the console's own session keys; `#/admin-sign-in` is no page any more.
+"Forgot your password?" asks both pools, one request each: the team's pool hides unknown names (it answers as if a
+code went out), so a yes from it proves nothing; the new password is set at the team's pool if it takes the code, else
+at the customer pool, and the page says the same either way. The console's own sign-in page stays team-only.
+
 ## 2.4.4
 
 An admin on the customer site sees the customer's Overview itself, with its mixes, and admin mode where a customer sees their boards, instead of a card that only described it.
