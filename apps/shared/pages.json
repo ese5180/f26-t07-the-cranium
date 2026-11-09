@@ -29,6 +29,8 @@
     { "route": "#/setup", "nav": "developer", "script": "setup.js" },
     { "route": "#/history", "nav": "developer", "script": "history.js" },
     { "route": "#/tokens", "nav": "developer", "script": null },
+    { "route": "#/database", "nav": "developer", "script": "db-page.js" },
+    { "route": "#/database/audit", "nav": "developer", "script": "db-page.js" },
     { "route": "#/account", "nav": null, "script": "account.js" }
   ],
   "cards": [

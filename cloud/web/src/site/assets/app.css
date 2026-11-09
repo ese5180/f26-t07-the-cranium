@@ -10790,3 +10790,62 @@ span.glance-item:hover {
 .console .setup-step-title {
   font-size: 1.0625rem;
 }
+
+/*
+ * The Database page (db-page.js) in the grouped look: the tables as one group, a row each with its rough
+ * size; the filters as a form in their section; items as rows whose key opens the item, a chevron at the
+ * end; an item's fields as label and value rows.
+ */
+.db-table,
+.db-row {
+  align-items: center;
+  min-height: var(--tap);
+}
+
+.db-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-row .row-title,
+.db-fields dd {
+  overflow-wrap: anywhere;
+}
+
+.db-about {
+  margin: 0 0 var(--space-3);
+}
+
+.db-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.db-filter-buttons,
+.db-filters > .notice {
+  grid-column: 1 / -1;
+}
+
+.db-json {
+  display: block;
+  max-height: 24em;
+  overflow: auto;
+  white-space: pre;
+}
+
+.db-inline > summary {
+  min-height: var(--tap);
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .db-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

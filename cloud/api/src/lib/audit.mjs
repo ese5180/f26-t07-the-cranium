@@ -93,6 +93,8 @@ export const ACTIONS = Object.freeze([
   'device.register',
   // Board setup's Wi-Fi defaults handed to a release manager (handlers/setup.mjs): whether any, never which.
   'setup.wifi_defaults',
+  // An export of the Database page (handlers/db.mjs): which table, the filters, how many items.
+  'db.export',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 

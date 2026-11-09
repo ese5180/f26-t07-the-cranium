@@ -4,6 +4,13 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-linux-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.4
+
+The console's Database page comes with the app, under Developer, for release managers: the console's tables, read only, with filters, each item's fields, and an export as CSV or JSON that is saved where you choose.
+
+The page is the console's own (2.10.0 and later); `test/pages.test.mjs` checks it through `apps/shared/pages.json`, and
+the export goes through the app's `file.share`.
+
 ## 0.1.3
 
 The console's Memfault page comes with the app: the issue list, an issue's traces, backtraces and registers, and the In Memfault card on a board's page, with its reboots, events and issues. A test now fails if a console page is missing from the app.

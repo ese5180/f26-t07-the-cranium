@@ -13,6 +13,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`fleet.md`](fleet.md) | Board types, groups, rollouts, the map, commands and alerts |
 | [`console-design.md`](console-design.md) | The console's look: phone first, grouped lists, and the principles behind it |
 | [`live.md`](live.md) | Live updates: how an open page hears of a change as it happens |
+| [`database.md`](database.md) | The Database page: the console's DynamoDB tables, read only, for release managers |
 | [`memfault.md`](memfault.md) | Memfault: crashes, reboots and fleet metrics, sent over the AWS IoT connection |
 | [`raspberry-pi-ota.md`](raspberry-pi-ota.md) | The Raspberry Pi's operating system and its over-the-air updates |
 

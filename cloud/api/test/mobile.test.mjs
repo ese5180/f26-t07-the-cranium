@@ -467,6 +467,11 @@ const ROUTES = [
     phone: false,
     body: {},
   },
+  // The Database page (db.test.mjs): the apps' pages read it as the website does.
+  { route: 'GET /api/db/tables', status: 200, phone: true },
+  { route: 'GET /api/db/{table}', path: '/api/db/state', status: 200, phone: true },
+  { route: 'GET /api/db/{table}/item', path: '/api/db/state/item', status: 400, phone: true },
+  { route: 'GET /api/db/{table}/export', path: '/api/db/state/export', status: 400, phone: true },
 ];
 
 /** A console with a release, and a board online that is pairing as Cranium-1A2B. */

@@ -235,7 +235,7 @@ import Testing
         for action in ["firmware.upload", "firmware.revoke", "deployment.create", "deployment.cancel", "firmware.download",
                        "pairing.read", "firmware.bluetooth_send", "token.create", "token.revoke", "account.sign_in", "serial.command",
                        "customer.create", "customer.resend", "customer.assign", "customer.unassign", "customer.disable",
-                       "customer.enable", "device.register", "setup.wifi_defaults"] {
+                       "customer.enable", "device.register", "setup.wifi_defaults", "db.export"] {
             #expect(source.contains("'\(action)': {"), "\(action) on the website")
             #expect(Words.auditActions[action] != nil, "\(action) in the app")
         }

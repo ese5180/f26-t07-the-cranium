@@ -82,6 +82,7 @@ import { parseCsr } from '../src/lib/provision.mjs';
 import { FACT_PARTITION, factPartition, factsFromItems } from '../src/lib/updates.mjs';
 import { parseBundledVersions } from '../src/lib/versions.mjs';
 import { createFakeApps } from './fake-apps.mjs';
+import { createFakeDb } from './fake-db.mjs';
 import { createFakeMap } from './fake-map.mjs';
 import { boardKey, issueCertificate } from './fake-provision.mjs';
 
@@ -909,6 +910,15 @@ export function createFakeAws({
   // The phone apps' releases and their APKs (docs/mobile-apps.md, src/aws-apps.mjs): test/fake-apps.mjs.
   const apps = createFakeApps({ clock });
   Object.assign(adapter, apps.adapter);
+  // The Database page's reads (src/aws-db.mjs): test/fake-db.mjs, over the items kept here.
+  const db = createFakeDb({
+    stored: (table) => {
+      if (table === 'audit') return [...auditItems.values()];
+      if (table === 'events') return [...eventItems.values()].flatMap((part) => [...part.values()]);
+      return [...releases.values(), ...tokens.values(), ...fleetItems.values()];
+    },
+  });
+  Object.assign(adapter, db.adapter);
   // Whether a Memfault project key is stored (docs/memfault.md, src/aws-memfault.mjs createMemfaultStatus):
   // no, until fake.storeMemfaultKey() plays cloud/deploy.sh storing one.
   let memfaultKey = false;
@@ -1346,6 +1356,7 @@ export function createFakeAws({
 
   Object.assign(fake, map.helpers);
   Object.assign(fake, apps.helpers);
+  Object.assign(fake, db.helpers);
 
   return fake;
 }
