@@ -33,6 +33,12 @@ What it cannot check: whether the image works. Only a board can show that, and t
 update is what catches an image that does not.
 
 The exit status is 1 if a check fails, and with --strict also if one could not be made.
+
+How this fits with the other two: scripts/firmware/check-image.sh only runs this file. The console's
+checks are not repeated here: this runs cloud/api/verify-image.mjs, which uses the console's own
+lib/mcuboot.mjs. The board type and layout TLVs are read here as well (--board, --layout), because
+scripts/firmware/build.sh and the firmware CI job read them with Python alone, without node. The
+format of both TLVs is in docs/fleet.md; a change to it goes here and in lib/mcuboot.mjs.
 """
 
 import argparse

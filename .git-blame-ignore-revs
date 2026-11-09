@@ -3,3 +3,5 @@
 775b59d715bfa63c81255cc25f3604959e588f62
 # Rename tools/secrets.py to tools/cranium_secrets.py (moves only)
 5c3bc172869ff2c6ec02cf69d08043fe213ee46d
+# Group firmware/app/src into folders (moves only)
+8e3ef97fda2378c5f215f7ac1ff88827951a9300

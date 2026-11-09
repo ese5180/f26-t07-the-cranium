@@ -2,7 +2,9 @@
 #
 # Check a signed firmware image before uploading it to the console: the console's own checks, the
 # build record, that it was built from a commit on main that CI built and tested, and, with a
-# console token, that it is newer than every release. See tools/check_image.py.
+# console token, that it is newer than every release. Only a wrapper, so the command has a stable
+# path under scripts/: every check is in tools/check_image.py, which says how it uses the console's
+# own check, cloud/api/verify-image.mjs.
 #
 #   scripts/firmware/check-image.sh                                      binaries/latest.signed.bin
 #   scripts/firmware/check-image.sh binaries/cranium-1.9.0-0.signed.bin  that image
