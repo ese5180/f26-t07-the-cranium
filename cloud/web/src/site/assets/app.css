@@ -10769,3 +10769,24 @@ span.glance-item:hover {
 .console .memfault-open > a:hover {
   background: var(--well);
 }
+
+/* Board setup (setup.js) in the grouped look: its steps are one inset group, a row per step. */
+.console .setup-steps {
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.console .setup-step {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--line);
+}
+
+.console .setup-step:first-child {
+  border-top: 0;
+}
+
+.console .setup-step-title {
+  font-size: 1.0625rem;
+}

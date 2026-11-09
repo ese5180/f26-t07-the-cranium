@@ -1,7 +1,7 @@
 # Console design
 
 The console (console.craniumiot.com, the admin mode of the phone apps, and the desktop app) is one set of pages:
-`cloud/web/src/site/assets/`. From console 2.7.0 it is laid out as an app: phone first, and still at home in a
+`cloud/web/src/site/assets/`. From console 2.9.0 it is laid out as an app: phone first, and still at home in a
 desktop browser. This page says what it follows and where each part is.
 
 ## Design principles
