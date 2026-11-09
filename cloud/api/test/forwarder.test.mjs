@@ -119,7 +119,7 @@ test("the chunk goes to Memfault without the frame's header, and the board is an
   assert.match(ack.payload.id, /^[0-9a-f]{16}$/);
   assert.equal(ack.payload.cmd, 'memfault_ack');
   assert.equal(ack.payload.seq, 513);
-  // What the firmware's strict command parser reads (firmware/app/src/command.h).
+  // What the firmware's strict command parser reads (firmware/app/src/cloud/command.h).
   assert.match(JSON.stringify(ack.payload), /^\{"id":"[0-9a-f]{16}","cmd":"memfault_ack","seq":513\}$/);
 
   assert.deepEqual(logs, [{ event: 'chunk_forwarded', thing: THING, seq: 513, bytes: 4, status: 202, answered: true }]);

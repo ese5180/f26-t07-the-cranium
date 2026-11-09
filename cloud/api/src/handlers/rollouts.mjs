@@ -28,7 +28,7 @@
  *
  * How it runs. Stage "canary": a job on the canary alone (one board unless asked for more; online
  * boards with a clean update history first). A board reports SUCCEEDED only from the new
- * firmware, once that has started, reached AWS IoT and confirmed itself (firmware/app/src/ota.c,
+ * firmware, once that has started, reached AWS IoT and confirmed itself (firmware/app/src/ota/ota.c,
  * send_final_report); that is the canary's confirmation. Nothing in AWS IoT Jobs waits for one job
  * before it starts another, so the console does: every minute a schedule (infra/template.yaml,
  * RolloutTickFn) runs advance() below, which reads each open rollout's current job.

@@ -5,7 +5,7 @@ import Foundation
 /// "What a person does"). A pure function of what was seen, so that both apps say the same thing at the
 /// same point: the Android app's core/UpdateWatch.kt is the same, case for case, and so are the tests.
 ///
-/// What the board tells, and how (firmware/app/src/bt_ota.c):
+/// What the board tells, and how (firmware/app/src/bt/bt_ota.c):
 ///
 /// - From 1.14.0, its status characteristic (`BoardStatus`), on the link of the send and, after the
 ///   restart, to any phone for 2 minutes with no pairing: the window and its seconds, the image, the

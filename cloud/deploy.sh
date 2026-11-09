@@ -23,7 +23,7 @@
 # ({"org": "...", "project": "..."}). With none of them they keep their current values.
 #
 # Board setup's Wi-Fi defaults (docs/new-board-setup.md, "The Wi-Fi defaults"). If
-# ~/.cranium/wifi_secrets.h exists (tools/secrets.py wifi), its network is stored as JSON in the
+# ~/.cranium/wifi_secrets.h exists (tools/cranium_secrets.py wifi), its network is stored as JSON in the
 # stack's secret of output WifiDefaultsArn, which only the console's API reads, for release
 # managers. ~/.cranium/wifi_defaults.json, the same JSON, is taken first: the deployment from
 # GitHub Actions writes it from the repository secret WIFI_DEFAULTS_JSON. Never printed, never a
@@ -486,7 +486,7 @@ store_wifi_defaults() {
   if ! (umask 077 && wifi_defaults_json "$from" > "$made/wifi_defaults.json"); then
     rm -rf "$made"
     die "the Wi-Fi network in $shown was not stored: it breaks the firmware's rules (above)" \
-      "Write it again with: python tools/secrets.py wifi"
+      "Write it again with: python tools/cranium_secrets.py wifi"
   fi
   store_secret_file "$made/wifi_defaults.json" WifiDefaultsArn "network" \
     "Board setup's fields start empty without one." "Wi-Fi defaults" "$shown"

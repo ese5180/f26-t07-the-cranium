@@ -10,7 +10,7 @@ import { SMP_SERVICE } from '../src/lib/smp.mjs';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-/** A status payload (firmware/app/src/bt_status.h): format 1, last update over Bluetooth to `version`. */
+/** A status payload (firmware/app/src/bt/bt_status.h): format 1, last update over Bluetooth to `version`. */
 function statusPayload({ via = 1, version = [1, 14, 0, 2], hash = null } = {}) {
   const b = new Uint8Array(64);
   b[0] = 1;

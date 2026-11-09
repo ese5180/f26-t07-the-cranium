@@ -220,7 +220,7 @@ export function wavePlan(count, wave = DEFAULT_WAVE) {
 /**
  * Where a rollout's canary stands, from the executions of its job: "confirmed" once every canary
  * board has SUCCEEDED, which a board reports only after the new firmware has started, reached AWS
- * IoT and confirmed itself (firmware/app/src/ota.c); "failed" as soon as one has ended any other
+ * IoT and confirmed itself (firmware/app/src/ota/ota.c); "failed" as soon as one has ended any other
  * way; otherwise "waiting".
  */
 export function canaryVerdict(canary, executions) {

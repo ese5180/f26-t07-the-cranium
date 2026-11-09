@@ -1,7 +1,7 @@
 import Foundation
 
 /// The board's own account of an update over Bluetooth: its status characteristic, from firmware
-/// 1.14.0 (`firmware/app/src/bt_status.h`). Any phone in range reads it with no pairing while the board
+/// 1.14.0 (`firmware/app/src/bt/bt_status.h`). Any phone in range reads it with no pairing while the board
 /// is connectable, and gets a notification each time it changes. It carries no secret. A board with older
 /// firmware has no such characteristic, and the app follows it as it did before. See docs/mobile-apps.md,
 /// "The status characteristic". The Android app's core/BoardStatus.kt is the same, case for case.

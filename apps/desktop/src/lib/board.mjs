@@ -2,7 +2,7 @@
  * What the app checks itself about a board, as the phone apps' ShellChecks do: the image ble.upload is
  * given, and whether a status read after the restart is about this send (ble.watch).
  *
- * The status characteristic's payload is the firmware's (firmware/app/src/bt_status.h); the pages read
+ * The status characteristic's payload is the firmware's (firmware/app/src/bt/bt_status.h); the pages read
  * all of it (cloud/web/src/site/assets/updatewatch.js parseStatus). Here only what ble.watch needs.
  *
  * No dependencies: only node:crypto.
