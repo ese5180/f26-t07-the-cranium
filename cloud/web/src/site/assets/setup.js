@@ -56,6 +56,7 @@ import {
   uploadImage,
 } from './recovery.js';
 import { button, developerTabs, empty, facts, h, icon, meter, mono, notice, pageHead } from './views.js';
+import { labelOf, labelPanel } from './labels.js';
 
 // The frozen golden image: firmware/golden.json, which a test holds this to. The web function serves the
 // file at GOLDEN_PATH (server.mjs).
@@ -329,6 +330,8 @@ export function createSetupFlow({
     current: 'connect',
     busy: false,
     board: null,
+    // The board once the console has seen it online, for its QR code and label: { thing, name }.
+    online: null,
     progress: null,
     phase: null,
     release: null,
@@ -824,7 +827,11 @@ export function createSetupFlow({
       phase('Waiting for the console to see the board online.');
       try {
         const detail = await api.device(thing);
-        if (detail?.device?.online) return { note: `${thing} is online on the console.` };
+        if (detail?.device?.online) {
+          // What its label says (labels.js): the board as the console has it, with its name if it has one.
+          flow.online = { thing, name: detail.device.name ?? null };
+          return { note: `${thing} is online on the console.` };
+        }
       } catch {
         // Not listed yet, or the network hiccuped. The deadline is what counts.
       }
@@ -908,6 +915,7 @@ export function createSetupFlow({
     flow.steps = initialSteps();
     flow.current = 'connect';
     flow.board = null;
+    flow.online = null;
     flow.release = null;
     flow.phase = null;
     flow.progress = null;
@@ -1330,8 +1338,20 @@ export function setupView(ctx, flow) {
       more: h('span', { class: 'notice-more' }, ` ${WORDS.probe}`),
     }),
     boardFacts(current),
-    stepper(current)
+    stepper(current),
+    onlineLabel(current, ctx)
   );
+}
+
+/**
+ * Once the board is online: its QR code, a link to its page on this console, and the sticker to print
+ * (labels.js, docs/new-board-setup.md "The board's label").
+ */
+export function onlineLabel(flow, ctx) {
+  if (flow.steps.online.status !== 'done' || !flow.online) return null;
+  const label = labelOf(flow.online, ctx.state.origin);
+  if (label === null) return null;
+  return labelPanel([label], { title: 'Its QR code and label', key: 'setup-label' });
 }
 
 // The self-check: the flow against a simulated board, with no board and no change on the console.

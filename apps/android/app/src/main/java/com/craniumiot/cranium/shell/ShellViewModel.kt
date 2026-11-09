@@ -1,11 +1,13 @@
 package com.craniumiot.cranium.shell
 
+import android.Manifest
 import android.app.Application
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PersistableBundle
@@ -19,6 +21,7 @@ import com.craniumiot.cranium.BuildConfig
 import com.craniumiot.cranium.CraniumConfig
 import com.craniumiot.cranium.auth.KeystoreVault
 import com.craniumiot.cranium.core.BiometricState
+import com.craniumiot.cranium.core.BoardLink
 import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.ui.PromptRequest
 import com.craniumiot.cranium.ui.WindowGuard
@@ -73,6 +76,8 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
     val prompts = Asker<PromptRequest, PromptResult>()
     val offers = Asker<Boolean, Boolean>()
     val permissions = Asker<Array<String>, Boolean>()
+    /** Scan board (camera.scan): the camera on screen until it reads a code (BoardScanner), its text or null. */
+    val scans = Asker<Unit, String?>()
 
     private val _settingsOpen = MutableStateFlow(false)
     val settingsOpen: StateFlow<Boolean> = _settingsOpen.asStateFlow()
@@ -179,6 +184,7 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         register("usb.open") { params -> usb.open(params) }
         register("usb.write") { params -> usb.write(params) }
         register("usb.close") { params -> usb.close(params) }
+        register("camera.scan") { scanBoard() }
         register("update.check") {
             updater.check().join()
             val release = updater.ui.value.release
@@ -224,7 +230,27 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         if (biometric != BiometricState.NO_HARDWARE && biometric != BiometricState.UNSUPPORTED) all += "biometric"
         if (ble.hasBluetooth) all += "ble"
         if (usb.available) all += "usb"
+        if (hasCamera) all += "camera"
         return BridgeSpec.FEATURES.filter { it in all }.toSet()
+    }
+
+    private val hasCamera: Boolean
+        get() = app.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+
+    /**
+     * Scan board: the camera only now, when the person tapped it (asked for the first time), one code read,
+     * and its link checked against this app's console (BoardLink) before the page hears of it.
+     */
+    private suspend fun scanBoard(): JsonObject {
+        if (!hasCamera) throw BridgeError("unavailable", "This phone has no camera.")
+        val allowed = app.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED ||
+            permissions.ask(arrayOf(Manifest.permission.CAMERA))
+        if (!allowed) throw BridgeError("unavailable", "The camera is not allowed for Cranium. Allow it in Settings to scan a board.")
+        val text = scans.ask(Unit) ?: throw BridgeError("cancelled", "The scan was closed.")
+        return when (val read = BoardLink.thing(text, shellConfig.consoleUrl)) {
+            is BoardLink.Result.Board -> buildJsonObject { put("thing", read.thing) }
+            is BoardLink.Result.Refused -> throw BridgeError("not_allowed", read.refusal.message)
+        }
     }
 
     fun fail(line: String) {

@@ -195,7 +195,7 @@ public struct BridgeMethod: Equatable, Sendable {
 /// file and compares it with this, entry by entry.
 public enum BridgeSpec {
     public static let features = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                  "appUpdate", "storage", "usb"]
+                                  "appUpdate", "storage", "usb", "camera"]
 
     static let pool = BridgeParam.enumeration(["admin", "customer"])
     static let storageKey = BridgeParam.string(max: 208, pattern: "^cranium\\.[!-~]{1,200}$")
@@ -257,6 +257,8 @@ public enum BridgeSpec {
             "data": .string(max: 16384, pattern: "^[A-Za-z0-9+/]*={0,2}$"),
         ]),
         "usb.close": BridgeMethod(feature: "usb", params: ["port": .integer(min: 0, max: 7)]),
+        // Scan board: one QR code read with the camera, checked by BoardLink before the page hears of it.
+        "camera.scan": BridgeMethod(feature: "camera", params: [:]),
         "update.check": BridgeMethod(feature: "appUpdate", params: [:]),
         "update.install": BridgeMethod(feature: "appUpdate", params: [:]),
     ]

@@ -32,7 +32,7 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LIVE, MAP, MEMFAULT } from './page.mjs';
+import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LABELS, LIVE, MAP, MEMFAULT } from './page.mjs';
 import {
   INSTALLING,
   MANAGER,
@@ -159,6 +159,8 @@ async function openTab(t, options = {}) {
     app = null,
     liveUrl = null,
     WebSocket = null,
+    // The page's own origin, for a board's QR code: none, as before, unless a test gives one.
+    origin = undefined,
   } = options;
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   // Node has a WebSocket of its own: a tab never gets it, only the stand-in it is given.
@@ -198,6 +200,7 @@ async function openTab(t, options = {}) {
   let address = hash;
   const location = {
     pathname: '/',
+    origin,
     search,
     get hash() {
       return address;
@@ -328,6 +331,7 @@ async function openTab(t, options = {}) {
         'bluetooth.js': BLUETOOTH,
         'live.js': LIVE,
         'memfault-page.js': MEMFAULT,
+        'labels.js': LABELS,
       },
       `tab ${copies}`
     )
@@ -2524,6 +2528,77 @@ test("in the phone app the console takes its settings and its session from the a
   await tab.goto('#/bluetooth');
   await until(() => textOf(tab.main).includes('Look for boards'), 'the Bluetooth page');
   assert.ok(textOf(tab.main).includes('Update over Bluetooth'));
+});
+
+test("a board's page shows its QR code and label on the console's own origin, and hides them again", async (t) => {
+  const tab = await openTab(t, { hash: `#/devices/${WAITING}`, origin: 'https://console.test' });
+  await until(() => controls(tab.main).includes('Show QR / Print label'), 'the button');
+  await tab.press(tab.main, 'button', 'Show QR / Print label');
+  await until(() => all(tab.main, 'figure.board-label').length === 1, 'the label');
+  assert.match(
+    textOf(tab.main),
+    new RegExp(`The code opens https://console\\.test/#/devices/${WAITING} on this console`)
+  );
+  assert.equal(textOf(one(tab.main, 'span.board-label-thing')), WAITING);
+  await tab.press(tab.main, 'button', 'Hide QR');
+  assert.equal(all(tab.main, 'figure.board-label').length, 0);
+});
+
+test('in the app, the label links to the console, not to the app’s own pages', async (t) => {
+  const tab = await openTab(t, { session: null, app: {}, hash: `#/devices/${WAITING}` });
+  await until(() => controls(tab.main).includes('Show QR / Print label'), 'the button');
+  await tab.press(tab.main, 'button', 'Show QR / Print label');
+  await until(() => all(tab.main, 'figure.board-label').length === 1, 'the label');
+  assert.match(
+    textOf(tab.main),
+    new RegExp(`The code opens https://console\\.example/#/devices/${WAITING} on this console`)
+  );
+});
+
+test('Scan board: in a phone app with a camera, a board of this console opens its page; anything else is refused', async (t) => {
+  const hello = { ...APP_ANSWERS['app.hello'], features: [...APP_ANSWERS['app.hello'].features, 'camera'] };
+  let answer = { thing: WAITING };
+  const tab = await openTab(t, {
+    session: null,
+    app: { 'app.hello': hello, 'camera.scan': () => answer },
+    hash: '#/devices',
+  });
+  await until(() => controls(tab.main).includes('Scan board'), 'Scan board');
+  await tab.press(tab.main, 'button', 'Scan board');
+  await until(() => tab.location.hash === `#/devices/${WAITING}`, "the board's page");
+  assert.deepEqual(
+    tab.appCalls.filter((call) => call.method === 'camera.scan').map((call) => call.params),
+    [{}]
+  );
+
+  // The app refused a link of another console: nothing opens, and the page says why.
+  await tab.goto('#/devices');
+  answer = { refuse: 'not_allowed' };
+  await tab.press(tab.main, 'button', 'Scan board');
+  await until(() => tab.toasts().length > 0, 'the refusal');
+  assert.deepEqual(tab.toasts(), ['That code is not a board of this console, so the app did not open it.']);
+  assert.equal(tab.location.hash, '#/devices');
+  // A thing name the page would not open is refused by the page too.
+  answer = { thing: '../evil' };
+  await tab.press(tab.main, 'button', 'Scan board');
+  assert.equal(tab.location.hash, '#/devices');
+  // Closing the camera says nothing.
+  answer = { refuse: 'cancelled' };
+  const before = tab.toasts().length;
+  await tab.press(tab.main, 'button', 'Scan board');
+  assert.equal(tab.toasts().length, before);
+});
+
+test('there is no Scan board on the website', async (t) => {
+  const web = await openTab(t, { hash: '#/devices' });
+  assert.ok(textOf(web.main).includes('Every board registered'));
+  assert.equal(controls(web.main).includes('Scan board'), false);
+});
+
+test('there is no Scan board in an app without a camera', async (t) => {
+  const app = await openTab(t, { session: null, app: {}, hash: '#/devices' });
+  await until(() => textOf(app.main).includes('Every board registered'), 'the Devices page');
+  assert.equal(controls(app.main).includes('Scan board'), false);
 });
 
 test('on the website, and for a viewer in the app, there is no Bluetooth page in the masthead', async (t) => {
