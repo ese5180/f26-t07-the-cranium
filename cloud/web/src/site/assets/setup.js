@@ -26,7 +26,8 @@
  *
  * What it cannot do: a board with nothing on it has no bootloader, so serial recovery cannot reach it,
  * and it needs the debug probe once (scripts/board/new-board.sh, or west flash --recover). The page says
- * so when nothing answers. Web Serial exists only in Chrome and Edge on a computer, and in the desktop app.
+ * so when nothing answers. Web Serial exists only in Chrome and Edge on a computer, in the desktop app, and in
+ * the Android app through its USB serial bridge (bridge.js createBridgeSerial).
  *
  * No dependencies beyond views.js and recovery.js.
  */
@@ -164,8 +165,8 @@ export const WORDS = Object.freeze({
     'holding Button 1 for a second, then let go of it and press Try again.',
   shell: 'The board runs firmware from before the console. The steps below put the newest firmware on it first.',
   noSerial:
-    'Web Serial exists only in Chrome and Edge on a computer, and in the Windows and Linux desktop app. Phones and ' +
-    'Safari do not have it. Open this page there.',
+    'Web Serial exists only in Chrome and Edge on a computer, the Windows and Linux desktop app and the Android ' +
+    'app. iPhones and Safari do not have it. Open this page there.',
   probe:
     'A board with nothing on it has no bootloader, so serial recovery cannot reach it. It needs the debug probe ' +
     'once: scripts/board/new-board.sh on a computer with the repository and nRF Connect, or west flash --recover. ' +
@@ -179,18 +180,16 @@ export const WORDS = Object.freeze({
   wifiNone: 'The console has no Wi-Fi defaults: type the network in.',
 });
 
-// Why a phone app has no Board setup (apps/android BoardSetupText, apps/ios BoardSetupWords: their tests hold
-// them to these).
+// What the Android app's classic screens say of Board setup (apps/android BoardSetupText, held to these by its
+// test). The app's own pages have it: the app makes its USB serial port this page's Web Serial (bridge.js
+// createBridgeSerial). The iPhone app has no Board setup at all (views.js serialPagesHidden).
 export const APP_WORDS = Object.freeze({
-  title: 'Board setup needs a computer',
+  title: 'Board setup is in the app’s pages',
   android:
-    'The Android app’s pages have no Web Serial, and its own USB console sends one command at a time: it cannot ' +
-    'reach the bootloader’s half-second window or send it an image. Set the board up in the Windows or Linux ' +
-    'desktop app, or in Chrome or Edge on a computer. The Serial console in this app still talks to a board ' +
-    'that is set up.',
-  ios:
-    'An iPhone cannot open a board’s USB serial port: iOS gives apps no way to a USB serial device, and Safari ' +
-    'has no Web Serial. Set the board up in the Windows or Linux desktop app, or in Chrome or Edge on a computer.',
+    'These classic screens cannot set a board up: their USB console sends one command at a time, too slow for ' +
+    'the bootloader’s half-second window. Board setup is under Developer in the app’s own pages, with the board ' +
+    'on the phone’s USB cable, and in the Windows or Linux desktop app, or Chrome or Edge on a computer. The ' +
+    'Serial console here still talks to a board that is set up.',
 });
 
 const BUTTON_STEPS = Object.freeze([
@@ -1309,8 +1308,6 @@ export function setupView(ctx, flow) {
     );
   }
   if (!flow && !globalThis.navigator?.serial) {
-    const app = appPlatform(globalThis);
-    if (app) return explained(APP_WORDS.title, APP_WORDS[app]);
     return explained('This browser cannot reach a serial port.', WORDS.noSerial);
   }
   const current = flow ?? sharedFlow();
@@ -1335,13 +1332,6 @@ export function setupView(ctx, flow) {
     boardFacts(current),
     stepper(current)
   );
-}
-
-/** The phone app this page is in, from its bridge's transport (bridge.js findTransport), or null. */
-export function appPlatform(win) {
-  if (win?.webkit?.messageHandlers?.cranium) return 'ios';
-  if (win?.craniumNative) return 'android';
-  return null;
 }
 
 // The self-check: the flow against a simulated board, with no board and no change on the console.

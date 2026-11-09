@@ -23,6 +23,7 @@ import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.ui.PromptRequest
 import com.craniumiot.cranium.ui.WindowGuard
 import com.craniumiot.cranium.update.AppUpdater
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -96,6 +97,10 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
     )
     val ble = ShellBle(app, viewModelScope, ::emit) { asked -> permissions.ask(asked) }
 
+    /** A board's USB serial port for the Serial console and Board setup (usb.*). */
+    private val usbPorts: AndroidUsbPorts = AndroidUsbPorts(app) { usb.unplugged() }
+    val usb: ShellUsb = ShellUsb(viewModelScope, ::emit, usbPorts)
+
     /** The app's own APK updates (update/), as in the classic app: the banner, the daily check, the notification. */
     val updater = AppUpdater(app, viewModelScope) { auth.adminTokens() }
     private var updaterChecked = false
@@ -112,6 +117,8 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
 
     val bridge = Bridge { features() }.apply {
         register("app.hello") {
+            // A page that starts has no port open: those of the page before it are closed.
+            usb.closeAll()
             ShellChecks.helloJson(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE, launched, this@ShellViewModel.features(), store.needsNewerApp)
         }
         register("app.config") { ShellChecks.configJson(shellConfig) }
@@ -169,6 +176,9 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         register("ble.status") { ble.status() }
         register("ble.disconnect") { ble.disconnect() }
         register("ble.watch") { params -> ble.watch(params) }
+        register("usb.open") { params -> usb.open(params) }
+        register("usb.write") { params -> usb.write(params) }
+        register("usb.close") { params -> usb.close(params) }
         register("update.check") {
             updater.check().join()
             val release = updater.ui.value.release
@@ -213,6 +223,7 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         val biometric = KeystoreVault.state(app)
         if (biometric != BiometricState.NO_HARDWARE && biometric != BiometricState.UNSUPPORTED) all += "biometric"
         if (ble.hasBluetooth) all += "ble"
+        if (usb.available) all += "usb"
         return BridgeSpec.FEATURES.filter { it in all }.toSet()
     }
 
@@ -458,6 +469,8 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         ble.release()
+        usbPorts.release()
+        CoroutineScope(Dispatchers.IO).launch { usb.closeAll() }
         auth.dispose()
         view = null
         proxy = null

@@ -72,7 +72,9 @@ import {
   render,
   revokeDialog,
   revokeTokenDialog,
+  SERIAL_PAGES,
   scriptPending,
+  serialPagesHidden,
   signInView,
   toastView,
   tokensView,
@@ -1491,7 +1493,9 @@ function showRoute() {
     previousHash = currentHash;
     currentHash = location.hash;
   }
-  const route = parseRoute(location.hash);
+  let route = parseRoute(location.hash);
+  // A page this app cannot show (no serial port in the iPhone app) is not a page here.
+  if (route && SERIAL_PAGES.includes(route.view) && serialPagesHidden(window)) route = null;
   if (!route) {
     // A console that opens without an address has simply been opened. Any other address
     // was meant to lead somewhere, and leading elsewhere without a word would be odd.
@@ -2357,6 +2361,13 @@ async function boot() {
   if (appBridge) {
     appConfig = bridgeScript.readAppConfig(await appBridge.call('app.config').catch(() => null));
     config = appConfig ? bridgeScript.appConsoleConfig(appConfig, window.location.origin) : null;
+    // The Android app's USB serial port, as the page's Web Serial: the Serial console and Board setup.
+    if (appBridge.has('usb') && !navigator.serial) {
+      Object.defineProperty(navigator, 'serial', {
+        value: bridgeScript.createBridgeSerial(appBridge),
+        configurable: true,
+      });
+    }
     state.app = {
       ble: appBridge.has('ble'),
       settings: appBridge.has('settings'),

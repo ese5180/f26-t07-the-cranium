@@ -4434,3 +4434,27 @@ test('the six boxes: labelled one by one and as a group, digits only, and the fi
     true
   );
 });
+
+test('in the iPhone app the Serial console and Board setup are left out; on the website and in Android they stay', () => {
+  const ios = { webkit: { messageHandlers: { cranium: {} } }, navigator: {} };
+  assert.equal(views.serialPagesHidden(ios), true);
+  assert.equal(views.serialPagesHidden({ craniumNative: {}, navigator: {} }), true);
+  assert.equal(views.serialPagesHidden({ craniumNative: {}, navigator: { serial: {} } }), false);
+  assert.equal(views.serialPagesHidden({ navigator: {} }), false);
+  assert.deepEqual([...views.SERIAL_PAGES], ['serial', 'setup']);
+  const links = (tabs) => tabs.children.filter((node) => node.tag === 'a').map((node) => node.props.href);
+  assert.deepEqual(links(views.developerTabs('history')), [
+    '#/serial',
+    '#/setup',
+    '#/history',
+    '#/tokens',
+    '#/database',
+  ]);
+  const saved = globalThis.webkit;
+  globalThis.webkit = ios.webkit;
+  try {
+    assert.deepEqual(links(views.developerTabs('history')), ['#/history', '#/tokens', '#/database']);
+  } finally {
+    globalThis.webkit = saved;
+  }
+});

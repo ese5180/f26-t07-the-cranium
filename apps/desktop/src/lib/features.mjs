@@ -8,13 +8,15 @@
  *                                                             nor a Linux fingerprint reader
  *   haptics, appUpdate                                        no: no motor, and the app does not replace
  *                                                             itself (lib/updates.mjs)
+ *   usb                                                       no: the window has Web Serial itself, which
+ *                                                             the Serial console and Board setup use
  *   storage                                                   no: the pages' own storage lasts here (the
  *                                                             bundle's scheme is a standard one, kept in the
  *                                                             app's profile), so they keep the journal there
  */
 
 export const FEATURES = Object.freeze(['auth', 'clipboard', 'share', 'open', 'keepAwake', 'settings', 'ble']);
-export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage']);
+export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage', 'usb']);
 
 export const METHODS = Object.freeze([
   'app.config',

@@ -27,7 +27,7 @@
     "network": "The network or the service could not be reached",
     "failed": "Anything else; the message says what"
   },
-  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage"],
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb"],
   "methods": {
     "app.hello": {
       "feature": null,
@@ -210,6 +210,28 @@
       },
       "result": "{}. After the restart: looks for boards that advertise the status service, connects with no pairing, reads each once, and follows the one whose last update over Bluetooth is that version (and that image hash, if given): each status as ble.status with afterRestart true. version is needed with on."
     },
+    "usb.open": {
+      "feature": "usb",
+      "params": {
+        "baudRate": { "type": "integer", "min": 1200, "max": 1000000 }
+      },
+      "result": "{port, ports}. Android only, on a phone that is a USB host: opens the next free virtual COM port of the SEGGER J-Link on the cable (vendor 0x1366) at baudRate, 8N1: the console's (VCOM1, the last) first, then the other. Android asks the person the first time; a refusal is cancelled, no J-Link failed, every port open busy. What the board sends comes as usb.data. This is the page's Web Serial (bridge.js createBridgeSerial), for the Serial console and Board setup."
+    },
+    "usb.write": {
+      "feature": "usb",
+      "params": {
+        "port": { "type": "integer", "min": 0, "max": 7 },
+        "data": { "type": "string", "max": 16384, "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+      },
+      "result": "{}. Once the bytes (base64, 12 KiB at most) are written to the open port. failed if the port is not open or the write did not go."
+    },
+    "usb.close": {
+      "feature": "usb",
+      "params": {
+        "port": { "type": "integer", "min": 0, "max": 7 }
+      },
+      "result": "{}. Closes the port; nothing if it is not open."
+    },
     "update.check": {
       "feature": "appUpdate",
       "params": {},
@@ -228,7 +250,9 @@
     "ble.boards": "{boards: [{id, name, rssi}]}",
     "ble.link": "{state: 'connected'|'disconnected', name, error: string|null}",
     "ble.progress": "{sent, total}",
-    "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}"
+    "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}",
+    "usb.data": "{port, data: base64}: bytes the board sent on an open port, in order",
+    "usb.closed": "{port, reason: 'unplugged'|'failed'}: the port closed by itself (the cable came out, or reading failed); not sent for usb.close"
   },
   "policies": {
     "about": "The Content-Security-Policy the shell sends with each page of the bundle, by the route's policy. {self} is the bundle's origin, {console} and {customer} the origins of consoleUrl and customerApiUrl (customer left out when there is none), {idp} https://cognito-idp.<region>.amazonaws.com of each pool (the same origin once when both pools are in one Region), {live} the origin of liveUrl, wss://<id>.execute-api.<region>.amazonaws.com, from the app's own configuration only (left out when there is none).",

@@ -298,7 +298,6 @@ public enum SearchCatalog {
         Screen(id: "tokens", title: "API tokens", subtitle: "Tokens for scripts that use the console as you",
                keywords: ["token", "script", "ota.sh", "key"], changes: false),
         Screen(id: "history", title: "History", subtitle: "The project's commits", keywords: ["commits", "git", "changes"], changes: false),
-        Screen(id: "serial", title: "Serial console", subtitle: "Not on an iPhone: on a computer", keywords: ["usb", "cable", "terminal"], changes: false),
         Screen(id: "account", title: "Account", subtitle: "Who is signed in, and the firmware kept on this phone",
                keywords: ["profile", "role", "email"], changes: false),
         Screen(id: "help", title: "Help", subtitle: "How updates work, the LEDs, troubleshooting", keywords: ["guide", "faq"], changes: false),

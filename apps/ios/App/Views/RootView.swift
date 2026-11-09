@@ -213,7 +213,6 @@ struct Stack<Root: View>: View {
         case "activity": return [.activity]
         case "tokens": return [.tokens]
         case "history": return [.history]
-        case "serial": return [.serial]
         case "account": return [.account]
         case "help": return [.help(nil)]
         case "help-topic": return [.help(nil), .help("bluetooth-update")]
@@ -246,8 +245,6 @@ struct Stack<Root: View>: View {
         case .activity: ActivityView()
         case .tokens: TokensView()
         case .history: HistoryView()
-        case .serial: SerialConsoleView()
-        case .boardSetup: BoardSetupView()
         case .account: AccountView()
         case .help(let topic):
             if let topic { HelpTopicView(id: topic) } else { HelpView() }

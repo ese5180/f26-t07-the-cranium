@@ -39,9 +39,9 @@ object BridgeSpec {
     const val MAX_REQUEST_BYTES = 4_194_304
     const val ORIGIN = "https://appassets.androidplatform.net"
 
-    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage")
+    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb")
     val ERRORS = listOf("bad_request", "unknown_method", "unavailable", "not_allowed", "cancelled", "locked", "signed_out", "busy", "network", "failed")
-    val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status")
+    val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status", "usb.data", "usb.closed")
 
     private val pool = ParamSpec.OneOf(listOf("admin", "customer"))
     private const val VERSION_PATTERN = """^\d{1,3}\.\d{1,3}\.\d{1,5}\+\d{1,10}$"""
@@ -107,6 +107,12 @@ object BridgeSpec {
                 "hash" to ParamSpec.Text(16, "^[0-9a-f]{16}$", optional = true),
             ),
         ),
+        "usb.open" to MethodSpec("usb", mapOf("baudRate" to ParamSpec.Whole(1200, 1_000_000))),
+        "usb.write" to MethodSpec(
+            "usb",
+            mapOf("port" to ParamSpec.Whole(0, 7), "data" to ParamSpec.Text(16384, "^[A-Za-z0-9+/]*={0,2}$")),
+        ),
+        "usb.close" to MethodSpec("usb", mapOf("port" to ParamSpec.Whole(0, 7))),
         "update.check" to MethodSpec("appUpdate"),
         "update.install" to MethodSpec("appUpdate"),
     )

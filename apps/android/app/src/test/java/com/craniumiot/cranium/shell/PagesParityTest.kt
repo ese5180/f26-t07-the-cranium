@@ -95,6 +95,21 @@ class PagesParityTest {
         }
     }
 
+    /** A page an app leaves out names the app and why; this one leaves none out (its serial port is the bridge's usb.*). */
+    @Test
+    fun `exclusions have a reason, and this app has every page`() {
+        for (page in list("console")) {
+            val excluded = page["excluded"] as? JsonObject ?: continue
+            val path = page.string("route")!!
+            for ((platform, reason) in excluded) {
+                assertTrue("$path excluded on $platform", platform in setOf("ios", "android"))
+                assertTrue("$path excluded on $platform has a reason", reason.jsonPrimitive.content.length >= 20)
+            }
+            assertTrue("$path is in the Android app", "android" !in excluded)
+        }
+        assertTrue("usb" in BridgeSpec.FEATURES && "usb.open" in BridgeSpec.METHODS)
+    }
+
     @Test
     fun `the web view keeps every page, reaches the console, and sends Memfault links outside`() {
         for (page in list("console")) {

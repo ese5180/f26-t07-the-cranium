@@ -70,7 +70,7 @@ and confirmed. Explanations are in Help, behind the (?) button.
 | Boards | Every board; a board's page: name, thing name, online, firmware; the update while there is one; firmware and flash slots, diagnostics (heartbeat and uptime ticking, signal, Wi-Fi, memory, stuck restarts), Bluetooth, history. The last boots, certificates, all updates, and the signal and memory charts are a tap away. Live every 10 s | Devices, Diagnostics |
 | Firmware | Every release on AWS, active and revoked; Upload (+) checks the file's MCUboot header first; a release's page: Deploy, and in its menu Send over Bluetooth and Revoke | Firmware |
 | Search | From iOS 26, the system's search button: boards, releases, deployments, events, activity, the app's screens and actions, and Help, grouped, with the match in bold. Recent searches are kept on the phone (10 at most) until sign-out. Before iOS 26 the search field is on More | — |
-| More | Events (a tab of its own before iOS 26), Deployments, Activity, Update over Bluetooth, API tokens, History, Serial console, Help, Account | Events, Deployments, Activity, Developer |
+| More | Events (a tab of its own before iOS 26), Deployments, Activity, Update over Bluetooth, API tokens, History, Help, Account | Events, Deployments, Activity, Developer |
 
 Help is `apps/shared/help.json`, which the build puts in the app and the Android app can read too.
 Every topic names the files of the repository its facts come from; a test checks that they exist.
@@ -114,7 +114,7 @@ resets.
 A Debug build started with the launch argument `-CraniumDemo` signs nobody in and makes no network
 request: every answer comes from `App/DemoData.swift`. `-CraniumTab 0` to `4` opens a tab, and
 `-CraniumRoute board`, `deployment`, `release`, `deployments`, `activity`, `tokens`, `history`,
-`serial`, `account`, `help`, `help-topic`, `upload`, `events` or `board-log` (Events at one board's log) a screen on it,
+`account`, `help`, `help-topic`, `upload`, `events` or `board-log` (Events at one board's log) a screen on it,
 `-CraniumScroll lines` scrolls a board's page to its latest lines, and `-CraniumSearch <text>` a search. A Release
 build has none of this.
 

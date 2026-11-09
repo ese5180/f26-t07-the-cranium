@@ -3,8 +3,9 @@
  * shell"). From 0.8.0 the iPhone and Android apps are a thin native shell that shows the console and
  * the customer site from a copy kept on the phone, and offers the page a few things a page cannot do
  * itself: keep the sign-in behind Face ID or a fingerprint, Bluetooth to a board, the clipboard,
- * haptics, sharing a file, opening SideStore or the system browser, and keeping what a page means to
- * keep from one start of the app to the next (storage.*). apps/shared/bridge.json is the
+ * haptics, sharing a file, opening SideStore or the system browser, keeping what a page means to
+ * keep from one start of the app to the next (storage.*), and on Android a board's USB serial port
+ * (usb.*, which createBridgeSerial makes the page's Web Serial). apps/shared/bridge.json is the
  * contract, method by method; both shells check every request against it.
  *
  * On the website none of this is there: connectBridge() answers null at once, and the pages are what
@@ -36,6 +37,7 @@ const UNTIMED = new Set([
   'ble.upload',
   'ble.status',
   'ble.watch',
+  'usb.open',
 ]);
 const FEATURES = new Set([
   'auth',
@@ -49,6 +51,7 @@ const FEATURES = new Set([
   'settings',
   'appUpdate',
   'storage',
+  'usb',
 ]);
 const MAX_ID = 2147483647;
 
@@ -345,4 +348,180 @@ export function appWords(hello) {
   const source = hello.bundle.source === 'built-in' ? 'built into the app' : 'from the console';
   const newer = hello.needsNewerApp ? '. The console has newer pages, which need a newer app' : '';
   return `${name}${shell}, ${pages}, ${source}${newer}`;
+}
+
+// A board's USB serial port through the Android app (usb.*): what navigator.serial is in Chrome, so that
+// the Serial console and Board setup (serial.js, setup.js) run as they are. The app has no port chooser:
+// requestPort opens the J-Link's console port (VCOM1) first, then the other one, which is the order both
+// pages ask for them in.
+
+// The board's only rate (recovery.js BAUD_RATE).
+const USB_BAUD_RATE = 115200;
+// Bytes per usb.write: 12 KiB, 16 KiB of base64, bridge.json's limit.
+export const USB_WRITE_BYTES = 12288;
+
+function bytesToBase64(bytes) {
+  let text = '';
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(text);
+}
+
+function base64ToBytes(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let at = 0; at < binary.length; at += 1) bytes[at] = binary.charCodeAt(at);
+  return bytes;
+}
+
+function namedError(name, message) {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+/**
+ * navigator.serial over the bridge's usb.* (bridge.json), for an app whose hello has `usb`: requestPort,
+ * and ports with open, readable, writable, close and getInfo, as Web Serial has them. requestPort opens
+ * the port in the app; a refusal or no board on the cable is a NotFoundError, as the browser's chooser
+ * closed with nothing chosen is. A port the cable took away errors its readable with a NetworkError and
+ * sends `disconnect`.
+ */
+export function createBridgeSerial(bridge) {
+  const ports = new Map();
+  const early = new Map();
+  const disconnectListeners = new Set();
+
+  bridge.on('usb.data', ({ port, data }) => {
+    if (!Number.isInteger(port) || typeof data !== 'string') return;
+    let bytes;
+    try {
+      bytes = base64ToBytes(data);
+    } catch {
+      return;
+    }
+    const open = ports.get(port);
+    if (open) open.deliver(bytes);
+    else early.set(port, [...(early.get(port) ?? []), bytes]);
+  });
+  bridge.on('usb.closed', ({ port }) => {
+    const open = ports.get(port);
+    if (!open) return;
+    open.lost();
+    for (const listener of [...disconnectListeners]) {
+      try {
+        listener({ type: 'disconnect', target: open.port });
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  });
+
+  function makePort(first) {
+    let index = first;
+    let state = 'open';
+    let controller = null;
+    let readable = null;
+    let writable = null;
+
+    function streams() {
+      readable = new ReadableStream({
+        start: (control) => {
+          controller = control;
+          for (const bytes of early.get(index) ?? []) control.enqueue(bytes);
+          early.delete(index);
+        },
+        cancel: () => {
+          controller = null;
+        },
+      });
+      writable = new WritableStream({
+        write: async (chunk) => {
+          if (state !== 'open') throw namedError('NetworkError', 'The port is closed.');
+          const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+          for (let at = 0; at < bytes.length; at += USB_WRITE_BYTES) {
+            const data = bytesToBase64(bytes.subarray(at, at + USB_WRITE_BYTES));
+            await bridge.call('usb.write', { port: index, data });
+          }
+        },
+      });
+    }
+
+    const port = {
+      get readable() {
+        return state === 'open' ? readable : null;
+      },
+      get writable() {
+        return state === 'open' ? writable : null;
+      },
+      getInfo: () => ({ usbVendorId: 0x1366 }),
+      /** Open from requestPort; after a close, the app opens the next free port again. */
+      async open() {
+        if (state === 'open') return;
+        let opened;
+        try {
+          opened = await bridge.call('usb.open', { baudRate: USB_BAUD_RATE });
+        } catch (error) {
+          throw namedError('NetworkError', error?.message ?? 'The port could not be opened.');
+        }
+        index = opened.port;
+        ports.set(index, entry);
+        state = 'open';
+        streams();
+      },
+      async close() {
+        if (state === 'closed') return;
+        state = 'closed';
+        if (ports.get(index) === entry) ports.delete(index);
+        early.delete(index);
+        try {
+          controller?.close();
+        } catch {
+          // Cancelled already.
+        }
+        controller = null;
+        await bridge.call('usb.close', { port: index }).catch(() => {});
+      },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+    const entry = {
+      port,
+      deliver: (bytes) => controller?.enqueue(bytes),
+      lost: () => {
+        if (state !== 'open') return;
+        state = 'closed';
+        ports.delete(index);
+        try {
+          controller?.error(namedError('NetworkError', 'The board’s USB port went away.'));
+        } catch {
+          // Gone already.
+        }
+        controller = null;
+      },
+    };
+    ports.set(index, entry);
+    streams();
+    return port;
+  }
+
+  return {
+    /** Opens the next free port of the J-Link: the app asks the person the first time. */
+    async requestPort() {
+      let opened;
+      try {
+        opened = await bridge.call('usb.open', { baudRate: USB_BAUD_RATE });
+      } catch (error) {
+        throw namedError('NotFoundError', error?.message ?? 'No port was chosen.');
+      }
+      if (!Number.isInteger(opened?.port)) throw namedError('NotFoundError', 'The app did not open a port.');
+      return makePort(opened.port);
+    },
+    getPorts: async () => [...ports.values()].map((entry) => entry.port),
+    addEventListener: (type, listener) => {
+      if (type === 'disconnect' && typeof listener === 'function') disconnectListeners.add(listener);
+    },
+    removeEventListener: (type, listener) => disconnectListeners.delete(listener),
+  };
 }

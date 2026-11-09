@@ -204,7 +204,6 @@ struct SearchResults: View {
             case "activity": return .route(.activity)
             case "tokens": return .route(.tokens)
             case "history": return .route(.history)
-            case "serial": return .route(.serial)
             case "account": return .route(.account)
             case "upload": return .route(.upload)
             case "deploy": return .action { app.deployingThings = []; app.deploying = "" }
