@@ -222,14 +222,14 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
    "Send Memfault data now" on the board's page (the `memfault` command) takes a heartbeat at once instead of at the
    end of the hour, and it is in Memfault a few seconds later; `cloud/logs.sh memfault` shows each chunk forwarded.
 4. **Several issues, then one release that fixes them all: the fault demonstration.** Built from 1.15.0's sources
-   with `CONFIG_APP_FAULT_DEMO=y`, as a test image above every board's version (1.14.0+0 and 1.14.3) and below
+   with `CONFIG_APP_FAULT_DEMO=y`, as a test image above every board's version (1.14.0+0 and 1.14.3+0) and the 1.14.6 release, and below
    1.15.0, with its symbols for Memfault:
 
    ```sh
-   KIND=fault-demo firmware/tests/hil/build_image.sh 1.14.6 1 build-bench/images/cranium-1.14.6-1.signed.bin \
+   KIND=fault-demo firmware/tests/hil/build_image.sh 1.14.7 0 build-bench/images/cranium-1.14.7-0.signed.bin \
      -Dapp_CONFIG_APP_FAULT_DEMO=y
    python3 -I tools/memfault_upload.py --build build-bench/build-fault-demo
-   scripts/firmware/upload-to-console.sh build-bench/images/cranium-1.14.6-1.signed.bin "Fault demonstration: five faults, one per boot"
+   scripts/firmware/upload-to-console.sh build-bench/images/cranium-1.14.7-0.signed.bin "Fault demonstration: five faults, one per boot"
    ```
 
    Deploy it. Each board goes through its trial and confirms the image as usual; no fault comes before the
