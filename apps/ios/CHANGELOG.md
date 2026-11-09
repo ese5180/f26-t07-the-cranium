@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.13
+
+Scan board: the Devices page reads a board's QR code with the camera and opens that board's page (console 2.13.3 and later, which prints the codes on the boards' labels). The camera is used only when you tap Scan board, and a code that isn't a board of your console is refused.
+
+AVFoundation's own QR reader, full screen with Cancel (App/Shell/BoardScanner.swift), and the camera's words in Info.plist (`NSCameraUsageDescription`). The link is checked by `BoardLink` (`BoardLinkTests`): the console's
+own scheme, host and port, the root path, no query, and `#/devices/<thing>`. The bridge has a new feature, `camera`,
+offered on a phone with a camera, with `camera.scan`.
+
 ## 0.8.11
 
 Alerts and safer rollouts in the app (console 2.13.0 and later): an Alerts page where release managers turn each alert rule on or off and set its threshold, a toast in the open app as soon as an alert goes out, and a Health gate on a staged rollout that holds the next stage until Memfault shows no new issue and no unexpected reboot.

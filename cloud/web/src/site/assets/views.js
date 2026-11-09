@@ -3875,7 +3875,11 @@ export function devicesView(ctx) {
     pageHead({
       title: 'Devices',
       lede: 'Every board registered to this project, as it last reported.',
-      tools: freshness(state.devices, ctx),
+      // In a phone app with a camera: read a board's QR code and open its page (docs/mobile-apps.md).
+      tools: [
+        state.app?.scan ? button('is-small', () => ctx.actions.scanBoard(), 'Scan board') : null,
+        freshness(state.devices, ctx),
+      ],
     }),
     loadProblem(state.devices, 'the boards', ctx),
     body
@@ -4009,7 +4013,9 @@ export function deviceView(ctx) {
         ]
       : null,
     meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
-    tools: missing(resource) ? null : [detail ? commandTools(detail.device, ctx) : null, freshness(resource, ctx)],
+    tools: missing(resource)
+      ? null
+      : [detail ? commandTools(detail.device, ctx) : null, labelButton(thing, ctx), freshness(resource, ctx)],
   });
   if (missing(resource)) {
     return h(
@@ -4049,6 +4055,8 @@ export function deviceView(ctx) {
     { class: 'page is-board' },
     head,
     loadProblem(resource, 'this board', ctx),
+    // Its QR code and printable label (labels.js), while the person has them shown.
+    state.labelShown === thing ? (ctx.labels?.boardLabel(device, ctx) ?? null) : null,
     commandNotice(device, ctx),
     boardPanel(device),
     h(
@@ -7286,6 +7294,22 @@ function identifyButton(device, ctx, { compact = false } = {}) {
 }
 
 /** The tools of a board's page: Identify, and a menu with Report now. */
+/** Show QR / Print label on a board's page: its code and sticker (labels.js, docs/new-board-setup.md). */
+function labelButton(thing, ctx) {
+  const shown = ctx.state.labelShown === thing;
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn is-small',
+      key: 'label',
+      'aria-expanded': shown ? 'true' : 'false',
+      onClick: () => ctx.actions.toggleLabel(thing),
+    },
+    shown ? 'Hide QR' : 'Show QR / Print label'
+  );
+}
+
 function commandTools(device, ctx) {
   const identify = identifyButton(device, ctx);
   if (identify === null) return null;

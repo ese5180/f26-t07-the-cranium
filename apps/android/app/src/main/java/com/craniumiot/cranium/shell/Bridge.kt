@@ -39,7 +39,7 @@ object BridgeSpec {
     const val MAX_REQUEST_BYTES = 4_194_304
     const val ORIGIN = "https://appassets.androidplatform.net"
 
-    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb")
+    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera")
     val ERRORS = listOf("bad_request", "unknown_method", "unavailable", "not_allowed", "cancelled", "locked", "signed_out", "busy", "network", "failed")
     val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status", "usb.data", "usb.closed")
 
@@ -113,6 +113,8 @@ object BridgeSpec {
             mapOf("port" to ParamSpec.Whole(0, 7), "data" to ParamSpec.Text(16384, "^[A-Za-z0-9+/]*={0,2}$")),
         ),
         "usb.close" to MethodSpec("usb", mapOf("port" to ParamSpec.Whole(0, 7))),
+        // Scan board: one QR code read with the camera, checked by BoardLink before the page hears of it.
+        "camera.scan" to MethodSpec("camera"),
         "update.check" to MethodSpec("appUpdate"),
         "update.install" to MethodSpec("appUpdate"),
     )

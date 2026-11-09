@@ -86,9 +86,11 @@ export const MEMFAULT = scriptAddress('memfault-page.js', {
 // The Database page (docs/database.md).
 export const DB = scriptAddress('db-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
+// A board's QR code and label (docs/new-board-setup.md, "The board's label").
+export const LABELS = scriptAddress('labels.js', { 'qrcode.js': QR, 'core.js': CORE, 'views.js': VIEWS });
 // Board setup over USB, and the serial recovery it speaks (docs/new-board-setup.md).
 export const RECOVERY = scriptAddress('recovery.js');
-export const SETUP = scriptAddress('setup.js', { 'recovery.js': RECOVERY, 'views.js': VIEWS });
+export const SETUP = scriptAddress('setup.js', { 'recovery.js': RECOVERY, 'views.js': VIEWS, 'labels.js': LABELS });
 // The phone app's bridge, the steps after a Bluetooth send, and the app's Bluetooth page (docs/mobile-apps.md).
 export const BRIDGE = scriptAddress('bridge.js');
 // Live updates (docs/live.md).

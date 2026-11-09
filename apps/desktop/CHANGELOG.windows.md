@@ -4,6 +4,14 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.8
+
+Boards' QR codes and labels from the console (2.13.3 and later): Show QR / Print label on a board's page, and the label after Board setup. The desktop app prints them like the website; it has no Scan board, as a computer doesn't scan its boards' labels.
+
+The bridge's new feature `camera` (`camera.scan`, the phones' Scan board) is not offered here: it is in
+`NOT_OFFERED` in src/lib/features.mjs with the reason, so `test/bridge.test.mjs` holds the app to the contract. No page
+is left out, and nothing else in the app changed.
+
 ## 0.1.7
 
 Alerts and safer rollouts in the app (console 2.13.0 and later): an Alerts page where release managers turn each alert rule on or off and set its threshold, a toast in the open app as soon as an alert goes out, and a Health gate on a staged rollout that holds the next stage until Memfault shows no new issue and no unexpected reboot.

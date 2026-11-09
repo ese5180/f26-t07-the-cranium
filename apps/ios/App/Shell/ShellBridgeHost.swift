@@ -9,9 +9,14 @@ import WebKit
 /// contract before a handler here sees it.
 @MainActor
 final class ShellBridgeHost {
-    /// What the iPhone offers: everything but the Android app's own updater.
-    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                        "storage"]
+    /// What the iPhone offers: everything but the Android app's own updater and USB, and the camera (Scan
+    /// board) where the iPhone has one.
+    static var features: Set<String> {
+        var offered: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
+                                    "storage"]
+        if BoardScanner.hasCamera { offered.insert("camera") }
+        return offered
+    }
     /// What the pages keep through storage.*: the web view itself keeps nothing between runs.
     private let pages = PageStore.standard()
 
@@ -181,6 +186,11 @@ final class ShellBridgeHost {
                 UIPasteboard.general.setItems([item])
             }
             return [:]
+        }
+        // Scan board: the camera only now, when the person tapped it; the link checked against this app's console.
+        dispatcher.register("camera.scan") { [unowned self] _ in
+            guard let loaded = try model.loaded else { throw BridgeError.failed("This build has no configuration.") }
+            return ["thing": .string(try await BoardScanner.scan(console: loaded.config.consoleURL))]
         }
         dispatcher.register("haptics.play") { params in
             switch params.string("kind") {
