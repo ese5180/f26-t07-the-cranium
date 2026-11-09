@@ -74,6 +74,17 @@ test("each page's API routes take the apps' sign-in as the website's", () => {
   }
 });
 
+test('a page a phone app leaves out says why, and the desktop app leaves none out', () => {
+  for (const { route, excluded } of pages.console) {
+    if (excluded === undefined) continue;
+    for (const [platform, reason] of Object.entries(excluded)) {
+      assert.ok(['ios', 'android'].includes(platform), `${route} excluded on ${platform}`);
+      assert.ok(typeof reason === 'string' && reason.length >= 20, `${route} excluded on ${platform} has a reason`);
+    }
+    assert.equal(excluded.desktop, undefined, `${route} is in the desktop app`);
+  }
+});
+
 test('the window keeps every page, lets it reach the console, and sends Memfault links to the system', () => {
   const contract = readContract(read('apps/shared/bridge.json'));
   const config = readConfig(

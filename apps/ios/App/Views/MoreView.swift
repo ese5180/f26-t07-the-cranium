@@ -38,8 +38,6 @@ struct MoreView: View {
             Section("Developer") {
                 row(.tokens, "key", "API tokens")
                 row(.history, "clock.arrow.circlepath", "History")
-                row(.serial, "terminal", "Serial console")
-                row(.boardSetup, "cable.connector", "Board setup")
             }
             Section {
                 row(.help(nil), "questionmark.circle", "Help")
@@ -167,47 +165,5 @@ struct AccountView: View {
         } footer: {
             Text(usable || app.biometricOn ? BiometricWords.toggleFooter(biometry) : BiometricWords.cannotUse(biometry))
         }
-    }
-}
-
-/// The console's Board setup takes a board on USB to online over its serial port, which an iPhone cannot open
-/// (BoardSetupWords, the website's setup.js APP_WORDS).
-struct BoardSetupView: View {
-    var body: some View {
-        ListScreen {
-            Section {
-                Text(BoardSetupWords.title).font(.headline)
-            } footer: {
-                Text(BoardSetupWords.ios)
-            }
-            Section {
-                NavigationLink(value: Route.help("bluetooth-update")) {
-                    Label("Update a board over Bluetooth instead", systemImage: "dot.radiowaves.left.and.right")
-                }
-            }
-        }
-        .helpButton("serial-console")
-        .screenTitle("Board setup")
-    }
-}
-
-/// The website's Serial console drives a board on its USB cable from the browser. An iPhone app
-/// has no way to open a USB serial port, so this says so and points to where it works.
-struct SerialConsoleView: View {
-    var body: some View {
-        ListScreen {
-            Section {
-                Text("An iPhone can't open a board's USB serial port, so the serial console isn't in this app.")
-            } footer: {
-                Text("Use the console's Serial console in Chrome or Edge on a computer, with the board on its USB cable, or the Android app.")
-            }
-            Section {
-                NavigationLink(value: Route.help("bluetooth-update")) {
-                    Label("Update over Bluetooth instead", systemImage: "dot.radiowaves.left.and.right")
-                }
-            }
-        }
-        .helpButton("serial-console")
-        .screenTitle("Serial console")
     }
 }

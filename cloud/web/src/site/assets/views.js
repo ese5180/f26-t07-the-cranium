@@ -1717,7 +1717,20 @@ const SECTION_OF = {
 /** Where Developer leads: a viewer has no use for the serial console's controls. */
 function sectionHref(view, ctx) {
   if (view !== 'developer') return `#/${view}`;
-  return ctx.state.me?.canWrite === false ? '#/history' : '#/serial';
+  return ctx.state.me?.canWrite === false || serialPagesHidden() ? '#/history' : '#/serial';
+}
+
+// The pages that need a board's USB serial port.
+export const SERIAL_PAGES = Object.freeze(['serial', 'setup']);
+
+/**
+ * Whether the Serial console and Board setup are left out: in a phone app with no serial port, which is
+ * the iPhone app (iOS gives apps no way to a USB serial device) and an Android app without the bridge's
+ * usb.* (app.js makes that navigator.serial). On a website the pages stay, and say what a browser lacks.
+ */
+export function serialPagesHidden(win = globalThis) {
+  const inApp = Boolean(win?.webkit?.messageHandlers?.cranium || win?.craniumNative);
+  return inApp && !win?.navigator?.serial;
 }
 
 /**
@@ -1918,19 +1931,21 @@ export function developerTabs(current) {
       ['tokens', 'API tokens'],
       // The console's DynamoDB tables, read only, for release managers (db-page.js).
       ['database', 'Database'],
-    ].map(([view, label]) =>
-      h(
-        'a',
-        {
-          key: view,
-          class: 'nav-link',
-          href: `#/${view}`,
-          'data-label': label,
-          'aria-current': view === current ? 'page' : null,
-        },
-        label
+    ]
+      .filter(([view]) => !(SERIAL_PAGES.includes(view) && serialPagesHidden()))
+      .map(([view, label]) =>
+        h(
+          'a',
+          {
+            key: view,
+            class: 'nav-link',
+            href: `#/${view}`,
+            'data-label': label,
+            'aria-current': view === current ? 'page' : null,
+          },
+          label
+        )
       )
-    )
   );
 }
 

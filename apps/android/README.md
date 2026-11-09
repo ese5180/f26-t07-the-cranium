@@ -150,6 +150,10 @@ of its own.
 
 ## The serial console over USB
 
+From 0.8.8 the app's own pages (the shell) have the console's Serial console and Board setup, with the same port:
+the bridge's `usb.*` (`shell/ShellUsb.kt`, `shell/AndroidUsbPorts.kt`) is the page's Web Serial
+([docs/mobile-apps.md](../../docs/mobile-apps.md#the-serial-pages)). What follows is the classic screens' console.
+
 The DK's J-Link (SEGGER, vendor 0x1366) shows two virtual COM ports; the application's console is
 the second, VCOM1, at 115200 8N1. Connect the J-Link USB port to the phone with a USB OTG cable or
 adapter, open More, Serial console, and allow the app to use the device when Android asks. The page

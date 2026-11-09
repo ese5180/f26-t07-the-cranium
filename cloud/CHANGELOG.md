@@ -7,6 +7,17 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.10.1
+
+The iPhone app no longer shows the Serial console or Board setup, which need a USB serial port an iPhone does not have. The Android app (0.8.8) has both, with the board on the phone's USB cable.
+
+views.js `serialPagesHidden`: in a phone app with no `navigator.serial`, Developer leaves out both pages and leads to
+History, and app.js treats `#/serial` and `#/setup` as no page. bridge.js `createBridgeSerial` makes the Android
+app's `usb.*` (apps/shared/bridge.json) the page's `navigator.serial`, so serial.js, setup.js and recovery.js run
+unchanged; app.js installs it when the app's hello has `usb`. setup.js no longer has the phone apps' "needs a
+computer" screen; APP_WORDS keeps only the Android classic screens' words. apps/shared/pages.json gains `excluded`
+(per app, with a reason), which the three parity tests check (docs/mobile-apps.md, "The serial pages").
+
 ## 2.10.0
 
 A Database page under Developer, for release managers: the console's three DynamoDB tables (state, audit and events), read only. Each table with its rough item count and size, a page of items with filters (kind or partition, board, time range, text), an item's page with all its fields, and an export of the filtered items as CSV or JSON, up to 10,000 items, which goes in the activity log. Token digests, keys, passphrases, certificates and anything else credential-like read "hidden", for everybody.

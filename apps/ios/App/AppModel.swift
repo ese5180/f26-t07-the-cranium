@@ -27,9 +27,6 @@ enum Route: Hashable {
     case activity
     case tokens
     case history
-    case serial
-    /// Developer → Board setup, which needs a computer: why.
-    case boardSetup
     case account
     /// Help: every topic, or one.
     case help(String?)

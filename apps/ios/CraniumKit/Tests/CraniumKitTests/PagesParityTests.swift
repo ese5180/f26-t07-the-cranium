@@ -94,11 +94,30 @@ import Testing
         }
     }
 
+    /// The platforms a page may leave out, each with its reason; the desktop app has every page.
+    @Test func exclusionsHaveAReasonAndOnlyTheSerialPagesAreLeftOutHere() throws {
+        var mine: Set<String> = []
+        for page in try Self.list("console") {
+            let route = try #require(page["route"] as? String)
+            guard let excluded = page["excluded"] as? [String: Any] else { continue }
+            for (platform, reason) in excluded {
+                #expect(["ios", "android"].contains(platform), "\(route) excluded on \(platform)")
+                #expect(((reason as? String) ?? "").count >= 20, "\(route) excluded on \(platform) has a reason")
+            }
+            if excluded["ios"] != nil { mine.insert(try Self.section(route).0) }
+        }
+        #expect(mine == ShellPolicy.excludedSections)
+        let views = try Self.text("cloud/web/src/site/assets/views.js")
+        let hidden = try #require(views.split(separator: "\n").first { $0.contains("SERIAL_PAGES = Object.freeze([") })
+        for section in mine { #expect(hidden.contains("'\(section)'"), "views.js hides \(section) in the app") }
+    }
+
     @Test func theWebViewKeepsEveryPageReachesTheConsoleAndSendsMemfaultOutside() throws {
         for page in try Self.list("console") {
             let route = try #require(page["route"] as? String)
             let url = try #require(URL(string: "\(ShellPolicy.origin)/admin\(route)"))
-            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false) == .allow, "\(route)")
+            let excluded = (page["excluded"] as? [String: Any])?["ios"] != nil
+            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false) == (excluded ? .drop : .allow), "\(route)")
         }
         let csp = try #require(ShellPolicy.contentSecurityPolicy("console", config: ShellPolicyTests.config))
         #expect(csp.contains("connect-src 'self' cranium-app://bundle https://console.test"))

@@ -132,8 +132,10 @@ from the kind of phone. `window.cranium.bridge` is the same object, for feature 
 | `keepAwake` | `app.keepAwake` | The screen stays on during an update over Bluetooth |
 | `settings` | `app.settings` | The shell's own settings: versions, Look for newer pages, Classic app (and Reload on the iPhone) |
 | `appUpdate` (Android) | `update.check`, `update.install` | The APK's own updater, as before; its daily check and notification are unchanged |
+| `usb` (Android, from 0.8.8) | `usb.open`, `usb.write`, `usb.close` | A board's USB serial port, for the Serial console and Board setup: [The serial pages](#the-serial-pages) |
 
-Events: `app.lifecycle`, `app.bundleReady`, `auth.locked`, `ble.boards`, `ble.link`, `ble.progress`, `ble.status`.
+Events: `app.lifecycle`, `app.bundleReady`, `auth.locked`, `ble.boards`, `ble.link`, `ble.progress`, `ble.status`,
+`usb.data`, `usb.closed`.
 
 **Signing in, in the app.** The page signs in itself, with the console's own sign-in code (SRP, the code in six
 boxes), with the phone apps' clients: `mobileClientId` for an admin, the customer pool's phone client for a customer.
@@ -225,7 +227,36 @@ when:
 
 So when the console gets a new page, CI fails until pages.json lists it and every app passes these checks. The
 Memfault page (`#/memfault`, an issue at `#/memfault/<id>`) and the In Memfault card came with console 2.6.0. They are
-listed from apps 0.8.6 and desktop 0.1.3. On a phone they are under the console's sections, as on a narrow browser.
+listed from apps 0.8.6 and desktop 0.1.3. On a phone they are under the console's sections, as on a narrow browser. The serial pages are the one exclusion: [below](#the-serial-pages).
+
+A page an app cannot have is marked in pages.json with `excluded`, the app (`ios`, `android`) and the reason. The
+app's test then checks the opposite: that its shell refuses the page's address and that the web UI leaves the page
+out in that app. Every other page must still be there, and the desktop app has every page.
+
+### The serial pages
+
+The Serial console (`#/serial`) and Board setup (`#/setup`) need a board's USB serial port.
+
+- **iPhone (from 0.8.8): not in the app.** iOS gives an app no way to open a USB serial device, and WebKit has no Web
+  Serial. Inside the iPhone app, views.js `serialPagesHidden` leaves both out of Developer, and app.js treats their
+  addresses as no page. The shell's `ShellPolicy.navigation` also drops them (`excludedSections`). The classic
+  screens' Serial console and Board setup explanations are gone too. pages.json excludes both on `ios`.
+- **Android (from 0.8.8): both work, over USB OTG.** The app offers `usb` in its hello, and app.js makes it the
+  page's `navigator.serial` (bridge.js `createBridgeSerial`), so serial.js, setup.js and recovery.js run as they
+  are. `usb.open` opens the first SEGGER J-Link on the cable through usb-serial-for-android (the console's port,
+  VCOM1, first, then VCOM0, which Board setup's seal watch asks for second), after Android's permission prompt.
+  `usb.write` takes base64 of at most 12 KiB, and the page splits larger writes. What the board sends comes as
+  `usb.data` as it arrives, with no pacing. A port that fails or comes off the cable sends `usb.closed`.
+  This is enough for the whole flow:
+  - console lines of up to 384 bytes;
+  - `ENTER_BOOTLOADER` and the bootloader's half-second window, which needs one round trip of a few milliseconds
+    on the bridge;
+  - MCUboot's serial recovery, base64 lines of 128 bytes in requests of 1 KiB, and an image of about 900 KB,
+    which at 115200 baud takes as long as on a computer.
+  The classic screens' USB console (one command at a time) is unchanged. An Android app before 0.8.8 has no
+  `usb`, so its pages leave both out, as on the iPhone. Tests: `ShellUsbTest` (a fake J-Link: ports,
+  permission, a 384-byte line, the bootloader's answer, a 900 KB image, unplugging) and bridge.test.mjs
+  (`createBridgeSerial` with recovery.js). None of this has run on a phone with a board yet.
 
 ### What only a phone can show
 

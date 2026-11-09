@@ -73,15 +73,27 @@ public enum ShellPolicy {
         case drop
     }
 
+    /// The console's pages that are not in this app (apps/shared/pages.json `excluded.ios`): the Serial console and
+    /// Board setup need a board's USB serial port, which iOS gives no app. The web UI leaves them out too.
+    public static let excludedSections: Set<String> = ["serial", "setup"]
+
+    /// Whether an address of the bundle is one of `excludedSections`, as `#/serial` or `#/setup/...`.
+    public static func isExcludedPage(_ url: URL) -> Bool {
+        guard let fragment = url.fragment, fragment.hasPrefix("/") else { return false }
+        let section = fragment.dropFirst().split(separator: "/", omittingEmptySubsequences: false).first ?? ""
+        return excludedSections.contains(section.split(separator: "?").first.map(String.init) ?? "")
+    }
+
     /// What becomes of a navigation: only the bundle's origin, in the main frame, stays in the web view.
-    /// Anything else, or a new window, is cancelled, and goes to the system if `mayOpenOutside` allows it.
+    /// A page of `excludedSections` is dropped. Anything else, or a new window, is cancelled, and goes to the system
+    /// if `mayOpenOutside` allows it.
     /// A frame of another document (an iframe) is never loaded.
     ///
     /// - Parameters:
     ///   - mainFrame: the navigation is of the main frame; false for an iframe.
     ///   - newWindow: the page asked for a window of its own (`target="_blank"`, `window.open`).
     public static func navigation(to url: URL, mainFrame: Bool, newWindow: Bool) -> Navigation {
-        if !newWindow, mainFrame, isBundle(url) { return .allow }
+        if !newWindow, mainFrame, isBundle(url) { return isExcludedPage(url) ? .drop : .allow }
         if !mainFrame && !newWindow { return .drop }
         return mayOpenOutside(url) ? .openOutside(url) : .drop
     }

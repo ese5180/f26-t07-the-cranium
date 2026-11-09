@@ -4,6 +4,18 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.8
+
+The Serial console and Board setup work in the app with the board on the phone's USB cable (USB OTG): the console's commands, and setting a board up from its bootloader, the golden image and the newest release to online, as in Chrome on a computer.
+
+The bridge has `usb` (`usb.open`, `usb.write`, `usb.close`, events `usb.data` and `usb.closed`; `shell/ShellUsb.kt`
+on `shell/AndroidUsbPorts.kt`, usb-serial-for-android), which the page uses as its Web Serial (bridge.js
+`createBridgeSerial`). The J-Link's console port opens first, then the other one; Android asks for permission the
+first time. `ShellUsbTest` runs it against a fake J-Link: both ports, a refusal, a 384-byte console line, the
+bootloader's answer after `ENTER_BOOTLOADER`, a 900 KB image in the page's 12 KiB writes, and a port that comes off
+the cable. The classic screens' Board setup now says where it is (`BoardSetupText`). Not yet run on a phone with a
+board.
+
 ## 0.8.7
 
 The console's Database page comes with the app, under Developer, for release managers: the console's tables, read only, with filters, each item's fields, and an export as CSV or JSON that goes to the share sheet.

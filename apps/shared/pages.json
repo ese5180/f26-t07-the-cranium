@@ -1,5 +1,5 @@
 {
-  "about": "The console's pages and board cards, which every app shows (docs/mobile-apps.md, 'Pages in every app'). The iPhone app's PagesParityTests, the Android app's PagesParityTest and the desktop app's pages.test.mjs all read this file with the console's own sources: every section of core.js must be here and every page here in core.js; a page's link must be in the sections of views.js (`nav`, or null for one reached another way); its script must be a file of site/assets/ (so in the bundle) that app.js loads; a card's script must draw it and views.js call it; each API route must be in cloud/api/src/app.mjs with no options, so the apps' sign-in is taken as the website's; and each app's own rules must keep the page in its window, let it reach the console, and send `outside` addresses to the system. A page the console gains fails all three suites until it is added here.",
+  "about": "The console's pages and board cards, which every app shows (docs/mobile-apps.md, 'Pages in every app'). The iPhone app's PagesParityTests, the Android app's PagesParityTest and the desktop app's pages.test.mjs all read this file with the console's own sources: every section of core.js must be here and every page here in core.js; a page's link must be in the sections of views.js (`nav`, or null for one reached another way); its script must be a file of site/assets/ (so in the bundle) that app.js loads; a card's script must draw it and views.js call it; each API route must be in cloud/api/src/app.mjs with no options, so the apps' sign-in is taken as the website's; and each app's own rules must keep the page in its window, let it reach the console, and send `outside` addresses to the system. A page the console gains fails all three suites until it is added here. A page an app cannot have names the app in `excluded` (ios, android or desktop) with the reason: that app's web UI leaves it out and its shell refuses its address, and the test checks both; the desktop app has every page.",
   "console": [
     { "route": "#/overview", "nav": "overview", "script": null },
     { "route": "#/devices", "nav": "devices", "script": null },
@@ -25,8 +25,18 @@
     { "route": "#/activity", "nav": "activity", "script": null },
     { "route": "#/apps", "nav": "apps", "script": "apps.js" },
     { "route": "#/customers", "nav": "customers", "script": "customers.js" },
-    { "route": "#/serial", "nav": "developer", "script": "serial.js" },
-    { "route": "#/setup", "nav": "developer", "script": "setup.js" },
+    {
+      "route": "#/serial",
+      "nav": "developer",
+      "script": "serial.js",
+      "excluded": { "ios": "An iPhone cannot open a board's USB serial port: iOS gives apps no way to a USB serial device, and WebKit has no Web Serial. The web UI leaves the page out in the iPhone app (views.js serialPagesHidden) and the shell drops its address (ShellPolicy)." }
+    },
+    {
+      "route": "#/setup",
+      "nav": "developer",
+      "script": "setup.js",
+      "excluded": { "ios": "An iPhone cannot open a board's USB serial port: iOS gives apps no way to a USB serial device, and WebKit has no Web Serial. The web UI leaves the page out in the iPhone app (views.js serialPagesHidden) and the shell drops its address (ShellPolicy)." }
+    },
     { "route": "#/history", "nav": "developer", "script": "history.js" },
     { "route": "#/tokens", "nav": "developer", "script": null },
     { "route": "#/database", "nav": "developer", "script": "db-page.js" },

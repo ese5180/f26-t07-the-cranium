@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { createCognito } from './cognito.mjs';
-import { BRIDGE, CORE } from './page.mjs';
+import { BRIDGE, CORE, RECOVERY } from './page.mjs';
 
 const bridge = await import(BRIDGE);
 const core = await import(CORE);
@@ -288,6 +288,9 @@ test('every method a page asks the app for is in the contract, with only the par
     'auth.signOut',
     'ble.upload',
     'ble.watch',
+    'usb.open',
+    'usb.write',
+    'usb.close',
   ]) {
     assert.ok(asked.has(name), `${name} is asked for`);
   }
@@ -307,6 +310,7 @@ test('every method a page asks the app for is in the contract, with only the par
       'settings',
       'share',
       'storage',
+      'usb',
     ].sort()
   );
   for (const [name, method] of Object.entries(CONTRACT.methods)) {
@@ -471,4 +475,135 @@ test("the API client in the app calls the console's address, and asks for a sign
   assert.equal(urls[0], 'https://console.example/api/me');
   await assert.rejects(api.revoke('1.13.0+0', 'bad'), (error) => error.code === 'phone_sign_in_again');
   assert.deepEqual(signIns, ['phone_sign_in_again']);
+});
+
+// The Android app's USB serial port as the page's Web Serial (createBridgeSerial).
+
+/** A stand-in for the Android app's usb.*: its ports, what is written to each, and events to send. */
+function usbApp({ ports = 2, refuse = null } = {}) {
+  const listeners = new Map();
+  const written = new Map();
+  const calls = [];
+  const app = {
+    calls,
+    written,
+    answer: () => null,
+    emit(event, data) {
+      for (const listener of listeners.get(event) ?? []) listener(data);
+    },
+    on(event, listener) {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      return () => {};
+    },
+    async call(method, params) {
+      calls.push([method, params]);
+      if (method === 'usb.open') {
+        if (refuse) throw new bridge.BridgeError(refuse, 'No.');
+        const open = [...Array(ports).keys()].reverse().find((port) => !written.has(port));
+        if (open === undefined) throw new bridge.BridgeError('busy', 'Every port is open.');
+        written.set(open, []);
+        return { port: open, ports };
+      }
+      if (method === 'usb.write') {
+        const bytes = Uint8Array.from(atob(params.data), (c) => c.charCodeAt(0));
+        written.get(params.port).push(bytes);
+        const reply = app.answer(params.port, bytes);
+        if (reply) {
+          queueMicrotask(() => app.emit('usb.data', { port: params.port, data: btoa(String.fromCharCode(...reply)) }));
+        }
+        return {};
+      }
+      if (method === 'usb.close') {
+        written.delete(params.port);
+        return {};
+      }
+      throw new Error(method);
+    },
+  };
+  return app;
+}
+
+test("the Android app's USB port is Web Serial: the console's port first, bytes both ways, a close", async () => {
+  const app = usbApp();
+  const serial = bridge.createBridgeSerial(app);
+  const port = await serial.requestPort({ filters: [{ usbVendorId: 0x1366 }] });
+  assert.deepEqual(app.calls[0], ['usb.open', { baudRate: 115200 }]);
+  assert.deepEqual(port.getInfo(), { usbVendorId: 0x1366 });
+  await port.open({ baudRate: 115200 });
+  assert.equal(app.calls.length, 1);
+  // What came before the page read is kept.
+  app.emit('usb.data', { port: 1, data: btoa('hello\r\n') });
+  const reader = port.readable.getReader();
+  assert.equal(new TextDecoder().decode((await reader.read()).value), 'hello\r\n');
+  // A console line of 384 bytes goes out whole.
+  const writer = port.writable.getWriter();
+  const line = new TextEncoder().encode('x'.repeat(383) + '\r');
+  await writer.write(line);
+  assert.deepEqual(app.written.get(1), [line]);
+  // The other port is the second one asked for, and a third is refused as nothing chosen.
+  const other = await serial.requestPort();
+  assert.ok(app.written.has(0));
+  await assert.rejects(serial.requestPort(), (error) => error.name === 'NotFoundError');
+  reader.releaseLock();
+  writer.releaseLock();
+  await port.close();
+  assert.deepEqual(app.calls.at(-1), ['usb.close', { port: 1 }]);
+  assert.equal(port.readable, null);
+  await other.close();
+});
+
+test('a refusal is nothing chosen, and a port the cable lost errors and says disconnect', async () => {
+  await assert.rejects(
+    bridge.createBridgeSerial(usbApp({ refuse: 'cancelled' })).requestPort(),
+    (error) => error.name === 'NotFoundError'
+  );
+  const app = usbApp();
+  const serial = bridge.createBridgeSerial(app);
+  const gone = [];
+  serial.addEventListener('disconnect', (event) => gone.push(event.target));
+  const port = await serial.requestPort();
+  const reader = port.readable.getReader();
+  app.emit('usb.closed', { port: 1, reason: 'unplugged' });
+  await assert.rejects(reader.read(), (error) => error.name === 'NetworkError');
+  assert.deepEqual(gone, [port]);
+  assert.equal(port.readable, null);
+});
+
+test('an image of 900 KB goes to the app in writes of 12 KiB at most, byte for byte', async () => {
+  const app = usbApp();
+  const port = await bridge.createBridgeSerial(app).requestPort();
+  const writer = port.writable.getWriter();
+  const image = Uint8Array.from({ length: 900 * 1024 }, (_, at) => (at * 31 + 7) & 0xff);
+  await writer.write(image);
+  const chunks = app.written.get(1);
+  assert.ok(chunks.every((chunk) => chunk.length <= bridge.USB_WRITE_BYTES));
+  const limit = CONTRACT.methods['usb.write'].params.data.max;
+  assert.ok(app.calls.every(([method, params]) => method !== 'usb.write' || params.data.length <= limit));
+  const joined = new Uint8Array(image.length);
+  let at = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, at);
+    at += chunk.length;
+  }
+  assert.equal(at, image.length);
+  assert.deepEqual(joined, image);
+});
+
+test('recovery.js reaches the bootloader through the app: ENTER_BOOTLOADER, and its answer at once', async () => {
+  const recovery = await import(RECOVERY);
+  const app = usbApp();
+  const port = await bridge.createBridgeSerial(app).requestPort();
+  const said = [];
+  app.answer = (_, bytes) => {
+    const text = new TextDecoder().decode(bytes);
+    said.push(text);
+    return text === recovery.ENTER_BOOTLOADER ? new TextEncoder().encode('*** Booting MCUboot ***\r\n') : null;
+  };
+  const link = recovery.createLink(port, { handshakeMs: 10 });
+  const heard = new Promise((resolve) => link.onText((text) => text && resolve(text)));
+  await link.writeText(recovery.ENTER_BOOTLOADER);
+  assert.match(await heard, /Booting MCUboot/);
+  assert.deepEqual(said, [recovery.ENTER_BOOTLOADER]);
+  await link.close();
+  assert.deepEqual(app.calls.at(-1), ['usb.close', { port: 1 }]);
 });

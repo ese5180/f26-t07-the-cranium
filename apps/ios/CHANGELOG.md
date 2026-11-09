@@ -4,6 +4,16 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.8
+
+The Serial console and Board setup are gone from the iPhone app: an iPhone cannot open a board's USB serial port, so neither page could work here. They are on a computer (Chrome, Edge or the desktop app) and in the Android app.
+
+The console's pages leave both out of Developer inside the iPhone app (views.js `serialPagesHidden`), and the shell
+drops their addresses (`ShellPolicy.excludedSections`). The classic screens' Serial console and Board setup
+explanations (`SerialConsoleView`, `BoardSetupView`, CraniumKit `BoardSetupWords`) and their search entry are
+gone. apps/shared/pages.json excludes both pages on `ios` with the reason, and `PagesParityTests` checks that
+the shell refuses them; any other page missing still fails.
+
 ## 0.8.7
 
 The console's Database page comes with the app, under Developer, for release managers: the console's tables, read only, with filters, each item's fields, and an export as CSV or JSON that goes to the share sheet.

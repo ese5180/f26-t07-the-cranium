@@ -822,7 +822,7 @@ test('a viewer gets an explanation, and so does a browser without Web Serial', (
 
   views.render(box, setup.setupView({ state: { me: { canWrite: true } }, actions: {} }));
   assert.ok(textOf(box).includes('This browser cannot reach a serial port.'));
-  assert.ok(textOf(box).includes('Phones and Safari do not have it.'));
+  assert.ok(textOf(box).includes('iPhones and Safari do not have it.'));
 });
 
 test('the page says what needs the probe, and the stepper offers Connect first', () => {
@@ -1040,12 +1040,9 @@ test('the API client reads the defaults from their one route, with the token', a
   assert.equal(await none.api.wifiDefaults(), null);
 });
 
-test('in a phone app the page says why Board setup needs a computer', () => {
-  assert.equal(setup.appPlatform({ craniumNative: { postMessage() {} } }), 'android');
-  assert.equal(setup.appPlatform({ webkit: { messageHandlers: { cranium: {} } } }), 'ios');
-  assert.equal(setup.appPlatform({}), null);
-  for (const words of [setup.APP_WORDS.android, setup.APP_WORDS.ios]) {
-    assert.ok(words.includes('desktop app'));
-    assert.ok(words.includes('Chrome or Edge'));
-  }
+test('the Android classic screens say where Board setup is', () => {
+  assert.equal(setup.appPlatform, undefined);
+  assert.equal(setup.APP_WORDS.ios, undefined);
+  assert.ok(setup.APP_WORDS.android.includes('Developer'));
+  assert.ok(setup.APP_WORDS.android.includes('Chrome or Edge'));
 });

@@ -56,6 +56,17 @@ import Testing
         }
     }
 
+    @Test func theSerialPagesAreNotShown() throws {
+        for address in ["/admin#/serial", "/admin#/setup", "/admin#/setup/", "/admin#/serial?x=1"] {
+            let url = try #require(URL(string: "\(ShellPolicy.origin)\(address)"))
+            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false) == .drop, "\(address)")
+        }
+        for address in ["/admin#/history", "/admin#/serials", "/admin#/devices/setup", "/admin", "/"] {
+            let url = try #require(URL(string: "\(ShellPolicy.origin)\(address)"))
+            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false) == .allow, "\(address)")
+        }
+    }
+
     @Test func onlyTheBundleIsShown() {
         let bundle = URL(string: "cranium-app://bundle/admin#/devices")!
         #expect(ShellPolicy.navigation(to: bundle, mainFrame: true, newWindow: false) == .allow)
