@@ -346,6 +346,22 @@ const ICONS = {
   ],
   bell: [['path', { d: 'M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14zM10 20.5h4' }]],
   more: [['path', { d: 'M5.5 12v.1M12 12v.1M18.5 12v.1' }]],
+  // The sections of the console (console 2.5): one set, the same stroke as every icon above.
+  home: [['path', { d: 'M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6h-6v6H5.5A1.5 1.5 0 0 1 4 19z' }]],
+  layers: [['path', { d: 'M12 4l8.5 4.5L12 13 3.5 8.5zM3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5' }]],
+  phone: [
+    ['rect', { x: 7, y: 3, width: 10, height: 18, rx: 2 }],
+    ['path', { d: 'M11 17.5h2' }],
+  ],
+  users: [
+    ['circle', { cx: 9, cy: 9, r: 3.2 }],
+    ['path', { d: 'M3.5 19.5a5.5 5.5 0 0 1 11 0M15.5 6.2a3.2 3.2 0 0 1 0 5.8M17.5 14.5a5.5 5.5 0 0 1 3 5' }],
+  ],
+  code: [['path', { d: 'M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15' }]],
+  bluetooth: [['path', { d: 'M7 7.5l10 9-5 4.5v-18l5 4.5-10 9' }]],
+  'chevron-right': [['polyline', { points: '9.5 5.5 16 12 9.5 18.5' }]],
+  'chevron-left': [['polyline', { points: '14.5 5.5 8 12 14.5 18.5' }]],
+  chart: [['path', { d: 'M4 4.5v15h16M8 15.5l3.5-4 3 2.5L19 8' }]],
 };
 
 /** A decorative icon. Its meaning is always also given in words next to it. */
@@ -885,7 +901,7 @@ function pageHead({ title, lede, meta, back, tools, eyebrow }) {
   return h(
     'header',
     { class: 'page-head' },
-    back ? h('a', { class: 'back', href: back.href }, icon('arrow-left'), back.label) : null,
+    back ? h('a', { class: 'back', href: back.href }, icon('chevron-left'), back.label) : null,
     h(
       'div',
       { class: 'page-head-row' },
@@ -917,10 +933,11 @@ function card({ key, title, more, className = '' }, ...body) {
           'header',
           { class: 'card-head' },
           title ? h('h2', { class: 'eyebrow' }, title) : null,
-          more ? h('a', { class: 'card-more', href: more.href }, more.label, icon('arrow-right')) : null
+          more ? h('a', { class: 'card-more', href: more.href }, more.label, icon('chevron-right')) : null
         )
       : null,
-    body
+    // The body is the group of a grouped list (console 2.5): the heading stands above it.
+    h('div', { class: 'card-body' }, body)
   );
 }
 
@@ -1663,26 +1680,27 @@ export function signInView(model) {
 
 // The masthead: sections and who is signed in.
 
+// [view, label, icon, primary]: a primary section is a tab of its own on a phone; the rest are under More.
 const SECTIONS = [
-  ['overview', 'Overview'],
-  ['devices', 'Devices'],
-  ['map', 'Map'],
-  ['diagnostics', 'Diagnostics'],
-  ['events', 'Events'],
-  ['firmware', 'Firmware'],
-  ['deployments', 'Deployments'],
+  ['overview', 'Overview', 'home', true],
+  ['devices', 'Devices', 'chip', true],
+  ['map', 'Map', 'pin', true],
+  ['diagnostics', 'Diagnostics', 'chart', false],
+  ['events', 'Events', 'list', false],
+  ['firmware', 'Firmware', 'package', false],
+  ['deployments', 'Deployments', 'send', true],
   // An update over Bluetooth: in the phone app, for release managers (bluetooth.js).
-  ['bluetooth', 'Bluetooth'],
+  ['bluetooth', 'Bluetooth', 'bluetooth', false],
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
-  ['fleet', 'Fleet'],
+  ['fleet', 'Fleet', 'layers', false],
   // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
-  ['memfault', 'Memfault'],
-  ['activity', 'Activity'],
+  ['memfault', 'Memfault', 'alert', false],
+  ['activity', 'Activity', 'clock', false],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
-  ['apps', 'Apps'],
+  ['apps', 'Apps', 'phone', false],
   // The customer site's customers: for release managers only (cloud/api/src/handlers/customers.mjs).
-  ['customers', 'Customers'],
-  ['developer', 'Developer'],
+  ['customers', 'Customers', 'users', false],
+  ['developer', 'Developer', 'code', false],
 ];
 const SECTION_OF = {
   device: 'devices',
@@ -1701,6 +1719,11 @@ function sectionHref(view, ctx) {
   return ctx.state.me?.canWrite === false ? '#/history' : '#/serial';
 }
 
+/**
+ * The sections: a sidebar on a wide screen, a tab bar at the foot of a phone's screen. On a phone
+ * the primary sections are tabs and the rest are in the sheet that More opens (state.moreOpen,
+ * app.js); the sheet's links are drawn only while it is open, so that there is one link per section.
+ */
 export function navView(ctx) {
   const current = SECTION_OF[ctx.state.route.view] ?? ctx.state.route.view;
   const shown = SECTIONS.filter(([view]) => {
@@ -1708,25 +1731,109 @@ export function navView(ctx) {
     if (view === 'bluetooth') return ctx.state.app?.ble === true && ctx.state.me?.canWrite === true;
     return true;
   });
+  const open = ctx.state.moreOpen === true;
+  const inMore = shown.some(([view, , , primary]) => !primary && view === current);
   return h(
-    'ul',
-    { class: 'nav-list' },
-    shown.map(([view, label]) =>
+    'div',
+    { class: 'nav-body' },
+    h(
+      'ul',
+      { class: 'nav-list', key: 'list' },
+      shown.map(([view, label, iconName, primary]) =>
+        h(
+          'li',
+          { key: view, class: primary ? 'nav-item' : 'nav-item is-secondary' },
+          h(
+            'a',
+            {
+              class: 'nav-link',
+              href: sectionHref(view, ctx),
+              // Keeps the room the name takes in bold, so that the sections stay where they are.
+              'data-label': label,
+              'aria-current': view === current ? 'page' : null,
+            },
+            icon(iconName, 'nav-icon'),
+            h('span', { class: 'nav-label' }, label)
+          )
+        )
+      ),
       h(
         'li',
-        { key: view },
+        { key: 'more', class: 'nav-item is-more' },
         h(
-          'a',
+          'button',
           {
-            class: 'nav-link',
-            href: sectionHref(view, ctx),
-            // Keeps the room the name takes in bold, so that the sections stay where they are.
-            'data-label': label,
-            'aria-current': view === current ? 'page' : null,
+            type: 'button',
+            class: `nav-link nav-more-toggle ${inMore || open ? 'is-current' : ''}`.trim(),
+            'aria-expanded': open ? 'true' : 'false',
+            'aria-controls': 'nav-sheet',
+            onClick: () => ctx.actions?.toggleMore?.(),
           },
-          label
+          icon('more', 'nav-icon'),
+          h('span', { class: 'nav-label' }, 'More')
         )
       )
+    ),
+    h(
+      'div',
+      { class: 'nav-sheet', id: 'nav-sheet', key: 'sheet', hidden: !open },
+      h('button', {
+        type: 'button',
+        class: 'nav-sheet-backdrop',
+        tabindex: '-1',
+        'aria-label': 'Close',
+        onClick: () => ctx.actions?.closeMore?.(),
+      }),
+      open
+        ? h(
+            'div',
+            { class: 'nav-sheet-panel', role: 'group', 'aria-label': 'More' },
+            h('span', { class: 'nav-sheet-grip', 'aria-hidden': 'true' }),
+            h(
+              'ul',
+              { class: 'nav-sheet-list' },
+              shown
+                .filter(([, , , primary]) => !primary)
+                .map(([view, label, iconName]) =>
+                  h(
+                    'li',
+                    { key: view },
+                    h(
+                      'a',
+                      {
+                        class: 'nav-sheet-link',
+                        href: sectionHref(view, ctx),
+                        'aria-current': view === current ? 'page' : null,
+                      },
+                      h('span', { class: 'nav-sheet-icon' }, icon(iconName)),
+                      h('span', { class: 'nav-sheet-label' }, label),
+                      icon('chevron-right', 'nav-sheet-chevron')
+                    )
+                  )
+                ),
+              h(
+                'li',
+                { key: 'account' },
+                h(
+                  'a',
+                  {
+                    class: 'nav-sheet-link',
+                    href: '#/account',
+                    'aria-current': current === 'account' ? 'page' : null,
+                  },
+                  h('span', { class: 'nav-sheet-icon' }, icon('user')),
+                  h(
+                    'span',
+                    { class: 'nav-sheet-label' },
+                    'Account',
+                    ctx.state.me?.email ? h('span', { class: 'nav-sheet-detail' }, ctx.state.me.email) : null
+                  ),
+                  icon('chevron-right', 'nav-sheet-chevron')
+                )
+              )
+            )
+          )
+        : null
     )
   );
 }
@@ -3097,6 +3204,46 @@ function oldestRead(resources) {
   return read.reduce((oldest, resource) => (resource.loadedAt < oldest.loadedAt ? resource : oldest), read[0] ?? null);
 }
 
+/**
+ * The fleet at a glance (console 2.5): a few figures in one strip, each a way to the page that has
+ * the rest. What is not known yet is a dash, never a nought.
+ */
+function glanceStrip(ctx, devices, newest) {
+  const known = devices !== null;
+  const phone = phoneOnly(ctx);
+  const counted = known ? boardsCounted(devices, phone) : null;
+  const updating = known ? devices.filter((device) => deviceActivity(device) !== null).length : null;
+  const attention = ctx.state.fleetHealth?.value?.attention?.length ?? null;
+  const items = [
+    ['online', '#/devices', known ? `${counted.online}/${devices.length - counted.bluetooth}` : '–', 'Online'],
+    ['updating', '#/deployments', known ? String(updating) : '–', 'Updating'],
+    attention === null
+      ? ['offline', '#/devices', known ? String(counted.quiet + counted.never) : '–', 'Offline']
+      : ['attention', '#/devices', String(attention), 'Need attention'],
+    ['newest', '#/firmware', newest ? newest.version : '–', 'Newest release'],
+  ];
+  return h(
+    'nav',
+    { class: 'glance', key: 'glance', 'aria-label': 'The fleet at a glance' },
+    h(
+      'ul',
+      { class: 'glance-list' },
+      items.map(([key, href, value, label]) =>
+        h(
+          'li',
+          { key },
+          h(
+            'a',
+            { class: `glance-item is-${key}`, href },
+            h('span', { class: 'glance-value' }, value),
+            h('span', { class: 'glance-label' }, label)
+          )
+        )
+      )
+    )
+  );
+}
+
 export function overviewView(ctx) {
   const { state } = ctx;
   const devices = state.devices.value?.devices ?? null;
@@ -3120,6 +3267,8 @@ export function overviewView(ctx) {
   let cards = null;
   if (!blank) {
     cards = [
+      // What needs looking at comes before the rest (fleet.js).
+      ctx.fleet?.healthCard(ctx) ?? null,
       h(
         'div',
         { class: 'panel on-ink overview-panel', key: 'panel' },
@@ -3132,8 +3281,6 @@ export function overviewView(ctx) {
           releaseCard(ctx, newest)
         )
       ),
-      // Versions by board type, the last week's updates, and the boards that need looking at (fleet.js).
-      ctx.fleet?.healthCard(ctx) ?? null,
       h('div', { class: 'overview', key: 'grid' }, boardsCard(ctx, devices), activityCard(ctx)),
     ];
   } else if (recorded) {
@@ -3148,6 +3295,7 @@ export function overviewView(ctx) {
       lede: 'What the boards last reported, and what is being updated right now.',
       tools: freshness(oldestRead(failed) ?? state.devices, ctx),
     }),
+    blank ? null : glanceStrip(ctx, devices, newest),
     loadProblems(
       [
         [state.devices, 'the boards'],
@@ -3335,6 +3483,13 @@ function devicesPanel(devices, ctx) {
   );
 }
 
+function presenceLook(device, viaPhone) {
+  if (isRestarting(device)) return 'is-restarting';
+  if (isUp(device)) return 'is-up';
+  if (viaPhone) return 'is-phone';
+  return device.lastSeen ? 'is-down' : 'is-never';
+}
+
 const DEVICE_COLUMNS = ['Board', 'Status', 'Firmware', 'Update', 'Signal', 'Uptime'];
 
 export function devicesView(ctx) {
@@ -3361,7 +3516,8 @@ export function devicesView(ctx) {
           const viaPhone = ctx.fleet?.bluetoothOnly(device, ctx) ?? null;
           return h(
             'article',
-            { key: device.thing, class: 'card device' },
+            // How it is, for the mark that leads its row on a phone: the badge beside it says it in words.
+            { key: device.thing, class: `card device ${presenceLook(device, viaPhone)}` },
             h(
               'header',
               { class: 'device-head' },

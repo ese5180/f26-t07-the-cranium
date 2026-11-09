@@ -311,30 +311,42 @@ function declared(selector, media = '') {
   return values;
 }
 
-test('the sections in the masthead are never squeezed under the account block', () => {
-  // In one row the sections keep their width and the account block gives way, its
-  // texts ending in an ellipsis. A link can therefore never lie under another box.
-  assert.equal(declared('.nav').get('flex'), '1 0 auto');
-  assert.equal(declared('.nav').has('min-width'), false);
-  assert.equal(declared('.brand').get('flex'), 'none');
-  assert.equal(declared('.account').get('flex'), '0 1 auto');
-  assert.equal(declared('.account').get('min-width'), '0');
+test('the frame is a tab bar on a phone and a sidebar from 861 px, around the pages only', () => {
+  // A phone: the primary sections are tabs at the foot of the screen, above its home indicator; the
+  // rest are under More, in a sheet. Each tab is a target of a finger's size, and they share the row.
+  const phone = '@media (max-width: 860px)';
+  assert.equal(declared('.nav', phone).get('position'), 'fixed');
+  assert.equal(declared('.nav', phone).get('bottom'), '0');
+  assert.match(declared('.nav', phone).get('padding'), /env\(safe-area-inset-bottom\)/);
+  assert.equal(declared('.nav-item.is-secondary', phone).get('display'), 'none');
+  assert.equal(declared('.nav-item', phone).get('flex'), '1 1 0');
+  assert.equal(declared('.nav-item', phone).get('min-width'), '0');
+  assert.equal(declared('.nav-link', phone).get('min-height'), 'var(--tabbar)');
+  assert.equal(declared(':root').get('--tabbar'), '56px');
+  assert.equal(declared(':root').get('--tap'), '44px');
+  // The top bar keeps clear of the notch, and its title shows only once the large one has gone.
+  assert.equal(declared('.masthead').get('padding-top'), 'env(safe-area-inset-top)');
+  assert.equal(declared('.masthead-title').get('opacity'), '0');
+  assert.equal(declared('body.is-scrolled .masthead-title').get('opacity'), '1');
+  // Nothing on the bar may hold the tab bar and its sheet inside it, as a filter or transform would.
+  for (const selector of ['.masthead', 'body.is-framed .masthead', '.nav']) {
+    for (const media of ['', phone]) {
+      for (const property of ['backdrop-filter', '-webkit-backdrop-filter', 'filter', 'transform']) {
+        assert.equal(declared(selector, media).has(property), false, `${selector} ${property}`);
+      }
+    }
+  }
+  // Wider: every section in a sidebar, and no More.
+  const wide = '@media (min-width: 861px)';
+  assert.equal(declared('.nav-item.is-more', wide).get('display'), 'none');
+  assert.equal(declared('body.is-framed', wide).get('padding-left'), 'var(--sidebar)');
+  assert.equal(declared('body.is-framed .masthead', wide).get('position'), 'fixed');
+  assert.equal(declared('.nav-list', wide).get('flex-direction'), 'column');
+  // The address and the session give way with an ellipsis rather than pushing the buttons out.
   for (const selector of ['.account-email', '.account-session']) {
     assert.equal(declared(selector).get('overflow'), 'hidden', selector);
     assert.equal(declared(selector).get('text-overflow'), 'ellipsis', selector);
   }
-
-  // Below the width that one row needs, the sections take a row of their own. The two
-  // narrower layouts meet without a gap between them.
-  const media = [...new Set(rules.map((rule) => rule.media))];
-  const twoRows = media.find((name) => /^@media \(min-width: 861px\) and \(max-width: \d+px\)$/.test(name));
-  assert.notEqual(twoRows, undefined, 'a layout between the phone and the full width');
-  assert.equal(Number(/max-width: (\d+)px/.exec(twoRows)[1]) >= 1100, true);
-  assert.equal(declared('.nav', twoRows).get('flex-basis'), '100%');
-  assert.equal(declared('.masthead-inner', twoRows).get('flex-wrap'), 'wrap');
-  const threeRows = '@media (max-width: 860px)';
-  assert.equal(declared('.nav', threeRows).get('flex-basis'), '100%');
-  assert.equal(declared('.masthead-inner', threeRows).get('flex-wrap'), 'wrap');
 });
 
 /** The contrast of two colours as WCAG defines it, from "#rrggbb". */
@@ -535,8 +547,7 @@ test('what grows with the text is measured in text, not in pixels', () => {
   );
   assert.equal(declared('.upload-stage-mark').get('width'), '1.625rem');
   assert.equal(declared('.wizard-number').get('width'), '1.375rem');
-  // At large text the sections take more rows, and none is left out of sight in a strip.
-  assert.equal(declared('.nav-list', '@media (max-width: 860px)').get('flex-wrap'), 'wrap');
+  // The tab bar is never a strip that scrolls: what is not a tab is under More.
   assert.equal(declared('.nav', '@media (max-width: 860px)').has('overflow-x'), false);
   // A compact list of steps hides its words from the eye and not from a screen reader.
   assert.equal(declared('.steps.is-compact .step-state').has('display'), false);
@@ -548,17 +559,14 @@ test('a small button keeps its size next to text that could take the room', () =
 });
 
 test('what the keyboard moves to stays in view and shows whole', () => {
-  // The masthead stands at the top of the window from this width on.
-  // In text, not in pixels: it takes more rows at large text.
-  assert.equal(declared('html', '@media (min-width: 1141px)').get('scroll-padding-top'), '5rem');
-  assert.equal(
-    declared('.masthead-inner', '@media (min-width: 861px) and (max-width: 1140px)').get('flex-wrap'),
-    'wrap'
-  );
+  // On a phone the top bar and the tab bar stand over the page: neither covers what the keyboard moves to.
+  const phone = declared('html', '@media (max-width: 860px)');
+  assert.match(phone.get('scroll-padding-top'), /var\(--topbar\)/);
+  assert.match(phone.get('scroll-padding-bottom'), /var\(--tabbar\)/);
   // A dot list is clipped on the left only: a focus ring in it is not cut off on the other sides.
   assert.match(declared('.dotted').get('clip-path'), /^inset\(-\d+px -\d+px -\d+px 18px\)$/);
-  assert.equal(declared('.nav-link').get('padding-inline'), '6px');
-  assert.equal(declared('.nav-link').get('margin-inline'), '-6px');
+  // A tab's focus ring is drawn inside it, where the edge of the screen cannot cut it off.
+  assert.equal(declared('.nav-link:focus-visible', '@media (max-width: 860px)').get('outline-offset'), '-4px');
 });
 
 test('at larger text the masthead wraps rather than laying one thing over another', () => {
@@ -581,8 +589,8 @@ test('what cannot be used is still readable, and looks the same on every kind of
 
 test('with forced colours the current section is still marked, and the steps still connect', () => {
   const forced = '@media (forced-colors: active)';
-  assert.equal(declared('.nav-link', forced).get('border-color'), 'Canvas');
-  assert.equal(declared('.nav-link[aria-current="page"]', forced).get('border-bottom-color'), 'Highlight');
+  assert.equal(declared('.nav .nav-link[aria-current="page"]', forced).get('outline'), '2px solid Highlight');
+  assert.equal(declared('.nav-more-toggle.is-current', forced).get('outline'), '2px solid Highlight');
   assert.equal(declared('.step::before', forced).get('background'), 'CanvasText');
   assert.equal(declared('.step.is-done .step-mark .icon', forced).get('color'), 'Canvas');
   // The icon on a filled mark goes with the fill, and what is drawn as a background stays there.

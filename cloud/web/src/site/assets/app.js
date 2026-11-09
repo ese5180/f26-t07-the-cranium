@@ -152,6 +152,8 @@ const state = {
   app: null,
   // Whether the live API's WebSocket is open (live.js, docs/live.md): the page then hears of changes at once.
   liveUpdates: false,
+  // On a phone, whether the sheet of the sections that are not tabs is open (views.js navView).
+  moreOpen: false,
 };
 
 const clock = createClock();
@@ -212,6 +214,8 @@ function announceBoards() {
 function paint() {
   drawQueued = false;
   state.now = clock.now();
+  // The app's frame (console 2.5): the sidebar or the tab bar, only around the pages themselves.
+  document.body?.classList?.toggle('is-framed', !state.gate);
   if (state.gate) {
     nav.hidden = true;
     account.hidden = true;
@@ -253,11 +257,43 @@ function paint() {
   // A board's page is titled by the board's name, which may arrive after the page opened.
   const title = pageTitle(state.route);
   if (document.title !== title) document.title = title;
+  watchTitle();
   pages[state.route.view].painted?.();
   // The maps of the Map page and of a board's page, once map.js is here (Leaflet keeps its own DOM).
   mapScript?.sync(state);
   announceBoards();
   if (dialogOpen()) dialog.redraw();
+}
+
+// The large title (console 2.5): on a phone the page's own heading stands large under the top bar,
+// and once it has scrolled away the bar shows it, small. Only the eye needs this; the heading
+// itself is what a screen reader reads, so the bar's copy is hidden from it (index.html).
+let titleWatcher = null;
+let titleWatched = null;
+
+function watchTitle() {
+  const bar = document.getElementById('masthead-title');
+  const heading = document.getElementById('page-title');
+  if (!bar || !heading) return;
+  const words = heading.textContent ?? '';
+  if (bar.textContent !== words) bar.textContent = words;
+  if (heading === titleWatched || typeof window.IntersectionObserver !== 'function') return;
+  titleWatcher?.disconnect();
+  titleWatched = heading;
+  titleWatcher = new window.IntersectionObserver(
+    ([entry]) => document.body.classList.toggle('is-scrolled', !entry.isIntersecting),
+    { rootMargin: '-56px 0px 0px 0px' }
+  );
+  titleWatcher.observe(heading);
+}
+
+/** Opens or closes the sheet of the other sections; closing it gives the keyboard back to More. */
+function showMore(open) {
+  if (state.moreOpen === open) return;
+  state.moreOpen = open;
+  paint();
+  if (open) nav.querySelector('.nav-sheet-link')?.focus();
+  else nav.querySelector('.nav-more-toggle')?.focus({ preventScroll: true });
 }
 
 /** The tab's title for a route. */
@@ -1419,8 +1455,16 @@ function placePage() {
   }
 }
 
+// The address of the page before this one, for Back (see start()).
+let previousHash = null;
+let currentHash = null;
+
 function showRoute() {
   if (state.gate) return;
+  if (location.hash !== currentHash) {
+    previousHash = currentHash;
+    currentHash = location.hash;
+  }
   const route = parseRoute(location.hash);
   if (!route) {
     // A console that opens without an address has simply been opened. Any other address
@@ -1434,6 +1478,7 @@ function showRoute() {
   if (dialog) dialog.close(true);
   state.route = route;
   state.interval = 0;
+  state.moreOpen = false;
   document.title = pageTitle(route);
   paint();
   placePage();
@@ -2080,6 +2125,8 @@ const actions = {
   openNotes,
   redraw: draw,
   signOut: () => auth.signOut(),
+  toggleMore: () => showMore(!state.moreOpen),
+  closeMore: () => showMore(false),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
   recordSerialCommand: (command) => api.recordSerialCommand(command),
   // Asked for by hand where the console does not leave by itself: with a file in hand.
@@ -2204,6 +2251,20 @@ async function start() {
   started = true;
 
   window.addEventListener('hashchange', showRoute);
+  // Escape closes the sheet of the other sections, as it closes a dialog.
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.moreOpen && !dialogOpen()) showMore(false);
+  });
+  // Back on a page goes back in the history when that is where it leads, so that the browser's
+  // Back, Android's Back and the page's own Back agree, and the place on the list is kept.
+  document.addEventListener('click', (event) => {
+    const back = event.target.closest?.('a.back');
+    if (!back || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+    if (previousHash !== null && back.getAttribute('href') === previousHash) {
+      event.preventDefault();
+      history.back();
+    }
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') {
       clearTimeout(timer);
