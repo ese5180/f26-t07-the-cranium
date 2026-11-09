@@ -3,8 +3,9 @@
 `scripts/build.sh` builds the firmware with the next unused version, and its signed image lands
 here, named by that version. It then uploads the image to the console as a release, and its symbols
 and release to Memfault ([`docs/memfault.md`](../docs/memfault.md#symbols-and-releases)). Any
-`west build` of this checkout stores its image here too. Git ignores everything in this folder except
-this file.
+`west build` of this checkout stores its image here too. Every image here is kept in git, with its record,
+so the releases are in the repository with the source. None holds a secret: the Wi-Fi network is set on the
+board at provisioning, and no AWS address or account is in an image.
 
 | File | What it is |
 | --- | --- |
@@ -82,9 +83,8 @@ The way with a sign-in is by hand, on the console's Firmware page.
 ## The golden image
 
 `golden/` holds the one image a board can always go back to: see
-[`firmware/README.md`](../firmware/README.md#golden-image). Git ignores it like everything else here,
-because the repository is public, so `firmware/golden.json` and the bootloader's `prj.conf` are all
-that git has of it. They hold its digest, which a build of the bootloader pins. Treat this file as
+[`firmware/README.md`](../firmware/README.md#golden-image). Git keeps it like everything else here, and
+`firmware/golden.json` and the bootloader's `prj.conf` hold its digest too. They hold its digest, which a build of the bootloader pins. Treat this file as
 irreplaceable: a rebuild of the same commit does not need to come out the same, and only a file with
 that digest can be restored. Keep a copy with whoever holds the signing key. The console is no place
 for a spare: it has no way to give a file back, and it refuses a version older than any it has seen.

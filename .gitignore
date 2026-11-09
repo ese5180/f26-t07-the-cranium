@@ -10,9 +10,10 @@ __pycache__/
 *.pyc
 node_modules/
 
-# Signed firmware images, stored by each build
-/binaries/*
-!/binaries/README.md
+# Signed firmware images (binaries/) are kept in git with their source: a build stores them there.
+# latest.* are copies of the newest, rewritten by every build, so they stay out.
+/binaries/latest.signed.bin
+/binaries/latest.json
 
 # Local secrets: nothing in secrets/ is tracked except documentation and templates
 /secrets/*

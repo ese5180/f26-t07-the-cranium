@@ -1,0 +1,10 @@
+{
+  "version": "1.11.3+0",
+  "file": "cranium-1.11.3-0.signed.bin",
+  "size": 844634,
+  "sha256": "6cd273731fcfd2c670693d99477fc71ac107c7d3ead77d9542662d0c7d7dd421",
+  "bluetooth": true,
+  "commit": "e755b70",
+  "command_line": [],
+  "built": "2026-11-03T01:01:44Z"
+}

@@ -1,0 +1,12 @@
+{
+  "version": "1.14.5+0",
+  "file": "cranium-1.14.5-0.signed.bin",
+  "size": 876413,
+  "sha256": "9fe696af26888dfabfd1c90ef6b31805d7d86caa98b4317219b8247365667683",
+  "bluetooth": true,
+  "board": "nrf7002dk",
+  "layout": 1,
+  "commit": "d88643c+uncommitted",
+  "command_line": [],
+  "built": "2026-11-09T15:21:46Z"
+}
