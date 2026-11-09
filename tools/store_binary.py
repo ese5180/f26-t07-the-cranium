@@ -114,9 +114,29 @@ def git_commit(repo: Path) -> str:
     return f"{commit}+uncommitted" if dirty or hidden else commit
 
 
+def tracked(folder: Path):
+    """The names in this folder that git keeps: released images, never pruned or overwritten. None when
+    git cannot be asked (a build environment may have no git on its PATH): then nothing is touched."""
+    git = shutil.which("git") or next((g for g in ("/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git")
+                                        if Path(g).exists()), None)
+    if git is None:
+        return None
+    try:
+        listing = subprocess.run([git, "ls-files", "--", "."], cwd=folder, capture_output=True,
+                                 text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {Path(line).name for line in listing.splitlines()}
+
+
 def prune(folder: Path) -> None:
-    """Keep the newest versions; a folder that nobody tidies does not grow for ever."""
-    images = sorted(folder.glob("cranium-*.signed.bin"), key=lambda p: p.stat().st_mtime, reverse=True)
+    """Keep the newest versions; a folder that nobody tidies does not grow for ever. An image that git
+    keeps, with its record, is never removed."""
+    kept_by_git = tracked(folder)
+    if kept_by_git is None:
+        return
+    images = sorted((p for p in folder.glob("cranium-*.signed.bin") if p.name not in kept_by_git),
+                    key=lambda p: p.stat().st_mtime, reverse=True)
     for old in images[KEEP:]:
         old.unlink()
         old.with_name(old.name.removesuffix(".signed.bin") + ".json").unlink(missing_ok=True)
@@ -145,7 +165,12 @@ def main() -> None:
 
     folder = args.repo / "binaries"
     folder.mkdir(exist_ok=True)
-    shutil.copyfile(image, folder / f"{stem}.signed.bin")
+    # A released image that git keeps is never replaced by a rebuild of the same version: a rebuild has
+    # another digest (the build time is in the boot banners). latest.* still points at this build.
+    kept_by_git = tracked(folder) or set()
+    keep_release = f"{stem}.signed.bin" in kept_by_git
+    if not keep_release:
+        shutil.copyfile(image, folder / f"{stem}.signed.bin")
     shutil.copyfile(image, folder / f"{latest}.signed.bin")
     fields = {
         "version": version,
@@ -161,7 +186,8 @@ def main() -> None:
     if board != DEFAULT_BOARD:
         fields["board"] = board
     record = json.dumps(fields, indent=2) + "\n"
-    (folder / f"{stem}.json").write_text(record)
+    if not keep_release:
+        (folder / f"{stem}.json").write_text(record)
     (folder / f"{latest}.json").write_text(record)
     prune(folder)
     print(f"store_binary: {version} for the {board} is in binaries/{stem}.signed.bin ({len(data)} bytes)")
