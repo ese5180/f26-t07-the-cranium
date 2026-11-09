@@ -113,25 +113,30 @@ test('a board registered before is refused unless it is registered again, which 
   assert.equal(entries()[2].detail.reregister, 'true');
 });
 
-test("a viewer may not register a board, nor may a phone app's session, and both refusals are on record", async () => {
+test("a viewer may not register a board; the apps' sign-in may, the desktop app's, after a fresh sign-in", async () => {
   const { call, viewer, manager, fake, entries, clock } = world();
   const csr = makeCsr({ commonName: THING }).pem;
   const refused = await call('POST', PATH, { as: viewer, body: { id: ID, csr } });
   assert.deepEqual([refused.status, refused.body.error.code], [403, 'release_manager_required']);
-  const phone = accessClaims({
-    sub: manager.sub,
-    groups: ['release-managers'],
-    clientId: 'localmobile',
-    authTime: Math.floor(clock.ms / 1000),
-  });
-  const fromPhone = await call('POST', PATH, { claims: phone, body: { id: ID, csr } });
-  assert.deepEqual([fromPhone.status, fromPhone.body.error.code], [403, 'phone_not_allowed']);
+  const app = (ageSeconds) =>
+    accessClaims({
+      sub: manager.sub,
+      groups: ['release-managers'],
+      clientId: 'localmobile',
+      authTime: Math.floor(clock.ms / 1000) - ageSeconds,
+    });
+  const stale = await call('POST', PATH, { claims: app(3600), body: { id: ID, csr } });
+  assert.deepEqual([stale.status, stale.body.error.code], [403, 'phone_sign_in_again']);
   assert.deepEqual(Object.keys(fake.certificates()), []);
+  const fresh = await call('POST', PATH, { claims: app(60), body: { id: ID, csr } });
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.body));
+  assert.equal(Object.keys(fake.certificates()).length, 1);
   assert.deepEqual(
-    entries().map((entry) => [entry.outcome, entry.detail.code]),
+    entries().map((entry) => [entry.outcome, entry.detail.code ?? null]),
     [
       ['denied', 'release_manager_required'],
-      ['denied', 'phone_not_allowed'],
+      ['denied', 'phone_sign_in_again'],
+      ['ok', null],
     ]
   );
 });

@@ -85,10 +85,69 @@ What it can't do:
   probe once: `scripts/board/new-board.sh` (or `west flash --recover`, step 3), and then the page can do the rest. The
   desktop app doesn't do this either: the console holds signed application images, not the bootloader, TF-M and
   network core image a blank chip needs, which come from a build.
-- **Phones and Safari.** Web Serial exists only in Chrome and Edge on a computer, and in the desktop app.
+- **Phones and Safari.** Web Serial exists only in Chrome and Edge on a computer, and in the desktop app. The Android
+  and iPhone apps have a Board setup screen that says why: the iPhone can't open a USB serial port at all, and the
+  Android app's pages have no Web Serial while its own USB console, one command at a time, can't catch the
+  bootloader's half-second window.
 
 **It has not run on a board yet.** Its tests (`cloud/web/test/setup.test.mjs`) run it against a stand-in board that
 speaks the console and serial recovery, and a stand-in for the console's API.
+
+### The Wi-Fi defaults
+
+The Set up step's network fields start filled in with the console's Wi-Fi defaults, so that nobody types the lab's
+network for every board. Change them for a board that joins another network; the passphrase stays masked. They come
+from `GET /api/setup/wifi-defaults`, for release managers only: a viewer never gets them, an API token can't read them,
+the answer is never cached, and each read is on the activity log as "read the Wi-Fi defaults", without the values. The
+page puts them straight into the fields and keeps them nowhere else.
+
+They live in AWS only, in the stack's secret `<stack>/wifi-defaults` (output `WifiDefaultsArn`), as JSON
+`{ "ssid": "...", "passphrase": "...", "security": "WPA2_PSK" }`. Only the console's API function may read it. To set
+them, write `~/.cranium/wifi_secrets.h` with `python tools/secrets.py wifi` and run `cloud/deploy.sh`, which stores it
+the way it stores the Memfault token; a deployment from GitHub Actions takes the repository secret
+`WIFI_DEFAULTS_JSON` (that JSON) instead, when it is set. Neither prints it. A network the firmware would refuse is not
+stored. Without one the fields start empty, and the page says so. The GitHub deploy role needs the updated
+`cloud/infra/github-deploy.yaml` once, to store this secret.
+
+### Time-outs
+
+All in `setup.js` `TIMING` and `recovery.js`, in milliseconds:
+
+| What | How long | Why |
+| --- | --- | --- |
+| `handshake` | 2 000, twice | `ECHO|OFF` before every command, which turns the echo off after a restart |
+| `COMMAND_MS` | 3 000 | A command with no wait of its own: `GET_ID`, `THING` |
+| `status` | 8 000 | `STATUS` |
+| `listening` | 3 000 | A bootloader that listens already (Button 1, or no image) |
+| `restart` | 15 000 | From `ENTER_BOOTLOADER` to the bootloader's window, as `tools/recover.py` |
+| `swap` | 150 000 | The same before the golden image: a swap being resumed took 81 s on the bench |
+| `REPLY_MS` | 8 000 | One SMP request; an upload sends again up to `MAX_LOST` (3) times |
+| `GREETING_EVERY_MS` | 100 | The SMP echo that catches the half-second window |
+| `comeBack` | 120 000 | From the bootloader's restart to the firmware answering `STATUS` |
+| `init` | 15 000 | `INIT` erases settings and restarts |
+| `wifi` | 6 000 | `WIFI_SEC`, `STREAM_START`, `CLOUD`: each writes to flash |
+| `keygen` | 15 000 | `KEYGEN` makes the key in the secure partition |
+| `chunk` | 8 000 | One `STREAM_CHUNK` |
+| `online` | 180 000, every `poll` (5 000) | The console seeing the board online |
+| `seal` | 240 000 | Watching the log port for the seal's result |
+
+Limits the page keeps to: a console line of at most 384 bytes (`CONSOLE_LINE_MAX`), recovery lines of at most 128
+bytes with their newline (MCUboot's `CONFIG_BOOT_MAX_LINE_INPUT_LEN`), requests of at most 1024 bytes, 384 bytes of
+image a request (`CHUNK`), and Web Serial opened with an 8 KiB buffer (its default of 255 bytes is less than `KEYGEN`
+prints at once).
+
+**The port.** Choose the console port: the one ending in 3 on a Mac, the higher `ttyACM` on Linux, the other COM port
+on Windows. The desktop app names the two. A port that prints lines but answers neither the console nor the bootloader
+is the log port, and the page says so.
+
+### The self-check
+
+**Self-check, no board** at the top of the page runs every step against a board simulated in the page: the firmware's
+console, which refuses a line too long or with a control character, and MCUboot's serial recovery, which drops a line
+or a request too large. It connects, puts the golden image on (fetched from the console, as for a real board) and
+seals it by hand, puts a made-up release on, sets the board up with a made-up network and certificate, and waits for
+it online, then says which steps passed. It changes nothing on the console: its register route, releases and board
+list are simulated, and it never reads the Wi-Fi defaults. The same run is a test: `node --test` in `cloud/web`.
 
 ## What you need
 
@@ -346,7 +405,8 @@ download firmware from. They go onto the board as the tool loads them: `STREAM_S
 
 Errors have the API's usual shape, `{ "error": { "code", "message", "requestId" } }`: 400 `invalid_id`,
 `invalid_csr`, `csr_mismatch` (the request is for another board), `invalid_reregister`, `invalid_board` or
-`unexpected_field`; 403 for anyone but a release manager, and for a phone app's session; 409 `already_registered` or
+`unexpected_field`; 403 for anyone but a release manager, and for the apps' sign-in (the desktop app's, and the phone apps') older than
+15 minutes (`phone_sign_in_again`); 409 `already_registered` or
 `board_mismatch` (the thing is another board type's); 429 `rate_limited` after 20 in an hour by one person; 502
 `certificate_mismatch` if AWS IoT ever issued a certificate for another key, which is then retired and not handed out.
 

@@ -7,6 +7,30 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.6.3
+
+Board setup fills in the Wi-Fi network from the console's defaults, which you may still change, and it has a self-check that runs every step against a simulated board, with no board plugged in. It is readier for a real board: a bigger serial buffer, lines held to the board's limits, the log port named when it is chosen by mistake. The desktop app names the console port.
+
+The Wi-Fi defaults are the secret `<stack>/wifi-defaults` (JSON `{ ssid, passphrase, security }`), which the stack makes
+empty and only the API function may read (`ReadWifiDefaults`, GetSecretValue on that one secret). `cloud/deploy.sh`
+stores it from `~/.cranium/wifi_secrets.h`, as it stores the Memfault token (`store_secret_file`, now with a label), and
+the deploy workflow from the repository secret `WIFI_DEFAULTS_JSON` when it is set; it is never printed. The deploy role
+may store it (and the Memfault token, which it lacked) and never read it. `GET /api/setup/wifi-defaults`: release
+managers only, never with an API token, never cached, on record as `setup.wifi_defaults` with whether any was given
+and never which; 503 `wifi_defaults_unavailable`, 500 `wifi_defaults_invalid` for a stored network the firmware would
+refuse. The page puts the values straight into the empty fields, keeps them nowhere, and the passphrase stays masked.
+`POST /api/devices/register` now takes the apps' sign-in too, after a sign-in in the last 15 minutes, as any change from
+the apps: the desktop app signs in with it, and its Board setup could not register a board before.
+
+Against the firmware and MCUboot: the port opens with an 8 KiB buffer (Web Serial's default is 255 bytes, less than
+KEYGEN's request); a console line over 384 bytes (CONSOLE_LINE_MAX) is refused before it is sent; recovery lines stay
+within MCUboot's 128 bytes and requests within its 1024; firmware known to run is asked to restart into the bootloader
+before any SMP greeting is sent to it; a port that prints but answers nothing is named as the log port. The time-outs
+are constants (`TIMING`, `COMMAND_MS`), listed in docs/new-board-setup.md. **Self-check, no board** runs connect, the
+golden image (sealed by hand), a release, setup and online against a simulated board and API; it reads only the
+golden image from the console and changes nothing. In the Android and iPhone apps the page says why Board setup needs
+a computer. Not yet run on a real board.
+
 ## 2.6.2
 
 Developer has a new page, Board setup: plug a board in by USB and take it to online from the console, in Chrome or Edge on a computer or in the desktop app. It puts the golden image on and walks you through sealing it, puts the newest release on, and sets the board's ID, Wi-Fi network and certificate. A board with nothing on it still needs the debug probe once.

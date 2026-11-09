@@ -2666,6 +2666,19 @@ export function createApi({
       };
       return record(await request('POST', '/api/devices/register', body, { once: true }));
     },
+    /**
+     * Board setup's Wi-Fi defaults, for release managers: { ssid, passphrase, security }, or null when the
+     * console has none. setup.js puts them into the form's fields and keeps them nowhere else.
+     */
+    async wifiDefaults() {
+      const reply = record(await request('GET', '/api/setup/wifi-defaults', undefined, { once: true }));
+      const wifi = reply?.wifi;
+      if (!wifi || typeof wifi !== 'object') return null;
+      const { ssid, passphrase, security } = wifi;
+      return typeof ssid === 'string' && typeof passphrase === 'string' && typeof security === 'string'
+        ? { ssid, passphrase, security }
+        : null;
+    },
     async pairing(name) {
       const path = `/api/pairing/${encodeURIComponent(checked(isBluetoothName, name))}`;
       const reply = record(await request('GET', path, undefined, { once: true }));
@@ -4074,6 +4087,13 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to register a board',
     icon: 'chip',
   },
+  // Board setup's Wi-Fi defaults, handed to a release manager: whether any, never which.
+  'setup.wifi_defaults': {
+    done: 'read the Wi-Fi defaults',
+    tried: 'tried to read the Wi-Fi defaults',
+    triedAlone: 'tried to read the Wi-Fi defaults',
+    icon: 'lock',
+  },
 };
 
 // What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
@@ -4278,6 +4298,9 @@ export const REFUSAL_WORDS = {
   already_registered: 'That board has a certificate already',
   board_mismatch: 'That board is registered as another type',
   certificate_mismatch: 'AWS IoT issued a certificate for another key',
+  // Board setup's Wi-Fi defaults (cloud/api/src/handlers/setup.mjs).
+  wifi_defaults_unavailable: 'The console could not read its Wi-Fi defaults just then',
+  wifi_defaults_invalid: 'The stored Wi-Fi defaults break the firmware’s rules',
 };
 
 /** What a cancellation asked for, in the words of the dialog it is asked for in. */

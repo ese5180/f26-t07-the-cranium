@@ -16,7 +16,13 @@
  *
  * The network's name and passphrase go to the board over the cable and nowhere else: never to the server,
  * never into the page's state or the browser's storage. They are read from their fields when they are
- * sent, the line's bytes are overwritten once written, and the passphrase's field is emptied.
+ * sent, the line's bytes are overwritten once written, and the passphrase's field is emptied. The fields
+ * start with the console's Wi-Fi defaults (GET /api/setup/wifi-defaults, release managers only), put
+ * straight into them and kept nowhere else; the person may change them, and the passphrase stays masked.
+ *
+ * The self-check (runSelfCheck) runs the whole flow against a board simulated in the page: the firmware's
+ * console and MCUboot's serial recovery, with their line limits. It needs no board and changes nothing on
+ * the console: its API is simulated too, but for the golden image, which it reads from the console.
  *
  * What it cannot do: a board with nothing on it has no bootloader, so serial recovery cannot reach it,
  * and it needs the debug probe once (scripts/board/new-board.sh, or west flash --recover). The page says
@@ -27,17 +33,24 @@
 
 import {
   BAUD_RATE,
+  BOOT_LINE_MAX,
+  BOOT_RECEIVE_MAX,
   BoardError,
+  CONSOLE_LINE_MAX,
   ENTER_BOOTLOADER,
   GROUP_OS,
   ID_OS_RESET,
   OP_WRITE,
   SEGGER_VENDOR_ID,
+  SERIAL_BUFFER_BYTES,
   createLink,
+  createSmpReader,
   crc16CcittFalse,
+  frameLines,
   keyValues,
   parseImage,
   sha256Hex,
+  smpPacket,
   toBase64,
   uploadImage,
 } from './recovery.js';
@@ -76,21 +89,45 @@ const KEPT = Object.freeze([
 ]);
 const BOARD_LABELS = { nrf7002dk: 'nRF7002 DK', nrf5340dk: 'nRF5340 DK' };
 
-// How long things take, in milliseconds. The tests give shorter ones.
+// How long things take, in milliseconds (docs/new-board-setup.md, "Time-outs"). The tests and the self-check
+// give shorter ones.
 export const TIMING = Object.freeze({
+  // The console's answer to ECHO|OFF, asked before every command, twice.
   handshake: 2000,
+  // A bootloader that listens already: held there with Button 1, or with no image to start.
   listening: 3000,
+  // From ENTER_BOOTLOADER to the bootloader's window, as recover.py gives it.
   restart: 15000,
+  // The same through a swap being resumed, or a golden-image check that waits out a held button.
   swap: 150000,
+  // From the bootloader's restart to the firmware answering STATUS.
   comeBack: 120000,
   status: 8000,
+  // INIT erases settings and restarts.
   init: 15000,
+  // WIFI_SEC, STREAM_START and CLOUD: each writes to flash.
   wifi: 6000,
+  // KEYGEN makes the key in the secure partition.
   keygen: 15000,
   chunk: 8000,
   poll: 5000,
   online: 180000,
   seal: 240000,
+});
+const SELF_CHECK_TIMING = Object.freeze({
+  handshake: 150,
+  listening: 300,
+  restart: 2000,
+  swap: 2000,
+  comeBack: 4000,
+  status: 1000,
+  init: 1000,
+  wifi: 1000,
+  keygen: 1000,
+  chunk: 1000,
+  poll: 20,
+  online: 500,
+  seal: 1000,
 });
 
 export const STEPS = Object.freeze([
@@ -131,6 +168,25 @@ export const WORDS = Object.freeze({
     'The desktop app does not do this either: the console holds the signed application images, not the bootloader, ' +
     'TF-M and network core that a blank chip needs, which come from a build.',
   wifiOnly: 'The name and the passphrase go to the board over the cable, and nowhere else.',
+  logPort:
+    'This port prints the board’s log and takes no commands: it is the board’s other port. Connect again and ' +
+    'choose the console port: the one ending in 3 on a Mac, the higher ttyACM on Linux, the other COM port on Windows.',
+  wifiFilled: 'Filled in from the console’s Wi-Fi defaults. Change them if this board joins another network.',
+  wifiNone: 'The console has no Wi-Fi defaults: type the network in.',
+});
+
+// Why a phone app has no Board setup (apps/android BoardSetupText, apps/ios BoardSetupWords: their tests hold
+// them to these).
+export const APP_WORDS = Object.freeze({
+  title: 'Board setup needs a computer',
+  android:
+    'The Android app’s pages have no Web Serial, and its own USB console sends one command at a time: it cannot ' +
+    'reach the bootloader’s half-second window or send it an image. Set the board up in the Windows or Linux ' +
+    'desktop app, or in Chrome or Edge on a computer. The Serial console in this app still talks to a board ' +
+    'that is set up.',
+  ios:
+    'An iPhone cannot open a board’s USB serial port: iOS gives apps no way to a USB serial device, and Safari ' +
+    'has no Web Serial. Set the board up in the Windows or Linux desktop app, or in Chrome or Edge on a computer.',
 });
 
 const BUTTON_STEPS = Object.freeze([
@@ -274,6 +330,10 @@ export function createSetupFlow({
     phase: null,
     release: null,
     seal: { watching: false, lines: [], result: null, problem: null, waiting: false },
+    // Whether the form's Wi-Fi fields have the console's defaults: idle, loading, filled, none, failed. Never
+    // the values.
+    wifiDefaults: { state: 'idle', problem: null },
+    fillWifiDefaults,
     connect,
     run,
     skip,
@@ -368,7 +428,7 @@ export function createSetupFlow({
         throw new BoardError('No port was chosen. Press Connect and choose the board’s console port.', 'not-chosen');
       }
       try {
-        await port.open({ baudRate: BAUD_RATE });
+        await port.open({ baudRate: BAUD_RATE, bufferSize: SERIAL_BUFFER_BYTES });
       } catch {
         throw new BoardError(
           'The port could not be opened. Another program or tab may have it open: close it (the Serial console page too), and connect again.',
@@ -378,6 +438,7 @@ export function createSetupFlow({
       link = createLink(port, { sleep, now, handshakeMs: timing.handshake });
       phase('Asking the board what it is.');
       flow.board = await identify();
+      if (flow.board.logPort) throw new BoardError(WORDS.logPort, 'log-port');
       if (flow.board.blank) throw new BoardError(WORDS.blank, 'blank');
       return { note: describe(flow.board) };
     });
@@ -393,7 +454,8 @@ export function createSetupFlow({
       if (await link.greet(timing.listening)) {
         return { app: 'none', type: DEFAULT_BOARD, bootloader: 'listening', status: {} };
       }
-      return { blank: true };
+      // Lines came, but neither the console nor the bootloader answered: the log port.
+      return link.heardText ? { blank: true, logPort: true } : { blank: true };
     }
     return identifyFrom(status);
   }
@@ -472,8 +534,9 @@ export function createSetupFlow({
 
   async function enterBootloader(deadline) {
     phase('Asking the board to restart into its bootloader.');
-    // Listening already: held there with Button 1, or no image to start.
-    if (await link.greet(timing.listening)) return;
+    // Firmware known to run is asked first: greetings sent to it are lines it refuses, one ERR each.
+    // Otherwise the bootloader may be listening already: held there with Button 1, or no image to start.
+    if (flow.board?.app !== 'console' && (await link.greet(timing.listening))) return;
     let running = false;
     try {
       await link.command('GET_ID');
@@ -484,6 +547,8 @@ export function createSetupFlow({
     if (running) {
       await link.writeText(ENTER_BOOTLOADER);
       if (await link.greet(deadline)) return;
+    } else if (flow.board?.app === 'console' && (await link.greet(timing.listening))) {
+      return;
     }
     throw new BoardError(WORDS.enter, 'enter');
   }
@@ -533,7 +598,7 @@ export function createSetupFlow({
     let port;
     try {
       port = await serial.requestPort({ filters: [{ usbVendorId: SEGGER_VENDOR_ID }] });
-      await port.open({ baudRate: BAUD_RATE });
+      await port.open({ baudRate: BAUD_RATE, bufferSize: SERIAL_BUFFER_BYTES });
     } catch {
       flow.seal = {
         ...flow.seal,
@@ -776,6 +841,32 @@ export function createSetupFlow({
     );
   }
 
+  /**
+   * Put the console's Wi-Fi defaults into the empty fields of the form: `fill({ ssid, passphrase, security })`
+   * does that, and nothing here keeps them.
+   */
+  async function fillWifiDefaults(fill) {
+    if (flow.wifiDefaults.state !== 'idle' || typeof api?.wifiDefaults !== 'function') return;
+    flow.wifiDefaults = { state: 'loading', problem: null };
+    let wifi = null;
+    try {
+      wifi = await api.wifiDefaults();
+    } catch (error) {
+      flow.wifiDefaults = { state: 'failed', problem: words(error) };
+      changed();
+      return;
+    }
+    if (!wifi) {
+      flow.wifiDefaults = { state: 'none', problem: null };
+      changed();
+      return;
+    }
+    fill(wifi);
+    wifi.passphrase = '';
+    flow.wifiDefaults = { state: 'filled', problem: null };
+    changed();
+  }
+
   // The stepper's controls.
 
   function requireBoard() {
@@ -817,6 +908,7 @@ export function createSetupFlow({
     flow.phase = null;
     flow.progress = null;
     flow.seal = { watching: false, lines: [], result: null, problem: null, waiting: false };
+    flow.wifiDefaults = { state: 'idle', problem: null };
     changed();
   }
 
@@ -985,12 +1077,14 @@ function setupForm(flow) {
       keepWifi: hasNetwork && field('setup-replace-wifi')?.checked !== true,
       newIdentity: field('setup-new-identity')?.checked === true,
     };
-    // Gone from the page as soon as it is on its way.
+    // Gone from the page as soon as it is on its way. A second try fills it again from the defaults.
     if (passField) passField.value = '';
+    flow.wifiDefaults = { state: 'idle', problem: null };
     const done = flow.runSetup(values);
     values.passphrase = '';
     return done;
   };
+  if (flow.wifiDefaults.state === 'idle') queueMicrotask(() => flow.fillWifiDefaults(fillFields));
   return h(
     'form',
     {
@@ -1079,6 +1173,7 @@ function setupForm(flow) {
       }),
       h('p', { class: 'field-hint', id: 'setup-pass-hint' }, `8 to 63 characters. ${WORDS.wifiOnly}`)
     ),
+    wifiDefaultsNote(flow),
     hasIdentity
       ? h(
           'label',
@@ -1098,6 +1193,25 @@ function setupForm(flow) {
       h('button', { type: 'submit', class: 'btn is-primary', disabled: flow.busy }, 'Set it up')
     )
   );
+}
+
+/** The console's Wi-Fi defaults into the fields that are still empty: what the person typed stays. */
+function fillFields({ ssid, passphrase, security }) {
+  const name = field('setup-ssid');
+  const pass = field('setup-passphrase');
+  const kind = field('setup-security');
+  if (name && !name.value) name.value = ssid;
+  if (pass && !pass.value) pass.value = passphrase;
+  if (kind && SECURITIES.includes(security)) kind.value = security;
+}
+
+function wifiDefaultsNote(flow) {
+  const { state, problem } = flow.wifiDefaults;
+  if (state === 'filled') return h('p', { class: 'field-hint', key: 'defaults' }, WORDS.wifiFilled);
+  if (state === 'none') return h('p', { class: 'field-hint', key: 'defaults' }, WORDS.wifiNone);
+  if (state === 'failed')
+    return h('p', { class: 'field-hint', key: 'defaults' }, `The console’s Wi-Fi defaults: ${problem}`);
+  return null;
 }
 
 function stepBody(flow, key, state) {
@@ -1189,8 +1303,11 @@ export function setupView(ctx, flow) {
         'its controls. Ask a release manager to set up the board, or to add you to their group.'
     );
   }
-  if (!flow && !globalThis.navigator?.serial)
+  if (!flow && !globalThis.navigator?.serial) {
+    const app = appPlatform(globalThis);
+    if (app) return explained(APP_WORDS.title, APP_WORDS[app]);
     return explained('This browser cannot reach a serial port.', WORDS.noSerial);
+  }
   const current = flow ?? sharedFlow();
   return h(
     'div',
@@ -1199,12 +1316,386 @@ export function setupView(ctx, flow) {
     pageHead({
       title: 'Board setup',
       lede: LEDE,
-      tools: current.board ? button('is-quiet', () => current.disconnect(), 'Start over') : null,
+      tools: h(
+        'div',
+        { class: 'setup-tools', key: 'head-tools' },
+        button('is-quiet', () => startSelfCheck(), selfCheck.running ? 'Self-check under way' : 'Self-check, no board'),
+        current.board ? button('is-quiet', () => current.disconnect(), 'Start over') : null
+      ),
     }),
+    selfCheckCard(),
     notice('warn', 'alert', 'A board with nothing on it needs the debug probe once.', {
       more: h('span', { class: 'notice-more' }, ` ${WORDS.probe}`),
     }),
     boardFacts(current),
     stepper(current)
+  );
+}
+
+/** The phone app this page is in, from its bridge's transport (bridge.js findTransport), or null. */
+export function appPlatform(win) {
+  if (win?.webkit?.messageHandlers?.cranium) return 'ios';
+  if (win?.craniumNative) return 'android';
+  return null;
+}
+
+// The self-check: the flow against a simulated board, with no board and no change on the console.
+
+/** Amazon Root CA 1 (firmware/certs/AmazonRootCA1.pem), for the simulated register route's answer. */
+export const AMAZON_ROOT_CA1 = `-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6
+b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL
+MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv
+b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj
+ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM
+9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw
+IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6
+VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L
+93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm
+jgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC
+AYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUA
+A4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDI
+U5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUs
+N+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vv
+o/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU
+5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpy
+rqXRfboQnoZsG4q5WTP468SQvvG5
+-----END CERTIFICATE-----
+`;
+
+const SIM_THING = 'cranium-5e1fc4ec000000aa';
+const SIM_LINE_END = '\r\n';
+
+/**
+ * A board on its console port, simulated: the firmware's console (one command a line, refusing a line over
+ * CONSOLE_LINE_MAX bytes or with a control character) and MCUboot's serial recovery (lines of at most
+ * BOOT_LINE_MAX bytes, requests of at most BOOT_RECEIVE_MAX). `board.port` is what navigator.serial hands out.
+ */
+export function simulatedBoard({ firmware = '1.14.0+0', state = 'FACTORY' } = {}) {
+  let source = null;
+  let pending = [];
+  const requests = createSmpReader();
+  const encoder = new TextEncoder();
+  const board = {
+    mode: 'app',
+    firmware,
+    state,
+    id: '',
+    echo: true,
+    lines: [],
+    problems: [],
+    wifi: null,
+    key: false,
+    stream: null,
+    loaded: {},
+    cloud: null,
+    slot: null,
+    port: null,
+  };
+  const say = (lines) => source?.enqueue(encoder.encode(lines.map((line) => `${line}${SIM_LINE_END}`).join('')));
+
+  function status() {
+    const row = (key, value) => `${key.padEnd(14)} ${value}`;
+    return [
+      row('state', board.state),
+      row('id', board.id),
+      row('thing name', SIM_THING),
+      row('firmware', board.firmware),
+      row('board', 'nrf7002dk'),
+      row('layout', 1),
+      row('wifi password', board.wifi ? 'set' : 'unset'),
+      row('wifi link', board.wifi ? 'up' : 'down'),
+      row('cloud', board.cloud ? 'connected' : 'not connected'),
+      row('root CA', board.loaded.CA ? 'set' : 'unset'),
+      row('private key', board.key ? 'set' : 'unset'),
+      row('certificate', board.loaded.CERT ? 'set' : 'unset'),
+    ];
+  }
+
+  function restart(into = 'app') {
+    board.mode = 'restarting';
+    setTimeout(() => {
+      board.mode = into;
+      board.echo = true;
+      if (into === 'app') say(['[BOOT] started']);
+    }, 5);
+  }
+
+  function console_(bytes) {
+    const line = new TextDecoder().decode(Uint8Array.from(bytes));
+    if (bytes.some((byte) => byte < 0x20 && byte !== 0x09))
+      return say(['ERR line discarded, it held a control character']);
+    if (bytes.length > CONSOLE_LINE_MAX) {
+      board.problems.push(`a console line of ${bytes.length} bytes`);
+      return say([`ERR line too long, the limit is ${CONSOLE_LINE_MAX} bytes`]);
+    }
+    if (line === '') return undefined;
+    board.lines.push(line.split('|', 1)[0]);
+    if (board.echo) say([line]);
+    const [name, ...args] = line.split('|');
+    switch (name) {
+      case 'ECHO':
+        board.echo = args[0] !== 'OFF';
+        return say([`OK echo ${String(args[0]).toLowerCase()}`]);
+      case 'GET_ID':
+        return say([`OK ${board.id}|${board.firmware}`]);
+      case 'THING':
+        return say([`OK ${SIM_THING}`]);
+      case 'STATUS':
+        if (board.state === 'FACTORY') return say(['ERR factory mode: run INIT|<id> first']);
+        return say([...status(), 'OK']);
+      case 'ENTER_BOOTLOADER':
+        return restart('bootloader');
+      case 'INIT':
+        board.id = args[0];
+        board.state = 'OPERATING';
+        say([`OK initialized as ${args[0]}, restarting`]);
+        return restart();
+      case 'WIFI_SEC':
+        board.wifi = { ssid: args[0], security: args[1] };
+        return say([`OK saved, connecting to ${args[0]}`]);
+      case 'KEYGEN':
+        board.key = true;
+        return say([
+          '-----BEGIN CERTIFICATE REQUEST-----',
+          'MIIBHjCBxAIBADBiMQswCQYDVQQGEwJVUzEQMA4GA1UECgwHQ3Jhbml1bTEhMB8G',
+          '-----END CERTIFICATE REQUEST-----',
+          'OK key created',
+        ]);
+      case 'STREAM_START':
+        board.stream = { size: Number(args[0]), count: Number(args[1]), crc: args[2], kind: args[3], parts: [] };
+        return say(['OK ready']);
+      case 'STREAM_CHUNK': {
+        const binary = atob(args[1]);
+        board.stream.parts.push(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+        if (board.stream.parts.length === board.stream.count) {
+          const whole = new Uint8Array(board.stream.parts.reduce((sum, part) => sum + part.length, 0));
+          let at = 0;
+          for (const part of board.stream.parts) {
+            whole.set(part, at);
+            at += part.length;
+          }
+          const crc = crc16CcittFalse(whole).toString(16).padStart(4, '0');
+          if (whole.length !== board.stream.size || crc !== board.stream.crc) return say(['ERR crc mismatch']);
+          board.loaded[board.stream.kind] = whole;
+        }
+        return say(['OK chunk']);
+      }
+      case 'CLOUD':
+        board.cloud = { endpoint: args[0], prefix: args[1] };
+        return say(['OK cloud settings saved']);
+      default:
+        return say(['ERR unknown command']);
+    }
+  }
+
+  function bootloader(request) {
+    const answer = (body) => {
+      const packet = smpPacket({
+        op: request.op + 1,
+        group: request.group,
+        id: request.id,
+        sequence: request.sequence,
+        body,
+      });
+      for (const line of frameLines(packet)) source?.enqueue(line);
+    };
+    if (request.group === 0 && request.id === 0) return answer({ r: request.body.d });
+    if (request.group === 1 && request.id === 1) {
+      const { off, data } = request.body;
+      if (off === 0) board.slot = new Uint8Array(request.body.len);
+      if (!board.slot || off + data.length > board.slot.length) return answer({ rc: 3 });
+      board.slot.set(data, off);
+      return answer({ rc: 0, off: off + data.length });
+    }
+    if (request.group === 0 && request.id === 5) {
+      answer({ rc: 0 });
+      board.firmware = parseImage(board.slot).version;
+      return restart();
+    }
+    return answer({ rc: 8 });
+  }
+
+  function take(bytes) {
+    if (bytes.length === 0) return;
+    const smp = bytes[0] === 0x06 || bytes[0] === 0x04;
+    if (board.mode === 'bootloader' && smp) {
+      // Its newline counts: the line held BOOT_LINE_MAX bytes at most.
+      if (bytes.length + 1 > BOOT_LINE_MAX) {
+        board.problems.push(`a recovery line of ${bytes.length + 1} bytes`);
+        return;
+      }
+      const request = requests.feed(Uint8Array.from(bytes));
+      if (request) {
+        const size = cborSize(request);
+        if (size > BOOT_RECEIVE_MAX) board.problems.push(`a recovery request of ${size} bytes`);
+        else bootloader(request);
+      }
+      return;
+    }
+    if (board.mode === 'app') console_(bytes);
+  }
+
+  // A request's size as the bootloader receives it, near enough: its image data and 64 bytes of the rest.
+  const cborSize = (request) => (request.body?.data?.length ?? 0) + 64;
+
+  board.port = {
+    readable: new ReadableStream({
+      start(controller) {
+        source = controller;
+      },
+    }),
+    writable: new WritableStream({
+      write(chunk) {
+        for (const byte of chunk) {
+          if (byte === 0x0a || byte === 0x0d) {
+            take(pending);
+            pending = [];
+          } else pending.push(byte);
+        }
+      },
+    }),
+    open: async () => {},
+    close: async () => {},
+    getInfo: () => ({ usbVendorId: SEGGER_VENDOR_ID }),
+  };
+  return board;
+}
+
+/** A signed-looking MCUboot image for the self-check: header, body and a TLV area with a hash. */
+async function simulatedImage(subtle, version, bodySize = 4096) {
+  const [major, minor, revision, build] = version.split(/[.+]/).map(Number);
+  const image = new Uint8Array(32 + bodySize + 40);
+  const view = new DataView(image.buffer);
+  view.setUint32(0, 0x96f3b83d, true);
+  view.setUint16(8, 32, true);
+  view.setUint32(12, bodySize, true);
+  image[20] = major;
+  image[21] = minor;
+  view.setUint16(22, revision, true);
+  view.setUint32(24, build, true);
+  for (let at = 32; at < 32 + bodySize; at += 1) image[at] = (at * 31) & 0xff;
+  const digest = new Uint8Array(await subtle.digest('SHA-256', image.subarray(0, 32 + bodySize)));
+  const tlv = 32 + bodySize;
+  view.setUint16(tlv, 0x6907, true);
+  view.setUint16(tlv + 2, 40, true);
+  image[tlv + 4] = 0x10;
+  view.setUint16(tlv + 6, 32, true);
+  image.set(digest, tlv + 8);
+  return image;
+}
+
+/**
+ * Run the flow end to end against simulatedBoard() and a simulated API: connect, the golden image (sealed by
+ * hand), a release, setup and online. `golden(file)` is the real golden image (the console's /golden/ file).
+ * Resolves to [{ name, ok, detail }]. Nothing reaches a board or changes the console.
+ */
+export async function runSelfCheck({ golden, subtle = globalThis.crypto?.subtle, timing = SELF_CHECK_TIMING } = {}) {
+  const results = [];
+  const note = (name, ok, detail = '') => results.push({ name, ok: Boolean(ok), detail });
+  const board = simulatedBoard();
+  const release = await simulatedImage(subtle, '9.9.9+0');
+  const certificate = `-----BEGIN CERTIFICATE-----\n${toBase64(release.subarray(0, 600)).replace(/.{64}/g, '$&\n')}\n-----END CERTIFICATE-----\n`;
+  const api = {
+    firmware: async () => ({
+      releases: [
+        {
+          version: '9.9.9+0',
+          status: 'active',
+          sha256: await sha256Hex(subtle, release),
+          size: release.length,
+          board: 'nrf7002dk',
+          layout: 1,
+        },
+      ],
+    }),
+    image: async () => release.slice(),
+    golden: async (file) => golden(file),
+    registerDevice: async () => ({
+      thing: SIM_THING,
+      certificatePem: certificate,
+      rootCa: AMAZON_ROOT_CA1,
+      endpoint: 'self-check.example.invalid',
+      downloadPrefix: 'https://self-check.example.invalid/firmware/',
+    }),
+    device: async (thing) => ({ device: { thing, online: true } }),
+    wifiDefaults: async () => null,
+  };
+  const serial = { requestPort: async () => board.port };
+  const flow = createSetupFlow({ serial, api, subtle, timing });
+  const stepOk = (key) => ['done', 'skipped'].includes(flow.steps[key].status);
+  const said = (key) => flow.steps[key].error ?? flow.steps[key].note ?? '';
+  try {
+    await flow.connect();
+    note('Connect: STATUS, or GET_ID and THING in factory mode', stepOk('connect'), said('connect'));
+    if (stepOk('connect')) {
+      await flow.run('golden');
+      const waiting = flow.steps.golden.status === 'waiting';
+      note('Golden image: ENTER_BOOTLOADER, serial recovery, the restart', waiting, said('golden'));
+      if (waiting) await flow.sealedByHand();
+      await flow.run('firmware');
+      note('Newest firmware: the same way, checked against its SHA-256', stepOk('firmware'), said('firmware'));
+      await flow.runSetup({
+        id: 'SELFCHECK1',
+        ssid: 'Self-check network',
+        security: 'WPA2_PSK',
+        passphrase: 'self-check-only',
+      });
+      note('Set up: INIT, WIFI_SEC, KEYGEN, the certificate, the root CA, CLOUD', stepOk('setup'), said('setup'));
+      const loaded = board.loaded.CA && (await sha256Hex(subtle, board.loaded.CA)) === ROOT_CA_SHA256;
+      note('The board holds Amazon Root CA 1 and a certificate, by their checksums', loaded && board.loaded.CERT, '');
+      if (stepOk('setup')) await flow.run('online');
+      note('Online: the console sees the board', stepOk('online'), said('online'));
+    }
+  } catch (error) {
+    note('The self-check itself', false, error?.message ?? String(error));
+  } finally {
+    await flow.disconnect();
+  }
+  note(
+    'Every line within the board’s limits: console lines, recovery lines and requests',
+    board.problems.length === 0,
+    board.problems.slice(0, 3).join('; ')
+  );
+  return results;
+}
+
+const selfCheck = { running: false, results: null };
+
+async function startSelfCheck() {
+  if (selfCheck.running) return;
+  selfCheck.running = true;
+  selfCheck.results = null;
+  connected?.draw();
+  try {
+    selfCheck.results = await runSelfCheck({ golden: (file) => connected.api.golden(file) });
+  } catch (error) {
+    selfCheck.results = [{ name: 'The self-check itself', ok: false, detail: error?.message ?? String(error) }];
+  }
+  selfCheck.running = false;
+  connected?.draw();
+}
+
+function selfCheckCard() {
+  if (!selfCheck.running && !selfCheck.results) return null;
+  const rows = selfCheck.results ?? [];
+  return h(
+    'section',
+    { class: 'card setup-board', key: 'self-check', 'aria-label': 'Self-check' },
+    h('h2', { class: 'setup-step-title' }, 'Self-check, against a simulated board'),
+    selfCheck.running
+      ? h('p', { class: 'setup-phase', role: 'status' }, 'Running the steps against a board simulated in this page.')
+      : h(
+          'ul',
+          { class: 'setup-gesture' },
+          rows.map((row, index) =>
+            h(
+              'li',
+              { key: String(index) },
+              `${row.ok ? 'Passed' : 'Failed'}: ${row.name}${row.detail ? `. ${row.detail}` : ''}`
+            )
+          )
+        )
   );
 }

@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.4
+
+More has Board setup, which says why it needs a computer: the app's pages have no Web Serial, and its USB console sends one command at a time, too slow for the bootloader's half-second window. The desktop app or Chrome or Edge on a computer does it; the Serial console here still talks to a board that is set up.
+
+`BoardSetupScreen`, with the words of the console's setup.js (`core/BoardSetupText`, held to them by a test). The
+activity log reads `setup.wifi_defaults` and the two new refusals of the console's Wi-Fi defaults.
+
 ## 0.8.3
 
 One sign-in for everybody, as on the website since console 2.4.5: the e-mail address and the password, then the code when the account asks for one. A team account opens admin mode, a customer their own pages; "Admin sign-in" and "Customer sign-in" are gone.

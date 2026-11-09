@@ -79,7 +79,7 @@ class WebsiteListsTest {
     fun `every action of the website's activity log reads in the app as it does there`() {
         val actions = block(core, "AUDIT_ACTIONS")
         val names = Regex("""^ {2}'([a-z_]+\.[a-z_]+)': \{""", RegexOption.MULTILINE).findAll(actions).map { it.groupValues[1] }.toList()
-        assertEquals(40, names.size)
+        assertEquals(41, names.size)
         for (name in names) {
             val body = block(actions.substring(actions.indexOf("'$name': {")).replaceFirst("'$name': ", "const X = "), "X")
             val words = pairs(body)

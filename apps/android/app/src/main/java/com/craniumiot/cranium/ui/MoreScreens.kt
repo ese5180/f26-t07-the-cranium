@@ -56,6 +56,12 @@ fun MoreScreen(vm: ConsoleViewModel, store: Store) {
             )
         }
         header("Developer")
+        item(key = "board-setup") {
+            ListRow(
+                "Board setup", supporting = "On a computer",
+                leading = { GlyphIcon(Glyph.USB, tint = console.ink2) }, onClick = { vm.open(Route.BoardSetup) },
+            )
+        }
         item(key = "tokens") { ListRow("API tokens", leading = { GlyphIcon(Glyph.KEY, tint = console.ink2) }, onClick = { vm.open(Route.Tokens) }) }
         item(key = "history") { ListRow("History", leading = { GlyphIcon(Glyph.HISTORY, tint = console.ink2) }, onClick = { vm.open(Route.History) }) }
         header("You")

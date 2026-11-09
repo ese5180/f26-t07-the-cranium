@@ -98,6 +98,7 @@ import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
 import { createProvisionHandlers } from './handlers/provision.mjs';
+import { createSetupHandlers } from './handlers/setup.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
@@ -332,6 +333,8 @@ export function createApp({
   const pairing = createPairingHandlers(context);
   // Provisioning through the console (docs/new-board-setup.md): a board registered by a release manager.
   const provision = createProvisionHandlers(context);
+  // Board setup's Wi-Fi defaults, from the stack's secret (handlers/setup.mjs).
+  const setup = createSetupHandlers(context);
   const serial = createSerialHandlers(context);
   const tokens = createTokenHandlers(context);
   // The map, commands and alerts (docs/fleet.md): positions on the boards, commands to them, e-mail alerts.
@@ -372,14 +375,22 @@ export function createApp({
     route('GET', '/api/devices/{thing}', location.detailed(updates.withLastUpdate(devices.get))),
     // A new board, registered in AWS IoT from the certificate signing request it made (handlers/provision.mjs):
     // what tools/provision_device.py and scripts/new-board.sh do with a console token, so that setting up a
-    // board needs no sign-in to the AWS account. Release managers, with a session on the website or an API
-    // token; not from a phone. At most 20 an hour a person, and one over that leaves no entry.
+    // board needs no sign-in to the AWS account. Release managers, with a session on the website, an API
+    // token, or the apps' sign-in, which the desktop app's Board setup uses: from the apps, after a sign-in in
+    // the last 15 minutes, as any change from them. At most 20 an hour a person, and one over that leaves no entry.
+    route('POST', '/api/devices/register', provision.register, {
+      action: 'device.register',
+      maxBody: SMALL_BODY_LIMIT,
+      unrecordedCodes: ['rate_limited'],
+    }),
+    // The Wi-Fi network Board setup fills in by default (handlers/setup.mjs): a read for release managers only,
+    // on record, never with an API token, never cached.
     route(
-      'POST',
-      '/api/devices/register',
-      provision.register,
-      { action: 'device.register', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] },
-      { phone: false }
+      'GET',
+      '/api/setup/wifi-defaults',
+      setup.wifiDefaults,
+      { action: 'setup.wifi_defaults', maxBody: 0, read: true },
+      { token: false }
     ),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),

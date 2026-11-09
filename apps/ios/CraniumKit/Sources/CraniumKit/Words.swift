@@ -1133,6 +1133,9 @@ public enum Words {
         // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
         "device.register": AuditAction(done: "registered", doneAlone: "registered a board", tried: "tried to register",
                                        triedAlone: "tried to register a board", icon: "chip"),
+        // Board setup's Wi-Fi defaults handed to a release manager (docs/new-board-setup.md).
+        "setup.wifi_defaults": AuditAction(done: "read the Wi-Fi defaults", tried: "tried to read the Wi-Fi defaults",
+                                           triedAlone: "tried to read the Wi-Fi defaults", icon: "lock"),
     ]
 
     /// The customer actions whose target is a board, and whose sentence ends with the customer.
@@ -1314,6 +1317,9 @@ public enum Words {
         "already_registered": "That board has a certificate already",
         "board_mismatch": "That board is registered as another type",
         "certificate_mismatch": "AWS IoT issued a certificate for another key",
+        // Board setup's Wi-Fi defaults (docs/new-board-setup.md).
+        "wifi_defaults_unavailable": "The console could not read its Wi-Fi defaults just then",
+        "wifi_defaults_invalid": "The stored Wi-Fi defaults break the firmware’s rules",
     ]
 
     struct AuditDetail {

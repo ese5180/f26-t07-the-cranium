@@ -208,7 +208,11 @@ Resources:
               - secretsmanager:DescribeSecret
               - secretsmanager:PutSecretValue
               - secretsmanager:UpdateSecretVersionStage
-            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ConsoleStackName}/memfault-project-key-*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ConsoleStackName}/memfault-project-key-*'
+              - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ConsoleStackName}/memfault-org-token-*'
+              # Board setup's Wi-Fi defaults (WifiDefaults), stored from the WIFI_DEFAULTS_JSON secret.
+              - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ConsoleStackName}/wifi-defaults-*'
 
   # The roles of the console's functions, the functions, and their logs.
   RolesAndFunctionsPolicy:

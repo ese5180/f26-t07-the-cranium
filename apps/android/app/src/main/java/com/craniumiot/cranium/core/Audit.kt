@@ -181,6 +181,10 @@ object AuditText {
             "registered", "tried to register", "tried to register a board", Glyph.CHIP,
             doneAlone = "registered a board",
         ),
+        // Board setup's Wi-Fi defaults handed to a release manager (docs/new-board-setup.md).
+        "setup.wifi_defaults" to Action(
+            "read the Wi-Fi defaults", "tried to read the Wi-Fi defaults", "tried to read the Wi-Fi defaults", Glyph.LOCK,
+        ),
     )
 
     /** The customer actions whose target is a board, and whose sentence ends with the customer. */
@@ -380,6 +384,9 @@ object AuditText {
         "already_registered" to "That board has a certificate already",
         "board_mismatch" to "That board is registered as another type",
         "certificate_mismatch" to "AWS IoT issued a certificate for another key",
+        // Board setup's Wi-Fi defaults (docs/new-board-setup.md).
+        "wifi_defaults_unavailable" to "The console could not read its Wi-Fi defaults just then",
+        "wifi_defaults_invalid" to "The stored Wi-Fi defaults break the firmware’s rules",
     )
 
     private val REVOCATION_STEPS = mapOf(

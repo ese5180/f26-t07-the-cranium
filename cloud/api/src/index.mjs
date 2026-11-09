@@ -20,6 +20,7 @@ import { createMapAws } from './aws-map.mjs';
 import { createMemfaultReader } from './aws-memfault-api.mjs';
 import { createMemfaultStatus } from './aws-memfault.mjs';
 import { createProvisionAws } from './aws-provision.mjs';
+import { createWifiDefaultsReader } from './aws-wifi-defaults.mjs';
 import { createAws } from './aws.mjs';
 import { loadConfig } from './config.mjs';
 import { createCustomerStore } from './customer/aws.mjs';
@@ -41,6 +42,8 @@ export const handler = createApp({
     ...createMemfaultReader(process.env),
     // Provisioning through the console: things, certificates from a board's request, the device policy.
     ...createProvisionAws(process.env),
+    // Board setup's Wi-Fi defaults: the one secret of them, read by this function alone.
+    ...createWifiDefaultsReader(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },
   config,

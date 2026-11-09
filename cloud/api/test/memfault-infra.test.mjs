@@ -180,21 +180,22 @@ test('no other role may read the key; the API may only see whether there is one'
   for (const name of ['EventsRole', 'WebRole', 'LocationRole', 'SignInScopeRole', 'PresignRole', 'RolloutTickRole']) {
     assert.equal(block(template, name).includes('secretsmanager:GetSecretValue'), false, name);
   }
-  // The forwarder's project key, and the API's Memfault token: one reader each.
-  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 2);
+  // The forwarder's project key, the API's Memfault token, and the API's Wi-Fi defaults: one reader each.
+  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 3);
   const api = block(template, 'ApiRole');
   const see = statement(api, 'SeeMemfaultKey');
   assert.ok(see.includes('Action: secretsmanager:DescribeSecret\n'));
   assert.ok(see.includes('Resource: !Ref MemfaultProjectKey'));
   assert.deepEqual(
     allowed(api).filter((action) => action.startsWith('secretsmanager:')),
-    ['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue']
+    ['secretsmanager:DescribeSecret', 'secretsmanager:GetSecretValue', 'secretsmanager:GetSecretValue']
   );
-  // The API's GetSecretValue is on the Memfault token and on nothing else: never the project key.
+  // The API's GetSecretValue is on the Memfault token and Board setup's Wi-Fi defaults, and on nothing else:
+  // never the project key.
   for (const sid of [...api.matchAll(/- Sid: (\w+)/g)].map((match) => match[1])) {
     const text = statement(api, sid);
     if (text.includes('secretsmanager:GetSecretValue')) {
-      assert.equal(sid, 'ReadMemfaultOrgToken');
+      assert.ok(['ReadMemfaultOrgToken', 'ReadWifiDefaults'].includes(sid), sid);
       assert.equal(text.includes('MemfaultProjectKey'), false);
     }
   }

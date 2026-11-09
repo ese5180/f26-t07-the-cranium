@@ -14,6 +14,16 @@
 
 export const BAUD_RATE = 115200;
 export const SEGGER_VENDOR_ID = 0x1366;
+// What Web Serial buffers of what the board sends. Its default is 255 bytes; KEYGEN's request and STATUS
+// come in bursts larger than that, so the page asks for more.
+export const SERIAL_BUFFER_BYTES = 8192;
+// The longest line the application's console takes (console_parser.h CONSOLE_LINE_MAX). A longer one is
+// refused whole, so the page refuses to send it.
+export const CONSOLE_LINE_MAX = 384;
+// The longest line MCUboot's serial recovery takes, its newline included (CONFIG_BOOT_MAX_LINE_INPUT_LEN),
+// and the largest request it puts back together (CONFIG_BOOT_SERIAL_MAX_RECEIVE_SIZE): both its defaults.
+export const BOOT_LINE_MAX = 128;
+export const BOOT_RECEIVE_MAX = 1024;
 
 // SMP (recover.py).
 export const OP_READ = 0;
@@ -44,6 +54,8 @@ export const ENTER_BOOTLOADER = '\rENTER_BOOTLOADER\r';
 export const ECHO_OFF = 'ECHO|OFF';
 export const ECHO_OFF_REPLY = 'OK echo off';
 export const HANDSHAKE_MS = 2000;
+// A command with no wait of its own: GET_ID, THING.
+export const COMMAND_MS = 3000;
 const FINAL_LINE = /^(OK|ERR)( |$)/;
 const TAGGED_LINE = /^\[[^\]]*\]/;
 const KEY_VALUE = /^([A-Za-z][A-Za-z ]+?)\s{2,}(.*)$/;
@@ -540,7 +552,12 @@ export function createLink(
     throw new BoardError('The board does not answer on this port.', 'silent');
   }
 
-  async function command(line, wait = 3000) {
+  async function command(line, wait = COMMAND_MS) {
+    if (new TextEncoder().encode(line).length > CONSOLE_LINE_MAX)
+      throw new BoardError(
+        `The line for ${line.split('|', 1)[0]} is longer than the board's ${CONSOLE_LINE_MAX} bytes: it was not sent.`,
+        'too-long'
+      );
     await handshake();
     const name = line.split('|', 1)[0];
     const reply = collect(wait, (text, lines) => {

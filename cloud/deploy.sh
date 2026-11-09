@@ -22,6 +22,13 @@
 # else from MEMFAULT_ORG_SLUG and MEMFAULT_PROJECT_SLUG, else from ~/.cranium/memfault.json
 # ({"org": "...", "project": "..."}). With none of them they keep their current values.
 #
+# Board setup's Wi-Fi defaults (docs/new-board-setup.md, "The Wi-Fi defaults"). If
+# ~/.cranium/wifi_secrets.h exists (tools/secrets.py wifi), its network is stored as JSON in the
+# stack's secret of output WifiDefaultsArn, which only the console's API reads, for release
+# managers. ~/.cranium/wifi_defaults.json, the same JSON, is taken first: the deployment from
+# GitHub Actions writes it from the repository secret WIFI_DEFAULTS_JSON. Never printed, never a
+# parameter; without either file the stored one stays as it is.
+#
 # The console accepts only images signed with the key in firmware/keys/fw_signing_pub.pem.
 # Once it is deployed, a run that finds another key in that file stops and shows both
 # fingerprints. --replace-signing-key says that the key was replaced on purpose.
@@ -349,14 +356,17 @@ memfault_slug_overrides() {
 # stored before is made the current one again rather than stored twice. The key goes from the file
 # to the AWS CLI and nowhere else: not to the screen, a variable or a parameter.
 #
-# store_secret_file <file> <output of the secret's ARN> <what it is> <what happens without it>
-# does the same for any file of ~/.cranium: the project key, and the token for Memfault's REST API.
+# store_secret_file <file> <output of the secret's ARN> <what it is> <what happens without it> [<label>
+# [<the file's name to show>]] does the same for any file of ~/.cranium: the project key, the token for
+# Memfault's REST API, and Board setup's Wi-Fi defaults. The label starts each line it prints (Memfault).
 store_secret_file() {
-  local file="$1" output="$2" what="$3" without="$4" shown arn token stages found
-  # shellcheck disable=SC2088 # a path to show, not to open
-  shown="~/.cranium/$(basename "$file")"
+  local file="$1" output="$2" what="$3" without="$4" label="${5:-Memfault}" shown="${6:-}" arn token stages found
+  if [ -z "$shown" ]; then
+    # shellcheck disable=SC2088 # a path to show, not to open
+    shown="~/.cranium/$(basename "$file")"
+  fi
   if [ ! -s "$file" ]; then
-    echo "Memfault: no $what in $shown. $without"
+    echo "$label: no $what in $shown. $without"
     return 0
   fi
   if [ -n "$(find "$file" -perm -004 2> /dev/null)" ]; then
@@ -364,12 +374,12 @@ store_secret_file() {
   fi
   arn="$(stack_output "$STACK" "$output")"
   case "$arn" in
-    ""|None) die "$STACK has no $output output, so the Memfault $what was not stored" ;;
+    ""|None) die "$STACK has no $output output, so the $label $what was not stored" ;;
   esac
   token="$(openssl dgst -sha256 -hex < "$file" | awk '{ print $NF }')"
   [[ "$token" =~ ^[0-9a-f]{64}$ ]] || die "the SHA-256 of $shown could not be worked out"
   stages="$(aws secretsmanager describe-secret --secret-id "$arn" --query 'VersionIdsToStages' --output json)" ||
-    die "the Memfault $what's secret could not be described"
+    die "the $label $what's secret could not be described"
   # "new", "current" or "old", and the version that is current now, if any.
   found="$(printf '%s' "$stages" | TOKEN="$token" node -e '
     const stages = JSON.parse(require("node:fs").readFileSync(0, "utf8")) ?? {};
@@ -377,22 +387,22 @@ store_secret_file() {
     const now = Object.keys(stages).find((id) => (stages[id] ?? []).includes("AWSCURRENT")) ?? "-";
     const state = mine === undefined ? "new" : mine.includes("AWSCURRENT") ? "current" : "old";
     process.stdout.write(`${state} ${now}`);
-  ')" || die "the Memfault $what's secret says something this script cannot read"
+  ')" || die "the $label $what's secret says something this script cannot read"
   case "${found%% *}" in
     current)
-      echo "Memfault: the $what in $shown is stored already."
+      echo "$label: the $what in $shown is stored already."
       ;;
     new)
       aws secretsmanager put-secret-value --secret-id "$arn" --client-request-token "$token" \
         --secret-string "file://$file" > /dev/null ||
-        die "the Memfault $what could not be stored"
-      echo "Memfault: stored the $what from $shown."
+        die "the $label $what could not be stored"
+      echo "$label: stored the $what from $shown."
       ;;
     old)
       aws secretsmanager update-secret-version-stage --secret-id "$arn" --version-stage AWSCURRENT \
         --move-to-version-id "$token" --remove-from-version-id "${found#* }" > /dev/null ||
-        die "the Memfault $what that was stored before could not be made the current one again"
-      echo "Memfault: the $what in $shown, stored before, is the current one again."
+        die "the $label $what that was stored before could not be made the current one again"
+      echo "$label: the $what in $shown, stored before, is the current one again."
       ;;
   esac
 }
@@ -404,6 +414,83 @@ store_memfault_secrets() {
     "The boards' chunks are dropped and the boards keep them until one is stored: see docs/memfault.md."
   store_secret_file "$MEMFAULT_TOKEN_FILE" MemfaultOrgTokenArn "token" \
     "The console cannot show what Memfault knows until one is stored: see docs/memfault.md."
+}
+
+# Board setup's Wi-Fi defaults (docs/new-board-setup.md, "The Wi-Fi defaults"): the network of
+# ~/.cranium/wifi_defaults.json, or else of ~/.cranium/wifi_secrets.h, as JSON { ssid, passphrase,
+# security }, checked by the firmware's rules and stored by store_secret_file. The JSON goes to a file
+# of mode 600 in this run's own folder, removed right after and when the run ends; nothing of it is
+# printed, and an error says what is wrong, never the value.
+WIFI_SECRETS_FILE="$HOME/.cranium/wifi_secrets.h"
+WIFI_DEFAULTS_FILE="$HOME/.cranium/wifi_defaults.json"
+
+# wifi_defaults_json <file>: the JSON of a wifi_secrets.h or a wifi_defaults.json, on standard output.
+wifi_defaults_json() {
+  node -e '
+    const fs = require("node:fs");
+    const file = process.argv[1];
+    const text = fs.readFileSync(file, "utf8");
+    const fail = (why) => {
+      process.stderr.write(`${why}\n`);
+      process.exit(1);
+    };
+    let value;
+    if (file.endsWith(".json")) {
+      try {
+        value = JSON.parse(text);
+      } catch {
+        fail("it is not JSON");
+      }
+      if (value === null || typeof value !== "object" || Array.isArray(value)) fail("it is not a JSON object");
+    } else {
+      const unquote = (match) => (match ? match[1].replace(/\\(.)/g, "$1") : undefined);
+      const security = /^#define WIFI_SECRETS_SECURITY\s+([A-Za-z0-9_]+)\s*$/m.exec(text);
+      value = {
+        ssid: unquote(/^#define WIFI_SECRETS_SSID "((?:[^"\\]|\\.)*)"\s*$/m.exec(text)),
+        passphrase: unquote(/^#define WIFI_SECRETS_PASSPHRASE "((?:[^"\\]|\\.)*)"\s*$/m.exec(text)),
+        security: security ? security[1] : undefined,
+      };
+    }
+    const { ssid, passphrase } = value;
+    const security = value.security ?? "WPA2_PSK";
+    const bytes = (item) => Buffer.byteLength(item, "utf8");
+    const control = /[\u0000-\u0008\u000a-\u001f\u007f]/;
+    if (typeof ssid !== "string" || bytes(ssid) < 1 || bytes(ssid) > 32 || control.test(ssid) || ssid.includes("|"))
+      fail("the network name must be 1 to 32 bytes, with no control character and no |");
+    if (typeof passphrase !== "string" || bytes(passphrase) < 8 || bytes(passphrase) > 63 || control.test(passphrase))
+      fail("the passphrase must be 8 to 63 bytes, with no control character");
+    if (!["WPA2_PSK", "WPA2_PSK_SHA256", "WPA3_SAE"].includes(security))
+      fail("the security must be WPA2_PSK, WPA2_PSK_SHA256 or WPA3_SAE");
+    process.stdout.write(JSON.stringify({ ssid, passphrase, security }));
+  ' "$1"
+}
+
+store_wifi_defaults() {
+  local from shown made
+  if [ -s "$WIFI_DEFAULTS_FILE" ]; then
+    from="$WIFI_DEFAULTS_FILE"
+  elif [ -s "$WIFI_SECRETS_FILE" ]; then
+    from="$WIFI_SECRETS_FILE"
+  else
+    echo "Wi-Fi defaults: none in ~/.cranium/wifi_secrets.h. The one stored stays as it is; without one," \
+      "Board setup's fields start empty (docs/new-board-setup.md)."
+    return 0
+  fi
+  # shellcheck disable=SC2088 # a path to show, not to open
+  shown="~/.cranium/$(basename "$from")"
+  if [ -n "$(find "$from" -perm -004 2> /dev/null)" ]; then
+    echo "Note: other users of this computer can read $shown; chmod 600 it."
+  fi
+  made="$(mktemp -d "${WORK:-${TMPDIR:-/tmp}}/wifi.XXXXXX")" || die "no folder for the Wi-Fi defaults"
+  chmod 700 "$made"
+  if ! (umask 077 && wifi_defaults_json "$from" > "$made/wifi_defaults.json"); then
+    rm -rf "$made"
+    die "the Wi-Fi network in $shown was not stored: it breaks the firmware's rules (above)" \
+      "Write it again with: python tools/secrets.py wifi"
+  fi
+  store_secret_file "$made/wifi_defaults.json" WifiDefaultsArn "network" \
+    "Board setup's fields start empty without one." "Wi-Fi defaults" "$shown"
+  rm -rf "$made"
 }
 
 # All stack outputs as one flat JSON object, plus the AWS IoT data endpoint.
@@ -584,6 +671,7 @@ main() {
   echo "Wrote cloud/.deploy/outputs.json"
   bound_iot_log
   store_memfault_secrets
+  store_wifi_defaults
 
   step "8/9 Deletion protection of the user pool and the tables"
   # The stack is created with the protection off, because a protected pool or table

@@ -91,6 +91,8 @@ export const ACTIONS = Object.freeze([
   // A board registered in AWS IoT through the console (handlers/provision.mjs), by tools/provision_device.py
   // or scripts/new-board.sh with a console token: docs/new-board-setup.md.
   'device.register',
+  // Board setup's Wi-Fi defaults handed to a release manager (handlers/setup.mjs): whether any, never which.
+  'setup.wifi_defaults',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
