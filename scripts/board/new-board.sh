@@ -52,6 +52,11 @@
 # registered through the console, and without ~/.cranium/mcuboot_signing_key.pem the build makes the
 # bootloader with the team's public key (in git) and signs its own application with a throwaway key, which
 # that bootloader refuses; the board then gets the golden image from git and the console's newest release.
+#
+# How the work is split: this script is the orchestration (the steps, their order, their state, and the
+# questions it asks), and runs the other tools for each step. What bash does badly (picking the board from
+# nrfutil's JSON, reading a board's serial console, asking the console, scanning for Bluetooth, redacting
+# output) is in tools/new_board.py, which it runs as `helper`; that file holds no step of its own.
 
 set -euo pipefail
 

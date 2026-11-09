@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """What scripts/board/new-board.sh needs that bash does badly. Run by it; each command also works alone.
+The steps of a setup, their order and their state are the shell script's; this file holds none of them.
 
     python3 tools/new_board.py boards                     the boards plugged in, from `nrfutil device list
                                                           --json` on stdin and the serial ports
