@@ -86,7 +86,7 @@ image on a board checks it. The board's own check is the last word.
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
   boards, and what is left out (offline long, Bluetooth only, already current).
 
-Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
+What is planned for the fleet, such as a rollout safety gate and one-click rollback: [`roadmap.md`](roadmap.md). Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
 
 ## Commands: `cranium/<thing>/commands`
 
