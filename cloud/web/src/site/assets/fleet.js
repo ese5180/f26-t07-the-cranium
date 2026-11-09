@@ -567,6 +567,15 @@ export function boardTags(device, ctx) {
   );
 }
 
+/** A board's type and the names of its groups, for the Devices page's search (docs/search-filters.md). */
+export function groupsOf(device, ctx) {
+  const fleet = fleetOf(ctx);
+  const board = fleet?.boards.find((item) => item.thing === device.thing);
+  if (!board) return [];
+  const names = fleet.groups.filter((group) => board.groups.includes(group.id)).map((group) => group.name);
+  return [board.type, ...names].filter((name) => typeof name === 'string');
+}
+
 export function bluetoothOnly(device, ctx) {
   const board = fleetOf(ctx)?.boards.find((item) => item.thing === device.thing);
   if (!board?.bluetoothOnly) return null;

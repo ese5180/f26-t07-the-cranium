@@ -65,6 +65,7 @@ the console's page rules are under the `console` class of the console's `<body>`
 | Grouped lists | `app.css` "Console 2.7: grouped lists", `views.js` `card()` (`.card-body`) |
 | The Overview's glance strip | `views.js` `glanceStrip` |
 | Icons (one stroke set) | `views.js` `ICONS` |
+| Search and filters of a long list | `views.js` `filterBar`, `filterSelect`, `filterDay`; `app.css` "Search and filters"; [search-filters.md](search-filters.md) |
 
 The renderer is `views.js` `h()` and `render()`. The pages' policy forbids inline style, so a value that a page sets
 is a CSS custom property through the `vars` prop. The words are compared with the phone apps' own by their tests, so a

@@ -32,6 +32,12 @@ import {
   offeredBoards,
   onlyChoice,
   parseRoute,
+  // Search and filters of the long lists (docs/search-filters.md).
+  FILTERS,
+  activityActions,
+  cleanSearch,
+  filtersHash,
+  readFilters,
   pollInterval,
   readConfig,
   readImageHeader,
@@ -156,6 +162,10 @@ const state = {
   liveUpdates: false,
   // On a phone, whether the sheet of the sections that are not tabs is open (views.js navView).
   moreOpen: false,
+  // Each long list's search and filters (docs/search-filters.md), by page: what the address says after its ?,
+  // the search as it is typed. And whether the filters are unfolded on a phone.
+  filters: {},
+  filtersOpen: false,
 };
 
 const clock = createClock();
@@ -614,8 +624,8 @@ const pages = {
         const outdated = known.error !== null || known.value?.device.fw?.version !== execution.reported;
         return full || outdated ? load(known, () => api.device(execution.thing)) : null;
       });
-      // Who cancelled it is in the log and not in the deployment's record.
-      if (detail?.status === 'CANCELED' && due(state.audit, full)) {
+      // Who cancelled it is in the log and not in the deployment's record: the whole log, not a search of it.
+      if (detail?.status === 'CANCELED' && (due(state.audit, full) || state.audit.value?.filtered)) {
         await load(state.audit, () => api.audit({ limit: ACTIVITY_PAGE }));
       }
     },
@@ -633,8 +643,12 @@ const pages = {
     view: activityView,
     resources: () => [state.audit],
     async refresh(full) {
+      const asked = activityQuery();
       await Promise.all([
-        load(state.audit, () => api.audit({ limit: ACTIVITY_PAGE })),
+        load(state.audit, async () => ({
+          ...(await api.audit({ limit: ACTIVITY_PAGE, ...asked })),
+          filtered: Object.keys(asked).length > 0,
+        })),
         // How a deployment ended is not in the log: it follows from the deployment.
         due(state.deployments, full) ? load(state.deployments, api.deployments) : null,
       ]);
@@ -991,7 +1005,7 @@ async function memfaultReady() {
 async function telemetry() {
   if (!telemetryScript) {
     telemetryScript = await pageScript(() => import('./telemetry.js'));
-    telemetryScript?.connect({ state, api, load, draw, clock, refresh: () => refreshNow(true) });
+    telemetryScript?.connect({ state, api, load, draw, clock, refresh: () => refreshNow(true), setFilter });
   }
   return telemetryScript;
 }
@@ -1506,6 +1520,9 @@ function showRoute() {
     return;
   }
   if (dialog) dialog.close(true);
+  // A page's filters are what its address says: none when it has no ?.
+  if (Object.hasOwn(FILTERS, route.view)) state.filters[route.view] = readFilters(route.view, route.query ?? {});
+  state.filtersOpen = false;
   state.route = route;
   state.interval = 0;
   state.moreOpen = false;
@@ -2145,6 +2162,73 @@ async function changeAlerts(subscribe) {
   await load(state.alerts, api.alerts);
 }
 
+// Search and filters (docs/search-filters.md). A page's filters are state.filters[view], and its address
+// carries them after a ?: replaced, never pushed, so Back leaves the page rather than undoing a filter, and a
+// change makes no hashchange. A short list is filtered as it is drawn; the activity log and the events are
+// read again from the server, a moment after the typing stops.
+
+const READ_AGAIN = new Set(['activity', 'events']);
+const TYPING_MS = 400;
+let filterTimer = null;
+
+/** Change a page's filters, checked, and put them in the address if the page is open. */
+function writeFilters(view, changes) {
+  const next = { ...(state.filters[view] ?? readFilters(view)), ...changes };
+  const typed = typeof next.q === 'string' ? next.q.slice(0, 100) : '';
+  const checked = readFilters(view, { ...next, q: cleanSearch(typed) });
+  state.filters[view] = { ...checked, q: typed };
+  if (state.route.view !== view) return;
+  const hash = filtersHash(state.route, checked);
+  if (location.hash !== hash) {
+    history.replaceState(history.state, '', location.pathname + hash);
+    currentHash = location.hash;
+  }
+}
+
+function setFilter(view, name, value) {
+  const before = cleanSearch(state.filters[view]?.q ?? '');
+  writeFilters(view, { [name]: value });
+  draw();
+  if (!READ_AGAIN.has(view)) return;
+  // A space or a capital typed does not change what the server is asked.
+  if (name === 'q' && cleanSearch(state.filters[view].q) === before) return;
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(
+    () => {
+      if (state.route.view === view) refreshNow(true);
+    },
+    name === 'q' ? TYPING_MS : 0
+  );
+}
+
+function clearFilters(view) {
+  state.filters[view] = readFilters(view);
+  writeFilters(view, {});
+  draw();
+  if (READ_AGAIN.has(view)) {
+    clearTimeout(filterTimer);
+    refreshNow(true);
+  }
+}
+
+/**
+ * What the Activity page asks the API for: the search, the actions of the kind, the outcome, and the days
+ * from and to, as local days. {} when nothing narrows it.
+ */
+function activityQuery() {
+  const filters = state.filters.activity ?? readFilters('activity');
+  const asked = {};
+  const q = cleanSearch(filters.q ?? '');
+  if (q !== '') asked.q = q;
+  if (filters.kind) asked.actions = activityActions(filters.kind);
+  if (filters.outcome) asked.outcomes = [filters.outcome];
+  const dayStart = (day) => new Date(`${day}T00:00:00`).getTime();
+  if (filters.from) asked.from = new Date(dayStart(filters.from)).toISOString();
+  if (filters.to) asked.to = new Date(dayStart(filters.to) + 86_400_000 - 1).toISOString();
+  if (asked.from && asked.to && asked.from >= asked.to) delete asked.to;
+  return asked;
+}
+
 const actions = {
   identify: (thing) => sendCommand(thing, 'identify'),
   reportNow: (thing) => sendCommand(thing, 'report'),
@@ -2156,6 +2240,12 @@ const actions = {
   redraw: draw,
   signOut: () => auth.signOut(),
   toggleMore: () => showMore(!state.moreOpen),
+  setFilter,
+  clearFilters,
+  toggleFilters() {
+    state.filtersOpen = !state.filtersOpen;
+    draw();
+  },
   closeMore: () => showMore(false),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
   recordSerialCommand: (command) => api.recordSerialCommand(command),
@@ -2212,8 +2302,13 @@ const actions = {
     audit.loadingMore = true;
     draw();
     try {
-      const page = await api.audit({ limit: ACTIVITY_PAGE, before: audit.value.next });
-      audit.value = { entries: audit.value.entries.concat(page.entries), next: page.next };
+      const page = await api.audit({ limit: ACTIVITY_PAGE, before: audit.value.next, ...activityQuery() });
+      audit.value = {
+        ...audit.value,
+        entries: audit.value.entries.concat(page.entries),
+        next: page.next,
+        ...(page.read === undefined ? {} : { read: (audit.value.read ?? 0) + page.read }),
+      };
       audit.moreError = null;
     } catch (error) {
       audit.moreError = asProblem(error);

@@ -141,13 +141,24 @@ export function isRolloutId(value) {
 export function rolloutHref(id) {
   return isRolloutId(id) ? `#/rollouts/${id}` : null;
 }
-const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?$/;
+// A page's address, and after a ? the filters of its list (docs/search-filters.md): #/events?board=…&q=wifi.
+const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?(?:\?([A-Za-z0-9=&%._~+,:*!'()-]{0,800}))?$/;
 
-/** Turn a location hash into a route, or null if it is not one of the console's. */
+/**
+ * Turn a location hash into a route, or null if it is not one of the console's. A page with filters
+ * (FILTERS) carries them as `query`: the names and values of the hash's query, unchecked yet (readFilters).
+ */
 export function parseRoute(hash) {
   const match = typeof hash === 'string' ? ROUTE.exec(hash) : null;
   if (!match) return null;
-  const [, section, item] = match;
+  const route = routeOf(match[1], match[2]);
+  if (route !== null && match[3] !== undefined && Object.hasOwn(FILTERS, route.view) && route.thing === undefined) {
+    route.query = queryOf(match[3]);
+  }
+  return route;
+}
+
+function routeOf(section, item) {
   if (item === undefined) return SECTIONS.includes(section) ? { view: section } : null;
   if (section === 'devices' && isThing(item)) return { view: 'device', thing: item };
   if (section === 'deployments' && isDeploymentId(item)) return { view: 'deployment', id: item };
@@ -181,6 +192,151 @@ export function deviceHref(thing) {
 
 export function deploymentHref(id) {
   return isDeploymentId(id) ? `#/deployments/${id}` : null;
+}
+
+// Search and filters (docs/search-filters.md). A list that can grow long has a search box and the filters that
+// suit it, kept in the page's address after a ?, so that a filtered list can be shared or bookmarked. Each
+// page's filters are checked here, by name: a value that is not one of the page's is left out, as if absent.
+
+const MAX_SEARCH = 100;
+const UNPRINTABLE = /[\p{C}\p{Zl}\p{Zp}]/u;
+
+/** The names and values after the ? of a hash: the first of each name, short and printable only. */
+function queryOf(text) {
+  const out = {};
+  let params;
+  try {
+    params = new URLSearchParams(text);
+  } catch {
+    return out;
+  }
+  for (const [name, value] of params) {
+    if (!/^[a-z]{1,12}$/.test(name) || Object.hasOwn(out, name)) continue;
+    if (value.length <= 200 && !UNPRINTABLE.test(value)) out[name] = value;
+  }
+  return out;
+}
+
+/** Search text as the API takes it (q): trimmed, one line, at most 100 characters; '' for none. */
+export function cleanSearch(value) {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(UNPRINTABLE, ' ').trim();
+  return text.slice(0, MAX_SEARCH).trim();
+}
+
+/**
+ * Whether a row's words hold every word of the search, in any case: the search of a short list, made here.
+ * `fields` are the row's texts; anything that is not text is passed over.
+ */
+export function matchesSearch(fields, search) {
+  const words = cleanSearch(search).toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const haystack = fields
+    .filter((field) => typeof field === 'string' || typeof field === 'number')
+    .join(' ')
+    .toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
+const oneOf = (values) => (value) => (values.includes(value) ? value : '');
+// A list, comma separated, each one of `values` and none twice, written in their order.
+const someOf = (values) => (value) => {
+  const parts = value.split(',');
+  if (parts.length === 0 || new Set(parts).size !== parts.length || parts.some((part) => !values.includes(part))) {
+    return '';
+  }
+  return values.filter((item) => parts.includes(item)).join(',');
+};
+const searchText = (value) => cleanSearch(value);
+const boardFilter = (value) => (isThing(value) ? value : '');
+// A day, as an <input type="date"> writes it: 2026-11-09.
+const dayFilter = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : '';
+};
+// A firmware version as it is written, or the start of one: 1.14 or 1.14.0+3.
+const versionFilter = (value) => (/^\d{1,3}(?:\.\d{1,5}){0,2}(?:\+\d{1,10})?$/.test(value) ? value : '');
+
+/**
+ * The kinds of the activity log, for its filter: each action of the log (AUDIT_ACTIONS) is in one, by the
+ * start of its name. The API is asked for a kind's actions (GET /api/audit?actions=).
+ */
+export const ACTIVITY_KINDS = Object.freeze([
+  { id: 'firmware', label: 'Firmware', starts: ['firmware.', 'pairing.'] },
+  { id: 'deployments', label: 'Deployments and rollouts', starts: ['deployment.', 'rollout.', 'group.', 'fleet.'] },
+  { id: 'boards', label: 'Boards', starts: ['board.', 'serial.', 'device.', 'setup.'] },
+  { id: 'people', label: 'Sign-ins, tokens and alerts', starts: ['account.', 'token.', 'alert.'] },
+  { id: 'apps', label: 'Phone apps', starts: ['app.'] },
+  { id: 'customers', label: 'Customers', starts: ['customer.'] },
+  { id: 'database', label: 'Database exports', starts: ['db.'] },
+]);
+export const ACTIVITY_OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
+
+/** The actions of a kind of the activity log, as the API names them; [] for no kind. */
+export function activityActions(kind) {
+  const found = ACTIVITY_KINDS.find((entry) => entry.id === kind);
+  if (!found) return [];
+  return Object.keys(AUDIT_ACTIONS).filter((action) => found.starts.some((start) => action.startsWith(start)));
+}
+
+// What the Events page can hide: the kinds of its events and of the board log, and the Console lane. Read when
+// a filter is checked, since the lists are made further down.
+const eventHidden = (value) => someOf([...new Set(['console', ...EVENT_KINDS, ...LINE_KINDS])])(value);
+
+/** The filters of each page that has them: name -> how a value from the address is checked ('' for none). */
+export const FILTERS = Object.freeze({
+  devices: { q: searchText, status: oneOf(['online', 'offline', 'bluetooth', 'updating']), version: versionFilter },
+  firmware: { q: searchText, status: oneOf(['active', 'revoked']) },
+  deployments: { q: searchText, status: oneOf(['underway', 'ended']) },
+  activity: {
+    q: searchText,
+    kind: oneOf(ACTIVITY_KINDS.map((kind) => kind.id)),
+    outcome: oneOf(ACTIVITY_OUTCOMES),
+    from: dayFilter,
+    to: dayFilter,
+  },
+  events: {
+    q: searchText,
+    board: boardFilter,
+    level: oneOf(['warn']),
+    hide: eventHidden,
+    tag: (value) => (LINE_TAGS.includes(value) ? value : ''),
+    range: oneOf(['1h', '6h', '24h', '7d', '30d']),
+  },
+  tokens: { q: searchText, status: oneOf(['active', 'expired', 'revoked']) },
+  customers: { q: searchText, status: oneOf(['invited', 'active', 'disabled', 'gone']) },
+  memfault: { q: searchText, version: versionFilter },
+});
+
+/** A page's filters from the address's query: every name of the page, '' where absent or not valid. */
+export function readFilters(view, query = {}) {
+  const spec = FILTERS[view] ?? {};
+  const out = {};
+  for (const [name, check] of Object.entries(spec)) {
+    const value = typeof query?.[name] === 'string' ? query[name] : '';
+    out[name] = value === '' ? '' : check(value);
+  }
+  return out;
+}
+
+/** How many of a page's filters are set, the search left out: for the Filters button's count. */
+export function filtersSet(filters) {
+  return Object.entries(filters ?? {}).filter(([name, value]) => name !== 'q' && value !== '').length;
+}
+
+/** Whether anything narrows the list: the search or any filter. */
+export function filtering(filters) {
+  return Object.values(filters ?? {}).some((value) => value !== '');
+}
+
+/** The hash of a page with its filters: routeHash, then ? and the set ones in the page's order, if any. */
+export function filtersHash(route, filters) {
+  const base = routeHash(route);
+  const checked = readFilters(route?.view, filters);
+  const set = Object.entries(checked).filter(([, value]) => value !== '');
+  // Commas stay as they are: hide=log,console reads better than its escaped form, and means the same.
+  return set.length === 0 ? base : `${base}?${new URLSearchParams(set).toString().replace(/%2C/g, ',')}`;
 }
 
 // Numbers and times as people read them.
@@ -971,9 +1127,12 @@ function readAuditEntry(raw) {
 
 function readAudit(body) {
   const reply = record(body);
+  const read = Number.isInteger(reply.read) && reply.read >= 0 ? reply.read : null;
   return {
     entries: list(reply.entries).map(readAuditEntry),
     next: typeof reply.next === 'string' && CURSOR.test(reply.next) ? reply.next : null,
+    // A search's: how many entries the server read for this page, matching or not.
+    ...(read === null ? {} : { read }),
   };
 }
 
@@ -2526,6 +2685,14 @@ export function createApi({
     return value;
   }
 
+  /** The search and level of a read of a long list, as its query: only what is set. */
+  function searchQuery(q, level) {
+    const query = {};
+    if (q !== null && q !== '') query.q = checked((text) => cleanSearch(text) === text && text !== '', q);
+    if (level !== null) query.level = checked((value) => value === 'warn' || value === 'info', level);
+    return query;
+  }
+
   const get = (path) => request('GET', path);
   const post = (path, body) => request('POST', path, body);
 
@@ -2548,18 +2715,20 @@ export function createApi({
     deployment: async (id) =>
       readDeployment(record(record(await get(`/api/deployments/${checked(isDeploymentId, id)}`)).deployment)),
     /** The boards' events between two times (ISO), newest first, a page at a time. */
-    async events({ from, to, thing = null, kinds = null, cursor = null }) {
+    async events({ from, to, thing = null, kinds = null, cursor = null, q = null, level = null }) {
       const query = { from: checked(instant, from), to: checked(instant, to) };
       if (thing !== null) query.thing = checked(isThing, thing);
+      Object.assign(query, searchQuery(q, level));
       if (kinds !== null)
         query.kinds = kinds.map((kind) => checked((name) => EVENT_KINDS.includes(name), kind)).join(',');
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       return readEvents(await get(`/api/events?${form(query)}`));
     },
     /** The boards' own log between two times (ISO), newest first, a page at a time. */
-    async boardLog({ from, to, thing = null, kinds = null, tags = null, cursor = null }) {
+    async boardLog({ from, to, thing = null, kinds = null, tags = null, cursor = null, q = null, level = null }) {
       const query = { from: checked(instant, from), to: checked(instant, to) };
       if (thing !== null) query.thing = checked(isThing, thing);
+      Object.assign(query, searchQuery(q, level));
       if (kinds !== null)
         query.kinds = kinds.map((kind) => checked((name) => LINE_KINDS.includes(name), kind)).join(',');
       if (tags !== null) query.tags = tags.map((tag) => checked((name) => LINE_TAGS.includes(name), tag)).join(',');
@@ -2571,9 +2740,24 @@ export function createApi({
       const query = { hours: String(checked((value) => whole(value, 1, 168) !== null, hours)) };
       return readSamples(await get(`/api/devices/${checked(isThing, thing)}/samples?${form(query)}`));
     },
-    async audit({ limit = 50, before = null } = {}) {
+    /**
+     * A page of the activity log, newest first. With a search, actions, outcomes or a range (ISO times) the
+     * server reads a bounded page of the log and says how many it read: { entries, next, read }.
+     */
+    async audit({ limit = 50, before = null, q = null, actions = null, outcomes = null, from = null, to = null } = {}) {
       const query = { limit: String(limit) };
       if (before !== null) query.before = checked((cursor) => CURSOR.test(cursor), before);
+      Object.assign(query, searchQuery(q, null));
+      if (actions !== null)
+        query.actions = actions
+          .map((name) => checked((action) => Object.hasOwn(AUDIT_ACTIONS, action), name))
+          .join(',');
+      if (outcomes !== null)
+        query.outcomes = outcomes
+          .map((name) => checked((outcome) => ACTIVITY_OUTCOMES.includes(outcome), name))
+          .join(',');
+      if (from !== null) query.from = checked(instant, from);
+      if (to !== null) query.to = checked(instant, to);
       return readAudit(await get(`/api/audit?${form(query)}`));
     },
     upload,
@@ -4253,6 +4437,11 @@ export const REFUSAL_WORDS = {
   invalid_kinds: 'The list of kinds of event was not valid',
   invalid_hours: 'The number of hours was not a whole number from 1 to 168',
   invalid_tags: 'The list of sources of the board log was not valid',
+  // Search and filters of the long lists (docs/search-filters.md).
+  invalid_search: 'The search was empty, longer than 100 characters or not one line',
+  invalid_level: 'The level was neither info nor warn',
+  invalid_actions: 'The list of kinds of activity was not valid',
+  invalid_outcomes: 'The list of outcomes was not valid',
   invalid_command: 'Not a command that changes a board at its serial console',
   invalid_device: 'Not a board’s device ID',
   unexpected_field: 'The request held more than the command, the device ID and the version',

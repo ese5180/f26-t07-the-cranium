@@ -115,15 +115,28 @@
  *                                 -> object[]   at most `limit` items, highest sk first, only
  *                                               items with sk below `before` unless it is null,
  *                                               and above `after` unless it is null or absent
+ *   searchAudit({ low, high, before, actions, outcomes, text, limit, budget })
+ *                                 -> { items, read, next }  a Query of the log's key between low
+ *                                               and high (sk, both ends kept) below `before` (left
+ *                                               out) unless it is null, highest first, filtered to
+ *                                               `actions`, `outcomes` and entries whose target, e-mail
+ *                                               or request id hold `text` (searchSpellings), each
+ *                                               unless null. It stops once limit + 1 match or `budget`
+ *                                               items have been read: `items` are at most limit + 1,
+ *                                               `read` how many were read, `next` the sk the read
+ *                                               stopped at when the budget ran out, else null
  *
  * Events (events table; pk = thing name, sk "E#<ISO time>#<6 hex>" for an event,
  * "S#<ISO time>" for a sample: lib/events.mjs; "L#<ISO time>#<boot>.<seq>" for a line of a
  * board's log and "K#<boot>.<seq>" for its claim: lib/lines.mjs). Reads are eventually consistent.
- *   queryEvents({ thing, low, high, kinds, tags, limit })
+ *   queryEvents({ thing, low, high, kinds, tags, text, level, limit })
  *                                 -> object[]   that board's items with low <= sk <= high,
  *                                               highest sk first, at most `limit`; only those
- *                                               whose kind is in `kinds` unless it is null, and
- *                                               whose tag is in `tags` unless it is null
+ *                                               whose kind is in `kinds` unless it is null, whose
+ *                                               tag is in `tags` unless it is null, whose text,
+ *                                               what or tag holds `text` (searchSpellings) unless
+ *                                               it is null, and of `level` (warn, or info: not
+ *                                               warn) unless it is null
  *   querySamples({ thing, low, high })
  *                                 -> object[]   that board's items with low <= sk <= high,
  *                                               lowest sk first
@@ -206,6 +219,7 @@ import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-d
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
 
 import { SAME_LINE_MS } from './lib/lines.mjs';
+import { searchSpellings } from './lib/validate.mjs';
 import { FACT_PARTITION, accountName, factPartition } from './lib/updates.mjs';
 
 // The largest page the list operations of AWS IoT allow, and of Cognito for groups.
@@ -389,10 +403,32 @@ function clientSettings(region) {
  * Query one board's part of the events table between two sort keys, every page of it, up to
  * `limit` items. `filter` is a FilterExpression with its values, or null.
  */
+/**
+ * The part of a FilterExpression that finds search text in any of `fields` (paths of attribute names, dotted),
+ * in each of its spellings: adds its names and values to the ones given.
+ */
+function searchFilter(text, fields, names, values) {
+  const spellings = searchSpellings(text);
+  spellings.forEach((spelling, index) => {
+    values[`:q${index}`] = { S: spelling };
+  });
+  const paths = fields.map((field) =>
+    field
+      .split('.')
+      .map((part) => {
+        names[`#f_${part}`] = part;
+        return `#f_${part}`;
+      })
+      .join('.')
+  );
+  const terms = paths.flatMap((path) => spellings.map((_, index) => `contains(${path}, :q${index})`));
+  return `(${terms.join(' OR ')})`;
+}
+
 async function queryEventTable(
   dynamo,
   table,
-  { thing, low, high, forward, limit = Infinity, kinds = null, tags = null }
+  { thing, low, high, forward, limit = Infinity, kinds = null, tags = null, text = null, level = null }
 ) {
   const names = { '#pk': 'pk', '#sk': 'sk' };
   const values = { ':pk': { S: thing }, ':low': { S: low }, ':high': { S: high } };
@@ -408,6 +444,12 @@ async function queryEventTable(
     });
     filters.push(`#${attribute} IN (${wanted.map((_, index) => `:${prefix}${index}`).join(', ')})`);
   }
+  if (level !== null) {
+    names['#level'] = 'level';
+    values[':warn'] = { S: 'warn' };
+    filters.push(level === 'warn' ? '#level = :warn' : '(attribute_not_exists(#level) OR #level <> :warn)');
+  }
+  if (text !== null) filters.push(searchFilter(text, ['text', 'what', 'tag'], names, values));
   const filter = filters.length > 0 ? filters.join(' AND ') : undefined;
   const items = [];
   let start;
@@ -1092,7 +1134,60 @@ export function createAws(env) {
       }
     },
 
-    async queryEvents({ thing, low, high, kinds = null, tags = null, limit }) {
+    async searchAudit({ low, high, before = null, actions = null, outcomes = null, text = null, limit, budget }) {
+      if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(budget) || budget < 1) {
+        throw new TypeError('limit and budget must be positive integers');
+      }
+      const names = { '#pk': 'pk', '#sk': 'sk' };
+      const values = { ':pk': { S: AUDIT_PK }, ':low': { S: low }, ':high': { S: high } };
+      const filters = [];
+      for (const [attribute, prefix, wanted] of [
+        ['action', 'a', actions],
+        ['outcome', 'o', outcomes],
+      ]) {
+        if (wanted === null) continue;
+        names[`#${attribute}`] = attribute;
+        wanted.forEach((value, index) => {
+          values[`:${prefix}${index}`] = { S: value };
+        });
+        filters.push(`#${attribute} IN (${wanted.map((_, index) => `:${prefix}${index}`).join(', ')})`);
+      }
+      if (text !== null) filters.push(searchFilter(text, ['target', 'actor.email', 'requestId'], names, values));
+      const items = [];
+      let read = 0;
+      let start;
+      try {
+        for (let pages = 0; pages < MAX_PAGES; pages += 1) {
+          const input = {
+            TableName: auditTable,
+            KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :low AND :high',
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
+            ScanIndexForward: false,
+            ConsistentRead: true,
+            ExclusiveStartKey: start,
+            // With a filter, DynamoDB's Limit counts the items it reads: the budget, not the page.
+            Limit: budget - read,
+          };
+          if (filters.length > 0) input.FilterExpression = filters.join(' AND ');
+          const out = await dynamo.send(new QueryCommand(input));
+          read += out.ScannedCount ?? (out.Items ?? []).length;
+          for (const item of out.Items ?? []) {
+            if (before !== null && item.sk?.S === before) continue;
+            items.push(fromItem(item));
+          }
+          const last = out.LastEvaluatedKey?.sk?.S ?? null;
+          if (items.length > limit || last === null) return { items: items.slice(0, limit + 1), read, next: null };
+          if (read >= budget) return { items, read, next: last };
+          start = out.LastEvaluatedKey;
+        }
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+      throw failure('Query', new Error(`more than ${MAX_PAGES} pages`));
+    },
+
+    async queryEvents({ thing, low, high, kinds = null, tags = null, text = null, level = null, limit }) {
       if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > MAX_KINDS)) {
         throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
       }
@@ -1100,7 +1195,17 @@ export function createAws(env) {
         throw new TypeError('tags must be null or a list of 1 to 16 tags');
       }
       try {
-        return await queryEventTable(dynamo, eventsTable, { thing, low, high, kinds, tags, limit, forward: false });
+        return await queryEventTable(dynamo, eventsTable, {
+          thing,
+          low,
+          high,
+          kinds,
+          tags,
+          text,
+          level,
+          limit,
+          forward: false,
+        });
       } catch (cause) {
         throw failure('Query', cause);
       }

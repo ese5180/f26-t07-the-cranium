@@ -362,7 +362,9 @@ test('a viewer sees every page and no control that changes anything', async () =
   const pages = everyPage(await consoleState(WORLD, { viewer: true }));
   for (const [name, drawn] of pages) {
     assert.deepEqual(writes(drawn), [], name);
-    assert.equal(all(drawn, 'input').length, 0, `${name}: nothing to fill in`);
+    // A search box and the filters of a list read, and change nothing (docs/search-filters.md).
+    const searchBar = new Set(all(drawn, 'section.filter-bar').flatMap((bar) => all(bar, 'input')));
+    assert.equal(all(drawn, 'input').filter((input) => !searchBar.has(input)).length, 0, `${name}: nothing to fill in`);
     assert.equal(all(drawn, 'label.drop').length, 0, `${name}: nowhere to drop a file`);
   }
   // Reading is not held back: the release list, the boards and the log are all there.
