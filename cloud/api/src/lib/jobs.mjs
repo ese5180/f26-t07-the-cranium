@@ -119,6 +119,62 @@ export function buildJobDocument({ version, size, sha256, region, bucket }) {
   return document;
 }
 
+// A Pi image's document carries a signature as well: still far below what a board takes in, a
+// message of 4 KB with the download URL substituted (firmware/app/prj.conf).
+const PI_DOCUMENT_LIMIT = 768;
+// What the board takes in a Pi image's version, and in a firmware version.
+const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
+const FIRMWARE_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,5}(\+\d{1,10})?$/;
+
+/**
+ * From 1.15.0, a Raspberry Pi image's job document (docs/pi-ota.md, "Cloud"), from the record that
+ * tools/pi_image.py writes: { version, size, sha256, sig, minFirmware? }. The image is under
+ * firmware/, where boards download from, as pi-<sha256>.img. The signature is checked by the board,
+ * not here. Throws when a value does not fit the contract.
+ */
+export function buildPiJobDocument({ version, size, sha256, sig, minFirmware, region, bucket }) {
+  const matches = (value, pattern) => typeof value === 'string' && pattern.test(value);
+  if (!matches(version, PI_VERSION)) throw new TypeError('The version is not 1 to 31 of A-Z a-z 0-9 . _ + -');
+  if (!Number.isInteger(size) || size <= 0 || size > 0xffffffff) {
+    throw new TypeError('The size is not a positive integer below 4 GiB');
+  }
+  if (!matches(sha256, /^[0-9a-f]{64}$/)) throw new TypeError('The digest is not SHA-256 hex');
+  if (!matches(sig, /^[0-9a-f]{128}$/)) throw new TypeError('The signature is not 64 bytes of hex');
+  if (minFirmware !== undefined && !matches(minFirmware, FIRMWARE_VERSION)) {
+    throw new TypeError('minFirmware is not a firmware version');
+  }
+  if (!matches(region, /^[a-z0-9-]{1,32}$/)) throw new TypeError('The region is not usable');
+  if (!matches(bucket, /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)) {
+    throw new TypeError('The bucket name is not usable');
+  }
+  const object = `https://s3.${region}.amazonaws.com/${bucket}/firmware/pi-${sha256}.img`;
+  const url = `\${aws:iot:s3-presigned-url-v2:${object}}`;
+  const pi = { version, size, sha256, sig, url };
+  if (minFirmware !== undefined) pi.minFirmware = minFirmware;
+  const document = JSON.stringify({ op: 'pi_image', v: 1, pi });
+  const bytes = Buffer.byteLength(document);
+  if (bytes >= PI_DOCUMENT_LIMIT) {
+    throw new RangeError(`The job document is ${bytes} bytes; a Pi image's takes fewer than ${PI_DOCUMENT_LIMIT}`);
+  }
+  return document;
+}
+
+/**
+ * The id of a Pi image's deployment: pi-<version>-<yyyymmddThhmmssZ>-<4 random hex>. A board tells a
+ * Pi image from firmware in the list of its pending jobs by the "pi-" (src/ota_job.h).
+ */
+export function buildPiJobId(version, nowMs, suffix) {
+  if (typeof version !== 'string' || !PI_VERSION.test(version)) throw new TypeError('The version is not usable');
+  if (typeof suffix !== 'string' || !/^[0-9a-f]{4}$/.test(suffix)) {
+    throw new TypeError('The job id suffix must be 4 lowercase hex digits');
+  }
+  const stamp = new Date(nowMs)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
+  return `pi-${version.replace(/[^A-Za-z0-9_-]/g, '-')}-${stamp}-${suffix}`;
+}
+
 /** JSON in printable ASCII only, which every AWS text field accepts. */
 function asciiJson(value) {
   return JSON.stringify(value).replace(
