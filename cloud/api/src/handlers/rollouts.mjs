@@ -1,15 +1,21 @@
 /**
  * Staged rollouts (docs/fleet.md, Groups and rollouts): a release to many boards at once, a canary
- * first, then waves, stopping by itself when too many fail.
+ * first, then stages, each on all its boards at once, stopping by itself when too many fail.
  *
  *   GET  /api/rollouts                   -> { rollouts: [Rollout] }, newest first, at most 25
+ *   GET  /api/rollouts/suggest?release=&group=
+ *                                        -> { suggestion }  the canary, stages, batch sizes and soak
+ *                                           the console suggests (lib/stages.mjs suggestPlan), each
+ *                                           with its reason; without `group`, for the whole fleet
  *   GET  /api/rollouts/{id}              -> { rollout: RolloutDetail }
- *   POST /api/rollouts                   body { version, target, canary?, wave?, abortPercent?, note? }
+ *   POST /api/rollouts                   body { version, target, canary?, stages?, batch?, soakMinutes?,
+ *                                          abortPercent?, note? }
  *                                        -> 201 { rollout: RolloutDetail }                 rollout.create
  *   POST /api/rollouts/{id}/cancel       body { force? } -> { rollout: RolloutDetail }     rollout.cancel
  *   GET  /api/fleet/update-everything    -> { plan }   what "Update everything" would do now
- *   POST /api/fleet/update-everything    body { types: [{ type, version, things }], canary?, wave?,
- *                                          abortPercent?, note? } -> 201 { rollouts }      fleet.update_everything
+ *   POST /api/fleet/update-everything    body { types: [{ type, version, things }], canary?, stages?,
+ *                                          batch?, soakMinutes?, abortPercent?, note? }
+ *                                        -> 201 { rollouts }                               fleet.update_everything
  *   GET  /api/groups/{id}/rollback       -> { plan }   the previous release of each type, for the group
  *   POST /api/groups/{id}/rollback       body as for update-everything -> 201 { rollouts }  group.rollback
  *
@@ -21,20 +27,29 @@
  * "Update everything" and a rollback also leave out boards offline for more than a day.
  *
  * How it runs. Stage "canary": a job on the canary alone (one board unless asked for more; online
- * boards first). A board reports SUCCEEDED only from the new firmware, once that has started,
- * reached AWS IoT and confirmed itself (firmware/app/src/ota.c, send_final_report); that is the
- * canary's confirmation. Nothing in AWS IoT Jobs waits for one job before it starts another, so
- * the console does: every minute a schedule (infra/template.yaml, RolloutTickFn) runs advance()
- * below, which reads each open rollout's canary job and, once every canary board has SUCCEEDED,
- * starts stage "waves": one job on the rest, which AWS IoT itself paces and stops
- * (jobExecutionsRolloutConfig: `wave` boards a minute, twice as many each time that many more
- * have succeeded; abortConfig: cancel what has not started once failures reach `abortPercent` of
- * the boards that have finished, from the first one on). Before it starts the waves it looks at
- * the rest again: a board that has meanwhile got the release, another update or left the project
- * is left out then. A canary that fails, a release revoked, a job cancelled elsewhere or stopped
- * by AWS: the rollout is "stopped", and says why. Cancelled here: "cancelled".
+ * boards with a clean update history first). A board reports SUCCEEDED only from the new
+ * firmware, once that has started, reached AWS IoT and confirmed itself (firmware/app/src/ota.c,
+ * send_final_report); that is the canary's confirmation. Nothing in AWS IoT Jobs waits for one job
+ * before it starts another, so the console does: every minute a schedule (infra/template.yaml,
+ * RolloutTickFn) runs advance() below, which reads each open rollout's current job.
  *
- * Two runs of advance() at the same moment cannot both start the waves: the change of stage is a
+ * Once every canary board has SUCCEEDED, the rollout is in "stages": 1 to 10 stages, planned when
+ * it was created (lib/stages.mjs: their sizes from `stages` and `batch`, online boards first, the
+ * ones away in the last). Each stage is one job on all its boards at once, offered as fast as AWS
+ * IoT allows (STAGE_ROLLOUT), and stopped by AWS IoT (abortConfig: cancel what has not started
+ * once failures reach `abortPercent` of the boards that have finished, from the first one on). The
+ * next stage starts once the job of the one before has COMPLETED with its failures under
+ * `abortPercent`, and `soakMinutes` after that (the same wait follows the canary). Before a stage
+ * starts its boards are looked at again: one that has meanwhile got the release, another update or
+ * left the project is left out then. A canary that fails, a stage's failures at the limit, a
+ * release revoked, a job cancelled elsewhere or gone: the rollout is "stopped", and says why.
+ * Cancelled here: "cancelled".
+ *
+ * A rollout created before console 2.8.0 has no stages: after its canary comes "waves", one job on
+ * the rest that AWS IoT paces (`wave` boards a minute, growing as boards succeed). advance() still
+ * takes such a rollout to its end.
+ *
+ * Two runs of advance() at the same moment cannot both start a stage: each change of stage is a
  * conditional write on the rollout (its rev), and only the run that made it creates the job. A
  * cancellation that comes between the two is seen right after the job exists, which is then
  * cancelled at once.
@@ -66,11 +81,22 @@ import {
   rolloutId,
   selectTargets,
 } from '../lib/fleet.mjs';
-import { buildJobDescription, isoTime } from '../lib/jobs.mjs';
+import { buildJobDescription, isoTime, mapLimit } from '../lib/jobs.mjs';
+import {
+  STAGE_ROLLOUT,
+  assignStages,
+  requireStagePlan,
+  stageSizes,
+  stageVerdict,
+  suggestPlan,
+} from '../lib/stages.mjs';
 import { MAX_NOTE, isThing, parseJobId, requireBoolean, requireText, requireVersion } from '../lib/validate.mjs';
 import { releaseFromItem, releaseKey } from './firmware.mjs';
 
 const LIST_LIMIT = 25;
+const HISTORY_IN_FLIGHT = 8;
+// The update outcomes that count against a board as a canary (lib/updates.mjs OUTCOMES).
+const FAILED_OUTCOMES = new Set(['rolled_back', 'not_installed']);
 const MAX_BOARDS_NAMED = 200;
 // A start of the waves that has not named its job after this long is looked for once and given up.
 const LOST_START_MS = 5 * 60_000;
@@ -87,7 +113,7 @@ const STOP_TEXT = Object.freeze({
   revoked: 'The release was revoked',
   cancelled_elsewhere: 'A deployment of it was cancelled outside the rollout',
   job_missing: 'Its job is gone from AWS IoT',
-  job_failed: 'The waves could not be started',
+  job_failed: 'The next stage could not be started',
 });
 
 function unknownRollout() {
@@ -126,14 +152,47 @@ function requireBoardType(value) {
   return value;
 }
 
-/** The options of a rollout, the same for every way of starting one. */
+/**
+ * The options of a rollout, the same for every way of starting one. `wave` is what a client from
+ * before the stages sent: it is still checked, and has no effect.
+ */
 function rolloutOptions(body) {
+  requireWhole(field(body, 'wave'), 'wave', 1, MAX_WAVE, DEFAULT_WAVE);
   return {
     canary: requireWhole(field(body, 'canary'), 'canary', 1, MAX_CANARY, DEFAULT_CANARY),
-    wave: requireWhole(field(body, 'wave'), 'wave', 1, MAX_WAVE, DEFAULT_WAVE),
+    ...requireStagePlan((name) => field(body, name)),
     abortPercent: requireWhole(field(body, 'abortPercent'), 'abortPercent', 1, 100, DEFAULT_ABORT_PERCENT),
     note: requireText(field(body, 'note'), 'note', { max: MAX_NOTE }),
   };
+}
+
+/** What the activity log keeps of a rollout's stage choices: "3 (2,6), soak 5 min". */
+function planWords(options) {
+  const batch =
+    options.batch === null ? 'even' : `${options.batch.sizes.join(',')}${options.batch.unit === 'percent' ? '%' : ''}`;
+  return `${options.stages} (${batch}), soak ${options.soakMinutes} min`;
+}
+
+/** Where a stage of a rollout stands: "planned", "running", "soaking", "done", "skipped" or "stopped". */
+function stageState(rollout, stage, index) {
+  if (stage.doneAt !== null) return stage.job === null ? 'skipped' : 'done';
+  if (stage.startedAt !== null) return isOpenRollout(rollout) ? 'running' : 'stopped';
+  if (!isOpenRollout(rollout)) return 'never';
+  return rollout.stage === 'stages' && index === rollout.current + 1 ? 'next' : 'planned';
+}
+
+/** A stage's boards by how far they are: { done, inProgress, failed, waiting, total }. */
+function stageCounts(stage, job) {
+  const counts = { done: 0, inProgress: 0, failed: 0, waiting: 0, total: stage.things.length };
+  const byThing = new Map((job?.executions ?? []).map((execution) => [execution.thing, execution.status]));
+  for (const thing of stage.things) {
+    const status = byThing.get(thing) ?? 'QUEUED';
+    if (status === 'SUCCEEDED') counts.done += 1;
+    else if (status === 'IN_PROGRESS') counts.inProgress += 1;
+    else if (status === 'QUEUED') counts.waiting += 1;
+    else counts.failed += 1;
+  }
+  return counts;
 }
 
 function nameBoards(entry, key, things) {
@@ -143,14 +202,40 @@ function nameBoards(entry, key, things) {
 
 /** The note a stage's job carries: which rollout it is part of, within the 200 characters a note has. */
 function stageNote(rollout, part) {
-  const head = `${part === 'canary' ? 'Canary' : 'Waves'} of staged rollout ${rollout.id}`;
+  const name =
+    part === 'canary' ? 'Canary' : part === 'waves' ? 'Waves' : `Stage ${part} of ${rollout.stages?.length ?? part}`;
+  const head = `${name} of staged rollout ${rollout.id}`;
   return (rollout.note ? `${head}: ${rollout.note}` : head).slice(0, MAX_NOTE);
 }
 
 export function createRolloutHandlers(
   { aws, config, now, randomHex, log, alert = null },
-  { devices, deployments, fleet, audit }
+  { devices, deployments, fleet, audit, updates = () => null }
 ) {
+  /**
+   * thing -> { updates, failures } from each board's update history, for the boards that have one.
+   * Never a failure: without the history, every board's is clean.
+   */
+  async function historyOf(things) {
+    const history = updates();
+    const found = new Map();
+    if (history === null || things.length === 0) return found;
+    await mapLimit(things, HISTORY_IN_FLIGHT, async (thing) => {
+      try {
+        const records = await history.recordsOf(thing);
+        found.set(thing, {
+          updates: records.length,
+          failures: records.filter((record) => FAILED_OUTCOMES.has(record.outcome)).length,
+        });
+      } catch (error) {
+        log({ level: 'warn', event: 'updates_unreadable', thing, error: describeError(error) });
+      }
+    });
+    return found;
+  }
+
+  const failuresOf = (history) => new Map([...history].map(([thing, entry]) => [thing, entry.failures]));
+
   async function findRelease(version) {
     const release = releaseFromItem(await aws.getRelease(releaseKey(version.parts)));
     if (release === null || release.version !== version.text) {
@@ -199,15 +284,25 @@ export function createRolloutHandlers(
     return { waves, notOffered: rollout.rest.things.filter((thing) => !offered.has(thing)) };
   }
 
-  /** A rollout with its two jobs as deployments, and the waves AWS has offered so far. */
+  /**
+   * A rollout with its jobs as deployments: the canary's, each stage's with its counts and where it
+   * stands, and for a rollout from before the stages its waves.
+   */
   async function detailOf(item) {
     const rollout = rolloutFromItem(item);
-    const [canaryJob, wavesJob] = await Promise.all([
+    const [canaryJob, wavesJob, stageJobs] = await Promise.all([
       rollout.canary.job === null ? null : deployments.detail(rollout.canary.job),
       rollout.rest.job === null ? null : deployments.detail(rollout.rest.job),
+      Promise.all(rollout.stages.map((stage) => (stage.job === null ? null : deployments.detail(stage.job)))),
     ]);
     const { waves, notOffered } = await wavesOf(rollout, wavesJob);
-    return { ...rollout, canaryJob, wavesJob, waves, notOffered };
+    const stages = rollout.stages.map((stage, index) => ({
+      ...stage,
+      state: stageState(rollout, stage, index),
+      counts: stageCounts(stage, stageJobs[index]),
+      deployment: stageJobs[index],
+    }));
+    return { ...rollout, stages, canaryJob, wavesJob, waves, notOffered };
   }
 
   /**
@@ -219,7 +314,9 @@ export function createRolloutHandlers(
       throw unprocessable('too_many_boards', `A rollout takes at most ${MAX_ROLLOUT_BOARDS} boards.`);
     }
     const loaded = (await fleet.boards({ only: things })).map(({ board }) => board);
-    const canary = chooseCanary(things, loaded, options.canary);
+    const canary = chooseCanary(things, loaded, options.canary, failuresOf(await historyOf(things)));
+    const restThings = things.filter((thing) => !canary.includes(thing));
+    const stages = assignStages(restThings, loaded, stageSizes(restThings.length, options));
     const id = rolloutId(now(), String(randomHex(6)).slice(0, 6));
     const createdAt = new Date(now()).toISOString();
     const record = {
@@ -235,9 +332,14 @@ export function createRolloutHandlers(
       stage: 'canary',
       things,
       leftOut,
-      canary: { size: canary.length, things: canary, job: null },
-      rest: { things: things.filter((thing) => !canary.includes(thing)), leftOut: [], job: null, startedAt: null },
-      wave: options.wave,
+      canary: { size: canary.length, things: canary, job: null, doneAt: null },
+      // All the boards after the canary; its job stays null (the waves of a rollout from before).
+      rest: { things: restThings, leftOut: [], job: null, startedAt: null },
+      stages: stages.map((members) => ({ things: members, leftOut: [], job: null, startedAt: null, doneAt: null })),
+      // The index of the stage started last: -1 until the first.
+      current: -1,
+      stagePlan: { stages: options.stages, batch: options.batch },
+      soakMinutes: options.soakMinutes,
       abortPercent: options.abortPercent,
       stopped: null,
       finishedAt: null,
@@ -274,6 +376,7 @@ export function createRolloutHandlers(
     }
     if (entry) {
       entry.detail.canary = canary.join(' ').length <= MAX_BOARDS_NAMED ? canary.join(' ') : String(canary.length);
+      entry.detail.stages = planWords(options);
     }
     return record;
   }
@@ -493,10 +596,11 @@ export function createRolloutHandlers(
     return result.ok ? result.item : null;
   }
 
-  async function note(item, action, detail) {
+  /** On record once, whoever runs it: `step` is "waves", "stage-<n>" or, for a stop, nothing. */
+  async function note(item, action, detail, step = 'waves') {
     await audit.recordOnce({
       at: now(),
-      requestId: `rollout.${item.id}.${action === 'rollout.advance' ? 'waves' : 'stop'}`,
+      requestId: `rollout.${item.id}.${action === 'rollout.advance' ? step : 'stop'}`,
       actor: CONSOLE_ACTOR,
       action,
       target: item.id,
@@ -521,7 +625,12 @@ export function createRolloutHandlers(
    */
   async function alertStopped(item, text, at) {
     if (typeof alert !== 'function') return;
-    const deployment = item.stage === 'waves' ? item.rest?.job : item.canary?.job;
+    const deployment =
+      item.stage === 'waves'
+        ? item.rest?.job
+        : item.stage === 'stages'
+          ? item.stages?.[item.current]?.job
+          : item.canary?.job;
     if (typeof deployment !== 'string') return;
     const line = `Staged rollout ${item.id} of ${item.version}: ${String(text ?? '').replace(/[^\x20-\x7e]/g, '?')}`;
     await alert({
@@ -538,14 +647,14 @@ export function createRolloutHandlers(
     return (await change(item, { stage: 'done', finishedAt: at, ...extra })) === null ? 'raced' : 'done';
   }
 
-  /** What a CANCELED job of a rollout says about why it stopped. */
-  function cancelledWhy(job, executions, item) {
+  /** What a CANCELED job of a rollout says about why it stopped; `where` names the stage. */
+  function cancelledWhy(job, executions, item, where = '') {
     if (job.reasonCode === 'RELEASE_REVOKED') return ['revoked'];
     const share = failureShare(executions);
     if (job.reasonCode === null && share.executed > 0 && share.percent >= item.abortPercent) {
       return [
         'aborted',
-        `${share.failed} of ${share.executed} finished boards failed, which reaches ` +
+        `${where}${share.failed} of ${share.executed} finished boards failed, which reaches ` +
           `${item.abortPercent}%: AWS IoT stopped the rest`,
       ];
     }
@@ -626,6 +735,126 @@ export function createRolloutHandlers(
     return 'advanced';
   }
 
+  /** The stages with stage `index` changed. */
+  function withStage(item, index, changes) {
+    return item.stages.map((stage, at) => (at === index ? { ...stage, ...changes } : stage));
+  }
+
+  /**
+   * Start stage `index`: look at its boards again, claim the start (a conditional write, so that
+   * only one run starts it), create its job on all of them at once, and name the job.
+   */
+  async function startStage(item, index) {
+    const n = index + 1;
+    const releaseItem = await aws.getRelease(releaseKey(requireVersion(item.version).parts));
+    const release = releaseFromItem(releaseItem);
+    if (release === null || release.status !== 'active') return stop(item, 'revoked');
+    const planned = item.stages[index].things ?? [];
+    const loaded = (await fleet.boards({ only: planned })).map(({ board }) => board);
+    const gone = planned
+      .filter((thing) => !loaded.some((board) => board.thing === thing))
+      .map((thing) => ({ thing, reason: 'gone', text: 'No longer registered' }));
+    const chosen = await computedBoards(loaded, release, {
+      leaveOutAway: item.purpose !== 'deploy',
+      older: item.purpose === 'rollback',
+    });
+    const leftOut = [...gone, ...chosen.leftOut];
+    const at = new Date(now()).toISOString();
+    if (chosen.things.length === 0) {
+      // Nothing of it is left to update: it is over at once, and the next one is due.
+      const skipped = await change(item, {
+        current: index,
+        stages: withStage(item, index, { things: [], leftOut, job: null, startedAt: null, doneAt: at }),
+      });
+      return skipped === null ? 'raced' : advanceStages(skipped);
+    }
+    const claimed = await change(item, {
+      current: index,
+      stages: withStage(item, index, { things: chosen.things, leftOut, job: null, startedAt: at, doneAt: null }),
+    });
+    if (claimed === null) return 'raced';
+
+    const { abort } = rolloutConfigs(item);
+    const by = item.createdBy ?? CONSOLE_ACTOR;
+    const description = buildJobDescription({ email: by.email, sub: by.sub, note: stageNote(item, n) });
+    let job;
+    try {
+      ({ id: job } = await deployments.launch({
+        release,
+        things: chosen.things,
+        description,
+        actorSub: by.sub || 'rollout',
+        rollout: STAGE_ROLLOUT,
+        abort,
+      }));
+    } catch (error) {
+      log({ level: 'error', event: 'stage_not_started', rollout: item.id, stage: n, error: describeError(error) });
+      return stop(
+        claimed,
+        'job_failed',
+        `Stage ${n} could not be started: ${String(error?.message ?? 'see the log').slice(0, 160)}`
+      );
+    }
+    const named = await change(claimed, { stages: withStage(claimed, index, { job }) });
+    await note(item, 'rollout.advance', { stage: String(n), things: String(chosen.things.length), job }, `stage-${n}`);
+    // Cancelled while the job was being made: then it goes too.
+    const after = named ?? (await aws.getFleetItem({ pk: 'ROL', sk: item.id }));
+    if (after?.stage === 'cancelled') {
+      await aws
+        .cancelJob({ jobId: job, force: true, reasonCode: 'CONSOLE_CANCEL', comment: 'rollout cancelled' })
+        .catch(() => null);
+      if (named === null) await change(after, { stages: withStage(after, index, { job }) });
+    }
+    return 'advanced';
+  }
+
+  /**
+   * A rollout in "stages": the stage under way, if it has ended, is marked done (or stops the
+   * rollout); then, once the soak time after the last one ended is over, the next starts.
+   */
+  async function advanceStages(item) {
+    const index = Number.isInteger(item.current) ? item.current : -1;
+    const stage = index >= 0 ? item.stages[index] : null;
+    if (stage !== null && !stage.doneAt) {
+      const where = `Stage ${index + 1}: `;
+      if (stage.job === null) {
+        // The start was cut off before it named its job: look for it once it is late.
+        if (now() - (Date.parse(stage.startedAt ?? '') || 0) < LOST_START_MS) return 'waiting';
+        const open = await deployments.unfinishedOn(stage.things);
+        const found = [...new Set(open.map((entry) => entry.deployment))].filter(
+          (id) => parseJobId(id)?.version === item.version
+        );
+        if (found.length === 1)
+          return (await change(item, { stages: withStage(item, index, { job: found[0] }) })) ? 'advanced' : 'raced';
+        return stop(item, 'job_failed', `${where}its job was never named`);
+      }
+      const job = await aws.describeJob(stage.job);
+      if (job === null) return stop(item, 'job_missing');
+      if (job.status === 'CANCELED') {
+        const [code, text] = cancelledWhy(job, await aws.listJobExecutionsForJob(stage.job), item, where);
+        return stop(item, code, text);
+      }
+      if (job.status !== 'COMPLETED') return 'waiting';
+      const verdict = stageVerdict(failureShare(await aws.listJobExecutionsForJob(stage.job)), item.abortPercent);
+      if (verdict.over) {
+        return stop(
+          item,
+          'aborted',
+          `${where}${verdict.failed} of ${verdict.executed} finished boards failed, which reaches ` +
+            `${item.abortPercent}%: the next stage was not started`
+        );
+      }
+      const done = await change(item, { stages: withStage(item, index, { doneAt: new Date(now()).toISOString() }) });
+      if (done === null) return 'raced';
+      return advanceStages(done);
+    }
+    const next = index + 1;
+    if (next >= item.stages.length) return finish(item);
+    const endedAt = Date.parse((index >= 0 ? stage.doneAt : item.canary?.doneAt) ?? '') || 0;
+    if (now() < endedAt + (item.soakMinutes ?? 0) * 60_000) return 'waiting';
+    return startStage(item, next);
+  }
+
   /** One open rollout, one step on if there is one to take. Returns what happened. */
   async function advanceOne(item) {
     if (item.stage === 'canary') {
@@ -651,8 +880,18 @@ export function createRolloutHandlers(
       }
       if (verdict.state !== 'confirmed') return 'waiting';
       if (item.canary.only || (item.rest?.things ?? []).length === 0) return finish(item);
-      return startWaves(item);
+      // A rollout from before the stages goes on in waves.
+      if (!Array.isArray(item.stages)) return startWaves(item);
+      if (item.stages.length === 0) return finish(item);
+      const confirmed = await change(item, {
+        stage: 'stages',
+        canary: { ...item.canary, doneAt: new Date(now()).toISOString() },
+      });
+      if (confirmed === null) return 'raced';
+      const next = await advanceStages(confirmed);
+      return next === 'waiting' ? 'advanced' : next;
     }
+    if (item.stage === 'stages') return advanceStages(item);
     if (item.stage === 'waves') {
       if (item.rest.job === null) {
         // The start of the waves was cut off before it named its job: look for it once it is late.
@@ -699,6 +938,47 @@ export function createRolloutHandlers(
     async list() {
       const items = (await aws.listFleetItems('ROL')).slice(0, LIST_LIMIT);
       return { body: { rollouts: items.map(rolloutFromItem).filter((rollout) => rollout !== null) } };
+    },
+
+    /**
+     * What the console suggests for a rollout of `release` to `group` (or to the fleet): the boards
+     * it would go to, and lib/stages.mjs suggestPlan of them. A read: it starts nothing.
+     */
+    async suggest({ query }) {
+      const version = requireVersion(query?.release);
+      const release = await findRelease(version);
+      const loaded = (await fleet.boards()).map(({ board }) => board);
+      let candidates = loaded.filter((board) => board.type === release.board);
+      let group = null;
+      if (query?.group !== undefined && query.group !== '') {
+        const id = requireGroupId(query.group);
+        const found = (await fleet.groups(new Set(loaded.map((board) => board.thing)))).find((item) => item.id === id);
+        if (found === undefined) throw notFound('unknown_group', 'There is no group with that id.');
+        group = { id: found.id, name: found.name };
+        candidates = loaded.filter((board) => found.things.includes(board.thing));
+      }
+      const chosen = await computedBoards(candidates, release);
+      const byThing = new Map(loaded.map((board) => [board.thing, board]));
+      const plan = suggestPlan({
+        boards: chosen.things,
+        online: chosen.things.filter((thing) => byThing.get(thing)?.online === true),
+        types: Object.fromEntries(chosen.things.map((thing) => [thing, byThing.get(thing)?.type ?? release.board])),
+        history: await historyOf(chosen.things),
+      });
+      return {
+        body: {
+          suggestion: {
+            release: { version: release.version, board: release.board },
+            group,
+            things: chosen.things,
+            leftOut: chosen.leftOut,
+            canarySize: Math.min(Math.max(plan.canary.length, 1), MAX_CANARY),
+            abortPercent: DEFAULT_ABORT_PERCENT,
+            ...plan,
+            generatedAt: new Date(now()).toISOString(),
+          },
+        },
+      };
     },
 
     async get({ params }) {
@@ -804,7 +1084,8 @@ export function createRolloutHandlers(
         item = await readItem(id);
       }
       const cancelled = [];
-      for (const job of [item.canary?.job, item.rest?.job].filter((value) => typeof value === 'string')) {
+      const jobs = [item.canary?.job, item.rest?.job, ...(item.stages ?? []).map((stage) => stage?.job)];
+      for (const job of jobs.filter((value) => typeof value === 'string')) {
         const result = await aws.cancelJob({ jobId: job, force, reasonCode: 'CONSOLE_CANCEL', comment: actor.sub });
         if (result.ok) cancelled.push(job);
       }

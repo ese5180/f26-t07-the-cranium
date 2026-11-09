@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.5
+
+Staged rollouts as on the console from 2.8.0: after the canary, the boards update in stages, all of a stage at once. The Roll out form takes the number of stages, the batch size, the wait between stages and the failure limit, filled in from the console's suggestion with its reasons, and a rollout's page shows each stage as it goes.
+
+The app shell shows the console's own pages, so the form and the stage view come with the console. The activity log's
+words (`core/Audit.kt`) have the console's three new refusals, `invalid_stages`, `invalid_batch` and
+`invalid_soakMinutes`, and the details `stages` and `stage` of a rollout's entries.
+
 ## 0.8.4
 
 More has Board setup, which says why it needs a computer: the app's pages have no Web Serial, and its USB console sends one command at a time, too slow for the bootloader's half-second window. The desktop app or Chrome or Edge on a computer does it; the Serial console here still talks to a board that is set up.

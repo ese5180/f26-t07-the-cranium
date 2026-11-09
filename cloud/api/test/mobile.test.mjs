@@ -356,6 +356,7 @@ const ROUTES = [
     phone: true,
     body: { version: VERSION, target: { kind: 'boards', things: [THING] } },
   },
+  { route: 'GET /api/rollouts/suggest', status: 400, phone: true },
   { route: 'GET /api/rollouts/{id}', path: '/api/rollouts/rol-20261102T180000Z-abcdef', status: 404, phone: true },
   {
     route: 'POST /api/rollouts/{id}/cancel',

@@ -175,7 +175,7 @@ test('a rollout to a group or a type leaves out the boards of another layout, an
   );
   assert.equal(response.body.rollout.layout, 2);
 
-  // A board whose flash was laid out anew between the canary and the waves is left out of the waves.
+  // A board whose flash was laid out anew between the canary and its stage is left out of the stage.
   const [canary] = response.body.rollout.canary.things;
   const [other] = [B, C].filter((thing) => thing !== canary);
   world.finish(response.body.rollout.canary.job, canary, 'SUCCEEDED', '1.13.1+0');
@@ -184,7 +184,7 @@ test('a rollout to a group or a type leaves out the boards of another layout, an
   assert.equal((await world.tick()).done, 1);
   const detail = (await world.call('GET', `/api/rollouts/${response.body.rollout.id}`)).body.rollout;
   assert.deepEqual(
-    detail.rest.leftOut.map((entry) => [entry.thing, entry.reason]),
+    detail.stages[0].leftOut.map((entry) => [entry.thing, entry.reason]),
     [[other, 'other_layout']]
   );
 });

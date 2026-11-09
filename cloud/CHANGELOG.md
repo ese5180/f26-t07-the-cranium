@@ -7,6 +7,31 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.8.0
+
+Staged rollouts go in parallel after the canary: the rest of the boards follow in 1 to 10 stages, each updating all its boards at once, the next only once the one before has ended within its failure limit. Choose the number of stages, the batch size (percent or boards), the wait between stages and the limit; the console suggests a plan for the group, with its reasons.
+
+handlers/rollouts.mjs, lib/stages.mjs. A rollout is a canary and then the stage "stages": each stage one AWS IoT job
+on all its boards, `jobExecutionsRolloutConfig: { maximumPerMinute: 1000 }` (AWS IoT's most) with the abortConfig as
+before. The schedule marks a stage done once its job has COMPLETED with its failures under `abortPercent`, and starts
+the next `soakMinutes` after (also after the canary); a stage at the limit, a canary that fails, a release revoked or
+a cancellation stops the rollout with its reason. Each start of a stage is a conditional write on the rollout (its
+rev), and a cancellation that comes during a start cancels the new job. New body fields on `POST /api/rollouts`,
+`/api/fleet/update-everything` and `/api/groups/{id}/rollback`: `stages` (1-10, default 1), `batch` (`{ unit:
+"percent" | "count", sizes }`, for each stage but the last, which takes the rest) and `soakMinutes` (0-60, default 0);
+`wave` is still accepted and has no effect. Refusals `invalid_stages`, `invalid_batch` and `invalid_soakMinutes`. The
+stages are planned when the rollout is made (online boards first, those away in the last) and each stage's boards are
+looked at again when it starts. `GET /api/rollouts/suggest?release=&group=` (viewers too): suggestPlan, one online
+canary per board type with a clean update history, stages that grow (about 10 %, then three times as many, then the
+rest; one stage for three boards or fewer), offline boards last, a soak time for larger groups, warnings for a group
+mostly offline or a stage too small. The canary is chosen from the update history too. A rollout's detail has
+`stages: [{ n, things, leftOut, job, startedAt, doneAt, state, counts, deployment }]`; the page shows a card per stage,
+its counts and timing, and the steps Canary, Stage 1..N, Done. The Roll out dialog fills itself in from the
+suggestion; New deployment, Update everything and the roll back take the stages and the soak time. The activity log
+keeps `stages` with rollout.create and `stage` with rollout.advance. A rollout made before 2.8.0 still goes on in waves.
+The phone and desktop apps show the console's own pages, so they have the same form and stage view; their refusal
+words and log labels have the new ones.
+
 ## 2.6.3
 
 Board setup fills in the Wi-Fi network from the console's defaults, which you may still change, and it has a self-check that runs every step against a simulated board, with no board plugged in. It is readier for a real board: a bigger serial buffer, lines held to the board's limits, the log port named when it is chosen by mistake. The desktop app names the console port.

@@ -328,7 +328,7 @@ export function createApp({
   const events = createEventHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
-  const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit });
+  const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
   // Provisioning through the console (docs/new-board-setup.md): a board registered by a release manager.
@@ -489,6 +489,7 @@ export function createApp({
     route('POST', '/api/groups/{id}/delete', groups.remove, { action: 'group.delete', maxBody: SMALL_BODY_LIMIT }),
     route('GET', '/api/rollouts', rollouts.list),
     route('POST', '/api/rollouts', rollouts.create, { action: 'rollout.create', maxBody: SMALL_BODY_LIMIT }),
+    route('GET', '/api/rollouts/suggest', rollouts.suggest),
     route('GET', '/api/rollouts/{id}', rollouts.get),
     route('POST', '/api/rollouts/{id}/cancel', rollouts.cancel, {
       action: 'rollout.cancel',

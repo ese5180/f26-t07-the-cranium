@@ -8706,6 +8706,34 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: 0.875rem;
 }
 
+/* The stages of a rollout, and the choices that make them. */
+.stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.stage-counts,
+.stage-timing {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.stage-timing {
+  margin: 0 0 8px;
+}
+
+.rollout-options {
+  display: grid;
+  gap: 10px;
+}
+
+.rollout-suggestion ul,
+.rollout-plan {
+  margin: 0;
+}
+
 .plan-type {
   display: grid;
   gap: 8px;

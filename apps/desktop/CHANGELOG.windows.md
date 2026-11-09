@@ -4,6 +4,13 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.2
+
+Staged rollouts as on the console from 2.8.0: after the canary, the boards update in stages, all of a stage at once, with the number of stages, the batch size, the wait between stages and the failure limit chosen in the Roll out form from the console's suggestion. A rollout's page shows each stage as it goes.
+
+The window shows the console's own pages, so the form and the stage view come with the console; nothing in the app
+itself changed but its version.
+
 ## 0.1.1
 
 When the page asks for a serial port, the app names a J-Link's two ports, the console port and the log port, and offers the console port first. Board setup can register a board from the app, and fills in the Wi-Fi network from the console's defaults.

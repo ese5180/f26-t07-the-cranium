@@ -1555,12 +1555,20 @@ function openDeploy(version) {
     // Each board's type, from the fleet (fleet.js): thing -> { type, bluetoothOnly }. Null until
     // known, and then the dialog offers a release only to the boards of its type.
     types: null,
-    // A staged rollout, for more than one board: how many boards go first, and at which share of
-    // failures the rest is stopped.
+    // A staged rollout, for more than one board: how many boards go first, in how many stages the
+    // rest follow, how long to wait between stages, and at which share of failures it stops.
     canary: 1,
+    stages: 1,
+    soakMinutes: 0,
     abortPercent: 20,
     setCanary: change((value) => {
       model.canary = value;
+    }),
+    setStages: change((value) => {
+      model.stages = value;
+    }),
+    setSoakMinutes: change((value) => {
+      model.soakMinutes = value;
     }),
     setAbortPercent: change((value) => {
       model.abortPercent = value;
@@ -1653,6 +1661,8 @@ function openDeploy(version) {
               things: [...model.things].sort(),
               note: singleLine(model.note),
               canary: model.canary,
+              stages: model.stages,
+              soakMinutes: model.soakMinutes,
               abortPercent: model.abortPercent,
             });
             self.close(true);

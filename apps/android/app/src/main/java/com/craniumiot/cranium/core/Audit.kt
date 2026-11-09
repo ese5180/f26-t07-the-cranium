@@ -340,6 +340,9 @@ object AuditText {
         "invalid_canary" to "The canary was not a whole number from 1 to 5",
         "invalid_wave" to "The first wave was not a whole number from 1 to 50 boards",
         "invalid_abortPercent" to "The share of failures to stop at was not a whole number from 1 to 100",
+        "invalid_stages" to "The number of stages was not a whole number from 1 to 10",
+        "invalid_batch" to "The batch sizes were not a percent or a count for each stage but the last",
+        "invalid_soakMinutes" to "The soak time was not a whole number of minutes from 0 to 60",
         "nothing_to_deploy" to "No board would take the release",
         "too_many_boards" to "A rollout takes at most 100 boards",
         "plan_changed" to "The plan had changed since it was shown",
@@ -453,6 +456,8 @@ object AuditText {
                 ?: value
         }),
         "canary" to Detail("Canary", code = true),
+        "stages" to Detail("Stages"),
+        "stage" to Detail("Stage"),
         "rollouts" to Detail("Rollouts", code = true),
         "versions" to Detail("Releases"),
         "group" to Detail("Group"),
