@@ -241,6 +241,11 @@ allow that one setting by name, and the workflow to build it.
    scripts/release/github-release.sh 1.7.0
    ```
 
+To put the firmware commits since the newest earlier `v*` tag into the release's notes, add `--notes` to
+either command. The list comes from `scripts/release/notes.sh`, which also writes notes by hand for any two
+refs and any area (`scripts/release/notes.sh console-v2.10.0 console-v2.11.0 console`); the console's History
+page is unchanged. The tagging and publishing are the same with or without it.
+
 It takes the image from `binaries/`, and it refuses unless all of these hold:
 
 - No tracked file has changed, and git has not been told to look away from one with `--skip-worktree`

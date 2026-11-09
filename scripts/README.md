@@ -7,7 +7,7 @@ The scripts are grouped by what they are for:
 | `firmware/` | `build.sh`, `ota.sh`, `upload-to-console.sh`, `check-image.sh` | Building a release, putting it on the console, installing it on a board |
 | `board/` | `new-board.sh`, `flash-netcore.sh` | Setting up a new board, and its one USB step |
 | `fleet/` | `fleet-check.sh` | Checking that a fleet-management (3.11) demonstration is ready; it only reads |
-| `release/` | `github-release.sh`, `verify-github-release.sh`, `release-lib.sh` | Publishing a GitHub Release and checking one (`release-lib.sh` is shared by both) |
+| `release/` | `github-release.sh`, `verify-github-release.sh`, `notes.sh`, `release-lib.sh` | Publishing a GitHub Release and checking one (`release-lib.sh` is shared by both) |
 | `console/` | `open-console.sh` | Signing in to AWS and opening the console |
 | `ci/` | `scan-tracked-files.sh`, `check-west-workspace.sh` | Checks CI runs; they also run by hand |
 
@@ -24,7 +24,8 @@ Each script finds the repository from its own place, so it runs from any folder.
 | `flash-netcore.sh` | The one USB step: puts the Bluetooth controller on a board's network core |
 | `ota.sh` | Installs an image from `binaries/` on the board over the air, and follows it to the end. With an API token it needs no AWS credentials; with no USB, it follows through the cloud |
 | `open-console.sh` | Signs in to AWS and opens the console |
-| `github-release.sh` | Publishes a signed image as a GitHub Release, for whoever holds the signing key |
+| `github-release.sh` | Publishes a signed image as a GitHub Release, for whoever holds the signing key; `--notes` adds the firmware commits since the last `v*` tag |
+| `notes.sh` | `notes.sh <from> <to> console\|firmware\|apps\|all` writes Markdown release notes from the commits between two refs, grouped by area (cloud/, firmware/, apps/, other), with the CHANGELOG versions in the range, without merge commits or the revisions in `.git-blame-ignore-revs`. It only reads git. Its test is `scripts/tests/notes-test.sh` |
 
 A normal update is:
 

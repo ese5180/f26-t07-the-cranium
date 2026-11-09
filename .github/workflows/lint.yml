@@ -64,5 +64,8 @@ jobs:
         run: |
           git ls-files -z '*.sh' ':!firmware/tests/hil/build_image.sh' | xargs -0 shellcheck -S warning -f gcc
 
+      - name: Release notes script (scripts/tests/notes-test.sh)
+        run: scripts/tests/notes-test.sh
+
       - name: Secrets (gitleaks, the whole history, with .gitleaks.toml)
         run: '"$RUNNER_TEMP/gitleaks" git --redact --no-banner --config .gitleaks.toml .'
