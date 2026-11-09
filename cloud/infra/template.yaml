@@ -2528,6 +2528,8 @@ Resources:
           PRESIGN_ROLE_ARN: !GetAtt PresignRole.Arn
           USER_POOL_ID: !Ref UserPool
           USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          # The sign-in settings (config.mjs needs them in every function that loads it).
+          LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
           MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
           SLOT_SIZE: !Ref SlotSize
