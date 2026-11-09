@@ -71,3 +71,6 @@ apps/ios/.build/
 apps/ios/build/
 apps/ios/**/xcuserdata/
 apps/ios/*.xcodeproj/
+
+# Personal study notes and diagrams (notes/README.md says what is there): kept on this computer only.
+/notes/

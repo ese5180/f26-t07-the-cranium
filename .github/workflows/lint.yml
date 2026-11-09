@@ -29,22 +29,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The two tools are their authors' release binaries, each checked against the release's own
-      # list of SHA-256 sums before it runs. GitHub's release downloads sometimes answer 504 for a
-      # moment: each download is tried up to six times before the job gives up.
       - name: Fetch actionlint and gitleaks
+        # Each is its author's release binary, checked against the release's own SHA-256 sums. When
+        # GitHub's release downloads fail (they answered 504 for hours on 2026-11-09), the same version
+        # is built from source through Go's module proxy instead, which checks it against the Go
+        # checksum database.
         run: |
           cd "$RUNNER_TEMP"
-          base=https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}
-          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 5 --max-time 120 "$base/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 5 --max-time 120 "$base/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          sha256sum -c --ignore-missing "actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          tar -xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
-          base=https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}
-          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 5 --max-time 120 "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 5 --max-time 120 "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          sha256sum -c --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
-          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          fetch() { curl -fsSLO --retry 4 --retry-all-errors --retry-delay 5 --max-time 120 "$1"; }
+          if fetch "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" &&
+            fetch "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_checksums.txt" &&
+            sha256sum -c --ignore-missing "actionlint_${ACTIONLINT_VERSION}_checksums.txt"; then
+            tar -xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          else
+            echo "::warning::actionlint's release download failed; building v${ACTIONLINT_VERSION} through the Go proxy"
+            GOBIN="$RUNNER_TEMP" go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}"
+          fi
+          if fetch "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" &&
+            fetch "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" &&
+            sha256sum -c --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"; then
+            tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          else
+            echo "::warning::gitleaks' release download failed; building v${GITLEAKS_VERSION} through the Go proxy"
+            GOBIN="$RUNNER_TEMP" go install "github.com/zricethezav/gitleaks/v8@v${GITLEAKS_VERSION}"
+          fi
+          "$RUNNER_TEMP/actionlint" -version
+          "$RUNNER_TEMP/gitleaks" version
 
       - name: Workflows (actionlint, with shellcheck on their run steps)
         run: '"$RUNNER_TEMP/actionlint" -color'

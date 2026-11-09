@@ -181,6 +181,9 @@ or a new machine. Never put the project key, the token or the slugs in the repos
 
 ## Showing 3.11 on the board
 
+The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](fleet-demo.md). Run
+`scripts/fleet-check.sh` first; it only reads.
+
 1. **Updates with version information.** Deploy a release with a staged rollout (below). In Memfault each board shows
    its software version, `1.14.0+0`, the reboot before it as `FirmwareUpdate`, and an `update_succeeded` trace event
    once it is confirmed. The release is under Software. The console shows the same job, as before. 1.14.0 is on the

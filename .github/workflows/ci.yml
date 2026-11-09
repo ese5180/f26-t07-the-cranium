@@ -204,6 +204,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          # Gradle and its dependencies are kept between runs: services.gradle.org timed out on
+          # 2026-11-09, and a kept copy needs no download at all.
+          cache: gradle
       # The app carries a copy of the console's pages, which cloud/web/build-bundle.mjs writes during the
       # build (docs/mobile-apps.md, "The app shell").
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
