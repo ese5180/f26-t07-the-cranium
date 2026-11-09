@@ -1,6 +1,6 @@
 /**
  * The board log: what a board printed on its serial console, line by line, from firmware 1.12.0
- * ("Events to the console" in firmware/README.md, firmware/app/src/cloud_events.c).
+ * ("Events to the console" in firmware/README.md, firmware/app/src/cloud/cloud_events.c).
  *
  * A board publishes each line on cranium/<thing>/events, and the rule BoardLogRule
  * (infra/template.yaml) hands it to the recorder as

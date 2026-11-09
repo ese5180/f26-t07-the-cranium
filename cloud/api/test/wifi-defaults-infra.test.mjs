@@ -96,7 +96,7 @@ function convert(name, text) {
   }
 }
 
-test('the header tools/secrets.py writes becomes the JSON the API reads, and a bad one says why, not what', () => {
+test('the header tools/cranium_secrets.py writes becomes the JSON the API reads, and a bad one says why, not what', () => {
   const header = (ssid, passphrase, security = 'WPA2_PSK') =>
     `#ifndef WIFI_SECRETS_H_\n#define WIFI_SECRETS_H_\n\n#define WIFI_SECRETS_SSID "${ssid}"\n` +
     `#define WIFI_SECRETS_PASSPHRASE "${passphrase}"\n#define WIFI_SECRETS_SECURITY ${security}\n\n#endif\n`;

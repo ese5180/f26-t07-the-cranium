@@ -214,7 +214,7 @@ open(sys.argv[1], "wb").write(key.private_bytes(serialization.Encoding.PEM, seri
 fi
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
 if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
-    --sysbuild "$REPO_DIR/firmware/app" -- "${key_args[@]}" ) > "$log" 2>&1; then
+    --sysbuild "$REPO_DIR/firmware/app" -- ${key_args[@]+"${key_args[@]}"} ) > "$log" 2>&1; then
   mkdir -p "$BUILD_DIR"
   cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true

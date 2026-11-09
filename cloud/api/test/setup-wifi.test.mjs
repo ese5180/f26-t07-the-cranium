@@ -95,7 +95,7 @@ test('what the firmware would refuse is refused here too, and a failed read says
   assert.equal(JSON.stringify(logs).includes(FAKE.passphrase), false);
 });
 
-test('a security left out is WPA2-PSK, as tools/secrets.py writes it', () => {
+test('a security left out is WPA2-PSK, as tools/cranium_secrets.py writes it', () => {
   assert.deepEqual(parseWifiDefaults(JSON.stringify({ ssid: 'Lab', passphrase: 'fake-pass-123' })), {
     ssid: 'Lab',
     passphrase: 'fake-pass-123',

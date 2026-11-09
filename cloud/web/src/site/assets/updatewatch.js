@@ -12,7 +12,7 @@
 
 import { compareVersions, parseVersion } from './core.js';
 
-// The board's status characteristic (firmware/app/src/bt_status.h), from firmware 1.14.0.
+// The board's status characteristic (firmware/app/src/bt/bt_status.h), from firmware 1.14.0.
 
 export const STATUS_SERVICE = '9112B1B4-2A51-40F0-94D3-A76440F0E6CC';
 export const STATUS_CHARACTERISTIC = '9112B1B5-2A51-40F0-94D3-A76440F0E6CC';

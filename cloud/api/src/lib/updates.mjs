@@ -102,7 +102,7 @@ const EXECUTION_OUTCOME = Object.freeze({
 });
 const OPEN_STATUSES = new Set(['QUEUED', 'IN_PROGRESS']);
 
-// The board's BT lines (firmware/app/src/bt_ota.c say_record and the offer of an image that arrived).
+// The board's BT lines (firmware/app/src/bt/bt_ota.c say_record and the offer of an image that arrived).
 const LEVEL = '(?:(?:INF|WRN|ERR): )?';
 const BT_RECORD_LINE = new RegExp(
   `^${LEVEL}(update over Bluetooth|last update over Bluetooth|on trial): ` +

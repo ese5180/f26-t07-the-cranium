@@ -37,7 +37,7 @@
  *                  refuses it; --repeated-cancel makes it accept the call and stop
  *                  the board ("accepted"), or accept it and change nothing
  *                  ("ignored"), so that the console can be seen in all three cases.
- *   The boards     A model of what the firmware does (firmware/app/src/ota.c): it
+ *   The boards     A model of what the firmware does (firmware/app/src/ota/ota.c): it
  *                  writes its shadow and answers its job through the device helpers
  *                  of the stand-in. Its download fails once the image is revoked, as
  *                  it does when the bucket refuses a revoked image.
@@ -673,7 +673,7 @@ function previewId(what, length) {
 
 /**
  * A board, as far as the console can tell one from the outside. It does what firmware
- * before 1.7.2 does, which is what these boards run (firmware/app/src/ota.c with
+ * before 1.7.2 does, which is what these boards run (firmware/app/src/ota/ota.c with
  * CONFIG_APP_OTA_REQUIRE_USER_CONSENT on): it reports its state to its shadow on every
  * change, keeps an offered update queued until Button 1 is pressed, and asks AWS IoT
  * before it downloads and again before it installs.
