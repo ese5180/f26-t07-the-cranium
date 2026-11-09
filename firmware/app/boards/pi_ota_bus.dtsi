@@ -1,0 +1,86 @@
+/*
+ * From 1.15.0: the SPI bus that the SD card and the Raspberry Pi share, and the two pins the update
+ * reads (docs/pi-ota.md, "Wiring"). The same pins on the nRF7002 DK and the nRF5340 DK, on the
+ * Arduino header: both board overlays include this.
+ *
+ *   SPIM3 (SERIAL3)  SCK P1.15 (D13)  MOSI P1.13 (D11)  MISO P1.14 (D12)
+ *   SD card CS  P1.11 (D9)    Pi CS  P1.12 (D10)
+ *   READY from the Pi  P1.04 (D2)    SD card detect  P1.05 (D3)
+ *
+ * Why these: SERIAL0 is the console (uart0) and SERIAL1 is TF-M's own UART (uart1), so neither is
+ * free; the nRF7002 DK's external flash is on SPIM4 and its Wi-Fi chip on QSPI, P0.12 to P0.18,
+ * P0.23, P0.24, P0.28 to P0.31 and P1.10. The buttons and LEDs are P1.06 to P1.09 on the nRF7002 DK
+ * and on port 0 on the nRF5340 DK. None of those are used here.
+ *
+ * One SPIM instance for both: each device has its own chip select (cs-gpios, index = reg) and its
+ * own frequency, and Zephyr sets the bus up for whichever a transaction is for. The SD card starts
+ * at 400 kHz and then runs at its spi-max-frequency. SPIM3 goes to 8 MHz at most.
+ */
+
+&pinctrl {
+	pi_spi_default: pi_spi_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 15)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 13)>;
+		};
+
+		/* An SD card's DO is open until it drives it: keep it from floating. */
+		group2 {
+			psels = <NRF_PSEL(SPIM_MISO, 1, 14)>;
+			bias-pull-up;
+		};
+	};
+
+	pi_spi_sleep: pi_spi_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 15)>,
+				<NRF_PSEL(SPIM_MOSI, 1, 13)>,
+				<NRF_PSEL(SPIM_MISO, 1, 14)>;
+			low-power-enable;
+		};
+	};
+};
+
+/ {
+	pi_ota: pi-ota {
+		compatible = "cranium,pi-ota";
+		ready-gpios = <&gpio1 4 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		/* SparkFun's microSD breakout: CD is closed to ground with a card in. */
+		cd-gpios = <&gpio1 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	};
+};
+
+/*
+ * Off unless the build is for a Pi (pi_ota_sysbuild.conf): sysbuild.cmake then adds pi_ota.overlay,
+ * which turns it on. A driver for a bus that nothing uses would take RAM that the default build
+ * does not have.
+ */
+&spi3 {
+	compatible = "nordic,nrf-spim";
+	status = "disabled";
+	pinctrl-0 = <&pi_spi_default>;
+	pinctrl-1 = <&pi_spi_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* What MOSI sends while only receiving: an SD card in SPI mode wants 0xFF. */
+	overrun-character = <0xff>;
+	cs-gpios = <&gpio1 11 GPIO_ACTIVE_LOW>, <&gpio1 12 GPIO_ACTIVE_LOW>;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <8000000>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+
+	pi_link: pi-link@1 {
+		compatible = "cranium,pi-link";
+		reg = <1>;
+		spi-max-frequency = <8000000>;
+	};
+};

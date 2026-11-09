@@ -146,3 +146,15 @@
 &pwm0 {
 	status = "disabled";
 };
+
+/*
+ * From 1.15.0: the SD card and the Raspberry Pi on one SPI bus, as on the nRF7002 DK
+ * (docs/pi-ota.md). This board's own Arduino SPI, spi4, has the same pins: it is turned off. The
+ * nodes are here so that both boards are wired alike. This board has no cloud, so no job uses them
+ * and CONFIG_APP_PI_OTA is off: nothing drives the bus.
+ */
+&spi4 {
+	status = "disabled";
+};
+
+#include "pi_ota_bus.dtsi"

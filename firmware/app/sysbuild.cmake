@@ -50,6 +50,21 @@ if(SB_CONFIG_BOARD_NRF5340DK AND NOT SB_CONFIG_APP_BT_OTA)
 endif()
 
 # Firmware update over Bluetooth LE, off unless bt_ota_sysbuild.conf is given.
+# From 1.15.0: Raspberry Pi images (docs/pi-ota.md). Only with Wi-Fi and the cloud, and not with
+# Bluetooth, which the RAM does not hold as well: the link would fail with less to go on.
+if(SB_CONFIG_APP_PI_OTA)
+  if(SB_CONFIG_BOARD_NRF5340DK)
+    message(FATAL_ERROR "The nRF5340 DK has no cloud, so no Pi image job reaches it: "
+                        "it cannot be built with pi_ota_sysbuild.conf")
+  endif()
+  if(SB_CONFIG_APP_BT_OTA)
+    message(FATAL_ERROR "SB_CONFIG_APP_PI_OTA and SB_CONFIG_APP_BT_OTA do not fit the RAM together: "
+                        "use pi_ota_sysbuild.conf, which turns Bluetooth off (docs/pi-ota.md, \"Memory\")")
+  endif()
+  add_overlay_config(${DEFAULT_IMAGE} "${CMAKE_CURRENT_LIST_DIR}/pi_ota.conf")
+  set(${DEFAULT_IMAGE}_EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/boards/pi_ota.overlay"
+      CACHE INTERNAL "The SPI bus of the SD card and the Raspberry Pi, turned on")
+endif()
 if(SB_CONFIG_APP_BT_OTA)
   if(NOT SB_CONFIG_NETCORE_HCI_IPC)
     message(FATAL_ERROR "SB_CONFIG_APP_BT_OTA needs SB_CONFIG_NETCORE_HCI_IPC: use bt_ota_sysbuild.conf")

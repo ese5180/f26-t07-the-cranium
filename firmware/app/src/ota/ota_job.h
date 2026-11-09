@@ -16,6 +16,22 @@
  *       "url": "https://<host>/<path>?<query>"
  *     }
  *   }
+ *
+ * From 1.15.0 a job can carry a Raspberry Pi image instead (docs/pi-ota.md):
+ *
+ *   {
+ *     "op": "pi_image",
+ *     "v": 1,
+ *     "pi": {
+ *       "version": "2026.11.06-1",
+ *       "size": 104857600,
+ *       "sha256": "<64 hex digits>",
+ *       "sig": "<128 hex digits: ECDSA P-256 r||s over the manifest, pi_image.h>",
+ *       "url": "https://<host>/<path>?<query>"
+ *     }
+ *   }
+ *
+ * The parser takes both. Whether a board acts on a Pi image is up to ota.c (CONFIG_APP_PI_OTA).
  */
 
 #ifndef OTA_JOB_H_
@@ -33,11 +49,24 @@
 #define OTA_JOB_HOST_MAX 263
 /* Path and query string: the limit of the HTTP download client. */
 #define OTA_JOB_FILE_MAX 2047
+/* A Pi image's version: letters, digits and ".-_+", 1 to 31 of them. */
+#define OTA_PI_VERSION_MAX 31
+/* The manifest's signature: ECDSA P-256, r and s of 32 bytes each. */
+#define OTA_PI_SIG_SIZE    64
+
+enum ota_job_kind {
+	/* "fw_update": an image for this board's MCUboot slot. */
+	OTA_JOB_KIND_FIRMWARE = 0,
+	/* "pi_image": an image for the Raspberry Pi's partition B, through the SD card. */
+	OTA_JOB_KIND_PI_IMAGE = 1,
+};
 
 struct ota_job {
 	char id[OTA_JOB_ID_MAX + 1];
 	/* The cloud lists this execution as in progress; otherwise it is still queued. */
 	bool in_progress;
+	enum ota_job_kind kind;
+	/* A firmware job's version; all zero for a Pi image. */
 	struct fw_version version;
 	uint32_t size;
 	uint8_t sha256[OTA_SHA256_SIZE];
@@ -45,7 +74,19 @@ struct ota_job {
 	char host[OTA_JOB_HOST_MAX + 1];
 	/* Everything after the slash that follows the host name. */
 	char file[OTA_JOB_FILE_MAX + 1];
+	/* A Pi image's version and the signature over its manifest. Empty for firmware. */
+	char pi_version[OTA_PI_VERSION_MAX + 1];
+	uint8_t pi_sig[OTA_PI_SIG_SIZE];
+	/* A Pi image's optional "minFirmware": the oldest board firmware it may go out with. */
+	bool pi_has_min_firmware;
+	struct fw_version pi_min_firmware;
 };
+
+/*
+ * How a job's ID says what it is, for the list of pending jobs, which carries no documents: the
+ * console's firmware jobs start with "cranium-", and a Pi image's with this (tools/pi_image.py).
+ */
+#define OTA_PI_JOB_ID_PREFIX "pi-"
 
 enum ota_job_result {
 	OTA_JOB_OK = 0,
@@ -73,6 +114,14 @@ enum ota_job_result {
  */
 enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allowed_url_prefix,
 				  struct ota_job *job);
+
+/*
+ * Parse the reply to a request for the list of pending job executions (GetPendingJobExecutions):
+ * {"inProgressJobs":[{"jobId":...},...],"queuedJobs":[...]}. It carries no documents. On OTA_JOB_OK
+ * job->id is the first job that is not a Pi image's, by its ID, in progress before queued, and
+ * job->in_progress says which; OTA_JOB_NONE if there is no such job. Nothing else of job is set.
+ */
+enum ota_job_result ota_job_list_parse(const char *json, size_t len, struct ota_job *job);
 
 /*
  * Policy for a parsed job: it must be strictly newer than the running firmware and
