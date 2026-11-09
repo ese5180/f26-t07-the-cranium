@@ -44,21 +44,24 @@ function actions(statement) {
   return found;
 }
 
-test('only a job of this repository in the production environment may assume the role', () => {
+test('only main and console-v* tags of this repository may assume the role', () => {
   const trust = code(role).split('AssumeRolePolicyDocument:')[1].split('ManagedPolicyArns:')[0];
   assert.equal(trust.match(/- Sid: /g).length, 1);
   assert.ok(trust.includes('Effect: Allow'));
   assert.ok(trust.includes('Action: sts:AssumeRoleWithWebIdentity\n'));
-  assert.ok(trust.includes('StringEquals:'));
-  assert.equal(trust.includes('StringLike'), false);
-  assert.ok(trust.includes('token.actions.githubusercontent.com:aud: sts.amazonaws.com\n'));
   assert.ok(
-    trust.includes(
-      "token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'"
-    )
+    trust.includes('StringEquals:\n                token.actions.githubusercontent.com:aud: sts.amazonaws.com\n')
   );
+  // Exactly two subjects: the branch main and the console-v* tags, nothing broader.
+  const subjects = trust.split('token.actions.githubusercontent.com:sub:\n')[1];
+  assert.ok(trust.includes('StringLike:\n                token.actions.githubusercontent.com:sub:\n'));
+  assert.deepEqual(
+    [...subjects.matchAll(/- !Sub '([^']+)'/g)].map((match) => match[1]),
+    ['repo:${GitHubRepository}:ref:refs/heads/main', 'repo:${GitHubRepository}:ref:refs/tags/console-v*']
+  );
+  assert.equal(trust.match(/:sub/g).length, 1);
+  assert.equal(/environment|pull_request|refs\/heads\/\*/.test(trust), false);
   assert.ok(/GitHubRepository:\n\s+Type: String\n\s+Default: ese5180\/f26-t07-the-cranium\n/.test(role));
-  assert.ok(/GitHubEnvironment:\n\s+Type: String\n\s+Default: production\n/.test(role));
   assert.ok(role.includes('Url: https://token.actions.githubusercontent.com'));
 });
 
@@ -121,8 +124,8 @@ test('the role can store the Memfault project key and not read it back', () => {
   assert.equal(/dynamodb:(GetItem|PutItem|Query|Scan)/.test(role), false);
 });
 
-test('the workflow waits for the production environment and assumes the role over OIDC', () => {
-  assert.ok(workflow.includes('    environment: production\n'));
+test('the workflow assumes the role over OIDC, with no stored AWS key', () => {
+  assert.equal(workflow.includes('environment:'), false);
   assert.ok(workflow.includes('      id-token: write\n'));
   assert.ok(/\npermissions:\n {2}contents: read\n/.test(workflow));
   assert.ok(/aws-actions\/configure-aws-credentials@[0-9a-f]{40} # v\d/.test(workflow));

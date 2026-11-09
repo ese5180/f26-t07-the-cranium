@@ -2,10 +2,10 @@
 # teammates can deploy with no access to the AWS account. How it is set up and used: docs/ci.md,
 # "Deploying the console from GitHub Actions".
 #
-# Every run waits in the production environment until the owner approves it, and that environment only
-# accepts main and console-v* tags. The job gets short-lived AWS credentials over OIDC for the role of
-# cloud/infra/github-deploy.yaml, whose trust policy names this repository and this environment and
-# nothing else. No AWS key is stored in GitHub.
+# Anyone with write access to the repository can run it; there is no approval step. The job gets
+# short-lived AWS credentials over OIDC for the role of cloud/infra/github-deploy.yaml, whose trust policy
+# accepts only this repository's main branch and console-v* tags: started on any other branch, the run
+# fails at "Configure AWS credentials" and changes nothing. No AWS key is stored in GitHub.
 
 name: Deploy console
 
@@ -33,7 +33,6 @@ jobs:
     name: Deploy the console
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: production
     permissions:
       id-token: write
       contents: read

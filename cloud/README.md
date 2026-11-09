@@ -173,11 +173,11 @@ address. `CustomerSelfSignUp` stays `false`: customers are invited from the Cust
 ## Deploy
 
 **From GitHub Actions**, which needs no access to the AWS account: Actions → **Deploy console** → **Run
-workflow** on `main`, then wait for the owner to approve the run. Pushing a tag `console-v<version>` starts it too.
+workflow** on `main`. Anyone with write access to the repository can run it, and there is no approval step. Pushing a
+tag `console-v<version>` starts it too; any other branch gets no AWS credentials.
 The workflow assumes the role of [`infra/github-deploy.yaml`](infra/github-deploy.yaml) over OIDC and runs
 `cloud/deploy.sh`, exactly as below. The owner's one-time steps (the role's stack, the repository variables
-`AWS_DEPLOY_ROLE_ARN` and `AWS_REGION`, the `production` environment with the owner as required reviewer, limited to
-`main` and `console-v*` tags) and what replaces `~/.cranium` on the runner are in
+`AWS_DEPLOY_ROLE_ARN` and `AWS_REGION`) and what replaces `~/.cranium` on the runner are in
 [docs/ci.md](../docs/ci.md#deploying-the-console-from-github-actions).
 
 **From the owner's laptop**, the fallback, and the way to give template parameters or `--replace-signing-key`,

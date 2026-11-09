@@ -169,7 +169,7 @@ or a new machine. Never put the project key, the token or the slugs in the repos
 3. **The slugs**, from the address of the project in Memfault (`/organizations/<org>/projects/<project>`), in
    `~/.cranium/memfault.json`, which is not a secret: `{"org": "<org>", "project": "<project>"}`.
 4. **The command:** `pip install memfault-cli`.
-5. **The cloud first:** run the Deploy console workflow, with the project key as the `production` environment secret
+5. **The cloud first:** run the Deploy console workflow, with the project key as the repository secret
    `MEMFAULT_PROJECT_KEY` and the slugs as the repository variables `MEMFAULT_ORG_SLUG` and `MEMFAULT_PROJECT_SLUG`
    ([docs/ci.md](ci.md#deploying-the-console-from-github-actions)), or, on the owner's laptop,
    `AWS_PROFILE=cranium cloud/deploy.sh`, which reads the files above. Either way it stores the project key in the secret (by the file's
