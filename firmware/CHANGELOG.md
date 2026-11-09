@@ -7,12 +7,13 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
-## 1.14.1
+## 1.14.2
 
 The same firmware as 1.14.0, released after the crash demonstration (1.14.0+1) to put a board back on an ordinary build. No change in what the board does.
 
 Built from the 1.14.0 sources with no -D settings. It exists so that the 3.11 demonstration can end on a release that
-is newer than the crash demonstration's 1.14.0+1, as a board only takes a newer image (docs/memfault.md, "Showing 3.11
+is newer than the crash demonstration's 1.14.0+1, as a board only takes a newer image. scripts/build.sh builds
+the next version itself, so 1.14.1 was set by hand and never built: this is 1.14.2 (docs/memfault.md, "Showing 3.11
 on the board").
 
 ## 1.14.0
