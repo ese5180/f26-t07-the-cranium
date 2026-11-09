@@ -4,6 +4,15 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.6
+
+The console's Memfault page comes with the app: the issue list, an issue's traces, backtraces and registers, and the In Memfault card on a board's page, with its reboots, events and issues. A test now fails if a console page is missing from the app.
+
+The app shell shows the console's own pages, so the Memfault page comes with the console (2.6.0 and later) under the
+console's sections. `PagesParityTests` reads `apps/shared/pages.json` with the console's sources and checks each
+page: its section, its script in the bundle, its API routes open to the phone apps' sign-in, and the shell's rules for
+the web view (docs/mobile-apps.md, "Pages in every app").
+
 ## 0.8.5
 
 Staged rollouts as on the console from 2.8.0: after the canary, the boards update in stages, all of a stage at once. The Roll out form takes the number of stages, the batch size, the wait between stages and the failure limit, filled in from the console's suggestion with its reasons, and a rollout's page shows each stage as it goes.

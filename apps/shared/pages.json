@@ -1,0 +1,44 @@
+{
+  "about": "The console's pages and board cards, which every app shows (docs/mobile-apps.md, 'Pages in every app'). The iPhone app's PagesParityTests, the Android app's PagesParityTest and the desktop app's pages.test.mjs all read this file with the console's own sources: every section of core.js must be here and every page here in core.js; a page's link must be in the sections of views.js (`nav`, or null for one reached another way); its script must be a file of site/assets/ (so in the bundle) that app.js loads; a card's script must draw it and views.js call it; each API route must be in cloud/api/src/app.mjs with no options, so the apps' sign-in is taken as the website's; and each app's own rules must keep the page in its window, let it reach the console, and send `outside` addresses to the system. A page the console gains fails all three suites until it is added here.",
+  "console": [
+    { "route": "#/overview", "nav": "overview", "script": null },
+    { "route": "#/devices", "nav": "devices", "script": null },
+    { "route": "#/map", "nav": "map", "script": "map.js" },
+    { "route": "#/diagnostics", "nav": "diagnostics", "script": "telemetry.js" },
+    { "route": "#/events", "nav": "events", "script": "telemetry.js" },
+    { "route": "#/firmware", "nav": "firmware", "script": null },
+    { "route": "#/deployments", "nav": "deployments", "script": null },
+    { "route": "#/bluetooth", "nav": "bluetooth", "script": "bluetooth.js" },
+    { "route": "#/fleet", "nav": "fleet", "script": "fleet.js" },
+    {
+      "route": "#/memfault",
+      "nav": "memfault",
+      "script": "memfault-page.js",
+      "api": ["GET /api/memfault/issues", "GET /api/memfault/fleet"]
+    },
+    {
+      "route": "#/memfault/7",
+      "nav": "memfault",
+      "script": "memfault-page.js",
+      "api": ["GET /api/memfault/issues/{id}"]
+    },
+    { "route": "#/activity", "nav": "activity", "script": null },
+    { "route": "#/apps", "nav": "apps", "script": "apps.js" },
+    { "route": "#/customers", "nav": "customers", "script": "customers.js" },
+    { "route": "#/serial", "nav": "developer", "script": "serial.js" },
+    { "route": "#/setup", "nav": "developer", "script": "setup.js" },
+    { "route": "#/history", "nav": "developer", "script": "history.js" },
+    { "route": "#/tokens", "nav": "developer", "script": null },
+    { "route": "#/account", "nav": null, "script": "account.js" }
+  ],
+  "cards": [
+    {
+      "page": "#/devices/{thing}",
+      "title": "In Memfault",
+      "script": "memfault-page.js",
+      "draw": "boardSection",
+      "api": ["GET /api/devices/{thing}/memfault"]
+    }
+  ],
+  "outside": ["https://app.memfault.com/organizations/example/projects/cranium/devices/cranium-0123456789abcdef"]
+}

@@ -205,6 +205,28 @@ classic app by itself, with a line that says why, when no bundle can be shown (o
 is too old for the bridge). New apps start in the shell. The classic screens can be deleted in the version after the
 shell has been used on the team's phones for a release: from then on the shell's fallback is its built-in bundle alone.
 
+### Pages in every app
+
+Every console page is in the iPhone, Android and desktop apps, which show the console's own pages.
+[`apps/shared/pages.json`](../apps/shared/pages.json) lists them: each page with its section link, its script, and the
+API routes it reads. It also lists the board cards a page script draws, such as **In Memfault** on a board's page, and
+the addresses that open outside the app, such as a board's page in Memfault. Three tests read it next to the console's
+own sources: `PagesParityTests` (iPhone), `PagesParityTest` (Android) and `pages.test.mjs` (desktop). Each test fails
+when:
+
+- a section in core.js is not in pages.json, or a page in pages.json is not in core.js;
+- a page's link is not among the sections of views.js;
+- a page's script is not in `site/assets/` (so not in the bundle) or app.js does not load it;
+- a card's script does not draw the card, or views.js does not call it;
+- an API route is not in `cloud/api/src/app.mjs` with its defaults. The defaults let the apps' sign-in in, as the
+  website's is;
+- the app's own rules do not keep the page in its web view, let it reach the console, or send the outside addresses
+  to the system.
+
+So when the console gets a new page, CI fails until pages.json lists it and every app passes these checks. The
+Memfault page (`#/memfault`, an issue at `#/memfault/<id>`) and the In Memfault card came with console 2.6.0. They are
+listed from apps 0.8.6 and desktop 0.1.3. On a phone they are under the console's sections, as on a narrow browser.
+
 ### What only a phone can show
 
 The unit tests check the contract, the bundle, the store, the policies and the pages' logic on both sides, and the
