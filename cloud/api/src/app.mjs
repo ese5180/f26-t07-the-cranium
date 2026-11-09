@@ -487,6 +487,8 @@ export function createApp({
       action: 'alert.unsubscribe',
       maxBody: SMALL_BODY_LIMIT,
     }),
+    // The alert rules (console 2.12.0): for release managers, on record with what changed.
+    route('POST', '/api/alerts/rules', alerts.setRules, { action: 'alert.rules', maxBody: SMALL_BODY_LIMIT }),
     // The fleet (docs/fleet.md): board types and groups, staged rollouts, and how the fleet is doing.
     // Reads for every member; every change for release managers, on record, and from a phone only
     // with a sign-in in the last 15 minutes, as every change is.

@@ -158,8 +158,8 @@
  *                                   { numberOfSucceededThings } } }
  *     abort                       abortConfig: { criteriaList: [{ failureType, action: "CANCEL",
  *                                   thresholdPercentage, minNumberOfExecutedThings }] }
- *   Fleet records in the state table, in three partitions only: "GRP" (groups), "ROL" (staged
- *   rollouts) and "SEEN" (what a phone last saw of a board). Any other pk is a TypeError, so that
+ *   Fleet records in the state table, in four partitions only: "GRP" (groups), "ROL" (staged
+ *   rollouts), "SEEN" (what a phone last saw of a board) and "ALR" (the alert rules). Any other pk is a TypeError, so that
  *   these can never touch a release or a token. Items hold plain data, as releases do.
  *   getFleetItem({ pk, sk })      -> object | null   consistent read
  *   listFleetItems(pk)            -> object[]        the partition, highest sk first; consistent read
@@ -230,7 +230,7 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PK = 'AUD';
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR']);
 
 const THROTTLING = new Set([
   'ThrottlingException',

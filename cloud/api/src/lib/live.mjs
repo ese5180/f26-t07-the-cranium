@@ -11,6 +11,8 @@
  *   events  pk <thing>, sk "E#..."      an event of that board: it connected, disconnected, restarted,
  *                                        took or finished an update, ...  what "board"
  *           pk "UPD#<thing>"            a fact of its update history       what "updates"
+ *           pk "ALERTS", sk "S#..."     an alert e-mail that went out      what "alerts" (the team only:
+ *                                        the console and its pages in the apps show it at once)
  *           (its samples "S#", the lines of its console "L#" and "K#", and the alerts' and positions'
  *           own parts are not changes: the stream filter keeps them away from the function)
  *   state   pk "OWN", sk <thing>        who owns the board                 what "ownership"
@@ -44,6 +46,7 @@ export const WHAT = Object.freeze([
   'rollouts',
   'apps',
   'activity',
+  'alerts',
 ]);
 export const CUSTOMER_WHAT = Object.freeze(['board', 'updates', 'ownership']);
 // The most board names one message carries. More than that, and the page reads everything anyway.
@@ -52,6 +55,8 @@ export const MAX_THINGS = 50;
 const STATE_WHAT = Object.freeze({ OWN: 'ownership', REL: 'releases', GRP: 'groups', ROL: 'rollouts', APP: 'apps' });
 const UPDATE_PARTITION = 'UPD#';
 const EVENT_PREFIX = 'E#';
+const ALERTS_PARTITION = 'ALERTS';
+const SENT_PREFIX = 'S#';
 const CONNECTION_ID = /^[A-Za-z0-9=_+/-]{1,128}$/;
 // How the customer site names a board: the ref of its assignment (customer/boards.mjs).
 const REF = /^[0-9a-f]{16}$/;
@@ -120,6 +125,8 @@ export function changesOf(records, tables) {
       } else if (pk.startsWith(UPDATE_PARTITION) && isThing(pk.slice(UPDATE_PARTITION.length))) {
         things.add(pk.slice(UPDATE_PARTITION.length));
         what.add('updates');
+      } else if (pk === ALERTS_PARTITION && sk !== null && sk.startsWith(SENT_PREFIX) && event === 'INSERT') {
+        what.add('alerts');
       }
     } else if (table === tables.state) {
       if (!Object.hasOwn(STATE_WHAT, pk)) continue;

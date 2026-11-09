@@ -803,12 +803,30 @@ const pages = {
       accountScript ? accountScript.accountPageView(ctx) : scriptPending(ctx, 'account', 'Account', { tabs: false }),
     resources: () => [state.alerts],
     async refresh() {
-      accountScript ??= await pageScript(() => import('./account.js'));
+      accountScript ??= await accountReady();
       await load(state.alerts, api.alerts);
       draw();
     },
     interval: () => IDLE_REFRESH_MS,
     holdStill: () => state.alerts.busy,
+  },
+  // The alert rules and the alerts that went out (account.js): every member reads them, a release
+  // manager changes the rules.
+  alerts: {
+    title: 'Alerts',
+    view: (ctx) =>
+      accountScript ? accountScript.alertsPageView(ctx) : scriptPending(ctx, 'alerts', 'Alerts', { tabs: false }),
+    resources: () => [state.alerts],
+    async refresh() {
+      accountScript ??= await accountReady();
+      await Promise.all([
+        load(state.alerts, api.alerts),
+        state.devices.loadedAt === 0 ? load(state.devices, api.devices) : null,
+      ]);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => state.alerts.busy || state.alerts.editing === true,
   },
   // An update over Bluetooth, in the phone app only (bluetooth.js): the classic apps' Bluetooth screens.
   bluetooth: {
@@ -911,6 +929,8 @@ async function bluetoothReady() {
 let telemetryScript = null;
 let mapScript = null;
 let accountScript = null;
+/** account.js, fetched once, for the Account page and the Alerts page. */
+const accountReady = () => pageScript(() => import('./account.js'));
 let appsScript = null;
 
 /** apps.js, fetched once, when the Apps page is first opened, and handed what it needs. */
@@ -1062,6 +1082,8 @@ async function refreshNow(full) {
  */
 function liveChanged({ things, what, resync }) {
   if (state.gate || document.visibilityState !== 'visible') return;
+  if (what.includes('alerts')) alertsTold();
+  if (what.length > 0 && what.every((kind) => kind === 'alerts') && !resync) return;
   const page = pages[state.route.view];
   if (page.holdStill?.()) return;
   const boardsOnly = what.every((kind) => kind === 'board' || kind === 'updates');
@@ -1636,6 +1658,15 @@ function openDeploy(version) {
     stages: 1,
     soakMinutes: 0,
     abortPercent: 20,
+    // The health gate (docs/fleet.md): on, for 10 minutes, unless the person changes it.
+    healthGate: true,
+    gateMinutes: 10,
+    setHealthGate: change((value) => {
+      model.healthGate = value;
+    }),
+    setGateMinutes: change((value) => {
+      model.gateMinutes = value;
+    }),
     setCanary: change((value) => {
       model.canary = value;
     }),
@@ -1739,6 +1770,8 @@ function openDeploy(version) {
               stages: model.stages,
               soakMinutes: model.soakMinutes,
               abortPercent: model.abortPercent,
+              healthGate: model.healthGate,
+              gateMinutes: model.gateMinutes,
             });
             self.close(true);
             notify(
@@ -2145,12 +2178,52 @@ async function changeAlerts(subscribe) {
   await load(state.alerts, api.alerts);
 }
 
+/** Change alert rules ({ <rule>: { on?, <threshold>? } }): a release manager's, for everybody who gets alerts. */
+async function changeAlertRules(rules) {
+  if (!state.me?.canWrite || state.alerts.busy) return false;
+  state.alerts.busy = true;
+  draw();
+  let ok = false;
+  try {
+    const changed = await api.setAlertRules(rules);
+    if (state.alerts.value) state.alerts.value = { ...state.alerts.value, alertRules: changed };
+    notify('The alert rules are changed.');
+    ok = true;
+  } catch (error) {
+    notify(asProblem(error).message, 'bad');
+  } finally {
+    state.alerts.busy = false;
+  }
+  await load(state.alerts, api.alerts);
+  return ok;
+}
+
+/**
+ * An alert e-mail went out (the live API's "alerts", docs/live.md): whatever page is open says so at
+ * once, in the console and in the phone and desktop apps, which show these same pages. The alerts are
+ * read again and each one newer than what this page has seen is a toast with its subject.
+ */
+let alertsSeen = null;
+async function alertsTold() {
+  try {
+    const before = alertsSeen ?? state.alerts.value?.recent?.[0]?.at ?? new Date(Date.now() - 60_000).toISOString();
+    await load(state.alerts, api.alerts);
+    const fresh = (state.alerts.value?.recent ?? []).filter((item) => item.at > before);
+    if (fresh.length > 0) alertsSeen = fresh[0].at;
+    for (const item of fresh.slice(0, 3).reverse()) notify(`Alert: ${item.subject.replace(/^Cranium: /, '')}`, 'bad');
+    draw();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 const actions = {
   identify: (thing) => sendCommand(thing, 'identify'),
   reportNow: (thing) => sendCommand(thing, 'report'),
   memfaultNow: (thing) => sendCommand(thing, 'memfault'),
   subscribeAlerts: () => changeAlerts(true),
   unsubscribeAlerts: () => changeAlerts(false),
+  setAlertRules: (rules) => changeAlertRules(rules),
   refresh: () => refreshNow(true),
   openNotes,
   redraw: draw,

@@ -49,6 +49,14 @@
  * the rest that AWS IoT paces (`wave` boards a minute, growing as boards succeed). advance() still
  * takes such a rollout to its end.
  *
+ * The health gate (console 2.12.0, lib/health.mjs): a rollout created with one waits, after the canary
+ * and after each stage has ended, `healthGate.minutes` and then asks Memfault (handlers/memfault.mjs
+ * health) whether a board it has updated so far shows a new issue or an unexpected reboot on the new
+ * version. None: the gate has passed (`gatePassedAt` on the canary or the stage) and the next stage
+ * starts once its soak time is over too. One: the rollout is "stopped", code "health_failed", with the
+ * board, and the issue's id and title when it is one. Memfault not to be read: it waits, and after
+ * GATE_WAIT_MS stops with "health_unknown". Either stop is the boards' own doing, so an alert.
+ *
  * Two runs of advance() at the same moment cannot both start a stage: each change of stage is a
  * conditional write on the rollout (its rev), and only the run that made it creates the job. A
  * cancellation that comes between the two is seen right after the job exists, which is then
@@ -81,6 +89,7 @@ import {
   rolloutId,
   selectTargets,
 } from '../lib/fleet.mjs';
+import { GATE_WAIT_MS, UNREAD_WORDS, gateBoards, healthWords } from '../lib/health.mjs';
 import { buildJobDescription, isoTime, mapLimit } from '../lib/jobs.mjs';
 import {
   STAGE_ROLLOUT,
@@ -104,7 +113,7 @@ const LOST_START_MS = 5 * 60_000;
 const CONSOLE_ACTOR = Object.freeze({ sub: '', email: '' });
 // The stops that are the boards' own doing: each is a "deployment" alert (lib/alerts.mjs) when the
 // schedule is given an alerter. A revocation, a cancellation or a lost job is a person's or AWS's.
-const SELF_STOPS = new Set(['canary_failed', 'aborted']);
+const SELF_STOPS = new Set(['canary_failed', 'aborted', 'health_failed', 'health_unknown']);
 const ALERT_TEXT_MAX = 200;
 
 const STOP_TEXT = Object.freeze({
@@ -114,6 +123,8 @@ const STOP_TEXT = Object.freeze({
   cancelled_elsewhere: 'A deployment of it was cancelled outside the rollout',
   job_missing: 'Its job is gone from AWS IoT',
   job_failed: 'The next stage could not be started',
+  health_failed: 'The health gate found a new Memfault issue or an unexpected reboot',
+  health_unknown: 'The health gate could not read Memfault',
 });
 
 function unknownRollout() {
@@ -170,7 +181,8 @@ function rolloutOptions(body) {
 function planWords(options) {
   const batch =
     options.batch === null ? 'even' : `${options.batch.sizes.join(',')}${options.batch.unit === 'percent' ? '%' : ''}`;
-  return `${options.stages} (${batch}), soak ${options.soakMinutes} min`;
+  const gate = options.healthGate ? `, gate ${options.healthGate.minutes} min` : '';
+  return `${options.stages} (${batch}), soak ${options.soakMinutes} min${gate}`;
 }
 
 /** Where a stage of a rollout stands: "planned", "running", "soaking", "done", "skipped" or "stopped". */
@@ -210,7 +222,7 @@ function stageNote(rollout, part) {
 
 export function createRolloutHandlers(
   { aws, config, now, randomHex, log, alert = null },
-  { devices, deployments, fleet, audit, updates = () => null }
+  { devices, deployments, fleet, audit, updates = () => null, memfault = () => null }
 ) {
   /**
    * thing -> { updates, failures } from each board's update history, for the boards that have one.
@@ -340,6 +352,8 @@ export function createRolloutHandlers(
       current: -1,
       stagePlan: { stages: options.stages, batch: options.batch },
       soakMinutes: options.soakMinutes,
+      // From console 2.12.0: null, or { minutes } (lib/health.mjs).
+      healthGate: options.healthGate ?? null,
       abortPercent: options.abortPercent,
       stopped: null,
       finishedAt: null,
@@ -614,7 +628,7 @@ export function createRolloutHandlers(
     const changed = await change(item, { stage: 'stopped', stopped: { code, text, at, ...extra }, finishedAt: at });
     if (changed !== null) {
       await note(item, 'rollout.stop', { code, text });
-      if (SELF_STOPS.has(code)) await alertStopped(item, text, Date.parse(at));
+      if (SELF_STOPS.has(code)) await alertStopped(item, text, Date.parse(at), extra);
     }
     return changed === null ? 'raced' : 'stopped';
   }
@@ -623,12 +637,12 @@ export function createRolloutHandlers(
    * The "deployment" alert of a rollout that stopped by itself, for the job that failed: the
    * canary's, or the waves'. The alerter never throws; it logs what it could not send.
    */
-  async function alertStopped(item, text, at) {
+  async function alertStopped(item, text, at, extra = {}) {
     if (typeof alert !== 'function') return;
     const deployment =
       item.stage === 'waves'
         ? item.rest?.job
-        : item.stage === 'stages'
+        : item.stage === 'stages' && item.current >= 0
           ? item.stages?.[item.current]?.job
           : item.canary?.job;
     if (typeof deployment !== 'string') return;
@@ -637,8 +651,10 @@ export function createRolloutHandlers(
       kind: 'deployment',
       deployment,
       version: item.version,
+      rollout: item.id,
       at,
       text: line.length > ALERT_TEXT_MAX ? `${line.slice(0, ALERT_TEXT_MAX - 3)}...` : line,
+      link: Number.isInteger(extra.issue?.id) ? `#/memfault/${extra.issue.id}` : `#/rollouts/${item.id}`,
     });
   }
 
@@ -851,8 +867,62 @@ export function createRolloutHandlers(
     const next = index + 1;
     if (next >= item.stages.length) return finish(item);
     const endedAt = Date.parse((index >= 0 ? stage.doneAt : item.canary?.doneAt) ?? '') || 0;
-    if (now() < endedAt + (item.soakMinutes ?? 0) * 60_000) return 'waiting';
-    return startStage(item, next);
+    const gated = await healthGate(item, index, endedAt);
+    if (typeof gated === 'string') return gated;
+    if (now() < endedAt + (gated.soakMinutes ?? 0) * 60_000) return 'waiting';
+    return startStage(gated, next);
+  }
+
+  /**
+   * The health gate after part `index` (-1 the canary) ended at `endedAt`: the item, with the gate
+   * marked passed if it has just passed, to go on with; or what happened instead ("waiting",
+   * "stopped", "raced").
+   */
+  async function healthGate(item, index, endedAt) {
+    const gate = item.healthGate;
+    if (gate === null || typeof gate !== 'object' || !Number.isInteger(gate.minutes)) return item;
+    const part = index < 0 ? item.canary : item.stages[index];
+    if (part?.gatePassedAt) return item;
+    const due = endedAt + gate.minutes * 60_000;
+    if (now() < due) return 'waiting';
+    const where = index < 0 ? 'After the canary, ' : `After stage ${index + 1}, `;
+    const reader = memfault();
+    const seen =
+      reader === null
+        ? { state: 'not_configured' }
+        : await reader.health({ version: item.version, boards: gateBoards(item, index) });
+    if (seen.state === 'ok' && seen.problem === null) {
+      const at = new Date(now()).toISOString();
+      const passed =
+        index < 0
+          ? await change(item, { canary: { ...item.canary, gatePassedAt: at } })
+          : await change(item, { stages: withStage(item, index, { gatePassedAt: at }) });
+      if (passed === null) return 'raced';
+      await note(
+        item,
+        'rollout.advance',
+        { gate: 'passed', after: index < 0 ? 'canary' : `stage ${index + 1}` },
+        `gate-${index + 1}`
+      );
+      return passed;
+    }
+    if (seen.state === 'ok') {
+      const { problem } = seen;
+      const extra = {
+        thing: problem.thing,
+        ...(problem.kind === 'issue' ? { issue: problem.issue } : { reason: problem.reason }),
+      };
+      return stop(item, 'health_failed', `${healthWords(problem, where)}: the next stage was not started`, extra);
+    }
+    log({ level: 'warn', event: 'health_gate_unread', rollout: item.id, state: seen.state });
+    if (now() < due + GATE_WAIT_MS) return 'waiting';
+    const why = UNREAD_WORDS[seen.state] ?? UNREAD_WORDS.unreachable;
+    return stop(
+      item,
+      'health_unknown',
+      `${where}the health gate could not read Memfault for ${GATE_WAIT_MS / 60_000} minutes (${why}): ` +
+        'the next stage was not started'
+    );
   }
 
   /** One open rollout, one step on if there is one to take. Returns what happened. */

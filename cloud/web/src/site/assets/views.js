@@ -1695,6 +1695,8 @@ const SECTIONS = [
   ['fleet', 'Fleet', 'layers', false],
   // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
   ['memfault', 'Memfault', 'alert', false],
+  // The alert rules and the alerts that went out (account.js).
+  ['alerts', 'Alerts', 'bell', false],
   ['activity', 'Activity', 'clock', false],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   ['apps', 'Apps', 'phone', false],
@@ -5940,7 +5942,22 @@ function stagedChoices(model, chosen) {
     number('canary', 'Canary boards', Math.min(model.canary, most), 1, most, model.setCanary, null),
     number('stages', 'Stages after it', model.stages ?? 1, 1, 10, model.setStages, null),
     number('soak', 'Wait between stages', model.soakMinutes ?? 0, 0, 60, model.setSoakMinutes, 'min'),
-    number('abort', 'Stop when failures reach', model.abortPercent, 1, 100, model.setAbortPercent, '%')
+    number('abort', 'Stop when failures reach', model.abortPercent, 1, 100, model.setAbortPercent, '%'),
+    // The health gate (docs/fleet.md): on by default; 0 to 120 minutes.
+    choice(
+      {
+        key: 'gate',
+        type: 'checkbox',
+        name: 'health-gate',
+        checked: model.healthGate !== false,
+        onChange: (event) => model.setHealthGate?.(event.target.checked),
+      },
+      'Health gate',
+      h('span', { class: 'choice-note' }, 'No new Memfault issue and no unexpected reboot before the next stage')
+    ),
+    model.healthGate !== false
+      ? number('gate-minutes', 'Watch for', model.gateMinutes ?? 10, 0, 120, model.setGateMinutes ?? (() => {}), 'min')
+      : null
   );
 }
 
@@ -6006,6 +6023,10 @@ function wizardReview(model, release, chosen, now) {
                   ? `in ${model.stages} stages, each to all its boards at once and each only once the one before has ended` +
                     `${(model.soakMinutes ?? 0) > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}. `
                   : 'all at once. ') +
+                (model.healthGate !== false
+                  ? `Before each next stage the boards so far run it for ${plural(model.gateMinutes ?? 10, 'minute')} ` +
+                    'with no new Memfault issue and no unexpected reboot, or it stops. '
+                  : '') +
                 `It stops by itself, before what has not started, once ${model.abortPercent}% ` +
                 'of the boards that finished have failed.',
             ]

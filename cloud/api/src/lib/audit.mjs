@@ -52,6 +52,7 @@ export const ACTIONS = Object.freeze([
   'board.command',
   'alert.subscribe',
   'alert.unsubscribe',
+  'alert.rules',
   // The fleet (docs/fleet.md): groups of boards, staged rollouts and the two that start several at
   // once, what a phone saw of a board (handlers/groups.mjs, rollouts.mjs, fleet.mjs), and a
   // release's note changed after its upload (handlers/firmware.mjs). rollout.advance and

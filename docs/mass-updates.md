@@ -14,8 +14,13 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
   2.8.0). Each stage updates all its boards at once, and the next starts only once it has ended within its failure
   limit, after an optional soak time. It stops by itself when the canary does not confirm, or too many boards of a
   stage fail.
+- **A health gate** (from console 2.12.0, on by default for 10 minutes). Before each next stage, the boards updated so
+  far must run the release that long with no new Memfault issue and no unexpected reboot (Assert, fault, watchdog).
+  Otherwise the rollout stops, naming the board and the issue with a link, and raises an alert. If Memfault cannot be
+  read, it waits up to 30 minutes and then stops: it never passes without an answer ([`fleet.md`](fleet.md)).
 - **Chosen with help.** The Roll out dialog asks the console for a plan (`GET /api/rollouts/suggest`): the canary, the
-  number of stages and their sizes (growing, say 10 % → 30 % → the rest), the soak time, each with its reason, and
+  number of stages and their sizes (growing, say 10 % → 30 % → the rest), the soak time and the health gate, each with
+  its reason, and
   warnings such as most of the group being offline. Any of it can be changed before starting.
 - **Each board is safe on its own.** MCUboot runs the new image on trial and puts the old one back unless the new one
   confirms itself (A/B).
@@ -25,7 +30,8 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
    Memfault its release and symbols.
 2. Put the boards in a group, under Fleet, Groups.
 3. Start a deployment or a staged rollout to the group, the type, or every board. For a group, look at the suggested
-   stages, change them if needed, and start; the rollout's page shows each stage as it goes.
+   stages, change them if needed, and start; the rollout's page shows each stage as it goes, and why it stopped if
+   it did. Alerts (rules on the Alerts page, [`alerts.md`](alerts.md)) say so by e-mail and on every open page.
 
 Spare releases built ahead with `scripts/firmware/build.sh --no-upload` wait in `binaries/`. Upload one when it's needed:
 - `scripts/firmware/upload-to-console.sh binaries/<image>`;

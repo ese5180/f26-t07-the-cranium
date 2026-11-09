@@ -12,7 +12,11 @@
  *   - `batch`: null to split the boards evenly, or { unit: "percent" | "count", sizes } where `sizes`
  *     gives each stage but the last its share of the boards after the canary (one number for all of
  *     them, or one per stage); the last stage takes the rest;
- *   - `soakMinutes`: how long to wait after a stage has ended before the next starts, 0 to 60.
+ *   - `soakMinutes`: how long to wait after a stage has ended before the next starts, 0 to 60;
+ *   - `healthGate`: null for none, or { minutes } (0 to 120): after the canary or a stage has
+ *     confirmed, the next stage starts only once its boards have run the release for `minutes` with
+ *     no new Memfault issue and no unexpected reboot (lib/health.mjs). A request gives it as
+ *     { on, minutes }; a request without it (a script or a client from before 2.12.0) has none.
  *
  * Every function here is plain.
  */
@@ -23,6 +27,8 @@ export const MAX_STAGES = 10;
 export const DEFAULT_STAGES = 1;
 export const MAX_SOAK_MINUTES = 60;
 export const DEFAULT_SOAK_MINUTES = 0;
+export const MAX_GATE_MINUTES = 120;
+export const DEFAULT_GATE_MINUTES = 10;
 export const BATCH_UNITS = Object.freeze(['percent', 'count']);
 // The most a stage holds by count: a rollout's own limit (lib/fleet.mjs MAX_ROLLOUT_BOARDS).
 export const MAX_BATCH_COUNT = 100;
@@ -57,10 +63,35 @@ function badBatch(message) {
 }
 
 /**
- * The stage choices of a request body: { stages, batch, soakMinutes }, each checked. `read` is the
- * body's field reader (http.mjs field).
+ * The health gate of a request body: null (off) or { minutes }. It is { on, minutes? } with
+ * `minutes` 0 to MAX_GATE_MINUTES, DEFAULT_GATE_MINUTES if not given; absent or null is off.
+ */
+export function requireHealthGate(raw) {
+  if (raw === undefined || raw === null) return null;
+  const bad = () =>
+    badRequest(
+      'invalid_healthGate',
+      `"healthGate" is { on: true or false, minutes: a whole number from 0 to ${MAX_GATE_MINUTES} }.`
+    );
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw bad();
+  if (Object.keys(raw).some((key) => key !== 'on' && key !== 'minutes')) throw bad();
+  if (typeof raw.on !== 'boolean') throw bad();
+  const minutes = raw.minutes === undefined ? DEFAULT_GATE_MINUTES : raw.minutes;
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > MAX_GATE_MINUTES) throw bad();
+  return raw.on ? { minutes } : null;
+}
+
+/**
+ * The stage choices of a request body: { stages, batch, soakMinutes }, each checked, and
+ * `healthGate` when the body gives one. `read` is the body's field reader (http.mjs field).
  */
 export function requireStagePlan(read) {
+  const gate = read('healthGate');
+  const plan = stagePlanOf(read);
+  return gate === undefined ? plan : { ...plan, healthGate: requireHealthGate(gate) };
+}
+
+function stagePlanOf(read) {
   const stages = whole(read('stages'), 'stages', 1, MAX_STAGES, DEFAULT_STAGES);
   const soakMinutes = whole(read('soakMinutes'), 'soakMinutes', 0, MAX_SOAK_MINUTES, DEFAULT_SOAK_MINUTES);
   const raw = read('batch');
@@ -203,8 +234,9 @@ function growingSizes(count, total) {
  * @param {Map|object} [input.history]  thing -> { updates, failures } from the update history
  * @returns {{ canary: string[], stages: { things: string[], size: number, percent: number,
  *   offline: number }[], stageCount: number, batch: { unit: 'count', sizes: number[] } | null,
- *   soakMinutes: number, reasons: { canary: string, stages: string, batch: string, soak: string,
- *   offline: string | null }, warnings: string[] }}
+ *   soakMinutes: number, healthGate: { on: true, minutes: number }, reasons: { canary: string,
+ *   stages: string, batch: string, soak: string, health: string, offline: string | null },
+ *   warnings: string[] }}
  */
 export function suggestPlan({ boards, online = [], types = {}, history = {} }) {
   const things = [
@@ -310,6 +342,7 @@ export function suggestPlan({ boards, online = [], types = {}, history = {} }) {
     stageCount: stages.length,
     batch: stages.length <= 1 ? null : { unit: 'count', sizes: stages.slice(0, -1).map((stage) => stage.size) },
     soakMinutes,
+    healthGate: { on: true, minutes: DEFAULT_GATE_MINUTES },
     reasons: {
       canary: canaryReason,
       stages: stagesReason,
@@ -318,6 +351,11 @@ export function suggestPlan({ boards, online = [], types = {}, history = {} }) {
         stages.length <= 1
           ? 'No soak time: there is no stage after the first to wait for.'
           : `${soakMinutes === 0 ? 'No soak time' : `${soakMinutes} minutes`}: ${soak.text}.`,
+      health:
+        stages.length === 0
+          ? 'Health gate on: with no stage after the canary there is nothing for it to hold back, but it costs nothing.'
+          : `Health gate on, ${DEFAULT_GATE_MINUTES} minutes: the next stage starts only once the boards before it ` +
+            'have run the release that long with no new Memfault issue and no unexpected reboot.',
       offline:
         away.length === 0
           ? null

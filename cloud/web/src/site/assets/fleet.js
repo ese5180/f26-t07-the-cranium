@@ -9,7 +9,7 @@
  *  - the Fleet page (#/fleet): each board type with its newest release and how many boards run it,
  *    the groups, the staged rollouts, and "Update everything";
  *  - a staged rollout's page (#/rollouts/<id>): its canary, its stages (or waves), what was left out and why,
- *    and why it stopped;
+ *    its health gate, and why it stopped, with the board and the Memfault issue when the gate stopped it;
  *  - on the Overview, the fleet's health: versions by type, the last week's updates, and the boards
  *    that need looking at;
  *  - on the Devices page, each board's type and groups, "Bluetooth only" for a board without Wi-Fi
@@ -174,6 +174,8 @@ function readRollout(raw) {
   const canary = object(item.canary);
   const rest = object(item.rest);
   const stopped = item.stopped === null || item.stopped === undefined ? null : object(item.stopped);
+  const issue = stopped && stopped.issue ? object(stopped.issue) : null;
+  const gate = item.healthGate ? object(item.healthGate) : null;
   return {
     id: isRolloutId(item.id) ? item.id : '',
     version: version(item.version) ?? '',
@@ -186,10 +188,20 @@ function readRollout(raw) {
     stage: Object.hasOwn(STAGES, item.stage) ? item.stage : 'stopped',
     things: things(item.things),
     leftOut: readLeftOut(item.leftOut),
-    canary: { things: things(canary.things), job: words(canary.job, 64) || null, doneAt: iso(canary.doneAt) },
+    canary: {
+      things: things(canary.things),
+      job: words(canary.job, 64) || null,
+      doneAt: iso(canary.doneAt),
+      gatePassedAt: iso(canary.gatePassedAt),
+    },
     stages: array(item.stages).map(readStage),
     current: Number.isInteger(item.current) ? item.current : -1,
     soakMinutes: count(item.soakMinutes),
+    // The health gate (console 2.12.0): null, or { minutes }.
+    healthGate:
+      gate && Number.isInteger(gate.minutes) && gate.minutes >= 0 && gate.minutes <= 120
+        ? { minutes: gate.minutes }
+        : null,
     rest: {
       things: things(rest.things),
       leftOut: readLeftOut(rest.leftOut),
@@ -200,7 +212,20 @@ function readRollout(raw) {
     abortPercent: count(item.abortPercent) || 20,
     plan: array(item.plan).filter((size) => Number.isInteger(size) && size > 0),
     stopped:
-      stopped === null ? null : { code: words(stopped.code, 32), text: words(stopped.text, 300), at: iso(stopped.at) },
+      stopped === null
+        ? null
+        : {
+            code: words(stopped.code, 32),
+            text: words(stopped.text, 400),
+            at: iso(stopped.at),
+            // What the health gate found: the board, and the Memfault issue or the reboot's reason.
+            thing: isThing(stopped.thing) ? stopped.thing : null,
+            issue:
+              issue && Number.isInteger(issue.id) && issue.id >= 0
+                ? { id: issue.id, title: words(issue.title, 200) }
+                : null,
+            reason: words(stopped.reason, 40) || null,
+          },
     finishedAt: iso(item.finishedAt),
     canaryJob: item.canaryJob ? readJob(item.canaryJob) : null,
     wavesJob: item.wavesJob ? readJob(item.wavesJob) : null,
@@ -224,6 +249,7 @@ function readStage(raw, index) {
     job: words(item.job, 64) || null,
     startedAt: iso(item.startedAt),
     doneAt: iso(item.doneAt),
+    gatePassedAt: iso(item.gatePassedAt),
     state: STAGE_STATES.includes(item.state) ? item.state : 'planned',
     counts: {
       done: count(counts.done),
@@ -240,6 +266,7 @@ function readSuggestion(raw) {
   const item = object(raw);
   const reasons = object(item.reasons);
   const batch = item.batch ? object(item.batch) : null;
+  const gate = object(item.healthGate);
   return {
     things: things(item.things),
     canary: things(item.canary),
@@ -253,8 +280,12 @@ function readSuggestion(raw) {
         ? { unit: 'count', sizes: array(batch.sizes).filter((size) => Number.isInteger(size) && size > 0) }
         : null,
     soakMinutes: Math.min(count(item.soakMinutes), 60),
+    healthGate: {
+      on: gate.on !== false,
+      minutes: Number.isInteger(gate.minutes) ? Math.min(Math.max(gate.minutes, 0), 120) : 10,
+    },
     abortPercent: Math.min(Math.max(count(item.abortPercent), 1), 100) || 20,
-    reasons: ['canary', 'stages', 'batch', 'soak', 'offline']
+    reasons: ['canary', 'stages', 'batch', 'soak', 'health', 'offline']
       .map((key) => words(reasons[key], 300))
       .filter((line) => line !== ''),
     warnings: array(item.warnings)
@@ -1122,7 +1153,11 @@ export function rolloutView(ctx) {
     `${plural(rollout.stages.length, 'stage')} after the canary. Each goes to all its boards at once, and the next ` +
     `starts only once it has ended with fewer than ${rollout.abortPercent}% of its finished boards failed` +
     `${rollout.soakMinutes > 0 ? `, and ${plural(rollout.soakMinutes, 'minute')} after` : ''}. ` +
-    `A stage stops by itself once ${rollout.abortPercent}% have failed, and what has not started then never does.`;
+    `A stage stops by itself once ${rollout.abortPercent}% have failed, and what has not started then never does.` +
+    (rollout.healthGate
+      ? ` Health gate: after the canary and each stage, the next waits ${plural(rollout.healthGate.minutes, 'minute')} ` +
+        'and starts only if Memfault shows no new issue and no unexpected reboot on the release.'
+      : ' No health gate.');
   const leftOut = [...rollout.leftOut, ...rollout.rest.leftOut, ...rollout.stages.flatMap((stage) => stage.leftOut)];
   return h(
     'div',
@@ -1154,6 +1189,7 @@ export function rolloutView(ctx) {
           sentence(rollout.stopped.text),
           ' ',
           when(rollout.stopped.at, state.now),
+          stopFacts(rollout.stopped, ctx),
         ])
       : null,
     card(
@@ -1233,6 +1269,24 @@ export function rolloutView(ctx) {
           leftOutList(leftOut, ctx)
         )
       : null
+  );
+}
+
+/** What the health gate found, under its stop: the board, and the issue on the Memfault page. */
+function stopFacts(stopped, ctx) {
+  if (!stopped.thing && !stopped.issue) return null;
+  return h(
+    'span',
+    { class: 'stop-facts', key: 'facts' },
+    stopped.thing ? [' Board: ', boardChip(ctx, stopped.thing), '.'] : null,
+    stopped.issue
+      ? [
+          ' Issue: ',
+          h('a', { href: `#/memfault/${stopped.issue.id}` }, `#${stopped.issue.id} ${stopped.issue.title}`),
+          '.',
+        ]
+      : null,
+    stopped.reason && !stopped.issue ? [` Reason: ${stopped.reason}.`] : null
   );
 }
 
@@ -1401,6 +1455,8 @@ function openDeleteGroup(group) {
 
 const MAX_STAGES = 10;
 const MAX_SOAK = 60;
+const MAX_GATE = 120;
+const DEFAULT_GATE = 10;
 const MIN_USEFUL_STAGE = 2;
 const BATCH_UNITS = Object.freeze([
   { unit: 'even', label: 'Split evenly' },
@@ -1410,12 +1466,27 @@ const BATCH_UNITS = Object.freeze([
 
 /** The stage choices a dialog starts from, before a suggestion or a person changes them. */
 function stageModel() {
-  return { stages: 1, unit: 'even', sizes: [], soakMinutes: 0, suggestion: null, suggesting: false };
+  return {
+    stages: 1,
+    unit: 'even',
+    sizes: [],
+    soakMinutes: 0,
+    healthGate: true,
+    gateMinutes: DEFAULT_GATE,
+    suggestion: null,
+    suggesting: false,
+  };
 }
 
-/** The body fields of the stage choices: { stages, soakMinutes, batch? }. */
+/**
+ * The body fields of the stage choices: { stages, soakMinutes, batch?, healthGate? }. The health gate
+ * is sent when the model has the choice (every dialog of this console has it, on by default).
+ */
 export function stageBody(model) {
   const body = { stages: model.stages, soakMinutes: model.soakMinutes };
+  if (typeof model.healthGate === 'boolean') {
+    body.healthGate = { on: model.healthGate, minutes: model.gateMinutes ?? DEFAULT_GATE };
+  }
   if (model.stages > 1 && model.unit !== 'even') {
     const sizes = Array.from({ length: model.stages - 1 }, (_, index) => model.sizes[index] ?? model.sizes.at(-1) ?? 1);
     body.batch = { unit: model.unit, sizes };
@@ -1471,6 +1542,8 @@ function applySuggestion(model, suggestion) {
   model.sizes = suggestion.batch ? [...suggestion.batch.sizes] : [];
   model.soakMinutes = suggestion.soakMinutes;
   model.abortPercent = suggestion.abortPercent;
+  model.healthGate = suggestion.healthGate.on;
+  model.gateMinutes = suggestion.healthGate.minutes;
 }
 
 function numberField(key, label, value, min, max, apply, unit) {
@@ -1570,6 +1643,7 @@ function rolloutOptions(model, most, rest = null, redraw = () => {}) {
         '%'
       )
     ),
+    gateChoice(model, set),
     model.stages > 1
       ? h(
           'fieldset',
@@ -1639,12 +1713,64 @@ function rolloutOptions(model, most, rest = null, redraw = () => {}) {
   );
 }
 
+/**
+ * The health gate's choice (console 2.12.0): on by default, with its minutes. `set` wraps a change so
+ * that the dialog is drawn again.
+ */
+export function gateChoice(model, set) {
+  return h(
+    'div',
+    { class: 'rollout-gate', key: 'gate' },
+    choice(
+      {
+        key: 'gate-on',
+        type: 'checkbox',
+        name: 'health-gate',
+        checked: model.healthGate !== false,
+        onChange: (event) =>
+          set(() => {
+            model.healthGate = event.target.checked;
+          })(),
+      },
+      'Health gate',
+      h(
+        'span',
+        { class: 'choice-note' },
+        'The next stage starts only if Memfault shows no new issue and no unexpected reboot on the release ' +
+          'for this long after the boards before it confirmed. If Memfault cannot be read, it waits up to 30 minutes and stops.'
+      )
+    ),
+    model.healthGate !== false
+      ? h(
+          'div',
+          { class: 'staged-choices', key: 'gate-minutes' },
+          numberField(
+            'gate-minutes',
+            'Watch for',
+            model.gateMinutes ?? DEFAULT_GATE,
+            0,
+            MAX_GATE,
+            set((value) => {
+              model.gateMinutes = value;
+            }),
+            'min'
+          )
+        )
+      : null
+  );
+}
+
 /** The words of "What happens" for the stage choices. */
 function stageWords(model) {
+  const gate =
+    model.healthGate === false
+      ? ''
+      : ` Before each next stage the boards so far run it for ${plural(model.gateMinutes ?? DEFAULT_GATE, 'minute')} ` +
+        'with no new Memfault issue and no unexpected reboot, or the rollout stops.';
   return model.stages === 1
-    ? 'Once it has confirmed, every other board gets it at once.'
+    ? `Once it has confirmed, every other board gets it at once.${gate}`
     : `Once it has confirmed, the rest follow in ${model.stages} stages, each to all its boards at once; ` +
-        `a stage starts only once the one before has ended${model.soakMinutes > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}.`;
+        `a stage starts only once the one before has ended${model.soakMinutes > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}.${gate}`;
 }
 
 /** A release to one group: of the group's types, the boards of the release's type take it. */

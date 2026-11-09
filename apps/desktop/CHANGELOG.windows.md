@@ -4,6 +4,13 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.6
+
+Alerts and safer rollouts in the app (console 2.12.0 and later): an Alerts page where release managers turn each alert rule on or off and set its threshold, a toast in the open app as soon as an alert goes out, and a Health gate on a staged rollout that holds the next stage until Memfault shows no new issue and no unexpected reboot.
+
+The Alerts page (`#/alerts`) is in apps/shared/pages.json, so `test/pages.test.mjs` checks that the console has it
+and that its route takes the app's sign-in. Nothing else in the app changed.
+
 ## 0.1.5
 
 The console's Memfault pages in the app (console 2.11.0 and later): a board's page charts its Memfault heartbeat metrics over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason, the software versions and each board's latest metrics.

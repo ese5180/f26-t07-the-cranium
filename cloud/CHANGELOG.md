@@ -7,6 +7,25 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.12.0
+
+Safer staged rollouts and alert rules: a rollout's Health gate holds each next stage until Memfault shows no new issue and no unexpected reboot on the release for 10 minutes (on by default), and stops the rollout with the board and the issue when it does; the new Alerts page lets release managers turn on and tune alerts for a board offline, a new Memfault issue, a crash loop, a rollout that stopped by itself and low supply voltage; and each alert shows at once on every open page.
+
+The gate (handlers/rollouts.mjs `healthGate`, lib/health.mjs, handlers/memfault.mjs `health`): after the canary and each
+stage, the schedule waits `healthGate.minutes` (0 to 120) and then reads Memfault's processing log and issues through
+the cached server-side reader; a trace of an issue or an unexpected reboot (lib/memfault-data.mjs reboot reasons from
+0x8000) on the new version, on a board updated so far, stops the rollout with `health_failed` and the board, the issue's
+id and title or the reboot's reason. A Memfault that cannot be read holds it, never passes it, and after 30 minutes stops
+it with `health_unknown`. Both are self stops, so a "deployment" alert, whose e-mail now links to the rollout and the
+issue. `POST /api/rollouts`, update-everything and rollback take `healthGate: { on, minutes }`; without it, none. The
+suggestion has it on with a reason; the create forms have the choice; the rollout's page shows the gate and the stop.
+The alert rules (lib/alerts.mjs `RULES`): one item in the state table (pk `ALR`), `POST /api/alerts/rules` for release
+managers (audit `alert.rules`, refusals `invalid_rules`, `rules_changed`, `invalid_healthGate`), read by the recorder for
+the offline minutes and by the schedule, which looks at Memfault at most every 5 minutes for new issues, crash loops and
+low `supply_mv` (alerts.mjs `watch`). Repeats are held back an hour as before. A sent alert is a live change `alerts` for
+the team (a new stream filter), and app.js shows it as a toast. RolloutTickFn may read the Memfault token and the `ALR`
+partition; EventsFn the `ALR` partition. No phone push: what it would need is in docs/alerts.md.
+
 ## 2.11.0
 
 Memfault's metrics in the console: a board's page charts its hourly heartbeat (power, Wi-Fi signal and channel, CPU, heap and stacks, the connection, stuck restarts, boot time and any other key) over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason with the unexpected ones marked, the software versions on the boards, and each board's latest key metrics.

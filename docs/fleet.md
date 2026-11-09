@@ -61,19 +61,32 @@ image on a board checks it. The board's own check is the last word.
   - **Gating.** The next stage starts only once the job of the one before has completed with its failures under the
     limit, and after the **soak time** (0 to 60 minutes, default 0), which also follows the canary. The schedule that
     moves rollouts on looks every minute.
+  - **The health gate** (from console 2.12.0). After the canary and after each stage has ended, the next stage also
+    waits the gate's minutes (0 to 120, default 10), then asks Memfault, through the console's cached reads of its REST
+    API, whether any board the rollout has updated so far shows, on the new version and since its own part started,
+    a trace of a Memfault issue or an unexpected reboot (an Assert, a fault, a watchdog, a stuck restart: Memfault's
+    reboot reasons from 0x8000). None: the gate passes, on record as `rollout.advance` with `gate passed`, and the
+    stage starts once the soak time is over too. One: the rollout stops, code `health_failed`, naming the board, and
+    the issue's number and title with a link to it on the Memfault page, or the reboot's reason. If Memfault cannot
+    be read (no token, refused, limited, unreachable), the gate waits, never passes, and after 30 minutes stops the
+    rollout with `health_unknown` and says why. Both stops raise the "rollout stopped by itself" alert
+    ([alerts.md](alerts.md)). The create form has **Health gate** on, 10 minutes, by default; a request that gives no
+    `healthGate` (a script, or a client from before 2.12.0) has none. The gate holds back the next stage: after the
+    last stage there is none, and the rollout is done when its job is.
   - **Stops.** A canary that does not confirm, a stage whose failed, rejected or timed-out boards reach the failure
-    limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), a
-    release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
+    limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), the
+    health gate, a release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
     the rollout, so two runs of the schedule never start a stage twice.
   - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything and
     a group's roll back) takes the canary size, the number of stages, the batch size of each stage but the last (a
     percent or a count of the boards after the canary; the last stage takes the rest; empty stages are left out), the
-    soak time and the failure limit. The server checks every one (`lib/stages.mjs`).
+    soak time, the failure limit and the health gate. The server checks every one (`lib/stages.mjs`).
   - **Suggestions.** `GET /api/rollouts/suggest?release=<version>&group=<id>` (viewers and release managers; the fleet
     without `group`) says what the console would do, each choice with a one-line reason: one online board per board
     type as the canary, preferring a clean update history; stages that grow (about 10%, then three times as many, then
     the rest), one stage for a group of three boards or fewer; boards that are offline in the last stage; a soak time
-    for larger groups; and a warning when most of the group is offline or a stage is too small to tell anything. The
+    for larger groups; the health gate on, 10 minutes; and a warning when most of the group is offline or a stage is
+    too small to tell anything. The
     Roll out dialog fills itself in from it, and the person can change anything.
   - **Progress.** A rollout's page shows each stage: its boards and each board's state, how many are done, in progress,
     failed and waiting, when it started and ended, or when it is due. A rollout started before 2.8.0 still goes on in
@@ -145,14 +158,18 @@ position. Only `nrf7002dk` boards can do this.
 ## Alerts
 
 E-mail through Amazon SNS, to the release managers who ask for it on the console (each address confirms by e-mail
-first). An alert for:
+first), and from console 2.12.0 a toast on every open page of the console and of the apps. An alert for:
 
-- a board offline for more than 15 minutes, and back again
-- an update that failed or rolled back, and a deployment that stopped by itself
+- a board offline for more than 15 minutes (a rule), and back again
+- a new Memfault issue, a crash loop, and low supply voltage (rules, from Memfault's data)
+- a staged rollout or deployment that stopped by itself, its health gate too (a rule)
+- an update that failed or rolled back
 - a restart for being stuck
 - a board whose position moved by more than 1 km
 
-At most one e-mail per board and kind per hour; the rest go into the next one.
+Release managers turn each rule on or off and set its threshold on the Alerts page. At most one e-mail per board and
+kind per hour; the rest go into the next one. The rules, how each is checked, and what a phone notification would
+need: [`alerts.md`](alerts.md).
 
 ## Bluetooth-only boards and the phone
 
