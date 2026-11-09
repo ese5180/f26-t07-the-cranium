@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of tools/pi_image.py, from 1.15.0 (docs/pi-ota.md, "Signing"): the manifest is the board's,
+"""Tests of tools/pi_image.py, from 1.16.0 (docs/pi-ota.md, "Signing"): the manifest is the board's,
 byte for byte; a signature holds and a changed field breaks it; the key built into the board is the
 firmware signing key; and the record and the job document are what the board parses. A throwaway key
 signs here: the project's key never leaves ~/.cranium."""
@@ -85,7 +85,7 @@ class Signature(unittest.TestCase):
             self.assertFalse(pi_image.verify_manifest(GOLDEN, sig, other))
 
     def test_the_board_has_the_firmware_signing_key(self):
-        header = (REPO / "firmware" / "app" / "src" / "pi_key.h").read_text()
+        header = (REPO / "firmware" / "app" / "src" / "pi" / "pi_key.h").read_text()
         body = header[header.index("pi_public_key[65] = {") :]
         built_in = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", body[: body.index("};")]))
         self.assertEqual(built_in, pi_image.public_point())

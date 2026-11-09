@@ -1,5 +1,5 @@
 /*
- * From 1.15.0, for a build with SB_CONFIG_APP_PI_OTA (pi_ota_sysbuild.conf): the SPI bus of the SD
+ * From 1.16.0, for a build with SB_CONFIG_APP_PI_OTA (pi_ota_sysbuild.conf): the SPI bus of the SD
  * card and the Raspberry Pi, which pi_ota_bus.dtsi describes, turned on. sysbuild.cmake adds this.
  */
 

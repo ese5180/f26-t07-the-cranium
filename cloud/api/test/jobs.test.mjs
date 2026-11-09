@@ -404,7 +404,7 @@ test('mapLimit keeps the order and never runs more tasks than allowed', async ()
   assert.ok(started <= 3, `${started} tasks started`);
 });
 
-// From 1.15.0: a Raspberry Pi image (docs/pi-ota.md, "Cloud"), as tools/pi_image.py signs it.
+// From 1.16.0: a Raspberry Pi image (docs/pi-ota.md, "Cloud"), as tools/pi_image.py signs it.
 const PI = { version: '2026.11.06-1', size: 104857600, sha256: SHA, sig: 'c4'.repeat(64) };
 
 test("a Pi image's job document is what the board parses", () => {

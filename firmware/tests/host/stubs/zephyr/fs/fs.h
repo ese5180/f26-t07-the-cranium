@@ -1,5 +1,5 @@
 /*
- * Host stub of Zephyr's file system API: the part that src/pi_sd.c uses. The test that compiles
+ * Host stub of Zephyr's file system API: the part that src/pi/pi_sd.c uses. The test that compiles
  * pi_sd.c (test_pi_ota.c) implements these functions on an in-memory file system.
  */
 

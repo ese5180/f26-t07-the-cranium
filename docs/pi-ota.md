@@ -1,6 +1,6 @@
 # Raspberry Pi image updates through the board
 
-From firmware 1.15.0, a board wired to a Raspberry Pi can update the Pi. An AWS IoT job brings a signed
+From firmware 1.16.0, a board wired to a Raspberry Pi can update the Pi. An AWS IoT job brings a signed
 image. The board downloads it over HTTPS onto a microSD card, checks it, and sends it over SPI to the Pi's
 partition B. This page covers the board's side: the design, the wiring, the SPI protocol that the Pi's
 side has to implement, the limits, and what has not run on hardware yet. The Pi's side is separate work.
@@ -17,8 +17,8 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
 - Board firmware always goes first. A Pi image waits while a firmware job is pending, and while new
   firmware is on trial.
 - A build for a board wired to a Pi has no Bluetooth, because the two do not fit in RAM together
-  ([Memory](#memory)). It is built with `scripts/build.sh --pi`.
-- **Before any such board runs 1.15.0, deploy console 2.4.5.** Its device policy lets a board ask for its
+  ([Memory](#memory)). It is built with `scripts/firmware/build.sh --pi`.
+- **Before any such board runs 1.16.0, deploy console 2.10.2.** Its device policy lets a board ask for its
   list of pending jobs ([Cloud](#cloud)).
 - Nothing on this page has run on hardware ([Untested on hardware](#untested-on-hardware)).
 
@@ -43,14 +43,14 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
 
 | File | What it does | Tested on the host |
 | --- | --- | --- |
-| `src/ota_job.c` | Parses the `pi_image` document and the list of pending jobs | `test_pi_ota.c` |
-| `src/ota.c` | Puts firmware before a Pi image, and passes a Pi job to `pi_ota.c` | `test_ota_bt.c` (`ota_pi_tests`) |
-| `src/pi_image.c` | The manifest, the checks on a job, the error reasons, the record kept on the card, and CRC-32 | `test_pi_ota.c` |
-| `src/pi_sha256.c` | SHA-256 whose state can be saved, for resume | `test_pi_ota.c` |
-| `src/pi_sd.c` | Files on the SD card through Zephyr's file system API: errors, retries, time limits, and releasing the bus | `test_pi_ota.c`, against an in-memory file system |
-| `src/pi_dl.c` | The download onto the card: hashing, checkpoints and resume | `test_pi_ota.c`, with a fake HTTP server |
-| `src/pi_link.c` | The board's end of the SPI protocol | `test_pi_link.py`, against `tools/pi_link_sim.py` |
-| `src/pi_ota.c` | Glue: the devices, the custom DFU target, the thread, and the reports | Built only |
+| `src/ota/ota_job.c` | Parses the `pi_image` document and the list of pending jobs | `test_pi_ota.c` |
+| `src/ota/ota.c` | Puts firmware before a Pi image, and passes a Pi job to `pi_ota.c` | `test_ota_bt.c` (`ota_pi_tests`) |
+| `src/pi/pi_image.c` | The manifest, the checks on a job, the error reasons, the record kept on the card, and CRC-32 | `test_pi_ota.c` |
+| `src/pi/pi_sha256.c` | SHA-256 whose state can be saved, for resume | `test_pi_ota.c` |
+| `src/pi/pi_sd.c` | Files on the SD card through Zephyr's file system API: errors, retries, time limits, and releasing the bus | `test_pi_ota.c`, against an in-memory file system |
+| `src/pi/pi_dl.c` | The download onto the card: hashing, checkpoints and resume | `test_pi_ota.c`, with a fake HTTP server |
+| `src/pi/pi_link.c` | The board's end of the SPI protocol | `test_pi_link.py`, against `tools/pi_link_sim.py` |
+| `src/pi/pi_ota.c` | Glue: the devices, the custom DFU target, the thread, and the reports | Built only |
 | `boards/pi_ota_bus.dtsi`, `boards/pi_ota.overlay` | The bus, its two devices and the two pins | Built for both boards |
 | `pi_ota.conf`, `pi_ota_sysbuild.conf` | The build for a board wired to a Pi | Built |
 | `tools/pi_image.py` | Signs an image and prints the commands to deploy it | `test_pi_image.py` |
@@ -122,7 +122,7 @@ The document comes from `tools/pi_image.py` or from `buildPiJobDocument()` in `c
 { "op": "pi_image", "v": 1,
   "pi": { "version": "2026.11.06-1", "size": 104857600, "sha256": "<64 hex>",
           "sig": "<128 hex>", "url": "${aws:iot:s3-presigned-url-v2:https://s3.<region>.amazonaws.com/<bucket>/firmware/pi-<sha256>.img}",
-          "minFirmware": "1.15.0" } }
+          "minFirmware": "1.16.0" } }
 ```
 
 | Field | Rule |
@@ -153,7 +153,7 @@ min_firmware=<major.minor.revision+build, or none>
 ```
 
 The key is the firmware signing key, `~/.cranium/mcuboot_signing_key.pem`. Its public half,
-`firmware/keys/fw_signing_pub.pem`, is built into the board as `src/pi_key.h`, and `test_pi_image.py`
+`firmware/keys/fw_signing_pub.pem`, is built into the board as `src/pi/pi_key.h`, and `test_pi_image.py`
 fails if the two ever differ. The board checks the signature with PSA (`psa_verify_message`, ECDSA with
 SHA-256) before it downloads anything. It refuses a job whose signature does not hold, with
 `bad_signature`.
@@ -189,7 +189,7 @@ AWS IoT hands out pending jobs oldest first, whatever they are. The board puts t
    up on, unless its `minFirmware` is newer. Then it is refused with `firmware_too_old`.
 6. **A Pi image left in progress by a restart.** It carries on, with no list in between, from the last
    checkpoint on the card.
-7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.4.5, and
+7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.10.2, and
    the board's guard has dropped the list topic along with the commands topic (`cloud.h`). The board then
    takes jobs in the cloud's order.
 
@@ -437,21 +437,21 @@ grew by 216 bytes, for the Pi fields of the two job records that it keeps in ord
 
 ## Cloud
 
-**Device policy.** Console 2.4.5 adds three permissions, each on the board's own topic only:
+**Device policy.** Console 2.10.2 adds three permissions, each on the board's own topic only:
 
 - publish `$aws/things/<thing>/jobs/get`
 - subscribe `jobs/get/accepted`
 - receive `jobs/get/accepted`
 
-`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.4.5
-(`cloud/deploy.sh`) before any board runs a 1.15.0 Pi build.** A Pi build subscribes to the list's
+`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.10.2
+(`cloud/deploy.sh`) before any board runs a 1.16.0 Pi build.** A Pi build subscribes to the list's
 topic, and an older policy would end its connection until the guard gives up on commands too. A default
-1.15.0 build does not use the topic, and does not need the policy.
+1.16.0 build does not use the topic, and does not need the policy.
 
 **Signing and uploading an image.** Run:
 
 ```sh
-tools/pi_image.py sign pi-2026.11.06-1.img --version 2026.11.06-1 [--min-firmware 1.15.0]
+tools/pi_image.py sign pi-2026.11.06-1.img --version 2026.11.06-1 [--min-firmware 1.16.0]
 ```
 
 It writes `pi-2026.11.06-1.img.pi.json`, and prints the commands below. It runs none of them.

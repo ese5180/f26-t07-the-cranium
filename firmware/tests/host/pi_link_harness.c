@@ -1,5 +1,5 @@
 /*
- * The board's end of the SPI protocol to the Raspberry Pi (src/pi_link.c), on the host, with its
+ * The board's end of the SPI protocol to the Raspberry Pi (src/pi/pi_link.c), on the host, with its
  * SPI bus and READY line on stdin and stdout, for firmware/tests/hil/test_pi_link.py, which plays
  * the Pi with tools/pi_link_sim.py.
  *

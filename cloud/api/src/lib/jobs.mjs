@@ -127,7 +127,7 @@ const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
 const FIRMWARE_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,5}(\+\d{1,10})?$/;
 
 /**
- * From 1.15.0, a Raspberry Pi image's job document (docs/pi-ota.md, "Cloud"), from the record that
+ * From 1.16.0, a Raspberry Pi image's job document (docs/pi-ota.md, "Cloud"), from the record that
  * tools/pi_image.py writes: { version, size, sha256, sig, minFirmware? }. The image is under
  * firmware/, where boards download from, as pi-<sha256>.img. The signature is checked by the board,
  * not here. Throws when a value does not fit the contract.

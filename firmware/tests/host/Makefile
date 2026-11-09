@@ -289,7 +289,7 @@ $(BUILD)/console_bt_only_tests: test_console_bt_only.c $(CONSOLE_SOURCES) $(SRC)
 		$(CONSOLE_HEADERS)
 	$(CC) $(CFLAGS) $(WARNINGS) $(CONSOLE_BT_ONLY_DEFINES) -o $@ $(filter-out %.h,$^)
 
-# Raspberry Pi images, from 1.15.0 (docs/pi-ota.md). The first: SHA-256, CRC-32, the job document
+# Raspberry Pi images, from 1.16.0 (docs/pi-ota.md). The first: SHA-256, CRC-32, the job document
 # and the list of jobs, the signed manifest, the SD card's layer on an in-memory file system, and the
 # download onto it with a fake HTTP server. The second: ota.c with CONFIG_APP_PI_OTA, the same tests
 # as ota_bt_no_consent_tests and the order of a firmware and a Pi image (test_ota_bt.c, TEST_PI).

@@ -173,5 +173,5 @@
 	status = "disabled";
 };
 
-/* From 1.15.0: the SD card and the Raspberry Pi on one SPI bus (docs/pi-ota.md). */
+/* From 1.16.0: the SD card and the Raspberry Pi on one SPI bus (docs/pi-ota.md). */
 #include "pi_ota_bus.dtsi"
