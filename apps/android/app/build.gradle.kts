@@ -55,7 +55,7 @@ if (!userPoolId.startsWith("${region}_")) {
 
 // The customer side (docs/mobile-apps.md, "Customers"): the customer pool, its phone client, its Region
 // and the customer API's address. All four or none: a configuration written before the stack had the
-// customer pool has none, and then the app has the admin sign-in only and says so.
+// customer pool has none, and then the one sign-in takes team accounts only.
 val customerKeys = listOf("customerApiUrl", "customerClientId", "customerRegion", "customerUserPoolId")
 val customerGiven = customerKeys.filter { craniumConfig[it] != null }
 if (customerGiven.isNotEmpty() && customerGiven.size != customerKeys.size) {

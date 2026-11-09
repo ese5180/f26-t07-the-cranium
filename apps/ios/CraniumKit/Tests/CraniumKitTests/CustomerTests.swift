@@ -408,6 +408,132 @@ final class CustomerClock: @unchecked Sendable {
     }
 }
 
+/// One sign-in for everybody (OneSignIn, customer-core.js `signInEither`): the team's pool first, then the customer pool.
+@MainActor @Suite struct OneSignInTests {
+    static let teamPool = CognitoUserPool(id: "us-east-1_staff", region: "us-east-1")!
+    static let teamConfig = CraniumConfig(consoleURL: testConfig.consoleURL, loginDomain: testConfig.loginDomain,
+                                          mobileClientId: "testclient123", userPool: teamPool)
+
+    /// Two pools, each behind its own stand-in: the team's (code always) and the customer pool's.
+    func pools(customerNext: String? = "NONE") -> (team: CognitoStub, customers: CognitoStub, model: CustomerSignInModel,
+                                                   teamStore: MemoryTokenStore, customerStore: MemoryTokenStore) {
+        let team = CognitoStub(userPoolId: Self.teamPool.id, clientId: "testclient123",
+                               users: [.init(email: "manager@example.invalid", userId: "m-id", password: "team pw", code: "135790")],
+                               now: Date())
+        let customers = CognitoStub(userPoolId: customerPool.id, clientId: customerConfig.clientId,
+                                    users: [.init(email: "ada@example.invalid", userId: "ada-id", password: "her pw", code: "246810",
+                                                  next: customerNext)],
+                                    now: Date())
+        let teamStore = MemoryTokenStore(), customerStore = MemoryTokenStore()
+        let teamFlow = PasswordSignIn(config: Self.teamConfig, http: team,
+                                      session: AuthSession(config: Self.teamConfig, http: team, store: teamStore))!
+        let customerFlow = PasswordSignIn(customer: customerConfig, http: customers,
+                                          session: AuthSession(customer: customerConfig, http: customers, store: customerStore))
+        return (team, customers, CustomerSignInModel(flow: customerFlow, team: teamFlow), teamStore, customerStore)
+    }
+
+    func initiations(_ stub: CognitoStub) -> [CognitoStub.Call] { stub.calls.filter { $0.operation == "InitiateAuth" } }
+
+    @Test func aTeamAccountSignsInAtTheTeamPoolWithItsCodeAndTheCustomerPoolIsNeverAsked() async throws {
+        let world = pools()
+        // Typed with capitals: the team pool's names are lower case.
+        world.model.email = " Manager@Example.INVALID "
+        await world.model.submitPassword("team pw")
+        #expect(world.model.step == .code && world.model.account == .team)
+        #expect(initiations(world.team).first?.body["AuthParameters"].flatMap { ($0 as? [String: Any])?["USERNAME"] as? String }
+                == "manager@example.invalid")
+        world.model.editCode("000000")
+        await world.model.pendingSubmission?.value
+        #expect(world.model.problem == "wrong-code")
+        world.model.editCode("135790")
+        await world.model.pendingSubmission?.value
+        #expect(world.model.signedIn && world.model.account == .team)
+        #expect(try world.teamStore.load() != nil && world.customerStore.load() == nil)
+        #expect(initiations(world.customers).isEmpty)
+    }
+
+    @Test func aCustomerIsRefusedByTheTeamPoolThenSignedInByTheirOwnOneTryEach() async throws {
+        let world = pools()
+        world.model.email = "ada@example.invalid"
+        await world.model.submitPassword("her pw")
+        #expect(world.model.signedIn && world.model.account == .customer)
+        #expect(initiations(world.team).count == 1 && initiations(world.customers).count == 1)
+        #expect(try world.customerStore.load() != nil && world.teamStore.load() == nil)
+        // A first sign-in's new password stays the customer pool's step.
+        let invited = pools(customerNext: "NEW_PASSWORD_REQUIRED")
+        invited.model.email = "ada@example.invalid"
+        await invited.model.submitPassword("her pw")
+        #expect(invited.model.step == .newPassword && invited.model.account == .customer)
+    }
+
+    @Test func aWrongPasswordAndAnUnknownAddressGetTheSameWordsAndOneTryAtEachPool() async {
+        for (email, password) in [("manager@example.invalid", "wrong"), ("ada@example.invalid", "wrong"), ("nobody@example.invalid", "x")] {
+            let world = pools()
+            world.model.email = email
+            await world.model.submitPassword(password)
+            #expect(world.model.step == .password && world.model.problemWords == "The e-mail address or password is wrong.")
+            #expect(initiations(world.team).count == 1 && initiations(world.customers).count == 1)
+        }
+        // The team pool's throttling stops there, with its words.
+        let throttled = await OneSignIn.first(team: { _, _ in .password(.tooMany) }, customer: { _, _ in .done },
+                                              email: "a@b", password: "p")
+        #expect(throttled.account == .team && throttled.outcome == .password(.tooMany))
+        // Only one pool in the build: that one.
+        let only = await OneSignIn.first(team: nil, customer: { _, _ in .password(.wrongPassword) }, email: "a@b", password: "p")
+        #expect(only.outcome == .password(.wrongPassword))
+        #expect(!CustomerSignInModel(flow: nil, team: nil).isSetUp)
+    }
+
+    @Test func forgotYourPasswordAsksBothPoolsOnceAndSaysTheSameEitherWay() async {
+        // The team pool hides unknown names: a code "went out", and any code is not right.
+        let team = FakeHTTP { request in
+            let target = request.value(forHTTPHeaderField: "X-Amz-Target") ?? ""
+            return target.hasSuffix("ConfirmForgotPassword") ? (400, json(["__type": "CodeMismatchException"]))
+                : (200, json(["CodeDeliveryDetails": [:] as [String: Any]]))
+        }
+        let customers = FakeHTTP { request in
+            let target = request.value(forHTTPHeaderField: "X-Amz-Target") ?? ""
+            let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any] ?? [:]
+            if target.hasSuffix("ConfirmForgotPassword") {
+                if body["ConfirmationCode"] as? String == "999999" { return (400, json(["__type": "ExpiredCodeException"])) }
+                return body["ConfirmationCode"] as? String == "111111" ? (200, json([:])) : (400, json(["__type": "CodeMismatchException"]))
+            }
+            return (200, json(["CodeDeliveryDetails": [:] as [String: Any]]))
+        }
+        let model = ForgotPasswordModel(account: CustomerAccount(config: customerConfig, http: customers, accessToken: { nil }),
+                                        team: CustomerAccount(teamPool: Self.teamPool, clientId: "testclient123", http: team))
+        await model.submitEmail()
+        #expect(model.problem == .missingEmail && team.requests.isEmpty && customers.requests.isEmpty)
+        model.email = " Ada@Example.invalid"
+        await model.submitEmail()
+        #expect(model.step == .code && team.requests.count == 1 && customers.requests.count == 1)
+        let asked = (try? JSONSerialization.jsonObject(with: team.requests[0].httpBody ?? Data())) as? [String: Any]
+        #expect(asked?["Username"] as? String == "ada@example.invalid" && asked?["ClientId"] as? String == "testclient123")
+        model.editCode("222222")
+        await model.submitReset(password: "long enough", again: "long enough")
+        #expect(model.problem == .wrongCode)
+        model.editCode("999999")
+        await model.submitReset(password: "long enough", again: "long enough")
+        #expect(model.problem == .expiredCode, "the specific refusal, not the other pool's vague one")
+        model.editCode("111111")
+        await model.submitReset(password: "long enough", again: "long enough")
+        #expect(model.step == .done)
+        #expect(team.requests.count == 4 && customers.requests.count == 4)
+        #expect(OneSignIn.plainest([.wrongCode, .tooMany]) == .tooMany)
+        #expect(OneSignIn.plainest([.failed, .wrongCode]) == .wrongCode)
+    }
+
+    @Test func aTeamAccountsResetSettlesAtTheTeamPool() async {
+        let team = FakeHTTP { _ in (200, json([:])) }
+        let customers = FakeHTTP { _ in (400, json(["__type": "CodeMismatchException"])) }
+        let result = await OneSignIn.confirmForgotPassword(
+            team: CustomerAccount(teamPool: Self.teamPool, clientId: "testclient123", http: team),
+            customer: CustomerAccount(config: customerConfig, http: customers, accessToken: { nil }),
+            email: "manager@example.invalid", code: "123456", password: "long enough")
+        #expect(result == .ok(true) && customers.requests.isEmpty)
+    }
+}
+
 /// A customer's own account at Cognito, with their own access token.
 @Suite struct CustomerAccountTests {
     @Test func theCallsCarryTheCustomersAccessTokenAndCognitosAnswerCounts() async {

@@ -102,6 +102,14 @@ public final class CustomerAccount: Sendable {
         self.accessToken = accessToken
     }
 
+    /// The team's pool, for the one "Forgot your password?" (OneSignIn): the reset only, with no access token.
+    public init(teamPool: CognitoUserPool, clientId: String, http: HTTPClient) {
+        pool = teamPool
+        self.clientId = clientId
+        self.http = http
+        accessToken = { nil }
+    }
+
     private func ask(_ operation: String, _ body: [String: Any]) async -> CognitoUserPoolAPI.Answer {
         guard let request = try? CognitoUserPoolAPI.request(pool, operation, body) else { return .unreadable }
         return await CognitoUserPoolAPI.send(http, request)

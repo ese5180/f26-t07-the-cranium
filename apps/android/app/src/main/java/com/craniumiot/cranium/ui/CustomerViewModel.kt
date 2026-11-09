@@ -27,6 +27,8 @@ import com.craniumiot.cranium.core.EnrolNext
 import com.craniumiot.cranium.core.FingerprintLock
 import com.craniumiot.cranium.core.FingerprintWords
 import com.craniumiot.cranium.core.Glyph
+import com.craniumiot.cranium.core.OneSignIn
+import com.craniumiot.cranium.core.SignInAccount
 import com.craniumiot.cranium.core.PromptResult
 import com.craniumiot.cranium.core.SignInStep
 import com.craniumiot.cranium.core.Tone
@@ -48,6 +50,27 @@ import kotlinx.coroutines.withContext
 
 /** Which of the app's two sides is in front: the customer side, or admin mode (the console). */
 enum class Side { STARTING, CUSTOMER, ADMIN }
+
+/**
+ * The team's pool, as the one sign-in screen of the customer side uses it (ConsoleViewModel.teamSignIn):
+ * the console's own session, which admin mode opens with.
+ */
+interface TeamSignIn {
+    /** The app could open the console's storage: the team's pool can be asked. */
+    val ready: Boolean
+
+    suspend fun password(email: String, password: String): SignInStep
+
+    suspend fun code(code: String): SignInStep
+
+    fun cancel()
+
+    /** Signed in on the one screen: the console opens. */
+    fun signedIn()
+
+    /** A step only the AWS sign-in page does (a new password, an authenticator to set up). */
+    fun awsPage(challenge: String)
+}
 
 /** The customer side's sections (customer-views.js SECTIONS). */
 enum class CustomerTab(val label: String, val glyph: Glyph) {
@@ -139,13 +162,18 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     private val app = application
     private val config = CraniumConfig.fromBuild()
 
-    /** Whether this build has the customer pool. Without it, only the admin sign-in works. */
+    /** Whether this build has the customer pool. Without it, the one sign-in takes team accounts only. */
     val available: Boolean = config.hasCustomer
     val exampleConfig: Boolean get() = config.isExample
 
     private var auth: AuthManager? = null
     private var api: CustomerApi? = null
     private var account: CustomerAccount? = null
+    /** The team's pool, for the one "Forgot your password?": asked first, as the sign-in asks it. */
+    private val teamAccount = CustomerAccount(CognitoHttp(config.region), config.mobileClientId) { null }
+    private var team: TeamSignIn? = null
+    /** Whose account took the password on the one sign-in screen, until it ends. */
+    private var who: SignInAccount? = null
 
     private val _side = MutableStateFlow(Side.STARTING)
     val side: StateFlow<Side> = _side.asStateFlow()
@@ -220,8 +248,6 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     _signIn.update { it.copy(notice = "The app could not open its secure storage: ${e.message}") }
                 }
-            } else {
-                _signIn.update { it.copy(notice = CustomerText.NOT_SET_UP) }
             }
             showFingerprint()
             started = true
@@ -247,9 +273,14 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
 
     private val adminHeld: Boolean get() = staffHeld == true
 
+    /** The team's pool, from the console's view model: the one sign-in asks it first. */
+    fun attachTeam(sign: TeamSignIn) {
+        team = sign
+    }
+
     /**
      * Where the app opens, once both sessions are known: a customer's session first (behind the
-     * fingerprint if it is on), else admin mode for a staff session, else the customer sign-in.
+     * fingerprint if it is on), else admin mode for a staff session, else the one sign-in.
      */
     private fun decide() {
         if (!started || staffHeld == null || _side.value != Side.STARTING) return
@@ -276,23 +307,10 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         _side.value = Side.ADMIN
     }
 
-    /** "Admin sign-in": the console's own sign-in screen. */
-    fun adminSignIn() {
-        _side.value = Side.ADMIN
-    }
-
     /** "Leave admin mode": back here, the admin still signed in. */
     fun leaveAdmin() {
         _side.value = Side.CUSTOMER
         showCustomerSide()
-    }
-
-    /** "Customer sign-in", from the admin's sign-in or the admin's overview. */
-    fun customerSignIn() {
-        _side.value = Side.CUSTOMER
-        if (_signedIn.value || _gate.value is CustomerGate.Locked) return
-        _signIn.update { it.copy(phase = CustomerPhase.PASSWORD, busy = false, problem = null, lead = null) }
-        _gate.value = CustomerGate.SignIn
     }
 
     /** The admin signed out in admin mode: the customer side, as it stands. */
@@ -319,17 +337,41 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         _signIn.update { it.copy(email = text.take(320), problem = null) }
     }
 
-    /** The password goes from the field to the proof and nowhere else. */
+    /**
+     * The password goes from the field to the proof and nowhere else: to the team's pool first, then
+     * to the customer pool (OneSignIn), one try each, with the same words whichever refused.
+     */
     fun submitPassword(password: String) {
-        val manager = auth ?: return
+        val manager = auth
+        val staff = team?.takeIf { it.ready }
+        if (manager == null && staff == null) return
         val form = _signIn.value
         if (form.busy || form.phase != CustomerPhase.PASSWORD) return
         lastEmail = form.email.trim()
         _signIn.update { it.copy(busy = true, problem = null) }
         viewModelScope.launch {
-            after(guarded(SignInStep.Password("failed")) { manager.passwordSignIn(form.email, password) })
+            staff?.cancel()
+            manager?.cancelPasswordSignIn()
+            val (account, step) = try {
+                OneSignIn.first(
+                    team = staff?.let { t -> OneSignIn.Attempt { e, p -> t.password(e, p) } },
+                    customer = manager?.let { m -> OneSignIn.Attempt { e, p -> m.passwordSignIn(e, p) } },
+                    email = form.email,
+                    password = password,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing of what went wrong is logged: it might hold what was typed.
+                SignInAccount.CUSTOMER to SignInStep.Password("failed")
+            }
+            who = account
+            after(step)
         }
     }
+
+    /** Whether a sign-in can be typed at all: a customer pool, or the team's. */
+    val canSignIn: Boolean get() = auth != null || team?.ready == true
 
     fun codeChanged(text: String) {
         val form = _signIn.value
@@ -340,7 +382,6 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun submitCode() {
-        val manager = auth ?: return
         val form = _signIn.value
         if (form.busy || form.phase != CustomerPhase.CODE) return
         if (!CodeEntry.complete(form.code)) {
@@ -348,7 +389,19 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             return
         }
         _signIn.update { it.copy(busy = true, problem = null) }
-        viewModelScope.launch { after(guarded(SignInStep.CodeProblem("failed")) { manager.sendCode(form.code) }) }
+        val staff = team
+        val manager = auth
+        viewModelScope.launch {
+            after(
+                guarded(SignInStep.CodeProblem("failed")) {
+                    when {
+                        who == SignInAccount.TEAM && staff != null -> staff.code(form.code)
+                        manager != null -> manager.sendCode(form.code)
+                        else -> SignInStep.Password("expired")
+                    }
+                },
+            )
+        }
     }
 
     /** The new password of a first sign-in, typed twice: checked here first, as the website does. */
@@ -375,6 +428,28 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun after(step: SignInStep) {
+        if (who == SignInAccount.TEAM) {
+            when (step) {
+                // A team account lands in admin mode, as the site's /admin, with the console's own session.
+                is SignInStep.Done -> {
+                    _signIn.value = CustomerSignInForm(email = lastEmail)
+                    who = null
+                    staffHeld = true
+                    team?.signedIn()
+                    _side.value = Side.ADMIN
+                    return
+                }
+                // A step only the AWS sign-in page does: the console's own screen takes the person there.
+                is SignInStep.Elsewhere, SignInStep.NewPassword, is SignInStep.NewPasswordProblem -> {
+                    _signIn.update { it.copy(phase = CustomerPhase.PASSWORD, busy = false, problem = null, code = "") }
+                    who = null
+                    team?.awsPage((step as? SignInStep.Elsewhere)?.challenge ?: "NEW_PASSWORD_REQUIRED")
+                    _side.value = Side.ADMIN
+                    return
+                }
+                else -> Unit
+            }
+        }
         when (step) {
             is SignInStep.Done -> {
                 _signIn.value = CustomerSignInForm(email = lastEmail)
@@ -404,6 +479,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun startOver() {
         if (_signIn.value.busy) return
         auth?.cancelPasswordSignIn()
+        team?.cancel()
+        who = null
         _signIn.update { it.copy(phase = CustomerPhase.PASSWORD, code = "", problem = null) }
     }
 
@@ -411,6 +488,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
 
     fun openForgot() {
         auth?.cancelPasswordSignIn()
+        team?.cancel()
+        who = null
         _forgot.value = ForgotForm(email = lastEmail.ifEmpty { _signIn.value.email })
         _gate.value = CustomerGate.Forgot
     }
@@ -427,12 +506,13 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun submitForgotEmail() {
-        val account = account ?: return
+        val account = account
         val form = _forgot.value
         if (form.busy) return
         _forgot.update { it.copy(busy = true, problem = null) }
         viewModelScope.launch {
-            when (val result = account.forgotPassword(form.email)) {
+            // Both pools, one request each (OneSignIn): the words are the same whichever has the address.
+            when (val result = OneSignIn.forgotPassword(teamAccount, account, form.email)) {
                 is AccountResult.Ok -> _forgot.update { it.copy(step = ForgotStep.CODE, busy = false, code = "", tries = it.tries + 1) }
                 is AccountResult.Failed -> _forgot.update { it.copy(busy = false, problem = result.problem, tries = it.tries + 1) }
             }
@@ -446,7 +526,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun submitReset(next: String, again: String) {
-        val account = account ?: return
+        val account = account
         val form = _forgot.value
         if (form.busy) return
         val problem = if (CodeEntry.complete(form.code)) CustomerAccount.passwordProblem(next, again) else "short-code"
@@ -456,7 +536,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         }
         _forgot.update { it.copy(busy = true, problem = null) }
         viewModelScope.launch {
-            when (val result = account.confirmForgotPassword(form.email, form.code, next)) {
+            when (val result = OneSignIn.confirmForgotPassword(teamAccount, account, form.email, form.code, next)) {
                 is AccountResult.Ok -> _forgot.update { it.copy(step = ForgotStep.DONE, busy = false) }
                 is AccountResult.Failed -> _forgot.update {
                     it.copy(busy = false, problem = result.problem, code = if (result.problem == "wrong-code") "" else it.code, tries = it.tries + 1)

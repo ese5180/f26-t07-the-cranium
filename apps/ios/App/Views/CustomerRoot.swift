@@ -34,50 +34,25 @@ struct CustomerRoot: View {
             if app.holdsSession {
                 // Signed in as an admin only: the site's admin overview, Mixes and Help.
                 CustomerTabs(customerSide: false)
-                    .fullScreenCover(isPresented: $customer.customerSignInOpen) {
-                        CustomerGate(closable: true)
-                            .environmentObject(app)
-                            .environmentObject(customer)
-                    }
             } else {
-                CustomerGate(closable: false)
+                CustomerGate()
             }
         }
     }
 }
 
-/// The signed-out side: a customer's sign-in, "Forgot your password?", or the admin sign-in.
+/// The signed-out side: the one sign-in, for customers and the team alike, or "Forgot your password?".
 struct CustomerGate: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var customer: CustomerModel
-    /// Over the admin's customer side: it can be closed.
-    let closable: Bool
 
     var body: some View {
         switch customer.gate {
         case .signIn:
-            CustomerSignInScreen(flow: customer.passwordSignIn, email: customer.lastEmail, lead: customer.signInLead,
-                                 closable: closable)
+            CustomerSignInScreen(flow: customer.passwordSignIn, team: app.passwordSignIn, email: customer.lastEmail,
+                                 lead: customer.signInLead ?? app.signInMessage)
         case .forgot:
-            ForgotPasswordScreen(account: customer.account, email: customer.lastEmail)
-        case .adminSignIn:
-            SignInScreen(flow: app.passwordSignIn, message: app.signInMessage, awsPageOpen: app.signingIn,
-                         onCustomerSignIn: { customer.gate = .signIn }) { ending in
-                switch ending {
-                case .signedIn:
-                    Task {
-                        await app.signedInHere()
-                        customer.openAdminMode()
-                    }
-                case .awsPage:
-                    Task {
-                        await app.signIn()
-                        if app.stage == .signedIn { customer.openAdminMode() }
-                    }
-                case .cancelled:
-                    break
-                }
-            }
+            ForgotPasswordScreen(account: customer.account, team: customer.teamAccount, email: customer.lastEmail)
         }
     }
 }
@@ -327,12 +302,13 @@ struct GateProblem: View {
     }
 }
 
-/// A customer's sign-in (customer-views.js `signInView` with kind customer).
+/// The one sign-in (customer-views.js `signInView`): the team's pool first, then the customer pool. A
+/// team account lands in admin mode, a customer on the customer side.
 struct CustomerSignInScreen: View {
+    @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var customer: CustomerModel
     @Environment(\.theme) private var theme
     @StateObject private var model: CustomerSignInModel
-    let closable: Bool
     @State private var password = ""
     @State private var first = ""
     @State private var again = ""
@@ -342,14 +318,12 @@ struct CustomerSignInScreen: View {
     @FocusState private var newFocused: Bool
     @FocusState private var againFocused: Bool
 
-    init(flow: PasswordSignIn?, email: String, lead: String?, closable: Bool) {
-        _model = StateObject(wrappedValue: CustomerSignInModel(flow: flow, email: email, lead: lead))
-        self.closable = closable
+    init(flow: PasswordSignIn?, team: PasswordSignIn?, email: String, lead: String?) {
+        _model = StateObject(wrappedValue: CustomerSignInModel(flow: flow, team: team, email: email, lead: lead))
     }
 
     var body: some View {
-        Gate(sub: CustomerWords.yourStudio, title: title, foot: CustomerWords.gateFoot,
-             close: closable ? { customer.customerSignInOpen = false } : nil) {
+        Gate(sub: CustomerWords.yourStudio, title: title, foot: CustomerWords.gateFoot, close: nil) {
             lead
             if model.isSetUp {
                 switch model.step {
@@ -361,21 +335,6 @@ struct CustomerSignInScreen: View {
             } else {
                 Notice(.warn, "alert", CustomerWords.notSetUp)
             }
-            if !closable {
-                Button {
-                    customer.gate = .adminSignIn
-                } label: {
-                    HStack(spacing: 7) {
-                        Text(CustomerWords.adminSignIn)
-                        Image(systemName: Icon.symbol("arrow-right")).font(.footnote.weight(.semibold)).accessibilityHidden(true)
-                    }
-                    .foregroundStyle(theme.ink2)
-                }
-                .consoleButton(.quiet)
-                .padding(.leading, -15)
-                .padding(.top, 10)
-                .disabled(model.busy)
-            }
         }
         .interactiveDismissDisabled(model.busy)
         .task {
@@ -385,7 +344,24 @@ struct CustomerSignInScreen: View {
         .onChange(of: model.focus) { request in focus(request.field) }
         .onChange(of: model.email) { customer.lastEmail = $0 }
         .onChange(of: model.signedIn) { done in
-            if done { Task { await customer.signedInHere() } }
+            guard done else { return }
+            if model.account == .team {
+                // A team account: admin mode, as the site's /admin, with the session the app's own sign-in kept.
+                Task {
+                    await app.signedInHere()
+                    customer.openAdminMode()
+                }
+            } else {
+                Task { await customer.signedInHere() }
+            }
+        }
+        .onChange(of: model.step) { step in
+            // A team account's step this screen does not do (a new password, an authenticator to set up): the AWS sign-in page.
+            guard step == .elsewhere, model.account == .team else { return }
+            Task {
+                await app.signIn()
+                if app.stage == .signedIn { customer.openAdminMode() } else { model.startOver() }
+            }
         }
     }
 
@@ -408,7 +384,7 @@ struct CustomerSignInScreen: View {
         case .newPassword:
             Text(CustomerWords.newPasswordLead).leadStyle(theme)
         case .elsewhere:
-            Text(CustomerWords.elsewhereLead).leadStyle(theme)
+            Text(model.account == .team ? SignInWords.leaving : CustomerWords.elsewhereLead).leadStyle(theme)
         }
     }
 
@@ -500,8 +476,8 @@ struct ForgotPasswordScreen: View {
     @FocusState private var newFocused: Bool
     @FocusState private var againFocused: Bool
 
-    init(account: CustomerAccount?, email: String) {
-        _model = StateObject(wrappedValue: ForgotPasswordModel(account: account, email: email))
+    init(account: CustomerAccount?, team: CustomerAccount?, email: String) {
+        _model = StateObject(wrappedValue: ForgotPasswordModel(account: account, team: team, email: email))
     }
 
     var body: some View {
