@@ -110,6 +110,9 @@ export const TIMING = Object.freeze({
   // KEYGEN makes the key in the secure partition.
   keygen: 15000,
   chunk: 8000,
+  // The last chunk of a certificate: the board checks it and stores it on its main thread, which on a
+  // running board is busy with its cloud connection (and, after a new key, its retries) for a while.
+  store: 60000,
   poll: 5000,
   online: 180000,
   seal: 240000,
@@ -125,6 +128,7 @@ const SELF_CHECK_TIMING = Object.freeze({
   wifi: 1000,
   keygen: 1000,
   chunk: 1000,
+  store: 1000,
   poll: 20,
   online: 500,
   seal: 1000,
@@ -806,7 +810,8 @@ export function createSetupFlow({
         sent: index + 1,
         total: chunks.length,
       });
-      await expectOk(`STREAM_CHUNK|${index}|${toBase64(chunk)}`, timing.chunk, 'STREAM_CHUNK');
+      const last = index === chunks.length - 1;
+      await expectOk(`STREAM_CHUNK|${index}|${toBase64(chunk)}`, last ? timing.store : timing.chunk, 'STREAM_CHUNK');
     }
   }
 
