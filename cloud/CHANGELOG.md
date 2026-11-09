@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.10.2
+
+Boards may ask for the list of their own pending jobs, which firmware 1.16.0 built for a board with a Raspberry Pi needs to run firmware updates before Pi images. Deploy this before any board runs such a build.
+
+The device policy allows a board to publish to `$aws/things/<thing>/jobs/get` and to subscribe to and receive `jobs/get/accepted`, on its own thing only (`test/pi-infra.test.mjs`). `src/lib/jobs.mjs` has `buildPiJobDocument()` and `buildPiJobId()` for a Pi image's job (docs/pi-ota.md, "Cloud"); no page uses them yet.
+
 ## 2.10.1
 
 The iPhone app no longer shows the Serial console or Board setup, which need a USB serial port an iPhone does not have. The Android app (0.8.8) has both, with the board on the phone's USB cable.
