@@ -621,7 +621,7 @@ press Button 1 on the board within 2 minutes, keep the link, and follow the boar
 ### The status characteristic
 
 From firmware 1.14.0 the board tells a phone how an update over Bluetooth stands, itself
-(`firmware/app/src/bt_status.h`): one characteristic, `9112B1B5-2A51-40F0-94D3-A76440F0E6CC`, read and notify,
+(`firmware/app/src/bt/bt_status.h`): one characteristic, `9112B1B5-2A51-40F0-94D3-A76440F0E6CC`, read and notify,
 in a service of its own, `9112B1B4-2A51-40F0-94D3-A76440F0E6CC`. A board of 1.13.x or older has neither, and the
 apps follow it as 0.7.1 did.
 
@@ -675,7 +675,7 @@ payload byte by byte; `build/bt_status_tests --print` gives its sample, which `B
 
 ### Following the board after a send
 
-What the board tells, and how (`firmware/app/src/bt_ota.c`), each line of its console in its board log
+What the board tells, and how (`firmware/app/src/bt/bt_ota.c`), each line of its console in its board log
 (`GET /api/events/log`, tag `BT`) with the board's own time, and from firmware 1.14.0 its status:
 
 | At the board | Status (1.14.0 on) | On the link | In the board log | On the console |

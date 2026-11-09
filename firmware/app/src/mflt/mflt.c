@@ -3,7 +3,7 @@
  *
  * The SDK keeps the coredump, the reboot reasons, the events and the heartbeats. This file gives it
  * the device ID and the reset cause, counts what this firmware does, and sends the SDK's chunks
- * over AWS IoT through src/mflt_link.c. Everything that sends runs on the main loop, as the other
+ * over AWS IoT through src/mflt/mflt_link.c. Everything that sends runs on the main loop, as the other
  * reports do. The SDK's own heartbeat runs on the system work queue, every hour.
  */
 

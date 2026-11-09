@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/mflt_link.c: how the board's Memfault chunks go to the cloud, one at a
+ * Host-side tests of src/mflt/mflt_link.c: how the board's Memfault chunks go to the cloud, one at a
  * time and in order, each answered before the next, and what happens to one whose answer does not
  * come. The packetizer and the MQTT connection are fakes: a queue of chunks, and a list of what
  * was published.

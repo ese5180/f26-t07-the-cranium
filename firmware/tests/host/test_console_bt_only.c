@@ -3,7 +3,7 @@
  * nRF5340 DK. Its Wi-Fi, cloud and certificate commands say that they are not on this board, HELP and
  * STATUS leave them out, STATUS and the boxes say what the board is, and BT_PASSKEY stores the board's
  * own passkey without ever showing it. The console's code runs as it is, against the fake board in
- * console_fakes.c and a fake of src/bt_passkey.c.
+ * console_fakes.c and a fake of src/bt/bt_passkey.c.
  */
 
 #include <errno.h>

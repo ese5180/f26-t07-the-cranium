@@ -66,8 +66,8 @@ int app_cloud_retry_in(void)
 
 /*
  * As main.c's, for Button 1 on an image that came over Bluetooth: the phone has had its last status
- * already (src/bt_ota.c). There is no console in the cloud to wait for, so the restart is at once, and
- * Memfault, which would keep the reason, is not on this board (src/mflt.h makes the mark nothing).
+ * already (src/bt/bt_ota.c). There is no console in the cloud to wait for, so the restart is at once, and
+ * Memfault, which would keep the reason, is not on this board (src/mflt/mflt.h makes the mark nothing).
  */
 void app_restart(int why)
 {

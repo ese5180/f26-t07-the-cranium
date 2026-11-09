@@ -465,7 +465,7 @@ signed bundles.
   hardware watchdog (systemd `RuntimeWatchdogSec`) turns a hung trial boot into that
   reboot. RAUC needs a small backend for this; U-Boot is the fallback if it proves awkward.
 - **Update agent.** A Python service using the AWS IoT Device SDK that follows the nRF
-  board's job flow (`firmware/app/src/ota.c`) with the same job states and shadow
+  board's job flow (`firmware/app/src/ota/ota.c`) with the same job states and shadow
   fields ([aws-iot.md](aws-iot.md), "An update, message by message"):
   1. The offer stays queued until the user confirms it on the screen and no deck is
      playing (P10).

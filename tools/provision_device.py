@@ -40,7 +40,7 @@ by itself (docs/fleet.md):
    none, and shows a new passkey on its serial console for each pairing.
 
 The console is reached with a console token (CRANIUM_TOKEN or ~/.cranium/console-token), as
-scripts/firmware/check-image.sh does. See src/bt_passkey.h in the firmware for what a passkey that does not
+scripts/firmware/check-image.sh does. See src/bt/bt_passkey.h in the firmware for what a passkey that does not
 change costs, and when to give a board a new one.
 
 Registering the board goes one of two ways (--via, docs/new-board-setup.md):

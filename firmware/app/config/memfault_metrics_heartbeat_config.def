@@ -7,7 +7,7 @@
 
 /*
  * Wi-Fi, by the names of the SDK's own Wi-Fi metrics, which are off (CONFIG_MEMFAULT_METRICS_WIFI):
- * they would also send the access point's OUI. Set from the main loop by src/mflt.c.
+ * they would also send the access point's OUI. Set from the main loop by src/mflt/mflt.c.
  */
 MEMFAULT_METRICS_KEY_DEFINE(wifi_connected_time_ms, kMemfaultMetricType_Timer)
 MEMFAULT_METRICS_KEY_DEFINE(wifi_disconnect_count, kMemfaultMetricType_Unsigned)
@@ -31,7 +31,7 @@ MEMFAULT_METRICS_KEY_DEFINE(memfault_chunk_retry_count, kMemfaultMetricType_Unsi
 /*
  * The power status, from 1.15.0, in place of a battery's state of charge: the DK has no battery and
  * runs from USB. 1 when the USB regulator sees VBUS, and the supply voltage VDD in mV from one
- * SAADC sample (src/mflt.c).
+ * SAADC sample (src/mflt/mflt.c).
  */
 MEMFAULT_METRICS_KEY_DEFINE(power_usb_present, kMemfaultMetricType_Unsigned)
 MEMFAULT_METRICS_KEY_DEFINE(supply_mv, kMemfaultMetricType_Unsigned)

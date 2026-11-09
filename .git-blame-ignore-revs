@@ -1,3 +1,5 @@
-# Commits that only reformat, for git blame (git config blame.ignoreRevsFile .git-blame-ignore-revs).
+# Commits that only reformat or only move files, for git blame (git config blame.ignoreRevsFile .git-blame-ignore-revs).
 # Format cloud/ with Prettier 3.3.3
 775b59d715bfa63c81255cc25f3604959e588f62
+# Rename tools/secrets.py to tools/cranium_secrets.py (moves only)
+5c3bc172869ff2c6ec02cf69d08043fe213ee46d

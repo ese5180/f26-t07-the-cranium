@@ -297,7 +297,7 @@ stays with the main loop, which keeps running whatever the console does.
 
 ### MQTT
 
-`MQTT` says how the connection to AWS IoT stands, from what `src/cloud.c` has counted since the
+`MQTT` says how the connection to AWS IoT stands, from what `src/cloud/cloud.c` has counted since the
 board started. Nothing in it is secret: the endpoint is in `STATUS` as well. On a board that has been
 connected for a minute:
 
@@ -402,9 +402,9 @@ nothing: one failed read must not take it off the network.
 | `tests/hil/golden_bench.py` | Hardware tests of the golden image, with no Wi-Fi but for G15 and G16. `golden_bench.py plan` lists them and touches nothing, and `golden_bench.py images` builds the fault images they upload. |
 | `tests/hil/build_image.sh` | Build a signed test image from a scratch copy, for example with `-Dapp_CONFIG_APP_TEST_FAULT_INIT_POWER_LOSS=y`, the image that loses power in the middle of `INIT`. |
 | `tests/hil/fault_check.py` | Check built images, reading files only: those a release could come from have none of `APP_TEST_FAULT_WIFI_DEAD` in their configuration or their bytes, the fault image has all of it, and all of them have the same network event queue. |
-| `tests/host/mutate_join.py` | The same for the order of a join in `src/join_policy.c`, with `tests/host/mutate_stuck.py` as its engine. |
+| `tests/host/mutate_join.py` | The same for the order of a join in `src/policy/join_policy.c`, with `tests/host/mutate_stuck.py` as its engine. |
 | `tests/host/mutate_net.py` | The same for the lines of `src/net.c` that tell that policy what the stack has said. |
-| `tests/host/mutate_stuck.py` | Change the policy in `src/stuck_policy.c` in small ways, one at a time, and check that its tests notice each one. It needs a C compiler and no board, and touches no file in the tree. |
+| `tests/host/mutate_stuck.py` | Change the policy in `src/policy/stuck_policy.c` in small ways, one at a time, and check that its tests notice each one. It needs a C compiler and no board, and touches no file in the tree. |
 
 ## What the LEDs show
 
@@ -567,7 +567,7 @@ and `chip-dead` does not cover it, because the driver powers the chip up at init
 the link changing. On 1.5.0 it was `WIFI` within a second of `[WIFI] connected`, and on 1.7.0 `WIFI` within a
 second of the disconnect of `CLEAR_WIFI`, where the chip stopped answering 10 s later and `wifi_silent` restarted
 the board at its limit, after which the chip answered. From firmware 1.7.1 a join that is asked for goes in order.
-The decisions are in `src/join_policy.c`, and `net_tick()` holds a join from the main loop's tick, so nothing
+The decisions are in `src/policy/join_policy.c`, and `net_tick()` holds a join from the main loop's tick, so nothing
 waits for it:
 
 1. Nothing goes to the stack within 5 s of the last change of the link, of the last request to disconnect or to
@@ -601,10 +601,10 @@ an association, by the supplicant's own reconnect, goes away.
 **This has not been shown to fix the hang.** Its cause is not known. This takes away the timing that both hangs had,
 and a run on a board has to show the rest: it has run only on a host, against a fake network stack.
 
-**What it does not do.** It does not use `SUPPLICANT_EVENT_SCAN_FAILED`: `src/stuck_policy.h` says why. The driver's
+**What it does not do.** It does not use `SUPPLICANT_EVENT_SCAN_FAILED`: `src/policy/stuck_policy.h` says why. The driver's
 recovery stays as it was, and its settings too.
 
-**What has been tested.** The decisions are in `src/stuck_policy.c` and `src/join_policy.c`, with no Zephyr in
+**What has been tested.** The decisions are in `src/policy/stuck_policy.c` and `src/policy/join_policy.c`, with no Zephyr in
 them. `test_stuck_policy.c` and `test_join_policy.c` test each one, and `tests/host/mutate_stuck.py` and
 `mutate_join.py` make small changes to them and check that those tests notice.
 `test_app.c` runs the real `main.c`, `net.c` and `stuck.c` on a fake network stack. **None of this has run on a
@@ -757,7 +757,7 @@ message, at QoS 0, on
 cranium/<thing name>/events
 ```
 
-The line on the serial console stays exactly as it was. `src/cloud_events.c` does this, with
+The line on the serial console stays exactly as it was. `src/cloud/cloud_events.c` does this, with
 `CONFIG_APP_CLOUD_EVENTS`, which is on wherever the console is: a build without the console sends none.
 
 ```json
@@ -786,7 +786,7 @@ events, with a new `boot`.
 
 ### What is never sent
 
-`src/cloud_events.c` decides when a line comes in, with one rule for each source, and
+`src/cloud/cloud_events.c` decides when a line comes in, with one rule for each source, and
 `tests/host/test_cloud_events.c` has a line for every `console_event()` call in the firmware, and for every log
 line that prints a value from outside, with what becomes of it.
 
@@ -827,7 +827,7 @@ Lines come from every thread: the console task, the log thread, Bluetooth's call
 under a spinlock and never wait, and they wake the main loop once, until it has run. The ring and what goes
 with it take about 7 KB of RAM. The longest message there can be (`CLOUD_EVENTS_JSON_MAX`, every number at its
 largest and a text of 160 quotes) is 455 bytes, which with its 39-byte topic and the MQTT header fits the
-512-byte buffer (`CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE`), as the shadow report does: `src/cloud.c` asserts
+512-byte buffer (`CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE`), as the shadow report does: `src/cloud/cloud.c` asserts
 it at build time.
 
 ### The device policy
@@ -886,7 +886,7 @@ console and the apps do with them. This board is `nrf7002dk`, flash layout `1`.
   default in `Kconfig`. A layout that has shipped is never changed. With Partition Manager on, the build stops,
   since the devicetree would not hold the partitions.
 - **On the board.** The [diagnostics report](#diagnostics) says `"board": "nrf7002dk"` and `"layout": 1`.
-- **The board refuses an image for another board or flash layout, before it marks it to test.** `src/image_compat.c`
+- **The board refuses an image for another board or flash layout, before it marks it to test.** `src/ota/image_compat.c`
   reads the image in the secondary slot, strictly and within bounds: the header's sizes, added in 64 bits, must place
   the protected area and the unprotected TLV area's info header inside the slot; the protected area's info header
   must have its magic (0x6908) and the size the image header gives; its entries must fill it exactly; each of
@@ -944,7 +944,7 @@ them: they are for now. [`docs/fleet.md`](../docs/fleet.md), under Commands, has
 - **memfault_ack**, `{"id": ..., "cmd": "memfault_ack", "seq": 4711}`, is not for people: the cloud's answer for one
   Memfault chunk ([Memfault](#memfault)). It goes past the one command that waits, and is never answered.
 
-`src/command.c` reads a message strictly, on the MQTT library's thread, into a struct of 20 bytes, and hands it to
+`src/cloud/command.c` reads a message strictly, on the MQTT library's thread, into a struct of 20 bytes, and hands it to
 the main loop, which carries it out. A message is one JSON object, of at most 256 bytes, with `id`, `cmd` and, for
 identify, `seconds`, each at most once and nothing else; strings without escapes or control characters; values that
 are strings, numbers, `true`, `false` or `null`, and nothing nested. `id` is 16 hexadecimal digits. `cmd` is
@@ -978,7 +978,7 @@ cranium/<thing name>/location
 
 at QoS 0, and the console asks AWS IoT Core Device Location for a position, for its map.
 [`docs/fleet.md`](../docs/fleet.md), under Location by Wi-Fi, has what the console does with it.
-`src/location.c` does this, with `CONFIG_APP_LOCATION`, which is on wherever there is Wi-Fi.
+`src/cloud/location.c` does this, with `CONFIG_APP_LOCATION`, which is on wherever there is Wi-Fi.
 
 ```json
 {"aps": [{"mac": "a4:2b:b0:12:34:56", "rss": -51}, {"mac": "f0:9f:c2:65:43:21", "rss": -70}], "boot": 42, "t": 61234}
@@ -990,7 +990,7 @@ at QoS 0, and the console asks AWS IoT Core Device Location for a position, for 
   other randomised addresses move with whoever carries them; nor a group address, nor one with no signal. With fewer
   than 2 left, nothing is sent. `boot` is the [boot diary](#boot-diary)'s count of boots, and `t` the uptime in
   milliseconds when the scan ended. The longest message is 441 bytes, which with its 41-byte topic fits the
-  512-byte MQTT buffer: `src/cloud.c` asserts it.
+  512-byte MQTT buffer: `src/cloud/cloud.c` asserts it.
 - **When:** once a boot, when a connection has lasted 60 s; then 6 hours after the last scan began; and when the
   console's [report command](#commands) asks, at once. Never sooner than 10 minutes after the last scan began, for
   any of these. Never while an update is under way (any update state but idle: on offer, downloading, checking,
@@ -1059,10 +1059,10 @@ cranium/<thing name>/memfault     the board publishes, QoS 0: 1, a 16-bit sequen
 cranium/<thing name>/commands     the cloud answers {"id": ..., "cmd": "memfault_ack", "seq": <n>}
 ```
 
-- `src/mflt_link.c` sends one chunk of at most 400 bytes at a time and waits 20 s for its answer, then sends it again
+- `src/mflt/mflt_link.c` sends one chunk of at most 400 bytes at a time and waits 20 s for its answer, then sends it again
   after 30 s, doubling to an hour; an answer sends the next one at once. Not during a download or an installation,
   and not while Bluetooth is open.
-- `src/mflt.c` gives the SDK the thing name as its device ID, the reset cause from `src/reset_cause.c`, the reboot
+- `src/mflt/mflt.c` gives the SDK the thing name as its device ID, the reset cause from `src/reset_cause.c`, the reboot
   reasons this firmware knows (an update, a trial that ran out, the stuck timers, a factory reset, RESET), its
   metrics and the update events.
 - The coredump (3,968 bytes) and the reboot reason are in two RAM regions of their own, `MFLT_COREDUMP` and
@@ -1080,7 +1080,7 @@ the trial is over before the first chunk goes.
 
 ### Tests of Memfault
 
-`tests/host/test_mflt_link.c` sends chunks through the real `src/mflt_link.c` against a fake packetizer and a fake
+`tests/host/test_mflt_link.c` sends chunks through the real `src/mflt/mflt_link.c` against a fake packetizer and a fake
 connection: in order, each after its answer, the same one again without one, the waits, the sizes, the sequence
 number's wrap and the device policy's guard. `tests/host/test_reset_cause.c` reads the cause once and clears it once,
 and checks what each set of bits comes down to. `tests/host/test_command.c` is built a second time with Memfault for
@@ -1136,7 +1136,7 @@ adds takes the RAM that nothing was using.
 
 `tools/store_binary.py` keeps every build in `binaries/` and writes `"bluetooth": true` or `false` into
 `latest.json`. A board whose network core still has the blinky takes such an image over Wi-Fi as
-before: its Button 1 hold then says that the controller is missing. `src/bt_ota.c` stops the build if one of the options the security rests on changes:
+before: its Button 1 hold then says that the controller is missing. `src/bt/bt_ota.c` stops the build if one of the options the security rests on changes:
 the characteristic's permission, LE Secure Connections only, no bonds, a passkey drawn by the host, the
 image group as the only group, and Bluetooth as the only transport.
 
@@ -1203,11 +1203,11 @@ Bluetooth stands: the window and its seconds, the image that is arriving or wait
 its reason, how the window ended (installing, discarded, timed out, closed), the version that runs, on trial or
 not, the swap the bootloader has to do, and the last update's version, how it came and how it ended, as the record
 has it. Read and notify, 64 bytes; the layout is in [`docs/mobile-apps.md`](../docs/mobile-apps.md#the-status-characteristic)
-and `src/bt_status.h`.
+and `src/bt/bt_status.h`.
 
 It needs **no pairing**, because nothing in it is secret: never the passkey or a key, nothing that names the board
 or its network. It writes nothing. Everything else is as it was: pairing as before for SMP, whose characteristic
-needs an authenticated link, with the image group only, and the same build-time guards in `src/bt_ota.c`. In a
+needs an authenticated link, with the image group only, and the same build-time guards in `src/bt/bt_ota.c`. In a
 window, the board still asks a phone to pair as soon as it connects.
 
 **After the restart** that an update over Bluetooth asked for, into the new image on trial or back into the old one
@@ -1231,7 +1231,7 @@ order a person's Button 1 has always found them in.
 | `image erase` | **Refused** |
 | Anything else | Not built in: there is only the image group. No reset, no shell, no files |
 
-All of this is a hook in front of every command, which goes by the policy in `src/bt_ota_policy.c`.
+All of this is a hook in front of every command, which goes by the policy in `src/policy/bt_ota_policy.c`.
 The characteristic also has MCUmgr's own permission for an authenticated link, and
 `CONFIG_MCUMGR_GRP_IMG_ALLOW_CONFIRM_NON_ACTIVE_SLOT` is off, which is what would otherwise make an
 update permanent, with no revert, from a single command.
@@ -1399,7 +1399,7 @@ The network core's stacks are `hci_ipc`'s own, and nobody here has seen them run
 ### Testing it
 
 Host tests, with no board: `make -C firmware/tests/host` runs `test_bt_ota_policy.c`, every decision;
-`test_bt_ota.c`, `src/bt_ota.c` against a fake of the Bluetooth host, MCUmgr and the bootloader that only
+`test_bt_ota.c`, `src/bt/bt_ota.c` against a fake of the Bluetooth host, MCUmgr and the bootloader that only
 reaches what has registered itself for that event; and `test_ota_bt.c`, what the option adds to `ota.c`.
 The rest of `ota.c` is compiled there but not exercised: a cloud update stays with `tests/hil/ota_bench.py`.
 It also runs the console's, the main loop's and the buttons' tests a second time with the option on.
@@ -1492,8 +1492,8 @@ has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
 
 | | nRF7002 DK | nRF5340 DK |
 | --- | --- | --- |
-| Main loop | `src/main.c` | `src/bt_only_main.c` |
-| Update manager | `src/ota.c`: jobs, downloads, the trial | `src/bt_only_ota.c`: the trial only |
+| Main loop | `src/main.c` | `src/bt_only/bt_only_main.c` |
+| Update manager | `src/ota/ota.c`: jobs, downloads, the trial | `src/bt_only/bt_only_ota.c`: the trial only |
 | Wi-Fi, AWS IoT, shadow, heartbeat, jobs, events, commands, location | yes | none of it is in the image: the build fails if it is |
 | Passkey for Bluetooth | a new one for each attempt, on the console and in the shadow | [its own](#the-boards-own-passkey), from provisioning; a new one each time only without it |
 | Keeping an image installed over Bluetooth | it reaches the cloud, or with no Wi-Fi a person proves it | a person proves it |
@@ -1507,7 +1507,7 @@ has to try first is under [Not run on a board yet](#not-run-on-a-board-yet).
 `CONFIG_APP_BT_ONLY` is what makes the difference, and nothing in the nRF7002 DK's build changes with it. `sysbuild.cmake`
 gives this board `prj_bt_only.conf` in place of `prj.conf`, which is about Wi-Fi and the cloud, and
 `boards/nrf5340dk_nrf5340_cpuapp_ns.conf` after it. `Kconfig.sysbuild` leaves the nRF70 driver out for it. What the code
-every board shares asks of Wi-Fi and the cloud, `src/bt_only_stubs.c` answers with "there is none". The shadow, the
+every board shares asks of Wi-Fi and the cloud, `src/bt_only/bt_only_stubs.c` answers with "there is none". The shadow, the
 jobs, the events, the console's commands and the location have no function in this image at all, so code that used them
 would not link, and after the link
 `bt_only_check.py` looks at the symbol table and the bytes of the image for anything of the cloud: the heartbeat's
@@ -1637,7 +1637,7 @@ newer image signed with this project's key, for this board type and layout, can 
 second press; the image runs on trial and reverts unless a person proves it. A passkey that got out lets someone in
 range during a window upload a signed newer image, which a person still has to choose to install. The status
 characteristic needs no pairing on any board, so a passkey adds nothing there. Store a new one whenever that may have
-happened. `src/bt_passkey.h` has all of this, and the arithmetic.
+happened. `src/bt/bt_passkey.h` has all of this, and the arithmetic.
 
 ### Update it from a phone
 
@@ -1669,7 +1669,7 @@ proved by anyone here, and reverts.
 ### What a phone reads
 
 The status characteristic of 1.14.0, as on an nRF7002 DK: one characteristic in a service of its own, read and notify,
-64 bytes, with no pairing, and nothing in it that names the board (`src/bt_status.h`, and its layout under
+64 bytes, with no pairing, and nothing in it that names the board (`src/bt/bt_status.h`, and its layout under
 [The status characteristic](../docs/mobile-apps.md#the-status-characteristic) in `docs/mobile-apps.md`). It follows a
 window as it goes, and after the restart that an update over Bluetooth asked for it says how that went. Two things
 differ here:
@@ -1692,7 +1692,7 @@ image on trial a person still opens a window, pairs, and reads the image list.
 
 The buttons are the nRF7002 DK's: **Button 1** held 5 s opens Bluetooth, and in a window installs what has arrived;
 **Button 2** closes a window or erases what has arrived, and held 5 s is a factory reset, which erases the passkey too.
-Button 3 and Button 4 do nothing. `src/bt_only.h` has the LEDs, and `src/bt_only_leds.c` drives LED3 and LED4.
+Button 3 and Button 4 do nothing. `src/bt_only/bt_only.h` has the LEDs, and `src/bt_only/bt_only_leds.c` drives LED3 and LED4.
 
 ### The console
 

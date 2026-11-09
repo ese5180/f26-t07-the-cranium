@@ -125,7 +125,7 @@ To update, a release manager deploys a signed image from our console, which crea
 | MCUboot support in Zephyr | `SB_CONFIG_BOOTLOADER_MCUBOOT=y` in [`firmware/app/sysbuild.conf`](firmware/app/sysbuild.conf), with settings in `firmware/app/sysbuild/mcuboot/`. |
 | Firmware image in external flash | The secondary slot is on the MX25R64. |
 | Signed images from our own keys | ECDSA P-256 over SHA-256, with a key from `tools/keys.py`. Boards hold only the public half. See [`secrets/README.md`](secrets/README.md). |
-| FOTA over a wireless protocol | Wi-Fi, through AWS IoT jobs: [`ota.c`](firmware/app/src/ota.c) and [`ota_job.c`](firmware/app/src/ota_job.c). Bluetooth LE from the phone apps: [`bt_ota.c`](firmware/app/src/bt_ota.c). |
+| FOTA over a wireless protocol | Wi-Fi, through AWS IoT jobs: [`ota.c`](firmware/app/src/ota/ota.c) and [`ota_job.c`](firmware/app/src/ota/ota_job.c). Bluetooth LE from the phone apps: [`bt_ota.c`](firmware/app/src/bt/bt_ota.c). |
 
 #### Serial recovery (extra credit)
 
@@ -155,4 +155,4 @@ From firmware 1.14.0 the boards report to Memfault, in our project in nRF Cloud.
 | Fault demonstration and one fix for the whole fleet | A test image (`CONFIG_APP_FAULT_DEMO`, 1.14.7+0) faults once per boot, only after it has confirmed itself, five different ways: a failed assert, a write to flash, an undefined instruction, a stack overflow and a hung main loop caught by a watchdog, so Memfault shows five issues with core dumps. Release 1.15.0, deployed to every board at once, has no faults and the two metrics above | Not yet: built, not run on a board |
 | Extra credit: staged rollout and A/B | The console's staged rollouts send an update to a canary board first and to the rest in waves, and stop by themselves when the canary doesn't confirm or too many boards fail. Each board has A and B slots: MCUboot keeps the previous image and puts it back unless the new one confirms itself, and a crash's core dump outlives that revert, so Memfault shows why the new image was given up | Not yet run on boards |
 
-The code: [`mflt.c`](firmware/app/src/mflt.c) and [`mflt_link.c`](firmware/app/src/mflt_link.c) on the board, and [`memfault.mjs`](cloud/api/src/memfault.mjs) with [`forwarder.mjs`](cloud/api/src/forwarder.mjs) in AWS.
+The code: [`mflt.c`](firmware/app/src/mflt/mflt.c) and [`mflt_link.c`](firmware/app/src/mflt/mflt_link.c) on the board, and [`memfault.mjs`](cloud/api/src/memfault.mjs) with [`forwarder.mjs`](cloud/api/src/forwarder.mjs) in AWS.

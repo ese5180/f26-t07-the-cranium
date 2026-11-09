@@ -116,20 +116,20 @@ int cloud_shadow_report(const char *reported_json);
 int cloud_shadow_report_acked(const char *reported_json, int32_t wait_ms);
 
 /*
- * Publish one event for the console (src/cloud_events.h) to cranium/<thing name>/events, at QoS 0.
+ * Publish one event for the console (src/cloud/cloud_events.h) to cranium/<thing name>/events, at QoS 0.
  * The device policy has to allow that topic: AWS IoT closes the connection of a board that publishes
  * where it may not.
  */
 int cloud_event_publish(const char *json);
 
 /*
- * Publish what the board hears of Wi-Fi (src/location.h) to cranium/<thing name>/location, at
+ * Publish what the board hears of Wi-Fi (src/cloud/location.h) to cranium/<thing name>/location, at
  * QoS 0. The device policy has to allow that topic, as it has to allow the events topic.
  */
 int cloud_location_publish(const char *json);
 
 /*
- * Publish one frame of Memfault data (src/mflt_link.h) to cranium/<thing name>/memfault, at QoS 0:
+ * Publish one frame of Memfault data (src/mflt/mflt_link.h) to cranium/<thing name>/memfault, at QoS 0:
  * binary, len bytes, from 1.14.0 with CONFIG_APP_MEMFAULT only. The device policy has to allow
  * that topic, as it has to allow the events topic.
  */

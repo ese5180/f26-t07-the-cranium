@@ -107,7 +107,7 @@ void app_send_reports(void);
  * Restart, once the console has what the board said: the lines that wait, and the report with the
  * update's state as `rebooting`, which AWS IoT acknowledges, for at most 2 s. Offline, at once. From
  * 1.14.0, for Button 1 on an image that came over Bluetooth. Only on the main loop. why is an
- * enum mflt_reboot (src/mflt.h). Does not return.
+ * enum mflt_reboot (src/mflt/mflt.h). Does not return.
  */
 void app_restart(int why);
 

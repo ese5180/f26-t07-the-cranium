@@ -4,7 +4,7 @@
  * upload, and what proves an image on trial.
  *
  * What this cannot show is that Bluetooth does what these decisions ask of it. test_bt_ota.c
- * checks src/bt_ota.c against a fake of the host, and only a phone can check the rest.
+ * checks src/bt/bt_ota.c against a fake of the host, and only a phone can check the rest.
  */
 
 #include <stdbool.h>

@@ -3,7 +3,7 @@
 
     python3 firmware/tests/host/mutate_stuck.py
 
-This makes small changes to a copy of src/stuck_policy.c and src/stuck_policy.h, one at a time:
+This makes small changes to a copy of src/policy/stuck_policy.c and src/policy/stuck_policy.h, one at a time:
 comparisons turned round, limits off by one, a term of the gate left out, a statement left out.
 Each one is built with test_stuck_policy.c. A change that the tests pass is a hole in them, or a
 change that means nothing, and it is listed here. Nothing in the source tree is touched, and it
@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 HOST = Path(__file__).resolve().parent
-SOURCE = HOST.parents[1] / "app/src"
+SOURCE = HOST.parents[1] / "app/src/policy"
 TEST = HOST / "test_stuck_policy.c"
 FILES = ("stuck_policy.c", "stuck_policy.h")
 # A change can make a test wait for ever. The tests take well under a second when they pass.

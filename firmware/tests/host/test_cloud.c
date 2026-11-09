@@ -7,7 +7,7 @@
  *
  * What the broker does, and the library's own threads, are for a board: see firmware/README.md.
  *
- * Built with CONFIG_APP_MEMFAULT, against fakes of what src/mflt.h counts: from 1.14.0 a frame of
+ * Built with CONFIG_APP_MEMFAULT, against fakes of what src/mflt/mflt.h counts: from 1.14.0 a frame of
  * Memfault data goes to the board's own memfault topic, as bytes, and a jobs reply is read where it
  * arrives, so that the 4 KB copy of it is gone.
  */
@@ -94,7 +94,7 @@ static struct {
 	int commands;
 	char command[64];
 
-	/* src/mflt.h */
+	/* src/mflt/mflt.h */
 	int connected_notes;
 	int lost_notes;
 	int reports_sent;
@@ -672,7 +672,7 @@ static void test_a_memfault_frame_goes_to_the_memfault_topic(void)
 	CHECK(memcmp(lib.sent_bytes, frame, sizeof(frame)) == 0);
 	CHECK(now_stats().published == published + 1);
 
-	/* What the library does not take was not published, and src/mflt_link.c holds the frame. */
+	/* What the library does not take was not published, and src/mflt/mflt_link.c holds the frame. */
 	lib.send_result = -EAGAIN;
 	CHECK(cloud_memfault_publish(frame, sizeof(frame)) == -EAGAIN);
 	CHECK(now_stats().published == published + 1);

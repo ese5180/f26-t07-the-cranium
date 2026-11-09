@@ -1,6 +1,6 @@
 /*
- * Host-side tests of src/bt_ota.c on a board with Bluetooth only (CONFIG_APP_BT_ONLY): the nRF5340 DK.
- * No cloud, no Wi-Fi and a passkey of its own (src/bt_passkey.h), with the status a phone reads
+ * Host-side tests of src/bt/bt_ota.c on a board with Bluetooth only (CONFIG_APP_BT_ONLY): the nRF5340 DK.
+ * No cloud, no Wi-Fi and a passkey of its own (src/bt/bt_passkey.h), with the status a phone reads
  * (bt_status.h) as on every board.
  *
  * This takes test_bt_ota.c whole, with its fakes of the Bluetooth host, MCUmgr and the bootloader, and

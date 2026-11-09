@@ -344,7 +344,7 @@ void console_event(const char *tag, const char *format, ...)
 	console_port_event(line, (size_t)used);
 }
 
-/* src/cloud_events.h: what the log backend hands it, as "tag|text" lines. */
+/* src/cloud/cloud_events.h: what the log backend hands it, as "tag|text" lines. */
 static char cloud_lines[4096];
 
 void cloud_events_add(const char *tag, const char *text, size_t length)
@@ -496,7 +496,7 @@ static void test_log_lines_look_as_they_should(void)
 }
 
 /*
- * Every log line also goes to src/cloud_events.c, as it is on the console without "[tag] ", with
+ * Every log line also goes to src/cloud/cloud_events.c, as it is on the console without "[tag] ", with
  * its module's name: which of them leave the board is for that file to say, and test_cloud_events.c
  * to test. What the console says of its own buffers is no event.
  */

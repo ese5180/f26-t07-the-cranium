@@ -1,6 +1,6 @@
 /*
  * Host-side tests of ota.c: what firmware update over Bluetooth adds to it, what the update
- * manager tells src/bt_ota.c, when a person's confirmation is refused, that the state a Bluetooth
+ * manager tells src/bt/bt_ota.c, when a person's confirmation is refused, that the state a Bluetooth
  * window holds keeps a cloud update out, and how a job goes with and without a button. The real
  * file is compiled here, against a fake of the download library, PSA, the bootloader's API and the
  * cloud. The Makefile builds this file three times: with CONFIG_APP_OTA_REQUIRE_USER_CONSENT on,
@@ -72,7 +72,7 @@ static struct {
 	int erases;
 	int reboots;
 
-	/* src/bt_ota.c. */
+	/* src/bt/bt_ota.c. */
 	int boots;
 	bool boot_on_trial;
 	bool boot_has_trailer;

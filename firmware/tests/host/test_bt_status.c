@@ -1,5 +1,5 @@
 /*
- * Host-side tests of the Bluetooth status (src/bt_status.c) and of what src/bt_ota_policy.c decides
+ * Host-side tests of the Bluetooth status (src/bt/bt_status.c) and of what src/policy/bt_ota_policy.c decides
  * for it: the payload byte by byte, the UUIDs as the phones write them, what counts as news, how a
  * window's end is told, and when the board advertises its status after a restart, and for how long.
  *

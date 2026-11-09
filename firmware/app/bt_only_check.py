@@ -6,7 +6,7 @@
 CMakeLists.txt runs it after every link of such an image (CONFIG_APP_BT_ONLY), and the build fails if
 it finds anything: no function of the heartbeat, the device shadow, the jobs, the events, MQTT, AWS IoT,
 the downloader, Wi-Fi or the network stack in the symbol table, and none of the shadow's JSON or of the
-AWS IoT topics in the bytes that are flashed. The stubs in src/bt_only_stubs.c answer questions about
+AWS IoT topics in the bytes that are flashed. The stubs in src/bt_only/bt_only_stubs.c answer questions about
 Wi-Fi and the cloud, and they are allowed: they send nothing.
 """
 

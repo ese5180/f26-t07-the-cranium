@@ -1,5 +1,5 @@
 /*
- * Host-side tests of what src/stuck_policy.c decides: when a board that is stuck gets restarted,
+ * Host-side tests of what src/policy/stuck_policy.c decides: when a board that is stuck gets restarted,
  * what keeps it from happening, and how long the next one has to wait. A wrong decision either
  * restarts a board that is fine, for ever if it is unlucky, or leaves one hanging with nobody
  * there. tests/host/mutate_stuck.py changes the policy in small ways and checks that this file

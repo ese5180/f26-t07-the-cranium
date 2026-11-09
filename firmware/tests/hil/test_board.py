@@ -2226,7 +2226,7 @@ class StuckRestartVerdictTest(unittest.TestCase):
         self.assertNotIn(name, json.dumps(self.judge(lines)))
 
     def test_the_limits_are_the_boards(self):
-        source = (REPO / "firmware/app/src/stuck_policy.h").read_text()
+        source = (REPO / "firmware/app/src/policy/stuck_policy.h").read_text()
 
         def limit(name):
             text = re.search(rf"#define {name}\s+(.+)", source).group(1)
@@ -2239,7 +2239,7 @@ class StuckRestartVerdictTest(unittest.TestCase):
         self.assertGreater(ota_bench.HANG_PATIENCE_SECONDS,
                            ota_bench.JOIN_QUIET_SECONDS + ota_bench.DISCONNECT_REQUEST_SECONDS
                            + ota_bench.WIFI_SILENT_SECONDS)
-        policy = (REPO / "firmware/app/src/join_policy.h").read_text()
+        policy = (REPO / "firmware/app/src/policy/join_policy.h").read_text()
         self.assertIn(f"#define JOIN_QUIET_MS       {ota_bench.JOIN_QUIET_SECONDS}000", policy)
         self.assertGreater(ota_bench.CHIP_DEAD_WAIT_SECONDS, ota_bench.NO_CLOUD_SECONDS)
 
@@ -2306,8 +2306,8 @@ class FaultIsCompiledOutTest(unittest.TestCase):
         self.assertIn(f'"{fault_check.MARKERS[1].decode()}"', (self.SRC / "console_cmd.c").read_text())
 
     def test_only_one_file_touches_the_chips_pins(self):
-        for path in self.SRC.iterdir():
-            if path.name == "fault_wifi.c":
+        for path in self.SRC.rglob("*"):
+            if path.is_dir() or path.name == "fault_wifi.c":
                 continue
             # What only that image compiles can talk about them: the next test looks at that.
             text = re.sub(r"#if defined\(CONFIG_APP_TEST_FAULT_WIFI_DEAD\).*?#endif", "", path.read_text(),

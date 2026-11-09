@@ -8,7 +8,7 @@ config APP_BT_ONLY
 	depends on APP_BT_OTA
 	help
 	  For a board with no Wi-Fi chip. prj_bt_only.conf turns it on for the nRF5340 DK. The main loop
-	  is src/bt_only_main.c in place of main.c, and the update manager src/bt_only_ota.c in place of
+	  is src/bt_only/bt_only_main.c in place of main.c, and the update manager src/bt_only/bt_only_ota.c in place of
 	  ota.c: no network stack, no connection to AWS IoT, no jobs, no device shadow, no heartbeat, no
 	  events and no location. The board updates over Bluetooth from a phone, or over USB, and an image
 	  on trial is kept only by a person, as "proof: person" in firmware/README.md says.
@@ -24,7 +24,7 @@ config APP_BT_STATIC_PASSKEY
 	  passkey in TF-M's protected storage, which tools/provision_device.py --board nrf5340dk draws at
 	  random and registers with the console. It is never shown on the console. Without one, or once it
 	  is locked, the Bluetooth host draws a new passkey for each attempt and the console shows it, as
-	  on an offline nRF7002 DK. src/bt_passkey.h says what this costs.
+	  on an offline nRF7002 DK. src/bt/bt_passkey.h says what this costs.
 
 config APP_BT_PASSKEY_FAILURE_BUDGET
 	int "Failed pairings that the stored passkey survives"

@@ -78,7 +78,7 @@ struct fake_board {
 	/* Everything that came out, one line after the other. */
 	char output[FAKE_OUTPUT_MAX];
 	char events[FAKE_OUTPUT_MAX];
-	/* What went to src/cloud_events.c, as "tag|text" lines. */
+	/* What went to src/cloud/cloud_events.c, as "tag|text" lines. */
 	char cloud_events[FAKE_OUTPUT_MAX];
 	char echo[FAKE_OUTPUT_MAX];
 	int finals;

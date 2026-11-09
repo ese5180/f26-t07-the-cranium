@@ -4,7 +4,7 @@
  * may upload, and what proves that an image installed this way is good. This module has no
  * side effects and no hardware dependencies, so it can be tested on a host.
  *
- * src/bt_ota.c does what these functions decide. firmware/README.md says why they decide it.
+ * src/bt/bt_ota.c does what these functions decide. firmware/README.md says why they decide it.
  */
 
 #ifndef BT_OTA_POLICY_H_

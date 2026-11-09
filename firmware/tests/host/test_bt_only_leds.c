@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/bt_only_leds.c: what LED3 and LED4 of a board with Bluetooth only show, as
+ * Host-side tests of src/bt_only/bt_only_leds.c: what LED3 and LED4 of a board with Bluetooth only show, as
  * bt_only.h says. The real file is compiled here, to get at the patterns it hands its timer.
  */
 

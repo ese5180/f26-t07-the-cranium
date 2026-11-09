@@ -134,14 +134,14 @@ ANY_SWAP = r"Swap type: (test|revert)"
 RESET_LINE = re.compile(r"Reset\s+(.*?)\s*\|")
 DEAD_COMMAND = "TEST_WIFI_DEAD"
 
-# The firmware's limits, from src/stuck_policy.h. test_board.py checks that these are the same.
+# The firmware's limits, from src/policy/stuck_policy.h. test_board.py checks that these are the same.
 WIFI_SILENT_SECONDS = 120
 NO_CLOUD_SECONDS = 900
 # A request to disconnect, on a supplicant that has stalled: its answer to `disconnect`, the wait for the
 # state, and its answer to `remove_network all`. CONFIG_WIFI_NM_WPA_CTRL_RESP_TIMEOUT_S is 15, and
 # DISCONNECT_TIMEOUT_MS in supp_api.c is 5 s.
 DISCONNECT_REQUEST_SECONDS = 15 + 5 + 15
-# JOIN_QUIET_MS in src/join_policy.h: nothing goes to the stack this soon after the link changed.
+# JOIN_QUIET_MS in src/policy/join_policy.h: nothing goes to the stack this soon after the link changed.
 JOIN_QUIET_SECONDS = 5
 # How long a wait goes on while the driver says that the chip has stopped answering. A board with no
 # count and the link gone has restarted by then: a WIFI command can be held for its quiet time, then the

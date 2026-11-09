@@ -5,7 +5,7 @@
  * reader has to read it once and clear it. Up to 1.13.0 that was the console, at its own start,
  * and the Memfault SDK, which reads it later, would have found it empty. Now this module reads it
  * as the kernel starts, before either, and clears it: the console's STATS, the boot diary and
- * Memfault's reboot reason (src/mflt.c) all take it from here. A build with no console clears it
+ * Memfault's reboot reason (src/mflt/mflt.c) all take it from here. A build with no console clears it
  * too, which nothing did before.
  */
 

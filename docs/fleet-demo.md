@@ -30,7 +30,7 @@ its canary, for the extra credit below). Show:
 `k_oops()`, once: it keeps the version it crashed on, so it does not crash again. It restarts on the same image and
 sends the coredump over its AWS IoT connection. Show:
 
-- Memfault, Issues: a new issue with the backtrace into `crash_demo_on_tick()` in `src/mflt.c` (Memfault has the
+- Memfault, Issues: a new issue with the backtrace into `crash_demo_on_tick()` in `src/mflt/mflt.c` (Memfault has the
   build's symbols), the registers and the threads' stacks;
 - the board's timeline: the reboot as a kernel panic.
 

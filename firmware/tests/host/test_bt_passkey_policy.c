@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/bt_passkey_policy.c: what a board's own passkey may be, its name, and when
+ * Host-side tests of src/policy/bt_passkey_policy.c: what a board's own passkey may be, its name, and when
  * it is used for a pairing and when the Bluetooth host draws a new one instead.
  */
 
