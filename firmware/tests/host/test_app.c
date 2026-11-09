@@ -558,7 +558,7 @@ bool cloud_is_connected(void)
 	return board.cloud_up;
 }
 
-/* src/cloud_events.h, which test_cloud_events.c tests: when the main loop calls it. */
+/* src/cloud/cloud_events.h, which test_cloud_events.c tests: when the main loop calls it. */
 static struct {
 	int ups;
 	int downs;
@@ -588,7 +588,7 @@ void cloud_events_flush(void)
 	events.reports_at_flush = board.shadow_reports;
 }
 
-/* src/location.h, which test_location.c tests: when the main loop calls it. */
+/* src/cloud/location.h, which test_location.c tests: when the main loop calls it. */
 static struct {
 	int inits;
 	int ticks;

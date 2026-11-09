@@ -16,6 +16,8 @@ from pathlib import Path
 
 HOST = Path(__file__).resolve().parent
 SOURCE = HOST.parents[1] / "app/src"
+# The folders of src/ that are on the firmware's include path (firmware/app/CMakeLists.txt).
+SOURCE_DIRS = [SOURCE] + [SOURCE / name for name in ("bt", "bt_only", "cloud", "mflt", "ota", "policy")]
 CJSON = Path(os.environ.get("ZEPHYR_BASE", "/opt/nordic/ncs/v3.4.0/zephyr")) / "../modules/lib/cjson"
 DEFINES = ["-D_GNU_SOURCE", "-DCONFIG_APP_CONSOLE=1", "-DCONFIG_APP_CLOUD_EVENTS=1", "-DCONFIG_APP_LOG_LEVEL=0",
            '-DCONFIG_APP_THING_NAME_PREFIX="cranium-"', "-DCONFIG_MQTT_HELPER_SEC_TAG=201",
@@ -54,10 +56,10 @@ MUTANTS = [
 
 def build_and_run(folder: Path, compiler: str) -> str:
     binary = folder / "test"
-    built = subprocess.run([compiler, "-std=c11", "-O0", "-w", f"-I{folder}", f"-I{SOURCE}",
+    built = subprocess.run([compiler, "-std=c11", "-O0", "-w", f"-I{folder}", *(f"-I{path}" for path in SOURCE_DIRS),
                             f"-I{HOST}/stubs", f"-I{CJSON}", *DEFINES, "-o", str(binary),
-                            str(HOST / "test_app.c"), str(SOURCE / "stuck_policy.c"),
-                            str(SOURCE / "join_policy.c")], capture_output=True, text=True)
+                            str(HOST / "test_app.c"), str(SOURCE / "policy/stuck_policy.c"),
+                            str(SOURCE / "policy/join_policy.c")], capture_output=True, text=True)
     if built.returncode != 0:
         return "does not compile: " + built.stderr[:300]
     try:

@@ -1,6 +1,6 @@
 /*
  * Memfault, from 1.14.0 (docs/memfault.md): the device ID, the chunks over AWS IoT
- * (src/mflt_link.h), this firmware's metrics and trace events, and why it restarts itself.
+ * (src/mflt/mflt_link.h), this firmware's metrics and trace events, and why it restarts itself.
  *
  * Without CONFIG_APP_MEMFAULT every function here does nothing, so the rest of the firmware calls
  * them as they are. Unless it says otherwise, a function is for the main loop only.

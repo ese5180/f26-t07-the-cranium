@@ -383,7 +383,7 @@ void console_port_event(const char *text, size_t length)
 	append(fake.events, sizeof(fake.events), "\n", 1);
 }
 
-/* src/cloud_events.h: what it would be given. What it makes of that, test_cloud_events.c tests. */
+/* src/cloud/cloud_events.h: what it would be given. What it makes of that, test_cloud_events.c tests. */
 void cloud_events_add(const char *tag, const char *text, size_t length)
 {
 	append(fake.cloud_events, sizeof(fake.cloud_events), tag, strlen(tag));

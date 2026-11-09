@@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(bt_ota, CONFIG_APP_LOG_LEVEL);
 #endif
 /*
  * A board with a cloud gets a new passkey for every attempt, drawn by the host. One with Bluetooth only
- * hands the host its own, from protected storage, which src/bt_passkey.h explains: only then may the
+ * hands the host its own, from protected storage, which src/bt/bt_passkey.h explains: only then may the
  * application provide one.
  */
 #if defined(CONFIG_BT_APP_PASSKEY) != defined(CONFIG_APP_BT_STATIC_PASSKEY)

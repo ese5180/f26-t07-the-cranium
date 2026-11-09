@@ -19,7 +19,7 @@ board (Memfault SDK 1.40.0)                       AWS                           
 
 - **The board never talks to Memfault.** It has no HTTP client for it, opens no third TLS session (RAM is short) and
   carries no project key: the image could not leak one. The SDK's chunks go on the board's own AWS IoT connection.
-- **One chunk at a time, in order.** `src/mflt_link.c` takes a chunk from the SDK's packetizer, publishes it on
+- **One chunk at a time, in order.** `src/mflt/mflt_link.c` takes a chunk from the SDK's packetizer, publishes it on
   `cranium/<thing>/memfault` and waits for the cloud's answer, `{"id": "...", "cmd": "memfault_ack", "seq": <n>}` on
   the board's commands topic, before it takes the next. No answer in 20 s: the same chunk goes again after 30 s, and
   the wait doubles with every chunk that gets none, up to an hour; an answer sets it back and sends the next at once.
@@ -66,7 +66,7 @@ board (Memfault SDK 1.40.0)                       AWS                           
 - **Power status, from 1.15.0,** in place of a battery's state of charge: the DK has no battery and runs from USB.
   `power_usb_present` is 1 when the USB regulator sees VBUS (`USBREGSTATUS.VBUSDETECT`), and `supply_mv` is the
   supply VDD in mV, one SAADC sample against the internal reference (gain 1/6, 3.6 V full scale), not calibrated, so
-  good to a few percent. Both are read when the heartbeat is taken (`src/mflt.c`), with the nrfx HAL and no driver,
+  good to a few percent. Both are read when the heartbeat is taken (`src/mflt/mflt.c`), with the nrfx HAL and no driver,
   so they cost no RAM; the USB regulator and the SAADC are non-secure under TF-M.
 - **Zephyr's default metrics, from 1.15.0.** `CONFIG_INIT_STACKS=y` turns on what the SDK's Zephyr port collects by
   default: CPU use (`cpu_usage_pct`, `TimerTaskCpuUsage`, `AllTasksCpuUsage`), the free stack of the timer thread
@@ -89,9 +89,9 @@ board (Memfault SDK 1.40.0)                       AWS                           
 | What | Where |
 | --- | --- |
 | SDK settings | `firmware/app/prj.conf` (Memfault block), `firmware/app/Kconfig` (version and hardware defaults), `firmware/app/config/` (the SDK's three configuration files and the reboot reasons) |
-| Chunks over AWS IoT | `src/mflt_link.c` (no hardware, host-tested) and `src/mflt.c` (the SDK, the metrics, the reasons) |
-| The topic | `cloud_memfault_publish()` in `src/cloud.c`; a frame of 403 bytes fits the 512-byte MQTT buffer with its topic, which the build checks |
-| The commands | `memfault` and `memfault_ack` in `src/command.c` |
+| Chunks over AWS IoT | `src/mflt/mflt_link.c` (no hardware, host-tested) and `src/mflt/mflt.c` (the SDK, the metrics, the reasons) |
+| The topic | `cloud_memfault_publish()` in `src/cloud/cloud.c`; a frame of 403 bytes fits the 512-byte MQTT buffer with its topic, which the build checks |
+| The commands | `memfault` and `memfault_ack` in `src/cloud/command.c` |
 | The reset cause | `src/reset_cause.c` |
 | The pinned RAM | `MFLT_REBOOT` and `MFLT_COREDUMP` in `boards/nrf7002dk_nrf5340_cpuapp_ns.overlay` |
 
@@ -117,7 +117,7 @@ board (Memfault SDK 1.40.0)                       AWS                           
 - **TF-M.** A fault in the secure domain, in TF-M, is handled by TF-M and gives no coredump: the board restarts, and
   Memfault sees the reboot with whatever reason the hardware gives. Only the non-secure application is covered.
 - **No MCUmgr group.** The SDK adds an SMP group of its own whenever MCUmgr is on, which would read out the project key
-  over Bluetooth and break "the image group and no other" (`bt_ota.conf`): it is off, and `src/bt_ota.c` stops a build
+  over Bluetooth and break "the image group and no other" (`bt_ota.conf`): it is off, and `src/bt/bt_ota.c` stops a build
   that has it.
 - **The device policy.** AWS IoT closes the connection of a board that publishes where its policy does not allow. On a
   cloud that does not allow `cranium/<thing>/memfault` yet, a connection that ends within 5 s of a chunk, before any
@@ -247,7 +247,7 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
 
    Deploy it to one board. It goes through its trial and is confirmed, and 60 s later it stops with `k_oops()`, once:
    the version it crashed on is kept, so it does not crash again. It restarts, still on that image, and sends the
-   coredump. Memfault shows an issue with the backtrace into `crash_demo_on_tick()` in `src/mflt.c`, and the reboot as
+   coredump. Memfault shows an issue with the backtrace into `crash_demo_on_tick()` in `src/mflt/mflt.c`, and the reboot as
    a kernel panic. Then deploy 1.14.1 or later, an ordinary build, to put the board back.
 3. **Critical information in Memfault's cloud.** The reboot reasons, the heartbeat metrics and the update events above.
    "Send Memfault data now" on the board's page (the `memfault` command) takes a heartbeat at once instead of at the
@@ -266,7 +266,7 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
    Deploy it. Each board goes through its trial and confirms the image as usual; no fault comes before the
    confirmation, so MCUboot's trial is never in danger. Then at each boot, once the board has been connected for 60 s
    (`CONFIG_APP_CRASH_DEMO_AFTER_SECONDS`) and Memfault has taken the coredump of the fault before, it faults once,
-   each time in a different way, in a function of its own in `src/mflt.c`, so that each is its own issue in Memfault:
+   each time in a different way, in a function of its own in `src/mflt/mflt.c`, so that each is its own issue in Memfault:
 
    | Boot after the confirmation | Fault | Memfault shows |
    | --- | --- | --- |

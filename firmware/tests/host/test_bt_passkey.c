@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/bt_passkey.c: the board's own Bluetooth passkey in TF-M's protected storage,
+ * Host-side tests of src/bt/bt_passkey.c: the board's own Bluetooth passkey in TF-M's protected storage,
  * which is faked here. What is stored, when the passkey is in memory and when it is not, how failures
  * are counted across restarts, when it is locked, and what happens when storage fails.
  *

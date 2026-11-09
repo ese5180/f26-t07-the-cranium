@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/bt_only_ota.c, the update manager of a board with Bluetooth only, with the
+ * Host-side tests of src/bt_only/bt_only_ota.c, the update manager of a board with Bluetooth only, with the
  * real trial deadline of src/health.c: what the bootloader did at boot, and what becomes of an image
  * installed over Bluetooth with no Wi-Fi and no cloud. It is kept when a person proves it, which is
  * bt_ota.c's proof ending in ota_bt_confirm() (test_bt_only.c has that part), and it reverts without:

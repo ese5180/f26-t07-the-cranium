@@ -1027,7 +1027,7 @@ class TheBoardIsWhatTheBenchThinksTest(unittest.TestCase):
     def test_the_trailer_magic_is_where_the_application_looks(self):
         public = (self.sdk / "bootloader/mcuboot/boot/bootutil/include/bootutil/bootutil_public.h").read_text()
         size = re.search(r"#define BOOT_MAGIC_SZ\s+(\d+)", public).group(1)
-        self.assertIn(f"#define TRAILER_MAGIC_SIZE {size}\n", (FIRMWARE / "src/ota.c").read_text())
+        self.assertIn(f"#define TRAILER_MAGIC_SIZE {size}\n", (FIRMWARE / "src/ota/ota.c").read_text())
 
     def test_what_the_bench_waits_for_from_mcuboot_itself_is_in_its_source(self):
         boot = self.sdk / "bootloader/mcuboot/boot"

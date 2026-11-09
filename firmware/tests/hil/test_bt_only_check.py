@@ -2,7 +2,7 @@
 """Tests of firmware/app/bt_only_check.py, which looks at the linked image of a board with Bluetooth only.
 
 It has to find what only the cloud's code puts in an image, by symbol and by text, and leave alone what
-such a board has: the stubs of src/bt_only_stubs.c, which only answer questions, and the Bluetooth
+such a board has: the stubs of src/bt_only/bt_only_stubs.c, which only answer questions, and the Bluetooth
 update. No toolchain here: the symbol list is given as nm prints it.
 
     python3 firmware/tests/hil/test_bt_only_check.py

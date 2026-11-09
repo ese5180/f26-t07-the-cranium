@@ -4,7 +4,7 @@
  * nothing in it is secret: never the passkey, never a key, nothing that names the board or its
  * network. Only versions, counts, seconds and states, all of which the person at the board can see on
  * its console as well. Anything that writes still takes the authenticated link it took before: the
- * SMP characteristic, whose permission and hooks are unchanged (src/bt_ota.c).
+ * SMP characteristic, whose permission and hooks are unchanged (src/bt/bt_ota.c).
  *
  * The board is only connectable while a window is open (Button 1 held), and for 2 minutes after the
  * restart that an update over Bluetooth asked for, so a phone that sent an image can come back and

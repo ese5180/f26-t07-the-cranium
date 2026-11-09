@@ -37,33 +37,33 @@ endif()
 if(NOT CONFIG_APP_BT_ONLY)
 target_sources(app PRIVATE
   src/main.c
-  src/cloud.c
-  src/command.c
+  src/cloud/cloud.c
+  src/cloud/command.c
   src/device.c
   src/diag.c
   src/factory.c
   src/health.c
   src/identity.c
-  src/join_policy.c
+  src/policy/join_policy.c
   src/net.c
-  src/ota.c
-  src/ota_job.c
+  src/ota/ota.c
+  src/ota/ota_job.c
   src/reset_cause.c
   src/store.c
   src/stuck.c
-  src/stuck_policy.c
+  src/policy/stuck_policy.c
   src/ui.c
-  src/version.c
+  src/ota/version.c
 )
 else()
 # A board with Bluetooth only: its own main loop and update manager, and no network or cloud at all.
-# src/bt_only_stubs.c answers what the shared code asks of Wi-Fi and the cloud with "there is none".
+# src/bt_only/bt_only_stubs.c answers what the shared code asks of Wi-Fi and the cloud with "there is none".
 # The console reads the reset cause from src/reset_cause.c, as on the nRF7002 DK.
 target_sources(app PRIVATE
-  src/bt_only_leds.c
-  src/bt_only_main.c
-  src/bt_only_ota.c
-  src/bt_only_stubs.c
+  src/bt_only/bt_only_leds.c
+  src/bt_only/bt_only_main.c
+  src/bt_only/bt_only_ota.c
+  src/bt_only/bt_only_stubs.c
   src/device.c
   src/factory.c
   src/health.c
@@ -71,16 +71,16 @@ target_sources(app PRIVATE
   src/reset_cause.c
   src/store.c
   src/ui.c
-  src/version.c
+  src/ota/version.c
 )
 endif()
 
 # On every board: what a stored record of an update means after a restart, and what an image is
 # compatible with (image_compat.h), for ota.c and bt_ota.c.
 target_sources(app PRIVATE
-  src/image_compat.c
-  src/image_compat_slot.c
-  src/ota_outcome.c
+  src/ota/image_compat.c
+  src/ota/image_compat_slot.c
+  src/ota/ota_outcome.c
 )
 
 target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE
@@ -96,13 +96,13 @@ if(CONFIG_APP_CONSOLE AND NOT CONFIG_APP_BT_ONLY)
 endif()
 
 target_sources_ifdef(CONFIG_APP_BT_OTA app PRIVATE
-  src/bt_ota.c
-  src/bt_ota_policy.c
-  src/bt_status.c
+  src/bt/bt_ota.c
+  src/policy/bt_ota_policy.c
+  src/bt/bt_status.c
 )
 target_sources_ifdef(CONFIG_APP_BT_STATIC_PASSKEY app PRIVATE
-  src/bt_passkey.c
-  src/bt_passkey_policy.c
+  src/bt/bt_passkey.c
+  src/policy/bt_passkey_policy.c
 )
 
 # MCUmgr's image header needs MCUboot's.
@@ -146,8 +146,8 @@ target_sources_ifndef(CONFIG_APP_CONSOLE app PRIVATE src/log_discard.c)
 # The driver's recovery would power the chip back up, so the timer under test would never fire.
 target_sources_ifdef(CONFIG_APP_TEST_FAULT_WIFI_DEAD app PRIVATE src/fault_wifi.c)
 target_sources_ifdef(CONFIG_APP_BOOT_DIARY app PRIVATE src/boot_diary.c)
-target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud_events.c)
-target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/location.c)
+target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud/cloud_events.c)
+target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/cloud/location.c)
 if(CONFIG_APP_TEST_FAULT_WIFI_DEAD AND CONFIG_NRF_WIFI_RPU_RECOVERY)
   message(FATAL_ERROR "APP_TEST_FAULT_WIFI_DEAD needs -Dapp_CONFIG_NRF_WIFI_RPU_RECOVERY=n as well")
 endif()
@@ -159,7 +159,7 @@ endif()
 if(CONFIG_MEMFAULT)
   zephyr_include_directories(config)
 endif()
-target_sources_ifdef(CONFIG_APP_MEMFAULT app PRIVATE src/mflt.c src/mflt_link.c)
+target_sources_ifdef(CONFIG_APP_MEMFAULT app PRIVATE src/mflt/mflt.c src/mflt/mflt_link.c)
 if(CONFIG_APP_MEMFAULT AND
    (NOT CONFIG_MEMFAULT_RAM_BACKED_COREDUMP OR
     NOT CONFIG_MEMFAULT_RAM_BACKED_COREDUMP_REGION STREQUAL "MFLT_COREDUMP" OR
@@ -175,4 +175,14 @@ endif()
 
 zephyr_linker_sources_ifdef(CONFIG_LOG SECTIONS src/log_backend_check.ld)
 
-target_include_directories(app PRIVATE src)
+# The sources are grouped in folders under src/ (src/README.md); each folder is on the include path, so
+# an #include names only the header.
+target_include_directories(app PRIVATE
+  src
+  src/bt
+  src/bt_only
+  src/cloud
+  src/mflt
+  src/ota
+  src/policy
+)

@@ -198,7 +198,7 @@ config APP_CLOUD_EVENTS
 	default y
 	help
 	  From 1.12.0. Every line of console_event() and of this application's log modules also goes to
-	  cranium/<thing name>/events, for the console in the cloud. src/cloud_events.c keeps out the
+	  cranium/<thing name>/events, for the console in the cloud. src/cloud/cloud_events.c keeps out the
 	  Bluetooth passkey and anything like a secret, and replaces network names and URLs. Lines wait
 	  in RAM while the board is offline, the last 32 of them, and at most 5 a second (20 at once)
 	  get in. The device policy in AWS IoT has to allow publishing there: see "Events to the console"
@@ -252,7 +252,7 @@ config APP_MEMFAULT
 	help
 	  From 1.14.0 (docs/memfault.md). The Memfault SDK keeps a coredump of the last crash in RAM,
 	  the reason of each reboot and an hourly heartbeat of metrics. The board never talks to
-	  Memfault itself: src/mflt.c sends the SDK's chunks one at a time on its own AWS IoT
+	  Memfault itself: src/mflt/mflt.c sends the SDK's chunks one at a time on its own AWS IoT
 	  connection to cranium/<thing name>/memfault, and a function in AWS posts each one to
 	  Memfault and answers on the commands topic, after which the next goes. No project key is
 	  in the image. The device policy in AWS IoT has to allow publishing there.

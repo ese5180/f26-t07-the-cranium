@@ -3,7 +3,7 @@
 
     python3 firmware/tests/host/mutate_join.py
 
-The same as mutate_stuck.py, whose engine this uses, for src/join_policy.c and src/join_policy.h
+The same as mutate_stuck.py, whose engine this uses, for src/policy/join_policy.c and src/policy/join_policy.h
 with test_join_policy.c. It stops with an error if a change survives that is not on the list below
 of those that mean nothing, each with the reason.
 """

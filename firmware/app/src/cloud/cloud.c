@@ -678,7 +678,7 @@ int cloud_location_publish(const char *json)
 }
 
 #if defined(CONFIG_APP_MEMFAULT)
-/* QoS 0: src/mflt_link.c waits for the cloud's own answer, and sends again without one. */
+/* QoS 0: src/mflt/mflt_link.c waits for the cloud's own answer, and sends again without one. */
 int cloud_memfault_publish(const uint8_t *frame, size_t len)
 {
 	if (topic_memfault[0] == '\0') {

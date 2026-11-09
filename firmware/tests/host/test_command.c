@@ -3,7 +3,7 @@
  * nobody meant to be a command, and what the main loop does with a command and says about it. The
  * real file is compiled here, against fakes of the main loop's queue, the LEDs, the reports and the
  * location, with the address and undefined-behaviour sanitizers watching every read of a message.
- * It is built twice: as it is, and with CONFIG_APP_MEMFAULT, against fakes of src/mflt.h.
+ * It is built twice: as it is, and with CONFIG_APP_MEMFAULT, against fakes of src/mflt/mflt.h.
  */
 
 #include <errno.h>
@@ -54,7 +54,7 @@ static struct {
 	int reports;
 	int location_requests;
 	enum location_hold hold;
-	/* src/mflt.h, with CONFIG_APP_MEMFAULT only. */
+	/* src/mflt/mflt.h, with CONFIG_APP_MEMFAULT only. */
 	int heartbeats;
 	int drains;
 	int answers;

@@ -422,7 +422,7 @@ static void log_line_end(void)
 		console_port_event(log_line.text, log_line.length);
 
 		/*
-		 * src/cloud_events.c decides whether it goes: by the module, the level and the text. Not
+		 * src/cloud/cloud_events.c decides whether it goes: by the module, the level and the text. Not
 		 * once the board is about to restart, or in a fatal error, which may have struck in there.
 		 */
 		if (!polling) {

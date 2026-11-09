@@ -1,6 +1,6 @@
 /*
  * Trace events: one for each update from the cloud that ends, with its result, from 1.14.0
- * (src/ota.c, docs/memfault.md). The text says the reason, as the job's status does.
+ * (src/ota/ota.c, docs/memfault.md). The text says the reason, as the job's status does.
  */
 
 /* Confirmed after its trial. The text is the version. */

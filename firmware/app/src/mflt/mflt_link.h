@@ -1,7 +1,7 @@
 /*
  * How the board's Memfault chunks get to Memfault, from 1.14.0: one at a time, over AWS IoT, each
  * one answered before the next goes (docs/memfault.md). This module has no side effects and no
- * hardware dependencies, so it can be tested on a host; src/mflt.c gives it the Memfault SDK's
+ * hardware dependencies, so it can be tested on a host; src/mflt/mflt.c gives it the Memfault SDK's
  * packetizer and the MQTT connection.
  *
  * A frame is what goes on cranium/<thing name>/memfault, at QoS 0:

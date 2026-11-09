@@ -42,7 +42,7 @@ config NETCORE_IMAGE_PATH
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"
 	help
-	  Adds src/bt_ota.c and the Bluetooth host to the application, through bt_ota.conf. The
+	  Adds src/bt/bt_ota.c and the Bluetooth host to the application, through bt_ota.conf. The
 	  network core has to run the Bluetooth controller, so sysbuild.conf selects that too, and
 	  it has to be flashed over the debug port.
 

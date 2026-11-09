@@ -167,7 +167,7 @@ static void reply_done(void)
 	}
 }
 
-/* The line goes to the cloud as well, as it is here, unless src/cloud_events.c says otherwise. */
+/* The line goes to the cloud as well, as it is here, unless src/cloud/cloud_events.c says otherwise. */
 void console_event(const char *tag, const char *format, ...)
 {
 	char line[EVENT_MAX];
@@ -1462,7 +1462,7 @@ static int do_bt_passkey(void *arg)
  * BT_PASSKEY|<6 digits>|<4 hex digits> stores the board's own passkey and the name it advertises,
  * which tools/provision_device.py --board nrf5340dk draws and registers with the console first.
  * BT_PASSKEY|CLEAR erases it: each pairing then shows a new passkey here. Nothing shows a stored
- * one: see src/bt_passkey.h.
+ * one: see src/bt/bt_passkey.h.
  */
 static void cmd_bt_passkey(int argc, char **argv)
 {

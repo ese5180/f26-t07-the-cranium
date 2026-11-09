@@ -1,5 +1,5 @@
 /*
- * Host-side tests of src/bt_ota.c: that what a phone can get at goes through the policy, and
+ * Host-side tests of src/bt/bt_ota.c: that what a phone can get at goes through the policy, and
  * that the board does what the policy decides, in the right order. The real file is compiled
  * here, to get at what it keeps static, against a fake of the Bluetooth host, of MCUmgr and of
  * the bootloader's API. The tests play the part of the phone and of the person.
