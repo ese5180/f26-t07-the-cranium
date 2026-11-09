@@ -49,13 +49,17 @@ struct file {
 };
 
 struct handle {
+	bool used;
 	int file;
 	size_t position;
 };
 
+/* Open files: a pool, so that one a simulated restart abandons is no leak. */
+#define HANDLES_MAX 64
+
 static struct {
 	struct file files[FILES_MAX];
-	struct handle handles[FILES_MAX];
+	struct handle handles[HANDLES_MAX];
 	bool card_in;
 	/* Bytes the volume holds, all files together. */
 	size_t volume;
@@ -132,7 +136,12 @@ int fs_open(struct fs_file_t *zfp, const char *file_name, fs_mode_t flags)
 		strncpy(fs.files[index].path, file_name, sizeof(fs.files[index].path) - 1);
 	}
 
-	h = malloc(sizeof(*h));
+	for (h = fs.handles; h < fs.handles + HANDLES_MAX && h->used; h++) {
+	}
+	if (h == fs.handles + HANDLES_MAX) {
+		return -ENFILE;
+	}
+	h->used = true;
 	h->file = index;
 	h->position = 0;
 	zfp->filep = h;
@@ -144,7 +153,7 @@ int fs_open(struct fs_file_t *zfp, const char *file_name, fs_mode_t flags)
 int fs_close(struct fs_file_t *zfp)
 {
 	tick();
-	free(zfp->filep);
+	((struct handle *)zfp->filep)->used = false;
 	zfp->filep = NULL;
 	fs.opens--;
 	return 0;
@@ -882,9 +891,7 @@ static void test_a_restart_goes_on_from_the_checkpoint(void)
 	/* The board restarts: what is in RAM is gone, the card and its record stay. */
 	memset(&dl, 0, sizeof(dl));
 	fs.opens = 0;
-	for (int i = 0; i < FILES_MAX; i++) {
-		fs.handles[i].file = 0;
-	}
+	memset(fs.handles, 0, sizeof(fs.handles));
 
 	CHECK(pi_dl_begin(&dl, &job, &from, &complete) == PI_OK);
 	CHECK(!complete);
