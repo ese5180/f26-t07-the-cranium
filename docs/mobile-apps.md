@@ -133,6 +133,7 @@ from the kind of phone. `window.cranium.bridge` is the same object, for feature 
 | `settings` | `app.settings` | The shell's own settings: versions, Look for newer pages, Classic app (and Reload on the iPhone) |
 | `appUpdate` (Android) | `update.check`, `update.install` | The APK's own updater, as before; its daily check and notification are unchanged |
 | `usb` (Android, from 0.8.8) | `usb.open`, `usb.write`, `usb.close` | A board's USB serial port, for the Serial console and Board setup: [The serial pages](#the-serial-pages) |
+| `camera` (phones with a camera, from 0.8.11) | `camera.scan` | Scan board: one QR code read with the camera, and the board's thing name if it is a board of this console: [Scan board](#scan-board) |
 
 Events: `app.lifecycle`, `app.bundleReady`, `auth.locked`, `ble.boards`, `ble.link`, `ble.progress`, `ble.status`,
 `usb.data`, `usb.closed`.
@@ -259,6 +260,34 @@ The Serial console (`#/serial`) and Board setup (`#/setup`) need a board's USB s
   permission, a 384-byte line, the bootloader's answer, a 900 KB image, unplugging) and bridge.test.mjs
   (`createBridgeSerial` with recovery.js). None of this has run on a phone with a board yet.
 
+### Scan board
+
+Each board's label has a QR code that links to its page on the console, `https://<console>/#/devices/<thing>`
+([docs/new-board-setup.md](new-board-setup.md#the-boards-label)). In the iPhone and Android apps (0.8.11 and later),
+the Devices page has **Scan board**:
+
+- **The camera only when it is tapped.** The app offers `camera` in its hello when the phone has a camera, and asks for
+  it (the system's prompt, with the words in the iPhone's `NSCameraUsageDescription`; Android's `CAMERA` permission at
+  run time) the first time the person taps Scan board, never before. The camera runs full screen until it reads one
+  code or the person taps Cancel, and stops then.
+- **The platform's reader, no service.** The iPhone uses AVFoundation's own QR reader (`App/Shell/BoardScanner.swift`).
+  Android has no QR reader of its own, so the app uses CameraX for the picture and ZXing's core library (Apache 2.0,
+  plain Java, on the phone) for the code (`shell/BoardScanner.kt`, `core/QrFrames.kt`). Nothing is sent anywhere.
+- **Only this console's boards.** Before the page hears anything, the app checks the code (`BoardLink` in CraniumKit
+  and in `core/BoardLink.kt`, with the same cases as labels.js `readBoardLink` on the website): the same scheme, host
+  and port as the app's `consoleUrl`, no user, the root path, no query, and `#/devices/<thing>` with a thing name of
+  `A-Z a-z 0-9 _ : -`, 128 at most. Anything else is refused with `not_allowed` and nothing opens; the page says
+  "That code is not a board of this console, so the app did not open it." Cancel says nothing; a camera the person
+  did not allow is `unavailable`, and the page says to allow it in Settings. The page then opens `#/devices/<thing>`
+  itself, after checking the thing name again.
+- **Not in the desktop app.** A computer doesn't scan its boards' labels: the desktop app doesn't offer `camera`
+  (`src/lib/features.mjs`, `NOT_OFFERED`), so the Devices page has no Scan board there, as on the website. It prints
+  labels like the website. No page is left out, so `apps/shared/pages.json` is unchanged.
+
+Tests: `BoardLinkTests` (iPhone) and `BoardLinkTest`, `QrFramesTest` (Android: a drawn frame with a label's code, read
+back and checked) for the link checks; app.test.mjs for the button, the page that opens and the refusal. Scanning a
+real label with a phone's camera hasn't been tried yet.
+
 ### What only a phone can show
 
 The unit tests check the contract, the bundle, the store, the policies and the pages' logic on both sides, and the
@@ -267,7 +296,7 @@ pages run in a stand-in for a browser with a stand-in for each app. What none of
 handler and honours its policy header; that Android's WebView honours the policy header and Trusted Types; that API
 Gateway adds its CORS headers to its own 401s and to the web function's answer to a preflight; the pairing prompt during
 `ble.connect` on each phone; the upload and the status after the restart; Face ID and the fingerprint through the
-bridge; the share sheet, the file chooser and the quick actions.
+bridge; the share sheet, the file chooser and the quick actions; Scan board with a real camera and label.
 
 ## What a person does
 

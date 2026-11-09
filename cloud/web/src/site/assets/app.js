@@ -166,6 +166,8 @@ const state = {
   // the search as it is typed. And whether the filters are unfolded on a phone.
   filters: {},
   filtersOpen: false,
+  // The board whose QR code and label its page shows (labels.js), or null.
+  labelShown: null,
 };
 
 const clock = createClock();
@@ -240,7 +242,8 @@ function paint() {
   state.sessionLeft = auth.secondsLeft();
   // `fleet` is fleet.js once it is here: board types, groups and staged rollouts on every page.
   // `memfault` is memfault-page.js once it is here: a board's reboots, events and issues in Memfault.
-  const ctx = { state, actions, fleet: fleetScript, memfault: memfaultScript };
+  // `labels` is labels.js once a board's page has asked for its QR code and label.
+  const ctx = { state, actions, fleet: fleetScript, memfault: memfaultScript, labels: labelsScript };
   nav.hidden = false;
   account.hidden = false;
   render(nav, navView(ctx));
@@ -991,6 +994,49 @@ function fleetReady() {
 let customersScript = null;
 let dbScript = null;
 let memfaultScript = null;
+let labelsScript = null;
+
+/** labels.js, fetched once, when a board's page first shows its QR code and label. */
+async function labelsReady() {
+  labelsScript ??= await pageScript(() => import('./labels.js'));
+  return labelsScript;
+}
+
+/** A board's QR code and label on its page: shown, or hidden again. */
+async function toggleLabel(thing) {
+  if (state.labelShown === thing) {
+    state.labelShown = null;
+    draw();
+    return;
+  }
+  if (!(await labelsReady())) {
+    notify('The QR code could not be made: reload the page.', 'bad');
+    return;
+  }
+  state.labelShown = thing;
+  draw();
+}
+
+/**
+ * The phone app's Scan board (camera.scan, apps/shared/bridge.json): the app reads a board's QR code, checks
+ * that its link is a board's page on this console, and hands back the thing name; anything else it refuses.
+ */
+async function scanBoard() {
+  if (!appBridge?.has('camera')) return;
+  try {
+    const { thing } = await appBridge.call('camera.scan');
+    if (typeof thing !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(thing)) throw new Error('not a board');
+    location.hash = `#/devices/${thing}`;
+  } catch (error) {
+    if (error?.code === 'cancelled') return;
+    notify(error?.code === 'not_allowed' || error?.message === 'not a board' ? SCAN_REFUSED : scanFailed(error), 'bad');
+  }
+}
+const SCAN_REFUSED = 'That code is not a board of this console, so the app did not open it.';
+const scanFailed = (error) =>
+  error?.code === 'unavailable'
+    ? 'The app cannot use the camera: allow it in the phone’s settings.'
+    : `The code could not be read. ${error?.message ?? ''}`.trim();
 
 /** memfault-page.js, fetched once, when a Memfault page or a board's page is first opened. */
 async function memfaultReady() {
@@ -2247,6 +2293,9 @@ const actions = {
     draw();
   },
   closeMore: () => showMore(false),
+  // A board's QR code and printable label (labels.js), and the phone app's Scan board.
+  toggleLabel: (thing) => toggleLabel(thing),
+  scanBoard: () => scanBoard(),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
   recordSerialCommand: (command) => api.recordSerialCommand(command),
   // Asked for by hand where the console does not leave by itself: with a file in hand.
@@ -2466,6 +2515,8 @@ async function boot() {
     state.app = {
       ble: appBridge.has('ble'),
       settings: appBridge.has('settings'),
+      // The camera, for Scan board on the Devices page (camera.scan).
+      scan: appBridge.has('camera'),
       words: bridgeScript.appWords(appBridge.hello),
       example: appConfig?.example === true,
     };

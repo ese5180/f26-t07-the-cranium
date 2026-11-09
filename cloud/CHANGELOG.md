@@ -7,6 +7,20 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.12.1
+
+QR codes and labels for boards: once Board setup sees a board online it shows the board's QR code and a label to print, and every board's page has Show QR / Print label. The code opens the board's page on this console; in the phone apps, Scan board on the Devices page reads it.
+
+labels.js is new: the link (`<origin>/#/devices/<thing>`, the console's own origin, never an address written in), the
+code (qrcode.js, the encoder the Apps page already vendors, in byte mode at M, version 10 at most), and the label, a
+sticker of 62 x 29 mm with the code, the board's name and its thing name. Print label prints it alone on a page of that
+size (app.css `@page board-label`); Print on paper puts the labels on the printer's paper. app.js fetches labels.js
+when a board's page first shows its label, and setup.js shows it after the Online step. In the phone apps, the Devices
+page has Scan board where the app offers the new bridge feature `camera` (`camera.scan` in apps/shared/bridge.json):
+the app reads the code, checks it is a board of this console, and the page opens that board; anything else is refused.
+No CDN, no new policy, and the API is unchanged. A sheet of labels for boards picked on the Devices page is not there
+yet. docs/new-board-setup.md "The board's label", docs/mobile-apps.md "Scan board".
+
 ## 2.12.0
 
 Search and filters on every long list: the activity log, the events and the board log are searched by the server, a page at a time, and the boards, releases, deployments, API tokens, customers and Memfault issues as they are shown. A filtered list keeps its search and filters in its address, so it can be shared or bookmarked, and says how many are shown of how many.

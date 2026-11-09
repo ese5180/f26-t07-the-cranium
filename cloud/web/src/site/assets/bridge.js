@@ -38,6 +38,7 @@ const UNTIMED = new Set([
   'ble.status',
   'ble.watch',
   'usb.open',
+  'camera.scan',
 ]);
 const FEATURES = new Set([
   'auth',
@@ -52,6 +53,7 @@ const FEATURES = new Set([
   'appUpdate',
   'storage',
   'usb',
+  'camera',
 ]);
 const MAX_ID = 2147483647;
 

@@ -4,6 +4,14 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-linux-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.7
+
+Boards' QR codes and labels from the console (2.12.1 and later): Show QR / Print label on a board's page, and the label after Board setup. The desktop app prints them like the website; it has no Scan board, as a computer doesn't scan its boards' labels.
+
+The bridge's new feature `camera` (`camera.scan`, the phones' Scan board) is not offered here: it is in
+`NOT_OFFERED` in src/lib/features.mjs with the reason, so `test/bridge.test.mjs` holds the app to the contract. No page
+is left out, and nothing else in the app changed.
+
 ## 0.1.6
 
 Search and filters on the console's long lists in the app (console 2.12.0 and later): the activity log, the events and the board log are searched by the server, and the boards, releases, deployments, tokens, customers and Memfault issues as they are shown, each with filters that fold under a Filters button on a phone.
