@@ -1,7 +1,9 @@
 /**
  * What Memfault knows of the boards, in the console (docs/memfault.md, "In the console"): the Memfault
- * page with its issues, an issue's page with its traces and backtraces, and the Memfault section of a
- * board's page with its reboots and their reasons, its trace events and its issues.
+ * page with its issues and the fleet (reboots by reason, the software versions, each board's latest
+ * metrics), an issue's page with its traces and backtraces, and two cards of a board's page: its reboots
+ * and their reasons, its trace events and its issues, and its heartbeat metrics as charts over 24 h or 7 d.
+ * The charts are the console's own line charts (telemetry.js lineChart), so no library comes in.
  *
  * Everything comes through the console's own API (cloud/api/src/handlers/memfault.mjs), which reads
  * Memfault's REST API on the server: the browser never talks to Memfault, so the page's policy is as
@@ -11,8 +13,23 @@
  * type is left out.
  */
 
-import { isThing, plural } from './core.js';
-import { badge, card, empty, h, icon, loadProblem, loading, mono, notice, pageHead, pending, when } from './views.js';
+import { isThing, plural, signalQuality } from './core.js';
+import { lineChart } from './telemetry.js';
+import {
+  badge,
+  card,
+  empty,
+  h,
+  icon,
+  loadProblem,
+  loading,
+  meter,
+  mono,
+  notice,
+  pageHead,
+  pending,
+  when,
+} from './views.js';
 
 // One read of the server per page a minute is plenty: the server keeps Memfault's answers a minute.
 export const MEMFAULT_REFRESH_MS = 60_000;
@@ -20,6 +37,13 @@ export const MEMFAULT_REFRESH_MS = 60_000;
 export const BOARD_HOURS = 168;
 const ISSUE_ID = /^[1-9]\d{0,15}$/;
 const STATES = ['ok', 'not_configured', 'refused', 'limited', 'unreachable', 'failed'];
+const METRIC_KEY = /^[A-Za-z_][A-Za-z0-9_.]{0,63}$/;
+const HOUR_MS = 3_600_000;
+// The ranges of a board's metric charts; the board's answer holds the week, so a change asks nothing.
+export const RANGES = Object.freeze([
+  { id: '24h', label: '24 h', name: 'the last 24 hours', hours: 24 },
+  { id: '7d', label: '7 d', name: 'the last 7 days', hours: 168 },
+]);
 
 let tools = null;
 
@@ -30,7 +54,13 @@ function resource() {
 /** app.js hands over what the pages need once: { state, api, load, draw }. */
 export function connect(given) {
   tools = given;
-  tools.state.memfault ??= { issues: resource(), issue: new Map(), boards: new Map() };
+  tools.state.memfault ??= {
+    issues: resource(),
+    fleet: resource(),
+    issue: new Map(),
+    boards: new Map(),
+    range: RANGES[0].id,
+  };
 }
 
 function entry(map, key) {
@@ -168,7 +198,246 @@ export function readBoard(raw) {
     issues: list(value.issues)
       .map(readIssueSummary)
       .filter((one) => one !== null),
+    to: instant(value.to),
+    metrics: readSeries(value.metrics),
   };
+}
+
+/** A number the board sent, or null. */
+const number = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** A board's heartbeat metrics: { series: { key: [{ ms, v }] oldest first }, unnamed }. */
+export function readSeries(raw) {
+  const value = object(raw);
+  const series = {};
+  for (const [key, points] of Object.entries(object(value.series)).slice(0, 128)) {
+    if (!METRIC_KEY.test(key)) continue;
+    const kept = list(points)
+      .map((one) => ({ ms: Date.parse(instant(object(one).at) ?? ''), v: number(object(one).v) }))
+      .filter((one) => Number.isFinite(one.ms) && one.v !== null)
+      .sort((a, b) => a.ms - b.ms);
+    if (kept.length > 0) series[key] = kept;
+  }
+  return { series, unnamed: whole(value.unnamed) ?? 0 };
+}
+
+/** GET /api/memfault/fleet: the reboots by reason, the devices and releases, each board's latest metrics. */
+export function readFleet(raw) {
+  const value = object(raw);
+  return {
+    memfault: readState(value.memfault),
+    hours: whole(value.hours) ?? 168,
+    devices: list(value.devices)
+      .map((one) => ({
+        serial: text(object(one).serial, 128),
+        thing: isThing(object(one).thing) ? object(one).thing : null,
+        software: text(object(one).software, 64),
+        lastSeen: instant(object(one).lastSeen),
+        registered: object(one).registered === true,
+      }))
+      .filter((one) => one.serial !== null),
+    releases: list(value.releases)
+      .map((one) => ({
+        version: text(object(one).version, 64),
+        createdAt: instant(object(one).createdAt),
+        symbols: typeof object(one).symbols === 'boolean' ? object(one).symbols : null,
+      }))
+      .filter((one) => one.version !== null),
+    reboots: list(object(value.reboots).byReason)
+      .map((one) => ({
+        reason: readReason(object(one).reason),
+        count: whole(object(one).count) ?? 0,
+        boards: list(object(one).boards).filter((serial) => typeof serial === 'string').length,
+      }))
+      .filter((one) => one.count > 0),
+    boards: list(object(value.metrics).boards)
+      .map((one) => {
+        const board = object(one);
+        const values = {};
+        for (const [key, entry] of Object.entries(object(board.values)).slice(0, 128)) {
+          const v = number(object(entry).v);
+          if (METRIC_KEY.test(key) && v !== null) values[key] = v;
+        }
+        return {
+          serial: text(board.serial, 128),
+          thing: isThing(board.thing) ? board.thing : null,
+          at: instant(board.at),
+          values,
+          unnamed: whole(board.unnamed) ?? 0,
+        };
+      })
+      .filter((one) => one.serial !== null),
+  };
+}
+
+// The metrics the firmware and the SDK send (firmware/app/config/memfault_metrics_heartbeat_config.def and
+// the SDK's Zephyr port), with names a person reads. A board sends them as whole numbers: a percentage in
+// hundredths, a time in milliseconds; `scale` makes them the unit shown. Any other key is drawn too, under
+// its own name, as the board sent it.
+
+const GROUPS = Object.freeze([
+  ['power', 'Power'],
+  ['wifi', 'Wi-Fi'],
+  ['cpu', 'CPU'],
+  ['memory', 'Memory and stacks'],
+  ['link', 'Connection to the cloud'],
+  ['restarts', 'Restarts and boot'],
+  ['updates', 'Updates'],
+  ['other', 'Other metrics'],
+]);
+
+const decimal = (value, digits = 2) =>
+  value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+const signedText = (value) => (value > 0 ? `+${decimal(value, 0)}` : decimal(value, 0).replace('-', '−'));
+const count = (one, many) => ({ format: (value) => plural(Math.round(value), one, many), axis: '', unit: many });
+const minutes = (unit) => ({ scale: 1 / 60_000, format: (value) => `${decimal(value, 1)} min`, axis: 'min', unit });
+const percent = (unit) => ({
+  scale: 1 / 100,
+  format: (value) => `${decimal(value, 1)} %`,
+  axis: '%',
+  unit,
+  fixed: [0, 100, [0, 25, 50, 75, 100]],
+});
+
+export const METRICS = Object.freeze({
+  power_usb_present: {
+    group: 'power',
+    label: 'USB power',
+    format: (value) => (value >= 0.5 ? 'On USB' : 'No USB'),
+    tick: (value) => (value >= 0.5 ? 'Yes' : 'No'),
+    axis: 'USB',
+    unit: 'whether the USB regulator saw VBUS (1) or not (0)',
+    fixed: [0, 1, [0, 1]],
+  },
+  supply_mv: {
+    group: 'power',
+    label: 'Supply voltage',
+    scale: 1 / 1000,
+    format: (value) => `${value.toFixed(2)} V`,
+    tick: (value) => value.toFixed(2),
+    axis: 'V',
+    unit: 'volts of VDD, one sample, not calibrated',
+    zero: false,
+  },
+  wifi_sta_rssi: {
+    group: 'wifi',
+    label: 'Wi-Fi signal',
+    format: (value) => `${signedText(value)} dBm`,
+    tick: signedText,
+    axis: 'dBm',
+    unit: 'dBm (0 is the strongest)',
+    fixed: [-100, -30, [-90, -75, -60, -45]],
+    refs: [
+      { v: -67, label: 'Good' },
+      { v: -75, label: 'Fair' },
+    ],
+    words: (value) => signalQuality(value)?.label,
+  },
+  wifi_primary_channel: {
+    group: 'wifi',
+    label: 'Wi-Fi channel',
+    format: (value) => `Channel ${Math.round(value)}`,
+    axis: 'ch',
+    unit: 'the channel of the access point',
+  },
+  wifi_connected_time_ms: { group: 'wifi', label: 'Time on Wi-Fi', ...minutes('minutes of each hour') },
+  wifi_disconnect_count: { group: 'wifi', label: 'Wi-Fi disconnections', ...count('disconnection') },
+  cpu_usage_pct: { group: 'cpu', label: 'CPU use', ...percent('per cent of the CPU') },
+  TimerTaskCpuUsage: { group: 'cpu', label: 'Timer thread, CPU time', ...count('cycle'), axis: 'cycles' },
+  AllTasksCpuUsage: { group: 'cpu', label: 'All threads, CPU time', ...count('cycle'), axis: 'cycles' },
+  Heap_BytesFree: {
+    group: 'memory',
+    label: 'Free heap',
+    scale: 1 / 1024,
+    format: (value) => `${decimal(value, 1)} KiB`,
+    axis: 'KiB',
+    unit: 'KiB of the system heap',
+  },
+  memory_pct_max: { group: 'memory', label: 'Heap, highest use', ...percent('per cent of the heap') },
+  memory_idle_pct_max: {
+    group: 'memory',
+    label: 'Idle thread stack, highest use',
+    ...percent('per cent of the stack'),
+  },
+  memory_sysworkq_pct_max: {
+    group: 'memory',
+    label: 'System work queue stack, highest use',
+    ...percent('per cent of the stack'),
+  },
+  TimerTaskFreeStack: {
+    group: 'memory',
+    label: 'Timer thread stack, free',
+    format: (value) => `${decimal(value, 0)} B`,
+    axis: 'B',
+    unit: 'bytes',
+  },
+  connectivity_connected_time: { group: 'link', label: 'Time connected', ...minutes('minutes of each hour') },
+  connectivity_connected_time_ms: { group: 'link', label: 'Time connected', ...minutes('minutes of each hour') },
+  connectivity_expected_time_ms: {
+    group: 'link',
+    label: 'Time meant to be connected',
+    ...minutes('minutes of each hour'),
+  },
+  sync_successful: { group: 'link', label: 'Reports sent', ...count('report') },
+  sync_failure: { group: 'link', label: 'Reports that failed', ...count('report') },
+  mqtt_reconnect_count: { group: 'link', label: 'AWS IoT reconnections', ...count('reconnection') },
+  memfault_chunk_retry_count: { group: 'link', label: 'Memfault chunks sent again', ...count('chunk') },
+  stuck_restart_count: { group: 'restarts', label: 'Stuck restarts in a row', ...count('restart') },
+  boot_time_ms: {
+    group: 'restarts',
+    label: 'Boot time',
+    format: (value) => `${decimal(value, 0)} ms`,
+    axis: 'ms',
+    unit: 'milliseconds from reset to the application',
+  },
+  MemfaultSdkMetric_UnexpectedRebootCount: { group: 'restarts', label: 'Unexpected reboots', ...count('reboot') },
+  uptime_s: {
+    group: 'restarts',
+    label: 'Uptime',
+    scale: 1 / 3600,
+    format: (value) => `${decimal(value, 1)} h`,
+    axis: 'h',
+    unit: 'hours since the last boot',
+  },
+  ota_attempt_count: { group: 'updates', label: 'Updates started', ...count('update') },
+  ota_failure_count: { group: 'updates', label: 'Updates failed', ...count('update') },
+  ota_refusal_count: { group: 'updates', label: 'Updates refused', ...count('update') },
+});
+
+/** How to show a metric: its entry, or one made for a key no one named. */
+export function metricOf(key) {
+  if (Object.hasOwn(METRICS, key)) return METRICS[key];
+  return { group: 'other', label: key, format: (value) => decimal(value), axis: '', unit: 'as the board sent it' };
+}
+
+/** A value as the board sent it, in the unit it is shown in. */
+export function shown(key, raw) {
+  return raw * (metricOf(key).scale ?? 1);
+}
+
+/** A value as words, in its unit: "3.30 V", "On USB", "12.5 %". */
+export function metricText(key, raw) {
+  return metricOf(key).format(shown(key, raw));
+}
+
+/** The scale of a chart: from 0 (or the lowest value) to the highest, on at most five whole steps. */
+export function niceScale(values, { zero = true } = {}) {
+  let low = Math.min(...values);
+  let high = Math.max(...values);
+  if (zero) low = Math.min(0, low);
+  if (!(high > low)) {
+    const pad = Math.abs(low) > 1 ? Math.abs(low) * 0.05 : 1;
+    high = low + pad;
+    if (!zero) low -= pad;
+  }
+  const rough = (high - low) / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const step = [1, 2, 2.5, 5, 10].map((one) => one * magnitude).find((one) => (high - low) / one <= 4);
+  const yMin = Math.floor(low / step) * step;
+  const yMax = Math.ceil(high / step) * step;
+  const yTicks = [];
+  for (let at = yMin; at <= yMax + step / 2; at += step) yTicks.push(Math.round(at * 1e6) / 1e6);
+  return { yMin, yMax, yTicks };
 }
 
 // Loading.
@@ -182,12 +451,15 @@ async function request(path) {
 }
 
 export function memfaultResources(state) {
-  return state.memfault ? [state.memfault.issues] : [];
+  return state.memfault ? [state.memfault.issues, state.memfault.fleet] : [];
 }
 
 export async function refreshMemfault() {
   const { state, load } = tools;
-  await load(state.memfault.issues, async () => readIssues(await request('/api/memfault/issues')));
+  await Promise.all([
+    load(state.memfault.issues, async () => readIssues(await request('/api/memfault/issues'))),
+    load(state.memfault.fleet, async () => readFleet(await request('/api/memfault/fleet'))),
+  ]);
 }
 
 export function issueResources(state) {
@@ -252,17 +524,26 @@ function issueRows(issues, now) {
   );
 }
 
-/** The Memfault page: the issues, newest first. */
+/** The Memfault page: the issues, newest first, then the fleet: reboots by reason, versions, latest metrics. */
 export function memfaultView(ctx) {
   const { state } = ctx;
   const target = state.memfault?.issues ?? resource();
   const head = pageHead({
     title: 'Memfault',
-    lede: 'Crashes and other traces the boards sent to Memfault, grouped into issues. Read from Memfault by the console.',
+    lede:
+      'Crashes and other traces the boards sent to Memfault, grouped into issues, then the fleet as Memfault sees it. ' +
+      'Read from Memfault by the console.',
   });
   const data = target.value;
   if (!data)
-    return h('div', { class: 'page' }, head, loadProblem(target, 'Memfault', ctx), pending(target, 'the issues'));
+    return h(
+      'div',
+      { class: 'page' },
+      head,
+      loadProblem(target, 'Memfault', ctx),
+      pending(target, 'the issues'),
+      fleetCards(ctx)
+    );
   return h(
     'div',
     { class: 'page' },
@@ -281,7 +562,8 @@ export function memfaultView(ctx) {
                 : null,
           })
         : issueRows(data.issues, state.now)
-    )
+    ),
+    fleetCards(ctx)
   );
 }
 
@@ -452,4 +734,305 @@ export function boardSection(thing, ctx) {
           : null,
       ];
   return card({ key: 'memfault-data', title: 'In Memfault', className: 'memfault-section' }, body);
+}
+
+// The fleet, on the Memfault page.
+
+/** The reboots of the week by reason, most first: each with how many, on how many boards, and its share. */
+function rebootCard(fleet) {
+  const total = fleet.reboots.reduce((sum, one) => sum + one.count, 0);
+  const unexpected = fleet.reboots.filter((one) => !one.reason.expected).reduce((sum, one) => sum + one.count, 0);
+  return card(
+    { key: 'fleet-reboots', title: 'Reboots this week', className: 'memfault-fleet' },
+    total === 0
+      ? h('p', { class: 'quiet', key: 'none' }, 'No board reported a reboot in the last 7 days.')
+      : [
+          h(
+            'p',
+            { class: 'card-note', key: 'total' },
+            `${plural(total, 'reboot', 'reboots')}, ${unexpected === 0 ? 'none' : unexpected} unexpected.`
+          ),
+          h(
+            'ul',
+            { class: 'rows', key: 'reasons' },
+            fleet.reboots.map((one) =>
+              h(
+                'li',
+                { key: one.reason.name, class: `row reason-row ${one.reason.expected ? '' : 'is-unexpected'}`.trim() },
+                reasonBadge(one.reason),
+                h(
+                  'span',
+                  { class: 'row-note dotted' },
+                  h('span', { key: 'count' }, plural(one.count, 'reboot', 'reboots')),
+                  one.boards > 0 ? h('span', { key: 'boards' }, `on ${plural(one.boards, 'board', 'boards')}`) : null,
+                  one.reason.expected ? null : h('span', { key: 'kind', class: 'reason-unexpected' }, 'unexpected')
+                ),
+                meter(
+                  Math.round((one.count / total) * 100),
+                  `${one.reason.name}: ${Math.round((one.count / total) * 100)} per cent of the reboots`
+                )
+              )
+            )
+          ),
+        ]
+  );
+}
+
+/** The software versions the boards last ran, as Memfault saw them, with whether its symbols are there. */
+export function versionsOf(fleet) {
+  const found = new Map();
+  for (const device of fleet.devices) {
+    const name = device.software ?? 'Not known';
+    found.set(name, (found.get(name) ?? 0) + 1);
+  }
+  const symbols = new Map(fleet.releases.map((one) => [one.version, one.symbols]));
+  return [...found.entries()]
+    .map(([version, boards]) => ({ version, boards, symbols: symbols.get(version) ?? null }))
+    .sort((a, b) => b.boards - a.boards || (a.version < b.version ? 1 : -1));
+}
+
+function versionCard(fleet) {
+  const versions = versionsOf(fleet);
+  return card(
+    { key: 'fleet-versions', title: 'Software versions', className: 'memfault-fleet' },
+    versions.length === 0
+      ? h('p', { class: 'quiet', key: 'none' }, 'Memfault knows no board yet.')
+      : h(
+          'ul',
+          { class: 'rows', key: 'versions' },
+          versions.map((one) =>
+            h(
+              'li',
+              { key: one.version, class: 'row version-row' },
+              h(
+                'div',
+                { class: 'row-main' },
+                h('span', { class: 'row-title mono' }, one.version),
+                h(
+                  'span',
+                  { class: 'row-note' },
+                  one.symbols === true
+                    ? 'Symbols uploaded'
+                    : one.symbols === false
+                      ? 'No symbols: its crashes have no backtrace'
+                      : 'Not a release in Memfault'
+                )
+              ),
+              h('span', { class: 'row-value' }, plural(one.boards, 'board', 'boards'))
+            )
+          )
+        ),
+    fleet.releases.length > 0
+      ? h(
+          'p',
+          { class: 'card-note', key: 'releases' },
+          `${plural(fleet.releases.length, 'release', 'releases')} in Memfault in all.`
+        )
+      : null
+  );
+}
+
+// The metrics each board's row shows on the Memfault page, in this order, when it sent them.
+export const FLEET_METRICS = Object.freeze([
+  'power_usb_present',
+  'supply_mv',
+  'wifi_sta_rssi',
+  'wifi_primary_channel',
+  'cpu_usage_pct',
+  'Heap_BytesFree',
+  'memory_sysworkq_pct_max',
+  'stuck_restart_count',
+]);
+
+function latestCard(fleet, now) {
+  return card(
+    { key: 'fleet-metrics', title: 'Latest metrics', className: 'memfault-fleet' },
+    fleet.boards.length === 0
+      ? h('p', { class: 'quiet', key: 'none' }, 'No heartbeat in the last 7 days.')
+      : h(
+          'ul',
+          { class: 'rows', key: 'boards' },
+          fleet.boards.map((board) => {
+            const shownKeys = FLEET_METRICS.filter((key) => Object.hasOwn(board.values, key));
+            return h(
+              'li',
+              { key: board.serial, class: 'row metric-row' },
+              h(
+                'div',
+                { class: 'row-main' },
+                board.thing
+                  ? h('a', { href: `#/devices/${board.thing}`, class: 'row-title mono' }, board.thing)
+                  : h('span', { class: 'row-title mono' }, board.serial),
+                shownKeys.length === 0
+                  ? h(
+                      'span',
+                      { class: 'row-note' },
+                      board.unnamed > 0
+                        ? 'Its heartbeats have no names yet: Memfault lacks the symbols of its build.'
+                        : 'None of the key metrics in its heartbeat.'
+                    )
+                  : h(
+                      'dl',
+                      { class: 'metric-values' },
+                      shownKeys.map((key) =>
+                        h(
+                          'div',
+                          { key, class: 'metric-value' },
+                          h('dt', null, metricOf(key).label),
+                          h('dd', null, metricText(key, board.values[key]))
+                        )
+                      )
+                    )
+              ),
+              board.at ? h('span', { class: 'row-value' }, when(board.at, now)) : null
+            );
+          })
+        )
+  );
+}
+
+/** The fleet's three groups, under the issues: or why they are not there. */
+function fleetCards(ctx) {
+  const target = ctx.state.memfault?.fleet ?? resource();
+  const data = target.value;
+  if (!data) {
+    return target.error ? loadProblem(target, 'the fleet in Memfault', ctx) : pending(target, 'the fleet');
+  }
+  return [
+    loadProblem(target, 'the fleet in Memfault', ctx),
+    rebootCard(data),
+    versionCard(data),
+    latestCard(data, ctx.state.now),
+  ];
+}
+
+// A board's metric charts.
+
+/** The range chosen for the charts of a board's page. */
+function rangeNow(state) {
+  return RANGES.find((one) => one.id === state.memfault?.range) ?? RANGES[0];
+}
+
+function chooseRange(id) {
+  if (!tools?.state.memfault || !RANGES.some((one) => one.id === id)) return;
+  tools.state.memfault.range = id;
+  tools.draw();
+}
+
+function rangeTools(range) {
+  return h(
+    'div',
+    { class: 'segmented metric-range', role: 'group', 'aria-label': 'Time range', key: 'range' },
+    RANGES.map((one) =>
+      h(
+        'button',
+        {
+          key: one.id,
+          type: 'button',
+          class: 'segmented-option',
+          'aria-pressed': one.id === range.id ? 'true' : 'false',
+          title: `Show ${one.name}`,
+          onClick: () => chooseRange(one.id),
+        },
+        one.label
+      )
+    )
+  );
+}
+
+/** One metric's chart over the range, in its unit, with its known scale or one made to fit. */
+function metricChart(ctx, thing, key, all, span) {
+  const metric = metricOf(key);
+  const points = all
+    .filter((point) => point.ms >= span.fromMs && point.ms <= span.toMs)
+    .map((point) => ({ ms: point.ms, v: shown(key, point.v) }));
+  const values = points.length > 0 ? points.map((point) => point.v) : all.map((point) => shown(key, point.v));
+  const { yMin, yMax, yTicks } = metric.fixed
+    ? { yMin: metric.fixed[0], yMax: metric.fixed[1], yTicks: metric.fixed[2] }
+    : niceScale(values, { zero: metric.zero !== false });
+  return lineChart(ctx, {
+    key: `memfault-${thing}-${key}`,
+    title: metric.label,
+    unit: metric.unit,
+    axisUnit: metric.axis,
+    points,
+    fromMs: span.fromMs,
+    toMs: span.toMs,
+    yMin,
+    yMax,
+    yTicks,
+    refs: metric.refs ?? [],
+    format: metric.format,
+    tickFormat: metric.tick ?? ((value) => value.toLocaleString('en-US', { maximumFractionDigits: 2 })),
+    // A heartbeat each hour: a line breaks where more than two are missing.
+    gapMs: 2.5 * HOUR_MS,
+    words: metric.words,
+    describe: `${key} from the hourly Memfault heartbeat`,
+    emptyText: `No heartbeat in ${span.name}.`,
+  });
+}
+
+/** The keys a board sent, by group, in the order of the catalogue and then by name. */
+export function groupedKeys(keys) {
+  const order = Object.keys(METRICS);
+  const rank = (key) => (order.includes(key) ? order.indexOf(key) : order.length);
+  return GROUPS.map(([id, title]) => ({
+    id,
+    title,
+    keys: keys.filter((key) => metricOf(key).group === id).sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : 1)),
+  })).filter((group) => group.keys.length > 0);
+}
+
+/**
+ * The Memfault metrics of a board's page: a chart of each key its heartbeats had in the week, grouped,
+ * over the last 24 hours or 7 days.
+ */
+export function metricsSection(thing, ctx) {
+  const target = ctx.state.memfault?.boards.get(thing) ?? null;
+  if (target === null) return null;
+  const data = target.value;
+  if (!data || data.memfault.state !== 'ok' || !data.known) {
+    // The card "In Memfault" says why there is nothing; this one waits for the data.
+    if (data || target.error) return null;
+    return card(
+      { key: 'memfault-metrics', title: 'Memfault metrics', className: 'memfault-metrics' },
+      loading('the metrics')
+    );
+  }
+  const range = rangeNow(ctx.state);
+  const toMs = Date.parse(data.to ?? '') || ctx.state.now;
+  const span = { fromMs: toMs - range.hours * HOUR_MS, toMs, name: range.name };
+  const keys = Object.keys(data.metrics.series);
+  const unnamed =
+    data.metrics.unnamed > 0
+      ? h(
+          'p',
+          { class: 'card-note', key: 'unnamed' },
+          `${plural(data.metrics.unnamed, 'heartbeat', 'heartbeats')} of the week came without names: Memfault lacks the symbols of their build.`
+        )
+      : null;
+  return card(
+    { key: 'memfault-metrics', title: 'Memfault metrics', className: 'memfault-metrics' },
+    h(
+      'div',
+      { class: 'metric-head', key: 'head' },
+      rangeTools(range),
+      h('span', { class: 'quiet' }, 'From the hourly heartbeat')
+    ),
+    keys.length === 0
+      ? h('p', { class: 'quiet', key: 'none' }, 'No heartbeat with metrics in the last 7 days.')
+      : groupedKeys(keys).map((group) =>
+          h(
+            'div',
+            { class: 'metric-group', key: group.id },
+            h('h3', { class: 'card-sub' }, group.title),
+            h(
+              'div',
+              { class: 'metric-charts' },
+              group.keys.map((key) => metricChart(ctx, thing, key, data.metrics.series[key], span))
+            )
+          )
+        ),
+    unnamed
+  );
 }

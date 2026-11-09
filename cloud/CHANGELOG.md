@@ -7,6 +7,18 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.11.0
+
+Memfault's metrics in the console: a board's page charts its hourly heartbeat (power, Wi-Fi signal and channel, CPU, heap and stacks, the connection, stuck restarts, boot time and any other key) over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason with the unexpected ones marked, the software versions on the boards, and each board's latest key metrics.
+
+memfault-page.js `metricsSection` is a new card of a board's page ("Memfault metrics", listed in
+apps/shared/pages.json): every key of `GET /api/devices/{thing}/memfault` as a chart, grouped, with names and units
+for the firmware's and the SDK's keys (`METRICS`; percentages arrive in hundredths, times in ms) and the key itself
+for any other. The charts are telemetry.js `lineChart`, now exported, so there is no new library and the page's policy
+is unchanged. The Memfault page reads `GET /api/memfault/fleet` too (core.js `memfaultRequest` allows it) for three
+more groups: reboots by reason with their share, versions with whether Memfault has their symbols, and a row per board
+of its latest metrics. The API is unchanged. docs/memfault.md, "In the console".
+
 ## 2.10.1
 
 The iPhone app no longer shows the Serial console or Board setup, which need a USB serial port an iPhone does not have. The Android app (0.8.8) has both, with the board on the phone's USB cable.

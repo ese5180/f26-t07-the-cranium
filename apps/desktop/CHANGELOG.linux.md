@@ -4,6 +4,13 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-linux-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.5
+
+The console's Memfault pages in the app (console 2.11.0 and later): a board's page charts its Memfault heartbeat metrics over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason, the software versions and each board's latest metrics.
+
+The board card "Memfault metrics" is in apps/shared/pages.json, so `test/pages.test.mjs` checks that the console draws it and that
+its route takes the app's sign-in. Nothing else in the app changed.
+
 ## 0.1.4
 
 The console's Database page comes with the app, under Developer, for release managers: the console's tables, read only, with filters, each item's fields, and an export as CSV or JSON that is saved where you choose.

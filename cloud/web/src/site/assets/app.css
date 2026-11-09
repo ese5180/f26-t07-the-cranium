@@ -10749,6 +10749,92 @@ span.glance-item:hover {
   margin: 0;
 }
 
+/*
+ * Memfault part 2 (console 2.11): the fleet's groups on the Memfault page (reboots by reason, the
+ * versions, each board's latest metrics) as rows, and a board's metric charts, one column on a phone and
+ * two from the sidebar's width. The charts are telemetry.js lineChart's, so they look as Diagnostics'.
+ */
+.console .reason-row,
+.console .version-row,
+.console .metric-row {
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--tap);
+}
+
+.console .reason-row > .row-note {
+  flex: 1 1 160px;
+}
+
+.console .reason-row > .meter {
+  flex: 1 1 100%;
+  max-width: none;
+  height: 6px;
+}
+
+.console .reason-row.is-unexpected .meter-fill {
+  background: var(--bad);
+}
+
+.console .reason-unexpected {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.console .row-value {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.console .metric-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+
+.console .metric-value {
+  display: grid;
+  min-width: 0;
+}
+
+.console .metric-value dt {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.console .metric-value dd {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.console .metric-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.console .metric-group {
+  min-width: 0;
+}
+
+.console .metric-charts {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+@media (min-width: 861px) {
+  .console .metric-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .console .memfault-open {
   margin: var(--space-3) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
   border-top: 1px solid var(--line);
