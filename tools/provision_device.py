@@ -9,6 +9,8 @@
     python tools/provision_device.py --board nrf5340dk                 a board with Bluetooth only
     python tools/provision_device.py --board nrf5340dk --new-passkey   give it a new passkey
     python tools/provision_device.py --board nrf5340dk --no-register   give it none
+    python tools/provision_device.py --via console   register it through the console, with a console token
+    python tools/provision_device.py --via aws       register it with the AWS CLI, as an administrator
 
 What it does for an nRF7002 DK (--board nrf7002dk, the default), in order:
 
@@ -41,17 +43,30 @@ The console is reached with a console token (CRANIUM_TOKEN or ~/.cranium/console
 scripts/firmware/check-image.sh does. See src/bt_passkey.h in the firmware for what a passkey that does not
 change costs, and when to give a board a new one.
 
-Needs the AWS CLI with a signed-in profile, and the cloud stack deployed
-(cloud/deploy.sh writes cloud/.deploy/outputs.json). Run from an nRF Connect SDK
-terminal so that pyserial is available.
+Registering the board goes one of two ways (--via, docs/new-board-setup.md):
+
+- console: through the console's POST /api/t/devices/register, with a release manager's console token.
+  The board's request goes to the console, which has AWS IoT issue the certificate and hands back the
+  certificate, the root CA, the endpoint and the download address. No AWS CLI, no AWS account and no
+  cloud/.deploy/outputs.json are needed. The console's address is --console, else CRANIUM_CONSOLE_URL, else
+  ConsoleUrl in cloud/.deploy/outputs.json, else consoleUrl in apps/config/cranium.json.
+- aws: with the AWS CLI, signed in as an administrator with --profile, and the cloud stack's outputs in
+  cloud/.deploy/outputs.json (cloud/deploy.sh writes it).
+
+The default, auto, takes aws when this computer is signed in to AWS and has the outputs, and else the
+console when there is a console token. A board registered before, and wiped since, needs --new-identity
+either way: the console refuses to replace a board's certificate without it, and the old one is retired.
+Run from an nRF Connect SDK terminal so that pyserial is available.
 """
 
 import argparse
 import base64
 import hashlib
 import json
+import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -81,6 +96,12 @@ BT_NAME_PREFIX = "Cranium-"
 # The operating system's random source (os.urandom). Not the secrets module: tools/secrets.py, which
 # keeps the Wi-Fi secrets file, has that name, and comes first on the path of a tool run from here.
 SYSTEM_RANDOM = random.SystemRandom()
+# Provisioning through the console (docs/new-board-setup.md): its route, and what its answer must look like.
+REGISTER_PATH = "/devices/register"
+CONSOLE_ADDRESS = re.compile(r"^(https://[A-Za-z0-9.-]+(:[0-9]{1,5})?|http://(127\.0\.0\.1|localhost)(:[0-9]{1,5})?)$")
+ENDPOINT = re.compile(r"^[a-z0-9]{10,20}-ats\.iot\.[a-z]{2}(-[a-z]+)+-\d{1,2}\.amazonaws\.com$")
+DOWNLOAD_PREFIX = re.compile(r"^https://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.s3\.[a-z]{2}(-[a-z]+)+-\d{1,2}"
+                             r"\.amazonaws\.com/firmware/$")
 
 
 def fail(message: str) -> None:
@@ -243,29 +264,136 @@ class ConsoleApi:
         self.url = url.rstrip("/")
         self.token = token
 
-    def call(self, method: str, path: str, body: dict | None = None) -> int:
+    def send(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict | None]:
+        """(HTTP status, the answer's JSON object or None). Status 0 when the console was not reached."""
         data = None if body is None else json.dumps(body).encode()
         request = urllib.request.Request(f"{self.url}/api/t{path}", data=data, method=method,
                                          headers={"Authorization": f"Bearer {self.token}",
                                                   "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=20) as answer:
-                return answer.status
+            with urllib.request.urlopen(request, timeout=30) as answer:
+                status, text = answer.status, answer.read()
         except urllib.error.HTTPError as error:
-            return error.code
+            status, text = error.code, error.read()
+        except (urllib.error.URLError, OSError, ValueError):
+            return 0, None
+        try:
+            parsed = json.loads(text) if text else None
+        except ValueError:
+            parsed = None
+        return status, parsed if isinstance(parsed, dict) else None
+
+    def call(self, method: str, path: str, body: dict | None = None) -> int:
+        return self.send(method, path, body)[0]
 
 
-def console_api() -> ConsoleApi:
+def console_api(purpose: str = "the board's passkey", alternative: str = "pass --no-register to give the "
+                "board no passkey of its own") -> ConsoleApi:
     try:
         token = console_token()
     except PermissionError as error:
         fail(str(error))
     url = console_url()
-    if token is None or url is None:
-        fail("the console is needed for the board's passkey: give a console token in CRANIUM_TOKEN or "
-             "~/.cranium/console-token (the console's Tokens page), or pass --no-register to give the "
-             "board no passkey of its own")
+    if token is None:
+        fail(f"the console is needed for {purpose}: give a console token in CRANIUM_TOKEN or "
+             f"~/.cranium/console-token (the console's Developer > API tokens), or {alternative}")
+    if url is None:
+        fail(f"the console is needed for {purpose}, and its address is not known: pass --console "
+             "https://<the console>, or set CRANIUM_CONSOLE_URL")
+    if not CONSOLE_ADDRESS.match(url):
+        fail("the console's address must be an https:// address")
     return ConsoleApi(url, token)
+
+
+def has_token() -> bool:
+    try:
+        return console_token() is not None
+    except PermissionError:
+        return True  # It is there; console_api() says what is wrong with it.
+
+
+def aws_signed_in(profile: str) -> bool:
+    """Whether the AWS way can be taken: the stack's outputs, the AWS CLI, and a sign-in that holds.
+    What `aws sts` says names the account, so none of it is kept."""
+    if not OUTPUTS.exists() or shutil.which("aws") is None:
+        return False
+    try:
+        region = json.loads(OUTPUTS.read_text()).get("Region") or "us-east-1"
+        result = subprocess.run(["aws", "sts", "get-caller-identity", "--profile", profile, "--region", region,
+                                 "--output", "json", "--no-cli-pager"], capture_output=True, text=True, timeout=60)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def choose_way(args) -> str:
+    """console or aws, by --via: auto takes aws when this computer is signed in to it, else the console."""
+    if args.via != "auto":
+        return args.via
+    if aws_signed_in(args.profile):
+        return "aws"
+    if has_token():
+        print("Registering the board through the console, with your console token: no AWS sign-in is needed.")
+        return "console"
+    fail("the board cannot be registered: this computer has no console token and is not signed in to AWS. "
+         "Make a console token (the console's Developer > API tokens, as a release manager) and keep it in "
+         "~/.cranium/console-token, or sign in to AWS as an administrator with cloud/.deploy/outputs.json "
+         "(docs/new-board-setup.md)")
+
+
+def board_id(thing: str) -> str:
+    """The identifier the console registers a board by: the 16 hex digits of cranium-<id>."""
+    if not re.fullmatch(r"cranium-[0-9a-f]{16}", thing):
+        fail(f"the console registers boards named cranium- and 16 hex digits, and this one is {thing}: "
+             "register it with --via aws")
+    return thing.removeprefix(THING_PREFIX)
+
+
+def register_through_console(api: ConsoleApi, thing: str, csr: str, reregister: bool) -> dict:
+    """POST /api/devices/register: the board's certificate, the root CA, the endpoint and the download
+    address, each checked before anything goes to the board."""
+    status, answer = api.send("POST", REGISTER_PATH, {"id": board_id(thing), "csr": csr, "reregister": reregister})
+    error = (answer or {}).get("error") if isinstance((answer or {}).get("error"), dict) else {}
+    if status == 0:
+        fail("the console could not be reached. Nothing was registered")
+    if status in (404, 405):
+        fail("this console cannot register boards yet (it needs console 2.6.1): use --via aws")
+    if status == 409 and error.get("code") == "already_registered":
+        fail(f"{thing} was registered before. If the board was wiped, run this again with --new-identity, "
+             "which retires its old certificate")
+    if status == 403:
+        fail("the console refused: registering a board takes a release manager's console token")
+    if status == 429:
+        fail("the console refused: " + str(error.get("message") or "too many boards registered in the last hour"))
+    if status != 200 or answer is None:
+        fail(f"the console did not register the board ({status}): {error.get('message') or 'no reason given'}")
+    if answer.get("thing") != thing:
+        fail("the console answered for another board. Nothing was sent to this one")
+    endpoint, prefix = answer.get("endpoint"), answer.get("downloadPrefix")
+    if not isinstance(endpoint, str) or not ENDPOINT.match(endpoint):
+        fail("the console's answer has no AWS IoT endpoint. Nothing was sent to the board")
+    if not isinstance(prefix, str) or not DOWNLOAD_PREFIX.match(prefix):
+        fail("the console's answer has no download address. Nothing was sent to the board")
+    try:
+        certificate = pem_to_der(str(answer.get("certificatePem") or ""))
+        root = pem_to_der(str(answer.get("rootCa") or ""))
+    except ValueError:
+        fail("the console's answer is not a certificate. Nothing was sent to the board")
+    if not certificate:
+        fail("the console's answer has no certificate. Nothing was sent to the board")
+    if hashlib.sha256(root).hexdigest() != ROOT_CA_SHA256:
+        fail("the root CA from the console is not Amazon Root CA 1. Nothing was sent to the board")
+    print(f"Registered {thing} through the console, with a certificate for the board's own key")
+    return {"certificate": certificate, "endpoint": endpoint, "prefix": prefix}
+
+
+def register_bluetooth_only_through_console(thing: str, board: str) -> None:
+    api = console_api("registering the board", "register it with --via aws")
+    status, answer = api.send("POST", REGISTER_PATH, {"id": board_id(thing), "board": board})
+    if status != 200:
+        message = ((answer or {}).get("error") or {}).get("message") if answer else None
+        fail(f"the console did not register the board ({status or 'not reached'}): {message or 'no reason given'}")
+    print(f"Registered {thing} through the console as a {board}, with no certificate: it never connects")
 
 
 def pairing_path(thing: str) -> str:
@@ -307,9 +435,12 @@ def register_bluetooth_only_thing(aws: "Aws", outputs: dict, thing: str, board: 
 def provision_bluetooth_only(console: Console, status: dict[str, str], args) -> None:
     """An nRF5340 DK: a thing, and the board's own passkey, registered with the console first."""
     thing = status["thing name"]
-    outputs = load_outputs()
-    aws = Aws(args.profile, outputs["Region"])
-    register_bluetooth_only_thing(aws, outputs, thing, args.board)
+    if choose_way(args) == "console":
+        register_bluetooth_only_through_console(thing, args.board)
+    else:
+        outputs = load_outputs()
+        aws = Aws(args.profile, outputs["Region"])
+        register_bluetooth_only_thing(aws, outputs, thing, args.board)
 
     has_passkey = status.get("bt passkey") == "set"
     if args.no_register:
@@ -379,7 +510,14 @@ def main() -> None:
                         help="nrf5340dk: give the board a new passkey, and register it with the console")
     parser.add_argument("--no-register", action="store_true",
                         help="nrf5340dk: give the board no passkey of its own, and leave the console be")
+    parser.add_argument("--via", choices=("auto", "console", "aws"), default="auto",
+                        help="register the board through the console with a console token, or with the AWS CLI "
+                             "(default auto: AWS when signed in to it, else the console)")
+    parser.add_argument("--console", help="the console's address, https://... (default: CRANIUM_CONSOLE_URL, "
+                                          "cloud/.deploy/outputs.json, apps/config/cranium.json)")
     args = parser.parse_args()
+    if args.console:
+        os.environ["CRANIUM_CONSOLE_URL"] = args.console
     if args.board == DEFAULT_BOARD and (args.new_passkey or args.no_register):
         fail("--new-passkey and --no-register are for a board with Bluetooth only: --board nrf5340dk")
     if args.new_passkey and args.no_register:
@@ -432,28 +570,49 @@ def main() -> None:
                 if args.wifi:
                     return
 
-            outputs = load_outputs()
-            aws = Aws(args.profile, outputs["Region"])
-
             needs_identity = (args.new_identity or status.get("private key") != "set"
                               or status.get("certificate") != "set")
-            if needs_identity:
-                # A key without its certificate cannot be reused: the request is only
-                # printed when the key is created.
-                replace = status.get("private key") == "set"
-                csr = request_from_board(console, replace)
-                certificate = register_in_aws(aws, outputs, thing, csr)
-                load_certificate(console, certificate, "CERT")
-                print("Device certificate stored on the board")
+            if choose_way(args) == "console":
+                api = console_api("registering the board", "register it with --via aws")
+                if not needs_identity and status.get("endpoint", "unset") == "unset":
+                    fail("the board has its certificate and no cloud settings, which the console gives only with "
+                         "a new certificate: run this again with --new-identity")
+                if needs_identity:
+                    replace = status.get("private key") == "set"
+                    # Checked before the board makes a key, so that a refusal changes nothing on it.
+                    board_id(thing)
+                    csr = request_from_board(console, replace)
+                    given = register_through_console(api, thing, csr, reregister=args.new_identity)
+                    load_certificate(console, given["certificate"], "CERT")
+                    print("Device certificate stored on the board")
+                    load_certificate(console, root_ca_der(), "CA")
+                    print("Amazon Root CA 1 stored on the board")
+                    console.run(f"CLOUD|{given['endpoint']}|{given['prefix']}", wait=5)
+                    print("Cloud settings stored on the board")
+                elif status.get("root CA") != "set":
+                    load_certificate(console, root_ca_der(), "CA")
+                    print("Amazon Root CA 1 stored on the board")
+            else:
+                outputs = load_outputs()
+                aws = Aws(args.profile, outputs["Region"])
 
-            if needs_identity or status.get("root CA") != "set":
-                load_certificate(console, root_ca_der(), "CA")
-                print("Amazon Root CA 1 stored on the board")
+                if needs_identity:
+                    # A key without its certificate cannot be reused: the request is only
+                    # printed when the key is created.
+                    replace = status.get("private key") == "set"
+                    csr = request_from_board(console, replace)
+                    certificate = register_in_aws(aws, outputs, thing, csr)
+                    load_certificate(console, certificate, "CERT")
+                    print("Device certificate stored on the board")
 
-            endpoint = aws.call("iot", "describe-endpoint", "--endpoint-type",
-                                "iot:Data-ATS")["endpointAddress"]
-            console.run(f"CLOUD|{endpoint}|{outputs['FirmwareDownloadPrefix']}", wait=5)
-            print("Cloud settings stored on the board")
+                if needs_identity or status.get("root CA") != "set":
+                    load_certificate(console, root_ca_der(), "CA")
+                    print("Amazon Root CA 1 stored on the board")
+
+                endpoint = aws.call("iot", "describe-endpoint", "--endpoint-type",
+                                    "iot:Data-ATS")["endpointAddress"]
+                console.run(f"CLOUD|{endpoint}|{outputs['FirmwareDownloadPrefix']}", wait=5)
+                print("Cloud settings stored on the board")
 
             if not has_network:
                 print("The board is registered and has its certificate. It connects once it "

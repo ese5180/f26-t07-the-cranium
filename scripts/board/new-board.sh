@@ -17,7 +17,8 @@
 #   golden     tools/golden.py restore puts the golden image on, and you seal it with the gesture (nRF7002 DK)
 #   release    tools/recover.py upload: the newest release for the board's type, from the console or binaries/
 #   provision  tools/provision_device.py: device ID; Wi-Fi network, key and certificate (nRF7002 DK) or
-#              Bluetooth passkey (nRF5340 DK); the thing in AWS IoT
+#              Bluetooth passkey (nRF5340 DK); the thing in AWS IoT, through the console with a console token,
+#              or with the AWS CLI where this computer is signed in to AWS
 #   verify     what the board's console says, the console's view of it, and Bluetooth (nRF5340 DK)
 #
 # Options of setup:
@@ -33,6 +34,8 @@
 #   --no-register         nRF5340 DK: no passkey of its own (tools/provision_device.py --no-register)
 #   --new-passkey         nRF5340 DK: a new passkey (tools/provision_device.py --new-passkey)
 #   --port <port>         the board's console port, if the one found is wrong; --log-port, its log port
+#   --console <url>       the console's address, where neither CRANIUM_CONSOLE_URL, cloud/.deploy/outputs.json
+#                         nor apps/config/cranium.json says it
 #   --deep                check: also run scripts/ci/check-west-workspace.sh on the SDK
 #
 # Before it touches a board it checks this computer, finds the boards, refuses to go on unless exactly one is
@@ -44,6 +47,11 @@
 # ~/.nrfutil/bin/nrfutil, or the one on the PATH), and AWS with AWS_PROFILE (default cranium). The console
 # token is CRANIUM_TOKEN or ~/.cranium/console-token, as for scripts/firmware/ota.sh. docs/new-board-setup.md has the
 # same steps by hand, for when one of them fails. On Windows, run this in WSL2 (that document says how).
+#
+# A teammate needs no AWS account and no signing key: with a release manager's console token the board is
+# registered through the console, and without ~/.cranium/mcuboot_signing_key.pem the build makes the
+# bootloader with the team's public key (in git) and signs its own application with a throwaway key, which
+# that bootloader refuses; the board then gets the golden image from git and the console's newest release.
 
 set -euo pipefail
 
@@ -84,6 +92,10 @@ NO_REGISTER=false
 NEW_PASSKEY=false
 NEW_IDENTITY=false
 DEEP=false
+# How the board is registered: console or aws, as the checks find (check_registration), or left to
+# provision_device.py. And whether this computer has the signing key: without it, a build without one.
+PROVISION_VIA=""
+KEYLESS=false
 CURRENT_STEP=""
 TOOLCHAIN_LOADED=false
 CHECK_FAILS=0
@@ -195,6 +207,7 @@ while [ $# -gt 0 ]; do
     --no-register) NO_REGISTER=true ;;
     --new-passkey) NEW_PASSKEY=true ;;
     --new-identity) NEW_IDENTITY=true ;;
+    --console) need_value "$@"; export CRANIUM_CONSOLE_URL="$2"; shift ;;
     --deep) DEEP=true ;;
     -*) die "unknown option: $1" "See scripts/board/new-board.sh --help." ;;
     *)
@@ -206,6 +219,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Without the signing key the build takes the team's public key only (scripts/firmware/build.sh --without-key).
+[ -f "$KEY" ] || KEYLESS=true
 
 case "$BOARD_TYPE" in
   ""|nrf7002dk|nrf5340dk) ;;
@@ -499,9 +515,12 @@ check_boards() {
 
 check_key() {
   if [ ! -f "$KEY" ]; then
-    failed "no signing key at ~/.cranium/mcuboot_signing_key.pem" \
-      "Get the team's key from its custodian (secrets/README.md), put it there, and chmod 600 it." \
-      "Never make a new one with tools/keys.py generate: no board would take an image signed with it."
+    # Setting up a board needs none: the bootloader is built with the public key in git, and the board's
+    # firmware is the golden image from git and a release from the console, all signed by the key's custodian.
+    warned "no signing key at ~/.cranium/mcuboot_signing_key.pem: the build makes the bootloader with the team's public" \
+      "key and signs its own application with a throwaway key, which the bootloader refuses. The board gets" \
+      "the golden image and a signed release instead. To build releases, get the team's key from its custodian" \
+      "(secrets/README.md). Never make a new one with tools/keys.py generate: no board would take its images."
     return 0
   fi
   # The group's and others' permissions, of -rw-------.
@@ -526,7 +545,7 @@ check_golden() {
     pass "the golden image agrees with firmware/golden.json and the bootloader's pin"
   else
     failed "the golden image: $(sed -n 's/^error: //p' "$WORK/golden.txt" | head -n 1)" \
-      "Copy binaries/golden/ from whoever holds the signing key. It is not in git, and a rebuild won't match it"
+      "binaries/golden/ is in git: git checkout -- binaries/golden firmware/golden.json. A rebuild won't match it"
   fi
 }
 
@@ -568,6 +587,24 @@ check_aws() {
   else
     failed "not signed in to AWS with the profile $AWS_PROFILE" \
       "aws login --profile $AWS_PROFILE --region $AWS_REGION, as an administrator (aws login --remote with no browser)"
+  fi
+}
+
+# How the board is registered in AWS IoT. With a release manager's console token, through the console: no AWS
+# CLI, no AWS account and no outputs.json. Without one, with the AWS CLI as an administrator and the outputs.
+check_registration() {
+  local said_ status=0
+  said_="$(helper token --online 2>&1)" || status=$?
+  if [ "$status" -eq 0 ]; then
+    PROVISION_VIA=console
+    pass "the board is registered through the console with your console token: no AWS sign-in or outputs.json needed"
+    return 0
+  fi
+  PROVISION_VIA=aws
+  check_once outputs
+  check_once aws
+  if [ "$CHECK_FAILS" -gt 0 ]; then
+    note "      Or register it through the console instead: a release manager's console token is all it takes."
   fi
 }
 
@@ -656,8 +693,7 @@ cmd_check() {
   else
     check_once nrf5340dk_support
   fi
-  check_once outputs
-  check_once aws
+  check_once registration
   if [ "$BOARD_TYPE" = nrf5340dk ] && [ "$NO_REGISTER" = false ]; then
     check_once token yes
   else
@@ -690,8 +726,7 @@ preflight() {
         check_once token no ;;
       provision)
         check_once python
-        check_once outputs
-        check_once aws
+        check_once registration
         if [ "$BOARD_TYPE" = nrf7002dk ]; then
           check_once wifi
         else
@@ -776,9 +811,15 @@ check_build() {
 
 step_build() {
   say "Builds the bootloader, TF-M with the application at firmware/app/VERSION, and the network core's"
-  say "Bluetooth controller, each signed with your key, in $BUILD_NAME/. It uploads nothing."
+  if [ "$KEYLESS" = true ]; then
+    say "Bluetooth controller in $BUILD_NAME/, with no signing key: the bootloader takes the team's public key"
+    say "from firmware/keys/, and the application is signed with a throwaway key. It uploads nothing."
+  else
+    say "Bluetooth controller, each signed with your key, in $BUILD_NAME/. It uploads nothing."
+  fi
   local args=(--keep --no-upload)
   [ "$BOARD_TYPE" = nrf7002dk ] || args+=(--board "$BOARD_TYPE")
+  [ "$KEYLESS" = false ] || args+=(--without-key)
   if [ "$DRY_RUN" = true ]; then
     show_cmd scripts/firmware/build.sh "${args[@]}"
     return 0
@@ -806,6 +847,13 @@ step_flash() {
   need_toolchain
   run west flash -d "$BUILD_NAME" --recover --dev-id "$SERIAL" \
     || die "west flash did not finish" "Close any serial terminal on the board, check its USB cable and power switch."
+  if [ "$KEYLESS" = true ]; then
+    # Built without the signing key: the bootloader refuses this build's application, as it refuses anything
+    # not signed with the team's key, and waits in serial recovery for the next step's image.
+    ok "flashed. The bootloader waits in serial recovery: this computer's build of the application is signed with a"
+    note "throwaway key, which it refuses. The next step puts a signed image on."
+    return 0
+  fi
   board_says --wait 90 --expect-state FACTORY \
     || die "the board does not answer on $PORT in factory mode after the flash" \
       "If it is the wrong port: --port <the other one>. scripts/board/new-board.sh list shows them."
@@ -894,7 +942,9 @@ step_release() {
   say "Installs the newest signed release for the $LABEL through serial recovery, in place of the image the"
   say "board runs now: the one given with --image, or the console's newest (with a console token), or the newest"
   say "in binaries/."
-  local args=(release --board "$BOARD_TYPE" --fallback "$BUILD_NAME/app/zephyr/zephyr.signed.bin" --out-dir "$STATE_DIR/images")
+  local args=(release --board "$BOARD_TYPE" --out-dir "$STATE_DIR/images")
+  # A build without the signing key has an application no bootloader starts: it is never the fallback.
+  [ "$KEYLESS" = true ] || args+=(--fallback "$BUILD_NAME/app/zephyr/zephyr.signed.bin")
   local layout
   # The flash layout the bootloader on the board was built for: serial recovery does not check it.
   layout="$(sed -n 's/^CONFIG_APP_IMAGE_LAYOUT=\([0-9][0-9]*\)$/\1/p' "$BUILD_NAME/app/zephyr/.config" 2> /dev/null || true)"
@@ -937,6 +987,7 @@ step_provision() {
   local args=(-u tools/provision_device.py --port "$PORT" --profile "$AWS_PROFILE")
   [ -z "$DEVICE_ID" ] || args+=(--id "$DEVICE_ID")
   [ "$NEW_IDENTITY" = false ] || args+=(--new-identity)
+  [ -z "$PROVISION_VIA" ] || args+=(--via "$PROVISION_VIA")
   if [ "$BOARD_TYPE" = nrf5340dk ]; then
     args+=(--board nrf5340dk)
     [ "$NO_REGISTER" = false ] || args+=(--no-register)

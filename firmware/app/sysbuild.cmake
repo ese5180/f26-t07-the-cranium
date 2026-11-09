@@ -9,11 +9,21 @@ if("$ENV{HOME}" STREQUAL "")
     "HOME/.cranium; on Windows set HOME to your user profile directory.")
 endif()
 set(cranium_signing_key "$ENV{HOME}/.cranium/mcuboot_signing_key.pem")
-if(NOT EXISTS "${cranium_signing_key}")
+if(DEFINED CRANIUM_BOOTLOADER_KEY)
+  # A build without the signing key (scripts/firmware/build.sh --without-key), to set up a board: the
+  # bootloader takes this public key, the team's, and the application is signed with the throwaway key
+  # given as SB_CONFIG_BOOT_SIGNATURE_KEY_FILE, which that bootloader refuses. imgtool reads a public key
+  # for the bootloader's copy of it as well as a private one.
+  if(NOT EXISTS "${CRANIUM_BOOTLOADER_KEY}")
+    message(FATAL_ERROR "CRANIUM_BOOTLOADER_KEY names no file: ${CRANIUM_BOOTLOADER_KEY}")
+  endif()
+  set_config_string(mcuboot CONFIG_BOOT_SIGNATURE_KEY_FILE "${CRANIUM_BOOTLOADER_KEY}")
+elseif(NOT EXISTS "${cranium_signing_key}")
   message(FATAL_ERROR
     "Firmware signing key not found at ${cranium_signing_key}\n"
-    "Run `python tools/keys.py generate` to create one, or place the team key there. "
-    "The key is deliberately kept outside the repository.")
+    "Place the team key there (secrets/README.md), or set up a board without it: "
+    "scripts/firmware/build.sh --keep --no-upload --without-key. Never make a new one: no board would take "
+    "its images. The key is deliberately kept outside the repository.")
 endif()
 
 # Building the network-core image does not start that core: the application has to
