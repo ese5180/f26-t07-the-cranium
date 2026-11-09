@@ -204,6 +204,7 @@ enum Icon {
         case "plus": return "plus"
         case "arrow-right": return "chevron.right"
         case "bluetooth": return "dot.radiowaves.left.and.right"
+        case "bell": return "bell"
         default: return "circle"
         }
     }

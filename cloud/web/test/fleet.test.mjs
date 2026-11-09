@@ -868,7 +868,45 @@ test("a staged rollout's page shows each stage: its boards, how far they are, an
   assert.equal(fleet.rolloutInterval(state), 0);
 });
 
+test("a health gate shows on the rollout's page, and when it stopped the rollout, the board and the Memfault issue", async () => {
+  const { state, answers, ctx } = connected({ route: { view: 'rollout', id: ROLLOUT } });
+  const gated = { ...structuredClone(STAGED), healthGate: { minutes: 10 } };
+  gated.canary.gatePassedAt = at(20 * 60_000);
+  answers.set(`GET /api/rollouts/${ROLLOUT}`, { rollout: gated });
+  await fleet.refreshRollout(false);
+  const page = draw(fleet.rolloutView(ctx));
+  assert.match(textOf(page), /Health gate: after the canary and each stage, the next waits 10 minutes/);
+  const read = fleet.readers.readRollout(gated);
+  assert.deepEqual([read.healthGate, read.canary.gatePassedAt], [{ minutes: 10 }, at(20 * 60_000)]);
+  assert.equal(fleet.readers.readRollout({ ...gated, healthGate: { minutes: 500 } }).healthGate, null);
+
+  const failed = structuredClone(gated);
+  failed.stage = 'stopped';
+  failed.stopped = {
+    code: 'health_failed',
+    text: `After stage 1, the health gate failed: ${B} has a new Memfault issue on this version, #21 "Assert at read"`,
+    at: at(60_000),
+    thing: B,
+    issue: { id: 21, title: 'Assert at read' },
+  };
+  state.rolloutDetails.get(ROLLOUT).value = fleet.readers.readRollout(failed);
+  const over = draw(fleet.rolloutView(ctx));
+  const notice = one(over, '.notice');
+  assert.match(textOf(notice), /Stopped\. After stage 1, the health gate failed/);
+  assert.equal(one(notice, 'a', '#21 Assert at read').getAttribute('href'), '#/memfault/21');
+  assert.match(textOf(notice), /Board: /);
+  assert.equal(core.REFUSAL_WORDS.invalid_healthGate, 'The health gate was not on or off with 0 to 120 minutes');
+});
+
 test('the stage choices: what is sent, the split the server will make, and the warnings', () => {
+  assert.deepEqual(
+    fleet.stageBody({ stages: 1, unit: 'even', sizes: [], soakMinutes: 0, healthGate: false, gateMinutes: 10 }),
+    {
+      stages: 1,
+      soakMinutes: 0,
+      healthGate: { on: false, minutes: 10 },
+    }
+  );
   const model = { stages: 3, unit: 'percent', sizes: [10, 30], soakMinutes: 5 };
   assert.deepEqual(fleet.stageBody(model), {
     stages: 3,
@@ -923,9 +961,11 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
       ],
       batch: { unit: 'count', sizes: [2] },
       soakMinutes: 5,
+      healthGate: { on: true, minutes: 15 },
       abortPercent: 20,
       reasons: {
         canary: 'One board, online, with a clean update history: it goes first.',
+        health: 'Health gate on, 15 minutes: the next stage waits for no new Memfault issue.',
         stages: '2 stages that grow (50% → 50%)',
         batch: '2 boards, and the last stage takes the rest.',
         soak: '5 minutes: a few minutes between stages.',
@@ -974,6 +1014,10 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
   assert.match(textOf(dialog), /Most of the group is offline \(3 of 5\)/);
   assert.match(textOf(dialog), /After the canary: stage 1, 2 boards; stage 2, 2 boards\./);
   assert.match(textOf(dialog), /the rest follow in 2 stages, each to all its boards at once/);
+  // The health gate: on, with the suggested minutes, and said in "What happens".
+  assert.match(textOf(dialog), /Health gate on, 15 minutes/);
+  assert.equal(all(dialog, 'input').find((el) => el.getAttribute('name') === 'health-gate').checked, true);
+  assert.match(textOf(dialog), /run it for 15 minutes with no new Memfault issue and no unexpected reboot/);
   const value = (key) => all(dialog, 'input').find((el) => el.getAttribute('min') !== null && key(el));
   assert.ok(
     value((el) => el.getAttribute('max') === '10' && String(el.value) === '2'),
@@ -1005,6 +1049,7 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
       stages: 3,
       soakMinutes: 5,
       batch: { unit: 'count', sizes: [2, 2] },
+      healthGate: { on: true, minutes: 15 },
       abortPercent: 20,
     },
   ]);

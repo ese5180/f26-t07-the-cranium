@@ -82,6 +82,9 @@ once, and when it is back it reads everything, since what changed meanwhile was 
 `{"action":"ping"}`, every 5 minutes keeps API Gateway's 10-minute idle limit away; the function answers it with
 nothing.
 
+An alert e-mail that went out (the alerts' item `S#...`, from console 2.13.0) is `what: "alerts"`, for the team only:
+the page reads `GET /api/alerts` and shows each new alert as a toast, whatever page is open ([`alerts.md`](alerts.md)).
+
 ## The phone apps
 
 The pages inside the apps ([mobile-apps.md](mobile-apps.md#the-app-shell)) have the same code, and use the live API

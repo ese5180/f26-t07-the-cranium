@@ -2118,6 +2118,16 @@ Resources:
                 Effect: Allow
                 Action: sns:Publish
                 Resource: !Ref AlertTopic
+              # The alert rules (pk ALR of the state table, console 2.12.0), read for the offline
+              # rule's minutes and whether each kind is on; nothing else of that table.
+              - Sid: ReadAlertRules
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ALR
 
   # The recorder: turns the messages of the three rules above into events and readings. It
   # is the API's code with another entry point (cloud/api/src/events.mjs), and is given
@@ -2144,6 +2154,8 @@ Resources:
           # The e-mail alerts: where they go, and the address they link to.
           ALERT_TOPIC_ARN: !Ref AlertTopic
           CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
+          # Where the alert rules are (pk ALR only: EventsRole ReadAlertRules).
+          STATE_TABLE: !Ref StateTable
 
   # A message that cannot be recorded is tried once more, and given up after an hour: the
   # event log is a view of the boards, and a backlog of old messages is worth less than
@@ -2348,7 +2360,8 @@ Resources:
   # The token the console's API reads Memfault's REST API with (docs/memfault.md, "In the console"):
   # an organization auth token, or a Viewer's "<e-mail>:<API key>". Made empty, like the project key;
   # cloud/deploy.sh stores ~/.cranium/memfault_org_token in it when that file exists. Only the API
-  # function may read it, and only to send GETs to Memfault.
+  # function and the staged rollouts' schedule (the health gate and the alert rules, console 2.12.0)
+  # may read it, and only to send GETs to Memfault.
   MemfaultOrgToken:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -2493,6 +2506,7 @@ Resources:
                       - ROL
                       - GRP
                       - SEEN
+                      - ALR
               - Sid: WriteRollouts
                 Effect: Allow
                 Action: dynamodb:UpdateItem
@@ -2569,6 +2583,12 @@ Resources:
                 Effect: Allow
                 Action: sns:Publish
                 Resource: !Ref AlertTopic
+              # The health gate of the rollouts and the alert rules on Memfault's data (console
+              # 2.12.0): the token for GETs of Memfault's REST API, as the API function reads it.
+              - Sid: ReadMemfaultOrgToken
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref MemfaultOrgToken
               - Sid: NeverChangeAuditEntries
                 Effect: Deny
                 Action:
@@ -2620,6 +2640,10 @@ Resources:
           # the e-mail's link.
           ALERT_TOPIC_ARN: !Ref AlertTopic
           CONSOLE_URL: !If [HasConsoleDomain, !Sub 'https://${ConsoleDomainName}/', !Sub '${Api.ApiEndpoint}/']
+          # The health gate and the alert rules read Memfault (aws-memfault-api.mjs).
+          MEMFAULT_TOKEN_SECRET_ARN: !Ref MemfaultOrgToken
+          MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug
+          MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug
 
   # One run at a time is enough, and a run that fails is not tried again: the next minute's is.
   RolloutTickInvokeConfig:
@@ -2887,6 +2911,8 @@ Resources:
         Filters:
           - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"Keys":{"sk":{"S":[{"prefix":"E#"}]}}}}'
           - Pattern: '{"eventName":["INSERT","MODIFY"],"dynamodb":{"Keys":{"pk":{"S":[{"prefix":"UPD#"}]}}}}'
+          # An alert e-mail that went out (console 2.12.0): the open pages of the team show it at once.
+          - Pattern: '{"eventName":["INSERT"],"dynamodb":{"Keys":{"pk":{"S":["ALERTS"]},"sk":{"S":[{"prefix":"S#"}]}}}}'
 
   LiveStateStream:
     Type: AWS::Lambda::EventSourceMapping

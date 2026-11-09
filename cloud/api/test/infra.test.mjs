@@ -508,7 +508,7 @@ test('the recorder is a function of its own: own log, own role, PutItem on the e
   // It is told the events table, and for the alerts their topic and the console's address, and nothing else.
   assert.deepEqual(
     [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['EVENTS_TABLE', 'ALERT_TOPIC_ARN', 'CONSOLE_URL']
+    ['EVENTS_TABLE', 'ALERT_TOPIC_ARN', 'CONSOLE_URL', 'STATE_TABLE']
   );
   assert.ok(block(template, 'EventsLogGroup').includes('RetentionInDays: 90'));
 
@@ -516,13 +516,23 @@ test('the recorder is a function of its own: own log, own role, PutItem on the e
   assert.ok(role.includes('Service: lambda.amazonaws.com'));
   assert.deepEqual(
     [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
-    ['WriteOwnLog', 'RecordEvents', 'ReadAlerts', 'SendAlerts']
+    ['WriteOwnLog', 'RecordEvents', 'ReadAlerts', 'SendAlerts', 'ReadAlertRules']
   );
   const record = statement(role, 'RecordEvents');
   assert.ok(record.includes('Action: dynamodb:PutItem\n'));
   assert.ok(record.includes('Resource: !GetAtt EventsTable.Arn'));
-  // It reads the alerts' own partition, and nothing else of the table (map-infra.test.mjs).
-  assert.deepEqual(role.match(/dynamodb:\w+/g), ['dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:LeadingKeys']);
+  // It reads the alerts' own partition, and nothing else of the table (map-infra.test.mjs), and of the
+  // state table only the alert rules.
+  assert.deepEqual(role.match(/dynamodb:\w+/g), [
+    'dynamodb:PutItem',
+    'dynamodb:Query',
+    'dynamodb:LeadingKeys',
+    'dynamodb:Query',
+    'dynamodb:LeadingKeys',
+  ]);
+  const rules = statement(role, 'ReadAlertRules');
+  assert.ok(rules.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.match(rules, /dynamodb:LeadingKeys:\n\s+- ALR\n?/);
   assert.ok(statement(role, 'WriteOwnLog').includes('Resource: !GetAtt EventsLogGroup.Arn'));
   assert.equal(/Resource: '\*'/.test(role), false);
 
@@ -707,6 +717,7 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'ReadAlerts',
       'WriteAlerts',
       'SendAlerts',
+      'ReadMemfaultOrgToken',
       'NeverChangeAuditEntries',
     ]
   );
@@ -720,7 +731,7 @@ test('staged rollouts move on every minute, in a function of their own that can 
   const reads = statement(role, 'ReadReleasesAndFleet');
   assert.deepEqual(
     [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN']
+    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR']
   );
   assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
   // The events table only for the alerts' own part, and the alert topic only to publish to: the alert

@@ -95,6 +95,8 @@ test('of the streams, only what is a change reaches the function, and an old cha
   assert.deepEqual(filters('LiveEventsStream'), [
     { eventName: changed, dynamodb: { Keys: { sk: { S: [{ prefix: 'E#' }] } } } },
     { eventName: changed, dynamodb: { Keys: { pk: { S: [{ prefix: 'UPD#' }] } } } },
+    // An alert e-mail that went out: its new item, and nothing else of the alerts' partition.
+    { eventName: ['INSERT'], dynamodb: { Keys: { pk: { S: ['ALERTS'] }, sk: { S: [{ prefix: 'S#' }] } } } },
   ]);
   assert.deepEqual(filters('LiveStateStream'), [
     { dynamodb: { Keys: { pk: { S: ['OWN', 'REL', 'GRP', 'ROL', 'APP'] } } } },

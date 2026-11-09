@@ -125,6 +125,7 @@ test('an audit item carries who, what, when and how it ended', () => {
     'board.command',
     'alert.subscribe',
     'alert.unsubscribe',
+    'alert.rules',
     'group.create',
     'group.update',
     'group.delete',

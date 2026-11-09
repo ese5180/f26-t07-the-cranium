@@ -321,6 +321,8 @@ const ROUTES = [
   { route: 'POST /api/alerts/subscribe', status: 202, phone: true, body: {} },
   // Nobody has subscribed in this world: the console's session gets as far as looking.
   { route: 'POST /api/alerts/unsubscribe', status: 404, phone: true, body: {} },
+  // The alert rules: a change that holds, for release managers.
+  { route: 'POST /api/alerts/rules', status: 200, phone: true, body: { rules: { voltage: { on: false } } } },
   // Board types, groups and staged rollouts (docs/fleet.md). No group or rollout exists in this world:
   // the console's session gets as far as looking for one.
   { route: 'GET /api/fleet', status: 200, phone: true },

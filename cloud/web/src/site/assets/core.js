@@ -119,6 +119,8 @@ const SECTIONS = [
   // The map of the boards, and the Account page with its e-mail alerts (map.js, account.js).
   'map',
   'account',
+  // The alert rules and the alerts that went out (account.js).
+  'alerts',
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   'apps',
   'customers',
@@ -2917,6 +2919,8 @@ export function createApi({
     subscribeAlerts: async () =>
       text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
     unsubscribeAlerts: async () => text(record(await post('/api/alerts/unsubscribe', {})).subscription, 16),
+    /** Change alert rules: { <rule>: { on?, <threshold>? } }. The rules as they are after it. */
+    setAlertRules: async (rules) => readAlertRules(record(await post('/api/alerts/rules', { rules })).alertRules),
     // The customer site's customers (docs/customer-site.md). customers.js reads the replies.
     customers: async () => record(await get('/api/customers')),
     inviteCustomer: async ({ email, name }) => record(await post('/api/customers', name ? { email, name } : { email })),
@@ -4118,6 +4122,14 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to stop e-mail alerts',
     icon: 'bell',
   },
+  // The alert rules, for everybody who gets the alerts (cloud/api/src/handlers/alerts.mjs).
+  'alert.rules': {
+    done: 'changed the alert rules',
+    doneAlone: 'changed the alert rules',
+    tried: 'tried to change the alert rules',
+    triedAlone: 'tried to change the alert rules',
+    icon: 'bell',
+  },
   // The fleet (docs/fleet.md): groups, staged rollouts, a phone's sighting, a release's note.
   'group.create': {
     done: 'made the group',
@@ -4479,6 +4491,10 @@ export const REFUSAL_WORDS = {
   rollout_changed: 'The rollout moved on while it was being cancelled',
   rollout_unrecorded: 'The rollout could not be recorded, so its canary was withdrawn',
   partly_started: 'Only some of the rollouts could be started',
+  invalid_healthGate: 'The health gate was not on or off with 0 to 120 minutes',
+  // The alert rules (cloud/api/src/handlers/alerts.mjs).
+  invalid_rules: 'The alert rules asked for were not rules, or not within their limits',
+  rules_changed: 'Someone changed the alert rules at the same moment',
   // The phone apps (cloud/api/src/handlers/apps.mjs): publishing the Android app, and its download links.
   version_code_not_higher: 'Its versionCode is not higher than the newest Android app’s',
   apk_missing: 'No APK had arrived in S3 for that version',
@@ -4871,7 +4887,55 @@ function readAlerts(body) {
       everyMinutes: whole(rules.everyMinutes, 1, 1440) ?? 60,
       movedMetres: whole(rules.movedMetres, 1, 1e6) ?? 1000,
     },
+    alertRules: readAlertRules(reply.alertRules),
+    ruleLimits: readRuleLimits(reply.ruleLimits),
+    canChangeRules: reply.canChangeRules === true,
   };
+}
+
+// The alert rules (cloud/api/src/lib/alerts.mjs RULES): each with whether it is on and its thresholds, and
+// the limits of each threshold. What the server does not say is its default.
+export const ALERT_RULES = Object.freeze({
+  offline: { on: true, fields: { minutes: [5, 1440, 15] } },
+  issue: { on: true, fields: {} },
+  crashLoop: { on: true, fields: { reboots: [2, 20, 3], minutes: [5, 1440, 30] } },
+  rollout: { on: true, fields: {} },
+  voltage: { on: true, fields: { mv: [1000, 6000, 3000] } },
+});
+
+/** The alert rules of an answer: { offline: { on, minutes }, ... }, each field within its limits. */
+export function readAlertRules(raw) {
+  const given = anObject(raw) ? raw : {};
+  return Object.fromEntries(
+    Object.entries(ALERT_RULES).map(([id, rule]) => {
+      const one = anObject(given[id]) ? given[id] : {};
+      const fields = Object.fromEntries(
+        Object.entries(rule.fields).map(([name, [low, high, fallback]]) => [
+          name,
+          whole(one[name], low, high) ?? fallback,
+        ])
+      );
+      return [id, { on: typeof one.on === 'boolean' ? one.on : rule.on, ...fields }];
+    })
+  );
+}
+
+function readRuleLimits(raw) {
+  const given = anObject(raw) ? raw : {};
+  return Object.fromEntries(
+    Object.entries(ALERT_RULES).map(([id, rule]) => [
+      id,
+      Object.fromEntries(
+        Object.entries(rule.fields).map(([name, [low, high]]) => {
+          const raw = anObject(given[id]) ? given[id][name] : null;
+          const pair = Array.isArray(raw) ? raw : [];
+          const from = whole(pair[0], low, high) ?? low;
+          const to = whole(pair[1], from, high) ?? high;
+          return [name, [from, to]];
+        })
+      ),
+    ])
+  );
 }
 
 /** "40 m", "1.3 km". */
@@ -4961,4 +5025,7 @@ export const ALERT_KIND_WORDS = Object.freeze({
   stuck: 'Restarted, stuck',
   moved: 'Moved',
   deployment: 'Deployment stopped',
+  issue: 'New Memfault issue',
+  crashloop: 'Crash loop',
+  voltage: 'Low supply voltage',
 });

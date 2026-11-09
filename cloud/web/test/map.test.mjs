@@ -597,6 +597,74 @@ test('waiting for the confirmation, subscribed, or a viewer: each sees what fits
   assert.match(textOf(show({ recent: [] }).page), /No alert has gone out in the last 30 days/);
 });
 
+// The Alerts page (console 2.12.0).
+
+const RULES = {
+  offline: { on: true, minutes: 15 },
+  issue: { on: true },
+  crashLoop: { on: true, reboots: 3, minutes: 30 },
+  rollout: { on: true },
+  voltage: { on: true, mv: 3000 },
+};
+
+test('the Alerts page shows each rule with its switch and thresholds, and a release manager saves what changed', () => {
+  const ctx = context({ route: { view: 'alerts' } });
+  ctx.state.alerts = { ...loaded({ ...ALERTS, alertRules: RULES, ruleLimits: {}, canChangeRules: true }), busy: false };
+  let page = drawn(account.alertsPageView(ctx));
+  assert.equal(textOf(one(page, 'h1')), 'Alerts');
+  const rules = one(page, 'section.card', 'Rules');
+  for (const words of [
+    /A board is offline\s*A board offline for more than 15 minutes/,
+    /A new Memfault issue/,
+    /A crash loop\s*A board restarts unexpectedly .* 3 times in 30 minutes/,
+    /A staged rollout stopped by itself/,
+    /Low supply voltage.* under 3000 mV/,
+  ])
+    assert.match(textOf(rules), words);
+  assert.equal(one(rules, 'button', 'Save the rules').disabled, true);
+  // Switch the voltage off and set the crash loop to 5 restarts: Save sends just that.
+  const box = all(rules, 'input').find((el) => el.getAttribute('name') === 'rule-voltage');
+  box.dispatchEvent({ type: 'change', target: { checked: false } });
+  const restarts = all(rules, 'input').find((el) => el.getAttribute('max') === '20');
+  restarts.dispatchEvent({ type: 'input', target: { value: '5' } });
+  assert.deepEqual(account.ruleChanges(RULES, ctx.state.alerts.draft), {
+    voltage: { on: false },
+    crashLoop: { reboots: 5 },
+  });
+  assert.equal(ctx.state.alerts.editing, true);
+  page = drawn(account.alertsPageView(ctx));
+  click(one(one(page, 'section.card', 'Rules'), 'button', 'Save the rules'));
+  assert.deepEqual(ctx.pressed.at(-1), ['setAlertRules']);
+  const delivery = one(page, 'section.card', 'How they reach you');
+  assert.match(textOf(delivery), /E-mail Not asked for/);
+  assert.match(textOf(delivery), /not set up: the e-mail is that alert/);
+  assert.ok(one(page, 'section.card', 'Sent lately'));
+});
+
+test('a viewer reads the rules on the Alerts page and cannot change them', () => {
+  const ctx = context({ route: { view: 'alerts' }, canWrite: false });
+  ctx.state.alerts = {
+    ...loaded({
+      ...ALERTS,
+      canSubscribe: false,
+      alertRules: { ...RULES, voltage: { on: false, mv: 3200 } },
+      canChangeRules: false,
+    }),
+    busy: false,
+  };
+  const page = drawn(account.alertsPageView(ctx));
+  const rules = one(page, 'section.card', 'Rules');
+  assert.equal(all(rules, 'input').length, 0);
+  assert.equal(all(rules, 'button').length, 0);
+  assert.match(textOf(rules), /Low supply voltage.* under 3200 mV.* Off/);
+  assert.match(textOf(rules), /Release managers change these/);
+  // What the server sends is read within limits; what it leaves out is the default.
+  assert.deepEqual(core.readAlertRules({ offline: { on: false, minutes: 3 }, voltage: { mv: 4000 } }).offline, {
+    on: false,
+    minutes: 15,
+  });
+});
+
 test('the Activity page reads a command and a subscription as sentences', () => {
   const entry = (action, target, detail, outcome = 'ok') => ({
     at: at(0),

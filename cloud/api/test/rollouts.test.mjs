@@ -565,8 +565,10 @@ test('a canary that does not confirm stops the rollout, and the rest are never o
       kind: 'deployment',
       deployment: rollout.canary.job,
       version: '1.13.0+0',
+      rollout: rollout.id,
       at: world.clock.ms,
       text: `Staged rollout ${rollout.id} of 1.13.0+0: ${detail.stopped.text}`,
+      link: `#/rollouts/${rollout.id}`,
     },
   ]);
   await world.tick();

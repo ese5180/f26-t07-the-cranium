@@ -320,6 +320,7 @@ export function rolloutFromItem(item) {
       things: list(item.canary?.things),
       job: item.canary?.job ?? null,
       doneAt: item.canary?.doneAt ?? null,
+      gatePassedAt: item.canary?.gatePassedAt ?? null,
     },
     rest: {
       things: list(item.rest?.things),
@@ -339,10 +340,13 @@ export function rolloutFromItem(item) {
       job: typeof stage?.job === 'string' ? stage.job : null,
       startedAt: stage?.startedAt ?? null,
       doneAt: stage?.doneAt ?? null,
+      gatePassedAt: stage?.gatePassedAt ?? null,
     })),
     current: Number.isInteger(item.current) ? item.current : -1,
     stagePlan: item.stagePlan ?? null,
     soakMinutes: Number.isInteger(item.soakMinutes) ? item.soakMinutes : 0,
+    // From console 2.13.0: the health gate, null for none (lib/health.mjs).
+    healthGate: Number.isInteger(item.healthGate?.minutes) ? { minutes: item.healthGate.minutes } : null,
     stopped: item.stopped ?? null,
     finishedAt: item.finishedAt ?? null,
     updatedAt: item.updatedAt ?? item.createdAt,

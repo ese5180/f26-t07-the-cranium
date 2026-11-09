@@ -189,6 +189,7 @@ test("the recorder reads only the alerts' partition, publishes to the alert topi
     'dynamodb:PutItem',
     'dynamodb:Query',
     'sns:Publish',
+    'dynamodb:Query',
   ]);
 
   const check = block(template, 'AlertCheckRule');

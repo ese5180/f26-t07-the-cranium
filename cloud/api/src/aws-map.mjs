@@ -29,6 +29,9 @@
  *                                                       item stored has that rev (0: there is none)
  *   putSentAlert(item)                   -> undefined
  *   publishAlert({ subject, message })   -> undefined   SNS Publish to the topic
+ *   getAlertRules()                      -> object | null   the alert rules' item of the state table (pk
+ *                                        "ALR", sk "rules"), or null when there is none or the function
+ *                                        is given no STATE_TABLE (the location function)
  *
  * createLocationStore(env) is the location function's own part. It reads AWS_REGION and EVENTS_TABLE.
  *
@@ -51,7 +54,7 @@ import {
   UnsubscribeCommand,
 } from '@aws-sdk/client-sns';
 
-import { ALERTS_PK } from './lib/alerts.mjs';
+import { ALERTS_PK, ALERT_RULES_PK, ALERT_RULES_SK } from './lib/alerts.mjs';
 import { LOCATION_PK } from './lib/position.mjs';
 
 // As in aws.mjs: no call may hang, and a call is tried twice at most.
@@ -323,8 +326,16 @@ export function createAlertStore(env) {
   const table = tableOf(new DynamoDBClient(clientSettings(region)), required(env, 'EVENTS_TABLE'));
   const topicArn = required(env, 'ALERT_TOPIC_ARN');
   const sns = new SNSClient(clientSettings(region));
+  const state =
+    typeof env.STATE_TABLE === 'string' && env.STATE_TABLE !== ''
+      ? tableOf(new DynamoDBClient(clientSettings(region)), env.STATE_TABLE)
+      : null;
 
   return Object.freeze({
+    getAlertRules() {
+      return state === null ? Promise.resolve(null) : state.get(ALERT_RULES_PK, ALERT_RULES_SK);
+    },
+
     getAlertItem(sk) {
       return table.get(ALERTS_PK, sk);
     },
