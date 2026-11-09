@@ -506,7 +506,7 @@ fun CreateTokenDialog(vm: ConsoleViewModel, model: DialogState.CreateToken, now:
             )
             Text(
                 prose(
-                    "Keep it like a password. For scripts/ota.sh, put it in ~/.cranium/console-token on your computer and make that " +
+                    "Keep it like a password. For scripts/firmware/ota.sh, put it in ~/.cranium/console-token on your computer and make that " +
                         "file readable by you alone, for example on a Mac after copying:",
                 ),
                 style = ConsoleType.small,

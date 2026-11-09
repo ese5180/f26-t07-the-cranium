@@ -214,11 +214,11 @@ object AuditText {
         "ENTER_BOOTLOADER" to "restarted {} into its bootloader over USB",
     )
 
-    // What scripts/ota.sh without an API token, and the test bench, call their requests.
+    // What scripts/firmware/ota.sh without an API token, and the test bench, call their requests.
     private const val SCRIPTED_REQUEST = "bench-"
 
     const val SCRIPTED_TAG = "Script, no sign-in"
-    const val SCRIPTED_NOTE = "Sent by a script (the test bench, or scripts/ota.sh without an API token) with AWS credentials, " +
+    const val SCRIPTED_NOTE = "Sent by a script (the test bench, or scripts/firmware/ota.sh without an API token) with AWS credentials, " +
         "directly to the API function. Nobody signed in. The name is the one the script gave, which has to be an active " +
         "release manager, so the entry does not show that this person did it."
 

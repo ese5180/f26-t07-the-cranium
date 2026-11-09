@@ -3,12 +3,12 @@
 # Check the files of a published release against the commit it tags. The release-assets job in
 # .github/workflows/ci.yml runs this, in a checkout of the tag, after it has downloaded them:
 #
-#   scripts/verify-github-release.sh <tag> <folder with the release's files>
+#   scripts/release/verify-github-release.sh <tag> <folder with the release's files>
 #
 # Fails unless the folder holds the signed image, latest.json and SHA256SUMS and nothing else,
 # SHA256SUMS is right, the signature verifies against firmware/keys/fw_signing_pub.pem with the
 # console's own check, and the version in the image's header, latest.json and firmware/app/VERSION
-# is the one in the tag. It also repeats what scripts/github-release.sh looks for: a latest.json that
+# is the one in the tag. It also repeats what scripts/release/github-release.sh looks for: a latest.json that
 # names another commit, a test image, the golden image.
 #
 # An image carries no commit, and latest.json is not signed. So this shows what latest.json says about
@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() {
   # The file names of a release and what its latest.json says can reach a message, so nothing in it may
@@ -33,8 +33,8 @@ die() {
   exit 1
 }
 
-# shellcheck source=scripts/release-lib.sh
-. "$REPO_DIR/scripts/release-lib.sh"
+# shellcheck source=scripts/release/release-lib.sh
+. "$REPO_DIR/scripts/release/release-lib.sh"
 
 main() {
   if [ $# -ne 2 ]; then

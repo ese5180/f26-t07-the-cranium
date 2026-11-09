@@ -1,4 +1,4 @@
-// Tests for what stands between a build and a GitHub Release: scripts/github-release.sh, what the
+// Tests for what stands between a build and a GitHub Release: scripts/release/github-release.sh, what the
 // workflow runs on a published release, and the workflow itself. They run against a real git
 // repository and a real bare origin in a temporary folder, with a stand-in for gh first on the PATH
 // and one for ssh in each checkout's configuration: origin has a GitHub address, and nothing here
@@ -150,10 +150,10 @@ function checkout({
   git(dir, 'config', 'core.sshCommand', ssh);
   git(dir, 'config', 'ssh.variant', 'simple');
   for (const file of [
-    'scripts/github-release.sh',
-    'scripts/release-lib.sh',
-    'scripts/verify-github-release.sh',
-    'scripts/scan-tracked-files.sh',
+    'scripts/release/github-release.sh',
+    'scripts/release/release-lib.sh',
+    'scripts/release/verify-github-release.sh',
+    'scripts/ci/scan-tracked-files.sh',
     'cloud/api/verify-image.mjs',
     'cloud/api/src/lib/mcuboot.mjs',
     'cloud/infra/template.yaml',
@@ -205,12 +205,16 @@ function script(state, name, args, env = {}) {
   runs += 1;
   const log = join(work, `calls-${runs}`);
   const uploads = join(work, `uploads-${runs}`);
-  const result = spawnSync('bash', [join(state.dir, 'scripts', name), ...args], {
-    // Not from the checkout, to show that a script finds its own way there.
-    cwd: work,
-    encoding: 'utf8',
-    env: environment({ STUB_LOG: log, STUB_UPLOADS: uploads, ...env }),
-  });
+  const result = spawnSync(
+    'bash',
+    [join(state.dir, 'scripts', name === 'scan-tracked-files.sh' ? 'ci' : 'release', name), ...args],
+    {
+      // Not from the checkout, to show that a script finds its own way there.
+      cwd: work,
+      encoding: 'utf8',
+      env: environment({ STUB_LOG: log, STUB_UPLOADS: uploads, ...env }),
+    }
+  );
   return {
     ...result,
     calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [],
@@ -238,7 +242,7 @@ function snapshot(folder) {
   return listing;
 }
 
-// scripts/github-release.sh: what it does when everything holds.
+// scripts/release/github-release.sh: what it does when everything holds.
 
 test('a dry run does every check, says what would go out, and writes nothing at all', () => {
   const state = checkout();
@@ -369,7 +373,7 @@ test('an origin that is not on GitHub is refused, and the repository is read fro
       [
         '-c',
         'die() { printf "%s\\n" "$1" >&2; exit 1; }; . "$0"; github_repository_of "$1"',
-        join(REPO, 'scripts/release-lib.sh'),
+        join(REPO, 'scripts/release/release-lib.sh'),
         address,
       ],
       { encoding: 'utf8' }
@@ -512,7 +516,7 @@ test('a test image that got into binaries/ by hand is told by its log lines', ()
 });
 
 test('from 1.9.0 every release has Bluetooth, so its stack in an image is no reason to refuse it', () => {
-  const lib = readFileSync(join(REPO, 'scripts/release-lib.sh'), 'utf8');
+  const lib = readFileSync(join(REPO, 'scripts/release/release-lib.sh'), 'utf8');
   assert.doesNotMatch(lib, /bt_hci_core|Bluetooth could not start/);
   assert.match(readFileSync(join(REPO, 'firmware/app/sysbuild.conf'), 'utf8'), /^SB_CONFIG_APP_BT_OTA=y$/m);
 });
@@ -662,7 +666,7 @@ test('an EXTRAVERSION is refused, because the image could not carry it', () => {
   assertRefused(release(checkout({ versionFile: VERSION_FILE(1, 2, 3, 4, 'rc1') })), /has an EXTRAVERSION/);
 });
 
-// scripts/verify-github-release.sh, which the workflow runs on what a release holds.
+// scripts/release/verify-github-release.sh, which the workflow runs on what a release holds.
 
 function published(state = checkout(), tag = 'v1.2.3+4') {
   const folder = join(dirname(state.dir), 'release');
@@ -882,7 +886,7 @@ test("the image check on the command line is the console's, with the console's l
   assert.throws(() => templateDefault(template, 'NoSuchParameter'), /no default/);
 });
 
-// scripts/scan-tracked-files.sh.
+// scripts/ci/scan-tracked-files.sh.
 
 const scan = (state) => script(state, 'scan-tracked-files.sh', []);
 // Put together here, so that this file is no hit itself.
@@ -964,14 +968,14 @@ test('the scan finds a wifi_secrets.h whatever the rest of its name looks like, 
 });
 
 test('the scan passes on this repository as it is', () => {
-  const result = spawnSync('bash', [join(REPO, 'scripts/scan-tracked-files.sh')], {
+  const result = spawnSync('bash', [join(REPO, 'scripts/ci/scan-tracked-files.sh')], {
     encoding: 'utf8',
     env: environment(),
   });
   assert.equal(result.status, 0, result.stderr);
 });
 
-// scripts/check-west-workspace.sh, with a stand-in for west: what stands between a stale cache and a pass.
+// scripts/ci/check-west-workspace.sh, with a stand-in for west: what stands between a stale cache and a pass.
 
 function workspace() {
   repos += 1;
@@ -993,7 +997,7 @@ function workspace() {
   writeFileSync(join(bin, 'west'), `#!/usr/bin/env bash\nprintf 'manifest|${nrf}\\nzephyr|${zephyr}\\n'\n`);
   chmodSync(join(bin, 'west'), 0o755);
   const check = (commit = git(nrf, 'rev-parse', 'HEAD')) =>
-    spawnSync('bash', [join(REPO, 'scripts/check-west-workspace.sh'), top, commit], {
+    spawnSync('bash', [join(REPO, 'scripts/ci/check-west-workspace.sh'), top, commit], {
       encoding: 'utf8',
       env: environment({ PATH: `${bin}:${process.env.PATH}` }),
     });

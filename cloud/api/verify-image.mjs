@@ -7,7 +7,7 @@
  *
  * The key defaults to firmware/keys/fw_signing_pub.pem. It prints what the image says about
  * itself as one line of JSON and exits 0, or names the reason on stderr and exits 1. It is not
- * deployed. scripts/github-release.sh and scripts/verify-github-release.sh use it.
+ * deployed. scripts/release/github-release.sh and scripts/release/verify-github-release.sh use it.
  *
  * No dependencies.
  */

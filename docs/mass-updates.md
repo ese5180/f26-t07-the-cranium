@@ -16,13 +16,13 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
   confirms itself (A/B).
 
 **The steps:**
-1. Upload the release on the Firmware page. `scripts/build.sh` builds the next version, uploads it there and gives
+1. Upload the release on the Firmware page. `scripts/firmware/build.sh` builds the next version, uploads it there and gives
    Memfault its release and symbols.
 2. Put the boards in a group, under Fleet, Groups.
 3. Start a deployment or a staged rollout to the group, the type, or every board.
 
-Spare releases built ahead with `scripts/build.sh --no-upload` wait in `binaries/`. Upload one when it's needed:
-- `scripts/upload-to-console.sh binaries/<image>`;
+Spare releases built ahead with `scripts/firmware/build.sh --no-upload` wait in `binaries/`. Upload one when it's needed:
+- `scripts/firmware/upload-to-console.sh binaries/<image>`;
 - for Memfault, `memfault --org-token … upload-mcu-symbols` with the build's `zephyr.elf`, kept beside each spare.
 
 A board takes only a release newer than the one it runs, so use the spares in order.

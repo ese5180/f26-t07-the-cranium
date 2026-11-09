@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# What scripts/github-release.sh and scripts/verify-github-release.sh both check. Sourced, not run.
+# What scripts/release/github-release.sh and scripts/release/verify-github-release.sh both check. Sourced, not run.
 # The one that sources it sets REPO_DIR, and defines die, which prints its arguments and exits.
 
 # sha256_of <file>

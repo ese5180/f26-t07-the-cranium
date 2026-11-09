@@ -4,7 +4,7 @@
 # public, and a commit that has been pushed cannot be taken back. Run by the workflow on each push to
 # main and feature/**, and on each pull request:
 #
-#   scripts/scan-tracked-files.sh
+#   scripts/ci/scan-tracked-files.sh
 #
 # .gitignore is the first guard, and this one catches what got past it with git add -f or under
 # another name. It looks at the files of the commit that is checked out, not at older commits, so a key
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 status=0
 

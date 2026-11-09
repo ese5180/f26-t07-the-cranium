@@ -2,16 +2,16 @@
 #
 # Set up a new board, from out of the box to online on the console, in one guided run.
 #
-#   scripts/new-board.sh check                what this computer still needs, and how to get each thing
-#   scripts/new-board.sh                      set up the one board plugged in by USB (the same as: setup)
-#   scripts/new-board.sh --dry-run            print every command of the setup, and run none of them
-#   scripts/new-board.sh status [<serial>]    one screen on a board: its serial console, and the console's view
-#   scripts/new-board.sh list                 the boards plugged in, with their serial numbers
+#   scripts/board/new-board.sh check                what this computer still needs, and how to get each thing
+#   scripts/board/new-board.sh                      set up the one board plugged in by USB (the same as: setup)
+#   scripts/board/new-board.sh --dry-run            print every command of the setup, and run none of them
+#   scripts/board/new-board.sh status [<serial>]    one screen on a board: its serial console, and the console's view
+#   scripts/board/new-board.sh list                 the boards plugged in, with their serial numbers
 #
 # Setup takes the board through these steps, each of which says what it does, checks what it did, and
 # can be run again on its own. An nRF5340 DK has no golden image, so it has no golden step.
 #
-#   build      scripts/build.sh --keep --no-upload: the bootloader, TF-M with the application and the
+#   build      scripts/firmware/build.sh --keep --no-upload: the bootloader, TF-M with the application and the
 #              network core's Bluetooth controller, signed with your key. binaries/ is left as it was
 #   flash      west flash --recover: ERASES the whole board, then writes all of that. It starts in factory mode
 #   golden     tools/golden.py restore puts the golden image on, and you seal it with the gesture (nRF7002 DK)
@@ -33,7 +33,7 @@
 #   --no-register         nRF5340 DK: no passkey of its own (tools/provision_device.py --no-register)
 #   --new-passkey         nRF5340 DK: a new passkey (tools/provision_device.py --new-passkey)
 #   --port <port>         the board's console port, if the one found is wrong; --log-port, its log port
-#   --deep                check: also run scripts/check-west-workspace.sh on the SDK
+#   --deep                check: also run scripts/ci/check-west-workspace.sh on the SDK
 #
 # Before it touches a board it checks this computer, finds the boards, refuses to go on unless exactly one is
 # chosen, says which one it is, and asks for the last 4 digits of its serial number. It never makes a signing
@@ -42,12 +42,12 @@
 #
 # The SDK is looked for in NCS_DIR (default /opt/nordic/ncs/v3.4.0), nrfutil in NRFUTIL (default
 # ~/.nrfutil/bin/nrfutil, or the one on the PATH), and AWS with AWS_PROFILE (default cranium). The console
-# token is CRANIUM_TOKEN or ~/.cranium/console-token, as for scripts/ota.sh. docs/new-board-setup.md has the
+# token is CRANIUM_TOKEN or ~/.cranium/console-token, as for scripts/firmware/ota.sh. docs/new-board-setup.md has the
 # same steps by hand, for when one of them fails. On Windows, run this in WSL2 (that document says how).
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NCS_VERSION=v3.4.0
 # The commit of that tag in sdk-nrf, as NCS_COMMIT in .github/workflows/ci.yml.
 NCS_COMMIT=99553055607b2e9885fbc80ccd11fa9da81c2df0
@@ -56,7 +56,7 @@ NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 if [ ! -x "$NRFUTIL" ] && command -v nrfutil > /dev/null 2>&1; then
   NRFUTIL="$(command -v nrfutil)"
 fi
-# scripts/build.sh looks for both in these.
+# scripts/firmware/build.sh looks for both in these.
 export NRFUTIL NCS_DIR
 export AWS_PROFILE="${AWS_PROFILE:-cranium}"
 export AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -154,7 +154,7 @@ on_exit() {
   local status=$?
   if [ "$status" -ne 0 ] && [ -n "$CURRENT_STEP" ] && [ "$DRY_RUN" = false ]; then
     printf '\nStopped in the %s step. Once that is put right, go on from there:\n' "$CURRENT_STEP" >&2
-    printf '  scripts/new-board.sh --from %s%s\n' "$CURRENT_STEP" "${SERIAL:+ --serial-number $SERIAL}" >&2
+    printf '  scripts/board/new-board.sh --from %s%s\n' "$CURRENT_STEP" "${SERIAL:+ --serial-number $SERIAL}" >&2
   fi
   [ -z "$WORK" ] || rm -rf "$WORK"
 }
@@ -164,7 +164,7 @@ trap 'exit 130' INT TERM
 # ---- arguments ---------------------------------------------------------------------------------
 
 need_value() {
-  [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value" "See scripts/new-board.sh --help."
+  [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value" "See scripts/board/new-board.sh --help."
 }
 
 absolute() {
@@ -196,12 +196,12 @@ while [ $# -gt 0 ]; do
     --new-passkey) NEW_PASSKEY=true ;;
     --new-identity) NEW_IDENTITY=true ;;
     --deep) DEEP=true ;;
-    -*) die "unknown option: $1" "See scripts/new-board.sh --help." ;;
+    -*) die "unknown option: $1" "See scripts/board/new-board.sh --help." ;;
     *)
       if [ "$MODE" = status ] && [ -z "$SERIAL" ]; then
         SERIAL="$1"
       else
-        die "unexpected argument: $1" "See scripts/new-board.sh --help."
+        die "unexpected argument: $1" "See scripts/board/new-board.sh --help."
       fi ;;
   esac
   shift
@@ -247,7 +247,7 @@ set_board_paths() {
 
 # The nRF5340 DK came to main with PR #5: a checkout from before it builds and provisions none.
 has_nrf5340dk_support() {
-  grep -q -- '--board nrf5340dk' scripts/build.sh && grep -q -- '--board nrf5340dk' tools/provision_device.py
+  grep -q -- '--board nrf5340dk' scripts/firmware/build.sh && grep -q -- '--board nrf5340dk' tools/provision_device.py
 }
 
 # So that tools/recover.py and tools/golden.py, which run `nrfutil` from the PATH, find this one.
@@ -283,7 +283,7 @@ load_toolchain() {
 
 need_toolchain() {
   load_toolchain || die "the nRF Connect SDK $NCS_VERSION toolchain did not load" \
-    "Install it: nrfutil sdk-manager install $NCS_VERSION. Then: scripts/new-board.sh check"
+    "Install it: nrfutil sdk-manager install $NCS_VERSION. Then: scripts/board/new-board.sh check"
   command -v west > /dev/null || die "the toolchain has no west"
 }
 
@@ -429,13 +429,13 @@ check_toolchain() {
   else
     pass "nRF Connect SDK $NCS_VERSION at $NCS_DIR, and its toolchain"
     [ -z "$commit" ] || warned "its sdk-nrf is on another commit than CI's ($NCS_COMMIT)" \
-      "scripts/new-board.sh check --deep says more"
+      "scripts/board/new-board.sh check --deep says more"
   fi
   if [ "$DEEP" = true ]; then
-    if scripts/check-west-workspace.sh "$NCS_DIR" "$NCS_COMMIT" > "$WORK/workspace.txt" 2>&1; then
+    if scripts/ci/check-west-workspace.sh "$NCS_DIR" "$NCS_COMMIT" > "$WORK/workspace.txt" 2>&1; then
       pass "$(tail -n 1 "$WORK/workspace.txt")"
     else
-      warned "scripts/check-west-workspace.sh: $(tail -n 1 "$WORK/workspace.txt")" \
+      warned "scripts/ci/check-west-workspace.sh: $(tail -n 1 "$WORK/workspace.txt")" \
         "A build may still work; CI's SDK is exactly the tag's"
     fi
   fi
@@ -641,9 +641,9 @@ cmd_check() {
   fi
   set_board_paths
   if [ "$BOARD_TYPE" = nrf7002dk ]; then
-    say "What this computer needs to set up an $LABEL (for an nRF5340 DK: scripts/new-board.sh check --board nrf5340dk):"
+    say "What this computer needs to set up an $LABEL (for an nRF5340 DK: scripts/board/new-board.sh check --board nrf5340dk):"
   else
-    say "What this computer needs to set up an $LABEL (for an nRF7002 DK: scripts/new-board.sh check --board nrf7002dk):"
+    say "What this computer needs to set up an $LABEL (for an nRF7002 DK: scripts/board/new-board.sh check --board nrf7002dk):"
   fi
   check_once nrfutil
   check_once toolchain
@@ -706,7 +706,7 @@ preflight() {
   if [ "$CHECK_FAILS" -gt 0 ]; then
     echo
     die "this computer is not ready: see FAIL above. Nothing was done to the board." \
-      "scripts/new-board.sh check lists everything, with how to get it."
+      "scripts/board/new-board.sh check lists everything, with how to get it."
   fi
 }
 
@@ -755,12 +755,12 @@ check_build() {
     [ -f "$dir/$file" ] || missing="$missing $dir/$file"
   done
   [ -z "$missing" ] || die "$dir/ is not a whole build: it has no$missing" \
-    "Build it first: scripts/new-board.sh --only build"
+    "Build it first: scripts/board/new-board.sh --only build"
   grep -q '^CONFIG_BT_HCI_RAW=y$' "$dir/hci_ipc/zephyr/.config" 2> /dev/null \
-    || die "$dir/hci_ipc is not the Bluetooth controller" "Build again: scripts/new-board.sh --only build"
+    || die "$dir/hci_ipc is not the Bluetooth controller" "Build again: scripts/board/new-board.sh --only build"
   if grep -E '^CONFIG_APP_TEST_FAULT_[A-Z0-9_]+=y$' "$dir/app/zephyr/.config" 2> /dev/null \
       | grep -qv '^CONFIG_APP_TEST_FAULT_NONE='; then
-    die "$dir/ holds an image with a test fault built in" "Build again: scripts/new-board.sh --only build"
+    die "$dir/ holds an image with a test fault built in" "Build again: scripts/board/new-board.sh --only build"
   fi
   local built_for
   built_for="$(sed -n 's/^CONFIG_APP_BOARD_TYPE="\(.*\)"$/\1/p' "$dir/app/zephyr/.config" 2> /dev/null || true)"
@@ -769,7 +769,7 @@ check_build() {
   if [ "$BOARD_TYPE" = nrf7002dk ]; then
     python3 tools/golden.py check --config "$dir/mcuboot/zephyr/.config" > "$WORK/golden.txt" 2>&1 \
       || die "the bootloader in $dir/ does not pin the golden image: $(sed -n 's/^error: //p' "$WORK/golden.txt" | head -n 1)" \
-        "Build again: scripts/new-board.sh --only build"
+        "Build again: scripts/board/new-board.sh --only build"
   fi
   ok "$dir/ has the bootloader, TF-M with the application, and the Bluetooth controller"
 }
@@ -780,11 +780,11 @@ step_build() {
   local args=(--keep --no-upload)
   [ "$BOARD_TYPE" = nrf7002dk ] || args+=(--board "$BOARD_TYPE")
   if [ "$DRY_RUN" = true ]; then
-    show_cmd scripts/build.sh "${args[@]}"
+    show_cmd scripts/firmware/build.sh "${args[@]}"
     return 0
   fi
   keep_binaries
-  if ! run scripts/build.sh "${args[@]}"; then
+  if ! run scripts/firmware/build.sh "${args[@]}"; then
     put_back_binaries
     die "the build failed: build.sh says why above" "The whole log is in $BUILD_NAME/last-build.log."
   fi
@@ -808,7 +808,7 @@ step_flash() {
     || die "west flash did not finish" "Close any serial terminal on the board, check its USB cable and power switch."
   board_says --wait 90 --expect-state FACTORY \
     || die "the board does not answer on $PORT in factory mode after the flash" \
-      "If it is the wrong port: --port <the other one>. scripts/new-board.sh list shows them."
+      "If it is the wrong port: --port <the other one>. scripts/board/new-board.sh list shows them."
   ok "the board answers on its console, in factory mode"
 }
 
@@ -819,9 +819,9 @@ seal_by_hand() {
   case "$answer" in
     sealed) return 0 ;;
     refused) die "the bootloader refused: neither copy is the pinned golden image" \
-      "Run this step again: scripts/new-board.sh --from golden --serial-number $SERIAL" ;;
+      "Run this step again: scripts/board/new-board.sh --from golden --serial-number $SERIAL" ;;
     *) die "the golden image is not known to be sealed" \
-      "Run this step again: scripts/new-board.sh --from golden --serial-number $SERIAL" ;;
+      "Run this step again: scripts/board/new-board.sh --from golden --serial-number $SERIAL" ;;
   esac
 }
 
@@ -837,7 +837,7 @@ watch_seal() {
   case "$status" in
     0) return 0 ;;
     1) die "the bootloader refused: neither copy is the pinned golden image" \
-      "Run this step again: scripts/new-board.sh --from golden --serial-number $SERIAL" ;;
+      "Run this step again: scripts/board/new-board.sh --from golden --serial-number $SERIAL" ;;
     *) seal_by_hand ;;
   esac
 }
@@ -1022,7 +1022,7 @@ step_verify() {
     0) ok "the console shows $thing as it should" ;;
     2) note "The console's view was not checked: there is no console token. Look on the console's Overview." ;;
     *) die "the console does not show $thing as it should: see above" \
-      "Give it a few minutes, then: scripts/new-board.sh --from verify --serial-number $SERIAL" ;;
+      "Give it a few minutes, then: scripts/board/new-board.sh --from verify --serial-number $SERIAL" ;;
   esac
   [ "$BOARD_TYPE" = nrf7002dk ] || verify_bluetooth
   state_set thing "$thing"
@@ -1074,7 +1074,7 @@ resolve_steps() {
     local last step next="" seen=false
     last="$(state_get last_step)"
     [ -n "$last" ] || die "nothing is recorded for the board $SERIAL yet, so there is nothing to resume" \
-      "Start from the beginning: scripts/new-board.sh --serial-number $SERIAL"
+      "Start from the beginning: scripts/board/new-board.sh --serial-number $SERIAL"
     for step in $STEPS; do
       if [ "$seen" = true ]; then next="$step"; break; fi
       [ "$step" != "$last" ] || seen=true
@@ -1108,7 +1108,7 @@ confirm_board() {
     IFS= read -r answer || answer=""
   fi
   [ "$answer" = "${SERIAL: -4}" ] || die "that is not the last 4 digits of $SERIAL: nothing was done to the board" \
-    "The serial number is on the debugger's sticker; scripts/new-board.sh list shows it too."
+    "The serial number is on the debugger's sticker; scripts/board/new-board.sh list shows it too."
 }
 
 cmd_setup() {
@@ -1126,7 +1126,7 @@ cmd_setup() {
     resolve_steps
     steps="$(selected_steps)"
     say "Dry run: every command of setting up the $LABEL $SERIAL, and none of them run."
-    note "would check this computer first, as: scripts/new-board.sh check --board $BOARD_TYPE"
+    note "would check this computer first, as: scripts/board/new-board.sh check --board $BOARD_TYPE"
     note "would find the boards with: $(tilde "$NRFUTIL") device list --json, and refuse unless exactly one is chosen"
     confirm_board "$steps"
   else
@@ -1136,7 +1136,7 @@ cmd_setup() {
     if [ "$ONLY" = build ] && [ -n "$BOARD_TYPE" ]; then
       SERIAL=""
     else
-      command -v python3 > /dev/null || die "python3 was not found" "scripts/new-board.sh check says how to get it."
+      command -v python3 > /dev/null || die "python3 was not found" "scripts/board/new-board.sh check says how to get it."
       # The debugger is needed to flash the board and to restart it into its bootloader.
       case "$ONLY$FROM" in
         provision|verify) choose_board no ;;
@@ -1167,7 +1167,7 @@ cmd_setup() {
     say "Dry run: nothing was run."
   else
     say "Done: the $LABEL${SERIAL:+ $SERIAL} got through $(echo $steps)."
-    [ -z "$SERIAL" ] || say "scripts/new-board.sh status $SERIAL shows it again at any time."
+    [ -z "$SERIAL" ] || say "scripts/board/new-board.sh status $SERIAL shows it again at any time."
   fi
 }
 
@@ -1176,7 +1176,7 @@ cmd_setup() {
 cmd_status() {
   use_nrfutil_path
   load_toolchain || true
-  command -v python3 > /dev/null || die "python3 was not found" "scripts/new-board.sh check says how to get it."
+  command -v python3 > /dev/null || die "python3 was not found" "scripts/board/new-board.sh check says how to get it."
   choose_board no yes
   [ -z "$BOARD_TYPE" ] || set_board_paths
   say "Board $SERIAL: ${LABEL:-of a type its debugger does not say}${PCA:+ ($PCA)}, its console on $PORT"
@@ -1190,10 +1190,10 @@ cmd_status() {
   [ -n "$thing" ] || thing="$(state_get thing)"
   if [ -n "$thing" ]; then
     helper console-status --thing "$thing" || status=$?
-    [ "$status" -ne 2 ] || note "The console's view needs a console token: scripts/new-board.sh check says how to make one."
+    [ "$status" -ne 2 ] || note "The console's view needs a console token: scripts/board/new-board.sh check says how to make one."
   fi
   last="$(state_get last_step)"
-  [ -z "$last" ] || note "scripts/new-board.sh took it through the $last step$( [ -z "$(state_get release)" ] || printf ', and installed %s' "$(state_get release)")."
+  [ -z "$last" ] || note "scripts/board/new-board.sh took it through the $last step$( [ -z "$(state_get release)" ] || printf ', and installed %s' "$(state_get release)")."
 }
 
 cmd_list() {

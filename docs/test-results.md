@@ -160,7 +160,7 @@ the cloud.
 | 1.10.0 to 1.11.0 | `SUCCEEDED` |
 | 1.11.0 to 1.11.2 | `SUCCEEDED`, 2 min 51 s from the download starting: 47 s to download, 1 min 44 s from the restart to the cloud |
 
-**The network core.** `scripts/flash-netcore.sh` put the Bluetooth controller on it over the debug port. The board came
+**The network core.** `scripts/board/flash-netcore.sh` put the Bluetooth controller on it over the debug port. The board came
 back on 1.11.0, confirmed, with its ID, Wi-Fi and certificates as before.
 
 **Bluetooth, first test, partial.** With nRF Connect Device Manager on an iPhone, on 1.11.0:
@@ -194,7 +194,7 @@ All on 2026-11-01, on the bootloader that holds the pin:
 
 | Time | Update | Deployed through | On a computer's USB? | Result |
 | --- | --- | --- | --- | --- |
-| 12:15 | 1.5.0 to 1.7.0 | `scripts/ota.sh`, invoking the console's API function directly | Yes | `SUCCEEDED`, 188 s after the button |
+| 12:15 | 1.5.0 to 1.7.0 | `scripts/firmware/ota.sh`, invoking the console's API function directly | Yes | `SUCCEEDED`, 188 s after the button |
 | 14:32 | 1.7.0 to 1.7.1 | The website, signed in, with Button 1 pressed by a person | Yes | `SUCCEEDED`, 188 s from the job starting |
 | 16:01 | 1.7.1 to 1.7.2 | The website, signed in | **No** | `FAILED`, `not_installed`; the board went back to 1.7.1 by itself |
 | 16:07 | 1.7.1 to 1.7.2, the same file | The website, signed in | **No** | `FAILED`, `not_installed`; the same again |
@@ -431,7 +431,7 @@ These results have four limits:
 | Swap in MCUboot | 81 s on every update |
 | Rest of the time | The SHA-256 check, a 20-second wait for a late cancellation, the first boot and the reconnect |
 
-The update to 1.2.0, from 1.1.40, took 190 s after the button. `scripts/ota.sh` ran it through the
+The update to 1.2.0, from 1.1.40, took 190 s after the button. `scripts/firmware/ota.sh` ran it through the
 console's API function, invoked directly, so it bypassed API Gateway and sign-in.
 
 | Scenario | Result on the board |

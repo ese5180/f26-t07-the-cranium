@@ -23,7 +23,7 @@ files derived from it keep Nordic's copyright notice and licence identifier.
    team key at `~/.cranium/mcuboot_signing_key.pem`
    (see [`secrets/README.md`](../secrets/README.md)). The build stops with an
    explanation if it is missing.
-3. To make an image to install, run `scripts/build.sh` from any terminal. It takes the next unused version and leaves
+3. To make an image to install, run `scripts/firmware/build.sh` from any terminal. It takes the next unused version and leaves
    the signed image in `binaries/`. To build and flash by hand, from an nRF Connect SDK terminal:
 
    ```sh
@@ -643,7 +643,7 @@ the fault, because the driver powers the chip up at init.
 
 ### Tests with no cable
 
-The board can stay off USB. With no console found, or with `--cloud-only`, `scripts/ota.sh` and
+The board can stay off USB. With no console found, or with `--cloud-only`, `scripts/firmware/ota.sh` and
 `tests/hil/ota_bench.py` use no serial port and no probe, only AWS credentials. They follow the board through the job
 execution and the device shadow: firmware version, confirmed, update state, last result, heartbeat age, and from
 1.7.2 on the stuck count and reason. Where firmware before 1.7.2 asks for Button 1, the bench says so, waits three
@@ -905,10 +905,10 @@ console and the apps do with them. This board is `nrf7002dk`, flash layout `1`.
     window closes, and the record says `incompatible_board` or `incompatible_layout`. No SMP command can mark an image
     in any case: the image state write, which is what test and confirm are, is refused with `EACCESSDENIED` to every
     phone and tool, so only Button 1 can, after these checks.
-- `tools/check_image.py` (`scripts/check-image.sh`) shows the type and the layout, and refuses an image from 1.13.0
+- `tools/check_image.py` (`scripts/firmware/check-image.sh`) shows the type and the layout, and refuses an image from 1.13.0
   without them, one whose protected TLV area is malformed or not under the image's SHA-256, one with them outside that
   area, one of a type the console does not know, and one of a layout that `flash_layouts.json` does not have for its
-  type. `--board <image>` and `--layout <image>` print each alone. `scripts/build.sh` reads both back from the image
+  type. `--board <image>` and `--layout <image>` print each alone. `scripts/firmware/build.sh` reads both back from the image
   it built, stops if they are not this build's, and writes them into `binaries/latest.json` and the image's own
   record as `"board"` and `"layout"`. A plain `west build` leaves them out of those records: `tools/store_binary.py`
   does not write them yet.
@@ -1516,8 +1516,8 @@ JSON, `$aws/things/`, MQTT, AWS IoT, the downloader, Wi-Fi, the network stack, c
 ### Build
 
 ```sh
-scripts/build.sh --board nrf5340dk                    # a release, with the next version, uploaded
-scripts/build.sh --board nrf5340dk --keep --no-upload # a try at the version in firmware/app/VERSION
+scripts/firmware/build.sh --board nrf5340dk                    # a release, with the next version, uploaded
+scripts/firmware/build.sh --board nrf5340dk --keep --no-upload # a try at the version in firmware/app/VERSION
 ```
 
 or by hand, from an nRF Connect SDK terminal:
@@ -1526,7 +1526,7 @@ or by hand, from an nRF Connect SDK terminal:
 west build -b nrf5340dk/nrf5340/cpuapp/ns --sysbuild firmware/app -d build-nrf5340dk
 ```
 
-`scripts/build.sh --board nrf5340dk` builds in `build-nrf5340dk/`, and leaves
+`scripts/firmware/build.sh --board nrf5340dk` builds in `build-nrf5340dk/`, and leaves
 `binaries/cranium-nrf5340dk-<version>-0.signed.bin`, with `binaries/latest-nrf5340dk.signed.bin` and its `.json`, whose
 record says `"board": "nrf5340dk"`. The nRF7002 DK's names, `build/` and `latest.signed.bin` stay what they were.
 Versions are one sequence across board types, so one version names one image ([`docs/fleet.md`](../docs/fleet.md)): it
@@ -1537,7 +1537,7 @@ The image carries what it is compatible with, as under [Board type and compatibi
 `0xa1` = `nrf5340dk` and `0xa2` = `1`. Layouts are numbered per board type, and this board's partitions are the nRF7002
 DK's, so its first layout is `1`, and `flash_layouts.json` holds its lines, which hash to the same SHA-256 as the nRF7002
 DK's layout 1. Its type and layout are defaults in `firmware/app/Kconfig`, next to the nRF7002 DK's
-(`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/build.sh` reads both back
+(`CRANIUM_NRF5340DK_LAYOUT`), with the imgtool arguments: a `.conf` cannot set them. `scripts/firmware/build.sh` reads both back
 from the image, and `flash_layout.py` checks the partitions, as for the nRF7002 DK.
 
 A build of 1.14.0, with the console, Bluetooth and the status characteristic, in bytes:

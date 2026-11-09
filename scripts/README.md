@@ -1,5 +1,18 @@
 # scripts
 
+The scripts are grouped by what they are for:
+
+| Folder | Scripts | For |
+| --- | --- | --- |
+| `firmware/` | `build.sh`, `ota.sh`, `upload-to-console.sh`, `check-image.sh` | Building a release, putting it on the console, installing it on a board |
+| `board/` | `new-board.sh`, `flash-netcore.sh` | Setting up a new board, and its one USB step |
+| `fleet/` | `fleet-check.sh` | Checking that a fleet-management (3.11) demonstration is ready; it only reads |
+| `release/` | `github-release.sh`, `verify-github-release.sh`, `release-lib.sh` | Publishing a GitHub Release and checking one (`release-lib.sh` is shared by both) |
+| `console/` | `open-console.sh` | Signing in to AWS and opening the console |
+| `ci/` | `scan-tracked-files.sh`, `check-west-workspace.sh` | Checks CI runs; they also run by hand |
+
+Each script finds the repository from its own place, so it runs from any folder.
+
 ## The ones you run
 
 | Script | What it does |
@@ -16,8 +29,8 @@
 A normal update is:
 
 ```sh
-scripts/build.sh    # makes binaries/cranium-<version>-0.signed.bin and uploads it to the console
-scripts/ota.sh      # installs the newest one; or deploy it from the console's Firmware page
+scripts/firmware/build.sh    # makes binaries/cranium-<version>-0.signed.bin and uploads it to the console
+scripts/firmware/ota.sh      # installs the newest one; or deploy it from the console's Firmware page
 ```
 
 For the upload, keep an API token in `~/.cranium/console-token` with mode 600 (see below). An upload-only
@@ -39,13 +52,13 @@ credentials:
    ```
 
    `CRANIUM_TOKEN=crn_…` works instead, and is used first.
-3. Run `scripts/ota.sh` as usual. It finds the console in `cloud/.deploy/outputs.json` (or
+3. Run `scripts/firmware/ota.sh` as usual. It finds the console in `cloud/.deploy/outputs.json` (or
    `CRANIUM_CONSOLE_URL`), uploads and deploys through `/api/t/` with curl, and follows the board through the
    console. `--thing <name>` picks the board when there are several.
 
 The script refuses a token file that is a link, someone else's, or not mode 600, and it never prints the
 token. The token acts as you, with the role you have when it is used: a viewer's token cannot install
-anything. Revoke it on the same page when it is no longer needed. `scripts/ota.sh --aws` uses AWS
+anything. Revoke it on the same page when it is no longer needed. `scripts/firmware/ota.sh --aws` uses AWS
 credentials instead, as before. More in [`docs/aws-iot.md`](../docs/aws-iot.md#api-tokens).
 
 ## Used by CI and the other scripts
@@ -57,7 +70,7 @@ credentials instead, as before. More in [`docs/aws-iot.md`](../docs/aws-iot.md#a
 | `verify-github-release.sh` | Checks a published release's files |
 | `release-lib.sh` | Checks shared by the two release scripts |
 
-Setting up a blank board is `scripts/new-board.sh`, and by hand [`docs/new-board-setup.md`](../docs/new-board-setup.md).
+Setting up a blank board is `scripts/board/new-board.sh`, and by hand [`docs/new-board-setup.md`](../docs/new-board-setup.md).
 
 ## Where things go
 

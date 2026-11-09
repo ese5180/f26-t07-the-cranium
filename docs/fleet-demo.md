@@ -6,7 +6,7 @@ the manual asks for. The TA agreed that Memfault in nRF Cloud may get its data t
 
 ## Before
 
-1. `scripts/fleet-check.sh`. It only reads, and says whether the console answers, whether the two demonstration
+1. `scripts/fleet/fleet-check.sh`. It only reads, and says whether the console answers, whether the two demonstration
    releases are on the Firmware page (the crash demonstration `1.14.0+1` and `1.14.2`, the release that ends it),
    how the board is, and whether Memfault has the board and the releases.
 2. Plug the board in. It joins Wi-Fi and the console shows it online within a minute, on `1.14.0+0`.
@@ -61,4 +61,4 @@ Extra credit, said with the screens above:
 - **No issue in Memfault after the crash:** the coredump goes once the board is connected again; Send Memfault data
   now pushes it. `cloud/logs.sh memfault` shows whether chunks arrive.
 - **The board does not take a release:** it takes only a newer version than it runs. After `1.14.2` a new crash
-  demonstration needs a build above it (`scripts/build.sh` picks the next version; docs/memfault.md).
+  demonstration needs a build above it (`scripts/firmware/build.sh` picks the next version; docs/memfault.md).

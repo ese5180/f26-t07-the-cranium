@@ -5,7 +5,7 @@
 # and Memfault has the board, the releases and the crash demonstration's symbols. It only reads:
 # nothing is deployed, sent or changed. docs/fleet-demo.md is the demonstration itself.
 #
-#   scripts/fleet-check.sh
+#   scripts/fleet/fleet-check.sh
 #
 # Needs: ~/.cranium/console-token (an API token from the console's Tokens page), cloud/.deploy/outputs.json
 # (written by cloud/deploy.sh; ~/cranium-work/deploy has one), ~/.cranium/memfault.json and
@@ -13,7 +13,7 @@
 # Prints no token, key, address or account number.
 set -uo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CRASH_DEMO="${CRASH_DEMO:-1.14.0+1}"
 FIX_RELEASE="${FIX_RELEASE:-1.14.2+0}"
 failed=0

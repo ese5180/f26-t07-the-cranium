@@ -4,9 +4,9 @@
 # after a build of this commit. GitHub Actions never has the key, so only this can make an image a
 # board will install.
 #
-#   scripts/github-release.sh 1.6.0             check everything, tag v1.6.0, and publish
-#   scripts/github-release.sh 1.6.0+2           the same, for a version with a build number
-#   scripts/github-release.sh 1.6.0 --dry-run   check everything and write nothing
+#   scripts/release/github-release.sh 1.6.0             check everything, tag v1.6.0, and publish
+#   scripts/release/github-release.sh 1.6.0+2           the same, for a version with a build number
+#   scripts/release/github-release.sh 1.6.0 --dry-run   check everything and write nothing
 #
 # It refuses unless no tracked file has changed, HEAD is on a branch of origin, the version is the one
 # in firmware/app/VERSION and in the image's header, the signature verifies against
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 die() {
   printf 'refused: %s\n' "$1" >&2
@@ -34,8 +34,8 @@ usage() {
   sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-# shellcheck source=scripts/release-lib.sh
-. "$REPO_DIR/scripts/release-lib.sh"
+# shellcheck source=scripts/release/release-lib.sh
+. "$REPO_DIR/scripts/release/release-lib.sh"
 
 # --no-optional-locks: a check writes nothing, not even a refreshed index.
 git_here() {

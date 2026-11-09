@@ -120,7 +120,7 @@ if [ "$EXAMPLE_CONFIG" = 1 ]; then
 fi
 echo "It holds this stack's console URL and client ID: share it privately, never in a public release."
 
-# On the console's Apps page, as scripts/build.sh puts a firmware build on its Firmware page. Never an APK that
+# On the console's Apps page, as scripts/firmware/build.sh puts a firmware build on its Firmware page. Never an APK that
 # cannot sign in: a version is published once.
 if [ "$publish" = false ]; then
   echo "Next: publish it on the console's Apps page with apps/android/publish.sh."

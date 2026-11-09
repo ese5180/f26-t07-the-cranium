@@ -138,7 +138,7 @@ secret.
 ## Symbols and releases
 
 Memfault turns a coredump into a backtrace only with the symbols of the build that crashed, found by its GNU build
-ID. `scripts/build.sh` runs `tools/memfault_upload.py` after each build, before the console upload:
+ID. `scripts/firmware/build.sh` runs `tools/memfault_upload.py` after each build, before the console upload:
 
 ```sh
 memfault upload-mcu-symbols --software-type app --software-version 1.14.0+0 build/app/zephyr/zephyr.elf
@@ -153,7 +153,7 @@ there. A test
 image, or one built with `--symbols-only`, gets its symbols and no release. Without `~/.cranium/memfault_org_token`,
 the organization and project, or the `memfault` command, it says so in one line and does nothing; it never fails a
 build. The token goes to the command in its environment, never on its command line, and is never printed.
-`scripts/build.sh --no-upload` uploads nothing: run `python3 -I tools/memfault_upload.py --build build` while `build/`
+`scripts/firmware/build.sh --no-upload` uploads nothing: run `python3 -I tools/memfault_upload.py --build build` while `build/`
 still holds that image.
 
 ## Setting it up
@@ -174,7 +174,7 @@ or a new machine. Never put the project key, the token or the slugs in the repos
    policy the memfault topic. Add `MemfaultChunksHost=chunks.memfault.com` if the project was not made through nRF
    Cloud. Every board needs that policy before it runs 1.14.0; without it the board stops sending after two tries and
    says so.
-6. **Commit, then build:** `scripts/build.sh --version 1.14.0`. It uploads the image to the console, and the symbols and
+6. **Commit, then build:** `scripts/firmware/build.sh --version 1.14.0`. It uploads the image to the console, and the symbols and
    the release to Memfault.
 7. **Deploy 1.14.0** on the console, as any release: over the air, through AWS IoT Jobs, or send it from the phone app
    over Bluetooth, as was done on 2026-11-05.
@@ -182,7 +182,7 @@ or a new machine. Never put the project key, the token or the slugs in the repos
 ## Showing 3.11 on the board
 
 The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](fleet-demo.md). Run
-`scripts/fleet-check.sh` first; it only reads.
+`scripts/fleet/fleet-check.sh` first; it only reads.
 
 1. **Updates with version information.** Deploy a release with a staged rollout (below). In Memfault each board shows
    its software version, `1.14.0+0`, the reboot before it as `FirmwareUpdate`, and an `update_succeeded` trace event
@@ -196,7 +196,7 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
    KIND=crash-demo firmware/tests/hil/build_image.sh 1.14.0 1 build-bench/images/cranium-1.14.0-1.signed.bin \
      -Dapp_CONFIG_APP_CRASH_DEMO=y
    python3 -I tools/memfault_upload.py --build build-bench/build-crash-demo
-   scripts/upload-to-console.sh build-bench/images/cranium-1.14.0-1.signed.bin "Crash demonstration: crashes once"
+   scripts/firmware/upload-to-console.sh build-bench/images/cranium-1.14.0-1.signed.bin "Crash demonstration: crashes once"
    ```
 
    Deploy it to one board. It goes through its trial and is confirmed, and 60 s later it stops with `k_oops()`, once:
@@ -245,4 +245,4 @@ Memfault costs 4,560 bytes of RAM in all: the 4 KiB of its regions, and 464 byte
 URL prefix and 512 bytes more of the MQTT thread's stack). The Bluetooth status takes 312 bytes more. MCUboot, TF-M and
 the network core's image are unchanged. The first two columns were measured with `west build` of a copy of
 `firmware/`, the way `firmware/tests/hil/build_image.sh` builds, so that neither `firmware/app/VERSION` nor
-`binaries/` changed; the third is the release build of `scripts/build.sh`.
+`binaries/` changed; the third is the release build of `scripts/firmware/build.sh`.

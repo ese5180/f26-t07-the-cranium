@@ -1359,10 +1359,10 @@ public enum Words {
         "label": AuditDetail(label: "Called", sentence: true),
     ]
 
-    /// Requests from scripts/ota.sh without a token, and from the test bench, carry this request id.
+    /// Requests from scripts/firmware/ota.sh without a token, and from the test bench, carry this request id.
     static let scriptedRequest = "bench-"
     public static let scriptedTag = "Script, no sign-in"
-    public static let scriptedNote = "Sent by a script (the test bench, or scripts/ota.sh without an API token) with AWS credentials, directly to the API function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, so the entry does not show that this person did it."
+    public static let scriptedNote = "Sent by a script (the test bench, or scripts/firmware/ota.sh without an API token) with AWS credentials, directly to the API function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, so the entry does not show that this person did it."
 
     /// One line of the activity log: what was done, to what, and how it ended if not well (core.js,
     /// `describeAudit`). `verb` comes before the label and `tail` after it. A deployment is called by its

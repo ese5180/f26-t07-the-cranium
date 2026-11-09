@@ -7,7 +7,7 @@ and shows up online in the console. It takes about 20 minutes. The iPhone and An
 
 **Only for a blank board, or one you mean to wipe.** Step 3 erases the whole chip, including TF-M storage, where a
 board keeps its ID, Wi-Fi network, private key and certificates. Never run it on a working board: to update one,
-use the console or `scripts/ota.sh`.
+use the console or `scripts/firmware/ota.sh`.
 
 ## The quick way
 
@@ -15,8 +15,8 @@ One command takes a board from out of the box to online on the console, and chec
 macOS or Linux, from the repository:
 
 ```sh
-scripts/new-board.sh check     # what this computer still needs, and the command that gets each thing
-scripts/new-board.sh           # set up the one board plugged in by USB
+scripts/board/new-board.sh check     # what this computer still needs, and the command that gets each thing
+scripts/board/new-board.sh           # set up the one board plugged in by USB
 ```
 
 It finds the boards plugged in, and goes on only if there is exactly one, or `--serial-number <n>` names one.
@@ -26,7 +26,7 @@ its serial number before it erases anything. Then:
 
 | Step | What it does | By hand |
 | --- | --- | --- |
-| `build` | `scripts/build.sh --keep --no-upload`. It leaves `binaries/` as it was | [2](#2-build) |
+| `build` | `scripts/firmware/build.sh --keep --no-upload`. It leaves `binaries/` as it was | [2](#2-build) |
 | `flash` | `west flash --recover` on that board's probe: erases it, and writes the bootloader, TF-M with the application and the Bluetooth controller | [3](#3-flash-everything-erasing-the-chip) |
 | `golden` | `tools/golden.py restore`, then you do the gesture, and it watches the bootloader's log for `sealed`. Not on an nRF5340 DK | [4](#4-put-the-golden-image-on-and-seal-it) |
 | `release` | The newest release for the board's type, through serial recovery: the console's, with a console token, or else the newest in `binaries/`, or `--image <file>` | [6](#6-update-it-to-the-current-firmware), over USB |
@@ -36,11 +36,11 @@ its serial number before it erases anything. Then:
 The release goes on over USB before provisioning, where the steps by hand provision the golden image and update it
 over the air: the same board at the end, sooner, and with no Button 1 to press.
 
-- A step that fails stops it, says why, and says how to go on: `scripts/new-board.sh --from <step>`, or `--resume`
+- A step that fails stops it, says why, and says how to go on: `scripts/board/new-board.sh --from <step>`, or `--resume`
   for the step after the last one done. `--only <step>` runs one step.
 - `--dry-run` prints every command, and runs none of them.
-- `scripts/new-board.sh status` shows a board at any time: what its serial console says, and what the console
-  shows of it. `scripts/new-board.sh list` lists the boards plugged in.
+- `scripts/board/new-board.sh status` shows a board at any time: what its serial console says, and what the console
+  shows of it. `scripts/board/new-board.sh list` lists the boards plugged in.
 - It needs what [What you need](#what-you-need) lists, which `check` goes through, and a console token
   ([`scripts/README.md`](../scripts/README.md#otash-with-an-api-token)) for the newest release and for the console's
   view. An nRF5340 DK needs one for its passkey; while the console has no route for that, add `--no-register`, as
@@ -89,7 +89,7 @@ been run end to end by us yet.
 | Shell | Terminal | Any terminal with bash | WSL2 with Ubuntu: see [On Windows, use WSL2](#on-windows-use-wsl2). Everything below then runs in it, as on Linux |
 | Git | `xcode-select --install`, or Homebrew's `git` | Your distribution's `git` | In WSL, Ubuntu's `git` |
 | `nrfutil` | Nordic's [nRF Util](https://www.nordicsemi.com/Products/Development-tools/nRF-Util), then `nrfutil install device sdk-manager` | The same | In WSL, the Linux one |
-| nRF Connect SDK v3.4.0 | nRF Connect for VS Code, or `nrfutil sdk-manager install v3.4.0`. It goes in `/opt/nordic/ncs` | First `nrfutil sdk-manager config install-dir set /opt/nordic/ncs`, a folder you own, then install. `scripts/build.sh` looks only there, and Linux's default is `~/ncs` | In WSL, as Linux |
+| nRF Connect SDK v3.4.0 | nRF Connect for VS Code, or `nrfutil sdk-manager install v3.4.0`. It goes in `/opt/nordic/ncs` | First `nrfutil sdk-manager config install-dir set /opt/nordic/ncs`, a folder you own, then install. `scripts/firmware/build.sh` looks only there, and Linux's default is `~/ncs` | In WSL, as Linux |
 | J-Link | SEGGER's J-Link Software and Documentation Pack | SEGGER's `.deb` or `.rpm`; Nordic's [nrf-udev](https://github.com/NordicSemiconductor/nrf-udev) rules, which also keep ModemManager off the board's ports; and `sudo usermod -aG dialout $USER` (and `plugdev`, where your distribution's rules use it), then sign out and in | SEGGER's pack for Windows, which has the USB driver. In WSL, the Linux pack and rules as well |
 | AWS CLI v2 | AWS's installer. `aws login` needs a recent version | AWS's installer for Linux | In WSL, the Linux one. If no browser opens, `aws login --remote` |
 | Python 3.10 or later, with `pyserial` and `cbor2` | The nRF Connect SDK terminal's Python has them, and `cryptography`, which `keys.py` needs | The same. Otherwise `pip install pyserial cbor2 cryptography`, in a virtual environment | In WSL, as Linux |
@@ -105,7 +105,7 @@ Run everything in WSL2, Windows' own Linux, and hand the board's USB to it with
 | Shell | What works | What breaks |
 | --- | --- | --- |
 | **WSL2, with usbipd-win** | Everything, as on Linux | Setting up USB once, and attaching the board each time it is plugged in. While WSL has the board, Windows programs can't use it |
-| Git Bash | `west`, and the tools that only read | `scripts/build.sh` looks for the SDK in `/opt/nordic/ncs`, which Git Bash doesn't have. `provision_device.py` stops at registering the board: it hands the AWS CLI a temporary file that Windows keeps locked. `secrets.py wifi` refuses to run. A token file can't pass the scripts' mode 600 check. The scripts call `python3`, which Windows may not have |
+| Git Bash | `west`, and the tools that only read | `scripts/firmware/build.sh` looks for the SDK in `/opt/nordic/ncs`, which Git Bash doesn't have. `provision_device.py` stops at registering the board: it hands the AWS CLI a temporary file that Windows keeps locked. `secrets.py wifi` refuses to run. A token file can't pass the scripts' mode 600 check. The scripts call `python3`, which Windows may not have |
 | nRF Connect terminal (cmd or PowerShell) | `west build`, `west flash`, and the tools that only read | No bash script runs at all, and the Python tools break as under Git Bash |
 
 Once, in PowerShell as administrator:
@@ -191,14 +191,14 @@ Both must pass. The second checks that the golden file, `firmware/golden.json` a
 ## 2. Build
 
 ```sh
-scripts/build.sh --keep
+scripts/firmware/build.sh --keep
 ```
 
 This builds the bootloader, which holds the golden image's pin, and the application at the version in
 `firmware/app/VERSION`. Each image is signed with your key.
 
 It looks for the SDK in `/opt/nordic/ncs/v3.4.0`, where it goes on macOS. On Linux and in WSL, install it there
-([Install the tools](#install-the-tools)), or point `NCS_DIR` at it: `NCS_DIR=~/ncs/v3.4.0 scripts/build.sh`.
+([Install the tools](#install-the-tools)), or point `NCS_DIR` at it: `NCS_DIR=~/ncs/v3.4.0 scripts/firmware/build.sh`.
 Otherwise it stops with `nRF Connect SDK v3.4.0 was not found`.
 
 ## 3. Flash everything, erasing the chip
@@ -307,7 +307,7 @@ above:
 | --- | --- |
 | What you need | No Wi-Fi secrets and no golden image. The AWS sign-in and `cloud/.deploy/outputs.json` as above, and a console token (`CRANIUM_TOKEN` or `~/.cranium/console-token`, from the console's Tokens page) for its passkey |
 | 1. Check the key | `python tools/keys.py check` only. There is no golden image for this board, so skip `golden.py check` |
-| 2. Build | `scripts/build.sh --board nrf5340dk --keep --no-upload`. It builds in `build-nrf5340dk/` and leaves `binaries/cranium-nrf5340dk-<version>-0.signed.bin` |
+| 2. Build | `scripts/firmware/build.sh --board nrf5340dk --keep --no-upload`. It builds in `build-nrf5340dk/` and leaves `binaries/cranium-nrf5340dk-<version>-0.signed.bin` |
 | 3. Flash, erasing the chip | `west flash -d build-nrf5340dk --recover`, by the DK's USB port (J2). It writes the bootloader, TF-M with the application, and the Bluetooth controller on the network core, the one part that only USB can ever change. LED1 then flashes long every 2 seconds: factory mode |
 | 4. Golden image | Skip it. This board's bootloader is built without one, and the nRF7002 DK's 1.5.0 is not for it. The gesture does nothing here |
 | 5. Provision | `python tools/provision_device.py --board nrf5340dk`: `INIT`, a thing in AWS IoT with `board=nrf5340dk` and no certificate, and the board's own Bluetooth passkey, registered with the console before it is stored on the board. The console has no route for that yet: until it has, add `--no-register`, and the board shows a new passkey on its serial console for each pairing |
@@ -486,8 +486,8 @@ blinky there, and the controller can't go over the air. Holding Button 1 then sa
 port (J2), with any serial terminal closed:
 
 ```sh
-scripts/build.sh --keep --no-upload
-scripts/flash-netcore.sh --serial-number <probe>
+scripts/firmware/build.sh --keep --no-upload
+scripts/board/flash-netcore.sh --serial-number <probe>
 ```
 
 It writes only the network core: the board's ID, Wi-Fi network, key, certificates and golden image stay.

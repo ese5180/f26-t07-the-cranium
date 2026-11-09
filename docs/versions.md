@@ -6,7 +6,7 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 
 | What | Version lives in | Changelog | Now (2026-11-05) | Shown |
 | --- | --- | --- | --- | --- |
-| Firmware | `firmware/app/VERSION` (`scripts/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.14.0, tag `firmware-v1.14.0` (da27f3a): on the console, in Memfault, and on the board | On the console's Firmware page, each release with its note from the changelog |
+| Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.14.0, tag `firmware-v1.14.0` (da27f3a): on the console, in Memfault, and on the board | On the console's Firmware page, each release with its note from the changelog |
 | Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.1.0, tag `console-v2.1.0` (bcc5a19): deployed | At the foot of every page of the console ("Console 2.1.0"), What's new on its History page, and `GET /api/me` |
 | iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.7.2, tag `ios-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.7.2, tag `android-v0.7.2` (e64bee5): published | More, Help, About in the app; the console's Apps page, each version as it was published |
@@ -18,7 +18,7 @@ what the apps show without a new app version, and the app's settings say which c
 
 ## Making a version
 
-1. Change the code, and bump the version in its file. Firmware: `scripts/build.sh` takes the next unused one by itself.
+1. Change the code, and bump the version in its file. Firmware: `scripts/firmware/build.sh` takes the next unused one by itself.
 2. Add the entry at the top of its changelog. The first paragraph is what people see, at most 440 characters.
 3. Commit both with the change, and tag that commit: `git tag -a console-v2.1.1 -m "<the first paragraph>"`, then
    `git push origin main console-v2.1.1`. Tags are only ever added, never moved or deleted.

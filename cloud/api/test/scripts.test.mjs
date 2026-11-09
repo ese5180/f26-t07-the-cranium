@@ -195,7 +195,7 @@ test('adding an address that has no account says what happens to one elsewhere',
   assert.ok(out.includes('cloud/users.sh list'));
 });
 
-test('users.sh list keeps the form that scripts/ota.sh reads', () => {
+test('users.sh list keeps the form that scripts/firmware/ota.sh reads', () => {
   const { status, out } = script('users.sh', 'list');
   assert.equal(status, 0);
   assert.match(out, /^E-MAIL\s+ROLE\s+STATE\n/);
@@ -488,9 +488,9 @@ test('the event smoke.sh sends is one the API function takes, and it tells the t
   assert.equal(console_.fake.auditLog().length, 0);
 });
 
-// scripts/ota.sh with a personal API token: curl to the console's /api/t/, no AWS at all.
+// scripts/firmware/ota.sh with a personal API token: curl to the console's /api/t/, no AWS at all.
 
-const OTA = join(CLOUD, '..', 'scripts', 'ota.sh');
+const OTA = join(CLOUD, '..', 'scripts', 'firmware', 'ota.sh');
 const IMAGE = fileURLToPath(new URL('./fixtures/valid-1.2.3+4.signed.bin', import.meta.url));
 const BOARD = 'cranium-00000000000000aa';
 const hasTools = ['curl', 'python3'].every((tool) => spawnSync(tool, ['--version']).status === 0);

@@ -1,6 +1,6 @@
 # binaries
 
-`scripts/build.sh` builds the firmware with the next unused version, and its signed image lands
+`scripts/firmware/build.sh` builds the firmware with the next unused version, and its signed image lands
 here, named by that version. It then uploads the image to the console as a release, and its symbols
 and release to Memfault ([`docs/memfault.md`](../docs/memfault.md#symbols-and-releases)). Any
 `west build` of this checkout stores its image here too. Every image here is kept in git, with its record,
@@ -12,14 +12,14 @@ board at provisioning, and no AWS address or account is in an image.
 | `latest.signed.bin` | The newest build |
 | `latest.json` | Its version, size, SHA-256, git commit and build time |
 | `cranium-<version>-<build>.signed.bin` | Each version, the newest ten of them |
-| `cranium-<version>-<build>.json` | Its record, the same as `latest.json` was for it. `scripts/check-image.sh` reads it |
+| `cranium-<version>-<build>.json` | Its record, the same as `latest.json` was for it. `scripts/firmware/check-image.sh` reads it |
 | `golden/cranium-<version>-<build>.signed.bin` | The frozen golden image. Only `tools/golden.py freeze` puts it there, and nothing removes it: a build never touches this folder |
 | `golden/mcuboot-before-golden.hex` | The bootloader that was on the board before the golden image, kept as the way back |
 
 Three ways to put an image on a board over the air:
 
-- **From the command line:** `scripts/ota.sh` installs the newest build, and
-  `scripts/ota.sh binaries/cranium-1.7.0-0.signed.bin` installs that one.
+- **From the command line:** `scripts/firmware/ota.sh` installs the newest build, and
+  `scripts/firmware/ota.sh binaries/cranium-1.7.0-0.signed.bin` installs that one.
 - **From the website:** on the console's Firmware page, choose the file here. The server
   checks its signature against the project's public key before it stores anything, and
   then offers to deploy it.
@@ -27,7 +27,7 @@ Three ways to put an image on a board over the air:
   sends it from the app to a board nearby, and a person presses Button 1 there
   ([`docs/mobile-apps.md`](../docs/mobile-apps.md)). 1.13.0 and 1.14.0 reached the board this way.
 
-A release must be newer than every release uploaded before it. `scripts/build.sh` takes care of that,
+A release must be newer than every release uploaded before it. `scripts/firmware/build.sh` takes care of that,
 or set a new version in `firmware/app/VERSION` before a plain `west build`. Images built by the test bench
 and images with a test fault built in are not kept here. Every build from 1.9.0 has Bluetooth, and
 `latest.json` says so (`"bluetooth": true`).
@@ -43,7 +43,7 @@ uploaded twice, so it is refused once it has been uploaded, or once anything hig
 
 A published release on [GitHub](https://github.com/ese5180/f26-t07-the-cranium/releases) holds a signed
 image, its `latest.json` and `SHA256SUMS`, made by whoever holds the signing key with
-`scripts/github-release.sh`. None has been published as of 2026-11-05: the firmware's releases are on the
+`scripts/release/github-release.sh`. None has been published as of 2026-11-05: the firmware's releases are on the
 console, and its git tags (`firmware-v<version>`) mark their source. A board and the
 console take such an image like one from this folder. To fetch one, for example `v1.7.0`:
 
@@ -56,12 +56,12 @@ that is what they are. GitHub Actions never has the signing key, so it signs wha
 throwaway key, and MCUboot and the console both refuse those images. They show that a commit builds
 and what size it is. [`docs/ci.md`](../docs/ci.md) has the rest.
 
-## `scripts/ota.sh`
+## `scripts/firmware/ota.sh`
 
 ```sh
-scripts/ota.sh                                      # install binaries/latest.signed.bin
-scripts/ota.sh binaries/cranium-1.7.0-0.signed.bin  # install that image
-scripts/ota.sh --cloud-only                         # use no serial port, also if one is there
+scripts/firmware/ota.sh                                      # install binaries/latest.signed.bin
+scripts/firmware/ota.sh binaries/cranium-1.7.0-0.signed.bin  # install that image
+scripts/firmware/ota.sh --cloud-only                         # use no serial port, also if one is there
 ```
 
 The script needs a signed-in AWS profile. It invokes the console's API function directly. This
@@ -78,7 +78,7 @@ it waits for Button 1: the script then presses that through the serial console i
 otherwise says so and waits three minutes for a person. Without a console, that is a result from the cloud alone, and
 it says so. [`firmware/README.md`](../firmware/README.md#tests-with-no-cable) has which tests can run this way.
 The way with a sign-in is by hand, on the console's Firmware page.
-`scripts/open-console.sh` signs in to AWS and opens the console.
+`scripts/console/open-console.sh` signs in to AWS and opens the console.
 
 ## The golden image
 

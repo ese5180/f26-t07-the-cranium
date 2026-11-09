@@ -3,7 +3,7 @@
 # Say whether a west workspace is exactly the SDK it should be, for the firmware job in
 # .github/workflows/ci.yml, which may have restored the workspace from a cache:
 #
-#   scripts/check-west-workspace.sh <west workspace> <commit of sdk-nrf>
+#   scripts/ci/check-west-workspace.sh <west workspace> <commit of sdk-nrf>
 #
 # `west update` puts every project on the revision the manifest names, but it does not touch the
 # manifest repository, and it leaves changes to a project's files in place. So a cached workspace

@@ -1,4 +1,4 @@
-// scripts/upload-to-console.sh, which scripts/build.sh runs after every build: it uploads the image
+// scripts/firmware/upload-to-console.sh, which scripts/firmware/build.sh runs after every build: it uploads the image
 // to the console with an API token and never deploys it. Run here against the console's own code
 // behind a local address, as API Gateway serves /api/t/.
 
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { apiEvent, createTestConsole } from './fake-aws.mjs';
 
-const UPLOAD = fileURLToPath(new URL('../../../scripts/upload-to-console.sh', import.meta.url));
+const UPLOAD = fileURLToPath(new URL('../../../scripts/firmware/upload-to-console.sh', import.meta.url));
 const IMAGE = fileURLToPath(new URL('./fixtures/valid-1.2.3+4.signed.bin', import.meta.url));
 const OTHER = fileURLToPath(new URL('./fixtures/signed-with-other-key.signed.bin', import.meta.url));
 const hasTools = ['curl', 'python3'].every((tool) => spawnSync(tool, ['--version']).status === 0);
@@ -26,9 +26,9 @@ after(() => rmSync(work, { recursive: true, force: true }));
 // the firmware commits since the last version. So it runs here from a copy in a folder of its own,
 // outside git, with a changelog the test writes: what the real repository holds never decides a test.
 const repo = join(work, 'repo');
-mkdirSync(join(repo, 'scripts'), { recursive: true });
+mkdirSync(join(repo, 'scripts', 'firmware'), { recursive: true });
 mkdirSync(join(repo, 'firmware'));
-const SCRIPT = join(repo, 'scripts', 'upload-to-console.sh');
+const SCRIPT = join(repo, 'scripts', 'firmware', 'upload-to-console.sh');
 copyFileSync(UPLOAD, SCRIPT);
 const CHANGELOG = join(repo, 'firmware', 'CHANGELOG.md');
 writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.\n');
@@ -85,7 +85,7 @@ async function consoleServer(t) {
 test('an image is uploaded, and only uploaded: nothing is deployed', { skip }, async (t) => {
   const { console_, seen, url, managerToken } = await consoleServer(t);
   const home = mkdtempSync(join(work, 'home-'));
-  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'], {
+  const { status, out, err } = await run([IMAGE, 'Built by scripts/firmware/build.sh from commit abc1234'], {
     HOME: home,
     CRANIUM_TOKEN: managerToken,
     CRANIUM_CONSOLE_URL: url,
@@ -95,7 +95,7 @@ test('an image is uploaded, and only uploaded: nothing is deployed', { skip }, a
   assert.deepEqual(seen, ['POST /api/t/firmware']);
   assert.equal(console_.fake.releases.size, 1);
   const [release] = console_.fake.releases.values();
-  assert.equal(release.notes, 'Built by scripts/build.sh from commit abc1234');
+  assert.equal(release.notes, 'Built by scripts/firmware/build.sh from commit abc1234');
   for (const text of [out, err]) assert.equal(text.includes(managerToken.slice(4)), false);
 });
 
@@ -108,14 +108,14 @@ test("the note is the version's changelog entry, with the given note after it in
       '## 1.0.0\n\nThe first release.\n'
   );
   t.after(() => writeFileSync(CHANGELOG, '# Firmware changelog\n\n## 1.0.0\n\nThe first release.\n'));
-  const { status, out, err } = await run([IMAGE, 'Built by scripts/build.sh from commit abc1234'], {
+  const { status, out, err } = await run([IMAGE, 'Built by scripts/firmware/build.sh from commit abc1234'], {
     HOME: home,
     CRANIUM_TOKEN: managerToken,
     CRANIUM_CONSOLE_URL: url,
   });
   assert.equal(status, 0, `${out}\n${err}`);
   const [release] = console_.fake.releases.values();
-  assert.equal(release.notes, 'The board blinks faster. (Built by scripts/build.sh from commit abc1234)');
+  assert.equal(release.notes, 'The board blinks faster. (Built by scripts/firmware/build.sh from commit abc1234)');
 });
 
 test('the same image again counts as uploaded', { skip }, async (t) => {
