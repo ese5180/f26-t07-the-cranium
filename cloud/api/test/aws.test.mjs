@@ -18,6 +18,7 @@ import { register } from 'node:module';
 import { test } from 'node:test';
 
 import { accessClaims, apiEvent, createFakeAws, fakeEnv } from './fake-aws.mjs';
+import { PROVISION_COMMANDS } from './provision-sdk.mjs';
 
 const REFERENCE = {
   '@aws-sdk/client-cognito-identity-provider': {
@@ -362,6 +363,9 @@ const MAP_PACKAGES = {
     },
   },
 };
+
+// The commands only src/aws-provision.mjs sends, which index.mjs loads too (provision-aws.test.mjs).
+Object.assign(REFERENCE['@aws-sdk/client-iot'].commands, PROVISION_COMMANDS);
 
 const hooks = `
 const REFERENCE = ${JSON.stringify({ ...REFERENCE, ...MAP_PACKAGES })};

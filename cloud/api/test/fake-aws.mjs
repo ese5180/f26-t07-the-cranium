@@ -77,10 +77,12 @@ import { memfaultError } from '../src/aws-memfault-api.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { recordsOf } from '../src/lib/events.mjs';
 import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
+import { parseCsr } from '../src/lib/provision.mjs';
 import { FACT_PARTITION, factPartition, factsFromItems } from '../src/lib/updates.mjs';
 import { parseBundledVersions } from '../src/lib/versions.mjs';
 import { createFakeApps } from './fake-apps.mjs';
 import { createFakeMap } from './fake-map.mjs';
+import { boardKey, issueCertificate } from './fake-provision.mjs';
 
 const THING_NAME = /^[a-zA-Z0-9:_-]{1,128}$/;
 const JOB_ID = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -918,6 +920,86 @@ export function createFakeAws({
     },
   });
 
+  // Provisioning through the console (src/aws-provision.mjs): things, certificates issued for a board's
+  // request, the device policy on them. A certificate is { status, pem, policy, things }; one attached to a
+  // thing EXCLUSIVE_THING cannot be attached to another, as AWS IoT has it. fake.misissueNext() makes the
+  // next certificate be for another key, as the console must never hand on.
+  const certificates = new Map(); // id -> certificate
+  let misissue = false;
+  const certificateId = (arn) => {
+    const match = /:cert\/([0-9a-f]{64})$/.exec(String(arn));
+    if (!match || !certificates.has(match[1])) {
+      throw awsError('certificate', 'ResourceNotFoundException', { status: 404 });
+    }
+    return match[1];
+  };
+  Object.assign(adapter, {
+    async createThing({ thing, attributes = null }) {
+      checkThingName('CreateThing', thing);
+      if (things.has(thing)) return { created: false };
+      things.set(thing, { inGroup: false, principals: [], attributes: { ...(attributes ?? {}) } });
+      return { created: true };
+    },
+
+    async updateThingAttributes({ thing, attributes }) {
+      checkThingName('UpdateThing', thing);
+      if (!things.has(thing)) throw awsError('UpdateThing', 'ResourceNotFoundException', { status: 404 });
+      Object.assign(things.get(thing).attributes, attributes);
+    },
+
+    async addThingToGroup(thing) {
+      checkThingName('AddThingToThingGroup', thing);
+      if (!things.has(thing)) throw awsError('AddThingToThingGroup', 'ResourceNotFoundException', { status: 404 });
+      things.get(thing).inGroup = true;
+    },
+
+    async createCertificateFromCsr(csr) {
+      const request = parseCsr(csr);
+      if (request === null) throw invalid('CreateCertificateFromCsr', 'certificate signing request');
+      const id = createHash('sha256').update(`certificate ${certificates.size} ${csr}`).digest('hex');
+      const key = misissue ? boardKey().publicKey.export({ format: 'der', type: 'spki' }) : request.publicKey;
+      misissue = false;
+      const pem = issueCertificate(key, { serial: certificates.size + 1, at: clock() });
+      certificates.set(id, { status: 'ACTIVE', pem, policy: null, things: new Set() });
+      return { arn: `arn:aws:iot:${REGION}:${ACCOUNT}:cert/${id}`, id, pem };
+    },
+
+    async attachDevicePolicy(arn) {
+      certificates.get(certificateId(arn)).policy = 'cranium-device';
+    },
+
+    async attachThingPrincipal({ thing, arn }) {
+      checkThingName('AttachThingPrincipal', thing);
+      const certificate = certificates.get(certificateId(arn));
+      if (!things.has(thing)) throw awsError('AttachThingPrincipal', 'ResourceNotFoundException', { status: 404 });
+      if (certificate.things.size > 0 && !certificate.things.has(thing)) {
+        throw invalid('AttachThingPrincipal', 'the certificate is attached to another thing exclusively');
+      }
+      certificate.things.add(thing);
+      const principals = things.get(thing).principals;
+      if (!principals.includes(arn)) principals.push(arn);
+    },
+
+    async retireCertificate({ thing, arn }) {
+      const match = /:cert\/([0-9a-f]{64})$/.exec(String(arn));
+      if (!match) throw new TypeError('not a certificate ARN');
+      if (thing !== null && things.has(thing)) {
+        things.get(thing).principals = things.get(thing).principals.filter((principal) => principal !== arn);
+      }
+      // One of addThing's, which this stand-in did not issue: only taken off the thing.
+      if (!certificates.has(match[1])) return;
+      const certificate = certificates.get(match[1]);
+      if (thing !== null) certificate.things.delete(thing);
+      certificate.policy = null;
+      certificate.status = 'INACTIVE';
+      if (certificate.things.size === 0) certificates.delete(match[1]);
+    },
+
+    async describeDataEndpoint() {
+      return `a1b2c3d4e5f6g7-ats.iot.${REGION}.amazonaws.com`;
+    },
+  });
+
   const fake = {};
   for (const [method, run] of Object.entries(adapter)) {
     fake[method] = async (...args) => {
@@ -951,6 +1033,18 @@ export function createFakeAws({
     /** A reader of Memfault's REST API for memfaultGet, or null for none. */
     useMemfault(reader) {
       memfaultReader = reader;
+    },
+
+    /** The certificates AWS IoT holds, by id: { status, pem, policy, things: [names] }. */
+    certificates() {
+      return Object.fromEntries(
+        [...certificates].map(([id, certificate]) => [id, { ...certificate, things: [...certificate.things] }])
+      );
+    },
+
+    /** Make the next certificate AWS IoT issues be for another key than the request's. */
+    misissueNext() {
+      misissue = true;
     },
 
     /** What cloud/deploy.sh does with ~/.cranium/memfault_project_key: store a key in the secret, or none. */
@@ -1267,6 +1361,9 @@ export function fakeEnv(overrides = {}) {
     // The console's address and its login pages, for the phone apps' configuration (GET /api/apps/config).
     CONSOLE_URL: 'https://console.example.invalid',
     LOGIN_DOMAIN: `local.auth.${REGION}.amazoncognito.com`,
+    // What provisioning through the console gives a board (src/handlers/provision.mjs).
+    DEVICE_POLICY: 'cranium-device',
+    FIRMWARE_DOWNLOAD_PREFIX: `https://local-firmware.s3.${REGION}.amazonaws.com/firmware/`,
     ...overrides,
   };
 }

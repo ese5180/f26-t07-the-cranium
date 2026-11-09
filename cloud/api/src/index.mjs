@@ -19,6 +19,7 @@ import { createAppsAws } from './aws-apps.mjs';
 import { createMapAws } from './aws-map.mjs';
 import { createMemfaultReader } from './aws-memfault-api.mjs';
 import { createMemfaultStatus } from './aws-memfault.mjs';
+import { createProvisionAws } from './aws-provision.mjs';
 import { createAws } from './aws.mjs';
 import { loadConfig } from './config.mjs';
 import { createCustomerStore } from './customer/aws.mjs';
@@ -28,8 +29,9 @@ const customers = loadCustomerAdminConfig(process.env);
 const config = Object.freeze({ ...loadConfig(process.env), customers });
 
 // The adapter: aws.mjs, the calls of the map, the commands and the alerts (aws-map.mjs), those of the
-// phone apps' releases (aws-apps.mjs), the customer site's (customer/aws.mjs), and whether a Memfault
-// project key is stored (aws-memfault.mjs), and the reads of Memfault's REST API (aws-memfault-api.mjs).
+// phone apps' releases (aws-apps.mjs), the customer site's (customer/aws.mjs), whether a Memfault
+// project key is stored (aws-memfault.mjs), the reads of Memfault's REST API (aws-memfault-api.mjs),
+// and the calls of provisioning (aws-provision.mjs).
 export const handler = createApp({
   aws: {
     ...createAws(process.env),
@@ -37,6 +39,8 @@ export const handler = createApp({
     ...createAppsAws(process.env),
     ...createMemfaultStatus(process.env),
     ...createMemfaultReader(process.env),
+    // Provisioning through the console: things, certificates from a board's request, the device policy.
+    ...createProvisionAws(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },
   config,
