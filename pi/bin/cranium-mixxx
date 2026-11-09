@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Starts Mixxx the way the Cranium metrics need it (pi/README.md):
+#   --log-flush-level warning  the mapping's CRANIUM_METRICS lines are warnings; without this Mixxx
+#                              writes them to mixxx.log only when its buffer fills or on a critical
+#   --log-max-file-size        MIXXX_LOG_MAX_BYTES, as Mixxx stops logging at 100 MB by default
+#   --developer                only if mixxx.cfg does not have [Controller] midi_through_enabled 1:
+#                              otherwise Mixxx hides the Midi Through port the mapping runs on
+#   --settings-path            only if MIXXX_DIR is not ~/.mixxx
+# Any arguments are passed on to Mixxx, after MIXXX_ARGS.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+
+args=(--log-flush-level warning --log-max-file-size "$MIXXX_LOG_MAX_BYTES")
+if [ "$(readlink -m "$MIXXX_DIR")" != "$(readlink -m "$HOME/.mixxx")" ]; then
+    args+=(--settings-path "$MIXXX_DIR")
+fi
+# Mixxx writes the setting as 1 or true.
+if ! sed -n '/^\[Controller\]/,/^\[/p' "$MIXXX_DIR/mixxx.cfg" 2>/dev/null \
+        | grep -qE '^midi_through_enabled[[:space:]]+(1|true)[[:space:]]*$'; then
+    args+=(--developer)
+fi
+# shellcheck disable=SC2206 # MIXXX_ARGS is split into words on purpose
+args+=($MIXXX_ARGS "$@")
+
+case "$MIXXX_AUDIO" in
+    native)  exec mixxx "${args[@]}" ;;
+    pw-jack) exec pw-jack mixxx "${args[@]}" ;;
+    *) echo "cranium-mixxx: MIXXX_AUDIO is \"$MIXXX_AUDIO\": it must be native or pw-jack" >&2; exit 2 ;;
+esac
