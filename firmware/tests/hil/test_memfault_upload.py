@@ -147,6 +147,11 @@ class MemfaultUpload(unittest.TestCase):
         self.assertIn("a test image", result.stdout)
 
         self.log.unlink()
+        self.config.write_text(CONFIG + "CONFIG_APP_FAULT_DEMO=y\n")
+        self.assertEqual(self.run_tool().returncode, 0)
+        self.assertEqual([c["argv"][0] for c in self.calls()], ["upload-mcu-symbols"])
+
+        self.log.unlink()
         self.config.write_text(CONFIG.replace("CONFIG_APP_TEST_FAULT_NONE=y", "CONFIG_APP_TEST_FAULT_HANG=y"))
         self.assertEqual(self.run_tool().returncode, 0)
         self.assertEqual([c["argv"][0] for c in self.calls()], ["upload-mcu-symbols"])

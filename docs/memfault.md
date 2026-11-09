@@ -63,6 +63,18 @@ board (Memfault SDK 1.40.0)                       AWS                           
   time, Wi-Fi (`wifi_connected_time_ms`, `wifi_disconnect_count`, `wifi_sta_rssi`, `wifi_primary_channel`),
   `mqtt_reconnect_count`, `ota_attempt_count`, `ota_failure_count`, `ota_refusal_count`, `stuck_restart_count` and
   `memfault_chunk_retry_count`.
+- **Power status, from 1.15.0,** in place of a battery's state of charge: the DK has no battery and runs from USB.
+  `power_usb_present` is 1 when the USB regulator sees VBUS (`USBREGSTATUS.VBUSDETECT`), and `supply_mv` is the
+  supply VDD in mV, one SAADC sample against the internal reference (gain 1/6, 3.6 V full scale), not calibrated, so
+  good to a few percent. Both are read when the heartbeat is taken (`src/mflt.c`), with the nrfx HAL and no driver,
+  so they cost no RAM; the USB regulator and the SAADC are non-secure under TF-M.
+- **Zephyr's default metrics, from 1.15.0.** `CONFIG_INIT_STACKS=y` turns on what the SDK's Zephyr port collects by
+  default: CPU use (`cpu_usage_pct`, `TimerTaskCpuUsage`, `AllTasksCpuUsage`), the free stack of the timer thread
+  (`TimerTaskFreeStack`) and the highest stack use of the idle thread and the system work queue
+  (`memory_idle_pct_max`, `memory_sysworkq_pct_max`). With the heap, the connection and the boot time above, that is
+  the default set. Left out: the TCP/IP counters (`net_bytes_*`, which need `CONFIG_NET_STATISTICS` and RAM for its
+  counters), the SDK's Wi-Fi metrics (below), the CPU temperature (the application core has no TEMP peripheral) and
+  NCS's per-thread stack metrics (`CONFIG_MEMFAULT_NCS_STACK_METRICS`, which needs the thread analyzer).
 - **Trace events, one per update that ends:** `update_succeeded` (with the version), `update_failed`,
   `update_digest_mismatch`, `update_incompatible` (`incompatible_board` or `incompatible_layout`, with what the image
   said), `update_refused` (not newer, too large, a URL that is not allowed, a bad document) and `update_rolled_back`.
@@ -209,7 +221,39 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
 3. **Critical information in Memfault's cloud.** The reboot reasons, the heartbeat metrics and the update events above.
    "Send Memfault data now" on the board's page (the `memfault` command) takes a heartbeat at once instead of at the
    end of the hour, and it is in Memfault a few seconds later; `cloud/logs.sh memfault` shows each chunk forwarded.
-4. **Extra credit: a staged rollout, and A and B.** The console's staged rollouts (console 1.10.0, `fleet.md`) send an
+4. **Several issues, then one release that fixes them all: the fault demonstration.** Built from 1.15.0's sources
+   with `CONFIG_APP_FAULT_DEMO=y`, as a test image above every board's version (1.14.0+0 and 1.14.3) and below
+   1.15.0, with its symbols for Memfault:
+
+   ```sh
+   KIND=fault-demo firmware/tests/hil/build_image.sh 1.14.6 1 build-bench/images/cranium-1.14.6-1.signed.bin \
+     -Dapp_CONFIG_APP_FAULT_DEMO=y
+   python3 -I tools/memfault_upload.py --build build-bench/build-fault-demo
+   scripts/firmware/upload-to-console.sh build-bench/images/cranium-1.14.6-1.signed.bin "Fault demonstration: five faults, one per boot"
+   ```
+
+   Deploy it. Each board goes through its trial and confirms the image as usual; no fault comes before the
+   confirmation, so MCUboot's trial is never in danger. Then at each boot, once the board has been connected for 60 s
+   (`CONFIG_APP_CRASH_DEMO_AFTER_SECONDS`) and Memfault has taken the coredump of the fault before, it faults once,
+   each time in a different way, in a function of its own in `src/mflt.c`, so that each is its own issue in Memfault:
+
+   | Boot after the confirmation | Fault | Memfault shows |
+   | --- | --- | --- |
+   | 1 | `MEMFAULT_ASSERT` that fails, `fault_demo_assert()` | Assert |
+   | 2 | A write to the image's own code in flash, which the MPU forbids, `fault_demo_bad_write()` | MemManage fault (hard fault) |
+   | 3 | An undefined instruction (`udf`), `fault_demo_undefined_instruction()` | Usage fault |
+   | 4 | Recursion on the main thread until the stack limit register stops it (`CONFIG_BUILTIN_STACK_GUARD`), `fault_demo_recurse()` | Stack overflow (usage fault) |
+   | 5 | The main loop hangs; Memfault's software watchdog (15 s) stops it before the hardware watchdog (120 s) would, `fault_demo_hang()` | Software watchdog |
+
+   Which comes next is kept in storage (`STORE_TEST_FAULT`, with the version) and moves on before each fault, so
+   each happens once, also if a fault went wrong; after the fifth the board runs normally. Each coredump is kept in
+   the RAM that outlives the reset and sent once the board is connected again, so about 1 to 2 minutes pass between
+   two faults. The log lines start with `Test image:`, so it can never become a GitHub release, and it gets symbols
+   and no release in Memfault. No fault reads secure memory: a fault in TF-M would give no coredump. Then deploy
+   **1.15.0**, an ordinary build, to every board at once: it has no fault demonstration, and the issues stop. The
+   crash demonstration (`CONFIG_APP_CRASH_DEMO`, step 2) uses the same code with one fault, `k_oops()`; the two cannot
+   be on together.
+5. **Extra credit: a staged rollout, and A and B.** The console's staged rollouts (console 1.10.0, `fleet.md`) send an
    update to a canary first and to the rest in waves, and stop by themselves when the canary does not confirm; in
    Memfault the versions of the fleet change wave by wave, each board's reboot says `FirmwareUpdate`, and a canary that
    failed its trial shows `FirmwareUpdateError` and `update_rolled_back`. The board runs A and B slots: MCUboot keeps
@@ -224,6 +268,8 @@ The checkoff, step by step, with what to show on each screen: [`fleet-demo.md`](
   and the board acknowledged; Memfault listing the board with hardware `nrf7002dk` and software `1.14.0+0`. So the
   rule's `encode(*, 'base64')` hands these binary messages over, the function reads the key, and the answers reach the
   board.
+- **Not run on a board yet:** the fault demonstration and 1.15.0's power status and default metrics (built and
+  host-tested only, 2026-11-09).
 - **Not shown yet:** a coredump (it needs the crash demonstration above on the board), and so the coredump surviving a
   reset and a revert and MCUboot leaving the regions alone; the first hourly heartbeat's metrics and their values; a
   staged rollout watched in Memfault; and what Memfault's chunks API answers other than 202.
@@ -242,6 +288,10 @@ The application image of the nRF7002 DK, from `west build` of the same sources b
 | Signed image (of a 933,888-byte slot) | 856,082 bytes | 872,061 bytes: 15,979 more | 876,412 bytes: 57,476 left |
 | RAM, the application's region | 403,508 of 409,600 bytes: 6,092 free | 403,972 of 405,504 bytes: 1,532 free | 404,284 of 405,504 bytes: 1,220 free |
 | RAM for Memfault's two regions | none | 4,032 of 4,096 bytes | 4,032 of 4,096 bytes |
+
+1.15.0, with the power status and Zephyr's default metrics: flash 746,488 of 794,474 bytes (47,986 left), RAM 404,404
+of 405,504 bytes (1,100 free), signed image 877,733 bytes. `CONFIG_INIT_STACKS` costs no RAM; that is 120 bytes more
+than the 1.14.0 release used.
 
 Memfault costs 4,560 bytes of RAM in all: the 4 KiB of its regions, and 464 bytes more in the application, after the
 3,425 bytes that reading the jobs message where it arrives gave back (its 4,097-byte copy, less a copy of the download

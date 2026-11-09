@@ -27,3 +27,11 @@ MEMFAULT_METRICS_KEY_DEFINE(stuck_restart_count, kMemfaultMetricType_Unsigned)
 
 /* This board's own chunks: sent again because no answer came. */
 MEMFAULT_METRICS_KEY_DEFINE(memfault_chunk_retry_count, kMemfaultMetricType_Unsigned)
+
+/*
+ * The power status, from 1.15.0, in place of a battery's state of charge: the DK has no battery and
+ * runs from USB. 1 when the USB regulator sees VBUS, and the supply voltage VDD in mV from one
+ * SAADC sample (src/mflt.c).
+ */
+MEMFAULT_METRICS_KEY_DEFINE(power_usb_present, kMemfaultMetricType_Unsigned)
+MEMFAULT_METRICS_KEY_DEFINE(supply_mv, kMemfaultMetricType_Unsigned)
