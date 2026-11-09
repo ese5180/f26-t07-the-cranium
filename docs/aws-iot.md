@@ -513,7 +513,8 @@ console's own reads. The recorder's log names the board and the kinds it recorde
 **Read.** Two read routes, for viewers and release managers alike (also with an API token), which go on no record:
 
 - `GET /api/events?from=<ISO>&to=<ISO>&thing=<name>&kinds=<a,b>&cursor=<cursor>` lists events newest first, at most
-  500 a page and 31 days at a time, for one board or every board of the group.
+  500 a page and 31 days at a time, for one board or every board of the group. From console 2.12.0 it also takes
+  `q=<text>` and `level=warn|info`, in the same Query ([search-filters.md](search-filters.md)).
 - `GET /api/devices/<thing>/samples?hours=<1-168>` gives a board's samples oldest first, merged into at most 600
   points: the mean signal, the last uptime and the lowest heap of each stretch.
 
@@ -585,7 +586,7 @@ counting its boots from 1 again after a factory reset. A copy within 10 s is the
 (`line_repeated` in the log). Two puts per line.
 
 **Read.** `GET /api/events/log?from=<ISO>&to=<ISO>&thing=<name>&kinds=<a,b>&tags=<A,b>&cursor=<cursor>` lists lines newest
-first, with the same range, pages and limits as `GET /api/events`, for viewers and release managers alike:
+first, with the same range, pages, limits, `q` and `level` as `GET /api/events`, for viewers and release managers alike:
 `{ lines: [{ thing, at, id, kind, tag, level, text, boot, seq, dropped? }], cursor, from, to }`. `GET /api/events`
 returns no lines, so what it returned before is unchanged. The Events page lists the lines in a **Board log** card
 of their own, under the events, with their source, a filter by source, and a button to hide it; on the timeline each

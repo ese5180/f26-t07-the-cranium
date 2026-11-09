@@ -615,6 +615,7 @@ test('the adapter and the in-memory fake have the same methods', () => {
       'queryEvents',
       'querySamples',
       'registerRelease',
+      'searchAudit',
       'tagFirmwareRevoked',
       // The fleet (docs/fleet.md).
       'describeThing',
@@ -2873,4 +2874,90 @@ test("the customer API's Lambda entry point starts with its own settings, and tu
     lines.map((line) => [line.api, line.route, line.status]),
     [['customer', 'boards', 401]]
   );
+});
+
+// Searching the long lists (docs/search-filters.md).
+
+test('searchAudit is a Query of the key range with a filter, whose Limit is the budget left, and says where it stopped', async () => {
+  const aws = adapter();
+  const entry = (n) => ({ pk: { S: 'AUD' }, sk: { S: `2026-10-10T22:15:0${n}.000Z#r${n}` }, outcome: { S: 'ok' } });
+  const low = '2026-10-10T00:00:00.000Z';
+  const high = '2026-10-11T00:00:00.000Z#~';
+  sdk.reply(
+    'QueryCommand',
+    { Items: [entry(9)], ScannedCount: 3, LastEvaluatedKey: { pk: { S: 'AUD' }, sk: entry(7).sk } },
+    { Items: [entry(5)], ScannedCount: 2, LastEvaluatedKey: { pk: { S: 'AUD' }, sk: entry(5).sk } }
+  );
+  const found = await aws.searchAudit({
+    low,
+    high,
+    before: null,
+    actions: ['token.create', 'token.revoke'],
+    outcomes: ['ok'],
+    text: 'ada',
+    limit: 10,
+    budget: 5,
+  });
+  assert.deepEqual(
+    found.items.map((item) => item.sk.slice(-2)),
+    ['r9', 'r5']
+  );
+  assert.equal(found.read, 5);
+  assert.equal(found.next, entry(5).sk.S);
+  const [first, second] = sdk.inputs('QueryCommand');
+  assert.equal(first.KeyConditionExpression, '#pk = :pk AND #sk BETWEEN :low AND :high');
+  assert.equal(first.ScanIndexForward, false);
+  assert.equal(first.Limit, 5);
+  assert.equal(second.Limit, 2);
+  assert.deepEqual(second.ExclusiveStartKey, { pk: { S: 'AUD' }, sk: entry(7).sk });
+  assert.equal(
+    first.FilterExpression,
+    '#action IN (:a0, :a1) AND #outcome IN (:o0) AND (' +
+      'contains(#f_target, :q0) OR contains(#f_target, :q1) OR contains(#f_target, :q2) OR ' +
+      'contains(#f_actor.#f_email, :q0) OR contains(#f_actor.#f_email, :q1) OR contains(#f_actor.#f_email, :q2) OR ' +
+      'contains(#f_requestId, :q0) OR contains(#f_requestId, :q1) OR contains(#f_requestId, :q2))'
+  );
+  assert.deepEqual(first.ExpressionAttributeValues[':q1'], { S: 'ADA' });
+  assert.deepEqual(first.ExpressionAttributeValues[':low'], { S: low });
+  assert.equal('Scan' in first, false);
+
+  // Enough found: it stops there, with no `next` of its own; the entry the cursor names is left out.
+  sdk.reset();
+  sdk.reply('QueryCommand', {
+    Items: [entry(8), entry(7), entry(6)],
+    ScannedCount: 3,
+    LastEvaluatedKey: { pk: { S: 'AUD' }, sk: entry(6).sk },
+  });
+  const more = await aws.searchAudit({ low, high: entry(8).sk.S, before: entry(8).sk.S, limit: 1, budget: 100 });
+  assert.deepEqual(
+    more.items.map((item) => item.sk.slice(-2)),
+    ['r7', 'r6']
+  );
+  assert.equal(more.next, null);
+  assert.equal('FilterExpression' in sdk.inputs('QueryCommand')[0], false);
+
+  sdk.reply('QueryCommand', fails('ThrottlingException'));
+  await rejectsWith(aws.searchAudit({ low, high, limit: 1, budget: 1 }), { code: 'throttled', operation: 'Query' });
+  await assert.rejects(aws.searchAudit({ low, high, limit: 1, budget: 0 }), TypeError);
+});
+
+test('queryEvents finds search text in the text, what and tag, and a level, in its FilterExpression', async () => {
+  const aws = adapter();
+  sdk.reply('QueryCommand', { Items: [] }, { Items: [] });
+  await aws.queryEvents({ thing: THING, low: 'L#a', high: 'L#b', text: 'wifi', level: 'warn', limit: 5 });
+  await aws.queryEvents({ thing: THING, low: 'L#a', high: 'L#b', level: 'info', limit: 5 });
+  const [search, info] = sdk.inputs('QueryCommand');
+  assert.equal(
+    search.FilterExpression,
+    '#level = :warn AND (contains(#f_text, :q0) OR contains(#f_text, :q1) OR contains(#f_text, :q2) OR ' +
+      'contains(#f_what, :q0) OR contains(#f_what, :q1) OR contains(#f_what, :q2) OR ' +
+      'contains(#f_tag, :q0) OR contains(#f_tag, :q1) OR contains(#f_tag, :q2))'
+  );
+  assert.deepEqual(
+    [':q0', ':q1', ':q2'].map((name) => search.ExpressionAttributeValues[name].S),
+    ['wifi', 'WIFI', 'Wifi']
+  );
+  assert.equal(search.KeyConditionExpression, '#pk = :pk AND #sk BETWEEN :low AND :high');
+  assert.equal('Limit' in search, false);
+  assert.equal(info.FilterExpression, '(attribute_not_exists(#level) OR #level <> :warn)');
 });

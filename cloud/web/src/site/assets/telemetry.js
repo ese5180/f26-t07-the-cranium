@@ -34,6 +34,7 @@ import {
   auditSentence,
   boardName,
   boardOf,
+  cleanSearch,
   clockTime,
   dateAndTime,
   dayLabel,
@@ -45,6 +46,7 @@ import {
   fileSize,
   isThing,
   plural,
+  readFilters,
   routeHash,
   signalQuality,
   timeAgo,
@@ -61,6 +63,8 @@ import {
   factNote,
   facts,
   failure,
+  filterBar,
+  filterSelect,
   freshness,
   h,
   icon,
@@ -669,8 +673,40 @@ function eventsPage(state) {
     hovered: null,
     drag: null,
     custom: null,
+    // The search and the level asked of the server (docs/search-filters.md), and the range the address
+    // named last: a range chosen by zooming or by Custom… is the page's own, and stays until the address changes it.
+    q: '',
+    level: '',
+    addressRange: '',
   };
   return state.eventLog;
+}
+
+/**
+ * Take the page's filters from the address (state.filters.events, app.js): the board, the kinds hidden, the
+ * source of the board log, warnings only, the search, and a range preset when the address names a new one.
+ */
+export function followFilters(state) {
+  const page = eventsPage(state);
+  const filters = { ...readFilters('events'), ...state.filters?.events };
+  page.thing = filters.board;
+  page.hidden = new Set(filters.hide.split(',').filter(Boolean));
+  page.tag = filters.tag;
+  page.level = filters.level;
+  page.q = cleanSearch(filters.q ?? '');
+  if (filters.range !== page.addressRange) {
+    page.addressRange = filters.range;
+    if (filters.range) {
+      page.range = { preset: filters.range };
+      page.zooms = [];
+    }
+  }
+  return page;
+}
+
+/** Whether a search or the level narrows what the server sends: the online bands are then not whole. */
+function searched(page) {
+  return page.q !== '' || page.level !== '';
 }
 
 function diagnosticsPage(state) {
@@ -678,18 +714,26 @@ function diagnosticsPage(state) {
   return state.diagnostics;
 }
 
-/** The entries of the activity log within a span, newest first: { entries, cut }. */
-async function consoleEntries(api, fromMs, toMs) {
+/**
+ * The entries of the activity log within a span, newest first, with the search if there is one:
+ * { entries, cut }. The server reads the span as a range of the log's key (GET /api/audit?from=&to=).
+ */
+async function consoleEntries(api, fromMs, toMs, q = '') {
   const entries = [];
   let before = null;
   for (let page = 0; page < AUDIT_PAGES; page += 1) {
-    const read = await api.audit({ limit: AUDIT_PAGE, before });
+    const read = await api.audit({
+      limit: AUDIT_PAGE,
+      before,
+      from: iso(fromMs),
+      to: iso(toMs),
+      ...(q ? { q } : {}),
+    });
     for (const entry of read.entries) {
       const ms = Date.parse(entry.at);
       if (ms >= fromMs && ms <= toMs) entries.push(entry);
     }
-    const last = read.entries[read.entries.length - 1];
-    if (!read.next || !last || Date.parse(last.at) < fromMs) return { entries, cut: false };
+    if (!read.next) return { entries, cut: false };
     before = read.next;
   }
   return { entries, cut: true };
@@ -705,6 +749,8 @@ async function boardLogOf(api, page, span) {
   const query = { from: iso(span.fromMs), to: iso(span.toMs), thing: page.thing || null };
   if (kinds.length < LINE_KINDS.length) query.kinds = kinds;
   if (page.tag) query.tags = [page.tag];
+  if (page.q) query.q = page.q;
+  if (page.level) query.level = page.level;
   if (kinds.length === 0) return { lines: [], cursor: null, query, pages: 1 };
   try {
     const read = await api.boardLog(query);
@@ -717,23 +763,27 @@ async function boardLogOf(api, page, span) {
 /** What the Events page reads: the boards' events of the range, the Console lane, and the board log. */
 export async function refreshEvents(full) {
   const { state, api, load, clock } = tools;
-  const page = eventsPage(state);
+  const page = followFilters(state);
   const span = rangeOf(page.range, clock.now());
   // Connections are read even while their markers are hidden: the online bands are drawn from them.
   const kinds = EVENT_KINDS.filter((kind) => kind === 'connection' || !page.hidden.has(kind));
   const query = { from: iso(span.fromMs), to: iso(span.toMs), thing: page.thing || null };
   if (kinds.length < EVENT_KINDS.length) query.kinds = kinds;
+  if (page.q) query.q = page.q;
+  if (page.level) query.level = page.level;
+  // The Console lane has no warnings: it is left out while only warnings are asked for.
+  const consoleLane = !page.hidden.has('console') && page.level !== 'warn';
   const devicesDue = full || state.devices.loadedAt === 0 || clock.now() - state.devices.loadedAt > 25_000;
   await Promise.all([
     load(page.data, async () => {
       const [read, audit, log] = await Promise.all([
         kinds.length === 0 ? { events: [], cursor: null } : api.events(query),
-        page.hidden.has('console') ? null : consoleEntries(api, span.fromMs, span.toMs),
+        consoleLane ? consoleEntries(api, span.fromMs, span.toMs, page.q) : null,
         boardLogOf(api, page, span),
       ]);
       page.more = { loading: false, error: null };
       page.linesMore = { loading: false, error: null };
-      return { events: read.events, cursor: read.cursor, query, span, audit, log, pages: 1 };
+      return { events: read.events, cursor: read.cursor, query, span, audit, log, pages: 1, searched: searched(page) };
     }),
     devicesDue ? load(state.devices, api.devices) : null,
   ]);
@@ -850,8 +900,14 @@ function changeRange(range) {
 
 function choosePreset(id) {
   rememberPreset(id);
-  eventsPage(tools.state).zooms = [];
-  changeRange({ preset: id });
+  const page = eventsPage(tools.state);
+  page.zooms = [];
+  page.range = { preset: id };
+  page.selected = null;
+  page.focused = null;
+  page.custom = null;
+  // The address says it, and the page is read again from there.
+  tools.setFilter('events', 'range', id);
 }
 
 function zoomTo(fromMs, toMs) {
@@ -885,13 +941,6 @@ function applyCustom(event) {
   changeRange({ fromMs: chosen.fromMs, toMs: chosen.toMs });
 }
 
-function chooseThing(thing) {
-  const page = eventsPage(tools.state);
-  page.thing = isThing(thing) ? thing : '';
-  page.selected = null;
-  tools.refresh();
-}
-
 function toggleLog() {
   const page = eventsPage(tools.state);
   page.log = !page.log;
@@ -899,17 +948,17 @@ function toggleLog() {
 }
 
 function chooseTag(tag) {
-  const page = eventsPage(tools.state);
-  page.tag = LINE_TAGS.includes(tag) ? tag : '';
-  tools.refresh();
+  tools.setFilter('events', 'tag', LINE_TAGS.includes(tag) ? tag : '');
 }
 
 function toggleKind(id) {
   const page = eventsPage(tools.state);
-  if (page.hidden.has(id)) page.hidden.delete(id);
-  else page.hidden.add(id);
+  const hidden = new Set(page.hidden);
+  if (hidden.has(id)) hidden.delete(id);
+  else hidden.add(id);
+  page.hidden = hidden;
   page.selected = null;
-  tools.refresh();
+  tools.setFilter('events', 'hide', [...hidden].join(','));
 }
 
 /** Pick an event, from its marker or its row; the other one follows. Again: let it go. */
@@ -1124,7 +1173,9 @@ function timeline(lanes, span, page, data) {
   const laneNodes = lanes.map((lane, laneIndex) => {
     const top = AXIS + laneIndex * LANE;
     const middle = top + LANE_HEAD + TRACK / 2;
-    const bands = lane.id === 'console' ? [] : onlineBands(lane.events, { ...span, device: lane.device });
+    // A search or warnings only leave connections out: the bands would then say a board was offline when it was not.
+    const bands =
+      lane.id === 'console' || data.searched ? [] : onlineBands(lane.events, { ...span, device: lane.device });
     const state = lane.device ? laneState(lane.device) : null;
     const markers = lane.clusters.map((spot, index) => {
       const key = spot.key;
@@ -1417,26 +1468,34 @@ export function boardChoices(things, devices) {
   }));
 }
 
-function boardFilter(page, devices) {
+/** The search and filters of the Events page: the search, the board and warnings only; the rest stand by their lists. */
+function eventsFilterBar(ctx, page, devices, data, shown, lines) {
   const things = devices.map((device) => device.thing);
   if (page.thing && !things.includes(page.thing)) things.push(page.thing);
-  return h(
-    'label',
-    { class: 'inline-field', key: 'board' },
-    h('span', { class: 'inline-field-label' }, 'Board'),
-    h(
-      'select',
-      {
-        class: 'input is-select',
-        value: page.thing,
-        onChange: (event) => chooseThing(event.currentTarget.value),
-      },
-      h('option', { value: '', key: 'all', selected: page.thing === '' }, `All boards (${things.length})`),
-      boardChoices(things, devices).map(({ thing, label }) =>
-        h('option', { value: thing, key: thing, title: thing, selected: page.thing === thing }, label)
-      )
-    )
-  );
+  let count = null;
+  if (data) {
+    const more = data.cursor || data.log?.cursor ? ', more in this range' : '';
+    count = `${plural(shown, 'event')} and ${plural(lines, 'line')} shown${more}`;
+  }
+  return filterBar(ctx, 'events', {
+    label: 'events and the board log',
+    placeholder: 'Search what happened, or a line of the log',
+    count,
+    controls: [
+      filterSelect(ctx, 'events', {
+        name: 'board',
+        label: 'Board',
+        all: `All boards (${things.length})`,
+        options: boardChoices(things, devices).map(({ thing, label }) => [thing, label, thing]),
+      }),
+      filterSelect(ctx, 'events', {
+        name: 'level',
+        label: 'Level',
+        all: 'Everything',
+        options: [['warn', 'Warnings only']],
+      }),
+    ],
+  });
 }
 
 function customForm(page) {
@@ -1757,7 +1816,7 @@ function boardLogCard(page, data, devices, now) {
 
 export function eventsView(ctx) {
   const { state } = ctx;
-  const page = eventsPage(state);
+  const page = followFilters(state);
   const now = state.now;
   const span = page.data.value?.span ?? rangeOf(page.range, now);
   const data = page.data.value;
@@ -1772,6 +1831,7 @@ export function eventsView(ctx) {
   });
 
   let body;
+  let counted = { shown: 0, lines: 0 };
   if (!data) {
     body = pending(page.data, 'events');
   } else {
@@ -1786,6 +1846,7 @@ export function eventsView(ctx) {
     const counts = new Map();
     for (const item of [...shown, ...lines]) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
     const warnings = shown.filter((event) => event.level === 'warn').length;
+    counted = { shown: shown.length, lines: lines.length };
     // No board at all, and none that was ever heard of in this range: the way to get one first.
     if (lanes.length === 0 || (state.devices.value && devices.length === 0 && data.events.length === 0)) {
       body = card({ key: 'none' }, empty(NO_BOARDS));
@@ -1814,7 +1875,8 @@ export function eventsView(ctx) {
             lines.length > 0
               ? ' A tick at the foot of a lane is a line of that board’s own log, listed under Board log.'
               : '',
-            data.audit?.cut ? ' The Console lane shows the newest 500 entries of the activity log in this range.' : ''
+            data.audit?.cut ? ' The Console lane shows the newest 500 entries of the activity log in this range.' : '',
+            data.searched ? ' While a search or warnings only narrows the events, the online bands are not drawn.' : ''
           )
         ),
         h(
@@ -1839,8 +1901,8 @@ export function eventsView(ctx) {
                 iconName: 'list',
                 title: 'No events in this range.',
                 text:
-                  page.hidden.size > 0 || page.thing
-                    ? 'Some kinds or boards are left out: show them all, or choose a longer range.'
+                  page.hidden.size > 0 || page.thing || searched(page)
+                    ? 'A search, some kinds or boards narrow the list: clear them, or choose a longer range.'
                     : 'Boards record events when they connect, update, restart or change state. Choose a longer range.',
               })
             : eventTable(shown, page, now, devices),
@@ -1866,7 +1928,8 @@ export function eventsView(ctx) {
     'div',
     { class: 'page is-events' },
     head,
-    h('div', { class: 'event-toolbar', key: 'toolbar' }, rangeTools(page, span), boardFilter(page, devices)),
+    h('div', { class: 'event-toolbar', key: 'toolbar' }, rangeTools(page, span)),
+    eventsFilterBar(ctx, page, devices, data, counted.shown, counted.lines),
     customForm(page),
     loadProblem(page.data, 'the events', ctx),
     body

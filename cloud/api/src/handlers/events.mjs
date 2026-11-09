@@ -16,6 +16,10 @@
  *        the boards' own log, line by line (lib/lines.mjs), with the same range, pages and
  *        defaults as /api/events; `tags` keeps the lines of those sources only
  *
+ *   Both also take q=<text> (1 to 100 characters), for the events whose text or what, or the lines whose
+ *   text or source, hold it (lib/validate.mjs searchSpellings), and level=warn or level=info. Each is part
+ *   of the same Query of each board's key range, so a page still ends at `limit` and goes on from its cursor.
+ *
  *   GET /api/devices/{thing}/samples?hours=<1-168>
  *     -> { thing, hours, from, to, samples: [{ at, rssi, uptime, heapFree, heapLeast }],
  *          bucketSeconds }
@@ -41,6 +45,8 @@ import {
   requireEventRange,
   requireHours,
   requireKinds,
+  requireLevel,
+  requireSearch,
   requireTags,
   requireThing,
   requireTime,
@@ -73,6 +79,8 @@ export function createEventHandlers({ aws, now }, { devices }) {
     const fromMs = requireTime(field(query, 'from'), 'from', toMs - DAY_MS);
     requireEventRange(fromMs, toMs);
     const kinds = requireKinds(field(query, 'kinds'), known);
+    const text = requireSearch(field(query, 'q'));
+    const level = requireLevel(field(query, 'level'));
     const limit = requireEventPageSize(field(query, 'limit'));
     let cursor = null;
     if (field(query, 'cursor') !== undefined) {
@@ -90,7 +98,16 @@ export function createEventHandlers({ aws, now }, { devices }) {
     // last page ended on, which comes back with its board's part.
     const parts = await Promise.all(
       things.map((thing) =>
-        aws.queryEvents({ thing, low: range.low, high, kinds, ...(tags === null ? {} : { tags }), limit: limit + 2 })
+        aws.queryEvents({
+          thing,
+          low: range.low,
+          high,
+          kinds,
+          ...(tags === null ? {} : { tags }),
+          ...(text === null ? {} : { text }),
+          ...(level === null ? {} : { level }),
+          limit: limit + 2,
+        })
       )
     );
     // DynamoDB deletes an expired item some time after its ttl, and returns it until then.

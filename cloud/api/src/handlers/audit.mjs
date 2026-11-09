@@ -4,13 +4,49 @@
  * Entries are written by the request pipeline in app.mjs, one per request that tried
  * to change something. They are read newest first, a page at a time; the cursor of a
  * page is opaque to the browser and checked when it comes back.
+ *
+ *   GET /api/audit?limit=<n>&before=<cursor>
+ *     -> { entries, next }  newest first
+ *   GET /api/audit?...&q=<text>&actions=<a,b>&outcomes=<a,b>&from=<ISO>&to=<ISO>
+ *     -> { entries, next, read }  the entries that match, newest first: a Query of the log's key
+ *        between from and to, filtered (aws.mjs searchAudit), that reads at most SEARCH_BUDGET entries
+ *        a page. `read` is how many it read; `next` continues where it stopped, also when it stopped
+ *        for the budget with fewer than a page found. `q` is looked for in the target, the e-mail
+ *        address and the request id.
  */
 
 import { badRequest, describeError, field } from '../http.mjs';
-import { auditDigest, auditItem, decodeCursor, encodeCursor, entryFromItem } from '../lib/audit.mjs';
-import { requirePageSize } from '../lib/validate.mjs';
+import { ACTIONS, OUTCOMES, auditDigest, auditItem, decodeCursor, encodeCursor, entryFromItem } from '../lib/audit.mjs';
+import {
+  requireActions,
+  requireAuditRange,
+  requireOutcomes,
+  requirePageSize,
+  requireSearch,
+} from '../lib/validate.mjs';
+
+// How many entries one page of a search reads at most, matching or not.
+export const SEARCH_BUDGET = 1000;
+// Above every sort key of the log ("<ISO time>#<request id>"), and below every one.
+const TOP = '~';
+const BOTTOM = '0';
 
 export function createAuditHandlers({ aws, log }) {
+  /** A page of the entries that match: a Query between the two times, below the cursor, of a bounded read. */
+  async function search({ before, limit, actions, outcomes, text, fromMs, toMs }) {
+    const low = fromMs === null ? BOTTOM : new Date(fromMs).toISOString();
+    let high = toMs === null ? TOP : `${new Date(toMs).toISOString()}#${TOP}`;
+    if (before !== null && before < high) high = before;
+    if (low > high) return { entries: [], next: null, read: 0 };
+    const found = await aws.searchAudit({ low, high, before, actions, outcomes, text, limit, budget: SEARCH_BUDGET });
+    const page = found.items.slice(0, limit);
+    const last = page[page.length - 1];
+    let next = null;
+    if (found.items.length > limit && typeof last?.sk === 'string') next = encodeCursor(last.sk);
+    else if (typeof found.next === 'string') next = encodeCursor(found.next);
+    return { entries: page.map(entryFromItem).filter((entry) => entry !== null), next, read: found.read };
+  }
+
   return {
     /**
      * Store the entry for one request. Returns false if it could not be stored; the
@@ -95,6 +131,13 @@ export function createAuditHandlers({ aws, log }) {
       if (cursor !== undefined) {
         before = decodeCursor(cursor);
         if (before === null) throw badRequest('invalid_cursor', '"before" is not a cursor from this log.');
+      }
+      const actions = requireActions(field(query, 'actions'), ACTIONS);
+      const outcomes = requireOutcomes(field(query, 'outcomes'), OUTCOMES);
+      const text = requireSearch(field(query, 'q'));
+      const { fromMs, toMs } = requireAuditRange(field(query, 'from'), field(query, 'to'));
+      if (actions !== null || outcomes !== null || text !== null || fromMs !== null || toMs !== null) {
+        return { body: await search({ before, limit, actions, outcomes, text, fromMs, toMs }) };
       }
       // One more than the page, to know whether another page follows.
       const items = await aws.queryAudit({ before, limit: limit + 1 });

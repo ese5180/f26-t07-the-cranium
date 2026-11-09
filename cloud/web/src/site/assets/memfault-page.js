@@ -19,6 +19,9 @@ import {
   badge,
   card,
   empty,
+  filterBar,
+  filterSelect,
+  filtered,
   h,
   icon,
   loadProblem,
@@ -524,6 +527,37 @@ function issueRows(issues, now) {
   );
 }
 
+/** The issues the search and the version keep (docs/search-filters.md), with their bar. */
+function issuesFiltered(ctx, issues) {
+  const shown = filtered(ctx, 'memfault', issues, {
+    words: (issue) => [issue.title, String(issue.id), issue.lastVersion],
+    keep: (issue, filters) => filters.version === '' || (issue.lastVersion ?? '').startsWith(filters.version),
+  });
+  const versions = [...new Set(issues.map((issue) => issue.lastVersion).filter(Boolean))].sort().reverse();
+  return [
+    filterBar(ctx, 'memfault', {
+      label: 'issues',
+      placeholder: 'Search by title, number or version',
+      shown: shown.length,
+      total: issues.length,
+      controls:
+        versions.length > 1
+          ? [
+              filterSelect(ctx, 'memfault', {
+                name: 'version',
+                label: 'Last on',
+                all: 'Any version',
+                options: versions.map((version) => [version, version]),
+              }),
+            ]
+          : [],
+    }),
+    shown.length === 0
+      ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No issues match. Try other words, or Clear.')
+      : issueRows(shown, ctx.state.now),
+  ];
+}
+
 /** The Memfault page: the issues, newest first, then the fleet: reboots by reason, versions, latest metrics. */
 export function memfaultView(ctx) {
   const { state } = ctx;
@@ -561,7 +595,7 @@ export function memfaultView(ctx) {
                 ? 'No board has sent a crash or a trace that Memfault made an issue of.'
                 : null,
           })
-        : issueRows(data.issues, state.now)
+        : issuesFiltered(ctx, data.issues)
     ),
     fleetCards(ctx)
   );

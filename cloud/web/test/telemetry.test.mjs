@@ -117,18 +117,25 @@ function setup({
     }
   }
   const refreshed = [];
-  telemetry.connect({
+  const refresh = () => {
+    refreshed.push(route.view);
+    return route.view === 'events' ? telemetry.refreshEvents(true) : telemetry.refreshDiagnostics(true);
+  };
+  // As app.js: a filter goes into state.filters (and the address), and the page is read again.
+  const setFilter = (view, name, value) => {
+    state.filters ??= {};
+    state.filters[view] = { ...state.filters[view], [name]: value };
+    return refresh();
+  };
+  const clearFilters = (view) => {
+    state.filters[view] = {};
+    return refresh();
+  };
+  telemetry.connect({ state, api, load, draw: () => {}, clock: { now: () => NOW }, refresh, setFilter });
+  const ctx = {
     state,
-    api,
-    load,
-    draw: () => {},
-    clock: { now: () => NOW },
-    refresh: () => {
-      refreshed.push(route.view);
-      return route.view === 'events' ? telemetry.refreshEvents(true) : telemetry.refreshDiagnostics(true);
-    },
-  });
-  const ctx = { state, actions: { refresh: () => {}, redraw: () => {}, copy: () => {} } };
+    actions: { refresh: () => {}, redraw: () => {}, copy: () => {}, setFilter, clearFilters, toggleFilters: () => {} },
+  };
   return { state, api, asked, refreshed, ctx };
 }
 
@@ -759,7 +766,7 @@ test('a range typed by hand that is not one is said, and nothing is asked for', 
   let page = drawn(telemetry.eventsView(world.ctx));
   one(page, 'button.segmented-option', 'Custom').dispatchEvent({ type: 'click' });
   page = drawn(telemetry.eventsView(world.ctx));
-  const [from, to] = all(page, 'input');
+  const [from, to] = all(one(page, 'form.custom-range'), 'input');
   from.value = '2026-11-02T10:00';
   from.dispatchEvent({ type: 'input' });
   to.value = '2026-11-01T10:00';
@@ -1163,4 +1170,59 @@ test('with no boards at all, both pages say how to get one', async () => {
   events.state.eventLog = undefined;
   await telemetry.refreshEvents(true);
   assert.match(textOf(drawn(telemetry.eventsView(events.ctx))), /No boards are registered yet\./);
+});
+
+// Search and filters (docs/search-filters.md).
+
+test('the Events page takes its board, kinds, source, level, search and range from the address, and asks the server', async () => {
+  const world = setup({ ...eventsWorld(), lines: [] });
+  world.state.filters = { events: { board: A, hide: 'log', tag: 'WIFI', level: 'warn', q: ' wifi ', range: '7d' } };
+  await telemetry.refreshEvents(true);
+  const events = world.asked.find(([name]) => name === 'events')[1];
+  assert.equal(events.thing, A);
+  assert.equal(events.q, 'wifi');
+  assert.equal(events.level, 'warn');
+  assert.equal(Date.parse(events.to) - Date.parse(events.from), 7 * DAY);
+  const log = world.asked.find(([name]) => name === 'boardLog')[1];
+  assert.deepEqual([log.q, log.level, log.tags, log.kinds.includes('log')], ['wifi', 'warn', ['WIFI'], false]);
+  // The Console lane has no warnings: with warnings only it is not read.
+  assert.equal(
+    world.asked.some(([name]) => name === 'audit'),
+    false
+  );
+
+  // The bar: the search as typed, the board and the level, and the online bands left out while narrowed.
+  const page = drawn(telemetry.eventsView(world.ctx));
+  const bar = one(page, 'section.filter-bar');
+  assert.equal(one(bar, 'input.filter-input').value, ' wifi ');
+  assert.match(textOf(one(page, 'p.timeline-note')), /online bands are not drawn/);
+  one(bar, 'button.filter-clear').dispatchEvent({ type: 'click' });
+  await settle();
+  assert.deepEqual(world.state.filters.events, {});
+});
+
+test('a search of the Events page is sent to the Console lane too, which the server reads as a range of the log', async () => {
+  const world = setup(eventsWorld());
+  world.state.filters = { events: { q: 'deploy' } };
+  await telemetry.refreshEvents(true);
+  const audit = world.asked.find(([name]) => name === 'audit')[1];
+  assert.equal(audit.q, 'deploy');
+  assert.equal(typeof audit.from, 'string');
+  assert.equal(typeof audit.to, 'string');
+});
+
+test('choosing a preset, a board or a kind writes it to the address, through the app', async () => {
+  const world = setup(eventsWorld());
+  await telemetry.refreshEvents(true);
+  let page = drawn(telemetry.eventsView(world.ctx));
+  one(page, 'button.segmented-option', '7 d').dispatchEvent({ type: 'click' });
+  await settle();
+  assert.equal(world.state.filters.events.range, '7d');
+  page = drawn(telemetry.eventsView(world.ctx));
+  one(page, 'button.chip', 'Restart').dispatchEvent({ type: 'click' });
+  await settle();
+  assert.equal(world.state.filters.events.hide, 'restart');
+  // A zoom is the page's own: the address's range does not take it back.
+  telemetry.followFilters(world.state);
+  assert.equal(world.state.eventLog.range.preset, '7d');
 });

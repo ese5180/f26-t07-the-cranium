@@ -23,6 +23,9 @@ import {
   card,
   empty,
   failure,
+  filterBar,
+  filterSelect,
+  filtered,
   h,
   icon,
   loadProblem,
@@ -490,6 +493,16 @@ export function customersView(ctx) {
     );
   }
   const free = freeBoards(ctx, data.customers);
+  // The search and filters (docs/search-filters.md): by address, name, a board or its label, and status.
+  const devices = ctx.state.devices?.value?.devices ?? [];
+  const shown = filtered(ctx, 'customers', data.customers, {
+    words: (customer) => [
+      customer.email,
+      customer.name,
+      ...customer.boards.flatMap((board) => [board.thing, board.label, boardName(boardOf(board.thing, devices))]),
+    ],
+    keep: (customer, filters) => filters.status === '' || customer.status === filters.status,
+  });
   return h(
     'div',
     { class: 'page customers-page', key: 'page' },
@@ -516,11 +529,34 @@ export function customersView(ctx) {
               title: 'No customers yet.',
               text: 'Invite the first one: they get an e-mail with a temporary password.',
             })
-          : h(
-              'ul',
-              { class: 'customers' },
-              data.customers.map((customer) => customerRow(ctx, customer, free))
-            )
+          : [
+              filterBar(ctx, 'customers', {
+                label: 'customers',
+                placeholder: 'Search by e-mail, name or board',
+                shown: shown.length,
+                total: data.customers.length,
+                controls: [
+                  filterSelect(ctx, 'customers', {
+                    name: 'status',
+                    label: 'Status',
+                    all: 'Any status',
+                    options: [
+                      ['invited', 'Invited'],
+                      ['active', 'Active'],
+                      ['disabled', 'Disabled'],
+                      ['gone', 'Gone'],
+                    ],
+                  }),
+                ],
+              }),
+              shown.length === 0
+                ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No customers match. Try other words, or Clear.')
+                : h(
+                    'ul',
+                    { class: 'customers', key: 'rows' },
+                    shown.map((customer) => customerRow(ctx, customer, free))
+                  ),
+            ]
       ),
       h(
         'div',

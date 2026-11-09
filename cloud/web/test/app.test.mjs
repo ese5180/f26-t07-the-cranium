@@ -2600,3 +2600,57 @@ test('without the live API in its settings, the console opens no WebSocket', asy
   assert.equal(made, 0);
   assert.ok(tab.requests.length > 0);
 });
+
+// Search and filters (docs/search-filters.md): the address carries them, and the long lists are asked again.
+
+test('a filtered address opens the list filtered, and a change is written back to it without a new page', async (t) => {
+  const tab = await openTab(t, { hash: '#/devices?status=offline' });
+  await tab.wait(0);
+  assert.equal(all(tab.main, 'article.device').length, 1);
+  assert.equal(textOf(one(tab.main, 'p.filter-count')), '1 of 3 shown');
+  const mark = tab.requests.length;
+  const input = one(tab.main, 'input.filter-input');
+  input.value = 'nothing like it';
+  input.dispatchEvent({ type: 'input' });
+  await settle();
+  assert.equal(tab.location.hash, '#/devices?q=nothing+like+it&status=offline');
+  assert.match(textOf(tab.main), /No boards match\./);
+  // A short list is filtered as it is drawn: nothing is asked of the API.
+  assert.deepEqual(tab.since(mark), []);
+  await tab.press(tab.main, 'button.filter-clear', 'Clear');
+  assert.equal(tab.location.hash, '#/devices');
+  assert.equal(all(tab.main, 'article.device').length, 3);
+  // A filter the page does not have, or a value it does not take, is as if absent.
+  await tab.goto('#/devices?status=asleep');
+  assert.equal(all(tab.main, 'article.device').length, 3);
+});
+
+test('the activity log is searched by the server, a moment after the typing stops', async (t) => {
+  const asked = [];
+  const tab = await openTab(t, {
+    hash: '#/activity?outcome=rejected',
+    answer: (method, url) => {
+      if (!url.startsWith('/api/audit?') || url === '/api/audit?limit=50') return null;
+      asked.push(url);
+      return Response.json({ entries: WORLD.entries.slice(3), next: null, read: 4 });
+    },
+  });
+  await tab.wait(0);
+  assert.deepEqual(asked, ['/api/audit?limit=50&outcomes=rejected']);
+  assert.match(textOf(one(tab.main, 'p.filter-count')), /^1 of 4 entries read match$/);
+  const input = one(tab.main, 'input.filter-input');
+  for (const typed of ['z', 'ze', 'zep']) {
+    input.value = typed;
+    input.dispatchEvent({ type: 'input' });
+    await tab.wait(100);
+  }
+  assert.equal(asked.length, 1, 'not while typing');
+  await tab.wait(400);
+  assert.deepEqual(asked.slice(1), ['/api/audit?limit=50&q=zep&outcomes=rejected']);
+  assert.equal(tab.location.hash, '#/activity?q=zep&outcome=rejected');
+  // Clear asks for the whole log again.
+  await tab.press(tab.main, 'button.filter-clear', 'Clear');
+  await tab.wait(0);
+  assert.equal(tab.location.hash, '#/activity');
+  assert.ok(tab.requests.some((request) => request.url === '/api/audit?limit=50'));
+});

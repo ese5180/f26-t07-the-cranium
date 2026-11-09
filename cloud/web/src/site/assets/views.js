@@ -81,6 +81,17 @@ import {
 import { canCommand, distanceWords, positionSteps, unplacedReason } from './core.js';
 // The update history (GET /api/updates): every update however it came.
 import { describeOutcome, updateHow, updateSummary, updateTime, updateTotals } from './core.js';
+// Search and filters of the long lists (docs/search-filters.md).
+import {
+  ACTIVITY_KINDS,
+  ACTIVITY_OUTCOMES,
+  filtering,
+  filtersHash,
+  filtersSet,
+  matchesSearch,
+  cleanSearch,
+  readFilters,
+} from './core.js';
 
 // Drawing.
 
@@ -362,6 +373,11 @@ const ICONS = {
   'chevron-right': [['polyline', { points: '9.5 5.5 16 12 9.5 18.5' }]],
   'chevron-left': [['polyline', { points: '14.5 5.5 8 12 14.5 18.5' }]],
   chart: [['path', { d: 'M4 4.5v15h16M8 15.5l3.5-4 3 2.5L19 8' }]],
+  search: [
+    ['circle', { cx: 10.5, cy: 10.5, r: 6 }],
+    ['path', { d: 'M15 15l5 5' }],
+  ],
+  filter: [['path', { d: 'M4 6h16M7 12h10M10 18h4' }]],
 };
 
 /** A decorative icon. Its meaning is always also given in words next to it. */
@@ -920,6 +936,153 @@ function pageHead({ title, lede, meta, back, tools, eyebrow }) {
         meta ? h('div', { class: 'page-meta dotted' }, meta) : null
       ),
       tools ? h('div', { class: 'page-tools' }, tools) : null
+    )
+  );
+}
+
+// Search and filters (docs/search-filters.md): one bar for every long list. A search box, the filters that
+// suit the list, how many rows are shown of how many, and Clear. On a phone the filters fold under a
+// Filters button, with the count of those that are set; from 700 px wide they stand in a row. What the bar
+// holds is the page's (state.filters, kept in the address by app.js), and each change goes through ctx.actions.
+
+/**
+ * The bar. `filters` are the page's (core.js readFilters), the search as typed among them as q; `controls` are
+ * its filters, made with filterSelect; `shown` and `total` count rows, or `count` says it in words where the
+ * list is read from the server a page at a time.
+ */
+export function filterBar(ctx, view, { label, placeholder, controls = [], shown = null, total = null, count = null }) {
+  const filters = ctx.state.filters?.[view] ?? {};
+  const set = filtersSet(filters);
+  const narrowed = filtering({ ...filters, q: cleanSearch(filters.q ?? '') });
+  const open = ctx.state.filtersOpen === true;
+  let counted = count;
+  if (counted === null && shown !== null && total !== null) {
+    counted = narrowed ? `${shown} of ${total} shown` : `${total} shown`;
+  }
+  return h(
+    'section',
+    {
+      key: 'filter-bar',
+      class: `filter-bar ${open ? 'is-open' : ''} ${controls.length > 0 ? 'has-controls' : ''}`
+        .replace(/\s+/g, ' ')
+        .trim(),
+      role: 'search',
+      'aria-label': `Search and filter ${label}`,
+    },
+    h(
+      'div',
+      { class: 'filter-row' },
+      h(
+        'label',
+        { class: 'filter-search' },
+        icon('search', 'is-small'),
+        h('span', { class: 'sr-only' }, `Search ${label}`),
+        h('input', {
+          class: 'input filter-input',
+          type: 'search',
+          value: filters.q ?? '',
+          placeholder,
+          maxlength: '100',
+          autocomplete: 'off',
+          autocapitalize: 'off',
+          spellcheck: 'false',
+          enterkeyhint: 'search',
+          onInput: (event) => ctx.actions.setFilter(view, 'q', event.currentTarget.value),
+        })
+      ),
+      controls.length > 0
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn is-small filter-toggle',
+              'aria-expanded': open ? 'true' : 'false',
+              onClick: ctx.actions.toggleFilters,
+            },
+            icon('filter', 'is-small'),
+            'Filters',
+            set > 0 ? h('span', { class: 'chip-count', 'aria-label': `${set} set` }, String(set)) : null
+          )
+        : null
+    ),
+    controls.length > 0 ? h('div', { class: 'filter-controls' }, controls) : null,
+    h(
+      'div',
+      { class: 'filter-foot' },
+      h('p', { class: 'filter-count', role: 'status' }, counted ?? ''),
+      narrowed
+        ? h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn is-small is-quiet filter-clear',
+              onClick: () => ctx.actions.clearFilters(view),
+            },
+            icon('x', 'is-small'),
+            'Clear'
+          )
+        : null
+    )
+  );
+}
+
+/** One filter of the bar: a labelled select of `options` ([value, words, title?]), with `all` for no filter. */
+export function filterSelect(ctx, view, { name, label, all, options }) {
+  const value = ctx.state.filters?.[view]?.[name] ?? '';
+  return h(
+    'label',
+    { class: 'inline-field filter-field', key: name },
+    h('span', { class: 'inline-field-label' }, label),
+    h(
+      'select',
+      {
+        class: 'input is-select',
+        value,
+        onChange: (event) => ctx.actions.setFilter(view, name, event.currentTarget.value),
+      },
+      h('option', { value: '', key: '', selected: value === '' }, all),
+      options.map(([option, words, title = null]) =>
+        h('option', { value: option, key: option, title, selected: value === option }, words)
+      )
+    )
+  );
+}
+
+/** One filter of the bar that is a day: from or to, as <input type="date"> writes it. */
+export function filterDay(ctx, view, { name, label }) {
+  const value = ctx.state.filters?.[view]?.[name] ?? '';
+  return h(
+    'label',
+    { class: 'inline-field filter-field', key: name },
+    h('span', { class: 'inline-field-label' }, label),
+    h('input', {
+      class: 'input filter-day',
+      type: 'date',
+      value,
+      onChange: (event) => ctx.actions.setFilter(view, name, event.currentTarget.value),
+    })
+  );
+}
+
+/** The rows of a short list that the page's search and filters keep: `keep(row, filters)` and `words(row)`. */
+export function filtered(ctx, view, rows, { words, keep = () => true }) {
+  const filters = { ...readFilters(view), ...ctx.state.filters?.[view] };
+  return rows.filter((row) => keep(row, filters) && matchesSearch(words(row), filters.q ?? ''));
+}
+
+/** A list that the search and filters left empty: say so, with Clear. */
+export function noneMatch(ctx, view, what) {
+  return card(
+    { key: 'none-match' },
+    empty({
+      iconName: 'search',
+      title: `No ${what} match.`,
+      text: 'Try other words, or clear the search and filters to see them all.',
+    }),
+    h(
+      'p',
+      { class: 'button-row filter-none', key: 'clear' },
+      button('', () => ctx.actions.clearFilters(view), icon('x', 'is-small'), 'Clear the search and filters')
     )
   );
 }
@@ -3522,14 +3685,70 @@ function presenceLook(device, viaPhone) {
 
 const DEVICE_COLUMNS = ['Board', 'Status', 'Firmware', 'Update', 'Signal', 'Uptime'];
 
+/** How a board stands, for the Devices page's filter: updating, Bluetooth only, online or offline. */
+export function boardStanding(device, ctx) {
+  if (deviceActivity(device) !== null) return 'updating';
+  if (ctx.fleet?.bluetoothOnly(device, ctx)) return 'bluetooth';
+  return device.online ? 'online' : 'offline';
+}
+
+/** The boards the Devices page's search and filters keep: by name, thing, version, type or group. */
+export function devicesShown(ctx, devices) {
+  return filtered(ctx, 'devices', devices, {
+    words: (device) => [
+      boardName(device, { full: true }),
+      device.thing,
+      device.fw?.version,
+      device.fw?.slot0?.version,
+      ...(device.attributes ? Object.values(device.attributes) : []),
+      ...(ctx.fleet?.groupsOf?.(device, ctx) ?? []),
+    ],
+    keep: (device, filters) =>
+      (filters.status === '' || boardStanding(device, ctx) === filters.status) &&
+      (filters.version === '' || (device.fw?.version ?? '').startsWith(filters.version)),
+  });
+}
+
+function devicesFilters(ctx, devices, shown) {
+  const versions = [...new Set(devices.map((device) => device.fw?.version).filter(Boolean))].sort().reverse();
+  return filterBar(ctx, 'devices', {
+    label: 'boards',
+    placeholder: 'Search by name, board, version or group',
+    shown: shown.length,
+    total: devices.length,
+    controls: [
+      filterSelect(ctx, 'devices', {
+        name: 'status',
+        label: 'State',
+        all: 'Any state',
+        options: [
+          ['online', 'Online'],
+          ['offline', 'Offline'],
+          ['bluetooth', 'Bluetooth only'],
+          ['updating', 'Updating'],
+        ],
+      }),
+      filterSelect(ctx, 'devices', {
+        name: 'version',
+        label: 'Firmware',
+        all: 'Any version',
+        options: versions.map((version) => [version, version]),
+      }),
+    ],
+  });
+}
+
 export function devicesView(ctx) {
   const { state } = ctx;
-  const devices = state.devices.value?.devices ?? null;
+  const all = state.devices.value?.devices ?? null;
+  const devices = all === null ? null : devicesShown(ctx, all);
   let body;
   if (devices === null) {
     body = pending(state.devices, 'boards');
-  } else if (devices.length === 0) {
+  } else if (all.length === 0) {
     body = card({ key: 'none' }, empty(NO_BOARDS));
+  } else if (devices.length === 0) {
+    body = [devicesFilters(ctx, all, devices), noneMatch(ctx, 'devices', 'boards')];
   } else {
     const counted = boardsCounted(devices, phoneOnly(ctx));
     body = [
@@ -3549,6 +3768,7 @@ export function devicesView(ctx) {
         'is-compact'
       ),
       devicesPanel(devices, ctx),
+      devicesFilters(ctx, all, devices),
       h(
         'div',
         { class: 'device-grid', key: 'grid' },
@@ -3809,6 +4029,18 @@ export function deviceView(ctx) {
                   'its private key never leaves the board.'
                 ),
               ]
+        ),
+        card(
+          {
+            key: 'events',
+            title: 'Events and log',
+            more: { href: filtersHash({ view: 'events' }, { board: thing }), label: 'Open' },
+          },
+          h(
+            'p',
+            { class: 'quiet' },
+            'What this board reported over time, and every line it printed on its serial console, on the Events page.'
+          )
         ),
         card(
           { key: 'history', title: 'Update history' },
@@ -4704,14 +4936,46 @@ export function firmwareView(ctx) {
       })
     );
   } else {
-    releases = card(
-      { key: 'releases', className: 'is-flush' },
-      h(
-        'ul',
-        { class: 'rows' },
-        firmware.releases.map((release) => releaseRow(release, ctx))
-      )
-    );
+    const shown = filtered(ctx, 'firmware', firmware.releases, {
+      words: (release) => [
+        release.version,
+        release.notes,
+        release.filename,
+        release.uploadedBy?.email,
+        release.revoked?.reason,
+        release.board,
+      ],
+      keep: (release, filters) => filters.status === '' || release.status === filters.status,
+    });
+    releases = [
+      filterBar(ctx, 'firmware', {
+        label: 'releases',
+        placeholder: 'Search by version, notes or who uploaded it',
+        shown: shown.length,
+        total: firmware.releases.length,
+        controls: [
+          filterSelect(ctx, 'firmware', {
+            name: 'status',
+            label: 'Status',
+            all: 'Active and revoked',
+            options: [
+              ['active', 'Active'],
+              ['revoked', 'Revoked'],
+            ],
+          }),
+        ],
+      }),
+      shown.length === 0
+        ? noneMatch(ctx, 'firmware', 'releases')
+        : card(
+            { key: 'releases', className: 'is-flush' },
+            h(
+              'ul',
+              { class: 'rows' },
+              shown.map((release) => releaseRow(release, ctx))
+            )
+          ),
+    ];
   }
   const timeline =
     firmware && firmware.releases.length > 0
@@ -4979,6 +5243,52 @@ function deploymentsTop(deployments, ctx) {
   return updatesPanel(updates, Boolean(resource.value.cursor), deployments, ctx);
 }
 
+/** The deployments the search and filters keep: by version, id, who made it, its note or a board. */
+function deploymentsList(ctx, deployments) {
+  const devices = ctx.state.devices.value?.devices ?? [];
+  const shown = filtered(ctx, 'deployments', deployments, {
+    words: (deployment) => [
+      deployment.version,
+      deployment.id,
+      deployment.status,
+      deployment.note,
+      deployment.createdBy?.email,
+      ...deployment.things,
+      ...deployment.things.map((thing) => boardName(boardOf(thing, devices), { full: true })),
+    ],
+    keep: (deployment, filters) => filters.status === '' || (filters.status === 'underway') === isUnderWay(deployment),
+  });
+  return [
+    filterBar(ctx, 'deployments', {
+      label: 'deployments',
+      placeholder: 'Search by version, board, note or who made it',
+      shown: shown.length,
+      total: deployments.length,
+      controls: [
+        filterSelect(ctx, 'deployments', {
+          name: 'status',
+          label: 'Status',
+          all: 'Under way and ended',
+          options: [
+            ['underway', 'Under way'],
+            ['ended', 'Ended'],
+          ],
+        }),
+      ],
+    }),
+    shown.length === 0
+      ? noneMatch(ctx, 'deployments', 'deployments')
+      : card(
+          { key: 'list', className: 'is-flush' },
+          h(
+            'ul',
+            { class: 'rows' },
+            shown.map((deployment) => deploymentRow(deployment, ctx))
+          )
+        ),
+  ];
+}
+
 export function deploymentsView(ctx) {
   const { state } = ctx;
   const deployments = state.deployments.value;
@@ -5016,14 +5326,7 @@ export function deploymentsView(ctx) {
       h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
       // With the history at the top, the deployments' own figures lead their list.
       leads ? deploymentsPanel(deployments, ctx) : null,
-      card(
-        { key: 'list', className: 'is-flush' },
-        h(
-          'ul',
-          { class: 'rows' },
-          deployments.map((deployment) => deploymentRow(deployment, ctx))
-        )
-      ),
+      deploymentsList(ctx, deployments),
     ];
   }
 
@@ -5470,9 +5773,49 @@ function activityPanel(audit) {
   );
 }
 
+/** The search and filters of the Activity page: what kind of thing was done, how it ended, and when. */
+function activityFilters(ctx, audit) {
+  const shown = audit?.entries.length ?? 0;
+  let count = null;
+  if (audit) {
+    const more = audit.next ? ', more to look through' : '';
+    count =
+      audit.filtered && Number.isInteger(audit.read)
+        ? `${shown} of ${plural(audit.read, 'entry', 'entries')} read match${more}`
+        : `${plural(shown, 'entry', 'entries')} shown${audit.next ? ', more to load' : ''}`;
+  }
+  return filterBar(ctx, 'activity', {
+    label: 'the activity log',
+    placeholder: 'Search by person, version, board or request',
+    count,
+    controls: [
+      filterSelect(ctx, 'activity', {
+        name: 'kind',
+        label: 'Kind',
+        all: 'Every kind',
+        options: ACTIVITY_KINDS.map((kind) => [kind.id, kind.label]),
+      }),
+      filterSelect(ctx, 'activity', {
+        name: 'outcome',
+        label: 'Outcome',
+        all: 'Any outcome',
+        options: [
+          ['ok', 'Went through'],
+          ['rejected', 'Refused'],
+          ['denied', 'Not allowed'],
+          ['error', 'Server error'],
+        ].filter(([id]) => ACTIVITY_OUTCOMES.includes(id)),
+      }),
+      filterDay(ctx, 'activity', { name: 'from', label: 'From' }),
+      filterDay(ctx, 'activity', { name: 'to', label: 'To' }),
+    ],
+  });
+}
+
 export function activityView(ctx) {
   const { state } = ctx;
   const audit = state.audit.value;
+  const searched = audit?.filtered === true;
   const days = [];
   for (const entry of audit?.entries ?? []) {
     const label = dayLabel(entry.at, state.now);
@@ -5483,6 +5826,31 @@ export function activityView(ctx) {
   let body;
   if (!audit) {
     body = pending(state.audit, 'activity');
+  } else if (audit.entries.length === 0 && searched) {
+    body = [
+      noneMatch(ctx, 'activity', 'entries'),
+      audit.next
+        ? h(
+            'div',
+            { class: 'log-more', key: 'more' },
+            h(
+              'p',
+              { class: 'quiet' },
+              `None of the ${plural(audit.read ?? 0, 'entry', 'entries')} read so far match. Older ones are still to look through.`
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'btn',
+                disabled: state.audit.loadingMore,
+                onClick: ctx.actions.loadMoreActivity,
+              },
+              state.audit.loadingMore ? 'Looking…' : 'Look further back'
+            )
+          )
+        : null,
+    ];
   } else if (audit.entries.length === 0) {
     body = card(
       { key: 'none' },
@@ -5524,7 +5892,11 @@ export function activityView(ctx) {
               },
               state.audit.loadingMore ? 'Loading…' : 'Load more'
             )
-          : h('p', { class: 'quiet' }, 'That is every entry in this log.'),
+          : h(
+              'p',
+              { class: 'quiet' },
+              searched ? 'That is every entry that matches.' : 'That is every entry in this log.'
+            ),
         state.audit.moreError ? failure('Could not load more.', state.audit.moreError) : null
       ),
     ];
@@ -5542,6 +5914,7 @@ export function activityView(ctx) {
         'is over shows how it ended. This console has no way to change an entry.',
       tools: freshness(state.audit, ctx),
     }),
+    activityFilters(ctx, audit),
     loadProblem(state.audit, 'the activity log', ctx),
     body
   );
@@ -5683,11 +6056,37 @@ export function tokensView(ctx) {
       text: 'Make one for a script that should use the console as you, such as scripts/firmware/ota.sh.',
     });
   } else {
-    body = h(
-      'ul',
-      { class: 'rows token-list', key: 'list' },
-      listing.tokens.map((token) => tokenRow(token, ctx))
-    );
+    const shown = filtered(ctx, 'tokens', listing.tokens, {
+      words: (token) => [token.name, token.id],
+      keep: (token, filters) => filters.status === '' || token.status === filters.status,
+    });
+    body = [
+      filterBar(ctx, 'tokens', {
+        label: 'your API tokens',
+        placeholder: 'Search by name or ID',
+        shown: shown.length,
+        total: listing.tokens.length,
+        controls: [
+          filterSelect(ctx, 'tokens', {
+            name: 'status',
+            label: 'Status',
+            all: 'Any status',
+            options: [
+              ['active', 'Active'],
+              ['expired', 'Expired'],
+              ['revoked', 'Revoked'],
+            ],
+          }),
+        ],
+      }),
+      shown.length === 0
+        ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No tokens match. Try other words, or Clear.')
+        : h(
+            'ul',
+            { class: 'rows token-list', key: 'list' },
+            shown.map((token) => tokenRow(token, ctx))
+          ),
+    ];
   }
 
   return h(

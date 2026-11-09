@@ -7,6 +7,19 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.12.0
+
+Search and filters on every long list: the activity log, the events and the board log are searched by the server, a page at a time, and the boards, releases, deployments, API tokens, customers and Memfault issues as they are shown. A filtered list keeps its search and filters in its address, so it can be shared or bookmarked, and says how many are shown of how many.
+
+One bar for all of them, `views.js filterBar` (docs/search-filters.md): a search box, the list's filters (under a
+Filters button on a phone), "N of M shown", and Clear. The filters are in the address after a `?` (`core.js FILTERS`,
+`readFilters`, `filtersHash`), replaced, never pushed. `GET /api/audit` takes `q`, `actions`, `outcomes`, `from` and
+`to`: a Query of the log's key range with a filter that reads at most 1,000 entries a page and says how many it read
+(`aws.mjs searchAudit`). `GET /api/events` and `/api/events/log` take `q` and `level` in the same Query of each
+board's keys. Four new refusal codes: `invalid_search`, `invalid_level`, `invalid_actions`, `invalid_outcomes`. The
+Events page's Console lane now asks the server for its range instead of reading the newest pages, and a board's page
+links to its events and log.
+
 ## 2.11.0
 
 Memfault's metrics in the console: a board's page charts its hourly heartbeat (power, Wi-Fi signal and channel, CPU, heap and stacks, the connection, stuck restarts, boot time and any other key) over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason with the unexpected ones marked, the software versions on the boards, and each board's latest key metrics.

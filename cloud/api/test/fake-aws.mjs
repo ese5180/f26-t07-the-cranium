@@ -80,6 +80,7 @@ import { recordsOf } from '../src/lib/events.mjs';
 import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
 import { parseCsr } from '../src/lib/provision.mjs';
 import { FACT_PARTITION, factPartition, factsFromItems } from '../src/lib/updates.mjs';
+import { holdsSearch } from '../src/lib/validate.mjs';
 import { parseBundledVersions } from '../src/lib/versions.mjs';
 import { createFakeApps } from './fake-apps.mjs';
 import { createFakeDb } from './fake-db.mjs';
@@ -767,7 +768,33 @@ export function createFakeAws({
         .map((sk) => copy(auditItems.get(sk)));
     },
 
-    async queryEvents({ thing, low, high, kinds = null, tags = null, limit }) {
+    // As aws.mjs: a Query between two keys, filtered, that stops after `budget` items read.
+    async searchAudit({ low, high, before = null, actions = null, outcomes = null, text = null, limit, budget }) {
+      if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(budget) || budget < 1) {
+        throw new TypeError('limit and budget must be positive integers');
+      }
+      const keys = [...auditItems.keys()]
+        .sort()
+        .reverse()
+        .filter((sk) => sk >= low && sk <= high);
+      const items = [];
+      let read = 0;
+      for (const sk of keys) {
+        read += 1;
+        const item = auditItems.get(sk);
+        const matches =
+          sk !== before &&
+          (actions === null || actions.includes(item.action)) &&
+          (outcomes === null || outcomes.includes(item.outcome)) &&
+          (text === null || [item.target, item.actor?.email, item.requestId].some((value) => holdsSearch(value, text)));
+        if (matches) items.push(copy(item));
+        if (items.length > limit) return { items, read, next: null };
+        if (read >= budget) return { items, read, next: read < keys.length ? sk : null };
+      }
+      return { items, read, next: null };
+    },
+
+    async queryEvents({ thing, low, high, kinds = null, tags = null, text = null, level = null, limit }) {
       if (kinds !== null && (!Array.isArray(kinds) || kinds.length === 0 || kinds.length > 16)) {
         throw new TypeError('kinds must be null or a list of 1 to 16 kinds');
       }
@@ -779,6 +806,8 @@ export function createFakeAws({
         .reverse()
         .filter((item) => kinds === null || kinds.includes(item.kind))
         .filter((item) => tags === null || tags.includes(item.tag))
+        .filter((item) => level === null || (level === 'warn') === (item.level === 'warn'))
+        .filter((item) => text === null || [item.text, item.what, item.tag].some((value) => holdsSearch(value, text)))
         .slice(0, limit)
         .map(copy);
     },

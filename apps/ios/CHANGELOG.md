@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.10
+
+Search and filters on the console's long lists in the app (console 2.12.0 and later): the activity log, the events and the board log are searched by the server, and the boards, releases, deployments, tokens, customers and Memfault issues as they are shown, each with filters that fold under a Filters button on a phone.
+
+The pages are the console's, so nothing new is listed in apps/shared/pages.json. The four new refusal codes of a bad
+filter (`invalid_search`, `invalid_level`, `invalid_actions`, `invalid_outcomes`) have their words here as in core.js,
+which `ParityTests` checks. Nothing else in the app changed.
+
 ## 0.8.9
 
 The console's Memfault pages in the app (console 2.11.0 and later): a board's page charts its Memfault heartbeat metrics over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason, the software versions and each board's latest metrics.

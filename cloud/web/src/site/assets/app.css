@@ -10935,3 +10935,126 @@ span.glance-item:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Search and filters of the long lists (docs/search-filters.md): one bar, in the grouped style. The search
+   box stands first; on a phone the filters fold under the Filters button, from 700 px they stand in a row.
+   Every colour is a token, so the bar follows the dark theme. */
+
+.filter-bar {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filter-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.filter-search > .icon {
+  position: absolute;
+  left: 12px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.input.filter-input {
+  min-height: var(--tap);
+  padding-left: 36px;
+  border-radius: 999px;
+  background: var(--grouped);
+}
+
+.filter-toggle {
+  flex: none;
+  min-height: var(--tap);
+}
+
+.filter-toggle .chip-count {
+  min-width: 1.4em;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 700;
+  text-align: center;
+}
+
+.filter-controls {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.filter-bar.is-open .filter-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.filter-field {
+  justify-content: space-between;
+  min-height: var(--tap);
+}
+
+.filter-field .input {
+  width: auto;
+  max-width: 62%;
+}
+
+.input.filter-day {
+  padding: 6px 10px;
+  font-size: 0.875rem;
+}
+
+.filter-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 1.5rem;
+}
+
+.filter-count {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-none {
+  margin: var(--space-3) 0;
+}
+
+@media (min-width: 700px) {
+  .filter-toggle {
+    display: none;
+  }
+
+  .filter-controls,
+  .filter-bar.is-open .filter-controls {
+    display: flex;
+  }
+
+  .filter-field {
+    justify-content: flex-start;
+    min-height: 0;
+  }
+
+  .filter-field .input {
+    max-width: 16rem;
+  }
+}

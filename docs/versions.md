@@ -7,10 +7,10 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 | What | Version lives in | Changelog | In the files (2026-11-09) | Shown |
 | --- | --- | --- | --- | --- |
 | Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.15.0 (the release image, built); the newest tag is `firmware-v1.14.0` | On the console's Firmware page, each release with its note from the changelog |
-| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.11.0; the newest tag is `console-v2.4.3` | At the foot of every page of the console ("Console 2.11.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.9; the newest tag is `ios-v0.8.8`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.9; the newest tag is `android-v0.8.8`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
-| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.5 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.12.0; the newest tag is `console-v2.4.3` | At the foot of every page of the console ("Console 2.12.0"), What's new on its History page, and `GET /api/me` |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.10; the newest tag is `ios-v0.8.8`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.10; the newest tag is `android-v0.8.8`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.6 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
 
 The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
 kept on the phone and updated from the console (docs/mobile-apps.md, "The app shell"): a new console version changes
@@ -23,7 +23,7 @@ what the apps show without a new app version, and the app's settings say which c
 3. Commit both with the change, and tag that commit: `git tag -a console-v2.1.1 -m "<the first paragraph>"`, then
    `git push origin main console-v2.1.1`. Tags are only ever added, never moved or deleted.
 
-Every version listed in a changelog with a commit should have its tag; the newer ones listed above (console 2.4.4 on, firmware 1.14.1 on, the apps' 0.8.9 and the desktop app's 0.1.1 on) have none yet. A few early firmware numbers (1.0.1, 1.0.2, 1.1.6, 1.7.3,
+Every version listed in a changelog with a commit should have its tag; the newer ones listed above (console 2.4.4 on, firmware 1.14.1 on, the apps' 0.8.9 on and the desktop app's 0.1.1 on) have none yet. A few early firmware numbers (1.0.1, 1.0.2, 1.1.6, 1.7.3,
 1.7.5, 1.7.6) were earlier code built under a newer number and have no commit of their own, so no tag.
 
 The console's versions before 1.9.1, and the apps' before 0.4.0, were given afterwards from the history.
@@ -38,7 +38,7 @@ never moved, so the console goes on from 2.x (2.0.1, 2.1.0, ...) under the same 
 from `cloud/VERSION`, the commit and whether the files matched it, and every entry of the four changelogs, newest
 first, each its version and first paragraph (and its commit and date where the entry names them). So:
 
-- **The console's version** is at the foot of every page, "Console 2.11.0 · <commit>", from `GET /api/me`, which says
+- **The console's version** is at the foot of every page, "Console 2.12.0 · <commit>", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
 - **The iPhone app** on the Apps page is the newest version published as an IPA, with its note (below). Before any is

@@ -313,3 +313,76 @@ export function requireHours(value) {
   }
   return Number(value);
 }
+
+// Searching and filtering the long lists (docs/search-filters.md): the activity log, the boards' events and
+// their own log. Every filter rides on a Query of the list's key, read a page at a time, never a Scan.
+
+export const MAX_SEARCH = 100;
+
+/** Search text: one line of 1 to 100 characters, trimmed; null when absent. */
+export function requireSearch(value) {
+  if (value === undefined) return null;
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (text === '' || text.length > MAX_SEARCH || CONTROL.test(text)) {
+    throw badRequest('invalid_search', `"q" must be 1 to ${MAX_SEARCH} characters on one line.`);
+  }
+  return text;
+}
+
+/**
+ * The spellings of search text that a DynamoDB filter looks for, since contains() tells capitals from small
+ * letters: as written, all small, all capitals, and with a capital first letter. Never more than four.
+ */
+export function searchSpellings(text) {
+  const lower = text.toLowerCase();
+  return [...new Set([text, lower, text.toUpperCase(), lower.charAt(0).toUpperCase() + lower.slice(1)])];
+}
+
+/** Whether a stored text holds the search, as a DynamoDB filter of searchSpellings finds it. */
+export function holdsSearch(value, text) {
+  return typeof value === 'string' && searchSpellings(text).some((spelling) => value.includes(spelling));
+}
+
+/** The level of an event or a line of the board log: "warn" or "info"; null when absent. */
+export function requireLevel(value) {
+  if (value === undefined) return null;
+  if (value !== 'warn' && value !== 'info') {
+    throw badRequest('invalid_level', '"level" is warn or info.');
+  }
+  return value;
+}
+
+/** A list of names from `known`, comma separated, none twice; null when absent. */
+function requireListOf(value, known, name, words) {
+  if (value === undefined) return null;
+  const list = typeof value === 'string' ? value.split(',') : [];
+  if (
+    list.length === 0 ||
+    list.length > known.length ||
+    list.some((item) => !known.includes(item)) ||
+    new Set(list).size !== list.length
+  ) {
+    throw badRequest(`invalid_${name}`, `"${name}" is a list of ${words} separated by commas.`);
+  }
+  return list;
+}
+
+/** Actions of the activity log (lib/audit.mjs ACTIONS), comma separated; null when absent. */
+export function requireActions(value, known) {
+  return requireListOf(value, known, 'actions', 'actions of the activity log');
+}
+
+/** Outcomes of the activity log (ok, rejected, denied, error), comma separated; null when absent. */
+export function requireOutcomes(value, known) {
+  return requireListOf(value, known, 'outcomes', 'outcomes: ok, rejected, denied or error');
+}
+
+/** The span of a search of the activity log: `from` before `to`; either may be absent (null). */
+export function requireAuditRange(fromValue, toValue) {
+  const fromMs = fromValue === undefined ? null : requireTime(fromValue, 'from');
+  const toMs = toValue === undefined ? null : requireTime(toValue, 'to');
+  if (fromMs !== null && toMs !== null && !(fromMs < toMs)) {
+    throw badRequest('invalid_range', '"from" must be before "to".');
+  }
+  return { fromMs, toMs };
+}
