@@ -1504,6 +1504,7 @@ export function createTestConsole({
   env = {},
   startMs = Date.UTC(2026, 9, 10, 22, 15, 0),
   versions,
+  pacing,
 } = {}) {
   const clock = { ms: startMs };
   const now = () => clock.ms;
@@ -1519,6 +1520,8 @@ export function createTestConsole({
     // What versions.json would hold (src/lib/versions.mjs). Left out, none: a test does not depend on
     // whether this checkout was ever deployed.
     versions: versions ?? parseBundledVersions(null),
+    // How AWS IoT's job reads are paced (src/lib/iot-pace.mjs): a test may give it a clock and sleep.
+    pacing,
     log: (line) => logs.push(line),
     // Repeatable, so that ids in a test are the same on every run.
     randomHex: (count) => {

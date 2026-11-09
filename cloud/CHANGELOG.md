@@ -7,6 +7,20 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.8.2
+
+The Deployments page no longer fails with "AWS is limiting requests right now" when it loads many deployments at once. Reads of jobs are paced and tried again when AWS throttles them, and finished deployments are kept for ten minutes instead of being read on every load.
+
+lib/iot-pace.mjs wraps the adapter in the API function and in the rollout schedule: DescribeJob, ListJobs,
+ListJobExecutionsForJob, DescribeJobExecution and ListJobExecutionsForThing (each limited by AWS IoT to about 10
+requests a second per account) run at most 4 at a time per function instance, each operation at most 8 a second after
+a burst of 8, and two reads of the same job at the same moment are one call. A throttled read is tried up to 3 times
+in all, after 100-200 ms and then 200-400 ms; only then is it `throttled`. In handlers/deployments.mjs a settled
+summary is read again after 10 minutes (it was kept for ever), a running one after 2 s as before, and any summary
+whose status is not the one ListJobs gives now. When a read is still throttled after its retries, the list shows that
+deployment's last summary if it is under a minute old, and logs `summary_kept`; otherwise the request is a 429
+`throttled` as before. Tests: test/iot-pace.test.mjs.
+
 ## 2.8.1
 
 Board setup waits up to a minute for the last piece of each certificate. Found on a real board: a running nRF7002 DK

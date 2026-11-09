@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createApp } from '../src/app.mjs';
+import { ATTEMPTS } from '../src/lib/iot-pace.mjs';
 import { apiEvent, awsError, createTestConsole, fixture } from './fake-aws.mjs';
 
 const BOARD_A = 'cranium-00000000000000aa';
@@ -862,7 +863,8 @@ test('what a job recorded and what a board reports now are two fields, and only 
     ['REJECTED', { reason: 'declined', running: '1.0.0+3' }],
   ]) {
     const id = await ended((execution) => execution.update(status, details));
-    fake.failNext('describeJobExecution', { code: 'throttled', awsName: 'ThrottlingException' });
+    // Throttled on every attempt (lib/iot-pace.mjs retries a throttled read).
+    fake.failNext('describeJobExecution', { times: ATTEMPTS, code: 'throttled', awsName: 'ThrottlingException' });
     const unread = await row(id);
     assert.equal(unread.status, status);
     assert.deepEqual(firmware(unread), { ranAtEnd: null, reported: null }, `${status}, not read`);
@@ -1174,7 +1176,7 @@ test('deployments are listed newest first, without the jobs of other tools', asy
   ]);
 });
 
-test('the list shows at most 25 deployments and describes at most 5 jobs at a time', async () => {
+test('the list shows at most 25 deployments and describes at most 4 jobs at a time', async () => {
   const context = await setup();
   const { fake, viewer } = context;
   for (let n = 0; n < 30; n += 1) {
@@ -1206,8 +1208,8 @@ test('the list shows at most 25 deployments and describes at most 5 jobs at a ti
   fake.describeJob = original;
 
   assert.equal(listed.body.deployments.length, 25);
-  assert.ok(most <= 5, `${most} jobs described at once`);
-  assert.equal(most, 5);
+  assert.ok(most <= 4, `${most} jobs described at once`);
+  assert.equal(most, 4);
   // The 25 newest, newest first.
   const created = listed.body.deployments.map((entry) => entry.createdAt);
   assert.deepEqual(created, [...created].sort().reverse());

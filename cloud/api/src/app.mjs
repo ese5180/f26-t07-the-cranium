@@ -116,6 +116,7 @@ import {
   readJsonObject,
 } from './http.mjs';
 import { REQUEST_ID, signInRequestId } from './lib/audit.mjs';
+import { pace } from './lib/iot-pace.mjs';
 
 const METHODS = Object.freeze(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const MAX_PATH = 512;
@@ -291,6 +292,7 @@ function guarded(aws, requests) {
  *                                  or stand-ins for them
  * @param {object} [options.versions]  what versions.json says (lib/versions.mjs parseBundledVersions);
  *                                  left out, the file beside the code, as deployed
+ * @param {object} [options.pacing]  options of lib/iot-pace.mjs pace (a clock and sleep for tests)
  * @returns {(event: object, invocation?: object) => Promise<object>} the Lambda handler
  */
 export function createApp({
@@ -301,6 +303,7 @@ export function createApp({
   log = (line) => console.log(JSON.stringify(line)),
   timers = { set: setTimeout, clear: clearTimeout },
   versions,
+  pacing = {},
 }) {
   if (aws === undefined || aws === null) throw new TypeError('createApp needs an AWS adapter');
   if (config === undefined || config === null) throw new TypeError('createApp needs a configuration');
@@ -311,7 +314,8 @@ export function createApp({
   };
   // Which request the running code is working for: { expired }.
   const requests = new AsyncLocalStorage();
-  const context = { aws: guarded(aws, requests), config, now: clock, randomHex, log };
+  // AWS IoT's job reads, paced and retried when throttled (lib/iot-pace.mjs).
+  const context = { aws: guarded(pace(aws, { log, ...pacing }), requests), config, now: clock, randomHex, log };
   context.directory = createDirectory(context);
 
   const audit = createAuditHandlers(context);
