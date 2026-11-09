@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.9.0
+
+The console looks and works like an app, on a phone and in a browser: a tab bar of Overview, Devices, Map and Deployments with the rest under More, a large title that gives way to the top bar, grouped lists in place of cards and ink panels, and a sidebar on a wider screen. The Overview opens with the fleet at a glance and what needs attention; the Map fills the screen with the boards in a sheet over it; a dialog on a phone is a sheet.
+
+The design and the principles behind it are in docs/console-design.md. The frame is new (index.html, app.css "The
+frame", views.js navView, app.js showMore and watchTitle); the pages keep their markup and words, and are drawn under
+the `console` class of the page's body, so that the customer site, which shares app.css, is as it was. Back on a page
+goes back in the history when that is where it leads. New: the glance strip on the Overview (Online, Updating, Need
+attention or Offline, Newest release), one icon per section, and a mark of each board's state at the start of its row.
+
 ## 2.8.2
 
 The Deployments page no longer fails with "AWS is limiting requests right now" when it loads many deployments at once. Reads of jobs are paced and tried again when AWS throttles them, and finished deployments are kept for ten minutes instead of being read on every load.
