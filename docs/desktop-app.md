@@ -158,7 +158,7 @@ A release of one system is a tag. The installers end in `apps/dist/` in git, nex
    - it restores the configuration from the `CRANIUM_CONFIG_JSON` secret, masking every value, then runs
      `npm ci`, `npm test` and `npm run dist -- <system>`;
    - it refuses a build with the example configuration;
-   - it keeps the installers (`scripts/installers.mjs` names them) and their `SHA256SUMS` as the run's artifact
+   - it keeps the installers (`apps/desktop/scripts/installers.mjs` names them) and their `SHA256SUMS` as the run's artifact
      `cranium-desktop-<system>-<version>`, for 7 days.
 
    The console has no place for desktop builds yet, so the artifact is where the job leaves them. Like the phone
