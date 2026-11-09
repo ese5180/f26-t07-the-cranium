@@ -390,6 +390,103 @@ changed that key would pass. It runs once, when the release is published, so a f
 not noticed. It runs the workflow of the tagged commit, so a tag on a commit before this workflow has
 no check at all.
 
+## Deploying the console from GitHub Actions
+
+This is how the console is deployed. [`.github/workflows/deploy-console.yml`](../.github/workflows/deploy-console.yml)
+runs `cloud/deploy.sh` on a GitHub runner, so a teammate can deploy without any access to the AWS account or its
+console. The script is the same one the owner runs on a laptop: it runs the `api` and `web` tests first and deploys
+nothing if one fails. **It has not run yet**: the owner's one-time steps below come first.
+
+**How it gets into AWS.** The job asks GitHub for an OIDC token and trades it for credentials of the role
+`cranium-github-deploy`, which lasts an hour at most. No AWS key is stored in GitHub. The role comes from
+[`cloud/infra/github-deploy.yaml`](../cloud/infra/github-deploy.yaml), and its trust policy accepts only a job of this
+repository in the `production` environment (`repo:ese5180/f26-t07-the-cranium:environment:production`, audience
+`sts.amazonaws.com`). Its permissions are what `cloud/deploy.sh` does: CloudFormation on `cranium-ota` and
+`cranium-ota-bootstrap`, the package bucket, IAM only on roles named `cranium-ota-*` and passing them only to Lambda
+and AWS IoT, and the Lambda, API Gateway, Cognito, DynamoDB, AWS IoT, EventBridge, SNS, Secrets Manager and CloudWatch
+Logs actions that the stack needs. The template says, statement by statement, where AWS allows no narrower limit. It
+has no billing, organizations, CloudTrail or account-wide IAM, no Cognito user actions, and it can store the Memfault
+project key but not read it. `cloud/api/test/deploy-role-infra.test.mjs` checks the trust policy and that no
+statement allows `*`.
+
+What it can still do, plainly: CloudFormation makes the console's roles with the policies that `template.yaml` writes,
+so a changed template could make a `cranium-ota-*` role with wider rights. That is why every run waits for the
+owner's approval, and why the environment accepts only `main` and `console-v*` tags. Read the diff before approving.
+
+### The owner's one-time steps
+
+1. **Make the role**, signed in to the AWS account on the laptop:
+
+   ```sh
+   AWS_PROFILE=cranium aws cloudformation deploy --region us-east-1 \
+     --stack-name cranium-github-deploy \
+     --template-file cloud/infra/github-deploy.yaml \
+     --capabilities CAPABILITY_NAMED_IAM
+   AWS_PROFILE=cranium aws cloudformation describe-stacks --region us-east-1 \
+     --stack-name cranium-github-deploy \
+     --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
+   ```
+
+   An account holds one GitHub OIDC provider at most, and as of 2026-11-09 this one had none, so the stack makes it. If
+   one exists by then (`aws iam list-open-id-connect-providers`), add
+   `--parameter-overrides ExistingOidcProviderArn=<its ARN>` to the first command. Run the command again whenever the
+   template changes.
+
+2. **Set the repository variables.** Settings → Secrets and variables → Actions → Variables → New repository
+   variable, or with `gh`:
+
+   ```sh
+   gh variable set AWS_DEPLOY_ROLE_ARN --repo ese5180/f26-t07-the-cranium --body '<DeployRoleArn from step 1>'
+   gh variable set AWS_REGION --repo ese5180/f26-t07-the-cranium --body us-east-1
+   ```
+
+   They are variables, not secrets: neither is secret, and the role is useless outside the `production` environment.
+
+3. **Create the `production` environment.** Settings → Environments → New environment, name `production`:
+   - Deployment protection rules: tick **Required reviewers** and add yourself. Leave "Prevent self-review" off if you
+     will deploy yourself too. Save protection rules.
+   - Deployment branches and tags: choose **Selected branches and tags**, then add the branch rule `main` and the tag
+     rule `console-v*`.
+
+4. **The Memfault values, optional** (see the table below):
+
+   ```sh
+   gh secret set MEMFAULT_PROJECT_KEY --repo ese5180/f26-t07-the-cranium --env production < ~/.cranium/memfault_project_key
+   gh variable set MEMFAULT_ORG_SLUG --repo ese5180/f26-t07-the-cranium --body '<org>'
+   gh variable set MEMFAULT_PROJECT_SLUG --repo ese5180/f26-t07-the-cranium --body '<project>'
+   ```
+
+### What the laptop's `~/.cranium` gave, and what the workflow does instead
+
+| On the laptop | Used by `cloud/deploy.sh` for | In the workflow |
+| --- | --- | --- |
+| `firmware/keys/fw_signing_pub.pem` (in git, not `~/.cranium`) | The signing public key the console trusts | Read from the checkout, as on the laptop. A changed key stops the run; `--replace-signing-key` stays on the laptop |
+| `~/.cranium/memfault_project_key` | Stored in the stack's secret | Optional. The `production` environment secret `MEMFAULT_PROJECT_KEY`, written to a mode-600 file for the run and removed after it, never echoed. Without it the key already stored stays as it is |
+| `~/.cranium/memfault.json` | The Memfault slugs for the link to a board | Optional. The repository variables `MEMFAULT_ORG_SLUG` and `MEMFAULT_PROJECT_SLUG`. Without them the stack keeps the slugs it has |
+| `~/.cranium/memfault_org_token`, the private signing key, console API tokens | Not by `cloud/deploy.sh` (they are for `scripts/build.sh` and `scripts/ota.sh`) | Not needed, and not given |
+
+`cloud/.deploy/outputs.json` is written on the runner and thrown away with it; nothing is uploaded. Whoever needs it
+(the board provisioning tool) still gets it from the owner, or from a laptop deployment. The account ID is masked in
+the log, which is public.
+
+### Deploying, for a teammate
+
+1. Actions → **Deploy console** → **Run workflow**. Under "Use workflow from" choose `main` (or a `console-v*` tag),
+   then **Run workflow**. Pushing a tag `console-v<version>` starts the same run.
+2. Wait for approval. The run shows "Waiting for review" until the owner approves it on the run's page (Review
+   deployments → Approve and deploy). Another branch is refused by the environment.
+3. Read the log. The last step prints the console's address and the commit it was built from.
+
+Template parameters (`ConsoleDomainName=…`, `IotLogLevel=…` and the rest of `cloud/deploy.sh --help`) cannot be given
+to the workflow. A parameter keeps its current value when it is not given, so a run of the workflow leaves them as
+they are; changing one is for the owner's laptop.
+
+### The owner's fallback: the laptop
+
+`cloud/deploy.sh`, signed in with `AWS_PROFILE=cranium`, still works as before ([cloud/README.md](../cloud/README.md#deploy)).
+It is the way for a new signing key (`--replace-signing-key`), a template parameter, and for when
+GitHub Actions is down.
+
 ## Requiring these checks on main
 
 As it is, a failed check only shows as a red mark. The owner of the repository could make it block a

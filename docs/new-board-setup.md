@@ -68,7 +68,7 @@ by hand, then go on with `--from` the next one.
 | The golden image, `binaries/golden/cranium-1.5.0-0.signed.bin` | The bootloader only restores that exact file | Copy it from whoever holds the signing key. It isn't in git, and a rebuild won't match it |
 | The Wi-Fi network, `~/.cranium/wifi_secrets.h` | The board's network | `python tools/secrets.py wifi`. A phone hotspot's name often has a curly apostrophe: copy the exact spelling. Only on macOS does the tool offer the spelling the computer knows |
 | An AWS sign-in with administrator rights | Registering the board in AWS IoT | `aws login --profile cranium --region us-east-1` |
-| `cloud/.deploy/outputs.json` | The AWS IoT endpoint, and where firmware downloads from | Written by `cloud/deploy.sh`. Copy it from whoever deployed |
+| `cloud/.deploy/outputs.json` | The AWS IoT endpoint, and where firmware downloads from | Written by `cloud/deploy.sh` on a laptop; a deployment from GitHub Actions keeps none. Copy it from the owner |
 
 Run the Python tools from an [nRF Connect SDK terminal](#an-nrf-connect-sdk-terminal), which has `pyserial` and
 `cbor2`. Where `python` isn't found, type `python3`. Close any serial terminal on the board first: only one program can

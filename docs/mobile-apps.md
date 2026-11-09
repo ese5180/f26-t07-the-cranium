@@ -30,7 +30,7 @@ with an expiry, haptics, the share sheet, opening SideStore) the app does for it
 | | Updates without a reinstall | Needs a new app |
 | --- | --- | --- |
 | What | Every screen, its words and its rules: the pages, the Bluetooth update flow, the sign-in pages | The native shell: the bridge and what it can do, the web view, the bundle store |
-| How | `cloud/deploy.sh` deploys the console; each app takes the new pages at its next start | iPhone: SideStore or `renew.sh` as before; Android: the app's own update, as before |
+| How | The Deploy console workflow ([ci.md](ci.md#deploying-the-console-from-github-actions)), or `cloud/deploy.sh` on the owner's laptop, deploys the console; each app takes the new pages at its next start | iPhone: SideStore or `renew.sh` as before; Android: the app's own update, as before |
 | When it needs one | | A bundle that needs a newer bridge than the app has is not taken; the app's settings and the page's foot say so |
 
 ### The parts
