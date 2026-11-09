@@ -1881,9 +1881,10 @@ const PLOT_H = 160;
 /**
  * A line chart of one series over time. `points` are { ms, v }, oldest first. The latest
  * value is written at the end; a crosshair and readout follow the pointer and the arrow keys
- * when the chart has the focus; the table under it has every hour.
+ * when the chart has the focus; the table under it has every hour. Also drawn by the Memfault
+ * metrics of a board's page (memfault-page.js), so that every chart of the console is one.
  */
-function lineChart(ctx, options) {
+export function lineChart(ctx, options) {
   const {
     key,
     title,

@@ -50,6 +50,13 @@
       "script": "memfault-page.js",
       "draw": "boardSection",
       "api": ["GET /api/devices/{thing}/memfault"]
+    },
+    {
+      "page": "#/devices/{thing}",
+      "title": "Memfault metrics",
+      "script": "memfault-page.js",
+      "draw": "metricsSection",
+      "api": ["GET /api/devices/{thing}/memfault"]
     }
   ],
   "outside": ["https://app.memfault.com/organizations/example/projects/cranium/devices/cranium-0123456789abcdef"]

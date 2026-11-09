@@ -229,3 +229,207 @@ test('Memfault is in the sections, and an issue belongs to it', () => {
   assert.equal(link.getAttribute('href'), '#/memfault');
   assert.equal(link.getAttribute('aria-current'), 'page');
 });
+
+// Memfault part 2 (console 2.11.0): the fleet on the Memfault page, and a board's metric charts.
+
+const B = 'cranium-00000000000000bb';
+const FLEET = {
+  memfault: OK,
+  hours: 168,
+  devices: [
+    { serial: A, thing: A, software: '1.15.0+0', lastSeen: '2026-11-09T17:00:00Z', registered: true },
+    { serial: B, thing: B, software: '1.15.0+0', registered: true },
+    { serial: 'bench-1', thing: null, software: '1.14.0+1', registered: false },
+    { serial: 7 },
+  ],
+  releases: [
+    { version: '1.15.0+0', createdAt: '2026-11-08T12:00:00Z', symbols: true },
+    { version: '1.14.0+1', createdAt: '2026-11-01T12:00:00Z', symbols: false },
+  ],
+  reboots: {
+    byReason: [
+      { reason: { name: 'FirmwareUpdate', expected: true, code: 3 }, count: 3, boards: [A, B] },
+      { reason: { name: 'KernelPanic', expected: false, code: 32776 }, count: 1, boards: [A] },
+      { reason: { name: 'Nothing', expected: false }, count: 0, boards: [] },
+    ],
+    recent: [],
+  },
+  metrics: {
+    keys: ['cpu_usage_pct', 'supply_mv', 'wifi_sta_rssi'],
+    boards: [
+      {
+        serial: A,
+        thing: A,
+        at: '2026-11-09T17:00:00Z',
+        values: {
+          power_usb_present: { v: 1, at: '2026-11-09T17:00:00Z' },
+          supply_mv: { v: 3297, at: '2026-11-09T17:00:00Z' },
+          wifi_sta_rssi: { v: -58, at: '2026-11-09T17:00:00Z' },
+          cpu_usage_pct: { v: 1234, at: '2026-11-09T17:00:00Z' },
+          bogus: { v: 'x' },
+        },
+        unnamed: 0,
+      },
+      { serial: 'bench-1', thing: null, at: '2026-11-09T16:00:00Z', values: {}, unnamed: 2 },
+    ],
+  },
+};
+
+test('the client may read the fleet too, and nothing else new', async () => {
+  const asked = [];
+  const api = core.createApi({
+    auth: { accessToken: () => 'TOKEN' },
+    crypto: globalThis.crypto,
+    clock: core.createClock(),
+    onUnauthorized: () => {},
+    pause: async () => {},
+    fetch: async (url, init) => {
+      asked.push([init?.method ?? 'GET', String(url)]);
+      return Response.json(FLEET);
+    },
+  });
+  await api.memfaultRequest('/api/memfault/fleet');
+  assert.deepEqual(asked, [['GET', '/api/memfault/fleet']]);
+  for (const path of ['/api/memfault/fleet/x', '/api/memfault/fleets', '/api/memfault/fleet?hours=1']) {
+    await assert.rejects(api.memfaultRequest(path), /not a request of the Memfault pages/, path);
+  }
+});
+
+test("the fleet's answer is checked before it is drawn", () => {
+  const read = memfault.readFleet(FLEET);
+  assert.equal(read.devices.length, 3);
+  assert.deepEqual(
+    read.reboots.map((item) => [item.reason.name, item.count, item.boards]),
+    [
+      ['FirmwareUpdate', 3, 2],
+      ['KernelPanic', 1, 1],
+    ]
+  );
+  assert.deepEqual(Object.keys(read.boards[0].values).sort(), [
+    'cpu_usage_pct',
+    'power_usb_present',
+    'supply_mv',
+    'wifi_sta_rssi',
+  ]);
+  assert.deepEqual(memfault.readFleet(null).boards, []);
+  assert.deepEqual(
+    memfault.versionsOf(read).map((item) => [item.version, item.boards, item.symbols]),
+    [
+      ['1.15.0+0', 2, true],
+      ['1.14.0+1', 1, false],
+    ]
+  );
+});
+
+test("the Memfault page shows the reboots by reason, the versions and each board's latest metrics", () => {
+  const state = tools();
+  state.issues = loaded({ memfault: OK, issues: [] });
+  state.fleet = loaded(memfault.readFleet(FLEET));
+  const root = draw(memfault.memfaultView(ctx({ view: 'memfault' }, state)));
+  assert.match(textOf(root), /4 reboots, 1 unexpected\./);
+  const reasons = all(root, 'li.reason-row');
+  assert.equal(reasons.length, 2);
+  assert.ok(one(reasons[1], '.badge.is-bad', 'KernelPanic'));
+  assert.match(textOf(reasons[1]), /unexpected/);
+  assert.doesNotMatch(textOf(reasons[0]), /unexpected/);
+  assert.equal(one(reasons[0], '.meter').getAttribute('aria-valuenow'), '75');
+  const versions = all(root, 'li.version-row').map((item) => textOf(item));
+  assert.match(versions[0], /1\.15\.0\+0.*Symbols uploaded.*2 boards/);
+  assert.match(versions[1], /1\.14\.0\+1.*No symbols.*1 board/);
+  const rows = all(root, 'li.metric-row');
+  assert.equal(one(rows[0], 'a', A).getAttribute('href'), `#/devices/${A}`);
+  assert.match(textOf(rows[0]), /USB power.*On USB.*Supply voltage.*3\.30 V.*Wi-Fi signal.*−58 dBm.*CPU use.*12\.3 %/);
+  assert.match(textOf(rows[1]), /lacks the symbols/);
+
+  // While the fleet is read, the issues stand alone and the page says what it is reading.
+  state.fleet = { value: null, error: null, loadedAt: 0, loading: true };
+  assert.match(textOf(draw(memfault.memfaultView(ctx({ view: 'memfault' }, state)))), /the fleet/i);
+});
+
+const hoursAgo = (hours) => new Date(NOW - hours * 3_600_000).toISOString();
+
+function boardWithSeries(series, unnamed = 0) {
+  return loaded(
+    memfault.readBoard({
+      memfault: OK,
+      known: true,
+      reboots: [],
+      events: [],
+      issues: [],
+      to: new Date(NOW).toISOString(),
+      metrics: { keys: Object.keys(series), series, unnamed },
+    })
+  );
+}
+
+test("a board's page charts each metric of its heartbeats, grouped and named, over 24 h or 7 d", () => {
+  const state = tools();
+  state.boards.set(
+    A,
+    boardWithSeries({
+      supply_mv: [
+        { at: hoursAgo(100), v: 3250 },
+        { at: hoursAgo(2), v: 3297 },
+        { at: hoursAgo(1), v: 3301 },
+      ],
+      power_usb_present: [{ at: hoursAgo(1), v: 1 }],
+      cpu_usage_pct: [{ at: hoursAgo(1), v: 1250 }],
+      memory_sysworkq_pct_max: [{ at: hoursAgo(1), v: 4100 }],
+      wifi_sta_rssi: [{ at: hoursAgo(1), v: -61 }],
+      stuck_restart_count: [{ at: hoursAgo(1), v: 0 }],
+      some_new_key: [{ at: hoursAgo(1), v: 7 }],
+      'bad key!': [{ at: hoursAgo(1), v: 1 }],
+      boot_time_ms: [{ at: 'never', v: 1 }],
+    })
+  );
+  const root = draw(memfault.metricsSection(A, ctx({ view: 'device', thing: A }, state)));
+  assert.deepEqual(
+    all(root, 'h3.card-sub').map((item) => textOf(item)),
+    ['Power', 'Wi-Fi', 'CPU', 'Memory and stacks', 'Restarts and boot', 'Other metrics']
+  );
+  assert.deepEqual(
+    all(root, '.chart-title').map((item) => textOf(item)),
+    [
+      'USB power',
+      'Supply voltage',
+      'Wi-Fi signal',
+      'CPU use',
+      'System work queue stack, highest use',
+      'Stuck restarts in a row',
+      'some_new_key',
+    ]
+  );
+  // The last 24 hours: the reading of 100 hours ago is left out.
+  const text = textOf(root);
+  assert.match(text, /Now 3\.30 V · lowest 3\.30 V · highest 3\.30 V/);
+  assert.match(text, /Now 12\.5 %/);
+  assert.match(text, /Now 41 %/);
+  assert.match(text, /Now On USB/);
+  assert.equal(one(root, 'button', '24 h').getAttribute('aria-pressed'), 'true');
+
+  state.range = '7d';
+  const week = draw(memfault.metricsSection(A, ctx({ view: 'device', thing: A }, state)));
+  assert.match(textOf(week), /Now 3\.30 V · lowest 3\.25 V · highest 3\.30 V/);
+  assert.equal(one(week, 'button', '7 d').getAttribute('aria-pressed'), 'true');
+});
+
+test("a board's metrics say when there are none, and leave Memfault's state to the other card", () => {
+  const state = tools();
+  state.boards.set(A, boardWithSeries({}, 3));
+  const root = draw(memfault.metricsSection(A, ctx({ view: 'device', thing: A }, state)));
+  assert.match(textOf(root), /No heartbeat with metrics in the last 7 days\./);
+  assert.match(textOf(root), /3 heartbeats of the week came without names/);
+  state.boards.set(A, loaded({ memfault: { state: 'unreachable', message: 'x' }, known: false, metrics: {} }));
+  assert.equal(memfault.metricsSection(A, ctx({ view: 'device', thing: A }, state)), null);
+  assert.equal(memfault.metricsSection(B, ctx({ view: 'device' }, state)), null);
+});
+
+test('a chart scale is on whole steps, from 0 unless told not to, and values are in their unit', () => {
+  assert.deepEqual(memfault.niceScale([3, 9]), { yMin: 0, yMax: 10, yTicks: [0, 2.5, 5, 7.5, 10] });
+  const volts = memfault.niceScale([3.25, 3.3], { zero: false });
+  assert.ok(volts.yMin <= 3.25 && volts.yMax >= 3.3 && volts.yTicks.length <= 6, JSON.stringify(volts));
+  assert.deepEqual(memfault.niceScale([0, 0]), { yMin: 0, yMax: 1, yTicks: [0, 0.25, 0.5, 0.75, 1] });
+  assert.equal(memfault.metricText('Heap_BytesFree', 40_960), '40 KiB');
+  assert.equal(memfault.metricText('unknown_thing', 1.5), '1.5');
+  assert.equal(memfault.metricOf('unknown_thing').group, 'other');
+});

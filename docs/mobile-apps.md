@@ -227,7 +227,8 @@ when:
 
 So when the console gets a new page, CI fails until pages.json lists it and every app passes these checks. The
 Memfault page (`#/memfault`, an issue at `#/memfault/<id>`) and the In Memfault card came with console 2.6.0. They are
-listed from apps 0.8.6 and desktop 0.1.3. On a phone they are under the console's sections, as on a narrow browser. The serial pages are the one exclusion: [below](#the-serial-pages).
+listed from apps 0.8.6 and desktop 0.1.3; the Memfault metrics card (console 2.11.0) from apps 0.8.9 and desktop
+0.1.5. On a phone they are under the console's sections, as on a narrow browser. The serial pages are the one exclusion: [below](#the-serial-pages).
 
 A page an app cannot have is marked in pages.json with `excluded`, the app (`ios`, `android`) and the reason. The
 app's test then checks the opposite: that its shell refuses the page's address and that the web UI leaves the page

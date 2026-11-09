@@ -175,8 +175,27 @@ talks to Memfault, so the page's content security policy is as strict as before.
   safer: store `<that user's e-mail>:<their user API key>` in the file instead, and the console reads as that user,
   who can change nothing.
 
-Not yet: metric charts on a board's page, and the fleet's metrics and reboot reasons on the Memfault page (the
-fleet route already answers them).
+From console 2.11.0 the console also charts the metrics and shows the fleet:
+
+- **A board's page**, card "Memfault metrics": a chart of each key of the board's hourly heartbeats, over the last
+  24 hours or 7 days (one read of the week; the range picks what is drawn). Grouped as Power (`power_usb_present`,
+  `supply_mv` in V), Wi-Fi (`wifi_sta_rssi` with the Good and Fair lines, `wifi_primary_channel`, time on Wi-Fi,
+  disconnections), CPU (`cpu_usage_pct`, the timer thread's and all threads' cycles), Memory and stacks
+  (`Heap_BytesFree`, `memory_pct_max`, the idle thread's and the system work queue's highest stack use,
+  `TimerTaskFreeStack`), Connection to the cloud (time connected, `sync_*`, `mqtt_reconnect_count`, chunk retries),
+  Restarts and boot (`stuck_restart_count`, `boot_time_ms`) and Updates (`ota_*`). Any other key is drawn under
+  Other metrics with its own name, as the board sent it. A board sends whole numbers: a percentage in hundredths
+  (the SDK's scale value 100) and times in ms, which the page shows as % and minutes (`memfault-page.js` `METRICS`).
+  Heartbeats Memfault could not name, for want of the build's symbols, are counted under the charts.
+- **The Memfault page**, under the issues, from `GET /api/memfault/fleet`: the week's reboots by reason with how
+  many, on how many boards and their share, an unexpected reason marked with its icon and the word; the software
+  versions the boards last ran with how many boards and whether Memfault has their symbols; and a row per board of
+  its latest key metrics (USB power, supply, Wi-Fi signal and channel, CPU, free heap, work queue stack, stuck
+  restarts) and when it sent them, each board a link to its page.
+- **The charts** are the console's own (`telemetry.js` `lineChart`, as on Diagnostics): SVG with custom properties,
+  a crosshair readout on the pointer and the arrow keys, and an hourly table under each, so the policy stays as
+  strict and the dark theme and phones work as on every page. The list of board cards in
+  `apps/shared/pages.json` has "Memfault metrics", which the three apps' parity tests check.
 
 ## Symbols and releases
 

@@ -3833,7 +3833,9 @@ export function deviceView(ctx) {
                 ])
         )
       )
-    )
+    ),
+    // Its Memfault heartbeat metrics as charts over 24 h or 7 d, the width of the page (memfault-page.js).
+    ctx.memfault?.metricsSection(thing, ctx) ?? null
   );
 }
 

@@ -78,7 +78,11 @@ export const ACCOUNT = scriptAddress('account.js', { 'core.js': CORE, 'views.js'
 // The fleet's parts of every page, and the Apps page with its QR encoder (docs/fleet.md, docs/versions.md).
 export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS });
 // What Memfault knows (docs/memfault.md).
-export const MEMFAULT = scriptAddress('memfault-page.js', { 'core.js': CORE, 'views.js': VIEWS });
+export const MEMFAULT = scriptAddress('memfault-page.js', {
+  'core.js': CORE,
+  'views.js': VIEWS,
+  'telemetry.js': TELEMETRY,
+});
 // The Database page (docs/database.md).
 export const DB = scriptAddress('db-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');

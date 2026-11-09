@@ -2628,11 +2628,12 @@ export function createApi({
      * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
-    // What Memfault knows (memfault-page.js): reads only, of these four routes.
+    // What Memfault knows (memfault-page.js): reads only, of these four routes: the fleet, the issues, an
+    // issue and a board.
     async memfaultRequest(path) {
       const read =
         typeof path === 'string' &&
-        (/^\/api\/memfault\/issues(?:\/[1-9]\d{0,15})?$/.test(path) ||
+        (/^\/api\/memfault\/(?:fleet|issues(?:\/[1-9]\d{0,15})?)$/.test(path) ||
           /^\/api\/devices\/cranium-[0-9a-f]{16}\/memfault(?:\?hours=[1-9]\d{0,2})?$/.test(path));
       if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Memfault pages.');
       return record(await request('GET', path));

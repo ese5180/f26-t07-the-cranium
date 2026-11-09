@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.9
+
+The console's Memfault pages in the app (console 2.11.0 and later): a board's page charts its Memfault heartbeat metrics over 24 hours or 7 days, and the Memfault page shows the fleet's reboots by reason, the software versions and each board's latest metrics.
+
+The board card "Memfault metrics" is in apps/shared/pages.json, so `PagesParityTest` checks that the console draws it and that
+its route takes the app's sign-in. Nothing else in the app changed.
+
 ## 0.8.8
 
 The Serial console and Board setup work in the app with the board on the phone's USB cable (USB OTG): the console's commands, and setting a board up from its bootloader, the golden image and the newest release to online, as in Chrome on a computer.
