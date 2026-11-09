@@ -124,6 +124,11 @@ The console's USB page uses Web Serial, as in Chrome. When the page asks for a p
 there is, or asks which one when there are several. Only the bundle's origin may use a serial port. Each system's
 notes say what it needs: on Linux, the permission to open the port.
 
+**Board setup** (Developer, [docs/new-board-setup.md](new-board-setup.md#from-the-console-board-setup)) works here
+as in Chrome. It asks for a port twice when it seals the golden image: the console port, then the log port. The app
+does not flash a blank board through the debug probe: the console has no bootloader, TF-M or network core image to
+give it, only signed application images, so a blank board still needs `scripts/board/new-board.sh` once.
+
 ## Updates
 
 **The pages** update themselves, from the console, as above.

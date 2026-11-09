@@ -656,6 +656,20 @@ const pages = {
     interval: () => 0,
     painted: () => serialScript?.keepTranscriptInView(),
   },
+  // Board setup over USB (setup.js): serial recovery, the golden image, and provisioning, from this page.
+  setup: {
+    title: 'Board setup',
+    view: (ctx) => (setupScript ? setupScript.setupView(ctx) : scriptPending(ctx, 'setup', 'Board setup')),
+    resources: () => [],
+    async refresh() {
+      if (!setupScript) {
+        setupScript = await pageScript(() => import('./setup.js'));
+        setupScript?.connect({ api, draw });
+      }
+      draw();
+    },
+    interval: () => 0,
+  },
   history: {
     title: 'History',
     view: (ctx) => (historyScript ? historyScript.historyView(ctx) : scriptPending(ctx, 'history', 'History')),
@@ -812,6 +826,7 @@ const pages = {
 };
 
 let serialScript = null;
+let setupScript = null;
 let historyScript = null;
 let bluetoothScript = null;
 let bluetoothFlow = null;

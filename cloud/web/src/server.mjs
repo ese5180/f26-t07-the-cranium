@@ -172,6 +172,31 @@ export function loadSite(base) {
 const site = loadSite(SITE);
 const customerSite = loadCustomerSite(CUSTOMER, SITE);
 
+/**
+ * The frozen golden image (firmware/golden.json), for Board setup (assets/setup.js), which puts it on a
+ * board over USB: at /golden/<its file name>, on the console's names and at the customer site's, where
+ * the console is admin mode. It is a copy of binaries/golden/ (test/server.test.mjs holds the two to be
+ * the same bytes, and to firmware/golden.json). Served here, beside the page, and not by the API: it is
+ * public, as it is in git, it never changes, and the page checks it against the digest it carries.
+ * Not in the phone apps' bundle, which holds text only; a phone has no Web Serial anyway.
+ */
+export const GOLDEN_DIR = new URL('./golden/', import.meta.url);
+const GOLDEN_NAME = /^cranium-\d{1,3}\.\d{1,3}\.\d{1,5}-\d{1,10}\.signed\.bin$/;
+
+export function loadGolden(dir) {
+  const files = new Map();
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.')) continue;
+    if (!entry.isFile() || !GOLDEN_NAME.test(entry.name)) throw new Error(`Unexpected entry in golden/: ${entry.name}`);
+    files.set(`/golden/${entry.name}`, readFileSync(new URL(entry.name, dir)).toString('base64'));
+  }
+  if (files.size !== 1) throw new Error('golden/ must hold the one golden image');
+  return files;
+}
+
+const golden = loadGolden(GOLDEN_DIR);
+const BINARY = 'application/octet-stream';
+
 const ATTRIBUTE_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 /** Make any text safe inside a double-quoted HTML attribute. */
@@ -383,6 +408,13 @@ export function createWebHandler({
     return object ? respond(headers, 200, object.type, CACHE_ASSET, object.body) : null;
   }
 
+  /** The golden image, or null for any other path. The path is a key, as everywhere here. */
+  function goldenAnswer(headers, path) {
+    const body = typeof path === 'string' ? golden.get(path) : undefined;
+    if (body === undefined) return null;
+    return { ...respond(headers, 200, BINARY, CACHE_ASSET, body), isBase64Encoded: true };
+  }
+
   /**
    * A browser asks first, with OPTIONS, before a page of another origin calls the API with a token:
    * the phone apps' pages, from the bundle (docs/mobile-apps.md, "The app shell"). The $default route
@@ -457,7 +489,7 @@ export function createWebHandler({
     }
     if (path === '/') return customerPage(event);
     if (path === ADMIN_PATH) return page(event, true);
-    const bundled = bundleAnswer(customerHeaders, path);
+    const bundled = bundleAnswer(customerHeaders, path) ?? goldenAnswer(customerHeaders, path);
     if (bundled) return bundled;
     const asset =
       typeof path === 'string' ? (customerSite.assets.get(path) ?? site.console.assets.get(path)) : undefined;
@@ -477,7 +509,7 @@ export function createWebHandler({
     }
     const path = event.rawPath;
     if (path === '/') return home ? respond(headers, 200, HTML, CACHE_PAGE, site.home.page) : page(event);
-    const bundled = home ? null : bundleAnswer(headers, path);
+    const bundled = home ? null : (bundleAnswer(headers, path) ?? goldenAnswer(headers, path));
     if (bundled) return bundled;
     const { assets } = home ? site.home : site.console;
     const asset = typeof path === 'string' ? assets.get(path) : undefined;

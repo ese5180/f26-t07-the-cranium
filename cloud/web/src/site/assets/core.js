@@ -110,6 +110,8 @@ const SECTIONS = [
   'deployments',
   'activity',
   'serial',
+  // Board setup over USB (setup.js).
+  'setup',
   'history',
   'tokens',
   // Board types, groups and staged rollouts (fleet.js).
@@ -2405,19 +2407,36 @@ export function createApi({
   }
 
   /**
-   * A signed firmware image, as bytes, for the Bluetooth page of the app (bluetooth.js). Read again on
-   * a gateway's hiccup, as any read is; checked by the caller against the release.
+   * A signed firmware image, as bytes, for the Bluetooth page of the app (bluetooth.js) and Board setup
+   * (setup.js). Read again on a gateway's hiccup, as any read is; checked by the caller against the release.
    */
   async function image(version) {
-    const path = `/api/firmware/${encodeURIComponent(checked(isVersion, version))}/image`;
+    return bytesAt(`/api/firmware/${encodeURIComponent(checked(isVersion, version))}/image`);
+  }
+
+  /**
+   * The frozen golden image (firmware/golden.json), which the web function serves beside the page to
+   * anyone, as git does: no token goes with it. Checked by the caller against its SHA-256.
+   */
+  async function golden(file) {
+    const name = checked(
+      (text) => typeof text === 'string' && /^cranium-\d{1,3}\.\d{1,3}\.\d{1,5}-\d{1,10}\.signed\.bin$/.test(text),
+      file
+    );
+    return bytesAt(`/golden/${name}`, { token: false });
+  }
+
+  async function bytesAt(path, { token: withToken = true } = {}) {
     for (let attempt = 1; ; attempt += 1) {
-      const token = auth.accessToken();
-      if (token === null) throw unauthorized();
+      const token = withToken ? auth.accessToken() : null;
+      if (withToken && token === null) throw unauthorized();
       let response;
       try {
         response = await fetch(`${base}${path}`, {
           method: 'GET',
-          headers: { authorization: `Bearer ${token}`, accept: 'application/octet-stream' },
+          headers: withToken
+            ? { authorization: `Bearer ${token}`, accept: 'application/octet-stream' }
+            : { accept: 'application/octet-stream' },
           cache: 'no-store',
           credentials: 'omit',
           signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
@@ -2628,6 +2647,25 @@ export function createApi({
     // An update over Bluetooth from the app (bluetooth.js, docs/mobile-apps.md "The API"): the image, the
     // passkey of a board that is pairing, and the console's yes right before every send.
     image,
+    // Board setup (setup.js): the golden image, and a board's certificate for the request it made itself.
+    golden,
+    /**
+     * Register a board by its own signing request: { id, csr, reregister } -> { thing, certificatePem,
+     * rootCa, endpoint, downloadPrefix }, read by setup.js. Tried once: a second try would make a second
+     * certificate.
+     */
+    async registerDevice({ id, csr, reregister = false }) {
+      const body = {
+        id: checked((text) => typeof text === 'string' && /^[0-9A-Za-z]{1,32}$/.test(text), id),
+        csr: checked(
+          (text) =>
+            typeof text === 'string' && text.length < 4096 && text.startsWith('-----BEGIN CERTIFICATE REQUEST-----'),
+          csr
+        ),
+        reregister: reregister === true,
+      };
+      return record(await request('POST', '/api/devices/register', body, { once: true }));
+    },
     async pairing(name) {
       const path = `/api/pairing/${encodeURIComponent(checked(isBluetoothName, name))}`;
       const reply = record(await request('GET', path, undefined, { once: true }));
