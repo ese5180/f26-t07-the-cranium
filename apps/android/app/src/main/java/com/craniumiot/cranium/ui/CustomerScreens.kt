@@ -104,6 +104,7 @@ import kotlinx.coroutines.delay
 fun CraniumRoot(customer: CustomerViewModel, staff: ConsoleViewModel) {
     val side by customer.side.collectAsStateWithLifecycle()
     val held by staff.held.collectAsStateWithLifecycle()
+    LaunchedEffect(staff) { customer.attachTeam(staff.teamSignIn) }
     LaunchedEffect(held) { customer.noteStaff(held) }
     LaunchedEffect(Unit) { staff.signedOut.collect { customer.afterAdminSignOut() } }
     when (side) {
@@ -112,7 +113,7 @@ fun CraniumRoot(customer: CustomerViewModel, staff: ConsoleViewModel) {
         }
         Side.CUSTOMER -> CustomerApp(customer, staff, adminHeld = held == true)
         Side.ADMIN -> {
-            val exits = remember(customer) { AdminExits(leave = customer::leaveAdmin, customerSignIn = customer::customerSignIn) }
+            val exits = remember(customer) { AdminExits(leave = customer::leaveAdmin) }
             CompositionLocalProvider(LocalAdminExits provides exits) { CraniumApp(staff) }
         }
     }
@@ -469,9 +470,6 @@ private fun AdminOverview(vm: CustomerViewModel, me: Me?, signOut: () -> Unit) {
         }
         block("ways") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (vm.available) {
-                    ConsoleButton(CustomerText.CUSTOMER_SIGN_IN, vm::customerSignIn, Modifier.fillMaxWidth(), glyph = Glyph.ARROW_RIGHT)
-                }
                 ConsoleButton(CustomerText.SIGN_OUT, signOut, Modifier.fillMaxWidth(), kind = ButtonKind.QUIET, glyph = Glyph.SIGN_OUT)
             }
         }
@@ -1028,7 +1026,7 @@ private fun CustomerSignInScreen(vm: CustomerViewModel) {
             OneLine("This build has the example configuration, so sign-in will not work.", tone = Tone.WARN, glyph = Glyph.ALERT)
         }
         form.notice?.let { Notice(Tone.WARN, Glyph.ALERT, it) }
-        if (vm.available) {
+        if (vm.canSignIn) {
             when (form.phase) {
                 CustomerPhase.PASSWORD -> {
                     Title(CustomerText.SIGN_IN)
@@ -1064,7 +1062,6 @@ private fun CustomerSignInScreen(vm: CustomerViewModel) {
                 }
             }
         }
-        ConsoleButton(CustomerText.ADMIN_SIGN_IN, vm::adminSignIn, kind = ButtonKind.QUIET, glyph = Glyph.ARROW_RIGHT, small = true, enabled = !form.busy)
     }
 }
 

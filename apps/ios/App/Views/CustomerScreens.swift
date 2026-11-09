@@ -346,13 +346,6 @@ struct AdminOverview: View {
                 Text(CustomerWords.whatCustomersSeeText).font(Typeface.body).foregroundStyle(theme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if customer.stage != .notSetUp {
-                Button(CustomerWords.customerSignIn) {
-                    customer.gate = .signIn
-                    customer.customerSignInOpen = true
-                }
-                .consoleButton()
-            }
             Card(CustomerWords.signOut) {
                 Button(CustomerWords.signOut, role: .destructive) {
                     Task { await customer.signOutEverything(admin: app) }

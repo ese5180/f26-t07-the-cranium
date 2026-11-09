@@ -110,11 +110,11 @@ fun SignInGate(vm: ConsoleViewModel, gate: Gate.SignIn, form: SignInForm) {
             }
             SignInSteps(vm, form, lead = SIGN_IN_LEAD)
         }
-        // Admin mode's sign-in is the admin sign-in of the customer side (docs/mobile-apps.md, "Customers").
+        // Admin mode's own sign-in, after a session that ended there: the way back to the one sign-in of the customer side.
         LocalAdminExits.current?.let { exits ->
             HorizontalDivider(color = colors.line)
             ConsoleButton(
-                CustomerText.CUSTOMER_SIGN_IN, exits.customerSignIn, kind = ButtonKind.QUIET, glyph = Glyph.ARROW_RIGHT, small = true,
+                CustomerText.LEAVE_ADMIN_MODE, exits.leave, kind = ButtonKind.QUIET, glyph = Glyph.ARROW_LEFT, small = true,
                 enabled = gate.busy == null && !form.busy,
             )
         }
@@ -122,7 +122,7 @@ fun SignInGate(vm: ConsoleViewModel, gate: Gate.SignIn, form: SignInForm) {
 }
 
 /** How admin mode is left for the customer side: from the console's More and Account, and its sign-in. */
-class AdminExits(val leave: () -> Unit, val customerSignIn: () -> Unit)
+class AdminExits(val leave: () -> Unit)
 
 val LocalAdminExits = androidx.compose.runtime.staticCompositionLocalOf<AdminExits?> { null }
 

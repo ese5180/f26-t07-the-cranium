@@ -16,7 +16,7 @@ data class CraniumConfig(
     /**
      * The customer side (docs/mobile-apps.md, "Customers"): the customer API's address, the customer
      * pool's phone client, its Region and the pool. All empty for a configuration written before the
-     * stack had the customer pool: then [hasCustomer] is false and the app has the admin sign-in only.
+     * stack had the customer pool: then [hasCustomer] is false and the one sign-in takes team accounts only.
      */
     val customerApiUrl: String = "",
     val customerClientId: String = "",

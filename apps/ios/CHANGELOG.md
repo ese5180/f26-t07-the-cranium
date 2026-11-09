@@ -4,6 +4,17 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.3
+
+One sign-in for everybody, as on the website since console 2.4.5: the e-mail address and the password, then the code when the account asks for one. A team account opens admin mode, a customer their own pages; "Admin sign-in" and "Customer sign-in" are gone.
+
+The classic screens' sign-in (`CustomerSignInScreen`) asks the team's pool first, with the phone apps' client, and only
+if it says the address or the password is wrong, the customer pool (CraniumKit `OneSignIn`): one try at each pool, and
+the same words whichever refused. A team account's code goes in the same six boxes; a step only the AWS sign-in page
+does takes the team account there. "Forgot your password?" asks both pools, one request each. The admin overview's
+"Customer sign-in" button and the console screen's way to it are gone. The shell's sign-in is the website's page, which
+has the same rule.
+
 ## 0.8.2
 
 The customer site's features work in the app as on the website: Explore demo, My journal, saved moments, imported

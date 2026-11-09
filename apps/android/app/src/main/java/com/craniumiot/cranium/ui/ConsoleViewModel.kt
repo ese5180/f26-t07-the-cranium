@@ -361,6 +361,30 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * The team's pool for the one sign-in screen of the customer side (CustomerViewModel): the same
+     * session as this screen's own sign-in, so admin mode opens with it.
+     */
+    val teamSignIn: TeamSignIn = object : TeamSignIn {
+        override val ready: Boolean get() = auth != null
+
+        override suspend fun password(email: String, password: String): SignInStep =
+            auth?.passwordSignIn(email, password) ?: SignInStep.Password("failed")
+
+        override suspend fun code(code: String): SignInStep = auth?.sendCode(code) ?: SignInStep.CodeProblem("failed")
+
+        override fun cancel() {
+            auth?.cancelPasswordSignIn()
+        }
+
+        override fun signedIn() {
+            _signIn.value = SignInForm(email = lastEmail)
+            viewModelScope.launch { startConsole(fullSignIn = true) }
+        }
+
+        override fun awsPage(challenge: String) = toAwsPage(false, challenge)
+    }
+
     /** Back to the password, dropping the sign-in that waits for its code. */
     fun startOver(fresh: Boolean) {
         val current = form(fresh) ?: return

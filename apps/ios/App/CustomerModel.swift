@@ -25,10 +25,9 @@ final class CustomerModel: ObservableObject {
         case signedIn
     }
 
-    /// What the signed-out side shows.
+    /// What the signed-out side shows: the one sign-in (team pool first, then the customer pool), or a reset.
     enum Gate: Equatable {
         case signIn
-        case adminSignIn
         case forgot
     }
 
@@ -36,8 +35,6 @@ final class CustomerModel: ObservableObject {
     @Published var gate: Gate = .signIn
     /// Admin mode is on screen: the console's own screens (AppModel).
     @Published var adminMode = false
-    /// The customer sign-in over the admin's customer side ("Customer sign-in" on the admin overview).
-    @Published var customerSignInOpen = false
     @Published private(set) var cover: AppModel.Cover?
     @Published private(set) var unlocking = false
     @Published private(set) var lockMessage: String?
@@ -59,6 +56,8 @@ final class CustomerModel: ObservableObject {
 
     private(set) var api: CustomerAPI?
     private(set) var account: CustomerAccount?
+    /// The team's pool, for the one "Forgot your password?": asked first, as the sign-in asks it.
+    private(set) var teamAccount: CustomerAccount?
     private(set) var passwordSignIn: PasswordSignIn?
     private var auth: AuthSession?
     private(set) var lock: BiometricLock?
@@ -75,7 +74,11 @@ final class CustomerModel: ObservableObject {
     /// signed in comes first; else an admin who is, in admin mode as before; else the sign-in.
     func start(admin: AppModel) async {
         guard stage == .loading else { return }
-        let customer = (try? CraniumConfig.load(from: .main))?.config.customer
+        let loaded = (try? CraniumConfig.load(from: .main))?.config
+        let customer = loaded?.customer
+        if let loaded, let pool = loaded.userPool {
+            teamAccount = CustomerAccount(teamPool: pool, clientId: loaded.mobileClientId, http: URLSession.shared)
+        }
         #if DEBUG
         // Demo mode is the console's: made-up boards and no network (DemoData.swift).
         if Demo.isOn {
@@ -114,11 +117,7 @@ final class CustomerModel: ObservableObject {
 
     private func decide(_ admin: AppModel) {
         guard stage != .signedIn && stage != .locked else { return }
-        if admin.holdsSession {
-            adminMode = true
-        } else if admin.signInMessage != nil || stage == .notSetUp {
-            gate = .adminSignIn
-        }
+        if admin.holdsSession { adminMode = true }
     }
 
     private func opened() async {
@@ -132,7 +131,6 @@ final class CustomerModel: ObservableObject {
     /// The customer's sign-in screen kept the tokens.
     func signedInHere() async {
         signInLead = nil
-        customerSignInOpen = false
         gate = .signIn
         await opened()
         guard let lock, let account = subject else { return }
@@ -146,7 +144,6 @@ final class CustomerModel: ObservableObject {
 
     /// Admin mode, from the customer side.
     func openAdminMode() {
-        customerSignInOpen = false
         adminMode = true
     }
 
@@ -156,20 +153,19 @@ final class CustomerModel: ObservableObject {
     }
 
     /// The admin's session ended (a sign-out in admin mode, a session that ran out, "Sign in with
-    /// password" on its lock screen): back to the customer side, and to the admin sign-in where the
-    /// admin wants to sign in again.
+    /// password" on its lock screen): back to the customer side, and to the one sign-in.
     func adminEnded(from old: AppModel.Stage, message: String?) {
         let wasShown = adminMode
         adminMode = false
         guard wasShown, stage != .signedIn, stage != .locked else { return }
-        gate = old == .locked || message != nil ? .adminSignIn : (stage == .notSetUp ? .adminSignIn : .signIn)
+        gate = .signIn
     }
 
     /// The customer's sign-out, and the admin's too if one is signed in, as the site's Sign out does.
     func signOutEverything(admin: AppModel) async {
         if admin.holdsSession { await admin.signOut() }
         await signOut()
-        gate = stage == .notSetUp ? .adminSignIn : .signIn
+        gate = .signIn
     }
 
     func signOut(message: String? = nil) async {

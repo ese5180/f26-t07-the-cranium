@@ -235,8 +235,6 @@ object CustomerText {
     // Signing in (customer-views.js signInView, forgotView).
     const val SIGN_IN = "Sign in"
     const val SIGN_IN_LEAD = "With the e-mail address and the password of your Cranium account."
-    const val ADMIN_SIGN_IN = "Admin sign-in"
-    const val CUSTOMER_SIGN_IN = "Customer sign-in"
     const val GATE_FOOT = "See your boards, how they are and what they did."
     const val EMAIL_ADDRESS = "E-mail address"
     const val CONTINUE = "Continue"
@@ -307,7 +305,7 @@ object CustomerText {
         CODE_FROM_APP, NEW_CODE_EVERY, TURN_ON_TWO_STEP, CHECKING, NOT_NOW, OFF_WARNING, TURNING_OFF, TURN_IT_OFF, KEEP_IT_ON,
         TWO_STEP_IS_ON, TWO_STEP_IS_OFF, KEY_COPIED,
         HELP_EYEBROW, HELP_TITLE, HELP_LEDE, STILL_STUCK, NO_SUPPORT,
-        SIGN_IN, SIGN_IN_LEAD, ADMIN_SIGN_IN, CUSTOMER_SIGN_IN, GATE_FOOT, EMAIL_ADDRESS, CONTINUE, FORGOT, ENTER_CODE, CODE_HINT,
+        SIGN_IN, SIGN_IN_LEAD, GATE_FOOT, EMAIL_ADDRESS, CONTINUE, FORGOT, ENTER_CODE, CODE_HINT,
         START_AGAIN, CHOOSE_PASSWORD, WELCOME_NEW, AT_LEAST, SAVE_AND_SIGN_IN, ONE_MORE_STEP, ELSEWHERE, CHOOSE_NEW, A_NEW_PASSWORD,
         FORGOT_LEAD, SEND_CODE, SENDING, CODE_FROM_EMAIL, CODE_FROM_EMAIL_HINT, SET_PASSWORD, SEND_ANOTHER, DONE, CHANGED_SIGN_IN,
         BACK_TO_SIGN_IN, SESSION_ENDED, LEAVE_ADMIN_MODE,

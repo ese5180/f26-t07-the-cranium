@@ -61,12 +61,13 @@ the app's own screen (SRP, the code in six boxes if they turned it on, a new pas
 sign-in), and resets a forgotten password with a code from the e-mail. Their session is kept apart from
 the admin's: its own encrypted file, its own master key and its own fingerprint key (`core/SessionKeys.kt`).
 
-**Admin sign-in** is the sign-in below, unchanged, and opens Admin mode: the whole app as it was, with
+There is one sign-in screen for everybody (`core/OneSignIn.kt`): the team's pool first, through the
+console's own session, then the customer pool. A team account opens Admin mode: the whole app as it was, with
 **Leave admin mode** under More and Account, which goes back to the customer side and keeps the admin
 signed in. The customer side's Sign out ends both sessions, as the website's does; Admin mode's ends the
 admin's only. The app opens on the customer side when a customer is signed in, else in Admin mode when
-an admin is, else at the customer sign-in. A build whose configuration has no customer pool says so on
-the sign-in screen and offers Admin sign-in.
+an admin is, else at the one sign-in. A build whose configuration has no customer pool signs in team
+accounts only, on the same screen.
 
 ## Admin mode
 

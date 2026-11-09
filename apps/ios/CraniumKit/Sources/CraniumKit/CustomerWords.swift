@@ -382,12 +382,10 @@ public enum CustomerWords {
     // MARK: Signing in
 
     public static let signInTitle = "Sign in"
-    public static let adminSignInTitle = "Admin sign-in"
     public static let codeTitle = "Enter the code"
     public static let newPasswordTitle = "Choose your password"
     public static let elsewhereTitle = "One more step"
     public static let signInLead = "With the e-mail address and the password of your Cranium account."
-    public static let adminSignInLead = "With your Cranium team account: your e-mail address, your password and the code from your authenticator app."
     public static let newPasswordLead = "Welcome. Your invitation's password works once: choose your own now."
     public static let elsewhereLead = "Your account needs a new password first. Choose one with \"Forgot your password?\"."
     public static let chooseNewPassword = "Choose a new password"
@@ -399,10 +397,7 @@ public enum CustomerWords {
     public static let codeHint = "The six digits it shows now. The code goes in by itself once the last digit is typed."
     public static let firstPasswordHint = "At least 10 characters."
     public static let saveAndSignIn = "Save and sign in"
-    public static let customerSignIn = "Customer sign-in"
-    public static let adminSignIn = "Admin sign-in"
     public static let gateFoot = "See your boards, how they are and what they did."
-    public static let adminGateFoot = "For the Cranium team: the same account as on the firmware console, with its code."
     public static func signingInAs(_ email: String) -> String { "Signing in as \(email)." }
 
     public static let forgotTitle = "A new password"

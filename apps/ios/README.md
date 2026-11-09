@@ -53,8 +53,9 @@ A customer signs in on the app's own screen to the customer pool (`CustomerSignI
 "Forgot your password?"), and reads the customer API with their own token (`CustomerAPI.swift`); a
 board is named by its assignment id only. Their account's calls go to Cognito with that token
 (`CustomerAccount.swift`). Their session is in Keychain items of its own (`CustomerStorage`), with
-its own Face ID item and setting, apart from the admin's. **Admin sign-in** is the sign-in below and
-opens admin mode, the console as before; **Leave admin mode** is under More. See
+its own Face ID item and setting, apart from the admin's. There is one sign-in screen for everybody
+(CraniumKit `OneSignIn`): the team's pool first, then the customer pool. A team account opens admin
+mode, the console as before; **Leave admin mode** is under More. See
 [`docs/mobile-apps.md`](../../docs/mobile-apps.md#customers).
 
 ## What is where

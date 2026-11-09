@@ -284,8 +284,8 @@ The four `customer…` keys are the customer side's ([Customers](#customers)): t
 (`CustomerUserPoolId`), the phone apps' client of it (`CustomerMobileClientId`, console 2.0.1), its Region,
 and where the customer API is, which is the console's API under `/api/c/`: on the customer site's name
 (`CustomerUrl`) once it has one, else on the console's. They come all four or none: a stack from before
-console 2.0.1 gets a file without them (`configure.sh` says so), and an app built from it signs in admins
-only, and says on its customer sign-in that this build has no customer sign-in. Some of them without the
+console 2.0.1 gets a file without them (`configure.sh` says so), and an app built from it signs in team
+accounts only, on the same one screen. Some of them without the
 others, or one that does not look right, stops the build, naming the key and never its value.
 
 `liveUrl` is the live API's WebSocket ([live.md](live.md#the-phone-apps)), the stack's `LiveUrl` from console 2.4.0;
@@ -303,9 +303,22 @@ for `apps/config/`.
 
 ## Signing in
 
-The apps sign in on their own screen, as the console's website does: the e-mail address and the
-password, then the code from the authenticator app in six boxes. This is Cognito's user pool API with
-SRP (`USER_SRP_AUTH`), so the password stays on the phone and is used for the proof only:
+**One sign-in screen for everybody** (apps 0.8.3, as the customer site since console 2.4.5): the e-mail address and
+the password, then the code when the account asks for one. There is no choice of admin or customer. The screen asks
+the team's pool first (`userPoolId`, `mobileClientId`), with the address in lower case, and only if that pool says the
+address or the password is wrong, the customer pool (`customerUserPoolId`, `customerClientId`), the same way: one try
+at each pool per submission, so each pool's throttling and lockout count every try and keep their words, and one
+refusal for both, "The e-mail address or password is wrong.", whichever pool refused. A team account then gives its
+code and lands in admin mode; a customer gives their code if they turned two-step sign-in on, or a new password at the
+first sign-in, and lands on the customer side. **Forgot your password?** asks both pools for a code, one request each
+(the team's pool hides unknown addresses, so its yes proves nothing), sends the code and the new password to the
+team's pool first and then to the customer pool, and says the same either way. The logic is CraniumKit's `OneSignIn`
+on the iPhone and `core/OneSignIn.kt` on Android, with unit tests; the shell's sign-in is the customer site's page,
+which has the same rule.
+
+Each pool's sign-in is the console website's: the e-mail address and the password, then the code from the
+authenticator app in six boxes. This is Cognito's user pool API with SRP (`USER_SRP_AUTH`), so the password stays on
+the phone and is used for the proof only:
 
 | Step | Request |
 | --- | --- |
@@ -400,9 +413,9 @@ board is only ever named by the id of its assignment (16 hex digits), as the API
 name; an id of any other shape is not asked for, and another customer's board answers 404 (`not_your_board`):
 "There is no board of yours here."
 
-**Signing in.** A customer signs in on the app's own screen, to the customer pool with the phone apps' client
-of it (`CustomerMobileUserPoolClient`), through the user pool API exactly as an admin does
-([Signing in](#signing-in)): `USER_SRP_AUTH`, `PASSWORD_VERIFIER`, and `SOFTWARE_TOKEN_MFA` in six boxes if the
+**Signing in.** A customer signs in on the app's one sign-in screen ([Signing in](#signing-in)), which reaches
+the customer pool, with the phone apps' client of it (`CustomerMobileUserPoolClient`), once the team's pool has
+refused the address or the password, through the user pool API exactly as an admin does: `USER_SRP_AUTH`, `PASSWORD_VERIFIER`, and `SOFTWARE_TOKEN_MFA` in six boxes if the
 customer turned two-step sign-in on. At the first sign-in Cognito asks for a new password
 (`NEW_PASSWORD_REQUIRED`), which the screen asks for and sends (`RespondToAuthChallenge` with `NEW_PASSWORD`),
 as the website's does; any other step says "Your account needs a new password first" and leads to **Forgot your
@@ -416,7 +429,7 @@ customer's tokens are refreshed with `InitiateAuth` `REFRESH_TOKEN_AUTH` and rev
 | | Customer | Admin |
 | --- | --- | --- |
 | Pool and client | `CustomerUserPool`, `CustomerMobileUserPoolClient` | `UserPool`, `MobileUserPoolClient` |
-| Sign-in screen | Sign in, with "Forgot your password?" and "Admin sign-in" | Admin sign-in, as before, with "Use the AWS sign-in page" and "Customer sign-in" |
+| Sign-in screen | The one screen, with "Forgot your password?" | The same screen (the team's pool is asked first); a step only the AWS sign-in page does goes there |
 | Code | Only if the customer turned it on | Always |
 | API | `GET {customerApiUrl}/api/c/...` only | `{consoleUrl}/api/...`, as before |
 | Kept on iPhone | Keychain items of the service `com.craniumiot.cranium.customer`; Face ID's item under the same service, its setting `cranium.customer.biometric.settings` | `com.craniumiot.cranium.console`, `cranium.biometric.settings`, as before |
@@ -433,12 +446,12 @@ forgotten an hour after the sign-in; with them, up to 30 days, the customer phon
 lifetime. Each side has its own lock, asked when that side is on screen. Offered once after a full sign-in, in
 the customer's words ("instead of your password": a customer may have no code).
 
-**Admin mode.** The team signs in with **Admin sign-in**, as before (staff pool, phone client, password and
-code), and the app opens admin mode: the whole app as it was. **Leave admin mode** (under More on the iPhone,
+**Admin mode.** The team signs in on the same one screen (staff pool, phone client, password and code), and
+the app opens admin mode: the whole app as it was. **Leave admin mode** (under More on the iPhone,
 under More and Account on Android) goes back to the customer side, the admin still signed in. There, an admin
-who is not also signed in as a customer sees the website's Overview as a customer sees it, with its mixes, and **Open admin mode** where a customer's boards would be, Mixes and Help, and can sign a customer in too; a customer side with an admin
+who is not also signed in as a customer sees the website's Overview as a customer sees it, with its mixes, and **Open admin mode** where a customer's boards would be, Mixes and Help; a customer side with an admin
 signed in as well has **Admin mode** in its top bar and on Account. The app opens on the customer side when a
-customer is signed in, else in admin mode when an admin is, else on the customer sign-in. Sign out on the
+customer is signed in, else in admin mode when an admin is, else on the one sign-in. Sign out on the
 customer side signs out both, as the website's does; Sign out in admin mode signs the admin out only.
 
 **What a phone cannot do that the site can:** nothing, for a customer. Admins still invite customers and give
