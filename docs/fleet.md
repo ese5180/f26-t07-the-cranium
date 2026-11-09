@@ -55,9 +55,29 @@ image on a board checks it. The board's own check is the last word.
 - **A deployment targets** some boards, a group, a type, or the whole fleet. It only ever takes the boards of the
   release's type, and leaves out those already on that version.
 - **Staged rollout.** A deployment of more than one board starts with a canary: the first board (or the number asked
-  for). The rest follow in waves only once the canary has confirmed the update. It stops by itself, cancelling what has
-  not started, when the share of failed or rolled-back boards reaches the abort threshold (default 20%, at least one
-  board). AWS IoT Jobs' rollout and abort configuration does the waves and the abort where it can.
+  for), online and with a clean update history first. The rest follow only once the canary has confirmed the update,
+  in 1 to 10 **stages** (from console 2.8.0). Each stage is one AWS IoT job on all its boards at once, offered as fast as
+  AWS IoT allows (1000 boards a minute), so its boards update side by side rather than one after another.
+  - **Gating.** The next stage starts only once the job of the one before has completed with its failures under the
+    limit, and after the **soak time** (0 to 60 minutes, default 0), which also follows the canary. The schedule that
+    moves rollouts on looks every minute.
+  - **Stops.** A canary that does not confirm, a stage whose failed, rejected or timed-out boards reach the failure
+    limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), a
+    release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
+    the rollout, so two runs of the schedule never start a stage twice.
+  - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything and
+    a group's roll back) takes the canary size, the number of stages, the batch size of each stage but the last (a
+    percent or a count of the boards after the canary; the last stage takes the rest; empty stages are left out), the
+    soak time and the failure limit. The server checks every one (`lib/stages.mjs`).
+  - **Suggestions.** `GET /api/rollouts/suggest?release=<version>&group=<id>` (viewers and release managers; the fleet
+    without `group`) says what the console would do, each choice with a one-line reason: one online board per board
+    type as the canary, preferring a clean update history; stages that grow (about 10%, then three times as many, then
+    the rest), one stage for a group of three boards or fewer; boards that are offline in the last stage; a soak time
+    for larger groups; and a warning when most of the group is offline or a stage is too small to tell anything. The
+    Roll out dialog fills itself in from it, and the person can change anything.
+  - **Progress.** A rollout's page shows each stage: its boards and each board's state, how many are done, in progress,
+    failed and waiting, when it started and ended, or when it is due. A rollout started before 2.8.0 still goes on in
+    waves, paced by AWS IoT, to its end.
 - **Every update.** The console's update history (`GET /api/updates`, from console 2.1.1;
   [aws-iot.md](aws-iot.md#update-history)) has each board's updates however they came: a deployment board by board, an
   update over Bluetooth from a phone with whose phone it was, and one by USB or another tool, each kept, rolled back,

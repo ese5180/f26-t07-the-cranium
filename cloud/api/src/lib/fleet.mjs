@@ -150,16 +150,19 @@ export function selectTargets({ release, candidates, busy = new Map(), nowMs, le
 }
 
 /**
- * The canary: the boards that take the update first. Online boards first, then the one heard from
+ * The canary: the boards that take the update first. Online boards first, then those with the
+ * fewest failed updates in their history (`failures`: thing -> how many), then the one heard from
  * most recently, then by name, so that the first board to try it is one that can.
  */
-export function chooseCanary(things, boards, size) {
+export function chooseCanary(things, boards, size, failures = new Map()) {
   const byThing = new Map(boards.map((board) => [board.thing, board]));
   const ranked = [...things].sort((a, b) => {
     const left = byThing.get(a);
     const right = byThing.get(b);
     const online = Number(right?.online === true) - Number(left?.online === true);
     if (online !== 0) return online;
+    const failed = (failures.get(a) ?? 0) - (failures.get(b) ?? 0);
+    if (failed !== 0) return failed;
     const seen = (Date.parse(right?.lastSeen ?? '') || 0) - (Date.parse(left?.lastSeen ?? '') || 0);
     return seen !== 0 ? seen : a < b ? -1 : 1;
   });
@@ -312,7 +315,12 @@ export function rolloutFromItem(item) {
     stage: item.stage,
     things: list(item.things),
     leftOut: reasons(item.leftOut),
-    canary: { size: item.canary?.size ?? 1, things: list(item.canary?.things), job: item.canary?.job ?? null },
+    canary: {
+      size: item.canary?.size ?? 1,
+      things: list(item.canary?.things),
+      job: item.canary?.job ?? null,
+      doneAt: item.canary?.doneAt ?? null,
+    },
     rest: {
       things: list(item.rest?.things),
       leftOut: reasons(item.rest?.leftOut),
@@ -322,15 +330,28 @@ export function rolloutFromItem(item) {
     wave: item.wave ?? DEFAULT_WAVE,
     abortPercent: item.abortPercent ?? DEFAULT_ABORT_PERCENT,
     plan: wavePlan(list(item.things).length - list(item.canary?.things).length, item.wave ?? DEFAULT_WAVE),
+    // From console 2.8.0: the stages after the canary, each one job on all its boards at once.
+    // A rollout from before has none, and its waves instead.
+    stages: (Array.isArray(item.stages) ? item.stages : []).map((stage, index) => ({
+      n: index + 1,
+      things: list(stage?.things),
+      leftOut: reasons(stage?.leftOut),
+      job: typeof stage?.job === 'string' ? stage.job : null,
+      startedAt: stage?.startedAt ?? null,
+      doneAt: stage?.doneAt ?? null,
+    })),
+    current: Number.isInteger(item.current) ? item.current : -1,
+    stagePlan: item.stagePlan ?? null,
+    soakMinutes: Number.isInteger(item.soakMinutes) ? item.soakMinutes : 0,
     stopped: item.stopped ?? null,
     finishedAt: item.finishedAt ?? null,
     updatedAt: item.updatedAt ?? item.createdAt,
   };
 }
 
-/** True for a rollout that is still going: waiting for its canary, or with its waves under way. */
+/** True for a rollout that is still going: waiting for its canary, or with its stages (or waves) under way. */
 export function isOpenRollout(rollout) {
-  return rollout.stage === 'canary' || rollout.stage === 'waves';
+  return rollout.stage === 'canary' || rollout.stage === 'stages' || rollout.stage === 'waves';
 }
 
 // Fleet health (GET /api/fleet/health).

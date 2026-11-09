@@ -10,8 +10,13 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
 - **One deployment to many boards.** A deployment targets some boards, a group ("lab bench", "demo"), a board type, or
   the whole fleet. It only takes boards that can run the release: the right board type and flash layout, and an older
   version.
-- **A staged rollout.** One release goes to a canary board first, then to the rest in waves. It stops by itself when
-  the canary does not confirm, or too many boards fail.
+- **A staged rollout.** One release goes to a canary board first, then to the rest in stages (1 to 10, from console
+  2.8.0). Each stage updates all its boards at once, and the next starts only once it has ended within its failure
+  limit, after an optional soak time. It stops by itself when the canary does not confirm, or too many boards of a
+  stage fail.
+- **Chosen with help.** The Roll out dialog asks the console for a plan (`GET /api/rollouts/suggest`): the canary, the
+  number of stages and their sizes (growing, say 10 % → 30 % → the rest), the soak time, each with its reason, and
+  warnings such as most of the group being offline. Any of it can be changed before starting.
 - **Each board is safe on its own.** MCUboot runs the new image on trial and puts the old one back unless the new one
   confirms itself (A/B).
 
@@ -19,7 +24,8 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
 1. Upload the release on the Firmware page. `scripts/firmware/build.sh` builds the next version, uploads it there and gives
    Memfault its release and symbols.
 2. Put the boards in a group, under Fleet, Groups.
-3. Start a deployment or a staged rollout to the group, the type, or every board.
+3. Start a deployment or a staged rollout to the group, the type, or every board. For a group, look at the suggested
+   stages, change them if needed, and start; the rollout's page shows each stage as it goes.
 
 Spare releases built ahead with `scripts/firmware/build.sh --no-upload` wait in `binaries/`. Upload one when it's needed:
 - `scripts/firmware/upload-to-console.sh binaries/<image>`;

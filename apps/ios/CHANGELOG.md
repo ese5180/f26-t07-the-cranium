@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.5
+
+Staged rollouts as on the console from 2.8.0: after the canary, the boards update in stages, all of a stage at once. The Roll out form takes the number of stages, the batch size, the wait between stages and the failure limit, filled in from the console's suggestion with its reasons, and a rollout's page shows each stage as it goes.
+
+The app shell shows the console's own pages, so the form and the stage view come with the console. The activity log's
+words (CraniumKit `Words.refusalWords`) have the console's three new refusals: `invalid_stages`, `invalid_batch` and
+`invalid_soakMinutes`.
+
 ## 0.8.4
 
 More has Board setup, which says why it needs a computer: an iPhone cannot open a board's USB serial port. The desktop app or Chrome or Edge on a computer does it.

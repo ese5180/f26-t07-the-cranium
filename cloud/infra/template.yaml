@@ -2425,11 +2425,12 @@ Resources:
 
   # ---------------------------------------------------------------------------------
   # Staged rollouts (docs/fleet.md, cloud/api/src/handlers/rollouts.mjs). A rollout starts with a
-  # canary, and its waves follow once the canary has confirmed the update. AWS IoT Jobs paces a
-  # job and stops it by itself (jobExecutionsRolloutConfig, abortConfig), but it has no way to
-  # wait for one job before it starts another. This function does that: every minute it reads
-  # the open rollouts and starts the waves of those whose canary has confirmed, or marks one
-  # stopped, and says so in the activity log as the console's own doing. It serves no request
+  # canary, and its stages follow one after another once the canary has confirmed the update,
+  # each a job on all its boards at once. AWS IoT Jobs offers a job and stops it by itself
+  # (jobExecutionsRolloutConfig, abortConfig), but it has no way to wait for one job before it
+  # starts another. This function does that: every minute it reads the open rollouts and starts
+  # the next stage of those whose canary or last stage has ended, or marks one stopped, and says
+  # so in the activity log as the console's own doing. It serves no request
   # and nothing on the internet reaches it; invoked by anything else, it only does what is due.
   # ---------------------------------------------------------------------------------
 

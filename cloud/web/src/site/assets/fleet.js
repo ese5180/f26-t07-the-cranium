@@ -8,7 +8,7 @@
  *
  *  - the Fleet page (#/fleet): each board type with its newest release and how many boards run it,
  *    the groups, the staged rollouts, and "Update everything";
- *  - a staged rollout's page (#/rollouts/<id>): its canary, its waves, what was left out and why,
+ *  - a staged rollout's page (#/rollouts/<id>): its canary, its stages (or waves), what was left out and why,
  *    and why it stopped;
  *  - on the Overview, the fleet's health: versions by type, the last week's updates, and the boards
  *    that need looking at;
@@ -87,6 +87,7 @@ const LEFT_OUT_REASONS = Object.freeze({
 });
 const STAGES = Object.freeze({
   canary: { tone: 'live', icon: 'restart', label: 'Canary' },
+  stages: { tone: 'live', icon: 'send', label: 'Stages under way' },
   waves: { tone: 'live', icon: 'send', label: 'Waves under way' },
   done: { tone: 'good', icon: 'check-circle', label: 'Done' },
   stopped: { tone: 'bad', icon: 'stop', label: 'Stopped' },
@@ -185,7 +186,10 @@ function readRollout(raw) {
     stage: Object.hasOwn(STAGES, item.stage) ? item.stage : 'stopped',
     things: things(item.things),
     leftOut: readLeftOut(item.leftOut),
-    canary: { things: things(canary.things), job: words(canary.job, 64) || null },
+    canary: { things: things(canary.things), job: words(canary.job, 64) || null, doneAt: iso(canary.doneAt) },
+    stages: array(item.stages).map(readStage),
+    current: Number.isInteger(item.current) ? item.current : -1,
+    soakMinutes: count(item.soakMinutes),
     rest: {
       things: things(rest.things),
       leftOut: readLeftOut(rest.leftOut),
@@ -204,6 +208,58 @@ function readRollout(raw) {
       .map(object)
       .map((wave) => ({ wave: count(wave.wave), at: iso(wave.at), things: things(wave.things) })),
     notOffered: things(item.notOffered),
+  };
+}
+
+const STAGE_STATES = Object.freeze(['planned', 'next', 'running', 'done', 'skipped', 'stopped', 'never']);
+
+/** One stage of a rollout: its boards, its deployment, where it stands and how far its boards are. */
+function readStage(raw, index) {
+  const item = object(raw);
+  const counts = object(item.counts);
+  return {
+    n: index + 1,
+    things: things(item.things),
+    leftOut: readLeftOut(item.leftOut),
+    job: words(item.job, 64) || null,
+    startedAt: iso(item.startedAt),
+    doneAt: iso(item.doneAt),
+    state: STAGE_STATES.includes(item.state) ? item.state : 'planned',
+    counts: {
+      done: count(counts.done),
+      inProgress: count(counts.inProgress),
+      failed: count(counts.failed),
+      waiting: count(counts.waiting),
+    },
+    deployment: item.deployment ? readJob(item.deployment) : null,
+  };
+}
+
+/** What the console suggests for a rollout (GET /api/rollouts/suggest). */
+function readSuggestion(raw) {
+  const item = object(raw);
+  const reasons = object(item.reasons);
+  const batch = item.batch ? object(item.batch) : null;
+  return {
+    things: things(item.things),
+    canary: things(item.canary),
+    canarySize: Math.min(Math.max(count(item.canarySize), 1), 5),
+    stageCount: count(item.stageCount),
+    stages: array(item.stages)
+      .map(object)
+      .map((stage) => ({ size: count(stage.size), percent: count(stage.percent), offline: count(stage.offline) })),
+    batch:
+      batch && batch.unit === 'count'
+        ? { unit: 'count', sizes: array(batch.sizes).filter((size) => Number.isInteger(size) && size > 0) }
+        : null,
+    soakMinutes: Math.min(count(item.soakMinutes), 60),
+    abortPercent: Math.min(Math.max(count(item.abortPercent), 1), 100) || 20,
+    reasons: ['canary', 'stages', 'batch', 'soak', 'offline']
+      .map((key) => words(reasons[key], 300))
+      .filter((line) => line !== ''),
+    warnings: array(item.warnings)
+      .map((line) => words(line, 300))
+      .filter((line) => line !== ''),
   };
 }
 
@@ -313,6 +369,15 @@ const fleetApi = {
       .filter((item) => item.id),
   rollout: async (id) => readRollout((await request('GET', `/api/rollouts/${id}`)).rollout),
   startRollout: async (body) => readRollout((await request('POST', '/api/rollouts', body)).rollout),
+  suggest: async (release, group = null) =>
+    readSuggestion(
+      (
+        await request(
+          'GET',
+          `/api/rollouts/suggest?release=${encodeURIComponent(release)}${group ? `&group=${encodeURIComponent(group)}` : ''}`
+        )
+      ).suggestion
+    ),
   cancelRollout: async (id) => readRollout((await request('POST', `/api/rollouts/${id}/cancel`, {})).rollout),
   createGroup: async (body) => readGroup((await request('POST', '/api/groups', body)).group),
   updateGroup: async (id, body) => readGroup((await request('POST', `/api/groups/${id}`, body)).group),
@@ -338,8 +403,9 @@ export async function boardTypes() {
 }
 
 /** A staged rollout of boards named one by one, from the New deployment dialog. */
-export async function startRollout({ version: release, things: boards, note, canary, abortPercent }) {
+export async function startRollout({ version: release, things: boards, note, canary, abortPercent, ...plan }) {
   const body = { version: release, target: { kind: 'boards', things: boards }, canary, abortPercent };
+  if (plan.stages !== undefined) Object.assign(body, stageBody({ unit: 'even', sizes: [], ...plan }));
   if (note) body.note = note;
   const rollout = await fleetApi.startRollout(body);
   tools.keep(tools.state.rolloutDetails, rollout.id, rollout);
@@ -412,7 +478,7 @@ export function rolloutTitle(route, state) {
 }
 
 function open(rollout) {
-  return rollout.stage === 'canary' || rollout.stage === 'waves';
+  return rollout.stage === 'canary' || rollout.stage === 'stages' || rollout.stage === 'waves';
 }
 
 // Small pieces.
@@ -876,7 +942,7 @@ export function fleetView(ctx) {
           ? h(
               'p',
               { class: 'card-lede' },
-              'A deployment to more than one board, a group or a type starts here: a canary first, then waves.'
+              'A deployment to more than one board, a group or a type starts here: a canary first, then stages.'
             )
           : h(
               'ul',
@@ -891,7 +957,7 @@ export function fleetView(ctx) {
     { class: 'page' },
     pageHead({
       title: 'Fleet',
-      lede: 'Board types, groups of boards, and releases to many boards at once: a canary first, then waves once it has confirmed.',
+      lede: 'Board types, groups of boards, and releases to many boards at once: a canary first, then stages once it has confirmed.',
       tools: [
         freshness(state.fleet, ctx),
         canWrite && fleet ? button('is-primary', () => openPlan({}), icon('send'), 'Update everything') : null,
@@ -928,15 +994,24 @@ function boardStatusList(ctx, thingsShown, job) {
 }
 
 function stageSteps(rollout) {
-  const reached = {
-    canary: 0,
-    waves: 1,
-    done: 2,
-    stopped: rollout.rest.job ? 1 : 0,
-    cancelled: rollout.rest.job ? 1 : 0,
-  }[rollout.stage];
+  const staged = rollout.stages.length > 0;
   const ended = rollout.stage === 'stopped' || rollout.stage === 'cancelled';
-  const labels = ['Canary', 'Waves', ended ? STAGES[rollout.stage].label : 'Done'];
+  const labels = [
+    'Canary',
+    ...(staged ? rollout.stages.map((stage) => `Stage ${stage.n}`) : ['Waves']),
+    ended ? STAGES[rollout.stage].label : 'Done',
+  ];
+  const last = labels.length - 1;
+  const over = (stage) => stage.state === 'done' || stage.state === 'skipped';
+  let reached;
+  if (rollout.stage === 'canary') reached = 0;
+  else if (rollout.stage === 'done') reached = last;
+  else if (!staged) reached = rollout.stage === 'waves' || rollout.rest.job ? 1 : 0;
+  else if (rollout.stage === 'stages') reached = 1 + rollout.stages.filter(over).length;
+  else {
+    const started = rollout.stages.filter((stage) => stage.startedAt || over(stage)).length;
+    reached = started > 0 ? started : rollout.canary.doneAt ? 1 : 0;
+  }
   return h(
     'ol',
     { class: 'wizard-steps rollout-steps', key: 'steps' },
@@ -946,23 +1021,82 @@ function stageSteps(rollout) {
         {
           key: label,
           class:
-            index < reached || (index === 2 && rollout.stage === 'done')
+            index < reached || (index === last && rollout.stage === 'done')
               ? 'is-done'
               : index === reached && !ended
                 ? 'is-current'
-                : ended && index === 2
+                : ended && index === last
                   ? 'is-stopped'
                   : null,
         },
         h(
           'span',
           { class: 'wizard-number' },
-          index < reached || (index === 2 && rollout.stage === 'done') ? icon('check') : String(index + 1)
+          index < reached || (index === last && rollout.stage === 'done') ? icon('check') : String(index + 1)
         ),
         label
       )
     )
   );
+}
+
+const STAGE_LOOK = Object.freeze({
+  planned: { tone: 'wait', icon: 'clock', label: 'Planned' },
+  next: { tone: 'wait', icon: 'clock', label: 'Next' },
+  running: { tone: 'live', icon: 'send', label: 'In progress' },
+  done: { tone: 'good', icon: 'check-circle', label: 'Done' },
+  skipped: { tone: 'idle', icon: 'check', label: 'Nothing left to update' },
+  stopped: { tone: 'bad', icon: 'stop', label: 'Stopped' },
+  never: { tone: 'idle', icon: 'stop', label: 'Never started' },
+});
+
+/** When a stage started and ended, or when it is due. */
+function stageTiming(rollout, stage, index, now) {
+  if (stage.startedAt && stage.doneAt) {
+    return ['Started ', when(stage.startedAt, now), ', ended ', when(stage.doneAt, now)];
+  }
+  if (stage.startedAt) return ['Started ', when(stage.startedAt, now)];
+  if (stage.doneAt) return ['Ended ', when(stage.doneAt, now)];
+  if (stage.state !== 'next' && stage.state !== 'planned') return null;
+  const before = index === 0 ? rollout.canary.doneAt : rollout.stages[index - 1]?.doneAt;
+  const after = index === 0 ? 'the canary has confirmed' : `stage ${index} has ended`;
+  if (!before)
+    return `Starts once ${after}${rollout.soakMinutes > 0 ? `, and ${plural(rollout.soakMinutes, 'minute')} after` : ''}.`;
+  const due = Date.parse(before) + rollout.soakMinutes * 60_000;
+  return due > now ? `Starts in ${plural(Math.ceil((due - now) / 60_000), 'minute')}.` : 'Starts within a minute.';
+}
+
+/** Each stage of a rollout: its boards, how far they are, and when it ran. */
+function stageCards(rollout, ctx) {
+  const { now } = ctx.state;
+  return rollout.stages.map((stage, index) => {
+    const look = STAGE_LOOK[stage.state];
+    const { done, inProgress, failed, waiting } = stage.counts;
+    const timing = stageTiming(rollout, stage, index, now);
+    return card(
+      {
+        key: `stage-${stage.n}`,
+        title: `Stage ${stage.n}: ${plural(stage.things.length, 'board')}`,
+        more: stage.job ? { href: deploymentHref(stage.job), label: 'Its deployment' } : null,
+        className: 'rollout-stage',
+      },
+      h(
+        'p',
+        { class: 'card-lede stage-head' },
+        badge(look.tone, look.icon, look.label),
+        ' ',
+        stage.job
+          ? h(
+              'span',
+              { class: 'stage-counts' },
+              `${done} done · ${inProgress} in progress · ${failed} failed · ${waiting} waiting`
+            )
+          : null
+      ),
+      timing ? h('p', { class: 'quiet stage-timing' }, timing) : null,
+      stage.things.length > 0 ? boardStatusList(ctx, stage.things, stage.deployment) : null
+    );
+  });
 }
 
 export function rolloutView(ctx) {
@@ -983,7 +1117,13 @@ export function rolloutView(ctx) {
     `AWS IoT offers it to ${plural(rollout.wave, 'board')} a minute to start with, and twice as many each time as ` +
     `many more have confirmed. It stops by itself once ${rollout.abortPercent}% of the boards that finished have failed, ` +
     'and what has not started then never does.';
-  const leftOut = [...rollout.leftOut, ...rollout.rest.leftOut];
+  const staged = rollout.stages.length > 0;
+  const stageLede =
+    `${plural(rollout.stages.length, 'stage')} after the canary. Each goes to all its boards at once, and the next ` +
+    `starts only once it has ended with fewer than ${rollout.abortPercent}% of its finished boards failed` +
+    `${rollout.soakMinutes > 0 ? `, and ${plural(rollout.soakMinutes, 'minute')} after` : ''}. ` +
+    `A stage stops by itself once ${rollout.abortPercent}% have failed, and what has not started then never does.`;
+  const leftOut = [...rollout.leftOut, ...rollout.rest.leftOut, ...rollout.stages.flatMap((stage) => stage.leftOut)];
   return h(
     'div',
     { class: 'page' },
@@ -1025,53 +1165,63 @@ export function rolloutView(ctx) {
       h(
         'p',
         { class: 'card-lede' },
-        'The first to get it. The waves start only once every one of them has installed it, ' +
+        `The first to get it. ${staged ? 'The first stage starts' : 'The waves start'} only once every one of them has installed it, ` +
           'restarted, reached AWS IoT and confirmed it; the console looks every minute.'
       ),
       boardStatusList(ctx, rollout.canary.things, rollout.canaryJob)
     ),
-    card(
-      {
-        key: 'waves',
-        title: `The waves: ${plural(rollout.things.length - rollout.canary.things.length, 'board')}`,
-        more: rollout.rest.job ? { href: deploymentHref(rollout.rest.job), label: 'Their deployment' } : null,
-      },
-      h('p', { class: 'card-lede' }, waveWords),
-      rollout.rest.job === null
-        ? h(
-            'p',
-            { class: 'quiet' },
-            rollout.stage === 'canary'
-              ? [
-                  'Waiting for the canary. Planned: ',
-                  rollout.plan.length > 0 ? rollout.plan.join(', then ') : 'none',
-                  ' boards.',
-                ]
-              : 'No wave was started.'
-          )
-        : [
-            rollout.waves.map((wave) =>
-              h(
-                'div',
-                { class: 'wave', key: String(wave.wave) },
-                h('p', { class: 'wave-head' }, h('strong', null, `Wave ${wave.wave}`), ' ', when(wave.at, state.now)),
-                boardStatusList(ctx, wave.things, rollout.wavesJob)
+    staged ? h('p', { class: 'card-lede rollout-stages-lede', key: 'stages-lede' }, stageLede) : null,
+    staged ? stageCards(rollout, ctx) : null,
+    staged
+      ? null
+      : card(
+          {
+            key: 'waves',
+            title: `The waves: ${plural(rollout.things.length - rollout.canary.things.length, 'board')}`,
+            more: rollout.rest.job ? { href: deploymentHref(rollout.rest.job), label: 'Their deployment' } : null,
+          },
+          h('p', { class: 'card-lede' }, waveWords),
+          rollout.rest.job === null
+            ? h(
+                'p',
+                { class: 'quiet' },
+                rollout.stage === 'canary'
+                  ? [
+                      'Waiting for the canary. Planned: ',
+                      rollout.plan.length > 0 ? rollout.plan.join(', then ') : 'none',
+                      ' boards.',
+                    ]
+                  : 'No wave was started.'
               )
-            ),
-            rollout.notOffered.length > 0
-              ? h(
-                  'div',
-                  { class: 'wave', key: 'later' },
+            : [
+                rollout.waves.map((wave) =>
                   h(
-                    'p',
-                    { class: 'wave-head' },
-                    h('strong', null, rollout.stage === 'waves' ? 'Still to come' : 'Never offered')
-                  ),
-                  boardStatusList(ctx, rollout.notOffered, null)
-                )
-              : null,
-          ]
-    ),
+                    'div',
+                    { class: 'wave', key: String(wave.wave) },
+                    h(
+                      'p',
+                      { class: 'wave-head' },
+                      h('strong', null, `Wave ${wave.wave}`),
+                      ' ',
+                      when(wave.at, state.now)
+                    ),
+                    boardStatusList(ctx, wave.things, rollout.wavesJob)
+                  )
+                ),
+                rollout.notOffered.length > 0
+                  ? h(
+                      'div',
+                      { class: 'wave', key: 'later' },
+                      h(
+                        'p',
+                        { class: 'wave-head' },
+                        h('strong', null, rollout.stage === 'waves' ? 'Still to come' : 'Never offered')
+                      ),
+                      boardStatusList(ctx, rollout.notOffered, null)
+                    )
+                  : null,
+              ]
+        ),
     leftOut.length > 0
       ? card(
           { key: 'left', title: `Left out: ${plural(leftOut.length, 'board')}` },
@@ -1112,7 +1262,7 @@ function openCancelRollout(rollout) {
       onClose: () => self.close(),
       onSubmit: submit,
       body: consequences([
-        'What has not started is not offered any more: no wave starts after this.',
+        'What has not started is not offered any more: no stage starts after this.',
         'A board that has started finishes what it is doing; its deployment’s page can stop it with force.',
       ]),
       error: model.error ? failure('The rollout was not cancelled.', model.error, null, tools.dialogs.signIn) : null,
@@ -1246,52 +1396,255 @@ function openDeleteGroup(group) {
   );
 }
 
-function rolloutOptions(model, most) {
-  const number = (key, label, value, min, max, apply, unit) =>
-    h(
-      'label',
-      { class: 'field is-inline', key },
-      h('span', { class: 'field-label' }, label),
-      h('input', {
-        class: 'input is-number',
-        type: 'number',
-        min: String(min),
-        max: String(max),
-        step: '1',
-        value: String(value),
-        onInput: (event) => {
-          const read = Number(event.target.value);
-          if (Number.isInteger(read) && read >= min && read <= max) apply(read);
-        },
-      }),
-      unit ? h('span', { class: 'quiet' }, unit) : null
-    );
+// The choices of a rollout: the canary, the stages after it, their batch sizes, the soak time
+// between them and the failure limit. The server checks them all again (lib/stages.mjs).
+
+const MAX_STAGES = 10;
+const MAX_SOAK = 60;
+const MIN_USEFUL_STAGE = 2;
+const BATCH_UNITS = Object.freeze([
+  { unit: 'even', label: 'Split evenly' },
+  { unit: 'percent', label: 'Percent of the boards' },
+  { unit: 'count', label: 'Number of boards' },
+]);
+
+/** The stage choices a dialog starts from, before a suggestion or a person changes them. */
+function stageModel() {
+  return { stages: 1, unit: 'even', sizes: [], soakMinutes: 0, suggestion: null, suggesting: false };
+}
+
+/** The body fields of the stage choices: { stages, soakMinutes, batch? }. */
+export function stageBody(model) {
+  const body = { stages: model.stages, soakMinutes: model.soakMinutes };
+  if (model.stages > 1 && model.unit !== 'even') {
+    const sizes = Array.from({ length: model.stages - 1 }, (_, index) => model.sizes[index] ?? model.sizes.at(-1) ?? 1);
+    body.batch = { unit: model.unit, sizes };
+  }
+  return body;
+}
+
+/**
+ * The boards each stage would take of `rest` boards after the canary, as the server splits them
+ * (lib/stages.mjs stageSizes): what the dialog shows before anything is started.
+ */
+export function plannedSizes(rest, model) {
+  if (!Number.isInteger(rest) || rest <= 0) return [];
+  const { stages, batch } = { batch: null, ...stageBody(model) };
+  const sizes = [];
+  if (batch === null) {
+    const parts = Math.min(stages, rest);
+    const base = Math.floor(rest / parts);
+    const extra = rest % parts;
+    for (let index = 0; index < parts; index += 1) sizes.push(base + (index >= parts - extra ? 1 : 0));
+    return sizes;
+  }
+  let left = rest;
+  for (const size of batch.sizes) {
+    if (left === 0) break;
+    const boards = batch.unit === 'percent' ? Math.max(1, Math.ceil((size * rest) / 100)) : size;
+    const taken = Math.min(boards, left);
+    sizes.push(taken);
+    left -= taken;
+  }
+  if (left > 0) sizes.push(left);
+  return sizes;
+}
+
+/** What to look at before starting: a stage too small to say anything about the next. */
+export function stageWarnings(sizes) {
+  return sizes
+    .slice(0, -1)
+    .map((size, index) =>
+      size < MIN_USEFUL_STAGE
+        ? `Stage ${index + 1} has ${plural(size, 'board')}: too few to tell anything about the next.`
+        : null
+    )
+    .filter(Boolean);
+}
+
+/** Take what the console suggests into the dialog's choices; the person may change any of it. */
+function applySuggestion(model, suggestion) {
+  model.suggestion = suggestion;
+  model.canary = suggestion.canarySize;
+  model.stages = Math.max(1, suggestion.stageCount);
+  model.unit = suggestion.batch ? 'count' : 'even';
+  model.sizes = suggestion.batch ? [...suggestion.batch.sizes] : [];
+  model.soakMinutes = suggestion.soakMinutes;
+  model.abortPercent = suggestion.abortPercent;
+}
+
+function numberField(key, label, value, min, max, apply, unit) {
+  return h(
+    'label',
+    { class: 'field is-inline', key },
+    h('span', { class: 'field-label' }, label),
+    h('input', {
+      class: 'input is-number',
+      type: 'number',
+      min: String(min),
+      max: String(max),
+      step: '1',
+      value: String(value),
+      onInput: (event) => {
+        const read = Number(event.target.value);
+        if (Number.isInteger(read) && read >= min && read <= max) apply(read);
+      },
+    }),
+    unit ? h('span', { class: 'quiet' }, unit) : null
+  );
+}
+
+/**
+ * The choices of a rollout. `most` is the most canary boards it may have; `rest`, when known, how
+ * many boards follow the canary, for the plan it shows; `redraw` draws the dialog again.
+ */
+function rolloutOptions(model, most, rest = null, redraw = () => {}) {
+  const set = (apply) => (value) => {
+    apply(value);
+    redraw();
+  };
+  const sizes = rest === null ? [] : plannedSizes(rest, model);
+  const warnings = [...(model.suggestion?.warnings ?? []), ...stageWarnings(sizes)];
   return h(
     'div',
-    { class: 'staged-choices', key: 'options' },
-    number(
-      'canary',
-      'Canary boards',
-      model.canary,
-      1,
-      Math.max(1, most),
-      (value) => {
-        model.canary = value;
-      },
-      null
+    { class: 'rollout-options', key: 'options' },
+    model.suggesting
+      ? h('p', { class: 'quiet', key: 'suggesting' }, 'Working out a suggestion…')
+      : model.suggestion
+        ? h(
+            'div',
+            { class: 'callout rollout-suggestion', key: 'suggestion' },
+            h('p', { class: 'callout-title' }, 'Suggested, and filled in below: change anything'),
+            h(
+              'ul',
+              { class: 'plain-list' },
+              model.suggestion.reasons.map((line) => h('li', { key: line }, line))
+            )
+          )
+        : null,
+    h(
+      'div',
+      { class: 'staged-choices', key: 'numbers' },
+      numberField(
+        'canary',
+        'Canary boards',
+        Math.min(model.canary, Math.max(1, most)),
+        1,
+        Math.max(1, Math.min(5, most)),
+        set((value) => {
+          model.canary = value;
+        }),
+        null
+      ),
+      numberField(
+        'stages',
+        'Stages after it',
+        model.stages,
+        1,
+        MAX_STAGES,
+        set((value) => {
+          model.stages = value;
+        }),
+        null
+      ),
+      numberField(
+        'soak',
+        'Wait between stages',
+        model.soakMinutes,
+        0,
+        MAX_SOAK,
+        set((value) => {
+          model.soakMinutes = value;
+        }),
+        'min'
+      ),
+      numberField(
+        'abort',
+        'Stop when failures reach',
+        model.abortPercent,
+        1,
+        100,
+        set((value) => {
+          model.abortPercent = value;
+        }),
+        '%'
+      )
     ),
-    number(
-      'abort',
-      'Stop when failures reach',
-      model.abortPercent,
-      1,
-      100,
-      (value) => {
-        model.abortPercent = value;
-      },
-      '%'
-    )
+    model.stages > 1
+      ? h(
+          'fieldset',
+          { class: 'choices is-inline', key: 'batch' },
+          h('legend', null, 'Batch size of each stage but the last'),
+          BATCH_UNITS.map((entry) =>
+            choice(
+              {
+                key: entry.unit,
+                type: 'radio',
+                name: 'batch-unit',
+                checked: model.unit === entry.unit,
+                onChange: () => {
+                  model.unit = entry.unit;
+                  if (entry.unit === 'percent') model.sizes = model.sizes.map((size) => Math.min(size, 100));
+                  redraw();
+                },
+              },
+              entry.label
+            )
+          ),
+          model.unit === 'even'
+            ? null
+            : h(
+                'div',
+                { class: 'staged-choices', key: 'sizes' },
+                Array.from({ length: model.stages - 1 }, (_, index) =>
+                  numberField(
+                    `size-${index}`,
+                    `Stage ${index + 1}`,
+                    model.sizes[index] ?? model.sizes.at(-1) ?? 1,
+                    1,
+                    100,
+                    set((value) => {
+                      const filled = Array.from(
+                        { length: model.stages - 1 },
+                        (_, at) => model.sizes[at] ?? model.sizes.at(-1) ?? 1
+                      );
+                      filled[index] = value;
+                      model.sizes = filled;
+                    }),
+                    model.unit === 'percent' ? '%' : 'boards'
+                  )
+                )
+              )
+        )
+      : null,
+    sizes.length > 0
+      ? h(
+          'p',
+          { class: 'quiet rollout-plan', key: 'plan' },
+          `After the canary: ${sizes.map((size, index) => `stage ${index + 1}, ${plural(size, 'board')}`).join('; ')}. ` +
+            'Each stage goes to all its boards at once.'
+        )
+      : null,
+    warnings.length > 0
+      ? notice(
+          'warn',
+          'alert',
+          h(
+            'ul',
+            { class: 'plain-list' },
+            warnings.map((line) => h('li', { key: line }, line))
+          )
+        )
+      : null
   );
+}
+
+/** The words of "What happens" for the stage choices. */
+function stageWords(model) {
+  return model.stages === 1
+    ? 'Once it has confirmed, every other board gets it at once.'
+    : `Once it has confirmed, the rest follow in ${model.stages} stages, each to all its boards at once; ` +
+        `a stage starts only once the one before has ended${model.soakMinutes > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}.`;
 }
 
 /** A release to one group: of the group's types, the boards of the release's type take it. */
@@ -1308,11 +1661,29 @@ function openGroupRollout(group) {
     version: offered[0]?.version ?? null,
     canary: 1,
     abortPercent: 20,
+    ...stageModel(),
     note: '',
     sending: false,
     error: null,
   };
-  const redraw = () => self.redraw();
+  const redraw = () => self?.redraw?.();
+  // What the console suggests for this release and group fills the choices in; a later answer
+  // for a release no longer chosen is dropped.
+  const suggest = async () => {
+    const asked = model.version;
+    if (asked === null) return;
+    model.suggesting = true;
+    redraw();
+    try {
+      const suggestion = await fleetApi.suggest(asked, group.id);
+      if (model.version === asked) applySuggestion(model, suggestion);
+    } catch {
+      // Without a suggestion the choices stay as they are.
+      if (model.version === asked) model.suggestion = null;
+    }
+    model.suggesting = false;
+    redraw();
+  };
   const submit = () =>
     tools.dialogs.submit(self, model, async () => {
       let rollout;
@@ -1321,6 +1692,7 @@ function openGroupRollout(group) {
           version: model.version,
           target: { kind: 'group', group: group.id },
           canary: model.canary,
+          ...stageBody(model),
           abortPercent: model.abortPercent,
           ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}),
         });
@@ -1365,6 +1737,7 @@ function openGroupRollout(group) {
                       onChange: () => {
                         model.version = item.version;
                         redraw();
+                        suggest();
                       },
                     },
                     mono(item.version),
@@ -1372,7 +1745,12 @@ function openGroupRollout(group) {
                   )
                 )
               ),
-              rolloutOptions(model, ofType.length - 1),
+              rolloutOptions(
+                model,
+                (model.suggestion?.things.length ?? ofType.length) - 1,
+                Math.max(0, (model.suggestion?.things.length ?? ofType.length) - model.canary),
+                redraw
+              ),
               h(
                 'div',
                 { class: 'callout', key: 'what' },
@@ -1380,7 +1758,7 @@ function openGroupRollout(group) {
                 consequences([
                   `The ${plural(ofType.length, 'board', 'boards')} of the group that are ${boardTypeLabel(release?.board ?? 'nrf7002dk')}s are considered; ` +
                     'the server leaves out those already on it, those busy with another update and any without Wi-Fi, and says why.',
-                  `${plural(model.canary, 'board gets', 'boards get')} it first. The rest follow in waves once that has confirmed.`,
+                  `${plural(model.canary, 'board gets', 'boards get')} it first. ${stageWords(model)}`,
                   `It stops by itself once ${model.abortPercent}% of the boards that finished have failed.`,
                 ])
               ),
@@ -1397,6 +1775,7 @@ function openGroupRollout(group) {
       ],
     });
   });
+  suggest();
 }
 
 /**
@@ -1412,6 +1791,7 @@ function openPlan({ group = null }) {
     loadError: null,
     picked: new Map(),
     canary: 1,
+    ...stageModel(),
     abortPercent: 20,
     sending: false,
     error: null,
@@ -1443,7 +1823,7 @@ function openPlan({ group = null }) {
           version: entry.release.version,
           things: [...model.picked.get(entry.type)].sort(),
         }));
-      const body = { types, canary: model.canary, abortPercent: model.abortPercent };
+      const body = { types, canary: model.canary, ...stageBody(model), abortPercent: model.abortPercent };
       let started;
       try {
         started = group ? await fleetApi.startRollback(group.id, body) : await fleetApi.startEverything(body);
@@ -1540,7 +1920,7 @@ function openPlan({ group = null }) {
               : null
           )
         ),
-        chosen > 1 ? rolloutOptions(model, chosen - 1) : null,
+        chosen > 1 ? rolloutOptions(model, chosen - 1, null, redraw) : null,
       ];
     }
     return dialogFrame({

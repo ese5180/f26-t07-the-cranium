@@ -72,7 +72,12 @@ export function fleetConsole(options = {}) {
         .slice(0, 2 * count);
     },
   });
-  const call = (method, path, body, as = manager) => console_.call(method, path, { as, body });
+  // A query string on the path is handed over as the gateway would: decoded, apart from the path.
+  const call = (method, path, body, as = manager) => {
+    const [bare, search] = path.split('?');
+    const query = search === undefined ? undefined : Object.fromEntries(new URLSearchParams(search));
+    return console_.call(method, bare, { as, body, query });
+  };
 
   return {
     ...console_,

@@ -54,7 +54,8 @@
 // describeThing reads, as provisioning sets `board`. The fleet's records live in three partitions
 // of the stand-in's state table (GRP, ROL, SEEN). A job may be paced and stopped as AWS IoT does
 // with jobExecutionsRolloutConfig and abortConfig: its boards are offered a few a minute, more as
-// they succeed, and the job is cancelled by itself once the share of failures reaches the
+// they succeed (or, with maximumPerMinute alone, that many a minute from the start), and the job
+// is cancelled by itself once the share of failures reaches the
 // threshold. How AWS counts its minutes is not documented to the second: here the first boards
 // are offered when the job is created and the next at each whole minute after, judged by the
 // successes there are when the stand-in next looks. A job stopped that way has no reason code.
@@ -247,7 +248,7 @@ export function createFakeAws({
     while (job.paced.minute < minutes && job.paced.offered < job.things.length && job.status === 'IN_PROGRESS') {
       job.paced.minute += 1;
       const succeeded = [...job.executions.values()].filter((execution) => execution.status === 'SUCCEEDED').length;
-      const step = plan.exponentialRate.rateIncreaseCriteria.numberOfSucceededThings;
+      const step = plan.exponentialRate?.rateIncreaseCriteria.numberOfSucceededThings ?? Infinity;
       while (succeeded - job.paced.counted >= step) {
         job.paced.counted += step;
         job.paced.rate = Math.min(
@@ -294,7 +295,7 @@ export function createFakeAws({
       if (job.status === 'IN_PROGRESS' && job.rollout === null) {
         for (const thing of job.things) job.executions.set(thing, newExecution(job.rolloutAt));
       } else if (job.status === 'IN_PROGRESS') {
-        const first = job.rollout.exponentialRate.baseRatePerMinute;
+        const first = job.rollout.exponentialRate?.baseRatePerMinute ?? job.rollout.maximumPerMinute;
         job.paced = { minute: 0, rate: first, counted: 0, offered: Math.min(first, job.things.length) };
         for (const thing of job.things.slice(0, first)) job.executions.set(thing, newExecution(job.rolloutAt));
       }
@@ -860,6 +861,11 @@ export function createFakeAws({
     const rate = rollout?.exponentialRate;
     const criteria = rate?.rateIncreaseCriteria;
     const whole = (value, low, high) => Number.isInteger(value) && value >= low && value <= high;
+    // A fixed rate: maximumPerMinute alone, as a stage of a rollout asks for.
+    if (rate === undefined) {
+      if (!whole(rollout?.maximumPerMinute, 1, 1000)) throw invalid('CreateJob', 'jobExecutionsRolloutConfig');
+      return;
+    }
     if (
       !whole(rollout.maximumPerMinute, 1, 1000) ||
       !whole(rate?.baseRatePerMinute, 1, 1000) ||

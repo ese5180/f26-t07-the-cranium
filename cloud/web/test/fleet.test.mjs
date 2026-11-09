@@ -767,3 +767,245 @@ test('the roll back review says that a real roll-back is a rebuild of the old so
   assert.match(textOf(dialog), /Would refuse it/);
   assert.match(textOf(dialog), /nRF7002 DK · layout 1 1\.13\.0\+0 instead of 1\.13\.1\+0/);
 });
+
+// The stages after the canary (console 2.8.0).
+
+const STAGE_JOB = 'cranium-1-13-1-b0-20261104T112000Z-cccc';
+const D = 'cranium-00000000000000dd';
+const E = 'cranium-00000000000000ee';
+const STAGED = {
+  ...DETAIL,
+  purpose: 'deploy',
+  target: { kind: 'group', group: 'grp-0a0b0c0d', groupName: 'Bench' },
+  stage: 'stages',
+  stopped: null,
+  finishedAt: null,
+  things: [A, B, C, D, E],
+  leftOut: [],
+  canary: { size: 1, things: [A], job: CANARY_JOB, doneAt: at(30 * 60_000) },
+  rest: { things: [B, C, D, E], leftOut: [], job: null, startedAt: null },
+  current: 0,
+  soakMinutes: 5,
+  stages: [
+    {
+      n: 1,
+      things: [B, C],
+      leftOut: [],
+      job: STAGE_JOB,
+      startedAt: at(25 * 60_000),
+      doneAt: null,
+      state: 'running',
+      counts: { done: 1, inProgress: 1, failed: 0, waiting: 0, total: 2 },
+      deployment: {
+        id: STAGE_JOB,
+        status: 'IN_PROGRESS',
+        executions: [
+          { thing: B, status: 'SUCCEEDED', reason: null },
+          { thing: C, status: 'IN_PROGRESS', reason: null },
+        ],
+      },
+    },
+    {
+      n: 2,
+      things: [D, E],
+      leftOut: [],
+      job: null,
+      startedAt: null,
+      doneAt: null,
+      state: 'next',
+      counts: { done: 0, inProgress: 0, failed: 0, waiting: 2, total: 2 },
+      deployment: null,
+    },
+  ],
+  wavesJob: null,
+  waves: [],
+  notOffered: [],
+};
+
+test("a staged rollout's page shows each stage: its boards, how far they are, and when it runs", async () => {
+  const { state, answers, ctx } = connected({ route: { view: 'rollout', id: ROLLOUT } });
+  answers.set(`GET /api/rollouts/${ROLLOUT}`, { rollout: STAGED });
+  await fleet.refreshRollout(false);
+  // Open: followed every few seconds, as the live updates bring changes.
+  assert.equal(fleet.rolloutInterval(state), 5000);
+  const page = draw(fleet.rolloutView(ctx));
+  assert.deepEqual(all(one(page, 'ol.rollout-steps'), 'li').map(textOf), ['Canary', '2Stage 1', '3Stage 2', '4Done']);
+  assert.match(textOf(page), /2 stages after the canary\. Each goes to all its boards at once/);
+  assert.match(textOf(page), /and 5 minutes after/);
+  const stages = all(page, 'section.rollout-stage');
+  assert.equal(stages.length, 2);
+  assert.match(textOf(stages[0]), /Stage 1: 2 boards/);
+  assert.match(textOf(stages[0]), /In progress 1 done · 1 in progress · 0 failed · 0 waiting/);
+  assert.match(textOf(stages[0]), /Started /);
+  assert.equal(one(stages[0], 'a', 'Its deployment').getAttribute('href'), core.deploymentHref(STAGE_JOB));
+  assert.match(textOf(stages[1]), /Stage 2: 2 boards.*Next.*Starts once stage 1 has ended, and 5 minutes after/s);
+  assert.match(textOf(stages[1]), /Not offered yet/);
+  assert.ok(all(page, 'button').some((el) => textOf(el) === 'Cancel rollout'));
+
+  // Stage 1 has ended: stage 2 is due once the soak time is over.
+  const ended = structuredClone(STAGED);
+  ended.stages[0] = { ...ended.stages[0], doneAt: at(2 * 60_000), state: 'done' };
+  state.rolloutDetails.get(ROLLOUT).value = fleet.readers.readRollout(ended);
+  const soaking = draw(fleet.rolloutView(ctx));
+  assert.deepEqual(all(one(soaking, 'ol.rollout-steps'), 'li').map(textOf), ['Canary', 'Stage 1', '3Stage 2', '4Done']);
+  assert.match(textOf(all(soaking, 'section.rollout-stage')[1]), /Starts in 3 minutes/);
+
+  // Stopped in stage 1: stage 2 never starts.
+  const stopped = structuredClone(STAGED);
+  stopped.stage = 'stopped';
+  stopped.stopped = { code: 'aborted', text: 'Stage 1: 1 of 2 finished boards failed', at: at(60_000) };
+  stopped.stages[0].state = 'stopped';
+  stopped.stages[1].state = 'never';
+  state.rolloutDetails.get(ROLLOUT).value = fleet.readers.readRollout(stopped);
+  const over = draw(fleet.rolloutView(ctx));
+  assert.deepEqual(all(one(over, 'ol.rollout-steps'), 'li').map(textOf), [
+    'Canary',
+    '2Stage 1',
+    '3Stage 2',
+    '4Stopped',
+  ]);
+  assert.match(textOf(all(over, 'section.rollout-stage')[1]), /Never started/);
+  assert.equal(fleet.rolloutInterval(state), 0);
+});
+
+test('the stage choices: what is sent, the split the server will make, and the warnings', () => {
+  const model = { stages: 3, unit: 'percent', sizes: [10, 30], soakMinutes: 5 };
+  assert.deepEqual(fleet.stageBody(model), {
+    stages: 3,
+    soakMinutes: 5,
+    batch: { unit: 'percent', sizes: [10, 30] },
+  });
+  assert.deepEqual(fleet.stageBody({ stages: 3, unit: 'count', sizes: [2], soakMinutes: 0 }).batch, {
+    unit: 'count',
+    sizes: [2, 2],
+  });
+  assert.deepEqual(fleet.stageBody({ stages: 3, unit: 'even', sizes: [], soakMinutes: 0 }), {
+    stages: 3,
+    soakMinutes: 0,
+  });
+  assert.deepEqual(fleet.stageBody({ stages: 1, unit: 'count', sizes: [4], soakMinutes: 0 }), {
+    stages: 1,
+    soakMinutes: 0,
+  });
+  assert.deepEqual(fleet.plannedSizes(99, model), [10, 30, 59]);
+  assert.deepEqual(fleet.plannedSizes(10, { stages: 3, unit: 'even', sizes: [], soakMinutes: 0 }), [3, 3, 4]);
+  assert.deepEqual(fleet.plannedSizes(9, model), [1, 3, 5]);
+  assert.deepEqual(fleet.plannedSizes(0, model), []);
+  assert.deepEqual(fleet.stageWarnings([1, 3, 5]), ['Stage 1 has 1 board: too few to tell anything about the next.']);
+  assert.deepEqual(fleet.stageWarnings([2, 7]), []);
+  assert.deepEqual(fleet.stageWarnings([1]), []);
+});
+
+test('Roll out to a group pre-fills the suggestion with its reasons, and sends the choices', async () => {
+  const releases = [
+    {
+      version: '1.13.1+0',
+      board: 'nrf7002dk',
+      status: 'active',
+      size: 1000,
+      sha256: 'a'.repeat(64),
+      uploadedAt: at(60_000),
+      uploadedBy: {},
+      notes: '',
+    },
+  ];
+  const { state, answers, asked, ctx } = connected({ firmware: loaded({ releases }) });
+  answers.set('GET /api/fleet', FLEET);
+  answers.set(`GET /api/rollouts/suggest?release=${encodeURIComponent('1.13.1+0')}&group=grp-0a0b0c0d`, {
+    suggestion: {
+      things: [A, B, D, E, 'cranium-00000000000000ff'],
+      canary: [A],
+      canarySize: 1,
+      stageCount: 2,
+      stages: [
+        { size: 2, percent: 50, offline: 0 },
+        { size: 2, percent: 50, offline: 1 },
+      ],
+      batch: { unit: 'count', sizes: [2] },
+      soakMinutes: 5,
+      abortPercent: 20,
+      reasons: {
+        canary: 'One board, online, with a clean update history: it goes first.',
+        stages: '2 stages that grow (50% → 50%)',
+        batch: '2 boards, and the last stage takes the rest.',
+        soak: '5 minutes: a few minutes between stages.',
+        offline: '1 board is offline: it is in the last stage, and takes it when back.',
+      },
+      warnings: ['Most of the group is offline (3 of 5): the rollout waits for them.'],
+    },
+  });
+  answers.set('POST /api/rollouts', { rollout: STAGED });
+  await fleet.refreshFor('devices', true);
+  let build = null;
+  let submitted = null;
+  fleet.connect({
+    state,
+    api: {
+      async fleetRequest(method, path, body) {
+        asked.push([method, path, body]);
+        return answers.get(`${method} ${path}`);
+      },
+    },
+    load: async () => {},
+    draw: () => {},
+    clock: { now: () => NOW },
+    refresh: () => {},
+    notify: () => {},
+    keep: () => {},
+    go: () => {},
+    dialogs: {
+      open: (made) => {
+        build = made;
+        return { redraw() {}, close() {} };
+      },
+      submit: (self, model, run) => {
+        submitted = run;
+      },
+      isOpen: () => false,
+      signIn: () => {},
+    },
+  });
+  one(draw(fleet.groupsCard(ctx)), 'button', 'Roll out').dispatchEvent({ type: 'click' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const dialog = draw(build());
+  assert.match(textOf(dialog), /Suggested, and filled in below: change anything/);
+  assert.match(textOf(dialog), /One board, online, with a clean update history/);
+  assert.match(textOf(dialog), /1 board is offline: it is in the last stage/);
+  assert.match(textOf(dialog), /Most of the group is offline \(3 of 5\)/);
+  assert.match(textOf(dialog), /After the canary: stage 1, 2 boards; stage 2, 2 boards\./);
+  assert.match(textOf(dialog), /the rest follow in 2 stages, each to all its boards at once/);
+  const value = (key) => all(dialog, 'input').find((el) => el.getAttribute('min') !== null && key(el));
+  assert.ok(
+    value((el) => el.getAttribute('max') === '10' && String(el.value) === '2'),
+    'stages: 2'
+  );
+  assert.ok(
+    value((el) => el.getAttribute('max') === '60' && String(el.value) === '5'),
+    'soak: 5'
+  );
+
+  // The person changes the number of stages; what is sent is what the dialog shows.
+  value((el) => el.getAttribute('max') === '10').dispatchEvent({ type: 'input', target: { value: '3' } });
+  const changed = draw(build());
+  assert.match(textOf(changed), /the rest follow in 3 stages/);
+  // Two batches of two take the four boards after the canary: the third stage would be empty.
+  assert.match(textOf(changed), /After the canary: stage 1, 2 boards; stage 2, 2 boards\./);
+  submitted = null;
+  one(changed, 'form')?.dispatchEvent({ type: 'submit' });
+  if (submitted === null) one(changed, 'button', 'Start staged rollout').dispatchEvent({ type: 'click' });
+  assert.equal(typeof submitted, 'function');
+  await submitted();
+  assert.deepEqual(asked.at(-1), [
+    'POST',
+    '/api/rollouts',
+    {
+      version: '1.13.1+0',
+      target: { kind: 'group', group: 'grp-0a0b0c0d' },
+      canary: 1,
+      stages: 3,
+      soakMinutes: 5,
+      batch: { unit: 'count', sizes: [2, 2] },
+      abortPercent: 20,
+    },
+  ]);
+});

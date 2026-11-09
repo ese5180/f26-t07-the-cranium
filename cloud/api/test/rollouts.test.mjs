@@ -1,6 +1,6 @@
 // Tests for staged rollouts (handlers/rollouts.mjs, lib/fleet.mjs): which boards a release goes to and
-// why the others are left out, the canary and what moves a rollout on from it, the waves AWS IoT
-// paces and stops, cancelling, "Update everything" and rolling a group back.
+// why the others are left out, the canary and what moves a rollout on from it, the stages after it
+// (and the waves of a rollout from before them), cancelling, "Update everything" and rolling a group back.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -249,16 +249,36 @@ test("a rollout to the fleet takes the boards of the release's type, starts with
   assert.equal(two.body.error.details[0].reason, 'current');
 });
 
-test("the canary's confirmation starts the waves: one job on the rest, paced and stopped by AWS IoT", async () => {
+// The stages after the canary.
+
+const HEX = '0123456789abcdef';
+/** `count` boards of the nrf7002dk on 1.12.0, online, and release 1.13.0. */
+async function boardsOnline(count) {
+  const world = fleetConsole();
+  const names = [];
+  for (let index = 0; index < count; index += 1) {
+    const thing = `cranium-00000000000001${HEX[Math.floor(index / 16)]}${HEX[index % 16]}`;
+    names.push(thing);
+    world.online(thing, '1.12.0+0');
+  }
+  await world.release('1.13.0+0');
+  return { world, names };
+}
+const detailOf = async (world, id) => (await world.call('GET', `/api/rollouts/${id}`)).body.rollout;
+
+test("the canary's confirmation starts stage 1: one job on all its boards at once, as fast as AWS IoT allows", async () => {
   const world = await fiveBoards();
   const { rollout } = (
     await world.call('POST', '/api/rollouts', {
       version: '1.13.0+0',
       target: { kind: 'fleet' },
-      wave: 2,
       abortPercent: 25,
     })
   ).body;
+  // One stage by default: every board after the canary.
+  assert.equal(rollout.stages.length, 1);
+  assert.deepEqual(rollout.stages[0].things, rollout.rest.things);
+  assert.deepEqual([rollout.stages[0].state, rollout.current, rollout.soakMinutes], ['planned', -1, 0]);
   const [canary] = rollout.canary.things;
   // While the canary works, nothing moves on.
   assert.deepEqual(await world.tick(), { checked: 1, advanced: 0, stopped: 0, done: 0, failed: 0 });
@@ -266,43 +286,260 @@ test("the canary's confirmation starts the waves: one job on the rest, paced and
   assert.equal((await world.tick()).advanced, 0);
   assert.equal(createJobs(world).length, 1);
 
-  // Meanwhile one of the rest got the release some other way: it is left out of the waves.
+  // Meanwhile one of the rest got the release some other way: it is left out of the stage.
   const others = rollout.rest.things;
   world.fake.device(others[0]).report(report('1.13.0+0'));
   world.finish(rollout.canary.job, canary, 'SUCCEEDED', '1.13.0+0');
   world.advance(60_000);
   assert.equal((await world.tick()).advanced, 1);
-  const waves = createJobs(world)[1];
-  assert.deepEqual(waves.things, others.slice(1));
-  assert.deepEqual(waves.rollout, rolloutConfigs({ wave: 2, abortPercent: 25 }).rollout);
-  assert.deepEqual(waves.abort, rolloutConfigs({ wave: 2, abortPercent: 25 }).abort);
-  assert.match(JSON.parse(waves.description).note, /^Waves of staged rollout /);
+  const stage = createJobs(world)[1];
+  assert.deepEqual(stage.things, others.slice(1));
+  assert.deepEqual(stage.rollout, { maximumPerMinute: 1000 });
+  assert.deepEqual(stage.abort, rolloutConfigs({ abortPercent: 25 }).abort);
+  assert.match(JSON.parse(stage.description).note, /^Stage 1 of 1 of staged rollout /);
+  // Every board of the stage is offered it at once, not one a minute.
+  assert.equal(world.fake.jobs.get(stage.jobId).executions.size, 2);
   // In the creator's name, started by the console, and said so in the activity log.
-  assert.equal(JSON.parse(waves.description).sub, world.manager.sub);
+  assert.equal(JSON.parse(stage.description).sub, world.manager.sub);
   const advance = world.entries('rollout.advance').at(-1);
   assert.deepEqual(
-    [advance.actor, advance.target, advance.detail.job, advance.detail.things],
-    [{ sub: '', email: '' }, rollout.id, waves.jobId, '2']
+    [advance.actor, advance.target, advance.detail.job, advance.detail.things, advance.detail.stage],
+    [{ sub: '', email: '' }, rollout.id, stage.jobId, '2', '1']
   );
 
-  const detail = (await world.call('GET', `/api/rollouts/${rollout.id}`)).body.rollout;
-  assert.equal(detail.stage, 'waves');
+  const detail = await detailOf(world, rollout.id);
+  assert.deepEqual([detail.stage, detail.current, detail.stages[0].state], ['stages', 0, 'running']);
+  assert.ok(detail.canary.doneAt);
   assert.deepEqual(
-    detail.rest.leftOut.map((entry) => [entry.thing, entry.reason]),
+    detail.stages[0].leftOut.map((entry) => [entry.thing, entry.reason]),
     [[others[0], 'current']]
   );
-  assert.equal(detail.wavesJob.id, waves.jobId);
-  assert.deepEqual(
-    detail.waves.map((wave) => wave.things.length),
-    [2]
-  );
-  assert.deepEqual(detail.notOffered, []);
+  assert.equal(detail.stages[0].deployment.id, stage.jobId);
+  assert.deepEqual(detail.stages[0].counts, { done: 0, inProgress: 0, failed: 0, waiting: 2, total: 2 });
 
-  // The waves end: the rollout is done. The tick does not touch it again.
-  for (const thing of waves.things) world.finish(waves.jobId, thing, 'SUCCEEDED', '1.13.0+0');
+  // The stage ends: the rollout is done. The tick does not touch it again.
+  world.finish(stage.jobId, stage.things[0], 'SUCCEEDED', '1.13.0+0');
+  assert.equal((await world.tick()).done, 0);
+  assert.deepEqual((await detailOf(world, rollout.id)).stages[0].counts, {
+    done: 1,
+    inProgress: 0,
+    failed: 0,
+    waiting: 1,
+    total: 2,
+  });
+  world.finish(stage.jobId, stage.things[1], 'SUCCEEDED', '1.13.0+0');
   assert.equal((await world.tick()).done, 1);
-  assert.equal((await world.call('GET', `/api/rollouts/${rollout.id}`)).body.rollout.stage, 'done');
+  const done = await detailOf(world, rollout.id);
+  assert.deepEqual([done.stage, done.stages[0].state], ['done', 'done']);
   assert.deepEqual(await world.tick(), { checked: 0, advanced: 0, stopped: 0, done: 0, failed: 0 });
+});
+
+test('stages go one after another: the next starts only when the one before has ended, after the soak time', async () => {
+  const { world, names } = await boardsOnline(10);
+  const response = await world.call('POST', '/api/rollouts', {
+    version: '1.13.0+0',
+    target: { kind: 'fleet' },
+    stages: 3,
+    batch: { unit: 'count', sizes: [2, 3] },
+    soakMinutes: 5,
+  });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const { rollout } = response.body;
+  assert.deepEqual(
+    rollout.stages.map((stage) => stage.things.length),
+    [2, 3, 4]
+  );
+  assert.deepEqual(rollout.stagePlan, { stages: 3, batch: { unit: 'count', sizes: [2, 3] } });
+  assert.deepEqual(
+    rollout.stages.flatMap((stage) => stage.things).sort(),
+    names.filter((thing) => !rollout.canary.things.includes(thing))
+  );
+  assert.equal(world.entries('rollout.create').at(-1).detail.stages, '3 (2,3), soak 5 min');
+
+  // The canary confirms: the soak time follows it too.
+  world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
+  assert.equal((await world.tick()).advanced, 1);
+  assert.equal(createJobs(world).length, 1);
+  assert.equal((await detailOf(world, rollout.id)).stages[0].state, 'next');
+  world.advance(4 * 60_000);
+  await world.tick();
+  assert.equal(createJobs(world).length, 1);
+  world.advance(60_000);
+  assert.equal((await world.tick()).advanced, 1);
+  const first = createJobs(world)[1];
+  assert.deepEqual(first.things, rollout.stages[0].things);
+
+  // Stage 1 works: stage 2 waits, however long it takes.
+  world.finish(first.jobId, first.things[0], 'SUCCEEDED', '1.13.0+0');
+  world.advance(30 * 60_000);
+  assert.equal((await world.tick()).advanced, 0);
+  assert.equal(createJobs(world).length, 2);
+  // Its last board confirms: stage 1 is done, and stage 2 is next once the soak time is over.
+  world.finish(first.jobId, first.things[1], 'SUCCEEDED', '1.13.0+0');
+  await world.tick();
+  let detail = await detailOf(world, rollout.id);
+  assert.deepEqual(
+    detail.stages.map((stage) => stage.state),
+    ['done', 'next', 'planned']
+  );
+  assert.equal(createJobs(world).length, 2);
+  world.advance(5 * 60_000);
+  assert.equal((await world.tick()).advanced, 1);
+  const second = createJobs(world)[2];
+  assert.deepEqual(second.things, rollout.stages[1].things);
+  assert.equal(world.fake.jobs.get(second.jobId).executions.size, 3);
+  for (const thing of second.things) world.finish(second.jobId, thing, 'SUCCEEDED', '1.13.0+0');
+  await world.tick();
+  world.advance(5 * 60_000);
+  await world.tick();
+  const third = createJobs(world)[3];
+  assert.deepEqual(third.things, rollout.stages[2].things);
+  assert.equal(world.fake.jobs.get(third.jobId).executions.size, 4);
+  assert.match(JSON.parse(third.description).note, /^Stage 3 of 3 of staged rollout /);
+  for (const thing of third.things) world.finish(third.jobId, thing, 'SUCCEEDED', '1.13.0+0');
+  assert.equal((await world.tick()).done, 1);
+  detail = await detailOf(world, rollout.id);
+  assert.equal(detail.stage, 'done');
+  assert.deepEqual(
+    detail.stages.map((stage) => [stage.state, stage.counts.done]),
+    [
+      ['done', 2],
+      ['done', 3],
+      ['done', 4],
+    ]
+  );
+  assert.deepEqual(
+    world.entries('rollout.advance').map((entry) => entry.detail.stage),
+    ['1', '2', '3']
+  );
+});
+
+test('a stage whose failures reach the limit stops the rollout: the next stage never starts', async () => {
+  const { world } = await boardsOnline(10);
+  const { rollout } = (
+    await world.call('POST', '/api/rollouts', {
+      version: '1.13.0+0',
+      target: { kind: 'fleet' },
+      stages: 2,
+      batch: { unit: 'percent', sizes: [50] },
+      abortPercent: 50,
+    })
+  ).body;
+  assert.deepEqual(
+    rollout.stages.map((stage) => stage.things.length),
+    [5, 4]
+  );
+  world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
+  await world.tick();
+  const stage = createJobs(world)[1];
+  // Succeeded first, so AWS IoT does not stop it: 2 of 5 is under 50%. Then a third fails, the job
+  // ends by itself (the fake's abort), and the console says so.
+  const [a, b, c, d, e] = stage.things;
+  world.finish(stage.jobId, a, 'SUCCEEDED', '1.13.0+0');
+  world.finish(stage.jobId, b, 'SUCCEEDED', '1.13.0+0');
+  world.finish(stage.jobId, c, 'FAILED');
+  world.finish(stage.jobId, d, 'FAILED');
+  assert.equal(world.fake.jobs.get(stage.jobId).status, 'CANCELED');
+  assert.equal(world.fake.execution(stage.jobId, e).get().status, 'CANCELED');
+  assert.equal((await world.tick()).stopped, 1);
+  const detail = await detailOf(world, rollout.id);
+  assert.deepEqual([detail.stage, detail.stopped.code], ['stopped', 'aborted']);
+  assert.equal(
+    detail.stopped.text,
+    'Stage 1: 2 of 4 finished boards failed, which reaches 50%: AWS IoT stopped the rest'
+  );
+  assert.deepEqual(
+    detail.stages.map((item) => item.state),
+    ['stopped', 'never']
+  );
+  assert.equal(createJobs(world).length, 2);
+  // An e-mail alert of the stage's job.
+  assert.deepEqual(
+    world.raised.map((alert) => [alert.deployment, alert.text]),
+    [[stage.jobId, `Staged rollout ${rollout.id} of 1.13.0+0: ${detail.stopped.text}`]]
+  );
+});
+
+test('a stage that ends with its failures at the limit stops the rollout even when AWS IoT finished it', async () => {
+  const { world } = await boardsOnline(6);
+  const { rollout } = (
+    await world.call('POST', '/api/rollouts', {
+      version: '1.13.0+0',
+      target: { kind: 'fleet' },
+      stages: 2,
+      batch: { unit: 'count', sizes: [2] },
+      abortPercent: 50,
+    })
+  ).body;
+  world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
+  await world.tick();
+  const stage = createJobs(world)[1];
+  // Its abort is taken away, as if AWS IoT had not got to it: the job completes with half failed.
+  world.fake.jobs.get(stage.jobId).abort = null;
+  world.finish(stage.jobId, stage.things[0], 'SUCCEEDED', '1.13.0+0');
+  world.finish(stage.jobId, stage.things[1], 'FAILED');
+  assert.equal(world.fake.jobs.get(stage.jobId).status, 'COMPLETED');
+  assert.equal((await world.tick()).stopped, 1);
+  const detail = await detailOf(world, rollout.id);
+  assert.equal(
+    detail.stopped.text,
+    'Stage 1: 1 of 2 finished boards failed, which reaches 50%: the next stage was not started'
+  );
+  assert.equal(createJobs(world).length, 2);
+});
+
+test('the stage choices are checked: stages, batch and soak time', async () => {
+  const world = await fiveBoards();
+  const post = (body) =>
+    world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' }, ...body });
+  for (const [body, code] of [
+    [{ stages: 0 }, 'invalid_stages'],
+    [{ stages: 11 }, 'invalid_stages'],
+    [{ stages: 2.5 }, 'invalid_stages'],
+    [{ soakMinutes: 61 }, 'invalid_soakMinutes'],
+    [{ soakMinutes: -1 }, 'invalid_soakMinutes'],
+    [{ stages: 2, batch: 'half' }, 'invalid_batch'],
+    [{ stages: 2, batch: { unit: 'boards', sizes: [1] } }, 'invalid_batch'],
+    [{ stages: 2, batch: { unit: 'percent', sizes: [0] } }, 'invalid_batch'],
+    [{ stages: 2, batch: { unit: 'percent', sizes: [101] } }, 'invalid_batch'],
+    [{ stages: 3, batch: { unit: 'percent', sizes: [60, 50] } }, 'invalid_batch'],
+    [{ stages: 4, batch: { unit: 'count', sizes: [1, 2] } }, 'invalid_batch'],
+    [{ stages: 1, batch: { unit: 'count', sizes: [1] } }, 'invalid_batch'],
+  ]) {
+    const response = await post(body);
+    assert.deepEqual([response.status, response.body.error?.code], [400, code], JSON.stringify(body));
+  }
+  assert.equal(world.fake.fleetItems.size, 0);
+  // More stages than boards: the empty ones are left out.
+  const many = await post({ stages: 10 });
+  assert.equal(many.status, 201);
+  assert.deepEqual(
+    many.body.rollout.stages.map((stage) => stage.things.length),
+    [1, 1, 1]
+  );
+});
+
+test('a rollout from before the stages still goes on in waves to its end', async () => {
+  const world = await fiveBoards();
+  const { rollout } = (await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' } }))
+    .body;
+  // As console 2.7 stored it: no stages, a first wave of one board a minute.
+  const key = `ROL ${rollout.id}`;
+  const stored = world.fake.fleetItems.get(key);
+  delete stored.stages;
+  delete stored.current;
+  stored.wave = 1;
+  world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
+  assert.equal((await world.tick()).advanced, 1);
+  const waves = createJobs(world)[1];
+  assert.deepEqual(waves.rollout, rolloutConfigs({ wave: 1 }).rollout);
+  assert.match(JSON.parse(waves.description).note, /^Waves of staged rollout /);
+  assert.equal((await detailOf(world, rollout.id)).stage, 'waves');
+  for (const thing of waves.things) {
+    world.advance(60_000);
+    world.finish(waves.jobId, thing, 'SUCCEEDED', '1.13.0+0');
+  }
+  assert.equal((await world.tick()).done, 1);
 });
 
 test('a canary that does not confirm stops the rollout, and the rest are never offered it', async () => {
@@ -336,34 +573,6 @@ test('a canary that does not confirm stops the rollout, and the rest are never o
   assert.equal(world.raised.length, 1);
 });
 
-test('the waves stop by themselves once failures reach the threshold: what has not started never does', async () => {
-  const world = await fiveBoards();
-  const { rollout } = (
-    await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' }, wave: 2 })
-  ).body;
-  world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
-  await world.tick();
-  const waves = createJobs(world)[1];
-  // Two are offered in the first minute, the third waits for the next.
-  const [first, second, third] = waves.things;
-  assert.deepEqual(world.fake.jobs.get(waves.jobId).executions.size, 2);
-  world.finish(waves.jobId, first, 'FAILED');
-  assert.equal(world.fake.execution(waves.jobId, second).get().status, 'CANCELED');
-  world.advance(5 * 60_000);
-  assert.equal(world.fake.execution(waves.jobId, third).get(), null);
-
-  assert.equal((await world.tick()).stopped, 1);
-  const detail = (await world.call('GET', `/api/rollouts/${rollout.id}`)).body.rollout;
-  assert.deepEqual([detail.stage, detail.stopped.code], ['stopped', 'aborted']);
-  assert.match(detail.stopped.text, /^1 of 1 finished boards failed, which reaches 20%: AWS IoT stopped the rest$/);
-  assert.deepEqual(detail.notOffered, [third]);
-  // An e-mail alert of the waves' job, not the canary's.
-  assert.deepEqual(
-    world.raised.map((alert) => [alert.kind, alert.deployment, alert.text]),
-    [['deployment', waves.jobId, `Staged rollout ${rollout.id} of 1.13.0+0: ${detail.stopped.text}`]]
-  );
-});
-
 test('a release revoked while its canary works stops the rollout', async () => {
   const world = await fiveBoards();
   const { rollout } = (await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' } }))
@@ -379,20 +588,37 @@ test('a release revoked while its canary works stops the rollout', async () => {
   assert.deepEqual(world.raised, []);
 });
 
-test('two runs of the schedule at once start the waves once', async () => {
-  const world = await fiveBoards();
-  const { rollout } = (await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' } }))
-    .body;
+test('two runs of the schedule at once start each stage once', async () => {
+  const { world } = await boardsOnline(8);
+  const { rollout } = (
+    await world.call('POST', '/api/rollouts', {
+      version: '1.13.0+0',
+      target: { kind: 'fleet' },
+      stages: 2,
+      batch: { unit: 'count', sizes: [3] },
+    })
+  ).body;
   world.finish(rollout.canary.job, rollout.canary.things[0], 'SUCCEEDED', '1.13.0+0');
-  const results = await Promise.all([world.tick(), world.tick()]);
+  let results = await Promise.all([world.tick(), world.tick()]);
   assert.equal(
     results.reduce((sum, result) => sum + result.advanced, 0),
     1
   );
   assert.equal(createJobs(world).length, 2);
+  const first = createJobs(world)[1];
+  for (const thing of first.things) world.finish(first.jobId, thing, 'SUCCEEDED', '1.13.0+0');
+  results = await Promise.all([world.tick(), world.tick(), world.tick()]);
+  assert.equal(
+    results.reduce((sum, result) => sum + result.advanced, 0),
+    1
+  );
+  assert.equal(createJobs(world).length, 3);
+  assert.equal(world.entries('rollout.advance').length, 2);
+  const detail = await detailOf(world, rollout.id);
+  assert.deepEqual([detail.current, detail.stages[1].deployment.id], [1, createJobs(world)[2].jobId]);
 });
 
-test('a rollout is cancelled with its jobs; one cancelled while its waves start loses them too', async () => {
+test('a rollout is cancelled with its jobs; one cancelled while a stage starts loses it too', async () => {
   const world = await fiveBoards();
   const first = (
     await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'boards', things: [A, B] } })
@@ -406,7 +632,7 @@ test('a rollout is cancelled with its jobs; one cancelled while its waves start 
   assert.deepEqual([again.status, again.body.error.code], [409, 'already_finished']);
   assert.equal((await world.tick()).checked, 0);
 
-  // The race: the cancellation lands between the start of the waves and the job's id being written.
+  // The race: the cancellation lands between the start of a stage and the job's id being written.
   const second = (
     await world.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'boards', things: [C, D] } })
   ).body.rollout;
@@ -419,9 +645,23 @@ test('a rollout is cancelled with its jobs; one cancelled while its waves start 
     return result;
   };
   await world.tick();
-  const waves = createJobs(world).at(-1);
-  assert.equal(world.fake.jobs.get(waves.jobId).status, 'CANCELED');
-  assert.equal((await world.call('GET', `/api/rollouts/${second.id}`)).body.rollout.stage, 'cancelled');
+  const stage = createJobs(world).at(-1);
+  assert.equal(world.fake.jobs.get(stage.jobId).status, 'CANCELED');
+  const detail = await detailOf(world, second.id);
+  assert.equal(detail.stage, 'cancelled');
+  assert.equal(detail.stages[0].job, stage.jobId);
+
+  // A rollout cancelled with a stage under way cancels that stage's job too.
+  const { world: big } = await boardsOnline(4);
+  const third = (await big.call('POST', '/api/rollouts', { version: '1.13.0+0', target: { kind: 'fleet' } })).body
+    .rollout;
+  big.finish(third.canary.job, third.canary.things[0], 'SUCCEEDED', '1.13.0+0');
+  await big.tick();
+  const running = createJobs(big).at(-1);
+  const stopped = await big.call('POST', `/api/rollouts/${third.id}/cancel`, {});
+  assert.equal(stopped.body.rollout.stages[0].state, 'stopped');
+  assert.equal(big.fake.jobs.get(running.jobId).status, 'CANCELED');
+  assert.equal(big.entries('rollout.cancel').at(-1).detail.cancelled, '1');
 });
 
 test('a rollout to a group leaves out its other boards and says why; a viewer reads it and cannot start one', async () => {

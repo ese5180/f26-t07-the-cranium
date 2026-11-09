@@ -4806,7 +4806,7 @@ export function deploymentsView(ctx) {
     const leads = ctx.state.updates?.value?.updates != null;
     body = [
       deploymentsTop(deployments, ctx),
-      // Staged rollouts: a canary, then waves (fleet.js).
+      // Staged rollouts: a canary, then stages (fleet.js).
       ctx.fleet?.rolloutsPanel(ctx) ?? null,
       everyUpdateCard(ctx),
       h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
@@ -5708,7 +5708,7 @@ function wizardBoard(device, model, now) {
   );
 }
 
-/** For more than one board: how the staged rollout goes, and the two numbers that steer it. */
+/** For more than one board: how the staged rollout goes, and the numbers that steer it. */
 function stagedChoices(model, chosen) {
   const most = Math.min(5, chosen.length - 1);
   const number = (key, label, value, min, max, set, unit) =>
@@ -5734,6 +5734,8 @@ function stagedChoices(model, chosen) {
     'div',
     { class: 'staged-choices', key: 'staged' },
     number('canary', 'Canary boards', Math.min(model.canary, most), 1, most, model.setCanary, null),
+    number('stages', 'Stages after it', model.stages ?? 1, 1, 10, model.setStages, null),
+    number('soak', 'Wait between stages', model.soakMinutes ?? 0, 0, 60, model.setSoakMinutes, 'min'),
     number('abort', 'Stop when failures reach', model.abortPercent, 1, 100, model.setAbortPercent, '%')
   );
 }
@@ -5795,8 +5797,12 @@ function wizardReview(model, release, chosen, now) {
           ? [
               `A staged rollout: ${plural(Math.min(model.canary, chosen.length - 1), 'board gets', 'boards get')} `,
               mono(model.version),
-              ' first. The rest follow in waves only once that canary has confirmed it, a board a ' +
-                `minute to start with and faster as boards confirm. It stops by itself, before what has not started, once ${model.abortPercent}% ` +
+              ' first. The rest follow only once that canary has confirmed it, ' +
+                ((model.stages ?? 1) > 1
+                  ? `in ${model.stages} stages, each to all its boards at once and each only once the one before has ended` +
+                    `${(model.soakMinutes ?? 0) > 0 ? ` and ${plural(model.soakMinutes, 'minute')} have passed` : ''}. `
+                  : 'all at once. ') +
+                `It stops by itself, before what has not started, once ${model.abortPercent}% ` +
                 'of the boards that finished have failed.',
             ]
           : null,

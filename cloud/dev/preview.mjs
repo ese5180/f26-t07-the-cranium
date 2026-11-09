@@ -74,7 +74,7 @@
  * e-mail alerts are made as when deployed, and listed on the Account page; none is sent anywhere.
  *
  * The fleet scenario also has two nRF5340 DKs, which have no Wi-Fi and are only ever seen by a phone,
- * groups of boards, and a staged rollout whose canary has confirmed and whose waves are under way.
+ * groups of boards, and a staged rollout whose canary has confirmed and whose stages are under way.
  * Its images are made by api/test/images.mjs for either board type and signed with a key made for
  * the run, which that scenario's console trusts in place of the fixtures' key: the fixtures' own
  * key is gone, and an image for the nRF5340 DK has to be signed. The schedule that moves staged
