@@ -7,6 +7,8 @@
 #   scripts/release/github-release.sh 1.6.0             check everything, tag v1.6.0, and publish
 #   scripts/release/github-release.sh 1.6.0+2           the same, for a version with a build number
 #   scripts/release/github-release.sh 1.6.0 --dry-run   check everything and write nothing
+#   scripts/release/github-release.sh 1.6.0 --notes     also list the firmware commits since the newest
+#                                                       earlier v* tag in the release's notes (notes.sh)
 #
 # It refuses unless no tracked file has changed, HEAD is on a branch of origin, the version is the one
 # in firmware/app/VERSION and in the image's header, the signature verifies against
@@ -77,10 +79,11 @@ check_tag_is_free() {
 }
 
 main() {
-  local dry_run=0 version='' argument
+  local dry_run=0 with_notes=0 version='' argument
   for argument in "$@"; do
     case "$argument" in
       --dry-run) dry_run=1 ;;
+      --notes) with_notes=1 ;;
       -h|--help) usage; exit 0 ;;
       -*) usage >&2; exit 2 ;;
       *)
@@ -147,8 +150,16 @@ main() {
 
   # gh makes the tag on this commit when it publishes, and it publishes after the last upload, so
   # the check on GitHub Actions finds every file and a failed upload leaves no tag behind.
+  local text="Firmware $full, built from commit $head and signed with the project's key. To install it, see binaries/README.md."
+  if [ "$with_notes" = 1 ]; then
+    local previous
+    previous=$(git_here tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)
+    if [ -n "$previous" ]; then
+      text+=$'\n\n'$("$REPO_DIR/scripts/release/notes.sh" "$previous" "$head" firmware)
+    fi
+  fi
   url=$(cd "$REPO_DIR" && gh release create "$tag" --repo "$repository" --target "$head" --title "Firmware $full" \
-    --notes "Firmware $full, built from commit $head and signed with the project's key. To install it, see binaries/README.md." \
+    --notes "$text" \
     "$stage/$file" "$stage/latest.json" "$stage/SHA256SUMS")
   echo "$url"
 }
