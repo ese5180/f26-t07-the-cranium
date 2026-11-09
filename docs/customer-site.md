@@ -4,8 +4,9 @@ The website customers sign in to, on the name the team bought for it, with an **
 the firmware console. Customers see their own boards and nothing else; admins hand out the accounts and the boards from
 the console's new **Customers** page. It is part of the console's stack (`cloud/`), from console 2.0.0.
 
-**It is live at https://craniumiot.com**, deployed with console 2.1.0 (bcc5a19): the customer sign-in, and **Admin
-sign-in**, which leads to admin mode, the console at https://craniumiot.com/admin. https://www.craniumiot.com sends the
+**It is live at https://craniumiot.com**, deployed with console 2.1.0 (bcc5a19): the customer sign-in, and an admin
+sign-in that leads to admin mode, the console at https://craniumiot.com/admin. From console 2.4.5 (not deployed yet)
+the two are one form ([Signing in](#signing-in)). https://www.craniumiot.com sends the
 browser to the bare name. The team's console also stays on its own name, https://console.craniumiot.com. The public home
 page that used to be on craniumiot.com is no longer deployed (`HomeDomainName` is empty), and the customer site uses
 the certificate it had, which covers both names. DNS is at Cloudflare, with "DNS only" CNAMEs.
@@ -17,9 +18,8 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | Address | Who | What |
 | --- | --- | --- |
 | `https://example.com/` | anybody | The site's own front page: what Cranium is, what an account shows, how updates work, what is coming, where the project stands. Plain HTML, readable without JavaScript |
-| `#/sign-in` | customers | E-mail and password; the code of an authenticator app, in six boxes, if the customer turned one on; a new password at the first sign-in |
-| `#/forgot` | customers | A password reset with a code e-mailed by Cognito |
-| `#/admin-sign-in` | the team | The staff account of the console: e-mail, password and code, always |
+| `#/sign-in` | everybody | One form: e-mail and password; then the code of an authenticator app, in six boxes, when the account asks for one (a team account always); a new password at a customer's first sign-in. A team account lands in admin mode at `/admin` |
+| `#/forgot` | everybody | A password reset with a code e-mailed by Cognito |
 | `#/overview` | a customer | The mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to), then the boards: four figures, the boards and what they did in the last week |
 | `#/overview` | an admin | Who is signed in, and **Open admin mode** |
 | `#/devices`, `#/devices/<id>` | a customer | The boards as a table; one board's state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
@@ -77,8 +77,7 @@ Bluetooth** from the site to a board (the firmware sends no tracks to pass on ye
 
 ## Accounts
 
-Two Cognito user pools, kept apart on purpose. One sign-in for everybody, with roles deciding what each person sees,
-is planned and not built: today a customer and a team member sign in to different pools.
+Two Cognito user pools, kept apart on purpose, behind one sign-in form (below).
 
 | | Staff pool (`UserPool`) | Customer pool (`CustomerUserPool`) |
 | --- | --- | --- |
@@ -100,6 +99,34 @@ additions made that possible: with no `loginOrigin` (no managed login pages) the
 pool API (`RevokeToken`) and a sign-out goes back home; and with `newPasswordHere` a first sign-in's new password is asked
 for on the page. The console itself works as before.
 
+### Signing in
+
+One form for everybody (console 2.4.5, `signInEither` in `customer-core.js`). The e-mail address and the password go to
+the staff pool first, with USER_SRP_AUTH and the console's client, the address in lower case (the staff pool's names
+are case-sensitive, and `users.sh` keeps them lower case). Only if that pool says the address or the password is
+wrong do they go to the customer pool, the same way. So:
+
+- **One try at each pool, at most**, per submission: each pool's own throttling and lockout count every try, and their
+  words ("Too many tries. Wait a minute.") are shown as before. A throttled staff pool stops there.
+- **One refusal for both**: "The e-mail address or password is wrong.", whichever pool refused. Both pools have
+  `PreventUserExistenceErrors` on, so neither says whether it has the address, and the page never says which pool has
+  the account.
+- **After the password, the account's own steps**: a staff account's code, always; a customer's code if they turned
+  two-step sign-in on, and their new password at the first sign-in. A staff account that needs a step only the
+  console's sign-in does is sent there.
+- **Where it lands**: a staff account goes to admin mode, the console at `/admin`, with the session under the console's
+  own keys, as the admin sign-in of before did; a customer to the page they asked for, or the Overview. An admin whose
+  session is already in the tab opens `/admin` directly, as before.
+
+**Forgot your password?** is one form too. It asks both pools for a code, one request each: the staff pool hides
+addresses it does not have and answers as if a code went out, so its yes proves nothing and the customer pool is always
+asked as well. The code and the new password go to the staff pool first; if it takes them the reset is done there,
+otherwise they go to the customer pool. The page says the same either way: "If <address> has an account, a code is on
+its way to it." The staff pool's recovery is admin-only (`users.sh reset-mfa`), so in practice the e-mailed code is a
+customer's.
+
+The console's own sign-in page, on its own name, stays staff-only: only staff accounts exist there.
+
 A customer's token never opens the console's API, and a staff token never opens the customer API:
 
 - **At the gateway.** The console's authorizer keeps the staff pool as issuer and the staff clients as audience.
@@ -116,8 +143,9 @@ A customer's token never opens the console's API, and a staff token never opens 
 ## Admin mode
 
 Admins are the staff pool's people. All four of the team are release managers, the console's top role (a viewer who
-signs in would see admin mode too, read only, as on the console). On the customer site, **Admin sign-in** asks for the staff account's e-mail, password and code, always. A
-signed-in admin sees **Admin mode** (in the sidebar, the top bar on a phone, and the admin overview), which opens the
+signs in would see admin mode too, read only, as on the console). On the customer site an admin signs in on the one
+form, with the staff account's e-mail, password and code, and lands in admin mode. On the site itself a signed-in admin
+sees **Admin mode** (in the sidebar, the top bar on a phone, and the admin overview), which opens the
 console at `/admin` of the same name, signed in already. The console's account box then has **Leave admin mode**.
 
 **Why the console is served under the customer site's name, not only on its own host:**
@@ -252,8 +280,8 @@ cloud/users.sh add <Demetrius's e-mail> release-manager
 ```
 
 Each gets the console's invitation, signs in once on the console (choosing a password and an authenticator app there),
-and from then on can use **Admin sign-in** on the customer site. A person who already has a console account needs nothing
-new.
+and from then on can sign in on the customer site's one form too. A person who already has a console account needs
+nothing new.
 
 ## Inviting a customer
 

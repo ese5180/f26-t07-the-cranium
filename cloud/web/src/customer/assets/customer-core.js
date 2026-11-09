@@ -6,7 +6,8 @@
  * Signing in is the console's own code (core.js createAuth: SRP, the code in six boxes, the
  * revocation of the refresh token), not a copy of it. The customer site gives it the customer
  * pool's settings and a storage of its own, so that a customer's session and an admin's never
- * share a key, even in one tab.
+ * share a key, even in one tab. There is one sign-in form for both (signInEither): the team's
+ * pool first, then the customer pool.
  *
  * What arrives from the API is reduced to known shapes on the way in, as in core.js, and the
  * views only ever write it to the page as text. Nothing here reads the document.
@@ -111,9 +112,9 @@ export const BOARDS_LEDE = 'How your Cranium is doing, and what it did lately.';
 export const WELCOME = 'Welcome back.';
 export const FOOT_NOTE = 'Your music stays on your deck: this site only shows how your boards are.';
 
-const VIEWS = Object.freeze(['sign-in', 'forgot', 'admin-sign-in', 'overview', 'devices', 'mixes', 'account', 'help']);
+const VIEWS = Object.freeze(['sign-in', 'forgot', 'overview', 'devices', 'mixes', 'account', 'help']);
 // What anybody may open, signed in or not.
-export const PUBLIC_VIEWS = Object.freeze(['landing', 'sign-in', 'forgot', 'admin-sign-in', 'help']);
+export const PUBLIC_VIEWS = Object.freeze(['landing', 'sign-in', 'forgot', 'help']);
 const ROUTE = /^#\/([a-z-]+)(?:\/([a-z0-9]+))?$/;
 export const BOARD_ID = /^[0-9a-f]{16}$/;
 // A session of the mixes (customer-mixes.js sessionId).
@@ -449,31 +450,92 @@ export function createAccount({ fetch, site, accessToken }) {
     },
 
     /**
-     * Ask for the code of a password reset. Cognito sends it to the address, and answers alike
-     * whether or not the address has an account: the page says the same either way.
+     * Ask for the code of a password reset: the team's pool, then the customer pool, one request
+     * each. Both pools answer alike whether or not the address has an account there (the team's
+     * hides unknown names and says a code went out), so a yes from the team's pool proves nothing
+     * and the customer pool is always asked as well. The page says the same either way, and never
+     * which pool has the account.
      */
     async forgotPassword(email) {
       const username = String(email ?? '')
         .trim()
         .toLowerCase();
       if (username === '') return { ok: false, problem: 'missing-email' };
-      const answer = await ask('ForgotPassword', { ClientId: site.customer.clientId, Username: username });
-      return answer.reply ? { ok: true } : failed(answer, 'forgot');
+      return eitherPool((clientId) => ask('ForgotPassword', { ClientId: clientId, Username: username }), 'forgot');
     },
 
+    /** The code from the e-mail and a new password: the team's pool, then the customer pool, one try each. */
     async confirmForgotPassword(email, code, password) {
       if (!/^\d{6}$/.test(code ?? '')) return { ok: false, problem: 'short-code' };
-      const answer = await ask('ConfirmForgotPassword', {
-        ClientId: site.customer.clientId,
-        Username: String(email ?? '')
-          .trim()
-          .toLowerCase(),
-        ConfirmationCode: code,
-        Password: password,
-      });
-      return answer.reply ? { ok: true } : failed(answer, 'reset');
+      const username = String(email ?? '')
+        .trim()
+        .toLowerCase();
+      const confirm = (clientId) =>
+        ask('ConfirmForgotPassword', {
+          ClientId: clientId,
+          Username: username,
+          ConfirmationCode: code,
+          Password: password,
+        });
+      return eitherPool(confirm, 'reset', true);
     },
   };
+
+  /**
+   * One request to each pool there is, the team's first. With `stopAtTeam`, a yes from the team's
+   * pool settles it (the new password is set there); a request for a code always goes to both.
+   */
+  async function eitherPool(request, step, stopAtTeam = false) {
+    const clients = [site.admin?.clientId, site.customer?.clientId].filter((id) => typeof id === 'string');
+    const problems = [];
+    let ok = false;
+    for (const clientId of clients) {
+      const answer = await request(clientId);
+      if (answer.reply) {
+        ok = true;
+        if (stopAtTeam) break;
+      } else {
+        problems.push(failed(answer, step).problem);
+      }
+    }
+    return ok ? { ok: true } : { ok: false, problem: plainestProblem(problems) };
+  }
+}
+
+/**
+ * Of the two pools' refusals, the one to show: a specific one (an expired code, a weak password, too
+ * many tries) before "that code is not right", which is also what a pool says of an address it does
+ * not have. So the words never tell which pool has the account.
+ */
+export function plainestProblem(problems) {
+  const vague = new Set(['wrong-code', 'failed', 'session-ended']);
+  return problems.find((problem) => !vague.has(problem)) ?? problems.at(-1) ?? 'failed';
+}
+
+/**
+ * One sign-in form for everybody. The e-mail address and the password go to the team's pool first
+ * (USER_SRP_AUTH with the console's client, as the console's own page does; createAuth lowercases
+ * the address, as users.sh keeps the team's names), and only if it says the address or the password
+ * is wrong, to the customer pool, the same way. One submission tries each pool once at most.
+ *
+ * `signIns` is { admin, customer }, each a createAuth (core.js) or null. The answer is
+ * { kind: 'admin' | 'customer', outcome }, the outcome as passwordSignIn's. A refusal by both is
+ * the one "wrong e-mail address or password", whichever pool has the account.
+ */
+export async function signInEither(signIns, email, password) {
+  let refused = null;
+  for (const kind of ['admin', 'customer']) {
+    const auth = signIns[kind];
+    if (!auth) continue;
+    auth.cancelPasswordSignIn();
+    const outcome = await auth.passwordSignIn(email, password);
+    if (outcome.step === 'password' && outcome.problem === 'wrong-password') {
+      refused = { kind, outcome };
+      continue;
+    }
+    return { kind, outcome };
+  }
+  return refused ?? { kind: 'customer', outcome: { step: 'password', problem: 'failed' } };
 }
 
 // Words: what a board is doing, as its owner reads it.

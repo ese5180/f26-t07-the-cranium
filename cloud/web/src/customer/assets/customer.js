@@ -2,7 +2,8 @@
  * The customer site's entry point (docs/customer-site.md): who is signed in, following the
  * address bar, loading what each page shows, and the sign-in pages.
  *
- * Two sign-ins, each with the console's own code (core.js createAuth):
+ * Two sessions, each with the console's own code (core.js createAuth), behind one sign-in form
+ * (customer-core.js signInEither): the team's pool is asked first, then the customer pool.
  *
  *   - a customer's, with the customer pool. Its session is kept under keys of its own in this
  *     tab's sessionStorage (customer-core.js namespaced), and it reads the customer API.
@@ -38,6 +39,7 @@ import {
   createCustomerApi,
   namespaced,
   parseRoute,
+  signInEither,
   passwordProblem,
   readSiteConfig,
   routeHash,
@@ -211,7 +213,6 @@ const VIEWS = {
 const TITLES = {
   landing: 'Cranium · Your DJ controller, without the laptop',
   'sign-in': 'Sign in',
-  'admin-sign-in': 'Admin sign-in',
   forgot: 'A new password',
   overview: 'Overview',
   devices: 'Devices',
@@ -245,7 +246,7 @@ function draw() {
   app.hidden = false;
   const ctx = context();
   let tree;
-  if (view === 'sign-in' || view === 'admin-sign-in') tree = signInView(signInModel());
+  if (view === 'sign-in') tree = signInView(signInModel());
   else if (view === 'forgot') tree = forgotView(forgotModel());
   else if (view === 'help' && !state.customer && !state.admin) tree = aloneView(helpView(ctx));
   else tree = shellView(ctx, VIEWS[view](ctx));
@@ -258,8 +259,6 @@ function draw() {
 }
 
 // Following the address bar.
-
-const SIGN_IN_VIEWS = new Set(['sign-in', 'admin-sign-in']);
 
 function go(route) {
   const hash = routeHash(route);
@@ -293,11 +292,9 @@ function follow() {
   }
   // An admin without a customer account has no boards of their own: a board's page is the list's page.
   if (route.view === 'device' && !state.customer) return go({ view: 'devices' });
-  if ((route.view === 'sign-in' && state.customer) || (route.view === 'admin-sign-in' && state.admin)) {
-    return go({ view: 'overview' });
-  }
-  if (!SIGN_IN_VIEWS.has(route.view)) state.signIn = null;
-  else beginSignIn(route.view === 'admin-sign-in' ? 'admin' : 'customer');
+  if (route.view === 'sign-in' && state.customer) return go({ view: 'overview' });
+  if (route.view !== 'sign-in') state.signIn = null;
+  else beginSignIn();
   if (route.view === 'forgot' && state.route.view !== 'forgot') {
     state.forgot = { step: 'email', email: lastEmail, digits: emptyCode(), busy: false, problem: null };
   }
@@ -454,7 +451,7 @@ function customerEnded(lead) {
   if (!state.admin && !PUBLIC_VIEWS.includes(state.route.view)) {
     state.after = state.route;
     state.signIn = null;
-    beginSignIn('customer', lead);
+    beginSignIn(lead);
     go({ view: 'sign-in' });
     return;
   }
@@ -467,8 +464,8 @@ function adminEnded() {
   state.staff = resource();
   if (!state.customer && !PUBLIC_VIEWS.includes(state.route.view)) {
     state.signIn = null;
-    beginSignIn('admin', 'Your admin session has ended. Sign in again to carry on.');
-    go({ view: 'admin-sign-in' });
+    beginSignIn('Your admin session has ended. Sign in again to carry on.');
+    go({ view: 'sign-in' });
     return;
   }
   draw();
@@ -525,12 +522,16 @@ let againField = null;
 
 const authOf = (kind) => (kind === 'admin' ? adminAuth : customerAuth);
 
-/** The sign-in page of one kind, fresh unless one of that kind is under way; `lead` says why it is shown. */
-function beginSignIn(kind, lead = null) {
-  if (state.signIn?.kind === kind && lead === null) return;
-  authOf(kind).cancelPasswordSignIn();
+/**
+ * The one sign-in page, fresh unless a sign-in is under way; `lead` says why it is shown. Whose
+ * account it is (`kind`, admin or customer) is known only once a pool has taken the password.
+ */
+function beginSignIn(lead = null) {
+  if (state.signIn && lead === null) return;
+  adminAuth.cancelPasswordSignIn();
+  customerAuth.cancelPasswordSignIn();
   state.signIn = {
-    kind,
+    kind: null,
     step: 'password',
     email: lastEmail,
     digits: emptyCode(),
@@ -583,13 +584,18 @@ function afterStep(outcome) {
 
 async function signedIn(kind) {
   state.signIn = null;
-  if (kind === 'customer') {
-    state.customer = true;
-    state.sessionLeft = customerAuth.secondsLeft();
-  } else {
+  if (kind === 'admin') {
+    // An admin lands in admin mode: the console at /admin, which finds the session in this tab (or
+    // asks the app for it). The unused refresh token is dealt with first, before the page goes.
     state.admin = true;
+    state.after = null;
+    await authOf(kind).revocation();
+    window.location.assign(site.adminPath);
+    return;
   }
-  const after = kind === 'customer' && state.after ? state.after : { view: 'overview' };
+  state.customer = true;
+  state.sessionLeft = customerAuth.secondsLeft();
+  const after = state.after ?? { view: 'overview' };
   state.after = null;
   go(after);
   const revoked = await authOf(kind).revocation();
@@ -650,7 +656,15 @@ const signInControls = {
     const password = passwordField?.value ?? '';
     if (passwordField) passwordField.value = '';
     setSignIn({ busy: true, problem: null });
-    afterStep(await authOf(state.signIn.kind).passwordSignIn(state.signIn.email, password));
+    // The team's pool first, then the customer pool: one try each, and the same words whichever refused.
+    const { kind, outcome } = await signInEither(
+      { admin: adminAuth, customer: customerAuth },
+      state.signIn.email,
+      password
+    );
+    if (!state.signIn) return;
+    state.signIn = { ...state.signIn, kind };
+    afterStep(outcome);
   },
   async submitCode() {
     if (!codeComplete(state.signIn.digits)) {
@@ -672,8 +686,9 @@ const signInControls = {
     afterStep(await authOf(state.signIn.kind).sendNewPassword(next));
   },
   startOver() {
-    authOf(state.signIn.kind).cancelPasswordSignIn();
-    setSignIn({ step: 'password', busy: false, problem: null, digits: emptyCode() });
+    adminAuth.cancelPasswordSignIn();
+    customerAuth.cancelPasswordSignIn();
+    setSignIn({ step: 'password', kind: null, busy: false, problem: null, digits: emptyCode() });
     focusOn('signin-password');
   },
   ...boxes(
@@ -687,7 +702,7 @@ const signInControls = {
 function signInModel() {
   // Between a finished sign-in and the page it leads to, the page it came from is drawn once more.
   const model = state.signIn ?? {
-    kind: state.route.view === 'admin-sign-in' ? 'admin' : 'customer',
+    kind: null,
     step: 'password',
     email: lastEmail,
     digits: emptyCode(),
