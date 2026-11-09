@@ -59,11 +59,13 @@ const ON_DEMAND = [
   'map.js',
   'memfault-page.js',
   'serial.js',
+  'setup.js',
   'telemetry.js',
 ];
 // Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder, and
 // the steps after a Bluetooth send, which the Bluetooth page imports.
-const WITH_THEIR_PAGE = ['qrcode.js', 'updatewatch.js'];
+// And Board setup's serial recovery (recovery.js), which setup.js imports.
+const WITH_THEIR_PAGE = ['qrcode.js', 'recovery.js', 'updatewatch.js'];
 const atOnce = assets.filter((name) => !ON_DEMAND.includes(name) && !WITH_THEIR_PAGE.includes(name));
 const styles = assets.filter((name) => name.endsWith('.css'));
 const read = (name) => readFileSync(new URL(name, SITE), 'utf8');

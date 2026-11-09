@@ -9435,3 +9435,112 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .registers {
   max-width: 360px;
 }
+
+/* Board setup (setup.js): one column of steps, each with its mark, its state, and what it needs now. */
+.setup-page .notice {
+  margin-bottom: 16px;
+}
+
+.setup-board {
+  margin-bottom: 20px;
+}
+
+.setup-steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-step {
+  display: grid;
+  grid-template-columns: 2.25em minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.setup-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  height: 2em;
+  border: 2px solid var(--line-mark);
+  border-radius: 50%;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+.setup-mark .icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.setup-step.is-current .setup-mark,
+.setup-step.is-running .setup-mark,
+.setup-step.is-waiting .setup-mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.setup-step.is-done .setup-mark {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.setup-step.is-failed .setup-mark {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.setup-step-text {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.setup-step-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.setup-step-state,
+.setup-note,
+.setup-text {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.setup-phase {
+  font-weight: 600;
+}
+
+.setup-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.setup-form,
+.setup-seal {
+  display: grid;
+  gap: 14px;
+  max-width: 36em;
+}
+
+.setup-gesture {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.5em;
+}
+
+.setup-log {
+  overflow-x: auto;
+  white-space: pre-wrap;
+}

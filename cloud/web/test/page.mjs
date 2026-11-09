@@ -80,6 +80,9 @@ export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VI
 // What Memfault knows (docs/memfault.md).
 export const MEMFAULT = scriptAddress('memfault-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
+// Board setup over USB, and the serial recovery it speaks (docs/new-board-setup.md).
+export const RECOVERY = scriptAddress('recovery.js');
+export const SETUP = scriptAddress('setup.js', { 'recovery.js': RECOVERY, 'views.js': VIEWS });
 // The phone app's bridge, the steps after a Bluetooth send, and the app's Bluetooth page (docs/mobile-apps.md).
 export const BRIDGE = scriptAddress('bridge.js');
 // Live updates (docs/live.md).

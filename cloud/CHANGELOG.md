@@ -7,6 +7,25 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.6.2
+
+Developer has a new page, Board setup: plug a board in by USB and take it to online from the console, in Chrome or Edge on a computer or in the desktop app. It puts the golden image on and walks you through sealing it, puts the newest release on, and sets the board's ID, Wi-Fi network and certificate. A board with nothing on it still needs the debug probe once.
+
+setup.js and recovery.js, fetched when the page opens. recovery.js speaks MCUboot's serial recovery as
+tools/recover.py does (SMP, CBOR, base64 lines of 93 bytes behind 06 09 or 04 14; a test compares the bytes with
+recover.py's) and the board's console as tools/board.py does (the echo off before every command). The steps: Connect
+(STATUS: type, firmware, state, and whether a bootloader listens; nothing answering is a blank board or the other
+port, and the page says the probe is needed); Golden image (`/golden/cranium-1.5.0-0.signed.bin`, checked against
+firmware/golden.json, through ENTER_BOOTLOADER or Button 1, then the gesture, with the bootloader's `golden:` lines
+watched on the log port, or confirmed by hand); Newest firmware (the newest active release for the board's type and
+layout from `/api/firmware`, checked against its SHA-256); Set up (INIT, WIFI_SEC, KEYGEN, then
+`POST /api/devices/register` with `{ id, csr, reregister }` once, the answer checked, the certificate and Amazon Root
+CA 1 by STREAM_START and STREAM_CHUNK, then CLOUD); Online (`/api/devices/{thing}` until online). Each step can be
+tried again or skipped; release managers only. The network's name and passphrase go to the board only: read from
+their fields when sent, never in the page's state, never to the API. The web function serves the golden image at
+`/golden/<file>` from `web/src/golden/`, a copy of binaries/golden/ that the tests hold to firmware/golden.json; the
+Content-Security-Policy is unchanged. Set up uses the register route of 2.6.1.
+
 ## 2.6.1
 
 A release manager can register a new board through the console, with a console token or from the website, so that setting up a board needs no sign-in to the AWS account.

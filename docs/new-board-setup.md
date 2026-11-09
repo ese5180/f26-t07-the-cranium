@@ -56,6 +56,40 @@ over the air: the same board at the end, sooner, and with no Button 1 to press.
 nrfutil, west, AWS, the console and the board's tools. Each step runs the commands below. If one fails, do that step
 by hand, then go on with `--from` the next one.
 
+## From the console: Board setup
+
+A board that has this project's bootloader can be set up from the console instead, with no tools installed: open
+**Developer → Board setup** in Chrome or Edge on a computer, or in the Windows or Linux desktop app, and plug the board
+in by USB. It is for release managers; a viewer sees why not. It is the quick way's `golden`, `release`, `provision`
+and `verify`, as one stepper:
+
+| Step | What the page does |
+| --- | --- |
+| Connect | Opens the board's console port (the one ending in 3 on a Mac, the higher `ttyACM` on Linux) and asks `STATUS`: its type, firmware, state (`FACTORY` or set up), and so whether its bootloader is this project's, which it is if it started this project's signed firmware. If only the bootloader answers, the next steps put firmware on. If nothing answers, it says the board is blank or that this is the other port |
+| Golden image | Fetches `binaries/golden/cranium-1.5.0-0.signed.bin` from the console (`/golden/<file>`), checks its SHA-256 and hash against `firmware/golden.json`, and sends it through serial recovery as `tools/golden.py restore` does. It gets the board into the bootloader with `ENTER_BOOTLOADER`; if that misses, it says to hold Button 1 through a reset and try again. Then it shows the seal gesture, asks for the board's other port (the log port), and watches the bootloader's `golden:` lines for `sealed`, as `tools/new_board.py watch-seal` does. Without the log port, you can say it sealed by what you saw |
+| Newest firmware | The console's newest active release for the board's type and flash layout, checked against its SHA-256, the same way. Passed by itself if the board runs it already |
+| Set up | `INIT` with the ID you give (or its chip's identifier), the Wi-Fi network you type, `KEYGEN`, then the console's `POST /api/devices/register` with the request the board made, and the certificate, Amazon Root CA 1 and the cloud settings back onto the board, as `tools/provision_device.py` does |
+| Online | Waits up to 3 minutes for the console to see the board online |
+
+Each step says what it is doing and why it stopped, in words; **Try again** starts that step again, and **Skip: done
+already** passes it. The golden image goes on before the newest release, because putting it back replaces the running
+image. An nRF5340 DK has no golden image and no Wi-Fi: the page skips those steps and does `INIT` only; its passkey is
+still `tools/provision_device.py --board nrf5340dk`.
+
+The network's name and passphrase go to the board over the cable only. They are read from their fields when they are
+sent, the passphrase's field is emptied, and neither goes to the server or is kept by the page.
+
+What it can't do:
+
+- **A blank board.** A new or erased chip has no bootloader, so serial recovery can't reach it. It needs the debug
+  probe once: `scripts/board/new-board.sh` (or `west flash --recover`, step 3), and then the page can do the rest. The
+  desktop app doesn't do this either: the console holds signed application images, not the bootloader, TF-M and
+  network core image a blank chip needs, which come from a build.
+- **Phones and Safari.** Web Serial exists only in Chrome and Edge on a computer, and in the desktop app.
+
+**It has not run on a board yet.** Its tests (`cloud/web/test/setup.test.mjs`) run it against a stand-in board that
+speaks the console and serial recovery, and a stand-in for the console's API.
+
 ## What you need
 
 | Thing | Why | Where it comes from |

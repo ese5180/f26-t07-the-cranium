@@ -377,6 +377,41 @@ test('nothing outside the site can be reached, whatever the path says', async ()
   }
 });
 
+test('the golden image is served beside the console as its bytes, and nowhere else', async () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../../firmware/golden.json', import.meta.url), 'utf8'));
+  const inGit = readFileSync(new URL(`../../../binaries/golden/${manifest.file}`, import.meta.url));
+  const path = `/golden/${manifest.file}`;
+  const customer = {
+    hosts: ['customer.test', 'www.customer.test'],
+    userPoolId: 'xx-test-1_Customers1',
+    clientId: 'customer-client',
+  };
+  const sites = quiet({ ...SETTINGS, homeHosts: ['home.test'], customer });
+  for (const domainName of [DOMAIN, 'customer.test']) {
+    const response = await sites(request(path, { domainName }));
+    assert.equal(response.statusCode, 200, domainName);
+    assert.equal(response.isBase64Encoded, true);
+    assert.equal(response.headers['content-type'], 'application/octet-stream');
+    assert.equal(response.headers['cache-control'], 'public, max-age=31536000, immutable');
+    // The customer site has a policy of its own (customer.test.mjs).
+    if (domainName === DOMAIN) assertSecurityHeaders(response);
+    const bytes = Buffer.from(response.body, 'base64');
+    assert.deepEqual(bytes, inGit);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest.file_sha256);
+  }
+  assert.equal((await sites(request(path, { domainName: 'home.test' }))).statusCode, 404);
+  for (const other of [
+    '/golden/',
+    '/golden',
+    `/golden/../${manifest.file}`,
+    '/golden/cranium-1.5.0-0.signed.bin.map',
+    `/GOLDEN/${manifest.file}`,
+  ]) {
+    assert.equal((await sites(request(other))).statusCode, 404, other);
+  }
+  assert.equal((await sites(request(path, { method: 'POST' }))).statusCode, 405);
+});
+
 test('any other build id is a 404 that is not cached', async () => {
   const build = await currentBuild();
   const flipped = (build[0] === '0' ? '1' : '0') + build.slice(1);

@@ -1688,6 +1688,7 @@ const SECTION_OF = {
   device: 'devices',
   deployment: 'deployments',
   serial: 'developer',
+  setup: 'developer',
   history: 'developer',
   tokens: 'developer',
   rollout: 'fleet',
@@ -1804,6 +1805,7 @@ export function developerTabs(current) {
     h('span', { class: 'eyebrow' }, 'Developer'),
     [
       ['serial', 'Serial console'],
+      ['setup', 'Board setup'],
       ['history', 'History'],
       ['tokens', 'API tokens'],
     ].map(([view, label]) =>
