@@ -4,8 +4,8 @@ The website customers sign in to, on the name the team bought for it, with an **
 the firmware console. Customers see their own boards and nothing else; admins hand out the accounts and the boards from
 the console's new **Customers** page. It is part of the console's stack (`cloud/`), from console 2.0.0.
 
-**It is live at https://craniumiot.com**, deployed with console 2.1.0 (bcc5a19): the customer sign-in, and an admin
-sign-in that leads to admin mode, the console at https://craniumiot.com/admin. From console 2.4.5 (not deployed yet)
+**It is live at https://craniumiot.com**, first deployed with console 2.1.0 (bcc5a19): the customer sign-in, and an admin
+sign-in that leads to admin mode, the console at https://craniumiot.com/admin. From console 2.4.5
 the two are one form ([Signing in](#signing-in)). https://www.craniumiot.com sends the
 browser to the bare name. The team's console also stays on its own name, https://console.craniumiot.com. The public home
 page that used to be on craniumiot.com is no longer deployed (`HomeDomainName` is empty), and the customer site uses
