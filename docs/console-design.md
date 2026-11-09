@@ -1,7 +1,7 @@
 # Console design
 
 The console (console.craniumiot.com, the admin mode of the phone apps, and the desktop app) is one set of pages:
-`cloud/web/src/site/assets/`. From console 2.5.0 it is laid out as an app: phone first, and still at home in a
+`cloud/web/src/site/assets/`. From console 2.7.0 it is laid out as an app: phone first, and still at home in a
 desktop browser. This page says what it follows and where each part is.
 
 ## Design principles
@@ -62,7 +62,7 @@ the console's page rules are under the `console` class of the console's `<body>`
 | --- | --- |
 | The frame: top bar, tab bar, More sheet, sidebar | `index.html`, `app.css` "The frame", `views.js` `navView`, `app.js` `showMore` |
 | The large title | `app.js` `watchTitle`, `#masthead-title` |
-| Grouped lists | `app.css` "Console 2.5: grouped lists", `views.js` `card()` (`.card-body`) |
+| Grouped lists | `app.css` "Console 2.7: grouped lists", `views.js` `card()` (`.card-body`) |
 | The Overview's glance strip | `views.js` `glanceStrip` |
 | Icons (one stroke set) | `views.js` `ICONS` |
 
