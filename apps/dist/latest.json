@@ -1,9 +1,9 @@
 {
   "android": {
-    "file": "cranium-android-0.8.2.apk",
-    "sha256": "d4dfb992449924f9bf7454603e0227a86952af7fedb5070a03778170863ab12f",
-    "size": 13307937,
-    "version": "0.8.2"
+    "file": "cranium-android-0.8.8.apk",
+    "sha256": "1793a5f00e4517eb72dffe8c76be2d7f67fed41541b39b0bb44ca429bd5d044d",
+    "size": 13384049,
+    "version": "0.8.8"
   },
   "desktop-linux": {
     "file": "Cranium-0.1.0.AppImage",
@@ -67,9 +67,9 @@
     "version": "0.1.0"
   },
   "ios": {
-    "file": "cranium-ios-0.8.2.ipa",
-    "sha256": "8c34b9d6b1fa4fac0612a0bb7ffccb0cd59551edfa19d143fc08ce71dd887eea",
-    "size": 3054481,
-    "version": "0.8.2"
+    "file": "cranium-ios-0.8.8.ipa",
+    "sha256": "3ca3ef2fdd4f798f658c20e90dcfe29cc5505e79f6e52f4e399823948496df54",
+    "size": 3115012,
+    "version": "0.8.8"
   }
 }
