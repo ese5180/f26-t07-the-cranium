@@ -37,6 +37,15 @@ Parameters:
     Default: ese5180/f26-t07-the-cranium
     AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
     Description: owner/name of the repository whose workflow may assume the role.
+  GitHubSubjectPrefix:
+    Type: String
+    Default: 'repo:ese5180@165670771/f26-t07-the-cranium@1391416404'
+    AllowedPattern: '^(|repo:[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+)$'
+    Description: >-
+      The repository as GitHub now names it in its OIDC tokens' subject ("immutable subject":
+      owner@owner-id/name@repository-id), shown by gh api
+      repos/OWNER/NAME/actions/oidc/customization/sub as sub_claim_prefix. The role trusts this
+      form as well as repo:owner/name; the ids are public and stay the same when either is renamed.
   ExistingOidcProviderArn:
     Type: String
     Default: ''
@@ -79,7 +88,8 @@ Resources:
                 - !Ref ExistingOidcProviderArn
             Action: sts:AssumeRoleWithWebIdentity
             # The job runs in no environment, so its token's subject is the ref it runs on:
-            # the branch main, or a console-v* tag. Any other branch, a pull request and a
+            # the branch main, or a console-v* tag, with the repository named either way GitHub
+            # names it (GitHubSubjectPrefix). Any other branch, a pull request and a
             # fork get no credentials.
             Condition:
               StringEquals:
@@ -88,6 +98,8 @@ Resources:
                 token.actions.githubusercontent.com:sub:
                   - !Sub 'repo:${GitHubRepository}:ref:refs/heads/main'
                   - !Sub 'repo:${GitHubRepository}:ref:refs/tags/console-v*'
+                  - !Sub '${GitHubSubjectPrefix}:ref:refs/heads/main'
+                  - !Sub '${GitHubSubjectPrefix}:ref:refs/tags/console-v*'
       ManagedPolicyArns:
         - !Ref StackPolicy
         - !Ref RolesAndFunctionsPolicy

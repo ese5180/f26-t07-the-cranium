@@ -52,12 +52,21 @@ test('only main and console-v* tags of this repository may assume the role', () 
   assert.ok(
     trust.includes('StringEquals:\n                token.actions.githubusercontent.com:aud: sts.amazonaws.com\n')
   );
-  // Exactly two subjects: the branch main and the console-v* tags, nothing broader.
+  // The branch main and the console-v* tags, with the repository named either way GitHub
+  // names it (owner/name, or the immutable owner@id/name@id), and nothing broader.
   const subjects = trust.split('token.actions.githubusercontent.com:sub:\n')[1];
   assert.ok(trust.includes('StringLike:\n                token.actions.githubusercontent.com:sub:\n'));
   assert.deepEqual(
     [...subjects.matchAll(/- !Sub '([^']+)'/g)].map((match) => match[1]),
-    ['repo:${GitHubRepository}:ref:refs/heads/main', 'repo:${GitHubRepository}:ref:refs/tags/console-v*']
+    [
+      'repo:${GitHubRepository}:ref:refs/heads/main',
+      'repo:${GitHubRepository}:ref:refs/tags/console-v*',
+      '${GitHubSubjectPrefix}:ref:refs/heads/main',
+      '${GitHubSubjectPrefix}:ref:refs/tags/console-v*',
+    ]
+  );
+  assert.ok(
+    /GitHubSubjectPrefix:\n\s+Type: String\n\s+Default: 'repo:ese5180@\d+\/f26-t07-the-cranium@\d+'\n/.test(role)
   );
   assert.equal(trust.match(/:sub/g).length, 1);
   assert.equal(/environment|pull_request|refs\/heads\/\*/.test(trust), false);
