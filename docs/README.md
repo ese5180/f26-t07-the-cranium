@@ -11,6 +11,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`aws-iot.md`](aws-iot.md) | Firmware updates through AWS IoT: the console, jobs, API tokens and the threat model |
 | [`mass-updates.md`](mass-updates.md) | Updating many boards at once |
 | [`fleet.md`](fleet.md) | Board types, groups, rollouts, the map, commands and alerts |
+| [`console-design.md`](console-design.md) | The console's look: phone first, grouped lists, and the principles behind it |
 | [`live.md`](live.md) | Live updates: how an open page hears of a change as it happens |
 | [`memfault.md`](memfault.md) | Memfault: crashes, reboots and fleet metrics, sent over the AWS IoT connection |
 | [`raspberry-pi-ota.md`](raspberry-pi-ota.md) | The Raspberry Pi's operating system and its over-the-air updates |
