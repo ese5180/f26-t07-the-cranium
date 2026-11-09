@@ -26,11 +26,12 @@ shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run
 | --- | --- | --- | --- |
 | No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/ci/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, `test_pi_link.py` and `test_pi_image.py` (from 1.16.0, the Pi link against `tools/pi_link_sim.py` and the signing tool), and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Desktop app (core) | Ubuntu, Node 22 | `npm ci` and `npm test` in `apps/desktop`, then the app started once under a virtual display with the example configuration | The desktop app's core does what its tests say, with no Electron, and the app opens on Linux and draws the customer site's sign-in from its built-in pages ([docs/desktop-app.md](desktop-app.md)). It cannot sign in, and nothing is packaged |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
 | Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
+| Firmware (Pi image updates) | The same | The same build with `-DSB_EXTRA_CONF_FILE=pi_ota_sysbuild.conf` | From 1.15.0, the build for a board wired to a Raspberry Pi ([pi-ota.md](pi-ota.md)) compiles and links, with the Pi update, the SD card and FatFS, and without Bluetooth. Nothing more |
 | Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi, cloud or Memfault code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, as for the default |
 | Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass (with the parity test of `apps/shared/pages.json` against the console's pages) and it builds. It cannot sign in: the real configuration is never in git |
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass (with the same parity test) and the app compiles for iPhone. Nothing is signed or installed |
@@ -550,6 +551,8 @@ python3 firmware/tests/hil/test_flash_layout.py
 python3 firmware/tests/hil/test_memfault_upload.py
 python3 firmware/tests/hil/test_provision.py
 python3 firmware/tests/hil/test_bt_only_check.py
+python3 firmware/tests/hil/test_pi_link.py
+python3 firmware/tests/hil/test_pi_image.py
 (cd cloud/api && node --test); (cd cloud/web && node --test); (cd cloud/dev && node --test)
 ```
 
