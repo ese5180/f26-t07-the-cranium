@@ -1,5 +1,5 @@
 /*
- * From 1.15.0: the SPI bus that the SD card and the Raspberry Pi share, and the two pins the update
+ * From 1.16.0: the SPI bus that the SD card and the Raspberry Pi share, and the two pins the update
  * reads (docs/pi-ota.md, "Wiring"). The same pins on the nRF7002 DK and the nRF5340 DK, on the
  * Arduino header: both board overlays include this.
  *

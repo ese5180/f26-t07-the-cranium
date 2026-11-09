@@ -5,13 +5,13 @@
     tools/pi_image.py verify IMAGE.pi.json [--key PUBLIC_KEY]
 
 `sign` reads the image, takes its size and SHA-256, builds the manifest that the board checks
-(src/pi_image.h) and signs it with the project's firmware signing key, ~/.cranium/mcuboot_signing_key.pem
+(src/pi/pi_image.h) and signs it with the project's firmware signing key, ~/.cranium/mcuboot_signing_key.pem
 by default: ECDSA P-256 over SHA-256, the signature as r||s in hex. It writes IMAGE.pi.json next to the
 image, with what goes into a job document, and prints the commands that upload the image and create
 the job. It runs none of them: who deploys, and when, is a person's decision.
 
 `verify` checks such a record against the public key, firmware/keys/fw_signing_pub.pem by default,
-the one the board has built in (src/pi_key.h).
+the one the board has built in (src/pi/pi_key.h).
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def firmware_version(text: str) -> str:
 
 
 def manifest(version: str, size: int, sha256: str, min_firmware: str | None = None) -> bytes:
-    """The text that the signature covers: what src/pi_image.c's pi_manifest_text() builds."""
+    """The text that the signature covers: what src/pi/pi_image.c's pi_manifest_text() builds."""
     if not VERSION.match(version):
         raise ValueError("the version is 1 to 31 letters, digits or . _ + -")
     if not 0 < size <= MAX_SIZE:
@@ -97,7 +97,7 @@ def load_public(path: Path):
 
 
 def public_point(path: Path = PUBLIC_KEY) -> bytes:
-    """The public key as src/pi_key.h holds it: an uncompressed P-256 point."""
+    """The public key as src/pi/pi_key.h holds it: an uncompressed P-256 point."""
     return load_public(path).public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
 
 

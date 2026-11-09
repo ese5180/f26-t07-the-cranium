@@ -1275,7 +1275,7 @@ Resources:
             Resource:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/shadow/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/$next/get'
-              # From 1.15.0: the list of pending jobs, so that firmware goes before a Pi image (docs/pi-ota.md).
+              # From 1.16.0: the list of pending jobs, so that firmware goes before a Pi image (docs/pi-ota.md).
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/get'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/${!iot:Connection.Thing.ThingName}/jobs/*/update'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'

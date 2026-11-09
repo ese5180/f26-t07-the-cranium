@@ -1,5 +1,5 @@
 /*
- * Raspberry Pi image update (docs/pi-ota.md), from 1.15.0 with CONFIG_APP_PI_OTA.
+ * Raspberry Pi image update (docs/pi-ota.md), from 1.16.0 with CONFIG_APP_PI_OTA.
  *
  * A Pi image comes as an AWS IoT job, as firmware does, with "op": "pi_image". ota.c decides when
  * one may start, since board firmware goes first, and hands it over here. This checks the job's

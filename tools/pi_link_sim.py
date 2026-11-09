@@ -8,7 +8,7 @@ contract says. Faults can be asked for, to see the board recover or give up: a f
 damaged, a READY that does not come, a status that arrives damaged, a Pi that stays busy, one that
 lost chunks, one that refuses, and one that already has part of the image.
 
-firmware/tests/hil/test_pi_link.py runs it against the board's real code (src/pi_link.c), built for
+firmware/tests/hil/test_pi_link.py runs it against the board's real code (src/pi/pi_link.c), built for
 the host as firmware/tests/host/build/pi_link_harness. run() is that conversation.
 """
 

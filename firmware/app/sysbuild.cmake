@@ -50,7 +50,7 @@ if(SB_CONFIG_BOARD_NRF5340DK AND NOT SB_CONFIG_APP_BT_OTA)
 endif()
 
 # Firmware update over Bluetooth LE, off unless bt_ota_sysbuild.conf is given.
-# From 1.15.0: Raspberry Pi images (docs/pi-ota.md). Only with Wi-Fi and the cloud, and not with
+# From 1.16.0: Raspberry Pi images (docs/pi-ota.md). Only with Wi-Fi and the cloud, and not with
 # Bluetooth, which the RAM does not hold as well: the link would fail with less to go on.
 if(SB_CONFIG_APP_PI_OTA)
   if(SB_CONFIG_BOARD_NRF5340DK)
