@@ -382,10 +382,15 @@ def console_token():
 
 
 def console_url():
+    """The console's address: CRANIUM_CONSOLE_URL, else ConsoleUrl in cloud/.deploy/outputs.json, else
+    consoleUrl in apps/config/cranium.json (apps/configure.sh), else None."""
     url = os.environ.get("CRANIUM_CONSOLE_URL", "").strip()
-    if not url:
+    for path, key in (("cloud/.deploy/outputs.json", "ConsoleUrl"), ("apps/config/cranium.json", "consoleUrl")):
+        if url:
+            break
         try:
-            url = json.loads((REPO / "cloud/.deploy/outputs.json").read_text()).get("ConsoleUrl", "")
+            data = json.loads((REPO / path).read_text())
+            url = str(data.get(key) or "").strip() if isinstance(data, dict) else ""
         except (OSError, ValueError):
             url = ""
     return url.rstrip("/") or None

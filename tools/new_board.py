@@ -348,8 +348,9 @@ def console() -> Console:
         raise Refusal("the console token is not one the console makes: it is crn_ and 43 more characters", 1)
     url = check_image.console_url()
     if url is None:
-        raise Refusal("the console's address is not known: cloud/.deploy/outputs.json has no ConsoleUrl, and "
-                      "CRANIUM_CONSOLE_URL is not set", 1)
+        raise Refusal("the console's address is not known: pass --console https://<the console> to "
+                      "scripts/board/new-board.sh, or set CRANIUM_CONSOLE_URL (neither cloud/.deploy/outputs.json nor "
+                      "apps/config/cranium.json says it)", 1)
     if not CONSOLE_URL.match(url):
         raise Refusal("the console's address is not an https:// address", 1)
     return Console(url, token)

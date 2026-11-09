@@ -713,18 +713,22 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, self.output)
         for line in ("ok    nrfutil (nrfutil 8.1.1)", "ok    nRF Connect SDK v3.4.0",
                      "ok    the signing key matches", "ok    the golden image agrees",
-                     "ok    the Wi-Fi network for the board", "ok    signed in to AWS with the profile cranium",
+                     "ok    the Wi-Fi network for the board",
+                     "ok    the board is registered through the console with your console token",
                      "ok    a console token: the console takes the token", SERIAL_A, "nRF7002 DK (PCA10143)", "Ready"):
             self.assertIn(line, self.output)
+        # With the console registering the board, AWS is not asked at all.
+        self.assertEqual(self.called("aws "), [])
         # aws sts names the account: none of it is shown. Nor is the Wi-Fi file read.
         self.assertNotIn("123456789012", self.output)
         self.assertEqual(self.called("wifi_secrets"), [])
 
-    def test_check_without_the_key_says_where_it_comes_from_and_makes_none(self):
+    def test_check_without_the_key_warns_says_where_it_comes_from_and_makes_none(self):
         self.secrets(key=False)
         result = self.run_script("check")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("FAIL  no signing key at ~/.cranium/mcuboot_signing_key.pem", self.output)
+        self.assertEqual(result.returncode, 0, self.output)
+        self.assertIn("warn  no signing key at ~/.cranium/mcuboot_signing_key.pem", self.output)
+        self.assertIn("throwaway key", self.output)
         self.assertIn("custodian", self.output)
         self.assertIn("Never make a new one with tools/keys.py generate", self.output)
         self.assertEqual(self.called("keys.py"), [])
@@ -739,6 +743,26 @@ class ScriptTest(unittest.TestCase):
         self.assertIn("FAIL  no Wi-Fi network for the board", self.output)
         self.assertIn("python3 tools/secrets.py wifi", self.output)
         self.assertIn("warn  no console token", self.output)
+
+    def test_check_with_a_console_token_needs_no_aws_and_no_outputs(self):
+        # A teammate: a release manager's console token, no AWS CLI sign-in, no outputs.json, no signing key.
+        self.secrets(key=False, token=True)
+        (self.repo / "cloud/.deploy/outputs.json").unlink()
+        self.answers({"new_board.py token": {"stdout": "the console takes the token, and its owner is a release manager\n"}})
+        result = self.run_script("check", FAKE_AWS_EXIT="255")
+        self.assertEqual(result.returncode, 0, self.output)
+        self.assertNotIn("FAIL", self.output)
+        self.assertIn("registered through the console", self.output)
+        self.assertNotIn("not signed in to AWS", self.output)
+        self.assertNotIn("outputs.json is missing", self.output)
+
+        # A viewer's token is not enough: then AWS is needed, and the check says both ways.
+        self.answers({"new_board.py token": {"stdout": "the console takes the token, and its owner can only read\n",
+                                             "exit": 3}})
+        result = self.run_script("check", FAKE_AWS_EXIT="255")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FAIL  not signed in to AWS", self.output)
+        self.assertIn("a release manager's console token is all it takes", self.output)
 
     def test_check_of_an_nrf5340dk_needs_a_token_and_a_checkout_that_knows_it(self):
         self.secrets()
@@ -816,8 +840,8 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(self.state(), {})
 
     def test_an_unready_computer_touches_no_board(self):
-        self.secrets(key=False)
-        result = self.run_script(stdin="7470\n")
+        self.secrets(wifi=False)
+        result = self.run_script(stdin="7470\n", FAKE_AWS_EXIT="255")
         self.assertEqual(result.returncode, 1)
         self.assertIn("this computer is not ready", self.output)
         self.assertNotIn("Type its last 4 digits", self.output)
@@ -866,7 +890,7 @@ class ScriptTest(unittest.TestCase):
             self.assertEqual(self.called(what), [], what)
         [provision] = self.called("provision_device.py")
         port = f"/dev/{'cu' if sys.platform == 'darwin' else 'tty'}.usbmodem{SERIAL_A}3"
-        self.assertEqual(provision, f"python3 -u tools/provision_device.py --port {port} --profile cranium")
+        self.assertEqual(provision, f"python3 -u tools/provision_device.py --port {port} --profile cranium --via aws")
         self.assertEqual(self.state()["last_step"], "verify")
         self.assertIn("Step 5 of 6: provision", self.output)
 
@@ -931,6 +955,29 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(self.state()["last_step"], "verify")
         self.assertIn("Done: the nRF7002 DK 001050797470 got through build flash golden release provision verify.",
                       self.output)
+
+    def test_a_whole_setup_by_a_teammate_with_only_a_console_token(self):
+        # No signing key, no AWS sign-in, no outputs.json: the build without the key, the golden image from git,
+        # the console's release, and the board registered through the console.
+        self.secrets(key=False, token=True)
+        (self.repo / "cloud/.deploy/outputs.json").unlink()
+        self.answers({"new_board.py token": {"stdout": "the console takes the token, and its owner is a release manager\n"},
+                      "provision_device.py": {"stdout": "Done: the board is connected to AWS IoT.\n"}})
+        result = self.run_script(stdin="7470\nskip\n", FAKE_AWS_EXIT="255")
+        self.assertEqual(result.returncode, 0, self.output)
+        [build] = self.called("build.sh")
+        self.assertIn("--keep --no-upload --without-key", build)
+        # The bootloader refuses the build's own application, so the flash step does not wait for factory mode,
+        # and the release step never falls back to that application.
+        self.assertIn("waits in serial recovery", self.output)
+        self.assertFalse(any("--expect-state FACTORY" in call for call in self.called("serial-status")))
+        [release] = self.called("new_board.py release")
+        self.assertNotIn("--fallback", release)
+        self.assertTrue(self.called("golden.py restore"))
+        [provision] = self.called("provision_device.py")
+        self.assertIn("--via console", provision)
+        self.assertEqual(self.called("aws "), [])
+        self.assertEqual(self.state()["last_step"], "verify")
 
     def test_a_whole_setup_of_an_nrf5340dk(self):
         self.secrets(wifi=False, token=True)

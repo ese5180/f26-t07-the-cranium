@@ -9,6 +9,11 @@
 #   scripts/firmware/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
 #   scripts/firmware/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
 #                                      or nrf5340dk, which has Bluetooth only
+#   scripts/firmware/build.sh --keep --no-upload --without-key
+#                                      with no signing key, to set up a board (scripts/board/new-board.sh):
+#                                      the bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem,
+#                                      and the application is signed with a throwaway key, which that bootloader
+#                                      refuses. binaries/ is left as it was. No release is ever built this way
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
@@ -49,7 +54,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -89,12 +94,14 @@ EOF
 jobs=4
 keep=false
 upload=true
+without_key=false
 version=""
 board_type=nrf7002dk
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=true ;;
     --no-upload) upload=false ;;
+    --without-key) without_key=true ;;
     --board)
       [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk or nrf5340dk"
       board_type="$2"
@@ -147,8 +154,15 @@ fi
 
 [ -x "$NRFUTIL" ] || die "nrfutil was not found at $NRFUTIL" "Set NRFUTIL to where it is."
 [ -d "$NCS_DIR" ] || die "nRF Connect SDK $NCS_VERSION was not found at $NCS_DIR" "Set NCS_DIR to where it is."
-[ -f "$KEY" ] || die "the signing key was not found at $KEY" \
-  "See secrets/README.md. An image signed with another key will not install on a board."
+PUBLIC_KEY="$REPO_DIR/firmware/keys/fw_signing_pub.pem"
+if [ "$without_key" = true ]; then
+  [ "$keep" = true ] && [ "$upload" = false ] && [ -z "$version" ] \
+    || die "--without-key builds no release: use it with --keep --no-upload"
+else
+  [ -f "$KEY" ] || die "the signing key was not found at $KEY" \
+    "See secrets/README.md. An image signed with another key will not install on a board." \
+    "To set up a board without it: --keep --no-upload --without-key (scripts/board/new-board.sh does)."
+fi
 
 work="$(mktemp -d)"
 version_before="$work/VERSION.before"
@@ -180,9 +194,27 @@ export ZEPHYR_BASE="$NCS_DIR/zephyr"
 export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
 
 build_name="$(basename "$BUILD_DIR")"
+key_args=()
+if [ "$without_key" = true ]; then
+  # A throwaway key for the application, which lives as long as this build, and the team's public key for the
+  # bootloader (firmware/app/sysbuild.cmake). What the build puts in binaries/ is put back as it was.
+  python3 -I -c 'import sys
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+key = ec.generate_private_key(ec.SECP256R1())
+open(sys.argv[1], "wb").write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                serialization.NoEncryption()))' "$work/throwaway.pem" \
+    || die "a throwaway key could not be made" "That takes the Python package cryptography, which the SDK's toolchain has."
+  # A string option of Kconfig is given in quotes.
+  key_args=("-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE=\"$work/throwaway.pem\"" "-DCRANIUM_BOOTLOADER_KEY=$PUBLIC_KEY")
+  # Every file at the top of binaries/: the build adds its image and prunes old ones (tools/store_binary.py).
+  mkdir -p "$work/binaries"
+  find "$REPO_DIR/binaries" -maxdepth 1 -type f -exec cp -p {} "$work/binaries/" \;
+  echo "No signing key: the bootloader takes the team's public key, and the application a throwaway key."
+fi
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
 if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
-    --sysbuild "$REPO_DIR/firmware/app" -- ) > "$log" 2>&1; then
+    --sysbuild "$REPO_DIR/firmware/app" -- "${key_args[@]}" ) > "$log" 2>&1; then
   mkdir -p "$BUILD_DIR"
   cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true
@@ -245,6 +277,32 @@ print(f"Size      {info['size']:,} bytes, of a 933,888 byte slot")
 print(f"SHA-256   {info['sha256']}")
 print(f"Commit    {info['commit']}")
 EOF
+
+# The bootloader must take exactly the team's public key: the one in its build is compared with
+# firmware/keys/fw_signing_pub.pem, so that no build, with the key or without, makes a bootloader that takes
+# images signed with another.
+python3 -I - "$BUILD_DIR/mcuboot/zephyr/autogen-pubkey.c" "$PUBLIC_KEY" <<'EOF' \
+  || die "the bootloader in $build_name/ does not take the team's public key" \
+    "No board may get it. See secrets/README.md, and build again."
+import base64, re, sys
+built = bytes(int(byte, 16) for byte in re.findall(r"0x([0-9a-fA-F]{2})", open(sys.argv[1]).read()))
+pem = open(sys.argv[2]).read()
+team = base64.b64decode("".join(line for line in pem.splitlines() if line and not line.startswith("-----")))
+if built != team:
+    sys.exit("the bootloader's key is not firmware/keys/fw_signing_pub.pem")
+EOF
+echo "The bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem."
+
+if [ "$without_key" = true ]; then
+  # Its application is signed with the throwaway key, which no board takes: it goes nowhere.
+  find "$REPO_DIR/binaries" -maxdepth 1 -type f -exec rm -f {} +
+  find "$work/binaries" -maxdepth 1 -type f -exec cp -p {} "$REPO_DIR/binaries/" \;
+  built=true
+  echo
+  echo "Built without the signing key, in $build_name/: the bootloader for the board, and an application no board"
+  echo "starts. binaries/ is as it was. The board gets the golden image and a release, signed with the team's key."
+  exit 0
+fi
 
 if command -v node > /dev/null; then
   if ! node "$REPO_DIR/cloud/api/verify-image.mjs" "$file" > "$work/verify.txt" 2>&1; then

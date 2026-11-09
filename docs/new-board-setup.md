@@ -64,11 +64,25 @@ by hand, then go on with `--from` the next one.
 | nRF Connect SDK v3.4.0 and `nrfutil` | Building and flashing | nRF Connect for VS Code, or `nrfutil sdk-manager install v3.4.0`. On Linux and Windows, read [Install the tools](#install-the-tools) first |
 | SEGGER's J-Link software | `nrfutil` flashes through the board's J-Link | [SEGGER's downloads](https://www.segger.com/downloads/jlink/) |
 | Git, the AWS CLI v2, and Python 3.10 or later with `pyserial` and `cbor2` | The repository, AWS IoT, and the tools that talk to the board | [Install the tools](#install-the-tools) |
-| The signing key, `~/.cranium/mcuboot_signing_key.pem` | Every image must be signed with it, or the bootloader won't run it | Whoever holds the team key: see [`secrets/README.md`](../secrets/README.md). `python tools/keys.py check` confirms you have the right one |
-| The golden image, `binaries/golden/cranium-1.5.0-0.signed.bin` | The bootloader only restores that exact file | Copy it from whoever holds the signing key. It isn't in git, and a rebuild won't match it |
-| The Wi-Fi network, `~/.cranium/wifi_secrets.h` | The board's network | `python tools/secrets.py wifi`. A phone hotspot's name often has a curly apostrophe: copy the exact spelling. Only on macOS does the tool offer the spelling the computer knows |
-| An AWS sign-in with administrator rights | Registering the board in AWS IoT | `aws login --profile cranium --region us-east-1` |
-| `cloud/.deploy/outputs.json` | The AWS IoT endpoint, and where firmware downloads from | Written by `cloud/deploy.sh` on a laptop; a deployment from GitHub Actions keeps none. Copy it from the owner |
+| A console token of a release manager, `~/.cranium/console-token` | Registering the board through the console, and the newest release | The console: Developer > API tokens. See [Who needs what](#who-needs-what) |
+| The golden image, `binaries/golden/cranium-1.5.0-0.signed.bin` | The bootloader only restores that exact file | In git. A rebuild won't match it |
+| The Wi-Fi network, `~/.cranium/wifi_secrets.h` | The board's network | `python tools/secrets.py wifi`, on your own computer. A phone hotspot's name often has a curly apostrophe: copy the exact spelling. Only on macOS does the tool offer the spelling the computer knows |
+| Only without a console token: an AWS sign-in with administrator rights, and `cloud/.deploy/outputs.json` | Registering the board with the AWS CLI | `aws login --profile cranium --region us-east-1`; the file is written by `cloud/deploy.sh` on a laptop (a deployment from GitHub Actions keeps none): copy it from the owner |
+| Only to build releases: the signing key, `~/.cranium/mcuboot_signing_key.pem` | Every image a board runs must be signed with it | Its custodian: see [`secrets/README.md`](../secrets/README.md). Setting up a board does without it |
+
+### Who needs what
+
+| | A teammate setting up boards | The owner, or whoever builds releases |
+| --- | --- | --- |
+| Console token | A release manager's, in `~/.cranium/console-token` (mode 600) or `CRANIUM_TOKEN` | The same |
+| The console's address | `--console https://<the console>` to `scripts/board/new-board.sh` or `provision_device.py`, or `CRANIUM_CONSOLE_URL`, unless `cloud/.deploy/outputs.json` or `apps/config/cranium.json` has it | From `cloud/.deploy/outputs.json` |
+| AWS account | None | An administrator's sign-in, to deploy the cloud; provisioning takes it where there is no token |
+| Signing key | None: the build makes the bootloader with the team's public key, `firmware/keys/fw_signing_pub.pem` in git, and signs its own application with a throwaway key, which that bootloader refuses. The board gets the golden image from git and the console's newest release, both signed by the key's custodian | `~/.cranium/mcuboot_signing_key.pem`, to build releases |
+| Golden image | In git | In git |
+| Wi-Fi network | `~/.cranium/wifi_secrets.h` on their own computer (`python tools/secrets.py wifi`) | The same |
+
+So a teammate runs `scripts/board/new-board.sh check`, then `scripts/board/new-board.sh`, with nothing of the owner's
+but a console token. `check` says FAIL for AWS and `outputs.json` only when there is no release manager's token.
 
 Run the Python tools from an [nRF Connect SDK terminal](#an-nrf-connect-sdk-terminal), which has `pyserial` and
 `cbor2`. Where `python` isn't found, type `python3`. Close any serial terminal on the board first: only one program can
@@ -186,7 +200,8 @@ python tools/keys.py check
 python tools/golden.py check
 ```
 
-Both must pass. The second checks that the golden file, `firmware/golden.json` and the bootloader's settings agree.
+The second must pass: it checks that the golden file, `firmware/golden.json` and the bootloader's settings agree.
+The first is for whoever has the signing key; without one, build as in step 2 with `--without-key`.
 
 ## 2. Build
 
@@ -196,6 +211,12 @@ scripts/firmware/build.sh --keep
 
 This builds the bootloader, which holds the golden image's pin, and the application at the version in
 `firmware/app/VERSION`. Each image is signed with your key.
+
+Without the signing key, `scripts/firmware/build.sh --keep --no-upload --without-key`: the bootloader takes the team's
+public key from `firmware/keys/fw_signing_pub.pem`, and the application is signed with a throwaway key, which that
+bootloader refuses. After step 3 the board waits in serial recovery, with no application, until step 4 puts the golden
+image on. Every build checks that its bootloader takes exactly the team's public key, and a build without the key
+leaves `binaries/` as it was.
 
 It looks for the SDK in `/opt/nordic/ncs/v3.4.0`, where it goes on macOS. On Linux and in WSL, install it there
 ([Install the tools](#install-the-tools)), or point `NCS_DIR` at it: `NCS_DIR=~/ncs/v3.4.0 scripts/firmware/build.sh`.
@@ -241,7 +262,8 @@ starts is a factory reset.
 ## 5. Provision it
 
 ```sh
-python tools/provision_device.py
+python tools/provision_device.py                 # through the console with a console token, or AWS where signed in
+python tools/provision_device.py --via console   # through the console, always
 ```
 
 This uses the board's serial console. It:
@@ -249,11 +271,55 @@ This uses the board's serial console. It:
 1. Sets the board's ID with `INIT`. The default is its chip's 16-digit identifier, or pass `--id <name>`.
 2. Sends the Wi-Fi network from `~/.cranium/wifi_secrets.h`, with echo off, so the password never shows.
 3. Has the board make its own key pair. The private key never leaves the board.
-4. Registers the board in AWS IoT as `cranium-<its identifier>`, with a certificate for that key.
+4. Registers the board in AWS IoT as `cranium-<its identifier>`, with a certificate for that key: through the console
+   (below) with a console token, or with the AWS CLI where this computer is signed in to AWS and has
+   `cloud/.deploy/outputs.json`. `--via console` or `--via aws` chooses; by default it takes AWS when signed in, and
+   the console otherwise.
 5. Loads the certificate, Amazon's root certificate, the AWS IoT endpoint and the download address onto the board.
 
 It finishes by waiting for the board to reach AWS IoT. If the board was registered before and has been wiped, add
 `--new-identity`, which retires its old certificate. With more than one board plugged in, name the port with `--port`.
+
+### Provisioning through the console
+
+`POST /api/devices/register` on the console's API, with a release manager's session (the console's pages), or
+`POST /api/t/devices/register` with a console token (`Authorization: Bearer crn_...`), as `provision_device.py` sends
+it. Console 2.6.1 and later.
+
+Request:
+
+```json
+{ "id": "<board identifier>", "csr": "<PEM certificate signing request>", "reregister": false }
+```
+
+- `id`: the board's identifier, 16 lowercase hex digits; its thing is `cranium-<id>`. Nothing else is taken.
+- `csr`: what the board printed for `KEYGEN`: an ECDSA P-256 key's request, signed by that key with SHA-256, for
+  `CN=cranium-<id>`. The board's private key never leaves it, and is never sent.
+- `reregister`: `false` (or left out) refuses a board whose thing has a certificate already, with 409
+  `already_registered`. `true` registers it again, as for a board that was wiped, and retires its old certificates.
+- An nRF5340 DK, which never reaches AWS by itself, sends `{ "id": "<id>", "board": "nrf5340dk" }` and no `csr`.
+
+Answer, 200:
+
+```json
+{ "thing": "cranium-<id>", "certificatePem": "...", "rootCa": "...", "endpoint": "...", "downloadPrefix": "..." }
+```
+
+`certificatePem` is the board's certificate, issued by AWS IoT for the request's key and checked to be for it;
+`rootCa` is Amazon Root CA 1; `endpoint` the AWS IoT data endpoint; `downloadPrefix` the one address the board may
+download firmware from. They go onto the board as the tool loads them: `STREAM_START ... CERT`, `... CA`, then
+`CLOUD|<endpoint>|<downloadPrefix>`. An nRF5340 DK's answer is `{ "thing": "cranium-<id>" }`.
+
+Errors have the API's usual shape, `{ "error": { "code", "message", "requestId" } }`: 400 `invalid_id`,
+`invalid_csr`, `csr_mismatch` (the request is for another board), `invalid_reregister`, `invalid_board` or
+`unexpected_field`; 403 for anyone but a release manager, and for a phone app's session; 409 `already_registered` or
+`board_mismatch` (the thing is another board type's); 429 `rate_limited` after 20 in an hour by one person; 502
+`certificate_mismatch` if AWS IoT ever issued a certificate for another key, which is then retired and not handed out.
+
+Each registration is on record in the activity log as `device.register`. The console's API role may do only this in
+AWS IoT: create and update things named `cranium-*`, put them in the stack's device group, have a certificate issued
+from a request, attach and detach certificates and the device policy, make old ones inactive and delete them, and read
+the endpoint.
 
 ## 6. Update it to the current firmware
 
@@ -274,11 +340,12 @@ themselves.
 
 | What you see | What to do |
 | --- | --- |
-| The build stops about the signing key | You don't have `~/.cranium/mcuboot_signing_key.pem`. Get the team key; don't generate a new one, or no existing board will accept your images |
-| `golden.py check` fails | Your golden file isn't the frozen one. Copy `binaries/golden/` from the key holder |
+| The build stops about the signing key | To set up a board, you need none: `scripts/firmware/build.sh --keep --no-upload --without-key`, which `new-board.sh` runs for you. To build releases, get the team key; don't generate a new one, or no existing board will accept your images |
+| `golden.py check` fails | Your golden file isn't the frozen one: `git checkout -- binaries/golden` |
+| Provisioning says the board was registered before | It was wiped since. Run it again with `--new-identity`, which retires the old certificate |
 | The gesture gives three slow blinks and `refused` | Neither copy is the pinned golden image. Run step 4's `restore` again |
 | Provisioning can't find the network | Usually the hotspot isn't on, or its name differs by a character. Keep the phone on the hotspot screen, and check the name with `python tools/secrets.py wifi` |
-| Provisioning fails at AWS | Your AWS sign-in has expired, or isn't an administrator's. Run `aws login` again |
+| Provisioning fails at AWS | Your AWS sign-in has expired, or isn't an administrator's. Run `aws login` again, or provision through the console: `--via console` with a console token |
 | The board is offline afterwards | Usually the hotspot: give it a few minutes. `python tools/provision_device.py --wifi` sends the network again |
 | You need to start over | `west flash --recover` and begin at step 3. Provisioning again needs `--new-identity` |
 | A script says `$'\r': command not found` | The checkout has CRLF line endings. Clone again as in [Line endings](#line-endings) |
@@ -305,7 +372,7 @@ above:
 
 | Step | On an nRF5340 DK |
 | --- | --- |
-| What you need | No Wi-Fi secrets and no golden image. The AWS sign-in and `cloud/.deploy/outputs.json` as above, and a console token (`CRANIUM_TOKEN` or `~/.cranium/console-token`, from the console's Tokens page) for its passkey |
+| What you need | No Wi-Fi secrets and no golden image. A release manager's console token (`CRANIUM_TOKEN` or `~/.cranium/console-token`), which registers it through the console and gets its passkey; or the AWS sign-in and `cloud/.deploy/outputs.json` as above, with the token for its passkey |
 | 1. Check the key | `python tools/keys.py check` only. There is no golden image for this board, so skip `golden.py check` |
 | 2. Build | `scripts/firmware/build.sh --board nrf5340dk --keep --no-upload`. It builds in `build-nrf5340dk/` and leaves `binaries/cranium-nrf5340dk-<version>-0.signed.bin` |
 | 3. Flash, erasing the chip | `west flash -d build-nrf5340dk --recover`, by the DK's USB port (J2). It writes the bootloader, TF-M with the application, and the Bluetooth controller on the network core, the one part that only USB can ever change. LED1 then flashes long every 2 seconds: factory mode |
