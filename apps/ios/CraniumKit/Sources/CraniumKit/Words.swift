@@ -1130,6 +1130,9 @@ public enum Words {
                                         triedAlone: "tried to switch off a customer account", icon: "ban"),
         "customer.enable": AuditAction(done: "switched on the customer account of", tried: "tried to switch on the customer account of",
                                        triedAlone: "tried to switch on a customer account", icon: "check"),
+        // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
+        "device.register": AuditAction(done: "registered", doneAlone: "registered a board", tried: "tried to register",
+                                       triedAlone: "tried to register a board", icon: "chip"),
     ]
 
     /// The customer actions whose target is a board, and whose sentence ends with the customer.
@@ -1305,6 +1308,12 @@ public enum Words {
         "not_assigned": "That board was not that customer’s",
         "not_your_board": "That customer has no such board",
         "unavailable": "The account could not be checked just then",
+        "invalid_id": "Not a board’s identifier of 16 hex digits",
+        "invalid_csr": "Not a certificate signing request a board makes",
+        "csr_mismatch": "The signing request is for another board",
+        "already_registered": "That board has a certificate already",
+        "board_mismatch": "That board is registered as another type",
+        "certificate_mismatch": "AWS IoT issued a certificate for another key",
     ]
 
     struct AuditDetail {

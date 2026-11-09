@@ -307,6 +307,13 @@ const ROUTES = [
     phone: true,
     body: { cmd: 'identify' },
   },
+  // Provisioning through the console: a release manager's, on the website or with a token, never a phone's.
+  {
+    route: 'POST /api/devices/register',
+    status: 200,
+    phone: false,
+    body: { id: '00000000000000aa', board: 'nrf5340dk' },
+  },
   { route: 'GET /api/alerts', status: 200, phone: true },
   { route: 'POST /api/alerts/subscribe', status: 202, phone: true, body: {} },
   // Nobody has subscribed in this world: the console's session gets as far as looking.

@@ -176,6 +176,11 @@ object AuditText {
             "switched on the customer account of", "tried to switch on the customer account of",
             "tried to switch on a customer account", Glyph.CHECK,
         ),
+        // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
+        "device.register" to Action(
+            "registered", "tried to register", "tried to register a board", Glyph.CHIP,
+            doneAlone = "registered a board",
+        ),
     )
 
     /** The customer actions whose target is a board, and whose sentence ends with the customer. */
@@ -369,6 +374,12 @@ object AuditText {
         "not_assigned" to "That board was not that customer’s",
         "not_your_board" to "That customer has no such board",
         "unavailable" to "The account could not be checked just then",
+        "invalid_id" to "Not a board’s identifier of 16 hex digits",
+        "invalid_csr" to "Not a certificate signing request a board makes",
+        "csr_mismatch" to "The signing request is for another board",
+        "already_registered" to "That board has a certificate already",
+        "board_mismatch" to "That board is registered as another type",
+        "certificate_mismatch" to "AWS IoT issued a certificate for another key",
     )
 
     private val REVOCATION_STEPS = mapOf(

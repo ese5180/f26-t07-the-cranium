@@ -7,6 +7,22 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.6.1
+
+A release manager can register a new board through the console, with a console token or from the website, so that setting up a board needs no sign-in to the AWS account.
+
+`POST /api/devices/register` (and `/api/t/devices/register` with a token; handlers/provision.mjs): `{ id, csr,
+reregister }` in, `{ thing, certificatePem, rootCa, endpoint, downloadPrefix }` out. The board's certificate signing
+request must be an ECDSA P-256 key's, signed by that key, for CN=cranium-<id>; the board's private key never leaves
+it. The console creates the thing in the stack's group, has AWS IoT issue a certificate for the request (checked to be
+for that key before anything is attached), gives it the device policy and attaches it to the thing alone. A thing that
+has a certificate already is refused unless `reregister` is true, which retires its old certificates, as
+`provision_device.py` does. `{ id, board: "nrf5340dk" }` registers a Bluetooth-only board without a certificate.
+Release managers only, never from a phone; on record as `device.register`; at most 20 an hour a person. The API role
+gains only the IoT actions this takes, on `thing/cranium-*`, the device group and certificates
+(aws-provision.mjs, template.yaml `RegisterBoards` to `IssueBoardCertificates`); the function is told the device
+policy and the download prefix. `tools/provision_device.py` and `scripts/board/new-board.sh` use the route when there
+is a console token and no AWS sign-in (docs/new-board-setup.md).
 ## 2.6.0
 
 The console shows what Memfault knows: a Memfault page with the boards' issues, each issue with its traces, backtraces and registers, and on each board's page its reboots with their reasons, its update events and its issues.

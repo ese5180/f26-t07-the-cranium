@@ -30,6 +30,12 @@ const PATTERNS = Object.freeze({
   // the phone apps are configured with (GET /api/apps/config, apps/config/cranium.json).
   CONSOLE_URL: /^https:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::\d{1,5})?\/?$/,
   LOGIN_DOMAIN: /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/,
+  // Provisioning through the console (handlers/provision.mjs): the device policy a board's certificate gets,
+  // and the one prefix a board may download firmware from, as the stack's outputs DevicePolicyName and
+  // FirmwareDownloadPrefix have them.
+  DEVICE_POLICY: /^[\w+=.@-]{1,128}$/,
+  FIRMWARE_DOWNLOAD_PREFIX:
+    /^https:\/\/[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\.s3\.[a-z]{2}(?:-[a-z]+)+-\d{1,2}\.amazonaws\.com\/firmware\/$/,
 });
 
 // Memfault (docs/memfault.md), for a board's page: the slugs of the link to a board in Memfault. Each may
@@ -105,6 +111,9 @@ export function loadConfig(env = process.env) {
     // Without the slash at the end, as apps/configure.sh writes it.
     consoleUrl: read(env, 'CONSOLE_URL').replace(/\/$/, ''),
     loginDomain: read(env, 'LOGIN_DOMAIN'),
+    // What a board is given when it is registered through the console (handlers/provision.mjs).
+    devicePolicy: read(env, 'DEVICE_POLICY'),
+    firmwareDownloadPrefix: read(env, 'FIRMWARE_DOWNLOAD_PREFIX'),
     // '' without live updates.
     liveUrl: optional(env, 'LIVE_URL', LIVE_URL),
     // The link to a board in Memfault, when both are set (lib/memfault.mjs).

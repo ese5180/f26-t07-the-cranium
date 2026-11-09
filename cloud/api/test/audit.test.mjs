@@ -150,6 +150,7 @@ test('an audit item carries who, what, when and how it ended', () => {
     'customer.unassign',
     'customer.disable',
     'customer.enable',
+    'device.register',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });

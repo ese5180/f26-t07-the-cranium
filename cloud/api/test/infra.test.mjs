@@ -1072,3 +1072,43 @@ test("the phone apps' bundle has a route of its own to the web function, public 
   assert.ok(Number(/ThrottlingBurstLimit: (\d+)/.exec(settings)[1]) > 0);
   assert.ok(Number(/ThrottlingRateLimit: (\d+)/.exec(settings)[1]) > 0);
 });
+
+test('provisioning through the console: the IoT actions it needs, on the boards, their certificates and this group only', () => {
+  const role = block(template, 'ApiRole');
+  const actions = (sid) =>
+    [...statement(role, sid).matchAll(/^\s*- (iot:\w+)$|Action: (iot:\w+)$/gm)].map((m) => m[1] ?? m[2]);
+  const thing = "'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'";
+  const cert = "'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:cert/*'";
+
+  assert.deepEqual(actions('RegisterBoards'), ['iot:CreateThing', 'iot:UpdateThing']);
+  assert.ok(statement(role, 'RegisterBoards').includes(`Resource: !Sub ${thing}`));
+  assert.deepEqual(actions('PutBoardsInTheGroup'), ['iot:AddThingToThingGroup']);
+  assert.ok(statement(role, 'PutBoardsInTheGroup').includes('- !GetAtt DeviceGroup.Arn'));
+  assert.deepEqual(actions('AttachBoardCertificates'), ['iot:AttachThingPrincipal', 'iot:DetachThingPrincipal']);
+  assert.deepEqual(actions('ManageBoardCertificates'), [
+    'iot:AttachPolicy',
+    'iot:DetachPolicy',
+    'iot:UpdateCertificate',
+    'iot:DeleteCertificate',
+  ]);
+  assert.ok(statement(role, 'ManageBoardCertificates').includes(`Resource: !Sub ${cert}`));
+  // Only the two that IAM cannot limit to a resource are on '*'.
+  assert.deepEqual(actions('IssueBoardCertificates'), ['iot:CreateCertificateFromCsr', 'iot:DescribeEndpoint']);
+  assert.ok(statement(role, 'IssueBoardCertificates').includes("Resource: '*'"));
+  // Nothing that makes a policy, a CA, a key pair, or deletes a thing.
+  for (const never of [
+    'iot:CreatePolicy',
+    'iot:CreateKeysAndCertificate',
+    'iot:RegisterCACertificate',
+    'iot:DeleteThing',
+    'iot:*',
+  ]) {
+    assert.equal(role.includes(never), false, never);
+  }
+  const variables = block(block(template, 'ApiFn'), 'Variables', 8);
+  assert.ok(variables.includes('DEVICE_POLICY: !Ref DevicePolicy'));
+  const prefix = "!Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com/firmware/'";
+  assert.ok(variables.includes(`FIRMWARE_DOWNLOAD_PREFIX: ${prefix}`));
+  // The same prefix as the output provision_device.py reads.
+  assert.ok(block(template, 'FirmwareDownloadPrefix').includes(prefix));
+});

@@ -1864,6 +1864,49 @@ Resources:
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref MemfaultOrgToken
+              # Provisioning through the console (POST /api/devices/register, handlers/provision.mjs): what
+              # tools/provision_device.py does with an administrator's sign-in, for a release manager. Things
+              # named like the boards only, into this stack's group only. The handler gives a certificate the
+              # device policy of this stack alone (DEVICE_POLICY); IAM cannot name the policy for AttachPolicy,
+              # whose resource is the certificate.
+              - Sid: RegisterBoards
+                Effect: Allow
+                Action:
+                  - iot:CreateThing
+                  - iot:UpdateThing
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              - Sid: PutBoardsInTheGroup
+                Effect: Allow
+                Action: iot:AddThingToThingGroup
+                Resource:
+                  - !GetAtt DeviceGroup.Arn
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+              - Sid: AttachBoardCertificates
+                Effect: Allow
+                Action:
+                  - iot:AttachThingPrincipal
+                  - iot:DetachThingPrincipal
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thing/cranium-*'
+                  - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:cert/*'
+              # A certificate's policy and status: a new one gets the device policy; a board's earlier ones,
+              # when it is registered again, lose it and are made inactive and deleted.
+              - Sid: ManageBoardCertificates
+                Effect: Allow
+                Action:
+                  - iot:AttachPolicy
+                  - iot:DetachPolicy
+                  - iot:UpdateCertificate
+                  - iot:DeleteCertificate
+                Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:cert/*'
+              # Neither can be limited to a resource: a certificate from a board's own request, and the
+              # account's AWS IoT endpoint, which the board is told.
+              - Sid: IssueBoardCertificates
+                Effect: Allow
+                Action:
+                  - iot:CreateCertificateFromCsr
+                  - iot:DescribeEndpoint
+                Resource: '*'
 
   ApiFn:
     Type: AWS::Lambda::Function
@@ -1915,6 +1958,11 @@ Resources:
           CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
           # The live API's WebSocket in that configuration too (docs/live.md): the LiveUrl output.
           LIVE_URL: !Sub '${LiveApi.ApiEndpoint}/${LiveStage}'
+          # Provisioning through the console (handlers/provision.mjs): the policy a board's certificate gets,
+          # and the one prefix it may download firmware from, as the outputs DevicePolicyName and
+          # FirmwareDownloadPrefix have them.
+          DEVICE_POLICY: !Ref DevicePolicy
+          FIRMWARE_DOWNLOAD_PREFIX: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com/firmware/'
 
   # ---------------------------------------------------------------------------------
   # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own
