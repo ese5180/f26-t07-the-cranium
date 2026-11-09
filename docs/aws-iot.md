@@ -955,13 +955,17 @@ aws login --profile cranium                     # browser sign-in, up to 12 hour
 export AWS_PROFILE=cranium AWS_REGION=us-east-1
 
 scripts/console/open-console.sh                         # sign in, deploy if needed, open the console
-cloud/deploy.sh                                 # create or update the stacks
+cloud/deploy.sh                                 # create or update the stacks (the owner's fallback)
 cloud/users.sh add <email> release-manager      # the person gets an invitation by e-mail
 cloud/smoke.sh                                  # checks that do not need a sign-in
 
 python3 tools/secrets.py wifi                   # once per machine, see secrets/README.md
 python3 tools/provision_device.py               # once per board
 ```
+
+Deploying is done from GitHub Actions now, with no AWS sign-in: Actions → Deploy console → Run workflow, then the
+owner approves the run ([docs/ci.md](ci.md#deploying-the-console-from-github-actions)). `cloud/deploy.sh` above is the
+owner's fallback, and the way to give it parameters or `--replace-signing-key`.
 
 A session can end sooner than that: one on 2026-11-01 ended after about 2 hours and 20 minutes. A long
 bench run that needs AWS stops when it does.

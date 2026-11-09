@@ -15,7 +15,8 @@ sign-in opens the same console at https://craniumiot.com/admin, and
 https://www.craniumiot.com sends the browser to the bare name. All four of the team are
 release managers.
 
-It is two CloudFormation stacks, deployed with the AWS CLI:
+It is two CloudFormation stacks, deployed with the AWS CLI, by the Deploy console workflow of GitHub Actions or
+from the owner's laptop ([Deploy](#deploy)):
 
 - `cranium-ota-bootstrap` (`infra/bootstrap.yaml`): the bucket that the Lambda code is
   uploaded to.
@@ -170,6 +171,17 @@ customers and boards can be prepared first; no invitation goes out until the sit
 address. `CustomerSelfSignUp` stays `false`: customers are invited from the Customers page.
 
 ## Deploy
+
+**From GitHub Actions**, which needs no access to the AWS account: Actions → **Deploy console** → **Run
+workflow** on `main`, then wait for the owner to approve the run. Pushing a tag `console-v<version>` starts it too.
+The workflow assumes the role of [`infra/github-deploy.yaml`](infra/github-deploy.yaml) over OIDC and runs
+`cloud/deploy.sh`, exactly as below. The owner's one-time steps (the role's stack, the repository variables
+`AWS_DEPLOY_ROLE_ARN` and `AWS_REGION`, the `production` environment with the owner as required reviewer, limited to
+`main` and `console-v*` tags) and what replaces `~/.cranium` on the runner are in
+[docs/ci.md](../docs/ci.md#deploying-the-console-from-github-actions).
+
+**From the owner's laptop**, the fallback, and the way to give template parameters or `--replace-signing-key`,
+which the workflow does not take:
 
 ```sh
 cloud/deploy.sh
@@ -681,6 +693,7 @@ infra/bootstrap.yaml   the artifacts bucket
 infra/template.yaml    the console: API, sign-in, storage, AWS IoT
 infra/budget.yaml      cost alert, separate stack
 infra/trail.yaml       record of what is done in the account, separate stack
+infra/github-deploy.yaml  the role the Deploy console workflow assumes, separate stack (docs/ci.md)
 api/                   the API function (src/) and its tests (test/); verify-audit.mjs,
                        which compares the activity log with its digests, and verify-image.mjs,
                        which makes the console's check on an image, are not deployed;

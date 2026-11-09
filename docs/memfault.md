@@ -169,7 +169,10 @@ or a new machine. Never put the project key, the token or the slugs in the repos
 3. **The slugs**, from the address of the project in Memfault (`/organizations/<org>/projects/<project>`), in
    `~/.cranium/memfault.json`, which is not a secret: `{"org": "<org>", "project": "<project>"}`.
 4. **The command:** `pip install memfault-cli`.
-5. **The cloud first:** `AWS_PROFILE=cranium cloud/deploy.sh`. It stores the project key in the secret (by the file's
+5. **The cloud first:** run the Deploy console workflow, with the project key as the `production` environment secret
+   `MEMFAULT_PROJECT_KEY` and the slugs as the repository variables `MEMFAULT_ORG_SLUG` and `MEMFAULT_PROJECT_SLUG`
+   ([docs/ci.md](ci.md#deploying-the-console-from-github-actions)), or, on the owner's laptop,
+   `AWS_PROFILE=cranium cloud/deploy.sh`, which reads the files above. Either way it stores the project key in the secret (by the file's
    SHA-256, so running it again adds no version, and it never prints the key), passes the slugs, and gives the device
    policy the memfault topic. Add `MemfaultChunksHost=chunks.memfault.com` if the project was not made through nRF
    Cloud. Every board needs that policy before it runs 1.14.0; without it the board stops sending after two tries and

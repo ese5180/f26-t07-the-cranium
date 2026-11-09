@@ -16,7 +16,7 @@ brings up to date from the console by itself, on any network ([The app shell](..
 
 | Changes | Reaches the phones | How |
 | --- | --- | --- |
-| Anything on the screens: pages, words, the Bluetooth update flow, the sign-in pages | At the app's next start, anywhere, free | Deploy the console (`cloud/deploy.sh`); each app checks every file against its SHA-256 before it uses it |
+| Anything on the screens: pages, words, the Bluetooth update flow, the sign-in pages | At the app's next start, anywhere, free | Deploy the console (Actions → Deploy console, or `cloud/deploy.sh` on the owner's laptop: [docs/ci.md](../docs/ci.md#deploying-the-console-from-github-actions)); each app checks every file against its SHA-256 before it uses it |
 | The native shell: what the bridge can do (Bluetooth, Face ID and the fingerprint, the clipboard, sharing), the web view | Only with a new app | Android: the app updates itself, as below. iPhone: SideStore, or `renew.sh` from the Mac |
 
 When the console's pages need more than an app's bridge offers, that app keeps the pages it has and its settings say it

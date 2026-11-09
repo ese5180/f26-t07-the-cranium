@@ -1,0 +1,95 @@
+# Deploys the firmware console with cloud/deploy.sh, the way the owner does it from a laptop, so that
+# teammates can deploy with no access to the AWS account. How it is set up and used: docs/ci.md,
+# "Deploying the console from GitHub Actions".
+#
+# Every run waits in the production environment until the owner approves it, and that environment only
+# accepts main and console-v* tags. The job gets short-lived AWS credentials over OIDC for the role of
+# cloud/infra/github-deploy.yaml, whose trust policy names this repository and this environment and
+# nothing else. No AWS key is stored in GitHub.
+
+name: Deploy console
+
+on:
+  # "Use workflow from" chooses the branch or tag to deploy.
+  workflow_dispatch:
+  push:
+    tags:
+      - 'console-v*'
+
+permissions:
+  contents: read
+
+# One deployment at a time; a second one waits rather than cancelling a stack update halfway.
+concurrency:
+  group: deploy-console
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  deploy:
+    name: Deploy the console
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The console's History page and its version are built from the commits.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22' # As in CI.
+
+      - name: Check the repository variables
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          if [ -z "$ROLE_ARN" ] || [ -z "$AWS_REGION" ]; then
+            echo "::error::Set the repository variables AWS_DEPLOY_ROLE_ARN and AWS_REGION (docs/ci.md)."
+            exit 1
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: deploy-console-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+
+      # cloud/deploy.sh stores ~/.cranium/memfault_project_key in the stack's secret when the file is
+      # there, and leaves the stored key alone when it is not. The secret goes from the environment to a
+      # file only the runner's user can read; it is never echoed, and GitHub masks it in the log.
+      - name: Write the Memfault project key, if one is set
+        env:
+          MEMFAULT_PROJECT_KEY: ${{ secrets.MEMFAULT_PROJECT_KEY }}
+        run: |
+          if [ -z "$MEMFAULT_PROJECT_KEY" ]; then
+            echo "No MEMFAULT_PROJECT_KEY secret: the key stored in the stack stays as it is."
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$HOME/.cranium"
+          printf '%s' "$MEMFAULT_PROJECT_KEY" > "$HOME/.cranium/memfault_project_key"
+
+      # deploy.sh runs the api and web tests first and deploys nothing if they fail. The Memfault slugs
+      # are not secrets; when the variables are empty the stack keeps the ones it has.
+      - name: Deploy
+        env:
+          MEMFAULT_ORG_SLUG: ${{ vars.MEMFAULT_ORG_SLUG }}
+          MEMFAULT_PROJECT_SLUG: ${{ vars.MEMFAULT_PROJECT_SLUG }}
+        run: cloud/deploy.sh
+
+      - name: Remove the Memfault project key
+        if: always()
+        run: rm -f "$HOME/.cranium/memfault_project_key"

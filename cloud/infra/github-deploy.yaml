@@ -1,0 +1,491 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Cranium firmware console - the role that the "Deploy console" workflow of GitHub Actions
+  assumes to run cloud/deploy.sh. Deployed once by the account's owner, like bootstrap.yaml;
+  nobody else then needs access to the AWS account. See docs/ci.md, "Deploying the console
+  from GitHub Actions".
+
+# How it is deployed (once, and again only when this file changes):
+#
+#   aws cloudformation deploy --stack-name cranium-github-deploy \
+#     --template-file cloud/infra/github-deploy.yaml --capabilities CAPABILITY_NAMED_IAM
+#
+# What the role may do is what cloud/deploy.sh does, and no more: CloudFormation on the
+# console's two stacks, S3 on their buckets, IAM on the roles those stacks make, and the
+# Lambda, API Gateway, Cognito, DynamoDB, IoT, EventBridge, SNS, Secrets Manager and
+# CloudWatch Logs actions that CloudFormation takes for template.yaml. Names are limited to
+# the console stack's prefix wherever AWS allows it; each statement that cannot be limited
+# says why. Nothing here touches billing, organizations, CloudTrail (cloud/trail.sh) or IAM
+# outside the stack's own roles, and the role cannot change itself or this stack.
+#
+# The ceiling, said plainly: CloudFormation makes the console's roles with inline policies
+# that template.yaml writes, so a run of a changed template could make a role under the
+# stack's prefix with wider rights. That is why every run waits for the owner's approval in
+# the GitHub environment, and why the environment only accepts main and console-v* tags.
+
+Parameters:
+  ConsoleStackName:
+    Type: String
+    Default: cranium-ota
+    AllowedPattern: '^[a-z][a-z0-9-]{0,40}$'
+    Description: >-
+      The console's stack, as STACK in cloud/deploy.sh. Its bootstrap stack is this name
+      followed by -bootstrap.
+  GitHubRepository:
+    Type: String
+    Default: ese5180/f26-t07-the-cranium
+    AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Description: owner/name of the repository whose workflow may assume the role.
+  GitHubEnvironment:
+    Type: String
+    Default: production
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+    Description: >-
+      The GitHub environment the workflow job runs in. Only a job in this environment gets
+      the role, and the environment is where the owner approves each run.
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: >-
+      Leave empty to create the GitHub OIDC identity provider here. An account has at most
+      one provider for token.actions.githubusercontent.com: if it exists already (aws iam
+      list-open-id-connect-providers), give its ARN.
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref ExistingOidcProviderArn, '']
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # Fixed and outside the console stack's prefix, so that the role's own rights on
+      # "${ConsoleStackName}-*" roles never include itself.
+      RoleName: cranium-github-deploy
+      Description: Assumed by the Deploy console workflow of GitHub Actions to run cloud/deploy.sh.
+      # A deployment takes a few minutes; two creations in a row (the stack, then deletion
+      # protection) stay well inside an hour.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: GitHubProductionEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'
+      ManagedPolicyArns:
+        - !Ref StackPolicy
+        - !Ref RolesAndFunctionsPolicy
+        - !Ref ServicesPolicy
+
+  # CloudFormation, the package bucket, and the calls cloud/deploy.sh makes itself.
+  StackPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Cranium console deployment - stacks, buckets and the direct calls of cloud/deploy.sh.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ConsoleStacks
+            Effect: Allow
+            Action:
+              - cloudformation:CreateChangeSet
+              - cloudformation:DescribeChangeSet
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:ListChangeSets
+              - cloudformation:DescribeStacks
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResource
+              - cloudformation:DescribeStackResources
+              - cloudformation:GetTemplate
+              # Only for a stack whose first creation failed (ROLLBACK_COMPLETE), which
+              # deploy.sh deletes before it tries again.
+              - cloudformation:DeleteStack
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ConsoleStackName}/*'
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ConsoleStackName}-bootstrap/*'
+          - Sid: TemplateChecks
+            Effect: Allow
+            Action:
+              - cloudformation:GetTemplateSummary
+              - cloudformation:ValidateTemplate
+            # Cannot be limited: these two read a template, not a stack, and take no resource.
+            Resource: '*'
+          - Sid: StackBuckets
+            Effect: Allow
+            Action:
+              - s3:CreateBucket
+              - s3:DeleteBucket
+              - s3:ListBucket
+              - s3:GetBucketLocation
+              - s3:GetBucketAcl
+              - s3:PutBucketVersioning
+              - s3:GetBucketVersioning
+              - s3:PutBucketPublicAccessBlock
+              - s3:GetBucketPublicAccessBlock
+              - s3:PutBucketPolicy
+              - s3:GetBucketPolicy
+              - s3:DeleteBucketPolicy
+              - s3:PutEncryptionConfiguration
+              - s3:GetEncryptionConfiguration
+              - s3:PutBucketOwnershipControls
+              - s3:GetBucketOwnershipControls
+              - s3:PutBucketTagging
+              - s3:GetBucketTagging
+              - s3:PutBucketCORS
+              - s3:GetBucketCORS
+              - s3:PutLifecycleConfiguration
+              - s3:GetLifecycleConfiguration
+            # CloudFormation names a bucket after its stack: both stacks' buckets start
+            # with the console stack's name.
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ConsoleStackName}-*'
+          - Sid: PackageUploads
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+            # "aws cloudformation package" uploads the code here, and CloudFormation and
+            # Lambda read it back as the caller. Only the bootstrap stack's bucket.
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ConsoleStackName}-bootstrap-artifactsbucket-*/${ConsoleStackName}/*'
+          - Sid: AccountReads
+            Effect: Allow
+            Action:
+              # deploy.sh step 1: the Lambda concurrency limit.
+              - lambda:GetAccountSettings
+              # deploy.sh step 7: the AWS IoT data endpoint for outputs.json.
+              - iot:DescribeEndpoint
+              # deploy.sh step 5: whether AWS IoT logging is switched on already.
+              - iot:GetV2LoggingOptions
+            # Cannot be limited: account settings, with no resource of their own.
+            Resource: '*'
+          - Sid: IotLoggingSetting
+            Effect: Allow
+            # AWS::IoT::Logging in template.yaml. Cannot be limited: AWS IoT logging is one
+            # setting per account and Region, with no resource.
+            Action: iot:SetV2LoggingOptions
+            Resource: '*'
+          - Sid: ListLogGroups
+            Effect: Allow
+            # deploy.sh step 7 looks for AWSIotLogsV2, and CloudFormation reads groups back.
+            # Cannot be limited by name: describing log groups is authorized on all groups.
+            Action: logs:DescribeLogGroups
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+          - Sid: IotLogRetention
+            Effect: Allow
+            # deploy.sh step 7: AWS IoT's own log group, whose name AWS IoT chooses.
+            Action:
+              - logs:CreateLogGroup
+              - logs:PutRetentionPolicy
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:AWSIotLogsV2*'
+          - Sid: MemfaultProjectKeySecret
+            Effect: Allow
+            Action:
+              # CloudFormation (MemfaultProjectKey in template.yaml).
+              - secretsmanager:CreateSecret
+              - secretsmanager:DeleteSecret
+              - secretsmanager:UpdateSecret
+              - secretsmanager:TagResource
+              - secretsmanager:UntagResource
+              # deploy.sh step 7, when a Memfault project key is given. Never GetSecretValue:
+              # the role stores the key and cannot read it back.
+              - secretsmanager:DescribeSecret
+              - secretsmanager:PutSecretValue
+              - secretsmanager:UpdateSecretVersionStage
+            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ConsoleStackName}/memfault-project-key-*'
+
+  # The roles of the console's functions, the functions, and their logs.
+  RolesAndFunctionsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Cranium console deployment - the stack's own IAM roles, Lambda functions and log groups.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: StackRoles
+            Effect: Allow
+            # Only roles named after the console stack, which is how CloudFormation names
+            # the roles of template.yaml (none has a RoleName). No AttachRolePolicy: the
+            # template attaches no managed policy, so no AWS managed policy can be attached
+            # either.
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:GetRole
+              - iam:UpdateRole
+              - iam:UpdateRoleDescription
+              - iam:UpdateAssumeRolePolicy
+              - iam:PutRolePolicy
+              - iam:GetRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListAttachedRolePolicies
+              - iam:TagRole
+              - iam:UntagRole
+              - iam:ListRoleTags
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ConsoleStackName}-*'
+          - Sid: PassStackRoles
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ConsoleStackName}-*'
+            # To the functions, and to AWS IoT for its logging and the topic rule's error log.
+            Condition:
+              StringEquals:
+                iam:PassedToService:
+                  - lambda.amazonaws.com
+                  - iot.amazonaws.com
+          - Sid: StackFunctions
+            Effect: Allow
+            Action:
+              - lambda:CreateFunction
+              - lambda:DeleteFunction
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:UpdateFunctionCode
+              - lambda:UpdateFunctionConfiguration
+              - lambda:ListVersionsByFunction
+              - lambda:GetRuntimeManagementConfig
+              - lambda:GetFunctionCodeSigningConfig
+              - lambda:GetFunctionRecursionConfig
+              - lambda:TagResource
+              - lambda:UntagResource
+              - lambda:ListTags
+              - lambda:AddPermission
+              - lambda:RemovePermission
+              - lambda:GetPolicy
+              - lambda:PutFunctionEventInvokeConfig
+              - lambda:UpdateFunctionEventInvokeConfig
+              - lambda:DeleteFunctionEventInvokeConfig
+              - lambda:GetFunctionEventInvokeConfig
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ConsoleStackName}-*'
+          - Sid: StackEventSourceMappings
+            Effect: Allow
+            Action:
+              - lambda:CreateEventSourceMapping
+              - lambda:UpdateEventSourceMapping
+              - lambda:DeleteEventSourceMapping
+            # A mapping is named by a generated id, so it is limited by the function it
+            # feeds instead.
+            Resource: '*'
+            Condition:
+              ArnLike:
+                lambda:FunctionArn: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ConsoleStackName}-*'
+          - Sid: ReadEventSourceMappings
+            Effect: Allow
+            Action:
+              - lambda:GetEventSourceMapping
+              - lambda:ListEventSourceMappings
+            # Cannot be limited: mappings have generated ids and these reads take no
+            # function condition. They only read.
+            Resource: '*'
+          - Sid: ApiAccessLogDelivery
+            Effect: Allow
+            # What API Gateway needs from the caller to send an HTTP API's access log to
+            # CloudWatch Logs (AccessLogSettings). Cannot be limited: log deliveries and
+            # the account's log resource policy have no resource of their own.
+            Action:
+              - logs:CreateLogDelivery
+              - logs:GetLogDelivery
+              - logs:UpdateLogDelivery
+              - logs:DeleteLogDelivery
+              - logs:ListLogDeliveries
+              - logs:PutResourcePolicy
+              - logs:DescribeResourcePolicies
+            Resource: '*'
+          - Sid: StackLogGroups
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:DeleteLogGroup
+              - logs:PutRetentionPolicy
+              - logs:DeleteRetentionPolicy
+              - logs:TagResource
+              - logs:UntagResource
+              - logs:ListTagsForResource
+              - logs:TagLogGroup
+              - logs:UntagLogGroup
+              - logs:ListTagsLogGroup
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ConsoleStackName}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/apigateway/${ConsoleStackName}-*'
+              - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/iot/${ConsoleStackName}-*'
+
+  # The other services of template.yaml.
+  ServicesPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Cranium console deployment - API Gateway, Cognito, DynamoDB, IoT, EventBridge and SNS.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: HttpApis
+            Effect: Allow
+            Action:
+              - apigateway:GET
+              - apigateway:POST
+              - apigateway:PUT
+              - apigateway:PATCH
+              - apigateway:DELETE
+              - apigateway:TagResource
+              - apigateway:UntagResource
+            # Cannot be limited to the stack: an API's ARN holds its generated id, not its
+            # name. Limited to HTTP APIs, their custom domain names and tags; the REST
+            # APIs' account settings (/account) are not included.
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/apis/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/domainnames/*'
+              - !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/*'
+          - Sid: CreateUserPools
+            Effect: Allow
+            # Cannot be limited: a pool's ARN holds its generated id, which does not exist
+            # before it is created; a domain is looked up by its name alone.
+            Action:
+              - cognito-idp:CreateUserPool
+              - cognito-idp:DescribeUserPoolDomain
+            Resource: '*'
+          - Sid: StackUserPools
+            Effect: Allow
+            Action:
+              - cognito-idp:DeleteUserPool
+              - cognito-idp:DescribeUserPool
+              - cognito-idp:UpdateUserPool
+              - cognito-idp:SetUserPoolMfaConfig
+              - cognito-idp:GetUserPoolMfaConfig
+              - cognito-idp:CreateUserPoolClient
+              - cognito-idp:DeleteUserPoolClient
+              - cognito-idp:DescribeUserPoolClient
+              - cognito-idp:UpdateUserPoolClient
+              - cognito-idp:CreateUserPoolDomain
+              - cognito-idp:DeleteUserPoolDomain
+              - cognito-idp:UpdateUserPoolDomain
+              - cognito-idp:CreateGroup
+              - cognito-idp:DeleteGroup
+              - cognito-idp:GetGroup
+              - cognito-idp:UpdateGroup
+              - cognito-idp:CreateResourceServer
+              - cognito-idp:DeleteResourceServer
+              - cognito-idp:DescribeResourceServer
+              - cognito-idp:UpdateResourceServer
+              - cognito-idp:CreateManagedLoginBranding
+              - cognito-idp:DeleteManagedLoginBranding
+              - cognito-idp:DescribeManagedLoginBranding
+              - cognito-idp:DescribeManagedLoginBrandingByClient
+              - cognito-idp:UpdateManagedLoginBranding
+              - cognito-idp:TagResource
+              - cognito-idp:UntagResource
+              - cognito-idp:ListTagsForResource
+            # Cannot be limited to the stack: pools are named by generated ids. No user
+            # actions (AdminCreateUser and the like): cloud/users.sh stays the owner's.
+            Resource: !Sub 'arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*'
+          - Sid: StackTables
+            Effect: Allow
+            Action:
+              - dynamodb:CreateTable
+              - dynamodb:DeleteTable
+              - dynamodb:DescribeTable
+              - dynamodb:UpdateTable
+              - dynamodb:DescribeContinuousBackups
+              - dynamodb:UpdateContinuousBackups
+              - dynamodb:DescribeTimeToLive
+              - dynamodb:UpdateTimeToLive
+              - dynamodb:DescribeContributorInsights
+              - dynamodb:DescribeKinesisStreamingDestination
+              - dynamodb:GetResourcePolicy
+              - dynamodb:DescribeStream
+              - dynamodb:TagResource
+              - dynamodb:UntagResource
+              - dynamodb:ListTagsOfResource
+            # No item reads or writes: the role builds the tables and never sees their data.
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConsoleStackName}-*'
+          - Sid: IotThingGroupAndPolicy
+            Effect: Allow
+            Action:
+              - iot:CreateThingGroup
+              - iot:DeleteThingGroup
+              - iot:DescribeThingGroup
+              - iot:UpdateThingGroup
+              - iot:CreatePolicy
+              - iot:DeletePolicy
+              - iot:GetPolicy
+              - iot:CreatePolicyVersion
+              - iot:DeletePolicyVersion
+              - iot:ListPolicyVersions
+              - iot:SetDefaultPolicyVersion
+              - iot:ListTargetsForPolicy
+              - iot:TagResource
+              - iot:UntagResource
+              - iot:ListTagsForResource
+            # The names template.yaml gives them (ThingGroupName, PolicyName), which do not
+            # carry the stack's prefix.
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:thinggroup/cranium-devices'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:policy/cranium-device'
+          - Sid: IotTopicRules
+            Effect: Allow
+            Action:
+              - iot:CreateTopicRule
+              - iot:DeleteTopicRule
+              - iot:GetTopicRule
+              - iot:ReplaceTopicRule
+              - iot:TagResource
+              - iot:UntagResource
+              - iot:ListTagsForResource
+            # Cannot be limited to the stack: a rule's name allows no dash, so the names
+            # CloudFormation generates for template.yaml's rules do not carry the stack's.
+            Resource: !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:rule/*'
+          - Sid: StackEventRules
+            Effect: Allow
+            Action:
+              - events:PutRule
+              - events:DeleteRule
+              - events:DescribeRule
+              - events:EnableRule
+              - events:DisableRule
+              - events:PutTargets
+              - events:RemoveTargets
+              - events:ListTargetsByRule
+              - events:TagResource
+              - events:UntagResource
+              - events:ListTagsForResource
+            Resource: !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${ConsoleStackName}-*'
+          - Sid: StackTopics
+            Effect: Allow
+            Action:
+              - sns:CreateTopic
+              - sns:DeleteTopic
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:ListSubscriptionsByTopic
+              - sns:TagResource
+              - sns:UntagResource
+              - sns:ListTagsForResource
+            Resource: !Sub 'arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${ConsoleStackName}-*'
+
+Outputs:
+  DeployRoleArn:
+    Description: >-
+      Set this as the repository variable AWS_DEPLOY_ROLE_ARN (Settings, Secrets and
+      variables, Actions, Variables).
+    Value: !GetAtt DeployRole.Arn
+  OidcProviderArn:
+    Description: The GitHub OIDC identity provider the role trusts.
+    Value: !If [CreateOidcProvider, !Ref GitHubOidcProvider, !Ref ExistingOidcProviderArn]
