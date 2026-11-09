@@ -22,6 +22,9 @@
 #include "image_compat.h"
 #include "mflt.h"
 #include "ota_job.h"
+#if defined(CONFIG_APP_PI_OTA)
+#include "pi_ota.h"
+#endif
 #include "store.h"
 #include "version.h"
 
@@ -121,6 +124,24 @@ static struct {
 
 /* See ota_stuck_progress(). The downloader's thread adds to it as well. */
 static atomic_t stuck_progress;
+
+#if defined(CONFIG_APP_PI_OTA)
+/*
+ * The order of a firmware update and a Pi image (docs/pi-ota.md, "Order"). AWS IoT hands out the
+ * oldest pending job first, whatever it is, so before a Pi image starts the board asks for the list
+ * of pending jobs. A firmware job in it goes first: the board marks it in progress, which puts it
+ * at the head of the list, and the Pi image stays queued until the firmware is done.
+ */
+static struct {
+	/* The Pi image job that the list was asked for. */
+	char asked[OTA_JOB_ID_MAX + 1];
+	int seconds_asked;
+	/* The list had no firmware job before this Pi image: it may start when it is next. */
+	char cleared[OTA_JOB_ID_MAX + 1];
+	/* The firmware job that was moved ahead of a Pi image: in progress, but not started. */
+	char promoted[OTA_JOB_ID_MAX + 1];
+} order;
+#endif
 
 static const char *const state_names[] = {
 	[OTA_IDLE] = "idle",
@@ -709,9 +730,92 @@ static bool same_image(const struct ota_job *a, const struct ota_job *b)
 	       memcmp(a->sha256, b->sha256, sizeof(a->sha256)) == 0;
 }
 
+#if defined(CONFIG_APP_PI_OTA)
+/* Ask for the list of pending jobs, to see whether firmware has to go before this Pi image. */
+static void ask_for_list(const char *pi_job_id)
+{
+	strncpy(order.asked, pi_job_id, sizeof(order.asked) - 1);
+	order.asked[sizeof(order.asked) - 1] = '\0';
+	order.seconds_asked = 0;
+	if (cloud_jobs_request_list() != 0) {
+		LOG_WRN("Could not ask for the list of jobs; will retry");
+	}
+}
+
+static void on_pi_job(const struct ota_job *incoming)
+{
+	/* The one under way, with a fresh URL, or one that a restart cut off: it goes on. */
+	if (pi_ota_owns(incoming->id) || (incoming->in_progress && !pi_ota_busy())) {
+		pi_ota_on_job(incoming);
+		return;
+	}
+
+	if (pi_ota_busy()) {
+		return;
+	}
+
+	/* A firmware update under way, or on trial: the Pi image stays queued until it is over. */
+	if (ota.state != OTA_IDLE) {
+		pi_ota_set_waiting(true);
+		return;
+	}
+
+	if (strcmp(order.cleared, incoming->id) == 0 || !cloud_jobs_list_available()) {
+		/* No firmware job before it, or no way to know: a cloud whose device policy is older
+		 * than 1.15.0 (cloud.h). Then the order is the cloud's.
+		 */
+		order.cleared[0] = '\0';
+		pi_ota_set_waiting(false);
+		pi_ota_on_job(incoming);
+		return;
+	}
+
+	ask_for_list(incoming->id);
+}
+
+/* The list of pending jobs, asked for by ask_for_list(). */
+static void on_job_list(enum ota_job_result result, const struct ota_job *firmware)
+{
+	if (order.asked[0] == '\0') {
+		return;
+	}
+
+	switch (result) {
+	case OTA_JOB_OK:
+		if (ota.state != OTA_IDLE) {
+			/* Busy already: the Pi image is asked about again when that is over. */
+			order.asked[0] = '\0';
+			pi_ota_set_waiting(true);
+			return;
+		}
+		/*
+		 * Firmware first. Marked in progress, it is the next job that the cloud names, and the
+		 * Pi image stays queued: nothing about it changes.
+		 */
+		LOG_INF("Firmware job %s goes before Pi image job %s", firmware->id, order.asked);
+		strncpy(order.promoted, firmware->id, sizeof(order.promoted) - 1);
+		order.asked[0] = '\0';
+		pi_ota_set_waiting(true);
+		(void)job_update(firmware->id, "IN_PROGRESS", TOKEN_NONE, NULL,
+				 "\"step\":\"before_pi_image\"");
+		(void)cloud_jobs_request_next();
+		break;
+	case OTA_JOB_NONE:
+		memcpy(order.cleared, order.asked, sizeof(order.cleared));
+		order.asked[0] = '\0';
+		(void)cloud_jobs_request_next();
+		break;
+	default:
+		/* Unreadable: the tick asks again. */
+		break;
+	}
+}
+#endif
+
 static void on_job(const struct ota_job *incoming)
 {
 	bool same_job = strcmp(incoming->id, ota.job.id) == 0;
+	bool promoted = false;
 	enum ota_job_result verdict;
 
 	/* The job whose outcome is about to be reported is not a new offer, and neither
@@ -721,6 +825,33 @@ static void on_job(const struct ota_job *incoming)
 	    strcmp(incoming->id, ota.closed_job_id) == 0) {
 		return;
 	}
+
+	if (incoming->kind == OTA_JOB_KIND_PI_IMAGE) {
+#if defined(CONFIG_APP_PI_OTA)
+		on_pi_job(incoming);
+#else
+		/* What a board without a Pi has always answered to a document it does not know. */
+		if (ota.state == OTA_IDLE) {
+			refuse_job(incoming->id, incoming->in_progress, "unsupported");
+		}
+#endif
+		return;
+	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	/* Another job is next while a Pi image is under way: the Pi image's job is gone. */
+	if (pi_ota_busy()) {
+		pi_ota_withdrawn();
+	}
+
+	promoted = order.promoted[0] != '\0' && strcmp(order.promoted, incoming->id) == 0;
+	if (promoted && ota.state == OTA_IDLE) {
+		/* Moved ahead of a Pi image: in progress by this board's hand, so new all the same. */
+		order.promoted[0] = '\0';
+	} else {
+		promoted = false;
+	}
+#endif
 
 	if (ota.state == OTA_REBOOTING && same_job) {
 		/* The last look: still in progress after the settle time means go. */
@@ -775,14 +906,15 @@ static void on_job(const struct ota_job *incoming)
 		return;
 	}
 
-	if (incoming->in_progress) {
+	if (incoming->in_progress && !promoted) {
 		settle_interrupted_job(incoming);
 		return;
 	}
 
 	verdict = ota_job_check(incoming, fw_version_running(), SECONDARY_SLOT_SIZE);
 	if (verdict != OTA_JOB_OK) {
-		refuse_job(incoming->id, false, ota_job_result_reason(verdict));
+		/* One that was moved ahead is in progress: it can only fail. */
+		refuse_job(incoming->id, promoted, ota_job_result_reason(verdict));
 		return;
 	}
 
@@ -837,6 +969,13 @@ int ota_init(void)
 		LOG_ERR("PSA crypto is not available");
 		return -EIO;
 	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	/* A Pi without its update is no reason to give up the board's own. */
+	if (pi_ota_init() != 0) {
+		LOG_ERR("Pi image update could not start");
+	}
+#endif
 
 	err = fota_download_init(download_callback);
 	if (err) {
@@ -986,6 +1125,13 @@ void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
 		return;
 	}
 
+	if (kind == CLOUD_JOB_LIST) {
+#if defined(CONFIG_APP_PI_OTA)
+		on_job_list(result, incoming);
+#endif
+		return;
+	}
+
 	/* Read on the MQTT library's thread already, with this connection's prefix: cloud.h. */
 	switch (result) {
 	case OTA_JOB_OK:
@@ -1001,6 +1147,13 @@ void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
 		if (ota.state != OTA_STARTING) {
 			on_job_withdrawn();
 		}
+#if defined(CONFIG_APP_PI_OTA)
+		if (pi_ota_busy()) {
+			pi_ota_withdrawn();
+		}
+		pi_ota_set_waiting(false);
+		order.asked[0] = '\0';
+#endif
 		break;
 	case OTA_JOB_MALFORMED:
 		LOG_WRN("Ignoring a jobs message that could not be parsed");
@@ -1090,6 +1243,14 @@ void ota_on_button(enum app_button button)
 
 void ota_on_download(enum app_download_event what, int value)
 {
+#if defined(CONFIG_APP_PI_OTA)
+	/* A Pi image comes through the same downloader, while no firmware update runs. */
+	if (ota.state == OTA_IDLE && pi_ota_busy()) {
+		pi_ota_on_download(what, value);
+		return;
+	}
+#endif
+
 	if (ota.state != OTA_DOWNLOADING) {
 		return;
 	}
@@ -1170,6 +1331,18 @@ void ota_on_tick(void)
 	    ++ota.seconds_since_report >= REPORT_RETRY_SECONDS) {
 		send_final_report();
 	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	if (order.asked[0] != '\0' && ++order.seconds_asked >= REFRESH_TIMEOUT_SECONDS &&
+	    cloud_is_connected()) {
+		char again[OTA_JOB_ID_MAX + 1];
+
+		memcpy(again, order.asked, sizeof(again));
+		ask_for_list(again);
+	}
+
+	pi_ota_on_tick();
+#endif
 }
 
 enum ota_state ota_state(void)

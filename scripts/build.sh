@@ -9,6 +9,8 @@
 #   scripts/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
 #   scripts/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
 #                                      or nrf5340dk, which has Bluetooth only
+#   scripts/build.sh --pi              from 1.15.0, for an nrf7002dk wired to a Raspberry Pi: Pi image
+#                                      updates and no Bluetooth (docs/pi-ota.md)
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
 # binaries/latest.signed.bin and binaries/latest.json. For a board type other than nrf7002dk the type
@@ -49,7 +51,7 @@ die() {
 }
 
 usage() {
-  sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 field() {
@@ -88,6 +90,7 @@ EOF
 
 jobs=4
 keep=false
+pi=false
 upload=true
 version=""
 board_type=nrf7002dk
@@ -95,6 +98,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=true ;;
     --no-upload) upload=false ;;
+    --pi) pi=true ;;
     --board)
       [ $# -ge 2 ] || die "--board needs a board type: nrf7002dk or nrf5340dk"
       board_type="$2"
@@ -123,6 +127,14 @@ while [ $# -gt 0 ]; do
 done
 
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a number, not $jobs"
+
+# From 1.15.0, a board wired to a Raspberry Pi: Pi image updates, and no Bluetooth (docs/pi-ota.md).
+extra_args=()
+if $pi; then
+  [ "$board_type" = nrf7002dk ] || die "--pi is for an nrf7002dk: the nRF5340 DK has no cloud"
+  extra_args=(-DSB_EXTRA_CONF_FILE=pi_ota_sysbuild.conf)
+  echo "A build for a board with a Raspberry Pi, and without Bluetooth: deploy it only to such boards."
+fi
 
 # The board types of docs/fleet.md. An nRF7002 DK keeps the names and the build directory it always had.
 case "$board_type" in
@@ -182,7 +194,7 @@ export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
 build_name="$(basename "$BUILD_DIR")"
 echo "Building firmware $expected for the $board_type with $jobs jobs. This takes a minute or two."
 if ! (cd "$NCS_DIR" && nice -n 5 west build -p always -d "$BUILD_DIR" -b "$BOARD" \
-    --sysbuild "$REPO_DIR/firmware/app" -- ) > "$log" 2>&1; then
+    --sysbuild "$REPO_DIR/firmware/app" -- ${extra_args[@]+"${extra_args[@]}"} ) > "$log" 2>&1; then
   mkdir -p "$BUILD_DIR"
   cp "$log" "$BUILD_DIR/last-build.log"
   grep -E "error:|FATAL_ERROR|CMake Error" "$log" | head -10 >&2 || true

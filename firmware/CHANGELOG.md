@@ -7,6 +7,26 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.15.0
+
+A board wired to a Raspberry Pi can update the Pi: a signed image comes as a job, goes onto an SD card and over SPI to
+the Pi's partition B, checked by size, SHA-256 and signature, with resume. Board firmware always goes first. Only in a
+build for such a board (scripts/build.sh --pi), which has no Bluetooth. Deploy console 2.4.5 before one runs it.
+
+Untested on hardware: docs/pi-ota.md has the design, the wiring, the SPI protocol for the Pi's side, the speeds and
+what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported`, and 216 bytes of
+RAM for the job records' new fields: 404,500 of 405,504. The Pi build: flash 691,896 of 794,474, RAM 378,600.
+
+The job document `"op": "pi_image"` (version, size, sha256, sig, url, optional minFirmware) and the list of pending
+jobs are parsed in src/ota_job.c. src/ota.c puts firmware first: a Pi image named while a firmware job is pending is
+left queued, the firmware job is marked in progress so that AWS IoT names it next, and the Pi image starts once the new
+firmware is confirmed, or after it failed or rolled back unless minFirmware says otherwise; the shadow's
+`pi.state` says `waiting_for_firmware`. The download is the firmware's own downloader with a custom DFU target that
+writes to the card (src/pi_ota.c), with a checkpoint each MiB (src/pi_dl.c). The SD card is FatFS on Zephyr's SD host
+over SPI (src/pi_sd.c), sharing SPIM3 with the Pi, each with its own chip select (boards/pi_ota_bus.dtsi). The SPI
+protocol (src/pi_link.c) is tested against tools/pi_link_sim.py. tools/pi_image.py signs an image with the firmware
+signing key.
+
 ## 1.14.0
 
 The board reports to Memfault over its own AWS IoT connection: why it restarted, a coredump after a crash, an hourly

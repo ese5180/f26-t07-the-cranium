@@ -24,6 +24,9 @@
 #include <string.h>
 
 #include "ota.c"
+#if defined(TEST_PI)
+#include "pi_image.h"
+#endif
 
 static int failures;
 static int checks;
@@ -358,6 +361,89 @@ void bt_ota_on_cloud_up(void)
 {
 	fake.cloud_ups++;
 }
+
+#if defined(TEST_PI)
+/*
+ * src/pi_ota.c, from 1.15.0: what ota.c hands it. It checks a job as the real one does
+ * (pi_image.c), with a signature that always holds, so that a minFirmware shows here.
+ */
+static struct {
+	int jobs;
+	char started[OTA_JOB_ID_MAX + 1];
+	enum pi_err verdict;
+	bool busy;
+	int withdrawn;
+	bool waiting;
+	int list_requests;
+	bool list_unavailable;
+	int downloads;
+} pi_fake;
+
+static int any_signature(const uint8_t *msg, size_t len, const uint8_t sig[OTA_PI_SIG_SIZE])
+{
+	ARG_UNUSED(msg);
+	ARG_UNUSED(len);
+	ARG_UNUSED(sig);
+	return 0;
+}
+
+int pi_ota_init(void)
+{
+	return 0;
+}
+
+void pi_ota_on_job(const struct ota_job *job)
+{
+	pi_fake.jobs++;
+	strcpy(pi_fake.started, job->id);
+	pi_fake.verdict = pi_job_check(job, UINT32_MAX, fw_version_running(), NULL, any_signature);
+	pi_fake.busy = pi_fake.verdict == PI_OK;
+	pi_fake.waiting = false;
+}
+
+bool pi_ota_busy(void)
+{
+	return pi_fake.busy;
+}
+
+bool pi_ota_owns(const char *job_id)
+{
+	return pi_fake.busy && strcmp(job_id, pi_fake.started) == 0;
+}
+
+void pi_ota_withdrawn(void)
+{
+	pi_fake.withdrawn++;
+	pi_fake.busy = false;
+}
+
+void pi_ota_set_waiting(bool waiting)
+{
+	pi_fake.waiting = waiting;
+}
+
+void pi_ota_on_tick(void)
+{
+}
+
+void pi_ota_on_download(enum app_download_event what, int value)
+{
+	ARG_UNUSED(what);
+	ARG_UNUSED(value);
+	pi_fake.downloads++;
+}
+
+int cloud_jobs_request_list(void)
+{
+	pi_fake.list_requests++;
+	return 0;
+}
+
+bool cloud_jobs_list_available(void)
+{
+	return !pi_fake.list_unavailable;
+}
+#endif
 
 /* ---- a restart ---------------------------------------------------------------------------- */
 
@@ -1487,6 +1573,216 @@ static void test_the_option_offers_and_waits(void)
 }
 #endif /* TEST_NO_CONSENT */
 
+#if defined(TEST_NO_CONSENT)
+/* ---- Raspberry Pi images, from 1.15.0 (docs/pi-ota.md, "Order") ------------------------------- */
+
+/* The cloud's answer to a request for the next job: a Pi image. */
+static void pi_listed(const char *id, const char *status, const char *extra)
+{
+	static char message[900];
+
+	(void)snprintf(message, sizeof(message),
+		       "{\"execution\":{\"jobId\":\"%s\",\"status\":\"%s\",\"jobDocument\":{\"op\":"
+		       "\"pi_image\",\"v\":1,\"pi\":{\"version\":\"2026.11.06-1\",\"size\":1000,"
+		       "\"sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\","
+		       "\"sig\":\"00000000000000000000000000000000000000000000000000000000000000000000"
+		       "000000000000000000000000000000000000000000000000000000000000\","
+		       "\"url\":\"" URL_PREFIX "pi.img\"%s}}}}",
+		       id, status, extra);
+	reply_arrives(message);
+}
+
+#if defined(TEST_PI)
+/* The cloud's answer to a request for the list of pending jobs. */
+static void list_arrives(const char *json)
+{
+	static struct ota_job read;
+	enum ota_job_result result = ota_job_list_parse(json, strlen(json), &read);
+
+	ota_on_job_message(CLOUD_JOB_LIST, result, &read);
+}
+
+static void a_board_with_a_pi(void)
+{
+	a_board_on_the_cloud();
+	memset(&pi_fake, 0, sizeof(pi_fake));
+	memset(&order, 0, sizeof(order));
+}
+
+static void test_a_pi_image_alone(void)
+{
+	a_board_with_a_pi();
+
+	/* It asks whether firmware waits too. The Pi image stays queued: nothing is said of it. */
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.list_requests == 1);
+	CHECK(pi_fake.jobs == 0);
+	CHECK(fake.job_updates == 0);
+
+	/* It does not, so the Pi image goes when it is named next. */
+	fake.next_requests = 0;
+	list_arrives("{\"inProgressJobs\":[],\"queuedJobs\":[{\"jobId\":\"pi-1\"}]}");
+	CHECK(fake.next_requests == 1);
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 1 && strcmp(pi_fake.started, "pi-1") == 0);
+	CHECK(pi_fake.verdict == PI_OK);
+	CHECK(!pi_fake.waiting);
+	CHECK(ota_state() == OTA_IDLE);
+
+	/* The downloader's events are the Pi image's while no firmware update runs. */
+	ota_on_download(APP_DOWNLOAD_PROGRESS, 10);
+	CHECK(pi_fake.downloads == 1);
+	CHECK(ota_progress() == 0);
+
+	/* The same job with a fresh URL goes to it; another one means this one is gone. */
+	pi_listed("pi-1", "IN_PROGRESS", "");
+	CHECK(pi_fake.jobs == 2);
+	job_listed("job-2", "QUEUED", "9.0.0");
+	CHECK(pi_fake.withdrawn == 1);
+
+	/* So does an empty list. */
+	a_board_with_a_pi();
+	pi_fake.list_unavailable = true;
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 1);
+	no_job_listed();
+	CHECK(pi_fake.withdrawn == 1);
+
+	/* A list that does not come is asked for again; one that cannot be read changes nothing. */
+	a_board_with_a_pi();
+	pi_listed("pi-1", "QUEUED", "");
+	list_arrives("not json");
+	CHECK(pi_fake.jobs == 0);
+	ticks(REFRESH_TIMEOUT_SECONDS);
+	CHECK(pi_fake.list_requests == 2);
+}
+
+static void test_a_firmware_job_alone(void)
+{
+	a_board_with_a_pi();
+	job_listed("job-2", "QUEUED", "9.0.0");
+	CHECK(ota_state() == OTA_STARTING);
+	CHECK(pi_fake.list_requests == 0);
+	CHECK(pi_fake.jobs == 0);
+}
+
+static void test_without_the_list_the_order_is_the_clouds(void)
+{
+	/* A cloud whose device policy is older than 1.15.0: the list cannot be asked for. */
+	a_board_with_a_pi();
+	pi_fake.list_unavailable = true;
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.list_requests == 0);
+	CHECK(pi_fake.jobs == 1);
+}
+
+static void test_firmware_goes_before_a_pi_image(void)
+{
+	a_board_with_a_pi();
+
+	/* The Pi image is older, so the cloud names it first. */
+	pi_listed("pi-1", "QUEUED", "");
+	fake.next_requests = 0;
+	list_arrives("{\"inProgressJobs\":[],\"queuedJobs\":[{\"jobId\":\"pi-1\"},"
+		     "{\"jobId\":\"job-2\"}]}");
+
+	/* The firmware job is put ahead, and the Pi image waits, still queued. */
+	CHECK(strcmp(fake.last_job, "job-2") == 0);
+	CHECK(last_update_says("\"status\":\"IN_PROGRESS\""));
+	CHECK(last_update_says("\"step\":\"before_pi_image\""));
+	CHECK(fake.next_requests == 1);
+	CHECK(pi_fake.waiting);
+	CHECK(pi_fake.jobs == 0);
+
+	/* Next, the cloud names the firmware job, in progress: it starts, as new. */
+	job_listed("job-2", "IN_PROGRESS", "9.0.0");
+	CHECK(!last_update_says("interrupted"));
+	CHECK(ota_state() == OTA_STARTING);
+	ota_on_job_ack(TOKEN_START, ota.start_sequence, true, false);
+	CHECK(ota_state() == OTA_DOWNLOADING);
+
+	/* The Pi image named while the firmware is under way still waits. */
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 0 && pi_fake.waiting);
+
+	/* The firmware is downloaded, checked and installed. */
+	fake.download_is_good = true;
+	ota_on_download(APP_DOWNLOAD_FINISHED, 0);
+	ota_on_job_ack(TOKEN_COMMIT, ota.commit_sequence, true, false);
+	ticks(SETTLE_SECONDS);
+	job_listed("job-2", "IN_PROGRESS", "9.0.0");
+	CHECK(fake.reboots == 1);
+
+	/* It restarts into the new image, on trial. The Pi image waits for the confirmation. */
+	with_job_record();
+	fake.swap_type = BOOT_SWAP_TYPE_REVERT;
+	restart();
+	CHECK(ota_state() == OTA_TESTING);
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 0 && pi_fake.waiting);
+	CHECK(pi_fake.list_requests == 1);
+
+	/* Confirmed, and reported: then the Pi image. */
+	ota_on_cloud_up();
+	CHECK(ota_state() == OTA_IDLE);
+	CHECK(last_update_says("\"status\":\"SUCCEEDED\""));
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.list_requests == 2);
+	list_arrives("{\"queuedJobs\":[{\"jobId\":\"pi-1\"}]}");
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 1 && pi_fake.verdict == PI_OK);
+	CHECK(!pi_fake.waiting);
+}
+
+static void test_a_pi_image_after_a_rollback(void)
+{
+	fresh_fake();
+	memset(&pi_fake, 0, sizeof(pi_fake));
+	memset(&order, 0, sizeof(order));
+	with_a_rollback_on_record();
+	fake.cloud_up = true;
+	restart();
+	ota_on_cloud_up();
+	CHECK(last_update_says("\"reason\":\"rolled_back\""));
+
+	/* The Pi image still goes, on the firmware that the board went back to. */
+	pi_listed("pi-1", "QUEUED", "");
+	list_arrives("{\"queuedJobs\":[{\"jobId\":\"pi-1\"}]}");
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(pi_fake.jobs == 1 && pi_fake.verdict == PI_OK);
+
+	/* Unless it needs newer firmware than that: then it is refused, and says why. */
+	memset(&pi_fake, 0, sizeof(pi_fake));
+	memset(&order, 0, sizeof(order));
+	pi_listed("pi-2", "QUEUED", ",\"minFirmware\":\"99.0.0\"");
+	list_arrives("{\"queuedJobs\":[{\"jobId\":\"pi-2\"}]}");
+	pi_listed("pi-2", "QUEUED", ",\"minFirmware\":\"99.0.0\"");
+	CHECK(pi_fake.jobs == 1 && pi_fake.verdict == PI_ERR_FIRMWARE_TOO_OLD);
+	CHECK(strcmp(pi_err_reason(pi_fake.verdict), "firmware_too_old") == 0);
+	CHECK(!pi_fake.busy);
+}
+
+static void test_a_pi_image_left_by_a_restart_goes_on(void)
+{
+	/* In progress before the restart: it goes on, with no list in between. */
+	a_board_with_a_pi();
+	pi_listed("pi-1", "IN_PROGRESS", "");
+	CHECK(pi_fake.list_requests == 0);
+	CHECK(pi_fake.jobs == 1);
+	CHECK(!last_update_says("interrupted"));
+}
+#else
+static void test_a_board_without_a_pi_refuses_its_image(void)
+{
+	a_board_on_the_cloud();
+	pi_listed("pi-1", "QUEUED", "");
+	CHECK(last_update_says("\"status\":\"REJECTED\""));
+	CHECK(last_update_says("\"reason\":\"unsupported\""));
+	CHECK(ota_state() == OTA_IDLE);
+}
+#endif
+#endif
+
 int main(void)
 {
 #if defined(CONFIG_APP_TEST_FAULT_NO_CONFIRM)
@@ -1535,6 +1831,16 @@ int main(void)
 	test_a_second_job_while_one_runs();
 	test_an_image_for_another_board_or_layout_is_refused();
 	test_the_slot_is_looked_at_again_right_before_the_swap();
+#if defined(TEST_PI)
+	test_a_pi_image_alone();
+	test_a_firmware_job_alone();
+	test_without_the_list_the_order_is_the_clouds();
+	test_firmware_goes_before_a_pi_image();
+	test_a_pi_image_after_a_rollback();
+	test_a_pi_image_left_by_a_restart_goes_on();
+#else
+	test_a_board_without_a_pi_refuses_its_image();
+#endif
 #else
 	test_the_option_offers_and_waits();
 #endif

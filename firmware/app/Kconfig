@@ -139,6 +139,83 @@ config APP_OTA_DOWNLOAD_ATTEMPTS
 	  The wait before another attempt grows with each one: 10 s, 20 s, 30 s and 40 s
 	  with the default, so that an update survives a short outage of the network.
 
+config APP_PI_OTA
+	bool "Raspberry Pi image updates through the SD card and SPI"
+	select SPI
+	select GPIO
+	select DISK_ACCESS
+	select SDHC
+	select FILE_SYSTEM
+	select FAT_FILESYSTEM_ELM
+	select DFU_TARGET_CUSTOM
+	help
+	  From 1.15.0: an AWS IoT job with "op": "pi_image" downloads a signed image for the
+	  Raspberry Pi onto the SD card, then sends it over SPI to the Pi's partition B
+	  (docs/pi-ota.md). Board firmware jobs go first. Needs the "pi_ota" and "pi_link"
+	  devicetree nodes and an SD card slot on the same SPI bus (the board overlays).
+
+if APP_PI_OTA
+
+config APP_PI_OTA_MAX_SIZE_MB
+	int "Largest Pi image accepted, in MiB"
+	default 2048
+	range 1 4095
+	help
+	  The image's size travels as 32 bits, so 4095 MiB at most. The card's free space is
+	  checked as well, before anything is downloaded.
+
+config APP_PI_OTA_CHUNK_KB
+	int "Bytes of image per SPI frame to the Pi, in KiB"
+	default 4
+	range 1 32
+	help
+	  One buffer of this size, plus 24 bytes, is the whole RAM the transfer takes. The bus
+	  is shared with the SD card, so each chunk is read from the card and then sent: larger
+	  chunks mean fewer switches between the two. 4 KiB because the nRF7002 DK's RAM is
+	  nearly all taken (docs/pi-ota.md, "Memory"); 16 to 32 KiB is better where there is room.
+
+config APP_PI_OTA_CHECKPOINT_KB
+	int "Bytes downloaded between two checkpoints on the SD card, in KiB"
+	default 1024
+	range 64 65536
+	help
+	  A download that a restart cuts off goes on from the last checkpoint.
+
+config APP_PI_OTA_DOWNLOAD_ATTEMPTS
+	int "Download attempts in a row that bring nothing new, before the job fails"
+	default 10
+	range 1 100
+	help
+	  An attempt that got bytes onto the card starts the count again: a download of hours
+	  may lose its connection more than once and still finish.
+
+config APP_PI_SD_TIMEOUT_MS
+	int "Longest time one SD card operation may take, in ms"
+	default 5000
+
+config APP_PI_LINK_READY_TIMEOUT_MS
+	int "Longest wait for the Pi's READY after a frame, in ms"
+	default 2000
+
+config APP_PI_LINK_BEGIN_TIMEOUT_MS
+	int "Longest wait for the Pi after BEGIN, which prepares partition B, in ms"
+	default 60000
+
+config APP_PI_LINK_VERIFY_TIMEOUT_MS
+	int "Longest wait for the Pi after VERIFY, which hashes all of partition B, in ms"
+	default 600000
+
+config APP_PI_LINK_ATTEMPTS
+	int "Sends of one frame to the Pi before the transfer fails"
+	default 5
+	range 1 20
+
+config APP_PI_OTA_STACK_SIZE
+	int "Stack of the thread that runs the transfer to the Pi"
+	default 2048
+
+endif # APP_PI_OTA
+
 config APP_CONSOLE
 	bool "Serial console for setup and debugging"
 	depends on SERIAL && LOG

@@ -146,6 +146,15 @@ target_sources_ifndef(CONFIG_APP_CONSOLE app PRIVATE src/log_discard.c)
 # The driver's recovery would power the chip back up, so the timer under test would never fire.
 target_sources_ifdef(CONFIG_APP_TEST_FAULT_WIFI_DEAD app PRIVATE src/fault_wifi.c)
 target_sources_ifdef(CONFIG_APP_BOOT_DIARY app PRIVATE src/boot_diary.c)
+# From 1.15.0: Raspberry Pi images through the SD card and SPI (docs/pi-ota.md).
+target_sources_ifdef(CONFIG_APP_PI_OTA app PRIVATE
+  src/pi_dl.c
+  src/pi_image.c
+  src/pi_link.c
+  src/pi_ota.c
+  src/pi_sd.c
+  src/pi_sha256.c
+)
 target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud_events.c)
 target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/location.c)
 if(CONFIG_APP_TEST_FAULT_WIFI_DEAD AND CONFIG_NRF_WIFI_RPU_RECOVERY)
