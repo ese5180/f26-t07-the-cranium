@@ -20,8 +20,9 @@ Description: >-
 #
 # The ceiling, said plainly: CloudFormation makes the console's roles with inline policies
 # that template.yaml writes, so a run of a changed template could make a role under the
-# stack's prefix with wider rights. That is why every run waits for the owner's approval in
-# the GitHub environment, and why the environment only accepts main and console-v* tags.
+# stack's prefix with wider rights. So only main and console-v* tags get the role: what
+# runs is what was merged to main or tagged. There is no approval step: anyone with write
+# access to the repository can start the workflow on main.
 
 Parameters:
   ConsoleStackName:
@@ -36,13 +37,6 @@ Parameters:
     Default: ese5180/f26-t07-the-cranium
     AllowedPattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
     Description: owner/name of the repository whose workflow may assume the role.
-  GitHubEnvironment:
-    Type: String
-    Default: production
-    AllowedPattern: '^[A-Za-z0-9_.-]+$'
-    Description: >-
-      The GitHub environment the workflow job runs in. Only a job in this environment gets
-      the role, and the environment is where the owner approves each run.
   ExistingOidcProviderArn:
     Type: String
     Default: ''
@@ -76,7 +70,7 @@ Resources:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Sid: GitHubProductionEnvironmentOnly
+          - Sid: GitHubMainAndConsoleTagsOnly
             Effect: Allow
             Principal:
               Federated: !If
@@ -84,10 +78,16 @@ Resources:
                 - !Ref GitHubOidcProvider
                 - !Ref ExistingOidcProviderArn
             Action: sts:AssumeRoleWithWebIdentity
+            # The job runs in no environment, so its token's subject is the ref it runs on:
+            # the branch main, or a console-v* tag. Any other branch, a pull request and a
+            # fork get no credentials.
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:environment:${GitHubEnvironment}'
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub 'repo:${GitHubRepository}:ref:refs/heads/main'
+                  - !Sub 'repo:${GitHubRepository}:ref:refs/tags/console-v*'
       ManagedPolicyArns:
         - !Ref StackPolicy
         - !Ref RolesAndFunctionsPolicy

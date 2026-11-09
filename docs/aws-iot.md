@@ -963,8 +963,8 @@ python3 tools/secrets.py wifi                   # once per machine, see secrets/
 python3 tools/provision_device.py               # once per board
 ```
 
-Deploying is done from GitHub Actions now, with no AWS sign-in: Actions → Deploy console → Run workflow, then the
-owner approves the run ([docs/ci.md](ci.md#deploying-the-console-from-github-actions)). `cloud/deploy.sh` above is the
+Deploying is done from GitHub Actions now, with no AWS sign-in: Actions → Deploy console → Run workflow on `main`,
+which anyone with write access can do, with no approval step ([docs/ci.md](ci.md#deploying-the-console-from-github-actions)). `cloud/deploy.sh` above is the
 owner's fallback, and the way to give it parameters or `--replace-signing-key`.
 
 A session can end sooner than that: one on 2026-11-01 ended after about 2 hours and 20 minutes. A long
