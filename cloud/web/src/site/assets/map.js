@@ -420,7 +420,6 @@ export function mapView(ctx) {
                 }),
                 mapCredit()
               ),
-              legend(),
             ]
           : empty({
               iconName: 'pin',
@@ -449,6 +448,8 @@ export function mapView(ctx) {
               h('ul', { class: 'map-rows', key: 'rows' }, [...unplaced].sort(named).map(unplacedRow))
             )
           : null,
+        // What the marks mean, under the boards: on a phone that is the sheet over the map.
+        placed.length > 0 ? legend() : null,
         h(
           'p',
           { class: 'card-note map-note', key: 'note' },
