@@ -15,7 +15,9 @@
 # Memfault (docs/memfault.md). If ~/.cranium/memfault_project_key exists, the key in it is
 # stored in the stack's secret (output MemfaultProjectKeyArn), where only the forwarder can
 # read it. It is never printed and never a parameter. Without the file the forwarder drops
-# the boards' chunks, and the boards keep them. The slugs for the link to a board in
+# the boards' chunks, and the boards keep them. If ~/.cranium/memfault_org_token exists, the
+# token in it is stored the same way in the secret of output MemfaultOrgTokenArn, which only
+# the console's API reads, to show what Memfault knows; without it the console says so. The slugs for the link to a board in
 # Memfault are not secrets: MemfaultOrgSlug and MemfaultProjectSlug, from the arguments,
 # else from MEMFAULT_ORG_SLUG and MEMFAULT_PROJECT_SLUG, else from ~/.cranium/memfault.json
 # ({"org": "...", "project": "..."}). With none of them they keep their current values.
@@ -311,6 +313,8 @@ check_iot_logging_is_free() {
 
 # Memfault (docs/memfault.md): the files in ~/.cranium. The key is a secret, the slugs are not.
 MEMFAULT_KEY_FILE="$HOME/.cranium/memfault_project_key"
+# The token for Memfault's REST API, for the console's Memfault pages: a secret too.
+MEMFAULT_TOKEN_FILE="$HOME/.cranium/memfault_org_token"
 MEMFAULT_SLUGS_FILE="$HOME/.cranium/memfault.json"
 
 # memfault_slug_overrides: MemfaultOrgSlug=... and MemfaultProjectSlug=..., one per line, from the
@@ -344,24 +348,28 @@ memfault_slug_overrides() {
 # token is the SHA-256 of the file: a run with the same key adds no version, and a key that was
 # stored before is made the current one again rather than stored twice. The key goes from the file
 # to the AWS CLI and nowhere else: not to the screen, a variable or a parameter.
-store_memfault_key() {
-  local arn token stages found
-  if [ ! -s "$MEMFAULT_KEY_FILE" ]; then
-    echo "Memfault: no project key in ~/.cranium/memfault_project_key. The boards' chunks are dropped"
-    echo "and the boards keep them until one is stored: see docs/memfault.md."
+#
+# store_secret_file <file> <output of the secret's ARN> <what it is> <what happens without it>
+# does the same for any file of ~/.cranium: the project key, and the token for Memfault's REST API.
+store_secret_file() {
+  local file="$1" output="$2" what="$3" without="$4" shown arn token stages found
+  # shellcheck disable=SC2088 # a path to show, not to open
+  shown="~/.cranium/$(basename "$file")"
+  if [ ! -s "$file" ]; then
+    echo "Memfault: no $what in $shown. $without"
     return 0
   fi
-  if [ -n "$(find "$MEMFAULT_KEY_FILE" -perm -004 2> /dev/null)" ]; then
-    echo "Note: other users of this computer can read ~/.cranium/memfault_project_key; chmod 600 it."
+  if [ -n "$(find "$file" -perm -004 2> /dev/null)" ]; then
+    echo "Note: other users of this computer can read $shown; chmod 600 it."
   fi
-  arn="$(stack_output "$STACK" MemfaultProjectKeyArn)"
+  arn="$(stack_output "$STACK" "$output")"
   case "$arn" in
-    ""|None) die "$STACK has no MemfaultProjectKeyArn output, so the Memfault project key was not stored" ;;
+    ""|None) die "$STACK has no $output output, so the Memfault $what was not stored" ;;
   esac
-  token="$(openssl dgst -sha256 -hex < "$MEMFAULT_KEY_FILE" | awk '{ print $NF }')"
-  [[ "$token" =~ ^[0-9a-f]{64}$ ]] || die "the SHA-256 of ~/.cranium/memfault_project_key could not be worked out"
+  token="$(openssl dgst -sha256 -hex < "$file" | awk '{ print $NF }')"
+  [[ "$token" =~ ^[0-9a-f]{64}$ ]] || die "the SHA-256 of $shown could not be worked out"
   stages="$(aws secretsmanager describe-secret --secret-id "$arn" --query 'VersionIdsToStages' --output json)" ||
-    die "the Memfault project key's secret could not be described"
+    die "the Memfault $what's secret could not be described"
   # "new", "current" or "old", and the version that is current now, if any.
   found="$(printf '%s' "$stages" | TOKEN="$token" node -e '
     const stages = JSON.parse(require("node:fs").readFileSync(0, "utf8")) ?? {};
@@ -369,24 +377,33 @@ store_memfault_key() {
     const now = Object.keys(stages).find((id) => (stages[id] ?? []).includes("AWSCURRENT")) ?? "-";
     const state = mine === undefined ? "new" : mine.includes("AWSCURRENT") ? "current" : "old";
     process.stdout.write(`${state} ${now}`);
-  ')" || die "the Memfault project key's secret says something this script cannot read"
+  ')" || die "the Memfault $what's secret says something this script cannot read"
   case "${found%% *}" in
     current)
-      echo "Memfault: the project key in ~/.cranium/memfault_project_key is stored already."
+      echo "Memfault: the $what in $shown is stored already."
       ;;
     new)
       aws secretsmanager put-secret-value --secret-id "$arn" --client-request-token "$token" \
-        --secret-string "file://$MEMFAULT_KEY_FILE" > /dev/null ||
-        die "the Memfault project key could not be stored"
-      echo "Memfault: stored the project key from ~/.cranium/memfault_project_key."
+        --secret-string "file://$file" > /dev/null ||
+        die "the Memfault $what could not be stored"
+      echo "Memfault: stored the $what from $shown."
       ;;
     old)
       aws secretsmanager update-secret-version-stage --secret-id "$arn" --version-stage AWSCURRENT \
         --move-to-version-id "$token" --remove-from-version-id "${found#* }" > /dev/null ||
-        die "the Memfault project key that was stored before could not be made the current one again"
-      echo "Memfault: the project key in ~/.cranium/memfault_project_key, stored before, is the current one again."
+        die "the Memfault $what that was stored before could not be made the current one again"
+      echo "Memfault: the $what in $shown, stored before, is the current one again."
       ;;
   esac
+}
+
+# The project key, which only the forwarder reads, and the token for Memfault's REST API, which only
+# the console's API reads (docs/memfault.md).
+store_memfault_secrets() {
+  store_secret_file "$MEMFAULT_KEY_FILE" MemfaultProjectKeyArn "project key" \
+    "The boards' chunks are dropped and the boards keep them until one is stored: see docs/memfault.md."
+  store_secret_file "$MEMFAULT_TOKEN_FILE" MemfaultOrgTokenArn "token" \
+    "The console cannot show what Memfault knows until one is stored: see docs/memfault.md."
 }
 
 # All stack outputs as one flat JSON object, plus the AWS IoT data endpoint.
@@ -566,7 +583,7 @@ main() {
   write_outputs
   echo "Wrote cloud/.deploy/outputs.json"
   bound_iot_log
-  store_memfault_key
+  store_memfault_secrets
 
   step "8/9 Deletion protection of the user pool and the tables"
   # The stack is created with the protection off, because a protected pool or table

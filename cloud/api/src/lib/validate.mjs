@@ -7,7 +7,7 @@
  * it ever reaches AWS or the database.
  */
 
-import { badRequest } from '../http.mjs';
+import { badRequest, notFound } from '../http.mjs';
 import { formatVersion, parseVersion } from './mcuboot.mjs';
 import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, MAX_TOKEN_NAME, MIN_TOKEN_DAYS, TOKEN_ID } from './tokens.mjs';
 
@@ -79,6 +79,17 @@ export function requireVersion(value) {
 export function requireThing(value) {
   if (!isThing(value)) {
     throw badRequest('invalid_thing', 'A board name is "cranium-" followed by 16 lowercase hex digits.');
+  }
+  return value;
+}
+
+// A Memfault issue's id (handlers/memfault.mjs): Memfault numbers its issues. One that is not a number is no
+// issue of Memfault's, so it is refused as an issue that is not there.
+const ISSUE_ID = /^[1-9]\d{0,15}$/;
+
+export function requireIssueId(value) {
+  if (typeof value !== 'string' || !ISSUE_ID.test(value)) {
+    throw notFound('not_found', 'Memfault has no issue with that id.');
   }
   return value;
 }

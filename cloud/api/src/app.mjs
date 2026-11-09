@@ -94,6 +94,7 @@ import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.m
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
 import { createLocationHandlers } from './handlers/location.mjs';
+import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
@@ -334,6 +335,8 @@ export function createApp({
   const location = createLocationHandlers(context, { devices });
   const commands = createCommandHandlers(context, { devices, fleet });
   const alerts = createAlertHandlers(context);
+  // What Memfault knows of the boards, read from its REST API on the server (docs/memfault.md).
+  const memfault = createMemfaultHandlers(context, { devices });
   // The phone apps on the Apps page (docs/mobile-apps.md): the Android app's releases, the iPhone app's
   // version, the apps' configuration, and the console's own version beside who is signed in.
   const apps = createAppHandlers(context, { versions });
@@ -366,6 +369,10 @@ export function createApp({
     route('GET', '/api/devices/{thing}', location.detailed(updates.withLastUpdate(devices.get))),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
+    route('GET', '/api/devices/{thing}/memfault', memfault.board),
+    route('GET', '/api/memfault/fleet', memfault.fleet),
+    route('GET', '/api/memfault/issues', memfault.issues),
+    route('GET', '/api/memfault/issues/{id}', memfault.issue),
     route('GET', '/api/events', events.list),
     // What the boards printed on their serial consoles, from firmware 1.12.0 (lib/lines.mjs).
     route('GET', '/api/events/log', events.log),

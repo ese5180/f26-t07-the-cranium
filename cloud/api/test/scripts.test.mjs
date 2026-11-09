@@ -349,7 +349,7 @@ const digestOf = (text) =>
 test('deploy.sh stores the Memfault key by the digest of its file, from the file, and never shows it', () => {
   const home = memfaultHome({ memfault_project_key: `${MEMFAULT_KEY}\n` });
   const token = digestOf(`${MEMFAULT_KEY}\n`);
-  const stored = inScript('deploy.sh', 'store_memfault_key', { HOME: home });
+  const stored = inScript('deploy.sh', 'store_memfault_secrets', { HOME: home });
   assert.equal(stored.status, 0, stored.err);
   const put = stored.calls.find((call) => call.startsWith('secretsmanager put-secret-value'));
   assert.ok(put, JSON.stringify(stored.calls));
@@ -360,7 +360,7 @@ test('deploy.sh stores the Memfault key by the digest of its file, from the file
   for (const text of [stored.out, stored.err, ...stored.calls]) assert.equal(text.includes(MEMFAULT_KEY), false);
 
   // The same key again adds no version.
-  const again = inScript('deploy.sh', 'store_memfault_key', {
+  const again = inScript('deploy.sh', 'store_memfault_secrets', {
     HOME: home,
     STUB_STAGES: JSON.stringify({ [token]: ['AWSCURRENT'] }),
   });
@@ -372,7 +372,7 @@ test('deploy.sh stores the Memfault key by the digest of its file, from the file
   assert.ok(again.out.includes('stored already'));
 
   // A key stored before, and replaced since, is made the current one again.
-  const back = inScript('deploy.sh', 'store_memfault_key', {
+  const back = inScript('deploy.sh', 'store_memfault_secrets', {
     HOME: home,
     STUB_STAGES: JSON.stringify({ [token]: ['AWSPREVIOUS'], 'other-version': ['AWSCURRENT'] }),
   });
@@ -390,7 +390,7 @@ test('deploy.sh stores the Memfault key by the digest of its file, from the file
 
 test('deploy.sh without a Memfault key says how to add one, and asks nothing of AWS for it', () => {
   for (const files of [{}, { memfault_project_key: '' }]) {
-    const none = inScript('deploy.sh', 'store_memfault_key', { HOME: memfaultHome(files) });
+    const none = inScript('deploy.sh', 'store_memfault_secrets', { HOME: memfaultHome(files) });
     assert.equal(none.status, 0, none.err);
     assert.deepEqual(none.calls, []);
     assert.ok(none.out.includes('docs/memfault.md'));
@@ -398,9 +398,24 @@ test('deploy.sh without a Memfault key says how to add one, and asks nothing of 
   // A key that others can read is still stored, with a word about it.
   const home = memfaultHome({ memfault_project_key: MEMFAULT_KEY });
   chmodSync(join(home, '.cranium', 'memfault_project_key'), 0o644);
-  const open = inScript('deploy.sh', 'store_memfault_key', { HOME: home });
+  const open = inScript('deploy.sh', 'store_memfault_secrets', { HOME: home });
   assert.equal(open.status, 0, open.err);
   assert.ok(open.out.includes('chmod 600'));
+});
+
+test("deploy.sh stores the token for Memfault's REST API the same way, in its own secret, and never shows it", () => {
+  const TOKEN = 'oat_StandInToken0123456789abcdef';
+  const home = memfaultHome({ memfault_org_token: TOKEN });
+  const stored = inScript('deploy.sh', 'store_memfault_secrets', { HOME: home });
+  assert.equal(stored.status, 0, stored.err);
+  const puts = stored.calls.filter((call) => call.startsWith('secretsmanager put-secret-value'));
+  assert.equal(puts.length, 1, JSON.stringify(stored.calls));
+  assert.ok(puts[0].includes(`--client-request-token ${digestOf(TOKEN)}`));
+  assert.ok(puts[0].includes(`--secret-string file://${home}/.cranium/memfault_org_token`));
+  assert.ok(stored.out.includes('stored the token'));
+  // Without the project key it says so, and stores the token all the same.
+  assert.ok(stored.out.includes('no project key'));
+  for (const text of [stored.out, stored.err, ...stored.calls]) assert.equal(text.includes(TOKEN), false);
 });
 
 test('deploy.sh takes the Memfault slugs from the environment, else from ~/.cranium/memfault.json, and checks them', () => {

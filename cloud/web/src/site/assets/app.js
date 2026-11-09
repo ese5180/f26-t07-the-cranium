@@ -223,7 +223,8 @@ function paint() {
   }
   state.sessionLeft = auth.secondsLeft();
   // `fleet` is fleet.js once it is here: board types, groups and staged rollouts on every page.
-  const ctx = { state, actions, fleet: fleetScript };
+  // `memfault` is memfault-page.js once it is here: a board's reboots, events and issues in Memfault.
+  const ctx = { state, actions, fleet: fleetScript, memfault: memfaultScript };
   nav.hidden = false;
   account.hidden = false;
   render(nav, navView(ctx));
@@ -492,6 +493,8 @@ const pages = {
         load(entry(state.deviceDetails, thing), () => api.device(thing)),
         due(state.firmware, full) ? load(state.firmware, api.firmware) : null,
         due(own, full) ? load(own, () => api.updates({ thing, limit: UPDATES_SHOWN })) : null,
+        // What Memfault knows of it (memfault-page.js): read a minute apart at most.
+        memfaultReady().then((script) => script?.refreshBoard(thing, full)),
       ]);
       // The board's own page says its last update: when that is not the list's newest, the list is behind.
       const last = state.deviceDetails.get(thing)?.value?.lastUpdate ?? null;
@@ -681,6 +684,31 @@ const pages = {
     },
     interval: () => appsScript?.appsInterval() ?? 0,
   },
+  // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
+  memfault: {
+    title: 'Memfault',
+    view: (ctx) =>
+      memfaultScript ? memfaultScript.memfaultView(ctx) : scriptPending(ctx, 'memfault', 'Memfault', { tabs: false }),
+    resources: () => memfaultScript?.memfaultResources(state) ?? [],
+    async refresh() {
+      if (await memfaultReady()) await memfaultScript.refreshMemfault();
+      draw();
+    },
+    interval: () => (memfaultScript ? memfaultScript.MEMFAULT_REFRESH_MS : 0),
+  },
+  issue: {
+    title: (route) => `Memfault issue ${route.id}`,
+    view: (ctx) =>
+      memfaultScript
+        ? memfaultScript.issueView(ctx)
+        : scriptPending(ctx, 'memfault', 'Memfault issue', { tabs: false }),
+    resources: () => memfaultScript?.issueResources(state) ?? [],
+    async refresh() {
+      if (await memfaultReady()) await memfaultScript.refreshIssue();
+      draw();
+    },
+    interval: () => (memfaultScript ? memfaultScript.MEMFAULT_REFRESH_MS : 0),
+  },
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
   fleet: {
     title: 'Fleet',
@@ -869,6 +897,16 @@ function fleetReady() {
   return fleetLoading;
 }
 let customersScript = null;
+let memfaultScript = null;
+
+/** memfault-page.js, fetched once, when a Memfault page or a board's page is first opened. */
+async function memfaultReady() {
+  if (!memfaultScript) {
+    memfaultScript = await pageScript(() => import('./memfault-page.js'));
+    memfaultScript?.connect({ state, api, load, draw, now: () => clock.now() });
+  }
+  return memfaultScript;
+}
 
 /** The script of Events and Diagnostics, fetched once and handed what it needs to load and draw. */
 async function telemetry() {

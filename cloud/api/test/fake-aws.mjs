@@ -73,6 +73,7 @@ import { createHash, createPublicKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { createApp } from '../src/app.mjs';
+import { memfaultError } from '../src/aws-memfault-api.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { recordsOf } from '../src/lib/events.mjs';
 import { SAME_LINE_MS, isLineMessage, recordsFromLine } from '../src/lib/lines.mjs';
@@ -903,9 +904,17 @@ export function createFakeAws({
   // Whether a Memfault project key is stored (docs/memfault.md, src/aws-memfault.mjs createMemfaultStatus):
   // no, until fake.storeMemfaultKey() plays cloud/deploy.sh storing one.
   let memfaultKey = false;
+  // Reads of Memfault's REST API (src/aws-memfault-api.mjs memfaultGet): not configured, as a stack with no
+  // token, until fake.useMemfault() hands over a reader, such as the real one pointed at a fake Memfault
+  // (test/fake-memfault.mjs).
+  let memfaultReader = null;
   Object.assign(adapter, {
     async memfaultKeyStored() {
       return memfaultKey;
+    },
+    async memfaultGet(path, query) {
+      if (memfaultReader === null) throw memfaultError('not_configured');
+      return memfaultReader.memfaultGet(path, query);
     },
   });
 
@@ -937,6 +946,11 @@ export function createFakeAws({
       const queued = faults.get(method) ?? [];
       for (let count = 0; count < times; count += 1) queued.push(() => awsError(method, awsName, { code }));
       faults.set(method, queued);
+    },
+
+    /** A reader of Memfault's REST API for memfaultGet, or null for none. */
+    useMemfault(reader) {
+      memfaultReader = reader;
     },
 
     /** What cloud/deploy.sh does with ~/.cranium/memfault_project_key: store a key in the secret, or none. */

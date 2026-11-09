@@ -1857,6 +1857,13 @@ Resources:
                 Effect: Allow
                 Action: secretsmanager:DescribeSecret
                 Resource: !Ref MemfaultProjectKey
+              # What Memfault knows of the boards, for the console's Memfault page and each board's
+              # (docs/memfault.md, "In the console"): the token the API reads Memfault's REST API with.
+              # This one secret, and no other function may read it.
+              - Sid: ReadMemfaultOrgToken
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref MemfaultOrgToken
 
   ApiFn:
     Type: AWS::Lambda::Function
@@ -1902,6 +1909,8 @@ Resources:
           MEMFAULT_KEY_SECRET_ARN: !Ref MemfaultProjectKey
           MEMFAULT_ORG_SLUG: !Ref MemfaultOrgSlug
           MEMFAULT_PROJECT_SLUG: !Ref MemfaultProjectSlug
+          # The secret with the token for Memfault's REST API: its ARN, never its value.
+          MEMFAULT_TOKEN_SECRET_ARN: !Ref MemfaultOrgToken
           # The phone apps' customer side, in their configuration (GET /api/apps/config).
           CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient
           # The live API's WebSocket in that configuration too (docs/live.md): the LiveUrl output.
@@ -2265,6 +2274,18 @@ Resources:
       Description: >-
         Memfault project key for the Cranium forwarder. Stored by cloud/deploy.sh from
         ~/.cranium/memfault_project_key; empty until then.
+
+  # The token the console's API reads Memfault's REST API with (docs/memfault.md, "In the console"):
+  # an organization auth token, or a Viewer's "<e-mail>:<API key>". Made empty, like the project key;
+  # cloud/deploy.sh stores ~/.cranium/memfault_org_token in it when that file exists. Only the API
+  # function may read it, and only to send GETs to Memfault.
+  MemfaultOrgToken:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}/memfault-org-token'
+      Description: >-
+        Memfault token for the Cranium console's reads of Memfault's REST API. Stored by
+        cloud/deploy.sh from ~/.cranium/memfault_org_token; empty until then.
 
   MemfaultLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2906,6 +2927,11 @@ Outputs:
       The secret that holds the Memfault project key, which cloud/deploy.sh stores from
       ~/.cranium/memfault_project_key. Its name, never its value.
     Value: !Ref MemfaultProjectKey
+  MemfaultOrgTokenArn:
+    Description: >-
+      The secret that holds the token for Memfault's REST API, which cloud/deploy.sh stores from
+      ~/.cranium/memfault_org_token. Its name, never its value.
+    Value: !Ref MemfaultOrgToken
   AlertTopicArn:
     Description: Where the e-mail alerts go. Release managers subscribe on the console's Account page.
     Value: !Ref AlertTopic

@@ -122,6 +122,8 @@ const SECTIONS = [
   'customers',
   // An update over Bluetooth, in the phone app only (bluetooth.js).
   'bluetooth',
+  // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
+  'memfault',
 ];
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
 const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
@@ -147,6 +149,8 @@ export function parseRoute(hash) {
   if (section === 'diagnostics' && isThing(item)) return { view: 'diagnostics', thing: item };
   // One staged rollout: its canary, its waves, and why it stopped (fleet.js).
   if (section === 'rollouts' && isRolloutId(item)) return { view: 'rollout', id: item };
+  // One Memfault issue: its traces and backtraces (memfault-page.js).
+  if (section === 'memfault' && /^[1-9]\d{0,15}$/.test(item)) return { view: 'issue', id: item };
   return null;
 }
 
@@ -156,6 +160,7 @@ export function routeHash(route) {
   if (route?.view === 'deployment' && isDeploymentId(route.id)) return `#/deployments/${route.id}`;
   if (route?.view === 'diagnostics' && isThing(route.thing)) return `#/diagnostics/${route.thing}`;
   if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
+  if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }
@@ -2597,6 +2602,15 @@ export function createApi({
      * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
+    // What Memfault knows (memfault-page.js): reads only, of these four routes.
+    async memfaultRequest(path) {
+      const read =
+        typeof path === 'string' &&
+        (/^\/api\/memfault\/issues(?:\/[1-9]\d{0,15})?$/.test(path) ||
+          /^\/api\/devices\/cranium-[0-9a-f]{16}\/memfault(?:\?hours=[1-9]\d{0,2})?$/.test(path));
+      if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Memfault pages.');
+      return record(await request('GET', path));
+    },
     async appsRequest(method, path) {
       const read =
         method === 'GET' &&

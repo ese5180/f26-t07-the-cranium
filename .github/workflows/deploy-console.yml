@@ -81,6 +81,20 @@ jobs:
           mkdir -p "$HOME/.cranium"
           printf '%s' "$MEMFAULT_PROJECT_KEY" > "$HOME/.cranium/memfault_project_key"
 
+      # The same for the token the console's API reads Memfault's REST API with (docs/memfault.md,
+      # "In the console"): stored by deploy.sh when the file is there, left as it is when not.
+      - name: Write the Memfault token, if one is set
+        env:
+          MEMFAULT_ORG_TOKEN: ${{ secrets.MEMFAULT_ORG_TOKEN }}
+        run: |
+          if [ -z "$MEMFAULT_ORG_TOKEN" ]; then
+            echo "No MEMFAULT_ORG_TOKEN secret: the token stored in the stack stays as it is."
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$HOME/.cranium"
+          printf '%s' "$MEMFAULT_ORG_TOKEN" > "$HOME/.cranium/memfault_org_token"
+
       # deploy.sh runs the api and web tests first and deploys nothing if they fail. The Memfault slugs
       # are not secrets; when the variables are empty the stack keeps the ones it has.
       - name: Deploy
@@ -89,6 +103,6 @@ jobs:
           MEMFAULT_PROJECT_SLUG: ${{ vars.MEMFAULT_PROJECT_SLUG }}
         run: cloud/deploy.sh
 
-      - name: Remove the Memfault project key
+      - name: Remove the Memfault project key and token
         if: always()
-        run: rm -f "$HOME/.cranium/memfault_project_key"
+        run: rm -f "$HOME/.cranium/memfault_project_key" "$HOME/.cranium/memfault_org_token"
