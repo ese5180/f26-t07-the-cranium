@@ -4,6 +4,15 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.11
+
+Alerts and safer rollouts in the app (console 2.13.0 and later): an Alerts page where release managers turn each alert rule on or off and set its threshold, a toast in the open app as soon as an alert goes out, and a Health gate on a staged rollout that holds the next stage until Memfault shows no new issue and no unexpected reboot.
+
+The Alerts page (`#/alerts`) is in apps/shared/pages.json, so `PagesParityTest` checks that the console has it and that
+its route takes the app's sign-in. The activity log's words gain `alert.rules` and the refusals `invalid_healthGate`,
+`invalid_rules` and `rules_changed`, the same as the console's. A notification while the app is closed would need
+Apple's and Google's push services, which are not set up (docs/alerts.md).
+
 ## 0.8.10
 
 Search and filters on the console's long lists in the app (console 2.12.0 and later): the activity log, the events and the board log are searched by the server, and the boards, releases, deployments, tokens, customers and Memfault issues as they are shown, each with filters that fold under a Filters button on a phone.

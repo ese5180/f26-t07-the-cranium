@@ -4,14 +4,27 @@
  *
  * An alert, for one board (or one deployment) and one kind:
  *
- *   offline     the board has been disconnected from AWS IoT for 15 minutes (the scheduled check finds it)
+ *   offline     the board has been disconnected from AWS IoT for the offline rule's minutes, 15 unless a
+ *               release manager changed it (the scheduled check finds it)
  *   online      it is connected again, after an "offline" alert
  *   update      an update over the internet failed or rolled back; an update over Bluetooth
  *               rolled back, lost its trial, or could not be installed or written
  *   stuck       the board restarted itself for being stuck
  *   moved       its position from Wi-Fi moved by more than 1 km (lib/position.mjs isMove)
  *   deployment  a deployment stopped by itself: an event item of kind "update", what "stopped", with
- *               the deployment in `job`, wherever it is recorded from (alertOfEvent)
+ *               the deployment in `job`, wherever it is recorded from (alertOfEvent); a staged rollout
+ *               that stopped by itself, its health gate too (handlers/rollouts.mjs)
+ *   issue       Memfault has a new issue, and the board is one of those with its traces
+ *   crashloop   the board restarted unexpectedly (Memfault's reboot reasons) N times in M minutes
+ *   voltage     the board's supply voltage, from its Memfault heartbeat, is under the rule's threshold
+ *
+ * The rules (console 2.13.0): which of these go out and at what thresholds, one item in the state
+ * table (pk "ALR", sk "rules") that release managers change on the console's Alerts page, each change
+ * on record as alert.rules. RULES says each rule's fields, limits and defaults; normalizeRules reads
+ * the item, whatever it holds. A kind whose rule is off is never raised. "update", "stuck" and
+ * "moved" have no rule and always go; "online" follows "offline". The schedule of the staged
+ * rollouts (tick.mjs) reads Memfault for "issue", "crashloop" and "voltage" every WATCH_EVERY_MS
+ * (alerts.mjs watch); what it has seen is kept in pk "ALERTS", sk "W#memfault".
  *
  * Presence is AWS IoT's own word that a board connected or disconnected (the presence rule), which is
  * what the Events page draws when a board was online from. AWS says its lifecycle messages may come
@@ -40,11 +53,90 @@ import { BOARD_NAME } from './shadow.mjs';
 import { isThing, parseJobId } from './validate.mjs';
 
 export const ALERTS_PK = 'ALERTS';
-export const ALERT_KINDS = Object.freeze(['offline', 'online', 'update', 'deployment', 'stuck', 'moved']);
+// The rules' item, in the state table.
+export const ALERT_RULES_PK = 'ALR';
+export const ALERT_RULES_SK = 'rules';
+export const ALERT_KINDS = Object.freeze([
+  'offline',
+  'online',
+  'update',
+  'deployment',
+  'stuck',
+  'moved',
+  'issue',
+  'crashloop',
+  'voltage',
+]);
 export const OFFLINE_AFTER_MS = 15 * 60_000;
 export const ALERT_EVERY_MS = 60 * 60_000;
 export const FOLDED_KEPT = 20;
 export const SENT_DAYS = 30;
+export const WATCH_KEY = 'W#memfault';
+export const WATCH_EVERY_MS = 5 * 60_000;
+// Heartbeats come every hour: the voltage looks this far back at least.
+export const VOLTAGE_WINDOW_MINUTES = 120;
+// What the watch keeps: the issue ids it has seen, and the boards it last alerted for.
+const ISSUES_KEPT = 500;
+const BOARDS_KEPT = 200;
+// The new issues looked at in one check: each costs a read of its traces.
+export const NEW_ISSUES_READ = 5;
+
+/**
+ * The alert rules: for each, whether it is on and its thresholds, with their limits and defaults.
+ * `fields` maps a threshold to [low, high, default].
+ */
+export const RULES = Object.freeze({
+  offline: { on: true, fields: { minutes: [5, 1440, 15] } },
+  issue: { on: true, fields: {} },
+  crashLoop: { on: true, fields: { reboots: [2, 20, 3], minutes: [5, 1440, 30] } },
+  rollout: { on: true, fields: {} },
+  voltage: { on: true, fields: { mv: [1000, 6000, 3000] } },
+});
+export const RULE_IDS = Object.freeze(Object.keys(RULES));
+// The rule each kind of alert goes by; the kinds not here always go.
+const RULE_OF_KIND = Object.freeze({
+  offline: 'offline',
+  online: 'offline',
+  deployment: 'rollout',
+  issue: 'issue',
+  crashloop: 'crashLoop',
+  voltage: 'voltage',
+});
+
+/** The rules as they hold by default. */
+export function defaultRules() {
+  return Object.fromEntries(
+    RULE_IDS.map((id) => [
+      id,
+      {
+        on: RULES[id].on,
+        ...Object.fromEntries(Object.entries(RULES[id].fields).map(([name, [, , fallback]]) => [name, fallback])),
+      },
+    ])
+  );
+}
+
+/** The rules of a stored item, each field checked; what is missing or wrong is its default. */
+export function normalizeRules(item) {
+  const rules = defaultRules();
+  const stored = isPlain(item?.rules) ? item.rules : {};
+  for (const id of RULE_IDS) {
+    const given = isPlain(stored[id]) ? stored[id] : {};
+    if (typeof given.on === 'boolean') rules[id].on = given.on;
+    for (const [name, [low, high]] of Object.entries(RULES[id].fields)) {
+      const value = given[name];
+      if (Number.isInteger(value) && value >= low && value <= high) rules[id][name] = value;
+    }
+  }
+  return rules;
+}
+
+/** Whether an alert of `kind` goes out under `rules`. */
+export function ruleAllows(rules, kind) {
+  const id = RULE_OF_KIND[kind];
+  return id === undefined || rules?.[id]?.on !== false;
+}
+
 // Two presence messages further apart than this are ordered by their times alone.
 export const PRESENCE_SLACK_MS = 60_000;
 
@@ -55,6 +147,8 @@ const SENT_KEY = /^S#(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)#([A-Za-z0-9_-
 const BAD_BLUETOOTH = new Set(['rolled_back', 'not_installed', 'trial_lost', 'flash_error']);
 const BAD_RESULTS = new Set(['failed', 'rolled_back']);
 const SUBJECT_MAX = 100;
+// A page of the console a line of an e-mail links to.
+const LINK = /^#\/(?:memfault|rollouts|devices|deployments)\/[A-Za-z0-9_-]{1,64}$/;
 
 const DISCONNECT_WORDS = Object.freeze({
   CLIENT_INITIATED_DISCONNECT: 'the board closed the connection',
@@ -191,10 +285,13 @@ export function applyPresence(board, presence) {
   return { state: next, alert };
 }
 
-/** The "offline" alert that is due for a board, with its item once it is raised, or null. */
-export function dueOffline(board, nowMs) {
+/**
+ * The "offline" alert that is due for a board, with its item once it is raised, or null. `afterMs` is
+ * the offline rule's time.
+ */
+export function dueOffline(board, nowMs, afterMs = OFFLINE_AFTER_MS) {
   const presence = board.presence;
-  if (presence?.state !== 'offline' || board.offlineAlerted || nowMs - presence.at < OFFLINE_AFTER_MS) return null;
+  if (presence?.state !== 'offline' || board.offlineAlerted || nowMs - presence.at < afterMs) return null;
   const why = presence.reason
     ? `: ${DISCONNECT_WORDS[presence.reason] ?? `AWS IoT gave the reason ${presence.reason}`}`
     : '';
@@ -226,6 +323,7 @@ function slotOf(item, kind) {
 export function takeAlert(item, alert, nowMs) {
   const slot = slotOf(item, alert.kind);
   const line = { at: Number.isFinite(alert.at) ? alert.at : nowMs, text: alert.text };
+  if (typeof alert.link === 'string' && LINK.test(alert.link)) line.link = alert.link;
   const kinds = { ...item.kinds };
   if (slot.sentAt === null || nowMs - slot.sentAt >= ALERT_EVERY_MS) {
     kinds[alert.kind] = { sentAt: nowMs, folded: [], more: 0 };
@@ -279,15 +377,23 @@ const SUBJECTS = Object.freeze({
   stuck: (name) => `${name} restarted itself for being stuck`,
   moved: (name) => `${name} has moved`,
   deployment: (name) => `The deployment of ${name} stopped by itself`,
+  issue: (name) => `A new Memfault issue on ${name}`,
+  crashloop: (name) => `${name} keeps restarting`,
+  voltage: (name) => `${name} has a low supply voltage`,
 });
 
 const LEADS = Object.freeze({
-  offline: 'This board has been disconnected from AWS IoT for more than 15 minutes.',
+  offline: 'This board has been disconnected from AWS IoT for longer than the offline alert rule allows.',
   online: 'This board is connected to AWS IoT again.',
   update: 'An update of this board failed or was rolled back.',
   stuck: 'This board restarted itself because it was stuck.',
   moved: "This board's position, worked out from the Wi-Fi it hears, moved by more than 1 km.",
-  deployment: 'This deployment stopped by itself: too many of its boards failed or rolled back.',
+  deployment:
+    'This deployment stopped by itself: too many of its boards failed or rolled back, or the health gate of its ' +
+    'staged rollout found a problem.',
+  issue: 'Memfault grouped a crash or a trace event of this board into an issue it had not had before.',
+  crashloop: 'This board restarted unexpectedly (a crash, an assert, a fault or a watchdog) again and again.',
+  voltage: "This board's supply voltage, from its Memfault heartbeat, is under the alert rule's threshold.",
 });
 
 /** The one name an e-mail calls a board or a deployment by. Only names that are plain letters and digits. */
@@ -308,9 +414,19 @@ export function emailOf(item, mail, consoleUrl) {
     typeof item.deployment === 'string'
       ? `Deployment ${item.deployment}`
       : `${name === item.thing ? item.thing : `${name} (AWS IoT thing ${item.thing})`}`;
-  const lines = mail.lines.map((line) => `${utc(line.at)}  ${line.text}`);
-  const link = typeof item.deployment === 'string' ? `#/deployments/${item.deployment}` : `#/devices/${item.thing}`;
   const base = typeof consoleUrl === 'string' && /^https:\/\/[^\s]+\/$/.test(consoleUrl) ? consoleUrl : null;
+  const lines = mail.lines
+    .flatMap((line) => [
+      `${utc(line.at)}  ${line.text}`,
+      base !== null && typeof line.link === 'string' && LINK.test(line.link) ? `    ${base}${line.link}` : null,
+    ])
+    .filter((line) => line !== null);
+  const link =
+    typeof item.deployment === 'string'
+      ? typeof item.rollout === 'string' && DEPLOYMENT_ID.test(item.rollout)
+        ? `#/rollouts/${item.rollout}`
+        : `#/deployments/${item.deployment}`
+      : `#/devices/${item.thing}`;
   const parts = [
     who,
     '',
@@ -354,4 +470,77 @@ export function sentFromItem(item) {
   else if (isThing(key[2])) sent.thing = key[2];
   else return null;
   return sent;
+}
+
+/** What the watch has seen, before its first look. */
+export function emptyWatch() {
+  return { pk: ALERTS_PK, sk: WATCH_KEY, checkedAt: null, issues: [], loops: {}, lows: {}, rev: 0 };
+}
+
+function keepNewest(map, kept) {
+  const entries = Object.entries(isPlain(map) ? map : {}).filter(([, at]) => typeof at === 'string');
+  return Object.fromEntries(entries.sort((a, b) => (a[1] < b[1] ? 1 : -1)).slice(0, kept));
+}
+
+/**
+ * What the rules make of a look at Memfault (handlers/memfault.mjs watch): { state, alerts, newIssues }.
+ * `state` is the watch item after it; `alerts` the "crashloop" and "voltage" alerts to raise; `newIssues`
+ * the issues it had not seen, whose boards are to be found before their "issue" alerts go
+ * ([{ id, title }], at most NEW_ISSUES_READ). The first look only learns the issues there are.
+ */
+export function watchFindings(watch, facts, rules, nowMs) {
+  const known = new Set(Array.isArray(watch.issues) ? watch.issues : []);
+  const first = !Number.isFinite(watch.checkedAt);
+  const fresh = facts.issues.filter((issue) => !known.has(issue.id));
+  const newIssues =
+    first || !rules.issue.on
+      ? []
+      : fresh.slice(0, NEW_ISSUES_READ).map((issue) => ({ id: issue.id, title: issue.title }));
+  const alerts = [];
+  const loops = keepNewest(watch.loops, BOARDS_KEPT);
+  const lows = keepNewest(watch.lows, BOARDS_KEPT);
+  if (rules.crashLoop.on) {
+    const since = nowMs - rules.crashLoop.minutes * 60_000;
+    const byThing = new Map();
+    for (const reboot of facts.reboots) {
+      if (!isThing(reboot.thing) || reboot.reason?.expected !== false || !(Date.parse(reboot.at) >= since)) continue;
+      if (!byThing.has(reboot.thing)) byThing.set(reboot.thing, []);
+      byThing.get(reboot.thing).push(reboot);
+    }
+    for (const [thing, reboots] of [...byThing].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      if (reboots.length < rules.crashLoop.reboots) continue;
+      const last = reboots.sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+      if (typeof loops[thing] === 'string' && loops[thing] >= last.at) continue;
+      loops[thing] = last.at;
+      alerts.push({
+        kind: 'crashloop',
+        thing,
+        at: Date.parse(last.at),
+        text:
+          `${reboots.length} unexpected restarts in ${rules.crashLoop.minutes} min, the last ${last.reason.name}` +
+          `${last.version ? ` on ${last.version}` : ''}`,
+      });
+    }
+  }
+  if (rules.voltage.on) {
+    const latest = new Map();
+    for (const beat of facts.heartbeats) {
+      const mv = beat.values?.supply_mv;
+      if (!isThing(beat.thing) || !Number.isFinite(mv)) continue;
+      if (!latest.has(beat.thing) || latest.get(beat.thing).at < beat.at) latest.set(beat.thing, { at: beat.at, mv });
+    }
+    for (const [thing, { at, mv }] of [...latest].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      if (mv >= rules.voltage.mv) continue;
+      if (typeof lows[thing] === 'string' && lows[thing] >= at) continue;
+      lows[thing] = at;
+      alerts.push({
+        kind: 'voltage',
+        thing,
+        at: Date.parse(at),
+        text: `Supply ${Math.round(mv)} mV in the heartbeat of ${utc(Date.parse(at))}, under ${rules.voltage.mv} mV`,
+      });
+    }
+  }
+  const issues = [...known, ...fresh.map((issue) => issue.id)].slice(-ISSUES_KEPT);
+  return { state: { ...watch, checkedAt: nowMs, issues, loops, lows }, alerts, newIssues };
 }

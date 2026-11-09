@@ -77,7 +77,7 @@ function solverOf(table) {
  * @param {(pk: string, sk: string) => object | null} table.get
  * @param {(pk: string, prefix: string) => object[]} table.list   lowest sort key first
  */
-export function createFakeMap({ clock, put, get, list }) {
+export function createFakeMap({ clock, put, get, list, rules = () => null }) {
   const commands = [];
   const listeners = [];
   const alertEmails = [];
@@ -101,6 +101,9 @@ export function createFakeMap({ clock, put, get, list }) {
   }
 
   const alertStore = Object.freeze({
+    async getAlertRules() {
+      return copy(rules()) ?? null;
+    },
     async getAlertItem(sk) {
       return copy(get(ALERTS_PK, sk));
     },

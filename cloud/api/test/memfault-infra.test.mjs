@@ -177,11 +177,16 @@ test("the forwarder's role: its log, the key, and the boards' commands topics, a
 });
 
 test('no other role may read the key; the API may only see whether there is one', () => {
-  for (const name of ['EventsRole', 'WebRole', 'LocationRole', 'SignInScopeRole', 'PresignRole', 'RolloutTickRole']) {
+  for (const name of ['EventsRole', 'WebRole', 'LocationRole', 'SignInScopeRole', 'PresignRole']) {
     assert.equal(block(template, name).includes('secretsmanager:GetSecretValue'), false, name);
   }
-  // The forwarder's project key, the API's Memfault token, and the API's Wi-Fi defaults: one reader each.
-  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 3);
+  // The forwarder's project key, the API's Memfault token, and the API's Wi-Fi defaults: one reader each,
+  // and the Memfault token a second, the rollouts' schedule (the health gate and the alert rules).
+  assert.equal(template.split('secretsmanager:GetSecretValue').length - 1, 4);
+  const tick = block(template, 'RolloutTickRole');
+  assert.equal(tick.split('secretsmanager:GetSecretValue').length - 1, 1);
+  assert.ok(statement(tick, 'ReadMemfaultOrgToken').includes('Resource: !Ref MemfaultOrgToken'));
+  assert.equal(tick.includes('MemfaultProjectKey'), false);
   const api = block(template, 'ApiRole');
   const see = statement(api, 'SeeMemfaultKey');
   assert.ok(see.includes('Action: secretsmanager:DescribeSecret\n'));
@@ -231,7 +236,7 @@ test('deploy.sh stores the key from its file, by its digest, and never prints it
   assert.ok(deploy.includes('MemfaultChunksHost=*'));
 });
 
-test('the Memfault token is a secret the stack makes empty, read by the API alone, stored by deploy.sh and the workflow', () => {
+test('the Memfault token is a secret the stack makes empty, read by the API and the rollouts alone, stored by deploy.sh and the workflow', () => {
   const secret = block(template, 'MemfaultOrgToken');
   assert.ok(secret.includes('Type: AWS::SecretsManager::Secret'));
   assert.ok(secret.includes("Name: !Sub '${AWS::StackName}/memfault-org-token'"));
@@ -240,8 +245,11 @@ test('the Memfault token is a secret the stack makes empty, read by the API alon
   const reading = statement(block(template, 'ApiRole'), 'ReadMemfaultOrgToken');
   assert.ok(reading.includes('Action: secretsmanager:GetSecretValue\n'));
   assert.ok(reading.includes('Resource: !Ref MemfaultOrgToken'));
-  // The API's role, the API's environment and the output name it; nothing else does.
-  assert.equal(template.split('!Ref MemfaultOrgToken').length - 1, 3);
+  // The API's role and environment, the rollouts' schedule's, and the output name it; nothing else does.
+  assert.equal(template.split('!Ref MemfaultOrgToken').length - 1, 5);
+  assert.ok(
+    block(block(template, 'RolloutTickFn'), 'Variables', 8).includes('MEMFAULT_TOKEN_SECRET_ARN: !Ref MemfaultOrgToken')
+  );
   assert.equal(block(template, 'MemfaultRole').includes('MemfaultOrgToken'), false);
   assert.ok(
     block(block(template, 'ApiFn'), 'Variables', 8).includes('MEMFAULT_TOKEN_SECRET_ARN: !Ref MemfaultOrgToken')

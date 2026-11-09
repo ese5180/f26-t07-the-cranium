@@ -95,7 +95,7 @@ const DETAIL_KEY = /^[a-zA-Z0-9:_-]{1,128}$/;
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED']);
 const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED']);
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR']);
 const FAILURE_TYPES = Object.freeze({
   FAILED: ['FAILED'],
   REJECTED: ['REJECTED'],
@@ -934,6 +934,8 @@ export function createFakeAws({
     put: putEventItem,
     get: (pk, sk) => eventItems.get(pk)?.get(sk) ?? null,
     list: (pk, prefix) => eventPart(pk, prefix, `${prefix}\uffff`),
+    // The alert rules, in the state table as the real ones are.
+    rules: () => fleetItems.get('ALR rules') ?? null,
   });
   Object.assign(adapter, map.adapter);
   // The phone apps' releases and their APKs (docs/mobile-apps.md, src/aws-apps.mjs): test/fake-apps.mjs.

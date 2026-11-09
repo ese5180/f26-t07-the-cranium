@@ -93,6 +93,10 @@ object AuditText {
         "alert.unsubscribe" to Action(
             "stopped the e-mail alerts to", "tried to stop the e-mail alerts to", "tried to stop e-mail alerts", Glyph.BELL,
         ),
+        "alert.rules" to Action(
+            "changed the alert rules", "tried to change the alert rules", "tried to change the alert rules", Glyph.BELL,
+            doneAlone = "changed the alert rules",
+        ),
         // The fleet (docs/fleet.md): groups, staged rollouts, a phone's sighting, a release's note.
         "group.create" to Action("made the group", "tried to make the group", "tried to make a group", Glyph.LIST),
         "group.update" to Action("changed the group", "tried to change the group", "tried to change a group", Glyph.LIST),
@@ -359,6 +363,10 @@ object AuditText {
         "rollout_changed" to "The rollout moved on while it was being cancelled",
         "rollout_unrecorded" to "The rollout could not be recorded, so its canary was withdrawn",
         "partly_started" to "Only some of the rollouts could be started",
+        "invalid_healthGate" to "The health gate was not on or off with 0 to 120 minutes",
+        // The alert rules (cloud/api/src/handlers/alerts.mjs).
+        "invalid_rules" to "The alert rules asked for were not rules, or not within their limits",
+        "rules_changed" to "Someone changed the alert rules at the same moment",
         // The phone apps (the API's handlers/apps.mjs): publishing the Android app, and its download links.
         "version_code_not_higher" to "Its versionCode is not higher than the newest Android app’s",
         "apk_missing" to "No APK had arrived in S3 for that version",

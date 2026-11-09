@@ -1093,6 +1093,9 @@ public enum Words {
     // goes there, and the words after it follow it. A deployment is named by the version it installs,
     // and the boards it went to follow the sentence (`auditBoards`).
     static let auditActions: [String: AuditAction] = [
+        // The alert rules, for everybody who gets the alerts (console 2.13.0).
+        "alert.rules": AuditAction(done: "changed the alert rules", doneAlone: "changed the alert rules",
+                                   tried: "tried to change the alert rules", triedAlone: "tried to change the alert rules", icon: "bell"),
         "firmware.upload": AuditAction(done: "uploaded firmware", tried: "tried to upload", triedAlone: "tried to upload a file", icon: "upload"),
         "firmware.revoke": AuditAction(done: "revoked firmware", tried: "tried to revoke firmware", triedAlone: "tried to revoke a release", icon: "ban"),
         "deployment.create": AuditAction(done: "deployed", doneAlone: "started a deployment", tried: "tried to deploy",
@@ -1291,6 +1294,10 @@ public enum Words {
         "rollout_changed": "The rollout moved on while it was being cancelled",
         "rollout_unrecorded": "The rollout could not be recorded, so its canary was withdrawn",
         "partly_started": "Only some of the rollouts could be started",
+        "invalid_healthGate": "The health gate was not on or off with 0 to 120 minutes",
+        // The alert rules (cloud/api/src/handlers/alerts.mjs).
+        "invalid_rules": "The alert rules asked for were not rules, or not within their limits",
+        "rules_changed": "Someone changed the alert rules at the same moment",
         // The phone apps (the API's handlers/apps.mjs): publishing the Android app, and its download links.
         "version_code_not_higher": "Its versionCode is not higher than the newest Android app’s",
         "apk_missing": "No APK had arrived in S3 for that version",

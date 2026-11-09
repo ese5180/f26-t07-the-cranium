@@ -19,6 +19,10 @@
  * words a person can act on. Memfault being unreachable is no failure of the console's: the answer is
  * still 200, with whatever could be read. Only a board or an issue that is not there is a 404.
  *
+ * Two more, for the schedule rather than a page (tick.mjs): health() is the health gate's look at the
+ * boards of a staged rollout (lib/health.mjs), and watch() what the alert rules read of Memfault
+ * (alerts.mjs watch). Both use the same reads, kept the same way.
+ *
  * Each read of Memfault is kept FRESH_MS (the same path and query answer from memory), and a read that
  * failed FAILED_MS, so that a page refreshing every half minute, or many people at once, do not each
  * send their own requests to Memfault. Reads already under way are shared.
@@ -38,6 +42,7 @@ import {
   symbolsByVersion,
   trace as traceOf,
 } from '../lib/memfault-data.mjs';
+import { candidateIssues, judgeHealth } from '../lib/health.mjs';
 import { requireHours, requireIssueId, requireThing } from '../lib/validate.mjs';
 
 export const FRESH_MS = 60_000;
@@ -147,10 +152,10 @@ export function createMemfaultHandlers({ aws, now, log }, { devices }) {
    * The processing log of the last `hours`, of one board or all, newest first: each entry made into
    * what the boards sent (lib/memfault-data.mjs logEntries). Up to LOG_PAGES pages.
    */
-  async function processingLog(hours, serial = null) {
+  async function processingLog(hours, serial = null, startMs = null) {
     const end = now();
     const query = {
-      start: iso(end - hours * HOUR_MS),
+      start: iso(startMs ?? end - hours * HOUR_MS),
       end: iso(end),
       include_event_data: 'true',
       sort: '-created_date',
@@ -191,7 +196,98 @@ export function createMemfaultHandlers({ aws, now, log }, { devices }) {
 
   const listOf = (body, map) => (Array.isArray(body?.data) ? body.data : []).map(map).filter((one) => one !== null);
 
+  /** A not_found where the schedule expects an answer: as unreachable, without touching the kept error. */
+  const reachable = (error) => (error.code === 'not_found' ? { name: 'MemfaultError', code: 'unreachable' } : error);
+
+  /** The first failure that is Memfault's, as { state, message }, or null when every read worked. */
+  function failureOf(errors) {
+    const found = stateOf(errors);
+    return found.state === 'ok' ? null : found;
+  }
+
   return {
+    /**
+     * The health gate's look at the boards of a rollout (lib/health.mjs): { state: "ok", problem }
+     * with `problem` null for none, or { state: <why Memfault could not be read>, message }. A read
+     * that failed is never taken for a pass.
+     */
+    async health({ version, boards }) {
+      if (boards.length === 0) return { state: 'ok', problem: null };
+      const start = Math.min(...boards.map((board) => board.since));
+      const startMs = Math.max(start, now() - FLEET_HOURS * HOUR_MS);
+      const errors = [];
+      const take = async (reading) => {
+        try {
+          return await reading;
+        } catch (error) {
+          if (codeOf(error) === null) throw error;
+          errors.push(reachable(error));
+          return null;
+        }
+      };
+      const [entries, issueList] = await Promise.all([
+        take(processingLog(FLEET_HOURS, null, startMs)),
+        take(read('issues', { per_page: LIST_PAGE })),
+      ]);
+      const failed = failureOf(errors);
+      if (failed !== null) return failed;
+      const candidates = candidateIssues(listOf(issueList, issueOf), version, start);
+      const issues = [];
+      for (const issue of candidates) {
+        const traces = await take(read('traces', { issue: String(issue.id), per_page: '50' }));
+        if (traces === null) continue;
+        issues.push({
+          issue,
+          traces: listOf(traces, traceOf).filter(
+            (one) => issue.signature === null || one.signature === issue.signature
+          ),
+        });
+      }
+      const late = failureOf(errors);
+      if (late !== null) return late;
+      const reboots = (entries ?? []).filter((entry) => entry.kind === 'reboot');
+      return { state: 'ok', problem: judgeHealth({ version, boards, reboots, issues }) };
+    },
+
+    /**
+     * What the alert rules read of Memfault (alerts.mjs watch): the issues, and the reboots and
+     * heartbeats of the last `minutes`. { state: "ok", issues, reboots, heartbeats } or { state, message }.
+     */
+    async watch({ minutes }) {
+      const errors = [];
+      const settled = await Promise.allSettled([
+        read('issues', { per_page: LIST_PAGE }),
+        processingLog(FLEET_HOURS, null, now() - minutes * 60_000),
+      ]);
+      const [issueList, entries] = settled.map((result) => {
+        if (result.status === 'fulfilled') return result.value;
+        if (codeOf(result.reason) === null) throw result.reason;
+        errors.push(reachable(result.reason));
+        return null;
+      });
+      const failed = failureOf(errors);
+      if (failed !== null) return failed;
+      const { reboots, heartbeats } = split(entries ?? []);
+      return { state: 'ok', issues: listOf(issueList, issueOf), reboots, heartbeats };
+    },
+
+    /** The boards of an issue's traces that are ours: [thing], for its alert. Empty if it cannot be read. */
+    async issueBoards(id) {
+      try {
+        const body = await read('traces', { issue: String(id), per_page: '50' });
+        return [
+          ...new Set(
+            listOf(body, traceOf)
+              .map((one) => one.thing)
+              .filter((thing) => thing !== null)
+          ),
+        ].sort();
+      } catch (error) {
+        if (codeOf(error) === null) throw error;
+        return [];
+      }
+    },
+
     async fleet() {
       const things = new Set(await devices.groupThings());
       const { values, errors } = await readAll([
