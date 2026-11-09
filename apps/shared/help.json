@@ -342,7 +342,7 @@
         { "text": "A token lets a script use the console's API as you, without signing in, until it expires or you revoke it. Each person makes and sees only their own." },
         { "list": [
           "Send it as Authorization: Bearer crn_… to the API under /api/t/.",
-          "scripts/ota.sh uses the token in ~/.cranium/console-token (readable by you alone: chmod 600), or in CRANIUM_TOKEN.",
+          "scripts/firmware/ota.sh uses the token in ~/.cranium/console-token (readable by you alone: chmod 600), or in CRANIUM_TOKEN.",
           "It acts as you, with what you may do at that moment: a viewer's token only reads.",
           "A change made with a token is in the activity log under your name, with the token's ID.",
           "A token cannot make or revoke tokens, or read a board's Bluetooth passkey.",

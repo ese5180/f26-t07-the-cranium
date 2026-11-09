@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Give Memfault what it needs of a build: the ELF's symbols, and the signed image as a release.
 
-    python3 -I tools/memfault_upload.py --build build              what scripts/build.sh runs
+    python3 -I tools/memfault_upload.py --build build              what scripts/firmware/build.sh runs
     python3 -I tools/memfault_upload.py --build build-bench/build-crash-demo --symbols-only
 
 From firmware 1.14.0 (docs/memfault.md). Memfault turns a coredump into a backtrace only with the

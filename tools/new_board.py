@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What scripts/new-board.sh needs that bash does badly. Run by it; each command also works alone.
+"""What scripts/board/new-board.sh needs that bash does badly. Run by it; each command also works alone.
 
     python3 tools/new_board.py boards                     the boards plugged in, from `nrfutil device list
                                                           --json` on stdin and the serial ports
@@ -20,7 +20,7 @@
 
 Nothing here prints a secret: no console token, no Wi-Fi network's name or password, no AWS account,
 endpoint, bucket or console address. The console is reached with a console token (CRANIUM_TOKEN or
-~/.cranium/console-token, as scripts/ota.sh uses), and only read from, except for the download of a
+~/.cranium/console-token, as scripts/firmware/ota.sh uses), and only read from, except for the download of a
 release's image, which the console records like a write.
 
 pyserial is needed only by the commands that open a serial port, and bleak only by ble-scan.

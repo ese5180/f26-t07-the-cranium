@@ -286,7 +286,7 @@ config APP_CRASH_DEMO
 	  k_oops(), once per install: the version it crashed on is kept in storage, under the record
 	  of APP_TEST_FAULT_WIFI_DEAD, which is why the two cannot be on together. The board
 	  restarts, still on this image, and sends the coredump. Its log line starts with "Test
-	  image:", so scripts/github-release.sh refuses it. See docs/memfault.md.
+	  image:", so scripts/release/github-release.sh refuses it. See docs/memfault.md.
 
 config APP_CRASH_DEMO_AFTER_SECONDS
 	int "Seconds of connection after the confirmation before the crash"

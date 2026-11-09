@@ -339,7 +339,7 @@ function. `cloud/logs.sh signin` shows its invocations.
 - **Activity.** Every upload, deployment, cancellation and revocation that reaches the API
   function, with the person it names and whether it was allowed, and every API token made or
   revoked. A change made with an API token names the token's owner and the token's ID. Entries
-  made by `scripts/ota.sh` with AWS credentials, or by the test bench, name the release manager they
+  made by `scripts/firmware/ota.sh` with AWS credentials, or by the test bench, name the release manager they
   act for, not a signed-in session. Their request IDs start with `bench-`. Actions taken directly in
   AWS, such as the AWS CLI stop in `cloud/README.md`, the bench's own jobs or anything an
   administrator does, do not pass through the API and are not listed here. Every sign-in and every
@@ -428,7 +428,7 @@ it.
 
 ### API tokens
 
-A personal API token lets a script, such as `scripts/ota.sh` or an assistant that runs it for you,
+A personal API token lets a script, such as `scripts/firmware/ota.sh` or an assistant that runs it for you,
 use the console's API as you without signing in. Every member, viewer or release manager, makes and
 revokes their own on the console, under **Developer > API tokens**, and sees only their own.
 
@@ -436,7 +436,7 @@ revokes their own on the console, under **Developer > API tokens**, and sees onl
   90 days (30 unless you choose). The token, `crn_` and 43 characters, is shown once, with a copy
   button. The console keeps only its SHA-256, so it cannot show it again. A person has at most 10
   tokens that still work.
-- **Keeping it.** Treat it like a password. `scripts/ota.sh` reads it from `CRANIUM_TOKEN` or from
+- **Keeping it.** Treat it like a password. `scripts/firmware/ota.sh` reads it from `CRANIUM_TOKEN` or from
   `~/.cranium/console-token`, a file of your own with mode 600, and refuses any other file
   ([scripts/README.md](../scripts/README.md#otash-with-an-api-token)).
 - **Using it.** A request to `/api/t/<path>` with `Authorization: Bearer crn_…` is the request to
@@ -954,7 +954,7 @@ The design is in [raspberry-pi-ota.md](raspberry-pi-ota.md#decision).
 aws login --profile cranium                     # browser sign-in, up to 12 hours
 export AWS_PROFILE=cranium AWS_REGION=us-east-1
 
-scripts/open-console.sh                         # sign in, deploy if needed, open the console
+scripts/console/open-console.sh                         # sign in, deploy if needed, open the console
 cloud/deploy.sh                                 # create or update the stacks
 cloud/users.sh add <email> release-manager      # the person gets an invitation by e-mail
 cloud/smoke.sh                                  # checks that do not need a sign-in
@@ -974,7 +974,7 @@ Releasing an update:
 3. Deploy it. A board on 1.7.2 or newer installs it as soon as it sees it. A board on older firmware, the golden image
    among it, waits until someone presses Button 1 on it.
 
-`scripts/ota.sh` does steps 2 and 3 for one board and follows the update to the end. With an
+`scripts/firmware/ota.sh` does steps 2 and 3 for one board and follows the update to the end. With an
 [API token](#api-tokens) it goes through API Gateway to `/api/t/`, as the token's owner, and needs no
 AWS credentials. Without one, it invokes the API function directly, which bypasses API Gateway and
 sign-in (see [Known limits](#known-limits)).
@@ -1081,7 +1081,7 @@ Stated plainly. What has been measured, and on which firmware, is in the
   lookup; their own request limits keep that from reaching the console's routes. Expired and revoked
   tokens stay in the state table, marked, because the API role may not delete. None of this has run on
   the deployed stack yet: it is tested against the in-memory stand-in and the local preview.
-- Without an API token, `scripts/ota.sh` and `firmware/tests/hil/ota_bench.py` invoke the API function
+- Without an API token, `scripts/firmware/ota.sh` and `firmware/tests/hil/ota_bench.py` invoke the API function
   directly, with `aws lambda invoke` and hand-written token claims. This bypasses API Gateway and sign-in: no token
   check, no password, no authenticator code, no request limit and no line in the access log. The
   function trusts the claims, because it expects API Gateway to have checked them. It still asks

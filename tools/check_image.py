@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check a signed firmware image before it is uploaded to the console. Run it as scripts/check-image.sh.
+"""Check a signed firmware image before it is uploaded to the console. Run it as scripts/firmware/check-image.sh.
 
-    scripts/check-image.sh                                     binaries/latest.signed.bin
-    scripts/check-image.sh binaries/cranium-1.9.0-0.signed.bin  that image
-    scripts/check-image.sh --strict ...                        anything not checked fails too
+    scripts/firmware/check-image.sh                                     binaries/latest.signed.bin
+    scripts/firmware/check-image.sh binaries/cranium-1.9.0-0.signed.bin  that image
+    scripts/firmware/check-image.sh --strict ...                        anything not checked fails too
     python3 tools/check_image.py --board <image>               print its board type, and nothing else
     python3 tools/check_image.py --layout <image>              print its flash layout, and nothing else
 
@@ -262,7 +262,7 @@ def check_record(record, data: bytes):
     """The build record against the image: [(status, title, detail)]."""
     if record is None:
         return [(FAIL, "Build record",
-                 "no record of this image in binaries/: it was not built by scripts/build.sh or "
+                 "no record of this image in binaries/: it was not built by scripts/firmware/build.sh or "
                  "west build in this checkout, so nothing says what it was built from")]
     results = []
     parts = header_version(data)

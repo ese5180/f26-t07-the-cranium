@@ -52,7 +52,7 @@ endif()
 # the module still holds the bootloader's check on serial recovery's image number.
 set(mcuboot_EXTRA_ZEPHYR_MODULES "${CMAKE_CURRENT_LIST_DIR}/sysbuild/mcuboot/golden" CACHE INTERNAL "")
 
-# Keep the signed image of every build of this checkout in binaries/, where scripts/ota.sh
+# Keep the signed image of every build of this checkout in binaries/, where scripts/firmware/ota.sh
 # and the console's upload page can find it. See tools/store_binary.py.
 get_filename_component(cranium_repo "${APP_DIR}/../.." ABSOLUTE)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

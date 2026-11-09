@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
 # Upload a signed firmware image to the console's Firmware page with an API token. It only uploads:
-# no board gets it until a person deploys it on the console. scripts/build.sh runs this after every
+# no board gets it until a person deploys it on the console. scripts/firmware/build.sh runs this after every
 # build; it can also be run by hand.
 #
-#   scripts/upload-to-console.sh                                     binaries/latest.signed.bin
-#   scripts/upload-to-console.sh binaries/cranium-1.11.4-0.signed.bin  that image
-#   scripts/upload-to-console.sh <image> "notes for the release"
+#   scripts/firmware/upload-to-console.sh                                     binaries/latest.signed.bin
+#   scripts/firmware/upload-to-console.sh binaries/cranium-1.11.4-0.signed.bin  that image
+#   scripts/firmware/upload-to-console.sh <image> "notes for the release"
 #
 # The release's note is the first paragraph of the version's entry in firmware/CHANGELOG.md, with the
-# note given here after it in brackets (scripts/build.sh gives the commit it built from). A version with
+# note given here after it in brackets (scripts/firmware/build.sh gives the commit it built from). A version with
 # no entry there gets the subjects of the firmware commits since the version before it instead.
 #
 # The token comes from CRANIUM_TOKEN, or else from ~/.cranium/console-token, which must be a plain file
@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TOKEN_FILE="$HOME/.cranium/console-token"
 OUTPUTS="$REPO_DIR/cloud/.deploy/outputs.json"
 
@@ -40,7 +40,7 @@ case "${1:-}" in
 esac
 
 image="${1:-$REPO_DIR/binaries/latest.signed.bin}"
-notes="${2:-Uploaded by scripts/upload-to-console.sh}"
+notes="${2:-Uploaded by scripts/firmware/upload-to-console.sh}"
 [ -f "$image" ] || die "no image at $image"
 command -v curl > /dev/null || die "curl was not found"
 command -v python3 > /dev/null || die "python3 was not found"
@@ -214,7 +214,7 @@ case "$http_status" in
       exit 0
     fi
     die "the console already has a release $version, with other bytes" \
-      "A version is registered once. Build again: scripts/build.sh takes the next version." ;;
+      "A version is registered once. Build again: scripts/firmware/build.sh takes the next version." ;;
   *)
     die "the console refused the upload ($http_status)" "$(py error "$reply" 2> /dev/null)" ;;
 esac

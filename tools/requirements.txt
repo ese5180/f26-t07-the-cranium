@@ -4,6 +4,6 @@
 #
 #   python3 -m pip install -r tools/requirements.txt
 #
-# scripts/new-board.sh check offers it when one is missing. tools/new_board.py ble-scan also uses
+# scripts/board/new-board.sh check offers it when one is missing. tools/new_board.py ble-scan also uses
 # bleak if it is installed (python3 -m pip install bleak); nothing else needs it.
 -r ../firmware/tests/requirements.txt

@@ -93,7 +93,7 @@ import Testing
     }
 
     /// The real thing, when this checkout has a built image (binaries/ is not in git).
-    @Test(.enabled(if: haveLatest, "needs binaries/latest.signed.bin, from scripts/build.sh"))
+    @Test(.enabled(if: haveLatest, "needs binaries/latest.signed.bin, from scripts/firmware/build.sh"))
     func theLatestBuiltImageInTheRepository() throws {
         struct Latest: Decodable { let version: String; let size: Int; let sha256: String }
         let latest = try JSONDecoder().decode(Latest.self, from: Data(contentsOf: Self.latestMetadata))

@@ -1889,7 +1889,7 @@ export function accountView(ctx) {
 
 const SCRIPTED_TAG = 'Script, no sign-in';
 const SCRIPTED_NOTE =
-  'Sent by a script (the test bench, or scripts/ota.sh without an API token) with AWS credentials, directly to the API ' +
+  'Sent by a script (the test bench, or scripts/firmware/ota.sh without an API token) with AWS credentials, directly to the API ' +
   'function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, ' +
   'so the entry does not show that this person did it.';
 
@@ -5425,7 +5425,7 @@ function tokenUsage(ctx) {
       h(
         'li',
         { key: 'ota' },
-        mono('scripts/ota.sh'),
+        mono('scripts/firmware/ota.sh'),
         ' uses the token in ',
         mono('~/.cranium/console-token'),
         ' (readable by you alone: ',
@@ -5469,7 +5469,7 @@ export function tokensView(ctx) {
     body = empty({
       iconName: 'key',
       title: 'You have no API tokens.',
-      text: 'Make one for a script that should use the console as you, such as scripts/ota.sh.',
+      text: 'Make one for a script that should use the console as you, such as scripts/firmware/ota.sh.',
     });
   } else {
     body = h(
@@ -6506,7 +6506,7 @@ function madeTokenDialog(model, ctx) {
         'p',
         { key: 'keep' },
         'Keep it like a password. For ',
-        mono('scripts/ota.sh'),
+        mono('scripts/firmware/ota.sh'),
         ', put it in ',
         mono('~/.cranium/console-token'),
         ' and make that file readable by you alone, for example on a Mac after copying:'

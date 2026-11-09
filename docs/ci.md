@@ -9,7 +9,7 @@ are free, anybody can read the logs, and anybody signed in to GitHub can downloa
 the pull request: the scan, the host tests, the Python tests, the cloud tests, and both firmware builds, on
 Linux, in about six minutes. The run before it failed only the Python job, on 24 tests that skipped because
 `console_sim_fault` was not built, which this job refuses. The job that checks a published release has not run,
-because no firmware release has been published on GitHub (none as of 2026-11-05), and `scripts/github-release.sh` has
+because no firmware release has been published on GitHub (none as of 2026-11-05), and `scripts/release/github-release.sh` has
 not been run for real. The phone apps' release workflow has run: [Releasing the apps](#releasing-the-apps).
 
 **A cancelled run is usually not a failure.** Two things cancel jobs. A newer push to the same branch cancels the run
@@ -24,9 +24,9 @@ shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run
 
 | Job | Runs on | What it does | What a pass means |
 | --- | --- | --- | --- |
-| No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
+| No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/ci/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Desktop app (core) | Ubuntu, Node 22 | `npm ci` and `npm test` in `apps/desktop`, then the app started once under a virtual display with the example configuration | The desktop app's core does what its tests say, with no Electron, and the app opens on Linux and draws the customer site's sign-in from its built-in pages ([docs/desktop-app.md](desktop-app.md)). It cannot sign in, and nothing is packaged |
 | Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
@@ -34,7 +34,7 @@ shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run
 | Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi, cloud or Memfault code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, as for the default |
 | Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass and it builds. It cannot sign in: the real configuration is never in git |
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass and the app compiles for iPhone. Nothing is signed or installed |
-| Check the release's files | A release is published | `scripts/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
+| Check the release's files | A release is published | `scripts/release/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
 
 The last job is the only one that runs for a release, and it runs for nothing else: not for a release made for a phone
 app's tag (`android-v…`, `ios-v…`), which has no files. The phone apps are released by a workflow of their own,
@@ -155,7 +155,7 @@ The SDK's west workspace is restored from a cache whose key holds the SDK's vers
 
 - There are no `restore-keys`, so only a cache for exactly this SDK is ever restored.
 - `west update` runs every time, cached or not.
-- `scripts/check-west-workspace.sh` then fails the job if `nrf` is not on the pinned commit, if a
+- `scripts/ci/check-west-workspace.sh` then fails the job if `nrf` is not on the pinned commit, if a
   project is not on what its manifest says, if a tracked file in any of them has changed, or if git has
   been told not to look at one.
 - The cache is saved before the build, and it holds only the SDK. The build goes to `build/` in a
@@ -232,13 +232,13 @@ allow that one setting by name, and the workflow to build it.
 3. Try the release first, which checks everything and writes nothing:
 
    ```sh
-   scripts/github-release.sh 1.7.0 --dry-run
+   scripts/release/github-release.sh 1.7.0 --dry-run
    ```
 
 4. Publish it:
 
    ```sh
-   scripts/github-release.sh 1.7.0
+   scripts/release/github-release.sh 1.7.0
    ```
 
 It takes the image from `binaries/`, and it refuses unless all of these hold:
@@ -368,7 +368,7 @@ A tag made this way is only a tag: no GitHub Release is made, and none is needed
 ## The check on a release
 
 When a release is published, `release-assets` downloads its files with the workflow's own read-only
-token and runs `scripts/verify-github-release.sh` in a checkout of the tag. It fails, with an error
+token and runs `scripts/release/verify-github-release.sh` in a checkout of the tag. It fails, with an error
 annotation, if any of these is wrong:
 
 - The release holds exactly the image, `latest.json` and `SHA256SUMS`.

@@ -5,7 +5,7 @@
     binaries/latest.signed.bin             a copy of the newest build
     binaries/latest.json                   its version, size, digest, git commit and -D settings
     binaries/cranium-1.2.0-0.json          the same record, kept next to each version's image, so
-                                           that scripts/check-image.sh can check any of them
+                                           that scripts/firmware/check-image.sh can check any of them
 
 That is for an nRF7002 DK. A build for another board type (CONFIG_APP_BOARD_TYPE, docs/fleet.md) has the
 type in its names, and a latest of its own, so that nothing that takes latest.signed.bin to an nRF7002
@@ -21,7 +21,7 @@ which have no .git, and an image built with a test fault is refused. latest.json
 the image has firmware update over Bluetooth, which every build has from 1.9.0. A signed image
 is not a secret, but it is large and can be rebuilt, so git ignores these files.
 
-Install what is stored here with scripts/ota.sh, or upload it on the console's Firmware page.
+Install what is stored here with scripts/firmware/ota.sh, or upload it on the console's Firmware page.
 """
 
 import argparse

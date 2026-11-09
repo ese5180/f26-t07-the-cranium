@@ -2,9 +2,9 @@
 #
 # Bring up the Cranium firmware console on AWS and open it in the browser.
 #
-#   scripts/open-console.sh              sign in if needed, deploy if needed, open the page
-#   scripts/open-console.sh --update     also deploy the code in this checkout first
-#   scripts/open-console.sh --no-open    do everything except open the browser
+#   scripts/console/open-console.sh              sign in if needed, deploy if needed, open the page
+#   scripts/console/open-console.sh --update     also deploy the code in this checkout first
+#   scripts/console/open-console.sh --no-open    do everything except open the browser
 #
 # There is no server to start: the console runs on Lambda and API Gateway, which answer
 # whenever someone asks and cost next to nothing in between. So "on" means that the stack
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STACK=cranium-ota
 STACK_WAIT_SECONDS=1200
 ANSWER_WAIT_SECONDS=120
@@ -134,7 +134,7 @@ main() {
         usage
         return 0
         ;;
-      *) die "unknown argument: $1" "See scripts/open-console.sh --help." ;;
+      *) die "unknown argument: $1" "See scripts/console/open-console.sh --help." ;;
     esac
     shift
   done

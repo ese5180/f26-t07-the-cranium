@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of tools/memfault_upload.py, which scripts/build.sh runs after a build. No board, no build,
+"""Tests of tools/memfault_upload.py, which scripts/firmware/build.sh runs after a build. No board, no build,
 no Memfault account.
 
     python3 firmware/tests/hil/test_memfault_upload.py

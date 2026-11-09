@@ -742,7 +742,7 @@ itself. The code is drawn by the page from Project Nayuki's QR Code generator (M
 lowest error correction, and 3 px a module where the page is wide enough: scan it from a computer's screen.
 
 **Publishing the Android app.** `apps/android/build-release.sh` builds the signed APK and then runs
-`apps/android/publish.sh` (`--no-publish` skips it), which takes an API token as `scripts/upload-to-console.sh` does
+`apps/android/publish.sh` (`--no-publish` skips it), which takes an API token as `scripts/firmware/upload-to-console.sh` does
 (`CRANIUM_TOKEN`, or `~/.cranium/console-token` with mode 600; its owner a release manager). The version is the one in
 the APK's name, the `versionCode` `craniumVersionCode`, both checked against the APK with the SDK's `aapt2` where it is
 installed, and the note the first paragraph of the version's entry in `apps/android/CHANGELOG.md`. An APK is bigger

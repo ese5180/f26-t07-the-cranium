@@ -18,7 +18,7 @@
 # bytes counts as published; with other bytes it is an error.
 #
 # The token comes from CRANIUM_TOKEN, or else from ~/.cranium/console-token, a plain file of your own with
-# mode 600, as for scripts/upload-to-console.sh. Its owner must be a release manager. The console's address
+# mode 600, as for scripts/firmware/upload-to-console.sh. Its owner must be a release manager. The console's address
 # comes from CRANIUM_CONSOLE_URL, or else from ConsoleUrl in cloud/.deploy/outputs.json. Neither the token
 # nor the upload URL is ever printed or put on a command line.
 #

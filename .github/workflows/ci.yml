@@ -48,7 +48,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Look for private keys and wifi_secrets.h in the tracked files
-        run: scripts/scan-tracked-files.sh
+        run: scripts/ci/scan-tracked-files.sh
 
   host-tests:
     name: Host tests
@@ -88,7 +88,7 @@ jobs:
       # the same console with the test fault built in, for the tests of a stuck board.
       - name: Build the console's real code for a pseudo-terminal
         run: make -C firmware/tests/host build/console_sim build/console_sim_fault
-      # scripts/new-board.sh in a scratch copy of the repository, with stand-ins for nrfutil, west, aws,
+      # scripts/board/new-board.sh in a scratch copy of the repository, with stand-ins for nrfutil, west, aws,
       # node and the tools that talk to a board, and tools/new_board.py, which it runs, also against the
       # console simulator just built. None of them may skip here.
       - name: Run the tests of the new-board script
@@ -317,7 +317,7 @@ jobs:
           echo "ZEPHYR_BASE=$HOME/ncs/zephyr" >> "$GITHUB_ENV"
 
       - name: Check that the SDK is exactly the one it should be
-        run: scripts/check-west-workspace.sh "$HOME/ncs" "$NCS_COMMIT"
+        run: scripts/ci/check-west-workspace.sh "$HOME/ncs" "$NCS_COMMIT"
 
       - name: Save the SDK to the cache
         if: steps.ncs-cache.outputs.cache-hit != 'true'
@@ -491,4 +491,4 @@ jobs:
           mkdir "$RUNNER_TEMP/release"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/release"
       - name: Check the signature, the version and SHA256SUMS
-        run: scripts/verify-github-release.sh "$TAG" "$RUNNER_TEMP/release"
+        run: scripts/release/verify-github-release.sh "$TAG" "$RUNNER_TEMP/release"

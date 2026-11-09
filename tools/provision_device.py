@@ -38,7 +38,7 @@ by itself (docs/fleet.md):
    none, and shows a new passkey on its serial console for each pairing.
 
 The console is reached with a console token (CRANIUM_TOKEN or ~/.cranium/console-token), as
-scripts/check-image.sh does. See src/bt_passkey.h in the firmware for what a passkey that does not
+scripts/firmware/check-image.sh does. See src/bt_passkey.h in the firmware for what a passkey that does not
 change costs, and when to give a board a new one.
 
 Needs the AWS CLI with a signed-in profile, and the cloud stack deployed
@@ -480,7 +480,7 @@ def main() -> None:
             print("Done: the board is connected to AWS IoT.")
     except ShellFirmware:
         fail("this board runs firmware from before the console. Update it first with "
-             "scripts/ota.sh or tools/recover.py")
+             "scripts/firmware/ota.sh or tools/recover.py")
     except BoardError as error:
         fail(str(error))
 

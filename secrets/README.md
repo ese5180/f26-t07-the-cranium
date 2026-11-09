@@ -17,7 +17,7 @@ it is made, is in the document named:
 
 | File in `~/.cranium/` | What it is | Used by |
 | --- | --- | --- |
-| `console-token` | A release manager's API token for the console (`crn_…`, at most 90 days) | `scripts/upload-to-console.sh`, `scripts/build.sh`, the apps' `publish.sh` ([`docs/aws-iot.md`](../docs/aws-iot.md#api-tokens)) |
+| `console-token` | A release manager's API token for the console (`crn_…`, at most 90 days) | `scripts/firmware/upload-to-console.sh`, `scripts/firmware/build.sh`, the apps' `publish.sh` ([`docs/aws-iot.md`](../docs/aws-iot.md#api-tokens)) |
 | `memfault_project_key` | The Memfault project key, which `cloud/deploy.sh` stores in the stack's secret; never in an image | [`docs/memfault.md`](../docs/memfault.md#setting-it-up) |
 | `memfault_org_token` | A Memfault organization token, for uploading symbols and releases | `tools/memfault_upload.py` ([`docs/memfault.md`](../docs/memfault.md#symbols-and-releases)) |
 | `android/cranium-release.jks`, `android/keystore.properties` | The Android app's release key and its passwords. A phone only takes an update signed with the same key: back them up | `apps/android/build-release.sh` ([`apps/android/README.md`](../apps/android/README.md#build)) |

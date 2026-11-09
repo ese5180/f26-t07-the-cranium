@@ -4056,7 +4056,7 @@ export const SERIAL_WORDS = {
   ENTER_BOOTLOADER: 'restarted {} into its bootloader over USB',
 };
 
-// What scripts/ota.sh without an API token, and the test bench, call their requests. They
+// What scripts/firmware/ota.sh without an API token, and the test bench, call their requests. They
 // invoke the API function directly, with AWS credentials and without API Gateway or a
 // sign-in, in a person's name. API Gateway makes up the id of every request that comes
 // through it, so nobody can put this on a request from a browser, or from a script that

@@ -2,12 +2,12 @@
 #
 # Build the firmware with the next version, and leave the signed image in binaries/.
 #
-#   scripts/build.sh                   the next unused version, for example 1.7.10 after 1.7.9
-#   scripts/build.sh --version 1.8.0   that version instead
-#   scripts/build.sh --keep            the version already in firmware/app/VERSION
-#   scripts/build.sh --jobs 8          compile with that many jobs (default 4)
-#   scripts/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
-#   scripts/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
+#   scripts/firmware/build.sh                   the next unused version, for example 1.7.10 after 1.7.9
+#   scripts/firmware/build.sh --version 1.8.0   that version instead
+#   scripts/firmware/build.sh --keep            the version already in firmware/app/VERSION
+#   scripts/firmware/build.sh --jobs 8          compile with that many jobs (default 4)
+#   scripts/firmware/build.sh --no-upload       build, and upload it nowhere: not to the console, not to Memfault
+#   scripts/firmware/build.sh --board nrf5340dk for that board type (docs/fleet.md): nrf7002dk (the default)
 #                                      or nrf5340dk, which has Bluetooth only
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
@@ -17,7 +17,7 @@
 # TLVs (firmware/README.md, "Board type and compatibility"): this reads them back with
 # tools/check_image.py, stops if they are missing or not this build's, and writes them into both
 # records as "board" and "layout". It then checks the image's signature with the same code the console
-# uses, and uploads it to the console's Firmware page with your API token (scripts/upload-to-console.sh):
+# uses, and uploads it to the console's Firmware page with your API token (scripts/firmware/upload-to-console.sh):
 # only uploads, so no board gets it until it is deployed, and the console offers a release only to
 # boards of its type and layout. Without a token it says how to make one, and the image stays in
 # binaries/. A version can be uploaded only once, which is why each build takes a new one. Exit status
@@ -34,7 +34,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 NCS_VERSION=v3.4.0
 # Where nrfutil sdk-manager puts it on macOS; elsewhere, set NCS_DIR (docs/new-board-setup.md).
@@ -267,7 +267,7 @@ elif ! git -C "$REPO_DIR" diff --quiet -- firmware/app/VERSION 2>/dev/null; then
 fi
 
 if [ "$upload" = false ]; then
-  echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/upload-to-console.sh."
+  echo "Next: upload binaries/$name on the console's Firmware page, or run scripts/firmware/upload-to-console.sh."
   if [ "$board_type" = nrf7002dk ]; then
     echo "Memfault gets nothing either: while build/ holds this image, run tools/memfault_upload.py --build build."
   fi
@@ -289,16 +289,16 @@ fi
 echo
 commit="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("commit", "unknown"))' \
   "$REPO_DIR/binaries/$latest.json")"
-notes="Built by scripts/build.sh from commit $commit"
+notes="Built by scripts/firmware/build.sh from commit $commit"
 case "$commit" in
   *+uncommitted) notes="$notes: firmware/ had changes that are in no commit" ;;
 esac
 set +e
-"$REPO_DIR/scripts/upload-to-console.sh" "$file" "$notes"
+"$REPO_DIR/scripts/firmware/upload-to-console.sh" "$file" "$notes"
 uploaded=$?
 set -e
 case "$uploaded" in
-  0) echo "Deploy it to a board on the console's Firmware page, or with scripts/ota.sh." ;;
+  0) echo "Deploy it to a board on the console's Firmware page, or with scripts/firmware/ota.sh." ;;
   2) echo "The image is in binaries/$name: upload it on the console's Firmware page by hand." ;;
   *)
     echo "warning: built, but not uploaded: see above. The image is in binaries/$name." >&2

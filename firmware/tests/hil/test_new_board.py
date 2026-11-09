@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of scripts/new-board.sh and tools/new_board.py, with no board, no AWS and no console.
+"""Tests of scripts/board/new-board.sh and tools/new_board.py, with no board, no AWS and no console.
 
     python3 firmware/tests/hil/test_new_board.py
 
@@ -607,18 +607,18 @@ RECORD = {"state": "OPERATING", "thing name": THING, "firmware": "1.14.0+0", "bo
 
 
 class ScriptTest(unittest.TestCase):
-    """scripts/new-board.sh in a scratch copy of the repository, with stand-ins on the PATH."""
+    """scripts/board/new-board.sh in a scratch copy of the repository, with stand-ins on the PATH."""
 
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         root = Path(folder.name)
         self.repo, self.home, self.bin, self.fake = root / "repo", root / "home", root / "bin", root / "fake"
-        for path in (self.home / ".cranium", self.bin, self.fake, self.repo / "scripts", self.repo / "binaries",
+        for path in (self.home / ".cranium", self.bin, self.fake, self.repo / "scripts" / "board", self.repo / "scripts" / "firmware", self.repo / "binaries",
                      self.repo / "firmware/app", self.repo / "cloud/.deploy", self.repo / "cloud/api",
                      root / "ncs/zephyr", root / "ncs/nrf"):
             path.mkdir(parents=True, exist_ok=True)
-        shutil.copy(REPO / "scripts/new-board.sh", self.repo / "scripts/new-board.sh")
+        shutil.copy(REPO / "scripts/board/new-board.sh", self.repo / "scripts/board/new-board.sh")
         shutil.copytree(REPO / "tools", self.repo / "tools", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy(REPO / "firmware/golden.json", self.repo / "firmware/golden.json")
         shutil.copy(REPO / "firmware/app/VERSION", self.repo / "firmware/app/VERSION")
@@ -637,7 +637,7 @@ class ScriptTest(unittest.TestCase):
         self.write_stub("west", WEST)
         self.write_stub("aws", AWS)
         self.write_stub("node", "exit 0")
-        self.write_executable(self.repo / "scripts/build.sh", STUB.format(name="build.sh", body=BUILD))
+        self.write_executable(self.repo / "scripts/firmware/build.sh", STUB.format(name="build.sh", body=BUILD))
         self.write_executable(self.bin / "python3", PYTHON.format(python=sys.executable))
         self.answers({})
         self.devices(device())
@@ -675,7 +675,7 @@ class ScriptTest(unittest.TestCase):
                 path.unlink()
 
     def run_script(self, *args, stdin="", **env):
-        result = subprocess.run(["bash", str(self.repo / "scripts/new-board.sh"), *args], cwd=self.repo,
+        result = subprocess.run(["bash", str(self.repo / "scripts/board/new-board.sh"), *args], cwd=self.repo,
                                 input=stdin, capture_output=True, text=True, timeout=120,
                                 env={**self.env, **env})
         self.output = result.stdout + result.stderr
@@ -812,7 +812,7 @@ class ScriptTest(unittest.TestCase):
         result = self.run_script("--only", "flash", "--confirm", "7470", FAKE_WEST_EXIT="1")
         self.assertEqual(result.returncode, 1)
         self.assertIn("Stopped in the flash step", self.output)
-        self.assertIn(f"scripts/new-board.sh --from flash --serial-number {SERIAL_A}", self.output)
+        self.assertIn(f"scripts/board/new-board.sh --from flash --serial-number {SERIAL_A}", self.output)
         self.assertEqual(self.state(), {})
 
     def test_an_unready_computer_touches_no_board(self):
@@ -829,7 +829,7 @@ class ScriptTest(unittest.TestCase):
         result = self.run_script("--dry-run")
         self.assertEqual(result.returncode, 0, self.output)
         self.assertEqual(self.calls(), [])
-        for command in ("scripts/build.sh --keep --no-upload", "west flash -d build --recover --dev-id <serial>",
+        for command in ("scripts/firmware/build.sh --keep --no-upload", "west flash -d build --recover --dev-id <serial>",
                         "python3 tools/golden.py restore --reset --serial-number <serial> --port <console port>",
                         "python3 tools/recover.py --reset --serial-number <serial> --port <console port> upload <that image>",
                         "python3 -u tools/provision_device.py --port <console port> --profile cranium",
@@ -840,7 +840,7 @@ class ScriptTest(unittest.TestCase):
         result = self.run_script("--dry-run", "--board", "nrf5340dk", "--serial-number", SERIAL_B, "--no-register")
         self.assertEqual(result.returncode, 0, self.output)
         self.assertEqual(self.calls(), [])
-        self.assertIn("scripts/build.sh --keep --no-upload --board nrf5340dk", self.output)
+        self.assertIn("scripts/firmware/build.sh --keep --no-upload --board nrf5340dk", self.output)
         self.assertIn(f"west flash -d build-nrf5340dk --recover --dev-id {SERIAL_B}", self.output)
         self.assertIn("--board nrf5340dk --no-register", self.output)
         self.assertIn("ble-scan", self.output)
@@ -936,8 +936,8 @@ class ScriptTest(unittest.TestCase):
         self.secrets(wifi=False, token=True)
         self.devices(device(pca="PCA10095"))
         # A checkout that has the nRF5340 DK: its build.sh, here a stand-in, and provision_device.py know it.
-        with open(self.repo / "scripts/build.sh", "a") as file:
-            file.write("# scripts/build.sh --board nrf5340dk\n")
+        with open(self.repo / "scripts/firmware/build.sh", "a") as file:
+            file.write("# scripts/firmware/build.sh --board nrf5340dk\n")
         with open(self.repo / "tools/provision_device.py", "a") as file:
             file.write("# python tools/provision_device.py --board nrf5340dk\n")
         (self.fake / "build-image.bin").write_bytes(signed((1, 14, 0, 0), b"nrf5340dk"))
@@ -979,7 +979,7 @@ class ScriptTest(unittest.TestCase):
     def test_help(self):
         result = self.run_script("--help")
         self.assertEqual(result.returncode, 0)
-        self.assertIn("scripts/new-board.sh check", self.output)
+        self.assertIn("scripts/board/new-board.sh check", self.output)
         self.assertIn("--from <step>", self.output)
         self.assertEqual(self.calls(), [])
 

@@ -2,11 +2,11 @@
 #
 # Update the board over the air with what is in binaries/.
 #
-#   scripts/ota.sh                     install binaries/latest.signed.bin
-#   scripts/ota.sh <image>             install that signed image
-#   scripts/ota.sh --cloud-only        use no serial port, also if one is there
-#   scripts/ota.sh --thing <name>      which board, if the account has more than one
-#   scripts/ota.sh --aws               use AWS credentials even if there is an API token
+#   scripts/firmware/ota.sh                     install binaries/latest.signed.bin
+#   scripts/firmware/ota.sh <image>             install that signed image
+#   scripts/firmware/ota.sh --cloud-only        use no serial port, also if one is there
+#   scripts/firmware/ota.sh --thing <name>      which board, if the account has more than one
+#   scripts/firmware/ota.sh --aws               use AWS credentials even if there is an API token
 #
 # It uploads the image through the console's API, which checks the signature before it
 # stores anything, deploys it to the board, and follows the update until the new firmware
@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 NCS_VERSION=v3.4.0
 TOKEN_FILE="$HOME/.cranium/console-token"
@@ -80,7 +80,7 @@ while [ $# -gt 0 ]; do
       force_aws=yes
       ;;
     -*)
-      die "unknown option: $1" "See scripts/ota.sh --help."
+      die "unknown option: $1" "See scripts/firmware/ota.sh --help."
       ;;
     *)
       image="$1"
@@ -132,13 +132,13 @@ def main(command, *args):
         version = f"{data[20]}.{data[21]}.{int.from_bytes(data[22:24], 'little')}+{int.from_bytes(data[24:28], 'little')}"
         name = re.sub(r'[^A-Za-z0-9._-]', '-', os.path.basename(path))[:64] or 'cranium.signed.bin'
         with open(out, 'w', encoding='utf-8') as file:
-            json.dump({'filename': name, 'notes': 'Uploaded by scripts/ota.sh with an API token',
+            json.dump({'filename': name, 'notes': 'Uploaded by scripts/firmware/ota.sh with an API token',
                        'data': base64.b64encode(data).decode('ascii')}, file)
         print(version)
     elif command == 'deploy-body':
         version, thing, out = args
         with open(out, 'w', encoding='utf-8') as file:
-            json.dump({'version': version, 'things': [thing], 'note': 'scripts/ota.sh'}, file)
+            json.dump({'version': version, 'things': [thing], 'note': 'scripts/firmware/ota.sh'}, file)
     elif command == 'field':
         data = load(args[0])
         for part in args[1].split('.'):
@@ -360,7 +360,7 @@ fi
 case "$who" in
   "") die "no active release manager: finish a first sign-in to the console" ;;
   *[[:space:]]*) die "there are several active release managers" \
-    "Say which one with CRANIUM_RELEASE_MANAGER=<email> scripts/ota.sh" ;;
+    "Say which one with CRANIUM_RELEASE_MANAGER=<email> scripts/firmware/ota.sh" ;;
 esac
 
 [ -x "$NRFUTIL" ] || die "nrfutil was not found at $NRFUTIL" "Set NRFUTIL to where it is."

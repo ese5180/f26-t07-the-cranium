@@ -60,7 +60,7 @@ deployment produces is written to `cloud/.deploy/`, which git ignores.
 ## Open the console
 
 ```sh
-scripts/open-console.sh
+scripts/console/open-console.sh
 ```
 
 It signs in to AWS if the session has run out, deploys the console if it does not exist,
@@ -510,7 +510,7 @@ The log group keeps its lines for 90 days, so an older entry can no longer be co
 AWS administrator can change both the table and the log, and such a change to an item is not
 in the trail. Point-in-time recovery can bring back the table of the last 35 days.
 
-`scripts/ota.sh` and the test bench invoke the API function directly with AWS credentials,
+`scripts/firmware/ota.sh` and the test bench invoke the API function directly with AWS credentials,
 past API Gateway and sign-in, with made-up token claims in the name of an active release
 manager. The function's own checks still run and it writes an ordinary entry under that
 person's name. So such an entry does not show that the person signed in, or that they did it at

@@ -3614,23 +3614,23 @@ class ConsoleChecksWithNoConsoleTest(unittest.TestCase):
 
 class UpdateScriptTest(unittest.TestCase):
     def test_it_leaves_the_button_to_the_bench(self):
-        script = (REPO / "scripts/ota.sh").read_text()
+        script = (REPO / "scripts/firmware/ota.sh").read_text()
         self.assertNotIn("--real-button", script)
         self.assertIn("--cloud-only", script)
         self.assertIn('ota_bench.py" update "$image"', script)
         self.assertIn("--via api", script)
-        syntax = subprocess.run(["bash", "-n", str(REPO / "scripts/ota.sh")], capture_output=True, text=True)
+        syntax = subprocess.run(["bash", "-n", str(REPO / "scripts/firmware/ota.sh")], capture_output=True, text=True)
         self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
     def test_what_it_says_it_can_do(self):
-        told = subprocess.run([str(REPO / "scripts/ota.sh"), "--help"], capture_output=True, text=True)
+        told = subprocess.run([str(REPO / "scripts/firmware/ota.sh"), "--help"], capture_output=True, text=True)
         self.assertEqual(told.returncode, 0, told.stderr)
         self.assertIn("--cloud-only", told.stdout)
         self.assertIn("does not have to be on USB", told.stdout)
         self.assertNotIn("must be on USB", told.stdout)
 
     def test_a_thing_needs_a_name(self):
-        told = subprocess.run([str(REPO / "scripts/ota.sh"), "--thing"], capture_output=True, text=True)
+        told = subprocess.run([str(REPO / "scripts/firmware/ota.sh"), "--thing"], capture_output=True, text=True)
         self.assertEqual(told.returncode, 1)
         self.assertIn("--thing needs the board's thing name", told.stderr)
 

@@ -5,9 +5,9 @@
 # application core, and the network core has no bootloader of its own here. It is needed once per
 # board, and only on a board whose network core still has the blinky from before 1.9.0.
 #
-#   scripts/flash-netcore.sh                      flash build/hci_ipc, from scripts/build.sh
-#   scripts/flash-netcore.sh --serial-number <n>  on that probe (nrfutil device list shows it)
-#   scripts/flash-netcore.sh --dry-run            say what would be done, and do nothing
+#   scripts/board/flash-netcore.sh                      flash build/hci_ipc, from scripts/firmware/build.sh
+#   scripts/board/flash-netcore.sh --serial-number <n>  on that probe (nrfutil device list shows it)
+#   scripts/board/flash-netcore.sh --dry-run            say what would be done, and do nothing
 #
 # Only the network core's own flash is written, and only the pages the image covers. The application
 # core is not touched: its bootloader, firmware, TF-M storage (the board's ID, Wi-Fi network, key and
@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NRFUTIL="${NRFUTIL:-$HOME/.nrfutil/bin/nrfutil}"
 HEX="$REPO_DIR/build/hci_ipc/zephyr/zephyr.hex"
 serial=""
@@ -48,10 +48,10 @@ done
 
 [ -x "$NRFUTIL" ] || die "nrfutil was not found at $NRFUTIL" "Set NRFUTIL to where it is."
 [ -f "$HEX" ] || die "there is no Bluetooth controller image at build/hci_ipc" \
-  "Build first: scripts/build.sh --keep. From 1.9.0 every build makes it."
-# The controller that scripts/build.sh made, and not something else left in build/.
+  "Build first: scripts/firmware/build.sh --keep. From 1.9.0 every build makes it."
+# The controller that scripts/firmware/build.sh made, and not something else left in build/.
 grep -q '^CONFIG_BT_HCI_RAW=y$' "$REPO_DIR/build/hci_ipc/zephyr/.config" 2>/dev/null \
-  || die "build/hci_ipc is not a Bluetooth controller build" "Build again: scripts/build.sh --keep."
+  || die "build/hci_ipc is not a Bluetooth controller build" "Build again: scripts/firmware/build.sh --keep."
 
 if [ -z "$serial" ]; then
   probes="$("$NRFUTIL" device list --json 2>/dev/null \
