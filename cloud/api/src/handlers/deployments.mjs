@@ -55,6 +55,12 @@ import {
 import { releaseFromItem, releaseKey } from './firmware.mjs';
 
 const CACHE_MS = 2000;
+// A deployment that is over (lib/jobs.mjs isSettled) does not change any more: its summary is
+// read again after this long all the same, so nothing a page shows is kept for ever.
+const SETTLED_MS = 10 * 60_000;
+// When AWS throttles a read even after its retries (lib/iot-pace.mjs), the list shows the last
+// summary it had of a deployment, if it is no older than this, rather than nothing at all.
+const STALE_MS = 60_000;
 const LIST_LIMIT = 25;
 const MAX_CACHED = 1000;
 const ANY_JOB_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -211,11 +217,26 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     put(summaries, id, { summary, settled: isSettled(summary), at: now() });
   }
 
-  /** The summary of one deployment for the list, or null if the job is not one. */
-  async function summaryOf(id) {
+  /**
+   * The summary of one deployment for the list, or null if the job is not one. `listed`, the
+   * job as ListJobs gave it, if at hand: a summary whose status is not the one listed is read again.
+   */
+  async function summaryOf(id, listed = null) {
     const cached = summaries.get(id);
-    if (cached !== undefined && (cached.settled || now() - cached.at < CACHE_MS)) return cached.summary;
-    const summary = summarizeJob(await aws.describeJob(id));
+    if (cached !== undefined) {
+      const age = now() - cached.at;
+      const current = listed === null || listed.status === cached.summary.status;
+      if (current && age < (cached.settled ? SETTLED_MS : CACHE_MS)) return cached.summary;
+    }
+    let job;
+    try {
+      job = await aws.describeJob(id);
+    } catch (error) {
+      if (error?.code !== 'throttled' || cached === undefined || now() - cached.at >= STALE_MS) throw error;
+      warn('summary_kept', { deployment: id }, error);
+      return cached.summary;
+    }
+    const summary = summarizeJob(job);
     if (summary === null) summaries.delete(id);
     else rememberSummary(id, summary);
     return summary;
@@ -379,7 +400,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     const open = (await listedJobs({ fresh: true })).filter(
       (job) => job.jobId !== except && (job.status === 'IN_PROGRESS' || job.status === 'SCHEDULED')
     );
-    const summaries = await mapLimit(open, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId));
+    const summaries = await mapLimit(open, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId, job));
     for (const summary of summaries) {
       if (summary === null) continue;
       for (const thing of things) {
@@ -618,14 +639,14 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     // For staged rollouts (handlers/rollouts.mjs).
     launch,
     unfinishedOn,
-    summary: summaryOf,
+    summary: (id) => summaryOf(id),
     detail: (id) => detailOf(id, { fresh: true }),
 
     async list() {
       const newest = [...(await listedJobs())]
         .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || (a.jobId < b.jobId ? 1 : -1))
         .slice(0, LIST_LIMIT);
-      const loaded = await mapLimit(newest, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId));
+      const loaded = await mapLimit(newest, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId, job));
       return { body: { deployments: loaded.filter((summary) => summary !== null) } };
     },
 

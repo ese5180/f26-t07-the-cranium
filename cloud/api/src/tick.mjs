@@ -16,6 +16,7 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createRolloutHandlers, runRolloutTick } from './handlers/rollouts.mjs';
+import { pace } from './lib/iot-pace.mjs';
 
 /**
  * @param {object} options
@@ -31,9 +32,11 @@ export function createRolloutTick({
   now = Date.now,
   randomHex = (count) => randomBytes(count).toString('hex'),
   log = (line) => console.log(JSON.stringify(line)),
+  pacing = {},
 }) {
   const alert = alerts === null ? null : (raised) => alerts.raise(raised);
-  const context = { aws, config, now, randomHex, log, alert };
+  // AWS IoT's job reads, paced and retried when throttled (lib/iot-pace.mjs).
+  const context = { aws: pace(aws, { log, ...pacing }), config, now, randomHex, log, alert };
   const devices = createDeviceHandlers(context);
   const fleet = createFleetHandlers(context, { devices });
   const deployments = createDeploymentHandlers(context, { devices, fleet });
