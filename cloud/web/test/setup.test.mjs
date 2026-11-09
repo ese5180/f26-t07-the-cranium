@@ -46,6 +46,7 @@ const FAST = Object.freeze({
   wifi: 1000,
   keygen: 1000,
   chunk: 1000,
+  store: 1000,
   poll: 20,
   online: 400,
   seal: 1500,

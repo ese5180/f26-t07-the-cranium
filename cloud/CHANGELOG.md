@@ -7,6 +7,13 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.8.1
+
+Board setup waits up to a minute for the last piece of each certificate. Found on a real board: a running nRF7002 DK
+stores a certificate on its main thread, which it shares with its cloud connection, and after a new key that connection
+keeps retrying with the old certificate, so the board's answer came after the 8 s the page gave every piece. The other
+pieces keep their 8 s (`store` in `setup.js` timings, `docs/new-board-setup.md`).
+
 ## 2.8.0
 
 Staged rollouts go in parallel after the canary: the rest of the boards follow in 1 to 10 stages, each updating all its boards at once, the next only once the one before has ended within its failure limit. Choose the number of stages, the batch size (percent or boards), the wait between stages and the limit; the console suggests a plan for the group, with its reasons.

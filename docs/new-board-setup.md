@@ -128,6 +128,7 @@ All in `setup.js` `TIMING` and `recovery.js`, in milliseconds:
 | `wifi` | 6 000 | `WIFI_SEC`, `STREAM_START`, `CLOUD`: each writes to flash |
 | `keygen` | 15 000 | `KEYGEN` makes the key in the secure partition |
 | `chunk` | 8 000 | One `STREAM_CHUNK` |
+| `store` | 60 000 | A certificate's last `STREAM_CHUNK`: the board stores it on its main thread, which a running board shares with its cloud connection |
 | `online` | 180 000, every `poll` (5 000) | The console seeing the board online |
 | `seal` | 240 000 | Watching the log port for the seal's result |
 
