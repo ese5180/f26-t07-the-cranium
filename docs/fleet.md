@@ -66,6 +66,8 @@ image on a board checks it. The board's own check is the last word.
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
   boards, and what is left out (offline long, Bluetooth only, already current).
 
+Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
+
 ## Commands: `cranium/<thing>/commands`
 
 The console publishes, QoS 1; the board subscribes. The device policy allows the board to subscribe to and receive its
