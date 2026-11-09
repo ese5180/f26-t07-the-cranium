@@ -910,6 +910,14 @@ export function createFakeAws({
   // token, until fake.useMemfault() hands over a reader, such as the real one pointed at a fake Memfault
   // (test/fake-memfault.mjs).
   let memfaultReader = null;
+  // Board setup's Wi-Fi defaults (src/aws-wifi-defaults.mjs): none stored, until fake.storeWifiDefaults()
+  // plays cloud/deploy.sh storing some. A string, as Secrets Manager holds it.
+  let wifiDefaults = null;
+  Object.assign(adapter, {
+    async wifiDefaults() {
+      return wifiDefaults;
+    },
+  });
   Object.assign(adapter, {
     async memfaultKeyStored() {
       return memfaultKey;
@@ -1028,6 +1036,11 @@ export function createFakeAws({
       const queued = faults.get(method) ?? [];
       for (let count = 0; count < times; count += 1) queued.push(() => awsError(method, awsName, { code }));
       faults.set(method, queued);
+    },
+
+    /** Store Board setup's Wi-Fi defaults, as text (JSON), or null for none. */
+    storeWifiDefaults(text) {
+      wifiDefaults = text;
     },
 
     /** A reader of Memfault's REST API for memfaultGet, or null for none. */

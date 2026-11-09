@@ -120,12 +120,14 @@ of its own, so `src/lib/ble.mjs` makes one out of its chooser:
 
 ## The USB console
 
-The console's USB page uses Web Serial, as in Chrome. When the page asks for a port, the app picks the only J-Link
-there is, or asks which one when there are several. Only the bundle's origin may use a serial port. Each system's
+The console's USB page uses Web Serial, as in Chrome. When the page asks for a port, the app picks the only port
+there is, or asks which one when there are several. A J-Link's two ports are named: the higher-numbered is the console
+port, offered first, and the other the log port (`src/lib/serial-ports.mjs`). Only the bundle's origin may use a serial port. Each system's
 notes say what it needs: on Linux, the permission to open the port.
 
 **Board setup** (Developer, [docs/new-board-setup.md](new-board-setup.md#from-the-console-board-setup)) works here
-as in Chrome. It asks for a port twice when it seals the golden image: the console port, then the log port. The app
+as in Chrome, the register route and the Wi-Fi defaults included (console 2.6.3 takes the app's sign-in for them). It
+asks for a port twice when it seals the golden image: the console port, then the log port. The app
 does not flash a blank board through the debug probe: the console has no bootloader, TF-M or network core image to
 give it, only signed application images, so a blank board still needs `scripts/board/new-board.sh` once.
 

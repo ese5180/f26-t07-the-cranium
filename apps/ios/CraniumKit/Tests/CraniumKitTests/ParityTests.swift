@@ -235,7 +235,7 @@ import Testing
         for action in ["firmware.upload", "firmware.revoke", "deployment.create", "deployment.cancel", "firmware.download",
                        "pairing.read", "firmware.bluetooth_send", "token.create", "token.revoke", "account.sign_in", "serial.command",
                        "customer.create", "customer.resend", "customer.assign", "customer.unassign", "customer.disable",
-                       "customer.enable", "device.register"] {
+                       "customer.enable", "device.register", "setup.wifi_defaults"] {
             #expect(source.contains("'\(action)': {"), "\(action) on the website")
             #expect(Words.auditActions[action] != nil, "\(action) in the app")
         }
@@ -370,5 +370,26 @@ import Testing
         _ = try await api.setNotes(version: "1.12.0+0", notes: String(repeating: "x", count: 600))
         let long = try #require(try JSONSerialization.jsonObject(with: http.requests[1].httpBody ?? Data()) as? [String: String])
         #expect(long["notes"]?.count == ConsoleAPI.notesLimit)
+    }
+}
+
+/// Why the app has no Board setup, in the website's words (setup.js APP_WORDS).
+@Suite struct BoardSetupWordsTests {
+    @Test func theWordsAreTheWebsitesOwn() throws {
+        let file = ConfigTests.configDir.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cloud/web/src/site/assets/setup.js")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        let start = try #require(source.range(of: "export const APP_WORDS = Object.freeze({"))
+        let end = try #require(source.range(of: "});", range: start.upperBound..<source.endIndex))
+        let block = String(source[start.upperBound..<end.lowerBound])
+        let joined = try NSRegularExpression(pattern: "'\\s*\\+\\s*'")
+            .stringByReplacingMatches(in: block, range: NSRange(block.startIndex..., in: block), withTemplate: "")
+        func value(_ key: String) throws -> String {
+            let pattern = try NSRegularExpression(pattern: "\(key):\\s*'([^']*)'")
+            let match = try #require(pattern.firstMatch(in: joined, range: NSRange(joined.startIndex..., in: joined)))
+            return String(joined[try #require(Range(match.range(at: 1), in: joined))])
+        }
+        #expect(try value("title") == BoardSetupWords.title)
+        #expect(try value("ios") == BoardSetupWords.ios)
     }
 }

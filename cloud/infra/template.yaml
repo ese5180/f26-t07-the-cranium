@@ -1864,6 +1864,12 @@ Resources:
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Ref MemfaultOrgToken
+              # Board setup's Wi-Fi defaults (handlers/setup.mjs, GET /api/setup/wifi-defaults, release managers
+              # only): this one secret, and no other function may read it.
+              - Sid: ReadWifiDefaults
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref WifiDefaults
               # Provisioning through the console (POST /api/devices/register, handlers/provision.mjs): what
               # tools/provision_device.py does with an administrator's sign-in, for a release manager. Things
               # named like the boards only, into this stack's group only. The handler gives a certificate the
@@ -1963,6 +1969,8 @@ Resources:
           # FirmwareDownloadPrefix have them.
           DEVICE_POLICY: !Ref DevicePolicy
           FIRMWARE_DOWNLOAD_PREFIX: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com/firmware/'
+          # Board setup's Wi-Fi defaults (aws-wifi-defaults.mjs): the secret's ARN, never its value.
+          WIFI_DEFAULTS_SECRET_ARN: !Ref WifiDefaults
 
   # ---------------------------------------------------------------------------------
   # The customer API (cloud/api/src/customer/app.mjs): what a customer reads about their own
@@ -2334,6 +2342,17 @@ Resources:
       Description: >-
         Memfault token for the Cranium console's reads of Memfault's REST API. Stored by
         cloud/deploy.sh from ~/.cranium/memfault_org_token; empty until then.
+
+  # The Wi-Fi network Board setup fills in by default (docs/new-board-setup.md, "The Wi-Fi defaults"): JSON
+  # { ssid, passphrase, security }. Made empty, like the Memfault secrets; cloud/deploy.sh stores it from
+  # ~/.cranium/wifi_secrets.h. Only the API function may read it, for release managers.
+  WifiDefaults:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}/wifi-defaults'
+      Description: >-
+        Wi-Fi defaults for the Cranium console's Board setup. Stored by cloud/deploy.sh from
+        ~/.cranium/wifi_secrets.h; empty until then.
 
   MemfaultLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2982,6 +3001,10 @@ Outputs:
       The secret that holds the token for Memfault's REST API, which cloud/deploy.sh stores from
       ~/.cranium/memfault_org_token. Its name, never its value.
     Value: !Ref MemfaultOrgToken
+  WifiDefaultsArn:
+    Description: >-
+      The secret of Board setup's Wi-Fi defaults. cloud/deploy.sh stores ~/.cranium/wifi_secrets.h in it.
+    Value: !Ref WifiDefaults
   AlertTopicArn:
     Description: Where the e-mail alerts go. Release managers subscribe on the console's Account page.
     Value: !Ref AlertTopic

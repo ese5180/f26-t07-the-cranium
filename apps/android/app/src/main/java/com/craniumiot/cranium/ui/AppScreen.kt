@@ -184,6 +184,7 @@ private fun Page(vm: ConsoleViewModel, route: Route, store: Store, now: Long) {
         is Route.TokenPage -> TokenScreen(vm, store, route.id, now)
         Route.History -> HistoryScreen(vm, store, now)
         Route.Serial -> SerialScreen(vm, store.me)
+        Route.BoardSetup -> BoardSetupScreen(vm)
         Route.Account -> AccountScreen(vm, store, now)
         is Route.Bluetooth -> BluetoothScreen(vm, store)
         Route.SearchPage -> SearchScreen(vm, store)

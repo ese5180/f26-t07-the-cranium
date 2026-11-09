@@ -53,6 +53,7 @@ sealed interface Route {
     data object Tokens : Route { override val key = "tokens" }
     data object History : Route { override val key = "history" }
     data object Serial : Route { override val key = "serial" }
+    data object BoardSetup : Route { override val key = "setup" }
     data object Account : Route { override val key = "account" }
     data class Bluetooth(val version: String?) : Route { override val key = "bluetooth" }
     data class Release(val version: String) : Route { override val key = "release/$version" }

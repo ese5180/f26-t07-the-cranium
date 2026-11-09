@@ -39,6 +39,7 @@ struct MoreView: View {
                 row(.tokens, "key", "API tokens")
                 row(.history, "clock.arrow.circlepath", "History")
                 row(.serial, "terminal", "Serial console")
+                row(.boardSetup, "cable.connector", "Board setup")
             }
             Section {
                 row(.help(nil), "questionmark.circle", "Help")
@@ -166,6 +167,27 @@ struct AccountView: View {
         } footer: {
             Text(usable || app.biometricOn ? BiometricWords.toggleFooter(biometry) : BiometricWords.cannotUse(biometry))
         }
+    }
+}
+
+/// The console's Board setup takes a board on USB to online over its serial port, which an iPhone cannot open
+/// (BoardSetupWords, the website's setup.js APP_WORDS).
+struct BoardSetupView: View {
+    var body: some View {
+        ListScreen {
+            Section {
+                Text(BoardSetupWords.title).font(.headline)
+            } footer: {
+                Text(BoardSetupWords.ios)
+            }
+            Section {
+                NavigationLink(value: Route.help("bluetooth-update")) {
+                    Label("Update a board over Bluetooth instead", systemImage: "dot.radiowaves.left.and.right")
+                }
+            }
+        }
+        .helpButton("serial-console")
+        .screenTitle("Board setup")
     }
 }
 

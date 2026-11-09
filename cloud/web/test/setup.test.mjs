@@ -895,3 +895,156 @@ test('the golden image is fetched beside the page, with no token, by its file na
   await assert.rejects(api.golden('../server.mjs'));
   assert.equal(calls.length, 1);
 });
+
+// 2.6.3: the Wi-Fi defaults, the hardening for a real board, the self-check and the phone apps.
+
+test('the self-check runs every step against the simulated board, within its line limits', async () => {
+  const results = await setup.runSelfCheck({ golden: async () => GOLDEN_BYTES.slice() });
+  for (const row of results) assert.equal(row.ok, true, `${row.name}: ${row.detail}`);
+  assert.ok(results.length >= 6);
+});
+
+test('the simulated board refuses what the real one refuses: a long console line, a long recovery line', async () => {
+  const board = setup.simulatedBoard({ state: 'OPERATING' });
+  const writer = board.port.writable.getWriter();
+  await writer.write(new TextEncoder().encode(`CLOUD|${'a'.repeat(400)}\r`));
+  assert.deepEqual(board.problems, ['a console line of 406 bytes']);
+  board.mode = 'bootloader';
+  await writer.write(Uint8Array.from([0x06, 0x09, ...new Array(130).fill(0x41), 0x0a]));
+  assert.equal(board.problems[1], 'a recovery line of 133 bytes');
+  // The page's own lines fit: 2 start bytes, 124 base64 characters, the newline.
+  const packet = recovery.smpPacket({
+    op: 2,
+    group: 1,
+    id: 1,
+    sequence: 1,
+    body: { off: 0, data: new Uint8Array(recovery.CHUNK), len: 999999, image: 0 },
+  });
+  assert.ok(packet.length + 2 <= recovery.BOOT_RECEIVE_MAX);
+  for (const line of recovery.frameLines(packet)) assert.ok(line.length <= recovery.BOOT_LINE_MAX, `${line.length}`);
+});
+
+test('the embedded root CA is firmware/certs/AmazonRootCA1.pem, so the self-check checks the real one', () => {
+  assert.equal(setup.AMAZON_ROOT_CA1.trim(), ROOT_CA_PEM.trim());
+});
+
+test('a command longer than the console takes is never sent', async () => {
+  const board = fakeBoard({ state: 'OPERATING' });
+  const link = recovery.createLink(board.port, { handshakeMs: 150 });
+  await assert.rejects(link.command(`CLOUD|${'a'.repeat(400)}|https://x.example.test/`), (error) => {
+    assert.equal(error.code, 'too-long');
+    return true;
+  });
+  assert.equal(
+    board.text.some((line) => line.startsWith('CLOUD')),
+    false
+  );
+  await link.close();
+});
+
+test('the port is opened with a buffer larger than Web Serial’s 255 bytes', async () => {
+  const board = fakeBoard({ state: 'OPERATING', firmware: '1.14.5+0' });
+  const opened = [];
+  const open = board.port.open;
+  board.port.open = async (options) => {
+    opened.push(options);
+    return open();
+  };
+  const { flow } = makeFlow({ board });
+  await flow.connect();
+  assert.deepEqual(opened[0], { baudRate: 115200, bufferSize: recovery.SERIAL_BUFFER_BYTES });
+  assert.ok(recovery.SERIAL_BUFFER_BYTES >= 4096);
+  await flow.disconnect();
+});
+
+test('a port that only prints is named as the log port, not as a blank board', async () => {
+  const log = fakeLogPort();
+  const flow = setup.createSetupFlow({
+    serial: fakeSerial([log.port]),
+    api: fakeApi({ releaseImage: makeImage('1.14.5+0') }),
+    subtle: globalThis.crypto.subtle,
+    timing: FAST,
+  });
+  const chatter = setInterval(() => log.say('[00:00:01.000,000] <inf> wifi: scanning'), 20);
+  await flow.connect();
+  clearInterval(chatter);
+  assert.equal(flow.steps.connect.error, setup.WORDS.logPort);
+  await flow.disconnect();
+});
+
+function setupReady(api) {
+  // The fields are found by their ids: no other test's form may be on the page.
+  for (const child of [...document.body.childNodes]) child.remove();
+  const board = fakeBoard({ state: 'OPERATING', firmware: '1.14.5+0' });
+  return { board, ...makeFlow({ board, api }) };
+}
+
+test('the Wi-Fi fields start with the console’s defaults, which the page keeps nowhere else', async () => {
+  const api = fakeApi({ releaseImage: makeImage('1.14.5+0') });
+  const FAKE = { ssid: 'Fake’s defaults', passphrase: 'fake-default-pass-1', security: 'WPA3_SAE' };
+  api.wifiDefaults = async () => ({ ...FAKE });
+  const { flow, box, board } = setupReady(api);
+  await flow.connect();
+  flow.skip('golden');
+  flow.skip('firmware');
+  await until(() => flow.wifiDefaults.state === 'filled');
+  assert.equal(document.getElementById('setup-ssid').value, FAKE.ssid);
+  const pass = document.getElementById('setup-passphrase');
+  assert.equal(pass.value, FAKE.passphrase);
+  assert.equal(pass.getAttribute('type'), 'password');
+  assert.equal(document.getElementById('setup-security').value, 'WPA3_SAE');
+  assert.ok(textOf(box).includes(setup.WORDS.wifiFilled));
+  assert.equal(JSON.stringify(flow).includes(FAKE.passphrase), false);
+  assert.equal(textOf(box).includes(FAKE.passphrase), false);
+  // The person may change them.
+  document.getElementById('setup-ssid').value = 'Typed network';
+  click(one(box, 'button', 'Set it up'));
+  await until(() => !flow.busy && flow.steps.setup.status !== 'running');
+  assert.equal(flow.steps.setup.status, 'done', flow.steps.setup.error);
+  assert.deepEqual(board.wifi, { ssid: 'Typed network', security: 'WPA3_SAE', passphrase: FAKE.passphrase });
+  await flow.disconnect();
+});
+
+test('the page says when the console has no defaults, or would not give them', async () => {
+  const cases = [
+    [async () => null, setup.WORDS.wifiNone],
+    [
+      async () => {
+        throw Object.assign(new Error('no'), { name: 'ApiError', status: 403 });
+      },
+      'only a release manager',
+    ],
+  ];
+  for (const [answer, words] of cases) {
+    const api = fakeApi({ releaseImage: makeImage('1.14.5+0') });
+    api.wifiDefaults = answer;
+    const { flow, box } = setupReady(api);
+    await flow.connect();
+    flow.skip('golden');
+    flow.skip('firmware');
+    await until(() => ['none', 'failed'].includes(flow.wifiDefaults.state));
+    assert.ok(textOf(box).includes(words), words);
+    assert.equal(document.getElementById('setup-ssid').value, '');
+    await flow.disconnect();
+  }
+});
+
+test('the API client reads the defaults from their one route, with the token', async () => {
+  const wifi = { ssid: 'S', passphrase: 'fake-pass-9', security: 'WPA2_PSK' };
+  const { api, calls } = apiAnswering([new Response(JSON.stringify({ wifi }), { status: 200 })]);
+  assert.deepEqual(await api.wifiDefaults(), wifi);
+  assert.equal(calls[0].path, '/api/setup/wifi-defaults');
+  assert.equal(calls[0].options.headers.authorization, 'Bearer TOKEN-1');
+  const none = apiAnswering([new Response(JSON.stringify({ wifi: null }), { status: 200 })]);
+  assert.equal(await none.api.wifiDefaults(), null);
+});
+
+test('in a phone app the page says why Board setup needs a computer', () => {
+  assert.equal(setup.appPlatform({ craniumNative: { postMessage() {} } }), 'android');
+  assert.equal(setup.appPlatform({ webkit: { messageHandlers: { cranium: {} } } }), 'ios');
+  assert.equal(setup.appPlatform({}), null);
+  for (const words of [setup.APP_WORDS.android, setup.APP_WORDS.ios]) {
+    assert.ok(words.includes('desktop app'));
+    assert.ok(words.includes('Chrome or Edge'));
+  }
+});

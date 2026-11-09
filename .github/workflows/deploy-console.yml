@@ -95,6 +95,20 @@ jobs:
           mkdir -p "$HOME/.cranium"
           printf '%s' "$MEMFAULT_ORG_TOKEN" > "$HOME/.cranium/memfault_org_token"
 
+      # Board setup's Wi-Fi defaults (docs/new-board-setup.md, "The Wi-Fi defaults"): JSON { ssid, passphrase,
+      # security }, stored by deploy.sh when the file is there, left as it is when not.
+      - name: Write the Wi-Fi defaults, if they are set
+        env:
+          WIFI_DEFAULTS_JSON: ${{ secrets.WIFI_DEFAULTS_JSON }}
+        run: |
+          if [ -z "$WIFI_DEFAULTS_JSON" ]; then
+            echo "No WIFI_DEFAULTS_JSON secret: the Wi-Fi defaults stored in the stack stay as they are."
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$HOME/.cranium"
+          printf '%s' "$WIFI_DEFAULTS_JSON" > "$HOME/.cranium/wifi_defaults.json"
+
       # deploy.sh runs the api and web tests first and deploys nothing if they fail. The Memfault slugs
       # are not secrets; when the variables are empty the stack keeps the ones it has.
       - name: Deploy
@@ -103,6 +117,6 @@ jobs:
           MEMFAULT_PROJECT_SLUG: ${{ vars.MEMFAULT_PROJECT_SLUG }}
         run: cloud/deploy.sh
 
-      - name: Remove the Memfault project key and token
+      - name: Remove the Memfault project key and token, and the Wi-Fi defaults
         if: always()
-        run: rm -f "$HOME/.cranium/memfault_project_key" "$HOME/.cranium/memfault_org_token"
+        run: rm -f "$HOME/.cranium/memfault_project_key" "$HOME/.cranium/memfault_org_token" "$HOME/.cranium/wifi_defaults.json"

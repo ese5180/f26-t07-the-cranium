@@ -247,6 +247,7 @@ struct Stack<Root: View>: View {
         case .tokens: TokensView()
         case .history: HistoryView()
         case .serial: SerialConsoleView()
+        case .boardSetup: BoardSetupView()
         case .account: AccountView()
         case .help(let topic):
             if let topic { HelpTopicView(id: topic) } else { HelpView() }

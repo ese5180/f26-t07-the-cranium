@@ -46,6 +46,7 @@ import {
   requestPath,
   startUrl,
 } from './lib/policy.mjs';
+import { orderPorts } from './lib/serial-ports.mjs';
 import { createBundleStore } from './lib/store.mjs';
 import { CHECK_EVERY_MS, checkForNewerBuild } from './lib/updates.mjs';
 import { createCognito, createVault } from './lib/vault.mjs';
@@ -182,8 +183,9 @@ async function start() {
   ses.setPermissionRequestHandler((contents, permission, callback, details) => {
     callback(fromBundle(details?.requestingUrl) && ['clipboard-sanitized-write', 'notifications'].includes(permission));
   });
-  ses.setPermissionCheckHandler((contents, permission, requestingOrigin) =>
-    requestingOrigin === ORIGIN && ['clipboard-sanitized-write', 'notifications', 'serial'].includes(permission)
+  ses.setPermissionCheckHandler(
+    (contents, permission, requestingOrigin) =>
+      requestingOrigin === ORIGIN && ['clipboard-sanitized-write', 'notifications', 'serial'].includes(permission)
   );
   ses.setDevicePermissionHandler((details) => details.origin === ORIGIN && details.deviceType === 'serial');
   ses.on('select-serial-port', (event, ports, contents, callback) => {
@@ -223,7 +225,10 @@ async function start() {
   const vaultOf = (params) => {
     const vault = vaults[params.pool];
     if (!vault) {
-      throw new BridgeError('unavailable', params.pool === 'customer' ? 'This build has no customer sign-in.' : 'This build has no sign-in.');
+      throw new BridgeError(
+        'unavailable',
+        params.pool === 'customer' ? 'This build has no customer sign-in.' : 'This build has no sign-in.'
+      );
     }
     return vault;
   };
@@ -237,7 +242,8 @@ async function start() {
     if (!window || window.isDestroyed()) return Promise.reject(new Error('no window'));
     return window.webContents.executeJavaScriptInIsolatedWorld(PRELOAD_WORLD, [{ code }], userGesture);
   };
-  const call = (name, ...args) => `globalThis.__craniumGatt.${name}(${args.map((arg) => JSON.stringify(arg)).join(', ')})`;
+  const call = (name, ...args) =>
+    `globalThis.__craniumGatt.${name}(${args.map((arg) => JSON.stringify(arg)).join(', ')})`;
   const bluetooth = createBluetooth({
     gatt: {
       availability: () => inPreload(call('availability')),
@@ -280,7 +286,12 @@ async function start() {
       newerBuild ? `Cranium ${newerBuild.version} is out.` : null,
       config.example ? 'This build has the example configuration: it signs nobody in.' : null,
     ].filter(Boolean);
-    const buttons = ['Look for newer pages', 'Reload the pages', ...(newerBuild ? ['Download the new app'] : []), 'Close'];
+    const buttons = [
+      'Look for newer pages',
+      'Reload the pages',
+      ...(newerBuild ? ['Download the new app'] : []),
+      'Close',
+    ];
     const { response } = await dialog.showMessageBox(window, {
       type: 'info',
       title: 'Cranium',
@@ -326,7 +337,8 @@ async function start() {
       return {};
     },
     'app.open': async ({ url }) => {
-      if (!mayOpenOutside(url)) throw new BridgeError('not_allowed', 'The app opens https: and otpauth: addresses only.');
+      if (!mayOpenOutside(url))
+        throw new BridgeError('not_allowed', 'The app opens https: and otpauth: addresses only.');
       try {
         await shell.openExternal(url);
       } catch {
@@ -359,7 +371,12 @@ async function start() {
       return {};
     },
     'file.share': async ({ name, type, data }) => {
-      const extension = { 'text/csv': 'csv', 'application/json': 'json', 'text/plain': 'txt', 'application/pdf': 'pdf' }[type];
+      const extension = {
+        'text/csv': 'csv',
+        'application/json': 'json',
+        'text/plain': 'txt',
+        'application/pdf': 'pdf',
+      }[type];
       const { canceled, filePath } = await dialog.showSaveDialog(window, {
         defaultPath: join(app.getPath('downloads'), name),
         filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
@@ -373,7 +390,8 @@ async function start() {
   // Exactly the methods of lib/features.mjs, which the tests hold to the contract.
   const missing = METHODS.filter((method) => !handlers[method]);
   const extra = Object.keys(handlers).filter((method) => !METHODS.includes(method));
-  if (missing.length > 0 || extra.length > 0) throw new Error(`the bridge's handlers are not lib/features.mjs: ${[...missing, ...extra]}`);
+  if (missing.length > 0 || extra.length > 0)
+    throw new Error(`the bridge's handlers are not lib/features.mjs: ${[...missing, ...extra]}`);
   const dispatcher = createDispatcher(contract, handlers, [...FEATURES]);
 
   // Only the window's main frame, on the bundle's origin, is heard.
@@ -396,14 +414,19 @@ async function start() {
   async function chooseSerialPort(ports) {
     if (!Array.isArray(ports) || ports.length === 0) return '';
     if (ports.length === 1) return ports[0].portId;
-    const names = ports.map((port) => port.displayName || port.portName || port.portId);
+    // A J-Link's console port first, named, and the default (lib/serial-ports.mjs).
+    const ordered = orderPorts(ports);
+    const names = ordered.map((port) => port.label);
     const { response } = await dialog.showMessageBox(window, {
       type: 'question',
       message: 'Which serial port is the board?',
+      detail:
+        'Board setup and the Serial console use the console port; Board setup asks for the log port to watch the seal.',
       buttons: [...names, 'Cancel'],
+      defaultId: 0,
       cancelId: names.length,
     });
-    return response < names.length ? ports[response].portId : '';
+    return response < names.length ? ordered[response].portId : '';
   }
 
   /** Windows and Linux ask the app to pair: confirm, or type the passkey the console shows. */
@@ -529,17 +552,21 @@ async function start() {
     if (!app.isPackaged) {
       // From a checkout: the page's warnings and errors in the terminal (apps/desktop/README.md, "Trying it").
       contents.on('console-message', (event) => {
-        if (['warning', 'error'].includes(event.level)) log({ page: event.level, message: String(event.message).slice(0, 300) });
+        if (['warning', 'error'].includes(event.level))
+          log({ page: event.level, message: String(event.message).slice(0, 300) });
       });
     }
     if (SMOKE) {
       contents.once('did-finish-load', () => {
-        setTimeout(async () => {
-          const picture = await contents.capturePage();
-          await writeFile(SMOKE, picture.toPNG());
-          log({ smoke: 'done', url: contents.getURL(), title: contents.getTitle(), name: app.getName() });
-          app.quit();
-        }, Number(process.env.CRANIUM_DESKTOP_SMOKE_MS ?? 6000));
+        setTimeout(
+          async () => {
+            const picture = await contents.capturePage();
+            await writeFile(SMOKE, picture.toPNG());
+            log({ smoke: 'done', url: contents.getURL(), title: contents.getTitle(), name: app.getName() });
+            app.quit();
+          },
+          Number(process.env.CRANIUM_DESKTOP_SMOKE_MS ?? 6000)
+        );
       });
     }
     window.on('closed', () => {

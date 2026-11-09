@@ -1127,7 +1127,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             Route.History -> if (full || store.history.value == null) load({ it.history }, { copy(history = it) }) { it.history() }
             Route.Account -> loadMe()
             is Route.Bluetooth -> if (due(store.firmware, full)) loadFirmware()
-            Route.More, Route.Serial -> Unit
+            Route.More, Route.Serial, Route.BoardSetup -> Unit
         }
     }
 

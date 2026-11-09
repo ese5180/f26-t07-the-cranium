@@ -213,6 +213,9 @@ test('nothing is fetched from anywhere else', () => {
         )
         .replace(/'https:\/\/docs\.sidestore\.io\/docs\/installation\/prerequisites'/g, '');
     }
+    // Board setup's self-check hands its simulated board a download address under .invalid (RFC 2606), which
+    // nothing can fetch: data for the board's CLOUD line, never a request.
+    if (name === 'setup.js') others = others.replace(/'https:\/\/self-check\.example\.invalid\/firmware\/'/g, '');
     assert.doesNotMatch(others.replace(namespaces, ''), /https?:\/\/[a-z0-9]/i, `${name} names another site`);
   }
   assert.doesNotMatch(css, /@import/);
