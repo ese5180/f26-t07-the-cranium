@@ -80,6 +80,25 @@
   --gutter: clamp(16px, 3.4vw, 48px);
   --page: 1720px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* The app's system (console 2.5, docs/console-design.md): a grouped page, groups on it, bars over it. */
+  --grouped: #f3eee6;
+  /* Nearly opaque, and not blurred: a filter on the bar would hold the tab bar and its sheet inside it. */
+  --bar: rgb(250 247 242 / 0.97);
+  --scrim: rgb(28 24 20 / 0.36);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-group: 12px;
+  /* The smallest target for a finger: 44 pt (Apple), 48 dp (Material) where a row has the room. */
+  --tap: 44px;
+  --topbar: 52px;
+  --tabbar: 56px;
+  --sidebar: 15rem;
+  --content: 76rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -131,6 +150,10 @@
 
     --shade: rgb(0 0 0 / 0.6);
     --lift: 0 24px 60px -24px rgb(0 0 0 / 0.8);
+
+    --grouped: #110e0c;
+    --bar: rgb(23 20 17 / 0.97);
+    --scrim: rgb(0 0 0 / 0.55);
   }
 }
 
@@ -374,13 +397,18 @@ strong {
   animation: spin 0.9s linear 0.35s infinite;
 }
 
-/* The frame: masthead, sections, account. */
+/*
+ * The frame (console 2.5, docs/console-design.md): on a phone a top bar with the page's title once
+ * its large title has scrolled away, and a tab bar of the primary sections at the foot, the rest
+ * under More; from 861 px a sidebar with every section and who is signed in. The masthead is the
+ * console's own (the customer site and home page have theirs), so none of this is scoped.
+ */
 
 .skip {
   position: absolute;
   top: -80px;
   left: var(--gutter);
-  z-index: 30;
+  z-index: 60;
   padding: 9px 14px;
   border: 1px solid var(--ink);
   border-radius: var(--radius-small);
@@ -398,41 +426,37 @@ strong {
   position: sticky;
   top: 0;
   z-index: 20;
-  border-bottom: 1px solid var(--line);
-  background: var(--paper);
+  padding-top: env(safe-area-inset-top);
+  border-bottom: 1px solid transparent;
+  background: var(--bar);
+  transition: border-color 0.2s var(--ease);
+}
+
+body.is-scrolled .masthead {
+  border-bottom-color: var(--line);
 }
 
 .masthead-inner {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
-  gap: 0 clamp(28px, 3.6vw, 56px);
-  max-width: var(--page);
-  min-height: 68px;
+  align-items: center;
+  gap: 0 var(--space-2);
+  min-height: var(--topbar);
   margin: 0 auto;
-  padding: 0 var(--gutter);
+  padding: 0 max(var(--gutter), env(safe-area-inset-right)) 0 max(var(--gutter), env(safe-area-inset-left));
 }
 
-/*
- * One row where there is room for it; "Narrower screens" below has the rest. The
- * sections are never squeezed. If a row gets too tight all the same, with a wider
- * typeface or larger text, what does not fit moves down to a row of its own, so that
- * nothing can come to lie on top of a link.
- */
 .brand {
   display: flex;
   flex: none;
   align-items: center;
   gap: 11px;
+  min-height: var(--tap);
   margin-inline: -6px;
   padding-inline: 6px;
+  border-radius: var(--radius-small);
   color: var(--ink);
   text-decoration: none;
-}
-
-/* The link is as tall as the masthead: its ring stays inside, or its top would be off-screen. */
-.brand:focus-visible {
-  outline-offset: -3px;
 }
 
 .brand:hover {
@@ -442,8 +466,8 @@ strong {
 .brand-mark {
   display: block;
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
 }
 
 .brand-dome {
@@ -462,7 +486,7 @@ strong {
 }
 
 .brand-name {
-  font-size: 1.1875rem;
+  font-size: 1.125rem;
   font-weight: 700;
   letter-spacing: -0.028em;
 }
@@ -473,59 +497,54 @@ strong {
   letter-spacing: 0.002em;
 }
 
-.nav {
-  display: flex;
-  flex: 1 0 auto;
+/* The bar's copy of the page's title: shown once the large title has gone under the bar. */
+.masthead-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
+}
+
+body.is-scrolled .masthead-title {
+  opacity: 1;
 }
 
 .nav-list {
   display: flex;
-  gap: clamp(18px, 2vw, 30px);
 }
 
-.nav-list li {
+.nav-item {
   display: flex;
 }
 
-/* Room left and right of the word for the focus ring, taken back by the margins. */
 .nav-link {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  margin-inline: -6px;
-  padding-inline: 6px;
-  border-top: 3px solid transparent;
-  border-bottom: 3px solid transparent;
+  border: 0;
+  background: none;
   color: var(--ink-2);
+  font: inherit;
   font-weight: 500;
   letter-spacing: -0.005em;
   text-decoration: none;
   white-space: nowrap;
-}
-
-/* An invisible copy of the name in bold keeps the width of the link the same when it is the current one. */
-.nav-link::after {
-  content: attr(data-label);
-  height: 0;
-  overflow: hidden;
-  font-weight: 600;
-  pointer-events: none;
-  visibility: hidden;
+  cursor: pointer;
 }
 
 .nav-link:hover {
   color: var(--ink);
 }
 
-.nav-link[aria-current="page"] {
-  border-bottom-color: var(--accent);
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.nav-link:focus-visible {
-  outline-offset: -3px;
+.nav-icon {
+  width: 22px;
+  height: 22px;
 }
 
 .account {
@@ -539,7 +558,7 @@ strong {
 .account-box {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -547,7 +566,6 @@ strong {
   flex: none;
 }
 
-/* Two lines set flush right. Both take the width of the block, so both give way with it. */
 .account-who {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -556,25 +574,21 @@ strong {
 }
 
 .account-email {
-  width: 100%;
-  max-width: 260px;
-  margin-left: auto;
+  display: block;
   overflow: hidden;
   font-size: 0.84375rem;
   font-weight: 600;
-  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .account-meta {
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 0 6px;
   min-width: 0;
   color: var(--ink-3);
   font-size: 0.75rem;
-  white-space: nowrap;
 }
 
 .account-role {
@@ -589,12 +603,311 @@ strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.account-role::after {
-  content: "\00b7";
-  margin-left: 2px;
+/* The sheet of the other sections: a phone's only, opened by More. */
+.nav-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.nav-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background: var(--scrim);
+  animation: fade-in 0.2s var(--ease);
+}
+
+.nav-sheet-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 85vh;
+  max-height: 85dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right))
+    calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+  border-radius: 16px 16px 0 0;
+  background: var(--grouped);
+  box-shadow: var(--lift);
+  animation: sheet-up 0.32s var(--ease);
+}
+
+.nav-sheet-grip {
+  display: block;
+  width: 36px;
+  height: 5px;
+  margin: 0 auto var(--space-4);
+  border-radius: 3px;
+  background: var(--line-strong);
+}
+
+.nav-sheet-list {
+  overflow: hidden;
+  border-radius: var(--radius-group);
+  background: var(--surface);
+}
+
+.nav-sheet-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-4);
+  color: var(--ink);
+  font-size: 1.0625rem;
+  text-decoration: none;
+}
+
+/* A hairline between rows, from the words on: the icons stand in one column without it. */
+.nav-sheet-list > li + li > .nav-sheet-link {
+  background: linear-gradient(var(--line), var(--line)) no-repeat right top / calc(100% - 58px) 1px;
+}
+
+.nav-sheet-link:hover {
+  color: var(--ink);
+  background-color: var(--well);
+}
+
+.nav-sheet-link[aria-current="page"] {
+  font-weight: 600;
+}
+
+.nav-sheet-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.nav-sheet-label {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nav-sheet-detail {
+  overflow: hidden;
   color: var(--ink-3);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-sheet-chevron {
+  color: var(--ink-3);
+}
+
+/* A phone: the tab bar at the foot of the screen, and in the top bar only the mark and the title. */
+@media (max-width: 860px) {
+  .brand-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    border-top: 1px solid var(--line);
+    background: var(--bar);
+  }
+
+  .nav-list {
+    justify-content: space-around;
+  }
+
+  .nav-item {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .nav-item.is-secondary {
+    display: none;
+  }
+
+  .nav-link {
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-height: var(--tabbar);
+    padding: 6px 2px 4px;
+    color: var(--ink-3);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .nav-link[aria-current="page"],
+  .nav-more-toggle.is-current {
+    color: var(--accent);
+  }
+
+  .nav-link:focus-visible {
+    outline-offset: -4px;
+  }
+
+  .nav-icon {
+    width: 25px;
+    height: 25px;
+  }
+
+  /* Who is signed in is on the Account page and in the sheet; here only the buttons, as icons. */
+  .account-who {
+    display: none;
+  }
+
+  .account-box {
+    gap: 0;
+    margin-right: -10px;
+  }
+
+  .account-box > .btn {
+    justify-content: center;
+    width: var(--tap);
+    min-height: var(--tap);
+    padding: 0;
+    border-color: transparent;
+    background: none;
+    color: var(--accent);
+    font-size: 0;
+  }
+
+  .account-box > .btn .icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .main {
+    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-6));
+  }
+
+  .foot {
+    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-5));
+  }
+
+  .toasts {
+    bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-3));
+  }
+
+  html {
+    scroll-padding-top: calc(var(--topbar) + env(safe-area-inset-top) + 0.5rem);
+    scroll-padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 0.5rem);
+  }
+}
+
+/* A wider screen: a sidebar with every section, the sheet and More are a phone's only. */
+@media (min-width: 861px) {
+  .masthead-title,
+  .nav-item.is-more,
+  .nav-sheet {
+    display: none;
+  }
+
+  body.is-framed {
+    padding-left: var(--sidebar);
+  }
+
+  body.is-framed .masthead {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--sidebar);
+    overflow-y: auto;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    background: var(--surface);
+  }
+
+  body.is-framed .masthead-inner {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: var(--space-5);
+    min-height: 100%;
+    padding: var(--space-5) var(--space-3) var(--space-4);
+  }
+
+  body.is-framed .brand {
+    margin: 0;
+    padding: 0 var(--space-3);
+  }
+
+  .nav {
+    flex: 1 0 auto;
+  }
+
+  .nav-list {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nav-link {
+    flex: 1 1 auto;
+    gap: var(--space-3);
+    min-height: 40px;
+    padding: 8px var(--space-3);
+    border-radius: 8px;
+    font-size: 0.9375rem;
+  }
+
+  .nav-link:hover {
+    background: var(--well);
+  }
+
+  .nav-link[aria-current="page"] {
+    background: var(--accent-wash);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .nav-link[aria-current="page"] .nav-icon {
+    color: var(--accent);
+  }
+
+  body.is-framed .account {
+    margin: 0;
+    padding: var(--space-3) var(--space-3) 0;
+    border-top: 1px solid var(--line);
+  }
+
+  body.is-framed .account-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    width: 100%;
+  }
+
+  body.is-framed .account-box > .btn {
+    justify-content: flex-start;
+  }
+
+  body.is-framed .toasts {
+    left: calc(50% + var(--sidebar) / 2);
+  }
+
+  html {
+    scroll-padding-top: 1rem;
+  }
 }
 
 .main {
@@ -5195,14 +5508,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* Narrower screens. */
 
-/* While the masthead stays at the top of the window, it must not cover what the keyboard moves to. */
-@media (min-width: 1141px) {
-  html {
-    /* In rem: at large text the masthead takes more rows. */
-    scroll-padding-top: 5rem;
-  }
-}
-
 /* Below this the tools of a page do not fit next to its heading on every page. They take a row of their own: how fresh it is on the left, its action on the right. */
 @media (max-width: 1120px) {
   .page-tools {
@@ -5213,40 +5518,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   /* Where it does not fit next to the freshness either, it stays on the right below it. */
   .page-tools > .btn {
     margin-left: auto;
-  }
-}
-
-/*
- * With the longest address and session text it can hold, the masthead needs about
- * 1105 px to stand in one row. Below 1141 px it therefore takes two rows: the wordmark
- * and who is signed in, then the sections. Below 861 px it takes three.
- */
-@media (min-width: 861px) and (max-width: 1140px) {
-  .masthead {
-    position: static;
-  }
-
-  .masthead-inner {
-    flex-wrap: wrap;
-    gap: 0 24px;
-    min-height: 0;
-  }
-
-  .brand {
-    padding: 12px 0;
-  }
-
-  .account {
-    margin-left: auto;
-  }
-
-  .nav {
-    flex-basis: 100%;
-    order: 3;
-  }
-
-  .nav-link {
-    padding-block: 9px 10px;
   }
 }
 
@@ -5340,74 +5611,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 @media (max-width: 860px) {
-  .masthead {
-    position: static;
-  }
-
-  .masthead-inner {
-    flex-wrap: wrap;
-    gap: 0 12px;
-    min-height: 0;
-  }
-
-  .brand {
-    padding: 12px 0;
-  }
-
-  /* At large text the sections take more rows: none of them is pushed out of sight. */
-  .nav-list {
-    flex-wrap: wrap;
-    gap: 0 20px;
-  }
-
-  /*
-   * Three rows: the wordmark with Sign out, who is signed in, the sections. The account
-   * box is taken apart so that its two halves can sit in different rows.
-   */
-  .account,
-  .account-box {
-    display: contents;
-  }
-
-  .account-box > .btn {
-    align-self: center;
-    margin-left: auto;
-    order: 1;
-  }
-
-  .account-who {
-    display: flex;
-    flex-basis: 100%;
-    flex-wrap: wrap;
-    gap: 0 10px;
-    order: 2;
-    padding-bottom: 6px;
-  }
-
-  .account-email {
-    width: auto;
-    max-width: 100%;
-    margin-left: 0;
-    overflow-wrap: anywhere;
-    text-align: left;
-    white-space: normal;
-  }
-
-  .account-meta {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    white-space: normal;
-  }
-
-  .nav {
-    flex-basis: 100%;
-    order: 3;
-  }
-
-  .nav-link {
-    padding-block: 9px 10px;
-  }
-
   .split,
   .upload,
   .release-main,
@@ -5831,10 +6034,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     margin-left: 30px;
   }
 
-  .nav-link {
-    font-size: 0.875rem;
-  }
-
   /* "Live" and its button; how often is in the tooltip. */
   .freshness-rate {
     display: none;
@@ -5893,10 +6092,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 @media (max-width: 380px) {
-  .nav-link {
-    font-size: 0.8125rem;
-  }
-
   /* The setup command stays on one line, where it reads as one command. */
   .code {
     padding-inline: 5px;
@@ -5990,6 +6185,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* Motion is decoration here; nothing depends on it. */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
 
 @keyframes settle {
   from {
@@ -6134,13 +6341,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     background: Highlight;
   }
 
-  /* Borders that are transparent otherwise would mark every section alike. */
-  .nav-link {
-    border-color: Canvas;
-  }
-
-  .nav-link[aria-current="page"] {
-    border-bottom-color: Highlight;
+  /* The current section is marked by more than its colour: a frame of its own. */
+  .nav .nav-link[aria-current="page"],
+  .nav-more-toggle.is-current,
+  .dev-tabs .nav-link[aria-current="page"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 
   /* The rail of the steps and the tick on a filled mark, drawn as backgrounds and in the text colour. */
@@ -6194,43 +6400,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     height: 8px;
     margin-top: 4px;
     clip-path: none;
-  }
-}
-
-/*
- * The Developer section: the serial console and the history. Six sections in the masthead,
- * so on a phone they take two rows of three, and none is cut off or scrolled out of sight.
- */
-@media (max-width: 620px) {
-  .nav-list {
-    display: grid;
-    flex: 1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0 8px;
-  }
-
-  .nav-list li {
-    justify-content: flex-start;
-  }
-
-  .nav-link {
-    margin-inline: 0;
-    padding-inline: 0;
-  }
-
-  .nav-link:focus-visible {
-    outline-offset: 0;
-  }
-}
-
-/* The address gives way before the masthead has to take a second row. */
-@media (min-width: 1141px) and (max-width: 1320px) {
-  .account-email {
-    max-width: 150px;
-  }
-
-  .masthead-inner {
-    gap: 0 24px;
   }
 }
 
@@ -9571,4 +9740,720 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .setup-log {
   overflow-x: auto;
   white-space: pre-wrap;
+}
+
+/*
+ * Console 2.5: grouped lists (docs/console-design.md).
+ *
+ * The console's pages share pieces with the customer site (card, panel, facts, badge), which has a
+ * look of its own; so what follows is the console's only, under the class of its <body>. A page is
+ * a large title, then sections: each a heading that stays at the top while its section scrolls by,
+ * over a group with rounded corners, inset from the edges, whose rows are parted by hairlines. The
+ * ink panels of earlier versions are groups like the rest here: their colours are the page's.
+ */
+
+body.console {
+  background: var(--grouped);
+}
+
+.console .main {
+  max-width: calc(var(--content) + 2 * var(--gutter));
+}
+
+.console .foot {
+  max-width: calc(var(--content) + 2 * var(--gutter));
+}
+
+/* The large title: a phone's 34 pt, bold; a desktop's a little larger. */
+.console .page-title {
+  font-size: clamp(1.875rem, 1.6rem + 1vw, 2.375rem);
+  letter-spacing: -0.024em;
+}
+
+.console .page-head {
+  margin-bottom: var(--space-5);
+}
+
+.console .page-lede {
+  margin-top: var(--space-1);
+  font-size: 0.9375rem;
+}
+
+.console .back {
+  min-height: var(--tap);
+  margin: calc(-1 * var(--space-3)) 0 0 -6px;
+  padding-right: var(--space-2);
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.console .back .icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.2;
+}
+
+/* The ink panel is a group: the page's own colours, a surface on the grouped page. */
+.console .on-ink,
+.console .execution:not(.is-idle, .is-compact) {
+  color-scheme: inherit;
+
+  --paper: inherit;
+  --surface: inherit;
+  --well: inherit;
+  --line: inherit;
+  --line-strong: inherit;
+  --line-field: inherit;
+  --line-mark: inherit;
+  --rule: inherit;
+  --ink: inherit;
+  --ink-2: inherit;
+  --ink-3: inherit;
+  --accent: inherit;
+  --accent-strong: inherit;
+  --accent-wash: inherit;
+  --on-accent: inherit;
+  --good: inherit;
+  --good-wash: inherit;
+  --warn: inherit;
+  --warn-wash: inherit;
+  --bad: inherit;
+  --bad-wash: inherit;
+  --work: inherit;
+  --work-wash: inherit;
+  --bar-good: inherit;
+  --bar-live: inherit;
+  --bar-act: inherit;
+  --bar-wait: inherit;
+  --bar-bad: inherit;
+  --bar-warn: inherit;
+  --bar-idle: inherit;
+  --on-bar-live: inherit;
+  --on-bar-good: inherit;
+  --on-bar-bad: inherit;
+  --seg-newest: var(--ink);
+  --seg-1: var(--ink-2);
+  --seg-2: var(--line-mark);
+  --seg-3: var(--line-strong);
+
+  box-shadow: none;
+}
+
+.console .on-ink a:not(.btn) {
+  text-decoration-color: var(--line-strong);
+}
+
+.console .panel {
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.console .arch-watermark {
+  display: none;
+}
+
+/* A section: its heading above, sticky; its body the group. */
+.console .card {
+  padding: 0;
+  border-top: 0;
+}
+
+.console .card-head {
+  min-height: 0;
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.console .card > .card-head > .eyebrow,
+.console .card.is-zone > .card-head > .eyebrow {
+  color: var(--ink);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  text-transform: none;
+}
+
+.console .card-more {
+  min-height: var(--tap);
+  margin: calc(-1 * var(--space-3)) 0;
+  color: var(--accent);
+  font-size: 0.9375rem;
+}
+
+.console .card-body {
+  min-width: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* A section in a group, or a group in a group, is not boxed twice. */
+.console .panel .card-body,
+.console .card-body .card-body {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.console .panel .card-head,
+.console .card-body .card-head {
+  padding: 0;
+}
+
+.console .panel .card > .card-head > .eyebrow,
+.console .card-body .card > .card-head > .eyebrow {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* The heading of a section of the page stays in view while its rows go by under it. */
+.console .page > .card > .card-head,
+.console .overview > .card > .card-head {
+  position: sticky;
+  top: var(--sticky-top, 0px);
+  z-index: 4;
+  margin-inline: calc(-1 * var(--space-1));
+  padding: var(--space-2) var(--space-2);
+  background: var(--grouped);
+}
+
+@media (max-width: 860px) {
+  body.console {
+    --sticky-top: calc(var(--topbar) + env(safe-area-inset-top));
+  }
+}
+
+/* Sections stand one under the other with room between them. */
+.console .page > * + .card,
+.console .page > .card + *,
+.console .page > .panel + .card {
+  margin-top: var(--space-6);
+}
+
+/* Facts: a label and its value on one row, parted by hairlines, as a settings list. */
+.console .facts {
+  gap: 0;
+}
+
+.console .fact {
+  min-height: var(--tap);
+  border-top-color: var(--line);
+}
+
+/* The fleet at a glance: a strip of figures, each a way to its page. */
+.glance {
+  margin: 0 0 var(--space-6);
+}
+
+.glance-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.glance-list > li + li {
+  border-left: 1px solid var(--line);
+}
+
+.glance-item {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 64px;
+  height: 100%;
+  padding: var(--space-3) var(--space-4);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.glance-item:hover {
+  color: var(--ink);
+  background: var(--well);
+}
+
+.glance-item:focus-visible {
+  outline-offset: -3px;
+}
+
+.glance-value {
+  overflow: hidden;
+  font-size: 1.375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glance-label {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.glance-item.is-attention .glance-value {
+  color: var(--warn);
+}
+
+@media (max-width: 560px) {
+  .glance-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .glance-list > li:nth-child(3) {
+    border-left: 0;
+  }
+
+  .glance-list > li:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+}
+
+/*
+ * The boards as a list: a row each, led by a mark of how it is, its name and when it was last
+ * heard of, its badge at the end and a chevron, as the whole row leads to the board's page.
+ */
+.console .device-grid {
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.console .device-grid > .card.device {
+  position: relative;
+  padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-4) + 20px);
+}
+
+.console .device-grid > .card.device + .card.device {
+  border-top: 1px solid var(--line);
+}
+
+.console .device-grid > .card.device::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--space-3) + 7px);
+  left: var(--space-4);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line-mark);
+  border-radius: 50%;
+}
+
+.console .device.is-up::before {
+  border-color: var(--bar-good);
+  background: var(--bar-good);
+}
+
+.console .device.is-restarting::before {
+  border-color: var(--bar-live);
+  background: var(--bar-live);
+}
+
+.console .device.is-never::before {
+  border-style: dashed;
+}
+
+.console .device.is-phone::before {
+  border-color: var(--bar-live);
+}
+
+.console .device-grid .device-head {
+  min-height: 0;
+  margin-bottom: var(--space-2);
+}
+
+.console .device-grid .device > .card-body {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.console .device-grid .card-body {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.console .device-grid .fact {
+  min-height: 0;
+}
+
+@media (max-width: 860px) {
+  .console .device-grid > .card.device {
+    padding-right: calc(var(--space-4) + 22px);
+  }
+
+  .console .device-grid > .card.device::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: var(--space-4);
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--ink-3);
+    border-right: 2px solid var(--ink-3);
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  .console .device-name .icon {
+    display: none;
+  }
+
+  /* On a phone the row says the firmware; the rest is on the board's page. */
+  .console .device-grid .device .fact:not(:first-child) {
+    display: none;
+  }
+
+  .console .device-grid .device .facts {
+    border-top: 0;
+  }
+
+  .console .device-grid .device .fact {
+    display: flex;
+    gap: var(--space-2);
+    padding: 0;
+    border-top: 0;
+    color: var(--ink-2);
+    font-size: 0.875rem;
+  }
+
+  .console .device-grid .device .fact dt {
+    color: var(--ink-3);
+  }
+}
+
+/* The developer pages' tabs: a segmented control. */
+.dev-tabs {
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 0;
+}
+
+.dev-tabs .nav-link {
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.dev-tabs .nav-link[aria-current="page"] {
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.dev-tabs .eyebrow {
+  margin-right: var(--space-1);
+}
+
+/* The fleet's health on the Overview: three groups side by side, one under the other on a phone. */
+.console .health {
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.console .health-part {
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.console .health-part > .eyebrow {
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+.console .health .stat-value {
+  font-size: 1.75rem;
+}
+
+.console .health .stat-label {
+  overflow-wrap: normal;
+}
+
+/* A fact in a group: its label and its value side by side, as a row of a settings list. */
+.console .card-body > .facts > .fact,
+.console .panel .facts > .fact {
+  grid-template-columns: minmax(6.5rem, 0.42fr) minmax(0, 1fr);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+}
+
+.console .card-body > .facts > .fact:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.console .fact > dt {
+  color: var(--ink-3);
+}
+
+/* A heading of its own on the page: no heavy rule over it, the group under it is enough. */
+.console .section-title {
+  margin-top: var(--space-6);
+  padding-top: 0;
+  border-top: 0;
+}
+
+.console .timeline-panel.is-on-paper {
+  padding: var(--space-4);
+  border-top: 0;
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+@media (max-width: 860px) {
+  /* The bar's buttons are icons on a phone; their names are still read out. */
+  .masthead .account-box > .btn {
+    justify-content: center;
+    width: var(--tap);
+    min-height: var(--tap);
+    padding: 0;
+    border-color: transparent;
+    background: none;
+    color: var(--accent);
+    font-size: 0;
+  }
+
+  /* The Map: the map from edge to edge under the bar, and the boards in a sheet that slides over it. */
+  .console .page.is-map .page-lede {
+    display: none;
+  }
+
+  .console .page.is-map .page-head {
+    margin-bottom: var(--space-3);
+  }
+
+  .console .map-layout {
+    display: block;
+  }
+
+  .console .map-card {
+    position: sticky;
+    top: var(--sticky-top);
+    z-index: 1;
+    margin-inline: calc(-1 * var(--gutter));
+  }
+
+  .console .map-card > .card-body {
+    display: grid;
+    padding: 0;
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: none;
+  }
+
+  .console .map-frame {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .console .is-map .map-canvas {
+    /* What is left under the bars and the title, less what the sheet shows of itself at first. */
+    height: calc(100vh - var(--topbar) - var(--tabbar) - 290px);
+    height: calc(
+      100dvh - var(--topbar) - var(--tabbar) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 290px
+    );
+    min-height: 260px;
+  }
+
+  .console .map-legend {
+    padding: var(--space-2) var(--gutter);
+  }
+
+  .console .map-side {
+    position: relative;
+    z-index: 2;
+    margin: calc(-1 * var(--space-4)) calc(-1 * var(--gutter)) 0;
+    padding: var(--space-2) var(--gutter) var(--space-5);
+    border-radius: 16px 16px 0 0;
+    background: var(--grouped);
+    box-shadow: 0 -10px 28px -14px rgb(0 0 0 / 0.35);
+  }
+
+  .console .map-side::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 0 auto var(--space-3);
+    border-radius: 3px;
+    background: var(--line-strong);
+  }
+
+  /* Diagnostics: the boards as a list to pick from, the chosen one marked. */
+  .console .picker-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    overflow: hidden;
+    border-radius: var(--radius-group);
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+
+  .console .picker-list > li + li > .picker-link {
+    border-top: 1px solid var(--line);
+  }
+
+  .console .picker-link {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px var(--space-3);
+    min-height: var(--tap);
+    padding: 10px calc(var(--space-4) + 22px) 10px var(--space-4);
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .console .picker-link::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: var(--space-4);
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--ink-3);
+    border-right: 2px solid var(--ink-3);
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  .console .picker-name {
+    flex-basis: 100%;
+    font-size: 0.9375rem;
+  }
+
+  .console .picker-link[aria-current="page"] {
+    background: var(--accent-wash);
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
+}
+
+/* Diagnostics on a wider screen: the boards as tiles, the chosen one marked in the accent. */
+.console .picker-link {
+  border-radius: 10px;
+}
+
+.console .picker-link[aria-current="page"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Rows in a group: a hairline between them, room for a finger, the whole row a target where it leads somewhere. */
+.console .rows > .row {
+  padding: var(--space-3) 0;
+}
+
+.console .rows > .row:first-child {
+  padding-top: 0;
+}
+
+.console .rows > .row:last-child {
+  padding-bottom: 0;
+}
+
+.console .row:has(> .row-main .cover-link:hover),
+.console .row:has(> .cover-link:hover) {
+  box-shadow:
+    -16px 0 0 var(--well),
+    16px 0 0 var(--well);
+}
+
+/* A board on the Diagnostics page: one group with its charts in it. */
+.console .diag-card {
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.console .diag-card > .card-body {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.console .section-label {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* On a phone a dialog is a sheet from the foot of the screen, at one height for every step. */
+@media (max-width: 720px) {
+  .console .dialog {
+    width: 100%;
+    max-width: 100%;
+    height: calc(100dvh - 32px - env(safe-area-inset-top));
+    max-height: none;
+    margin: auto 0 0;
+    border: 0;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .console .dialog[open] {
+    animation: sheet-up 0.32s var(--ease) backwards;
+  }
+}
+
+/* Loading: the words, and grey lines where the rows will be, in place of a spinner. */
+.console .loading {
+  padding: var(--space-4);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.console .card-body > .loading,
+.console .panel .loading {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.console .loading::after {
+  content: "";
+  display: block;
+  height: 86px;
+  margin-top: var(--space-3);
+  border-radius: 6px;
+  background: repeating-linear-gradient(to bottom, var(--well) 0 16px, transparent 16px 30px);
+  animation: skeleton 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton {
+  50% {
+    opacity: 0.45;
+  }
 }

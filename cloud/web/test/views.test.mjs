@@ -606,6 +606,18 @@ test('the overview keeps the log at full width below two columns, and only so ma
     ['Fleet', 'Firmware in the fleet', 'Newest release']
   );
   assert.match(textOf(panel), /9 of 9 boards online/);
+  // Above it, the fleet at a glance: a strip of figures, each a link to the page with the rest.
+  const glance = one(overview, 'nav.glance');
+  assert.deepEqual(
+    all(glance, 'a').map((link) => [textOf(one(link, 'span.glance-label')), link.getAttribute('href')]),
+    [
+      ['Online', '#/devices'],
+      ['Updating', '#/deployments'],
+      ['Offline', '#/devices'],
+      ['Newest release', '#/firmware'],
+    ]
+  );
+  assert.equal(textOf(all(glance, 'span.glance-value')[0]), '9/9');
   const grid = one(overview, 'div.overview');
   assert.deepEqual(
     grid.children.map((child) => child.getAttribute('class').replace('card ', '')),
@@ -1894,6 +1906,29 @@ test('the sections keep their place: each link holds the room its name takes in 
       'Developer',
     ]
   );
+});
+
+test('on a phone four sections are tabs and the rest are under More, in a sheet drawn only while it is open', () => {
+  const nav = (changes = {}) => draw(views.navView({ state: { route: { view: 'events' }, ...changes } }));
+  const closed = nav();
+  const tabs = all(closed, 'li.nav-item').filter((item) => !item.getAttribute('class').includes('is-'));
+  assert.deepEqual(
+    tabs.map((item) => textOf(item)),
+    ['Overview', 'Devices', 'Map', 'Deployments']
+  );
+  const more = one(closed, 'button.nav-more-toggle');
+  assert.equal(more.getAttribute('aria-expanded'), 'false');
+  // The current section is under More: More is marked as the way to it.
+  assert.equal(more.getAttribute('class').split(' ').includes('is-current'), true);
+  assert.equal(all(closed, 'a.nav-sheet-link').length, 0);
+  const open = nav({ moreOpen: true, me: { email: 'a@example.invalid', canWrite: false } });
+  assert.equal(one(open, 'button.nav-more-toggle').getAttribute('aria-expanded'), 'true');
+  const links = all(open, 'a.nav-sheet-link');
+  assert.deepEqual(
+    links.map((link) => link.getAttribute('href')),
+    ['#/diagnostics', '#/events', '#/firmware', '#/fleet', '#/activity', '#/apps', '#/history', '#/account']
+  );
+  assert.equal(one(open, 'a.nav-sheet-link', 'Events').getAttribute('aria-current'), 'page');
 });
 
 test('the Developer section leads to what the account can use, and is current on both of its pages', () => {
