@@ -587,7 +587,7 @@ if key == "new_board.py":
     command = args[args.index(script) + 1]
     key = "new_board.py " + command if command in ("serial-status", "console-status", "watch-seal", "ble-scan",
                                                     "token", "pydeps") else None
-elif key not in ("provision_device.py", "golden.py", "recover.py", "keys.py", "secrets.py"):
+elif key not in ("provision_device.py", "golden.py", "recover.py", "keys.py", "cranium_secrets.py"):
     key = None
 if key is None:
     os.execv({python!r}, [{python!r}] + args)
@@ -741,7 +741,7 @@ class ScriptTest(unittest.TestCase):
         self.assertIn("FAIL  not signed in to AWS with the profile cranium", self.output)
         self.assertIn("aws login --profile cranium --region us-east-1", self.output)
         self.assertIn("FAIL  no Wi-Fi network for the board", self.output)
-        self.assertIn("python3 tools/secrets.py wifi", self.output)
+        self.assertIn("python3 tools/cranium_secrets.py wifi", self.output)
         self.assertIn("warn  no console token", self.output)
 
     def test_check_with_a_console_token_needs_no_aws_and_no_outputs(self):

@@ -42,7 +42,6 @@ import json
 import os
 import pty
 import re
-import secrets  # noqa: F401  Before tools/ is on the path: tools/secrets.py would hide it.
 import select
 import shutil
 import struct

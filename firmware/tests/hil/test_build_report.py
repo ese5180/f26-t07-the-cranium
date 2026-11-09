@@ -10,7 +10,6 @@ of firmware 1.6.0, and of what the linker said about it.
 
 import hashlib
 import json
-import secrets  # noqa: F401  Before tools/ is on the path: tools/secrets.py would hide it.
 import struct
 import subprocess
 import sys

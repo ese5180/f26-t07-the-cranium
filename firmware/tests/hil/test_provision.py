@@ -216,7 +216,7 @@ class PasskeyTest(unittest.TestCase):
                                side_effect=[123456, 111111, 284913]) as draw:
             self.assertEqual(provision_device.draw_passkey(), 284913)
         draw.assert_called_with(1_000_000)
-        # The operating system's source, and not tools/secrets.py, which has the standard module's name.
+        # The operating system's source.
         self.assertIsInstance(provision_device.SYSTEM_RANDOM, provision_device.random.SystemRandom)
         for _ in range(200):
             key = provision_device.draw_passkey()

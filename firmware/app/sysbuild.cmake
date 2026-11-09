@@ -88,7 +88,7 @@ add_custom_target(cranium_flash_layout ALL
 add_dependencies(cranium_flash_layout ${DEFAULT_IMAGE} mcuboot)
 
 add_custom_target(cranium_store_binary ALL
-  # -I: tools/ holds a secrets.py, which must not hide the standard library's module.
+  # -I: isolated mode, so nothing in tools/ or the environment can stand in for a standard module.
   COMMAND ${Python3_EXECUTABLE} -I "${cranium_repo}/tools/store_binary.py"
           --build "${CMAKE_BINARY_DIR}" --repo "${cranium_repo}"
   COMMENT "Keeping the signed image in binaries/"

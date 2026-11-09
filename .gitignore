@@ -6,9 +6,12 @@
 build/
 build_*/
 build-*/
-__pycache__/
-*.pyc
 node_modules/
+
+# Python's caches, anywhere in the tree
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Signed firmware images (binaries/) are kept in git with their source: a build stores them there.
 # latest.* are copies of the newest, rewritten by every build, so they stay out.

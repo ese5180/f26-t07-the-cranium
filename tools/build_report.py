@@ -16,7 +16,7 @@ nRF5340 DK, whose record also has to say "board": "nrf5340dk".
 table and a note in that folder. Images built on GitHub Actions are signed with a throwaway key, so
 that folder is named and marked as not installable. --output appends artifact=<name> to that file.
 
--I, because tools/ holds a secrets.py that must not hide the standard library's module. Nothing here
+-I, so that nothing in tools/ or the environment stands in for a standard module. Nothing here
 needs the SDK.
 """
 

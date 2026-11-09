@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Create and lock the local Wi-Fi secrets file.
 
-    python tools/secrets.py wifi      ask for the network and write ~/.cranium/wifi_secrets.h
-    python tools/secrets.py status    show which local secrets exist and who can read them
+    python tools/cranium_secrets.py wifi      ask for the network and write ~/.cranium/wifi_secrets.h
+    python tools/cranium_secrets.py status    show which local secrets exist and who can read them
 
 The file is kept outside the repository (see tools/local.py), so it cannot be committed
 and does not end up in a synchronised folder.
@@ -27,7 +27,7 @@ SECURITIES = ("WPA2_PSK", "WPA2_PSK_SHA256", "WPA3_SAE")
 
 TEMPLATE = """/*
  * Wi-Fi credentials used to provision a development board.
- * Written by tools/secrets.py. Not compiled into firmware and never committed.
+ * Written by tools/cranium_secrets.py. Not compiled into firmware and never committed.
  */
 #ifndef WIFI_SECRETS_H_
 #define WIFI_SECRETS_H_

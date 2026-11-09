@@ -959,7 +959,7 @@ cloud/deploy.sh                                 # create or update the stacks (t
 cloud/users.sh add <email> release-manager      # the person gets an invitation by e-mail
 cloud/smoke.sh                                  # checks that do not need a sign-in
 
-python3 tools/secrets.py wifi                   # once per machine, see secrets/README.md
+python3 tools/cranium_secrets.py wifi           # once per machine, see secrets/README.md
 python3 tools/provision_device.py               # once per board
 ```
 

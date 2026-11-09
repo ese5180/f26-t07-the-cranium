@@ -119,7 +119,7 @@ Listed here only; each stays where it is. Paths are from the repository root.
 | `tools/new_board.py` | What `scripts/board/new-board.sh` needs that bash does badly; each command also works alone |
 | `tools/provision_device.py` | Provisions a board: device ID, Wi-Fi, identity and cloud settings |
 | `tools/recover.py` | Installs an image through the bootloader's serial recovery |
-| `tools/secrets.py` | Creates and locks the local Wi-Fi secrets file |
+| `tools/cranium_secrets.py` | Creates and locks the local Wi-Fi secrets file |
 | `tools/store_binary.py` | Keeps the latest build's signed image in `binaries/`; run by every `west build` |
 
 ### `firmware/`
