@@ -9,7 +9,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.15.0
 
-The release after the fault demonstration (1.14.6+1), for every board at once. Memfault's heartbeat now has the power status (USB present and the supply in mV, as the DK has no battery) and Zephyr's default metrics: CPU use and the stack use of the idle thread and the system work queue. Nothing else changes in what the board does.
+The release after the fault demonstration (1.14.7+0), for every board at once. Memfault's heartbeat now has the power status (USB present and the supply in mV, as the DK has no battery) and Zephyr's default metrics: CPU use and the stack use of the idle thread and the system work queue. Nothing else changes in what the board does.
 
 Power status, in place of a battery's state of charge: `power_usb_present`, 1 when the USB regulator sees VBUS
 (USBREGSTATUS), and `supply_mv`, the supply VDD from one uncalibrated SAADC sample (gain 1/6, internal reference),
