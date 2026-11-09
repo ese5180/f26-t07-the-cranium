@@ -126,6 +126,10 @@ fun ShellScreen(vm: ShellViewModel, onClassic: () -> Unit) {
         )
     }
 
+    // Scan board (camera.scan): the camera, only while the page waits for a code.
+    val scan by vm.scans.pending.collectAsStateWithLifecycle()
+    scan?.let { pending -> key(pending.id) { BoardScanner { text -> vm.scans.answer(pending.id, text) } } }
+
     val settingsOpen by vm.settingsOpen.collectAsStateWithLifecycle()
     if (settingsOpen) ShellSettings(vm, onClassic)
 }

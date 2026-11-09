@@ -30,6 +30,14 @@
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
+    <!-- Scan board: the camera reads a board's QR code, and only when the person taps Scan board (asked for
+         then, at run time). A phone without a camera installs the app all the same, without Scan board. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <!-- The serial console: the board's J-Link on a USB cable, with the phone as USB host (OTG). -->
     <uses-feature
         android:name="android.hardware.usb.host"

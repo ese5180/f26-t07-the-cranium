@@ -277,6 +277,10 @@ dependencies {
     implementation(libs.usb.serial)
     implementation(libs.work.runtime.ktx)
     implementation(libs.webkit)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

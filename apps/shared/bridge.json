@@ -27,7 +27,7 @@
     "network": "The network or the service could not be reached",
     "failed": "Anything else; the message says what"
   },
-  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb"],
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera"],
   "methods": {
     "app.hello": {
       "feature": null,
@@ -231,6 +231,11 @@
         "port": { "type": "integer", "min": 0, "max": 7 }
       },
       "result": "{}. Closes the port; nothing if it is not open."
+    },
+    "camera.scan": {
+      "feature": "camera",
+      "params": {},
+      "result": "{thing}. Phones only, and only when the person taps Scan board: the app asks for the camera (the first time), shows it full screen and reads one QR code. A code whose link is not a board's page on this console (the origin of consoleUrl exactly, the root path, no user or query, and #/devices/<thing> with a thing name of A-Z a-z 0-9 _ : - up to 128 long) is refused with not_allowed and nothing is opened; closing the camera is cancelled; a camera the person did not allow is unavailable. The page then opens #/devices/<thing>."
     },
     "update.check": {
       "feature": "appUpdate",

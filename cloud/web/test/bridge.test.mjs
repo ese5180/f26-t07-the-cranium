@@ -291,6 +291,7 @@ test('every method a page asks the app for is in the contract, with only the par
     'usb.open',
     'usb.write',
     'usb.close',
+    'camera.scan',
   ]) {
     assert.ok(asked.has(name), `${name} is asked for`);
   }
@@ -303,6 +304,7 @@ test('every method a page asks the app for is in the contract, with only the par
       'auth',
       'ble',
       'biometric',
+      'camera',
       'clipboard',
       'haptics',
       'keepAwake',

@@ -93,6 +93,28 @@ What it can't do:
 **It has not run on a board yet.** Its tests (`cloud/web/test/setup.test.mjs`) run it against a stand-in board that
 speaks the console and serial recovery, and a stand-in for the console's API.
 
+### The board's label
+
+When the Online step is done, Board setup shows the board's QR code and a label to stick on it: the code, the board's
+name (if it has one) and its thing name. Every board's page has the same under **Show QR / Print label**, so a board
+set up another way gets one too.
+
+- **The code** is a link to the board's page on this console, `https://<console>/#/devices/<thing>`. The address is the
+  console's own: the page's origin on the website, the console's address from the app's configuration in the phone and
+  desktop apps. Nothing in the code names a server of its own. It is byte mode at error correction M, version 10 at
+  most (the longest thing name makes version 9), so a scuffed label still reads.
+- **The encoder** is the one the Apps page already uses, `qrcode.js` (Project Nayuki's QR Code generator, MIT, vendored
+  and pinned with its licence in `qrcode-license.txt`); `labels.js` makes the link and the label. Nothing comes from a
+  CDN, so the console's policy is unchanged. `cloud/web/test/labels.test.mjs` checks it against known symbols (the C
+  version's for "Hello, world!", and board links that macOS's own QR reader decoded back), and that the level stays M.
+- **Print label** prints only the label, on a page of 62 × 29 mm: a sticker for a label printer (Brother's DK-11209
+  and the like). **Print on paper** puts the labels on the printer's own paper instead, to cut out. The print rules are
+  in `app.css` (`@page board-label`, `body.is-printing-labels`); the rest of the console is hidden while it prints.
+- **A sheet for many boards** is not there yet: the Devices page has no way to pick several boards. `labels.js`
+  `labelPanel` already lays out any number of labels, so it needs only that selection.
+- **Scanning** a label opens the board's page: the iPhone and Android apps have **Scan board** on the Devices page
+  ([docs/mobile-apps.md](mobile-apps.md#scan-board)). Any phone's camera app opens the link in the browser too.
+
 ### The Wi-Fi defaults
 
 The Set up step's network fields start filled in with the console's Wi-Fi defaults, so that nobody types the lab's

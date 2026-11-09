@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.13
+
+Scan board: the Devices page reads a board's QR code with the camera and opens that board's page (console 2.13.4 and later, which prints the codes on the boards' labels). The camera is used only when you tap Scan board, and a code that isn't a board of your console is refused.
+
+AVFoundation's own QR reader, full screen with Cancel (App/Shell/BoardScanner.swift), and the camera's words in Info.plist (`NSCameraUsageDescription`). The link is checked by `BoardLink` (`BoardLinkTests`): the console's
+own scheme, host and port, the root path, no query, and `#/devices/<thing>`. The bridge has a new feature, `camera`,
+offered on a phone with a camera, with `camera.scan`.
+
 ## 0.8.12
 
 The iPhone app updates itself from the phone: when the console has a newer iPhone version, a banner says so, and Update offers two ways to it, Install with SideStore (one tap, no Mac, needs SideStore on the iPhone) and Install from the Mac (renew.sh, or the console's Apps page).
