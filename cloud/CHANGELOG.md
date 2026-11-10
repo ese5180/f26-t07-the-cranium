@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.8
+
+On a 320 px phone the customer site's Overview no longer scrolls sideways: the "Back to your last set" panel stays as wide as the page, and its table of tracks scrolls inside the panel when it is wider.
+
+`.cs-grid-main` and `.cs-grid-side` were grids whose one column took the width of the widest thing in them (the track table, 316 px, in a page of 288); they are now `minmax(0, 1fr)`, and `.cs-tracks` scrolls on its own. customer.test.mjs checks both. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.7
 
 On a 320 px phone the Apps page no longer scrolls sideways: the Android card's "Download cranium-android-….apk" button wraps its words inside the card instead of making the card, and the page, as wide as the words on one line.

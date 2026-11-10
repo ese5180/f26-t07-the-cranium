@@ -2091,3 +2091,10 @@ test('on a narrow phone the top bar fits: Connect device is its icon, and keeps 
   // After the 560 px block, whose padding would otherwise win.
   assert.ok(css.indexOf('.cs-connect-label {') > css.lastIndexOf('@media (max-width: 560px)'));
 });
+
+test("on a 320 px phone the Overview's last set stays inside the page: its track table scrolls in its panel", () => {
+  // The main column took the width of the track table (316 px) in a page of 288, and the page scrolled sideways.
+  const css = readFileSync(new URL('assets/customer.css', CUSTOMER_DIR), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(css, /(?:^|\n)\.cs-grid-main,\n\.cs-grid-side \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /(?:^|\n)\.cs-tracks \{[^}]*overflow-x: auto/);
+});
