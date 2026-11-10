@@ -19,6 +19,7 @@
 
 #include "bt_ota_policy.h"
 #include "ui.h"
+#include "version.h"
 
 /* Called by ota_init(), which knows what the bootloader did. job_record: see ota_bt_has_job(). */
 void bt_ota_on_boot(bool on_trial, bool has_trailer, bool job_record);
@@ -38,6 +39,21 @@ void bt_ota_on_cloud_proof(void);
 /* Connected to the cloud: tell it about the last update over Bluetooth. */
 void bt_ota_on_cloud_up(void);
 #endif
+
+/*
+ * Offline mode (src/bt/bt_offline.c), from 1.19.0. Whether an image from a phone is arriving or has
+ * arrived and waits for the person's go-ahead; for a waiting one, its version.
+ */
+#define BT_OTA_UPLOAD_NONE      0
+#define BT_OTA_UPLOAD_RECEIVING 1
+#define BT_OTA_UPLOAD_WAITING   2
+int bt_ota_upload_view(struct fw_version *version);
+
+/*
+ * What a press of the install button does, for a phone that has proved the passkey: true if an image
+ * was waiting and the install has been asked for. The main loop's only.
+ */
+bool bt_ota_accept_offer(void);
 
 bool bt_ota_is_open(void);
 enum ui_state bt_ota_ui_state(void);
