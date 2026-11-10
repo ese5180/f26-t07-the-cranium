@@ -112,9 +112,9 @@ export const BOARDS_LEDE = 'How your Cranium is doing, and what it did lately.';
 export const WELCOME = 'Welcome back.';
 export const FOOT_NOTE = 'Your music stays on your deck: this site only shows how your boards are.';
 
-const VIEWS = Object.freeze(['sign-in', 'forgot', 'overview', 'devices', 'mixes', 'account', 'help']);
+const VIEWS = Object.freeze(['sign-in', 'forgot', 'overview', 'devices', 'mixes', 'account', 'help', 'about']);
 // What anybody may open, signed in or not.
-export const PUBLIC_VIEWS = Object.freeze(['landing', 'sign-in', 'forgot', 'help']);
+export const PUBLIC_VIEWS = Object.freeze(['landing', 'sign-in', 'forgot', 'help', 'about']);
 const ROUTE = /^#\/([a-z-]+)(?:\/([a-z0-9]+))?$/;
 export const BOARD_ID = /^[0-9a-f]{16}$/;
 // A session of the mixes (customer-mixes.js sessionId).

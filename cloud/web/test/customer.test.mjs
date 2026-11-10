@@ -51,11 +51,13 @@ const SITE_MIX_VIEWS = customerScript('customer-mix-views.js', {
   'customer-core.js': SITE_CORE,
   'customer-mixes.js': SITE_MIXES,
 });
+const SITE_PHOTOS = customerScript('customer-team-photos.js');
 const SITE_VIEWS = customerScript('customer-views.js', {
   'core.js': CORE,
   'views.js': VIEWS,
   'customer-core.js': SITE_CORE,
   'customer-mix-views.js': SITE_MIX_VIEWS,
+  'customer-team-photos.js': SITE_PHOTOS,
 });
 const site = await import(SITE_CORE);
 
@@ -114,6 +116,7 @@ test("the customer site's name gets the site at /, the console as admin mode at 
     'customer-core.js',
     'customer-mix-views.js',
     'customer-mixes.js',
+    'customer-team-photos.js',
     'customer-views.js',
     'customer.css',
     'customer.js',
@@ -278,6 +281,7 @@ test("the site serves the console's own core.js, views.js and app.css, byte for 
     'customer-core.js',
     'customer-mix-views.js',
     'customer-mixes.js',
+    'customer-team-photos.js',
     'customer-views.js',
     'customer.css',
     'customer.js',
@@ -306,6 +310,7 @@ test('the page has no inline script, style or handler, and refers only to its ow
       'customer-core.js',
       'customer-mix-views.js',
       'customer-mixes.js',
+      'customer-team-photos.js',
       'customer-views.js',
       'customer.css',
       'customer.js',
@@ -435,7 +440,9 @@ test('routes: the pages of the site, a board by its assignment id, and nothing e
   assert.equal(site.routeHash({ view: 'device', id: '0123456789abcdef' }), '#/devices/0123456789abcdef');
   assert.equal(site.routeHash({ view: 'device', id: 'cranium-x' }), '#/');
   assert.equal(site.routeHash({ view: 'nowhere' }), '#/');
-  assert.deepEqual([...site.PUBLIC_VIEWS], ['landing', 'sign-in', 'forgot', 'help']);
+  assert.deepEqual(site.parseRoute('#/about'), { view: 'about' });
+  assert.equal(site.routeHash({ view: 'about' }), '#/about');
+  assert.deepEqual([...site.PUBLIC_VIEWS], ['landing', 'sign-in', 'forgot', 'help', 'about']);
   // One sign-in for everybody: the admin sign-in of before is no page any more.
   assert.equal(site.parseRoute('#/admin-sign-in'), null);
 });
@@ -1506,6 +1513,7 @@ test('an admin signs in on the one form with password and code, lands in admin m
     ...MIX_TITLES,
     ['account', 'Your account'],
     ['help', 'How can we help?'],
+    ['about', 'Your DJ controller, without the laptop.'],
   ]);
   await openEverySection(tab, titles);
   // A board's own page is a customer's: an admin gets the list's page.
@@ -1560,6 +1568,7 @@ test('a customer opens every section of the side panel and the tab bar, and each
     ...MIX_TITLES,
     ['account', 'Your account'],
     ['help', 'How can we help?'],
+    ['about', 'Your DJ controller, without the laptop.'],
   ]);
   await openEverySection(tab, titles);
 });
@@ -1777,4 +1786,144 @@ test('an app without storage says it cannot keep the journal, and asks the app f
     tab.appCalls.some((message) => message.method.startsWith('storage.')),
     false
   );
+});
+
+// About: what Cranium is and the team, for anybody, signed in or not, on the website and in the apps.
+
+const FOUNDERS = ['Vihaan Ravishankar', 'Demetrius Bosket', 'Adam Shalabi', 'Christian Durante'];
+
+/** The About page as drawn: its founders, each with the name of their portrait and its initials, if any. */
+function aboutPage(tab) {
+  const people = all(tab.app, 'li').filter((li) => li.getAttribute('class') === 'cs-person');
+  return people.map((person) => {
+    const [portrait] = descendants(person).filter((el) => /\bcs-person-photo\b/.test(el.getAttribute('class') ?? ''));
+    const tag = portrait.tagName.toLowerCase();
+    return {
+      name: textOf(all(person, 'h3')[0]),
+      role: textOf(all(person, 'p')[0]),
+      tag,
+      label: portrait.getAttribute('alt') ?? portrait.getAttribute('aria-label'),
+      src: portrait.getAttribute('src'),
+      initials: tag === 'img' ? null : textOf(portrait),
+    };
+  });
+}
+
+function checkAbout(tab) {
+  const main = one(tab.app, 'main');
+  const words = textOf(main);
+  assert.match(words, /About Cranium/);
+  assert.match(words, /mounts on a beginner DJ controller, starting with the Pioneer FLX4/);
+  assert.match(words, /no longer needs a laptop/);
+  assert.match(words, /Bluetooth LE Audio/);
+  assert.match(words, /Raspberry Pi drives the screen/);
+  assert.match(words, /New and intermediate DJs who play on an FLX4/);
+  assert.match(words, /about \$200/);
+  // No market figures, no other company's name, no address.
+  assert.doesNotMatch(words, /\$\d+M|million|XDJ|Numark|Denon|DeckShark|@/);
+  assert.deepEqual(all(main, 'h2').map(textOf), ['What it is', 'The problem', 'Who it is for', 'The team']);
+  const people = aboutPage(tab);
+  assert.deepEqual(
+    people.map((person) => person.name),
+    FOUNDERS
+  );
+  assert.ok(people.every((person) => person.role === 'Founder'));
+  assert.ok(
+    people.every((person) => person.label === person.name),
+    'every portrait is named for its person'
+  );
+  const [photo, ...placeholders] = people;
+  assert.equal(photo.tag, 'img');
+  assert.equal(photo.label, 'Vihaan Ravishankar');
+  assert.match(photo.src, /^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/);
+  assert.deepEqual(
+    placeholders.map((person) => [person.tag, person.initials]),
+    [
+      ['span', 'DB'],
+      ['span', 'AS'],
+      ['span', 'CD'],
+    ]
+  );
+}
+
+test('About: signed out, the home page links to it, and it says what Cranium is and who makes it', async (t) => {
+  for (const nav of ['cs-landing-nav', 'cs-landing-foot-nav']) {
+    assert.match(page, new RegExp(`class="${nav}"[^>]*>[^]*?<a href="#/about">About</a>[^]*?</nav>`), nav);
+  }
+  const tab = await openSite(t);
+  tab.go('#/about');
+  await until(() => /The team/.test(tab.text()), 'the about page');
+  assert.equal(tab.location.hash, '#/about');
+  assert.equal(tab.landing.hidden, true);
+  assert.equal(tab.document.title, 'About · Cranium');
+  checkAbout(tab);
+  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/sign-in'));
+  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/help'));
+  // From the sign-in page too.
+  tab.go('#/sign-in');
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
+  assert.ok(all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/about'));
+  assert.equal(
+    tab.requests.filter((line) => line.includes('/api/')).length,
+    0,
+    'nothing is asked of the API while signed out'
+  );
+});
+
+test('About: signed in, it is in the side panel and the foot of every page', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => all(tab.app, 'div.cs-tiles').length === 2, 'the overview');
+  assert.ok(
+    all(tab.app, 'a').some(
+      (link) => link.getAttribute('class') === 'cs-nav-link' && link.getAttribute('href') === '#/about'
+    )
+  );
+  const foot = all(tab.app, 'footer').find((footer) => footer.getAttribute('class') === 'cs-foot');
+  assert.ok(all(foot, 'a').some((link) => link.getAttribute('href') === '#/about'));
+  tab.go('#/about');
+  await until(() => /The team/.test(tab.text()), 'the about page');
+  checkAbout(tab);
+  // In the studio's frame, with no way to sign in again.
+  assert.equal(all(tab.app, 'aside').length, 1);
+  assert.equal(
+    all(tab.app, 'a').some((link) => link.getAttribute('href') === '#/sign-in'),
+    false
+  );
+});
+
+test('About: in the phone app it opens before the sign-in, from the sign-in page, and after it', async (t) => {
+  const tab = await openSite(t, { app: {} });
+  await until(() => tab.document.getElementById('signin-email') !== null, 'the sign-in page');
+  assert.ok(
+    all(tab.app, 'a').some((a) => a.getAttribute('href') === '#/about'),
+    'the sign-in page links to About'
+  );
+  tab.go('#/about');
+  await until(() => /The team/.test(tab.text()), 'the about page');
+  assert.equal(tab.location.hash, '#/about', 'not sent to the sign-in');
+  checkAbout(tab);
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  tab.go('#/about');
+  await until(() => /The team/.test(tab.text()) && all(tab.app, 'aside').length === 1, 'the about page, signed in');
+  checkAbout(tab);
+});
+
+test("About: the team's photos are the folder's, small, and a person without one gets initials", async () => {
+  const { MAX_PHOTO_BYTES, MODULE_PATH, photosModule, readPhotos } = await import('../build-team-photos.mjs');
+  const photos = readPhotos();
+  assert.equal(
+    readFileSync(MODULE_PATH, 'utf8'),
+    photosModule(photos),
+    'customer-team-photos.js is what node cloud/web/build-team-photos.mjs writes'
+  );
+  assert.deepEqual(Object.keys(photos), ['vihaan-ravishankar']);
+  for (const uri of Object.values(photos)) {
+    const bytes = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
+    assert.ok(bytes.length <= MAX_PHOTO_BYTES, `${bytes.length} bytes`);
+  }
+  // Every founder's photo has a name the folder can hold.
+  const views = await import(SITE_VIEWS);
+  for (const [, photo] of views.TEAM) assert.match(`${photo}.webp`, /^[a-z]+(?:-[a-z]+)+\.webp$/);
 });
