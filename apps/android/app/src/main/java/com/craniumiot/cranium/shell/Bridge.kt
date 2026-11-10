@@ -39,9 +39,9 @@ object BridgeSpec {
     const val MAX_REQUEST_BYTES = 4_194_304
     const val ORIGIN = "https://appassets.androidplatform.net"
 
-    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera")
+    val FEATURES = listOf("auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera", "bleOffline")
     val ERRORS = listOf("bad_request", "unknown_method", "unavailable", "not_allowed", "cancelled", "locked", "signed_out", "busy", "network", "failed")
-    val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status", "usb.data", "usb.closed")
+    val EVENTS = listOf("app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress", "ble.status", "ble.offline.status", "ble.offline.link", "usb.data", "usb.closed")
 
     private val pool = ParamSpec.OneOf(listOf("admin", "customer"))
     private const val VERSION_PATTERN = """^\d{1,3}\.\d{1,3}\.\d{1,5}\+\d{1,10}$"""
@@ -107,6 +107,11 @@ object BridgeSpec {
                 "hash" to ParamSpec.Text(16, "^[0-9a-f]{16}$", optional = true),
             ),
         ),
+        // Offline mode (firmware 1.19.0): the board's own GATT service, on a link paired with its passkey.
+        "ble.offline.connect" to MethodSpec("bleOffline", mapOf("id" to ParamSpec.Text(64, "^[A-Za-z0-9:-]{1,64}\$"))),
+        "ble.offline.status" to MethodSpec("bleOffline"),
+        "ble.offline.accept" to MethodSpec("bleOffline", mapOf("version" to ParamSpec.Text(7, """^\d{1,3}\.\d{1,3}$"""))),
+        "ble.offline.disconnect" to MethodSpec("bleOffline"),
         "usb.open" to MethodSpec("usb", mapOf("baudRate" to ParamSpec.Whole(1200, 1_000_000))),
         "usb.write" to MethodSpec(
             "usb",

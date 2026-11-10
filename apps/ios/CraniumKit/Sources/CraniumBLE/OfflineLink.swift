@@ -25,6 +25,11 @@ public final class OfflineLink: NSObject, @unchecked Sendable {
     static let refresh: TimeInterval = 3
 
     public var onState: ((State) -> Void)?
+    /// Each status as the board sent it, for the console's Offline page (bridge.json, ble.offline.*), which reads it itself.
+    public var onPayload: ((Data) -> Void)?
+    /// The status the board sent last, as it sent it.
+    public private(set) var lastPayload: Data?
+    private var accepting: ((String?) -> Void)?
     public let name: String
 
     private unowned let radio: BoardRadio
@@ -60,16 +65,29 @@ public final class OfflineLink: NSObject, @unchecked Sendable {
     }
 
     /// Accept the update that waits, naming the version the person saw. Asks again for the status after.
-    public func accept(version: String) {
+    /// `done` is called once the board answered: nil when it took it, else why not, in words.
+    public func accept(version: String, done: @escaping (String?) -> Void = { _ in }) {
         guard let control = controlCharacteristic, let request = OfflineStatus.acceptRequest(version: version) else {
-            finish(.failed("This board cannot take that."))
+            done("This board cannot take that.")
             return
         }
+        guard accepting == nil else {
+            done("The board is answering the last one.")
+            return
+        }
+        accepting = done
         peripheral.writeValue(request, for: control, type: .withResponse)
+    }
+
+    /// Reads the status again now; the answer comes as the next state and payload.
+    public func refresh() {
+        readStatus()
     }
 
     public func close() {
         done = true
+        accepting?("The link to the board was closed.")
+        accepting = nil
         timer?.invalidate()
         timer = nil
         peripheral.delegate = nil
@@ -179,6 +197,8 @@ extension OfflineLink: CBPeripheralDelegate {
         attempt += 1
         if last == nil { startRefreshing() }
         last = status
+        lastPayload = value
+        onPayload?(value)
         onState?(.ready(status))
     }
 
@@ -190,9 +210,14 @@ extension OfflineLink: CBPeripheralDelegate {
             let text = code == Int(CBATTError.unlikelyError.rawValue)
                 ? "That update no longer waits. Look at the board's status again."
                 : Self.words(for: error)
-            onState?(.failed(text))
+            let answer = accepting
+            accepting = nil
+            if let answer { answer(text) } else { onState?(.failed(text)) }
             return
         }
+        let answer = accepting
+        accepting = nil
+        answer?(nil)
         onState?(.accepted)
         readStatus()
     }
