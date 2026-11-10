@@ -23,7 +23,7 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `#/overview` | a customer | The mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to), then the boards: four figures, the boards with each one's health and week of restarts, and what they did in the last week |
 | `#/overview` | an admin | Who is signed in, and **Open admin mode** |
 | `#/devices`, `#/devices/<id>` | a customer | The boards as a table, each with a health dot; one board's health this week (a sentence and its restarts by day), state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
-| `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Saved moments, of the demo or of the customer's own journal (below) |
+| `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Your listening, Saved moments, of the demo or of the customer's own journal (below) |
 | `#/sessions/<id>` | signed in | One session: its shape on the two decks, every track, its transitions, Export set, and Remove for one of the journal |
 | `#/account` | a customer | Their address, a password change, two-step sign-in on or off, sign out |
 | `#/help` | anybody | Questions and answers about the board, its updates and the account |
@@ -32,7 +32,7 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `https://www.example.com/...` | anybody | Sent to `https://example.com/` (or `/admin`), so that there is one origin |
 
 The pages follow the mockup the owner chose, in the console's colours for light and dark: a dark sidebar of the
-workspace (Overview, Sessions, Transitions, Track library, Saved moments with how many are kept) and of the boards
+workspace (Overview, Sessions, Transitions, Track library, Your listening, Saved moments with how many are kept) and of the boards
 (Devices, Account, Help, About), with "Your deck, a little more connected" and Connect your board at its foot; a top bar with
 how many boards are online, Export, and **Connect device**; each page's title with the range (all time, 7 or 30 days)
 and **Import session**; and the switch between **Explore demo** and **My journal**. At 390 px the sidebar gives way to
@@ -86,6 +86,7 @@ What each page works out, the same for both:
 | Sessions, one session | Each set's shape on decks A and B, its tracks in the order they started with deck, BPM, key and when, a search, Export set (CSV) |
 | Transitions | Each pair of tracks in start order, their BPMs, how long both played (when both tracks' times are known), and a bookmark to keep it |
 | Track library | Every track, the most played first, with its plays, BPM and time on the decks, and a search |
+| Your listening | This week and last week on the decks (weeks start Monday, in the reader's time), sessions per day for 14 days as a row of bars, top tracks and top artists over 30 days, the longest session, the busiest hour. Worked out in the page by `customer-stats.js` from every session of the source shown (the range does not apply); an empty state with no sessions, and a note when they are demo or imported, not the board's |
 | Saved moments | The pairs kept, each with the customer's own note (500 characters), to edit or forget |
 
 Export (the top bar) backs the journal up as JSON, which Import brings back, or writes every track as a CSV, where a

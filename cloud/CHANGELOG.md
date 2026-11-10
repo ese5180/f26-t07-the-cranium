@@ -7,6 +7,20 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.22.0
+
+The customer site has a new page, Your listening (`#/mixes/listening`, in the side panel between Track library and
+Saved moments). It shows the time on the decks this week and last week, sessions per day for the last 14 days as a row
+of bars, the top tracks and top artists of the last 30 days by plays, the longest session and the busiest hour of the
+day. With no sessions it says so, and when the sessions are the demo or an imported file rather than the board's, a
+note says that.
+
+Web only: `customer-stats.js` is a pure module (`listeningStats(sessions, now)`) over the sessions the site already
+keeps, so no server, IAM or API change. Weeks start on Monday and days and hours are in the reader's own time zone; a
+session counts in the week it started; a track's play time is its session's start plus the track's start; ties go to
+the more plays, then the more recent, then A to Z. The phone and desktop apps load the same customer site bundle, so
+they get the page with no app change. cloud/web/test/customer-stats.test.mjs; docs/customer-site.md.
+
 ## 2.21.1
 
 Three small security fixes: a team member who is disabled or demoted stops getting live updates within a minute, a customer's own name is labelled as theirs on the Customers page, and a customer's change limit holds even for requests that arrive together.
