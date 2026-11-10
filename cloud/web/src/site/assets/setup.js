@@ -931,6 +931,207 @@ function label(type) {
   return BOARD_LABELS[type] ?? type ?? 'board';
 }
 
+// Setting up several boards: a queue over the same flow (docs/new-board-setup.md, "Several boards").
+
+/** The most boards one batch holds. */
+export const BULK_MAX = 50;
+const NAME_TOKEN = '{n}';
+
+/** What is wrong with a name pattern and its numbers, or null. A pattern is letters and digits with one {n}. */
+export function checkPattern(pattern, start = 1, count = 1) {
+  const text = typeof pattern === 'string' ? pattern : '';
+  if (text.split(NAME_TOKEN).length !== 2)
+    return 'The name pattern needs {n} once, where the number goes: for example Studio{n}.';
+  if (!/^[A-Za-z0-9]*\{n\}[A-Za-z0-9]*$/.test(text))
+    return 'A board’s name is letters and digits only, so the pattern is too, besides {n}.';
+  if (!Number.isInteger(start) || start < 0 || start > 99999) return 'Start numbering from 0 to 99999.';
+  if (!Number.isInteger(count) || count < 1 || count > BULK_MAX) return `A batch is 1 to ${BULK_MAX} boards.`;
+  return RULES.id(text.replace(NAME_TOKEN, String(start + count - 1)));
+}
+
+/** The first name of the pattern from `from` on that is not in `taken` (lowercase names): { n, name }. */
+export function nextFreeName(pattern, from, taken) {
+  for (let n = from; n < from + 100000; n += 1) {
+    const name = pattern.replace(NAME_TOKEN, String(n));
+    if (!taken.has(name.toLowerCase())) return { n, name };
+  }
+  throw new BoardError('No free name is left in that pattern.', 'names');
+}
+
+/**
+ * The queue. `flow` is the board flow of createSetupFlow, used as it is. `adapters`:
+ *   names()                  every board name the console has now: string[]
+ *   addToGroup(group, thing) puts a board in the group, keeping the others
+ *   wifi()                   { ssid, security, passphrase } read from the fields when a board needs it
+ * `settings`: { pattern, start, count, group (id or null), newest }. The Wi-Fi passphrase is never kept here.
+ */
+export function createBulkQueue({ flow, adapters, settings, onChange = () => {} }) {
+  const queue = { items: [], busy: false, started: false, runNext, retry, skip, prepare, current, summary };
+  const used = new Set();
+
+  async function takenNames() {
+    return new Set([...(await adapters.names()).map((name) => String(name).toLowerCase()), ...used]);
+  }
+
+  /** Reserve a name for every slot: the first free ones, in order. */
+  async function prepare() {
+    const problem = checkPattern(settings.pattern, settings.start, settings.count);
+    if (problem) throw new BoardError(problem, 'pattern');
+    const taken = await takenNames();
+    let from = settings.start;
+    const items = [];
+    for (let index = 0; index < settings.count; index += 1) {
+      const { n, name } = nextFreeName(settings.pattern, from, taken);
+      taken.add(name.toLowerCase());
+      from = n + 1;
+      items.push({
+        id: index + 1,
+        n,
+        label: name,
+        status: 'queued',
+        step: null,
+        reason: null,
+        thing: null,
+        grouped: false,
+        labelUsed: false,
+      });
+    }
+    for (const item of items) used.add(item.label.toLowerCase());
+    queue.items = items;
+    queue.started = true;
+    onChange();
+  }
+
+  /** The board to plug in next: the first one still queued. A retried one goes back to its place. */
+  function current() {
+    return queue.items.find((item) => item.status === 'queued') ?? null;
+  }
+
+  function summary() {
+    const count = (status) => queue.items.filter((item) => item.status === status).length;
+    return { done: count('done'), failed: count('failed'), skipped: count('skipped'), queued: count('queued') };
+  }
+
+  function retry(id) {
+    const item = queue.items.find((entry) => entry.id === id);
+    if (queue.busy || !item || item.status !== 'failed') return;
+    item.status = 'queued';
+    item.step = null;
+    item.reason = null;
+    onChange();
+  }
+
+  function skip(id) {
+    const item = queue.items.find((entry) => entry.id === id);
+    if (queue.busy || !item || !['queued', 'failed'].includes(item.status)) return;
+    item.status = 'skipped';
+    onChange();
+  }
+
+  function fail(item, step, reason) {
+    item.status = 'failed';
+    item.step = step;
+    item.reason = reason;
+  }
+
+  /** A name another board took since the slot was reserved gives way to the next free one. */
+  async function recheckName(item) {
+    if (item.labelUsed) return;
+    used.delete(item.label.toLowerCase());
+    const taken = await takenNames();
+    if (taken.has(item.label.toLowerCase())) {
+      const { n, name } = nextFreeName(settings.pattern, item.n + 1, taken);
+      item.n = n;
+      item.label = name;
+    }
+    used.add(item.label.toLowerCase());
+  }
+
+  function stop(key) {
+    const state = flow.steps[key];
+    if (state.status === 'failed') throw Object.assign(new Error(state.error), { step: key });
+    if (!['done', 'skipped'].includes(state.status))
+      throw Object.assign(new Error('The step did not finish.'), { step: key });
+  }
+
+  /** One board: the flow's own steps in order. Throws at the first that fails, with its step. */
+  async function drive(item) {
+    await flow.disconnect();
+    await flow.connect();
+    stop('connect');
+    for (const key of ['golden', 'firmware', 'setup', 'online']) {
+      if (!['done', 'skipped'].includes(flow.steps[key].status)) {
+        if (key === 'golden' || (key === 'firmware' && !settings.newest)) {
+          flow.skip(key);
+        } else if (key === 'setup') {
+          await flow.runSetup({ id: item.label, ...adapters.wifi(), keepWifi: false });
+          if (flow.steps.setup.status === 'done') item.labelUsed = true;
+        } else {
+          await flow.run(key);
+        }
+      }
+      stop(key);
+    }
+    item.thing = flow.board?.thing ?? null;
+  }
+
+  /** Run the next queued board, once the person has plugged it in. */
+  async function runNext() {
+    const item = current();
+    if (queue.busy || !item) return;
+    queue.busy = true;
+    item.status = 'running';
+    onChange();
+    try {
+      if (item.thing === null) {
+        try {
+          await recheckName(item);
+          await drive(item);
+        } catch (error) {
+          fail(item, error.step ?? 'connect', error?.message ?? 'Something went wrong.');
+        }
+      }
+      if (item.status === 'running' && settings.group && !item.grouped) {
+        try {
+          await adapters.addToGroup(settings.group, item.thing);
+          item.grouped = true;
+        } catch (error) {
+          fail(item, 'group', error?.message ?? 'The group could not be changed.');
+        }
+      }
+      if (item.status === 'running') item.status = 'done';
+    } finally {
+      queue.busy = false;
+      if (item.status === 'done') await flow.disconnect();
+      onChange();
+    }
+  }
+
+  return queue;
+}
+
+/** Add a board to a group through the existing group API, keeping the boards it has; tries again if the group moved. */
+export async function addThingToGroup(request, groupId, thing) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const body = await request('GET', '/api/fleet');
+    const group = (Array.isArray(body?.groups) ? body.groups : []).find((entry) => entry?.id === groupId);
+    if (!group) throw new BoardError('The group is not on the console any more.', 'group');
+    const things = Array.isArray(group.things) ? group.things : [];
+    if (things.includes(thing)) return;
+    try {
+      await request('POST', `/api/groups/${groupId}`, { things: [...things, thing] });
+      return;
+    } catch (error) {
+      if (error?.code !== 'group_changed' || attempt === 2) throw new BoardError(groupWords(error), 'group');
+    }
+  }
+}
+
+function groupWords(error) {
+  if (error?.status === 403) return 'The console refused: only a release manager may change a group.';
+  return `The console could not change the group: ${error?.message ?? 'no reason given'}.`;
+}
+
 // The page.
 
 let shared = null;
@@ -1264,7 +1465,7 @@ function stepBody(flow, key, state) {
   if (state.status === 'running') parts.push(progressOf(flow));
   if (state.error) parts.push(notice('bad', 'alert', state.error));
   if (key === 'golden' && state.status === 'waiting') parts.push(sealPanel(flow));
-  if (key === 'setup' && ['todo', 'failed'].includes(state.status) && flow.current === 'setup')
+  if (key === 'setup' && ['todo', 'failed'].includes(state.status) && flow.current === 'setup' && !bulkUi.queue)
     parts.push(setupForm(flow));
   if (state.status !== 'running') parts.push(stepTools(flow, key, state.status));
   return parts;
@@ -1306,6 +1507,310 @@ function stepper(flow) {
   );
 }
 
+// The page for several boards. The settings are chosen once; the Wi-Fi fields stay on the page (never in
+// the queue's state) and are read when a board needs them.
+
+const bulkUi = {
+  on: false,
+  load: 'idle',
+  problem: null,
+  groups: [],
+  settings: { pattern: 'Studio{n}', start: 1, count: 5, group: '', newest: true },
+  queue: null,
+};
+
+const BULK_STEP_WORDS = {
+  connect: 'Connect',
+  golden: 'Golden image',
+  firmware: 'Newest firmware',
+  setup: 'Set up',
+  online: 'Online',
+  group: 'Adding it to the group',
+};
+
+async function loadBulkGroups() {
+  bulkUi.load = 'loading';
+  try {
+    const body = await connected.api.fleetRequest('GET', '/api/fleet');
+    bulkUi.groups = (Array.isArray(body?.groups) ? body.groups : [])
+      .filter((group) => typeof group?.id === 'string' && typeof group?.name === 'string')
+      .map((group) => ({ id: group.id, name: group.name }));
+    bulkUi.load = 'ready';
+  } catch {
+    bulkUi.load = 'failed';
+    bulkUi.problem = 'The console’s groups could not be read. Close this and try again.';
+  }
+  connected?.draw();
+}
+
+function bulkAdapters() {
+  const api = connected.api;
+  return {
+    names: async () =>
+      ((await api.devices())?.devices ?? []).map((device) => device.name).filter((name) => typeof name === 'string'),
+    addToGroup: (group, thing) =>
+      addThingToGroup((method, path, body) => api.fleetRequest(method, path, body), group, thing),
+    wifi: () => ({
+      ssid: field('setup-ssid')?.value ?? '',
+      security: field('setup-security')?.value ?? SECURITIES[0],
+      passphrase: field('setup-passphrase')?.value ?? '',
+    }),
+  };
+}
+
+async function startBulk(flow) {
+  const settings = bulkUi.settings;
+  settings.pattern = field('bulk-pattern')?.value.trim() ?? settings.pattern;
+  settings.start = Number(field('bulk-start')?.value ?? settings.start);
+  settings.count = Number(field('bulk-count')?.value ?? settings.count);
+  settings.group = field('bulk-group')?.value ?? '';
+  settings.newest = field('bulk-newest')?.checked !== false;
+  bulkUi.problem = null;
+  const queue = createBulkQueue({
+    flow,
+    adapters: bulkAdapters(),
+    settings: { ...settings, group: settings.group || null },
+    onChange: () => connected?.draw(),
+  });
+  try {
+    await queue.prepare();
+    bulkUi.queue = queue;
+  } catch (error) {
+    bulkUi.problem = error?.message ?? 'The names could not be reserved.';
+  }
+  connected?.draw();
+}
+
+function closeBulk(flow) {
+  bulkUi.on = false;
+  bulkUi.queue = null;
+  bulkUi.load = 'idle';
+  bulkUi.problem = null;
+  flow.disconnect();
+}
+
+function bulkSettingsForm(flow) {
+  const started = bulkUi.queue !== null;
+  const { settings } = bulkUi;
+  if (!started && flow.wifiDefaults.state === 'idle') queueMicrotask(() => flow.fillWifiDefaults(fillFields));
+  return h(
+    'form',
+    {
+      class: 'setup-form',
+      key: 'bulk-form',
+      autocomplete: 'off',
+      onSubmit: (event) => {
+        event.preventDefault();
+        if (!started) startBulk(flow);
+      },
+    },
+    h(
+      'div',
+      { class: 'field', key: 'group' },
+      h('label', { class: 'field-label', for: 'bulk-group' }, 'Add every board to the group'),
+      h(
+        'select',
+        { id: 'bulk-group', class: 'input', disabled: started },
+        h('option', { key: 'none', value: '' }, 'No group'),
+        bulkUi.groups.map((group) =>
+          h('option', { key: group.id, value: group.id, selected: group.id === settings.group }, group.name)
+        )
+      )
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'pattern' },
+      h('label', { class: 'field-label', for: 'bulk-pattern' }, 'Name pattern'),
+      h('input', {
+        id: 'bulk-pattern',
+        class: 'input mono',
+        type: 'text',
+        value: settings.pattern,
+        disabled: started,
+        autocomplete: 'off',
+        spellcheck: 'false',
+        'aria-describedby': 'bulk-pattern-hint',
+      }),
+      h(
+        'p',
+        { class: 'field-hint', id: 'bulk-pattern-hint' },
+        'Letters and digits, with {n} where the number goes. It names the board and its label. A name the console has already is skipped.'
+      )
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'start' },
+      h('label', { class: 'field-label', for: 'bulk-start' }, 'First number'),
+      h('input', {
+        id: 'bulk-start',
+        class: 'input mono',
+        type: 'number',
+        min: 0,
+        value: String(settings.start),
+        disabled: started,
+      })
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'count' },
+      h('label', { class: 'field-label', for: 'bulk-count' }, `How many boards (up to ${BULK_MAX})`),
+      h('input', {
+        id: 'bulk-count',
+        class: 'input mono',
+        type: 'number',
+        min: 1,
+        max: BULK_MAX,
+        value: String(settings.count),
+        disabled: started,
+      })
+    ),
+    h(
+      'label',
+      { class: 'choice', key: 'newest' },
+      h('input', { id: 'bulk-newest', type: 'checkbox', checked: settings.newest, disabled: started }),
+      h(
+        'span',
+        { class: 'choice-body' },
+        h('span', { class: 'choice-title' }, 'Install the newest firmware'),
+        ' Each board gets the console’s newest release for its type, unless it runs it already.'
+      )
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'ssid' },
+      h('label', { class: 'field-label', for: 'setup-ssid' }, 'Wi-Fi network name'),
+      h('input', {
+        id: 'setup-ssid',
+        class: 'input',
+        type: 'text',
+        disabled: started,
+        autocomplete: 'off',
+        autocapitalize: 'none',
+        spellcheck: 'false',
+      })
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'security' },
+      h('label', { class: 'field-label', for: 'setup-security' }, 'Security'),
+      h(
+        'select',
+        { id: 'setup-security', class: 'input mono', disabled: started },
+        SECURITIES.map((choice) => h('option', { key: choice, value: choice }, choice))
+      )
+    ),
+    h(
+      'div',
+      { class: 'field', key: 'pass' },
+      h('label', { class: 'field-label', for: 'setup-passphrase' }, 'Passphrase'),
+      h('input', {
+        id: 'setup-passphrase',
+        class: 'input',
+        type: 'password',
+        disabled: started,
+        autocomplete: 'new-password',
+      }),
+      h('p', { class: 'field-hint' }, `8 to 63 characters. ${WORDS.wifiOnly}`)
+    ),
+    wifiDefaultsNote(flow),
+    bulkUi.problem ? notice('bad', 'alert', bulkUi.problem) : null,
+    started
+      ? null
+      : h(
+          'div',
+          { class: 'setup-tools' },
+          h('button', { type: 'submit', class: 'btn is-primary' }, 'Make the queue'),
+          button('is-quiet', () => closeBulk(flow), 'One board at a time')
+        )
+  );
+}
+
+const BULK_STATUS = { queued: 'Queued', running: 'Under way', done: 'Done', failed: 'Failed', skipped: 'Skipped' };
+
+function bulkRow(queue, item, next, ctx) {
+  const idle = !queue.busy;
+  return h(
+    'li',
+    { key: item.id, class: `row bulk-row is-${item.status}` },
+    h('strong', { class: 'mono' }, item.label),
+    h('span', { class: 'bulk-state' }, ` · ${BULK_STATUS[item.status]}`),
+    item.thing ? h('span', { class: 'quiet mono' }, ` ${item.thing}`) : null,
+    item.status === 'failed'
+      ? h(
+          'p',
+          { class: 'setup-note' },
+          `Stopped at ${BULK_STEP_WORDS[item.step] ?? item.step}: ${item.reason ?? 'no reason given'}`
+        )
+      : null,
+    item.status === 'queued' && next?.id === item.id && !queue.busy
+      ? h('span', { class: 'quiet' }, ' Plug this one in next.')
+      : null,
+    h(
+      'span',
+      { class: 'setup-tools' },
+      item.status === 'failed' && idle ? button('is-quiet', () => queue.retry(item.id), 'Retry') : null,
+      ['queued', 'failed'].includes(item.status) && idle ? button('is-quiet', () => queue.skip(item.id), 'Skip') : null
+    )
+  );
+}
+
+function bulkQueueCard(flow, ctx) {
+  const queue = bulkUi.queue;
+  const next = queue.current();
+  const counts = queue.summary();
+  const labels = queue.items
+    .filter((item) => item.status === 'done' && item.thing)
+    .map((item) => labelOf({ thing: item.thing, name: item.label }, ctx.state.origin));
+  return h(
+    'section',
+    { class: 'card', key: 'bulk-queue', 'aria-label': 'The queue' },
+    h(
+      'p',
+      { class: 'setup-text', role: 'status' },
+      `${counts.done} done, ${counts.failed} failed, ${counts.skipped} skipped, ${counts.queued} queued.`
+    ),
+    next
+      ? h(
+          'p',
+          { class: 'setup-text', key: 'next' },
+          `Plug in the next board by USB, then connect: it becomes ${next.label}.`
+        )
+      : h('p', { class: 'setup-text', key: 'end' }, 'The queue is finished.'),
+    h(
+      'div',
+      { class: 'setup-tools', key: 'tools' },
+      next ? button('is-primary', () => queue.runNext(), queue.busy ? 'Under way' : 'Connect the next board') : null,
+      button('is-quiet', () => closeBulk(flow), next ? 'Stop the queue' : 'Close')
+    ),
+    h(
+      'ol',
+      { class: 'rows bulk-rows', key: 'rows' },
+      queue.items.map((item) => bulkRow(queue, item, next, ctx))
+    ),
+    labelPanel(labels, { title: 'Labels of the boards that are done', key: 'bulk-labels' })
+  );
+}
+
+function bulkView(flow, ctx) {
+  if (bulkUi.load === 'idle') queueMicrotask(loadBulkGroups);
+  return [
+    h(
+      'section',
+      { class: 'card', key: 'bulk-settings' },
+      h('h2', { class: 'setup-step-title' }, 'Set up several boards'),
+      h(
+        'p',
+        { class: 'setup-text' },
+        'Choose what every board shares, once. Then plug the boards in one after another: each goes through the same steps as a single board, and is added to the group at the end.'
+      ),
+      bulkSettingsForm(flow)
+    ),
+    bulkUi.queue ? bulkQueueCard(flow, ctx) : null,
+    bulkUi.queue && flow.board ? boardFacts(flow) : null,
+    bulkUi.queue && (flow.board || flow.busy) ? stepper(flow) : null,
+  ];
+}
+
 /** The page. `flow` is given by the tests; otherwise the tab has one. */
 export function setupView(ctx, flow) {
   if (!ctx.state.me?.canWrite) {
@@ -1330,6 +1835,7 @@ export function setupView(ctx, flow) {
         'div',
         { class: 'setup-tools', key: 'head-tools' },
         button('is-quiet', () => startSelfCheck(), selfCheck.running ? 'Self-check under way' : 'Self-check, no board'),
+        bulkUi.on ? null : button('is-quiet', () => ((bulkUi.on = true), connected?.draw()), 'Set up several boards'),
         current.board ? button('is-quiet', () => current.disconnect(), 'Start over') : null
       ),
     }),
@@ -1337,9 +1843,7 @@ export function setupView(ctx, flow) {
     notice('warn', 'alert', 'A board with nothing on it needs the debug probe once.', {
       more: h('span', { class: 'notice-more' }, ` ${WORDS.probe}`),
     }),
-    boardFacts(current),
-    stepper(current),
-    onlineLabel(current, ctx)
+    ...(bulkUi.on ? bulkView(current, ctx) : [boardFacts(current), stepper(current), onlineLabel(current, ctx)])
   );
 }
 
