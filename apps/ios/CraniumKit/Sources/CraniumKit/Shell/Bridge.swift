@@ -195,7 +195,7 @@ public struct BridgeMethod: Equatable, Sendable {
 /// file and compares it with this, entry by entry.
 public enum BridgeSpec {
     public static let features = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                  "appUpdate", "storage", "usb", "camera"]
+                                  "appUpdate", "storage", "usb", "camera", "bleOffline"]
 
     static let pool = BridgeParam.enumeration(["admin", "customer"])
     static let storageKey = BridgeParam.string(max: 208, pattern: "^cranium\\.[!-~]{1,200}$")
@@ -250,6 +250,11 @@ public enum BridgeSpec {
             "version": .string(max: 40, pattern: "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,5}\\+\\d{1,10}$", optional: true),
             "hash": .string(max: 16, pattern: "^[0-9a-f]{16}$", optional: true),
         ]),
+        // Offline mode (firmware 1.19.0): the board's own GATT service, on a link paired with its passkey.
+        "ble.offline.connect": BridgeMethod(feature: "bleOffline", params: ["id": .string(max: 64, pattern: "^[A-Za-z0-9:-]{1,64}$")]),
+        "ble.offline.status": BridgeMethod(feature: "bleOffline", params: [:]),
+        "ble.offline.accept": BridgeMethod(feature: "bleOffline", params: ["version": .string(max: 7, pattern: "^\\d{1,3}\\.\\d{1,3}$")]),
+        "ble.offline.disconnect": BridgeMethod(feature: "bleOffline", params: [:]),
         // Android only: this app never offers `usb` (an iPhone has no USB serial port for an app).
         "usb.open": BridgeMethod(feature: "usb", params: ["baudRate": .integer(min: 1200, max: 1_000_000)]),
         "usb.write": BridgeMethod(feature: "usb", params: [
@@ -264,7 +269,7 @@ public enum BridgeSpec {
     ]
 
     public static let events = ["app.lifecycle", "app.bundleReady", "auth.locked", "ble.boards", "ble.link", "ble.progress",
-                                "ble.status", "usb.data", "usb.closed"]
+                                "ble.status", "ble.offline.status", "ble.offline.link", "usb.data", "usb.closed"]
 }
 
 // MARK: A request

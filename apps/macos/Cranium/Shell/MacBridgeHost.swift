@@ -9,7 +9,7 @@ import WebKit
 /// before one of them sees it. Bluetooth is the iPhone's `ShellRadio`, compiled here as it is.
 @MainActor
 final class MacBridgeHost {
-    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share", "usb", "keepAwake"]
+    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share", "usb", "keepAwake", "bleOffline"]
 
     private let pages = PageStore.standard()
     private weak var owner: MacShellModel?
@@ -61,6 +61,7 @@ final class MacBridgeHost {
         radio.cancel()
         // A scan or a status watch this window started stops too, so its events never reach the next holder.
         radio.scan(false)
+        radio.offlineDisconnect()
         radio.stopWatching()
         Task {
             await radio.disconnect()
@@ -311,9 +312,36 @@ final class MacBridgeHost {
             }
             return [:]
         }
+        // Offline mode (the console's Offline page): the same radio, held the same way while its link is up.
+        dispatcher.register("ble.offline.connect") { [unowned self] params in
+            try take()
+            do {
+                let answer = try await radio.offlineConnect(params.string("id"))
+                shared.hub.linkUp(windowID)
+                return answer
+            } catch {
+                shared.hub.stoppedUsing(windowID)
+                throw error
+            }
+        }
+        dispatcher.register("ble.offline.status") { [unowned self] _ in
+            try shared.hub.require(windowID)
+            return try radio.offlineStatus()
+        }
+        dispatcher.register("ble.offline.accept") { [unowned self] params in
+            try shared.hub.require(windowID)
+            try await radio.offlineAccept(params.string("version"))
+            return [:]
+        }
+        dispatcher.register("ble.offline.disconnect") { [unowned self] _ in
+            try shared.hub.require(windowID)
+            radio.offlineDisconnect()
+            shared.hub.release(windowID)
+            return [:]
+        }
     }
 
-    /// This window starts using the radio: its events come here from now on, or the call is refused as busy.
+    /// This window starts using the radio): its events come here from now on, or the call is refused as busy.
     private func take() throws {
         shared.hub.register(windowID) { [weak self] name, data in self?.send(name, data) }
         try shared.hub.claim(windowID)

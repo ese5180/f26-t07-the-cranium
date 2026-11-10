@@ -6,9 +6,9 @@ same numbers for the same features. The first paragraph of an entry is what the 
 
 ## 0.9.0
 
-Offline mode (firmware 1.19.0 and later): More, Offline talks to a board directly over Bluetooth, with no Wi-Fi or internet. Find the board, type its passkey when the phone asks, see its firmware, uptime, Wi-Fi, cloud, update state and last restart, and accept an update that has arrived at the board, after confirming its version.
+Offline mode (firmware 1.19.0 and later): the console's Offline page talks to a board directly over Bluetooth, with no Wi-Fi or internet, and opens from the sign-in page too. Find the board, type its passkey when the phone asks, see its firmware, uptime, Wi-Fi, cloud, update state and last restart, and accept an update that has arrived at the board, after confirming its version.
 
-The screen is the app's own and does not use the console. The passkey is the one the board showed once at Board setup (`BT_OFFLINE|NEW` on its serial console); it never passes through the app. Not tried against a board yet.
+The page is the console's (2.27.0); the app answers the bridge's new `ble.offline.*` methods and offers the feature `bleOffline`. The passkey is the one the board showed once (`BT_OFFLINE|NEW` on its serial console); it goes into the phone's own pairing box and never passes through the app. A middle number, as the bridge gained methods every app must answer. The classic screens have no Offline of their own.
 
 ## 0.8.21
 
