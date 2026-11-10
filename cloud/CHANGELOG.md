@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.19.1
+
+The group "Roll back" button is gone from the Fleet page. "Roll back to last good" is the one way back: a board takes
+only newer firmware, so going back is a release whose note begins `Rebuild of <version>`, and the old button reached
+only boards behind both releases. "Update everything" is unchanged, and rollouts already recorded as roll backs keep
+their name in the history and the activity log.
+
+The routes `GET` and `POST /api/groups/{id}/rollback` are removed, with the plan's `from` field and the
+`no_older_release` answer that only they used. The apps had no such button.
+
 ## 2.18.1
 
 The customer site's About page shows Adam Shalabi's photo in place of his initials.

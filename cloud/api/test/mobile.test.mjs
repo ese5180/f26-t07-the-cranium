@@ -346,14 +346,6 @@ const ROUTES = [
     phone: true,
     body: {},
   },
-  { route: 'GET /api/groups/{id}/rollback', path: '/api/groups/grp-0a0b0c0d/rollback', status: 404, phone: true },
-  {
-    route: 'POST /api/groups/{id}/rollback',
-    path: '/api/groups/grp-0a0b0c0d/rollback',
-    status: 404,
-    phone: true,
-    body: {},
-  },
   // Roll back to last good (console 2.14.0): the fleet's plan, and a start that names no release.
   { route: 'GET /api/fleet/last-good', status: 200, phone: true },
   { route: 'POST /api/fleet/last-good', status: 400, phone: true, body: {} },

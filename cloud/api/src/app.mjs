@@ -520,12 +520,6 @@ export function createApp({
       action: 'fleet.update_everything',
       maxBody: SMALL_BODY_LIMIT,
     }),
-    // A group back to the release before the newest of each of its types, for the boards that can take it.
-    route('GET', '/api/groups/{id}/rollback', rollouts.rollbackPlan),
-    route('POST', '/api/groups/{id}/rollback', rollouts.rollback, {
-      action: 'group.rollback',
-      maxBody: SMALL_BODY_LIMIT,
-    }),
     // "Roll back to last good" (console 2.14.0): each board of the fleet or of a group to its last good
     // version, one staged rollout per release, with the health gate on.
     route('GET', '/api/fleet/last-good', rollouts.lastGoodPlan),
