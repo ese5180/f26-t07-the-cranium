@@ -90,6 +90,7 @@ static void fresh_boot(void)
 	pressed_at[APP_BUTTON_2] = 0;
 	posted_count = 0;
 	uptime_ms = 0;
+	atomic_set(&mute_until, 0);
 }
 
 static void test_button_held_through_a_boot_is_no_factory_reset(void)
@@ -120,6 +121,45 @@ static void test_the_next_press_after_that_counts_again(void)
 	CHECK(posted[0].type == APP_EVENT_BUTTON);
 	CHECK(posted[0].button.id == APP_BUTTON_2);
 	CHECK(!posted[0].button.long_press);
+}
+
+static void test_the_self_tests_press_is_not_the_applications(void)
+{
+	fresh_boot();
+	uptime_ms = 10000;
+	ui_buttons_mute(10500);
+
+	/* A press and its release inside the time: nothing reaches the application. */
+	uptime_ms = 12000;
+	key(INPUT_KEY_0, true);
+	uptime_ms = 12400;
+	key(INPUT_KEY_0, false);
+	CHECK(posted_count == 0);
+
+	/* A press that began inside it and is let go after it does not count either. */
+	uptime_ms = 20000;
+	key(INPUT_KEY_0, true);
+	uptime_ms = 20600;
+	key(INPUT_KEY_0, false);
+	CHECK(posted_count == 0);
+
+	/* After the time, a press counts again. */
+	uptime_ms = 30000;
+	key(INPUT_KEY_0, true);
+	uptime_ms = 30200;
+	key(INPUT_KEY_0, false);
+	CHECK(posted_count == 1);
+	CHECK(posted[0].button.id == APP_BUTTON_1);
+
+	/* The time can be cut short by a later call, and Button 2 is muted as well. */
+	posted_count = 0;
+	uptime_ms = 40000;
+	ui_buttons_mute(5000);
+	uptime_ms = 40100;
+	key(INPUT_KEY_1, true);
+	uptime_ms = 40200;
+	key(INPUT_KEY_1, false);
+	CHECK(posted_count == 0);
 }
 
 static void test_short_press(void)
@@ -410,6 +450,7 @@ int main(void)
 	test_button_held_through_a_boot_is_no_factory_reset();
 	test_the_next_press_after_that_counts_again();
 	test_short_press();
+	test_the_self_tests_press_is_not_the_applications();
 	test_long_press_is_still_a_long_press();
 	test_a_press_counts_once();
 	test_the_buttons_do_not_share_a_press();

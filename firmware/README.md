@@ -982,7 +982,7 @@ mode (Board setup uses it before `INIT`) and is refused during an update. An nRF
 | Check | What it does | Result |
 | --- | --- | --- |
 | `leds` | LED1, then LED2, then both, 300 ms each, with the status pattern held off meanwhile | `visual`: look at the board |
-| `buttons` | reads Button 1 and Button 2 now; `SELFTEST\|BUTTON` instead waits up to 10 s for Button 1 | `pass` if the pins read (and, with `BUTTON`, Button 1 was pressed), `fail` otherwise. The press also reaches the normal button handling when it is released |
+| `buttons` | reads Button 1 and Button 2 now; `SELFTEST\|BUTTON` instead waits up to 10 s for Button 1 | `pass` if the pins read (and, with `BUTTON`, Button 1 was pressed), `fail` otherwise. The buttons are muted for the application meanwhile and for 0.5 s after (`ui_buttons_mute()`), so the press cannot accept a waiting update |
 | `wifi` | one scan; counts the results and reads nothing from them, so no network's name is ever seen | `pass` with the count, `fail` if the scan is refused, fails or sees none, `skip` with no Wi-Fi interface |
 | `flash` | the MX25R64's JEDEC ID, then one scratch sector (0x400000, 4 KiB) erased, written with 32 bytes, read back and erased | `pass` with the ID. The sector is between the secondary image slot (0 to 0xe4000) and the golden image (0x700000 to 0x7e4000); the build stops if the slot grows into it |
 | `ram` | the heap's free bytes, and one 256-byte allocation filled, checked and freed | `pass` with the free bytes |

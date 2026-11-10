@@ -31,6 +31,9 @@
 #define LED_STEP_MS       300
 #define SCAN_TIMEOUT_MS   15000
 #define BUTTON_POLL_MS    20
+#define BUTTON_MUTE_AFTER_MS 500
+/* Time allowed for the finger to leave Button 1 after the press that was seen. */
+#define BUTTON_RELEASE_MS 3000
 #define HEAP_TEST_BYTES   256
 #define FLASH_PATTERN_LEN 32
 
@@ -112,8 +115,12 @@ static void check_buttons(struct console_selftest_check *out, bool press_button)
 		return;
 	}
 
+	/* The press is for this check alone: not an acceptance of an update that waits. */
+	ui_buttons_mute(CONSOLE_SELFTEST_BUTTON_MS + BUTTON_MUTE_AFTER_MS);
 	for (int waited = 0; waited < CONSOLE_SELFTEST_BUTTON_MS; waited += BUTTON_POLL_MS) {
 		if (read_buttons(state) == 0 && state[0] > 0) {
+			/* Held for as long as it takes to let go, and a little after, for the bounce. */
+			ui_buttons_mute(BUTTON_RELEASE_MS + BUTTON_MUTE_AFTER_MS);
 			set_detail(out, SELFTEST_PASS, "Button 1 pressed after %d ms", waited);
 			return;
 		}
@@ -121,6 +128,7 @@ static void check_buttons(struct console_selftest_check *out, bool press_button)
 		k_sleep(K_MSEC(BUTTON_POLL_MS));
 	}
 
+	ui_buttons_mute(BUTTON_MUTE_AFTER_MS);
 	set_detail(out, SELFTEST_FAIL, "Button 1 not pressed in %d s", CONSOLE_SELFTEST_BUTTON_MS / 1000);
 }
 

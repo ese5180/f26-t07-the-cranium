@@ -52,6 +52,13 @@ void ui_identify(unsigned int seconds);
  * the LEDs, and ui_leds_set() lights them as asked. Release when done; the pattern takes up at its next step.
  */
 void ui_leds_hold(bool hold);
+
+/*
+ * The buttons do nothing for the application for this many ms from now: no press, no release (a press
+ * that began inside the time is dropped too). The self-test mutes them while it waits for Button 1, as
+ * a press of it would otherwise accept an update that is waiting. A later call replaces the time.
+ */
+void ui_buttons_mute(unsigned int ms);
 void ui_leds_set(bool led1, bool led2);
 
 #endif /* UI_H_ */

@@ -11,7 +11,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 A hardware self-test for the nRF7002 DK, on the serial console only: `SELFTEST` lights each LED, reads the buttons, counts the Wi-Fi networks a scan sees (never their names), checks the external flash (JEDEC ID, and one spare sector written, read back and erased) and allocates a little memory, and reports each as pass, fail, skip or look-at-the-board. Board setup shows the table. Nothing runs at boot and nothing else changes in what the board does. Not tested on a board yet.
 
-`SELFTEST|BUTTON` also waits up to 10 s for Button 1. It is allowed in factory mode, refused during an update, and not on an nRF5340 DK. The scratch sector is at 0x400000 of the MX25R64, outside the secondary slot (0 to 0xe4000) and the golden image (0x700000 to 0x7e4000), with a build-time check (src/selftest.c). `CONFIG_FLASH_JESD216_API=y` for the JEDEC ID. Built for both board types and the host tests pass; a build of 1.17.0 is flash 748,848 of 794,474 bytes, RAM 404,468 of 405,504 (1,036 free; 1.15.0 used 404,404).
+`SELFTEST|BUTTON` also waits up to 10 s for Button 1; the buttons do nothing else meanwhile (and for 0.5 s after), so the press cannot accept a waiting update (`ui_buttons_mute()`). It is allowed in factory mode, refused during an update, and not on an nRF5340 DK. The scratch sector is at 0x400000 of the MX25R64, outside the secondary slot (0 to 0xe4000) and the golden image (0x700000 to 0x7e4000), with a build-time check (src/selftest.c). `CONFIG_FLASH_JESD216_API=y` for the JEDEC ID. Built for both board types and the host tests pass; a build of 1.17.0 is flash 748,944 of 794,474 bytes, RAM 404,468 of 405,504 (1,036 free; 1.15.0 used 404,404).
 
 ## 1.15.0
 

@@ -54,6 +54,12 @@ static int64_t pressed_at[2];
 static atomic_t identify_steps;
 /* From 1.17.0, the self-test has the LEDs (ui_leds_hold()): led_step() leaves them alone. */
 static atomic_t leds_held;
+/*
+ * While the self-test waits for Button 1 (ui_buttons_mute()), and a moment after, presses and releases
+ * are not the application's: Button 1 accepts an update that is waiting. The uptime in ms, 32 bits, up to
+ * which input is ignored; 0 for never.
+ */
+static atomic_t mute_until;
 
 static void led_step(struct k_timer *timer)
 {
@@ -99,6 +105,14 @@ static void on_input(struct input_event *event, void *user_data)
 	ARG_UNUSED(user_data);
 
 	if (event->type != INPUT_EV_KEY) {
+		return;
+	}
+
+	if ((int32_t)((uint32_t)k_uptime_get() - (uint32_t)atomic_get(&mute_until)) < 0 &&
+	    atomic_get(&mute_until) != 0) {
+		/* A press that began while muted must not count as one when it is released later. */
+		pressed_at[0] = 0;
+		pressed_at[1] = 0;
 		return;
 	}
 
@@ -190,6 +204,14 @@ void ui_set_state(enum ui_state state)
 	}
 
 	atomic_set(&current_pattern, (atomic_val_t)((second << 16) | patterns[state]));
+}
+
+void ui_buttons_mute(unsigned int ms)
+{
+	/* 0 is "never", so an uptime that wraps to it is moved on by one. */
+	uint32_t until = (uint32_t)k_uptime_get() + ms;
+
+	atomic_set(&mute_until, (atomic_val_t)(until == 0U ? 1U : until));
 }
 
 void ui_leds_hold(bool hold)
