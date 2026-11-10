@@ -322,9 +322,14 @@ export function shellView(ctx, page) {
           adminButton(ctx, 'is-top'),
           h(
             'button',
-            { type: 'button', class: 'btn cs-connect', onClick: () => ctx.actions.mix.open({ kind: 'connect' }) },
+            {
+              type: 'button',
+              class: 'btn cs-connect',
+              title: 'Connect device',
+              onClick: () => ctx.actions.mix.open({ kind: 'connect' }),
+            },
             mixIcon('bluetooth'),
-            h('span', null, 'Connect device')
+            h('span', { class: 'cs-connect-label' }, 'Connect device')
           )
         )
       ),
