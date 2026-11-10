@@ -42,6 +42,14 @@ class OfflineLink(
     private var first: CompletableDeferred<ByteArray>? = null
     private var accepting: CompletableDeferred<String?>? = null
 
+    /**
+     * A GATT read or write is under way. Android runs one at a time and refuses the next while one is out, so
+     * the 3-s read waits its turn (it is skipped, not failed) and the accept waits for a read to finish:
+     * the link is never dropped because two operations met.
+     */
+    @Volatile
+    private var inFlight = false
+
     /** The status the board sent last. */
     var lastPayload: ByteArray? = null
         private set
@@ -56,8 +64,8 @@ class OfflineLink(
         return read.await()
     }
 
-    /** Reads the status again now; the answer comes to onPayload. */
-    fun refresh() = readStatus()
+    /** Reads the status again now, unless an operation is under way; the answer comes to onPayload. */
+    fun refresh() = readStatus(required = false)
 
     /** Accepts the update that waits, naming the version the person saw: null once the board took it, else why not. */
     suspend fun accept(version: String): String? {
@@ -65,8 +73,16 @@ class OfflineLink(
         val link = gatt ?: return "No board is connected in offline mode."
         val control = link.getService(SERVICE)?.getCharacteristic(CONTROL) ?: return "This board cannot take that."
         if (accepting?.isActive == true) return "The board is answering the last one."
+        // A read under way finishes first (at most a few hundred milliseconds).
+        var waited = 0L
+        while (inFlight && waited < OPERATION_WAIT_MS) {
+            delay(20)
+            waited += 20
+        }
+        if (inFlight) return "The board is busy. Try again."
         val answer = CompletableDeferred<String?>()
         accepting = answer
+        inFlight = true
         val started = if (Build.VERSION.SDK_INT >= 33) {
             link.writeCharacteristic(control, request, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
         } else {
@@ -79,6 +95,7 @@ class OfflineLink(
         }
         if (!started) {
             accepting = null
+            inFlight = false
             return "The phone could not send that. Try again."
         }
         return answer.await()
@@ -117,10 +134,22 @@ class OfflineLink(
         }
     }
 
-    private fun readStatus() {
+    /**
+     * The first read (required) must start: it is what pairs. A later one waits for its turn: skipped while
+     * another operation is out, and tried again at the next 3 s.
+     */
+    private fun readStatus(required: Boolean = true) {
         val link = gatt ?: return
         val characteristic = link.getService(SERVICE)?.getCharacteristic(STATUS) ?: return
-        if (!link.readCharacteristic(characteristic)) fail("The phone could not read the board.")
+        if (inFlight) {
+            if (required) fail("The phone could not read the board.")
+            return
+        }
+        inFlight = true
+        if (!link.readCharacteristic(characteristic)) {
+            inFlight = false
+            if (required) fail("The phone could not read the board.")
+        }
     }
 
     private fun deliver(value: ByteArray?) {
@@ -142,7 +171,7 @@ class OfflineLink(
                 refreshing = scope.launch {
                     while (true) {
                         delay(REFRESH_MS)
-                        readStatus()
+                        readStatus(required = false)
                     }
                 }
             }
@@ -183,17 +212,19 @@ class OfflineLink(
 
         private fun handleRead(c: BluetoothGattCharacteristic, value: ByteArray?, status: Int) {
             if (c.uuid != STATUS) return
+            inFlight = false
             if (status == BluetoothGatt.GATT_SUCCESS) deliver(value) else scope.launch { fail(wordsForGattStatus(status)) }
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             if (c.uuid != CONTROL) return
+            inFlight = false
             scope.launch {
                 val answer = accepting
                 accepting = null
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     answer?.complete(null)
-                    readStatus()
+                    readStatus(required = false)
                 } else {
                     answer?.complete(
                         if (status == ATT_UNLIKELY) "That update no longer waits. Look at the board's status again." else wordsForGattStatus(status),
@@ -212,6 +243,7 @@ class OfflineLink(
         val CONTROL: UUID = UUID.fromString(OfflineStatus.CONTROL_UUID)
         private const val STEP_TIMEOUT_MS = 40_000L
         private const val REFRESH_MS = 3_000L
+        private const val OPERATION_WAIT_MS = 2_000L
         private const val ATT_UNLIKELY = 0x0e
 
         /** What to tell the person for a GATT status the board answered with. */
