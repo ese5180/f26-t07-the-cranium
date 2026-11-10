@@ -2632,6 +2632,9 @@ Resources:
           USER_POOL_CLIENT_ID: !Ref UserPoolClient
           # The sign-in settings (config.mjs needs them in every function that loads it).
           LOGIN_DOMAIN: !Sub '${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+          # Read by config.mjs, which this function loads like the API's (cloud/api/test/config-env-infra.test.mjs).
+          DEVICE_POLICY: !Ref DevicePolicy
+          FIRMWARE_DOWNLOAD_PREFIX: !Sub 'https://${FirmwareBucket}.s3.${AWS::Region}.amazonaws.com/firmware/'
           MOBILE_CLIENT_ID: !Ref MobileUserPoolClient
           SIGNING_PUBLIC_KEY_B64: !Ref SigningPublicKey
           SLOT_SIZE: !Ref SlotSize
