@@ -149,7 +149,7 @@ config APP_PI_OTA
 	select FAT_FILESYSTEM_ELM
 	select DFU_TARGET_CUSTOM
 	help
-	  From 1.16.0: an AWS IoT job with "op": "pi_image" downloads a signed image for the
+	  From 1.20.0: an AWS IoT job with "op": "pi_image" downloads a signed image for the
 	  Raspberry Pi onto the SD card, then sends it over SPI to the Pi's partition B
 	  (docs/pi-ota.md). Board firmware jobs go first. Needs the "pi_ota" and "pi_link"
 	  devicetree nodes and an SD card slot on the same SPI bus (the board overlays).

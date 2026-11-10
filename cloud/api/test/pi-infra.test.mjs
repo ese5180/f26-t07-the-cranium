@@ -1,4 +1,4 @@
-// Tests for what infra/template.yaml allows a board for Raspberry Pi images, from 1.16.0 (docs/pi-ota.md):
+// Tests for what infra/template.yaml allows a board for Raspberry Pi images, from 1.20.0 (docs/pi-ota.md):
 // the list of its own pending jobs, asked for on jobs/get and answered on jobs/get/accepted, and nothing
 // wider. A Pi image downloads from where firmware does, so the role that signs its URL is unchanged. Read as
 // indented text, as in infra.test.mjs.

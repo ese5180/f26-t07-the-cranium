@@ -17,7 +17,7 @@
  *     }
  *   }
  *
- * From 1.15.0 a job can carry a Raspberry Pi image instead (docs/pi-ota.md):
+ * From 1.20.0 a job can carry a Raspberry Pi image instead (docs/pi-ota.md):
  *
  *   {
  *     "op": "pi_image",

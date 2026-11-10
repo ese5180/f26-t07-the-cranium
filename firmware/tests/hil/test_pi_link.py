@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The board's end of the SPI protocol to the Raspberry Pi (src/pi/pi_link.c), from 1.16.0, against
+"""The board's end of the SPI protocol to the Raspberry Pi (src/pi/pi_link.c), from 1.20.0, against
 tools/pi_link_sim.py, a simulator of the Pi's end (docs/pi-ota.md, "The SPI protocol").
 
 The board's real code runs, built for the host as firmware/tests/host/build/pi_link_harness, with its

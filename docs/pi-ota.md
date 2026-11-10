@@ -1,6 +1,6 @@
 # Raspberry Pi image updates through the board
 
-From firmware 1.16.0, a board wired to a Raspberry Pi can update the Pi. An AWS IoT job brings a signed
+From firmware 1.20.0, a board wired to a Raspberry Pi can update the Pi. An AWS IoT job brings a signed
 image. The board downloads it over HTTPS onto a microSD card, checks it, and sends it over SPI to the Pi's
 partition B. This page covers the board's side: the design, the wiring, the SPI protocol that the Pi's
 side has to implement, the limits, and what has not run on hardware yet. The Pi's side is separate work.
@@ -18,7 +18,7 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
   firmware is on trial.
 - A build for a board wired to a Pi has no Bluetooth, because the two do not fit in RAM together
   ([Memory](#memory)). It is built with `scripts/firmware/build.sh --pi`.
-- **Before any such board runs 1.16.0, deploy console 2.10.2.** Its device policy lets a board ask for its
+- **Before any such board runs 1.20.0, deploy console 2.25.0.** Its device policy lets a board ask for its
   list of pending jobs ([Cloud](#cloud)).
 - Nothing on this page has run on hardware ([Untested on hardware](#untested-on-hardware)).
 
@@ -122,7 +122,7 @@ The document comes from `tools/pi_image.py` or from `buildPiJobDocument()` in `c
 { "op": "pi_image", "v": 1,
   "pi": { "version": "2026.11.06-1", "size": 104857600, "sha256": "<64 hex>",
           "sig": "<128 hex>", "url": "${aws:iot:s3-presigned-url-v2:https://s3.<region>.amazonaws.com/<bucket>/firmware/pi-<sha256>.img}",
-          "minFirmware": "1.16.0" } }
+          "minFirmware": "1.20.0" } }
 ```
 
 | Field | Rule |
@@ -189,7 +189,7 @@ AWS IoT hands out pending jobs oldest first, whatever they are. The board puts t
    up on, unless its `minFirmware` is newer. Then it is refused with `firmware_too_old`.
 6. **A Pi image left in progress by a restart.** It carries on, with no list in between, from the last
    checkpoint on the card.
-7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.10.2, and
+7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.25.0, and
    the board's guard has dropped the list topic along with the commands topic (`cloud.h`). The board then
    takes jobs in the cloud's order.
 
@@ -437,21 +437,21 @@ grew by 216 bytes, for the Pi fields of the two job records that it keeps in ord
 
 ## Cloud
 
-**Device policy.** Console 2.10.2 adds three permissions, each on the board's own topic only:
+**Device policy.** Console 2.25.0 adds three permissions, each on the board's own topic only:
 
 - publish `$aws/things/<thing>/jobs/get`
 - subscribe `jobs/get/accepted`
 - receive `jobs/get/accepted`
 
-`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.10.2
-(`cloud/deploy.sh`) before any board runs a 1.16.0 Pi build.** A Pi build subscribes to the list's
+`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.25.0
+(`cloud/deploy.sh`) before any board runs a 1.20.0 Pi build.** A Pi build subscribes to the list's
 topic, and an older policy would end its connection until the guard gives up on commands too. A default
-1.16.0 build does not use the topic, and does not need the policy.
+1.20.0 build does not use the topic, and does not need the policy.
 
 **Signing and uploading an image.** Run:
 
 ```sh
-tools/pi_image.py sign pi-2026.11.06-1.img --version 2026.11.06-1 [--min-firmware 1.16.0]
+tools/pi_image.py sign pi-2026.11.06-1.img --version 2026.11.06-1 [--min-firmware 1.20.0]
 ```
 
 It writes `pi-2026.11.06-1.img.pi.json`, and prints the commands below. It runs none of them.

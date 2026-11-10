@@ -14,7 +14,7 @@
 #                                      the bootloader takes the team's public key, firmware/keys/fw_signing_pub.pem,
 #                                      and the application is signed with a throwaway key, which that bootloader
 #                                      refuses. binaries/ is left as it was. No release is ever built this way
-#   scripts/firmware/build.sh --pi              from 1.16.0, for an nrf7002dk wired to a Raspberry Pi: Pi image
+#   scripts/firmware/build.sh --pi              from 1.20.0, for an nrf7002dk wired to a Raspberry Pi: Pi image
 #                                      updates and no Bluetooth (docs/pi-ota.md)
 #
 # Each build starts clean, and stores binaries/cranium-<version>-0.signed.bin, along with
@@ -135,7 +135,7 @@ done
 
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || die "--jobs must be a number, not $jobs"
 
-# From 1.16.0, a board wired to a Raspberry Pi: Pi image updates, and no Bluetooth (docs/pi-ota.md).
+# From 1.20.0, a board wired to a Raspberry Pi: Pi image updates, and no Bluetooth (docs/pi-ota.md).
 pi_args=()
 if $pi; then
   [ "$board_type" = nrf7002dk ] || die "--pi is for an nrf7002dk: the nRF5340 DK has no cloud"

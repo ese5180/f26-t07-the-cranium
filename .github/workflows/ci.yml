@@ -282,7 +282,7 @@ jobs:
           - configuration: no Bluetooth
             board: nrf7002dk/nrf5340/cpuapp/ns
             cmake-args: -DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf
-          # From 1.15.0: a board wired to a Raspberry Pi, with Pi image updates and so no Bluetooth,
+          # From 1.20.0: a board wired to a Raspberry Pi, with Pi image updates and so no Bluetooth,
           # whose RAM it takes (docs/pi-ota.md, "Memory").
           - configuration: Pi image updates
             board: nrf7002dk/nrf5340/cpuapp/ns

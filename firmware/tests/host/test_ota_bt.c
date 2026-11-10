@@ -364,7 +364,7 @@ void bt_ota_on_cloud_up(void)
 
 #if defined(TEST_PI)
 /*
- * src/pi/pi_ota.c, from 1.16.0: what ota.c hands it. It checks a job as the real one does
+ * src/pi/pi_ota.c, from 1.20.0: what ota.c hands it. It checks a job as the real one does
  * (pi_image.c), with a signature that always holds, so that a minFirmware shows here.
  */
 static struct {
@@ -1574,7 +1574,7 @@ static void test_the_option_offers_and_waits(void)
 #endif /* TEST_NO_CONSENT */
 
 #if defined(TEST_NO_CONSENT)
-/* ---- Raspberry Pi images, from 1.16.0 (docs/pi-ota.md, "Order") ------------------------------- */
+/* ---- Raspberry Pi images, from 1.20.0 (docs/pi-ota.md, "Order") ------------------------------- */
 
 /* The cloud's answer to a request for the next job: a Pi image. */
 static void pi_listed(const char *id, const char *status, const char *extra)
@@ -1668,7 +1668,7 @@ static void test_a_firmware_job_alone(void)
 
 static void test_without_the_list_the_order_is_the_clouds(void)
 {
-	/* A cloud whose device policy is older than 1.16.0: the list cannot be asked for. */
+	/* A cloud whose device policy is older than 1.20.0: the list cannot be asked for. */
 	a_board_with_a_pi();
 	pi_fake.list_unavailable = true;
 	pi_listed("pi-1", "QUEUED", "");

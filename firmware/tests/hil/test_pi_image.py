@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of tools/pi_image.py, from 1.16.0 (docs/pi-ota.md, "Signing"): the manifest is the board's,
+"""Tests of tools/pi_image.py, from 1.20.0 (docs/pi-ota.md, "Signing"): the manifest is the board's,
 byte for byte; a signature holds and a changed field breaks it; the key built into the board is the
 firmware signing key; and the record and the job document are what the board parses. A throwaway key
 signs here: the project's key never leaves ~/.cranium."""

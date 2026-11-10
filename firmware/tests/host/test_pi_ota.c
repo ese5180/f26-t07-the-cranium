@@ -1,5 +1,5 @@
 /*
- * Host-side tests of the Raspberry Pi image update, from 1.16.0 (docs/pi-ota.md): SHA-256 and its
+ * Host-side tests of the Raspberry Pi image update, from 1.20.0 (docs/pi-ota.md): SHA-256 and its
  * saved state, CRC-32, the job document and the list of pending jobs, the signed manifest and the
  * checks on a job, the SD card's layer (src/pi/pi_sd.c) on an in-memory file system with faults, and
  * the download onto the card (src/pi/pi_dl.c) with a fake HTTP server: resume after a lost

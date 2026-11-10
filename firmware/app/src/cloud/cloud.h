@@ -72,7 +72,7 @@ enum cloud_job_message {
 	CLOUD_JOB_GET_ACCEPTED,
 	CLOUD_JOB_GET_REJECTED,
 	/*
-	 * From 1.15.0, with CONFIG_APP_PI_OTA: the reply to cloud_jobs_request_list(), read by
+	 * From 1.20.0, with CONFIG_APP_PI_OTA: the reply to cloud_jobs_request_list(), read by
 	 * ota_job_list_parse(): the first pending job that is not a Pi image's, if there is one.
 	 */
 	CLOUD_JOB_LIST,
@@ -144,7 +144,7 @@ int cloud_memfault_publish(const uint8_t *frame, size_t len);
 int cloud_jobs_request_next(void);
 
 /*
- * From 1.15.0, with CONFIG_APP_PI_OTA: ask for the list of pending job executions, which says
+ * From 1.20.0, with CONFIG_APP_PI_OTA: ask for the list of pending job executions, which says
  * whether a firmware job waits behind a Pi image's (docs/pi-ota.md, "Order"). The reply comes as
  * CLOUD_JOB_LIST. The device policy has to allow $aws/things/<thing>/jobs/get and its replies.
  */
