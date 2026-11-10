@@ -57,6 +57,14 @@ object AuditText {
     private val ACTIONS: Map<String, Action> = mapOf(
         "firmware.upload" to Action("uploaded firmware", "tried to upload", "tried to upload a file", Glyph.UPLOAD),
         "firmware.revoke" to Action("revoked firmware", "tried to revoke firmware", "tried to revoke a release", Glyph.BAN),
+        // Raspberry Pi images (console 2.26.0).
+        "pi_image.upload" to Action(
+            "began uploading Pi image", "tried to upload Pi image", "tried to upload a Pi image", Glyph.UPLOAD,
+        ),
+        "pi_image.complete" to Action(
+            "finished uploading Pi image", "tried to finish uploading Pi image", "tried to finish a Pi image upload", Glyph.CHECK,
+        ),
+        "pi_image.revoke" to Action("revoked Pi image", "tried to revoke Pi image", "tried to revoke a Pi image", Glyph.BAN),
         "deployment.create" to Action(
             "deployed", "tried to deploy", "tried to start a deployment", Glyph.SEND, doneAlone = "started a deployment",
         ),
@@ -376,6 +384,9 @@ object AuditText {
         "version_zero" to "Version 0.0.0+0 is never accepted",
         "device_busy" to "A board had an unfinished update",
         "release_revoked" to "The release is revoked",
+        "not_uploaded" to "The file of that Pi image has not arrived",
+        "no_pi" to "A board reports no Raspberry Pi",
+        "not_pi_build" to "The release is not a build with Raspberry Pi updates",
         "invalid_token" to "The API token was not valid, or had been revoked or had expired",
         "token_not_allowed" to "An API token cannot be used for that",
         "phone_not_allowed" to "The phone app’s sign-in cannot be used for that",

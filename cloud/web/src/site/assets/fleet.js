@@ -633,8 +633,10 @@ export async function boardTypes() {
 
 /** A staged rollout of boards named one by one, from the New deployment dialog. */
 /** The body of a staged rollout of boards named one by one, as the New deployment dialog sends it. */
-export function rolloutBody({ version: release, things: boards, note, canary, abortPercent, ...plan }) {
+export function rolloutBody({ version: release, pi = null, things: boards, note, canary, abortPercent, ...plan }) {
   const body = { version: release, target: { kind: 'boards', things: boards }, canary, abortPercent };
+  // A Raspberry Pi image with the release (console 2.26.0): each board gets both, the Pi after its firmware.
+  if (pi) body.pi = pi;
   if (plan.stages !== undefined) Object.assign(body, stageBody({ unit: 'even', sizes: [], ...plan }));
   if (note) body.note = note;
   return body;

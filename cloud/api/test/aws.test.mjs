@@ -614,6 +614,7 @@ test('the adapter and the in-memory fake have the same methods', () => {
       'describeJobExecution',
       'getFirmwareObject',
       'getRelease',
+      'headFirmwareObject',
       'getShadow',
       'getToken',
       'getUser',
@@ -637,6 +638,7 @@ test('the adapter and the in-memory fake have the same methods', () => {
       'querySamples',
       'registerRelease',
       'searchAudit',
+      'presignFirmwareUpload',
       'tagFirmwareRevoked',
       // The fleet (docs/fleet.md).
       'describeThing',

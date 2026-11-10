@@ -4,6 +4,10 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.22
+
+The activity log names the console's Raspberry Pi image entries (an upload begun and finished, a revocation) as the website does, and a deployment that brings a Pi image with board firmware links like any other. The Firmware and Deployments pages, which the app shows from the console's bundle, list Pi images and deploy them, alone or with firmware (console 2.26.0).
+
 ## 0.8.21
 
 The Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal.

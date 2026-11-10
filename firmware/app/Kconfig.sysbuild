@@ -46,4 +46,10 @@ config APP_BT_OTA
 	  network core has to run the Bluetooth controller, so sysbuild.conf selects that too, and
 	  it has to be flashed over the debug port.
 
+config APP_PI_OTA
+	bool "Raspberry Pi image updates through the SD card and SPI"
+	help
+	  From 1.20.0 (docs/pi-ota.md): adds pi_ota.conf to the application. The nRF7002 DK's RAM
+	  does not hold this and Bluetooth together, so pi_ota_sysbuild.conf turns Bluetooth off.
+
 source "share/sysbuild/Kconfig"

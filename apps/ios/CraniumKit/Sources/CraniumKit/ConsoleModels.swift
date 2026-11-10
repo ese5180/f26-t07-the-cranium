@@ -1063,7 +1063,7 @@ public enum TokenRules {
 /// A deployment's id: `cranium-1-8-0-b0-20261102T143000Z-1a2b`, which names its version.
 public enum DeploymentId {
     public static func isValid(_ text: String) -> Bool {
-        text.range(of: #"^cranium-\d{1,3}-\d{1,3}-\d{1,5}-b\d{1,10}-\d{8}T\d{6}Z-[0-9a-f]{4}$"#,
+        text.range(of: #"^cranium-\d{1,3}-\d{1,3}-\d{1,5}-b\d{1,10}(-pi)?-\d{8}T\d{6}Z-[0-9a-f]{4}$"#,
                    options: .regularExpression) != nil
     }
 

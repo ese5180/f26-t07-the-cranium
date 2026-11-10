@@ -306,7 +306,7 @@ object ApiJson {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val THING = Regex("^cranium-[0-9a-f]{16}$")
-    private val DEPLOYMENT = Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})-\\d{8}T\\d{6}Z-[0-9a-f]{4}$")
+    private val DEPLOYMENT = Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})(?:-pi)?-\\d{8}T\\d{6}Z-[0-9a-f]{4}$")
     private val CURSOR = Regex("^[A-Za-z0-9_-]{1,512}$")
     private val MAC = Regex("^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$")
     private val HEX = Regex("^[0-9a-f]{1,8}$")

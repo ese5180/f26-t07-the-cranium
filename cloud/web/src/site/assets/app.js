@@ -134,6 +134,12 @@ const state = {
   sessionLeft: 0,
   devices: resource(),
   firmware: resource(),
+  // Raspberry Pi images (console 2.26.0, GET /api/pi-images), and an upload of one from the Firmware page:
+  // { stage: 'idle' | 'asking' | 'sending' | 'checking' | 'done' | 'failed', progress, version, error }.
+  piImages: resource(),
+  piUpload: { stage: 'idle', progress: null, version: null, error: null },
+  // The Pi image whose Revoke was pressed once: a second press revokes it.
+  piRevoking: null,
   deployments: resource(),
   // Every update of every board however it came, newest first (GET /api/updates); and of one board, by thing.
   updates: resource(),
@@ -583,6 +589,7 @@ const pages = {
     refresh: () =>
       Promise.all([
         load(state.firmware, api.firmware),
+        load(state.piImages, api.piImages),
         // Whether the release that was just uploaded has been deployed since.
         state.upload.stage === 'done' ? load(state.deployments, api.deployments) : null,
       ]),
@@ -1788,7 +1795,7 @@ async function submitFrom(self, model, task) {
   }
 }
 
-function openDeploy(version) {
+function openDeploy(version, { pi = null } = {}) {
   if (!state.me.canWrite || dialogOpen()) return;
   let self = null;
   const change =
@@ -1801,12 +1808,18 @@ function openDeploy(version) {
   // With a single board to choose from, it is ticked when the boards come up. From the
   // first tick by hand on, the selection is the user's own.
   // The boards of the chosen release's type: the only ones the dialog offers it to.
-  const offered = () =>
-    offeredBoards(
-      model.devices ?? [],
-      model.types,
-      (model.releases ?? []).find((release) => release.version === model.version) ?? null
+  // A Pi image goes only to boards that report a Pi (console 2.26.0); firmware only to its type's.
+  const offered = () => {
+    const withPi = (devices) => (model.parts === 'nrf' ? devices : devices.filter((device) => device.pi));
+    if (model.parts === 'pi') return withPi(model.devices ?? []);
+    return withPi(
+      offeredBoards(
+        model.devices ?? [],
+        model.types,
+        (model.releases ?? []).find((release) => release.version === model.version) ?? null
+      )
     );
+  };
   const suggest = () => {
     if (model.chosenByHand || model.step !== 1 || model.devices === null) return;
     const only = onlyChoice(offered(), model.busy, model.version);
@@ -1815,6 +1828,10 @@ function openDeploy(version) {
   const model = {
     step: version ? 1 : 0,
     version,
+    // What goes: 'nrf' (board firmware), 'pi' (a Raspberry Pi image) or 'both' (console 2.26.0).
+    parts: pi ? 'pi' : 'nrf',
+    pi,
+    piImages: [],
     things: new Set(),
     chosenByHand: false,
     note: '',
@@ -1862,6 +1879,14 @@ function openDeploy(version) {
     }),
     close: () => self.close(),
     signIn: beginSignIn,
+    setParts: change((value) => {
+      model.parts = value;
+      const fits = new Set(offered().map((device) => device.thing));
+      model.things = new Set([...model.things].filter((thing) => fits.has(thing)));
+    }),
+    choosePi: change((value) => {
+      model.pi = value || null;
+    }),
     choose: change((picked) => {
       model.version = picked;
       model.gone = null;
@@ -1896,12 +1921,14 @@ function openDeploy(version) {
       model.loadError = null;
       self.redraw();
       try {
-        const [firmware, fleet, types] = await Promise.all([
+        const [firmware, fleet, types, piImages] = await Promise.all([
           api.firmware(),
           api.devices(),
           fleetScript ? fleetScript.boardTypes().catch(() => null) : null,
+          api.piImages().catch(() => []),
         ]);
         model.types = types;
+        model.piImages = piImages.filter((image) => image.status === 'active');
         // What this has found out is true of the page behind the dialog as well.
         Object.assign(state.firmware, { value: firmware, error: null, loadedAt: clock.now() });
         draw();
@@ -1923,7 +1950,7 @@ function openDeploy(version) {
         for (const thing of [...model.things]) {
           if (busy.has(thing)) model.things.delete(thing);
         }
-        if (!model.releases.some((release) => release.version === model.version)) {
+        if (model.parts !== 'pi' && !model.releases.some((release) => release.version === model.version)) {
           // Without a word on which release, the newest is the one to suggest. A release
           // that was asked for and has gone is not silently replaced by another.
           model.gone = model.version;
@@ -1940,15 +1967,19 @@ function openDeploy(version) {
     submit: () =>
       submitFrom(self, model, async () => {
         let deployment;
+        const version = model.parts === 'pi' ? null : model.version;
+        const pi = model.parts === 'nrf' ? null : model.pi;
         // Later: the same request, scheduled, and started by the console then (handlers/schedules.mjs).
         if (model.when === 'later' && fleetScript?.scheduleStart) {
           const things = [...model.things].sort();
-          const staged = things.length > 1;
+          // A Pi image alone has no staged rollout: it goes as one deployment (2.26.0).
+          const staged = things.length > 1 && version !== null;
           await fleetScript.scheduleStart(
             staged ? 'rollout' : 'deployment',
             staged
               ? fleetScript.rolloutBody({
                   version: model.version,
+                  pi,
                   things,
                   note: singleLine(model.note),
                   canary: model.canary,
@@ -1958,7 +1989,12 @@ function openDeploy(version) {
                   healthGate: model.healthGate,
                   gateMinutes: model.gateMinutes,
                 })
-              : { version: model.version, things, ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}) },
+              : {
+                  ...(version ? { version } : {}),
+                  ...(pi ? { pi } : {}),
+                  things,
+                  ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}),
+                },
             model
           );
           self.close(true);
@@ -1966,9 +2002,10 @@ function openDeploy(version) {
         }
         try {
           // More than one board: a staged rollout, a canary first (docs/fleet.md).
-          if (model.things.size > 1 && fleetScript) {
+          if (model.things.size > 1 && fleetScript && version !== null) {
             const rollout = await fleetScript.startRollout({
               version: model.version,
+              pi,
               things: [...model.things].sort(),
               note: singleLine(model.note),
               canary: model.canary,
@@ -1986,9 +2023,14 @@ function openDeploy(version) {
             return;
           }
           deployment = await api.deploy({
-            version: model.version,
+            version,
+            pi,
             things: [...model.things].sort(),
             note: singleLine(model.note),
+            // A Pi image alone to several boards: in waves that AWS IoT paces and stops at the same share of
+            // failures as a staged rollout would.
+            waves:
+              version === null && model.things.size > 1 ? { perMinute: 1, abortPercent: model.abortPercent } : null,
           });
         } catch (error) {
           // A conflict says that what the dialog offers is out of date: a board has become
@@ -2002,7 +2044,7 @@ function openDeploy(version) {
         }
         keep(state.deploymentDetails, deployment.id, deployment);
         self.close(true);
-        notify(`Deployment of ${deployment.version ?? model.version} started.`);
+        notify(`Deployment of ${[version, pi && `Pi image ${pi}`].filter(Boolean).join(' and ')} started.`);
         location.hash = routeHash({ view: 'deployment', id: deployment.id });
       }),
   };
@@ -2489,7 +2531,93 @@ async function alertsTold() {
   }
 }
 
+/**
+ * A Raspberry Pi image from the Firmware page: its record (the .pi.json that tools/pi_image.py signed) to
+ * the API, which checks the signature and hands out a URL; the image itself straight to S3 with that URL;
+ * then the API checks what arrived. The file never passes through the console's API.
+ */
+async function uploadPiImage(form) {
+  const imageFile = form.elements.image?.files?.[0] ?? null;
+  const recordFile = form.elements.record?.files?.[0] ?? null;
+  const notes = singleLine(form.elements.notes?.value ?? '');
+  const failed = (message) => {
+    state.piUpload = { stage: 'failed', progress: null, version: null, error: message };
+    draw();
+  };
+  if (!imageFile || !recordFile) return failed('Choose the image and its record.');
+  let record;
+  try {
+    record = JSON.parse(await recordFile.text());
+  } catch {
+    return failed('The record is not JSON: choose the .pi.json file that tools/pi_image.py sign wrote.');
+  }
+  if (record?.size !== imageFile.size) {
+    return failed(`The record is for a file of ${record?.size} bytes, and this image has ${imageFile.size}.`);
+  }
+  state.piUpload = { stage: 'asking', progress: null, version: record.version, error: null };
+  draw();
+  try {
+    const described = { version: record.version, size: record.size, sha256: record.sha256, sig: record.sig };
+    if (record.minFirmware) described.minFirmware = record.minFirmware;
+    if (notes) described.notes = notes;
+    const { upload } = await api.createPiImage(described);
+    if (!upload.url) return failed('The console handed out no address to send the image to.');
+    state.piUpload = { ...state.piUpload, stage: 'sending', progress: 0 };
+    draw();
+    await new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open('PUT', upload.url);
+      for (const [name, value] of Object.entries(upload.headers)) request.setRequestHeader(name, value);
+      request.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        state.piUpload = { ...state.piUpload, progress: Math.floor((event.loaded * 100) / event.total) };
+        draw();
+      };
+      request.onload = () =>
+        // 412: the same file is in S3 already, from an upload that got that far before.
+        request.status < 300 || request.status === 412
+          ? resolve()
+          : reject(new Error(`S3 answered ${request.status}.`));
+      request.onerror = () => reject(new Error('The image could not be sent to S3.'));
+      request.send(imageFile);
+    });
+    state.piUpload = { ...state.piUpload, stage: 'checking', progress: null };
+    draw();
+    await api.completePiImage(record.version);
+    state.piUpload = { stage: 'done', progress: null, version: record.version, error: null };
+    form.reset();
+    notify(`Pi image ${record.version} is uploaded and can be deployed.`);
+    await load(state.piImages, api.piImages);
+  } catch (error) {
+    failed(error?.message ?? 'The upload failed.');
+  }
+}
+
+async function revokePiImage(image) {
+  if (state.piRevoking !== image.version) {
+    state.piRevoking = image.version;
+    notify(`Press Revoke on ${image.version} again to revoke it. Its open deployments are cancelled.`);
+    draw();
+    return;
+  }
+  state.piRevoking = null;
+  try {
+    const { cancelled } = await api.revokePiImage(
+      image.version,
+      `Revoked on the Firmware page by ${state.me.email ?? 'a release manager'}`
+    );
+    notify(
+      `Pi image ${image.version} revoked${cancelled.length > 0 ? `; ${cancelled.length} deployment(s) cancelled` : ''}.`
+    );
+  } catch (error) {
+    notify(`Pi image ${image.version} was not revoked: ${error?.message ?? 'see the activity log'}`);
+  }
+  await load(state.piImages, api.piImages);
+}
+
 const actions = {
+  uploadPiImage,
+  revokePiImage,
   identify: (thing) => sendCommand(thing, 'identify'),
   reportNow: (thing) => sendCommand(thing, 'report'),
   memfaultNow: (thing) => sendCommand(thing, 'memfault'),

@@ -33,6 +33,17 @@ if(CONFIG_BOOTLOADER_MCUBOOT AND
                       "and --custom-tlv 0xa2 ${CONFIG_APP_IMAGE_LAYOUT}, and it is "
                       "\"${CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS}\"")
 endif()
+# From 1.20.0: a build with Raspberry Pi image updates says so in the protected TLV 0xa3 ("pi"), and no
+# other build does, so that the console sends firmware and a Pi image together only in a Pi build.
+if(CONFIG_BOOTLOADER_MCUBOOT)
+  if(CONFIG_APP_PI_OTA AND NOT CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS MATCHES "(^| )--custom-tlv 0xa3 pi( |$)")
+    message(FATAL_ERROR "A build with CONFIG_APP_PI_OTA has to carry --custom-tlv 0xa3 pi in "
+                        "CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS (firmware/app/Kconfig)")
+  endif()
+  if(NOT CONFIG_APP_PI_OTA AND CONFIG_MCUBOOT_EXTRA_IMGTOOL_ARGS MATCHES "--custom-tlv 0xa3")
+    message(FATAL_ERROR "Only a build with CONFIG_APP_PI_OTA may carry the TLV 0xa3")
+  endif()
+endif()
 
 if(NOT CONFIG_APP_BT_ONLY)
 target_sources(app PRIVATE
@@ -146,6 +157,15 @@ target_sources_ifndef(CONFIG_APP_CONSOLE app PRIVATE src/log_discard.c)
 # The driver's recovery would power the chip back up, so the timer under test would never fire.
 target_sources_ifdef(CONFIG_APP_TEST_FAULT_WIFI_DEAD app PRIVATE src/fault_wifi.c)
 target_sources_ifdef(CONFIG_APP_BOOT_DIARY app PRIVATE src/boot_diary.c)
+# From 1.20.0: Raspberry Pi images through the SD card and SPI (docs/pi-ota.md).
+target_sources_ifdef(CONFIG_APP_PI_OTA app PRIVATE
+  src/pi/pi_dl.c
+  src/pi/pi_image.c
+  src/pi/pi_xfer.c
+  src/pi/pi_ota.c
+  src/pi/pi_sd.c
+  src/pi/pi_sha256.c
+)
 target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud/cloud_events.c)
 target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/cloud/location.c)
 target_sources_ifdef(CONFIG_APP_SESSIONS app PRIVATE src/cloud/sessions.c)
@@ -185,5 +205,6 @@ target_include_directories(app PRIVATE
   src/cloud
   src/mflt
   src/ota
+  src/pi
   src/policy
 )

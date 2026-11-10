@@ -14,7 +14,13 @@ import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, MAX_TOKEN_NAME, MIN_TOKEN_DAYS, TOK
 // "major.minor.revision+build", the build number always present.
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 const THING = /^cranium-[0-9a-f]{16}$/;
-const JOB_ID = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})-(\d{8}T\d{6}Z)-[0-9a-f]{4}$/;
+// A deployment of board firmware; "-pi" after the build number when it brings a Pi image too (2.26.0).
+const JOB_ID = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})(-pi)?-(\d{8}T\d{6}Z)-[0-9a-f]{4}$/;
+// A deployment of a Raspberry Pi image alone (2.26.0): "pi-", the image's version as letters, digits,
+// "_" and "-", the time and 4 hex. A board tells it from firmware by the "pi-" (firmware ota_job.h).
+const PI_JOB_ID = /^pi-[A-Za-z0-9_-]{1,31}-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
+// A Raspberry Pi image's version, as a board takes it (firmware ota_job.c copy_pi_version).
+export const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
 const FILENAME = /^[A-Za-z0-9._-]{1,64}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -65,7 +71,29 @@ export function parseJobId(value) {
   if (parts.major > 0xff || parts.minor > 0xff || parts.revision > 0xffff || parts.build > 0xffffffff) {
     return null;
   }
-  return { id: value, version: formatVersion(parts), parts };
+  return { id: value, version: formatVersion(parts), parts, withPi: match[5] !== undefined };
+}
+
+/**
+ * Any deployment id of this console: one of firmware (parseJobId), or of a Pi image alone, which
+ * names no firmware version: { id, version: null, parts: null, withPi: true, piOnly: true }.
+ */
+export function parseDeploymentId(value) {
+  const firmware = parseJobId(value);
+  if (firmware !== null) return { ...firmware, piOnly: false };
+  if (typeof value !== 'string' || !PI_JOB_ID.test(value)) return null;
+  return { id: value, version: null, parts: null, withPi: true, piOnly: true };
+}
+
+/** A Raspberry Pi image's version, as it is written: no other spelling is taken. */
+export function requirePiVersion(value) {
+  if (typeof value !== 'string' || !PI_VERSION.test(value)) {
+    throw badRequest(
+      'invalid_version',
+      "A Pi image's version is 1 to 31 letters, digits, dots, dashes, underscores or plus signs."
+    );
+  }
+  return value;
 }
 
 export function requireVersion(value) {
@@ -95,7 +123,7 @@ export function requireIssueId(value) {
 }
 
 export function requireJobId(value) {
-  const job = parseJobId(value);
+  const job = parseDeploymentId(value);
   if (job === null) throw badRequest('invalid_deployment', 'That is not a deployment id.');
   return job;
 }
