@@ -9491,6 +9491,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .app-latest-text {
   display: grid;
+  /* One column as wide as the card, not as wide as the longest line that cannot wrap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
 }
@@ -9540,6 +9542,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .app-actions {
   margin-top: 4px;
+}
+
+/* "Download cranium-android-0.8.22.apk" is wider than a 320 px phone's card: its words wrap there. */
+.app-actions .btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* The QR code: dark on white in both themes, as a camera reads it best, with its quiet zone drawn in. */

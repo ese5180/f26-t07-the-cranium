@@ -793,6 +793,14 @@ test('an update keeps no empty band for the download figure, and a headline is n
   assert.doesNotMatch(rule('.calm-title'), /hyphens/);
 });
 
+test("on a 320 px phone the Apps page's download button wraps inside its card", () => {
+  // Its column took the width of "Download cranium-android-0.4.0.apk" on one line (305 px) in a card of 256, and the
+  // whole page scrolled sideways.
+  assert.equal(declared('.app-latest-text').get('grid-template-columns'), 'minmax(0, 1fr)');
+  assert.equal(declared('.app-actions .btn').get('white-space'), 'normal');
+  assert.equal(declared('.app-actions .btn').get('overflow-wrap'), 'anywhere');
+});
+
 test('a percentage and the name of a slot stay in one piece', () => {
   const stylesheet = readFileSync(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
   // In a narrow column of the overview it broke as "40" and "%" on two lines.
