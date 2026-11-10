@@ -1,6 +1,7 @@
 package com.craniumiot.cranium.shell
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -23,7 +24,7 @@ object Shared {
 class TestBundle(val manifest: BundleManifest, val text: String, val objects: Map<String, ByteArray>)
 
 /** A bundle of [files] (path to text), with the two routes, as bundle.mjs makes one. */
-fun bundleOf(files: Map<String, String>, bridge: Int = 1): TestBundle {
+fun bundleOf(files: Map<String, String>, bridge: Int = 1, version: String? = "2.1.1"): TestBundle {
     val listed = files.map { (path, text) ->
         val bytes = text.toByteArray()
         BundleFile(path, bytes.size.toLong(), BundleManifest.sha256Hex(bytes))
@@ -35,7 +36,7 @@ fun bundleOf(files: Map<String, String>, bridge: Int = 1): TestBundle {
         put("id", id)
         put("bridge", bridge)
         put("console", buildJsonObject {
-            put("version", "2.1.1")
+            put("version", version?.let(::JsonPrimitive) ?: JsonNull)
             put("commit", "0123456789abcdef0123456789abcdef01234567")
         })
         put("builtAt", "2026-11-05T12:00:00.000Z")
