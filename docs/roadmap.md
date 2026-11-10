@@ -57,7 +57,7 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 - **A redesign of the console**, readability first: the ordered list is the pinned work list issue (#128).
 - **Raspberry Pi updates from the console, through the board** (firmware 1.20.0, console 2.26.0, apps 0.8.23, draft
-  pull request #PRNUM, which supersedes #134, #101 and #42): the Pi has no network and never talks to the console; a
+  pull request #165, which supersedes #134, #101 and #42): the Pi has no network and never talks to the console; a
   board downloads a Pi image onto its SD card and sends it over SPI, and reports the Pi's state. Pi images on the
   Firmware page; deployments of firmware, a Pi image, or both, where both download first, the firmware is installed and
   the Pi gets its image once that firmware is confirmed. Its pins, files and settings are apart from the Pi's message
