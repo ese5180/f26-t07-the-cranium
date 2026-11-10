@@ -25,6 +25,8 @@ import {
   alreadyRuns,
   asksForButton,
   boardName,
+  COMPARE_MAX,
+  compareHref,
   boardOf,
   BLUETOOTH_ONLY_TYPES,
   boardTypeLabel,
@@ -1878,6 +1880,7 @@ const SECTION_OF = {
   database: 'developer',
   rollout: 'fleet',
   issue: 'memfault',
+  compare: 'devices',
 };
 
 /** Where Developer leads: a viewer has no use for the serial console's controls. */
@@ -3799,6 +3802,48 @@ function devicesFilters(ctx, devices, shown) {
   });
 }
 
+/** The box that ticks a board for Compare, and for what may be done to many boards at once. */
+function selectBox(device, ctx) {
+  const selected = (ctx.state.selected ?? []).includes(device.thing);
+  return h(
+    'label',
+    { class: 'device-select', key: 'select' },
+    h('input', {
+      type: 'checkbox',
+      checked: selected,
+      onChange: () => ctx.actions.toggleSelected(device.thing),
+    }),
+    h('span', { class: 'sr-only' }, `Select ${boardName(device)}`)
+  );
+}
+
+/**
+ * What is ticked on the Devices page, while anything is: how many, Compare (2 to COMPARE_MAX of them) and
+ * Clear. Boards that are no longer listed are not counted.
+ */
+export function selectionBar(ctx, devices) {
+  const things = (ctx.state.selected ?? []).filter((thing) => devices.some((device) => device.thing === thing));
+  if (things.length === 0) return null;
+  const href = things.length <= COMPARE_MAX ? compareHref(things) : null;
+  let note = null;
+  if (things.length < 2) note = `Tick 1 to ${COMPARE_MAX - 1} more to compare.`;
+  else if (things.length > COMPARE_MAX) note = `Compare takes at most ${COMPARE_MAX} boards.`;
+  return h(
+    'div',
+    { class: 'selection-bar', key: 'selection', role: 'region', 'aria-label': 'Selected boards' },
+    h('p', { class: 'selection-count' }, `${plural(things.length, 'board', 'boards')} selected`),
+    note ? h('p', { class: 'selection-note quiet' }, note) : null,
+    h(
+      'div',
+      { class: 'selection-tools' },
+      href
+        ? h('a', { class: 'btn is-small is-primary', href }, icon('swap', 'is-small'), 'Compare')
+        : h('button', { type: 'button', class: 'btn is-small', disabled: true }, icon('swap', 'is-small'), 'Compare'),
+      button('is-small', () => ctx.actions.clearSelected(), icon('x', 'is-small'), 'Clear')
+    )
+  );
+}
+
 export function devicesView(ctx) {
   const { state } = ctx;
   const all = state.devices.value?.devices ?? null;
@@ -3830,6 +3875,7 @@ export function devicesView(ctx) {
       ),
       devicesPanel(devices, ctx),
       devicesFilters(ctx, all, devices),
+      selectionBar(ctx, all),
       h(
         'div',
         { class: 'device-grid', key: 'grid' },
@@ -3851,6 +3897,7 @@ export function devicesView(ctx) {
               h(
                 'div',
                 null,
+                selectBox(device, ctx),
                 h('h2', { class: 'device-name' }, boardLabel(device, 'cover-link'), icon('arrow-right', 'is-small')),
                 boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
                 ctx.fleet?.boardTags(device, ctx) ?? null,
@@ -4016,7 +4063,13 @@ export function deviceView(ctx) {
     meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
     tools: missing(resource)
       ? null
-      : [detail ? commandTools(detail.device, ctx) : null, labelButton(thing, ctx), freshness(resource, ctx)],
+      : [
+          detail ? commandTools(detail.device, ctx) : null,
+          labelButton(thing, ctx),
+          // Tick it on the Devices page, and pick the boards to set beside it (compare.js).
+          button('is-small', () => ctx.actions.compareWith(thing), icon('swap', 'is-small'), 'Compare with…'),
+          freshness(resource, ctx),
+        ],
   });
   if (missing(resource)) {
     return h(
@@ -4077,6 +4130,8 @@ export function deviceView(ctx) {
         memfaultCard(device, memfault ?? null),
         // What Memfault knows of it: reboots with their reasons, events and issues (memfault-page.js).
         ctx.memfault?.boardSection(thing, ctx) ?? null,
+        // Every version it ran, how each came and whether it stayed (compare.js).
+        ctx.compare?.timelineSection(thing, ctx) ?? null,
         card(
           { key: 'certificates', title: 'Certificates' },
           certificates.length === 0

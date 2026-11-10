@@ -8,7 +8,7 @@
 extends: electron-builder.base.yml
 # This build's version (docs/versions.md): bump it with an entry in CHANGELOG.windows.md.
 extraMetadata:
-  version: 0.1.9
+  version: 0.1.10
 win:
   target:
     - target: nsis
