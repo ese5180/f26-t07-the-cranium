@@ -57,6 +57,27 @@ const REFERENCE = {
         required: ['UserPoolId'],
         optional: ['AttributesToGet', 'Limit', 'PaginationToken', 'Filter'],
       },
+      // The Team page's (src/aws-team.mjs), and a customer's reset and removal (src/customer/aws.mjs).
+      AdminAddUserToGroupCommand: {
+        required: ['UserPoolId', 'Username', 'GroupName'],
+        optional: [],
+      },
+      AdminRemoveUserFromGroupCommand: {
+        required: ['UserPoolId', 'Username', 'GroupName'],
+        optional: [],
+      },
+      AdminUserGlobalSignOutCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: [],
+      },
+      AdminDeleteUserCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: [],
+      },
+      AdminResetUserPasswordCommand: {
+        required: ['UserPoolId', 'Username'],
+        optional: ['ClientMetadata'],
+      },
     },
   },
   '@aws-sdk/client-dynamodb': {
@@ -2698,6 +2719,7 @@ test('the customer store invites, lists and switches customers in the customer p
     enabled: true,
     status: 'CONFIRMED',
     createdAt: T0,
+    mfa: null,
   };
 
   sdk.reply(
@@ -2716,13 +2738,13 @@ test('the customer store invites, lists and switches customers in the customer p
     { ...cognitoUser(), UserAttributes: cognitoUser().Attributes },
     fails('UserNotFoundException')
   );
-  assert.deepEqual(await store.getCustomer(CUSTOMER_SUB), customer);
+  assert.deepEqual(await store.getCustomer(CUSTOMER_SUB), { ...customer, mfa: false });
   assert.equal(await store.getCustomer('nobody'), null);
 
   sdk.reply('AdminCreateUserCommand', { User: cognitoUser('FORCE_CHANGE_PASSWORD') }, fails('UsernameExistsException'));
   assert.deepEqual(await store.inviteCustomer({ email: 'ada@example.invalid', name: 'Ada' }), {
     ok: true,
-    customer: { ...customer, status: 'FORCE_CHANGE_PASSWORD' },
+    customer: { ...customer, status: 'FORCE_CHANGE_PASSWORD', mfa: false },
   });
   assert.deepEqual(await store.inviteCustomer({ email: 'ada@example.invalid', name: '' }), {
     ok: false,
@@ -2759,6 +2781,136 @@ test('the customer store invites, lists and switches customers in the customer p
   for (const entry of sdk.sent) assert.equal(entry.input.UserPoolId, 'eu-west-1_Customers', entry.command);
   sdk.reply('ListUsersCommand', fails('ThrottlingException', { status: 400 }));
   await rejectsWith(store.listCustomers(), { code: 'throttled', operation: 'ListUsers' });
+});
+
+test("a customer's password is reset by Cognito's admin reset, and an account removed is signed out first", async () => {
+  sdk.reset();
+  const store = createCustomerStore(CUSTOMER_ENV);
+  sdk.reply('AdminGetUserCommand', {
+    ...cognitoUser(),
+    UserAttributes: cognitoUser().Attributes,
+    UserMFASettingList: ['SOFTWARE_TOKEN_MFA'],
+  });
+  assert.equal((await store.getCustomer(CUSTOMER_SUB)).mfa, true);
+  sdk.reply('AdminResetUserPasswordCommand', {}, fails('NotAuthorizedException'), fails('UserNotFoundException'));
+  assert.deepEqual(await store.resetCustomerPassword(CUSTOMER_SUB), { ok: true });
+  assert.deepEqual(await store.resetCustomerPassword(CUSTOMER_SUB), { ok: false, reason: 'not_allowed' });
+  assert.deepEqual(await store.resetCustomerPassword('nobody'), { ok: false, reason: 'not_found' });
+  assert.deepEqual(sdk.inputs('AdminResetUserPasswordCommand')[0], {
+    UserPoolId: 'eu-west-1_Customers',
+    Username: CUSTOMER_SUB,
+  });
+  sdk.reply(
+    'AdminUserGlobalSignOutCommand',
+    {},
+    fails('InternalErrorException', { status: 500 }),
+    fails('UserNotFoundException')
+  );
+  sdk.reply('AdminDeleteUserCommand', {}, {});
+  assert.deepEqual(await store.deleteCustomer(CUSTOMER_SUB), { ok: true });
+  // A sign-out that fails does not keep the account.
+  assert.deepEqual(await store.deleteCustomer(CUSTOMER_SUB), { ok: true });
+  assert.deepEqual(await store.deleteCustomer('nobody'), { ok: false, reason: 'not_found' });
+  assert.deepEqual(sdk.sent.map((entry) => entry.command).slice(-5), [
+    'AdminUserGlobalSignOutCommand',
+    'AdminDeleteUserCommand',
+    'AdminUserGlobalSignOutCommand',
+    'AdminDeleteUserCommand',
+    'AdminUserGlobalSignOutCommand',
+  ]);
+  for (const entry of sdk.sent) {
+    assert.equal(entry.input.UserPoolId, 'eu-west-1_Customers', entry.command);
+    assert.equal(/Password/.test(Object.keys(entry.input).join(' ')), false, entry.command);
+  }
+});
+
+// The Team page's adapter (src/aws-team.mjs), held to the same reference.
+
+const { createTeamStore } = await import('../src/aws-team.mjs');
+const TEAM_SUB = '22222222-3333-4444-8555-666666666666';
+const teamUser = (status = 'CONFIRMED') => ({
+  Username: TEAM_SUB,
+  Enabled: true,
+  UserStatus: status,
+  UserCreateDate: new Date(T0),
+  Attributes: [
+    { Name: 'sub', Value: TEAM_SUB },
+    { Name: 'email', Value: 'rm@example.invalid' },
+  ],
+});
+
+test('the team store lists, invites, regroups, switches and deletes accounts in the staff pool only, never with a password', async () => {
+  sdk.reset();
+  const store = createTeamStore(ENV);
+  const member = {
+    sub: TEAM_SUB,
+    email: 'rm@example.invalid',
+    name: '',
+    enabled: true,
+    status: 'CONFIRMED',
+    createdAt: T0,
+    mfa: null,
+  };
+  sdk.reply(
+    'ListUsersCommand',
+    { Users: [teamUser()], PaginationToken: 'p2' },
+    { Users: [teamUser('FORCE_CHANGE_PASSWORD')] }
+  );
+  assert.deepEqual(await store.listTeam(), [member, { ...member, status: 'FORCE_CHANGE_PASSWORD' }]);
+
+  sdk.reply(
+    'AdminGetUserCommand',
+    { ...teamUser(), UserAttributes: teamUser().Attributes, UserMFASettingList: ['SOFTWARE_TOKEN_MFA'] },
+    { ...teamUser(), UserAttributes: teamUser().Attributes },
+    fails('UserNotFoundException')
+  );
+  assert.deepEqual(await store.getTeamMember(TEAM_SUB), { ...member, mfa: true });
+  assert.equal((await store.getTeamMember(TEAM_SUB)).mfa, false);
+  assert.equal(await store.getTeamMember('nobody'), null);
+
+  sdk.reply('AdminCreateUserCommand', { User: teamUser('FORCE_CHANGE_PASSWORD') }, fails('UsernameExistsException'));
+  assert.deepEqual(await store.inviteTeamMember({ email: 'rm@example.invalid' }), {
+    ok: true,
+    member: { ...member, status: 'FORCE_CHANGE_PASSWORD', mfa: false },
+  });
+  assert.deepEqual(await store.inviteTeamMember({ email: 'rm@example.invalid' }), { ok: false, reason: 'exists' });
+  const invited = sdk.inputs('AdminCreateUserCommand')[0];
+  assert.deepEqual(invited.DesiredDeliveryMediums, ['EMAIL']);
+  assert.equal(Object.hasOwn(invited, 'TemporaryPassword'), false);
+
+  sdk.reply('AdminCreateUserCommand', {}, fails('UnsupportedUserStateException'));
+  assert.deepEqual(await store.resendTeamInvitation('rm@example.invalid'), { ok: true });
+  assert.deepEqual(await store.resendTeamInvitation('rm@example.invalid'), { ok: false, reason: 'not_invited' });
+
+  sdk.reply('AdminAddUserToGroupCommand', {}, fails('UserNotFoundException'));
+  sdk.reply('AdminRemoveUserFromGroupCommand', {});
+  assert.deepEqual(await store.addTeamMemberToGroup(TEAM_SUB, 'release-managers'), { ok: true });
+  assert.deepEqual(await store.addTeamMemberToGroup('nobody', 'viewers'), { ok: false, reason: 'not_found' });
+  assert.deepEqual(await store.removeTeamMemberFromGroup(TEAM_SUB, 'viewers'), { ok: true });
+  assert.deepEqual(sdk.inputs('AdminAddUserToGroupCommand')[0], {
+    UserPoolId: 'eu-west-1_Pool',
+    Username: TEAM_SUB,
+    GroupName: 'release-managers',
+  });
+
+  sdk.reply('AdminDisableUserCommand', {});
+  sdk.reply('AdminEnableUserCommand', fails('TooManyRequestsException'));
+  assert.deepEqual(await store.setTeamMemberEnabled(TEAM_SUB, false), { ok: true });
+  await rejectsWith(store.setTeamMemberEnabled(TEAM_SUB, true), { code: 'throttled', operation: 'AdminEnableUser' });
+
+  sdk.reply('AdminUserGlobalSignOutCommand', {}, fails('UserNotFoundException'));
+  sdk.reply('AdminDeleteUserCommand', {});
+  assert.deepEqual(await store.deleteTeamMember(TEAM_SUB), { ok: true });
+  assert.deepEqual(await store.deleteTeamMember('nobody'), { ok: false, reason: 'not_found' });
+
+  for (const entry of sdk.sent) {
+    assert.equal(entry.input.UserPoolId, 'eu-west-1_Pool', entry.command);
+    assert.equal(/Password/.test(Object.keys(entry.input).join(' ')), false, entry.command);
+  }
+  assert.equal(
+    sdk.sent.some((entry) => /SetUserPassword|ResetUserPassword|SetUserMFA/.test(entry.command)),
+    false
+  );
 });
 
 test('who owns which board: one owner, conditional writes, and the fake agrees with the store', async () => {

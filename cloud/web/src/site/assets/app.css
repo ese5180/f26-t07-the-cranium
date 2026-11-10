@@ -11685,3 +11685,84 @@ span.glance-item:hover {
   font-size: 0.75rem;
   font-weight: 600;
 }
+
+/* The Team page (team.js, docs/accounts.md): the team's accounts in one group, a row each, and the invitation
+   beside them; one column on a phone. Colours are the theme's tokens only, so dark mode follows. */
+.team-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  align-items: start;
+  gap: clamp(24px, 3vw, 44px);
+}
+
+.team-side {
+  display: grid;
+  gap: 28px;
+}
+
+.team-list {
+  display: grid;
+}
+
+.team-account {
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.team-account:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.team-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.team-who {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-email {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.team-meta {
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.team-badges,
+.customer-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.team-actions .btn {
+  min-height: var(--tap);
+}
+
+.team-invite {
+  display: grid;
+  gap: 12px;
+}
+
+.team-invite + .card-note {
+  margin-top: 12px;
+}
+
+@media (max-width: 1000px) {
+  .team-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

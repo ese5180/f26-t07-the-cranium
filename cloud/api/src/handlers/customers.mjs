@@ -12,10 +12,17 @@
  *   POST /api/customers/{id}/boards/{thing}/remove    -> { customer }           customer.unassign
  *   POST /api/customers/{id}/disable                  -> { customer }           customer.disable
  *   POST /api/customers/{id}/enable                   -> { customer }           customer.enable
+ *   POST /api/customers/{id}/reset-password           -> { customer }           customer.reset_password
+ *        Cognito's admin reset: the old password stops working and Cognito e-mails a code to choose a
+ *        new one with. Nothing here sees or sets a password
+ *   POST /api/customers/{id}/remove                   -> { customer }           customer.remove
+ *        the account is signed out and deleted; boards still assigned to it stay listed under it, as
+ *        gone, so that they can be taken back
  *
- * Customer: { id, email, name, status, createdAt, boards: [{ thing, label, assignedAt }] }, with
+ * Customer: { id, email, name, status, enabled, confirmed, mfa, createdAt, boards: [{ thing, label, assignedAt }] }, with
  * status invited (has not signed in yet), active, disabled or gone (boards are still assigned to
- * an account that is no longer in the pool, so that they can be taken back).
+ * an account that is no longer in the pool, so that they can be taken back). enabled and confirmed are
+ * Cognito's, and mfa whether the customer set up an authenticator app (null where it was not asked).
  *
  * A board has one owner at most. Assigning it gives it a new id for its owner (customer/boards.mjs),
  * so a link that an earlier owner kept leads nowhere.
@@ -31,8 +38,11 @@ const CUSTOMER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // Enough to refuse what is plainly not an address; Cognito decides the rest.
 const EMAIL = /^[^\s@]{1,64}@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const NAME_LIMIT = 60;
+// How many customers the list asks about their authenticator, AT_ONCE at a time.
+const MFA_LISTED = 200;
+const AT_ONCE = 8;
 
-const STATUS = Object.freeze({ FORCE_CHANGE_PASSWORD: 'invited', CONFIRMED: 'active' });
+const STATUS = Object.freeze({ FORCE_CHANGE_PASSWORD: 'invited', CONFIRMED: 'active', RESET_REQUIRED: 'reset' });
 
 function requireCustomerId(value) {
   if (typeof value !== 'string' || !CUSTOMER_ID.test(value)) {
@@ -61,6 +71,9 @@ function view(customer, boards, id = customer?.sub) {
     email: customer?.email ?? '',
     name: customer?.name ?? '',
     status: statusOf(customer),
+    enabled: customer?.enabled === true,
+    confirmed: customer?.status === 'CONFIRMED',
+    mfa: typeof customer?.mfa === 'boolean' ? customer.mfa : null,
     createdAt: Number.isFinite(customer?.createdAt) ? new Date(customer.createdAt).toISOString() : null,
     boards: boards
       .filter((item) => item.owner === id)
@@ -110,12 +123,26 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
     return { body: { customer: await current({ ...customer, enabled }) } };
   }
 
+  /** Each customer with whether an authenticator is set up, which ListUsers does not say. */
+  async function withAuthenticators(customers) {
+    const out = [...customers];
+    for (let start = 0; start < Math.min(out.length, MFA_LISTED); start += AT_ONCE) {
+      const part = out.slice(start, Math.min(start + AT_ONCE, MFA_LISTED));
+      const full = await Promise.all(part.map((customer) => aws.getCustomer(customer.sub).catch(() => null)));
+      full.forEach((found, index) => {
+        if (found !== null) out[start + index] = { ...out[start + index], mfa: found.mfa };
+      });
+    }
+    return out;
+  }
+
   return {
     async list({ caller }) {
       // A read, and still for release managers only, asked of Cognito now.
       await directory.requireLiveWriter(caller);
       if (settings === null) return { body: { configured: false, siteUrl: '', customers: [] } };
-      const [customers, ownership] = await Promise.all([aws.listCustomers(), aws.listOwnership()]);
+      const [listed, ownership] = await Promise.all([aws.listCustomers(), aws.listOwnership()]);
+      const customers = await withAuthenticators(listed);
       const known = new Set(customers.map((customer) => customer.sub));
       const gone = [...new Set(ownership.map((item) => item.owner).filter((owner) => !known.has(owner)))];
       return {
@@ -219,6 +246,42 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
 
     async enable({ params, entry }) {
       return switchTo(true, params, entry);
+    },
+
+    async resetPassword({ params, entry }) {
+      requireSetUp();
+      const id = requireCustomerId(params.id);
+      entry.target = id;
+      const customer = await existing(id, entry);
+      if (customer.status === 'FORCE_CHANGE_PASSWORD') {
+        throw conflict(
+          'customer_not_signed_in',
+          'This customer has not chosen a password yet: send the invitation again instead.'
+        );
+      }
+      if (!customer.enabled) {
+        throw conflict('customer_disabled', 'This customer is switched off. Switch them on first.');
+      }
+      const result = await aws.resetCustomerPassword(id);
+      if (!result.ok && result.reason === 'not_found') {
+        throw notFound('unknown_customer', 'There is no customer with this id.');
+      }
+      if (!result.ok) {
+        throw conflict('customer_not_signed_in', 'Cognito cannot reset the password of this account now.');
+      }
+      change(entry, 'account', statusOf(customer), 'reset');
+      return { body: { customer: await current({ ...customer, status: 'RESET_REQUIRED' }) } };
+    },
+
+    async remove({ params, entry }) {
+      requireSetUp();
+      const id = requireCustomerId(params.id);
+      entry.target = id;
+      const customer = await existing(id, entry);
+      const result = await aws.deleteCustomer(id);
+      if (!result.ok) throw notFound('unknown_customer', 'There is no customer with this id.');
+      change(entry, 'account', statusOf(customer), null);
+      return { body: { customer: view(null, await aws.listOwnership(), id) } };
     },
   };
 }

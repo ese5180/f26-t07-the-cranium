@@ -1868,6 +1868,8 @@ const SECTIONS = [
   ['apps', 'Apps', 'phone', false],
   // The customer site's customers: for release managers only (cloud/api/src/handlers/customers.mjs).
   ['customers', 'Customers', 'users', false],
+  // The team's accounts and what each may do: for release managers only (cloud/api/src/handlers/team.mjs).
+  ['team', 'Team', 'shield', false],
   ['developer', 'Developer', 'code', false],
 ];
 const SECTION_OF = {
@@ -1910,7 +1912,7 @@ export function serialPagesHidden(win = globalThis) {
 export function navView(ctx) {
   const current = SECTION_OF[ctx.state.route.view] ?? ctx.state.route.view;
   const shown = SECTIONS.filter(([view]) => {
-    if (view === 'customers') return ctx.state.me?.canWrite === true;
+    if (view === 'customers' || view === 'team') return ctx.state.me?.canWrite === true;
     if (view === 'bluetooth') return ctx.state.app?.ble === true && ctx.state.me?.canWrite === true;
     return true;
   });

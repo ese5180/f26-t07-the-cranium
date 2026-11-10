@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.16
+
+Account management (console 2.17.0 and later): release managers see and manage the team's accounts on the new Team page, and reset a customer's password or remove a customer on the Customers page. The activity log reads the new entries.
+
+The pages are the console's own; the app has the Team page in its list of pages (apps/shared/pages.json), and the
+activity log's words for the nine new actions and their refusals, checked against the console by the parity tests.
+
 ## 0.8.15
 
 Compare boards and a version timeline (console 2.16.0 and later): a board's page shows every version it ran, how each came and whether it stayed; tick 2 to 4 boards on the Devices page to compare them side by side, with what differs marked.

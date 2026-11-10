@@ -103,6 +103,7 @@ import { createSetupHandlers } from './handlers/setup.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
+import { createTeamHandlers } from './handlers/team.mjs';
 import { createTimelineHandlers } from './handlers/timeline.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import { createUpdateHandlers } from './handlers/updates.mjs';
@@ -357,6 +358,8 @@ export function createApp({
   const apps = createAppHandlers(context, { versions });
   // The customer site's customers and their boards (docs/customer-site.md).
   const customers = createCustomerHandlers(context, { devices });
+  // The team's accounts, for the Team page (docs/accounts.md): release managers only.
+  const team = createTeamHandlers(context);
   // Each member's SideStore source, which keeps the iPhone app on their iPhone up to date.
   const sidestore = createSidestoreHandlers(context, { apps, audit });
   // The Database page (docs/database.md): the three tables, read only, for release managers.
@@ -613,6 +616,24 @@ export function createApp({
     ),
     route('POST', '/api/customers/{id}/disable', customers.disable, customerChange('customer.disable'), customerAdmin),
     route('POST', '/api/customers/{id}/enable', customers.enable, customerChange('customer.enable'), customerAdmin),
+    route(
+      'POST',
+      '/api/customers/{id}/reset-password',
+      customers.resetPassword,
+      customerChange('customer.reset_password'),
+      customerAdmin
+    ),
+    route('POST', '/api/customers/{id}/remove', customers.remove, customerChange('customer.remove'), customerAdmin),
+    // The team's accounts (handlers/team.mjs, docs/accounts.md): for release managers on the website, as the
+    // customers are; never from a phone app or with an API token.
+    route('GET', '/api/team', team.list, null, customerAdmin),
+    route('POST', '/api/team', team.invite, customerChange('account.invite'), customerAdmin),
+    route('POST', '/api/team/{id}/resend', team.resend, customerChange('account.resend'), customerAdmin),
+    route('POST', '/api/team/{id}/tier', team.tier, customerChange('account.tier'), customerAdmin),
+    route('POST', '/api/team/{id}/disable', team.disable, customerChange('account.disable'), customerAdmin),
+    route('POST', '/api/team/{id}/enable', team.enable, customerChange('account.enable'), customerAdmin),
+    route('POST', '/api/team/{id}/reset', team.reset, customerChange('account.reset'), customerAdmin),
+    route('POST', '/api/team/{id}/remove', team.remove, customerChange('account.remove'), customerAdmin),
     // The Database page (handlers/db.mjs): the console's DynamoDB tables, read only, never a secret field.
     // Release managers, asked of Cognito now, on the website or in the apps; never with an API token. An
     // export goes on record like a write, and needs no fresh sign-in from the apps: it changes nothing.

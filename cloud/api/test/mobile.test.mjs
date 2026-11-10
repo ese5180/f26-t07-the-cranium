@@ -223,6 +223,8 @@ const PHONE_CLIENT = 'localmobile';
 const V = encodeURIComponent(VERSION);
 const SOME_DEPLOYMENT = 'cranium-1-2-3-b4-20261102T180000Z-abcd';
 const CUSTOMER = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+// The second account of setup(): the viewer.
+const VIEWER = '00000000-0000-4000-8000-000000000002';
 
 /**
  * Every route of the API, with a request that a release manager of the console may make in
@@ -478,6 +480,66 @@ const ROUTES = [
     route: 'POST /api/customers/{id}/enable',
     path: `/api/customers/${CUSTOMER}/enable`,
     status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/customers/{id}/reset-password',
+    path: `/api/customers/${CUSTOMER}/reset-password`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/customers/{id}/remove',
+    path: `/api/customers/${CUSTOMER}/remove`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  // The Team page (team.test.mjs): the website's alone, like the customers. The viewer of the world below is
+  // the account changed.
+  { route: 'GET /api/team', status: 200, phone: false },
+  { route: 'POST /api/team', status: 201, phone: false, body: { email: 'dee@example.invalid', tier: 'viewer' } },
+  {
+    route: 'POST /api/team/{id}/resend',
+    path: `/api/team/${VIEWER}/resend`,
+    status: 409,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/team/{id}/tier',
+    path: `/api/team/${VIEWER}/tier`,
+    status: 200,
+    phone: false,
+    body: { tier: 'release-manager' },
+  },
+  {
+    route: 'POST /api/team/{id}/disable',
+    path: `/api/team/${VIEWER}/disable`,
+    status: 200,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/team/{id}/enable',
+    path: `/api/team/${VIEWER}/enable`,
+    status: 200,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/team/{id}/reset',
+    path: `/api/team/${VIEWER}/reset`,
+    status: 200,
+    phone: false,
+    body: {},
+  },
+  {
+    route: 'POST /api/team/{id}/remove',
+    path: `/api/team/${VIEWER}/remove`,
+    status: 200,
     phone: false,
     body: {},
   },

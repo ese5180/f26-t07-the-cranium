@@ -946,6 +946,30 @@ const pages = {
     interval: () => IDLE_REFRESH_MS,
     holdStill: () => customersScript?.holdStill() ?? false,
   },
+  // The team's accounts (docs/accounts.md), for release managers. Fetched when the page is opened; its changes
+  // go through the console's dialogs.
+  team: {
+    title: 'Team',
+    view: (ctx) => (teamScript ? teamScript.teamView(ctx) : scriptPending(ctx, 'team', 'Team', { tabs: false })),
+    resources: () => teamScript?.resources() ?? [],
+    async refresh() {
+      if (!teamScript) {
+        teamScript = await pageScript(() => import('./team.js'));
+        teamScript?.connect({
+          state,
+          api,
+          load,
+          draw,
+          notify,
+          dialogs: { open: openDialog, submit: submitFrom, isOpen: dialogOpen, signIn: beginSignIn },
+        });
+      }
+      if (teamScript) await teamScript.refresh();
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => teamScript?.holdStill() ?? false,
+  },
 };
 
 let serialScript = null;
@@ -1037,6 +1061,7 @@ function fleetReady() {
   return fleetLoading;
 }
 let customersScript = null;
+let teamScript = null;
 let dbScript = null;
 let memfaultScript = null;
 let labelsScript = null;
