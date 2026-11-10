@@ -34,18 +34,6 @@ struct MoreView: View {
                     Label("Update over Bluetooth", systemImage: "dot.radiowaves.left.and.right")
                 }
                 .foregroundStyle(theme.ink)
-                Button {
-                    app.offlineOpen = true
-                } label: {
-                    Label("Offline", systemImage: "antenna.radiowaves.left.and.right.slash")
-                }
-                .foregroundStyle(theme.ink)
-                Button {
-                    app.offlineOpen = true
-                } label: {
-                    Label("Offline", systemImage: "antenna.radiowaves.left.and.right.slash")
-                }
-                .foregroundStyle(theme.ink)
             }
             Section("Developer") {
                 row(.tokens, "key", "API tokens")

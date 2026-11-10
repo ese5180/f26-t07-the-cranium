@@ -9,7 +9,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.19.0
 
-Offline Bluetooth mode: with no Wi-Fi or cloud, a phone app reads the board's status (firmware version, uptime, Wi-Fi, cloud, update state, last restart reason) and accepts a waiting update over Bluetooth, after pairing with the board's own passkey. Not tested on a board.
+Offline Bluetooth mode: with no Wi-Fi or cloud, a phone app reads the board's status (firmware version, uptime, Wi-Fi, cloud, update state, last restart reason) and accepts a waiting update over Bluetooth, after pairing with the board's own passkey. Runs on an nRF7002 DK; the offline service has not yet been used from a phone (the apps show it from console 2.27.0).
 
 A GATT service of its own (`9112B1B6-...`, src/bt/bt_offline.c, bytes in src/policy/bt_offline_policy.h): a status characteristic
 (read) and a control point (write, `[0x01, major, minor]`), both with the permission for an authenticated, encrypted link, so
