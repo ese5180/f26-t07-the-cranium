@@ -616,6 +616,108 @@
   color: var(--ink-3);
 }
 
+/* A board's health: a dot, a sentence, and the week's restarts by day. */
+
+.cs-health {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cs-health-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.cs-health.is-attention .cs-health-text {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.cs-health-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.cs-table-name .cs-health-dot {
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+.cs-health-dot.is-ok {
+  background: var(--good);
+}
+
+.cs-health-dot.is-attention {
+  background: var(--warn);
+}
+
+.cs-health-dot.is-offline {
+  border: 1.5px solid var(--ink-3);
+  background: none;
+}
+
+.cs-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 280px;
+}
+
+.cs-week-day {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border-radius: 6px;
+  background: var(--well);
+}
+
+.cs-week-marks {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-height: 26px;
+}
+
+.cs-week-mark {
+  width: 14px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.cs-week-mark.is-unexpected {
+  background: var(--warn);
+}
+
+.cs-week-mark.is-none {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.cs-week-more {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+  line-height: 1;
+}
+
+.cs-week-label {
+  color: var(--ink-3);
+  font-size: 0.6875rem;
+}
+
 /* What the boards did. */
 
 .cs-activity {

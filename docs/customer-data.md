@@ -30,6 +30,7 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 | An update in progress, its percentage and result | Board, already | — |
 | Last seen | Board, already (when AWS last heard from it) | — |
 | Activity for the last 30 days | Board, already (events) | — |
+| Health: a dot, a sentence and the week's restarts by day (also on the Overview) | Board, already (restart events with the boot diary's reset cause, firmware and update events) | — |
 | The board's own name (`boardName`) | Board, already | — |
 | The name shown (`name`) | **The label an admin gave it when assigning it** | Keep the admin's label, or have the board send a name |
 | Owned since (`since`) | **The assignment record** | Not board data: it is when the board became theirs |
@@ -89,6 +90,20 @@ Today the mixes come from a made-up demo, or from session files the customer imp
 4. Location, unless the board sends it.
 5. The words that say boards do not send sessions yet, on the Mixes and Help pages.
 
+## Board health
+
+Each Board has a `health` object (`cloud/api/src/customer/health.mjs`):
+`{ state: 'ok' | 'attention' | 'offline', summary, unexpectedRestarts7d, lastIssueAt?, updatedTo?, restarts7d }`.
+It is worked out from the events table, which the customer API's role already reads, and not from Memfault, whose
+token the customer function is not given. Each restart is only **expected** (an update, a power cycle, the reset
+button, a restart the board was asked for) or **unexpected** (a brownout, a watchdog, a lockup or another fault, or a
+restart the board made itself for being stuck). The sentences are "Running normally", "Restarted unexpectedly twice
+this week", "Recovered from a problem on Tue 3 Nov", "Updated to 1.15.0 on Thu 5 Nov", "Installing an update",
+"Offline since Sat 7 Nov" and "Not heard from yet"; the pages say the dates again in the reader's own time. A fault's
+name, a reset cause, a coredump, a stack or a thing name is never in it. A restart that came from a fault but that the
+board reports only as a software reset counts as expected: the events cannot tell the two apart, and Memfault, which
+can, is for the console.
+
 ## Worth sending as well (not shown today)
 
 - **Now playing:** the track on each deck as it plays, for a live view.
@@ -103,5 +118,5 @@ track that starts would be one more `what`.
 
 ## Never shown to a customer
 
-The thing name, the certificate, the MAC address, the Wi-Fi channel, memory figures, the boot diary, job ids, error text
-a board wrote, deployments, and the audit log (`cloud/api/src/customer/boards.mjs`).
+The thing name, the certificate, the MAC address, the Wi-Fi channel, memory figures, the boot diary, reset causes and
+fault names, coredumps and traces, job ids, error text a board wrote, deployments, and the audit log (`cloud/api/src/customer/boards.mjs`).

@@ -160,7 +160,7 @@ const CAUSE_WORDS = Object.freeze({
   temperature: 'a temperature reset',
 });
 // Causes that say that something went wrong, not that somebody restarted the board.
-const BAD_CAUSES = new Set([
+export const BAD_CAUSES = new Set([
   'brownout',
   'watchdog',
   'lockup',

@@ -7,6 +7,18 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.13.5
+
+Board health for customers: on craniumiot.com and in the apps' customer mode, each board says how its week went in plain words ("Running normally", "Restarted unexpectedly twice this week", "Recovered from a problem on Tue 3 Nov", "Updated to 1.15.0 on ...", "Offline since ..."), with a dot in the board list and a strip of its restarts by day on the Overview and the board's page.
+
+The customer Board gets `health`: `{ state, summary, unexpectedRestarts7d, lastIssueAt?, updatedTo?, restarts7d }`
+(customer/health.mjs). It is derived from the events table the customer role already reads: restart events with the
+boot diary's reset cause, and the firmware and update events, so the role and the template are unchanged and no
+Memfault token is involved. A restart is expected (an update, a power cycle, the reset button) or unexpected (any
+fault or watchdog cause in lib/events.mjs `BAD_CAUSES`, or a stuck restart); a software restart within 15 minutes of
+an update is the update. The week's events are kept a minute per board in the function. No cause or fault name, stack
+or thing name is in a Board. docs/customer-data.md "Board health", docs/customer-site.md "Board health".
+
 ## 2.13.4
 
 QR codes and labels for boards: once Board setup sees a board online it shows the board's QR code and a label to print, and every board's page has Show QR / Print label. The code opens the board's page on this console; in the phone apps, Scan board on the Devices page reads it.

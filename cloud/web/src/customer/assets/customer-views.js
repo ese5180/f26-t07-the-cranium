@@ -30,10 +30,12 @@ import {
   boardTitle,
   eventWords,
   groupSecret,
+  healthWords,
   initials,
   onlineWords,
   otpauthUri,
   plural,
+  restartWeek,
   shortVersion,
   signalWords,
   statusWords,
@@ -362,6 +364,77 @@ function statusBadge(board, now) {
   return badge(words.tone, words.icon, words.label);
 }
 
+// Health: a line in plain words, a dot, and the week's restarts by day.
+
+function healthDot(board, { said = true } = {}) {
+  const words = healthWords(board);
+  if (words === null) return null;
+  return h(
+    'span',
+    { class: `cs-health-dot is-${words.state}`, title: words.text, 'aria-hidden': said ? null : 'true' },
+    said ? h('span', { class: 'sr-only' }, words.text) : null
+  );
+}
+
+/** The week's restarts by day: a few marks a day, the unexpected ones in the warning colour. */
+function restartStrip(board, now) {
+  const days = restartWeek(board.health, now);
+  const said = days
+    .filter((day) => day.expected + day.unexpected > 0)
+    .map(
+      (day) =>
+        `${day.date}: ${[day.unexpected ? `${day.unexpected} unexpected` : '', day.expected ? `${day.expected} expected` : ''].filter(Boolean).join(', ')}`
+    );
+  return h(
+    'span',
+    {
+      class: 'cs-week',
+      role: 'img',
+      'aria-label': `Restarts this week: ${said.length === 0 ? 'none' : said.join('; ')}.`,
+    },
+    days.map((day) => {
+      const marks = [
+        ...Array.from({ length: Math.min(day.unexpected, 3) }, () => 'is-unexpected'),
+        ...Array.from({ length: Math.min(day.expected, Math.max(0, 3 - day.unexpected)) }, () => 'is-expected'),
+      ];
+      const more = day.expected + day.unexpected - marks.length;
+      return h(
+        'span',
+        {
+          class: 'cs-week-day',
+          key: day.key,
+          title: `${day.date}: ${plural(day.expected + day.unexpected, 'restart')}`,
+        },
+        h(
+          'span',
+          { class: 'cs-week-marks', 'aria-hidden': 'true' },
+          marks.length === 0 ? h('span', { class: 'cs-week-mark is-none' }) : null,
+          marks.map((kind, index) => h('span', { class: `cs-week-mark ${kind}`, key: `${kind}-${index}` })),
+          more > 0 ? h('span', { class: 'cs-week-more' }, `+${more}`) : null
+        ),
+        h('span', { class: 'cs-week-label', 'aria-hidden': 'true' }, day.label)
+      );
+    })
+  );
+}
+
+/** A board's health: the dot and the sentence, and the week's strip unless it is left out. */
+function healthPart(board, now, { strip = true } = {}) {
+  const words = healthWords(board);
+  if (words === null) return null;
+  return h(
+    'span',
+    { class: `cs-health is-${words.state}` },
+    h(
+      'span',
+      { class: 'cs-health-line' },
+      healthDot(board, { said: false }),
+      h('span', { class: 'cs-health-text' }, words.text)
+    ),
+    strip ? restartStrip(board, now) : null
+  );
+}
+
 function tiles(boards, now) {
   const summary = summarize(boards);
   const versions = summary.versions;
@@ -432,7 +505,8 @@ function boardRow(board, now) {
           board.firmware ? `Firmware ${shortVersion(board.firmware.version)}` : 'Firmware not reported',
           ' · ',
           board.lastSeen ? ['Heard from ', ago(board.lastSeen, now)] : 'Not heard from yet'
-        )
+        ),
+        healthPart(board, now)
       ),
       h('span', { class: 'cs-board-state' }, badge(words.tone, words.icon, words.label)),
       icon('arrow-right', 'cs-board-go')
@@ -658,12 +732,22 @@ export function devicesView(ctx) {
                     h(
                       'th',
                       { scope: 'row', 'data-label': 'Board' },
-                      h('a', { class: 'cs-table-name', href: `#/devices/${board.id}` }, boardTitle(board)),
+                      h(
+                        'a',
+                        { class: 'cs-table-name', href: `#/devices/${board.id}` },
+                        healthDot(board),
+                        boardTitle(board)
+                      ),
                       board.boardName && board.boardName !== board.name
                         ? h('span', { class: 'cs-table-sub mono' }, board.boardName)
                         : null
                     ),
-                    h('td', { 'data-label': 'State' }, badge(words.tone, words.icon, words.label)),
+                    h(
+                      'td',
+                      { 'data-label': 'State' },
+                      badge(words.tone, words.icon, words.label),
+                      healthWords(board) ? h('span', { class: 'cs-table-sub' }, healthWords(board).text) : null
+                    ),
                     h(
                       'td',
                       { 'data-label': 'Firmware' },
@@ -720,6 +804,18 @@ export function deviceView(ctx) {
       h(
         'div',
         { class: 'cs-column' },
+        board.health
+          ? card(
+              { key: 'health', title: 'This week' },
+              healthPart(board, ctx.now),
+              h(
+                'p',
+                { class: 'card-note' },
+                'Restarts by day. An update, a power cut or the reset button is expected. Any other restart ' +
+                  'is unexpected: the board restarted itself to recover from a problem.'
+              )
+            )
+          : null,
         card(
           { key: 'facts', title: 'How it is' },
           facts([

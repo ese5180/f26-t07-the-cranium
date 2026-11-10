@@ -33,8 +33,9 @@ export function boardStatus(device) {
  *
  * @param {object} device     a Device from lib/shadow.mjs
  * @param {object} ownership  { ref, label, assignedAt } from the ownership partition
+ * @param {object} [health]   customer/health.mjs boardHealth, else null
  */
-export function customerBoard(device, ownership) {
+export function customerBoard(device, ownership, health = null) {
   return {
     id: ownership.ref,
     // What the admin called it when it was assigned, else what the board calls itself.
@@ -51,6 +52,8 @@ export function customerBoard(device, ownership) {
     // Where it is: the fleet work's location by Wi-Fi (docs/fleet.md) is not built yet.
     location: null,
     since: ownership.assignedAt,
+    // In plain words, from the restart events: never a cause, a fault name or a stack.
+    health,
   };
 }
 
