@@ -16,8 +16,8 @@ options:
 settings:
   base:
     # The version people see. TestFlight builds get their build number from scripts/testflight.sh.
-    MARKETING_VERSION: "0.8.19"
-    CURRENT_PROJECT_VERSION: "33"
+    MARKETING_VERSION: "0.8.20"
+    CURRENT_PROJECT_VERSION: "34"
 
 packages:
   CraniumKit:

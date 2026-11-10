@@ -8,8 +8,8 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 | --- | --- | --- | --- | --- |
 | Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.15.0 (the release image, built); the newest tag is `firmware-v1.15.0` (1.14.1 to 1.15.0 are tagged) | On the console's Firmware page, each release with its note from the changelog |
 | Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.21.0; the newest tag is `console-v2.21.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.21.0"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.19; the newest tag is `ios-v0.8.16`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.19; the newest tag is `android-v0.8.16`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.20; the newest tag is `ios-v0.8.16`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.20; the newest tag is `android-v0.8.16`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
 | Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.14 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
 
 The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
@@ -26,8 +26,9 @@ what the apps show without a new app version, and the app's settings say which c
 | 2026-11-10 | 2.20.0 | 0.8.19 | 0.1.14 | Scheduled deployments and maintenance windows |
 | 2026-11-10 | 2.20.1 | | | "Roll back to last good" as the one way back |
 | 2026-11-10 | 2.21.0 | | | Bulk board setup |
+| 2026-11-10 | 2.22.0 | 0.8.20 | | Your listening on the customer site |
 
-The console's 2.18.0 to 2.21.0 are tagged `console-v<version>`. The apps' 0.8.17 to 0.8.19 and the desktop app's 0.1.12 to
+The console's 2.18.0 to 2.22.0 are tagged `console-v<version>`. The apps' 0.8.17 to 0.8.20 and the desktop app's 0.1.12 to
 0.1.14 have no tags yet (the newest app tags are `ios-v0.8.16` and `android-v0.8.16`).
 
 ## Making a version
