@@ -11,7 +11,8 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 A board wired to a Raspberry Pi updates the Pi: a signed image goes onto an SD card and over SPI to the Pi's partition
 B. One job can bring firmware and a Pi image: both download first, the firmware installs, and the Pi gets its image once
-that firmware is confirmed. Only in a Pi build (build.sh --pi, no Bluetooth). Deploy console 2.26.0 first.
+that firmware is confirmed. The Pi has no network: the board downloads its image and reports its state. Only in a Pi
+build (build.sh --pi, no Bluetooth). Deploy console 2.26.0 first.
 
 Both at once (docs/pi-ota.md, "Both at once"): the job document `"op": "fw_pi_update"` carries both parts, and is parsed
 with the URL of the part being downloaded (ota_job_parse_part()). src/ota/ota.c adds OTA_STAGING_PI (the Pi image onto

@@ -364,7 +364,9 @@ test("the page says no more than the project's own documents do", () => {
   assert.ok(text.includes('The board has no audio yet'));
   assert.ok(text.includes('How it is designed to connect'));
   assert.ok(text.includes('The enclosure and the mount'));
-  assert.ok(text.includes('Updating the Raspberry Pi with RAUC'));
+  // The Pi has no network: it is updated through the board, and that is not yet run on hardware.
+  assert.ok(text.includes('Updating the Raspberry Pi through the nRF board. The Pi has no network'));
+  assert.doesNotMatch(text, /Raspberry Pi with RAUC, driven by the same console/);
   assert.ok(text.includes('To be authenticated before it reaches your other devices'));
   // The limits that the documents state and a reader of them would look for.
   for (const limit of [
