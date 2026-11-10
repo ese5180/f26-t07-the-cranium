@@ -956,7 +956,7 @@ static void test_the_table_drives_help(void)
 
 	/* Exactly the commands the specification has in each mode. */
 	static const char *const factory_ones[] = { "HELP", "INIT", "GET_ID", "THING", "ECHO",
-						     "REBOOT", "ENTER_BOOTLOADER" };
+						     "REBOOT", "ENTER_BOOTLOADER", "SELFTEST" };
 
 	for (size_t i = 0; i < count; i++) {
 		bool expected = false;
@@ -2311,6 +2311,46 @@ static void test_status(void)
 	}
 }
 
+static void test_selftest(void)
+{
+	/* One line a check, name|result|detail, and a final OK with the counts. */
+	operating_board();
+	command("SELFTEST");
+	CHECK(strstr(fake.output, "leds|visual|detail 0\n") != NULL);
+	CHECK(strstr(fake.output, "buttons|pass|detail 1\n") != NULL);
+	CHECK(strstr(fake.output, "wifi|pass|detail 2\n") != NULL);
+	CHECK(strstr(fake.output, "flash|pass|detail 3\n") != NULL);
+	CHECK(strstr(fake.output, "ram|pass|detail 4\n") != NULL);
+	CHECK_TEXT(final_line(), "OK 4 passed, 0 failed, 0 skipped, 1 visual");
+
+	/* The button step is asked for by name, in any case, and nothing else is taken. */
+	operating_board();
+	command("selftest|button");
+	CHECK(strstr(fake.output, "buttons|pass|detail 1 pressed\n") != NULL);
+	operating_board();
+	command("SELFTEST|LEDS");
+	CHECK(strncmp(final_line(), "ERR usage: SELFTEST", 19) == 0);
+	CHECK(strstr(fake.output, "leds|") == NULL);
+
+	/* A failed check makes the final line an error; a skipped one is told and does not. */
+	operating_board();
+	fake.selftest_fail_at = 4;
+	command("SELFTEST");
+	CHECK(strstr(fake.output, "flash|fail|") != NULL);
+	CHECK_TEXT(final_line(), "ERR 1 failed, 3 passed, 0 skipped, 1 visual");
+	operating_board();
+	fake.selftest_skip_at = 3;
+	command("SELFTEST");
+	CHECK(strstr(fake.output, "wifi|skip|") != NULL);
+	CHECK_TEXT(final_line(), "OK 3 passed, 0 failed, 1 skipped, 1 visual");
+
+	/* It works before INIT, which is when Board setup uses it, and is not a change of the board. */
+	blank_board();
+	command("SELFTEST");
+	CHECK(strncmp(final_line(), "OK", 2) == 0);
+	CHECK(strstr(fake.output, "factory mode") == NULL);
+}
+
 static void test_boot_box(void)
 {
 	operating_board();
@@ -3648,6 +3688,7 @@ int main(void)
 	test_the_table_drives_help();
 	test_factory_refusal_comes_from_the_table();
 	test_every_command_ends_with_one_final_line();
+	test_selftest();
 	test_id_validation();
 	test_wifi_validation();
 	test_no_secret_comes_back();

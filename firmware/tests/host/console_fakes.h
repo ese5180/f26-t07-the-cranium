@@ -110,6 +110,9 @@ struct fake_board {
 	/* The test image's TEST_WIFI_DEAD: how often it was asked, and what it answers. */
 	int wifi_dead_calls;
 	int wifi_dead_result;
+	/* The self-test's check (counting from 1) that fails, or is skipped; 0 for none. */
+	int selftest_fail_at;
+	int selftest_skip_at;
 
 	int64_t now_ms;
 };

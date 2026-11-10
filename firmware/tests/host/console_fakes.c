@@ -427,6 +427,28 @@ int console_port_wifi_dead(void)
 }
 #endif
 
+bool console_port_selftest(unsigned int index, bool press_button, struct console_selftest_check *out)
+{
+	static const char *const names[] = { "leds", "buttons", "wifi", "flash", "ram" };
+
+	if (index >= sizeof(names) / sizeof(names[0])) {
+		return false;
+	}
+
+	fake_note_op("selftest");
+	out->name = names[index];
+	out->result = index == 0 ? SELFTEST_VISUAL : SELFTEST_PASS;
+	(void)snprintf(out->detail, sizeof(out->detail), "detail %u%s", index,
+		       press_button && index == 1 ? " pressed" : "");
+	if (fake.selftest_fail_at == (int)index + 1) {
+		out->result = SELFTEST_FAIL;
+	}
+	if (fake.selftest_skip_at == (int)index + 1) {
+		out->result = SELFTEST_SKIP;
+	}
+	return true;
+}
+
 int64_t console_port_uptime_ms(void)
 {
 	return fake.now_ms;

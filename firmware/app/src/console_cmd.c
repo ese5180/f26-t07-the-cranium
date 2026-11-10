@@ -76,7 +76,8 @@ static bool on_this_board(const struct console_command *command)
 {
 #if defined(CONFIG_APP_BT_ONLY)
 	return command->section != SECTION_WIFI && command->section != SECTION_CLOUD &&
-	       command->section != SECTION_STREAM && strcmp(command->name, "RESET_CONFIG") != 0;
+	       command->section != SECTION_STREAM && strcmp(command->name, "RESET_CONFIG") != 0 &&
+	       strcmp(command->name, "SELFTEST") != 0;
 #else
 	ARG_UNUSED(command);
 	return true;
@@ -1035,6 +1036,58 @@ static void cmd_stats(int argc, char **argv)
 	reply_done();
 }
 
+/*
+ * From 1.17.0: SELFTEST runs the hardware checks of src/selftest.c, one line each: <check>|<result>|<detail>,
+ * where the result is pass, fail, skip or visual (only a person can tell). The last line is OK with the
+ * counts, or ERR if a check failed. SELFTEST|BUTTON also waits up to 10 s for Button 1. Only on this
+ * command: nothing runs at boot. Not during an update, whose Wi-Fi and flash it would disturb.
+ */
+static void cmd_selftest(int argc, char **argv)
+{
+	static const char *const result_names[] = {
+		[SELFTEST_PASS] = "pass",
+		[SELFTEST_FAIL] = "fail",
+		[SELFTEST_SKIP] = "skip",
+		[SELFTEST_VISUAL] = "visual",
+	};
+	unsigned int counts[ARRAY_SIZE(result_names)] = { 0 };
+	struct console_selftest_check check;
+	bool press_button = false;
+
+	if (argc > 0) {
+		if (!console_equal_nocase(argv[0], "BUTTON")) {
+			reply_err("usage: %s", find_command("SELFTEST")->usage);
+			return;
+		}
+		press_button = true;
+	}
+
+	if (refused_by_update(on_main_guarded(do_nothing, NULL))) {
+		return;
+	}
+
+#if !defined(CONFIG_APP_BT_ONLY)
+	for (unsigned int index = 0; console_port_selftest(index, press_button, &check); index++) {
+		counts[check.result]++;
+		console_reply_line("%s|%s|%s", check.name, result_names[check.result], check.detail);
+	}
+#else
+	/* Never reached: the command is refused before it, as not on this board. */
+	ARG_UNUSED(check);
+	ARG_UNUSED(press_button);
+	ARG_UNUSED(result_names);
+#endif
+
+	if (counts[SELFTEST_FAIL] > 0) {
+		reply_err("%u failed, %u passed, %u skipped, %u visual", counts[SELFTEST_FAIL],
+			  counts[SELFTEST_PASS], counts[SELFTEST_SKIP], counts[SELFTEST_VISUAL]);
+		return;
+	}
+
+	reply_ok("%u passed, %u failed, %u skipped, %u visual", counts[SELFTEST_PASS],
+		 counts[SELFTEST_FAIL], counts[SELFTEST_SKIP], counts[SELFTEST_VISUAL]);
+}
+
 /* ---- MQTT ----------------------------------------------------------------------- */
 
 /*
@@ -1639,6 +1692,10 @@ static const struct console_command commands[] = {
 	{ "STATUS", NULL, "STATUS[|<device or wifi or cloud or certs or update>]",
 	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
 #endif
+
+	{ "SELFTEST", NULL, "SELFTEST[|BUTTON]",
+	  "check LEDs, buttons, Wi-Fi scan, external flash and RAM; BUTTON waits for Button 1",
+	  SECTION_STATUS, true, 0, 1, cmd_selftest },
 
 	{ "STREAM_START", NULL, "STREAM_START|<total_bytes>|<chunk_count>|<crc16_hex>|<CA or CERT>",
 	  "start loading a certificate", SECTION_STREAM, false, 4, 4, cmd_stream_start },

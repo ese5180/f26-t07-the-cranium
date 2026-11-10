@@ -45,6 +45,32 @@ void console_port_before_init_flag(void);
 int console_port_wifi_dead(void);
 #endif
 
+/*
+ * From 1.17.0, one check of the hardware self-test (SELFTEST, src/selftest.c). The checks are numbered
+ * from 0 and run one at a time, on the console task, which waits for each: the Wi-Fi scan takes a few
+ * seconds and the optional button step up to CONSOLE_SELFTEST_BUTTON_MS. Returns false past the last.
+ * The detail never holds a network's name, an address or anything else that identifies a place.
+ */
+#define CONSOLE_SELFTEST_BUTTON_MS 10000
+#define CONSOLE_SELFTEST_DETAIL    56
+
+enum console_selftest_result {
+	SELFTEST_PASS,
+	SELFTEST_FAIL,
+	/* Not run, with the reason in the detail. */
+	SELFTEST_SKIP,
+	/* Done, and only a person can tell: the LEDs. */
+	SELFTEST_VISUAL,
+};
+
+struct console_selftest_check {
+	const char *name;
+	enum console_selftest_result result;
+	char detail[CONSOLE_SELFTEST_DETAIL];
+};
+
+bool console_port_selftest(unsigned int index, bool press_button, struct console_selftest_check *out);
+
 int64_t console_port_uptime_ms(void);
 size_t console_port_free_heap(void);
 const char *console_port_reset_reason(void);

@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.23.0
+
+Board setup gets an optional hardware self-test. Once a board answers as a console, a card under the steps runs `SELFTEST` on it (firmware 1.17.0 and later) and shows a row for each check: LEDs and buttons (look at the board; a box adds a press of Button 1), a Wi-Fi scan (how many networks, never their names), the external flash and the memory. It is not a step, so skipping it changes nothing. "Set up several boards" has a matching option, off by default: each board runs the self-test before it is set up, and one with a failed check is stopped at the step Self-test and not labelled or added to the group.
+
+Web only: setup.js gains `parseSelfTest`, `flow.runSelfTest` and `selfTestCard`, and the queue's `selftest` setting; the simulated board answers `SELFTEST`, so the page's self-check still runs without a board. No server change. The Android app and the desktop app run the same page, so they have it; the iPhone app has no Board setup. Firmware older than 1.17.0 answers that it does not know the command, and the page says so. cloud/web/test/selftest.test.mjs; docs/new-board-setup.md.
+
 ## 2.21.1
 
 Three small security fixes: a team member who is disabled or demoted stops getting live updates within a minute, a customer's own name is labelled as theirs on the Customers page, and a customer's change limit holds even for requests that arrive together.

@@ -262,6 +262,8 @@ export const COMMANDS = Object.freeze([
   { name: 'STREAM_STATUS', group: null, factory: false, args: [0, 0], fields: [] },
   { name: 'STREAM_CANCEL', group: null, factory: false, args: [0, 0], fields: [] },
   { name: 'BUTTON', group: null, factory: false, args: [1, 1], fields: [] },
+  // Firmware 1.17.0: the hardware self-test, which Board setup runs (setup.js); this page does not offer it.
+  { name: 'SELFTEST', group: null, factory: true, args: [0, 1], fields: [] },
 ]);
 
 const KNOWN = new Map(

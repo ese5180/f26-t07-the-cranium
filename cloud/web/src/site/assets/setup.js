@@ -107,6 +107,9 @@ export const TIMING = Object.freeze({
   status: 8000,
   // INIT erases settings and restarts.
   init: 15000,
+  // SELFTEST: the LEDs, a Wi-Fi scan of up to 15 s, and the external flash; SELFTEST|BUTTON adds 10 s of waiting.
+  selftest: 40000,
+  selftestButton: 10000,
   // WIFI_SEC, STREAM_START and CLOUD: each writes to flash.
   wifi: 6000,
   // KEYGEN makes the key in the secure partition.
@@ -127,6 +130,8 @@ const SELF_CHECK_TIMING = Object.freeze({
   comeBack: 4000,
   status: 1000,
   init: 1000,
+  selftest: 1000,
+  selftestButton: 100,
   wifi: 1000,
   keygen: 1000,
   chunk: 1000,
@@ -298,7 +303,47 @@ export function checkRegistration(reply, thing) {
   return answer;
 }
 
+// The hardware self-test (firmware 1.17.0, SELFTEST in firmware/app/src/console_cmd.c): one line a check,
+// <check>|<pass or fail or skip or visual>|<detail>, then OK or ERR with the counts.
+
+export const SELFTEST_RESULT_WORDS = Object.freeze({
+  pass: 'Pass',
+  fail: 'Fail',
+  skip: 'Not run',
+  visual: 'Look at the board',
+});
+const SELFTEST_LINE = /^([a-z][a-z0-9_]{0,15})\|(pass|fail|skip|visual)\|(.{0,120})$/;
+
+/**
+ * The board's reply to SELFTEST: { checks, ok, message, supported }. A line that is not a check is passed
+ * over (the console tags its log lines apart already). `ok` means the board said OK and no check failed.
+ * `message` is the final line's words, for the person; it is empty when all went well.
+ */
+export function parseSelfTest(lines, final) {
+  const checks = [];
+  for (const line of lines ?? []) {
+    const match = SELFTEST_LINE.exec(String(line).trim());
+    if (match) checks.push({ name: match[1], result: match[2], detail: match[3].trim() });
+  }
+  const text = String(final ?? '').trim();
+  if (/^ERR unknown command/i.test(text))
+    return {
+      checks: [],
+      ok: false,
+      supported: false,
+      message: 'This firmware has no self-test: it came with firmware 1.17.0.',
+    };
+  const failed = checks.some((check) => check.result === 'fail');
+  const ok = /^OK\b/.test(text) && checks.length > 0 && !failed;
+  const message = ok ? '' : text.replace(/^(ERR|OK)\s*/, '') || 'The board gave no answer.';
+  return { checks, ok, supported: true, message };
+}
+
 // The flow.
+
+function initialSelfTest() {
+  return { state: 'idle', checks: [], ok: false, problem: null };
+}
 
 function initialSteps() {
   return Object.fromEntries(STEPS.map(({ key }) => [key, { status: 'todo', note: null, error: null }]));
@@ -340,6 +385,9 @@ export function createSetupFlow({
     // the values.
     wifiDefaults: { state: 'idle', problem: null },
     fillWifiDefaults,
+    // The optional hardware self-test: state is idle, running, done or failed.
+    selftest: initialSelfTest(),
+    runSelfTest,
     connect,
     run,
     skip,
@@ -884,6 +932,41 @@ export function createSetupFlow({
     if (!link || !flow.board || flow.board.blank) throw new BoardError('Connect to a board first.', 'no-board');
   }
 
+  /**
+   * The optional self-test, after Connect (or any time later, with the firmware running): not one of the
+   * steps, so skipping it changes nothing. A check that fails is shown in the table; the person decides.
+   * `button` adds the step that waits for Button 1.
+   */
+  async function runSelfTest({ button = false } = {}) {
+    if (flow.busy) return;
+    flow.busy = true;
+    flow.selftest = { ...initialSelfTest(), state: 'running' };
+    phase(
+      button
+        ? 'Self-test under way: watch the LEDs, then press Button 1 on the board within 10 seconds.'
+        : 'Self-test under way: watch the LEDs.'
+    );
+    try {
+      requireBoard();
+      if (flow.board.app !== 'console')
+        throw new BoardError('The self-test needs the board’s firmware: put it on first.', 'no-app');
+      const wait = timing.selftest + (button ? timing.selftestButton : 0);
+      const { lines, final } = await link.command(button ? 'SELFTEST|BUTTON' : 'SELFTEST', wait);
+      const parsed = parseSelfTest(lines, final);
+      flow.selftest = parsed.supported
+        ? { state: 'done', checks: parsed.checks, ok: parsed.ok, problem: parsed.checks.length ? null : parsed.message }
+        : { ...initialSelfTest(), state: 'failed', problem: parsed.message };
+      if (flow.selftest.state === 'done' && !flow.selftest.checks.length) flow.selftest.state = 'failed';
+    } catch (error) {
+      flow.selftest = { ...initialSelfTest(), state: 'failed', problem: words(error) };
+    } finally {
+      flow.busy = false;
+      flow.phase = null;
+      flow.progress = null;
+      changed();
+    }
+  }
+
   const WORK = { golden, firmware, online };
 
   async function run(key) {
@@ -913,6 +996,7 @@ export function createSetupFlow({
   async function disconnect() {
     await closeLinks();
     flow.steps = initialSteps();
+    flow.selftest = initialSelfTest();
     flow.current = 'connect';
     flow.board = null;
     flow.online = null;
@@ -1054,6 +1138,16 @@ export function createBulkQueue({ flow, adapters, settings, onChange = () => {} 
       throw Object.assign(new Error('The step did not finish.'), { step: key });
   }
 
+  /** Runs the self-test; throws, with the step 'selftest', unless it ran and no check failed. */
+  async function selfTestStop() {
+    await flow.runSelfTest({ button: false });
+    const result = flow.selftest;
+    if (result?.state === 'done' && result.ok) return;
+    const failed = (result?.checks ?? []).filter((check) => check.result === 'fail').map((check) => check.name);
+    const reason = failed.length ? `${failed.join(', ')} failed` : (result?.problem ?? 'The self-test did not finish.');
+    throw Object.assign(new Error(reason), { step: 'selftest' });
+  }
+
   /** One board: the flow's own steps in order. Throws at the first that fails, with its step. */
   async function drive(item) {
     await flow.disconnect();
@@ -1064,6 +1158,9 @@ export function createBulkQueue({ flow, adapters, settings, onChange = () => {} 
         if (key === 'golden' || (key === 'firmware' && !settings.newest)) {
           flow.skip(key);
         } else if (key === 'setup') {
+          // The optional hardware self-test, once the board runs the newest firmware and before it is set up.
+          // A board with a check that fails is stopped here, so that it is not labelled and grouped.
+          if (settings.selftest) await selfTestStop();
           await flow.runSetup({ id: item.label, ...adapters.wifi(), keepWifi: false });
           if (flow.steps.setup.status === 'done') item.labelUsed = true;
         } else {
@@ -1515,7 +1612,7 @@ const bulkUi = {
   load: 'idle',
   problem: null,
   groups: [],
-  settings: { pattern: 'Studio{n}', start: 1, count: 5, group: '', newest: true },
+  settings: { pattern: 'Studio{n}', start: 1, count: 5, group: '', newest: true, selftest: false },
   queue: null,
 };
 
@@ -1523,6 +1620,7 @@ const BULK_STEP_WORDS = {
   connect: 'Connect',
   golden: 'Golden image',
   firmware: 'Newest firmware',
+  selftest: 'Self-test',
   setup: 'Set up',
   online: 'Online',
   group: 'Adding it to the group',
@@ -1565,6 +1663,7 @@ async function startBulk(flow) {
   settings.count = Number(field('bulk-count')?.value ?? settings.count);
   settings.group = field('bulk-group')?.value ?? '';
   settings.newest = field('bulk-newest')?.checked !== false;
+  settings.selftest = field('bulk-selftest')?.checked === true;
   bulkUi.problem = null;
   const queue = createBulkQueue({
     flow,
@@ -1673,6 +1772,17 @@ function bulkSettingsForm(flow) {
         { class: 'choice-body' },
         h('span', { class: 'choice-title' }, 'Install the newest firmware'),
         ' Each board gets the console’s newest release for its type, unless it runs it already.'
+      )
+    ),
+    h(
+      'label',
+      { class: 'choice', key: 'selftest' },
+      h('input', { id: 'bulk-selftest', type: 'checkbox', checked: settings.selftest, disabled: started }),
+      h(
+        'span',
+        { class: 'choice-body' },
+        h('span', { class: 'choice-title' }, 'Run the hardware self-test'),
+        ' Before each board is set up it lights its LEDs and checks its Wi-Fi scan, external flash and memory. A check that fails stops that board. Needs firmware 1.17.0 or newer, so also install the newest.'
       )
     ),
     h(
@@ -1843,7 +1953,66 @@ export function setupView(ctx, flow) {
     notice('warn', 'alert', 'A board with nothing on it needs the debug probe once.', {
       more: h('span', { class: 'notice-more' }, ` ${WORDS.probe}`),
     }),
-    ...(bulkUi.on ? bulkView(current, ctx) : [boardFacts(current), stepper(current), onlineLabel(current, ctx)])
+    ...(bulkUi.on
+      ? bulkView(current, ctx)
+      : [boardFacts(current), stepper(current), selfTestCard(current), onlineLabel(current, ctx)])
+  );
+}
+
+/**
+ * The optional hardware self-test: offered once the board answers as a console (after Connect), never a step
+ * that has to be done. The table is what the board said; the network names a scan sees are never sent.
+ */
+export function selfTestCard(flow) {
+  if (flow.board?.app !== 'console') return null;
+  const result = flow.selftest ?? initialSelfTest();
+  const running = result.state === 'running';
+  return h(
+    'section',
+    { class: 'card', key: 'selftest', 'aria-label': 'Hardware self-test' },
+    h('h2', { class: 'setup-step-title' }, 'Hardware self-test', h('span', { class: 'quiet' }, ' · optional')),
+    h(
+      'p',
+      { class: 'setup-text' },
+      'Lights each LED, reads the buttons, scans for Wi-Fi networks (only how many), writes, reads and erases one spare sector of the external flash, and allocates a little memory. Needs firmware 1.17.0 or newer. LEDs and buttons cannot check themselves: look at the board.'
+    ),
+    h(
+      'label',
+      { class: 'choice', key: 'button' },
+      h('input', { id: 'setup-selftest-button', type: 'checkbox', disabled: flow.busy }),
+      h(
+        'span',
+        { class: 'choice-body' },
+        h('span', { class: 'choice-title' }, 'Also ask for a press of Button 1'),
+        ' The board waits up to 10 seconds for it.'
+      )
+    ),
+    h(
+      'div',
+      { class: 'setup-tools', key: 'tools' },
+      button(
+        'is-quiet',
+        () => flow.runSelfTest({ button: field('setup-selftest-button')?.checked === true }),
+        running ? 'Self-test under way' : result.state === 'idle' ? 'Run self-test' : 'Run self-test again'
+      )
+    ),
+    running && flow.phase ? h('p', { class: 'setup-phase', role: 'status' }, flow.phase) : null,
+    result.problem ? notice('bad', 'alert', result.problem) : null,
+    result.checks.length
+      ? h(
+          'ul',
+          { class: 'rows', key: 'rows', 'aria-label': 'Self-test results' },
+          result.checks.map((check) =>
+            h(
+              'li',
+              { key: check.name, class: `row selftest-row is-${check.result}` },
+              h('strong', { class: 'mono' }, check.name),
+              h('span', { class: 'bulk-state' }, ` · ${SELFTEST_RESULT_WORDS[check.result]}`),
+              check.detail ? h('span', { class: 'quiet' }, ` ${check.detail}`) : null
+            )
+          )
+        )
+      : null
   );
 }
 
@@ -1964,6 +2133,15 @@ export function simulatedBoard({ firmware = '1.14.0+0', state = 'FACTORY' } = {}
       case 'STATUS':
         if (board.state === 'FACTORY') return say(['ERR factory mode: run INIT|<id> first']);
         return say([...status(), 'OK']);
+      case 'SELFTEST':
+        return say([
+          'leds|visual|LED1, LED2, then both lit: look at the board',
+          `buttons|pass|Button 1 ${args[0] === 'BUTTON' ? 'pressed after 400 ms' : 'up'}, Button 2 up`,
+          'wifi|pass|7 networks seen',
+          'flash|pass|ID c22817, sector written, read, erased',
+          'ram|pass|heap 5000 B free, 256 B allocated and checked',
+          'OK 4 passed, 0 failed, 0 skipped, 1 visual',
+        ]);
       case 'ENTER_BOOTLOADER':
         return restart('bootloader');
       case 'INIT':

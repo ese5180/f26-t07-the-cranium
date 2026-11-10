@@ -52,6 +52,8 @@ static int64_t pressed_at[2];
  * has the LEDs and led_step() does not touch them.
  */
 static atomic_t identify_steps;
+/* From 1.17.0, the self-test has the LEDs (ui_leds_hold()): led_step() leaves them alone. */
+static atomic_t leds_held;
 
 static void led_step(struct k_timer *timer)
 {
@@ -61,7 +63,7 @@ static void led_step(struct k_timer *timer)
 	ARG_UNUSED(timer);
 
 	/* The pattern goes on counting under identify, so that it takes up where it would be. */
-	if (atomic_get(&identify_steps) <= 0) {
+	if (atomic_get(&identify_steps) <= 0 && atomic_get(&leds_held) == 0) {
 		(void)gpio_pin_set_dt(&status_led, (both >> step) & 1U);
 		(void)gpio_pin_set_dt(&second_led, (both >> (16 + step)) & 1U);
 	}
@@ -188,6 +190,17 @@ void ui_set_state(enum ui_state state)
 	}
 
 	atomic_set(&current_pattern, (atomic_val_t)((second << 16) | patterns[state]));
+}
+
+void ui_leds_hold(bool hold)
+{
+	atomic_set(&leds_held, hold ? 1 : 0);
+}
+
+void ui_leds_set(bool led1, bool led2)
+{
+	(void)gpio_pin_set_dt(&status_led, led1);
+	(void)gpio_pin_set_dt(&second_led, led2);
 }
 
 void ui_identify(unsigned int seconds)

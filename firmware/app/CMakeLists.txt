@@ -93,6 +93,8 @@ target_sources_ifdef(CONFIG_APP_CONSOLE app PRIVATE
 # Creating the device key for AWS IoT: there is no AWS IoT on a board with Bluetooth only.
 if(CONFIG_APP_CONSOLE AND NOT CONFIG_APP_BT_ONLY)
   target_sources(app PRIVATE src/console_keys.c)
+  # The hardware self-test (SELFTEST): the Wi-Fi scan and the external flash are not on the other board type.
+  target_sources(app PRIVATE src/selftest.c)
 endif()
 
 target_sources_ifdef(CONFIG_APP_BT_OTA app PRIVATE

@@ -9,6 +9,8 @@
 #ifndef UI_H_
 #define UI_H_
 
+#include <stdbool.h>
+
 enum ui_state {
 	/* Long flash every two seconds: factory mode, waiting for INIT. */
 	UI_FACTORY,
@@ -44,5 +46,12 @@ void ui_set_state(enum ui_state state);
  * state goes on being kept meanwhile. Another call starts the time again. 0 ends it at once.
  */
 void ui_identify(unsigned int seconds);
+
+/*
+ * From 1.17.0, for the hardware self-test (selftest.c): while held, the state's pattern stops driving
+ * the LEDs, and ui_leds_set() lights them as asked. Release when done; the pattern takes up at its next step.
+ */
+void ui_leds_hold(bool hold);
+void ui_leds_set(bool led1, bool led2);
 
 #endif /* UI_H_ */

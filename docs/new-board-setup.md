@@ -71,6 +71,8 @@ and `verify`, as one stepper:
 | Set up | `INIT` with the ID you give (or its chip's identifier), the Wi-Fi network you type, `KEYGEN`, then the console's `POST /api/devices/register` with the request the board made, and the certificate, Amazon Root CA 1 and the cloud settings back onto the board, as `tools/provision_device.py` does |
 | Online | Waits up to 3 minutes for the console to see the board online |
 
+**Hardware self-test** (optional, under the steps once the board answers as a console, so after Connect or once the newest firmware is on): sends `SELFTEST` (firmware 1.17.0) and shows a row for each check, `leds`, `buttons`, `wifi`, `flash` and `ram`, as pass, fail, not run or look at the board. The LEDs and buttons cannot check themselves, so the board lights them and you look; tick *Also ask for a press of Button 1* to make the board wait up to 10 seconds for Button 1. The Wi-Fi scan only counts networks. It is not a step: skipping it changes nothing, and a failed check is shown, not enforced. Details in [firmware/README.md](../firmware/README.md#the-hardware-self-test).
+
 Each step says what it is doing and why it stopped, in words; **Try again** starts that step again, and **Skip: done
 already** passes it. The golden image goes on before the newest release, because putting it back replaces the running
 image. An nRF5340 DK has no golden image and no Wi-Fi: the page skips those steps and does `INIT` only; its passkey is
@@ -95,7 +97,7 @@ What it can't do:
 **Set up several boards** (top right of Board setup) is a queue over the same steps. Choose once: the group every
 board joins (or none), a name pattern with `{n}` (letters and digits, for example `Studio{n}`), the first number and how
 many boards, the Wi-Fi network (filled from the console's defaults, and read from its fields only when a board needs
-it), and whether to install the newest firmware. **Make the queue** reserves the names: the first free ones from the
+it), whether to install the newest firmware, and whether to run the hardware self-test (off by default; each board lights its LEDs and runs it before it is set up, and a board with a failed check is stopped at the step *Self-test*, so it needs the newest firmware, 1.17.0 or later). **Make the queue** reserves the names: the first free ones from the
 first number, skipping any name a board on the console already has. Then plug a board in and press **Connect the next
 board**: the page runs the single-board steps (the golden image is not part of a queue; use one board at a time for a
 blank board), adds the board to the group and marks it done, or failed with the step and the reason. **Retry** puts a

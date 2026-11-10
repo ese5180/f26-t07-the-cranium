@@ -154,6 +154,7 @@ all start with `[BOOT]`.
 | `STREAM_START\|<total_bytes>\|<chunk_count>\|<crc16_hex>\|<CA or CERT>` | | start loading a certificate, at most 1800 bytes of DER |
 | `STREAM_CHUNK\|<index>\|<base64>` | | the next piece of it |
 | `STREAM_STATUS`, `STREAM_CANCEL` | | how far it is; give up on it |
+| `SELFTEST` or `SELFTEST\|BUTTON` | * | from 1.17.0, the hardware self-test: one line `<check>\|<pass, fail, skip or visual>\|<detail>` for each of `leds`, `buttons`, `wifi`, `flash` and `ram`, then `OK` with the counts, or `ERR` if a check failed. See [The hardware self-test](#the-hardware-self-test) |
 | `BUTTON\|<1 or 2>` | | a short press of a button, by the path of the real one, for a test bench |
 | `TEST_WIFI_DEAD` | | only in a test image built with `APP_TEST_FAULT_WIFI_DEAD`, and every other image answers `ERR unknown command`: stops the Wi-Fi chip's power, once, until a restart. Refused during an update or a trial, and on an image with no trailer |
 
@@ -208,6 +209,9 @@ IDs, network names, passwords, URLs and data stay exactly as typed.
   STATUS            [<device or wifi or      print the configuration, or one
                     cloud or certs or        section of it
                     update>]
+  SELFTEST          [BUTTON]                 check LEDs, buttons, Wi-Fi scan,
+                                             external flash and RAM; BUTTON
+                                             waits for Button 1
 +-- Loading a certificate -----------------------------------------------------+
   STREAM_START      <total_bytes>|           start loading a certificate
                     <chunk_count>|
@@ -967,6 +971,24 @@ An ignored one says why: `too long`, `not a command` (not JSON of that kind), `u
 `no id`, `no cmd`, `unknown cmd`, `no seq`, or `the board is busy` (another was still waiting). The id is in the answer only
 when the message was well formed and its id good, and nothing else of the message ever is. A build without the
 serial console sends no events, and so no answers, and still carries out the commands.
+
+## The hardware self-test
+
+From 1.17.0, `SELFTEST` checks the nRF7002 DK's parts one after another and prints a line for each, `<check>|<result>|<detail>`,
+where the result is `pass`, `fail`, `skip` (not run, with the reason) or `visual` (done, and only a person can tell). The last line is
+`OK <counts>`, or `ERR <counts>` if a check failed. It runs only on this command, on the console task, never at boot, works in factory
+mode (Board setup uses it before `INIT`) and is refused during an update. An nRF5340 DK answers that it is not on this board.
+
+| Check | What it does | Result |
+| --- | --- | --- |
+| `leds` | LED1, then LED2, then both, 300 ms each, with the status pattern held off meanwhile | `visual`: look at the board |
+| `buttons` | reads Button 1 and Button 2 now; `SELFTEST\|BUTTON` instead waits up to 10 s for Button 1 | `pass` if the pins read (and, with `BUTTON`, Button 1 was pressed), `fail` otherwise. The press also reaches the normal button handling when it is released |
+| `wifi` | one scan; counts the results and reads nothing from them, so no network's name is ever seen | `pass` with the count, `fail` if the scan is refused, fails or sees none, `skip` with no Wi-Fi interface |
+| `flash` | the MX25R64's JEDEC ID, then one scratch sector (0x400000, 4 KiB) erased, written with 32 bytes, read back and erased | `pass` with the ID. The sector is between the secondary image slot (0 to 0xe4000) and the golden image (0x700000 to 0x7e4000); the build stops if the slot grows into it |
+| `ram` | the heap's free bytes, and one 256-byte allocation filled, checked and freed | `pass` with the free bytes |
+
+The code is `src/selftest.c`; the LEDs are held through `ui_leds_hold()` and `ui_leds_set()` in `src/ui.c`. The host tests fake the
+checks (`console_port_selftest()`); the hardware behind them is not covered until a board runs it.
 
 ## Location by Wi-Fi
 
