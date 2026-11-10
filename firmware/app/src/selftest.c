@@ -28,7 +28,12 @@
 #include "console_port.h"
 #include "ui.h"
 
-#define LED_STEP_MS       300
+/*
+ * Long enough to tell apart from the online pattern, which swaps LED1 and LED2 every 250 ms: both dark,
+ * then LED1 alone, LED2 alone and both, a second each, then both dark again.
+ */
+#define LED_STEP_MS       1000
+#define LED_DARK_MS       500
 #define SCAN_TIMEOUT_MS   15000
 #define BUTTON_POLL_MS    20
 #define BUTTON_MUTE_AFTER_MS 500
@@ -73,11 +78,15 @@ set_detail(struct console_selftest_check *out, enum console_selftest_result resu
 static void check_leds(struct console_selftest_check *out)
 {
 	ui_leds_hold(true);
+	ui_leds_set(false, false);
+	k_sleep(K_MSEC(LED_DARK_MS));
 	/* LED1 alone, LED2 alone, both. */
 	for (unsigned int step = 0; step < 3; step++) {
 		ui_leds_set(step != 1, step != 0);
 		k_sleep(K_MSEC(LED_STEP_MS));
 	}
+	ui_leds_set(false, false);
+	k_sleep(K_MSEC(LED_DARK_MS));
 	ui_leds_hold(false);
 
 	set_detail(out, SELFTEST_VISUAL, "LED1, LED2, then both lit: look at the board");

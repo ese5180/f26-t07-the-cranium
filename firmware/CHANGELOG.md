@@ -7,6 +7,12 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.17.1
+
+The self-test's LED step is now easy to see: both LEDs dark for half a second, then LED1 alone, LED2 alone and both together for a second each, then dark again. In 1.17.0 each step lasted 300 ms, which looked like the online pattern (LED1 and LED2 taking turns every 250 ms). Nothing else changes.
+
+On a board, 1.17.0 passed the buttons (pressed and not pressed), Wi-Fi, flash and RAM checks; its LED step could not be told apart from the online pattern.
+
 ## 1.17.0
 
 A hardware self-test for the nRF7002 DK, on the serial console only: `SELFTEST` lights each LED, reads the buttons, counts the Wi-Fi networks a scan sees (never their names), checks the external flash (JEDEC ID, and one spare sector written, read back and erased) and allocates a little memory, and reports each as pass, fail, skip or look-at-the-board. Board setup shows the table. Nothing runs at boot and nothing else changes in what the board does. Not tested on a board yet.
