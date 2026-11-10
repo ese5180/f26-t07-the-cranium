@@ -222,7 +222,7 @@ export function repliesFor(world, { viewer = false } = {}) {
     ['/api/audit?limit=6', { entries: world.entries.slice(0, 6), next: null }],
     // What fleet.js reads (docs/fleet.md): no groups, and nothing to say of the fleet's health.
     ['/api/fleet', { boards: [], groups: [], types: [] }],
-    ['/api/fleet/health', {}],
+    ['/api/fleet/health?days=30', {}],
   ]);
   // The update history (GET /api/updates): what a world says it holds, else nothing.
   const updates = world.updates ?? [];

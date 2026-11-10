@@ -4,10 +4,15 @@
  *
  *   GET  /api/fleet
  *     -> { boards: [FleetBoard], groups: [Group], types: [TypeSummary], generatedAt }
- *   GET  /api/fleet/health
+ *   GET  /api/fleet/health?days=30
  *     -> { types: [{ type, label, bluetoothOnly, boards, newest, onNewest, share, versions, unknown }],
  *          updates: { days, succeeded, failed, rolledBack }, attention: [{ thing, name, type, reasons }],
+ *          score: { value, days, parts, memfault, history: [{ day, score, parts }], change, historyDays },
  *          generatedAt }
+ *        `score` is the fleet health score (docs/fleet-health.md, lib/fleet-score.mjs): worked out on
+ *        read and kept HEALTH_MS like the rest, with the daily snapshots of the last `days` (1 to 31,
+ *        30 if not given) and how far it moved since the snapshot of a week ago. The schedule
+ *        (tick.mjs) writes one snapshot a day with snapshot().
  *        `updates` counts the updates that ended in the last `days`: those over the internet as the
  *        boards reported their jobs' ends, and those over Bluetooth or by USB or another tool from the
  *        update history (handlers/updates.mjs)
@@ -48,6 +53,17 @@ import {
   updateResults,
   versionsByType,
 } from '../lib/fleet.mjs';
+import {
+  MAX_HISTORY_DAYS,
+  SNAPSHOT_PK,
+  dayOf,
+  fleetScore,
+  historyDays,
+  historyOf,
+  scoreParts,
+  snapshotItem,
+  weekChange,
+} from '../lib/fleet-score.mjs';
 import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
 import { deviceFromShadow } from '../lib/shadow.mjs';
 import { updateCounts } from '../lib/updates.mjs';
@@ -115,11 +131,15 @@ export function groupFromItem(item, registered) {
   };
 }
 
-export function createFleetHandlers({ aws, config, now, log }, { devices, updates = () => null }) {
+export function createFleetHandlers(
+  { aws, config, now, log },
+  { devices, updates = () => null, memfault = () => null }
+) {
   const attributes = new Map(); // thing -> { value, at }
   let seenCache = null; // { byThing, at }
   let groupCache = null; // { items, at }
-  let healthCache = null; // { body, at }
+  let healthCache = null; // { body, history, at }
+  let snapshotDay = null; // the UTC day whose snapshot is known to be stored
 
   async function attributesOf(thing) {
     const cached = attributes.get(thing);
@@ -246,7 +266,12 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
         let events = [];
         let records = [];
         try {
-          const items = await aws.queryEvents({ thing: board.thing, ...range, kinds: ['update'], limit: 500 });
+          const items = await aws.queryEvents({
+            thing: board.thing,
+            ...range,
+            kinds: ['update', 'restart'],
+            limit: 500,
+          });
           events = items.map(eventFromItem).filter((event) => event !== null);
         } catch (error) {
           log({
@@ -269,7 +294,8 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
         return { events, records };
       }
     );
-    const jobs = updateResults(lists.flatMap((part) => part.events));
+    const events = lists.flatMap((part) => part.events);
+    const jobs = updateResults(events);
     const others = updateCounts(
       lists.flatMap((part) => part.records),
       { sinceMs }
@@ -278,7 +304,46 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       succeeded: jobs.succeeded + others.succeeded,
       failed: jobs.failed + others.failed,
       rolledBack: jobs.rolledBack + others.rolledBack,
+      // For the score: the jobs alone, and the boards that restarted when they should not have (a bad
+      // cause, or for being stuck: the events at warning level).
+      jobs,
+      restarted: new Set(
+        events.filter((event) => event.kind === 'restart' && event.level === 'warn').map((event) => event.thing)
+      ),
+      sinceMs,
     };
+  }
+
+  /** The fleet health score now (lib/fleet-score.mjs), from the boards and their last week. */
+  async function scoreNow(loaded, results) {
+    const crashed = new Set(results.restarted);
+    let memfaultState = { state: 'ok', message: '' };
+    const reader = memfault();
+    if (reader !== null && typeof reader.crashes === 'function') {
+      try {
+        const found = await reader.crashes({ sinceMs: results.sinceMs });
+        if (found.state === 'ok') for (const thing of found.things) crashed.add(thing);
+        else memfaultState = { state: found.state, message: found.message };
+      } catch (error) {
+        log({ level: 'warn', event: 'memfault_failed', error: String(error?.message ?? error).slice(0, 200) });
+        memfaultState = { state: 'unreachable', message: 'Memfault could not be read just now.' };
+      }
+    } else {
+      memfaultState = { state: 'not_configured', message: '' };
+    }
+    const rssi = new Map(loaded.map(({ board, device }) => [board.thing, device?.rssi ?? null]));
+    const parts = scoreParts({
+      boards: loaded.map(({ board }) => board),
+      rssi,
+      crashed,
+      jobs: results.jobs,
+    });
+    // Without Memfault the crash-free part counts the events table's restarts alone; the page says so.
+    return { ...fleetScore(parts), memfault: memfaultState };
+  }
+
+  async function snapshots() {
+    return aws.listFleetItems(SNAPSHOT_PK, { limit: MAX_HISTORY_DAYS + 1 });
   }
 
   /** Throws unless every one of `things` is of the release's type and layout and can be the target of a job. */
@@ -325,6 +390,32 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
     }
   }
 
+  /** Fleet health as it is now, and the stored snapshots, for health() to keep HEALTH_MS. */
+  async function healthNow() {
+    const [loaded, releases] = await Promise.all([boards(), activeReleases()]);
+    const fleetBoards = loaded.map(({ board }) => board);
+    const byType = releasesByType(releases);
+    const newest = Object.fromEntries(BOARD_TYPES.map((type) => [type, byType[type]?.[0]?.version ?? null]));
+    const attention = loaded
+      .map(({ board, device }) => ({
+        thing: board.thing,
+        name: board.name,
+        type: board.type,
+        reasons: attentionReasons(board, device, now()),
+      }))
+      .filter((entry) => entry.reasons.length > 0);
+    const [results, history] = await Promise.all([recentResults(fleetBoards), snapshots()]);
+    const { jobs: _jobs, restarted: _restarted, sinceMs: _sinceMs, ...counts } = results;
+    const body = {
+      types: versionsByType(fleetBoards, newest, BOARD_TYPES),
+      updates: { days: HEALTH_DAYS, ...counts },
+      attention,
+      score: await scoreNow(loaded, results),
+      generatedAt: new Date(now()).toISOString(),
+    };
+    return { body, history, at: now() };
+  }
+
   /** How many sightings this person has put on record in the last minute. */
   async function recentSightings(sub) {
     const after = new Date(now() - MINUTE_MS).toISOString();
@@ -362,30 +453,49 @@ export function createFleetHandlers({ aws, config, now, log }, { devices, update
       };
     },
 
-    async health() {
-      if (healthCache !== null && now() - healthCache.at < HEALTH_MS) return { body: healthCache.body };
-      const [loaded, releases] = await Promise.all([boards(), activeReleases()]);
-      const fleetBoards = loaded.map(({ board }) => board);
-      const byType = releasesByType(releases);
-      const newest = Object.fromEntries(BOARD_TYPES.map((type) => [type, byType[type]?.[0]?.version ?? null]));
-      const attention = loaded
-        .map(({ board, device }) => ({
-          thing: board.thing,
-          name: board.name,
-          type: board.type,
-          reasons: attentionReasons(board, device, now()),
-        }))
-        .filter((entry) => entry.reasons.length > 0);
-      const body = {
-        types: versionsByType(fleetBoards, newest, BOARD_TYPES),
-        updates: { days: HEALTH_DAYS, ...(await recentResults(fleetBoards)) },
-        attention,
-        generatedAt: new Date(now()).toISOString(),
+    async health({ query } = {}) {
+      const days = historyDays(field(query ?? {}, 'days'));
+      if (days === null) {
+        throw badRequest('invalid_range', `"days" must be a whole number from 1 to ${MAX_HISTORY_DAYS}.`);
+      }
+      if (healthCache === null || now() - healthCache.at >= HEALTH_MS) healthCache = await healthNow();
+      const { body, history } = healthCache;
+      const shown = historyOf(history, days, now());
+      const kept = historyOf(history, MAX_HISTORY_DAYS, now());
+      return {
+        body: {
+          ...body,
+          score: {
+            ...body.score,
+            historyDays: days,
+            history: shown,
+            change: weekChange(kept, body.score.value, now()),
+          },
+        },
       };
-      healthCache = { body, at: now() };
-      return { body };
     },
 
+    /**
+     * The day's snapshot of the score, for the schedule (tick.mjs): written once a UTC day, on the
+     * condition that keeps the first, so a second run that day (or two at once) changes nothing.
+     * -> { day, written }
+     */
+    async snapshot() {
+      const day = dayOf(now());
+      if (snapshotDay === day) return { day, written: false };
+      if ((await aws.getFleetItem({ pk: SNAPSHOT_PK, sk: day })) !== null) {
+        snapshotDay = day;
+        return { day, written: false };
+      }
+      const loaded = await boards();
+      const results = await recentResults(loaded.map(({ board }) => board));
+      const score = await scoreNow(loaded, results);
+      const item = snapshotItem(score, now());
+      const put = await aws.putFleetItem({ pk: SNAPSHOT_PK, sk: day, item });
+      snapshotDay = day;
+      if (put.ok) log({ level: 'info', event: 'health_snapshot', day, score: item.score });
+      return { day, written: put.ok };
+    },
     async seen({ caller, actor, params, json, entry }) {
       const thing = requireThing(params.thing);
       entry.target = thing;

@@ -1945,8 +1945,42 @@ const PLOT_H = 160;
  * A line chart of one series over time. `points` are { ms, v }, oldest first. The latest
  * value is written at the end; a crosshair and readout follow the pointer and the arrow keys
  * when the chart has the focus; the table under it has every hour. Also drawn by the Memfault
- * metrics of a board's page (memfault-page.js), so that every chart of the console is one.
+ * metrics of a board's page (memfault-page.js), so that every chart of the console is one, and by the
+ * fleet health score's trend on the Overview (fleet.js), with `daily`: one point a day, and a table of
+ * the days.
  */
+/** A daily chart's table: a row a day, newest first. */
+function dailyTable(title, points, format) {
+  return h(
+    'details',
+    { class: 'chart-table' },
+    h('summary', null, `${title} by the day, as a table`),
+    h(
+      'table',
+      { class: 'data-table' },
+      h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Day'), h('th', { scope: 'col' }, 'Value'))),
+      h(
+        'tbody',
+        null,
+        [...points]
+          .reverse()
+          .map((point) =>
+            h(
+              'tr',
+              { key: String(point.ms) },
+              h(
+                'th',
+                { scope: 'row' },
+                new Date(point.ms).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+              ),
+              h('td', null, format(point.v))
+            )
+          )
+      )
+    )
+  );
+}
+
 export function lineChart(ctx, options) {
   const {
     key,
@@ -1966,6 +2000,7 @@ export function lineChart(ctx, options) {
     describe,
     emptyText,
     words,
+    daily = false,
   } = options;
   const x = (ms) => ((ms - fromMs) / (toMs - fromMs)) * PLOT_W;
   const y = (v) => PLOT_H - ((clamp(v, yMin, yMax) - yMin) / (yMax - yMin)) * PLOT_H;
@@ -2065,7 +2100,7 @@ export function lineChart(ctx, options) {
         {
           class: `chart-plot ${points.length === 0 ? 'is-empty' : ''}`.trim(),
           role: 'img',
-          'aria-label': `${title}, ${describe}. ${summary}.${points.length > 0 ? ' Use the arrow keys to read the values; the table below has every hour.' : ''}`,
+          'aria-label': `${title}, ${describe}. ${summary}.${points.length > 0 ? ` Use the arrow keys to read the values; the table below has every ${daily ? 'day' : 'hour'}.` : ''}`,
           ...handlers,
         },
         h(
@@ -2158,7 +2193,8 @@ export function lineChart(ctx, options) {
       { class: 'sr-only', 'aria-live': 'polite' },
       read && keyboardCharts.has(key) ? `${format(read.v)} at ${exactTime(iso(read.ms))}` : ''
     ),
-    points.length > 0
+    points.length > 0 && daily ? dailyTable(title, points, format) : null,
+    points.length > 0 && !daily
       ? h(
           'details',
           { class: 'chart-table' },

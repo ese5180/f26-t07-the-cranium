@@ -21,7 +21,8 @@
  *
  * Two more, for the schedule rather than a page (tick.mjs): health() is the health gate's look at the
  * boards of a staged rollout (lib/health.mjs), and watch() what the alert rules read of Memfault
- * (alerts.mjs watch). Both use the same reads, kept the same way.
+ * (alerts.mjs watch). Both use the same reads, kept the same way. crashes() is what the fleet health
+ * score counts of Memfault (handlers/fleet.mjs), for the Overview and the schedule's daily snapshot.
  *
  * Each read of Memfault is kept FRESH_MS (the same path and query answer from memory), and a read that
  * failed FAILED_MS, so that a page refreshing every half minute, or many people at once, do not each
@@ -53,6 +54,8 @@ export const FLEET_HOURS = 168;
 const LOG_PAGE = '500';
 const LOG_PAGES = 4;
 const LIST_PAGE = '100';
+// The new issues whose traces the fleet health score reads, at most, to find their boards.
+const NEW_ISSUES_READ = 10;
 const SHOWN = Object.freeze({ reboots: 50, events: 50, traces: 20, recent: 20 });
 const HOUR_MS = 3_600_000;
 // The only cursor of the processing log: a time.
@@ -269,6 +272,49 @@ export function createMemfaultHandlers({ aws, now, log }, { devices }) {
       if (failed !== null) return failed;
       const { reboots, heartbeats } = split(entries ?? []);
       return { state: 'ok', issues: listOf(issueList, issueOf), reboots, heartbeats };
+    },
+
+    /**
+     * The boards that crashed since `sinceMs`, as Memfault saw it, for the fleet health score
+     * (lib/fleet-score.mjs): an unexpected reboot, or a trace of an issue Memfault first saw since then.
+     * { state: "ok", things: [thing] } or { state, message } when Memfault could not be read.
+     */
+    async crashes({ sinceMs }) {
+      const errors = [];
+      const take = async (reading) => {
+        try {
+          return await reading;
+        } catch (error) {
+          if (codeOf(error) === null) throw error;
+          errors.push(reachable(error));
+          return null;
+        }
+      };
+      const startMs = Math.max(sinceMs, now() - FLEET_HOURS * HOUR_MS);
+      const [entries, issueList] = await Promise.all([
+        take(processingLog(FLEET_HOURS, null, startMs)),
+        take(read('issues', { per_page: LIST_PAGE })),
+      ]);
+      const failed = failureOf(errors);
+      if (failed !== null) return failed;
+      const since = new Date(sinceMs).toISOString();
+      const things = new Set(
+        (entries ?? [])
+          .filter((entry) => entry.kind === 'reboot' && !entry.reason.expected && entry.thing && entry.at >= since)
+          .map((entry) => entry.thing)
+      );
+      const fresh = listOf(issueList, issueOf)
+        .filter((one) => one.firstSeen !== null && one.firstSeen >= since)
+        .slice(0, NEW_ISSUES_READ);
+      for (const one of fresh) {
+        const traces = await take(read('traces', { issue: String(one.id), per_page: '50' }));
+        for (const trace of listOf(traces, traceOf)) {
+          if (trace.thing && (one.signature === null || trace.signature === one.signature)) things.add(trace.thing);
+        }
+      }
+      const late = failureOf(errors);
+      if (late !== null) return late;
+      return { state: 'ok', things: [...things].sort() };
     },
 
     /** The boards of an issue's traces that are ours: [thing], for its alert. Empty if it cannot be read. */

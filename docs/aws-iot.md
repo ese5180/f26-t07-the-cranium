@@ -728,7 +728,9 @@ Release managers only, with no fresh sign-in asked of a phone (it changes no boa
 the last 7 days' update results: the ends of jobs as the boards reported them, and from console 2.1.1 the updates over
 Bluetooth and by USB or another tool from the [update history](#update-history); and the boards that need
 looking at: offline for more than an hour, restarted for being stuck, a last update that failed or rolled back,
-memory down below 15% free, a Wi-Fi signal below −75 dBm, and a board without Wi-Fi no phone has seen.
+memory down below 15% free, a Wi-Fi signal below −75 dBm, and a board without Wi-Fi no phone has seen. From console
+2.15.0 it also has the fleet health score, its daily snapshots and its change since last week, and takes `?days=`
+(1 to 31): [fleet-health.md](fleet-health.md).
 
 **A release's note** (`PUT /api/firmware/{version}/notes`, body `{ "notes": "..." }`): the whole note, one line of
 at most 500 characters, `""` for none, for active and revoked releases alike, by release managers with a session

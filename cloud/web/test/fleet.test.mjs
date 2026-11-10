@@ -9,11 +9,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { CORE, VIEWS, all, createDocument, one, scriptAddress, textOf } from './page.mjs';
+import { CORE, TELEMETRY, VIEWS, all, createDocument, one, scriptAddress, textOf } from './page.mjs';
 
 const core = await import(CORE);
 const views = await import(VIEWS);
-const fleet = await import(scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS }));
+const fleet = await import(
+  scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS, 'telemetry.js': TELEMETRY })
+);
 globalThis.document = createDocument();
 
 const NOW = Date.parse('2026-11-04T12:00:00Z');
@@ -188,7 +190,7 @@ test('a group whose types have no older release is not offered a roll back; a vi
 test("the Overview's health card: versions by type, the last week's updates, and the boards to look at", async () => {
   const { state, answers, ctx } = connected({ route: { view: 'overview' } });
   answers.set('GET /api/fleet', FLEET);
-  answers.set('GET /api/fleet/health', {
+  answers.set('GET /api/fleet/health?days=30', {
     types: [
       {
         type: 'nrf7002dk',
@@ -315,7 +317,7 @@ test('the Deployments page lists the staged rollouts; the Fleet page has types, 
   const { state, answers, ctx } = connected({ route: { view: 'fleet' }, deployments: loaded([]) });
   answers.set('GET /api/fleet', FLEET);
   answers.set('GET /api/rollouts', { rollouts: [{ ...DETAIL, stage: 'waves', stopped: null }] });
-  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   state.firmware.loadedAt = NOW;
   state.devices.loadedAt = NOW;
   await fleet.refreshFor('deployments', true);
@@ -692,7 +694,7 @@ test('the Overview says the newest release of each board type, and a board witho
     firmware: loaded({ releases, fingerprint: 'd'.repeat(64), slotSize: 933888 }),
   });
   answers.set('GET /api/fleet', { ...FLEET, boards: FLEET.boards.map((board) => ({ ...board, layout: 1 })) });
-  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   await fleet.refreshFor('overview', true);
   const page = draw(views.overviewView(ctx));
   const newest = all(page, 'section.card').find((el) => textOf(el).startsWith('Newest releases'));
@@ -1142,7 +1144,7 @@ test('a group and the Fleet page offer Roll back to last good, to release manage
   const { state, answers, ctx } = lastGoodConsole();
   answers.set('GET /api/fleet', FLEET);
   answers.set('GET /api/rollouts', { rollouts: [] });
-  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   await fleet.refreshFor('devices', true);
   assert.ok(all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
   state.route = { view: 'fleet' };
@@ -1229,7 +1231,7 @@ test('the fleet asks for its own plan, and nothing is offered when no board has 
   const { state, answers, ctx, posted, dialog } = lastGoodConsole();
   answers.set('GET /api/fleet', FLEET);
   answers.set('GET /api/rollouts', { rollouts: [] });
-  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   answers.set('GET /api/fleet/last-good', { plan: { ...LAST_GOOD_PLAN, scope: { kind: 'fleet' }, targets: [] } });
   await fleet.refreshFor('devices', true);
   state.route = { view: 'fleet' };
@@ -1245,4 +1247,173 @@ test('the fleet asks for its own plan, and nothing is offered when no board has 
   assert.match(textOf(shown), /No board has a last good version it can be sent/);
   assert.match(textOf(all(shown, 'button').at(-1)), /Nothing to roll back/);
   assert.deepEqual(posted, []);
+});
+
+const SCORE = {
+  value: 72,
+  days: 7,
+  change: 5,
+  historyDays: 30,
+  memfault: { state: 'ok', message: '' },
+  parts: [
+    {
+      id: 'online',
+      label: 'Online',
+      meaning: 'Boards with Wi-Fi that are connected now.',
+      weight: 0.35,
+      counted: 2,
+      of: 3,
+      value: 2 / 3,
+    },
+    {
+      id: 'crashFree',
+      label: 'Crash-free',
+      meaning: 'No unexpected restart.',
+      weight: 0.3,
+      counted: 3,
+      of: 3,
+      value: 1,
+    },
+    {
+      id: 'updates',
+      label: 'Update success',
+      meaning: 'Updates that ended confirmed.',
+      weight: 0.2,
+      counted: 0,
+      of: 0,
+      value: null,
+    },
+    // A link of the answer's own is never followed: the console's are.
+    {
+      id: 'signal',
+      label: 'Wi-Fi signal',
+      meaning: 'Good signal.',
+      weight: 0.15,
+      counted: 1,
+      of: 2,
+      value: 0.5,
+      href: 'https://evil.example',
+    },
+    { id: 'unknown', label: 'Not a part', weight: 1, value: 1 },
+  ],
+  history: [
+    { day: '2026-10-28', score: 67 },
+    { day: '2026-11-01', score: null },
+    { day: 'yesterday', score: 50 },
+    { day: '2026-11-04', score: 70 },
+  ],
+};
+
+test("the Overview's fleet health score: the number, the week's change, the trend and each part with its page", async () => {
+  const { answers, ctx } = connected({ route: { view: 'overview' } });
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [], score: SCORE });
+  await fleet.refreshFor('overview', true);
+  const read = ctx.state.fleetHealth.value.score;
+  assert.deepEqual(
+    read.parts.map((part) => [part.id, part.href]),
+    [
+      ['online', '#/devices?status=offline'],
+      ['crashFree', '#/memfault'],
+      ['updates', '#/deployments'],
+      ['signal', '#/diagnostics'],
+    ]
+  );
+  assert.deepEqual(
+    read.history.map((one) => [one.day, one.score]),
+    [
+      ['2026-10-28', 67],
+      ['2026-11-01', null],
+      ['2026-11-04', 70],
+    ]
+  );
+
+  const card = draw(fleet.healthScoreCard(ctx));
+  assert.equal(textOf(one(card, 'h2')), 'Fleet health score');
+  assert.equal(textOf(one(card, 'p.health-score-value')), '72 / 100');
+  assert.ok(one(card, 'p.health-score-value').getAttribute('class').includes('is-warn'));
+  assert.equal(textOf(one(card, 'p.health-score-change')), '↑ 5 since last week');
+  // The trend: the telemetry chart, a point a day and the score now, with a table of the days.
+  assert.equal(textOf(one(card, '.chart-title')), 'Score, last 30 days');
+  assert.equal(textOf(one(card, '.chart-summary')), 'Now 72 · lowest 67 · highest 72');
+  const table = one(card, 'details.chart-table');
+  assert.equal(textOf(one(table, 'summary')), 'Score, last 30 days by the day, as a table');
+  // A header, and a row for each day with a score: two snapshots and now.
+  assert.equal(all(table, 'tr').length, 4);
+  // Each part: its value, what it means, how many of how many, and a link to its page.
+  const links = all(card, 'a.score-part-link');
+  assert.deepEqual(
+    links.map((link) => link.getAttribute('href')),
+    ['#/devices?status=offline', '#/memfault', '#/deployments', '#/diagnostics']
+  );
+  assert.deepEqual(
+    links.map((link) => textOf(one(link, '.score-part-value'))),
+    ['67%', '100%', '–', '50%']
+  );
+  assert.equal(textOf(one(links[0], '.score-part-meaning')), 'Boards with Wi-Fi that are connected now.');
+  assert.equal(textOf(one(links[2], '.score-part-count')), 'Nothing to count yet');
+  assert.equal(textOf(one(links[3], '.score-part-count')), '1 of 2');
+  assert.equal(textOf(one(links[0], '.score-part-weight')), 'weight 35%');
+  // On the Overview, before the health card.
+  const page = textOf(draw(views.overviewView(ctx)));
+  assert.ok(page.indexOf('Fleet health score') >= 0);
+  assert.ok(page.indexOf('Fleet health score') < page.indexOf('Needs attention'));
+});
+
+test('the score card says when the score went down, when nothing can be counted, and when Memfault is not read', async () => {
+  const { answers, ctx } = connected({ route: { view: 'overview' } });
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/fleet/health?days=30', {
+    types: [],
+    updates: {},
+    attention: [],
+    score: {
+      ...SCORE,
+      value: 41,
+      change: -9,
+      memfault: { state: 'unreachable', message: 'Memfault could not be reached.' },
+    },
+  });
+  await fleet.refreshFor('overview', true);
+  let card = draw(fleet.healthScoreCard(ctx));
+  assert.equal(textOf(one(card, 'p.health-score-change')), '↓ 9 since last week');
+  assert.ok(one(card, 'p.health-score-change').getAttribute('class').includes('is-down'));
+  assert.ok(one(card, 'p.health-score-value').getAttribute('class').includes('is-bad'));
+  assert.match(
+    textOf(card),
+    /Crash-free counts the restarts in the boards’ events only just now\. Memfault could not be reached\./
+  );
+
+  answers.set('GET /api/fleet/health?days=30', {
+    types: [],
+    updates: {},
+    attention: [],
+    score: { value: null, change: null, history: [], parts: [], memfault: { state: 'not_configured' } },
+  });
+  await fleet.refreshFor('overview', true);
+  card = draw(fleet.healthScoreCard(ctx));
+  assert.equal(textOf(one(card, 'p.health-score-value')), '– / 100');
+  assert.equal(textOf(one(card, 'p.health-score-change')), 'No snapshot from a week ago yet');
+  assert.match(textOf(card), /No boards with Wi-Fi to count yet\./);
+  assert.match(textOf(card), /The first snapshot is stored today/);
+  assert.match(textOf(card), /the console has no Memfault token/);
+  // An answer without a score (an older API) draws no card.
+  answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
+  await fleet.refreshFor('overview', true);
+  assert.equal(ctx.state.fleetHealth.value.score, null);
+  assert.equal(fleet.healthScoreCard(ctx), null);
+
+  assert.deepEqual(
+    [0, 3, -2, null].map((change) => fleet.changeWords(change)),
+    ['No change since last week', '↑ 3 since last week', '↓ 2 since last week', 'No snapshot from a week ago yet']
+  );
+  assert.deepEqual([100, 80, 79, 50, 49, 0, null].map(fleet.scoreTone), [
+    'good',
+    'good',
+    'warn',
+    'warn',
+    'bad',
+    'bad',
+    'idle',
+  ]);
 });

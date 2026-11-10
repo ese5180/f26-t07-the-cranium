@@ -95,7 +95,7 @@ const DETAIL_KEY = /^[a-zA-Z0-9:_-]{1,128}$/;
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED']);
 const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED']);
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH']);
 const FAILURE_TYPES = Object.freeze({
   FAILED: ['FAILED'],
   REJECTED: ['REJECTED'],
@@ -850,11 +850,12 @@ export function createFakeAws({
       return fleetItems.has(`${pk} ${sk}`) ? copy(fleetItems.get(`${pk} ${sk}`)) : null;
     },
 
-    async listFleetItems(pk) {
+    async listFleetItems(pk, { limit = Infinity } = {}) {
       checkFleetKey(pk, 'x');
       return [...fleetItems.values()]
         .filter((item) => item.pk === pk)
         .sort((a, b) => (a.sk < b.sk ? 1 : -1))
+        .slice(0, limit)
         .map(copy);
     },
 

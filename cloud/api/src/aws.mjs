@@ -175,7 +175,8 @@
  *   rollouts), "SEEN" (what a phone last saw of a board) and "ALR" (the alert rules). Any other pk is a TypeError, so that
  *   these can never touch a release or a token. Items hold plain data, as releases do.
  *   getFleetItem({ pk, sk })      -> object | null   consistent read
- *   listFleetItems(pk)            -> object[]        the partition, highest sk first; consistent read
+ *   listFleetItems(pk, { limit }) -> object[]        the partition, highest sk first, at most `limit`
+ *                                                    items when given; consistent read
  *   putFleetItem({ pk, sk, item, replace })
  *                                 -> { ok: true } | { ok: false, reason: "exists" }  an item with
  *                                    that key is kept unless `replace` is true
@@ -244,7 +245,7 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PK = 'AUD';
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH']);
 
 const THROTTLING = new Set([
   'ThrottlingException',
@@ -1318,10 +1319,10 @@ export function createAws(env) {
       }
     },
 
-    async listFleetItems(pk) {
+    async listFleetItems(pk, { limit = Infinity } = {}) {
       fleetPartition(pk);
       try {
-        return await queryDescending(stateTable, pk);
+        return await queryDescending(stateTable, pk, { limit });
       } catch (cause) {
         throw failure('Query', cause);
       }

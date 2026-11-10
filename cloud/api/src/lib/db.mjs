@@ -30,6 +30,7 @@ export const TABLES = Object.freeze({
       { id: 'GRP', label: 'Groups', pk: 'GRP' },
       { id: 'ROL', label: 'Staged rollouts', pk: 'ROL' },
       { id: 'SEEN', label: 'Seen over Bluetooth', pk: 'SEEN' },
+      { id: 'HEALTH', label: 'Fleet health snapshots', pk: 'HEALTH' },
       { id: 'APP', label: 'Phone app releases', pk: 'APP' },
       { id: 'SRC', label: 'SideStore links', pk: 'SRC' },
       { id: 'OWN', label: 'Customers’ boards', pk: 'OWN' },

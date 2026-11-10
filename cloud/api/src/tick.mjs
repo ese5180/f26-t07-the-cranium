@@ -12,6 +12,10 @@
  * pages (handlers/memfault.mjs): for the health gate of each staged rollout, and, at most every 5
  * minutes, for the alert rules "issue", "crashloop" and "voltage" (alerts.mjs watch). Neither changes
  * what a run returns.
+ *
+ * From console 2.15.0 it also stores the fleet health score's snapshot of the day (docs/fleet-health.md,
+ * handlers/fleet.mjs snapshot): on the first run of each UTC day, once, on the condition that keeps the first.
+ * A snapshot that cannot be made is logged and tried again on the next run; it never holds up the rollouts.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -45,14 +49,19 @@ export function createRolloutTick({
   // AWS IoT's job reads, paced and retried when throttled (lib/iot-pace.mjs).
   const context = { aws: pace(aws, { log, ...pacing }), config, now, randomHex, log, alert };
   const devices = createDeviceHandlers(context);
-  const fleet = createFleetHandlers(context, { devices });
+  const memfault = createMemfaultHandlers(context, { devices });
+  const fleet = createFleetHandlers(context, { devices, memfault: () => memfault });
   const deployments = createDeploymentHandlers(context, { devices, fleet });
   const audit = createAuditHandlers(context);
-  const memfault = createMemfaultHandlers(context, { devices });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, memfault: () => memfault });
   return async () => {
     const outcome = await runRolloutTick(rollouts, log);
     if (typeof alerts?.watch === 'function') await alerts.watch(memfault);
+    try {
+      await fleet.snapshot();
+    } catch (error) {
+      log({ level: 'warn', event: 'health_snapshot_failed', error: String(error?.message ?? error).slice(0, 200) });
+    }
     return outcome;
   };
 }

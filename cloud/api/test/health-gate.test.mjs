@@ -63,6 +63,8 @@ async function confirmedCanary(gate = { on: true, minutes: 10 }) {
   world.finish(rollout.canary.job, canary, 'SUCCEEDED', VERSION);
   world.advance(MINUTE);
   assert.equal((await world.tick()).advanced, 1);
+  // That first run also stored the day's fleet health snapshot, which reads Memfault; the gate has not yet.
+  memfault.requests.length = 0;
   const confirmedAt = world.clock.ms;
   return { world, rollout, canary, confirmedAt };
 }

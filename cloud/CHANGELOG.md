@@ -7,6 +7,20 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.15.0
+
+A fleet health score on the Overview: one number from 0 to 100 made of boards online, boards crash-free this week, updates that succeeded this week and boards on a good Wi-Fi signal, with a 30-day trend and how far it moved since last week. Each part says what it means and leads to its page.
+
+lib/fleet-score.mjs is new: the four parts and their weights (online 0.35, crash-free 0.30, update success 0.20,
+Wi-Fi signal 0.15, constants), and the score as the weighted mean of the parts that have something to count.
+Crash-free counts the restarts at warning level in the events table and, through handlers/memfault.mjs `crashes`,
+Memfault's unexpected reboots and the boards of issues it first saw this week. `GET /api/fleet/health` gains `score`
+and takes `?days=` (1 to 31, 30 by default; else `400 invalid_range`), kept 30 seconds as before. The rollouts
+schedule (tick.mjs) stores one snapshot a day in the state table (pk `HEALTH`, sk the UTC day) on the condition that
+keeps the first; its role gains `PutItem` of that partition only and `Query` of the boards' partitions of the events
+table. The Overview's card draws the trend with telemetry.js `lineChart` (new option `daily`); apps/shared/pages.json
+lists it, so the apps' parity tests check it. The Database page lists the snapshots. docs/fleet-health.md.
+
 ## 2.14.0
 
 Roll back to last good: one button on each group and on the Fleet page sends every board back to the last version it ran confirmed, from its update history, after a preview of each board from → to and of the boards left out and why. Boards going to the same release are one staged rollout, and the health gate is always on.

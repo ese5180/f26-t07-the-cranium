@@ -46,6 +46,13 @@
   ],
   "cards": [
     {
+      "page": "#/overview",
+      "title": "Fleet health score",
+      "script": "fleet.js",
+      "draw": "healthScoreCard",
+      "api": ["GET /api/fleet/health"]
+    },
+    {
       "page": "#/devices/{thing}",
       "title": "In Memfault",
       "script": "memfault-page.js",
