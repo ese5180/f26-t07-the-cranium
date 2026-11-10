@@ -2065,3 +2065,22 @@ test('E-mails: three switches on the account page, off until turned on, each sav
   assert.equal(tab.document.getElementById('email-offline').checked, true);
   assert.equal(tab.document.getElementById('email-updated').checked, false);
 });
+
+test('on a narrow phone the top bar fits: Connect device is its icon, and keeps its words for a screen reader', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  const connect = one(tab.app, 'button.cs-connect');
+  assert.equal(textOf(one(connect, 'span.cs-connect-label')), 'Connect device');
+  assert.equal(connect.getAttribute('title'), 'Connect device');
+  // At 375 px the brand, the two icons and the words were 13 px wider than the screen, at 360 px 28.
+  const css = readFileSync(new URL('assets/customer.css', CUSTOMER_DIR), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const narrow = [...css.matchAll(/@media \(max-width: (\d+)px\) \{((?:\s*[^{}]+\{[^}]*\})*)\s*\}/g)]
+    .filter((match) => Number(match[1]) >= 375 && Number(match[1]) < 560)
+    .map((match) => match[2])
+    .join('\n');
+  assert.match(narrow, /\.cs-connect-label \{[^}]*clip-path: inset\(50%\)/);
+  assert.match(narrow, /\.btn\.cs-connect \{[^}]*width: 34px/);
+  // After the 560 px block, whose padding would otherwise win.
+  assert.ok(css.indexOf('.cs-connect-label {') > css.lastIndexOf('@media (max-width: 560px)'));
+});

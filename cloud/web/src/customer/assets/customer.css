@@ -2573,6 +2573,29 @@ a.cs-panel-foot:hover {
   }
 }
 
+/*
+ * Under 400 px the top bar's brand, its two icons and "Connect device" are wider than the screen (375 px
+ * scrolled sideways by 13 px, 320 px by 68): the button is its icon alone there, like the two beside it,
+ * and keeps its words for a screen reader and as its tooltip.
+ */
+@media (max-width: 400px) {
+  .btn.cs-connect {
+    flex: none;
+    width: 34px;
+    min-height: 34px;
+    padding: 0;
+  }
+
+  .cs-connect-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cs-hero-sleeve {
     transform: none;
