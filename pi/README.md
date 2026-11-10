@@ -1,4 +1,4 @@
-# Cranium on the Pi: step 1, Mixxx metrics to JSON
+# Cranium on the Pi: Mixxx metrics to JSON, and to the board
 
 A Raspberry Pi 4 or 5 (arm64, Raspberry Pi OS trixie) runs the team's Mixxx fork
 ([dbosket/mixxx](https://github.com/dbosket/mixxx), branch `cranium`, 2.7.0-alpha). This folder turns what
@@ -13,6 +13,7 @@ Mixxx is doing into the JSON messages that the later steps send to the nRF5340.
 | `bin/cranium-mixxx` | Starts Mixxx with the arguments the metrics need. |
 | `bin/cranium-collect` | Runs the collector with the settings of `cranium.conf`. |
 | `bin/cranium-install` | Copies the mapping into Mixxx's folder, and makes the desktop menu start Mixxx through `cranium-mixxx`. |
+| `cranium_link.py`, `bin/cranium-link` | Step 2: sends each new message to the nRF7002 DK over SPI. Wiring and frames: [`docs/pi-link.md`](../docs/pi-link.md). |
 | `cranium.conf.default` | The settings. Change them in `~/.config/cranium/cranium.conf`, which is never in git. |
 
 ## The messages
@@ -86,6 +87,19 @@ gives one `np`. If `mx` stays 0, check that the mapping is loaded and enabled on
   default, Mixxx uses the API chosen in its preferences.
 
 Mixxx rotates `mixxx.log` each time it starts (to `mixxx.log.1`, ...). The collector follows the new file.
+
+## Sending to the board
+
+With the board wired as in [`docs/pi-link.md`](../docs/pi-link.md) and SPI on (`dtparam=spi=on`), run this in a
+third terminal:
+
+```bash
+~/cranium/pi/bin/cranium-link
+```
+
+It sends each new message from `messages.jsonl` to the board, and the board prints it on its serial console as
+`[PI] {...}`. While the board doesn't answer, messages wait and are sent in order once it does.
+`cranium-link --status` reads the board's status once.
 
 ## Tested
 

@@ -25,6 +25,9 @@
 #include "identity.h"
 #include "net.h"
 #include "ota.h"
+#if defined(CONFIG_APP_PI_LINK)
+#include "pi_link.h"
+#endif
 #include "stuck.h"
 #include "version.h"
 
@@ -900,6 +903,40 @@ static void print_bluetooth(void)
 }
 #endif
 
+#if defined(CONFIG_APP_PI_LINK)
+/* The SPI link from the Raspberry Pi (src/pi/pi_link.h). */
+static void print_pi(void)
+{
+	struct pi_link_view pi;
+	char state[48];
+	/* On the console task's stack: RAM is short on this board. */
+	char last[PI_LINK_KEPT_MAX + 1];
+
+	pi_link_get_view(&pi);
+	if (!pi.running) {
+		(void)snprintk(state, sizeof(state), "not running (error %d)", pi.error);
+	} else if (pi.since_frame_ms < 0) {
+		(void)snprintk(state, sizeof(state), "waiting for the Pi");
+	} else {
+		uint32_t tenths = (uint32_t)MIN(pi.since_frame_ms / 100, (int64_t)UINT32_MAX);
+
+		(void)snprintk(state, sizeof(state), "%s (last frame %u.%us ago)",
+			       pi.since_frame_ms > 30000 ? "quiet" : "up", (unsigned int)(tenths / 10),
+			       (unsigned int)(tenths % 10));
+	}
+	console_reply_line("%-14s %s", "pi link", state);
+	console_reply_line("%-14s %u", "pi messages", (unsigned int)pi.delivered);
+	console_reply_line("%-14s %u", "pi repeats", (unsigned int)pi.duplicates);
+	console_reply_line("%-14s %u", "pi polls", (unsigned int)pi.polls);
+	console_reply_line("%-14s %u (crc %u)", "pi bad frames", (unsigned int)pi.bad,
+			   (unsigned int)pi.bad_crc);
+	pi_link_get_last(PI_LINK_NP, last, sizeof(last));
+	console_reply_line("%-14s %s", "pi last np", last[0] != '\0' ? last : "none");
+	pi_link_get_last(PI_LINK_HB, last, sizeof(last));
+	console_reply_line("%-14s %s", "pi last hb", last[0] != '\0' ? last : "none");
+}
+#endif
+
 static const struct {
 	const char *name;
 	void (*print)(void);
@@ -914,6 +951,9 @@ static const struct {
 	{ "bluetooth", print_bluetooth },
 #endif
 	{ "update", print_update },
+#if defined(CONFIG_APP_PI_LINK)
+	{ "pi", print_pi },
+#endif
 };
 
 #define STATUS_SECTION_COUNT (sizeof(status_sections) / sizeof(status_sections[0]))
@@ -1634,6 +1674,9 @@ static const struct console_command commands[] = {
 #endif
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 	{ "STATUS", NULL, "STATUS[|<device or bluetooth or update>]",
+	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
+#elif defined(CONFIG_APP_PI_LINK)
+	{ "STATUS", NULL, "STATUS[|<device or wifi or cloud or certs or update or pi>]",
 	  "print the configuration, or one section of it", SECTION_STATUS, false, 0, 1, cmd_status },
 #else
 	{ "STATUS", NULL, "STATUS[|<device or wifi or cloud or certs or update>]",
