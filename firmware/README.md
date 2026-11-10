@@ -218,6 +218,7 @@ IDs, network names, passwords, URLs and data stay exactly as typed.
   STREAM_CANCEL                              give up on it
 +-- Test bench ----------------------------------------------------------------+
   BUTTON            <1 or 2>                 act as if the button was pressed
+  SESSION_TEST      <UTC time>               send a made-up session
 +------------------------------------------------------------------------------+
 OK
 ```
