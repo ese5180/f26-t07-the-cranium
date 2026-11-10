@@ -605,6 +605,19 @@ test('a send can be cancelled: the app is told, the page says so, and the broken
   assert.equal(v.flow.flow.step, 'release');
 });
 
+test('a Cancel while the board’s status is read sends nothing afterwards', async () => {
+  const w = await atTheBoard();
+  w.hold('ble.status');
+  const sending = w.flow.send();
+  await until(() => w.asked('ble.status').length >= 1, 'the status read');
+  w.flow.cancel();
+  assert.equal(w.flow.flow.step, 'release');
+  w.release('ble.status', { supported: false });
+  await sending;
+  assert.equal(w.asked('ble.upload').length, 0);
+  assert.equal(w.flow.flow.step, 'release');
+});
+
 test('progress is kept for the speed, at most 40 readings', async () => {
   const w = await atTheBoard();
   w.hold('ble.upload');

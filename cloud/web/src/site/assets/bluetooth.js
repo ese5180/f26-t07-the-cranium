@@ -415,6 +415,8 @@ export function createBluetoothFlow({
     collecting = start;
     const told = await bridge.call('ble.status').catch(() => ({ supported: false }));
     const first = told?.supported === true ? watch.statusFromBase64(told.payload) : null;
+    // A Cancel while the board's status was read has reset the page: nothing more is sent.
+    if (flow.step !== 'clearing') return;
     if (first) start.readings.unshift({ status: first, at: now(), afterRestart: false });
     flow.step = 'sending';
     flow.progress = { sent: 0, total: bytes.length };
@@ -686,8 +688,8 @@ export function describeRun(flow, { device = 'device', now = Date.now() } = {}) 
       return out;
     }
     case 'cancelled':
-      mark(0, 'done');
-      mark(1, 'done');
+      mark(0, 'done', 'paired');
+      mark(1, 'done', 'checked');
       mark(SEND_AT, 'stopped', 'cancelled');
       for (let index = SEND_AT + 1; index < steps.length; index += 1) mark(index, 'skipped');
       Object.assign(out, {
@@ -715,8 +717,8 @@ export function describeRun(flow, { device = 'device', now = Date.now() } = {}) 
       return out;
     }
     case 'following': {
-      mark(0, 'done');
-      mark(1, 'done');
+      mark(0, 'done', 'paired');
+      mark(1, 'done', 'checked');
       mark(SEND_AT, 'done', 'sent');
       const line = flow.line;
       const byKey = new Map((line?.rows ?? []).map((row) => [row.step, row]));
@@ -996,7 +998,7 @@ function releaseList(model, flow) {
   );
 }
 
-/** The window of the board, drawn with its two buttons: Button 1 is the one held. */
+/** What to do at the board to open its Bluetooth window, in the words of this device. */
 function windowHelp(device) {
   return h(
     'div',
