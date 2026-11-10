@@ -447,6 +447,12 @@ test('a board has one owner: assigning is checked, and every assignment and retu
     [assigned.target, assigned.detail.customer, assigned.detail.email, assigned.detail.label],
     [BOARD_A, w.ada.sub, 'ada@example.invalid', 'Deck']
   );
+  // Whose the board was and is (docs/audit-diff.md).
+  assert.deepEqual(assigned.changes, [
+    { field: 'owner', from: null, to: 'ada@example.invalid' },
+    { field: 'label', from: null, to: 'Deck' },
+  ]);
+  assert.deepEqual(entries.at(-1).changes, [{ field: 'owner', from: 'ada@example.invalid', to: null }]);
 });
 
 test('switching a customer off and on is on record, and the list says which they are', async () => {
@@ -466,6 +472,14 @@ test('switching a customer off and on is on record, and the list says which they
       ['customer.disable', 'denied', ''],
       ['customer.disable', 'ok', w.ben.sub],
       ['customer.enable', 'ok', w.ben.sub],
+    ]
+  );
+  assert.deepEqual(
+    w.fake.auditLog().map((entry) => entry.changes ?? null),
+    [
+      null,
+      [{ field: 'account', from: 'enabled', to: 'disabled' }],
+      [{ field: 'account', from: 'disabled', to: 'enabled' }],
     ]
   );
 });

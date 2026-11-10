@@ -680,7 +680,8 @@ export function createApp({
   async function write(found, event, request) {
     const { action, maxBody, unrecorded = [], unrecordedCodes = [] } = found.route.write;
     // The handler fills these in as it learns what the request is about.
-    const entry = { target: '', detail: {} };
+    // `changes` is what the request changed, before and after (lib/audit.mjs change()).
+    const entry = { target: '', detail: {}, changes: [] };
     const actor = { sub: request.viaToken ? '' : claimedSub(event), email: '' };
     let result = null;
     let failure = null;
@@ -745,6 +746,7 @@ export function createApp({
       target,
       outcome,
       detail,
+      changes: [...entry.changes],
     });
     if (failure !== null) throw failure;
     if (!recorded) {

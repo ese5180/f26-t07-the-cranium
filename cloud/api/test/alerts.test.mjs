@@ -371,6 +371,16 @@ test('a release manager subscribes their own address, confirms it by e-mail, and
       ['alert.unsubscribe', 'rejected', manager.email, 'not_subscribed'],
     ]
   );
+  assert.deepEqual(
+    entries.map((entry) => entry.changes ?? null),
+    [
+      [{ field: 'alerts', from: 'none', to: 'pending' }],
+      null,
+      null,
+      [{ field: 'alerts', from: 'confirmed', to: 'none' }],
+      null,
+    ]
+  );
 });
 
 test('only release managers subscribe, only their own address, and at most 3 times an hour', async () => {

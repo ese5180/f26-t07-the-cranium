@@ -22,6 +22,7 @@
  */
 
 import { badRequest, conflict, field, notFound } from '../http.mjs';
+import { change } from '../lib/audit.mjs';
 import { LABEL_LIMIT, REF } from '../customer/boards.mjs';
 import { requireText, requireThing } from '../lib/validate.mjs';
 
@@ -105,6 +106,7 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
     const customer = await existing(id, entry);
     const result = await aws.setCustomerEnabled(id, enabled);
     if (!result.ok) throw notFound('unknown_customer', 'There is no customer with this id.');
+    change(entry, 'account', customer.enabled === false ? 'disabled' : 'enabled', enabled ? 'enabled' : 'disabled');
     return { body: { customer: await current({ ...customer, enabled }) } };
   }
 
@@ -144,6 +146,9 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       const result = await aws.inviteCustomer({ email, name });
       if (!result.ok) throw conflict('customer_exists', 'There is a customer with this e-mail address already.');
       entry.target = result.customer.sub;
+      change(entry, 'email', null, email);
+      change(entry, 'name', null, name);
+      change(entry, 'account', null, 'invited');
       return { status: 201, body: { customer: view(result.customer, []) } };
     },
 
@@ -188,6 +193,8 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       }
       const result = await aws.assignBoard({ thing, owner: id, ref: newRef(), label, at: iso(), by: actor.sub });
       if (!result.ok) throw conflict('board_taken', 'This board was given to another customer a moment ago.');
+      change(entry, 'owner', null, customer.email || id);
+      change(entry, 'label', null, label);
       return { body: { customer: await current(customer) } };
     },
 
@@ -202,6 +209,7 @@ export function createCustomerHandlers({ aws, config, now, randomHex, directory 
       if (customer !== null) entry.detail.email = customer.email;
       const result = await aws.unassignBoard({ thing, owner: id, at: iso() });
       if (!result.ok) throw notFound('not_assigned', "This board is not this customer's.");
+      change(entry, 'owner', customer?.email || id, null);
       return { body: { customer: view(customer, await aws.listOwnership(), id) } };
     },
 

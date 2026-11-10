@@ -187,6 +187,13 @@ test('any member makes a token on the website; it is shown once and only its dig
     ]
   );
   assert.equal(JSON.stringify(entries).includes(made.token.slice(4)), false);
+  // What was made, before and after: the token itself only as "hidden" (docs/audit-diff.md).
+  assert.deepEqual(entries[0].changes, [
+    { field: 'name', from: null, to: 'CI on my laptop' },
+    { field: 'status', from: null, to: 'active' },
+    { field: 'expires', from: null, to: made.expiresAt },
+    { field: 'token', from: null, to: 'hidden', hidden: true },
+  ]);
 });
 
 test("a token's name and lifetime are checked, and a refusal goes on record", async () => {
@@ -289,6 +296,13 @@ test("a request to /api/t/ is the request to /api/, made with the token in its o
   });
   assert.equal(cancelled.status, 200);
   assert.equal(fake.auditLog().at(-1).detail.token, id);
+  assert.deepEqual(entry.changes, [
+    { field: 'deployment', from: null, to: created.body.deployment.id },
+    { field: 'version', from: null, to: '1.2.3+4' },
+    { field: 'boards', from: null, to: BOARD },
+  ]);
+  assert.equal(fake.auditLog().at(-1).changes.length, 1);
+  assert.equal(fake.auditLog().at(-1).changes[0].field, 'status');
 
   // Not found is not found, with a token as without.
   for (const path of ['/api/t/', '/api/t/nothing', '/api/t/firmware/1.2.3+4/extra']) {
@@ -473,6 +487,13 @@ test('the owner revokes a token on the website, and it stops working at once', a
     ]
   );
   assert.equal(fake.auditLog().slice(before)[0].detail.name, 'ci');
+  assert.deepEqual(
+    fake
+      .auditLog()
+      .slice(before)
+      .map((entry) => entry.changes ?? null),
+    [[{ field: 'status', from: 'active', to: 'revoked' }], null, null, null]
+  );
 });
 
 test('a token cannot manage tokens, or read a Bluetooth passkey', async () => {

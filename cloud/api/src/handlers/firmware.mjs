@@ -43,6 +43,7 @@ import {
   releaseBoard,
   releaseLayout,
 } from '../lib/boards.mjs';
+import { change } from '../lib/audit.mjs';
 import { ImageError, compareVersions, formatVersion, validateImage } from '../lib/mcuboot.mjs';
 import {
   MAX_NOTES,
@@ -403,6 +404,8 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
         if (registered.reason === 'not_newer') throw versionNotNewer(info.version, registered.highest);
         throw conflict('upload_conflict', 'Another upload was being registered at the same moment. Try again.');
       }
+      change(entry, 'status', null, 'active');
+      change(entry, 'notes', null, notes);
       return { status: 201, body: { release } };
     },
 
@@ -425,6 +428,7 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
       entry.detail.oldLength = String(existing.notes.length);
       const changed = await aws.setReleaseNotes({ sk: releaseKey(version.parts), notes });
       if (!changed.ok) throw notFound('unknown_version', `There is no release ${version.text}.`);
+      change(entry, 'notes', existing.notes, notes);
       const release = releaseFromItem(changed.release) ?? { ...existing, notes };
       return { body: { release } };
     },
@@ -445,7 +449,11 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
         reason,
       };
       const marked = await aws.markReleaseRevoked({ sk, revoked });
-      if (marked.ok) entry.detail.reason = reason;
+      if (marked.ok) {
+        entry.detail.reason = reason;
+        change(entry, 'status', existing.status ?? 'active', 'revoked');
+        change(entry, 'reason', null, reason);
+      }
 
       // 2. and 3. are repeated even if the record was revoked before, so that a
       // revocation that was interrupted half way can be completed by asking again.

@@ -52,6 +52,8 @@ All of these are part of a DynamoDB Query on the list's key, a page at a time: n
   log's partition between the two times (both kept) with a FilterExpression, and reads at most 1,000 entries a page
   (`SEARCH_BUDGET`): it answers `{ entries, next, read }`, `read` being how many it read. When it stops for the budget
   with less than a page found, `next` goes on from where it stopped. Without any, the answer is what it always was.
+  Each entry that recorded what it changed carries `changes`, shown as a diff on any page of the log, searched or
+  not (docs/audit-diff.md).
 - `GET /api/events` and `GET /api/events/log` take `q` and `level` (`warn` or `info`) beside their board, kinds,
   sources and range, in the same Query of each board's range of keys, with the same pages and cursors.
 - `q` is found in the target, the e-mail and the request id of an entry, and in the text, what and source of an event

@@ -4462,3 +4462,77 @@ test('in the iPhone app the Serial console and Board setup are left out; on the 
     globalThis.webkit = saved;
   }
 });
+
+// What an entry changed (docs/audit-diff.md).
+
+const GROUP_CHANGES = [
+  { field: 'name', from: 'Lab', to: 'Lab benches' },
+  { field: 'boards', from: WAITING, to: `${WAITING} ${INSTALLING}` },
+  { field: 'notes', from: null, to: 'Fixes the pads' },
+  { field: 'token', from: null, to: 'hidden', hidden: true },
+];
+
+async function diffWorld(entries) {
+  return consoleState({ ...WORLD, entries });
+}
+
+test('an entry that recorded its changes opens to each field, what it was and what it is now', async () => {
+  const state = await diffWorld([
+    entry('group.update', 'grp-0a1b2c3d', { detail: { name: 'Lab benches' }, changes: GROUP_CHANGES }),
+  ]);
+  const line = one(page(views.activityView, state), 'li.log-line');
+  const diff = one(line, 'details.audit-diff');
+  assert.match(textOf(one(diff, 'summary')), /What changed: 4 fields/);
+  const rows = all(diff, 'div.audit-change');
+  assert.deepEqual(
+    rows.map((row) => textOf(one(row, 'dt'))),
+    ['Name', 'Boards', 'Release note', 'Token']
+  );
+  // In words as well as colour: "was" over what it was, struck through as a <del>, and "now" over an <ins>.
+  const [name] = rows;
+  assert.deepEqual(
+    all(name, 'span.audit-diff-side').map((side) => side.getAttribute('class')),
+    ['audit-diff-side is-was', 'audit-diff-side is-now']
+  );
+  assert.deepEqual(all(name, 'span.audit-diff-tag').map(textOf), ['was', 'now']);
+  assert.equal(textOf(one(name, 'del')), 'Lab');
+  assert.equal(textOf(one(name, 'ins')), 'Lab benches');
+  // Boards by their names, as the rest of the log calls them; none says so; a secret is never shown.
+  assert.match(textOf(rows[1]), /now .* and /);
+  assert.equal(textOf(one(rows[2], 'em.audit-diff-empty')), 'none');
+  assert.equal(all(rows[3], 'del').length + all(rows[3], 'ins').length, 0);
+  assert.match(textOf(rows[3]), /was none now hidden/);
+});
+
+test('an entry from before changes were recorded says so, and one that changed nothing has no diff', async () => {
+  const state = await diffWorld([
+    entry('group.delete', 'grp-0a1b2c3d', { detail: { name: 'Lab' } }),
+    entry('account.sign_in', '', { requestId: 'signin.x', detail: { client: 'web' } }),
+    entry('group.update', 'grp-0a1b2c3d', { outcome: 'rejected', detail: { code: 'group_changed' } }),
+  ]);
+  const lines = all(page(views.activityView, state), 'li.log-line');
+  assert.equal(textOf(one(lines[0], 'p.audit-diff-none')), 'No details recorded for this entry.');
+  assert.equal(all(lines[1], 'details.audit-diff').length, 0);
+  assert.equal(all(lines[2], 'details.audit-diff').length, 0);
+});
+
+test('the diff reads what the API sends, no more, and counts what the entry left out', async () => {
+  const many = Array.from({ length: 20 }, (_, index) => ({ field: `field${index}`, from: 'a', to: 'b' }));
+  const state = await diffWorld([entry('rollout.create', 'rol-1', { changes: many, changesOmitted: 3 })]);
+  const diff = one(page(views.activityView, state), 'details.audit-diff');
+  assert.equal(all(diff, 'div.audit-change').length, 12);
+  assert.match(textOf(diff), /3 more changes left out/);
+  assert.equal(core.describeChanges({ action: 'token.create', outcome: 'ok' }).none, true);
+  assert.equal(core.describeChanges({ action: 'token.create', outcome: 'ok', changes: [] }), null);
+});
+
+test('the diff stays on the page through the search and filters, and off the overview', async () => {
+  const state = await diffWorld([entry('group.update', 'grp-0a1b2c3d', { changes: GROUP_CHANGES })]);
+  const filtered = {
+    ...state,
+    audit: { ...state.audit, value: { ...state.audit.value, filtered: true } },
+    filters: { ...state.filters, activity: { q: 'grp', kind: 'deployments', outcome: 'ok', from: '', to: '' } },
+  };
+  assert.equal(all(page(views.activityView, filtered), 'details.audit-diff').length, 1);
+  assert.equal(all(page(views.overviewView, state), 'details.audit-diff').length, 0);
+});

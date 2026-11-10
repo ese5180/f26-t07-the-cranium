@@ -38,6 +38,7 @@ import {
   dayLabel,
   deploymentHref,
   describeAudit,
+  describeChanges,
   describeCounts,
   describeDeployment,
   describeExecution,
@@ -2294,10 +2295,67 @@ function activityLine(entry, ctx, compact) {
             entry.requestId && entry.action !== 'account.sign_in'
               ? h('span', { key: 'request', class: 'log-ref' }, 'Request ', mono(entry.requestId))
               : null
-          )
+          ),
+      compact ? null : auditChanges(entry, ctx)
     ),
     // The full log files its lines under the day, so a line says when in that day.
     h('span', { class: 'log-when' }, compact ? when(entry.at, ctx.state.now) : whenInDay(entry.at))
+  );
+}
+
+/**
+ * One side of a change: "was" or "now", in words as well as in colour, then the value. The old value is
+ * struck through, the new one marked inserted; none, and a value that is never shown, say so.
+ */
+function changeSide(kind, value, row, devices) {
+  let shown;
+  if (value === null) shown = h('em', { class: 'audit-diff-empty' }, 'none');
+  else if (row.hidden)
+    shown = h('span', { class: 'tag audit-diff-hidden', title: 'Never recorded or shown' }, 'hidden');
+  else {
+    const things = row.field === 'boards' ? value.split(' ') : [];
+    const words = things.length > 0 && things.every((thing) => isThing(thing)) ? boardsInWords(things, devices) : value;
+    shown = h(kind === 'was' ? 'del' : 'ins', { class: 'audit-diff-value' }, words);
+  }
+  return h(
+    'span',
+    { class: `audit-diff-side is-${kind}` },
+    h('span', { class: 'audit-diff-tag' }, kind === 'was' ? 'was' : 'now'),
+    ' ',
+    shown
+  );
+}
+
+/**
+ * What an entry changed, before and after, behind a disclosure: a grouped list of fields, each with what
+ * it was and what it is now. An entry from before changes were recorded says that none were.
+ */
+function auditChanges(entry, ctx) {
+  const diff = describeChanges(entry);
+  if (diff === null) return null;
+  const devices = ctx.state.devices?.value?.devices;
+  const summary = diff.none ? 'What changed' : `What changed: ${plural(diff.rows.length + diff.omitted, 'field')}`;
+  return h(
+    'details',
+    { class: 'more audit-diff', key: 'changes' },
+    h('summary', null, summary, h('span', { class: 'sr-only' }, ` in the entry of ${whenInDay(entry.at)}`)),
+    diff.none
+      ? h('p', { class: 'audit-diff-none' }, 'No details recorded for this entry.')
+      : h(
+          'dl',
+          { class: 'audit-changes' },
+          diff.rows.map((row, index) =>
+            h(
+              'div',
+              { class: 'audit-change', key: `${row.field}-${index}` },
+              h('dt', null, row.label),
+              h('dd', null, changeSide('was', row.from, row, devices), ' ', changeSide('now', row.to, row, devices))
+            )
+          )
+        ),
+    diff.omitted > 0
+      ? h('p', { class: 'audit-diff-none' }, `${plural(diff.omitted, 'more change')} left out: an entry keeps a few.`)
+      : null
   );
 }
 

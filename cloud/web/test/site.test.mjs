@@ -470,6 +470,31 @@ test('colour keeps to what it means', () => {
   );
 });
 
+test('a change in the activity log reads in both themes and on a phone, and not by colour alone', () => {
+  const themes = {
+    light: declared(':root'),
+    dark: new Map([...declared(':root'), ...declared(':root', '@media (prefers-color-scheme: dark)')]),
+  };
+  assert.equal(declared('.is-was .audit-diff-value').get('color'), 'var(--bad)');
+  assert.equal(declared('.is-was .audit-diff-value').get('background'), 'var(--bad-wash)');
+  assert.equal(declared('.is-now .audit-diff-value').get('color'), 'var(--good)');
+  assert.equal(declared('.is-now .audit-diff-value').get('background'), 'var(--good-wash)');
+  for (const [name, colours] of Object.entries(themes)) {
+    for (const [text, ground] of [
+      ['--bad', '--bad-wash'],
+      ['--good', '--good-wash'],
+      ['--ink-3', '--surface'],
+    ]) {
+      const ratio = contrast(colours.get(text), colours.get(ground));
+      assert.equal(ratio >= 4.5, true, `${text} on ${ground}, ${name}: ${ratio.toFixed(2)}:1`);
+    }
+  }
+  // On a phone the field goes over its values, and each value has a line of its own.
+  const phone = '@media (max-width: 560px)';
+  assert.equal(declared('.audit-change', phone).get('grid-template-columns'), 'minmax(0, 1fr)');
+  assert.equal(declared('.audit-change > dd', phone).get('flex-direction'), 'column');
+});
+
 test('a line through a version means that it was revoked, and nothing else', () => {
   const struck = rules.filter((rule) => /line-through/.test(rule.values.get('text-decoration') ?? ''));
   assert.equal(struck.length >= 1, true);

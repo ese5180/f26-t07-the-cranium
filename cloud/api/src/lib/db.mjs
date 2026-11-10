@@ -96,6 +96,11 @@ const SAFE_NAMES = Object.freeze(new Set(['pk', 'sk', 'id', 'tokenid', 'keyid'])
 const SECRET_VALUE =
   /^(?:crn_|crs_)[A-Za-z0-9_-]{8,}|-----BEGIN [A-Z ]*(?:KEY|CERTIFICATE|REQUEST)-----|^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./;
 
+/** Whether a text is a credential whatever field holds it: an API token, a key or certificate, a JWT. */
+export function secretValue(text) {
+  return typeof text === 'string' && SECRET_VALUE.test(text);
+}
+
 /** Whether a field's name says that it holds a credential. */
 export function secretName(name) {
   const plain = String(name)

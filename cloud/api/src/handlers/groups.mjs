@@ -35,6 +35,7 @@
  */
 
 import { HttpError, badRequest, conflict, field, notFound, unprocessable } from '../http.mjs';
+import { boardsValue, change } from '../lib/audit.mjs';
 import { BOARD_TYPES } from '../lib/boards.mjs';
 import { MAX_GROUPS, MAX_GROUP_BOARDS, boardLabel, requireGroupId, requireGroupName } from '../lib/fleet.mjs';
 import { isThing } from '../lib/validate.mjs';
@@ -153,6 +154,8 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       }
       if (item === null) throw new HttpError(500, 'internal_error', 'No free group id after three attempts.');
       entry.target = item.id;
+      change(entry, 'name', null, item.name);
+      change(entry, 'boards', null, boardsValue(item.things));
       fleet.forgetGroups();
       return { status: 201, body: { group: groupFromItem(item, registered) } };
     },
@@ -184,6 +187,8 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       }
       const changed = await aws.updateFleetItem({ pk: 'GRP', sk: id, rev: item.rev, set });
       if (!changed.ok) throw groupChanged();
+      if (set.name !== undefined) change(entry, 'name', item.name, set.name);
+      if (set.things !== undefined) change(entry, 'boards', boardsValue(item.things ?? []), boardsValue(set.things));
       fleet.forgetGroups();
       const all = new Set([...registered, ...(await devices.groupThings())]);
       return { body: { group: groupFromItem(changed.item, all) } };
@@ -202,6 +207,8 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
         set: { deletedAt: at, deletedBy: { sub: actor.sub, email: actor.email } },
       });
       if (!changed.ok) throw groupChanged();
+      change(entry, 'name', item.name, null);
+      change(entry, 'boards', boardsValue(item.things ?? []), null);
       fleet.forgetGroups();
       const registered = new Set(await devices.groupThings());
       return { body: { group: { ...groupFromItem({ ...changed.item, deletedAt: null }, registered), deletedAt: at } } };

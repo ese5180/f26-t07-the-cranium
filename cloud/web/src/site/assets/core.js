@@ -1124,7 +1124,26 @@ function readAuditEntry(raw) {
     outcome: text(item.outcome, 24),
     detail,
     requestId: text(item.requestId, 64),
+    // What changed, before and after: only on an entry that recorded it (docs/audit-diff.md).
+    ...readChanges(item),
   };
+}
+
+/** An entry's changes as the API keeps them: at most 12 of a field and two values, each text or null. */
+function readChanges(item) {
+  if (!Array.isArray(item.changes)) return {};
+  const changes = item.changes
+    .slice(0, 12)
+    .map(record)
+    .filter((change) => typeof change.field === 'string' && change.field !== '')
+    .map((change) => ({
+      field: text(change.field, 32),
+      from: typeof change.from === 'string' ? text(change.from, 200) : null,
+      to: typeof change.to === 'string' ? text(change.to, 200) : null,
+      ...(change.hidden === true ? { hidden: true } : {}),
+    }));
+  const omitted = Number.isSafeInteger(item.changesOmitted) && item.changesOmitted > 0 ? item.changesOmitted : 0;
+  return omitted > 0 ? { changes, changesOmitted: omitted } : { changes };
 }
 
 function readAudit(body) {
@@ -4695,6 +4714,94 @@ function auditFact(entry, key, value) {
  * names them, and `boardCount` how many there were; auditBoards puts them into words. `byName`
  * says that the label is a board's own name, its device ID, which the page may find in its list.
  */
+/**
+ * The actions of the activity log that change something, and from console 2.13.1 say what: before and
+ * after (docs/audit-diff.md). An entry of one of them from before then has no `changes`.
+ */
+export const CHANGE_ACTIONS = Object.freeze([
+  'firmware.upload',
+  'firmware.revoke',
+  'firmware.notes',
+  'deployment.create',
+  'deployment.cancel',
+  'token.create',
+  'token.revoke',
+  'alert.subscribe',
+  'alert.unsubscribe',
+  'alert.rules',
+  'group.create',
+  'group.update',
+  'group.delete',
+  'rollout.create',
+  'rollout.cancel',
+  'rollout.advance',
+  'rollout.stop',
+  'fleet.update_everything',
+  'group.rollback',
+  'customer.create',
+  'customer.assign',
+  'customer.unassign',
+  'customer.disable',
+  'customer.enable',
+]);
+
+// What each field of a change is called on the page; another is shown by its own name.
+const CHANGE_FIELDS = Object.freeze({
+  status: 'Status',
+  notes: 'Release note',
+  reason: 'Reason',
+  name: 'Name',
+  boards: 'Boards',
+  phase: 'Stage',
+  rollout: 'Rollout',
+  version: 'Release',
+  plan: 'Plan',
+  expires: 'Expires',
+  token: 'Token',
+  owner: 'Owner',
+  label: 'Label',
+  account: 'Account',
+  email: 'E-mail address',
+  alerts: 'E-mail alerts',
+  deployment: 'Deployment',
+});
+
+/** A field's name in words: "keyHash" is "Key hash". */
+function changeLabel(field) {
+  if (Object.hasOwn(CHANGE_FIELDS, field)) return CHANGE_FIELDS[field];
+  const words = String(field)
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+const changeText = (value) => (typeof value === 'string' && value !== '' ? value : null);
+
+/**
+ * What an entry changed, for its diff: { rows: [{ field, label, from, to, hidden }], omitted, none }, each
+ * value text or null for none. `none` is an entry of a change that recorded nothing of it, from before
+ * changes were recorded. null for an entry that changed nothing, or did not succeed and says nothing.
+ */
+export function describeChanges(entry) {
+  const recorded = Array.isArray(entry?.changes) ? entry.changes : null;
+  const rows = (recorded ?? [])
+    .filter((item) => item !== null && typeof item === 'object' && typeof item.field === 'string')
+    .map((item) => ({
+      field: item.field,
+      label: changeLabel(item.field),
+      from: changeText(item.from),
+      to: changeText(item.to),
+      hidden: item.hidden === true,
+    }));
+  const omitted = Number.isSafeInteger(entry?.changesOmitted) && entry.changesOmitted > 0 ? entry.changesOmitted : 0;
+  if (rows.length > 0 || omitted > 0) return { rows, omitted, none: false };
+  if (recorded === null && entry?.outcome === 'ok' && CHANGE_ACTIONS.includes(entry?.action)) {
+    return { rows: [], omitted: 0, none: true };
+  }
+  return null;
+}
+
 export function describeAudit(entry) {
   const action = entryOf(AUDIT_ACTIONS, entry.action);
   const ok = entry.outcome === 'ok';

@@ -68,6 +68,7 @@
  */
 
 import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
+import { boardsValue, change as noteChange } from '../lib/audit.mjs';
 import { BOARD_TYPES, isBoardType } from '../lib/boards.mjs';
 import {
   DEFAULT_ABORT_PERCENT,
@@ -183,6 +184,15 @@ function planWords(options) {
     options.batch === null ? 'even' : `${options.batch.sizes.join(',')}${options.batch.unit === 'percent' ? '%' : ''}`;
   const gate = options.healthGate ? `, gate ${options.healthGate.minutes} min` : '';
   return `${options.stages} (${batch}), soak ${options.soakMinutes} min${gate}`;
+}
+
+/** Where a rollout stands, as its activity entries say it: canary, waves, stage <n>, done, stopped or cancelled. */
+function phaseOf(item) {
+  // Between the canary and the first stage, a rollout is still where its canary left it.
+  if (item?.stage === 'stages') {
+    return Number.isSafeInteger(item.current) && item.current >= 0 ? `stage ${item.current + 1}` : 'canary';
+  }
+  return typeof item?.stage === 'string' ? item.stage : null;
 }
 
 /** Where a stage of a rollout stands: "planned", "running", "soaking", "done", "skipped" or "stopped". */
@@ -391,6 +401,11 @@ export function createRolloutHandlers(
     if (entry) {
       entry.detail.canary = canary.join(' ').length <= MAX_BOARDS_NAMED ? canary.join(' ') : String(canary.length);
       entry.detail.stages = planWords(options);
+      noteChange(entry, 'rollout', null, id);
+      noteChange(entry, 'version', null, release.version);
+      noteChange(entry, 'phase', null, 'canary');
+      noteChange(entry, 'boards', null, boardsValue(things));
+      noteChange(entry, 'plan', null, planWords(options));
     }
     return record;
   }
@@ -483,6 +498,11 @@ export function createRolloutHandlers(
   }
 
   /** Start what a reviewed plan says, checked against the plan as it is now. */
+  /** What a plan started: its rollouts, each with the release it sends. */
+  function noteStarted(entry, started) {
+    for (const record of started) noteChange(entry, 'rollout', null, `${record.id} (${record.version})`);
+  }
+
   async function startPlan({ body, actor, entry, purpose, target, group = null }) {
     const options = rolloutOptions(body);
     const asked = field(body, 'types');
@@ -580,6 +600,7 @@ export function createRolloutHandlers(
         entry.detail.rollouts = started.map((record) => record.id).join(' ');
       }
     } catch (error) {
+      noteStarted(entry, started);
       if (started.length === 0) throw error;
       log({
         level: 'error',
@@ -594,6 +615,7 @@ export function createRolloutHandlers(
           `(${started.map((record) => record.id).join(', ')}); the next could not be: ${error.message ?? 'see the log'}`
       );
     }
+    noteStarted(entry, started);
     return { status: 201, body: { rollouts: await Promise.all(started.map(detailOf)) } };
   }
 
@@ -610,8 +632,13 @@ export function createRolloutHandlers(
     return result.ok ? result.item : null;
   }
 
-  /** On record once, whoever runs it: `step` is "waves", "stage-<n>" or, for a stop, nothing. */
-  async function note(item, action, detail, step = 'waves') {
+  /**
+   * On record once, whoever runs it: `step` is "waves", "stage-<n>" or, for a stop, nothing. `to` is where
+   * the rollout went from where `item` stood: what the entry says changed.
+   */
+  async function note(item, action, detail, step = 'waves', to = null) {
+    const entry = { changes: [] };
+    noteChange(entry, 'phase', phaseOf(item), to);
     await audit.recordOnce({
       at: now(),
       requestId: `rollout.${item.id}.${action === 'rollout.advance' ? step : 'stop'}`,
@@ -620,6 +647,7 @@ export function createRolloutHandlers(
       target: item.id,
       outcome: 'ok',
       detail: { version: item.version, ...detail },
+      changes: entry.changes,
     });
   }
 
@@ -627,7 +655,7 @@ export function createRolloutHandlers(
     const at = new Date(now()).toISOString();
     const changed = await change(item, { stage: 'stopped', stopped: { code, text, at, ...extra }, finishedAt: at });
     if (changed !== null) {
-      await note(item, 'rollout.stop', { code, text });
+      await note(item, 'rollout.stop', { code, text }, undefined, 'stopped');
       if (SELF_STOPS.has(code)) await alertStopped(item, text, Date.parse(at), extra);
     }
     return changed === null ? 'raced' : 'stopped';
@@ -739,7 +767,7 @@ export function createRolloutHandlers(
       );
     }
     const named = await change(claimed, { rest: { things: chosen.things, leftOut, job, startedAt } });
-    await note(item, 'rollout.advance', { things: String(chosen.things.length), job });
+    await note(item, 'rollout.advance', { things: String(chosen.things.length), job }, 'waves', 'waves');
     // Cancelled while the job was being made: then it goes too.
     const after = named ?? (await aws.getFleetItem({ pk: 'ROL', sk: item.id }));
     if (after?.stage === 'cancelled') {
@@ -812,7 +840,13 @@ export function createRolloutHandlers(
       );
     }
     const named = await change(claimed, { stages: withStage(claimed, index, { job }) });
-    await note(item, 'rollout.advance', { stage: String(n), things: String(chosen.things.length), job }, `stage-${n}`);
+    await note(
+      item,
+      'rollout.advance',
+      { stage: String(n), things: String(chosen.things.length), job },
+      `stage-${n}`,
+      `stage ${n}`
+    );
     // Cancelled while the job was being made: then it goes too.
     const after = named ?? (await aws.getFleetItem({ pk: 'ROL', sk: item.id }));
     if (after?.stage === 'cancelled') {
@@ -1146,6 +1180,7 @@ export function createRolloutHandlers(
           },
         });
         if (changed !== null) {
+          noteChange(entry, 'phase', phaseOf(item), 'cancelled');
           item = changed;
           break;
         }

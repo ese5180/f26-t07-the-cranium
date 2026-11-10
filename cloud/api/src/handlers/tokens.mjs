@@ -15,6 +15,7 @@
  */
 
 import { HttpError, conflict, describeError, field, notFound } from '../http.mjs';
+import { change } from '../lib/audit.mjs';
 import {
   MAX_ACTIVE_TOKENS,
   MAX_TOKEN_DAYS,
@@ -159,8 +160,14 @@ export function createTokenHandlers({ aws, now, randomHex, log, directory }) {
       if (crowded) {
         await aws.markTokenRevoked({ sk: digest, ownerSub: caller.sub, at: new Date(now()).toISOString() });
         entry.detail.withdrawn = 'true';
+        change(entry, 'status', null, 'withdrawn');
         throw tooMany();
       }
+      change(entry, 'name', null, name);
+      change(entry, 'status', null, 'active');
+      change(entry, 'expires', null, record.expiresAt);
+      // Never the token: the entry says that one was made, and the denylist keeps even this word out.
+      change(entry, 'token', null, 'made');
 
       return {
         status: 201,
@@ -187,6 +194,7 @@ export function createTokenHandlers({ aws, now, randomHex, log, directory }) {
       const at = new Date(now()).toISOString();
       const marked = await aws.markTokenRevoked({ sk: found.digest, ownerSub: caller.sub, at });
       if (!marked.ok) throw already();
+      change(entry, 'status', 'active', 'revoked');
       const token = tokenFromItem(marked.token) ?? { ...found, revokedAt: at };
       return { body: { token: presentToken(token, now()) } };
     },
