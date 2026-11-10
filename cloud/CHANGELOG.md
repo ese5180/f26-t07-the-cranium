@@ -7,6 +7,18 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.5
+
+A Release notes page, under Developer, with a tab for each product: the console, the firmware, the iPhone app, the Android app, the desktop app (Windows and Linux) and the Mac app. Each tab lists every version, newest first, with its date, the first paragraph of its changelog entry and the rest under More, and its release tag and commit; firmware versions also name their boards and their flash and RAM where the changelog gives them. The version in use, or the newest released one, is marked, and a newer version without a tag says "Not released yet". The version number at the foot of every page and the History page's What's new lead there, and in an app the foot's Release notes link opens that app's tab. Every app shows it, as they show the console's pages.
+
+`cloud/web/build-versions.mjs --notes` writes `release-notes.json` beside `versions.json`, from the seven changelogs and
+the repository's tags; `cloud/deploy.sh` passes it, and the local preview builds it from the checkout. `versions.json`
+is unchanged. The page is `release-notes.js`, loaded when it opens; its tabs are a tablist (arrow keys, Home and End).
+`#/release-notes` opens the Console tab and `#/release-notes/<product>` a product's, so a section's name can now have a
+hyphen (core.js, and the apps' page-parity tests). The release notes are built apart from versions.json, so a changelog
+that cannot be read in full never costs the console its version. On a phone the chosen tab is scrolled into view, also
+from a link straight to it, and the strip fades at an edge where more tabs lie beyond.
+
 ## 2.25.4
 
 A screen reader on the Activity page now hears which entry a "What changed" line belongs to by its time of day ("What changed: 4 fields in the entry of 07:50 AM"), instead of "in the entry of [object Object]".

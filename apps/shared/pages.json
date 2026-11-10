@@ -43,6 +43,8 @@
       "excluded": { "ios": "An iPhone cannot open a board's USB serial port: iOS gives apps no way to a USB serial device, and WebKit has no Web Serial. The web UI leaves the page out in the iPhone app (views.js serialPagesHidden) and the shell drops its address (ShellPolicy)." }
     },
     { "route": "#/history", "nav": "developer", "script": "history.js" },
+    { "route": "#/release-notes", "nav": "developer", "script": "release-notes.js" },
+    { "route": "#/release-notes/firmware", "nav": "developer", "script": "release-notes.js" },
     { "route": "#/tokens", "nav": "developer", "script": null },
     { "route": "#/database", "nav": "developer", "script": "db-page.js" },
     { "route": "#/database/audit", "nav": "developer", "script": "db-page.js" },

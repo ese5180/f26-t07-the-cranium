@@ -180,7 +180,9 @@ function whatsNew(ctx) {
       'header',
       { class: 'card-head' },
       h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
-      current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null
+      current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null,
+      // Every version in full, and the firmware's and the apps' too.
+      h('a', { class: 'whats-new-all', href: '#/release-notes/console' }, 'All release notes')
     ),
     h(
       'ol',

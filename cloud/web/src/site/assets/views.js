@@ -1925,6 +1925,7 @@ const SECTION_OF = {
   serial: 'developer',
   setup: 'developer',
   history: 'developer',
+  'release-notes': 'developer',
   tokens: 'developer',
   database: 'developer',
   rollout: 'fleet',
@@ -2122,13 +2123,31 @@ export {
  */
 export function footView(ctx) {
   const own = ctx.state.me?.console ?? { version: null, commit: null };
+  // In an app, its own tab of the Release notes (bridge.js appWords names the same apps).
+  const appTab = { ios: 'iphone', android: 'android', macos: 'mac', windows: 'desktop', linux: 'desktop' }[
+    ctx.state.app?.platform
+  ];
   return h(
     'div',
     { class: 'foot-inner' },
     h(
       'p',
       { class: 'foot-version' },
-      own.version ? ['Console ', h('span', { class: 'mono' }, own.version)] : 'Console version not known',
+      own.version
+        ? [
+            'Console ',
+            h(
+              'a',
+              {
+                class: 'mono',
+                href: '#/release-notes/console',
+                'aria-label': `Console ${own.version}: release notes`,
+                title: 'Release notes of every console version',
+              },
+              own.version
+            ),
+          ]
+        : 'Console version not known',
       own.commit
         ? h(
             'span',
@@ -2143,6 +2162,7 @@ export function footView(ctx) {
       'p',
       { class: 'foot-links' },
       h('a', { href: '#/history' }, 'What\u2019s new'),
+      h('a', { href: appTab ? `#/release-notes/${appTab}` : '#/release-notes' }, 'Release notes'),
       h('a', { href: '#/apps' }, 'Phone apps')
     )
   );
@@ -2159,6 +2179,8 @@ export function developerTabs(current) {
       ['serial', 'Serial console'],
       ['setup', 'Board setup'],
       ['history', 'History'],
+      // Every version of every product (release-notes.js).
+      ['release-notes', 'Release notes'],
       ['tokens', 'API tokens'],
       // The console's DynamoDB tables, read only, for release managers (db-page.js).
       ['database', 'Database'],

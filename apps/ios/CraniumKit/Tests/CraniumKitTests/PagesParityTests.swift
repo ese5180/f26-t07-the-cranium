@@ -42,7 +42,8 @@ import Testing
 
     @Test func everySectionOfTheConsoleIsAPageAndEveryPageOneOfTheConsoles() throws {
         let core = try Self.text("cloud/web/src/site/assets/core.js")
-        let known = try Self.sections(core, "'([a-z]+)'")
+        // A section's name is a word, or two joined by a hyphen (release-notes).
+        let known = try Self.sections(core, "'([a-z]+(?:-[a-z]+)?)'")
         #expect(known.contains("memfault"))
         let pages = try Self.list("console")
         let listed = Set(try pages.map { try Self.section(try #require($0["route"] as? String)).0 })
