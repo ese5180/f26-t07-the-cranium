@@ -4732,7 +4732,6 @@ export const REFUSAL_WORDS = {
   nothing_to_deploy: 'No board would take the release',
   too_many_boards: 'A rollout takes at most 100 boards',
   plan_changed: 'The plan had changed since it was shown',
-  no_older_release: 'There is no older release of that type to go back to',
   gate_required: 'A roll back to last good runs with the health gate on',
   invalid_targets: 'The releases asked for were not a list of versions, each with its boards',
   rollout_changed: 'The rollout moved on while it was being cancelled',

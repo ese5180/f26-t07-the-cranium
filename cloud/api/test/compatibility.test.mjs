@@ -207,25 +207,6 @@ test('"Update everything" leaves out boards of another layout, and refuses one n
   );
 });
 
-test('a rollback leaves out the boards of another layout as well', async () => {
-  const world = fleetConsole();
-  world.online(A, '1.12.0+0', { board: 'nrf7002dk', layout: 1 });
-  world.online(B, '1.12.0+0', { board: 'nrf7002dk', layout: 2 });
-  await world.release('1.13.0+0', 'nrf7002dk', { protectedTlvs: [[LAYOUT_TLV, '1']] });
-  await world.release('1.13.1+0', 'nrf7002dk', { protectedTlvs: [[LAYOUT_TLV, '1']] });
-  const { group } = (await world.call('POST', '/api/groups', { name: 'Bench', things: [A, B] })).body;
-  const { plan } = (await world.call('GET', `/api/groups/${group.id}/rollback`)).body;
-  assert.deepEqual([plan.types[0].release.version, plan.types[0].things], ['1.13.0+0', [A]]);
-  assert.deepEqual(
-    plan.types[0].leftOut.map((entry) => [entry.thing, entry.reason]),
-    [[B, 'other_layout']]
-  );
-  const named = await world.call('POST', `/api/groups/${group.id}/rollback`, {
-    types: [{ type: 'nrf7002dk', version: '1.13.0+0', things: [B] }],
-  });
-  assert.deepEqual([named.status, named.body.error.code], [400, 'incompatible_layout']);
-});
-
 test('the check before a Bluetooth send refuses a release of another layout, by the board or by what it said', async () => {
   const world = fleetConsole();
   world.fake.addThing(D, { attributes: { board: 'nrf5340dk', layout: '2' } });

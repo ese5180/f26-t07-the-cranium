@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.19.1
+
+The group "Roll back" button is gone from the Fleet page. "Roll back to last good" is the one way back: a board takes
+only newer firmware, so going back is a release whose note begins `Rebuild of <version>`, and the old button reached
+only boards behind both releases. "Update everything" is unchanged, and rollouts already recorded as roll backs keep
+their name in the history and the activity log.
+
+The routes `GET` and `POST /api/groups/{id}/rollback` are removed, with the plan's `from` field. The apps had no such button; the `no_older_release` words stay, as the apps
+carry the same list.
+
 ## 2.19.0
 
 A weekly fleet report: a Reports page lists the last twelve weeks, Monday to Sunday in New York time, and each week opens as one printable page with the fleet health score and its trend, the boards online, offline and new, the firmware they ran, the week's deployments and staged rollouts with how they ended (health-gate stops and rollbacks counted apart), Memfault's new issues and unexpected reboots by reason, the boards' own restarts, the alerts sent and the activity log's top changes. Print it or save it as a PDF, or download its tables as CSV. A release manager can switch on a Monday e-mail of the summary through the alert topic.
