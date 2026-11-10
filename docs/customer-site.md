@@ -20,9 +20,9 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `https://example.com/` | anybody | The site's own front page: what Cranium is, what an account shows, how updates work, what is coming, where the project stands. Plain HTML, readable without JavaScript |
 | `#/sign-in` | everybody | One form: e-mail and password; then the code of an authenticator app, in six boxes, when the account asks for one (a team account always); a new password at a customer's first sign-in. A team account lands in admin mode at `/admin` |
 | `#/forgot` | everybody | A password reset with a code e-mailed by Cognito |
-| `#/overview` | a customer | The mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to), then the boards: four figures, the boards and what they did in the last week |
+| `#/overview` | a customer | The mixes as the mockup has them (the card "After the last track", four figures, the last set with its shape and tracks, On repeat, a moment to come back to), then the boards: four figures, the boards with each one's health and week of restarts, and what they did in the last week |
 | `#/overview` | an admin | Who is signed in, and **Open admin mode** |
-| `#/devices`, `#/devices/<id>` | a customer | The boards as a table; one board's state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
+| `#/devices`, `#/devices/<id>` | a customer | The boards as a table, each with a health dot; one board's health this week (a sentence and its restarts by day), state, firmware, last report, update, Wi-Fi signal, uptime and the last 30 days of what it did |
 | `#/mixes/<tab>` | signed in | Sessions, Transitions, Track library, Saved moments, of the demo or of the customer's own journal (below) |
 | `#/sessions/<id>` | signed in | One session: its shape on the two decks, every track, its transitions, Export set, and Remove for one of the journal |
 | `#/account` | a customer | Their address, a password change, two-step sign-in on or off, sign out |
@@ -185,6 +185,17 @@ version and whether it is on trial, when it was last heard from, the update's st
 signal and uptime, and when it became theirs. Of its events: connected, disconnected, firmware reported/changed/kept,
 an update waiting or downloading and how it ended, restarts and the Bluetooth window, as typed fields; never the
 console's own text, a job id, an error string, a MAC address, memory figures or anything of AWS.
+
+## Board health
+
+Every board a customer sees has a health line in plain words, a dot (green for running normally, amber for attention,
+an empty ring for offline) and a strip of the last seven days with its restarts by day, the unexpected ones in amber.
+The Overview shows the line and the strip under each board, the Devices table the dot and the line, and a board's page
+a "This week" card. The customer API works it out (`cloud/api/src/customer/health.mjs`) from the restart, firmware and
+update events of the last 7 days, which its role already reads; it reads them at most once a minute per board, while
+offline comes from the shadow at every request. Restarts are only expected or unexpected: no fault name, reset cause,
+coredump or stack reaches a customer ([customer-data.md](customer-data.md#board-health)). The phone apps' customer mode
+loads the same site, so it shows the same.
 
 ## Routes and rights
 

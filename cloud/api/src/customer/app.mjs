@@ -29,7 +29,7 @@
  * Routes:
  *
  *   GET /api/c/me                 -> { email, name, boards }
- *   GET /api/c/boards             -> { boards: [Board], generatedAt }
+ *   GET /api/c/boards             -> { boards: [Board], generatedAt }      each with its health
  *   GET /api/c/boards/{id}        -> { board: Board, activity: [Event] }   the last 30 days
  *   GET /api/c/activity           -> { activity: [Event] }                 every board, the last 7 days
  *
@@ -42,7 +42,8 @@ import { randomBytes } from 'node:crypto';
 import { HttpError, describeError, errorResponse, forbidden, json, notFound } from '../http.mjs';
 import { eventFromItem, eventRange } from '../lib/events.mjs';
 import { deviceFromShadow, unknownDevice } from '../lib/shadow.mjs';
-import { CUSTOMER_KINDS, REF, customerBoard, customerEvent } from './boards.mjs';
+import { CUSTOMER_KINDS, REF, boardStatus, customerBoard, customerEvent } from './boards.mjs';
+import { HEALTH_DAYS, HEALTH_EVENTS, HEALTH_KINDS, boardHealth } from './health.mjs';
 
 const SUB = /^[A-Za-z0-9_.:-]{1,128}$/;
 const MAX_PATH = 256;
@@ -55,6 +56,9 @@ const BOARD_EVENTS = 50;
 const OVERVIEW_EVENTS = 20;
 // The function has 10 s (CustomerApiFn in infra/template.yaml); a request is given up before.
 const REQUEST_BUDGET_MS = 8_000;
+// A board's events for its health are kept this long: a restart shows within a minute.
+const HEALTH_CACHE_MS = 60_000;
+const KEPT_HEALTH = 512;
 
 const unauthorized = () => new HttpError(401, 'unauthorized', 'Sign in to see your boards.');
 const unknownBoard = () => notFound('not_your_board', 'There is no board of yours at this address.');
@@ -123,6 +127,8 @@ export function createCustomerApp({
   if (!aws || !config) throw new TypeError('createCustomerApp needs an adapter and a configuration');
   // sub -> { refusal: boolean, email, name, at }
   const answers = new Map();
+  // thing -> { at, events }: the restart, firmware and update events of the last HEALTH_DAYS days
+  const healthEvents = new Map();
 
   /** Step 2: the account, as Cognito says it is now or said it was in the last minute. */
   async function liveCustomer(sub, requestId) {
@@ -158,6 +164,44 @@ export function createCustomerApp({
         log({ level: 'warn', event: 'shadow_unreadable', error: describeError(result.reason).message });
       }
       return { ownership: item, device };
+    });
+  }
+
+  /** A board's health (customer/health.mjs), from its events of the week, read at most once a minute. */
+  async function healthOf({ ownership, device }) {
+    let kept = healthEvents.get(ownership.thing);
+    if (kept === undefined || now() - kept.at >= HEALTH_CACHE_MS) {
+      const range = eventRange(now() - HEALTH_DAYS * DAY_MS, now());
+      const nowSec = now() / 1000;
+      const items = await aws.queryEvents({
+        thing: ownership.thing,
+        low: range.low,
+        high: range.high,
+        kinds: [...HEALTH_KINDS],
+        limit: HEALTH_EVENTS,
+      });
+      kept = {
+        at: now(),
+        events: items
+          .filter((item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec))
+          .map(eventFromItem)
+          .filter((event) => event !== null),
+      };
+      if (healthEvents.size >= KEPT_HEALTH) healthEvents.clear();
+      healthEvents.set(ownership.thing, kept);
+    }
+    return boardHealth({ status: boardStatus(device), lastSeen: device.lastSeen, events: kept.events, nowMs: now() });
+  }
+
+  /** Each owned board as its owner sees it, with its health; a board whose events cannot be read has none. */
+  async function shownBoards(owned) {
+    const healths = await Promise.allSettled(owned.map(healthOf));
+    return owned.map(({ device, ownership }, index) => {
+      const result = healths[index];
+      if (result.status === 'rejected') {
+        log({ level: 'warn', event: 'health_unreadable', error: describeError(result.reason).message });
+      }
+      return customerBoard(device, ownership, result.status === 'fulfilled' ? result.value : null);
     });
   }
 
@@ -198,7 +242,7 @@ export function createCustomerApp({
       case 'boards': {
         const owned = await ownedBoards(sub);
         return {
-          boards: owned.map(({ device, ownership }) => customerBoard(device, ownership)),
+          boards: await shownBoards(owned),
           generatedAt: new Date(now()).toISOString(),
         };
       }
@@ -208,8 +252,9 @@ export function createCustomerApp({
         if (!REF.test(route.id)) throw unknownBoard();
         const found = (await ownedBoards(sub)).find(({ ownership }) => ownership.ref === route.id);
         if (found === undefined) throw unknownBoard();
+        const [board] = await shownBoards([found]);
         return {
-          board: customerBoard(found.device, found.ownership),
+          board,
           activity: await activityOf([found], BOARD_DAYS, BOARD_EVENTS),
         };
       }

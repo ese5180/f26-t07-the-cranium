@@ -487,6 +487,17 @@ const BOARD = {
   uptime: 600,
   location: null,
   since: '2026-11-01T10:00:00.000Z',
+  health: {
+    state: 'attention',
+    summary: 'Restarted unexpectedly twice this week',
+    unexpectedRestarts7d: 2,
+    lastIssueAt: '2026-11-04T08:00:00.000Z',
+    restarts7d: [
+      { at: '2026-11-02T14:00:00.000Z', unexpected: false },
+      { at: '2026-11-03T09:00:00.000Z', unexpected: true },
+      { at: '2026-11-04T08:00:00.000Z', unexpected: true },
+    ],
+  },
 };
 
 test('a board is read into a known shape, and anything else from the API is left out', () => {
@@ -526,6 +537,89 @@ test('a board is read into a known shape, and anything else from the API is left
       from: '1.11.2+0',
       confirmed: false,
     }
+  );
+});
+
+test("a board's health is read with care, said in plain words in the reader's time, and drawn as a week", () => {
+  // Anything that is not a health of the server's is none; a fault name in a sentence is not a sentence.
+  for (const raw of [null, 'ok', { state: 'fine', summary: 'Running normally' }, { state: 'ok', summary: '' }]) {
+    assert.equal(site.readHealth(raw), null, JSON.stringify(raw));
+  }
+  assert.equal(site.readHealth({ state: 'ok', summary: 'BusFault <at> 0x0800' }), null);
+  const odd = site.readHealth({
+    state: 'ok',
+    summary: 'Running normally',
+    unexpectedRestarts7d: -1,
+    lastIssueAt: 'yesterday',
+    reason: 'HardFault',
+    restarts7d: [{ at: 'x' }, { at: '2026-11-03T09:00:00.000Z', unexpected: 'yes', reason: 'Watchdog' }],
+  });
+  assert.deepEqual(odd, {
+    state: 'ok',
+    summary: 'Running normally',
+    unexpectedRestarts7d: 0,
+    restarts7d: [{ at: '2026-11-03T09:00:00.000Z', unexpected: false }],
+  });
+
+  const words = (health, extra = {}) => site.healthWords({ ...BOARD, ...extra, health });
+  assert.deepEqual(words(BOARD.health), {
+    state: 'attention',
+    tone: 'warn',
+    text: 'Restarted unexpectedly twice this week',
+  });
+  assert.equal(site.healthWords({ ...BOARD, health: null }), null);
+  const local = (iso) => site.dayLabel(iso);
+  assert.match(local('2026-11-03T12:00:00.000Z'), /^Tue 3 Nov$/);
+  assert.equal(
+    words({
+      state: 'ok',
+      summary: 'Recovered from a problem on Tue 3 Nov',
+      unexpectedRestarts7d: 1,
+      lastIssueAt: '2026-11-03T23:30:00.000Z',
+      restarts7d: [],
+    }).text,
+    `Recovered from a problem on ${local('2026-11-03T23:30:00.000Z')}`
+  );
+  assert.equal(
+    words({
+      state: 'ok',
+      summary: 'Updated to 1.15.0 on Thu 5 Nov',
+      unexpectedRestarts7d: 0,
+      updatedTo: { version: '1.15.0', at: '2026-11-05T08:00:00.000Z' },
+      restarts7d: [],
+    }).text,
+    `Updated to 1.15.0 on ${local('2026-11-05T08:00:00.000Z')}`
+  );
+  assert.deepEqual(
+    words(
+      { state: 'offline', summary: 'Offline since Wed 4 Nov', unexpectedRestarts7d: 0, restarts7d: [] },
+      { status: 'offline' }
+    ),
+    { state: 'offline', tone: 'idle', text: `Offline since ${local(BOARD.lastSeen)}` }
+  );
+  assert.equal(
+    words({ state: 'ok', summary: 'Running normally', unexpectedRestarts7d: 0, restarts7d: [] }).tone,
+    'good'
+  );
+
+  const now = Date.parse('2026-11-04T12:00:00.000Z');
+  const week = site.restartWeek(BOARD.health, now);
+  assert.equal(week.length, 7);
+  assert.equal(week.at(-1).date, local(new Date(now).toISOString()));
+  assert.equal(
+    week.reduce((sum, day) => sum + day.unexpected, 0),
+    2
+  );
+  assert.equal(
+    week.reduce((sum, day) => sum + day.expected, 0),
+    1
+  );
+  // A restart older than the week is not drawn.
+  assert.equal(
+    site
+      .restartWeek({ restarts7d: [{ at: '2026-10-20T10:00:00.000Z', unexpected: true }] }, now)
+      .every((day) => day.unexpected === 0),
+    true
   );
 });
 
@@ -1240,9 +1334,22 @@ test('a customer signs in, lands on the page they asked for, and sees their boar
   assert.ok(tab.stored.has('customer:cranium.session'));
   assert.equal(tab.stored.has('cranium.session'), false, "the console's keys stay the admin's");
 
+  // The list has a dot for each board's health, said for screen readers too.
+  const dot = one(tab.app, 'span.cs-health-dot');
+  assert.equal(dot.getAttribute('class'), 'cs-health-dot is-attention');
+  assert.match(text, /Restarted unexpectedly twice this week/);
+
   tab.go(`#/devices/${BOARD.id}`);
   await until(() => /How it is/.test(tab.text()), 'the board');
   assert.match(tab.text(), /Location Not reported: boards cannot tell where they are yet\./);
+  // The week: the sentence, and seven days of restarts, two of them unexpected.
+  assert.match(tab.text(), /This week Restarted unexpectedly twice this week/);
+  const strip = one(tab.app, 'span.cs-week');
+  assert.equal(all(strip, '.cs-week-day').length, 7);
+  assert.equal(all(strip, '.cs-week-mark.is-unexpected').length, 2);
+  assert.equal(all(strip, '.cs-week-mark.is-expected').length, 1);
+  assert.match(strip.getAttribute('aria-label'), /^Restarts this week: .*unexpected.*\.$/);
+  assert.doesNotMatch(tab.text(), /Fault|watchdog|stack|core ?dump/i);
   tab.go('#/mixes/transitions');
   await until(() => /The space between tracks\./.test(tab.text()), 'the mixes');
   // The demo first, said to be made up; the journal is empty, and says why.
@@ -1265,6 +1372,9 @@ test('the overview: figures, the boards and what they did; the account page labe
   await until(() => all(tab.app, 'div.cs-tiles').length === 2 && /Came online/.test(tab.text()), 'the overview');
   assert.match(tab.text(), /Hello, Ada\./);
   assert.match(tab.text(), /Online now 1 of 1/);
+  // Each board on the overview says how its week went, with its strip.
+  assert.match(tab.text(), /Restarted unexpectedly twice this week/);
+  assert.equal(all(tab.app, 'span.cs-week').length, 1);
   tab.go('#/account');
   await until(() => tab.document.getElementById('current-password') !== null, 'the account page');
   for (const el of descendants(tab.app).filter(

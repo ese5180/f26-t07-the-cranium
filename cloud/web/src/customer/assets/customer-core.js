@@ -166,6 +166,38 @@ const whole = (value, least, most) => (Number.isInteger(value) && value >= least
 // What an admin called a board: one line of their text, cut to its printable part.
 const label = (value) => (typeof value === 'string' ? value.replace(/[^\x20-\x7e -ɏ]/g, '').slice(0, 40) : '');
 
+const HEALTH_STATES = Object.freeze(['ok', 'attention', 'offline']);
+// A sentence of the server's: letters, digits, spaces and a little punctuation, one line.
+const SENTENCE = /^[A-Za-z0-9 .,:'+-]{1,120}$/;
+
+/** A board's health (cloud/api/src/customer/health.mjs), or null if it has none or it is not one. */
+export function readHealth(raw) {
+  if (raw === null || typeof raw !== 'object' || !HEALTH_STATES.includes(raw.state)) return null;
+  if (typeof raw.summary !== 'string' || !SENTENCE.test(raw.summary)) return null;
+  const health = {
+    state: raw.state,
+    summary: raw.summary,
+    unexpectedRestarts7d: whole(raw.unexpectedRestarts7d, 0, 10_000) ?? 0,
+  };
+  if (instant(raw.lastIssueAt)) health.lastIssueAt = raw.lastIssueAt;
+  const to = raw.updatedTo;
+  if (
+    to &&
+    typeof to.version === 'string' &&
+    /^\d{1,3}\.\d{1,3}\.\d{1,5}(?:\+\d{1,10})?$/.test(to.version) &&
+    instant(to.at)
+  ) {
+    health.updatedTo = { version: to.version, at: to.at };
+  }
+  health.restarts7d = Array.isArray(raw.restarts7d)
+    ? raw.restarts7d
+        .filter((one) => one && instant(one.at))
+        .slice(-50)
+        .map((one) => ({ at: one.at, unexpected: one.unexpected === true }))
+    : [];
+  return health;
+}
+
 function unreadable() {
   return new ApiError(0, 'unreadable', 'The server sent a reply this page could not read.');
 }
@@ -200,6 +232,7 @@ export function readBoard(raw) {
     // Not reported by any board yet (docs/fleet.md, location by Wi-Fi).
     location: null,
     since: instant(raw.since),
+    health: readHealth(raw.health),
   };
 }
 
@@ -607,6 +640,67 @@ export function updateWords(board) {
         }[update.last] ?? null
       );
   }
+}
+
+// Health: a board's week, in plain words (docs/customer-site.md, "Board health").
+
+const WEEKDAYS = Object.freeze(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+const MONTHS = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+const HEALTH_TONES = Object.freeze({ ok: 'good', attention: 'warn', offline: 'idle' });
+
+/** "Tue 3 Nov", in the reader's own time. */
+export function dayLabel(iso) {
+  const date = new Date(Date.parse(iso));
+  if (Number.isNaN(date.getTime())) return '';
+  return `${WEEKDAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+/**
+ * { state, tone, text } for a board's health: the server's sentence, its dates said again in the
+ * reader's own time. Null for a board without one.
+ */
+export function healthWords(board) {
+  const health = board?.health;
+  if (!health) return null;
+  const tone = HEALTH_TONES[health.state] ?? 'idle';
+  let text = health.summary;
+  if (health.state === 'offline' && board.lastSeen && /^Offline since /.test(text)) {
+    text = `Offline since ${dayLabel(board.lastSeen)}`;
+  } else if (health.lastIssueAt && /^Recovered from a problem on /.test(text)) {
+    text = `Recovered from a problem on ${dayLabel(health.lastIssueAt)}`;
+  } else if (health.updatedTo && /^Updated to /.test(text)) {
+    text = `Updated to ${health.updatedTo.version} on ${dayLabel(health.updatedTo.at)}`;
+  }
+  return { state: health.state, tone, text };
+}
+
+/**
+ * The week's restarts by day, in the reader's own time, oldest day first and today last:
+ * [{ key, label, expected, unexpected }] seven of them.
+ */
+export function restartWeek(health, nowMs) {
+  const today = new Date(nowMs);
+  today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let back = 6; back >= 0; back -= 1) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - back);
+    days.push({
+      key: `${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`,
+      label: WEEKDAYS[day.getDay()],
+      date: dayLabel(day.toISOString()),
+      expected: 0,
+      unexpected: 0,
+    });
+  }
+  for (const restart of health?.restarts7d ?? []) {
+    const at = new Date(Date.parse(restart.at));
+    const day = days.find((one) => one.key === `${at.getFullYear()}-${at.getMonth() + 1}-${at.getDate()}`);
+    if (day === undefined) continue;
+    if (restart.unexpected) day.unexpected += 1;
+    else day.expected += 1;
+  }
+  return days;
 }
 
 /** Wi-Fi signal in a word, or ''. */
