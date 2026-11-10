@@ -61,6 +61,7 @@ export const LEFT_OUT = Object.freeze({
   busy: 'Has another update open',
   offline: 'Offline for more than a day',
   never: 'Has never reported',
+  no_pi: 'Reports no Raspberry Pi: no Pi build, or no Pi wired',
 });
 
 export function boardLabel(type) {
@@ -331,6 +332,11 @@ export function rolloutFromItem(item) {
     wave: item.wave ?? DEFAULT_WAVE,
     abortPercent: item.abortPercent ?? DEFAULT_ABORT_PERCENT,
     plan: wavePlan(list(item.things).length - list(item.canary?.things).length, item.wave ?? DEFAULT_WAVE),
+    // From console 2.25.0: a Raspberry Pi image that goes with the release, to each board after its
+    // firmware ({ version, sha256 }); only a rollout that has one says so.
+    ...(item.pi && typeof item.pi.version === 'string'
+      ? { pi: { version: item.pi.version, sha256: item.pi.sha256 } }
+      : {}),
     // From console 2.8.0: the stages after the canary, each one job on all its boards at once.
     // A rollout from before has none, and its waves instead.
     stages: (Array.isArray(item.stages) ? item.stages : []).map((stage, index) => ({

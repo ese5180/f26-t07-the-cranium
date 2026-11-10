@@ -95,7 +95,7 @@ const DETAIL_KEY = /^[a-zA-Z0-9:_-]{1,128}$/;
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'REJECTED', 'REMOVED', 'CANCELED']);
 const DEVICE_STATUSES = new Set(['IN_PROGRESS', 'SUCCEEDED', 'FAILED', 'REJECTED']);
 const REPEATED_CANCEL = Object.freeze(['refused', 'accepted', 'ignored']);
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'PIIMG']);
 const FAILURE_TYPES = Object.freeze({
   FAILED: ['FAILED'],
   REJECTED: ['REJECTED'],
@@ -678,6 +678,26 @@ export function createFakeAws({
       // The bucket policy refuses a revoked object, as it refuses a missing one.
       if (object === undefined || object.tags.revoked === 'true') return null;
       return Buffer.from(object.body);
+    },
+
+    // A Raspberry Pi image's upload (handlers/pi-images.mjs): the URL names what it was signed for,
+    // and a test puts the object with fake.objects.set(key, { body }) as the browser would.
+    async presignFirmwareUpload({ key, size, sha256Base64, expiresIn }) {
+      return {
+        url: `https://bucket.example.invalid/${key}?size=${size}&expires=${expiresIn}`,
+        headers: { 'if-none-match': '*', 'x-amz-checksum-sha256': sha256Base64 },
+        size,
+        expiresAt: new Date(clock() + expiresIn * 1000).toISOString(),
+      };
+    },
+
+    async headFirmwareObject(key) {
+      const object = objects.get(key);
+      if (object === undefined) return null;
+      return {
+        size: object.body.length,
+        sha256Base64: object.sha256Base64 ?? createHash('sha256').update(object.body).digest('base64'),
+      };
     },
 
     async tagFirmwareRevoked(key) {

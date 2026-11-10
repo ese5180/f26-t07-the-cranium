@@ -203,6 +203,7 @@ test('a job becomes a DeploymentSummary', () => {
   assert.deepEqual(summarizeJob(job), {
     id: 'cranium-1-1-0-b7-20261010T221500Z-9f3a',
     version: '1.1.0+7',
+    parts: ['nrf'],
     status: 'IN_PROGRESS',
     createdAt: '2026-10-10T22:15:00.000Z',
     completedAt: null,

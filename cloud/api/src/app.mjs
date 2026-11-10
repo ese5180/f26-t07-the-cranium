@@ -92,6 +92,7 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
+import { createPiImageHandlers } from './handlers/pi-images.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
 import { createLocationHandlers } from './handlers/location.mjs';
@@ -331,7 +332,11 @@ export function createApp({
   let updates = null;
   let memfault = null;
   const fleet = createFleetHandlers(context, { devices, updates: () => updates, memfault: () => memfault });
-  const deployments = createDeploymentHandlers(context, { devices, fleet });
+  // Raspberry Pi images (console 2.25.0, handlers/pi-images.mjs): deployments look them up, and
+  // revoking one cancels the deployments that carry it.
+  let piImages = null;
+  const deployments = createDeploymentHandlers(context, { devices, fleet, piImages: () => piImages });
+  piImages = createPiImageHandlers(context, { deployments });
   // The update history (handlers/updates.mjs): every update of every board, deployments and the
   // updates the boards reported themselves, over Bluetooth or by USB.
   updates = createUpdateHandlers(context, { devices, deployments });
@@ -451,6 +456,18 @@ export function createApp({
     ),
     route('POST', '/api/firmware/{version}/revoke', firmware.revoke, {
       action: 'firmware.revoke',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    // Raspberry Pi images (console 2.25.0, docs/pi-ota.md): listed for every member; uploaded,
+    // completed and revoked by release managers on the website. The file goes straight to S3.
+    route('GET', '/api/pi-images', piImages.list),
+    route('POST', '/api/pi-images', piImages.create, { action: 'pi_image.upload', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/pi-images/{version}/complete', piImages.complete, {
+      action: 'pi_image.complete',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('POST', '/api/pi-images/{version}/revoke', piImages.revoke, {
+      action: 'pi_image.revoke',
       maxBody: SMALL_BODY_LIMIT,
     }),
     // An update over the internet from the phone app too, and stopping one. From the phone a

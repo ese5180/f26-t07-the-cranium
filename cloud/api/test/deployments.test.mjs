@@ -95,6 +95,7 @@ test("a deployment is one snapshot job with the contract's document", async () =
   assert.deepEqual(deployment, {
     id: deployment.id,
     version: '1.2.3+4',
+    parts: ['nrf'],
     status: 'IN_PROGRESS',
     createdAt: new Date(clock.ms).toISOString(),
     completedAt: null,
@@ -623,6 +624,7 @@ test('a deployment that was created is answered with 201 even if it cannot be re
   assert.deepEqual(response.body.deployment, {
     id: job.jobId,
     version: '1.2.3+4',
+    parts: ['nrf'],
     status: 'IN_PROGRESS',
     createdAt: at,
     completedAt: null,
@@ -1170,6 +1172,7 @@ test('deployments are listed newest first, without the jobs of other tools', asy
     'createdBy',
     'id',
     'note',
+    'parts',
     'status',
     'things',
     'version',

@@ -186,11 +186,17 @@ export function createScheduleHandlers(
   async function checkRequest(kind, raw) {
     const body = requireObject(raw, 'request');
     if (kind === 'deployment') {
-      const version = requireVersion(field(body, 'version'));
+      // Board firmware, a Raspberry Pi image, or both (2.25.0), checked as a deployment checks them.
+      const { release, piImage } = await deployments.requireParts(body);
       const things = requireThings(field(body, 'things'));
       const note = requireText(field(body, 'note'), 'note', { max: MAX_NOTE });
-      await findRelease(version);
-      return { request: { version: version.text, things: [...things].sort(), note }, group: null, groupName: null };
+      const request = {
+        ...(release === null ? {} : { version: release.version }),
+        ...(piImage === null ? {} : { pi: piImage.version }),
+        things: [...things].sort(),
+        note,
+      };
+      return { request, group: null, groupName: null };
     }
     rolloutOptions(body);
     const options = {};
@@ -200,6 +206,10 @@ export function createScheduleHandlers(
     if (kind === 'rollout') {
       const version = requireVersion(field(body, 'version'));
       const release = await findRelease(version);
+      // A Raspberry Pi image with it (2.25.0).
+      if (field(body, 'pi') !== undefined) {
+        options.pi = (await deployments.requireParts({ pi: field(body, 'pi') })).piImage.version;
+      }
       const target = requireObject(field(body, 'target'), 'target');
       const targetKind = field(target, 'kind');
       let stored;
