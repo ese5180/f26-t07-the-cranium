@@ -13388,3 +13388,131 @@ span.glance-item:hover {
 :where(.console) .dialog-foot {
   background: var(--sunken);
 }
+
+/*
+ * Offline mode (offline.js): a board's status over Bluetooth, with no network. The Bluetooth page's pieces
+ * (.bt-pick, .bt-boards, .bt-looking), and one card for the board: its facts, then the update that waits.
+ */
+.page-how {
+  max-width: var(--measure);
+  margin-top: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--type-table);
+}
+
+.page-how summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.page-how summary:hover {
+  color: var(--accent);
+}
+
+.page-how p {
+  margin-top: var(--space-2);
+  text-wrap: pretty;
+}
+
+/* Opened from the sign-in page or a gate: the page alone, without the console's frame around it. */
+.of-page.is-standalone {
+  width: min(100%, 44rem);
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 48px) var(--gutter) 48px;
+}
+
+button.back {
+  margin-left: -4px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.console .of-board {
+  display: grid;
+  gap: 18px;
+  padding: clamp(18px, 2.3vw, 28px);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.of-board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+
+.of-board-name {
+  font-size: var(--type-title);
+  font-weight: 600;
+}
+
+.of-facts .fact {
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+}
+
+.of-facts .status {
+  font-weight: 500;
+}
+
+.of-facts .status.is-good {
+  color: var(--good);
+}
+
+.of-facts .status.is-warn {
+  color: var(--warn);
+}
+
+.of-facts .status.is-work {
+  color: var(--work);
+  font-weight: 600;
+}
+
+.of-update {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--work-wash);
+  color: var(--ink);
+}
+
+.of-update.quiet {
+  background: var(--well);
+  color: var(--ink-2);
+}
+
+.of-update.is-good {
+  background: var(--good-wash);
+}
+
+.of-update.is-asking {
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.of-confirm-title {
+  font-size: var(--type-large);
+  font-weight: 600;
+}
+
+.of-update .actions,
+.of-board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .of-update .actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .of-facts .fact {
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+  }
+}

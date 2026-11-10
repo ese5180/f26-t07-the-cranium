@@ -56,7 +56,6 @@ sealed interface Route {
     data object BoardSetup : Route { override val key = "setup" }
     data object Account : Route { override val key = "account" }
     data class Bluetooth(val version: String?) : Route { override val key = "bluetooth" }
-    data object Offline : Route { override val key = "offline" }
     data class Release(val version: String) : Route { override val key = "release/$version" }
     data object Upload : Route { override val key = "upload" }
     data class BoardPage(val thing: String, val part: BoardPart) : Route { override val key = "device/$thing/${part.name}" }
