@@ -56,7 +56,7 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 ## In progress
 
 - **A redesign of the console**, readability first: the ordered list is the pinned work list issue (#128).
-- **Raspberry Pi updates from the console** (firmware 1.20.0, console 2.26.0, apps 0.8.22, draft pull request #PRNUM,
+- **Raspberry Pi updates from the console** (firmware 1.20.0, console 2.26.0, apps 0.8.22, draft pull request #134,
   which supersedes #101 and #42): Pi images on the Firmware page; deployments of firmware, a Pi image, or both, where
   both download first, the firmware is installed and the Pi gets its image once that firmware is confirmed. Its pins,
   files and settings are apart from the Pi's message link (#58). Built and tested on the host; waiting for a test on a
