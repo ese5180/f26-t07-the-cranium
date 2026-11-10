@@ -1560,6 +1560,8 @@
 .cs-grid-main,
 .cs-grid-side {
   display: grid;
+  /* One column as wide as the page, not as wide as the widest table in it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   min-width: 0;
 }
@@ -1915,6 +1917,11 @@ a.cs-panel-foot:hover {
   color: var(--ink-3);
   font-size: var(--type-small);
   white-space: nowrap;
+}
+
+/* A table of tracks wider than a 320 px phone scrolls inside its panel, not the page. */
+.cs-tracks {
+  overflow-x: auto;
 }
 
 .cs-tracks-none {
