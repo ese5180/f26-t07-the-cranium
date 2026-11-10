@@ -47,9 +47,13 @@ final class MacShellModel: ObservableObject {
     /// board's own window is one of its `secondaries`, shares its sign-ins, store and services, shows its cover,
     /// and sends what needs the lock or the store to it.
     private(set) weak var primary: MacShellModel?
+    /// A stable name for this window: its serial ports, radio and keep-awake are kept under it.
+    let windowID = UUID().uuidString
     private var secondaries: [WeakModel] = []
     private var following: [AnyCancellable] = []
-    static weak var main: MacShellModel?
+    /// The app's own model, made the first time anything asks, whichever window is built first (a board's window
+    /// may be restored before the main one): the main window shows it, a board's window follows it.
+    static let main = MacShellModel()
 
     private struct WeakModel {
         weak var model: MacShellModel?
@@ -103,7 +107,6 @@ final class MacShellModel: ObservableObject {
         if let config = loaded?.config {
             makePools(config)
         }
-        Self.main = self
         #if DEBUG
         // A smoke run may have no window to start it (see smokeIfAsked).
         if ProcessInfo.processInfo.environment["CRANIUM_MAC_SMOKE"] != nil { Task { await start() } }
@@ -140,8 +143,12 @@ final class MacShellModel: ObservableObject {
     func start() async {
         guard !started else { return }
         started = true
-        // A board's window uses the first window's bundle and watches nothing itself.
-        if primary != nil { return }
+        // A board's window uses the app's bundle and watches nothing itself; the app's model starts, if its own
+        // window is not open to do it.
+        if let primary {
+            await primary.start()
+            return
+        }
         observeTheMac()
         guard loaded != nil else {
             phase = .failed("This build has no configuration, so the pages cannot start.")
@@ -280,9 +287,9 @@ final class MacShellModel: ObservableObject {
         for window in windows { window.host.send(event, data) }
     }
 
-    /// The settings sheet is the first window's.
+    /// The settings sheet, on this window, the one in front when it was asked for.
     func openSettings() {
-        (primary ?? self).showSettings = true
+        showSettings = true
     }
 
     func goBack() { webView?.goBack() }

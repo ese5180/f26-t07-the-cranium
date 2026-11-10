@@ -21,12 +21,16 @@ final class MacBridgeHost {
     }
     let dispatcher = BridgeDispatcher(features: MacBridgeHost.features)
     /// The app's one Bluetooth radio, one serial bridge and keep-awake (MacShared), not this window's own.
-    private var shared: MacShared { owner?.shared ?? MacShared() }
-    private var radio: ShellRadio { shared.radio(for: self) }
+    private let shared: MacShared
+    /// This window's stable id, for the serial ports, the radio and keep-awake it holds.
+    let windowID: String
+    private var radio: ShellRadio { shared.radio }
     private var serial: MacSerial { shared.serial }
 
     init(model: MacShellModel) {
         self.owner = model
+        shared = model.shared
+        windowID = model.windowID
         registerApp()
         registerAuth()
         registerDevice()
@@ -35,12 +39,32 @@ final class MacBridgeHost {
         registerSerial()
     }
 
-    /// The page went away (a reload or a new document): this window's ports are closed, as Android does, and it no
-    /// longer asks the Mac to stay awake.
+    /// The page went away (a reload or a new document): this window's ports are closed, as Android does, it no
+    /// longer asks the Mac to stay awake, and a Bluetooth link or upload it held is ended.
     func pageLeft() {
-        guard let shared = owner?.shared else { return }
-        shared.serial.closeAll(owner: self)
-        shared.keepAwake(false, for: self)
+        shared.serial.closeAll(owner: windowID)
+        shared.keepAwake(false, for: windowID)
+        releaseRadio()
+    }
+
+    /// The window is closing: as pageLeft, and its events have nowhere to go.
+    func windowClosed() {
+        pageLeft()
+        shared.hub.unregister(windowID)
+    }
+
+    private func releaseRadio() {
+        guard shared.hub.owns(windowID) else { return }
+        let radio = shared.radio
+        let hub = shared.hub
+        let id = windowID
+        radio.cancel()
+        Task {
+            await radio.disconnect()
+            hub.release(id)
+        }
+        // Held no longer from now on, so another window can use it at once; the disconnect finishes in the background.
+        hub.release(id)
     }
 
     // MARK: To the page
@@ -114,7 +138,7 @@ final class MacBridgeHost {
             return [:]
         }
         dispatcher.register("app.keepAwake") { [unowned self] params in
-            try model.shared.keepAwake(params.bool("on"), for: self)
+            shared.keepAwake(params.bool("on"), for: windowID)
             return [:]
         }
         dispatcher.register("app.settings") { [unowned self] _ in
@@ -225,35 +249,71 @@ final class MacBridgeHost {
     // MARK: ble.*
 
     private func registerBluetooth() {
+        // The radio is held by one window (MacRadioHub): this window's calls claim it or are refused, and only the
+        // holder gets its events.
         dispatcher.register("ble.state") { [unowned self] _ in ["state": .string(await radio.state())] }
         dispatcher.register("ble.scan") { [unowned self] params in
-            radio.scan(params.bool("on"))
+            if params.bool("on") {
+                try take()
+                radio.scan(true)
+            } else {
+                try shared.hub.require(windowID)
+                radio.scan(false)
+                shared.hub.stoppedUsing(windowID)
+            }
             return [:]
         }
-        dispatcher.register("ble.connect") { [unowned self] params in ["name": .string(try await radio.connect(params.string("id")))] }
-        dispatcher.register("ble.images") { [unowned self] _ in try await radio.images() }
+        dispatcher.register("ble.connect") { [unowned self] params in
+            try take()
+            do {
+                return ["name": .string(try await radio.connect(params.string("id")))]
+            } catch {
+                shared.hub.stoppedUsing(windowID)
+                throw error
+            }
+        }
+        dispatcher.register("ble.images") { [unowned self] _ in
+            try shared.hub.require(windowID)
+            return try await radio.images()
+        }
         dispatcher.register("ble.upload") { [unowned self] params in
+            try shared.hub.require(windowID)
             try await radio.upload(base64: params.string("image"), sha256: params.string("sha256"))
             return [:]
         }
         dispatcher.register("ble.cancel") { [unowned self] _ in
+            try shared.hub.require(windowID)
             radio.cancel()
             return [:]
         }
-        dispatcher.register("ble.status") { [unowned self] _ in try radio.status() }
+        dispatcher.register("ble.status") { [unowned self] _ in
+            try shared.hub.require(windowID)
+            return try radio.status()
+        }
         dispatcher.register("ble.disconnect") { [unowned self] _ in
+            try shared.hub.require(windowID)
             await radio.disconnect()
+            shared.hub.release(windowID)
             return [:]
         }
         dispatcher.register("ble.watch") { [unowned self] params in
             if params.bool("on") {
                 guard let version = params.optionalString("version") else { throw BridgeError.badRequest("version is missing.") }
+                try take()
                 radio.watch(version: version, hash: params.optionalString("hash"))
             } else {
+                try shared.hub.require(windowID)
                 radio.stopWatching()
+                shared.hub.stoppedUsing(windowID)
             }
             return [:]
         }
+    }
+
+    /// This window starts using the radio: its events come here from now on, or the call is refused as busy.
+    private func take() throws {
+        shared.hub.register(windowID) { [weak self] name, data in self?.send(name, data) }
+        try shared.hub.claim(windowID)
     }
 }
 
@@ -262,13 +322,13 @@ extension MacBridgeHost {
 
     /// The Android app's usb.* (ShellUsb), over the Mac's serial ports (MacSerial).
     fileprivate func registerSerial() {
-        dispatcher.register("usb.open") { [unowned self] params in try await serial.open(baudRate: params.int("baudRate"), owner: self, emit: { [weak self] name, data in self?.send(name, data) }) }
+        dispatcher.register("usb.open") { [unowned self] params in try await serial.open(baudRate: params.int("baudRate"), owner: windowID, emit: { [weak self] name, data in self?.send(name, data) }) }
         dispatcher.register("usb.write") { [unowned self] params in
-            try await serial.write(port: params.int("port"), base64: params.string("data"), owner: self)
+            try await serial.write(port: params.int("port"), base64: params.string("data"), owner: windowID)
             return [:]
         }
         dispatcher.register("usb.close") { [unowned self] params in
-            serial.close(port: params.int("port"), owner: self)
+            serial.close(port: params.int("port"), owner: windowID)
             return [:]
         }
     }

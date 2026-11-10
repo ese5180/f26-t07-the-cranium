@@ -7,7 +7,7 @@ import Foundation
 /// half-second window after ENTER_BOOTLOADER is the page's to meet.
 ///
 /// One of these serves the whole app: every window's bridge asks it, each port belongs to the window that
-/// opened it (its `owner`, which gets that port's usb.data and usb.closed), and a port open in one window is
+/// opened it (its `owner`, a window's stable id, which gets that port's usb.data and usb.closed), and a port open in one window is
 /// busy in the others. The first usb.open asks the person which SEGGER J-Link to use (`choose`, a sheet);
 /// after that the next free port of the same device opens, the console's (the last) first.
 @MainActor
@@ -22,7 +22,7 @@ final class MacSerial {
     private struct Open {
         let line: SerialLine
         let token: UUID
-        let owner: ObjectIdentifier
+        let owner: String
         let emit: Emit
     }
 
@@ -32,7 +32,7 @@ final class MacSerial {
     private var open: [Int: Open] = [:]
     private var asking = false
     /// Goes up when a window's page is left; an open that began before is not finished.
-    private var generations: [ObjectIdentifier: Int] = [:]
+    private var generations: [String: Int] = [:]
     private let feed: AsyncStream<Event>.Continuation
 
     init(lister: SerialPortLister = IOKitSerialLister(), choose: @escaping ([SerialBoard]) async -> SerialBoard?) {
@@ -57,8 +57,8 @@ final class MacSerial {
     // MARK: usb.*
 
     /// The next free port of the chosen device, for `owner`; `{port, ports}`.
-    func open(baudRate: Int, owner: AnyObject, emit: @escaping Emit) async throws -> [String: JSONValue] {
-        let who = ObjectIdentifier(owner)
+    func open(baudRate: Int, owner: String, emit: @escaping Emit) async throws -> [String: JSONValue] {
+        let who = owner
         // The sheet is waiting for the person; a second request meanwhile would stack another.
         if asking { throw BridgeError(.busy, "The board's USB port is being chosen already.") }
         asking = true
@@ -103,8 +103,8 @@ final class MacSerial {
     }
 
     /// The bytes (base64) to a port `owner` opened, once they are written.
-    func write(port: Int, base64: String, owner: AnyObject) async throws {
-        guard let line = open[port], line.owner == ObjectIdentifier(owner) else { throw BridgeError.failed("That port is not open.") }
+    func write(port: Int, base64: String, owner: String) async throws {
+        guard let line = open[port], line.owner == owner else { throw BridgeError.failed("That port is not open.") }
         guard let bytes = Data(base64Encoded: base64) else { throw BridgeError.badRequest("data: not base64") }
         do {
             try await line.line.write(bytes)
@@ -114,15 +114,15 @@ final class MacSerial {
     }
 
     /// Closes a port `owner` opened; nothing if it is not open. usb.closed is not sent for this.
-    func close(port: Int, owner: AnyObject) {
-        guard let entry = open[port], entry.owner == ObjectIdentifier(owner) else { return }
+    func close(port: Int, owner: String) {
+        guard let entry = open[port], entry.owner == owner else { return }
         open.removeValue(forKey: port)
         entry.line.close()
     }
 
     /// The owner's page went away: its ports are closed, and an open still waiting for the person is dropped.
-    func closeAll(owner: AnyObject) {
-        let who = ObjectIdentifier(owner)
+    func closeAll(owner: String) {
+        let who = owner
         generations[who, default: 0] += 1
         for (index, entry) in open where entry.owner == who {
             entry.line.close()

@@ -42,6 +42,8 @@ struct MacShellRoot: View {
         .task { await model.start() }
         // The menus act on the window in front.
         .focusedSceneValue(\.shellModel, model)
+        // The window closed: its ports, keep-awake and Bluetooth link are let go.
+        .onDisappear { model.host.windowClosed() }
         .sheet(isPresented: $model.showSettings) {
             MacShellSettings(model: model)
         }
