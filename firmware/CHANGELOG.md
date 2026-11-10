@@ -7,9 +7,17 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.19.1
+
+Offline Bluetooth mode, as 1.19.0, together with listening sessions (1.18.0): 1.19.0 was built and uploaded from a source that did not have 1.18.0 yet, so this build, from the same source on top of 1.18.0, takes the next number. The phone and Mac apps show offline mode on the console's Offline page from console 2.27.0. Not yet used from a phone against a board.
+
+Flash and RAM, nRF7002 DK, built with `--keep --no-upload --without-key`: signed image 884,925 bytes of a 933,888-byte slot;
+flash 753,680 of 794,474 bytes (40,794 free); RAM 404,516 of 405,504 bytes (988 free; 1.18.0 and 1.15.0 leave 1,100, so
+offline mode takes 112 bytes of RAM). The header's figures for 1.19.0 below were from before 1.18.0 was in.
+
 ## 1.19.0
 
-Offline Bluetooth mode: with no Wi-Fi or cloud, a phone app reads the board's status (firmware version, uptime, Wi-Fi, cloud, update state, last restart reason) and accepts a waiting update over Bluetooth, after pairing with the board's own passkey. Runs on an nRF7002 DK; the offline service has not yet been used from a phone (the apps show it from console 2.27.0).
+Offline Bluetooth mode: with no Wi-Fi or cloud, a phone app reads the board's status (firmware version, uptime, Wi-Fi, cloud, update state, last restart reason) and accepts a waiting update over Bluetooth, after pairing with the board's own passkey. Built from a source without 1.18.0 (sessions) and uploaded; it runs on an nRF7002 DK. 1.19.1 is the same on top of 1.18.0.
 
 A GATT service of its own (`9112B1B6-...`, src/bt/bt_offline.c, bytes in src/policy/bt_offline_policy.h): a status characteristic
 (read) and a control point (write, `[0x01, major, minor]`), both with the permission for an authenticated, encrypted link, so
@@ -20,8 +28,8 @@ protected storage by `BT_OFFLINE|NEW`, which draws it from the board's entropy s
 keeps no copy anywhere else (CONFIG_APP_BT_OFFLINE selects CONFIG_APP_BT_STATIC_PASSKEY, which was a Bluetooth-only
 board's, so an nRF7002 DK now can keep one too; with none stored it draws a new passkey for each attempt, as before).
 
-Flash and RAM, nRF7002 DK, built with `--no-upload --without-key`: signed image 882,261 bytes (877,733 for 1.15.0); RAM
-404,505 of 405,504 (999 free; 1.15.0 used 404,404, 1,100 free). nRF5340 DK: signed image 329,913 bytes.
+Flash and RAM of that build (without 1.18.0), nRF7002 DK, `--no-upload --without-key`: signed image 882,261 bytes; RAM
+404,516 of 405,504 (988 free, as the board's build reported; an earlier note said 999). nRF5340 DK: signed image 329,913 bytes.
 
 ## 1.18.0
 
