@@ -4,6 +4,21 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.12
+
+The iPhone app updates itself from the phone: when the console has a newer iPhone version, a banner says so, and Update offers two ways to it, Install with SideStore (one tap, no Mac, needs SideStore on the iPhone) and Install from the Mac (renew.sh, or the console's Apps page).
+
+`ShellModel.checkForAppUpdate` asks `GET /api/apps` with the console sign-in that is already open (never asking for Face ID)
+when the pages start and whenever the app comes back, and CraniumKit `AppUpdate` compares the newest published version and
+build with the app's own. Install with SideStore asks the console for a fresh 15-minute link
+(`GET /api/apps/ios/<version>/download?via=app`, console 2.13.2), checks that it is the version, size and SHA-256 offered,
+and opens `sidestore://install?url=<link>`, the form SideStore's URL handler takes for an IPA. When nothing opens it, the
+sheet says how to get SideStore and links to the console's Apps page. `ShellPolicy` now takes exactly two SideStore
+forms, for this console only: `sidestore://source?url=<console>/api/sidestore/crs_<key>/source.json` and
+`sidestore://install?url=<the console's presigned S3 IPA link, or an IPA through a member's source>`, with one `url` item
+and nothing else; SideStore's `pairing` and `certificate` links, and any other address in it, are refused, from the
+page's `app.open` and from its links alike. Tests: `AppUpdateTests`, `ShellPolicyTests.exactlyTheSideStoreLinksAllowed`.
+
 ## 0.8.11
 
 Alerts and safer rollouts in the app (console 2.13.0 and later): an Alerts page where release managers turn each alert rule on or off and set its threshold, a toast in the open app as soon as an alert goes out, and a Health gate on a staged rollout that holds the next stage until Memfault shows no new issue and no unexpected reboot.

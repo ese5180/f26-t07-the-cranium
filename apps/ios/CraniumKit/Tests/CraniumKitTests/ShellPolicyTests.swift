@@ -79,9 +79,11 @@ import Testing
             #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false) == .openOutside(url), "\(address)")
             #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: true) == .openOutside(url), "\(address)")
         }
-        // SideStore and an authenticator app.
-        let source = URL(string: "sidestore://source?url=https://console.test/api/sidestore/x/source.json")!
-        #expect(ShellPolicy.navigation(to: source, mainFrame: true, newWindow: false) == .openOutside(source))
+        // SideStore, with this console's source, and an authenticator app.
+        let source = URL(string: "sidestore://source?url=https%3A%2F%2Fconsole.test%2Fapi%2Fsidestore%2F\(Self.key)%2Fsource.json")!
+        #expect(ShellPolicy.navigation(to: source, mainFrame: true, newWindow: false, console: Self.config.consoleURL) == .openOutside(source))
+        // Not without knowing the console.
+        #expect(ShellPolicy.navigation(to: source, mainFrame: true, newWindow: false) == .drop)
         let otp = URL(string: "otpauth://totp/Cranium:me?secret=ABC&issuer=Cranium")!
         #expect(ShellPolicy.navigation(to: otp, mainFrame: true, newWindow: true) == .openOutside(otp))
         // Nothing else, and nothing at all in an iframe.
@@ -95,10 +97,71 @@ import Testing
 
     @Test func whatAppOpenTakes() {
         #expect(ShellPolicy.mayOpenOutside(URL(string: "https://docs.sidestore.io/docs/installation/prerequisites")!))
-        #expect(ShellPolicy.mayOpenOutside(URL(string: "SIDESTORE://source?url=x")!))
         #expect(!ShellPolicy.mayOpenOutside(URL(string: "https:///nohost")!))
         #expect(!ShellPolicy.mayOpenOutside(URL(string: "itms-services://?action=download-manifest")!))
         #expect(!ShellPolicy.mayOpenOutside(URL(string: "mailto:x@example.org")!))
+    }
+
+    static let key = "crs_" + String(repeating: "A", count: 43)
+    static let s3 = "https://cranium-apps-123.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.8.10.ipa?versionId=v1&X-Amz-Signature=abc"
+
+    static func sidestore(_ host: String, _ inner: String) -> URL {
+        URL(string: "sidestore://\(host)?url=\(inner.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)")!
+    }
+
+    /// SideStore's two forms, for this console, and nothing else of SideStore's.
+    @Test func exactlyTheSideStoreLinksAllowed() {
+        let console = Self.config.consoleURL
+        let allowed = [
+            Self.sidestore("source", "https://console.test/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("install", Self.s3),
+            Self.sidestore("install", "https://console.test/api/sidestore/\(Self.key)/cranium-ios-0.8.10.ipa"),
+            // The scheme and host in capitals, and an unencoded inner link, are the same address.
+            URL(string: "SIDESTORE://Source?url=https://console.test/api/sidestore/\(Self.key)/source.json")!,
+        ]
+        for url in allowed {
+            #expect(ShellPolicy.mayOpenOutside(url, console: console), "\(url)")
+            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: true, console: console) == .openOutside(url), "\(url)")
+            // Without the console, no SideStore address at all.
+            #expect(!ShellPolicy.mayOpenOutside(url), "\(url)")
+        }
+        var refused = [
+            // SideStore's other hosts: a pairing file or a signing certificate sent elsewhere.
+            "sidestore://pairing?urlname=https://evil.test/x",
+            "sidestore://certificate?callback_template=https://evil.test/$(BASE64_CERT)",
+            "sidestore://appbackupresponse/success",
+            "sidestore://source", "sidestore://install", "sidestore://",
+            "sidestore://source?url=x",
+        ].map { URL(string: $0)! }
+        refused += [
+            // Another console's source, or this console's over http, a port, a user, another path.
+            Self.sidestore("source", "https://evil.test/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("source", "http://console.test/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("source", "https://console.test:8443/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("source", "https://me@console.test/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("source", "https://console.test/api/sidestore/crs_short/source.json"),
+            Self.sidestore("source", "https://console.test/api/sidestore/\(Self.key)/source.json?token=x"),
+            Self.sidestore("source", "https://console.test/api/apps"),
+            // An IPA anywhere else: another host, not signed, another object, http, the source as an IPA.
+            Self.sidestore("install", "https://evil.test/apps/ios/cranium-ios-0.8.10.ipa?X-Amz-Signature=abc"),
+            Self.sidestore("install", "https://evil.s3.us-east-1.amazonaws.com.evil.test/apps/ios/cranium-ios-0.8.10.ipa?X-Amz-Signature=abc"),
+            Self.sidestore("install", "https://cranium-apps-123.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.8.10.ipa"),
+            Self.sidestore("install", "https://cranium-apps-123.s3.us-east-1.amazonaws.com/apps/android/cranium-0.8.10.apk?X-Amz-Signature=abc"),
+            Self.sidestore("install", "http://cranium-apps-123.s3.us-east-1.amazonaws.com/apps/ios/cranium-ios-0.8.10.ipa?X-Amz-Signature=abc"),
+            Self.sidestore("install", "https://console.test/api/sidestore/\(Self.key)/source.json"),
+            Self.sidestore("install", "https://console.test/api/apps/ios/0.8.10/download"),
+        ]
+        // Two url items, another item, a path, a fragment.
+        refused += [
+            URL(string: Self.sidestore("install", Self.s3).absoluteString + "&url=https%3A%2F%2Fevil.test%2Fx.ipa")!,
+            URL(string: Self.sidestore("install", Self.s3).absoluteString + "&x=1")!,
+            URL(string: Self.sidestore("install", Self.s3).absoluteString.replacingOccurrences(of: "install?", with: "install/x?"))!,
+            URL(string: Self.sidestore("install", Self.s3).absoluteString + "#x")!,
+        ]
+        for url in refused {
+            #expect(!ShellPolicy.mayOpenOutside(url, console: console), "\(url)")
+            #expect(ShellPolicy.navigation(to: url, mainFrame: true, newWindow: false, console: console) == .drop, "\(url)")
+        }
     }
 
     @Test func whereItStartsAndHowAPathIsRead() {

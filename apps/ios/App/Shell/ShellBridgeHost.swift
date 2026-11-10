@@ -104,8 +104,9 @@ final class ShellBridgeHost {
             Task { await model.reload() }
             return [:]
         }
-        dispatcher.register("app.open") { params in
-            guard let url = URL(string: params.string("url")), ShellPolicy.mayOpenOutside(url) else {
+        dispatcher.register("app.open") { [unowned self] params in
+            let console = try model.config?.consoleURL
+            guard let url = URL(string: params.string("url")), ShellPolicy.mayOpenOutside(url, console: console) else {
                 throw BridgeError(.notAllowed, "The app opens https:, sidestore: and otpauth: addresses only.")
             }
             let opened = await UIApplication.shared.open(url)

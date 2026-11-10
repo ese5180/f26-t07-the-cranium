@@ -21,6 +21,9 @@ struct ShellRoot: View {
                     .frame(maxWidth: .infinity)
                     .background(Theme.page.warnWash)
             }
+            if let release = model.appUpdate {
+                AppUpdateBanner(release: release, running: model.shellVersion) { model.showAppUpdate = true }
+            }
             ZStack {
                 Theme.page.paper.ignoresSafeArea()
                 if model.bundle != nil {
@@ -40,6 +43,9 @@ struct ShellRoot: View {
         }
         .sheet(isPresented: $model.showSettings) {
             ShellSettingsView(model: model)
+        }
+        .sheet(isPresented: $model.showAppUpdate) {
+            AppUpdateSheet(model: model)
         }
         .alert(item: $model.offer) { offer in
             Alert(title: Text("Open Cranium with \(offer.biometry.name)?"),
