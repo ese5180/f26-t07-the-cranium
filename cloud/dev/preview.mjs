@@ -1871,6 +1871,8 @@ export async function createPreview({
       queryEvents: fake.queryEvents,
       putCustomerAction: fake.putCustomerAction,
       recentCustomerActions: fake.recentCustomerActions,
+      // The counters that hold a customer's changes to their limit (customer/app.mjs withinWriteLimits).
+      takeWriteSlot: fake.takeWriteSlot,
       ...customers,
     },
     config: Object.freeze({
