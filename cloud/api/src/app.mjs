@@ -518,6 +518,18 @@ export function createApp({
       action: 'group.rollback',
       maxBody: SMALL_BODY_LIMIT,
     }),
+    // "Roll back to last good" (console 2.14.0): each board of the fleet or of a group to its last good
+    // version, one staged rollout per release, with the health gate on.
+    route('GET', '/api/fleet/last-good', rollouts.lastGoodPlan),
+    route('POST', '/api/fleet/last-good', rollouts.lastGood, {
+      action: 'fleet.rollback_last_good',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    route('GET', '/api/groups/{id}/last-good', rollouts.lastGoodPlan),
+    route('POST', '/api/groups/{id}/last-good', rollouts.lastGood, {
+      action: 'fleet.rollback_last_good',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     // What a phone saw of a board over Bluetooth: how a board without Wi-Fi shows at all. Like the other
     // calls of a person at a board, no fresh sign-in; at most 60 a minute, and one over that leaves no entry.
     route(

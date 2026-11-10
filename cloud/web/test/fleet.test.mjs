@@ -759,7 +759,9 @@ test('the roll back review says that a real roll-back is a rebuild of the old so
       signIn: () => {},
     },
   });
-  one(draw(fleet.groupsCard(ctx)), 'button', 'Roll back').dispatchEvent({ type: 'click' });
+  all(draw(fleet.groupsCard(ctx)), 'button')
+    .find((el) => textOf(el) === 'Roll back')
+    .dispatchEvent({ type: 'click' });
   await new Promise((resolve) => setImmediate(resolve));
   const dialog = draw(build());
   assert.match(textOf(dialog), /Roll back Bench/);
@@ -1053,4 +1055,194 @@ test('Roll out to a group pre-fills the suggestion with its reasons, and sends t
       abortPercent: 20,
     },
   ]);
+});
+
+// Roll back to last good (console 2.14.0).
+
+const LAST_GOOD_PLAN = {
+  scope: { kind: 'group', id: 'grp-0a0b0c0d', name: 'Bench' },
+  targets: [
+    {
+      type: 'nrf7002dk',
+      label: 'nRF7002 DK',
+      release: { version: '1.13.2+0', board: 'nrf7002dk', layout: 1, notes: 'Rebuild of 1.13.0', rebuildOf: '1.13.0' },
+      boards: [
+        { thing: A, from: '1.13.1+0', to: '1.13.0+0', how: 'ran_before' },
+        { thing: B, from: '1.13.1+0', to: '1.13.0+0', how: 'kept' },
+      ],
+      things: [A, B],
+      leftOut: [],
+      canary: [A],
+    },
+  ],
+  leftOut: [
+    {
+      thing: C,
+      reason: 'no_good',
+      text: 'No version it ran confirmed before the one it runs',
+      from: '1.0.0+0',
+      to: null,
+    },
+    {
+      thing: 'cranium-00000000000000dd',
+      reason: 'no_rebuild',
+      text: 'Its last good version is 1.12.0+0, older than 1.13.1+0',
+      from: '1.13.1+0',
+      to: '1.12.0+0',
+    },
+  ],
+  healthGate: { on: true, minutes: 10 },
+};
+
+/** The fleet module with a dialog that is drawn and submitted as app.js would, and what was posted. */
+function lastGoodConsole() {
+  const { state, answers, ctx } = connected();
+  const posted = [];
+  const went = [];
+  let build = null;
+  let closed = false;
+  fleet.connect({
+    state,
+    api: {
+      fleetRequest: async (method, path, body) => {
+        if (method === 'POST') posted.push([path, body]);
+        if (!answers.has(`${method} ${path}`)) throw new core.ApiError(404, 'not_found', 'Nothing there');
+        return answers.get(`${method} ${path}`);
+      },
+    },
+    load: async (target, fetcher) => {
+      target.value = await fetcher();
+      target.loadedAt = NOW;
+    },
+    draw: () => {},
+    clock: { now: () => NOW },
+    refresh: () => {},
+    notify: () => {},
+    keep: () => {},
+    go: (where) => went.push(where),
+    dialogs: {
+      open: (made) => {
+        build = made;
+        return {
+          redraw() {},
+          close() {
+            closed = true;
+          },
+        };
+      },
+      submit: async (self, model, run) => run(),
+      isOpen: () => false,
+      signIn: () => {},
+    },
+  });
+  return { state, answers, ctx, posted, went, dialog: () => draw(build()), closed: () => closed };
+}
+
+test('a group and the Fleet page offer Roll back to last good, to release managers only', async () => {
+  const { state, answers, ctx } = lastGoodConsole();
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/rollouts', { rollouts: [] });
+  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  await fleet.refreshFor('devices', true);
+  assert.ok(all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+  state.route = { view: 'fleet' };
+  state.firmware.loadedAt = NOW;
+  state.devices.loadedAt = NOW;
+  assert.ok(all(draw(fleet.fleetView(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+  state.me = { canWrite: false };
+  assert.ok(!all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+  assert.ok(!all(draw(fleet.fleetView(ctx)), 'button').some((el) => textOf(el) === 'Roll back to last good'));
+});
+
+test('the preview: each board from and to under its release, the canary, what is left out and why, the gate always on', async () => {
+  const { answers, ctx, dialog } = lastGoodConsole();
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/groups/grp-0a0b0c0d/last-good', { plan: LAST_GOOD_PLAN });
+  await fleet.refreshFor('devices', true);
+  one(draw(fleet.groupsCard(ctx)), 'button', 'Roll back to last good').dispatchEvent({ type: 'click' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const shown = dialog();
+  const text = textOf(shown);
+  assert.match(text, /Roll back Bench to last good/);
+  assert.match(text, /nRF7002 DK · layout 1 1\.13\.2\+0 rebuild of 1\.13\.0/);
+  assert.match(text, /1\.13\.1\+0 → 1\.13\.0\+0 · the canary: it goes first/);
+  assert.match(text, /a release whose note says "Rebuild of <version>"/);
+  assert.match(text, /Left out: 2 boards with nowhere to go/);
+  assert.match(text, /No known good version/);
+  assert.match(text, /No rebuild of it yet.*older than 1\.13\.1\+0/);
+  assert.match(text, /Health gate: always on for a roll back/);
+  // No switch to turn it off.
+  assert.equal(all(shown, 'input').filter((el) => el.getAttribute('name') === 'health-gate').length, 0);
+  assert.equal(all(shown, 'input').filter((el) => el.getAttribute('type') === 'checkbox').length, 2);
+  assert.match(textOf(all(shown, 'button').at(-1)), /Roll back: 2 boards/);
+
+  const plan = fleet.readers.readLastGoodPlan(LAST_GOOD_PLAN);
+  assert.deepEqual(plan.leftOut[1], {
+    thing: 'cranium-00000000000000dd',
+    reason: 'no_rebuild',
+    text: 'Its last good version is 1.12.0+0, older than 1.13.1+0',
+    from: '1.13.1+0',
+    to: '1.12.0+0',
+  });
+  assert.deepEqual(plan.healthGate, { on: true, minutes: 10 });
+});
+
+test('the dialog starts one staged rollout per release with the health gate on, for a group or the fleet', async () => {
+  const { answers, ctx, posted, went, dialog, closed } = lastGoodConsole();
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/groups/grp-0a0b0c0d/last-good', { plan: LAST_GOOD_PLAN });
+  const started = {
+    ...DETAIL,
+    purpose: 'last_good',
+    target: { kind: 'group', group: 'grp-0a0b0c0d', groupName: 'Bench', type: 'nrf7002dk' },
+  };
+  answers.set('POST /api/groups/grp-0a0b0c0d/last-good', { rollouts: [started] });
+  await fleet.refreshFor('devices', true);
+  one(draw(fleet.groupsCard(ctx)), 'button', 'Roll back to last good').dispatchEvent({ type: 'click' });
+  await new Promise((resolve) => setImmediate(resolve));
+  one(dialog(), 'form').dispatchEvent({ type: 'submit', preventDefault() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(posted, [
+    [
+      '/api/groups/grp-0a0b0c0d/last-good',
+      {
+        targets: [{ version: '1.13.2+0', things: [A, B] }],
+        canary: 1,
+        stages: 1,
+        soakMinutes: 0,
+        healthGate: { on: true, minutes: 10 },
+        abortPercent: 20,
+      },
+    ],
+  ]);
+  assert.ok(closed());
+  assert.deepEqual(went, [{ view: 'rollout', id: ROLLOUT }]);
+
+  // The rollout says what it is.
+  const page = connected({ route: { view: 'rollout', id: ROLLOUT } });
+  page.answers.set(`GET /api/rollouts/${ROLLOUT}`, { rollout: started });
+  await fleet.refreshRollout(false);
+  assert.match(textOf(draw(fleet.rolloutView(page.ctx))), /Roll back to last good: the group Bench/);
+});
+
+test('the fleet asks for its own plan, and nothing is offered when no board has somewhere to go', async () => {
+  const { state, answers, ctx, posted, dialog } = lastGoodConsole();
+  answers.set('GET /api/fleet', FLEET);
+  answers.set('GET /api/rollouts', { rollouts: [] });
+  answers.set('GET /api/fleet/health', { types: [], updates: {}, attention: [] });
+  answers.set('GET /api/fleet/last-good', { plan: { ...LAST_GOOD_PLAN, scope: { kind: 'fleet' }, targets: [] } });
+  await fleet.refreshFor('devices', true);
+  state.route = { view: 'fleet' };
+  state.firmware.loadedAt = NOW;
+  state.devices.loadedAt = NOW;
+  // The page's own, beside Update everything; each group has one too.
+  all(draw(fleet.fleetView(ctx)), 'button')
+    .find((el) => textOf(el) === 'Roll back to last good' && !el.getAttribute('class').includes('is-small'))
+    .dispatchEvent({ type: 'click' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const shown = dialog();
+  assert.match(textOf(shown), /Roll back the fleet to last good/);
+  assert.match(textOf(shown), /No board has a last good version it can be sent/);
+  assert.match(textOf(all(shown, 'button').at(-1)), /Nothing to roll back/);
+  assert.deepEqual(posted, []);
 });

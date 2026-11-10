@@ -135,6 +135,7 @@ test('an audit item carries who, what, when and how it ended', () => {
     'rollout.stop',
     'fleet.update_everything',
     'group.rollback',
+    'fleet.rollback_last_good',
     'device.seen',
     'firmware.notes',
     'app.upload',
