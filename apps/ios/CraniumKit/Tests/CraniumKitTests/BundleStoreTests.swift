@@ -17,7 +17,9 @@ import Testing
         }
     }
 
-    static func make(_ marker: String, bridge: Int = 1) -> Made {
+    /// `version` is the console's: the same for every bundle unless a test says otherwise, so that which one
+    /// starts is decided by the rules other than the version.
+    static func make(_ marker: String, bridge: Int = 1, version: String? = "2.1.0") -> Made {
         let files: [String: Data] = [
             "index.html": Data("<!doctype html><p>customer \(marker)".utf8),
             "admin/index.html": Data("<!doctype html><p>console \(marker)".utf8),
@@ -30,7 +32,7 @@ import Testing
         let id = String(BundleManifest.sha256Hex(Data(BundleManifest.canonicalText(bridge: bridge, routes: routes, files: list).utf8)).prefix(16))
         let manifest: [String: Any] = [
             "format": 1, "id": id, "bridge": bridge,
-            "console": ["version": "2.1.\(marker.count)", "commit": NSNull()], "builtAt": NSNull(),
+            "console": ["version": version.map { $0 as Any } ?? NSNull(), "commit": NSNull()], "builtAt": NSNull(),
             "routes": routes.mapValues { ["file": $0.file, "policy": $0.policy] },
             "files": list.map { ["path": $0.path, "size": $0.size, "sha256": $0.sha256] },
         ]
@@ -88,6 +90,53 @@ import Testing
         // No bundle at all, not even one in the app.
         let (empty, _) = try folders(builtIn: nil)
         #expect(await BundleStore(root: empty, builtIn: nil).launch() == nil)
+    }
+
+    @Test func builtInPagesOfANewerConsoleWinOverAnOlderDownload() async throws {
+        // The app was built with console 2.27.0's pages; the console has 2.25.5 deployed.
+        let (root, builtIn) = try folders(builtIn: Self.make("built-in", version: "2.27.0"))
+        let store = BundleStore(root: root, builtIn: builtIn)
+        let older = Self.make("console", version: "2.25.5")
+        let console = FakeConsole(older)
+        // Nothing to fetch or to offer: the app's own pages are newer.
+        #expect(await store.update(consoleURL: Self.console, fetcher: console) == .upToDate)
+        #expect(console.fileFetches == 0)
+        #expect(await store.launch()?.source == .builtIn)
+        #expect(await store.newest()?.source == .builtIn)
+    }
+
+    @Test func anOlderDownloadKeptFromBeforeGivesWayToNewerBuiltInPages() async throws {
+        // Downloaded by the app before it was updated (its built-in pages were older then).
+        let (root, oldBuiltIn) = try folders(builtIn: Self.make("old built-in", version: "2.20.0"))
+        let older = Self.make("console", version: "2.25.5")
+        #expect(await BundleStore(root: root, builtIn: oldBuiltIn).update(consoleURL: Self.console, fetcher: FakeConsole(older)) ==
+            .updated(try BundleManifest.read(older.text)))
+        #expect(await BundleStore(root: root, builtIn: oldBuiltIn).launch()?.id == older.id)
+        // The app updated, with 2.27.0 built in: those start, and the download's start is not counted.
+        let (_, newBuiltIn) = try folders(builtIn: Self.make("new built-in", version: "2.27.0"))
+        let store = BundleStore(root: root, builtIn: newBuiltIn)
+        for _ in 0..<3 { #expect(await store.launch()?.source == .builtIn) }
+        #expect(await store.isBad(older.id) == false)
+    }
+
+    @Test func aNewerOrEqualDownloadStillWins() async throws {
+        for (shipped, deployed) in [("2.27.0", "2.27.1"), ("2.27.0", "2.27.0"), ("2.9.0", "2.10.0")] {
+            let (root, builtIn) = try folders(builtIn: Self.make("built-in", version: shipped))
+            let store = BundleStore(root: root, builtIn: builtIn)
+            let fresh = Self.make("console \(deployed)", version: deployed)
+            #expect(await store.update(consoleURL: Self.console, fetcher: FakeConsole(fresh)) == .updated(try BundleManifest.read(fresh.text)))
+            #expect(await store.launch()?.id == fresh.id, "\(deployed) against \(shipped) built in")
+        }
+        // A manifest without a version (from before the version was in it) keeps the rule from before.
+        let (root, builtIn) = try folders(builtIn: Self.make("built-in", version: "2.27.0"))
+        let store = BundleStore(root: root, builtIn: builtIn)
+        let unversioned = Self.make("console", version: nil)
+        _ = await store.update(consoleURL: Self.console, fetcher: FakeConsole(unversioned))
+        #expect(await store.launch()?.id == unversioned.id)
+        #expect(BundleStore.isNewer("2.27.0", than: "2.25.5"))
+        #expect(!BundleStore.isNewer("2.25.5", than: "2.27.0"))
+        #expect(BundleStore.isNewer("2.10.0", than: "2.9.9"))
+        #expect(!BundleStore.isNewer("2.27.0", than: nil) && !BundleStore.isNewer("garbage", than: "1.0.0"))
     }
 
     @Test func aNewBundleIsFetchedCheckedAndKept() async throws {

@@ -57,7 +57,10 @@ public struct LoadedBundle: Equatable, Sendable {
 ///
 /// At launch: the current bundle if every file it names is there and checks out and it is not bad; else the
 /// previous one, the same way; else the one built into the app. A downloaded bundle that has not said
-/// app.ready after two starts is bad, and is never fetched again.
+/// app.ready after two starts is bad, and is never fetched again. A downloaded bundle of an older console
+/// than the built-in one gives way to it: an app built with newer pages than the console has deployed (a
+/// new page, such as Offline, waiting for its console release) shows them. Equal or unknown versions keep
+/// the downloaded one, as before.
 public actor BundleStore {
     public enum UpdateOutcome: Equatable, Sendable {
         case upToDate
@@ -131,6 +134,31 @@ public actor BundleStore {
         return try? BundleManifest.read(data)
     }
 
+    /// The built-in bundle's manifest, if its bridge is this app's: read only, its files not checked.
+    private func builtInManifest() -> BundleManifest? {
+        guard let builtIn, let manifest = manifest(at: builtIn.appendingPathComponent("manifest.json")),
+              manifest.bridge <= Bridge.version else { return nil }
+        return manifest
+    }
+
+    /// Whether console version `a` is newer than `b` ("2.27.0" against "2.25.5"); false when either is
+    /// missing or not three numbers, so that a manifest without a version keeps the rule from before.
+    public static func isNewer(_ a: String?, than b: String?) -> Bool {
+        func parts(_ text: String?) -> [Int]? {
+            guard let text, let core = text.split(separator: "+").first else { return nil }
+            let numbers = core.split(separator: ".", omittingEmptySubsequences: false).compactMap { Int($0) }
+            return numbers.count == 3 && core.split(separator: ".").count == 3 ? numbers : nil
+        }
+        guard let x = parts(a), let y = parts(b) else { return false }
+        return y.lexicographicallyPrecedes(x)
+    }
+
+    /// The built-in bundle, when it is of a newer console than `manifest` and checks out.
+    private func builtInNewer(than manifest: BundleManifest) -> LoadedBundle? {
+        guard let shipped = builtInManifest(), Self.isNewer(shipped.consoleVersion, than: manifest.consoleVersion) else { return nil }
+        return builtInBundle()
+    }
+
     /// The built-in bundle, checked; nil if the app has none or it does not check out.
     public func builtInBundle() -> LoadedBundle? {
         guard let builtIn, let manifest = manifest(at: builtIn.appendingPathComponent("manifest.json")),
@@ -152,6 +180,11 @@ public actor BundleStore {
             if !entry.good && entry.tries >= Self.maxTries {
                 markBad(manifest.id, in: &state)
                 continue
+            }
+            // Older than the pages built into the app: those, and no start of this one is counted.
+            if let shipped = builtInNewer(than: manifest) {
+                save(state)
+                return shipped
             }
             let bundle = LoadedBundle(manifest: manifest, source: .downloaded, objects: objectsDir)
             guard bundle.isWhole() else { continue }
@@ -194,6 +227,7 @@ public actor BundleStore {
             guard let manifest = manifest(at: file), manifest.bridge <= Bridge.version, !state.bad.contains(manifest.id) else { continue }
             let entry = state.bundles[manifest.id] ?? State.Entry(tries: 0, good: false)
             if !entry.good && entry.tries >= Self.maxTries { continue }
+            if let shipped = builtInNewer(than: manifest) { return shipped }
             let bundle = LoadedBundle(manifest: manifest, source: .downloaded, objects: objectsDir)
             if bundle.isWhole() { return bundle }
         }
@@ -228,6 +262,10 @@ public actor BundleStore {
             save(state)
         }
         guard !state.bad.contains(fresh.id) else { return .refused }
+        // The console's pages are older than the ones built into the app: nothing to fetch or to offer.
+        if let shipped = builtInManifest(), Self.isNewer(shipped.consoleVersion, than: fresh.consoleVersion) {
+            return .upToDate
+        }
         let current = manifest(at: currentFile)
         if current?.id == fresh.id, LoadedBundle(manifest: fresh, source: .downloaded, objects: objectsDir).isWhole() {
             return .upToDate
