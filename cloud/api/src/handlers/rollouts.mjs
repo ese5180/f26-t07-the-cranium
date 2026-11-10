@@ -63,6 +63,11 @@
  * board, and the issue's id and title when it is one. Memfault not to be read: it waits, and after
  * GATE_WAIT_MS stops with "health_unknown". Either stop is the boards' own doing, so an alert.
  *
+ * A group's maintenance window (console 2.17.0, handlers/groups.mjs): a rollout to a group that has one
+ * starts no stage outside it. A stage that is due then waits, marked `waiting: "window"`, and starts on
+ * the first run inside the window. The canary of a rollout started by hand is not held back: whoever
+ * starts it chose the moment. A scheduled start (handlers/schedules.mjs) waits for the window too.
+ *
  * Two runs of advance() at the same moment cannot both start a stage: each change of stage is a
  * conditional write on the rollout (its rev), and only the run that made it creates the job. A
  * cancellation that comes between the two is seen right after the job exists, which is then
@@ -108,6 +113,7 @@ import {
   stageVerdict,
   suggestPlan,
 } from '../lib/stages.mjs';
+import { insideWindow, windowFromItem } from '../lib/schedule.mjs';
 import { MAX_NOTE, isThing, parseJobId, requireBoolean, requireText, requireVersion } from '../lib/validate.mjs';
 import { releaseFromItem, releaseKey } from './firmware.mjs';
 
@@ -161,7 +167,7 @@ function planChanged(message, details) {
 }
 
 /** 1 to MAX_ROLLOUT_BOARDS board names, none twice, sorted. */
-function requireBoardList(value, name = 'things') {
+export function requireBoardList(value, name = 'things') {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_ROLLOUT_BOARDS || !value.every(isThing)) {
     throw badRequest(`invalid_${name}`, `Name 1 to ${MAX_ROLLOUT_BOARDS} boards: "cranium-" and 16 hex digits each.`);
   }
@@ -178,7 +184,7 @@ function requireBoardType(value) {
  * The options of a rollout, the same for every way of starting one. `wave` is what a client from
  * before the stages sent: it is still checked, and has no effect.
  */
-function rolloutOptions(body) {
+export function rolloutOptions(body) {
   requireWhole(field(body, 'wave'), 'wave', 1, MAX_WAVE, DEFAULT_WAVE);
   return {
     canary: requireWhole(field(body, 'canary'), 'canary', 1, MAX_CANARY, DEFAULT_CANARY),
@@ -971,12 +977,14 @@ export function createRolloutHandlers(
       const skipped = await change(item, {
         current: index,
         stages: withStage(item, index, { things: [], leftOut, job: null, startedAt: null, doneAt: at }),
+        waiting: null,
       });
       return skipped === null ? 'raced' : advanceStages(skipped);
     }
     const claimed = await change(item, {
       current: index,
       stages: withStage(item, index, { things: chosen.things, leftOut, job: null, startedAt: at, doneAt: null }),
+      waiting: null,
     });
     if (claimed === null) return 'raced';
 
@@ -1066,7 +1074,19 @@ export function createRolloutHandlers(
     const gated = await healthGate(item, index, endedAt);
     if (typeof gated === 'string') return gated;
     if (now() < endedAt + (gated.soakMinutes ?? 0) * 60_000) return 'waiting';
+    // A group's maintenance window (console 2.17.0): no stage starts outside it.
+    if (!insideWindow(await windowOf(gated), now())) {
+      if (gated.waiting !== 'window') await change(gated, { waiting: 'window' });
+      return 'waiting';
+    }
     return startStage(gated, next);
+  }
+
+  /** The maintenance window of a rollout's group, as the group has it now: null for none. */
+  async function windowOf(item) {
+    if (item.target?.kind !== 'group' || typeof item.target.group !== 'string') return null;
+    const group = await aws.getFleetItem({ pk: 'GRP', sk: item.target.group });
+    return group === null || group.deletedAt ? null : windowFromItem(group.window);
   }
 
   /**

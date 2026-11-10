@@ -77,6 +77,12 @@ export const ACTIONS = Object.freeze([
   'fleet.update_everything',
   'group.rollback',
   'fleet.rollback_last_good',
+  // Scheduled starts (console 2.17.0, handlers/schedules.mjs): made, edited and cancelled by a person;
+  // schedule.start is the console's own, when the schedule starts one (tick.mjs).
+  'schedule.create',
+  'schedule.edit',
+  'schedule.cancel',
+  'schedule.start',
   'device.seen',
   'firmware.notes',
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once

@@ -4,6 +4,14 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.16
+
+Scheduled starts and maintenance windows on the Deployments and Fleet pages (console 2.17.0 and later): a deployment, a staged rollout or a roll back to last good can be scheduled for later, a group can have a maintenance window, and the activity log reads all of it.
+
+The pages are the console's own; the app adds the words for the new activity (`schedule.create`, `schedule.edit`,
+`schedule.cancel`, `schedule.start`) and the new refusals (`schedule_over`, `invalid_window` and the others), checked
+against core.js by the parity tests.
+
 ## 0.8.15
 
 Compare boards and a version timeline (console 2.16.0 and later): a board's page shows every version it ran, how each came and whether it stayed; tick 2 to 4 boards on the Devices page to compare them side by side, with what differs marked.

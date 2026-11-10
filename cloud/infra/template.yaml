@@ -2510,9 +2510,23 @@ Resources:
                       - SEEN
                       - ALR
                       - HEALTH
+                      - SCH
+              # A rollout moved on, and a scheduled start claimed and marked started (console 2.17.0,
+              # src/handlers/schedules.mjs): conditional updates of those two partitions only.
               - Sid: WriteRollouts
                 Effect: Allow
                 Action: dynamodb:UpdateItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - ROL
+                      - SCH
+              # A scheduled staged rollout or roll back to last good, started: its record put, on the
+              # condition that keeps the first (src/aws.mjs putFleetItem). Only the rollouts' partition.
+              - Sid: StartScheduledRollouts
+                Effect: Allow
+                Action: dynamodb:PutItem
                 Resource: !GetAtt StateTable.Arn
                 Condition:
                   ForAllValues:StringEquals:
@@ -2528,7 +2542,8 @@ Resources:
                   ForAllValues:StringEquals:
                     dynamodb:LeadingKeys:
                       - HEALTH
-              # What the snapshot counts of the boards' last week: their events, read only.
+              # What the snapshot counts of the boards' last week: their events, read only. And the boards'
+              # update histories (pk UPD#<thing>), read only, for a scheduled roll back to last good's plan.
               - Sid: ReadBoardEvents
                 Effect: Allow
                 Action: dynamodb:Query
@@ -2537,6 +2552,7 @@ Resources:
                   ForAllValues:StringLike:
                     dynamodb:LeadingKeys:
                       - cranium-*
+                      - UPD#cranium-*
               - Sid: AppendAudit
                 Effect: Allow
                 Action: dynamodb:PutItem
@@ -2682,7 +2698,7 @@ Resources:
   RolloutTickRule:
     Type: AWS::Events::Rule
     Properties:
-      Description: Every minute, the Cranium console moves its staged rollouts on.
+      Description: Every minute, the Cranium console starts what is scheduled and moves its staged rollouts on.
       ScheduleExpression: rate(1 minute)
       State: ENABLED
       Targets:

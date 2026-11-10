@@ -706,6 +706,7 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'WriteOwnLog',
       'ReadReleasesAndFleet',
       'WriteRollouts',
+      'StartScheduledRollouts',
       'WriteHealthSnapshots',
       'ReadBoardEvents',
       'AppendAudit',
@@ -723,17 +724,26 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'NeverChangeAuditEntries',
     ]
   );
-  // Writes in the state table only to a rollout; reads only of releases and the fleet's records.
+  // Writes in the state table only to a rollout and a scheduled start; reads only of releases and the fleet's records.
   const writes = statement(role, 'WriteRollouts');
   assert.ok(writes.includes('Action: dynamodb:UpdateItem'));
   assert.deepEqual(
     [...writes.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['ROL', 'SCH']
+  );
+  // A scheduled rollout's record put: the rollouts' partition only, and no other put in the state table
+  // than that and the health snapshot.
+  const starts = statement(role, 'StartScheduledRollouts');
+  assert.ok(starts.includes('Action: dynamodb:PutItem') && starts.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.deepEqual(
+    [...starts.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
     ['ROL']
   );
+  assert.equal((role.match(/dynamodb:PutItem/g) ?? []).length, 4);
   const reads = statement(role, 'ReadReleasesAndFleet');
   assert.deepEqual(
     [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH']
+    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH', 'SCH']
   );
   // The fleet health score's snapshot: a put of its own partition only, and the boards' events read only.
   const snapshots = statement(role, 'WriteHealthSnapshots');
@@ -747,6 +757,8 @@ test('staged rollouts move on every minute, in a function of their own that can 
     boardEvents.includes('Action: dynamodb:Query') && boardEvents.includes('Resource: !GetAtt EventsTable.Arn')
   );
   assert.ok(boardEvents.includes('ForAllValues:StringLike:') && boardEvents.includes('- cranium-*'));
+  // The update histories for a scheduled roll back to last good: read, never written by this role.
+  assert.ok(boardEvents.includes('- UPD#cranium-*'));
   assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
   // The events table only for the alerts' own part, and the alert topic only to publish to: the alert
   // of a rollout that stopped by itself.

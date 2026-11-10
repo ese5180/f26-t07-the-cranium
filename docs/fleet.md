@@ -126,6 +126,39 @@ image on a board checks it. The board's own check is the last word.
     `last_good`), each with a canary, the stages chosen and the **health gate always on** (10 minutes unless asked for
     longer; asked off it is `400 gate_required`). On record as `fleet.rollback_last_good`, with the group or the fleet,
     the versions and the rollouts started.
+- **Maintenance windows** (from console 2.17.0). A group may have one, in its Edit dialog: the days it opens on, from
+  and to (`HH:MM`; a "to" at or before "from" is the next morning) and a time zone (IANA, such as
+  `America/New_York`; the browser's by default). `POST /api/groups/{id}` with `window: { days, start, end, timeZone }`
+  sets it, `window: null` takes it away; `400 invalid_window` for anything else, and `group.update` records it before
+  and after in words ("weekdays 01:00–05:00 America/New_York"). The window is read on the wall clock of its own zone,
+  so it keeps its local hours across the change to and from summer time; the hour a change skips is simply not in it
+  that day, and the hour that happens twice is in it twice. A staged rollout to the group starts **no stage** outside
+  the window: the stage that is due waits, the rollout says "Waiting for the window" (`waiting: "window"` in
+  `GET /api/rollouts`), and it starts on the first run of the schedule inside the window. The canary of a rollout
+  started by hand is not held back: whoever pressed the button chose the moment.
+- **Scheduled starts** (from console 2.17.0). A deployment, a staged rollout or a roll back to last good can be started
+  later: "Schedule for later" in the New deployment, Roll out and Roll back to last good dialogs asks for a date and
+  time and a time zone (the browser's by default). The start is stored in the state table (pk `SCH`) and started by
+  the schedule that moves the rollouts on (`RolloutTickFn`, every minute), with the **same handlers and checks** as a
+  start by hand: the release still active, the version rules, the board types and layouts, busy boards, and the
+  health gate. A schedule for a group with a window waits for the window ("Waiting for the window"). Of two runs at the
+  same moment only one starts it: the schedule is claimed from `scheduled` to `starting` by a conditional write first.
+  It then runs as the person who scheduled it, and is `started` with what it started, or `failed` with why (a busy
+  board, a revoked release, nothing left to update). A start cut off between its claim and its end is never started
+  again: after 10 minutes it is `failed` with `start_lost`, for a person to look at.
+  - `GET /api/schedules` (every member), `POST /api/schedules` `{ kind, at, timeZone, request }` (`kind` `deployment`,
+    `rollout` or `last_good`; `at` a local `YYYY-MM-DDTHH:MM`, at least a minute and at most 30 days ahead),
+    `POST /api/schedules/{id}` `{ at?, timeZone?, request? }` to change it and `POST /api/schedules/{id}/cancel`,
+    both only while it is `scheduled` (`409 schedule_over` after). A local time a change to summer time skips is taken
+    as the same time after the change; one that happens twice as the first. A roll back to last good is planned again
+    when it starts, for the boards that were ticked.
+  - On record: `schedule.create`, `schedule.edit` and `schedule.cancel` with what changed before and after (when,
+    release, target, boards, note, status), and `schedule.start` as the console's, with who scheduled it, what the start
+    noted and the outcome.
+  - The Deployments page lists them under **Scheduled**: what, when, by whom, waiting for the window, and what it started
+    or why not; a release manager can change the time or cancel one that has not started.
+  - The person who scheduled it is not asked again whether they are still a release manager when it starts: cancel the
+    schedules of someone who leaves the team.
 
 What is planned for the fleet: [`roadmap.md`](roadmap.md). Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
 

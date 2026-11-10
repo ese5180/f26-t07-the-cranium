@@ -288,7 +288,11 @@ const versionFilter = (value) => (/^\d{1,3}(?:\.\d{1,5}){0,2}(?:\+\d{1,10})?$/.t
  */
 export const ACTIVITY_KINDS = Object.freeze([
   { id: 'firmware', label: 'Firmware', starts: ['firmware.', 'pairing.'] },
-  { id: 'deployments', label: 'Deployments and rollouts', starts: ['deployment.', 'rollout.', 'group.', 'fleet.'] },
+  {
+    id: 'deployments',
+    label: 'Deployments and rollouts',
+    starts: ['deployment.', 'rollout.', 'group.', 'fleet.', 'schedule.'],
+  },
   { id: 'boards', label: 'Boards', starts: ['board.', 'serial.', 'device.', 'setup.'] },
   { id: 'people', label: 'Sign-ins, tokens and alerts', starts: ['account.', 'token.', 'alert.'] },
   { id: 'apps', label: 'Phone apps', starts: ['app.'] },
@@ -4286,6 +4290,33 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to roll back to last good firmware',
     icon: 'restart',
   },
+  // Scheduled starts (console 2.17.0): made, changed and cancelled by a person; carried out by the console.
+  'schedule.create': {
+    done: 'scheduled the start',
+    doneAlone: 'scheduled a start',
+    tried: 'tried to schedule the start',
+    triedAlone: 'tried to schedule a start',
+    icon: 'clock',
+  },
+  'schedule.edit': {
+    done: 'changed the scheduled start',
+    tried: 'tried to change the scheduled start',
+    triedAlone: 'tried to change a scheduled start',
+    icon: 'clock',
+  },
+  'schedule.cancel': {
+    done: 'cancelled the scheduled start',
+    tried: 'tried to cancel the scheduled start',
+    triedAlone: 'tried to cancel a scheduled start',
+    icon: 'stop',
+  },
+  'schedule.start': {
+    done: 'carried out the scheduled start',
+    doneAlone: 'carried out a scheduled start',
+    tried: 'could not carry out the scheduled start',
+    triedAlone: 'could not carry out a scheduled start',
+    icon: 'send',
+  },
   'device.seen': {
     done: 'saw {} over Bluetooth',
     doneAlone: 'saw a board over Bluetooth',
@@ -4592,6 +4623,19 @@ export const REFUSAL_WORDS = {
   rollout_unrecorded: 'The rollout could not be recorded, so its canary was withdrawn',
   partly_started: 'Only some of the rollouts could be started',
   invalid_healthGate: 'The health gate was not on or off with 0 to 120 minutes',
+  // Scheduled starts and maintenance windows (cloud/api/src/handlers/schedules.mjs, groups.mjs).
+  invalid_kind: 'Not something that can be scheduled: a deployment, a staged rollout or a roll back to last good',
+  invalid_at: 'The time was not a local date and time',
+  invalid_timeZone: 'Not a time zone',
+  invalid_request: 'What to start was not given',
+  invalid_schedule: 'Not the id of a scheduled start',
+  unknown_schedule: 'There is no such scheduled start',
+  schedule_in_past: 'The time was less than a minute from now, or past',
+  schedule_too_far: 'The time was more than 30 days ahead',
+  schedule_over: 'The scheduled start has begun, ended or was cancelled',
+  schedule_changed: 'Someone changed the scheduled start at the same moment',
+  too_many_schedules: 'There can be at most 50 scheduled starts',
+  invalid_window: 'The maintenance window was not days, a start and an end, and a time zone',
   // The alert rules (cloud/api/src/handlers/alerts.mjs).
   invalid_rules: 'The alert rules asked for were not rules, or not within their limits',
   rules_changed: 'Someone changed the alert rules at the same moment',
@@ -4820,6 +4864,10 @@ export const CHANGE_ACTIONS = Object.freeze([
   'fleet.update_everything',
   'group.rollback',
   'fleet.rollback_last_good',
+  'schedule.create',
+  'schedule.edit',
+  'schedule.cancel',
+  'schedule.start',
   'customer.create',
   'customer.assign',
   'customer.unassign',
@@ -4846,6 +4894,8 @@ const CHANGE_FIELDS = Object.freeze({
   email: 'E-mail address',
   alerts: 'E-mail alerts',
   deployment: 'Deployment',
+  time: 'When',
+  window: 'Maintenance window',
 });
 
 /** A field's name in words: "keyHash" is "Key hash". */

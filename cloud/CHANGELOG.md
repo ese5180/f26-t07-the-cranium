@@ -7,6 +7,23 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.17.0
+
+Scheduled starts and maintenance windows: a deployment, a staged rollout or a roll back to last good can be scheduled for later, at a time in a time zone, and a group can have a maintenance window inside which its rollouts' stages start. The Deployments page lists what is scheduled, and a release manager can change the time or cancel it before it starts.
+
+lib/schedule.mjs is new: local times in IANA time zones (a time skipped by the change to summer time is taken as the
+same time after it, one that happens twice as the first), and windows `{ days, start, end, timeZone }` read on the
+wall clock of their zone, over midnight too. handlers/schedules.mjs is new: `GET /api/schedules`, `POST /api/schedules`
+`{ kind, at, timeZone, request }` (`deployment`, `rollout` or `last_good`), `POST /api/schedules/{id}` to change it and
+`/cancel`, stored in the state table (pk `SCH`), on record as `schedule.create`, `schedule.edit`, `schedule.cancel`
+with what changed before and after. The rollouts schedule (tick.mjs) starts the due ones first, through the same
+handlers as a start by hand, each claimed by a conditional write so that it starts once, as `schedule.start`; one cut
+off after its claim is never started again (`start_lost`). A group gains `window` (`POST /api/groups/{id}`, `400
+invalid_window`); a rollout to it starts no stage outside it and says `waiting: "window"`. The schedule's role gains
+`UpdateItem` of `SCH`, `PutItem` of `ROL` (a scheduled rollout's record) and `Query` of the boards' update histories
+(`UPD#cranium-*`, read only, for a scheduled roll back to last good), and reads `SCH`. New refusal words in core.js and
+the iOS and Android lists; the Database page lists the schedules. docs/fleet.md, docs/mass-updates.md.
+
 ## 2.16.0
 
 Compare boards and a version timeline: each board's page shows every firmware version it ran, newest at the top, with when it started and ended, how it came (over the air, over Bluetooth, by USB, by a rollback, or before the history), whether it was confirmed or rolled back, and its unexpected restarts and issues while on it. Tick 2 to 4 boards on the Devices page (or Compare with… on a board's page) to set them side by side, with what differs marked.
