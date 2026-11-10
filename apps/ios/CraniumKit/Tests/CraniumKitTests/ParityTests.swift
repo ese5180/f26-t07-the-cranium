@@ -237,7 +237,8 @@ import Testing
                        "customer.create", "customer.resend", "customer.assign", "customer.unassign", "customer.disable",
                        "customer.enable", "customer.reset_password", "customer.remove", "account.invite", "account.resend",
                        "account.tier", "account.disable", "account.enable", "account.reset", "account.remove",
-                       "device.register", "setup.wifi_defaults", "db.export", "customer_action.rename", "customer_action.notifications"] {
+                       "device.register", "setup.wifi_defaults", "db.export", "customer_action.rename", "customer_action.notifications",
+                       "report.export", "report.settings"] {
             #expect(source.contains("'\(action)': {"), "\(action) on the website")
             #expect(Words.auditActions[action] != nil, "\(action) in the app")
         }

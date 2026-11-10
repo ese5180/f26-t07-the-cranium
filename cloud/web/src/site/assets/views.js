@@ -1863,6 +1863,8 @@ const SECTIONS = [
   ['memfault', 'Memfault', 'alert', false],
   // The alert rules and the alerts that went out (account.js).
   ['alerts', 'Alerts', 'bell', false],
+  // The weekly fleet report: a page a week, printable, and its CSV (reports.js, docs/reports.md).
+  ['reports', 'Reports', 'file', false],
   ['activity', 'Activity', 'clock', false],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   ['apps', 'Apps', 'phone', false],
@@ -1883,6 +1885,7 @@ const SECTION_OF = {
   rollout: 'fleet',
   issue: 'memfault',
   compare: 'devices',
+  report: 'reports',
 };
 
 /** Where Developer leads: a viewer has no use for the serial console's controls. */

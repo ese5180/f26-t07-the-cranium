@@ -305,7 +305,21 @@ export function createAlerter({
     });
   }
 
-  return Object.freeze({ raise, presence, noteName, afterRecord, check, watch, readRules });
+  /**
+   * One e-mail of the console's own to the alert topic, not an alert: the weekly report (handlers/reports.mjs
+   * mailDue, docs/reports.md). Returns whether it went; a failure is logged, never thrown.
+   */
+  async function publish({ subject, message }) {
+    try {
+      await store.publishAlert({ subject, message });
+      return true;
+    } catch (error) {
+      log({ level: 'error', event: 'mail_unsent', error: describeError(error) });
+      return false;
+    }
+  }
+
+  return Object.freeze({ raise, presence, noteName, afterRecord, check, watch, readRules, publish });
 }
 
 /** True for what the EventBridge rule hands the recorder every 5 minutes. */

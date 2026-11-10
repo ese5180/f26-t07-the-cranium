@@ -791,6 +791,31 @@ const pages = {
     },
     interval: () => (memfaultScript ? memfaultScript.MEMFAULT_REFRESH_MS : 0),
   },
+  // The weekly fleet report (reports.js, docs/reports.md): the weeks, and a week's printable page.
+  reports: {
+    title: 'Reports',
+    view: (ctx) =>
+      reportsScript ? reportsScript.reportsView(ctx) : scriptPending(ctx, 'reports', 'Reports', { tabs: false }),
+    resources: () => reportsScript?.listResources() ?? [],
+    async refresh() {
+      if (await reportsReady()) await reportsScript.refreshReports();
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => reportsScript?.holdStill() ?? false,
+  },
+  report: {
+    title: (route) => `Weekly report ${route.week}`,
+    view: (ctx) =>
+      reportsScript ? reportsScript.reportView(ctx) : scriptPending(ctx, 'reports', 'Weekly report', { tabs: false }),
+    resources: () => reportsScript?.reportResources(state) ?? [],
+    async refresh(full) {
+      if (await reportsReady()) await reportsScript.refreshReport(state.route.week, full);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
+    holdStill: () => reportsScript?.holdStill() ?? false,
+  },
   // Two to four boards side by side, with their version timelines (compare.js).
   compare: {
     title: 'Compare boards',
@@ -1066,6 +1091,27 @@ let dbScript = null;
 let memfaultScript = null;
 let labelsScript = null;
 let compareScript = null;
+let reportsScript = null;
+
+/** reports.js, fetched once, when the Reports page or a week's report is first opened. */
+async function reportsReady() {
+  if (!reportsScript) {
+    reportsScript = await pageScript(() => import('./reports.js'));
+    // In an app, the CSV goes to the app's share sheet or save dialog where it has one (file.share).
+    reportsScript?.connect({
+      state,
+      api,
+      load,
+      draw,
+      notify,
+      now: () => clock.now(),
+      inApp: appBridge !== null,
+      share: appBridge?.has('share') ? (file) => appBridge.call('file.share', file) : null,
+      print: () => window.print(),
+    });
+  }
+  return reportsScript;
+}
 
 /** compare.js, fetched once, when a board's page or the Compare page is first opened. */
 async function compareReady() {
@@ -2447,6 +2493,10 @@ const actions = {
     location.hash = '#/devices';
   },
   moreTimeline: (thing) => compareScript?.moreTimeline(thing),
+  // The weekly report (reports.js): its Monday e-mail, its CSV and its printout.
+  setReportEmail: (on) => reportsScript?.setEmail(on),
+  exportReport: (week) => reportsScript?.exportCsv(week),
+  printReport: () => reportsScript?.print(),
   scanBoard: () => scanBoard(),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
   recordSerialCommand: (command) => api.recordSerialCommand(command),
