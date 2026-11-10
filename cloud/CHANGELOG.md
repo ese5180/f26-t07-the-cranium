@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.16.1
+
+The console always has a way back to the customer site. Opened on its own name (console.craniumiot.com), it now shows
+"Customer site" in the account panel, next to Sign out, as admin mode of the customer site shows "Leave admin mode". The
+web function passes the customer site's address; the page takes only an https origin.
+
 ## 2.16.0
 
 Compare boards and a version timeline: each board's page shows every firmware version it ran, newest at the top, with when it started and ended, how it came (over the air, over Bluetooth, by USB, by a rollback, or before the history), whether it was confirmed or rolled back, and its unexpected restarts and issues while on it. Tick 2 to 4 boards on the Devices page (or Compare with… on a board's page) to set them side by side, with what differs marked.

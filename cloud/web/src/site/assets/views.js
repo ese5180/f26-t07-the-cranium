@@ -2176,7 +2176,12 @@ export function accountView(ctx) {
     ),
     // As admin mode of the customer site (docs/customer-site.md): the way back to it, still signed in.
     ctx.state.customerSite
-      ? h('a', { class: 'btn is-small is-quiet', href: ctx.state.customerSite }, icon('arrow-left'), 'Leave admin mode')
+      ? h(
+          'a',
+          { class: 'btn is-small is-quiet', href: ctx.state.customerSite },
+          icon('arrow-left'),
+          ctx.state.customerSite === '/' ? 'Leave admin mode' : 'Customer site'
+        )
       : null,
     // The phone app's own settings: its versions, an update of its pages, the classic app.
     ctx.state.app?.settings ? button('is-small is-quiet', ctx.actions.appSettings, icon('more'), 'App') : null,
