@@ -31,7 +31,12 @@
  *     }
  *   }
  *
- * The parser takes both. Whether a board acts on a Pi image is up to ota.c (CONFIG_APP_PI_OTA).
+ * From 1.20.0 a job can carry both, for a board and its Pi updated together (docs/pi-ota.md,
+ * "Both at once"): "op": "fw_pi_update", with "fw" as in a firmware job and "pi" as in a Pi image's.
+ * Both parts are checked, but only one download URL is kept, the one of the part that is being
+ * downloaded (ota_job_parse_part()): a second would double what every copy of the job takes in RAM.
+ *
+ * The parser takes all three. Whether a board acts on a Pi image is up to ota.c (CONFIG_APP_PI_OTA).
  */
 
 #ifndef OTA_JOB_H_
@@ -59,6 +64,17 @@ enum ota_job_kind {
 	OTA_JOB_KIND_FIRMWARE = 0,
 	/* "pi_image": an image for the Raspberry Pi's partition B, through the SD card. */
 	OTA_JOB_KIND_PI_IMAGE = 1,
+	/*
+	 * "fw_pi_update": board firmware and a Pi image in one job. Both are downloaded first, then the
+	 * firmware is installed, and the Pi gets its image once that firmware is confirmed (ota.c).
+	 */
+	OTA_JOB_KIND_BUNDLE = 2,
+};
+
+/* Which part's download URL ota_job_parse_part() keeps in host and file. */
+enum ota_job_part {
+	OTA_JOB_PART_FIRMWARE = 0,
+	OTA_JOB_PART_PI = 1,
 };
 
 struct ota_job {
@@ -68,14 +84,17 @@ struct ota_job {
 	enum ota_job_kind kind;
 	/* A firmware job's version; all zero for a Pi image. */
 	struct fw_version version;
+	/* The firmware's size and digest; for a job with a Pi image only, the image's (as pi_size). */
 	uint32_t size;
 	uint8_t sha256[OTA_SHA256_SIZE];
 	/* "https://" followed by the host name. */
 	char host[OTA_JOB_HOST_MAX + 1];
 	/* Everything after the slash that follows the host name. */
 	char file[OTA_JOB_FILE_MAX + 1];
-	/* A Pi image's version and the signature over its manifest. Empty for firmware. */
+	/* A Pi image's version, size, digest and the signature over its manifest. Empty for firmware. */
 	char pi_version[OTA_PI_VERSION_MAX + 1];
+	uint32_t pi_size;
+	uint8_t pi_sha256[OTA_SHA256_SIZE];
 	uint8_t pi_sig[OTA_PI_SIG_SIZE];
 	/* A Pi image's optional "minFirmware": the oldest board firmware it may go out with. */
 	bool pi_has_min_firmware;
@@ -116,6 +135,13 @@ enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allo
 				  struct ota_job *job);
 
 /*
+ * The same, keeping the URL of `part` for a job that carries both (OTA_JOB_KIND_BUNDLE). Both URLs
+ * have to pass. For any other job, part makes no difference. ota_job_parse() keeps the firmware's.
+ */
+enum ota_job_result ota_job_parse_part(const char *json, size_t len, const char *allowed_url_prefix,
+				       enum ota_job_part part, struct ota_job *job);
+
+/*
  * Parse the reply to a request for the list of pending job executions (GetPendingJobExecutions):
  * {"inProgressJobs":[{"jobId":...},...],"queuedJobs":[...]}. It carries no documents. On OTA_JOB_OK
  * job->id is the first job that is not a Pi image's, by its ID, in progress before queued, and
@@ -125,7 +151,7 @@ enum ota_job_result ota_job_list_parse(const char *json, size_t len, struct ota_
 
 /*
  * Policy for a parsed job: it must be strictly newer than the running firmware and
- * fit in the image slot.
+ * fit in the image slot. For a job with a Pi image too, this is the firmware's part only.
  */
 enum ota_job_result ota_job_check(const struct ota_job *job, const struct fw_version *running,
 				  size_t slot_size);

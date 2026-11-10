@@ -246,19 +246,16 @@ static enum ota_job_result split_url(const char *url, const char *allowed_prefix
 	return OTA_JOB_OK;
 }
 
-static enum ota_job_result parse_pi_document(const cJSON *document, const char *allowed_url_prefix,
-					     struct ota_job *job)
+/* The "pi" object of a Pi image's job or of a job with both: everything but its URL. */
+static enum ota_job_result parse_pi_part(const cJSON *image, struct ota_job *job)
 {
-	const cJSON *image = cJSON_GetObjectItemCaseSensitive(document, "pi");
-
 	if (!cJSON_IsObject(image)) {
 		return OTA_JOB_BAD_DOCUMENT;
 	}
 
-	job->kind = OTA_JOB_KIND_PI_IMAGE;
 	if (!copy_pi_version(string_member(image, "version"), job->pi_version) ||
-	    !integer_member(image, "size", 1, UINT32_MAX, &job->size) ||
-	    !parse_sha256(string_member(image, "sha256"), job->sha256) ||
+	    !integer_member(image, "size", 1, UINT32_MAX, &job->pi_size) ||
+	    !parse_sha256(string_member(image, "sha256"), job->pi_sha256) ||
 	    !parse_hex(string_member(image, "sig"), job->pi_sig, OTA_PI_SIG_SIZE)) {
 		return OTA_JOB_BAD_DOCUMENT;
 	}
@@ -272,11 +269,74 @@ static enum ota_job_result parse_pi_document(const cJSON *document, const char *
 		job->pi_has_min_firmware = true;
 	}
 
+	return OTA_JOB_OK;
+}
+
+/* The "fw" object of a firmware job or of a job with both: everything but its URL. */
+static enum ota_job_result parse_firmware_part(const cJSON *firmware, struct ota_job *job)
+{
+	if (!cJSON_IsObject(firmware)) {
+		return OTA_JOB_BAD_DOCUMENT;
+	}
+
+	if (fw_version_parse(string_member(firmware, "version"), &job->version) != 0 ||
+	    !integer_member(firmware, "size", 1, UINT32_MAX, &job->size) ||
+	    !parse_sha256(string_member(firmware, "sha256"), job->sha256)) {
+		return OTA_JOB_BAD_DOCUMENT;
+	}
+
+	return OTA_JOB_OK;
+}
+
+static enum ota_job_result parse_pi_document(const cJSON *document, const char *allowed_url_prefix,
+					     struct ota_job *job)
+{
+	const cJSON *image = cJSON_GetObjectItemCaseSensitive(document, "pi");
+	enum ota_job_result result;
+
+	job->kind = OTA_JOB_KIND_PI_IMAGE;
+	result = parse_pi_part(image, job);
+	if (result != OTA_JOB_OK) {
+		return result;
+	}
+
+	/* A job with a Pi image only: its size and digest are the job's, as they always were. */
+	job->size = job->pi_size;
+	memcpy(job->sha256, job->pi_sha256, OTA_SHA256_SIZE);
 	return split_url(string_member(image, "url"), allowed_url_prefix, job);
 }
 
+/*
+ * Firmware and a Pi image. Both URLs must pass; the one of the part that is not wanted is checked
+ * first, so that the wanted one is what stays in host and file.
+ */
+static enum ota_job_result parse_bundle_document(const cJSON *document,
+						 const char *allowed_url_prefix,
+						 enum ota_job_part part, struct ota_job *job)
+{
+	const cJSON *firmware = cJSON_GetObjectItemCaseSensitive(document, "fw");
+	const cJSON *image = cJSON_GetObjectItemCaseSensitive(document, "pi");
+	const char *wanted;
+	const char *other;
+	enum ota_job_result result;
+
+	job->kind = OTA_JOB_KIND_BUNDLE;
+	result = parse_firmware_part(firmware, job);
+	if (result == OTA_JOB_OK) {
+		result = parse_pi_part(image, job);
+	}
+	if (result != OTA_JOB_OK) {
+		return result;
+	}
+
+	wanted = string_member(part == OTA_JOB_PART_PI ? image : firmware, "url");
+	other = string_member(part == OTA_JOB_PART_PI ? firmware : image, "url");
+	result = split_url(other, allowed_url_prefix, job);
+	return result == OTA_JOB_OK ? split_url(wanted, allowed_url_prefix, job) : result;
+}
+
 static enum ota_job_result parse_document(const cJSON *document, const char *allowed_url_prefix,
-					  struct ota_job *job)
+					  enum ota_job_part part, struct ota_job *job)
 {
 	const cJSON *firmware;
 	const char *operation;
@@ -288,29 +348,29 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
 	}
 
 	operation = string_member(document, "op");
-	if (operation != NULL && strcmp(operation, "pi_image") == 0 &&
-	    integer_member(document, "v", 1, 1, &document_version)) {
+	if (operation == NULL || !integer_member(document, "v", 1, 1, &document_version)) {
+		return OTA_JOB_UNSUPPORTED;
+	}
+
+	if (strcmp(operation, "pi_image") == 0) {
 		return parse_pi_document(document, allowed_url_prefix, job);
 	}
 
-	if (operation == NULL || strcmp(operation, "fw_update") != 0 ||
-	    !integer_member(document, "v", 1, 1, &document_version)) {
+	if (strcmp(operation, "fw_pi_update") == 0) {
+		return parse_bundle_document(document, allowed_url_prefix, part, job);
+	}
+
+	if (strcmp(operation, "fw_update") != 0) {
 		return OTA_JOB_UNSUPPORTED;
 	}
 
 	firmware = cJSON_GetObjectItemCaseSensitive(document, "fw");
-	if (!cJSON_IsObject(firmware)) {
-		return OTA_JOB_BAD_DOCUMENT;
+	result = parse_firmware_part(firmware, job);
+	if (result != OTA_JOB_OK) {
+		return result;
 	}
 
-	if (fw_version_parse(string_member(firmware, "version"), &job->version) != 0 ||
-	    !integer_member(firmware, "size", 1, UINT32_MAX, &job->size) ||
-	    !parse_sha256(string_member(firmware, "sha256"), job->sha256)) {
-		return OTA_JOB_BAD_DOCUMENT;
-	}
-
-	result = split_url(string_member(firmware, "url"), allowed_url_prefix, job);
-	return result;
+	return split_url(string_member(firmware, "url"), allowed_url_prefix, job);
 }
 
 /*
@@ -319,14 +379,14 @@ static enum ota_job_result parse_document(const cJSON *document, const char *all
  */
 static enum ota_job_result parse_execution_document(const cJSON *execution,
 						    const char *allowed_url_prefix,
-						    struct ota_job *job)
+						    enum ota_job_part part, struct ota_job *job)
 {
 	const cJSON *document = cJSON_GetObjectItemCaseSensitive(execution, "jobDocument");
 	enum ota_job_result result;
 	cJSON *embedded;
 
 	if (!cJSON_IsString(document)) {
-		return parse_document(document, allowed_url_prefix, job);
+		return parse_document(document, allowed_url_prefix, part, job);
 	}
 
 	if (!depth_within_limit(document->valuestring, strlen(document->valuestring))) {
@@ -334,13 +394,19 @@ static enum ota_job_result parse_execution_document(const cJSON *execution,
 	}
 
 	embedded = cJSON_Parse(document->valuestring);
-	result = parse_document(embedded, allowed_url_prefix, job);
+	result = parse_document(embedded, allowed_url_prefix, part, job);
 	cJSON_Delete(embedded);
 	return result;
 }
 
 enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allowed_url_prefix,
 				  struct ota_job *job)
+{
+	return ota_job_parse_part(json, len, allowed_url_prefix, OTA_JOB_PART_FIRMWARE, job);
+}
+
+enum ota_job_result ota_job_parse_part(const char *json, size_t len, const char *allowed_url_prefix,
+				       enum ota_job_part part, struct ota_job *job)
 {
 	enum ota_job_result result;
 	const cJSON *execution;
@@ -378,7 +444,7 @@ enum ota_job_result ota_job_parse(const char *json, size_t len, const char *allo
 	status = string_member(execution, "status");
 	job->in_progress = (status != NULL) && strcmp(status, "IN_PROGRESS") == 0;
 
-	result = parse_execution_document(execution, allowed_url_prefix, job);
+	result = parse_execution_document(execution, allowed_url_prefix, part, job);
 	cJSON_Delete(root);
 
 	if (result != OTA_JOB_OK) {

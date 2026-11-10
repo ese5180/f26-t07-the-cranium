@@ -84,9 +84,10 @@ int pi_manifest_text(const struct ota_job *job, char *out, size_t out_size);
 typedef int (*pi_verify_fn)(const uint8_t *msg, size_t len, const uint8_t sig[OTA_PI_SIG_SIZE]);
 
 /*
- * Whether a parsed Pi job may start: a signature that holds over its manifest, its size within
- * max_size, a minFirmware that the running firmware meets, and not the image the Pi already got
- * (installed_sha256, or NULL if none is known).
+ * Whether a parsed Pi job, or the Pi part of a job with both, may start: a signature that holds over
+ * its manifest, its size within max_size, a minFirmware that `running` meets, and not the image the
+ * Pi already got (installed_sha256, or NULL if none is known). For a job with both, `running` is
+ * the firmware the job brings, which is what will run when the Pi gets its image.
  */
 enum pi_err pi_job_check(const struct ota_job *job, uint32_t max_size,
 			 const struct fw_version *running, const uint8_t *installed_sha256,

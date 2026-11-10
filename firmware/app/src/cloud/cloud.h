@@ -144,6 +144,12 @@ int cloud_memfault_publish(const uint8_t *frame, size_t len);
 int cloud_jobs_request_next(void);
 
 /*
+ * From 1.20.0, with CONFIG_APP_PI_OTA: which download URL of a job with both board firmware and a Pi
+ * image the next replies keep (ota_job_parse_part()). ota.c sets it to the part it downloads.
+ */
+void cloud_jobs_set_part(enum ota_job_part part);
+
+/*
  * From 1.20.0, with CONFIG_APP_PI_OTA: ask for the list of pending job executions, which says
  * whether a firmware job waits behind a Pi image's (docs/pi-ota.md, "Order"). The reply comes as
  * CLOUD_JOB_LIST. The device policy has to allow $aws/things/<thing>/jobs/get and its replies.

@@ -39,8 +39,8 @@ void pi_target_from_job(struct pi_target *target, const struct ota_job *job)
 	memset(target, 0, sizeof(*target));
 	memcpy(target->id, job->id, sizeof(target->id));
 	memcpy(target->version, job->pi_version, sizeof(target->version));
-	target->size = job->size;
-	memcpy(target->sha256, job->sha256, PI_SHA256_SIZE);
+	target->size = job->pi_size;
+	memcpy(target->sha256, job->pi_sha256, PI_SHA256_SIZE);
 }
 
 int pi_manifest_text(const struct ota_job *job, char *out, size_t out_size)
@@ -52,8 +52,8 @@ int pi_manifest_text(const struct ota_job *job, char *out, size_t out_size)
 	for (size_t i = 0; i < PI_SHA256_SIZE; i++) {
 		static const char digits[] = "0123456789abcdef";
 
-		hex[2 * i] = digits[job->sha256[i] >> 4];
-		hex[2 * i + 1] = digits[job->sha256[i] & 0x0f];
+		hex[2 * i] = digits[job->pi_sha256[i] >> 4];
+		hex[2 * i + 1] = digits[job->pi_sha256[i] & 0x0f];
 	}
 	hex[sizeof(hex) - 1] = '\0';
 
@@ -63,7 +63,7 @@ int pi_manifest_text(const struct ota_job *job, char *out, size_t out_size)
 	}
 
 	written = snprintf(out, out_size, "%s\nversion=%s\nsize=%lu\nsha256=%s\nmin_firmware=%s\n",
-			   PI_MANIFEST_MAGIC, job->pi_version, (unsigned long)job->size, hex,
+			   PI_MANIFEST_MAGIC, job->pi_version, (unsigned long)job->pi_size, hex,
 			   minimum);
 	if (written < 0 || (size_t)written >= out_size) {
 		return -1;
@@ -79,7 +79,8 @@ enum pi_err pi_job_check(const struct ota_job *job, uint32_t max_size,
 	char manifest[PI_MANIFEST_MAX];
 	int length;
 
-	if (job->kind != OTA_JOB_KIND_PI_IMAGE || verify == NULL) {
+	if ((job->kind != OTA_JOB_KIND_PI_IMAGE && job->kind != OTA_JOB_KIND_BUNDLE) ||
+	    verify == NULL) {
 		return PI_ERR_BAD_SIGNATURE;
 	}
 
@@ -89,7 +90,7 @@ enum pi_err pi_job_check(const struct ota_job *job, uint32_t max_size,
 		return PI_ERR_BAD_SIGNATURE;
 	}
 
-	if (job->size > max_size) {
+	if (job->pi_size > max_size) {
 		return PI_ERR_TOO_LARGE;
 	}
 
@@ -98,7 +99,7 @@ enum pi_err pi_job_check(const struct ota_job *job, uint32_t max_size,
 	}
 
 	if (installed_sha256 != NULL &&
-	    memcmp(installed_sha256, job->sha256, PI_SHA256_SIZE) == 0) {
+	    memcmp(installed_sha256, job->pi_sha256, PI_SHA256_SIZE) == 0) {
 		return PI_ERR_ALREADY_INSTALLED;
 	}
 

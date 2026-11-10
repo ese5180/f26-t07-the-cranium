@@ -104,6 +104,13 @@ static struct {
 	char installed_version[OTA_PI_VERSION_MAX + 1];
 	uint8_t installed_sha256[PI_SHA256_SIZE];
 	bool installed_known;
+	/* The Pi part of a job with board firmware too: ota.c sends the job's final status. */
+	bool bundle;
+	/* Send the image to the Pi once it is on the card; otherwise stop there. */
+	bool flash;
+	/* The outcome of the last step of a bundle, for pi_ota_bundle_take_result(). */
+	bool bundle_done;
+	enum pi_err bundle_result;
 } pi;
 
 /* Written by the threads, read on the main loop. */
@@ -512,19 +519,34 @@ static const char *state_name(void)
 
 static void report_shadow(void)
 {
-	char reported[224];
+	/* The longest: every field at its limit, about 250 characters. */
+	char reported[288];
 	int written;
 
+	/*
+	 * "card" (1.20.0) says whether the card-detect switch sees a card. The console offers Pi
+	 * images only to boards that report a "pi" object at all, which only a Pi build does.
+	 */
 	written = snprintk(reported, sizeof(reported),
 			   "{\"pi\":{\"state\":\"%s\",\"job\":\"%s\",\"progress\":%d,\"last\":\"%s\","
-			   "\"error\":\"%s\",\"installed\":\"%s\"}}",
+			   "\"error\":\"%s\",\"installed\":\"%s\",\"card\":%s}}",
 			   state_name(), pi.state == STATE_IDLE ? "" : pi.target.id,
 			   (int)atomic_get(&progress_percent), pi.last_result, pi.last_error,
-			   pi.installed_version);
+			   pi.installed_version, card_present() ? "true" : "false");
 	if (written > 0 && written < (int)sizeof(reported)) {
 		(void)cloud_shadow_report(reported);
 	}
 	pi.changed = false;
+}
+
+/* The step a job is told about: a Pi image's own, or the Pi part's of a job with firmware too. */
+static const char *step_name(bool sending)
+{
+	if (pi.bundle) {
+		return sending ? "flashing_pi" : "downloading_pi";
+	}
+
+	return sending ? "sending" : "downloading";
 }
 
 static void report_progress(const char *step)
@@ -534,9 +556,39 @@ static void report_progress(const char *step)
 	pi.seconds_since_report = 0;
 }
 
+/* A step of a bundle is over: ota.c takes the outcome and answers the job. */
+static void finish_bundle(enum pi_err err)
+{
+	if (err == PI_OK && pi.flash) {
+		LOG_INF("Pi image %s is on partition B and verified", pi.target.version);
+		memcpy(pi.installed_sha256, pi.target.sha256, PI_SHA256_SIZE);
+		memcpy(pi.installed_version, pi.target.version, sizeof(pi.installed_version));
+		pi.installed_known = true;
+		set_last("succeeded", "");
+	} else if (err == PI_OK) {
+		LOG_INF("Pi image %s is on the card: it goes to the Pi after the firmware",
+			pi.target.version);
+		set_last("downloaded", "");
+	} else if (err != PI_ERR_ABORTED) {
+		LOG_ERR("Pi image update failed: %s", pi_err_reason(err));
+		set_last("failed", pi_err_reason(err));
+	}
+
+	pi.bundle_result = err;
+	pi.bundle_done = true;
+	atomic_set(&progress_percent, err == PI_OK ? 100 : 0);
+	enter(STATE_IDLE);
+	report_shadow();
+}
+
 static void finish(enum pi_err err)
 {
 	atomic_set(&expecting, 0);
+
+	if (pi.bundle) {
+		finish_bundle(err);
+		return;
+	}
 
 	if (err == PI_OK) {
 		LOG_INF("Pi image %s is on partition B and verified", pi.target.version);
@@ -631,8 +683,8 @@ void pi_ota_on_job(const struct ota_job *job)
 
 	if (pi.state != STATE_IDLE) {
 		if (pi.state == STATE_REFRESHING && strcmp(job->id, pi.target.id) == 0 &&
-		    job->size == pi.target.size &&
-		    memcmp(job->sha256, pi.target.sha256, PI_SHA256_SIZE) == 0) {
+		    job->pi_size == pi.target.size &&
+		    memcmp(job->pi_sha256, pi.target.sha256, PI_SHA256_SIZE) == 0) {
 			/* The fresh URL: go on from where the last attempt stopped. */
 			start_download(job);
 		}
@@ -653,7 +705,9 @@ void pi_ota_on_job(const struct ota_job *job)
 		return;
 	}
 
-	LOG_INF("Pi image %s (%u bytes) is available: getting it", job->pi_version, job->size);
+	LOG_INF("Pi image %s (%u bytes) is available: getting it", job->pi_version, job->pi_size);
+	pi.bundle = false;
+	pi.flash = true;
 	abort_requested = false;
 	atomic_set(&pending_event, EVENT_NONE);
 	atomic_set(&progress_percent, 0);
@@ -661,9 +715,61 @@ void pi_ota_on_job(const struct ota_job *job)
 	pi.received_at_attempt = 0;
 	/* Only until the thread has looked at the card: the next document brings a fresh URL. */
 	enter(STATE_PREPARING);
-	report_progress("downloading");
+	report_progress(step_name(false));
 	report_shadow();
 	give_work(WORK_PREPARE);
+}
+
+enum pi_err pi_ota_bundle_check(const struct ota_job *job)
+{
+	return pi_job_check(job, MAX_SIZE, &job->version,
+			    pi.installed_known ? pi.installed_sha256 : NULL, verify_signature);
+}
+
+void pi_ota_bundle(const struct ota_job *job, enum pi_ota_bundle_step step)
+{
+	if (pi.state != STATE_IDLE) {
+		if (pi.state == STATE_REFRESHING && strcmp(job->id, pi.target.id) == 0 &&
+		    job->pi_size == pi.target.size &&
+		    memcmp(job->pi_sha256, pi.target.sha256, PI_SHA256_SIZE) == 0) {
+			start_download(job);
+		}
+		return;
+	}
+
+	pi_target_from_job(&pi.target, job);
+	pi.bundle = true;
+	pi.flash = step == PI_OTA_BUNDLE_FLASH;
+	pi.bundle_done = false;
+	pi.waiting = false;
+	abort_requested = false;
+	atomic_set(&pending_event, EVENT_NONE);
+	atomic_set(&progress_percent, 0);
+	pi.attempts = 0;
+	pi.received_at_attempt = 0;
+	LOG_INF("Pi image %s of job %s: %s", pi.target.version, pi.target.id,
+		pi.flash ? "to the Pi" : "onto the card");
+	/* The card says whether anything is left to download (EVENT_PREPARED or EVENT_DOWNLOADED). */
+	enter(STATE_PREPARING);
+	report_progress(step_name(pi.flash));
+	report_shadow();
+	give_work(WORK_PREPARE);
+}
+
+bool pi_ota_bundle_take_result(enum pi_err *err)
+{
+	if (!pi.bundle_done) {
+		return false;
+	}
+
+	pi.bundle_done = false;
+	*err = pi.bundle_result;
+	return true;
+}
+
+const char *pi_ota_installed_version(void)
+{
+	return pi.installed_version;
 }
 
 bool pi_ota_busy(void)
@@ -683,6 +789,7 @@ void pi_ota_withdrawn(void)
 	}
 
 	LOG_INF("Pi image job %s was withdrawn", pi.target.id);
+	pi.bundle_done = false;
 	abort_requested = true;
 	if (pi.state == STATE_DOWNLOADING) {
 		(void)fota_download_cancel();
@@ -718,8 +825,13 @@ void pi_ota_on_download(enum app_download_event what, int value)
 		/* dfu_target_custom_done() has checked the size and the digest. */
 		atomic_set(&expecting, 0);
 		atomic_set(&progress_percent, 0);
+		if (!pi.flash) {
+			/* The first step of a bundle: on the card is as far as it goes for now. */
+			finish(PI_OK);
+			break;
+		}
 		enter(STATE_SENDING);
-		report_progress("sending");
+		report_progress(step_name(true));
 		give_work(WORK_SEND);
 		break;
 	case APP_DOWNLOAD_ERROR:
@@ -760,11 +872,14 @@ static void on_event(enum event event, int value)
 		}
 		break;
 	case EVENT_DOWNLOADED:
-		if (pi.state == STATE_PREPARING) {
+		if (pi.state == STATE_PREPARING && !pi.flash) {
+			LOG_INF("The image is on the card already");
+			finish(PI_OK);
+		} else if (pi.state == STATE_PREPARING) {
 			LOG_INF("The image is on the card already: sending it");
 			atomic_set(&progress_percent, 0);
 			enter(STATE_SENDING);
-			report_progress("sending");
+			report_progress(step_name(true));
 			give_work(WORK_SEND);
 		}
 		break;
@@ -804,7 +919,7 @@ void pi_ota_on_tick(void)
 	case STATE_DOWNLOADING:
 	case STATE_SENDING:
 		if (++pi.seconds_since_report >= REPORT_SECONDS && cloud_is_connected()) {
-			report_progress(pi.state == STATE_SENDING ? "sending" : "downloading");
+			report_progress(step_name(pi.state == STATE_SENDING));
 			pi.changed = true;
 		}
 		break;

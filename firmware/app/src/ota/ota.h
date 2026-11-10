@@ -53,6 +53,14 @@ enum ota_state {
 	OTA_REBOOTING,
 	/* A new image is running and has not been confirmed yet. */
 	OTA_TESTING,
+	/*
+	 * From 1.20.0, a job with board firmware and a Pi image (docs/pi-ota.md, "Both at once"). The
+	 * firmware is in the secondary slot and checked; the Pi image goes onto the SD card before
+	 * the firmware is installed. Only with CONFIG_APP_PI_OTA.
+	 */
+	OTA_STAGING_PI,
+	/* The job's firmware is confirmed: the Pi gets its image from the card. */
+	OTA_FLASHING_PI,
 #if defined(CONFIG_APP_BT_OTA)
 	/*
 	 * A person opened Bluetooth for an update. The secondary slot is taken, so no cloud

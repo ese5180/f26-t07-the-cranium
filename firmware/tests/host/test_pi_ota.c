@@ -532,6 +532,95 @@ static void test_a_pi_image_document_is_read(void)
 	CHECK(job.kind == OTA_JOB_KIND_FIRMWARE);
 }
 
+/* From 1.20.0: firmware and a Pi image in one job ("fw_pi_update"). */
+static enum ota_job_result parse_bundle(const char *fw_url, const char *pi_fields,
+					enum ota_job_part part, struct ota_job *job)
+{
+	snprintf(message, sizeof(message),
+		 "{\"execution\":{\"jobId\":\"cranium-1\",\"status\":\"QUEUED\",\"jobDocument\":"
+		 "{\"op\":\"fw_pi_update\",\"v\":1,\"fw\":{\"version\":\"1.20.0\",\"size\":900000,"
+		 "\"sha256\":\"" SHA_HEX "\",\"url\":\"%s\"},\"pi\":{%s}}}}",
+		 fw_url, pi_fields);
+	return ota_job_parse_part(message, strlen(message), PREFIX, part, job);
+}
+
+#define PI_SHA_HEX "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+#define BUNDLE_PI_FIELDS                                                                      \
+	"\"version\":\"2026.11.06-1\",\"size\":104857600,\"sha256\":\"" PI_SHA_HEX "\","         \
+	"\"sig\":\"" SIG_HEX "\",\"url\":\"" PREFIX "pi-x.img?X-Amz-Signature=abc\""
+
+static void test_a_job_with_both_parts_is_read(void)
+{
+	struct ota_job job;
+	struct pi_target target;
+	char manifest[PI_MANIFEST_MAX];
+
+	/* Both parts, and the URL of the one asked for. */
+	CHECK(parse_bundle(PREFIX "fw.bin?X-Amz-Signature=f", BUNDLE_PI_FIELDS, OTA_JOB_PART_FIRMWARE,
+			   &job) == OTA_JOB_OK);
+	CHECK(job.kind == OTA_JOB_KIND_BUNDLE);
+	CHECK(job.version.major == 1 && job.version.minor == 20);
+	CHECK(job.size == 900000u && job.sha256[0] == 0x00);
+	CHECK(job.pi_size == 104857600u && job.pi_sha256[0] == 0xff);
+	CHECK(strcmp(job.pi_version, "2026.11.06-1") == 0);
+	CHECK(strncmp(job.file, "firmware/fw.bin?", 16) == 0);
+
+	CHECK(parse_bundle(PREFIX "fw.bin?X-Amz-Signature=f", BUNDLE_PI_FIELDS, OTA_JOB_PART_PI,
+			   &job) == OTA_JOB_OK);
+	CHECK(strncmp(job.file, "firmware/pi-x.img?", 18) == 0);
+	CHECK(job.size == 900000u);
+
+	/* The Pi part is what a Pi image's job would be: the same target, the same manifest. */
+	pi_target_from_job(&target, &job);
+	CHECK(target.size == 104857600u && target.sha256[0] == 0xff);
+	CHECK(pi_manifest_text(&job, manifest, sizeof(manifest)) > 0);
+	CHECK(strstr(manifest, "size=104857600\n") != NULL);
+	CHECK(strstr(manifest, "sha256=ff01") != NULL);
+
+	/* A Pi image alone keeps its size and digest where they always were, and in pi_ too. */
+	CHECK(parse_pi(GOOD_FIELDS, &job) == OTA_JOB_OK);
+	CHECK(job.size == 104857600u && job.pi_size == 104857600u);
+	CHECK(memcmp(job.sha256, job.pi_sha256, sizeof(job.sha256)) == 0);
+}
+
+static void test_a_bad_job_with_both_parts_is_refused(void)
+{
+	struct ota_job job;
+
+	/* Either URL from elsewhere, whichever part is asked for. */
+	CHECK(parse_bundle("https://evil.example/firmware/fw.bin", BUNDLE_PI_FIELDS, OTA_JOB_PART_PI,
+			   &job) == OTA_JOB_URL_NOT_ALLOWED);
+	CHECK(strcmp(job.id, "cranium-1") == 0);
+	CHECK(parse_bundle(PREFIX "fw.bin", "\"version\":\"1\",\"size\":1,\"sha256\":\"" SHA_HEX
+			   "\",\"sig\":\"" SIG_HEX "\",\"url\":\"https://evil.example/firmware/p\"",
+			   OTA_JOB_PART_FIRMWARE, &job) == OTA_JOB_URL_NOT_ALLOWED);
+
+	/* A Pi part that is missing or bad. */
+	CHECK(parse_bundle(PREFIX "fw.bin", "\"version\":\"1\"", OTA_JOB_PART_FIRMWARE, &job) ==
+	      OTA_JOB_BAD_DOCUMENT);
+	CHECK(parse_bundle(PREFIX "fw.bin", "\"version\":\"a b\",\"size\":1,\"sha256\":\"" SHA_HEX
+			   "\",\"sig\":\"" SIG_HEX "\",\"url\":\"" PREFIX "p\"",
+			   OTA_JOB_PART_FIRMWARE, &job) == OTA_JOB_BAD_DOCUMENT);
+	snprintf(message, sizeof(message),
+		 "{\"execution\":{\"jobId\":\"cranium-1\",\"status\":\"QUEUED\",\"jobDocument\":"
+		 "{\"op\":\"fw_pi_update\",\"v\":1,\"fw\":{\"version\":\"1.20.0\",\"size\":9,"
+		 "\"sha256\":\"" SHA_HEX "\",\"url\":\"" PREFIX "f\"}}}}");
+	CHECK(ota_job_parse(message, strlen(message), PREFIX, &job) == OTA_JOB_BAD_DOCUMENT);
+
+	/* A firmware part that is bad. */
+	snprintf(message, sizeof(message),
+		 "{\"execution\":{\"jobId\":\"cranium-1\",\"status\":\"QUEUED\",\"jobDocument\":"
+		 "{\"op\":\"fw_pi_update\",\"v\":1,\"fw\":{\"version\":\"x\",\"size\":9,"
+		 "\"sha256\":\"" SHA_HEX "\",\"url\":\"" PREFIX "f\"},\"pi\":{" BUNDLE_PI_FIELDS "}}}}");
+	CHECK(ota_job_parse(message, strlen(message), PREFIX, &job) == OTA_JOB_BAD_DOCUMENT);
+
+	/* Another version of the document is not one this board knows. */
+	snprintf(message, sizeof(message),
+		 "{\"execution\":{\"jobId\":\"cranium-1\",\"status\":\"QUEUED\",\"jobDocument\":"
+		 "{\"op\":\"fw_pi_update\",\"v\":2,\"fw\":{},\"pi\":{}}}}");
+	CHECK(ota_job_parse(message, strlen(message), PREFIX, &job) == OTA_JOB_UNSUPPORTED);
+}
+
 static void test_a_bad_pi_image_document_is_refused(void)
 {
 	static const char *const bad[] = {
@@ -1042,6 +1131,8 @@ int main(void)
 	test_crc32_is_zlibs();
 	test_a_pi_image_document_is_read();
 	test_a_bad_pi_image_document_is_refused();
+	test_a_job_with_both_parts_is_read();
+	test_a_bad_job_with_both_parts_is_refused();
 	test_the_list_of_pending_jobs_names_the_firmware_job();
 	test_the_manifest_is_the_one_tools_pi_image_py_signs();
 	test_a_record_is_sealed();

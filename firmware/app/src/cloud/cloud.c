@@ -174,6 +174,8 @@ static enum ota_job_result job_result;
 static enum cloud_job_message job_kind;
 static atomic_t job_busy;
 static atomic_t job_overrun;
+/* The URL of a job with both parts that the next reply keeps: an enum ota_job_part. */
+static atomic_t job_part;
 
 static bool ends_with(const char *text, size_t text_len, const char *suffix)
 {
@@ -288,7 +290,8 @@ static void queue_job_message(enum cloud_job_message kind, const char *payload, 
 	job_result = OTA_JOB_NONE;
 	memset(&job_read, 0, sizeof(job_read));
 	if (kind == CLOUD_JOB_GET_ACCEPTED) {
-		job_result = ota_job_parse(payload, len, connect_url_prefix, &job_read);
+		job_result = ota_job_parse_part(payload, len, connect_url_prefix,
+						(enum ota_job_part)atomic_get(&job_part), &job_read);
 	} else if (kind == CLOUD_JOB_LIST) {
 		job_result = ota_job_list_parse(payload, len, &job_read);
 	}
@@ -724,6 +727,11 @@ int cloud_memfault_publish(const uint8_t *frame, size_t len)
 int cloud_jobs_request_next(void)
 {
 	return publish(topic_get_next, AWS_IOT_SHADOW_TOPIC_NONE, "{}");
+}
+
+void cloud_jobs_set_part(enum ota_job_part part)
+{
+	atomic_set(&job_part, (atomic_val_t)part);
 }
 
 #if defined(CONFIG_APP_PI_OTA)
