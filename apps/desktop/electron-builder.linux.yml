@@ -10,7 +10,7 @@ extends: electron-builder.base.yml
 # This build's version (docs/versions.md): bump it with an entry in CHANGELOG.linux.md. The packages need a
 # home page, which package.json does not have.
 extraMetadata:
-  version: 0.1.10
+  version: 0.1.11
   homepage: https://github.com/ese5180/f26-t07-the-cranium
 linux:
   target:

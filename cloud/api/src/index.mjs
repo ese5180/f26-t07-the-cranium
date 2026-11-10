@@ -21,6 +21,7 @@ import { createMapAws } from './aws-map.mjs';
 import { createMemfaultReader } from './aws-memfault-api.mjs';
 import { createMemfaultStatus } from './aws-memfault.mjs';
 import { createProvisionAws } from './aws-provision.mjs';
+import { createTeamStore } from './aws-team.mjs';
 import { createWifiDefaultsReader } from './aws-wifi-defaults.mjs';
 import { createAws } from './aws.mjs';
 import { loadConfig } from './config.mjs';
@@ -47,6 +48,8 @@ export const handler = createApp({
     ...createWifiDefaultsReader(process.env),
     // The Database page: DescribeTable, Query and Scan of the three tables, read only (aws-db.mjs).
     ...createDbAws(process.env),
+    // The Team page: the staff pool's accounts, their tiers and states (aws-team.mjs). Never a password.
+    ...createTeamStore(process.env),
     ...(customers === null ? {} : createCustomerStore(process.env)),
   },
   config,

@@ -11,6 +11,12 @@
  *   give a board           to one customer; a board has one owner at most
  *   take it back           the customer no longer sees it, and a link they kept leads nowhere
  *   switch an account off  the customer cannot sign in, and stops reading within a minute
+ *   reset the password     Cognito's admin reset: it e-mails the customer a code to choose a new
+ *                          one with; nobody here sees or sets a password
+ *   remove the account     signed out and deleted; its boards stay listed under it, to take back
+ *
+ * Each row also shows how the account stands in Cognito: switched on, signed in with their own
+ * password, and whether they set up an authenticator app.
  *
  * The page's script is fetched when the page is opened (app.js), and draws with views.js.
  */
@@ -69,7 +75,7 @@ export function holdStill() {
 
 // Reading the reply into known shapes.
 
-const STATUSES = ['invited', 'active', 'disabled', 'gone', 'other'];
+const STATUSES = ['invited', 'active', 'reset', 'disabled', 'gone', 'other'];
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const text = (value, limit) => (typeof value === 'string' ? value.replace(/[\p{C}]/gu, '').slice(0, limit) : '');
 
@@ -80,6 +86,9 @@ function readCustomer(raw) {
     email: text(raw.email, 320),
     name: text(raw.name, 60),
     status: STATUSES.includes(raw.status) ? raw.status : 'other',
+    enabled: raw.enabled === true,
+    confirmed: raw.confirmed === true,
+    mfa: typeof raw.mfa === 'boolean' ? raw.mfa : null,
     createdAt: typeof raw.createdAt === 'string' && TIME.test(raw.createdAt) ? raw.createdAt : null,
     boards: (Array.isArray(raw.boards) ? raw.boards : [])
       .filter((board) => isThing(board?.thing))
@@ -166,6 +175,7 @@ function ask(key) {
 const STATUS_BADGES = {
   invited: ['warn', 'clock', 'Invited', 'Has not signed in yet'],
   active: ['good', 'check', 'Active', 'Has signed in with their own password'],
+  reset: ['warn', 'key', 'Password reset', 'Has to choose a new password with the code Cognito e-mailed'],
   disabled: ['idle', 'ban', 'Switched off', 'Cannot sign in'],
   gone: ['bad', 'alert', 'Account gone', 'Not in the customer pool any more: take its boards back'],
   other: ['idle', 'minus', 'Other state', 'Cognito reports another state'],
@@ -174,6 +184,25 @@ const STATUS_BADGES = {
 function statusBadge(status) {
   const [tone, iconName, label, title] = STATUS_BADGES[status] ?? STATUS_BADGES.other;
   return badge(tone, iconName, label, title);
+}
+
+/** Whether the customer set up an authenticator app, where Cognito said. */
+function mfaBadge(customer) {
+  if (customer.status === 'gone' || customer.mfa === null) return null;
+  return customer.mfa
+    ? badge('good', 'lock', 'Authenticator', 'An authenticator app is set up')
+    : badge('idle', 'lock', 'No authenticator', 'Password only: an authenticator app is the customer’s choice');
+}
+
+/** A change that waits for a second press: the question, the button that does it, and Keep. */
+function confirmStep(key, question, label, run) {
+  return confirming === key
+    ? [
+        h('span', { class: 'card-note', key: `${key} ask` }, question),
+        button('is-small is-danger', run, label),
+        button('is-small is-quiet', () => ask(null), 'Keep'),
+      ]
+    : null;
 }
 
 function inviteCard(ctx, data) {
@@ -407,7 +436,7 @@ function customerRow(ctx, customer, free) {
           mono(customer.id, 'customer-id')
         )
       ),
-      statusBadge(customer.status)
+      h('span', { class: 'customer-badges' }, statusBadge(customer.status), mfaBadge(customer))
     ),
     h(
       'ul',
@@ -454,7 +483,28 @@ function customerRow(ctx, customer, free) {
               button('is-small is-quiet', () => ask(null), 'Keep'),
             ]
           : button('is-small', () => ask(off), icon('ban'), 'Switch off')
-        : null
+        : null,
+      customer.status === 'active'
+        ? (confirmStep(
+            `reset ${customer.id}`,
+            `Cognito e-mails ${name} a code to choose a new password with. Their password stops working now.`,
+            'Reset password',
+            () =>
+              act(
+                customer.id,
+                () => app.api.resetCustomerPassword(customer.id),
+                `${name} gets an e-mail with a code to choose a new password.`
+              )
+          ) ?? button('is-small', () => ask(`reset ${customer.id}`), icon('key'), 'Reset password'))
+        : null,
+      customer.status === 'gone'
+        ? null
+        : (confirmStep(
+            `delete ${customer.id}`,
+            `${name} is signed out and their account deleted. This cannot be undone; their boards stay here to take back.`,
+            'Remove',
+            () => act(customer.id, () => app.api.removeCustomer(customer.id), `${name} is removed.`)
+          ) ?? button('is-small', () => ask(`delete ${customer.id}`), icon('x'), 'Remove'))
     ),
     row.error ? failure('That did not change.', row.error) : null
   );
@@ -543,6 +593,7 @@ export function customersView(ctx) {
                     options: [
                       ['invited', 'Invited'],
                       ['active', 'Active'],
+                      ['reset', 'Password reset'],
                       ['disabled', 'Disabled'],
                       ['gone', 'Gone'],
                     ],

@@ -1830,6 +1830,22 @@ Resources:
                   - cognito-idp:AdminGetUser
                   - cognito-idp:AdminListGroupsForUser
                 Resource: !GetAtt UserPool.Arn
+              # The console's Team page (docs/accounts.md): list the team, invite a person (Cognito sends the
+              # e-mail and makes the temporary password), move them between the two groups, switch them off
+              # and on, and sign out and delete an account, which a reset does before it invites the person
+              # again. Never a password, never an attribute, and nothing in the customer pool.
+              - Sid: ManageTeam
+                Effect: Allow
+                Action:
+                  - cognito-idp:ListUsers
+                  - cognito-idp:AdminCreateUser
+                  - cognito-idp:AdminAddUserToGroup
+                  - cognito-idp:AdminRemoveUserFromGroup
+                  - cognito-idp:AdminDisableUser
+                  - cognito-idp:AdminEnableUser
+                  - cognito-idp:AdminUserGlobalSignOut
+                  - cognito-idp:AdminDeleteUser
+                Resource: !GetAtt UserPool.Arn
               # A command to one board, now (docs/fleet.md): on the commands topic of a board of this
               # project, and on no other topic.
               - Sid: CommandBoards
@@ -1853,9 +1869,10 @@ Resources:
                   - sns:Unsubscribe
                 Resource: !Ref AlertTopic
               # The console's Customers page: invite a customer (Cognito sends the e-mail and
-              # makes the temporary password), list them, switch one off and on. Never a password,
-              # never a group, never a delete, and nothing in the staff pool. Who owns which board
-              # is in the state table (pk OWN), under ReadAndWriteReleasesAndTokens above.
+              # makes the temporary password), list them, switch one off and on, reset a password
+              # (Cognito e-mails the customer a code) and sign out and delete an account. Never a
+              # password, never a group, and nothing in the staff pool. Who owns which board is in
+              # the state table (pk OWN), under ReadAndWriteReleasesAndTokens above.
               - Sid: ManageCustomers
                 Effect: Allow
                 Action:
@@ -1864,6 +1881,9 @@ Resources:
                   - cognito-idp:ListUsers
                   - cognito-idp:AdminDisableUser
                   - cognito-idp:AdminEnableUser
+                  - cognito-idp:AdminResetUserPassword
+                  - cognito-idp:AdminUserGlobalSignOut
+                  - cognito-idp:AdminDeleteUser
                 Resource: !GetAtt CustomerUserPool.Arn
               # Whether a Memfault project key is stored, for a board's page (docs/memfault.md): the
               # secret's metadata, which says whether it has a value. Never the value itself.

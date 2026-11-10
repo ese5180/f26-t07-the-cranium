@@ -9,9 +9,9 @@
  * own record). It reads AWS_REGION, STATE_TABLE and CUSTOMER_POOL_ID.
  *
  *   Customers (the customer user pool, apart from the staff pool; a customer's id is its sub)
- *     listCustomers()           -> [{ sub, email, name, enabled, status, createdAt }]  every one,
- *                                  any order; createdAt in epoch ms or null
- *     getCustomer(sub)          -> the same shape | null
+ *     listCustomers()           -> [{ sub, email, name, enabled, status, createdAt, mfa: null }]  every
+ *                                  one, any order; createdAt in epoch ms or null
+ *     getCustomer(sub)          -> the same shape, with mfa true | false, | null
  *     inviteCustomer({ email, name })
  *                               -> { ok: true, customer } | { ok: false, reason: "exists" }
  *                                  Cognito makes the account and e-mails the invitation, with a
@@ -19,6 +19,10 @@
  *     resendInvitation(email)   -> { ok: true } | { ok: false, reason: "not_found" | "not_invited" }
  *     setCustomerEnabled(sub, enabled)
  *                               -> { ok: true } | { ok: false, reason: "not_found" }
+ *     resetCustomerPassword(sub) -> { ok: true } | { ok: false, reason: "not_found" | "not_allowed" }
+ *                                  Cognito's admin reset: the old password stops working and Cognito
+ *                                  e-mails a code to choose a new one with. Never a password here
+ *     deleteCustomer(sub)       -> { ok: true } | { ok: false, reason: "not_found" }  signed out, then deleted
  *
  *   Ownership (state table, pk "OWN", sk = the thing name; a board has one owner at most)
  *     listOwnership()           -> [{ thing, owner, ref, label, assignedAt, assignedBy }]  the owned
@@ -41,9 +45,12 @@
 
 import {
   AdminCreateUserCommand,
+  AdminDeleteUserCommand,
   AdminDisableUserCommand,
   AdminEnableUserCommand,
   AdminGetUserCommand,
+  AdminResetUserPasswordCommand,
+  AdminUserGlobalSignOutCommand,
   CognitoIdentityProviderClient,
   ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -75,7 +82,7 @@ function attribute(attributes, name) {
 }
 
 /** A Cognito user, as AdminGetUser, ListUsers and AdminCreateUser describe one, in plain values. */
-function customerOf({ attributes, enabled, status, created, username }) {
+function customerOf({ attributes, enabled, status, created, username, mfaList }) {
   return {
     sub: attribute(attributes, 'sub') || (typeof username === 'string' ? username : ''),
     email: attribute(attributes, 'email'),
@@ -83,6 +90,8 @@ function customerOf({ attributes, enabled, status, created, username }) {
     enabled: enabled === true,
     status: typeof status === 'string' ? status : '',
     createdAt: millis(created),
+    // Whether an authenticator app is set up: AdminGetUser says, ListUsers does not (null).
+    mfa: Array.isArray(mfaList) ? mfaList.includes('SOFTWARE_TOKEN_MFA') : mfaList === null ? false : null,
   };
 }
 
@@ -143,6 +152,7 @@ export function createCustomerStore(env) {
           status: out.UserStatus,
           created: out.UserCreateDate,
           username: out.Username,
+          mfaList: Array.isArray(out.UserMFASettingList) ? out.UserMFASettingList : null,
         });
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return null;
@@ -174,6 +184,7 @@ export function createCustomerStore(env) {
             status: user.UserStatus,
             created: user.UserCreateDate,
             username: user.Username,
+            mfaList: null,
           }),
         };
       } catch (cause) {
@@ -210,6 +221,36 @@ export function createCustomerStore(env) {
       } catch (cause) {
         if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
         throw failure(enabled ? 'AdminEnableUser' : 'AdminDisableUser', cause);
+      }
+    },
+
+    async resetCustomerPassword(sub) {
+      try {
+        await cognito.send(new AdminResetUserPasswordCommand({ UserPoolId: poolId, Username: sub }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
+        // An account that has not chosen a password yet, or has no verified address to send the code to.
+        if (nameOf(cause) === 'NotAuthorizedException' || nameOf(cause) === 'InvalidParameterException') {
+          return { ok: false, reason: 'not_allowed' };
+        }
+        throw failure('AdminResetUserPassword', cause);
+      }
+    },
+
+    async deleteCustomer(sub) {
+      // Signed out first, so that no refresh token outlives the account; the delete goes on regardless.
+      try {
+        await cognito.send(new AdminUserGlobalSignOutCommand({ UserPoolId: poolId, Username: sub }));
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
+      }
+      try {
+        await cognito.send(new AdminDeleteUserCommand({ UserPoolId: poolId, Username: sub }));
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'UserNotFoundException') return { ok: false, reason: 'not_found' };
+        throw failure('AdminDeleteUser', cause);
       }
     },
 
