@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.5
+
+The local preview (cloud/dev/preview.mjs --customer) saves a customer's own changes again: renaming a board and turning the e-mails on or off answered "That could not be saved just now" (503) every time. Nothing deployed changes.
+
+Since 2.21.1 the customer API counts each customer's changes with `takeWriteSlot`, and the preview did not hand it the stand-in's counter, so every write stopped at the limit check. The preview now passes it. customer.test.mjs (cloud/dev) renames a board and changes an e-mail choice through the preview.
+
 ## 2.25.4
 
 A screen reader on the Activity page now hears which entry a "What changed" line belongs to by its time of day ("What changed: 4 fields in the entry of 07:50 AM"), instead of "in the entry of [object Object]".
