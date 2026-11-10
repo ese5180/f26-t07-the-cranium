@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.9
+
+The local preview (cloud/dev/preview.mjs --customer) saves a customer's own changes again: renaming a board and turning the e-mails on or off answered "That could not be saved just now" (503) every time. Nothing deployed changes.
+
+Since 2.21.1 the customer API counts each customer's changes with `takeWriteSlot`, and the preview did not hand it the stand-in's counter, so every write stopped at the limit check. The preview now passes it. customer.test.mjs (cloud/dev) renames a board and changes an e-mail choice through the preview.
+
 ## 2.25.8
 
 On a 320 px phone the customer site's Overview no longer scrolls sideways: the "Back to your last set" panel stays as wide as the page, and its table of tracks scrolls inside the panel when it is wider.

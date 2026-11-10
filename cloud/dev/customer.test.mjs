@@ -251,6 +251,21 @@ test("an invited customer chooses a password on the site's own page, and the con
   assert.equal(listed.body.customers.find((item) => item.email === CLEO).status, 'active');
 });
 
+test("a customer's own changes are saved in the preview: a board's name and the e-mails they get", async (t) => {
+  const { origin, clock } = await start(t);
+  const config = site.readSiteConfig((await pageConfig(`${origin}/`)).content);
+  const { customer } = signIns(config, tab(origin), clock);
+  assert.deepEqual(await customer.passwordSignIn(ADA, PREVIEW_CUSTOMER_PASSWORD), { step: 'done' });
+  const token = customer.accessToken();
+  const [board] = (await call(origin, token, 'GET', '/api/c/boards')).body.boards;
+  const renamed = await call(origin, token, 'POST', `/api/c/boards/${board.id}/label`, { label: 'Studio deck' });
+  assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+  assert.equal(renamed.body.board.name, 'Studio deck');
+  const chosen = await call(origin, token, 'POST', '/api/c/preferences', { offline: false });
+  assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
+  assert.equal(chosen.body.notifications.offline, false);
+});
+
 test('a release manager gives a board and takes it back; the customer sees it come and go; all on record', async (t) => {
   const { origin, clock, preview } = await start(t);
   const config = site.readSiteConfig((await pageConfig(`${origin}/`)).content);
