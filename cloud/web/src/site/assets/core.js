@@ -113,6 +113,8 @@ const SECTIONS = [
   // Board setup over USB (setup.js).
   'setup',
   'history',
+  // Every version of every product, a tab each (release-notes.js): #/release-notes/<product>.
+  'release-notes',
   'tokens',
   // Board types, groups and staged rollouts (fleet.js).
   'fleet',
@@ -137,6 +139,8 @@ const SECTIONS = [
   // The weekly fleet report: the weeks, and a week's page (reports.js, docs/reports.md).
   'reports',
 ];
+// The Release notes page's tabs, in their order (release-notes.js).
+export const RELEASE_PRODUCTS = Object.freeze(['console', 'firmware', 'iphone', 'android', 'desktop', 'mac']);
 // The tables of the Database page (cloud/api/src/lib/db.mjs TABLES).
 const DB_TABLES = ['state', 'audit', 'events'];
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
@@ -157,7 +161,7 @@ export function isReportWeek(value) {
   return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value && new Date(ms).getUTCDay() === 1;
 }
 // A page's address, and after a ? the filters of its list (docs/search-filters.md): #/events?board=…&q=wifi.
-const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?(?:\?([A-Za-z0-9=&%._~+,:*!'()-]{0,800}))?$/;
+const ROUTE = /^#\/([a-z]+(?:-[a-z]+)?)(?:\/([A-Za-z0-9-]+))?(?:\?([A-Za-z0-9=&%._~+,:*!'()-]{0,800}))?$/;
 
 /**
  * Turn a location hash into a route, or null if it is not one of the console's. A page with filters
@@ -187,6 +191,8 @@ function routeOf(section, item) {
   if (section === 'database' && DB_TABLES.includes(item)) return { view: 'database', table: item };
   // One week's report (reports.js).
   if (section === 'reports' && isReportWeek(item)) return { view: 'report', week: item };
+  // One product's tab of the Release notes.
+  if (section === 'release-notes' && RELEASE_PRODUCTS.includes(item)) return { view: 'release-notes', product: item };
   return null;
 }
 
@@ -199,6 +205,9 @@ export function routeHash(route) {
   if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
   if (route?.view === 'database' && DB_TABLES.includes(route.table)) return `#/database/${route.table}`;
   if (route?.view === 'report' && isReportWeek(route.week)) return `#/reports/${route.week}`;
+  if (route?.view === 'release-notes' && RELEASE_PRODUCTS.includes(route.product)) {
+    return `#/release-notes/${route.product}`;
+  }
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }

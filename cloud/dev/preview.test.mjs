@@ -1506,6 +1506,11 @@ test("the Apps page: the fleet has the Android app's last two versions, a link d
   assert.equal(versions.console.version, version);
   assert.ok(versions.changelogs.console.length > 0);
   assert.deepEqual(Object.keys(versions.changelogs), ['console', 'firmware', 'ios', 'android']);
+  // And the Release notes page's file, every changelog in full.
+  const notes = await (await fetch(`${origin}/assets/${build}/release-notes.json`)).json();
+  assert.equal(notes.console.version, version);
+  assert.deepEqual(Object.keys(notes.products), ['console', 'firmware', 'ios', 'android', 'windows', 'linux', 'macos']);
+  assert.ok(notes.products.macos.entries.length > 0);
 
   const { entries } = (await call(origin, token, 'GET', '/api/audit?limit=100')).body;
   const published = entries.filter((entry) => entry.action === 'app.publish').map((entry) => entry.target);

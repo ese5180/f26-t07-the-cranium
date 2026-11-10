@@ -554,13 +554,27 @@ test("the foot of every page says the console's version, and leads to what is ne
     views.footView({ state: { me: { console: { version: '1.9.1', commit: '1036507'.padEnd(40, 'a') } } } })
   );
   assert.match(textOf(box), /^Console 1\.9\.1 · 1036507/);
+  // The version leads to the console's release notes.
   assert.deepEqual(
     all(box, 'a').map((link) => [textOf(link), link.getAttribute('href')]),
     [
+      ['1.9.1', '#/release-notes/console'],
       ['What’s new', '#/history'],
+      ['Release notes', '#/release-notes'],
       ['Phone apps', '#/apps'],
     ]
   );
+  // In an app, Release notes opens that app's own tab.
+  for (const [platform, tab] of [
+    ['ios', 'iphone'],
+    ['android', 'android'],
+    ['macos', 'mac'],
+    ['windows', 'desktop'],
+    ['linux', 'desktop'],
+  ]) {
+    views.render(box, views.footView({ state: { me: { console: { version: '1.9.1' } }, app: { platform } } }));
+    assert.equal(one(box, 'a', 'Release notes').getAttribute('href'), `#/release-notes/${tab}`, platform);
+  }
   views.render(box, views.footView({ state: { me: { console: { version: null, commit: null } } } }));
   assert.match(textOf(box), /^Console version not known/);
   // /api/me's console part, as the page reads it: only a version and a full commit id.

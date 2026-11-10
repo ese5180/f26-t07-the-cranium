@@ -37,12 +37,13 @@ class PagesParityTest {
         return Regex(pattern).findAll(body).map { it.groupValues[1] }.toList()
     }
 
-    private val route = Regex("""^#/([a-z]+)(?:/([A-Za-z0-9-]+))?$""")
+    // A section's name is a word, or two joined by a hyphen (release-notes).
+    private val route = Regex("""^#/([a-z]+(?:-[a-z]+)?)(?:/([A-Za-z0-9-]+))?$""")
 
     @Test
     fun `every section of the console is a page, and every page one of the console's`() {
         val core = text("cloud/web/src/site/assets/core.js")
-        val known = sections(core, """'([a-z]+)'""")
+        val known = sections(core, """'([a-z]+(?:-[a-z]+)?)'""")
         assertTrue(known.contains("memfault"))
         val listed = list("console").map { route.find(it.string("route")!!)!!.groupValues[1] }.toSet()
         for (section in known) assertTrue("#/$section in pages.json", section in listed)

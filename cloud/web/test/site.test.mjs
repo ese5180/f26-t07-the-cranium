@@ -20,6 +20,8 @@ function visible(directory) {
 const HISTORY_DATA = 'history.json';
 // The same for versions.json (build-versions.mjs), checked in versions.test.mjs.
 const VERSIONS_DATA = 'versions.json';
+// And release-notes.json, which it writes beside it (versions.test.mjs, release-notes.test.mjs).
+const RELEASE_NOTES_DATA = 'release-notes.json';
 // Leaflet 1.9.4, the map's library (map.js), as its npm package has it, and its licence: not the
 // console's own code, so checked by their digests below and kept out of the checks of the console's.
 const VENDORED = Object.freeze({
@@ -34,7 +36,9 @@ const assets = visible(new URL('assets/', SITE))
   .map((entry) => entry.name)
   .filter(
     (name) =>
-      !name.startsWith('home.') && name !== HISTORY_DATA && name !== VERSIONS_DATA && !Object.hasOwn(VENDORED, name)
+      !name.startsWith('home.') &&
+      ![HISTORY_DATA, VERSIONS_DATA, RELEASE_NOTES_DATA].includes(name) &&
+      !Object.hasOwn(VENDORED, name)
   )
   .sort();
 const scripts = assets.filter((name) => name.endsWith('.js'));
@@ -65,6 +69,7 @@ const ON_DEMAND = [
   'live.js',
   'map.js',
   'memfault-page.js',
+  'release-notes.js',
   'reports.js',
   'serial.js',
   'setup.js',
@@ -210,7 +215,7 @@ test('nothing is fetched from anywhere else', () => {
   const tiles = /'https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png'/g;
   const copyright = /'https:\/\/www\.openstreetmap\.org\/copyright'/g;
   for (const [name, text] of [...sources, ['index.html', page], [styles[0], css]]) {
-    let others = name === 'history.js' ? text.replace(commitLinks, '') : text;
+    let others = ['history.js', 'release-notes.js'].includes(name) ? text.replace(commitLinks, '') : text;
     if (name === 'map.js') others = others.replace(tiles, '');
     if (name === 'views.js') others = others.replace(copyright, '');
     // In the phone app the page is told the pool's Region, and works out Cognito's user pool API from it,

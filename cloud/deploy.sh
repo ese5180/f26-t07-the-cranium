@@ -100,14 +100,15 @@ source_commit() {
 # The files that end up in the stack and differ from that commit, one per line. Ignored
 # files count, because the package contains them. Only what is deployed is looked at: the
 # firmware and the tools change all the time and are no part of the console. The history
-# file and the two versions files are the exception, because this script writes them from the
-# commits and the changelogs themselves.
+# file, the two versions files and the release notes are the exception, because this script
+# writes them from the commits and the changelogs themselves.
 # --no-optional-locks: somebody else may be working in this checkout.
 source_changes() {
   git --no-optional-locks -C "$REPO_DIR" status --porcelain --ignored -- \
     cloud/api/src cloud/web/src cloud/infra firmware/keys/fw_signing_pub.pem \
     ':(exclude)cloud/web/src/site/assets/history.json' \
-    ':(exclude)cloud/web/src/site/assets/versions.json' ':(exclude)cloud/api/src/versions.json'
+    ':(exclude)cloud/web/src/site/assets/versions.json' ':(exclude)cloud/api/src/versions.json' \
+    ':(exclude)cloud/web/src/site/assets/release-notes.json'
 }
 
 # Things that would otherwise fail halfway through, checked before anything changes.
@@ -653,9 +654,11 @@ main() {
     || echo "Note: the console's History page will say that it has no history."
   # The console's version (cloud/VERSION) and the changelogs' notes, for the console's footer, What's new
   # and Apps page, and for the API (docs/versions.md). Into both packages; without it they say none is known.
+  # And release-notes.json, every changelog entry in full with its tag, for the Release notes page only.
   node "$CLOUD_DIR/web/build-versions.mjs" --repo "$REPO_DIR" --commit "$commit" --tree "$tree" \
     --out "$CLOUD_DIR/web/src/site/assets/versions.json" --out "$CLOUD_DIR/api/src/versions.json" \
-    || echo "Note: the console will not show its version, and the Apps page not the iPhone app's note."
+    --notes "$CLOUD_DIR/web/src/site/assets/release-notes.json" \
+    || echo "Note: the console will not show its version or its release notes, and the Apps page not the iPhone app's note."
   aws cloudformation package \
     --template-file "$CLOUD_DIR/infra/template.yaml" \
     --s3-bucket "$artifacts_bucket" --s3-prefix "$STACK" \
