@@ -2846,6 +2846,37 @@ static void test_mqtt_reconnect(void)
 	}
 }
 
+/* SESSION_TEST sends three messages of a made-up session, only to the cloud and only with a good UTC time. */
+static void test_session_test_sends_a_made_up_session(void)
+{
+	operating_board();
+
+	fake.cloud_connected = false;
+	command("SESSION_TEST|2026-11-10T02:00:00Z");
+	CHECK_TEXT(final_line(), "ERR not connected to the cloud");
+	CHECK(fake.session_messages == 0);
+
+	fake.cloud_connected = true;
+	command("SESSION_TEST|2026-11-10T02:00:00Z");
+	CHECK_TEXT(final_line(), "OK 3 messages sent");
+	CHECK(fake.session_messages == 3);
+	CHECK(strstr(fake.session_json[0], "\"type\":\"session\"") != NULL);
+	CHECK(strstr(fake.session_json[0], "\"startedAt\":\"2026-11-10T02:00:00Z\"") != NULL);
+	CHECK(strstr(fake.session_json[0], "\"playedAt\":\"2026-11-10T02:00:10Z\"") != NULL);
+	CHECK(strstr(fake.session_json[1], "\"type\":\"now\",\"playing\":true") != NULL);
+	CHECK(strstr(fake.session_json[2], "\"endedAt\":\"2026-11-10T02:02:10Z\"") != NULL);
+
+	/* No time, a bad one, or one the cloud would refuse: nothing is sent. */
+	fake.session_messages = 0;
+	command("SESSION_TEST|yesterday");
+	CHECK_TEXT(final_line(), "ERR time must be UTC like 2026-11-10T02:00:00Z");
+	command("SESSION_TEST|2020-01-01T00:00:00Z");
+	CHECK_TEXT(final_line(), "ERR time must be UTC like 2026-11-10T02:00:00Z");
+	command("SESSION_TEST");
+	CHECK(fake.session_messages == 0);
+	fake.cloud_connected = false;
+}
+
 static void test_button_and_restart(void)
 {
 	operating_board();
@@ -3673,6 +3704,7 @@ int main(void)
 	test_mqtt_host();
 	test_mqtt_reconnect();
 	test_button_and_restart();
+	test_session_test_sends_a_made_up_session();
 	test_crc();
 	test_stream_in_order();
 	test_stream_failures();

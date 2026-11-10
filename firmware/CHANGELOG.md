@@ -7,6 +7,18 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.18.0
+
+The board can send listening sessions and what is on the decks to the cloud, for the customer site's Mixes pages and Now playing. Until the Raspberry Pi link is in the firmware, the console's SESSION_TEST command sends a made-up session to try it. Needs console 2.23.0 deployed first (the device policy). Not tested on a board.
+
+The messages go to `cranium/<thing name>/session` at QoS 0 and are checked again by the cloud
+(docs/customer-data.md, "The messages"). `src/cloud/sessions.c` builds the JSON and checks what the cloud would refuse;
+`cloud_session_publish()` sends it. They use no RAM of their own: the caller gives the buffer and the topic is built on
+the stack. `SESSION_TEST|<UTC time>` (Test bench in HELP) sends three messages; `CONFIG_APP_SESSIONS=n` leaves it all out.
+
+Flash 749,176 of 794,474 bytes (1.15.0: 746,488); RAM 404,404 of 405,504 (1,100 free, as in 1.15.0); signed image
+880,422 bytes, built without the signing key. Host tests: sessions (78,058 checks), console and cloud.
+
 ## 1.15.0
 
 The release after the fault demonstration (1.14.7+0), for every board at once. Memfault's heartbeat now has the power status (USB present and the supply in mV, as the DK has no battery) and Zephyr's default metrics: CPU use and the stack use of the idle thread and the system work queue. Nothing else changes in what the board does.

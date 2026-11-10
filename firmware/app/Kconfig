@@ -215,6 +215,18 @@ config APP_LOCATION
 	  The device policy in AWS IoT has to allow publishing there. See "Location" in
 	  firmware/README.md and docs/fleet.md.
 
+config APP_SESSIONS
+	bool "Send listening sessions and now playing to AWS IoT, and the SESSION_TEST command"
+	depends on APP_CONSOLE
+	default y
+	help
+	  From 1.18.0. What Mixxx plays, as sessions with their tracks and what is on the decks now, to
+	  cranium/<thing name>/session at QoS 0, for the customer site's Mixes pages. src/cloud/sessions.c
+	  builds the JSON in a buffer the caller gives, and publishes with no RAM of its own. Until the
+	  Raspberry Pi link is in this firmware, the console's SESSION_TEST|<time> sends a made-up
+	  session, to try the path over the air. The device policy in AWS IoT has to allow publishing
+	  there. See "Sessions" in firmware/README.md and docs/customer-data.md.
+
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"
 	depends on APP_CONSOLE && BT

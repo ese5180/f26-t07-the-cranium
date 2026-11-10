@@ -148,6 +148,7 @@ target_sources_ifdef(CONFIG_APP_TEST_FAULT_WIFI_DEAD app PRIVATE src/fault_wifi.
 target_sources_ifdef(CONFIG_APP_BOOT_DIARY app PRIVATE src/boot_diary.c)
 target_sources_ifdef(CONFIG_APP_CLOUD_EVENTS app PRIVATE src/cloud/cloud_events.c)
 target_sources_ifdef(CONFIG_APP_LOCATION app PRIVATE src/cloud/location.c)
+target_sources_ifdef(CONFIG_APP_SESSIONS app PRIVATE src/cloud/sessions.c)
 if(CONFIG_APP_TEST_FAULT_WIFI_DEAD AND CONFIG_NRF_WIFI_RPU_RECOVERY)
   message(FATAL_ERROR "APP_TEST_FAULT_WIFI_DEAD needs -Dapp_CONFIG_NRF_WIFI_RPU_RECOVERY=n as well")
 endif()

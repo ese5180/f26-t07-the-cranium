@@ -968,6 +968,42 @@ An ignored one says why: `too long`, `not a command` (not JSON of that kind), `u
 when the message was well formed and its id good, and nothing else of the message ever is. A build without the
 serial console sends no events, and so no answers, and still carries out the commands.
 
+## Sessions
+
+From 1.18.0 the board can send what is played on the decks to `cranium/<thing name>/session`, at QoS 0, for the
+customer site's Mixes pages, Your listening and Now playing: a **session** (an id, when it started and ended, a title,
+and a track with its title, artist, `playedAt` and `durationS`) and a **now playing** message (what is on the decks, or
+that nothing is). The contract, with the limits the cloud holds every message to, is in
+[`docs/customer-data.md`](../docs/customer-data.md#the-messages-firmware-1180-and-console-2230).
+
+`src/cloud/sessions.c` makes the JSON and `cloud_session_publish()` in `src/cloud/cloud.c` sends it. They take no RAM
+of their own: the caller gives the buffer (`SESSION_JSON_MAX`, 448 bytes), and the topic is built on the stack for
+each message. A text is made printable ASCII, with a quote and a backslash escaped, and cut to 48 characters; a
+message the cloud would refuse (a bad id, a time before 2024, an end before the start, a track outside its session, a
+length outside 1 to 14400 s) is not sent at all. The board has no clock of its own, so the times are Unix seconds that
+come with the data. **The Raspberry Pi link is not in this firmware yet**: it will call `session_send_session()` and
+`session_send_now()` with what Mixxx reports.
+
+Until it is, `SESSION_TEST|<UTC time>` (in the Test bench section of `HELP`) sends a made-up session so the path can be
+tried over the air: `SESSION_TEST|2026-11-10T02:00:00Z` with the current UTC time sends three messages (the session with a
+first track, the second track as now playing, and the session again, ended). The customer site then shows the
+session and Now playing. The cloud refuses a time before 2024 or more than a day ahead. `CONFIG_APP_SESSIONS=n` leaves
+the whole thing out.
+
+### The device policy for sessions
+
+The device policy has to allow `iot:Publish` on `topic/cranium/${iot:Connection.Thing.ThingName}/session` before a
+board runs 1.18.0: deploy console 2.23.0 first. On a cloud whose policy does not, AWS IoT closes the connection of a
+board that publishes there; only `SESSION_TEST` publishes there until the Pi link is in, so nothing else is affected.
+The console's rule `BoardSessionRule` is also in that release, and drops a message that does not keep the contract.
+
+### Tests of sessions
+
+`tests/host/test_sessions.c` checks the dates (leap days, the earliest time, every bad form), the JSON of each message
+against the cloud's contract, each refusal, the escaping, and with canary bytes on both sides that no buffer of any
+size is written past. `tests/host/test_console.c` checks `SESSION_TEST` (not connected, a bad time, the three messages)
+and `tests/host/test_cloud.c` the topic. Not tested on a board.
+
 ## Location by Wi-Fi
 
 From firmware 1.13.0 the board tells the console what Wi-Fi access points it hears, on
