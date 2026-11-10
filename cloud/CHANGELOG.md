@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.18.1
+
+The customer site's About page shows Adam Shalabi's photo in place of his initials.
+
 ## 2.18.0
 
 Customers can now change a little on the customer site and in the phone apps' customer mode: give each of their
