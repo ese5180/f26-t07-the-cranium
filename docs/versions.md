@@ -4,17 +4,31 @@ These things have their own version number, changelog and git tags. The rule is 
 for a small change or a fix (1.11.0 to 1.11.1), the middle one for a larger update (1.11.x to 1.12.0), and never the
 first. Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
 
-| What | Version lives in | Changelog | In the files (2026-11-09) | Shown |
+| What | Version lives in | Changelog | In the files (2026-11-10) | Shown |
 | --- | --- | --- | --- | --- |
 | Firmware | `firmware/app/VERSION` (`scripts/firmware/build.sh` sets the next one) | [`firmware/CHANGELOG.md`](../firmware/CHANGELOG.md) | 1.15.0 (the release image, built); the newest tag is `firmware-v1.15.0` (1.14.1 to 1.15.0 are tagged) | On the console's Firmware page, each release with its note from the changelog |
-| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.13.4; the newest tag is `console-v2.13.4`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.13.4"), What's new on its History page, and `GET /api/me` |
-| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.13; the newest tag is `ios-v0.8.8`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
-| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.13; the newest tag is `android-v0.8.8`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
-| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.8 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+| Console (website, API, AWS stack) | `cloud/VERSION` | [`cloud/CHANGELOG.md`](../cloud/CHANGELOG.md) | 2.21.0; the newest tag is `console-v2.21.0`, pushed so that GitHub Actions deploys it | At the foot of every page of the console ("Console 2.21.0"), What's new on its History page, and `GET /api/me` |
+| iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.19; the newest tag is `ios-v0.8.16`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
+| Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.19; the newest tag is `android-v0.8.16`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
+| Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.14 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
 
 The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
 kept on the phone and updated from the console (docs/mobile-apps.md, "The app shell"): a new console version changes
 what the apps show without a new app version, and the app's settings say which console the pages are from.
+
+## Recent versions
+
+| Date of this list | Console | Apps | Desktop app | What |
+| --- | --- | --- | --- | --- |
+| 2026-11-10 | 2.18.0 | 0.8.17 | 0.1.12 | Customer actions on the customer site |
+| 2026-11-10 | 2.18.1 | | | Adam Shalabi's photo on the About page |
+| 2026-11-10 | 2.19.0 | 0.8.18 | 0.1.13 | A weekly fleet report |
+| 2026-11-10 | 2.20.0 | 0.8.19 | 0.1.14 | Scheduled deployments and maintenance windows |
+| 2026-11-10 | 2.20.1 | | | "Roll back to last good" as the one way back |
+| 2026-11-10 | 2.21.0 | | | Bulk board setup |
+
+The console's 2.18.0 to 2.21.0 are tagged `console-v<version>`. The apps' 0.8.17 to 0.8.19 and the desktop app's 0.1.12 to
+0.1.14 have no tags yet (the newest app tags are `ios-v0.8.16` and `android-v0.8.16`).
 
 ## Making a version
 
@@ -49,7 +63,7 @@ never moved, so the console goes on from 2.x (2.0.1, 2.1.0, ...) under the same 
 from `cloud/VERSION`, the commit and whether the files matched it, and every entry of the four changelogs, newest
 first, each its version and first paragraph (and its commit and date where the entry names them). So:
 
-- **The console's version** is at the foot of every page, "Console 2.13.4 · <commit>", from `GET /api/me`, which says
+- **The console's version** is at the foot of every page, "Console 2.21.0 · <commit>", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
 - **The iPhone app** on the Apps page is the newest version published as an IPA, with its note (below). Before any is

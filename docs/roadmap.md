@@ -6,6 +6,15 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 ## Done recently
 
+- **Bulk board setup** (console 2.21.0): several boards in a row from Board setup, with a shared group, name pattern and
+  Wi-Fi, each marked done or failed, and the QR labels printed together ([`new-board-setup.md`](new-board-setup.md)).
+- **"Roll back to last good" as the one way back** (console 2.20.1): the group "Roll back" button is removed
+  ([`fleet.md`](fleet.md)).
+- **Scheduled deployments and maintenance windows** (console 2.20.0, apps 0.8.19, desktop app 0.1.14)
+  ([`mass-updates.md`](mass-updates.md), [`fleet.md`](fleet.md)).
+- **A weekly fleet report** (console 2.19.0, apps 0.8.18, desktop app 0.1.13) ([`reports.md`](reports.md)).
+- **Customer actions** (console 2.18.0, apps 0.8.17, desktop app 0.1.12): rename a board, choose notifications, see a
+  waiting update ([`customer-site.md`](customer-site.md)), and Adam's photo on the About page (2.18.1).
 - **Search and filters** on the long lists (console 2.12.0): kept in the page's address ([`search-filters.md`](search-filters.md)).
 - **A rollout health gate and alert rules** (console 2.13.0): a rollout waits on Memfault's data, and rules send alerts
   ([`alerts.md`](alerts.md), [`fleet.md`](fleet.md)).
@@ -38,30 +47,24 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 ## In progress
 
-- **One-click rollback** of a board, or a group, to each board's last good version.
 - **Board health for customers**, in plain words.
 
 ## Planned next, in this order
 
-1. A fleet health score, with trends.
-2. Board compare, and a version timeline for a board.
-3. Scheduled deployments.
-4. A weekly fleet report.
-5. Customer actions: rename a board, accept an update, choose notifications.
-6. Role management in the console.
-7. Bulk board setup: several boards in a row, without starting over.
-8. Push notifications for board events, then home-screen widgets and Live Activities.
-9. A hardware self-test step in setup.
-10. An offline Bluetooth mode, with a passkey for each board.
-11. Sessions and tracks sent from the board, so that Now playing and the play times are real. This replaces the customer
-    site's demo and its import journal ([`customer-data.md`](customer-data.md)).
-12. Listening stats.
-13. A firmware build image on GitHub Packages.
-14. A security audit across the web, the apps and the desktop app.
-15. The native Mac app (the desktop app is for Windows and Linux).
+1. Push notifications for board events, then home-screen widgets and Live Activities.
+2. A hardware self-test step in setup.
+3. An offline Bluetooth mode, with a passkey for each board.
+4. Sessions and tracks sent from the board, so that Now playing and the play times are real. This replaces the customer
+   site's demo and its import journal ([`customer-data.md`](customer-data.md)).
+5. Listening stats.
+6. A firmware build image on GitHub Packages.
+7. The native Mac app (the desktop app is for Windows and Linux).
 
 ## On hold
 
 - **Raspberry Pi over-the-air updates** (firmware 1.16.0, draft pull request #42): waiting for a test on the
   hardware ([`raspberry-pi-ota.md`](raspberry-pi-ota.md)).
+- **Customer e-mails (SES)**: the choices are kept, but nothing is sent until an SES identity exists
+  ([`customer-site.md`](customer-site.md)).
+- **Remote update approval** from the site or the apps.
 - **The Mixxx Zephyr port** (pull request #3), a side project.

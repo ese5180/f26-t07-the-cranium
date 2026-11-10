@@ -32,3 +32,10 @@ Places are given by file and function name, which stay put as the code changes; 
 - Upload: `lib/mcuboot.mjs` `validateImage()` checks the signature with our key, the version and the size; `parseVersion` / `compareVersions`.
 - Deploy: `lib/jobs.mjs` creates the AWS IoT job (presigned URL lasting 600 s, `MAX_IN_FLIGHT` 5); `lib/fleet.mjs` decides which boards can take it (board type, layout, older version).
 - Staged rollout (extra credit): `rollouts-tick.mjs` runs on a schedule: canary first, then the waves, and it stops itself if the canary fails.
+
+## Fleet features added in console 2.18 to 2.21 (all paths from the repository root)
+- **Weekly report** ([`reports.md`](reports.md)): `cloud/api/src/handlers/reports.mjs` (the routes) and `cloud/api/src/lib/reports.mjs` (the week's tables); the Monday e-mail is sent by `cloud/api/src/tick.mjs`; the page is `cloud/web/src/site/assets/reports.js`; test `cloud/web/test/reports.test.mjs`.
+- **Scheduled deployments and maintenance windows** ([`mass-updates.md`](mass-updates.md)): `cloud/api/src/lib/schedule.mjs` (time zones and windows), `cloud/api/src/handlers/schedules.mjs` (the routes), due schedules started by `cloud/api/src/tick.mjs`; the Deployments page is in `cloud/web/src/site/assets/`; test `cloud/web/test/schedules.test.mjs`.
+- **Roll back to last good**: `cloud/api/src/lib/last-good.mjs`; the group "Roll back" route was removed in 2.20.1.
+- **Bulk board setup** ([`new-board-setup.md`](new-board-setup.md)): `createBulkQueue`, `checkPattern`, `nextFreeName` and `addThingToGroup` in `cloud/web/src/site/assets/setup.js`; the group write is `POST /api/groups/{id}` in `cloud/api/src/handlers/groups.mjs`; test `cloud/web/test/bulk.test.mjs`.
+- **Customer actions** ([`customer-site.md`](customer-site.md)): `cloud/api/src/customer/app.mjs` (the label and preferences routes), `cloud/api/src/customer/boards.mjs` (`customerLabel`), `cloud/api/src/customer/notify.mjs` (which e-mails are wanted; none sent yet); the admin's view is `cloud/web/src/site/assets/customers.js`.
