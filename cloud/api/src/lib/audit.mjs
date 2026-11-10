@@ -23,9 +23,19 @@
  * the time is the token's auth_time, and the "request id" is signin.<sub>.<client>.<auth_time>,
  * where client is web or phone. It is put with the same condition as every entry, so the first
  * instance stores it and the others are refused.
+ *
+ * What changed (docs/audit-diff.md). An entry of a change that a handler can describe carries
+ * `changes`: [{ field, from, to }], each value a line of text, or null for none, as it was before the
+ * request and as the request left it. A handler adds one with change(); auditItem keeps at most
+ * MAX_CHANGES of them in at most MAX_CHANGES_CHARS characters, and counts what it left out in
+ * `changesOmitted`. A field the Database page would hide (lib/db.mjs secretName), or a value that is a
+ * credential whatever its field, is kept as "hidden", with `hidden: true`: never the value itself.
+ * Entries from before this have no `changes`, and an entry that changed nothing has none either.
  */
 
 import { createHash } from 'node:crypto';
+
+import { HIDDEN, secretName, secretValue } from './db.mjs';
 
 export const ACTIONS = Object.freeze([
   'firmware.upload',
@@ -105,6 +115,10 @@ const DETAIL_KEY = /^[a-z][A-Za-z0-9_]{0,23}$/;
 const UNSAFE = /[\p{C}\p{Zl}\p{Zp}]/gu;
 
 const MAX_DETAILS = 8;
+export const MAX_CHANGES = 12;
+export const MAX_CHANGE_VALUE = 200;
+export const MAX_CHANGES_CHARS = 2000;
+const CHANGE_FIELD = /^[a-z][A-Za-z0-9_]{0,31}$/;
 const MAX_VALUE = 200;
 const MAX_CURSOR = 400;
 
@@ -126,6 +140,70 @@ function cleanDetail(detail) {
   return clean;
 }
 
+/** A value of a change as it is kept: a line of text, or null for none. */
+function changeValue(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.length === 0 ? null : changeValue(value.map(String).join(' '));
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value !== 'string') return null;
+  const text = line(value, MAX_CHANGE_VALUE + 1);
+  if (text === '') return null;
+  return text.length > MAX_CHANGE_VALUE ? `${text.slice(0, MAX_CHANGE_VALUE - 1)}\u2026` : text;
+}
+
+/** A list of boards as a change's value: their names, or how many when the names do not fit. */
+export function boardsValue(things) {
+  if (!Array.isArray(things) || things.length === 0) return null;
+  const names = [...things].sort().join(' ');
+  return names.length <= MAX_CHANGE_VALUE ? names : `${things.length} boards`;
+}
+
+/**
+ * Add what one field was and is now to an entry's changes, if it changed. `from` and `to` are text,
+ * numbers, booleans, lists or null (none). Nothing is added when the two are the same.
+ */
+export function change(entry, field, from, to) {
+  if (entry === null || typeof entry !== 'object') return;
+  const was = changeValue(from);
+  const now = changeValue(to);
+  if (was === now) return;
+  if (!Array.isArray(entry.changes)) entry.changes = [];
+  entry.changes.push({ field, from: was, to: now });
+}
+
+/** One change as it may be stored and shown, or null if it is not one. */
+function cleanChange(item) {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) return null;
+  if (typeof item.field !== 'string' || !CHANGE_FIELD.test(item.field)) return null;
+  const from = changeValue(item.from);
+  const to = changeValue(item.to);
+  if (item.hidden === true || secretName(item.field) || secretValue(from) || secretValue(to)) {
+    return { field: item.field, from: from === null ? null : HIDDEN, to: to === null ? null : HIDDEN, hidden: true };
+  }
+  if (from === to) return null;
+  return { field: item.field, from, to };
+}
+
+/** The changes to keep, and how many were left out for the caps. */
+export function cleanChanges(changes) {
+  const kept = [];
+  let omitted = 0;
+  if (!Array.isArray(changes)) return { changes: kept, omitted };
+  let chars = 0;
+  for (const item of changes) {
+    const clean = cleanChange(item);
+    if (clean === null) continue;
+    const size = clean.field.length + (clean.from?.length ?? 0) + (clean.to?.length ?? 0);
+    if (kept.length === MAX_CHANGES || chars + size > MAX_CHANGES_CHARS) {
+      omitted += 1;
+      continue;
+    }
+    chars += size;
+    kept.push(clean);
+  }
+  return { changes: kept, omitted };
+}
+
 /** The request id of the entry for one sign-in, or null if the parts cannot make one. */
 export function signInRequestId({ sub, client, authTime }) {
   const id = `signin.${sub}.${client}.${authTime}`;
@@ -143,13 +221,14 @@ export function signInRequestId({ sub, client, authTime }) {
  * @param {string} entry.target       version, deployment id, file name or token id
  * @param {string} entry.outcome      one of OUTCOMES
  * @param {object} entry.detail       short keys with short values
+ * @param {Array} [entry.changes]     what changed: [{ field, from, to }] (change())
  */
-export function auditItem({ at, requestId, actor, action, target, outcome, detail }) {
+export function auditItem({ at, requestId, actor, action, target, outcome, detail, changes }) {
   if (!ACTIONS.includes(action)) throw new TypeError(`Unknown audit action ${String(action)}`);
   if (!OUTCOMES.includes(outcome)) throw new TypeError(`Unknown audit outcome ${String(outcome)}`);
   if (typeof requestId !== 'string' || !REQUEST_ID.test(requestId)) throw new TypeError('Unusable request id');
   const time = new Date(at).toISOString();
-  return {
+  const item = {
     sk: `${time}#${requestId}`,
     at: time,
     requestId,
@@ -159,6 +238,11 @@ export function auditItem({ at, requestId, actor, action, target, outcome, detai
     outcome,
     detail: cleanDetail(detail),
   };
+  // Only an entry with changes has the attributes, so that one without is stored as before.
+  const kept = cleanChanges(changes);
+  if (kept.changes.length > 0) item.changes = kept.changes;
+  if (kept.omitted > 0) item.changesOmitted = kept.omitted;
+  return item;
 }
 
 /** The value with the keys of every object in sorted order, so that JSON text is canonical. */
@@ -190,7 +274,7 @@ export function entryFromItem(item) {
   if (typeof item.sk !== 'string' || !SORT_KEY.test(item.sk)) return null;
   if (!ACTIONS.includes(item.action) || !OUTCOMES.includes(item.outcome)) return null;
   const separator = item.sk.indexOf('#');
-  return {
+  const entry = {
     at: item.sk.slice(0, separator),
     actor: { sub: line(item.actor?.sub, 128), email: line(item.actor?.email, 320) },
     action: item.action,
@@ -199,6 +283,14 @@ export function entryFromItem(item) {
     detail: cleanDetail(item.detail),
     requestId: item.sk.slice(separator + 1),
   };
+  // An entry from before changes were recorded has none: the page says that nothing was recorded.
+  if (Array.isArray(item.changes)) {
+    const kept = cleanChanges(item.changes);
+    entry.changes = kept.changes;
+    const omitted = kept.omitted + (Number.isSafeInteger(item.changesOmitted) ? item.changesOmitted : 0);
+    if (omitted > 0) entry.changesOmitted = omitted;
+  }
+  return entry;
 }
 
 export function encodeCursor(sortKey) {

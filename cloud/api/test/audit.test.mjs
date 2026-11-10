@@ -780,10 +780,14 @@ test('the verifier finds a rewritten entry and a deleted one', async () => {
   await call('POST', '/api/firmware/1.2.3+4/revoke', { as: manager, body: { reason: 'bad' }, requestId: 'req-c' });
 
   // As the two AWS CLI commands print them. Lambda puts a prefix before each line.
-  const attribute = (value) =>
-    typeof value === 'string'
-      ? { S: value }
-      : { M: Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, attribute(inner)])) };
+  const attribute = (value) => {
+    if (value === null) return { NULL: true };
+    if (typeof value === 'string') return { S: value };
+    if (typeof value === 'number') return { N: String(value) };
+    if (typeof value === 'boolean') return { BOOL: value };
+    if (Array.isArray(value)) return { L: value.map(attribute) };
+    return { M: Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, attribute(inner)])) };
+  };
   const asTable = (item) => attribute({ ...item, pk: 'AUD' }).M;
   const messages = logs.map((line) => `2026-10-31T17:00:00.000Z\tid\tINFO\t${JSON.stringify(line)}\n`);
   const items = fake.auditLog();

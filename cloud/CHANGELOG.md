@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.13.1
+
+The activity log says what changed: an entry of a change opens to each field, what it was and what it is now. A secret is never shown, and an entry from before says that no details were recorded.
+
+The API's handlers record `changes: [{ field, from, to }]` on the entries of releases uploaded, revoked and
+re-noted, deployments, API tokens, e-mail alerts and alert rules, groups, rollouts (made, cancelled, advanced and stopped), "update
+everything", group rollbacks and customers (lib/audit.mjs `change`). The Database page's denylist keeps secrets out
+as `hidden`; an entry keeps at most 12 changes in 2,000 characters and counts the rest. The Activity page shows them
+behind a "What changed" disclosure with "was" and "now", in both themes and on a phone (docs/audit-diff.md).
+
 ## 2.13.0
 
 Safer staged rollouts and alert rules: a rollout's Health gate holds each next stage until Memfault shows no new issue and no unexpected reboot on the release for 10 minutes (on by default), and stops the rollout with the board and the issue when it does; the new Alerts page lets release managers turn on and tune alerts for a board offline, a new Memfault issue, a crash loop, a rollout that stopped by itself and low supply voltage; and each alert shows at once on every open page.

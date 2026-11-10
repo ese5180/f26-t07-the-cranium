@@ -44,6 +44,31 @@ test("a release manager changes a release's note, and only its note, on record",
   const long = 'x'.repeat(500);
   assert.equal((await call('PUT', PATH, { as: manager, body: { notes: long } })).status, 200);
   assert.deepEqual(entries().at(-1).detail, { notes: 'x'.repeat(200), oldLength: '0' });
+  // The note before and after (docs/audit-diff.md): an emptied note is none, and a long one is cut to fit.
+  assert.deepEqual(
+    entries().map((one) => one.changes),
+    [
+      [{ field: 'notes', from: 'first', to: notes }],
+      [{ field: 'notes', from: notes, to: null }],
+      [{ field: 'notes', from: null, to: `${'x'.repeat(199)}\u2026` }],
+    ]
+  );
+});
+
+test("a revocation says what changed: the release's status, and why", async () => {
+  const { call, manager, fake } = await setup();
+  const path = `/api/firmware/${encodeURIComponent(VERSION)}/revoke`;
+  assert.equal((await call('POST', path, { as: manager, body: { reason: 'bad' } })).status, 200);
+  const [entry] = fake.auditLog().filter((one) => one.action === 'firmware.revoke');
+  assert.deepEqual(entry.changes, [
+    { field: 'status', from: 'active', to: 'revoked' },
+    { field: 'reason', from: null, to: 'bad' },
+  ]);
+  const [upload] = fake.auditLog().filter((one) => one.action === 'firmware.upload');
+  assert.deepEqual(upload.changes, [
+    { field: 'status', from: null, to: 'active' },
+    { field: 'notes', from: null, to: 'first' },
+  ]);
 });
 
 test("a revoked release's note can be changed too", async () => {

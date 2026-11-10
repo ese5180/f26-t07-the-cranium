@@ -23,6 +23,7 @@
  */
 
 import { conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
+import { boardsValue, change } from '../lib/audit.mjs';
 import {
   EXECUTION_STATUSES,
   IN_PROGRESS_TIMEOUT_MIN,
@@ -705,8 +706,11 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         actorSub: actor.sub,
         onCreated: (id) => {
           entry.target = id;
+          change(entry, 'deployment', null, id);
         },
       });
+      change(entry, 'version', null, version.text);
+      change(entry, 'boards', null, boardsValue(things));
       return { status: 201, body: { deployment: detail } };
     },
 
@@ -741,6 +745,7 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
         comment: actor.sub,
       });
       forget(job.id);
+      if (result.ok) change(entry, 'status', summary.status, force ? 'CANCELED (force)' : 'CANCELED');
       if (!result.ok) {
         if (result.reason === 'not_found') throw unknownDeployment();
         warn('cancel_refused', { deployment: job.id }, new Error(String(result.detail ?? '')));

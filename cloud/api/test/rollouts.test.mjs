@@ -412,6 +412,15 @@ test('stages go one after another: the next starts only when the one before has 
     world.entries('rollout.advance').map((entry) => entry.detail.stage),
     ['1', '2', '3']
   );
+  // Where the rollout went, from where it was (docs/audit-diff.md).
+  assert.deepEqual(
+    world.entries('rollout.advance').map((entry) => entry.changes),
+    [
+      [{ field: 'phase', from: 'canary', to: 'stage 1' }],
+      [{ field: 'phase', from: 'stage 1', to: 'stage 2' }],
+      [{ field: 'phase', from: 'stage 2', to: 'stage 3' }],
+    ]
+  );
 });
 
 test('a stage whose failures reach the limit stops the rollout: the next stage never starts', async () => {
@@ -559,6 +568,7 @@ test('a canary that does not confirm stops the rollout, and the rest are never o
     world.entries('rollout.stop').map((entry) => entry.detail.code),
     ['canary_failed']
   );
+  assert.deepEqual(world.entries('rollout.stop')[0].changes, [{ field: 'phase', from: 'canary', to: 'stopped' }]);
   // And it is an e-mail alert, of the canary's job, once.
   assert.deepEqual(world.raised, [
     {
@@ -630,6 +640,24 @@ test('a rollout is cancelled with its jobs; one cancelled while a stage starts l
   assert.deepEqual([cancelled.body.rollout.stage, cancelled.body.rollout.stopped.code], ['cancelled', 'cancelled']);
   assert.equal(world.fake.jobs.get(first.canary.job).status, 'CANCELED');
   assert.equal(world.entries('rollout.cancel').at(-1).detail.cancelled, '1');
+  assert.deepEqual(world.entries('rollout.cancel').at(-1).changes, [
+    { field: 'phase', from: 'canary', to: 'cancelled' },
+  ]);
+  const made = world.entries('rollout.create').at(-1);
+  assert.deepEqual(
+    made.changes.map((item) => [item.field, item.from]),
+    [
+      ['rollout', null],
+      ['version', null],
+      ['phase', null],
+      ['boards', null],
+      ['plan', null],
+    ]
+  );
+  assert.deepEqual(
+    made.changes.slice(0, 4).map((item) => item.to),
+    [first.id, '1.13.0+0', 'canary', `${A} ${B}`]
+  );
   const again = await world.call('POST', `/api/rollouts/${first.id}/cancel`, {});
   assert.deepEqual([again.status, again.body.error.code], [409, 'already_finished']);
   assert.equal((await world.tick()).checked, 0);

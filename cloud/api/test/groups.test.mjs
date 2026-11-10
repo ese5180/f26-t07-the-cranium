@@ -68,6 +68,23 @@ test('a group is made, renamed, changed and deleted, each change on record', asy
   assert.deepEqual(records[0].detail, { name: 'Lab bench', things: '2', boards: `${A} ${B}` });
   assert.deepEqual(records[1].detail, { name: 'Demo', renamedFrom: 'Lab bench' });
   assert.deepEqual(records[2].detail, { name: 'Demo', added: '1', removed: '1', things: '2', boards: `${A} ${C}` });
+  // What each changed, before and after (docs/audit-diff.md); a refused change has none.
+  assert.deepEqual(
+    records.map((entry) => entry.changes ?? null),
+    [
+      [
+        { field: 'name', from: null, to: 'Lab bench' },
+        { field: 'boards', from: null, to: `${A} ${B}` },
+      ],
+      [{ field: 'name', from: 'Lab bench', to: 'Demo' }],
+      [{ field: 'boards', from: `${A} ${B}`, to: `${A} ${C}` }],
+      [
+        { field: 'name', from: 'Demo', to: null },
+        { field: 'boards', from: `${A} ${C}`, to: null },
+      ],
+      null,
+    ]
+  );
 });
 
 test('a board can be in several groups, and its chips say which', async () => {

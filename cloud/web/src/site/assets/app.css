@@ -3133,6 +3133,99 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   white-space: nowrap;
 }
 
+/*
+ * What an entry changed (docs/audit-diff.md): a grouped list under the entry, a row a field, each with
+ * what it was and what it is now. The words "was" and "now" say it as well as the colours, and the old
+ * value is a <del>, which the browser strikes through and a screen reader names: colour is never all.
+ * (No rule here draws the line itself: in this sheet that stays the mark of a revoked release.) The washes and inks are the
+ * theme's, so the dark themes have their own.
+ */
+.audit-diff {
+  margin-top: 2px;
+}
+
+.audit-changes {
+  display: grid;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8125rem;
+}
+
+.audit-change {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 0.32fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 12px;
+}
+
+.audit-change + .audit-change {
+  border-top: 1px solid var(--line);
+}
+
+.audit-change > dt {
+  color: var(--ink-3);
+}
+
+.audit-change > dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-width: 0;
+  margin: 0;
+}
+
+.audit-diff-side {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.audit-diff-tag {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.audit-diff-value {
+  padding: 0 3px;
+  border-radius: 4px;
+}
+
+.is-was .audit-diff-value {
+  background: var(--bad-wash);
+  color: var(--bad);
+}
+
+.is-now .audit-diff-value {
+  background: var(--good-wash);
+  color: var(--good);
+  text-decoration: none;
+}
+
+.audit-diff-empty {
+  color: var(--ink-3);
+}
+
+.audit-diff-none {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+/* A phone: the field over its two values, and each value on a line of its own. */
+@media (max-width: 560px) {
+  .audit-change {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audit-change > dd {
+    flex-direction: column;
+  }
+}
+
 .log.is-compact .log-line::before {
   display: none;
 }

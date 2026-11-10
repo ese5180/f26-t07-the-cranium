@@ -354,6 +354,17 @@ test('every member reads the rules; a release manager changes them, a field at a
       ['ok', 'rules', 'crashLoop reboots 5'],
     ]
   );
+  // Each setting before and after (docs/audit-diff.md).
+  assert.deepEqual(
+    entries.map((entry) => entry.changes),
+    [
+      [
+        { field: 'offline_minutes', from: '15', to: '30' },
+        { field: 'voltage_on', from: 'true', to: 'false' },
+      ],
+      [{ field: 'crashLoop_reboots', from: '3', to: '5' }],
+    ]
+  );
 });
 
 test('a viewer may not change the rules, and a rule or a value that is not one is refused, each on record', async () => {

@@ -29,6 +29,7 @@
 
 import { RELEASE_MANAGERS } from '../auth.mjs';
 import { HttpError, badRequest, conflict, notFound } from '../http.mjs';
+import { change } from '../lib/audit.mjs';
 import {
   ALERT_EVERY_MS,
   ALERT_RULES_PK,
@@ -184,6 +185,10 @@ export function createAlertHandlers({ aws, now, directory }) {
             });
       if (!written.ok)
         throw conflict('rules_changed', 'Someone changed the alert rules at the same moment. Look again.');
+      // Each setting of each rule, before and after (docs/audit-diff.md): "offline_minutes", "crashLoop_on".
+      for (const id of RULE_IDS) {
+        for (const name of Object.keys(next[id])) change(entry, `${id}_${name}`, current[id][name], next[id][name]);
+      }
       return { body: { alertRules: normalizeRules({ rules: next }) } };
     },
 
@@ -205,6 +210,7 @@ export function createAlertHandlers({ aws, now, directory }) {
       const made = await aws.subscribeAlerts(email);
       const subscription = made.pending ? 'pending' : 'confirmed';
       entry.detail.subscription = subscription;
+      change(entry, 'alerts', mine.state, subscription);
       return { status: 202, body: { subscription } };
     },
 
@@ -223,6 +229,7 @@ export function createAlertHandlers({ aws, now, directory }) {
       if (mine.confirmed === null) throw notFound('not_subscribed', 'Alerts do not go to your address.');
       const removed = await aws.unsubscribeAlerts(mine.confirmed.arn);
       if (!removed.ok) throw notFound('not_subscribed', 'Alerts do not go to your address.');
+      change(entry, 'alerts', mine.state, 'none');
       return { body: { subscription: 'none' } };
     },
   };
