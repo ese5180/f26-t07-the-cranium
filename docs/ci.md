@@ -185,6 +185,32 @@ linker's map file, and `slot0_partition` in the devicetree. The used sizes are w
 from the start of a region to the end of what is in it, so TF-M's flash looks nearly full, because its
 veneers sit at a fixed place near the end. The job fails if anything is over its limit.
 
+## The firmware build image
+
+`tools/firmware-image/Dockerfile` builds a copy of Nordic's toolchain image (the same digest `ci.yml` builds in)
+with the nRF Connect SDK v3.4.0 already fetched, at the commit `ci.yml` names, in `/opt/ncs`. It holds no
+repository files and no secrets. `.github/workflows/firmware-image.yml` builds it and pushes it to
+`ghcr.io/ese5180/f26-t07-the-cranium/firmware-build`, tagged `v3.4.0` and `v3.4.0-<short sha>`, when the
+Dockerfile or that workflow changes on `main`, or when started by hand from the Actions tab. It uses
+`GITHUB_TOKEN` with `packages: write`.
+
+**Not used by `ci.yml` yet.** The firmware jobs still run in Nordic's image and fetch the SDK from the cache,
+so a missing or unpublished image cannot break a build. Once the image is published, check it (a new package
+may be private: make it public under the package's settings, or pulls need a login), then change the job's
+`image:` to the new tag and drop the SDK fetch steps. That is a separate change. The workflow has not been
+run and the Dockerfile has not been built as of this writing.
+
+**Rebuilding.** Change `NCS_VERSION` and `NCS_COMMIT` in the Dockerfile together with `ci.yml`, and the base
+digest if it moves. Merge to `main`, or start "Firmware build image" from the Actions tab.
+
+**Using it locally.**
+
+```sh
+docker pull ghcr.io/ese5180/f26-t07-the-cranium/firmware-build:v3.4.0
+docker run --rm -it -v "$PWD":/workdir/repo ghcr.io/ese5180/f26-t07-the-cranium/firmware-build:v3.4.0 bash
+# inside: cd /workdir/repo/firmware/app && west build -b nrf7002dk/nrf5340/cpuapp/ns
+```
+
 ## Getting an image from Actions
 
 Each default build uploads an artifact named
