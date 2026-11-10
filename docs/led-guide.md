@@ -26,9 +26,9 @@ the firmware.
 | Slow blink | `████████········` | dark | Joining Wi-Fi | Wait; if it never stops, check the Wi-Fi settings and that the network is in range |
 | Medium blink | `████····████····` | dark | On Wi-Fi, connecting to the cloud | Wait; if it never stops, check the board's certificate and the time |
 | Taking turns | `██··██··██··██··` | `··██··██··██··██` | Online, nothing to do | Nothing: all is well |
-| Double flash | `█·█·····█·█·····` | dark | Downloading or checking an update | Keep it powered |
+| Double flash | `█·█·····█·█·····` | dark | Downloading or checking an update from the cloud; on a Bluetooth build with its window open, a phone or computer is paired | Keep it powered; over Bluetooth, send the update |
 | Triple flash | `█·█·█···········` | dark | New firmware running on trial | Keep it powered; it confirms itself once it reaches the cloud |
-| Fast blink | `█·█·█·█·█·█·█·█·` | dark | An update is waiting for a button press (only firmware before 1.7.2, golden image 1.5.0, or a build with `CONFIG_APP_OTA_REQUIRE_USER_CONSENT`) | **Button 1** installs it, **Button 2** declines it |
+| Fast blink | `█·█·█·█·█·█·█·█·` | dark | An update is waiting for a button press: an image that arrived over Bluetooth, or one from the cloud on firmware before 1.7.2, golden image 1.5.0 or a build with `CONFIG_APP_OTA_REQUIRE_USER_CONSENT` | **Button 1** installs it, **Button 2** declines (or erases) it |
 | Four flashes | `█·█·█·█·········` | dark | Bluetooth update window open for 180 s, nothing linked yet (Bluetooth builds; hold **Button 1** for 5 s to open it) | Connect from the app's **Bluetooth** page |
 
 ## nRF5340 DK (Bluetooth only)
@@ -54,7 +54,7 @@ Wi-Fi or cloud here). LED3 and LED4 are extra.
 | What you see | Meaning |
 | --- | --- |
 | LED1 and LED2 blinking **together**, 5 times a second | **Identify** from the console (Devices → a board → Identify), 15 s unless asked otherwise. Then the state shows again |
-| Both dark ½ s, then LED1, LED2 and both for 1 s each, then dark ½ s | The **hardware self-test** (`SELFTEST`, from firmware 1.17.1, nRF7002 DK only) |
+| Both dark ½ s, then LED1, LED2 and both for 1 s each, then dark ½ s | The **hardware self-test** (`SELFTEST`, nRF7002 DK only), once firmware 1.17.1 from PR #92 is released; firmware on main today has no self-test |
 | Every LED dark for about a minute and a half | The bootloader is swapping in a new image after an update. Don't unplug it |
 
 ## Buttons, for reference

@@ -151,6 +151,10 @@ test('the page has no inline script, style or event handler', () => {
     assert.equal(match[2].trim(), '', 'a script element must be empty');
   }
   assert.match(page, /Loading the console<\/span>[\s\S]*Still loading\? Reload the page\./);
+  // The reload hint waits 8 s for everybody, with reduced motion too (where it appears at once, unfaded).
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+  assert.match(css, /\.boot-hint \{[^}]*animation: fade-in [^;]* 8s backwards/);
+  assert.match(reduced, /\.boot-hint \{[^}]*animation: fade-in 1ms linear 8s backwards !important/);
   assert.match(page, /<noscript>[\s\S]+<\/noscript>/);
 });
 
