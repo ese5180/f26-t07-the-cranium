@@ -1741,17 +1741,18 @@ export function gateView({ iconName = 'lock', title, text, detail, code, action,
  */
 function offlineLink(open) {
   if (typeof open !== 'function') return null;
+  // One row, above the form on the sign-in page, where a phone's keyboard does not cover it.
   return h(
-    'div',
-    { class: 'signin-other gate-offline', key: 'offline' },
+    'button',
+    { type: 'button', class: 'gate-offline', key: 'offline', onClick: open },
+    icon('cloud-off'),
     h(
-      'button',
-      { type: 'button', class: 'btn is-quiet', onClick: open },
-      icon('cloud-off'),
-      'Offline mode',
-      icon('arrow-right')
+      'span',
+      { class: 'gate-offline-text' },
+      h('strong', null, 'Offline mode'),
+      h('span', null, 'A board nearby, over Bluetooth, with no network.')
     ),
-    h('p', { class: 'signin-note' }, 'A board nearby, over Bluetooth, with no network.')
+    icon('arrow-right')
   );
 }
 
@@ -1935,6 +1936,7 @@ export function signInView(model) {
       code
         ? h('p', { class: 'gate-text' }, 'Signing in as ', h('strong', { class: 'signin-who' }, model.email), '.')
         : h('p', { class: 'gate-text' }, model.lead ?? SIGN_IN_LEAD),
+      code ? null : offlineLink(model.offline),
       code ? codeStep(model) : passwordStep(model),
       h(
         'div',
@@ -1946,8 +1948,7 @@ export function signInView(model) {
           icon('arrow-right')
         ),
         h('p', { class: 'signin-note' }, 'The same account and the same code, on Amazon’s page.')
-      ),
-      offlineLink(model.offline)
+      )
     )
   );
 }

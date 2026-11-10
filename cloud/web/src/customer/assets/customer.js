@@ -739,7 +739,8 @@ function signInModel() {
     tries: 0,
     lead: null,
   };
-  return { ...model, ...signInControls, adminPath: site.adminPath };
+  // Offline mode, above the form in the apps that offer it (the console's Offline page needs no sign-in).
+  return { ...model, ...signInControls, adminPath: site.adminPath, offline: state.app?.offline === true };
 }
 
 function setForgot(changes) {
@@ -1380,7 +1381,12 @@ async function fromApp() {
     window.location.replace('/admin');
     return false;
   }
-  state.app = { words: bridgeScript.appWords(appBridge.hello), biometric: null };
+  state.app = {
+    words: bridgeScript.appWords(appBridge.hello),
+    biometric: null,
+    // Offline mode: the console's Offline page, a board over Bluetooth with no network (bridge.json bleOffline).
+    offline: appBridge.has('bleOffline'),
+  };
   appBridge.on('auth.locked', () => window.location.reload());
   appBridge.on('app.bundleReady', () => toast('The app has new pages from Cranium. They show the next time it opens.'));
   return true;

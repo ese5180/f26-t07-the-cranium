@@ -308,29 +308,20 @@ export function createOfflineFlow({ bridge, onChange = () => {}, device = 'devic
 
 // Drawing.
 
-function howItWorks(device) {
-  return h(
-    'details',
-    { class: 'page-how', key: 'how' },
-    h('summary', null, 'How offline mode works'),
-    h(
-      'p',
-      { key: 'a' },
-      `This ${device} talks to the board directly over Bluetooth. Nothing goes through Wi-Fi, the internet or the console, so it works where the board has no network.`
-    ),
-    h(
-      'p',
-      { key: 'b' },
-      'The board answers only after pairing with its own passkey, the six digits that ',
-      mono('BT_OFFLINE|NEW'),
-      ` showed once on its serial console. This ${device} asks for it in its own pairing box; the app never sees it.`
-    ),
-    h(
-      'p',
-      { key: 'c' },
-      'You can read the board’s status, and accept an update that has already arrived at it over Bluetooth. You cannot send firmware or change settings here. The board checks the version you accept before it installs it.'
-    )
-  );
+/** "How offline mode works", under the lede (views.js pageHead's `how`). */
+function offlineHow(device) {
+  return {
+    title: 'How offline mode works',
+    text: [
+      `This ${device} talks to the board directly over Bluetooth. Nothing goes through Wi-Fi, the internet or the console, so it works where the board has no network.`,
+      [
+        'The board answers only after pairing with its own passkey, the six digits that ',
+        mono('BT_OFFLINE|NEW'),
+        ` showed once on its serial console. This ${device} asks for it in its own pairing box; the app never sees it.`,
+      ],
+      'You can read the board’s status, and accept an update that has already arrived at it over Bluetooth. You cannot send firmware or change settings here. The board checks that the version you accept is the one that waits before it installs it.',
+    ],
+  };
 }
 
 function windowStep() {
@@ -506,8 +497,11 @@ export function offlineView(ctx) {
           ctx.back.label
         )
       : null,
-    pageHead({ title: 'Offline', lede: 'A board’s status over Bluetooth, with no Wi-Fi or cloud.' }),
-    howItWorks(device),
+    pageHead({
+      title: 'Offline',
+      lede: 'A board’s status over Bluetooth, with no Wi-Fi or cloud.',
+      how: offlineHow(device),
+    }),
   ];
   if (!state.app?.offline || !model) {
     return h(

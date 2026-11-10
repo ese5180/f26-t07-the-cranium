@@ -267,6 +267,41 @@ test('the newest active release is chosen; Bluetooth that is off is said, and no
   assert.equal(w.asked('ble.scan').length, 0);
 });
 
+test('a board with its own passkey (BT_OFFLINE|NEW) reports none: the page says to type that one, and pairs as usual', async () => {
+  const w = world({ device: 'Mac' });
+  w.api.pairing = async (name) => {
+    w.apiCalls.push(['pairing', name]);
+    throw new core.ApiError(404, 'no_pairing', 'No board online is pairing as that name right now.');
+  };
+  await w.flow.lookForBoards();
+  w.emit('ble.boards', { boards: [BOARD] });
+  w.hold('ble.images');
+  const connecting = w.flow.connect(w.flow.flow.boards[0]);
+  await w.settle();
+  const said = () =>
+    JSON.stringify(
+      bt.bluetoothView({
+        state: { app: { ble: true, device: 'Mac' }, me: { canWrite: true }, now: w.now() },
+        bluetooth: w.flow,
+      })
+    );
+  await w.pass(3000);
+  assert.match(said(), /Asking the console for the passkey/);
+  await w.pass(9000);
+  assert.equal(w.flow.flow.passkeyMissing, true);
+  const words = said();
+  assert.match(words, /The console has no passkey for this board/);
+  assert.match(words, /its own passkey \(set with BT_OFFLINE\|NEW\), type that one when this Mac asks/);
+  assert.match(words, /may be offline/);
+  assert.doesNotMatch(words, /Asking the console/);
+  assert.equal(w.asked('clipboard.write').length, 0, 'no passkey is put on the clipboard');
+  // The person typed the board's own passkey: the board paired, and the page goes on.
+  w.release('ble.images', { images: [{ slot: 0, version: '1.12.0', active: true }] });
+  await connecting;
+  assert.equal(w.flow.flow.step, 'ready');
+  assert.equal(bt.noPasskeyWords('phone').text.includes('when this phone asks'), true);
+});
+
 test("pairing: the passkey from the console, pinned and on this phone's clipboard for 2 minutes, until the board has paired", async () => {
   const w = world();
   await w.flow.lookForBoards();
