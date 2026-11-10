@@ -1,11 +1,11 @@
 /**
- * Updating a board over Bluetooth, in the phone app (docs/mobile-apps.md, "What a person does"): the
+ * Updating a board over Bluetooth, in the phone, Mac and desktop apps (docs/mobile-apps.md, "What a person does"): the
  * console's own page for what the classic apps' Bluetooth screens do, shown only where the app's bridge
  * offers Bluetooth (bridge.js). The rules are the contract's, as the classic apps have them:
  *
  *   - only active releases newer than what the board runs (its slot 0) are offered, newest first;
  *   - the passkey comes from the console while the board pairs, every 3 s for 90 s at most, and is
- *     shown pinned at the top of the page and put on the clipboard for this phone, for 2 minutes;
+ *     shown pinned at the top of the page and put on the clipboard of this device, for 2 minutes;
  *   - the image is checked before it goes (its size and SHA-256 against the release, MCUboot's magic,
  *     the version in its header), and right before every send the console is asked whether the release
  *     is still active and the image still its own (POST /api/firmware/{version}/bluetooth). Without a
@@ -20,6 +20,7 @@
 import {
   ApiError,
   compareVersions,
+  deviceHref,
   fileSize,
   formatVersion,
   isRefusal,
@@ -28,17 +29,18 @@ import {
   readImageHeader,
   sentence,
   sha256Hex,
+  signalQuality,
   timeOfDay,
   toBase64,
 } from './core.js';
-import { button, card, h, icon, meter, mono, notice, pageHead } from './views.js';
+import { button, h, icon, linkTo, mono, notice, pageHead, signalBars, stepList } from './views.js';
 import * as watch from './updatewatch.js';
 
 export const PASSKEY_EVERY_MS = 3000;
 export const PASSKEY_FOR_MS = 90000;
 // The board drops an authenticated link with nothing on it for 120 s: read the image list well before.
 export const KEEPALIVE_MS = 15000;
-// The passkey on the clipboard, for this phone and this long (the pairing box hides the page).
+// The passkey on the clipboard, for this device and this long (the pairing box hides the page).
 export const PASSKEY_ON_CLIPBOARD_S = 120;
 const NO_PASSKEY_AFTER_MS = 8000;
 const BOARD_NAME = /^Cranium-[0-9A-F]{4}$/;
@@ -85,12 +87,44 @@ function bridgeWords(error, fallback) {
   return typeof error?.message === 'string' && error.message !== '' ? error.message : fallback;
 }
 
-const RADIO_WORDS = {
+// What the radio's state means, in the words of the device the app runs on ("phone", "Mac", "computer").
+const radioWords = (device) => ({
   off: 'Bluetooth is off. Switch it on, then look again.',
-  unauthorized: "The app may not use Bluetooth. Allow it for Cranium in the phone's settings, then look again.",
-  unsupported: 'This phone has no Bluetooth LE.',
+  unauthorized: `The app may not use Bluetooth. Allow it for Cranium in the settings of this ${device}, then look again.`,
+  unsupported: `This ${device} has no Bluetooth LE.`,
   unknown: 'Bluetooth is not ready yet. Look again in a moment.',
-};
+});
+
+/** The latest few seconds of progress count for the speed. */
+export const SPEED_WINDOW_MS = 8000;
+/** Less progress than this says nothing about a speed. */
+export const SPEED_MIN_MS = 1500;
+
+/**
+ * The speed of an upload and the time it still needs, from the progress the app reported
+ * (`samples`: [{at, sent}] oldest first). Both are estimates, null until there is enough to go on or
+ * while nothing moves; the time left is the bytes to go over the recent speed.
+ */
+export function transferStats(samples, total) {
+  const last = samples?.at(-1);
+  if (!last || !(total > 0)) return { speed: null, secondsLeft: null };
+  const from = samples.find((sample) => last.at - sample.at <= SPEED_WINDOW_MS) ?? last;
+  const span = last.at - from.at;
+  if (span < SPEED_MIN_MS || last.sent <= from.sent) return { speed: null, secondsLeft: null };
+  const speed = ((last.sent - from.sent) * 1000) / span;
+  return { speed, secondsLeft: Math.max(0, Math.ceil((total - last.sent) / speed)) };
+}
+
+/** "about 1 min 20 s", "about 45 s", "under 5 s": a time left that is an estimate says so. */
+export function timeLeftWords(seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  if (seconds < 5) return 'under 5 s';
+  const total = Math.round(seconds / 5) * 5;
+  if (total < 60) return `about ${total} s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest === 0 ? `about ${minutes} min` : `about ${minutes} min ${rest} s`;
+}
 
 /**
  * The flow of one update over Bluetooth. `devices()` is the console's list of boards, for whether the
@@ -104,7 +138,9 @@ export function createBluetoothFlow({
   onChange = () => {},
   devices = () => [],
   subtle = globalThis.crypto?.subtle,
+  device = 'phone',
 }) {
+  const RADIO_WORDS = radioWords(device);
   const flow = {
     step: 'release',
     releases: [],
@@ -116,6 +152,7 @@ export function createBluetoothFlow({
     running: null,
     image: null,
     progress: null,
+    samples: [],
     problem: null,
     busy: false,
     facts: null,
@@ -158,6 +195,8 @@ export function createBluetoothFlow({
     bridge.on('ble.progress', ({ sent, total }) => {
       if (flow.step !== 'sending' || !(total > 0)) return;
       flow.progress = { sent: Math.max(0, Math.min(sent, total)), total };
+      flow.samples.push({ at: now(), sent: flow.progress.sent });
+      if (flow.samples.length > 40) flow.samples.splice(0, flow.samples.length - 40);
       changed();
     }),
     bridge.on('ble.status', ({ payload, afterRestart }) => {
@@ -227,7 +266,7 @@ export function createBluetoothFlow({
     try {
       await bridge.call('ble.scan', { on: true });
     } catch (error) {
-      fail(bridgeWords(error, 'The phone could not look for boards.'));
+      fail(bridgeWords(error, `This ${device} could not look for boards.`));
     }
   }
 
@@ -276,13 +315,13 @@ export function createBluetoothFlow({
     });
     changed();
     quietly('app.keepAwake', { on: true });
-    // The passkey from the moment the phone connects: the iPhone app's ble.connect returns only once the
+    // The passkey from the moment the app connects: the iPhone app's ble.connect returns only once the
     // board has paired, the Android app's at once, with the pairing still to come.
     pollPasskey(board.name, now());
     try {
       await bridge.call('ble.connect', { id: board.id });
     } catch (error) {
-      fail(bridgeWords(error, 'The phone could not connect to the board.'));
+      fail(bridgeWords(error, `This ${device} could not connect to the board.`));
       return;
     }
     let images;
@@ -379,10 +418,13 @@ export function createBluetoothFlow({
     if (first) start.readings.unshift({ status: first, at: now(), afterRestart: false });
     flow.step = 'sending';
     flow.progress = { sent: 0, total: bytes.length };
+    flow.samples = [{ at: now(), sent: 0 }];
     changed();
     try {
       await bridge.call('ble.upload', { image: toBase64(bytes), sha256: release.sha256 });
     } catch (error) {
+      // Cancelled by the person: the page already says so.
+      if (flow.step !== 'sending') return;
       collecting = null;
       flow.step = 'failed';
       flow.busy = false;
@@ -391,6 +433,7 @@ export function createBluetoothFlow({
       changed();
       return;
     }
+    if (flow.step !== 'sending') return;
     quietly('haptics.play', { kind: 'success' });
     start.sentAt = now();
     collecting = null;
@@ -464,6 +507,24 @@ export function createBluetoothFlow({
     else if (flow.line?.outcome) quietly('haptics.play', { kind: 'warning' });
   }
 
+  /**
+   * Stops a send that is under way (ble.cancel) and says so, rather than going back to the start: the
+   * board keeps what it runs, and a new send starts over. Before the first piece goes it is a reset.
+   */
+  function cancel() {
+    if (flow.step !== 'sending') return reset();
+    generation += 1;
+    collecting = null;
+    stopTimers();
+    flow.step = 'cancelled';
+    flow.busy = false;
+    flow.problem = null;
+    quietly('ble.cancel');
+    quietly('ble.disconnect');
+    quietly('app.keepAwake', { on: false });
+    changed();
+  }
+
   /** Back to the start, letting go of the board. */
   function reset() {
     generation += 1;
@@ -483,6 +544,7 @@ export function createBluetoothFlow({
       running: null,
       image: null,
       progress: null,
+      samples: [],
       problem: null,
       busy: false,
       facts: null,
@@ -498,6 +560,7 @@ export function createBluetoothFlow({
     lookForBoards,
     connect,
     send,
+    cancel,
     reset,
     copyPasskey: () =>
       flow.passkey
@@ -512,47 +575,401 @@ export function createBluetoothFlow({
 
 // Drawing.
 
-const STEP_ICONS = { done: 'check-circle', current: 'clock', waiting: 'minus', likely: 'check', failed: 'x-circle' };
+// The steps of one update, in the order they happen, with what each is drawn with until it is done. The
+// first three are the app's own (Bluetooth link, the checks, the upload); the last four are the ones
+// UpdateWatch reports about the board (updatewatch.js timeline): its button, its install, its trial, its keeping.
+const STEPS = [
+  { key: 'connect', label: 'Connect', mark: 'bluetooth' },
+  { key: 'check', label: 'Check', mark: 'shield' },
+  { key: 'send', label: 'Send', mark: 'send' },
+  { key: 'button', label: 'Button 1', mark: 'press' },
+  { key: 'installing', label: 'Install', mark: 'restart' },
+  { key: 'trial', label: 'On trial', mark: 'pulse' },
+  { key: 'end', label: 'Kept', mark: 'check-circle' },
+];
+const SEND_AT = 2;
+const MARKS = STEPS.map((step) => step.mark);
+const LINE_STATES = { done: 'done', current: 'current', waiting: 'upcoming', likely: 'done', failed: 'failed' };
 
-function timelineView(line, now) {
+/** A release's notes in one line of at most `limit` characters. */
+export function notesSnippet(notes, limit = 140) {
+  const text = typeof notes === 'string' ? notes.replace(/\s+/g, ' ').trim() : '';
+  if (text === '') return null;
+  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+}
+
+/** The percentage of an upload, rounded down: 100 only when every byte went. */
+export function percentSent(progress) {
+  if (!progress || !(progress.total > 0)) return 0;
+  return Math.max(0, Math.min(100, Math.floor((progress.sent / progress.total) * 100)));
+}
+
+/**
+ * What the page says about the update that is under way, from the flow alone: the tone, the headline and
+ * its words, the seven steps, and the figures of the upload. Only what the app reports is claimed: the
+ * link, the checks, the pieces sent, and from the board its own status and the console's record of it.
+ * `device` is "phone", "Mac", "computer" or "device"; `now` is the clock, for the countdown at the board.
+ */
+export function describeRun(flow, { device = 'device', now = Date.now() } = {}) {
+  const version = flow.facts?.version ?? flow.release;
+  const board = flow.board?.name ?? 'the board';
+  const thing = flow.facts?.thing ?? flow.passkey?.thing ?? null;
+  const percent = percentSent(flow.progress);
+  const steps = STEPS.map((step) => ({ label: step.label, state: 'upcoming' }));
+  const mark = (index, state, word) => {
+    steps[index] = { ...steps[index], state, ...(word ? { word } : {}) };
+  };
+  const out = {
+    tone: 'live',
+    icon: 'bluetooth',
+    title: '',
+    text: '',
+    next: null,
+    steps,
+    progress: null,
+    busy: false,
+    phase: flow.step,
+    outcome: null,
+    thing,
+    version,
+    percent,
+    announce: '',
+  };
+
+  switch (flow.step) {
+    case 'pairing':
+      mark(0, 'current');
+      Object.assign(out, {
+        busy: true,
+        title: `Pairing with ${board}`,
+        text: `Type the 6-digit passkey into the pairing box of this ${device}.`,
+        announce: `Pairing with ${board}.`,
+      });
+      return out;
+    case 'ready':
+      mark(0, 'done', 'paired');
+      Object.assign(out, {
+        icon: 'check-circle',
+        title: `Paired with ${board}`,
+        text: 'Choose the release to send, then press Send.',
+        announce: `Paired with ${board}. Choose a release.`,
+      });
+      return out;
+    case 'downloading':
+    case 'clearing':
+      mark(0, 'done', 'paired');
+      mark(1, 'current', flow.step === 'downloading' ? 'downloading' : 'asking the console');
+      Object.assign(out, {
+        icon: 'shield',
+        busy: true,
+        title: flow.step === 'downloading' ? `Downloading ${version}` : 'Asking the console',
+        text:
+          flow.step === 'downloading'
+            ? 'The image is checked against the release before anything is sent.'
+            : 'Nothing is sent without the console’s yes that this release is still active.',
+        announce: flow.step === 'downloading' ? `Downloading ${version}.` : 'Asking the console.',
+      });
+      return out;
+    case 'sending': {
+      mark(0, 'done', 'paired');
+      mark(1, 'done', 'checked');
+      mark(SEND_AT, 'current');
+      // Announced every tenth only: a screen reader would otherwise read out every piece.
+      const tenth = Math.floor(percent / 10) * 10;
+      Object.assign(out, {
+        icon: 'send',
+        title: `Sending ${version} to ${board}`,
+        text: `Keep this ${device} near the board until it has all been sent.`,
+        progress: percent,
+        announce: `Sending ${version} to ${board}: ${tenth}% sent.`,
+      });
+      return out;
+    }
+    case 'cancelled':
+      mark(0, 'done');
+      mark(1, 'done');
+      mark(SEND_AT, 'stopped', 'cancelled');
+      for (let index = SEND_AT + 1; index < steps.length; index += 1) mark(index, 'skipped');
+      Object.assign(out, {
+        tone: 'wait',
+        icon: 'ban',
+        title: 'Cancelled',
+        text: `The send was stopped. ${board} keeps running ${flow.running ?? 'what it ran'}; sending again starts over.`,
+        outcome: 'cancelled',
+        announce: 'The send was cancelled.',
+      });
+      return out;
+    case 'failed': {
+      const at = flow.progress ? SEND_AT : flow.running !== null ? 1 : 0;
+      for (let index = 0; index < at; index += 1) mark(index, 'done');
+      mark(at, 'failed', 'stopped here');
+      for (let index = at + 1; index < steps.length; index += 1) mark(index, 'skipped');
+      Object.assign(out, {
+        tone: 'bad',
+        icon: 'x-circle',
+        title: 'The update did not go through',
+        text: flow.problem ?? 'The update stopped.',
+        outcome: 'failed',
+        announce: `The update did not go through. ${flow.problem ?? ''}`.trim(),
+      });
+      return out;
+    }
+    case 'following': {
+      mark(0, 'done');
+      mark(1, 'done');
+      mark(SEND_AT, 'done', 'sent');
+      const line = flow.line;
+      const byKey = new Map((line?.rows ?? []).map((row) => [row.step, row]));
+      let stopped = false;
+      for (const [index, step] of STEPS.entries()) {
+        if (index <= SEND_AT) continue;
+        const row = byKey.get(step.key);
+        if (!row) {
+          mark(index, stopped ? 'skipped' : 'upcoming');
+          continue;
+        }
+        const state = LINE_STATES[row.state] ?? 'upcoming';
+        const at = row.at ? timeOfDay(new Date(row.at).toISOString()) : null;
+        mark(index, state, state === 'done' ? (row.state === 'likely' ? 'probably' : at) : null);
+        if (state === 'failed') stopped = true;
+      }
+      const rows = line?.rows ?? [];
+      const failed = rows.find((row) => row.state === 'failed');
+      const current = rows.find((row) => row.state === 'current') ?? rows.find((row) => row.state === 'likely');
+      const outcome = line?.outcome ?? null;
+      if (outcome === 'kept' && !line.tentative) {
+        Object.assign(out, {
+          tone: 'good',
+          icon: 'check-circle',
+          title: `Kept ${version}`,
+          text: `${board} runs ${version} and keeps it.`,
+          outcome: 'kept',
+          announce: `The update is done. ${board} runs ${version}.`,
+        });
+      } else if (outcome === 'rolled_back') {
+        Object.assign(out, {
+          tone: 'bad',
+          icon: 'undo',
+          title: line.rolledBackTo ? `Rolled back to ${line.rolledBackTo}` : 'Rolled back',
+          text: failed?.detail ?? `${board} did not keep ${version}.`,
+          outcome: 'rolled_back',
+          announce: `The update did not stick. ${failed?.title ?? ''}`.trim(),
+        });
+      } else if (failed || outcome === 'expired') {
+        const row = failed ?? current ?? rows.at(-1);
+        Object.assign(out, {
+          tone: 'warn',
+          icon: 'minus',
+          title: row?.title ?? 'The board did not take the image',
+          text: row?.detail ?? 'Nothing was installed.',
+          outcome: outcome ?? 'failed',
+          announce: `${row?.title ?? 'The update stopped.'}`,
+        });
+      } else if (line?.finished) {
+        // Following ended with no word on the end: the note says why, and where the answer is.
+        Object.assign(out, {
+          tone: 'idle',
+          icon: 'clock',
+          title: `${version} was sent`,
+          text: line.note ?? 'The app has stopped following the board.',
+          outcome: 'unknown',
+          announce: `${version} was sent. ${line.note ?? ''}`.trim(),
+        });
+      } else if (current?.step === 'button') {
+        const left = Math.max(0, Math.ceil((line.deadline - now) / 1000));
+        Object.assign(out, {
+          tone: 'act',
+          icon: 'press',
+          title: 'Press Button 1 on the board',
+          text: line.waitingForButton
+            ? `It installs ${version}. Button 2 throws it away. ${watch.countdown(left)}`
+            : (current.detail ?? WORDS_BUTTON),
+          next: null,
+          announce: 'Sent. Press Button 1 on the board within 2 minutes to install it.',
+        });
+      } else if (current?.step === 'installing') {
+        Object.assign(out, {
+          icon: 'restart',
+          busy: true,
+          title: `${board} is restarting into ${version}`,
+          text: current.detail ?? 'The bootloader checks the image and swaps it in.',
+          announce: `${board} is restarting into ${version}.`,
+        });
+      } else if (current?.step === 'trial') {
+        Object.assign(out, {
+          icon: 'pulse',
+          title: `${board} runs ${version} on trial`,
+          text: current.detail ?? 'Back with the new version, not yet kept.',
+          announce: `${board} runs ${version} on trial.`,
+        });
+      } else {
+        Object.assign(out, {
+          icon: 'clock',
+          busy: true,
+          title: 'Waiting for the board',
+          text: line?.note ?? 'The board is being followed over Bluetooth and the console.',
+          announce: 'Waiting for the board.',
+        });
+      }
+      if (line?.note && out.outcome === null && out.text !== line.note) out.next = line.note;
+      return out;
+    }
+    default:
+      return null;
+  }
+}
+
+const WORDS_BUTTON = 'The board accepted the image.';
+
+function runStats(model) {
+  const { flow } = model;
+  if (!flow.progress) return null;
+  const { sent, total } = flow.progress;
+  const { speed, secondsLeft } = transferStats(flow.samples, total);
+  const left = timeLeftWords(secondsLeft);
   return h(
-    'ol',
-    { class: 'bt-steps', key: 'steps' },
-    line.rows.map((row) =>
-      h(
-        'li',
-        { key: row.step, class: `bt-step is-${row.state}` },
-        icon(STEP_ICONS[row.state] ?? 'minus'),
-        h(
-          'div',
-          { class: 'bt-step-text' },
-          h(
-            'span',
-            { class: 'bt-step-title' },
-            row.title,
-            row.at ? h('span', { class: 'quiet' }, ` · ${timeOfDay(new Date(row.at).toISOString())}`) : null
-          ),
-          row.step === 'button' && line.waitingForButton
-            ? h(
-                'span',
-                { class: 'bt-countdown mono' },
-                watch.countdown(Math.max(0, Math.ceil((line.deadline - now) / 1000)))
-              )
-            : null,
-          row.detail ? h('span', { class: 'bt-step-detail' }, row.detail) : null
-        )
-      )
+    'dl',
+    { class: 'bt-stats' },
+    h('div', { key: 'sent' }, h('dt', null, 'Sent'), h('dd', null, `${fileSize(sent)} of ${fileSize(total)}`)),
+    h(
+      'div',
+      { key: 'speed' },
+      h('dt', null, 'Speed'),
+      h('dd', null, speed ? `${fileSize(Math.round(speed))}/s` : 'measuring…')
+    ),
+    h(
+      'div',
+      { key: 'left' },
+      h('dt', null, 'Time left'),
+      h('dd', null, left ? [left, h('span', { class: 'bt-estimate' }, ' (estimate)')] : 'measuring…')
     )
   );
 }
 
+function versionLine(flow) {
+  const to = flow.facts?.version ?? flow.release;
+  return h(
+    'p',
+    { class: 'bt-versions' },
+    flow.running
+      ? [mono(flow.running), h('span', { class: 'bt-arrow', 'aria-label': 'to' }, icon('arrow-right')), mono(to)]
+      : mono(to)
+  );
+}
+
+/** The card of the update under way: the board, from and to, what is happening, the steps. */
+function runCard(model, ctx, run, device) {
+  const { flow } = model;
+  const release = flow.releases.find((item) => item.version === run.version);
+  const notes = notesSnippet(release?.notes);
+  const sending = flow.step === 'sending';
+  const finished = ['failed', 'cancelled'].includes(flow.step) || (flow.step === 'following' && flow.line?.finished);
+  const canCancel = ['pairing', 'downloading', 'clearing', 'sending'].includes(flow.step);
+  const boardHref = run.thing ? deviceHref(run.thing) : null;
+  const figure = sending
+    ? h(
+        'p',
+        { class: 'execution-figure bt-figure', 'aria-hidden': 'true' },
+        String(run.percent),
+        h('span', { class: 'execution-percent' }, '%')
+      )
+    : null;
+  return h(
+    'article',
+    { key: 'run', class: `card execution bt-run is-${run.tone}`, 'data-phase': flow.step },
+    h(
+      'header',
+      { class: 'execution-head' },
+      h('h2', { class: 'execution-name' }, flow.board?.name ?? 'Board'),
+      h('span', { class: 'bt-via quiet' }, icon('bluetooth'), ` Over Bluetooth, from this ${device}`)
+    ),
+    h(
+      'div',
+      { class: 'bt-release' },
+      versionLine(flow),
+      release ? h('span', { class: 'quiet' }, fileSize(release.size)) : null,
+      notes ? h('p', { class: 'bt-notes' }, notes) : null
+    ),
+    h(
+      'div',
+      { class: 'execution-state' },
+      h(
+        'div',
+        { class: 'execution-words' },
+        h('p', { class: `execution-title status is-${run.tone}` }, icon(run.icon), h('span', null, run.title)),
+        h('p', { class: 'execution-text' }, run.text),
+        run.next ? h('p', { class: 'execution-next' }, run.next) : null,
+        sending || run.busy
+          ? h(
+              'div',
+              {
+                class: `meter bt-meter${run.busy ? ' is-busy' : ''}`,
+                role: 'progressbar',
+                'aria-label': run.busy ? 'Working' : `${run.version} sent to ${flow.board?.name}`,
+                'aria-valuemin': '0',
+                'aria-valuemax': '100',
+                'aria-valuenow': run.busy ? null : String(run.percent),
+                vars: { '--progress': `${run.percent}%` },
+              },
+              h('span', { class: 'meter-fill' })
+            )
+          : null,
+        sending ? runStats(model) : null,
+        flow.step === 'ready' ? [releaseList(model, flow), readyNote()] : null
+      ),
+      figure
+    ),
+    h(
+      'div',
+      { class: 'pipeline', key: 'pipeline' },
+      stepList(
+        { steps: run.steps, tone: run.tone, progress: sending ? run.percent : null, icon: run.icon },
+        { marks: MARKS, progressAt: SEND_AT, label: 'Steps of the update over Bluetooth' }
+      )
+    ),
+    // One polite line that changes at a phase, and every tenth of the upload.
+    h('p', { class: 'sr-only', role: 'status', 'aria-live': 'polite', key: 'live' }, run.announce),
+    h(
+      'div',
+      { class: 'actions bt-actions' },
+      flow.step === 'ready' ? button('is-primary', model.send, icon('send'), 'Send') : null,
+      run.outcome === 'kept' && boardHref
+        ? linkTo(boardHref, { class: 'btn is-primary' }, icon('chip'), 'Open the board’s page')
+        : null,
+      run.outcome === 'kept' || run.outcome === 'unknown' ? button('', model.reset, 'Update another board') : null,
+      run.outcome && !['kept', 'unknown'].includes(run.outcome)
+        ? button('is-primary', model.reset, icon('restart'), 'Try again')
+        : null,
+      run.outcome && !['kept', 'unknown'].includes(run.outcome) && boardHref
+        ? linkTo(boardHref, { class: 'btn' }, 'Open the board’s page')
+        : null,
+      canCancel ? button('is-quiet', model.cancel, icon('x'), 'Cancel') : null,
+      flow.step === 'ready' ? button('is-quiet', model.reset, 'Cancel') : null,
+      flow.step === 'following' && !finished ? button('is-quiet', model.reset, 'Stop following') : null
+    )
+  );
+}
+
+const readyNote = () =>
+  h(
+    'p',
+    { class: 'quiet bt-fineprint', key: 'fine' },
+    'The console is asked right before the send whether the release is still active: without its yes nothing is sent.'
+  );
+
 function releaseList(model, flow) {
   const choices = offerable(flow.releases, flow.running);
-  if (choices.length === 0) return h('p', { class: 'quiet', key: 'none' }, 'No active release to send.');
+  if (choices.length === 0)
+    return h(
+      'p',
+      { class: 'quiet', key: 'none' },
+      flow.running ? 'No active release is newer than this board.' : 'No active release to send.'
+    );
   return h(
-    'div',
-    { class: 'choices', key: 'releases' },
-    choices.map((release) =>
+    'fieldset',
+    { class: 'choices bt-choices', key: 'releases' },
+    h('legend', { class: 'sr-only' }, 'Release to send'),
+    choices.map((release, index) =>
       h(
         'label',
         { key: release.version, class: 'choice' },
@@ -565,9 +982,80 @@ function releaseList(model, flow) {
         h(
           'span',
           { class: 'choice-body' },
-          h('span', { class: 'choice-title' }, mono(release.version)),
-          h('span', { class: 'choice-note' }, fileSize(release.size), release.notes ? ` · ${release.notes}` : '')
+          h(
+            'span',
+            { class: 'choice-title' },
+            mono(release.version),
+            index === 0 ? h('span', { class: 'badge is-good' }, 'Newest') : null,
+            h('span', { class: 'quiet' }, fileSize(release.size))
+          ),
+          notesSnippet(release.notes) ? h('span', { class: 'choice-note' }, notesSnippet(release.notes)) : null
         )
+      )
+    )
+  );
+}
+
+/** The window of the board, drawn with its two buttons: Button 1 is the one held. */
+function windowHelp(device) {
+  return h(
+    'div',
+    { class: 'bt-window' },
+    h(
+      'span',
+      { class: 'key is-lit', 'aria-hidden': 'true' },
+      h('span', { class: 'key-cap' }),
+      h('span', { class: 'key-words' }, h('strong', null, 'Button 1'), 'hold 5 s')
+    ),
+    h(
+      'p',
+      null,
+      'At the board, hold ',
+      h('strong', null, 'Button 1'),
+      ` for 5 s and let go. LED1 flashes four times: Bluetooth is open for 3 minutes, for this ${device} to find.`
+    )
+  );
+}
+
+function boardTile(model, board) {
+  const quality = signalQuality(board.rssi);
+  return h(
+    'li',
+    { key: board.id },
+    h(
+      'button',
+      { type: 'button', class: 'bt-board', onClick: () => model.connect(board) },
+      icon('chip'),
+      h('span', { class: 'bt-board-name' }, mono(board.name)),
+      quality
+        ? h(
+            'span',
+            { class: 'bt-board-signal', title: `${board.rssi} dBm` },
+            signalBars(quality),
+            h('span', { class: 'quiet' }, quality.label)
+          )
+        : null,
+      icon('chevron-right', 'bt-board-go')
+    )
+  );
+}
+
+const SETUP = ['Release', 'Board', 'Send'];
+
+function setupHead(at) {
+  return h(
+    'ol',
+    { class: 'bt-setup', 'aria-label': 'Steps before sending' },
+    SETUP.map((name, index) =>
+      h(
+        'li',
+        {
+          key: name,
+          class: index < at ? 'is-done' : index === at ? 'is-current' : '',
+          'aria-current': index === at ? 'step' : null,
+        },
+        h('span', { class: 'bt-setup-n' }, index < at ? icon('check') : String(index + 1)),
+        name
       )
     )
   );
@@ -577,16 +1065,17 @@ function releaseList(model, flow) {
 export function bluetoothView(ctx) {
   const { state } = ctx;
   const model = ctx.bluetooth;
+  const device = state.app?.device ?? 'device';
   const head = pageHead({
     title: 'Update over Bluetooth',
-    lede: 'Send a release to a board in reach, from this phone.',
+    lede: `Send a release to a board in reach, from this ${device}.`,
   });
   if (!state.app?.ble) {
     return h(
       'div',
       { class: 'page', key: 'page' },
       head,
-      notice('warn', 'alert', 'Bluetooth updates are in the phone apps only.')
+      notice('warn', 'alert', 'Bluetooth updates are in the apps only.')
     );
   }
   if (state.me?.canWrite !== true) {
@@ -615,115 +1104,64 @@ export function bluetoothView(ctx) {
           button('is-small is-quiet', model.copyPasskey, icon('copy'), 'Copy')
         )
       : null;
-  const problem = flow.problem
-    ? notice('bad', 'alert', flow.problem, {
-        action: flow.step === 'failed' ? button('is-small', model.reset, 'Start again') : null,
-      })
-    : null;
 
+  const run = describeRun(flow, { device, now: state.now ?? Date.now() });
   const body = [];
-  if (flow.step === 'release' || flow.step === 'failed') {
-    body.push(card({ key: 'release', title: '1. Release' }, releaseList(model, flow)));
-    body.push(
-      card(
-        { key: 'open', title: "2. Open the board's window" },
+  if (run) {
+    // A problem with the passkey, while pairing, is a note under the card; a failure is the card's own words.
+    body.push(runCard(model, ctx, run, device));
+    if (flow.step === 'pairing' && !flow.passkey) {
+      body.push(
         h(
           'p',
-          null,
-          'At the board, hold ',
-          h('strong', null, 'Button 1'),
-          ' for 5 s and let go. LED1 flashes four times: Bluetooth is open for 3 minutes.'
-        ),
-        button('is-primary', model.lookForBoards, icon('locate'), 'Look for boards')
-      )
-    );
-  } else if (flow.step === 'boards') {
-    body.push(
-      card(
-        { key: 'boards', title: '3. Pick the board' },
-        flow.boards.length === 0
-          ? h('p', { class: 'loading' }, 'Looking for boards… Hold Button 1 for 5 s if its window is not open.')
-          : h(
-              'ul',
-              { class: 'bt-boards' },
-              flow.boards.map((board) =>
-                h(
-                  'li',
-                  { key: board.id },
-                  button(
-                    '',
-                    () => model.connect(board),
-                    icon('chip'),
-                    mono(board.name),
-                    board.rssi !== null ? h('span', { class: 'quiet' }, ` ${board.rssi} dBm`) : null
-                  )
-                )
-              )
-            ),
-        button('is-quiet', model.reset, 'Back')
-      )
-    );
-  } else if (flow.step === 'pairing') {
-    body.push(
-      card(
-        { key: 'pairing', title: `Pairing with ${flow.board.name}` },
-        h('p', null, "Type the 6-digit passkey into the phone's pairing box."),
-        flow.passkey
-          ? null
-          : h(
-              'p',
-              { class: 'quiet' },
-              flow.passkeyMissing
-                ? "The console has no passkey for this board: it may be offline. The passkey is on the board's serial console, [BT] passkey."
-                : 'Asking the console for the passkey…'
-            ),
-        button('is-quiet', model.reset, 'Cancel')
-      )
-    );
-  } else if (['ready', 'downloading', 'clearing'].includes(flow.step)) {
-    body.push(
-      card(
-        { key: 'ready', title: `${flow.board.name} runs ${flow.running ?? 'a version this page cannot read'}` },
-        releaseList(model, flow),
-        h(
-          'p',
-          { class: 'quiet' },
-          'The console is asked right before the send whether the release is still active: without its yes nothing is sent.'
-        ),
-        h(
-          'div',
-          { class: 'actions' },
-          button(
-            'is-primary',
-            model.send,
-            icon('send'),
-            flow.step === 'downloading' ? 'Downloading…' : flow.step === 'clearing' ? 'Asking the console…' : 'Send'
-          ),
-          button('is-quiet', model.reset, 'Cancel')
+          { class: 'quiet bt-fineprint', key: 'nopasskey' },
+          flow.passkeyMissing
+            ? 'The console has no passkey for this board: it may be offline. The passkey is on the board’s serial console, [BT] passkey.'
+            : 'Asking the console for the passkey…'
         )
-      )
-    );
-  } else if (flow.step === 'sending') {
-    const percent = flow.progress ? Math.floor((flow.progress.sent / flow.progress.total) * 100) : 0;
-    body.push(
-      card(
-        { key: 'sending', title: `Sending ${flow.release} to ${flow.board.name}` },
-        meter(percent, 'Sent'),
-        h('p', { class: 'quiet' }, `${percent}% · keep the phone near the board`)
-      )
-    );
+      );
+    }
+    if (flow.step === 'ready' && flow.problem) body.push(notice('bad', 'alert', flow.problem, { key: 'problem' }));
+  } else {
+    const problem = flow.problem ? notice('bad', 'alert', flow.problem) : null;
+    if (flow.step === 'boards') {
+      body.push(
+        h(
+          'section',
+          { key: 'boards', class: 'card bt-pick' },
+          setupHead(1),
+          h('h2', { class: 'bt-pick-title' }, 'Pick the board'),
+          flow.boards.length === 0
+            ? h(
+                'div',
+                { class: 'bt-looking', role: 'status' },
+                h('span', { class: 'bt-pulse', 'aria-hidden': 'true' }),
+                h('p', null, 'Looking for boards…'),
+                h('p', { class: 'quiet' }, 'Hold Button 1 for 5 s if its window is not open.')
+              )
+            : h(
+                'ul',
+                { class: 'bt-boards' },
+                flow.boards.map((board) => boardTile(model, board))
+              ),
+          h('div', { class: 'actions' }, button('is-quiet', model.reset, icon('arrow-left'), 'Back'))
+        )
+      );
+    } else {
+      body.push(
+        h(
+          'section',
+          { key: 'release', class: 'card bt-pick' },
+          setupHead(0),
+          h('h2', { class: 'bt-pick-title' }, 'Which release?'),
+          releaseList(model, flow),
+          h('h2', { class: 'bt-pick-title' }, 'Open the board’s window'),
+          windowHelp(device),
+          problem,
+          h('div', { class: 'actions' }, button('is-primary', model.lookForBoards, icon('locate'), 'Look for boards'))
+        )
+      );
+    }
   }
-  if (flow.line) {
-    body.push(
-      card(
-        { key: 'follow', title: `${flow.facts.version} to ${flow.board?.name ?? 'the board'}` },
-        timelineView(flow.line, state.now ?? Date.now()),
-        flow.line.note ? h('p', { class: 'quiet', key: 'note' }, flow.line.note) : null,
-        flow.line.finished
-          ? button('', model.reset, 'Update another board')
-          : button('is-quiet', model.reset, 'Stop following')
-      )
-    );
-  }
-  return h('div', { class: 'page', key: 'page' }, pinned, head, problem, body);
+  return h('div', { class: 'page bt-page', key: 'page' }, pinned, head, body);
 }

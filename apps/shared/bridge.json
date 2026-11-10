@@ -32,7 +32,7 @@
     "app.hello": {
       "feature": null,
       "params": {},
-      "result": "{bridge: 1, platform: 'ios'|'android', shell: {version: '0.8.0', build: '14'}, bundle: {id, console: '2.1.1'|null, source: 'downloaded'|'built-in'}, features: [...], needsNewerApp: true when the console has a bundle that needs a newer bridge than this app's}"
+      "result": "{bridge: 1, platform: 'ios'|'android'|'macos'|'windows'|'linux' (the Mac app says macos, the desktop app windows or linux; the pages say this phone, this Mac or this computer by it; an app from before says ios or android, and a word not listed reads as none), shell: {version: '0.8.0', build: '14'}, bundle: {id, console: '2.1.1'|null, source: 'downloaded'|'built-in'}, features: [...], needsNewerApp: true when the console has a bundle that needs a newer bridge than this app's}"
     },
     "app.config": {
       "feature": null,
