@@ -88,7 +88,7 @@ export const CUSTOMER_CHANNEL = 'cranium.customer.session';
 
 // Routes. The site has exactly these; anything else in the address bar is the home page.
 
-export const MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'moments']);
+export const MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'listening', 'moments']);
 
 // The mixes' words that the phone apps' Classic screens share (CustomerText.kt, CustomerWords.swift).
 export const MIXES_EYEBROW = 'Your mixes, remembered';

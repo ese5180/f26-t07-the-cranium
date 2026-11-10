@@ -34,6 +34,7 @@ import {
   trackShade,
   transitionsOf,
 } from './customer-mixes.js';
+import { BAR_DAYS, hourWords, listeningStats, sourceWords } from './customer-stats.js';
 
 // Icons of the mixes, drawn as the console's are: 24 by 24, stroked in the text colour.
 export const MIX_ICONS = {
@@ -1241,4 +1242,124 @@ export function mixDialog(ctx) {
   if (kind === 'moment') return momentDialog(ctx);
   if (kind === 'forget') return forgetDialog(ctx);
   return null;
+}
+
+// Your listening: the week, worked out from every session of the source shown (customer-stats.js).
+
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+function listeningTile(key, label, iconName, value, note, ink = false) {
+  return h(
+    'div',
+    { class: `cs-tile ${ink ? 'on-ink' : ''}`.trim(), key },
+    h('p', { class: 'cs-tile-label' }, label, mixIcon(iconName, 'is-small cs-tile-icon')),
+    h('p', { class: 'cs-tile-value' }, value),
+    h('p', { class: 'cs-tile-note' }, note)
+  );
+}
+
+function weekChange(stats) {
+  if (stats.lastWeek === 0) return stats.thisWeek === 0 ? 'Nothing in either week' : 'Nothing last week to compare';
+  const gap = stats.thisWeek - stats.lastWeek;
+  if (gap === 0) return 'The same as last week';
+  return `${onDecks(Math.abs(gap))} ${gap > 0 ? 'more' : 'less'} than last week`;
+}
+
+function dayBars(stats) {
+  const most = Math.max(...stats.days.map((day) => day.sessions));
+  const names = stats.days.map((day) =>
+    day.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  );
+  return h(
+    'section',
+    { class: 'cs-panel cs-panel-pad', key: 'days', 'aria-labelledby': 'listening-days' },
+    h('h2', { class: 'cs-list-title', id: 'listening-days' }, `Sessions per day, last ${BAR_DAYS} days`),
+    h(
+      'ol',
+      { class: 'cs-daybars' },
+      stats.days.map((day, index) => {
+        const level = most === 0 ? 0 : Math.max(day.sessions === 0 ? 0 : 1, Math.round((day.sessions / most) * 10));
+        return h(
+          'li',
+          { class: 'cs-daybar', key: index },
+          h('span', { class: 'cs-daybar-count' }, String(day.sessions)),
+          h('span', { class: `cs-daybar-fill is-h${level}`, 'aria-hidden': 'true' }),
+          h('span', { class: 'cs-daybar-day' }, day.date.toLocaleDateString(undefined, { weekday: 'narrow' })),
+          h('span', { class: 'sr-only' }, `${names[index]}: ${plural(day.sessions, 'session', 'sessions')}`)
+        );
+      })
+    )
+  );
+}
+
+function topList(id, title, rows, describe) {
+  return h(
+    'section',
+    { class: 'cs-panel cs-panel-pad', key: id, 'aria-labelledby': id },
+    h('h2', { class: 'cs-list-title', id }, title),
+    rows.length === 0
+      ? h('p', { class: 'cs-tracks-none' }, 'None in the last 30 days.')
+      : h(
+          'ol',
+          { class: 'cs-toplist' },
+          rows.map((row, index) =>
+            h(
+              'li',
+              { key: `${row.name}-${index}` },
+              h('span', { class: 'cs-toplist-name' }, row.name, describe(row)),
+              h('span', { class: 'cs-toplist-plays' }, plural(row.plays, 'play', 'plays'))
+            )
+          )
+        )
+  );
+}
+
+export function listeningList(ctx) {
+  const stats = listeningStats(ctx.mixes.allSessions ?? ctx.mixes.sessions, Date.now());
+  if (stats.empty) {
+    return [
+      sourceBar(ctx),
+      empty({
+        iconName: 'clock',
+        title: 'Nothing to show about your listening yet.',
+        text: 'Once a session is here, this page shows your week, your busiest days and what you play most.',
+      }),
+    ];
+  }
+  const note = sourceWords(stats.source);
+  return [
+    sourceBar(ctx),
+    note ? h('p', { class: 'cs-note', key: 'source-note' }, icon('info'), h('span', null, note)) : null,
+    h(
+      'div',
+      { class: 'cs-tiles', key: 'tiles' },
+      listeningTile('this', 'This week', 'clock', onDecks(stats.thisWeek), weekChange(stats), true),
+      listeningTile('last', 'Last week', 'clock', onDecks(stats.lastWeek), 'Monday to Sunday'),
+      listeningTile(
+        'longest',
+        'Longest session',
+        'layers',
+        stats.longest ? onDecks(stats.longest.seconds) : '—',
+        stats.longest ? stats.longest.title : 'None in the last 30 days'
+      ),
+      listeningTile(
+        'hour',
+        'Busiest hour',
+        'note',
+        stats.busiestHour ? hourWords(stats.busiestHour.hour) : '—',
+        stats.busiestHour
+          ? plural(stats.busiestHour.plays, 'track', 'tracks') + ' started then'
+          : 'No tracks in 30 days'
+      )
+    ),
+    dayBars(stats),
+    h(
+      'div',
+      { class: 'cs-listening-tops', key: 'tops' },
+      topList('listening-tracks', 'Top tracks, last 30 days', stats.topTracks, (row) =>
+        row.artist ? h('span', { class: 'cs-toplist-artist' }, row.artist) : null
+      ),
+      topList('listening-artists', 'Top artists, last 30 days', stats.topArtists, () => null)
+    ),
+  ];
 }

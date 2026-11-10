@@ -46,10 +46,12 @@ function customerScript(name, imports = {}, mark = '') {
 
 const SITE_CORE = customerScript('customer-core.js', { 'core.js': CORE });
 const SITE_MIXES = customerScript('customer-mixes.js');
+const SITE_STATS = customerScript('customer-stats.js', { 'customer-mixes.js': SITE_MIXES });
 const SITE_MIX_VIEWS = customerScript('customer-mix-views.js', {
   'views.js': VIEWS,
   'customer-core.js': SITE_CORE,
   'customer-mixes.js': SITE_MIXES,
+  'customer-stats.js': SITE_STATS,
 });
 const SITE_PHOTOS = customerScript('customer-team-photos.js');
 const SITE_VIEWS = customerScript('customer-views.js', {
@@ -116,6 +118,7 @@ test("the customer site's name gets the site at /, the console as admin mode at 
     'customer-core.js',
     'customer-mix-views.js',
     'customer-mixes.js',
+    'customer-stats.js',
     'customer-team-photos.js',
     'customer-views.js',
     'customer.css',
@@ -281,6 +284,7 @@ test("the site serves the console's own core.js, views.js and app.css, byte for 
     'customer-core.js',
     'customer-mix-views.js',
     'customer-mixes.js',
+    'customer-stats.js',
     'customer-team-photos.js',
     'customer-views.js',
     'customer.css',
@@ -310,6 +314,7 @@ test('the page has no inline script, style or handler, and refers only to its ow
       'customer-core.js',
       'customer-mix-views.js',
       'customer-mixes.js',
+      'customer-stats.js',
       'customer-team-photos.js',
       'customer-views.js',
       'customer.css',
@@ -1564,6 +1569,7 @@ const MIX_TITLES = [
   ['mixes/sessions', 'Every set has a story.'],
   ['mixes/transitions', 'The space between tracks.'],
   ['mixes/library', 'Your rotation, revealed.'],
+  ['mixes/listening', 'Your week on the decks.'],
   ['mixes/moments', 'Keep the good ones.'],
 ];
 const TAB_BAR = ['overview', 'mixes/sessions', 'mixes/transitions', 'mixes/library', 'devices'];

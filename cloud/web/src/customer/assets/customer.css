@@ -2648,3 +2648,125 @@ a.cs-panel-foot:hover {
     flex-wrap: wrap;
   }
 }
+
+/* Your listening (customer-mix-views.js listeningList): a row of day bars, and the top lists. */
+
+.cs-list-title {
+  margin-bottom: 14px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.cs-daybars {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: clamp(3px, 1vw, 10px);
+  align-items: end;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cs-daybar {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 96px auto;
+  justify-items: center;
+  align-items: end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cs-daybar-count,
+.cs-daybar-day {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cs-daybar-fill {
+  display: block;
+  width: 100%;
+  max-width: 28px;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+}
+
+.cs-daybar-fill.is-h0 {
+  height: 3px;
+  background: var(--line);
+}
+
+.cs-daybar-fill.is-h1 {
+  height: 10%;
+}
+.cs-daybar-fill.is-h2 {
+  height: 20%;
+}
+.cs-daybar-fill.is-h3 {
+  height: 30%;
+}
+.cs-daybar-fill.is-h4 {
+  height: 40%;
+}
+.cs-daybar-fill.is-h5 {
+  height: 50%;
+}
+.cs-daybar-fill.is-h6 {
+  height: 60%;
+}
+.cs-daybar-fill.is-h7 {
+  height: 70%;
+}
+.cs-daybar-fill.is-h8 {
+  height: 80%;
+}
+.cs-daybar-fill.is-h9 {
+  height: 90%;
+}
+.cs-daybar-fill.is-h10 {
+  height: 100%;
+}
+
+.cs-listening-tops {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cs-toplist {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cs-toplist li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cs-toplist-name {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cs-toplist-artist,
+.cs-toplist-plays {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+.cs-toplist-plays {
+  flex: none;
+}
+
+@media (max-width: 720px) {
+  .cs-listening-tops {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
