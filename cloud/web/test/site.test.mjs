@@ -653,16 +653,13 @@ test('no file of the site contains an e-mail address', () => {
   }
 });
 
-test('a finished update has no room kept for a next phase, and a headline is not hyphenated', () => {
+test('an update keeps no empty band for the download figure, and a headline is not hyphenated', () => {
   const stylesheet = readFileSync(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
   const rule = (selector) =>
     new RegExp(`${selector.replace(/[.:()]/g, '\\$&')}[^{}]*\\{[^}]*\\}`).exec(stylesheet)?.[0] ?? '';
-  // Only while an update can still move on: live, waiting for a person, waiting for the board.
-  const keeping = rule('.execution.is-live:not(.is-compact) .execution-state');
-  assert.match(keeping, /\.execution\.is-act:not\(\.is-compact\) \.execution-state/);
-  assert.match(keeping, /\.execution\.is-wait:not\(\.is-compact\) \.execution-state/);
-  assert.match(keeping, /min-height: 9\.625rem/);
-  assert.doesNotMatch(stylesheet, /(?:^|\n)\s*\.execution:not\(\.is-compact\) \.execution-state \{[^}]*min-height/);
+  // No band is kept for a download figure: once the percentage is gone the words stand at the top, whatever the phase.
+  assert.doesNotMatch(stylesheet, /\.execution[^{}]*\.execution-state[^{}]*\{[^}]*min-height/);
+  assert.match(rule('.execution-state'), /align-items: start/);
   // At 360 px it broke as "in-stalled".
   assert.doesNotMatch(rule('.calm-title'), /hyphens/);
 });

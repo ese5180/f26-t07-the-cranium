@@ -3687,9 +3687,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .flash-version {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: clamp(1.125rem, 1.05rem + 0.3vw, 1.3125rem);
+  font-size: 1rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.3;
 }
 
 .flash-version .mono {
@@ -3777,22 +3777,19 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-family: var(--sans);
 }
 
-/* While the board restarts, the two slots trade places: the glyph sits on their seam. */
+/* While the board restarts, the two slots trade places: a vertical pair of arrows between them, in the flow. */
 .flash-swap {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  height: 0;
+  display: flex;
+  align-items: center;
+  height: 18px;
+  padding-left: 10px;
   color: var(--work);
 }
 
 .flash-swap .icon {
-  width: 26px;
-  height: 26px;
-  padding: 4px;
-  border-radius: 50%;
-  background: var(--surface);
+  width: 16px;
+  height: 16px;
+  transform: rotate(90deg);
 }
 
 .flash-note {
@@ -4596,7 +4593,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .execution-state {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+  align-items: start;
   gap: 16px 32px;
 }
 
@@ -4609,14 +4606,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .execution-title {
   align-items: flex-start;
   gap: 14px;
-  font-size: clamp(1.75rem, 1.35rem + 1.7vw, 3rem);
-  font-weight: 700;
-  letter-spacing: -0.018em;
-  line-height: 1.05;
-}
-
-.execution.is-idle .execution-title {
-  font-size: clamp(1.5rem, 1.25rem + 1vw, 2.125rem);
+  /* A section head: smaller than the page's own title (the version), larger than the words. */
+  font-size: clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.014em;
+  line-height: 1.15;
 }
 
 .execution-title .icon {
@@ -4656,16 +4650,6 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* Where the big numerals stand, they say it for the words. */
 @media (min-width: 801px) {
-  /*
-   * The steps under it stay at one height through an update, however much a phase has to
-   * say. An update that is over has no next phase to make room for.
-   */
-  .execution.is-live:not(.is-compact) .execution-state,
-  .execution.is-act:not(.is-compact) .execution-state,
-  .execution.is-wait:not(.is-compact) .execution-state {
-    min-height: 9.625rem;
-  }
-
   .said-big {
     position: absolute;
     width: 1px;
@@ -4678,10 +4662,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* The number that is moving, for across the room. */
 .execution-figure {
-  font-size: clamp(4.5rem, 2.5rem + 7vw, 8.5rem);
+  font-size: clamp(3.5rem, 2.5rem + 3.5vw, 5.5rem);
   font-weight: 600;
   letter-spacing: -0.028em;
-  line-height: 0.82;
+  line-height: 0.9;
 }
 
 .execution-percent {
@@ -10011,6 +9995,19 @@ body.console {
 .console .card {
   padding: 0;
   border-top: 0;
+}
+
+/* The one board's update keeps the room its own rule gives it, which the line above would take. */
+.console .execution:not(.is-idle, .is-compact) {
+  padding: clamp(20px, 2.3vw, 32px);
+}
+
+.console .execution.is-idle {
+  padding: 16px 0 0;
+}
+
+.console .execution.is-compact {
+  padding: 16px 0 18px;
 }
 
 .console .card-head {

@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.23.2
+
+The deployment page reads in order again. A board's card had lost its inner padding, so its words ran to the edge; the status ("Restarting", "Downloading") no longer reserves an empty band above it once the download figure is gone, and is now a section heading smaller than the page's own title (the version), with the download percentage a little smaller and level with it. In the flash memory map the version numbers are no larger than their labels, and the swap arrows between the two slots sit in the line between them instead of floating over it. The phone and desktop apps load the same bundle, so they get this with no app change.
+
 ## 2.23.1
 
 The customer site's Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal, marked as such.
