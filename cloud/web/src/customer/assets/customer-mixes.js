@@ -4,7 +4,7 @@
  *
  * A session is what one set played: when it started, and for each track its name, its artist, the
  * deck it played on and when it started and stopped, in seconds from the start of the set. Boards do
- * not send sessions yet, so they come from two places only:
+ * not send sessions until firmware 1.18.0, so until then they come from two places only:
  *
  *   - the demo, made up here and said to be made up wherever it shows (`demoJournal`);
  *   - the customer's own journal: session files they import, kept in their browser (customer.js).

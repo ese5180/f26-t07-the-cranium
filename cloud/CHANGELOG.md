@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.23.1
+
+The customer site's Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal, marked as such.
+
 ## 2.23.0
 
 The cloud now takes the sessions and tracks a board plays, and the customer site shows them: Now playing, play times, the Mixes pages and Your listening come from the board's own sessions as soon as it has sent one. Until it has, the site keeps the demo and the imported journal, marked as such. Nothing changes for a board that sends nothing; the firmware that sends them is a separate update (1.18.0).

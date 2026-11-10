@@ -4,6 +4,10 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.21
+
+The Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal.
+
 ## 0.8.20
 
 Your listening in customer mode (console 2.22.0 and later): a new page under Mixes with the week on the decks, sessions per day, the top tracks and artists, the longest session and the busiest hour.
