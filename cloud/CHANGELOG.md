@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.4
+
+A screen reader on the Activity page now hears which entry a "What changed" line belongs to by its time of day ("What changed: 4 fields in the entry of 07:50 AM"), instead of "in the entry of [object Object]".
+
+The hidden words after the summary put the drawn `<time>` element into a string; they now use the time of day as text (`timeOfDay`), and leave the words out for an entry with no time. views.test.mjs checks what a screen reader hears there.
+
 ## 2.25.3
 
 Every page now opens with one short sentence that says what it is for, at most 15 words, and the rest of what the page used to say first is under a "How … works" line right below it, closed until opened (How deployments work, How the activity log works, How events work, and so on). Nothing was taken away: it moved. Memfault says plainly when it is not connected ("Memfault is not connected.") instead of a tick and "No issues to show.", and a board's Memfault card says "not connected" too; Reports and the fleet health score say the same. Product pages no longer name scripts, key paths or AWS services in their text: Team and Customers say an invitation "goes out by e-mail" instead of naming the sign-in service, and the setup steps behind a message (cloud/deploy.sh, docs/accounts.md, the stack parameter) are under Details. The Apps page's install steps read as words, with their commands and paths under "Commands". The Deployments tiles and a board that never reported no longer name AWS IoT. Every button that is only an icon has a tooltip as well as its spoken name. The customer site's Overview, About and Mixes tabs have shorter lines too.
