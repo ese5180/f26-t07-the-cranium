@@ -45,6 +45,9 @@
 #include "net.h"
 #include "ota.h"
 #include "ota_job.h"
+#if defined(CONFIG_APP_PI_LINK)
+#include "pi_link.h"
+#endif
 #include "stuck.h"
 #include "ui.h"
 #include "version.h"
@@ -706,6 +709,9 @@ int main(void)
 	bt_passkey_init();
 #endif
 	console_start();
+#if defined(CONFIG_APP_PI_LINK)
+	pi_link_start();
+#endif
 	stuck_init();
 
 	if (ota_init() != 0) {
