@@ -99,6 +99,7 @@ import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
 import { createPairingHandlers } from './handlers/pairing.mjs';
 import { createProvisionHandlers } from './handlers/provision.mjs';
+import { createReportHandlers } from './handlers/reports.mjs';
 import { createSetupHandlers } from './handlers/setup.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
@@ -360,6 +361,8 @@ export function createApp({
   const customers = createCustomerHandlers(context, { devices });
   // The team's accounts, for the Team page (docs/accounts.md): release managers only.
   const team = createTeamHandlers(context);
+  // The weekly fleet report (docs/reports.md): made on demand from the records above, and kept.
+  const reports = createReportHandlers(context, { devices, fleet, deployments, memfault: () => memfault });
   // Each member's SideStore source, which keeps the iPhone app on their iPhone up to date.
   const sidestore = createSidestoreHandlers(context, { apps, audit });
   // The Database page (docs/database.md): the three tables, read only, for release managers.
@@ -500,6 +503,20 @@ export function createApp({
     // The fleet (docs/fleet.md): board types and groups, staged rollouts, and how the fleet is doing.
     // Reads for every member; every change for release managers, on record, and from a phone only
     // with a sign-in in the last 15 minutes, as every change is.
+    // The weekly fleet report (handlers/reports.mjs, docs/reports.md): every member reads it, and an export
+    // goes on record as a read (`read`, `member`); only a release manager switches its Monday e-mail.
+    route('GET', '/api/reports', reports.list),
+    route('GET', '/api/reports/{week}', reports.get),
+    route('GET', '/api/reports/{week}/export', reports.exportCsv, {
+      action: 'report.export',
+      maxBody: 0,
+      read: true,
+      member: true,
+    }),
+    route('POST', '/api/reports/settings', reports.setSettings, {
+      action: 'report.settings',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
     route('GET', '/api/fleet', fleet.overview),
     route('GET', '/api/fleet/health', fleet.health),
     route('GET', '/api/groups', groups.list),

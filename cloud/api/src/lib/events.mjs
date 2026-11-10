@@ -142,7 +142,7 @@ function target(job) {
   return parseJobId(job)?.version ?? null;
 }
 
-const CAUSE_WORDS = Object.freeze({
+export const CAUSE_WORDS = Object.freeze({
   pin: 'the reset pin',
   software: 'a software restart',
   brownout: 'a brownout',

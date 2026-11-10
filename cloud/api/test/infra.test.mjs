@@ -707,6 +707,8 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'ReadReleasesAndFleet',
       'WriteRollouts',
       'WriteHealthSnapshots',
+      'WeeklyReports',
+      'ReadAuditForReports',
       'ReadBoardEvents',
       'AppendAudit',
       'StartAndReadDeployments',
@@ -742,6 +744,16 @@ test('staged rollouts move on every minute, in a function of their own that can 
     [...snapshots.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
     ['HEALTH']
   );
+  // The weekly report's Monday e-mail (docs/reports.md): its own partition only, and the activity log read only.
+  const weekly = statement(role, 'WeeklyReports');
+  assert.ok(weekly.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.ok(!weekly.includes('UpdateItem') && !weekly.includes('DeleteItem'));
+  assert.deepEqual(
+    [...weekly.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['RPT']
+  );
+  const auditReads = statement(role, 'ReadAuditForReports');
+  assert.ok(auditReads.includes('Action: dynamodb:Query') && auditReads.includes('Resource: !GetAtt AuditTable.Arn'));
   const boardEvents = statement(role, 'ReadBoardEvents');
   assert.ok(
     boardEvents.includes('Action: dynamodb:Query') && boardEvents.includes('Resource: !GetAtt EventsTable.Arn')

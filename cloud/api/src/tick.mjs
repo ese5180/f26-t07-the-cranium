@@ -16,6 +16,10 @@
  * From console 2.15.0 it also stores the fleet health score's snapshot of the day (docs/fleet-health.md,
  * handlers/fleet.mjs snapshot): on the first run of each UTC day, once, on the condition that keeps the first.
  * A snapshot that cannot be made is logged and tried again on the next run; it never holds up the rollouts.
+ *
+ * From console 2.19.0 it also sends the weekly fleet report on Mondays, when a release manager has switched
+ * it on (docs/reports.md, handlers/reports.mjs mailDue): once a week, through the alert topic. Like the
+ * snapshot, a report that cannot be sent is logged and never holds up the rollouts.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -25,6 +29,7 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createMemfaultHandlers } from './handlers/memfault.mjs';
+import { createReportHandlers } from './handlers/reports.mjs';
 import { createRolloutHandlers, runRolloutTick } from './handlers/rollouts.mjs';
 import { pace } from './lib/iot-pace.mjs';
 
@@ -32,7 +37,8 @@ import { pace } from './lib/iot-pace.mjs';
  * @param {object} options
  * @param {object} options.aws      the AWS adapter (src/aws.mjs or test/fake-aws.mjs)
  * @param {object} options.config   the result of loadConfig (src/config.mjs)
- * @param {{ raise: (alert: object) => Promise<number>, watch?: (source: object) => Promise<number> }}
+ * @param {{ raise: (alert: object) => Promise<number>, watch?: (source: object) => Promise<number>,
+ *           publish?: (mail: { subject: string, message: string }) => Promise<boolean> }}
  *        [options.alerts]  the alerter (alerts.mjs)
  * @returns {() => Promise<object>} one run: { checked, advanced, stopped, done, failed }
  */
@@ -54,6 +60,13 @@ export function createRolloutTick({
   const deployments = createDeploymentHandlers(context, { devices, fleet });
   const audit = createAuditHandlers(context);
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, memfault: () => memfault });
+  const reports = createReportHandlers(context, {
+    devices,
+    fleet,
+    deployments,
+    memfault: () => memfault,
+    publish: typeof alerts?.publish === 'function' ? (mail) => alerts.publish(mail) : null,
+  });
   return async () => {
     const outcome = await runRolloutTick(rollouts, log);
     if (typeof alerts?.watch === 'function') await alerts.watch(memfault);
@@ -61,6 +74,11 @@ export function createRolloutTick({
       await fleet.snapshot();
     } catch (error) {
       log({ level: 'warn', event: 'health_snapshot_failed', error: String(error?.message ?? error).slice(0, 200) });
+    }
+    try {
+      await reports.mailDue();
+    } catch (error) {
+      log({ level: 'warn', event: 'report_mail_failed', error: String(error?.message ?? error).slice(0, 200) });
     }
     return outcome;
   };

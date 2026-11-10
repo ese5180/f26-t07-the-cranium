@@ -24,6 +24,8 @@
       "api": ["GET /api/memfault/issues/{id}"]
     },
     { "route": "#/alerts", "nav": "alerts", "script": "account.js", "api": ["GET /api/alerts"] },
+    { "route": "#/reports", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports"] },
+    { "route": "#/reports/2026-11-02", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports/{week}"] },
     { "route": "#/activity", "nav": "activity", "script": null },
     { "route": "#/apps", "nav": "apps", "script": "apps.js" },
     { "route": "#/customers", "nav": "customers", "script": "customers.js" },

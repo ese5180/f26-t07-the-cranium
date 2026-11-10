@@ -29,6 +29,7 @@
  *                                                       item stored has that rev (0: there is none)
  *   putSentAlert(item)                   -> undefined
  *   publishAlert({ subject, message })   -> undefined   SNS Publish to the topic
+ *   listSentAlerts({ limit })            -> object[]    as createMapAws's, for the weekly report's e-mail
  *   getAlertRules()                      -> object | null   the alert rules' item of the state table (pk
  *                                        "ALR", sk "rules"), or null when there is none or the function
  *                                        is given no STATE_TABLE (the location function)
@@ -362,6 +363,10 @@ export function createAlertStore(env) {
       } catch (cause) {
         throw failure('Publish', cause);
       }
+    },
+
+    listSentAlerts({ limit }) {
+      return table.list(ALERTS_PK, { prefix: 'S#', limit, newestFirst: true });
     },
   });
 }
