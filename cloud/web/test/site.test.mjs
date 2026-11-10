@@ -150,7 +150,7 @@ test('the page has no inline script, style or event handler', () => {
     assert.match(match[1], /\ssrc="/, 'a script element must load a file');
     assert.equal(match[2].trim(), '', 'a script element must be empty');
   }
-  assert.match(page, /Loading the console… reload the page if this does not go away\./);
+  assert.match(page, /Loading the console<\/span>[\s\S]*Still loading\? Reload the page\./);
   assert.match(page, /<noscript>[\s\S]+<\/noscript>/);
 });
 

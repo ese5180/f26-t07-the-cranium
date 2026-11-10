@@ -931,22 +931,86 @@ body:has(.boot) .masthead {
   display: none;
 }
 
+/*
+ * The first thing anyone sees: the mark and the name, a slim bar that moves while the scripts load, and a
+ * hint to reload that comes only after 8 s, when waiting longer would be unusual.
+ */
 .boot {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: 24px;
-  min-height: 80vh;
-  padding: 0;
+  gap: 28px;
+  padding: 24px;
+  animation: fade-in 0.4s var(--ease) 0.15s backwards;
 }
 
 .boot-mark {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
 }
 
 .boot-mark .brand-grooves {
   animation: breathe-soft 1.6s ease-in-out infinite;
+}
+
+.boot-words {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin-top: -8px;
+}
+
+.boot-name {
+  color: var(--ink);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.boot-sub {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.boot-bar {
+  position: relative;
+  width: 160px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.boot-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: boot-slide 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.boot-hint {
+  color: var(--ink-3);
+  font-size: 0.875rem;
+  animation: fade-in 0.5s var(--ease) 8s backwards;
+}
+
+@keyframes boot-slide {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
 }
 
 .page {
@@ -6371,6 +6435,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   /* Without its animation a groove would stay undrawn. */
   .art-groove {
     stroke-dashoffset: 0;
+  }
+
+  /* Standing still, the loading bar is a faint full line, not a part done. */
+  .boot-bar-fill {
+    width: 100%;
+    opacity: 0.35;
   }
 
   /* Standing still, a bar that is a third full would read as a third done. */

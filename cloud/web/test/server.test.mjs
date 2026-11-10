@@ -85,7 +85,7 @@ test('the page is served at / and is revalidated on every load', async () => {
   assert.equal(response.headers['cache-control'], 'no-cache');
   assert.equal(response.isBase64Encoded, false);
   assert.match(response.body, /^<!doctype html>/);
-  assert.match(response.body, /Loading the console… reload the page if this does not go away\./);
+  assert.match(response.body, /Loading the console<\/span>[\s\S]*Still loading\? Reload the page\./);
   assert.match(response.body, /<noscript>/);
   assert.doesNotMatch(response.body, /%BUILD%|%CONFIG%/);
   assertSecurityHeaders(response);
