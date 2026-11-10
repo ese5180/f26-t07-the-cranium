@@ -1832,18 +1832,22 @@ function checkAbout(tab) {
     people.every((person) => person.label === person.name),
     'every portrait is named for its person'
   );
-  const [photo, ...placeholders] = people;
-  assert.equal(photo.tag, 'img');
-  assert.equal(photo.label, 'Vihaan Ravishankar');
-  assert.match(photo.src, /^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/);
-  assert.deepEqual(
-    placeholders.map((person) => [person.tag, person.initials]),
-    [
-      ['span', 'DB'],
-      ['span', 'AS'],
-      ['span', 'CD'],
-    ]
-  );
+  // Whoever has a photo in cloud/web/team-photos/ shows it; everyone else shows their initials.
+  const withPhoto = new Set(['Vihaan Ravishankar', 'Adam Shalabi']);
+  const initials = {
+    'Demetrius Bosket': 'DB',
+    'Adam Shalabi': 'AS',
+    'Christian Durante': 'CD',
+    'Vihaan Ravishankar': 'VR',
+  };
+  for (const person of people) {
+    if (withPhoto.has(person.name)) {
+      assert.equal(person.tag, 'img', person.name);
+      assert.match(person.src, /^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/, person.name);
+    } else {
+      assert.deepEqual([person.tag, person.initials], ['span', initials[person.name]], person.name);
+    }
+  }
 }
 
 test('About: signed out, the home page links to it, and it says what Cranium is and who makes it', async (t) => {
@@ -1918,7 +1922,7 @@ test("About: the team's photos are the folder's, small, and a person without one
     photosModule(photos),
     'customer-team-photos.js is what node cloud/web/build-team-photos.mjs writes'
   );
-  assert.deepEqual(Object.keys(photos), ['vihaan-ravishankar']);
+  assert.deepEqual(Object.keys(photos).sort(), ['adam-shalabi', 'vihaan-ravishankar']);
   for (const uri of Object.values(photos)) {
     const bytes = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
     assert.ok(bytes.length <= MAX_PHOTO_BYTES, `${bytes.length} bytes`);

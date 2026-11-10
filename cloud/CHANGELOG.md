@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.17.2
+
+The customer site's About page shows Adam Shalabi's photo in place of his initials.
+
 ## 2.17.1
 
 The customer site has an About page (`#/about`): what Cranium is, the problem it solves and who it is for, and the
