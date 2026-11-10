@@ -400,7 +400,12 @@ no check at all.
 This is how the console is deployed. [`.github/workflows/deploy-console.yml`](../.github/workflows/deploy-console.yml)
 runs `cloud/deploy.sh` on a GitHub runner, so a teammate can deploy without any access to the AWS account or its
 console. The script is the same one the owner runs on a laptop: it runs the `api` and `web` tests first and deploys
-nothing if one fails. **It has not run yet.**
+nothing if one fails. **It has run:** the console has gone out this way from 2.12.0 on, by pushing a tag.
+
+**The usual way is a tag.** After a console change is merged to `main` with its version in `cloud/VERSION` and its changelog
+entry, push `console-v<version>` on the merge commit (`git tag -a console-v2.13.4 -m "<first paragraph>"`, then
+`git push origin console-v2.13.4`) and Actions deploys it. Run workflow on `main` and the laptop (below) are the other ways.
+Tags of older versions are not pushed, because that would redeploy them ([`versions.md`](versions.md)).
 
 **Anyone with write access to the repository can run Deploy console from `main`, and there is no approval step.** The
 run deploys what is on `main` (or a `console-v*` tag) at that moment, so what reaches the console is what was merged.
@@ -409,7 +414,9 @@ run deploys what is on `main` (or a `console-v*` tag) at that moment, so what re
 `cranium-github-deploy`, which lasts an hour at most. No AWS key is stored in GitHub. The role comes from
 [`cloud/infra/github-deploy.yaml`](../cloud/infra/github-deploy.yaml), and its trust policy accepts only a job of this
 repository on `main` or a `console-v*` tag (subjects `repo:ese5180/f26-t07-the-cranium:ref:refs/heads/main` and
-`repo:ese5180/f26-t07-the-cranium:ref:refs/tags/console-v*`, audience `sts.amazonaws.com`). Started on any other
+`repo:ese5180/f26-t07-the-cranium:ref:refs/tags/console-v*`, audience `sts.amazonaws.com`). GitHub now names the repository by its immutable subject in the tokens
+(`repo:<owner>@<id>/<name>@<id>`), which the role first refused: the template's `GitHubSubjectPrefix` parameter holds that
+form, and the role trusts both names, for `main` and `console-v*` tags only. Started on any other
 branch, or from a pull request or a fork, the run gets no credentials and stops at "Configure AWS credentials". Its permissions are what `cloud/deploy.sh` does: CloudFormation on `cranium-ota` and
 `cranium-ota-bootstrap`, the package bucket, IAM only on roles named `cranium-ota-*` and passing them only to Lambda
 and AWS IoT, and the Lambda, API Gateway, Cognito, DynamoDB, AWS IoT, EventBridge, SNS, Secrets Manager and CloudWatch
