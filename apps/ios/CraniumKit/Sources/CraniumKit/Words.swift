@@ -1172,6 +1172,14 @@ public enum Words {
         "db.export": AuditAction(done: "exported the {} table", doneAlone: "exported from the database",
                                  tried: "tried to export the {} table", triedAlone: "tried to export from the database",
                                  icon: "download"),
+        // The weekly fleet report (docs/reports.md): a week as CSV, by its Monday, and its Monday e-mail.
+        "report.export": AuditAction(done: "downloaded the weekly report of", doneAlone: "downloaded a weekly report",
+                                     tried: "tried to download the weekly report of", triedAlone: "tried to download a weekly report",
+                                     icon: "download"),
+        "report.settings": AuditAction(done: "changed the Monday e-mail of the weekly report",
+                                       doneAlone: "changed the Monday e-mail of the weekly report",
+                                       tried: "tried to change the Monday e-mail of the weekly report",
+                                       triedAlone: "tried to change the Monday e-mail of the weekly report", icon: "bell"),
     ]
 
     /// The customer actions whose target is a board, and whose sentence ends with the customer.
@@ -1392,6 +1400,12 @@ public enum Words {
         "invalid_filter": "A filter of the Database page was not valid",
         "invalid_key": "An item’s key was empty, too long or not plain text",
         "invalid_format": "An export is CSV or JSON",
+        // The weekly fleet report (docs/reports.md).
+        "invalid_week": "Not a week: a week is named by its Monday",
+        "unknown_week": "There is no report of that week",
+        "invalid_report_format": "A weekly report is downloaded as CSV",
+        "invalid_report_settings": "The Monday e-mail is on or off, and nothing else",
+        "report_settings_changed": "Someone changed the Monday e-mail at the same moment",
         "unknown_item": "There is no item with that key",
     ]
 

@@ -7,6 +7,21 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.19.0
+
+A weekly fleet report: a Reports page lists the last twelve weeks, Monday to Sunday in New York time, and each week opens as one printable page with the fleet health score and its trend, the boards online, offline and new, the firmware they ran, the week's deployments and staged rollouts with how they ended (health-gate stops and rollbacks counted apart), Memfault's new issues and unexpected reboots by reason, the boards' own restarts, the alerts sent and the activity log's top changes. Print it or save it as a PDF, or download its tables as CSV. A release manager can switch on a Monday e-mail of the summary through the alert topic.
+
+handlers/reports.mjs and lib/reports.mjs are new: `GET /api/reports`, `GET /api/reports/{week}`, `GET
+/api/reports/{week}/export?format=csv` (on record as `report.export`, any member) and `POST /api/reports/settings`
+(`report.settings`, release managers; off by default, written only if unchanged meanwhile). A report is made on
+demand from the records the console already keeps, kept in memory (5 minutes for the week under way, an hour for a
+finished one), and stored in the state table (pk `RPT`) once its week has been over six hours. The daily health
+snapshot now also counts the boards and their versions (`fleet`), the one new piece of data, so that a past week can
+say what the fleet was. The schedule (RolloutTickFn) sends the Monday e-mail once a week from 08:00 New York time,
+claimed by a conditional put; its role gains Query of the activity log, and GetItem, Query and PutItem on `RPT` only.
+New refusal words: `invalid_week`, `unknown_week`, `invalid_report_format`, `invalid_report_settings`,
+`report_settings_changed`, in core.js and the iOS and Android lists. docs/reports.md.
+
 ## 2.18.1
 
 The customer site's About page shows Adam Shalabi's photo in place of his initials.

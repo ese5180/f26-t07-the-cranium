@@ -127,6 +127,10 @@ export const ACTIONS = Object.freeze([
   // with `by: "customer"`, never the customer's e-mail address.
   'customer_action.rename',
   'customer_action.notifications',
+  // The weekly fleet report (handlers/reports.mjs, docs/reports.md): a week exported as CSV, by any member,
+  // and its Monday e-mail switched on or off by a release manager.
+  'report.export',
+  'report.settings',
 ]);
 /** The actions a customer makes, which only the customer API writes, in their own partition. */
 export const CUSTOMER_ACTIONS = Object.freeze(['customer_action.rename', 'customer_action.notifications']);

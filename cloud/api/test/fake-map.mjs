@@ -124,6 +124,9 @@ export function createFakeMap({ clock, put, get, list, rules = () => null }) {
       }
       alertEmails.push({ subject, message, at: clock() });
     },
+    async listSentAlerts({ limit }) {
+      return list(ALERTS_PK, 'S#').reverse().slice(0, limit).map(copy);
+    },
   });
 
   const locationStore = Object.freeze({

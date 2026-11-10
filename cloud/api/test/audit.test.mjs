@@ -166,6 +166,8 @@ test('an audit item carries who, what, when and how it ended', () => {
     'db.export',
     'customer_action.rename',
     'customer_action.notifications',
+    'report.export',
+    'report.settings',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });

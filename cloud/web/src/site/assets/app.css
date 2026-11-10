@@ -11766,3 +11766,131 @@ span.glance-item:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * The weekly fleet report (reports.js, docs/reports.md): the weeks as one group of rows; a week's page as
+ * sections in the grouped look, the score of each day as a small column under its numbers. Colours are the
+ * tokens, so dark mode is the tokens' own. On a phone the day columns stay seven across and the numbers wrap.
+ */
+
+.report-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.report-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-4) 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.report-day {
+  display: grid;
+  grid-template-rows: 64px auto auto;
+  justify-items: center;
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.report-day-bar {
+  align-self: end;
+  width: min(28px, 100%);
+  height: calc(var(--score) * 1%);
+  min-height: 2px;
+  border-radius: var(--radius-small) var(--radius-small) 0 0;
+  background: var(--accent);
+}
+
+.report-day.is-none .report-day-bar {
+  height: 2px;
+  background: var(--line-strong);
+}
+
+.report-day-value {
+  font-weight: 600;
+}
+
+.report-day-name {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.report-subhead {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 0.9375rem;
+}
+
+.report-new,
+.report-kinds {
+  margin: var(--space-3) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.report-email-state {
+  margin: 0 0 var(--space-2);
+}
+
+.report-made {
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 480px) {
+  .report-days {
+    gap: var(--space-1);
+  }
+
+  .report-day-name {
+    font-size: 0.75rem;
+  }
+}
+
+/*
+ * A week's report printed, or saved as PDF from the print dialog: the report alone, on white, its sections
+ * kept whole where they fit, the console's bars, buttons and links' arrows left out.
+ */
+@media print {
+  body.console:has(.report-page) {
+    background: white;
+    color: black;
+  }
+
+  body:has(.report-page) .masthead,
+  body:has(.report-page) .foot,
+  body:has(.report-page) .toasts,
+  body:has(.report-page) .skip,
+  .report-page .report-tools,
+  .report-page .back,
+  .report-page .row-chevron,
+  .report-page .page-notice {
+    display: none !important;
+  }
+
+  body:has(.report-page) .main {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .report-page .card {
+    break-inside: avoid;
+    box-shadow: none;
+  }
+
+  .report-page .card-body {
+    border: 0.2mm solid silver;
+    background: white;
+  }
+
+  .report-page .report-day-bar {
+    print-color-adjust: exact;
+  }
+
+  .report-page a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

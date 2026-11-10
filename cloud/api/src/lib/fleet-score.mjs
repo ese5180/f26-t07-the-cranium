@@ -130,13 +130,67 @@ export function dayOf(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** The state-table item of the day's snapshot: { day, at, score, parts: { id: value | null } }. */
-export function snapshotItem(score, nowMs) {
+/**
+ * The state-table item of the day's snapshot: { day, at, score, parts: { id: value | null } }, and from console
+ * 2.19.0 `fleet`, what fleetCounts() made of the boards, for the weekly report (lib/reports.mjs).
+ */
+export function snapshotItem(score, nowMs, fleet = null) {
   return {
     day: dayOf(nowMs),
     at: new Date(nowMs).toISOString(),
     score: score.value,
     parts: Object.fromEntries(score.parts.map((part) => [part.id, part.value === null ? null : round(part.value)])),
+    ...(fleet === null ? {} : { fleet }),
+  };
+}
+
+// The most boards a snapshot names, so that an item stays far below DynamoDB's 400 KB.
+export const SNAPSHOT_THINGS = 500;
+const COUNT = (value) => Number.isInteger(value) && value >= 0;
+
+/**
+ * What a snapshot keeps of the boards (console 2.19.0), for the weekly report: how many, online and offline of
+ * those with Wi-Fi, Bluetooth only, the versions they run and how many of each, and their names, so that a
+ * later week can tell which are new. `boards` are FleetBoards (handlers/fleet.mjs).
+ */
+export function fleetCounts(boards) {
+  const versions = {};
+  let unknown = 0;
+  for (const board of boards) {
+    if (typeof board.version !== 'string') unknown += 1;
+    else versions[board.version] = (versions[board.version] ?? 0) + 1;
+  }
+  const wifi = boards.filter((board) => !board.bluetoothOnly);
+  const online = wifi.filter((board) => board.online).length;
+  return {
+    boards: boards.length,
+    online,
+    offline: wifi.length - online,
+    bluetoothOnly: boards.length - wifi.length,
+    versions,
+    unknown,
+    things: boards
+      .map((board) => board.thing)
+      .sort()
+      .slice(0, SNAPSHOT_THINGS),
+  };
+}
+
+/** The `fleet` of a stored snapshot, checked, or null for a snapshot from before console 2.19.0 or not one. */
+export function snapshotFleet(item) {
+  const fleet = item?.fleet;
+  if (fleet === null || typeof fleet !== 'object') return null;
+  if (!['boards', 'online', 'offline', 'bluetoothOnly'].every((name) => COUNT(fleet[name]))) return null;
+  const versions = {};
+  for (const [version, count] of Object.entries(fleet.versions ?? {})) if (COUNT(count)) versions[version] = count;
+  return {
+    boards: fleet.boards,
+    online: fleet.online,
+    offline: fleet.offline,
+    bluetoothOnly: fleet.bluetoothOnly,
+    versions,
+    unknown: COUNT(fleet.unknown) ? fleet.unknown : 0,
+    things: Array.isArray(fleet.things) ? fleet.things.filter((thing) => typeof thing === 'string') : null,
   };
 }
 
