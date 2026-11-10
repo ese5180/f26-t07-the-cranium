@@ -786,6 +786,50 @@ parser (`CraniumKit/BoardStatus.swift`, `core/BoardStatus.kt`). From 0.8.0 the p
 shell's Bluetooth page: `cloud/web/src/site/assets/updatewatch.js`, with the same cases in
 `cloud/web/test/updatewatch.test.mjs`.
 
+## Offline mode
+
+From firmware 1.19.0 and app 0.9.0. When a board has no Wi-Fi or no cloud, the phone talks to it directly over
+Bluetooth: **More, Offline**. It needs no internet and no sign-in beyond the one the app already holds.
+
+**At the board.** Run `BT_OFFLINE|NEW` once on its serial console (Board setup's command line). The board draws a
+6-digit passkey and a name (`Cranium-3F9C`) with its own random source, keeps them in protected storage and shows the
+passkey **once**, in that reply: write it down. It is never logged, never sent to the cloud and never shown again; running
+the command again makes a new one. A board that has not run it still draws a new passkey for each attempt and shows it
+on the console, as before. Then, whenever the phone should talk to it, hold Button 1 for 5 s: LED1 flashes four times and
+Bluetooth is open for 3 minutes. The passkey is the board's own (`src/bt/bt_passkey.h` explains what that costs and the
+three-failure lock).
+
+**In the app.** Pick the board (the name above). The phone asks for the passkey; type it. The screen then shows the
+firmware version, how long the board has been up, why it last restarted, Wi-Fi and cloud state, and the update state, and
+refreshes every 3 seconds. When an update that a phone sent (Update over Bluetooth, or any MCUmgr client) has arrived and
+waits, **Accept the update** asks to confirm the version and then installs it, as a press of the install button would.
+
+**The service** (`firmware/app/src/policy/bt_offline_policy.h`): `9112B1B6-2A51-40F0-94D3-A76440F0E6CC` with two
+characteristics, both needing an encrypted, authenticated link (LE Secure Connections with the passkey; a link that has
+not paired is refused by the board's Bluetooth host and the phone's system pairs first).
+
+| Characteristic | UUID ends | Access | Content |
+|---|---|---|---|
+| status | `...B7` | read | 20 bytes, format 1 |
+| control | `...B8` | write | `[0x01, major, minor]`: accept the waiting update |
+
+The status: byte 0 format (1); 1 Wi-Fi (0 none, 1 down, 2 up); 2 cloud (same); 3 update (0 none, 1 cloud offer, 2 cloud
+busy, 3 on trial, 4 Bluetooth update waiting, 5 arriving); 4 why the board last restarted (`enum reset_kind`, 255 not
+known); 6 to 13 the running version (major, minor, revision (2), build (4)); 14 to 17 uptime in seconds; 18 and 19 the
+major and minor of the waiting update, 0 unless byte 3 is 4. The write carries the version the person saw: the board
+refuses it (ATT "unlikely error") if nothing waits or another version does by now. Both apps' tests parse the payload
+that `build/bt_offline_tests --print` makes.
+
+**What is and is not new in the security model.** Nothing is bonded: the board keeps no bonds (`bt_ota.conf`), so a phone
+pairs again each time a person opens a window with Button 1, and a window still needs a person at the board. What is new
+is that an authenticated phone, not only a press of the install button, can start the install of an image that has
+already arrived, been checked for board, layout and version, and is signed by the project's key (the bootloader checks
+the signature at the restart). The image still runs on trial and reverts unless it is proved. Only an update waiting in
+the window can be accepted; a cloud update that waits for a button is shown but not accepted from the phone.
+
+**Not covered.** An iPhone and an Android phone have not been run against a board; the board has not been flashed with this
+firmware. See the pull request for what was and was not tested.
+
 ## Errors to expect
 
 | What happens | Why | What the app says |

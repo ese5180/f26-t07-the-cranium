@@ -15,6 +15,9 @@
 #include "bt_ota.h"
 #include "bt_passkey.h"
 #endif
+#if defined(CONFIG_APP_BT_OFFLINE)
+#include "bt_offline.h"
+#endif
 #include "cloud.h"
 #include "cloud_events.h"
 #include "console_parser.h"
@@ -1504,6 +1507,62 @@ static void cmd_bt_passkey(int argc, char **argv)
 }
 #endif /* CONFIG_APP_BT_STATIC_PASSKEY */
 
+#if defined(CONFIG_APP_BT_OFFLINE)
+/* The passkey is in this struct for the length of the command, and wiped after the one reply that shows it. */
+struct bt_offline_call {
+	uint32_t passkey;
+	uint16_t tag;
+};
+
+static int do_bt_offline_new(void *arg)
+{
+	struct bt_offline_call *call = arg;
+
+	return bt_offline_new_passkey(&call->passkey, &call->tag);
+}
+
+/*
+ * BT_OFFLINE|NEW draws the board's own passkey and name, stores them and shows the passkey once, in
+ * this reply, on the serial console that Board setup reads. It is never logged, kept or sent to the
+ * cloud, and nothing shows it again: run it again for a new one. The phone types it when it pairs.
+ */
+static void cmd_bt_offline(int argc, char **argv)
+{
+	struct bt_offline_call call = { 0 };
+	char name[24];
+	char text[16];
+	int err;
+
+	if (argc != 1 || !console_equal_nocase(argv[0], "NEW")) {
+		reply_err("usage: BT_OFFLINE|NEW");
+		return;
+	}
+
+	err = on_main_guarded(do_bt_offline_new, &call);
+	if (refused_by_update(err)) {
+		call.passkey = 0;
+		return;
+	}
+
+	if (err == -EBUSY) {
+		reply_err("Bluetooth is open: close it with Button 2 first");
+		return;
+	}
+
+	if (err) {
+		call.passkey = 0;
+		reply_err("the passkey could not be made or stored (%d)", err);
+		return;
+	}
+
+	(void)bt_passkey_name(call.tag, CONFIG_BT_DEVICE_NAME, name, sizeof(name));
+	(void)snprintf(text, sizeof(text), "%06u", (unsigned int)call.passkey);
+	call.passkey = 0;
+	reply_ok("passkey %s, advertising as %s; this is the only time it is shown", text, name);
+	memset(text, 0, sizeof(text));
+}
+#endif /* CONFIG_APP_BT_OFFLINE */
+
 /* ---- test bench ----------------------------------------------------------------- */
 
 /*
@@ -1653,6 +1712,11 @@ static const struct console_command commands[] = {
 	{ "BT_PASSKEY", NULL, "BT_PASSKEY|<6 digits>|<4 hex digits>",
 	  "store the board's own Bluetooth passkey and name; CLEAR erases them", SECTION_BLUETOOTH,
 	  false, 1, 2, cmd_bt_passkey },
+#endif
+#if defined(CONFIG_APP_BT_OFFLINE)
+	{ "BT_OFFLINE", NULL, "BT_OFFLINE|NEW",
+	  "draw the board's own Bluetooth passkey for the phone apps, and show it once", SECTION_BLUETOOTH,
+	  false, 1, 1, cmd_bt_offline },
 #endif
 
 	{ "BUTTON", NULL, "BUTTON|<1 or 2>", "act as if the button was pressed", SECTION_TEST, false,

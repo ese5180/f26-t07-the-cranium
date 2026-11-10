@@ -19,6 +19,9 @@
 #include "app_events.h"
 #if defined(CONFIG_APP_BT_OTA)
 #include "bt_ota.h"
+#if defined(CONFIG_APP_BT_OFFLINE)
+#include "bt_offline.h"
+#endif
 #endif
 #include "cloud.h"
 #include "cloud_events.h"
@@ -331,6 +334,9 @@ static void on_tick(void)
 
 #if defined(CONFIG_APP_BT_OTA)
 	bt_ota_on_tick();
+#if defined(CONFIG_APP_BT_OFFLINE)
+	bt_offline_on_tick();
+#endif
 	update_ui();
 #endif
 

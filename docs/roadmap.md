@@ -56,6 +56,9 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 - **A hardware self-test step in setup** (firmware 1.17.0, console 2.23.0, draft pull request #92): built, waiting for a
   test on a board.
 - **The native Mac app** (pull request #94): builds and passes its tests, waiting for a review of its look.
+- **Offline Bluetooth mode** (firmware 1.19.0, apps 0.9.0, draft pull request): the phone apps read a board's status and
+  accept a waiting update over Bluetooth with the board's own passkey, no cloud ([`mobile-apps.md`](mobile-apps.md#offline-mode)).
+  Built for both boards, unit-tested, not yet run on a board or a phone.
 
 ## Planned next, in this order
 
