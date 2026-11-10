@@ -258,6 +258,30 @@ jobs:
           xcodebuild -project apps/ios/Cranium.xcodeproj -scheme Cranium -configuration Debug \
             -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 
+  macos:
+    name: Mac app
+    if: github.event_name != 'release'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    # Not a required check: the Mac app is new and still waiting for its look to be reviewed.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use the newest Xcode on the runner
+        run: |
+          # shellcheck disable=SC2012 # the Xcode folders have plain names
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+      - name: The app and its tests, built for the Mac without a team
+        run: |
+          brew install xcodegen
+          apps/macos/scripts/generate.sh --ad-hoc
+          xcodebuild -project apps/macos/Cranium.xcodeproj -scheme Cranium -configuration Debug \
+            -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test
+
   firmware:
     name: Firmware (${{ matrix.configuration }})
     if: github.event_name != 'release'

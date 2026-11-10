@@ -96,7 +96,6 @@ struct RoutePage: View {
         case .eventsList: EventsPage()
         case .tokens, .token: TokensPage()
         case .history: HistoryPage()
-        case .serial: SerialPage()
         case .account: AccountPrompt()
         case .help(let topic): HelpPage(selected: topic)
         }
@@ -542,5 +541,13 @@ struct BoardPage: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The team's account page: account management (users, roles, two-step sign-in) lives in the web
+/// console for now; the Mac app points there rather than copying it.
+struct AccountPrompt: View {
+    var body: some View {
+        PageState(kind: .empty, text: "Account management is in the web console for now. Open the console in your browser to manage users and sign-in.")
     }
 }

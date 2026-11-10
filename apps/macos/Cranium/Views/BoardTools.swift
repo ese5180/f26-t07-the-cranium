@@ -498,6 +498,7 @@ struct CustomerView: View {
                 case .boards: CustomerBoardsPage()
                 case .activity: CustomerActivityPage()
                 case .help: CustomerHelpPage()
+                case .account: CustomerAccountPage()
                 }
             }
             .id(session.customerSection)
