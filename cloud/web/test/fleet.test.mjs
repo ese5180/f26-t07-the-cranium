@@ -163,7 +163,7 @@ test('a board says its type and its groups; a board without Wi-Fi says what a ph
   const page = draw(views.devicesView(ctx));
   const third = all(page, 'article.device')[2];
   assert.match(textOf(third), /Bluetooth only/);
-  assert.doesNotMatch(textOf(third), /Has not reported to AWS IoT yet/);
+  assert.doesNotMatch(textOf(third), /Has not reported to the console yet/);
   // The groups, with each type's group first.
   const groups = one(page, 'section.groups-card');
   assert.deepEqual(all(groups, 'p.group-name').map(textOf), [

@@ -601,8 +601,18 @@ export function customersView(ctx) {
           { class: 'page-notice' },
           notice('warn', 'alert', [
             h('strong', null, 'The customer site has no address yet. '),
-            'Boards can be given out already; invitations wait until CustomerDomainName is set.',
-          ])
+            'Boards can be given out already; invitations wait until the customer site has its address.',
+          ]),
+          h(
+            'details',
+            { class: 'more is-spaced' },
+            h('summary', null, 'Details'),
+            h(
+              'p',
+              { class: 'card-note' },
+              'The address is the stack’s CustomerDomainName, set when the console is deployed.'
+            )
+          )
         )
       : null,
     h(

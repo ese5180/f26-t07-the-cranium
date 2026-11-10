@@ -373,6 +373,11 @@ function command(line, ctx) {
   );
 }
 
+/** Commands and paths for a step, closed under "Commands" so that the step reads as words. */
+function commands(...lines) {
+  return h('details', { class: 'more is-spaced app-commands' }, h('summary', null, 'Commands'), lines);
+}
+
 function steps(items) {
   return h(
     'ol',
@@ -484,7 +489,7 @@ function androidInstall() {
       'A newer version installs over the one on the phone, and keeps its sign-in. One you built yourself has another key: uninstall it first.',
       [
         'Open Cranium and sign in with your console account: the e-mail address, the password, then the six-digit code. ',
-        'A first sign-in sets a new password and an authenticator app on the AWS sign-in page, where the app sends you.',
+        'A first sign-in sets a new password and an authenticator app on the sign-in page, where the app sends you.',
       ],
       'The first time it looks for a board, Android asks for Nearby devices (location on Android 11 and older): allow it.',
     ])
@@ -540,14 +545,12 @@ function unpublished(apps, versions, ctx) {
   const newest = versions?.changelogs?.android?.[0];
   if (!ctx.state.me?.canWrite || !newest || newest.version === apps.android.latest) return null;
   if (apps.android.releases.some((release) => release.version === newest.version)) return null;
-  return notice(
-    'wait',
-    'upload',
-    ['Android ', mono(newest.version), ' is in the changelog and not on the console yet.'],
-    {
-      more: [' The release build publishes it: ', mono('apps/android/build-release.sh'), '.'],
-    }
-  );
+  return [
+    notice('wait', 'upload', ['Android ', mono(newest.version), ' is in the changelog and not on the console yet.'], {
+      more: ' The release build publishes it.',
+    }),
+    commands(command('apps/android/build-release.sh', ctx)),
+  ];
 }
 
 function androidCard(apps, versions, ctx) {
@@ -559,10 +562,15 @@ function androidCard(apps, versions, ctx) {
         iconName: 'package',
         title: 'No Android app is on the console yet.',
         text: ctx.state.me?.canWrite
-          ? "A release manager's build publishes it here, with an API token in ~/.cranium/console-token:"
+          ? "A release manager's build publishes it here, with the release manager's API token."
           : "A release manager's build publishes it here. Until then, build it yourself, below.",
-        command: ctx.state.me?.canWrite ? 'apps/android/build-release.sh' : null,
       }),
+      ctx.state.me?.canWrite
+        ? commands(
+            h('p', { class: 'card-note' }, 'The token is read from ', mono('~/.cranium/console-token'), '.'),
+            command('apps/android/build-release.sh', ctx)
+          )
+        : null,
       unpublished(apps, versions, ctx)
     );
   }
@@ -847,7 +855,7 @@ function iphoneCard(apps, versions, ctx) {
         ', your Apple ID in Xcode (a free Personal Team), and Developer Mode on the iPhone.'
       ),
       steps([
-        ['Get the code:', command(`git clone ${REPOSITORY}`, ctx), command('cd f26-t07-the-cranium', ctx)],
+        ['Get the code.', commands(command(`git clone ${REPOSITORY}`, ctx), command('cd f26-t07-the-cranium', ctx))],
         [
           'Download the configuration, and put ',
           mono(CONFIG_NAME),
@@ -856,12 +864,12 @@ function iphoneCard(apps, versions, ctx) {
           ' of the clone.',
           h('div', { class: 'app-step-action' }, configButton()),
         ],
-        ['Make the project and open it in Xcode:', command('apps/ios/scripts/phone.sh', ctx)],
+        ['Make the project and open it in Xcode.', commands(command('apps/ios/scripts/phone.sh', ctx))],
         'Plug the iPhone in and tap Trust on it. In Xcode, choose the iPhone at the top, and press Run.',
         'The first time, on the iPhone: Settings > General > VPN & Device Management > your Apple ID > Trust. Then open the app.',
         [
-          "Every 7 days the free team's app stops opening. Let the Mac renew it by itself:",
-          command('apps/ios/scripts/renew.sh --schedule', ctx),
+          "Every 7 days the free team's app stops opening. Let the Mac renew it by itself.",
+          commands(command('apps/ios/scripts/renew.sh --schedule', ctx)),
         ],
       ]),
       h(
@@ -890,7 +898,7 @@ function buildCard(ctx) {
         "with your own computer's key: Android will not put it over the team's APK, so uninstall that first."
     ),
     steps([
-      ['Get the code:', command(`git clone ${REPOSITORY}`, ctx), command('cd f26-t07-the-cranium', ctx)],
+      ['Get the code.', commands(command(`git clone ${REPOSITORY}`, ctx), command('cd f26-t07-the-cranium', ctx))],
       [
         'Download the configuration, and put ',
         mono(CONFIG_NAME),
@@ -900,10 +908,12 @@ function buildCard(ctx) {
         h('div', { class: 'app-step-action' }, configButton()),
       ],
       [
-        'Build it, and put it on the phone over USB:',
-        command('cd apps/android', ctx),
-        command('./gradlew assembleDebug', ctx),
-        command('adb install -r app/build/outputs/apk/debug/app-debug.apk', ctx),
+        'Build it, and put it on the phone over USB.',
+        commands(
+          command('cd apps/android', ctx),
+          command('./gradlew assembleDebug', ctx),
+          command('adb install -r app/build/outputs/apk/debug/app-debug.apk', ctx)
+        ),
       ],
     ])
   );

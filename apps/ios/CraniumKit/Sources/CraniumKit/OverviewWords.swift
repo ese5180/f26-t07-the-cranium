@@ -4,7 +4,7 @@ import Foundation
 // fleet as a whole rather than about one board.
 
 extension Words {
-    public static let neverReported = "Has not reported to AWS IoT yet."
+    public static let neverReported = "Has not reported to the console yet."
     public static let neverReportedHelp = "Power it up and check that it was provisioned."
     public static let notRegistered = "Not a registered release"
 

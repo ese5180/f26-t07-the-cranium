@@ -969,11 +969,11 @@ function pageHead({ title, lede, meta, back, tools, eyebrow, how }) {
           title
         ),
         lede ? h('p', { class: 'page-lede' }, lede) : null,
-        meta ? h('div', { class: 'page-meta dotted' }, meta) : null,
-        howItWorks(how)
+        meta ? h('div', { class: 'page-meta dotted' }, meta) : null
       ),
       tools ? h('div', { class: 'page-tools' }, tools) : null
-    )
+    ),
+    howItWorks(how)
   );
 }
 
@@ -3767,7 +3767,7 @@ function openOffer(device, ctx) {
   return null;
 }
 
-const NEVER_REPORTED = 'Has not reported to AWS IoT yet.';
+const NEVER_REPORTED = 'Has not reported to the console yet.';
 const NEVER_REPORTED_HELP = 'Power it up and check that it was provisioned.';
 
 function seenLine(device, now) {
@@ -4104,7 +4104,7 @@ function boardPanel(device) {
             { class: 'board-silent-text' },
             device.lastSeen
               ? 'This board has not said what it runs, so nothing is known about its flash memory.'
-              : 'This board has not reported to AWS IoT, so nothing is known about its flash memory.'
+              : 'This board has not reported to the console, so nothing is known about its flash memory.'
           )
         )
   );
@@ -5315,7 +5315,7 @@ function updatesPanel(updates, cut, deployments, ctx) {
     { class: 'panel on-ink deployments-panel updates-panel', key: 'panel', 'aria-label': 'Every update at a glance' },
     stats([
       ['Updates', `${totals.total}${cut ? '+' : ''}`, cut ? `the newest ${totals.total}` : 'of every board'],
-      ['Deployments under way', underWay, `of ${deployments.length} deployments, AWS IoT jobs`],
+      ['Deployments under way', underWay, `of ${deployments.length} deployments`],
       ['Over Bluetooth', totals.how.bluetooth, 'from a phone'],
       ['By USB or another tool', totals.how.usb_or_other],
     ]),
@@ -5357,7 +5357,7 @@ function deploymentsPanel(deployments, ctx) {
     'section',
     { class: 'deployments-panel jobs-panel', key: 'jobs-panel', 'aria-label': 'All deployments at a glance' },
     stats([
-      ['Deployments', deployments.length, 'AWS IoT jobs'],
+      ['Deployments', deployments.length, 'sent to boards'],
       ['Under way', underWay, 'deployments'],
     ]),
     h(

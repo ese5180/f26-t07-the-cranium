@@ -10,7 +10,7 @@ import com.craniumiot.cranium.core.Updates
 import com.craniumiot.cranium.core.Words
 
 const val NOT_REGISTERED = "Not a registered release"
-const val NEVER_REPORTED = "Has not reported to AWS IoT yet."
+const val NEVER_REPORTED = "Has not reported to the console yet."
 const val NEVER_REPORTED_HELP = "Power it up and check that it was provisioned."
 
 /** The versions of the releases that are revoked, as far as they are known. */

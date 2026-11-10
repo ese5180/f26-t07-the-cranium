@@ -260,13 +260,13 @@ test('the Deployments page lists every update of every board, however it came', 
   const top = one(drawn, 'section.updates-panel');
   const stats = all(top, 'div.stat').map((stat) => textOf(stat).replace(/\s+/g, ' '));
   assert.equal(stats[0], 'Updates 3 of every board');
-  assert.match(stats[1], /^Deployments under way \d+ of \d+ deployments, AWS IoT jobs$/);
+  assert.match(stats[1], /^Deployments under way \d+ of \d+ deployments$/);
   assert.deepEqual(stats.slice(2), ['Over Bluetooth 1 from a phone', 'By USB or another tool 1']);
   assert.equal(
     one(top, 'div.segments').getAttribute('aria-label'),
     '3 updates: 1 by deployment, 1 over Bluetooth, 1 by USB or another tool; 2 kept, 1 rolled back.'
   );
-  assert.match(textOf(one(drawn, 'section.jobs-panel')), /Deployments.*AWS IoT jobs.*Under way.*deployments/);
+  assert.match(textOf(one(drawn, 'section.jobs-panel')), /Deployments.*sent to boards.*Under way.*deployments/);
   assert.ok(all(drawn, 'li.deployment-row').length >= 1);
   // The Overview says the same sums.
   const { state: overview } = await consoleState(CALM);

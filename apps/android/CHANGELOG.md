@@ -6,7 +6,7 @@ same numbers for the same features. The first paragraph of an entry is what the 
 
 ## 0.8.22
 
-Shorter words in customer mode, the same as the customer site's: the Overview's line under its title, and the line under each Mixes tab (Sessions, Track library, Your listening, Saved moments), each now one short sentence. The activity log's note on an entry sent by a script is two short sentences; which scripts those are is now in the console's Activity page, under "How the activity log works".
+Shorter words in customer mode, the same as the customer site's: the Overview's line under its title, and the line under each Mixes tab (Sessions, Track library, Your listening, Saved moments), each now one short sentence. The activity log's note on an entry sent by a script is two short sentences; which scripts those are is now in the console's Activity page, under "How the activity log works". A board that never reported says "Has not reported to the console yet." instead of naming AWS IoT.
 
 ## 0.8.21
 
