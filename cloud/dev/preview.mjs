@@ -91,7 +91,7 @@
  * No dependencies.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, sign } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { isIPv4 } from 'node:net';
@@ -103,7 +103,9 @@ import { loadConfig } from '../api/src/config.mjs';
 import { createRolloutTick } from '../api/src/tick.mjs';
 import { createCustomerApp } from '../api/src/customer/app.mjs';
 import { issuerOf } from '../api/src/customer/config.mjs';
+import { FEATURES_TLV } from '../api/src/lib/boards.mjs';
 import { compareVersions, parseVersion } from '../api/src/lib/mcuboot.mjs';
+import { canonicalMinFirmware, piManifest, piObjectKey } from '../api/src/lib/pi-images.mjs';
 import { withConsoleScope } from '../api/src/signin-scope.mjs';
 import { parseBundledVersions } from '../api/src/lib/versions.mjs';
 import { accessClaims, createFakeAws, fakeEnv, fixture } from '../api/test/fake-aws.mjs';
@@ -151,6 +153,22 @@ const API_SIDESTORE = 'GET /api/sidestore/{proxy+}';
 const ROLLOUT_TICK_MS = 60_000;
 // The key the fleet scenario's images are signed with (see the top of this file).
 const FLEET_KEY = imageKey();
+
+/**
+ * A Raspberry Pi image's record, as tools/pi_image.py sign writes it (the .pi.json), for these bytes,
+ * signed with the key the "fleet" and "pi" scenarios' consoles trust. For the Firmware page's upload.
+ */
+export function piRecord(body, { version, minFirmware = undefined } = {}) {
+  const record = {
+    version,
+    size: body.length,
+    sha256: createHash('sha256').update(body).digest('hex'),
+    ...(minFirmware === undefined ? {} : { minFirmware }),
+  };
+  const manifest = piManifest({ ...record, minFirmware: canonicalMinFirmware(minFirmware) });
+  const signature = sign('sha256', Buffer.from(manifest), { key: FLEET_KEY.privateKey, dsaEncoding: 'ieee-p1363' });
+  return { ...record, sig: signature.toString('hex') };
+}
 
 // What the requests of --home are addressed to. A reserved domain: it can never exist.
 const HOME_HOST = 'home.preview.invalid';
@@ -704,15 +722,28 @@ function createBoard(fake, thing, version, say) {
     bt: null,
     // How the signal and the heap move while time goes by: (board, at) => void, or null.
     wander: null,
+    // A Pi build (firmware 1.20.0, docs/pi-ota.md): the board's own account of the Raspberry Pi wired to it,
+    // reported in the board's shadow under "pi". The Pi has no network and no shadow of its own: all the
+    // console knows of it is this. null for a board without Pi updates.
+    pi: null,
   };
   let lastDiag = -Infinity;
   let secondsInState = 0;
   // The object the offered image is stored under, from the job document.
   let imageKey = null;
+  // A job that brings a Raspberry Pi image: { version, key } of the image, and for a Pi image alone the
+  // job's id (a job with board firmware too is board.job, as firmware's is).
+  let piTarget = null;
+  let piJob = null;
 
   /** True if the bucket would refuse the image now: its release was revoked. */
   function imageRefused() {
-    return fake.objects.get(imageKey)?.tags.revoked === 'true';
+    return fake.objects.get(imageKey)?.tags?.revoked === 'true';
+  }
+
+  /** True if the bucket would refuse the Pi image now: that version was revoked. */
+  function piImageRefused() {
+    return piTarget !== null && fake.objects.get(piTarget.key)?.tags?.revoked === 'true';
   }
 
   /** The whole reported document, as the firmware sends it every time. */
@@ -729,6 +760,7 @@ function createBoard(fake, thing, version, say) {
       },
       wifi: { rssi: board.rssi },
       ...(board.stuck === null ? {} : { stuck: board.stuck }),
+      ...(board.pi === null ? {} : { pi: board.pi }),
       ...extra,
     });
   }
@@ -753,12 +785,58 @@ function createBoard(fake, thing, version, say) {
     board.progress = 0;
     board.last = last;
     board.error = error;
+    if (board.pi !== null && piJob === null && piTarget !== null) {
+      board.pi = { ...board.pi, state: 'idle', job: '', progress: 0 };
+      piTarget = null;
+    }
     report();
   }
 
   /** Send a job update. True if AWS IoT accepted it. */
   function update(status, details) {
     return fake.execution(board.job, thing).update(status, details).accepted;
+  }
+
+  /** The Pi's part as the board reports it in its shadow. */
+  function piSays(changes) {
+    board.pi = { ...board.pi, ...changes };
+  }
+
+  /** A Pi image alone has ended: the board answers its job and the Pi's part goes back to idle. */
+  function piSettle(status, details, last, error) {
+    fake.execution(piJob, thing).update(status, { running: board.version, ...details });
+    piSays({ state: 'idle', job: '', progress: 0, last, error });
+    piJob = null;
+    piTarget = null;
+    report();
+  }
+
+  /** The image a job's "pi" part names, and the object it is stored under. */
+  function piTargetOf(document) {
+    const { version, sha256 } = document?.pi ?? {};
+    if (typeof version !== 'string' || typeof sha256 !== 'string') return null;
+    return { version, key: piObjectKey({ version, sha256 }) };
+  }
+
+  /**
+   * A Pi image alone (op "pi_image"): no button, as the firmware does it (src/pi/pi_ota.c). The board
+   * downloads it onto its SD card, then sends it to the Pi over SPI.
+   */
+  function startPi(next) {
+    piJob = next.jobId;
+    piTarget = piTargetOf(next.document);
+    if (piTarget === null) {
+      piSettle('REJECTED', { reason: 'bad_document' }, 'refused', 'bad_document');
+      return;
+    }
+    if (piTarget.version === board.pi.installed) {
+      piSettle('REJECTED', { reason: 'already_installed' }, 'refused', 'already_installed');
+      return;
+    }
+    fake.execution(piJob, thing).update('IN_PROGRESS', { step: 'downloading', progress: '0' });
+    piSays({ state: 'downloading', job: piJob, progress: 0 });
+    report();
+    say(`${thing}: downloading Pi image ${piTarget.version} onto its SD card`);
   }
 
   /**
@@ -773,11 +851,33 @@ function createBoard(fake, thing, version, say) {
       say(`${thing}: the update to ${board.target} was withdrawn`);
       settle('cancelled', '');
     }
-    if (board.state !== 'idle' || next === null || next.status !== 'QUEUED') return;
+    if (piJob !== null && next?.jobId !== piJob) {
+      // A Pi image alone, withdrawn: the board stops, and sends the Pi ABORT if it was sending.
+      say(`${thing}: Pi image ${piTarget?.version} was withdrawn`);
+      piSays({ state: 'idle', job: '', progress: 0, last: 'cancelled', error: 'aborted' });
+      piJob = null;
+      piTarget = null;
+      report();
+    }
+    if (board.state !== 'idle' || piJob !== null || next === null || next.status !== 'QUEUED') return;
+
+    const op = next.document?.op;
+    if (op === 'pi_image' || op === 'fw_pi_update') {
+      if (board.pi === null) {
+        // A build without Pi updates refuses it as it refuses any document it does not know.
+        fake.execution(next.jobId, thing).update('REJECTED', { reason: 'unsupported', running: board.version });
+        return;
+      }
+      if (op === 'pi_image') {
+        startPi(next);
+        return;
+      }
+    }
 
     const offered = next.document?.fw?.version;
     board.job = next.jobId;
-    if (next.document?.op !== 'fw_update' || parseVersion(offered) === null) {
+    piTarget = op === 'fw_pi_update' ? piTargetOf(next.document) : null;
+    if ((op !== 'fw_update' && op !== 'fw_pi_update') || parseVersion(offered) === null) {
       update('REJECTED', { reason: 'bad_document', running: board.version });
       settle('refused', 'bad_document');
     } else if (compareVersions(parseVersion(offered), parseVersion(board.version)) <= 0) {
@@ -789,15 +889,17 @@ function createBoard(fake, thing, version, say) {
       board.target = offered;
       imageKey = `firmware/${next.document.fw.sha256}.bin`;
       enter('awaiting_user');
+      if (piTarget !== null) piSays({ state: 'waiting_for_firmware', job: next.jobId, progress: 0 });
       report();
-      say(`${thing}: offered ${offered}, waiting for Button 1`);
+      const alsoPi = piTarget === null ? '' : ` and Pi image ${piTarget.version}`;
+      say(`${thing}: offered ${offered}${alsoPi}, waiting for Button 1`);
     }
   }
 
   /** The update cannot go on: tell AWS IoT why, and go back to idle. */
-  function fail(reason) {
+  function fail(reason, details = {}) {
     // If the job was cancelled meanwhile nobody takes this answer.
-    update('FAILED', { reason, running: board.version });
+    update('FAILED', { reason, running: board.version, ...details });
     say(`${thing}: the update to ${board.target} failed (${reason})`);
     settle('failed', reason);
   }
@@ -936,9 +1038,101 @@ function createBoard(fake, thing, version, say) {
       }
     },
 
-    /** Check the finished download and restart into it. False if there is none. */
+    /**
+     * A job with a Pi image too, once the firmware is in its slot: the Pi image goes onto the SD card
+     * before anything is installed (docs/pi-ota.md, "Both at once"), up to `percent`.
+     */
+    downloadPi(percent) {
+      if (board.state === 'downloading' && board.progress === 100 && piTarget !== null) {
+        enter('downloading_pi');
+        board.progress = 0;
+        piSays({ state: 'downloading', progress: 0 });
+        update('IN_PROGRESS', { step: 'downloading_pi', progress: '0' });
+        report();
+        say(`${thing}: ${board.target} is in its slot; downloading Pi image ${piTarget.version} onto its SD card`);
+      }
+      while (board.state === 'downloading_pi' && board.progress < Math.min(percent, 100)) {
+        if (piImageRefused()) {
+          // Refused by the bucket: the slot is erased and the Pi is untouched.
+          fail('download_failed', { nrf: 'not_installed', pi: 'not_flashed' });
+          return;
+        }
+        board.progress += 10;
+        piSays({ progress: board.progress });
+        update('IN_PROGRESS', { step: 'downloading_pi', progress: String(board.progress) });
+        report();
+      }
+    },
+
+    /** Check the finished download (both parts, with a Pi image) and restart into it. False if there is none. */
     install() {
+      if (piTarget !== null) return board.state === 'downloading_pi' && board.progress === 100 && install();
       return board.state === 'downloading' && board.progress === 100 && install();
+    },
+
+    /**
+     * A Pi image alone, up to `percent` of its step: the download onto the card, then the transfer to
+     * the Pi, each 0 to 100. `fails` ends the transfer with that reason instead (pi_verify_failed, ...).
+     */
+    piStep(percent, { fails = null } = {}) {
+      while (piJob !== null && (board.pi.state === 'downloading' || board.pi.state === 'sending')) {
+        if (board.pi.state === 'downloading' && piImageRefused()) {
+          piSettle('FAILED', { reason: 'download_failed' }, 'failed', 'download_failed');
+          return;
+        }
+        if (fails !== null && board.pi.state === 'sending') {
+          say(`${thing}: the Pi refused Pi image ${piTarget.version} (${fails})`);
+          piSettle('FAILED', { reason: fails }, 'failed', fails);
+          return;
+        }
+        if (board.pi.progress >= 100 && board.pi.state === 'downloading') {
+          piSays({ state: 'sending', progress: 0 });
+          fake.execution(piJob, thing).update('IN_PROGRESS', { step: 'sending', progress: '0' });
+          report();
+          say(`${thing}: Pi image ${piTarget.version} is on the card; sending it to the Pi over SPI`);
+          return;
+        }
+        if (board.pi.progress >= 100) {
+          const version = piTarget.version;
+          say(`${thing}: the Pi verified Pi image ${version}`);
+          piSays({ installed: version });
+          piSettle('SUCCEEDED', { pi_version: version }, 'succeeded', '');
+          return;
+        }
+        if (board.pi.progress >= percent) return;
+        const progress = board.pi.progress + 10;
+        piSays({ progress });
+        fake.execution(piJob, thing).update('IN_PROGRESS', { step: board.pi.state, progress: String(progress) });
+        report();
+      }
+    },
+
+    /**
+     * After the confirmation of a job with both: the board sends the Pi its image from the card, up to
+     * `percent`. `fails` ends it with that reason (the confirmed firmware stays).
+     */
+    sendPi(percent, { fails = null } = {}) {
+      while (board.state === 'flashing_pi') {
+        if (fails !== null) {
+          say(`${thing}: the Pi refused Pi image ${piTarget.version} (${fails}); ${board.version} stays`);
+          piSays({ last: 'failed', error: fails });
+          fail(fails, { nrf: 'installed', pi: 'failed' });
+          return;
+        }
+        if (board.progress >= 100) {
+          const version = piTarget.version;
+          update('SUCCEEDED', { running: board.version, pi_version: version });
+          say(`${thing}: runs ${board.version}, and the Pi verified Pi image ${version}`);
+          piSays({ last: 'succeeded', error: '', installed: version });
+          settle('succeeded', '');
+          return;
+        }
+        if (board.progress >= percent) return;
+        board.progress += 10;
+        piSays({ progress: board.progress });
+        update('IN_PROGRESS', { step: 'flashing_pi', progress: String(board.progress), running: board.version });
+        report();
+      }
     },
 
     /**
@@ -950,6 +1144,23 @@ function createBoard(fake, thing, version, say) {
       board.powered = true;
       fake.device(thing).connect();
       if (kept) board.version = board.target;
+      if (kept && piTarget !== null) {
+        // Confirmed: now, and not before, the Pi gets its image from the card (docs/pi-ota.md).
+        enter('flashing_pi');
+        board.progress = 0;
+        piSays({ state: 'sending', progress: 0 });
+        update('IN_PROGRESS', { step: 'flashing_pi', progress: '0', running: board.version });
+        say(`${thing}: runs ${board.version} and has confirmed it; sending the Pi its image`);
+        report({ uptime });
+        return;
+      }
+      if (!kept && piTarget !== null) {
+        update('FAILED', { reason: 'rolled_back', running: board.version, nrf: 'not_installed', pi: 'not_flashed' });
+        say(`${thing}: the bootloader put ${board.version} back; the Pi is untouched`);
+        piSays({ last: 'failed', error: 'rolled_back' });
+        settle('rolled_back', 'not confirmed');
+        return;
+      }
       // If the job was cancelled meanwhile nobody takes this answer; the board runs
       // what it runs all the same.
       update(
@@ -980,9 +1191,18 @@ function createBoard(fake, thing, version, say) {
         return;
       }
       lookForJob();
-      if (board.state === 'downloading' && secondsInState % LIVE_SECONDS_PER_STEP === 0) {
+      if (secondsInState % LIVE_SECONDS_PER_STEP !== 0) return;
+      if (board.state === 'downloading') {
         board.download(board.progress + 10);
+        if (board.progress === 100 && piTarget === null) install();
+        else if (board.progress === 100) board.downloadPi(0);
+      } else if (board.state === 'downloading_pi') {
+        board.downloadPi(board.progress + 10);
         if (board.progress === 100) install();
+      } else if (board.state === 'flashing_pi') {
+        board.sendPi(board.progress + 10);
+      } else if (piJob !== null) {
+        board.piStep(board.pi.progress + 10);
       }
     },
   });
@@ -1096,13 +1316,15 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
      * What tools/provision_device.py does: a thing in the group, with its certificate, and for a
      * board without Wi-Fi (--board nrf5340dk) the attribute that says so.
      */
-    provision(number, version, { type = null } = {}) {
+    provision(number, version, { type = null, pi = false } = {}) {
       const thing = `cranium-${previewId(`board ${number}`, 16)}`;
       fake.addThing(thing, {
         certificates: [previewId(`certificate ${number}`, 64)],
         attributes: type === null ? {} : { board: type },
       });
       const board = createBoard(fake, thing, version, say);
+      // A Pi build, wired to a Raspberry Pi with a card in its SD slot: the board reports the Pi's part.
+      if (pi) board.pi = { state: 'idle', job: '', progress: 0, last: 'none', error: '', installed: '', card: true };
       boards.push(board);
       return board;
     },
@@ -1130,9 +1352,18 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
       await request('POST', `/api/apps/android/releases/${version}`, described, 'ok');
     },
 
-    /** An image made for the scenario (api/test/images.mjs), for a board type, signed with its key. */
-    async uploadBuilt(version, board, notes) {
-      const data = buildImage({ version, key: FLEET_KEY, board, fill: Number.parseInt(previewId(version, 2), 16) });
+    /**
+     * An image made for the scenario (api/test/images.mjs), for a board type, signed with its key. `pi`:
+     * a build with Raspberry Pi updates (build.sh --pi), whose protected TLV 0xA3 names "pi".
+     */
+    async uploadBuilt(version, board, notes, { pi = false } = {}) {
+      const data = buildImage({
+        version,
+        key: FLEET_KEY,
+        board,
+        fill: Number.parseInt(previewId(version, 2), 16),
+        protectedTlvs: pi ? [[FEATURES_TLV, 'pi']] : [],
+      });
       await request(
         'POST',
         '/api/firmware',
@@ -1150,8 +1381,8 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
       return (await request('POST', '/api/groups', { name, things: members.map((board) => board.thing) }, 'ok')).group;
     },
 
-    async rollout(version, target, note) {
-      return (await request('POST', '/api/rollouts', { version, target, note }, 'ok')).rollout;
+    async rollout(version, target, note, { pi = null } = {}) {
+      return (await request('POST', '/api/rollouts', { version, target, note, ...(pi ? { pi } : {}) }, 'ok')).rollout;
     },
 
     /** The schedule's minute: open staged rollouts move on if they are due to. */
@@ -1167,6 +1398,32 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
     async deploy(version, targets, note) {
       const things = targets.map((board) => board.thing);
       return (await request('POST', '/api/deployments', { version, things, note }, 'ok')).deployment.id;
+    },
+
+    /**
+     * A Raspberry Pi image uploaded as the Firmware page does it (console 2.26.0): its signed record to
+     * the API, the file to S3 with the presigned PUT, then the check.
+     */
+    async uploadPi(version, notes, { size = 4096, minFirmware = undefined } = {}) {
+      const body = Buffer.alloc(size, Number.parseInt(previewId(version, 2), 16));
+      const record = piRecord(body, { version, minFirmware });
+      const { upload } = await request('POST', '/api/pi-images', { ...record, notes }, 'ok');
+      const sent = fake.firmwareUpload({ url: upload.url, headers: upload.headers, body });
+      if (sent !== 200) throw new Error(`The scenario could not be built: S3 answered ${sent} for Pi image ${version}`);
+      await request('POST', `/api/pi-images/${encodeURIComponent(version)}/complete`, {}, 'ok');
+    },
+
+    /** A deployment of board firmware, a Pi image, or both (console 2.26.0). */
+    async deployParts({ version = null, pi = null, targets, note, expected = 'ok' }) {
+      const body = { things: targets.map((board) => board.thing), note };
+      if (version !== null) body.version = version;
+      if (pi !== null) body.pi = pi;
+      const answer = await request('POST', '/api/deployments', body, expected);
+      return answer.deployment?.id ?? null;
+    },
+
+    async revokePi(version, reason) {
+      await request('POST', `/api/pi-images/${encodeURIComponent(version)}/revoke`, { reason }, 'ok');
     },
 
     async cancel(id, force = false) {
@@ -1256,6 +1513,39 @@ function createStage({ fake, clock, boards, callApi, tick, say, customers = null
       customers.pool.addCredentials({ sub: customer.id, password, code: PREVIEW_CODE });
     },
   };
+}
+
+/**
+ * Raspberry Pi updates (console 2.26.0, firmware 1.20.0, docs/pi-ota.md). The Pis are never online: each
+ * board reports its Pi in its own shadow, and every job goes to a board. Four boards run a Pi build and
+ * one runs the default build, which reports no Pi; a Pi build 1.20.1 is uploaded beside the 1.20.0 they
+ * run, and two Pi images, the older already on two of the Pis through a deployment of it alone.
+ */
+async function piBoards(stage) {
+  stage.ago('6h');
+  const pis = [1, 2, 3, 4].map((number) => stage.provision(number, '1.20.0+0', { pi: true }));
+  const plain = stage.provision(5, '1.20.0+0');
+  for (const board of [...pis, plain]) board.connect();
+  stage.ago('5h50m');
+  await stage.uploadBuilt('1.20.0+0', null, 'The Pi build the boards were flashed with.', { pi: true });
+  stage.ago('5h');
+  await stage.uploadPi('2026.11.06-1', 'Mixxx 2.5.6 on Raspberry Pi OS.', { size: 6144 });
+  stage.ago('4h50m');
+  await stage.deployParts({ pi: '2026.11.06-1', targets: [pis[0], pis[1]], note: 'First Pi image.' });
+  stage.ago('4h49m');
+  for (const board of [pis[0], pis[1]]) {
+    board.lookForJob();
+    board.piStep(100);
+  }
+  stage.ago('4h40m');
+  for (const board of [pis[0], pis[1]]) board.piStep(100);
+  // A Pi image only goes to a board that reports a Pi.
+  stage.ago('4h');
+  await stage.deployParts({ pi: '2026.11.06-1', targets: [plain], note: 'Not a Pi build.', expected: 'no_pi' });
+  stage.ago('1h');
+  await stage.uploadBuilt('1.20.1+0', null, 'Faster SD card mount.', { pi: true });
+  stage.ago('50m');
+  await stage.uploadPi('2026.11.10-1', 'Mixxx 2.5.7 on Raspberry Pi OS.', { size: 8192, minFirmware: '1.20.0' });
 }
 
 /** One board, flashed with 1.2.3+4 three hours ago, and a newer release ready for it. */
@@ -1715,6 +2005,14 @@ export const SCENARIOS = Object.freeze({
     build: customerSite,
     env: keyEnv(FLEET_KEY),
   },
+  pi: {
+    summary:
+      'Raspberry Pi updates through the board (console 2.26.0): four Pi builds on 1.20.0, one board without ' +
+      'Pi updates, a Pi build 1.20.1 and two Pi images, one already on two Pis. The Pis have no network.',
+    build: piBoards,
+    // Its images and Pi records are signed with a key of the run, which this console trusts.
+    env: keyEnv(FLEET_KEY),
+  },
   revoked: {
     summary: 'Three boards and a longer history: 2.0.0+0 was revoked while it was being rolled out.',
     async build(stage) {
@@ -1844,10 +2142,43 @@ export async function createPreview({
       },
     }),
   });
+  // S3, for a Raspberry Pi image sent from the Firmware page (console 2.26.0, docs/pi-ota.md): the presigned
+  // PUT the API hands out points at /local-firmware/ on the preview's own address, and the stand-in holds the
+  // request to what the real URL is signed for: only if new, that size and that SHA-256, before it expires.
+  const firmwareUploads = new Map(); // token -> { key, size, sha256Base64, expiresAt }
+  async function presignFirmwareUpload({ key, size, sha256Base64, expiresIn }) {
+    const token = randomBytes(12).toString('hex');
+    const expiresAt = clock.now() + expiresIn * 1000;
+    firmwareUploads.set(token, { key, size, sha256Base64, expiresAt });
+    return {
+      url: `http://${consoleHost}/local-firmware/${token}`,
+      headers: { 'if-none-match': '*', 'x-amz-checksum-sha256': sha256Base64 },
+      size,
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+  /** What S3 answers to a PUT with such a URL: its HTTP status. The object lands where the API looks for it. */
+  fake.firmwareUpload = ({ url, headers = {}, body }) => {
+    const signed = firmwareUploads.get(new URL(url).pathname.split('/').pop());
+    if (signed === undefined || clock.now() > signed.expiresAt) return 403;
+    const given = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]));
+    if (given['if-none-match'] !== '*' || given['x-amz-checksum-sha256'] !== signed.sha256Base64) return 403;
+    if (body.length !== signed.size) return 400;
+    const digest = createHash('sha256').update(body).digest('base64');
+    if (digest !== signed.sha256Base64) return 400;
+    if (fake.objects.has(signed.key)) return 412;
+    fake.objects.set(signed.key, {
+      body: Buffer.from(body),
+      contentType: 'application/octet-stream',
+      sha256Base64: digest,
+      tags: {},
+    });
+    return 200;
+  };
   // The versions the deployment would be built with: the console's own and the iPhone app's (versions.json).
   const versions = versionsOfRepository();
   const app = createApp({
-    aws: { ...fake, ...customers },
+    aws: { ...fake, ...customers, presignFirmwareUpload },
     config,
     now: clock.now,
     log: (line) => log({ function: 'api', ...line }),
@@ -1945,6 +2276,21 @@ export async function createPreview({
     }
     const [path, query] = splitTarget(request.url ?? '');
     const { method, headers } = request;
+
+    // S3, for a Raspberry Pi image from the Firmware page (fake.firmwareUpload above).
+    if (path.startsWith('/local-firmware/')) {
+      if (method !== 'PUT') {
+        send(response, 405, { allow: 'PUT' });
+        return;
+      }
+      const body = await readBody(request, MAX_APK_BYTES);
+      if (body === null) {
+        sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
+        return;
+      }
+      send(response, fake.firmwareUpload({ url: `http://${consoleHost}${request.url}`, headers, body }), {});
+      return;
+    }
 
     // S3, for the Android app's APKs (api/test/fake-apps.mjs): the presigned URLs the API hands out for an
     // upload and a download point here, and the stand-in checks them as S3 would.
@@ -2103,12 +2449,14 @@ export async function createPreview({
     }
   }
 
+  // What the scenario was built with, kept so that a script can go on as the release manager.
+  let stage = null;
   try {
     consoleHost = `${host}:${await listen(consoleServer, port)}`;
     // Where the API's presigned URLs for the APKs point: the local S3 above.
     fake.setS3Endpoint(`http://${consoleHost}/local-s3`);
     loginHost = `${host}:${await listen(loginServer, port === 0 ? 0 : port + 1)}`;
-    const stage = createStage({
+    stage = createStage({
       fake,
       clock,
       boards,
@@ -2207,6 +2555,10 @@ export async function createPreview({
     boards,
     signIn,
     stop,
+    // The schedule's minute, at once: open staged rollouts move on if they are due to.
+    tick,
+    // The scenario's release manager, for a script that drives the preview (requests to the real API).
+    stage,
 
     /** Take the boards' buttons from the lines of a stream, such as the terminal. */
     takeButtons(input, print) {

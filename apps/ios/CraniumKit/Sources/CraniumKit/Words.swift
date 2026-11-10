@@ -885,6 +885,13 @@ public enum Words {
         case "testing":
             return live(.live, "pulse", "On trial: \(target)", "It is kept once the board has reconnected.",
                         was: "on trial with \(target)")
+        // A job with board firmware and a Raspberry Pi image (console 2.26.0): the Pi's part.
+        case "downloading_pi":
+            return live(.live, "download", "Downloading the Raspberry Pi image",
+                        "Onto the board's SD card, with \(target). Nothing is installed yet.", progress: ota.progress)
+        case "flashing_pi":
+            return live(.live, "upload", "Sending the Raspberry Pi its image",
+                        "\(target) is installed; the board sends the image from its SD card.", progress: ota.progress)
         case "bluetooth":
             return live(.live, "download", "Open for an update over Bluetooth",
                         "A person at the board opened Bluetooth for a phone. Updates from here wait until it closes.",

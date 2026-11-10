@@ -6,7 +6,7 @@ same numbers for the same features. The first paragraph of an entry is what the 
 
 ## 0.8.23
 
-The activity log names the console's Raspberry Pi image entries (an upload begun and finished, a revocation) as the website does, and a deployment that brings a Pi image with board firmware links like any other. The Firmware and Deployments pages, which the app shows from the console's bundle, list Pi images and deploy them, alone or with firmware (console 2.26.0).
+The activity log names the console's Raspberry Pi image entries (an upload begun and finished, a revocation) as the website does, and a deployment that brings a Pi image with board firmware links like any other. The Firmware and Deployments pages, which the app shows from the console's bundle, list Pi images and deploy them, alone or with firmware (console 2.26.0). A board's update card names the two Pi steps of a job with both: downloading the Raspberry Pi image, and sending the Pi its image.
 
 ## 0.8.22
 

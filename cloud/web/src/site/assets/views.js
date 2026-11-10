@@ -5360,9 +5360,10 @@ export function piImagesSection(ctx) {
     h(
       'p',
       { class: 'lede' },
-      'For the Raspberry Pi wired to a board, not for the board itself. A board downloads one onto its SD card and ' +
-        "sends it to the Pi's spare partition; with board firmware in the same deployment, both download first, the " +
-        'firmware is installed, and the Pi gets its image once that firmware is confirmed.'
+      'For the Raspberry Pi wired to a board, not for the board itself. The Pi has no network: a board downloads ' +
+        "the image onto its SD card and sends it to the Pi's spare partition, and what the console shows of a Pi is " +
+        'what its board reports. With board firmware in the same deployment, both download first, the firmware is ' +
+        'installed, and the Pi gets its image once that firmware is confirmed.'
     ),
     state.me.canWrite ? piUploadForm(ctx) : null,
     body
@@ -5799,7 +5800,9 @@ function executionCard(execution, deployment, ctx, boards = 1) {
       : null,
     !execution.online && known?.lastSeen ? ['Board last seen ', when(known.lastSeen, now)] : null,
   ].filter(Boolean);
-  const flash = compact ? null : slotsOfExecution(execution, known, target, description, deployment.id);
+  // A Raspberry Pi image alone (2.26.0) leaves the board's flash as it was: no slots, no way back to draw.
+  const piAlone = Boolean(execution.pi) && !deployment.version;
+  const flash = compact || piAlone ? null : slotsOfExecution(execution, known, target, description, deployment.id);
 
   return h(
     'article',
@@ -5864,7 +5867,7 @@ function executionCard(execution, deployment, ctx, boards = 1) {
     h(
       'div',
       { class: 'pipeline', key: 'pipeline' },
-      returnPath(execution, description),
+      piAlone ? null : returnPath(execution, description),
       stepList(description, { compact, viewer: !ctx.state.me.canWrite })
     ),
     h(
@@ -5992,7 +5995,13 @@ export function deploymentView(ctx) {
   const head = pageHead({
     back: { href: '#/deployments', label: 'Deployments' },
     eyebrow: 'Deployment of',
-    title: [mono(version ?? 'unknown version'), summary ? badge(summary.tone, summary.icon, summary.label) : null],
+    // A Raspberry Pi image alone (2.26.0) has no board version: it is named by its own, and with board
+    // firmware both are named.
+    title: [
+      mono(version ?? (deployment?.pi ? `Pi image ${deployment.pi.version}` : 'unknown version')),
+      version && deployment?.pi ? [' + ', mono(`Pi image ${deployment.pi.version}`)] : null,
+      summary ? badge(summary.tone, summary.icon, summary.label) : null,
+    ],
     lede: deployment?.note || null,
     meta: deployment
       ? [
@@ -6960,8 +6969,13 @@ export function deployDialog(model, ctx) {
   const releases = model.releases ?? [];
   const release = releases.find((candidate) => candidate.version === model.version) ?? null;
   // Only the boards of the release's type that can take a job (docs/fleet.md); the others are counted.
-  const devices = offeredBoards(model.devices ?? [], model.types, release);
-  const notOffered = (model.devices ?? []).length - devices.length;
+  // A Raspberry Pi image goes only to boards that report a Pi (console 2.26.0), as app.js offers them.
+  const parts = model.parts ?? 'nrf';
+  const ofType = parts === 'pi' ? (model.devices ?? []) : offeredBoards(model.devices ?? [], model.types, release);
+  const devices = parts === 'nrf' ? ofType : ofType.filter((device) => device.pi);
+  // Left out for their type or layout, and (with a Pi image) for reporting no Raspberry Pi.
+  const notOffered = (model.devices ?? []).length - ofType.length;
+  const withoutPi = ofType.length - devices.length;
   model.staged = Boolean(ctx.fleet);
   const chosen = devices.filter((device) => model.things.has(device.thing));
   const free = devices.filter((device) => !model.busy.has(device.thing));
@@ -7013,6 +7027,14 @@ export function deployDialog(model, ctx) {
         releases.map((candidate) => wizardRelease(candidate, model, now))
       ),
     ];
+  } else if (model.step === 1 && devices.length === 0 && withoutPi > 0) {
+    body = empty({
+      iconName: 'chip',
+      title: 'No board reports a Raspberry Pi.',
+      text:
+        'A Pi image goes only to a board that reports one: a Pi build (scripts/firmware/build.sh --pi) wired to a Pi. ' +
+        'The Pi itself has no network; its board brings it the image.',
+    });
   } else if (model.step === 1 && devices.length === 0 && notOffered > 0) {
     body = empty({
       iconName: 'chip',
@@ -7037,7 +7059,12 @@ export function deployDialog(model, ctx) {
         '?'
       ),
       model.parts && model.parts !== 'nrf'
-        ? h('p', { class: 'choice-hint', key: 'pi' }, 'Only boards that report a Raspberry Pi are offered a Pi image.')
+        ? h(
+            'p',
+            { class: 'choice-hint', key: 'pi' },
+            'Only boards that report a Raspberry Pi are offered a Pi image',
+            withoutPi > 0 ? `: ${plural(withoutPi, 'board reports', 'boards report')} none.` : '.'
+          )
         : null,
       notOffered > 0
         ? h(

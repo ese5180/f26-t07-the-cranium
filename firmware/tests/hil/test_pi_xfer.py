@@ -146,6 +146,65 @@ class Link(unittest.TestCase):
         self.assertTrue(pi.verified)
         self.assertEqual(bytes(pi.partition), data)
 
+    def test_two_restarts_in_a_row_each_go_on_where_the_pi_is(self):
+        # A board that restarts twice during the transfer (power, a watchdog): each time it comes back
+        # on its confirmed firmware and sends the same image from the card, and the Pi gets only what
+        # it lacks. No chunk is written twice, and the image is whole at VERIFY.
+        data = image(50_000)
+        pi = sim.PiSim()
+        pi, first = self.send(data, args=("--reset-at", "3"), pi=pi)
+        self.assertEqual(first["reason"], "reset")
+
+        pi.log.clear()
+        pi.faults = sim.Faults(resume_from=3)
+        pi, second = self.send(data, args=("--reset-at", "8"), pi=pi)
+        self.assertEqual(second["reason"], "reset")
+        self.assertEqual([s for k, s in pi.log if k == sim.DATA], list(range(3, 8)))
+        self.assertIsNone(pi.aborted)
+
+        pi.log.clear()
+        pi.faults = sim.Faults(resume_from=8)
+        pi, third = self.send(data, pi=pi)
+        self.assertEqual(third["reason"], "ok")
+        self.assertEqual(third["started_at"], 8)
+        self.assertEqual([s for k, s in pi.log if k == sim.DATA], list(range(8, 13)))
+        self.assertTrue(pi.verified)
+        self.assertEqual(pi.duplicates, 0)
+        self.assertEqual(bytes(pi.partition), data)
+
+    def test_after_a_restart_a_pi_that_kept_nothing_gets_it_all_again(self):
+        # The Pi may always answer BEGIN with 0 (it rebooted too, or dropped its partial copy): the
+        # board then sends every chunk again, and the image still arrives whole.
+        data = image(30_000)
+        pi = sim.PiSim()
+        pi, first = self.send(data, args=("--reset-at", "4"), pi=pi)
+        self.assertEqual(first["reason"], "reset")
+
+        pi.log.clear()
+        pi.faults = sim.Faults(resume_from=0)
+        pi, second = self.send(data, pi=pi)
+        self.assertEqual(second["reason"], "ok")
+        self.assertEqual(second["started_at"], 0)
+        self.assertEqual([s for k, s in pi.log if k == sim.DATA], list(range(8)))
+        self.assertTrue(pi.verified)
+        self.assertEqual(bytes(pi.partition), data)
+
+    def test_the_pi_gets_the_same_digest_as_the_signed_record(self):
+        # The record tools/pi_image.py signs names the image's size and SHA-256; the board's BEGIN and
+        # VERIFY carry the same ones, and the Pi's partition B hashes to them.
+        import pi_image
+
+        data = image(12_345)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "pi.img"
+            path.write_bytes(data)
+            size, sha256 = pi_image.digest_file(path)
+        pi, result = self.send(data)
+        self.assertEqual(result["reason"], "ok")
+        self.assertEqual(pi.size, size)
+        self.assertEqual(pi.sha256.hex(), sha256)
+        self.assertEqual(hashlib.sha256(bytes(pi.partition)).hexdigest(), sha256)
+
     def test_a_pi_flash_that_fails_after_a_restart_is_reported(self):
         # The same, with a Pi that refuses the image's hash at the end: the board reports it, and
         # its firmware (confirmed before the transfer began) is not the Pi's business.
