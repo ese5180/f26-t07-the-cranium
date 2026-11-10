@@ -5,10 +5,16 @@ image. The board downloads it over HTTPS onto a microSD card, checks it, and sen
 partition B. This page covers the board's side: the design, the wiring, the SPI protocol that the Pi's
 side has to implement, the limits, and what has not run on hardware yet. The Pi's side is separate work.
 
+**The Pi has no network.** It has no Wi-Fi, no AWS IoT thing, certificate or shadow of its own, and it never
+talks to the console. Only the nRF board connects. An image reaches the Pi one way: the board downloads it
+onto its own SD card and sends it over SPI. Everything the console shows about a Pi (whether one is wired,
+the image it last verified, how far a transfer is) is what the board reports, on the job and in the
+board's shadow under `pi`.
+
 **In short:**
 
-- The image travels the way firmware does: a job, a presigned HTTPS URL, and status on the job and in
-  the shadow.
+- The image travels to the board the way firmware does: a job for the board, a presigned HTTPS URL the
+  board downloads, and status on the job and in the board's shadow. The Pi is never online.
 - It has to fit three checks: its size, a SHA-256 over all of it, and an ECDSA signature over a manifest.
   The project's firmware signing key signs that manifest.
 - It goes to the SD card first, and from there to the Pi, in frames that each carry a CRC-32.
@@ -470,12 +476,12 @@ with DMA before relying on 8 MHz.
 | `link_io` | The SPI driver failed |
 | `aborted` | Withdrawn |
 
-**In the shadow,** under `pi`:
+**In the board's shadow,** under `pi` (the Pi has no shadow; this is the board's account of it):
 
 - `state`: `idle`, `waiting_for_firmware`, `downloading` or `sending`
 - `job`, and `progress` in percent
 - `last` and `error`: the last outcome and its reason
-- `installed`: the version the Pi verified last
+- `installed`: the version the Pi last verified to the board (VERIFY's ACK)
 - `card`: whether the card-detect switch sees a card
 
 A Pi build reports `pi` whenever it changes, and each time it connects. **Every other build clears it**
@@ -599,8 +605,9 @@ Revoking (`.../revoke`) tags that version's object only, so the bucket serves it
 deployments that carry it. A revoked version stays taken: the same version cannot be uploaded again (409
 `version_exists`), and nothing of it becomes active again. Records are in the state table, pk `PIIMG`.
 
-A new deployment chooses board firmware, a Pi image, or both. A Pi image is offered only to boards that
-report a `pi` object in their shadow, which only a Pi build does (400 `no_pi` otherwise). Its time limit in
+A new deployment chooses board firmware, a Pi image, or both. Its targets are always boards: a Pi is not
+a target of its own. A Pi image is offered only to boards that report a `pi` object in their shadow,
+which only a Pi build does (400 `no_pi` otherwise). Its time limit in
 AWS IoT is reckoned from its size (`piTimeoutMinutes()`, at most a week). To more than one board, firmware
 or both go as a staged rollout (each stage's job carries both; boards without a Pi are left out, `no_pi`;
 a revoked Pi image stops the rollout, `pi_revoked`), and a Pi image alone goes as one deployment in waves
@@ -626,8 +633,10 @@ every nRF7002 DK. Deploy it only to boards wired to a Pi, or they lose Bluetooth
 | `cloud/api`: `node --test` | `buildPiJobDocument`, `buildPiJobId`, and the device policy | 5 tests |
 | `ota_pi_tests`, from 1.20.0 | Both at once: the order, a firmware that does not stay (Pi untouched), a Pi that fails, a Pi image that does not get onto the card, a restart in each phase, withdrawal in each phase, the Pi part's checks first | 780 checks in all |
 | `pi_ota_tests`, from 1.20.0 | The `fw_pi_update` document: both parts, the URL of each part, refusals | 414 checks in all |
-| `test_pi_xfer.py`, from 1.20.0 | A board that restarts in the middle of a transfer goes on where the Pi is; a failure after that | 2 tests |
+| `test_pi_xfer.py`, from 1.20.0 | A board that restarts in the middle of a transfer goes on where the Pi is (once, twice in a row, and with a Pi that kept nothing); a failure after that; the Pi's partition B hashes to the digest in the record `tools/pi_image.py` signed | 5 tests |
 | `cloud/api/test/pi-deployments.test.mjs` | Pi images (signature, upload, check, revoke), deployments of a Pi image alone and of both, waves, rollouts, the shadow and the timeline | 9 tests |
+| `cloud/web/test/pi.test.mjs` | The deployment page's steps for a Pi image alone (no restart, no firmware words) and for both (the Pi's step after the confirmation), with each reason a board gives | 7 tests |
+| `cloud/dev`: `node preview.mjs --scenario pi` | End to end with no Pi and no AWS: four Pi builds and one default build, a Pi image uploaded from the Firmware page with its `.pi.json`, deployments of a Pi image alone (in waves), of firmware alone and of both, a roll back, a staged rollout, and a revocation that stops it. Its boards model `src/pi/pi_ota.c`'s reports | `preview.test.mjs` reads every answer |
 
 The download tests cover:
 

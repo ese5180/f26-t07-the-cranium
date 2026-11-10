@@ -5,9 +5,10 @@ web console, sees its version, deploys it to boards and watches each board updat
 console only verifies signatures: it holds the public half of the signing key and can
 never sign anything.
 
-Today it updates the nRF boards. Updating the Raspberry Pi through the same console is
-planned; [docs/raspberry-pi-ota.md](../docs/raspberry-pi-ota.md#decision) describes what
-that needs here.
+It updates the nRF boards. From console 2.26.0 it also updates the Raspberry Pi through
+the board it is wired to: the Pi has no network and never talks to the console, so a Pi
+image is a job for the board, which downloads it onto its SD card and sends it to the Pi
+over SPI ([docs/pi-ota.md](../docs/pi-ota.md)).
 
 Console 2.1.0 is deployed (bcc5a19, `cloud/CHANGELOG.md`). The team's console is at
 https://console.craniumiot.com. https://craniumiot.com is the customer site, whose Admin

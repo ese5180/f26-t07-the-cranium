@@ -936,18 +936,24 @@ route that SideStore reads them through, with no authorizer, and counts each key
 and the commit this deployment was built from, from the `versions.json` that `cloud/deploy.sh` writes beside the
 function's code ([`docs/versions.md`](versions.md)), `null` where it has none.
 
-## The Raspberry Pi (planned)
+## The Raspberry Pi
 
-Only the nRF boards are updated today. The Raspberry Pi is to use the same thing
-registry, device policy, jobs and bucket. It needs three additions:
+The Raspberry Pi is not in AWS IoT: it has no Wi-Fi, no thing, no certificate and no
+shadow, and it never talks to the console. From console 2.26.0 and firmware 1.20.0 a
+Pi image is a job for the nRF board it is wired to: the board downloads the image onto its
+SD card and sends it to the Pi over SPI, and reports the Pi's state in its own shadow under
+`pi`. It uses the boards' registry, device policy (plus the board's own jobs list topic),
+jobs and bucket, with:
 
-- a job document of its own (`pi_update`);
-- its own thing group and release list, so that the console never offers one board's
-  image to the other;
-- an upload that goes straight to S3, because a Pi bundle is hundreds of megabytes and the
+- job documents of their own (`pi_image`, and `fw_pi_update` for firmware and a Pi image
+  together), sent to boards;
+- Pi images listed apart from board releases, offered only to boards whose shadow reports a
+  `pi` object (a Pi build);
+- an upload that goes straight to S3, because a Pi image is hundreds of megabytes and the
   console's API takes at most 1.4 MB.
 
-The design is in [raspberry-pi-ota.md](raspberry-pi-ota.md#decision).
+The design is in [pi-ota.md](pi-ota.md); the Pi's operating system in
+[raspberry-pi-ota.md](raspberry-pi-ota.md#decision).
 
 ## Operating it
 
