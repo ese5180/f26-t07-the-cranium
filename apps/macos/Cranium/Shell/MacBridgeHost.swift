@@ -59,6 +59,9 @@ final class MacBridgeHost {
         let hub = shared.hub
         let id = windowID
         radio.cancel()
+        // A scan or a status watch this window started stops too, so its events never reach the next holder.
+        radio.scan(false)
+        radio.stopWatching()
         Task {
             await radio.disconnect()
             hub.release(id)
