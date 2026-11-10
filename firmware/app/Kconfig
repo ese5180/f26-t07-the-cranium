@@ -217,7 +217,7 @@ config APP_LOCATION
 
 config APP_SESSIONS
 	bool "Send listening sessions and now playing to AWS IoT, and the SESSION_TEST command"
-	depends on APP_CONSOLE
+	depends on APP_CONSOLE && !APP_BT_ONLY
 	default y
 	help
 	  From 1.18.0. What Mixxx plays, as sessions with their tracks and what is on the decks now, to
