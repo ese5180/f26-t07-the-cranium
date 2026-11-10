@@ -130,6 +130,8 @@ const SECTIONS = [
   'memfault',
   // The console's DynamoDB tables, read only, for release managers, under Developer (db-page.js).
   'database',
+  // Two to four boards side by side, with their version timelines (compare.js): #/compare?boards=a,b.
+  'compare',
 ];
 // The tables of the Database page (cloud/api/src/lib/db.mjs TABLES).
 const DB_TABLES = ['state', 'audit', 'events'];
@@ -258,6 +260,26 @@ const dayFilter = (value) => {
   return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value ? value : '';
 };
 // A firmware version as it is written, or the start of one: 1.14 or 1.14.0+3.
+// The boards of the Compare page: 1 to COMPARE_MAX board names, comma separated, none twice, in the order given.
+export const COMPARE_MAX = 4;
+function compareBoards(value) {
+  const parts = value.split(',');
+  if (parts.length > COMPARE_MAX || new Set(parts).size !== parts.length || !parts.every(isThing)) return '';
+  return parts.join(',');
+}
+
+/** The address of the Compare page for these boards, or null if they are not 2 to COMPARE_MAX board names. */
+export function compareHref(things) {
+  if (!Array.isArray(things) || things.length < 2) return null;
+  const boards = compareBoards(things.join(','));
+  return boards === '' ? null : `#/compare?boards=${boards}`;
+}
+
+/** The boards the Compare page's address names, in its order: [] for none. */
+export function compareThings(filters) {
+  const boards = typeof filters?.boards === 'string' ? compareBoards(filters.boards) : '';
+  return boards === '' ? [] : boards.split(',');
+}
 const versionFilter = (value) => (/^\d{1,3}(?:\.\d{1,5}){0,2}(?:\+\d{1,10})?$/.test(value) ? value : '');
 
 /**
@@ -309,6 +331,8 @@ export const FILTERS = Object.freeze({
   tokens: { q: searchText, status: oneOf(['active', 'expired', 'revoked']) },
   customers: { q: searchText, status: oneOf(['invited', 'active', 'disabled', 'gone']) },
   memfault: { q: searchText, version: versionFilter },
+  // Not a filter of a list: the boards of the Compare page, as many as it takes (compare.js).
+  compare: { boards: compareBoards },
 });
 
 /** A page's filters from the address's query: every name of the page, '' where absent or not valid. */
@@ -888,6 +912,43 @@ export function readUpdate(raw) {
     startedAt: instant(item.startedAt),
     endedAt: instant(item.endedAt),
     status: optionalText(item.status, 24),
+  };
+}
+
+// A board's version timeline (GET /api/devices/{thing}/timeline, docs/compare.md): every version it ran,
+// newest first, with how it came, whether it stayed, and its unexpected restarts and issues.
+
+export const TIMELINE_ARRIVALS = Object.freeze(['ota', 'bluetooth', 'usb', 'rollback', 'setup']);
+export const TIMELINE_STATUSES = Object.freeze(['confirmed', 'rolled_back', 'trial']);
+
+/** One version's stay on a board. An arrival or a status this console does not know reads as the vaguest. */
+export function readStay(raw) {
+  const item = record(raw);
+  return {
+    version: versionOrNull(item.version),
+    startedAt: instant(item.startedAt),
+    endedAt: instant(item.endedAt),
+    current: item.current === true,
+    arrived: TIMELINE_ARRIVALS.includes(item.arrived) ? item.arrived : 'usb',
+    deployment: isDeploymentId(item.deployment) ? item.deployment : null,
+    status: TIMELINE_STATUSES.includes(item.status) ? item.status : 'trial',
+    reboots: whole(item.reboots, 0, 1_000_000),
+    issues: whole(item.issues, 0, 1_000_000),
+    countedFrom: instant(item.countedFrom),
+  };
+}
+
+function readTimeline(body) {
+  const reply = record(body);
+  return {
+    thing: isThing(reply.thing) ? reply.thing : '',
+    current: versionOrNull(reply.current),
+    versions: list(reply.versions)
+      .map(readStay)
+      .filter((stay) => stay.version !== null),
+    cursor: typeof reply.cursor === 'string' && CURSOR.test(reply.cursor) ? reply.cursor : null,
+    countedFrom: instant(reply.countedFrom),
+    generatedAt: instant(reply.generatedAt),
   };
 }
 
@@ -2732,6 +2793,16 @@ export function createApi({
       if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
       const asked = form(query);
       return readUpdates(await get(asked === '' ? '/api/updates' : `/api/updates?${asked}`));
+    },
+    /** A board's version timeline, newest first, a page at a time: { thing, current, versions, cursor }. */
+    async timeline(thing, { limit = null, cursor = null } = {}) {
+      const query = {};
+      if (limit !== null)
+        query.limit = String(checked((count) => Number.isInteger(count) && count >= 1 && count <= 50, limit));
+      if (cursor !== null) query.cursor = checked((text) => CURSOR.test(text), cursor);
+      const asked = form(query);
+      const path = `/api/devices/${checked(isThing, thing)}/timeline`;
+      return readTimeline(await get(asked === '' ? path : `${path}?${asked}`));
     },
     deployment: async (id) =>
       readDeployment(record(record(await get(`/api/deployments/${checked(isDeploymentId, id)}`)).deployment)),

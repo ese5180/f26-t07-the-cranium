@@ -32,7 +32,7 @@ test('the J-Link rule: SEGGER\'s vendor, for the seat\'s user, before 73-seat-la
 });
 
 test('the packages are named as a release publishes them, and the version is read from the file', () => {
-  assert.equal(versionIn(config), '0.1.9');
+  assert.equal(versionIn(config), '0.1.10');
   assert.match(config, /^extends: electron-builder\.base\.yml$/m);
   assert.match(config, /^ {2}executableName: cranium$/m);
   assert.match(config, /^ {6}Name: Cranium$/m);

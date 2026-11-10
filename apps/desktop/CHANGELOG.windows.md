@@ -4,6 +4,12 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.10
+
+Compare boards and a version timeline from the console (2.15.0 and later): every version a board ran on its page, and 2 to 4 boards side by side.
+
+Nothing of the app changed but its version: the pages are the console's, and the app loads them as before.
+
 ## 0.1.9
 
 Roll back to last good from the console (2.14.0 and later): on a group or the Fleet page, every board back to the last version it ran confirmed, after a preview, as staged rollouts with the health gate always on.

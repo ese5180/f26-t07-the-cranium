@@ -3,6 +3,7 @@
   "console": [
     { "route": "#/overview", "nav": "overview", "script": null },
     { "route": "#/devices", "nav": "devices", "script": null },
+    { "route": "#/compare", "nav": "devices", "script": "compare.js", "api": ["GET /api/devices/{thing}/timeline"] },
     { "route": "#/map", "nav": "map", "script": "map.js" },
     { "route": "#/diagnostics", "nav": "diagnostics", "script": "telemetry.js" },
     { "route": "#/events", "nav": "events", "script": "telemetry.js" },
@@ -58,6 +59,13 @@
       "script": "memfault-page.js",
       "draw": "metricsSection",
       "api": ["GET /api/devices/{thing}/memfault"]
+    },
+    {
+      "page": "#/devices/{thing}",
+      "title": "Version timeline",
+      "script": "compare.js",
+      "draw": "timelineSection",
+      "api": ["GET /api/devices/{thing}/timeline"]
     }
   ],
   "outside": ["https://app.memfault.com/organizations/example/projects/cranium/devices/cranium-0123456789abcdef"]

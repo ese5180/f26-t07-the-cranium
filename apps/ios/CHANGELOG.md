@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.15
+
+Compare boards and a version timeline (console 2.15.0 and later): a board's page shows every version it ran, how each came and whether it stayed; tick 2 to 4 boards on the Devices page to compare them side by side, with what differs marked.
+
+The pages are the console's own; the app has the new Compare page in its list of pages (apps/shared/pages.json),
+checked against the console by the parity tests. No new words.
+
 ## 0.8.14
 
 Roll back to last good on the Fleet page (console 2.14.0 and later): each board goes back to the last version it ran confirmed, after a preview of every board from → to and of the boards left out and why, as one staged rollout per release with the health gate always on. The activity log reads it too.
