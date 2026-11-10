@@ -109,6 +109,10 @@ object CustomerText {
             "library", "Track library", "Your rotation, revealed.",
             "The tracks you keep coming back to, across every session, ranked by how often you play them.",
         ),
+        MixTab(
+            "listening", "Your listening", "Your week on the decks.",
+            "How long you played this week and last, which days were busy, and the tracks and artists you play most.",
+        ),
         MixTab("moments", "Saved moments", "Keep the good ones.", "A note on a transition worth trying again, kept with your account for your next set."),
     )
 

@@ -99,8 +99,8 @@ import Testing
             #expect(!site.contains(line), "\(line)")
         }
         #expect(CustomerWords.help.reduce(0) { $0 + $1.items.count } == 11)
-        #expect(CustomerWords.mixTabs == ["sessions", "transitions", "library", "moments"])
-        #expect(site.contains("MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'moments'])"))
+        #expect(CustomerWords.mixTabs == ["sessions", "transitions", "library", "listening", "moments"])
+        #expect(site.contains("MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'listening', 'moments'])"))
     }
 
     @Test func theLinesMadeOfPartsAreTheSitesTemplates() throws {

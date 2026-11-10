@@ -4,6 +4,12 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.20
+
+Your listening in customer mode (console 2.22.0 and later): a new page under Mixes with the week on the decks, sessions per day, the top tracks and artists, the longest session and the busiest hour.
+
+The page is the customer site's own, loaded as before; the app adds the tab's words to its Mixes list, checked against the site by the parity tests.
+
 ## 0.8.19
 
 Scheduled starts and maintenance windows on the Deployments and Fleet pages (console 2.20.0 and later): a deployment, a staged rollout or a roll back to last good can be scheduled for later, a group can have a maintenance window, and the activity log reads all of it.

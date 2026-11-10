@@ -19,7 +19,8 @@ Web only: `customer-stats.js` is a pure module (`listeningStats(sessions, now)`)
 keeps, so no server, IAM or API change. Weeks start on Monday and days and hours are in the reader's own time zone; a
 session counts in the week it started; a track's play time is its session's start plus the track's start; ties go to
 the more plays, then the more recent, then A to Z. The phone and desktop apps load the same customer site bundle, so
-they get the page with no app change. cloud/web/test/customer-stats.test.mjs; docs/customer-site.md.
+they get the page as it is; the iPhone and Android apps (0.8.20) add the tab's words to their Mixes lists, which the
+parity tests check against the site. cloud/web/test/customer-stats.test.mjs; docs/customer-site.md.
 
 ## 2.21.1
 

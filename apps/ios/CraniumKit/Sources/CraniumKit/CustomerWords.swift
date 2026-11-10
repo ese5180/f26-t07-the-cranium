@@ -282,7 +282,7 @@ public enum CustomerWords {
 
     // MARK: Mixes
 
-    public static let mixTabs = ["sessions", "transitions", "library", "moments"]
+    public static let mixTabs = ["sessions", "transitions", "library", "listening", "moments"]
     public static let mixes: [String: (label: String, title: String, text: String)] = [
         "sessions": ("Sessions", "Every set has a story.",
                      "Each time you play, a session: when it started, how long it ran, and the tracks in the order you played them, deck by deck."),
@@ -290,6 +290,8 @@ public enum CustomerWords {
                         "Which tracks you put together, and how long both decks played at once."),
         "library": ("Track library", "Your rotation, revealed.",
                     "The tracks you keep coming back to, across every session, ranked by how often you play them."),
+        "listening": ("Your listening", "Your week on the decks.",
+                      "How long you played this week and last, which days were busy, and the tracks and artists you play most."),
         "moments": ("Saved moments", "Keep the good ones.",
                     "A note on a transition worth trying again, kept with your account for your next set."),
     ]
