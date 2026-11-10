@@ -244,7 +244,10 @@ function paint() {
         ? offlineScript.offlineView({
             state,
             offline: offlineFlow,
-            back: { label: state.gate.from?.signIn ? 'Sign in' : 'Back', run: closeOfflineGate },
+            back: {
+              label: state.gate.from?.signIn && !state.gate.viaLink ? 'Sign in' : 'Back',
+              run: closeOfflineGate,
+            },
           })
         : gateView({ title: 'Offline mode could not be loaded', action: { label: 'Back', run: closeOfflineGate } });
     } else {
@@ -360,7 +363,7 @@ function showGate(gate) {
   // In an app, an address of the Offline page opens it over the first gate: offline mode needs no sign-in.
   if (!gate.offline && !offlineLinkFollowed && state.app?.offline && location.hash === '#/offline') {
     offlineLinkFollowed = true;
-    openOfflineFromGate();
+    openOfflineFromGate(true);
   }
 }
 let offlineLinkFollowed = false;
@@ -1069,11 +1072,11 @@ async function offlineReady() {
 }
 
 /** From a gate or the sign-in page: the Offline page on its own, with a way back to where it was opened. */
-async function openOfflineFromGate() {
+async function openOfflineFromGate(viaLink = false) {
   const from = state.gate;
   if (!from || from.offline) return;
   await offlineReady();
-  state.gate = { offline: true, from };
+  state.gate = { offline: true, from, viaLink: viaLink === true };
   paint();
   document.getElementById('page-title')?.focus({ preventScroll: true });
 }
@@ -1081,6 +1084,11 @@ async function openOfflineFromGate() {
 function closeOfflineGate() {
   if (!state.gate?.offline) return;
   offlineFlow?.leave();
+  // Opened by a link (the customer site's Offline mode): back to that page.
+  if (state.gate.viaLink && history.length > 1) {
+    history.back();
+    return;
+  }
   state.gate = state.gate.from;
   paint();
 }

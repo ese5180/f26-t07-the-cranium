@@ -2065,3 +2065,44 @@ test('E-mails: three switches on the account page, off until turned on, each sav
   assert.equal(tab.document.getElementById('email-offline').checked, true);
   assert.equal(tab.document.getElementById('email-updated').checked, false);
 });
+
+test('in an app with offline mode, the sign-in page offers it above the form, and nowhere else does without it', async () => {
+  const views = await import(SITE_VIEWS);
+  const model = (offline) => ({
+    kind: null,
+    step: 'password',
+    email: '',
+    digits: ['', '', '', '', '', ''],
+    busy: false,
+    problem: null,
+    tries: 0,
+    lead: null,
+    adminPath: '/admin',
+    offline,
+  });
+  const find = (node, test) => {
+    if (Array.isArray(node)) return node.map((child) => find(child, test)).find(Boolean) ?? null;
+    if (!node || typeof node !== 'object') return null;
+    return test(node) ? node : find(node.children ?? [], test);
+  };
+  const order = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== 'object') return;
+    if (node.props?.class === 'cs-offline') order.push('offline');
+    if (node.tag === 'form' || /signin-form/.test(node.props?.class ?? '')) order.push('form');
+    walk(node.children ?? []);
+  };
+  const page = views.signInView(model(true));
+  const link = find(page, (node) => node.props?.class === 'cs-offline');
+  assert.ok(link, 'Offline mode is on the sign-in page');
+  assert.equal(link.props.href, '/admin#/offline');
+  assert.match(JSON.stringify(link), /Offline mode/);
+  walk(page);
+  assert.ok(order.indexOf('offline') > -1 && order.indexOf('offline') < order.indexOf('form'), order.join(' '));
+  assert.equal(
+    find(views.signInView(model(false)), (node) => node.props?.class === 'cs-offline'),
+    null,
+    'not on the website, or in an app without it'
+  );
+});
