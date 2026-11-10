@@ -60,6 +60,55 @@ class BundleStoreTest {
 
     private fun update(store: BundleStore, console: Console) = runBlocking { store.update(console.fetcher, MANIFEST) { FILES + it } }
 
+    /** A store whose built-in pages are of console [version]. */
+    private fun storeWithBuiltIn(version: String?): Pair<BundleStore, TestBundle> {
+        val shipped = bundleOf(pages("built-in $version"), version = version)
+        val source = object : BuiltInBundle {
+            override fun manifestText() = shipped.text
+            override fun read(sha256: String) = shipped.objects[sha256]
+        }
+        return BundleStore(dir, source, 1) to shipped
+    }
+
+    @Test
+    fun `built-in pages of a newer console win over an older download, which is not even fetched`() {
+        val (store, shipped) = storeWithBuiltIn("2.27.0")
+        val console = Console(bundleOf(pages("console"), version = "2.25.5"))
+        assertEquals(BundleUpdate.UpToDate(shipped.manifest.id), update(store, console))
+        assertEquals(listOf(MANIFEST), console.asked)
+        val launched = store.launch()!!
+        assertEquals(BundleSource.BUILT_IN, launched.source)
+        assertEquals(shipped.manifest.id, launched.manifest.id)
+    }
+
+    @Test
+    fun `an older download kept from before gives way to newer built-in pages`() {
+        val (before, _) = storeWithBuiltIn("2.20.0")
+        val older = Console(bundleOf(pages("console"), version = "2.25.5"))
+        assertTrue(update(before, older) is BundleUpdate.Taken)
+        assertEquals(BundleSource.DOWNLOADED, before.launch()!!.source)
+        // The app is updated with 2.27.0's pages built in.
+        val (after, shipped) = storeWithBuiltIn("2.27.0")
+        repeat(3) { assertEquals(shipped.manifest.id, after.launch()!!.manifest.id) }
+    }
+
+    @Test
+    fun `a newer or equal download still wins, and so does one without a version`() {
+        for ((shipped, deployed) in listOf("2.27.0" to "2.27.1", "2.27.0" to "2.27.0", "2.9.0" to "2.10.0", "2.27.0" to null)) {
+            dir.deleteRecursively()
+            dir.mkdirs()
+            val (store, _) = storeWithBuiltIn(shipped)
+            val console = Console(bundleOf(pages("console $deployed"), version = deployed))
+            assertTrue(update(store, console) is BundleUpdate.Taken)
+            assertEquals("$deployed against $shipped", console.bundle.manifest.id, store.launch()!!.manifest.id)
+        }
+        assertTrue(BundleStore.isNewer("2.27.0", "2.25.5"))
+        assertFalse(BundleStore.isNewer("2.25.5", "2.27.0"))
+        assertTrue(BundleStore.isNewer("2.10.0", "2.9.9"))
+        assertFalse(BundleStore.isNewer("2.27.0", null))
+        assertFalse(BundleStore.isNewer("garbage", "1.0.0"))
+    }
+
     @Test
     fun `with nothing fetched yet, the built-in bundle is served`() {
         val launched = store().launch()!!

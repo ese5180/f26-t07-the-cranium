@@ -9,8 +9,11 @@
  *
  * At start: the current bundle if every file it names is here and matches, and it is not bad; else the
  * previous one, the same way; else the copy built into the app. A bundle that has not said app.ready
- * after two starts is marked bad and never fetched again. In the background: the manifest from the
- * console, and the files it names that are not here yet, four at a time.
+ * after two starts is marked bad and never fetched again. A downloaded bundle of an older console than the
+ * built-in copy gives way to it (an app built with newer pages than the console has deployed shows them);
+ * an equal or unknown version keeps the downloaded one, and nothing older than the built-in copy is fetched.
+ * In the background: the manifest from the console, and the files it names that are not here yet, four at
+ * a time.
  *
  * A path in a manifest is only a key: no path from a server ever becomes a file name here.
  */
@@ -46,6 +49,23 @@ async function bodyOf(response, limit) {
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > limit) throw new Error('larger than expected');
   return bytes;
+}
+
+/**
+ * Whether console version `a` is newer than `b` ("2.27.0" against "2.25.5"); false when either is missing
+ * or not three numbers, so that a manifest without a version keeps the rule from before.
+ */
+export function isNewerConsole(a, b) {
+  const parts = (text) => {
+    if (typeof text !== 'string') return null;
+    const numbers = text.split('+')[0].split('.');
+    return numbers.length === 3 && numbers.every((part) => /^\d{1,6}$/.test(part)) ? numbers.map(Number) : null;
+  };
+  const x = parts(a);
+  const y = parts(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
 }
 
 /**
@@ -108,8 +128,21 @@ export function createBundleStore({ root, builtIn, fetch: fetchIt = globalThis.f
    * The bundle to show now: { manifest, source: 'downloaded'|'built-in', folder }, or null when not even
    * the built-in copy checks out. Counts the start.
    */
+  async function shipped() {
+    if (!builtIn) return null;
+    const found = await manifestAt(join(builtIn, 'manifest.json'));
+    return found && found.manifest.bridge <= BRIDGE_VERSION ? found.manifest : null;
+  }
+
+  async function builtInBundle() {
+    const manifest = await shipped();
+    const folder = builtIn ? join(builtIn, 'files') : null;
+    return manifest && (await complete(manifest, folder)) ? { manifest, source: 'built-in', folder } : null;
+  }
+
   async function launch() {
     const s = await loadState();
+    const own = await shipped();
     for (const name of ['current.json', 'previous.json']) {
       const found = await manifestAt(join(root, name));
       if (!found || found.manifest.bridge > BRIDGE_VERSION || s.bad.has(found.manifest.id)) continue;
@@ -119,20 +152,21 @@ export function createBundleStore({ root, builtIn, fetch: fetchIt = globalThis.f
         log({ bundle: id, outcome: 'marked_bad', reason: 'no app.ready after two starts' });
         continue;
       }
+      // Older than the pages built into the app: those, and no start of this one is counted.
+      if (own && isNewerConsole(own.consoleVersion, found.manifest.consoleVersion)) {
+        const bundle = await builtInBundle();
+        if (bundle) {
+          await saveState();
+          return bundle;
+        }
+      }
       if (!(await complete(found.manifest, objects))) continue;
       s.starts[id] = (s.starts[id] ?? 0) + 1;
       await saveState();
       return { manifest: found.manifest, source: 'downloaded', folder: objects };
     }
     await saveState();
-    if (builtIn) {
-      const found = await manifestAt(join(builtIn, 'manifest.json'));
-      const folder = join(builtIn, 'files');
-      if (found && found.manifest.bridge <= BRIDGE_VERSION && (await complete(found.manifest, folder))) {
-        return { manifest: found.manifest, source: 'built-in', folder };
-      }
-    }
-    return null;
+    return builtInBundle();
   }
 
   /** app.ready: the pages of this bundle started, so it is good for good. */
@@ -198,6 +232,9 @@ export function createBundleStore({ root, builtIn, fetch: fetchIt = globalThis.f
       return { status: 'needsNewerApp' };
     }
     needsNewerApp = false;
+    // The console's pages are older than the ones built into the app: nothing to fetch or to offer.
+    const own = await shipped();
+    if (own && isNewerConsole(own.consoleVersion, manifest.consoleVersion)) return { status: 'same' };
     const current = await manifestAt(join(root, 'current.json'));
     if (current?.manifest.id === manifest.id || s.bad.has(manifest.id)) return { status: 'same' };
     try {
