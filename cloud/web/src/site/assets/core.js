@@ -2021,6 +2021,9 @@ export function readConfig(json) {
   const address = /^https?:\/\/[^?#\s]+$/;
   // Served as admin mode of the customer site (docs/customer-site.md): the site is at the root.
   if (value.customerSite === '/') config.customerSite = '/';
+  // Opened on the console's own name: the customer site's address, an https origin and nothing more.
+  else if (typeof value.customerSite === 'string' && /^https:\/\/[a-z0-9.-]+\/$/.test(value.customerSite))
+    config.customerSite = value.customerSite;
   // The live API's WebSocket (live.js, docs/live.md). Without it, or with something else, the console polls.
   if (typeof value.liveUrl === 'string' && LIVE_URL.test(value.liveUrl)) config.liveUrl = value.liveUrl;
   return origin.test(config.loginOrigin) &&

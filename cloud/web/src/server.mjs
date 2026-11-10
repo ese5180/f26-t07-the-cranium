@@ -447,7 +447,13 @@ export function createWebHandler({
       redirectUri: admin ? `${returnTo}${ADMIN_PATH.slice(1)}` : returnTo,
       userPoolId,
       idpOrigin: userPoolApi,
-      ...(admin ? { customerSite: '/' } : {}),
+      // The way back to the customer site: in admin mode the site is at the root; opened on the
+      // console's own name, the link goes to the customer site's name, when there is one.
+      ...(admin
+        ? { customerSite: '/' }
+        : customer?.hosts?.[0]
+          ? { customerSite: `https://${customer.hosts[0]}/` }
+          : {}),
       ...live,
     });
     const { pageHead, pageTail } = site.console;

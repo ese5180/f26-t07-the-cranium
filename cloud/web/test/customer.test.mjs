@@ -134,6 +134,19 @@ test("the customer site's name gets the site at /, the console as admin mode at 
   for (const [, path] of admin.body.matchAll(/"(\/assets\/[0-9a-f]{12}\/[a-z.]+)"/g)) {
     assert.equal((await web(request('cranium.example', path))).statusCode, 200, path);
   }
+  // Opened on the console's own name, the console still links back to the customer site.
+  const direct = metaOf((await web(request('console.cranium.example', '/'))).body);
+  assert.equal(direct.customerSite, 'https://cranium.example/');
+  assert.equal(core.readConfig(JSON.stringify(direct)).customerSite, 'https://cranium.example/');
+  // Only an https origin is taken: nothing that could run or go elsewhere.
+  for (const bad of [
+    'javascript:alert(1)',
+    'http://cranium.example/',
+    'https://cranium.example/x',
+    '//evil.example/',
+  ]) {
+    assert.equal(core.readConfig(JSON.stringify({ ...direct, customerSite: bad })).customerSite, undefined, bad);
+  }
   // Nothing else, and only GET.
   assert.equal((await web(request('cranium.example', '/admin/'))).statusCode, 404);
   assert.equal((await web(request('cranium.example', '/index.html'))).statusCode, 404);
@@ -180,7 +193,7 @@ test("the site's policy: its own origin and Cognito's user pool API, no inline c
   assert.match(admin.headers['permissions-policy'], /serial=\(self\)/);
 });
 
-test('every other name gets what it got before: the console, and the home page where it is set', async () => {
+test("every other name gets what it got before, apart from the console's link back to the customer site", async () => {
   const before = createWebHandler({
     clientId: 'staffclient',
     loginOrigin: 'https://login.example',
@@ -197,7 +210,10 @@ test('every other name gets what it got before: the console, and the home page w
     ['home.example', '/admin'],
   ]) {
     const [a, b] = [await before(request(host, path)), await after(request(host, path))];
-    assert.deepEqual([b.statusCode, b.headers, b.body], [a.statusCode, a.headers, a.body], `${host}${path}`);
+    // The one difference: the console's settings now name the customer site, for its link back.
+    const link = ',&quot;customerSite&quot;:&quot;https://cranium.example/&quot;}';
+    const expected = host === 'console.example' ? a.body.replace('}">', `${link}">`) : a.body;
+    assert.deepEqual([b.statusCode, b.headers, b.body], [a.statusCode, a.headers, expected], `${host}${path}`);
   }
 });
 
