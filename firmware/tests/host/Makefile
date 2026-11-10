@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/bt_offline_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -50,6 +50,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/golden_policy_tests
 	./$(BUILD)/bt_ota_policy_tests
 	./$(BUILD)/bt_status_tests
+	./$(BUILD)/bt_offline_tests
 	./$(BUILD)/bt_ota_tests
 	./$(BUILD)/ota_bt_tests
 	./$(BUILD)/ota_bt_no_consent_tests
@@ -215,6 +216,13 @@ $(BUILD)/bt_status_tests: test_bt_status.c $(SRC)/bt/bt_status.c $(SRC)/bt/bt_st
 		$(SRC)/policy/bt_ota_policy.h $(SRC)/ota/version.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_status.c $(SRC)/bt/bt_status.c $(SRC)/policy/bt_ota_policy.c $(SRC)/ota/version.c
+
+# The offline Bluetooth mode, from 1.19.0: its status payload, its one write, and the passkey draw.
+# `build/bt_offline_tests --print` gives the sample payload that the phone apps' tests parse.
+$(BUILD)/bt_offline_tests: test_bt_offline.c $(SRC)/policy/bt_offline_policy.c $(SRC)/policy/bt_offline_policy.h \
+		$(SRC)/policy/bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_bt_offline.c $(SRC)/policy/bt_offline_policy.c $(SRC)/policy/bt_passkey_policy.c
 
 # The board's own type and flash layout, for what image_compat.c compares an image with.
 COMPAT_DEFINES := -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
