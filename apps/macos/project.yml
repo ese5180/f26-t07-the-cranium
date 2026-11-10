@@ -93,6 +93,8 @@ targets:
       - path: Tests
       - path: Cranium/Shell/MacNavigation.swift
       - path: Cranium/Serial
+      - path: Cranium/Shell/MacKeepAwake.swift
+      - path: Cranium/Shell/MacRoutes.swift
     dependencies:
       - package: CraniumKit
         product: CraniumKit

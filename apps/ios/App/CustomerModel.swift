@@ -99,12 +99,7 @@ final class CustomerModel: ObservableObject {
         passwordSignIn = PasswordSignIn(customer: customer, http: URLSession.shared, session: auth)
         api = CustomerAPI(config: customer, http: URLSession.shared, tokens: auth)
         account = CustomerAccount(config: customer, http: URLSession.shared) { await auth.currentAccessToken() }
-        #if os(macOS)
-        let lock = BiometricLock(gate: MacBiometricGate.customer(), settings: settings, session: auth)
-        lock.relockInterval = MacLockPreferences.load().relock.interval
-        #else
         let lock = BiometricLock(gate: KeychainBiometricGate.customer(), settings: settings, session: auth)
-        #endif
         self.lock = lock
         switch await lock.launch() {
         case .signedOut:
@@ -375,29 +370,3 @@ extension AppModel {
     /// An admin is signed in, open or behind Face ID.
     var holdsSession: Bool { stage == .signedIn || stage == .locked }
 }
-
-#if os(macOS)
-/// The Mac app's (apps/macos), as AppModel's: away with no cover, locked when the Mac sleeps, the live token.
-extension CustomerModel {
-    func wentAway() async {
-        // The Touch ID prompt itself takes the app out of the front: that is no time away.
-        guard !unlocking, !biometricBusy else { return }
-        lock?.enteredBackground()
-        await auth?.forgetRefreshTokenIfDue()
-    }
-
-    func lockNow() {
-        guard let lock, stage == .signedIn, lock.isOn else { return }
-        cover = .lock
-    }
-
-    func setRelock(_ choice: RelockChoice) {
-        lock?.relockInterval = choice.interval
-    }
-
-    func liveToken() async -> String? {
-        guard stage == .signedIn, cover == nil, let auth else { return nil }
-        return try? await auth.accessToken()
-    }
-}
-#endif

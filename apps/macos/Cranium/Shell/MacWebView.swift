@@ -37,7 +37,11 @@ struct MacWebView: NSViewRepresentable {
         coordinator.webView = webView
         model.webView = webView
         if let config = model.config {
-            webView.load(URLRequest(url: ShellPolicy.startURL(config: config)))
+            webView.load(URLRequest(url: model.startURL ?? ShellPolicy.startURL(config: config)))
+        }
+        coordinator.urlWatch = webView.observe(\.url, options: [.initial, .new]) { [weak model] view, _ in
+            let url = view.url
+            Task { @MainActor in model?.pageMoved(url) }
         }
         return webView
     }
@@ -54,6 +58,7 @@ struct MacWebView: NSViewRepresentable {
         let model: MacShellModel
         let schemes: MacBundleSchemeHandler
         weak var webView: WKWebView?
+        var urlWatch: NSKeyValueObservation?
 
         init(model: MacShellModel) {
             self.model = model
@@ -95,6 +100,21 @@ struct MacWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             // A new document: nothing of the old page is left to read a port.
             model.host.pageLeft()
+        }
+
+        /// `<input type=file>`: the Firmware page's image and the Pi image. The person picks in the Mac's open panel;
+        /// only the bundle's own main frame may ask.
+        func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+            guard frame.isMainFrame, let url = frame.request.url, ShellPolicy.isBundle(url) else {
+                completionHandler(nil)
+                return
+            }
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.canChooseDirectories = parameters.allowsDirectories
+            panel.canChooseFiles = true
+            panel.begin2(for: webView.window) { urls in completionHandler(urls) }
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -160,4 +180,15 @@ final class MacBundleSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
+}
+
+private extension NSOpenPanel {
+    /// As a sheet on the window if there is one, else as a dialog; the chosen files, or nil for Cancel.
+    func begin2(for window: NSWindow?, _ done: @escaping @MainActor ([URL]?) -> Void) {
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            let urls = response == .OK ? self?.urls : nil
+            Task { @MainActor in done(urls) }
+        }
+        if let window { beginSheetModal(for: window, completionHandler: finish) } else { begin(completionHandler: finish) }
+    }
 }

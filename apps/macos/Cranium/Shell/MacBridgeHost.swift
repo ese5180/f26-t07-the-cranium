@@ -9,7 +9,7 @@ import WebKit
 /// before one of them sees it. Bluetooth is the iPhone's `ShellRadio`, compiled here as it is.
 @MainActor
 final class MacBridgeHost {
-    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share", "usb"]
+    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share", "usb", "keepAwake"]
 
     private let pages = PageStore.standard()
     private weak var owner: MacShellModel?
@@ -22,7 +22,19 @@ final class MacBridgeHost {
     let dispatcher = BridgeDispatcher(features: MacBridgeHost.features)
     private lazy var radio = ShellRadio { [weak self] name, data in self?.send(name, data) }
     /// The board's USB serial port, for the Serial console and Board setup (usb.*).
-    private lazy var serial = MacSerial(choose: { await MacSerialPicker.choose(from: $0) }, emit: { [weak self] name, data in self?.send(name, data) })
+    private lazy var serial: MacSerial = {
+        let serial = MacSerial(choose: { await MacSerialPicker.choose(from: $0) }, emit: { [weak self] name, data in self?.send(name, data) })
+        serial.onOpenChange = { [weak self] open in self?.serialOpen = open; self?.updateAwake() }
+        return serial
+    }()
+    /// The Mac stays awake during a Bluetooth update (the page asks, app.keepAwake) and while a board's port is open.
+    private let awake = MacKeepAwake()
+    private var pageAwake = false
+    private var serialOpen = false
+
+    private func updateAwake() {
+        awake.set(pageAwake || serialOpen)
+    }
 
     init(model: MacShellModel) {
         self.owner = model
@@ -37,6 +49,8 @@ final class MacBridgeHost {
     /// The page went away (a reload or a new document): the board's ports are closed, as Android does.
     func pageLeft() {
         serial.closeAll()
+        pageAwake = false
+        updateAwake()
     }
 
     // MARK: To the page
@@ -107,6 +121,11 @@ final class MacBridgeHost {
                 throw BridgeError(.notAllowed, "The app opens https:, sidestore: and otpauth: addresses only.")
             }
             if !NSWorkspace.shared.open(url) { throw BridgeError.failed("Nothing on this Mac opens that address.") }
+            return [:]
+        }
+        dispatcher.register("app.keepAwake") { [unowned self] params in
+            pageAwake = params.bool("on")
+            updateAwake()
             return [:]
         }
         dispatcher.register("app.settings") { [unowned self] _ in

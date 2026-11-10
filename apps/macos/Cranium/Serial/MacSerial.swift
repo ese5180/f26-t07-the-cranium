@@ -29,6 +29,9 @@ final class MacSerial {
     private var chosen: String?
     private var open: [Int: Open] = [:]
     private var asking = false
+    /// Told when the first port opens and when the last one is gone.
+    var onOpenChange: ((Bool) -> Void)?
+    private var wasOpen = false
     private let feed: AsyncStream<Event>.Continuation
 
     init(lister: SerialPortLister = IOKitSerialLister(), choose: @escaping ([SerialBoard]) async -> SerialBoard?, emit: @escaping Emit) {
@@ -89,6 +92,7 @@ final class MacSerial {
             throw BridgeError.failed("The port could not be opened. Another app may have it: close that app, unplug the board and plug it in again.")
         }
         open[index] = Open(line: line, token: token)
+        openChanged()
         return ["port": .int(index), "ports": .int(board.ports.count)]
     }
 
@@ -106,12 +110,21 @@ final class MacSerial {
     /// Closes the port; nothing if it is not open. usb.closed is not sent for this.
     func close(port: Int) {
         open.removeValue(forKey: port)?.line.close()
+        openChanged()
     }
 
     /// Every port closed: the page went away.
     func closeAll() {
         for entry in open.values { entry.line.close() }
         open.removeAll()
+        openChanged()
+    }
+
+    private func openChanged() {
+        let now = !open.isEmpty
+        guard now != wasOpen else { return }
+        wasOpen = now
+        onOpenChange?(now)
     }
 
     var openPorts: [Int] { open.keys.sorted() }
@@ -125,6 +138,7 @@ final class MacSerial {
             guard let entry = open[index], entry.token == token else { return }
             open.removeValue(forKey: index)
             entry.line.close()
+            openChanged()
             emit("usb.closed", ["port": .int(index), "reason": .string(reason.rawValue)])
         }
     }
