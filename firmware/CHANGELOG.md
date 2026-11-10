@@ -20,11 +20,15 @@ record keeps `with_pi` and `pi_step` in what was padding, so its size is unchang
 the Pi untouched (`"nrf":"not_installed","pi":"not_flashed"`); a Pi that fails leaves the confirmed firmware
 (`"nrf":"installed","pi":"failed"`); a build without Pi updates installed by such a job says `pi_unsupported`. A restart
 in each phase goes on, and so does a withdrawal. The Pi build's MQTT buffer is 6 KB, for a reply with two URLs; the
-shadow's `pi` object says whether a card is in (`card`). RAM: 380,848 of 405,504 bytes in the Pi build, 404,700 in the
-default build (804 bytes free).
+shadow's `pi` object says whether a card is in (`card`).
+
+Memory (local builds without the signing key): the default build has flash 749,472 of 794,474 bytes (1.18.0: 749,176)
+and RAM 404,404 of 405,504 (1,100 free, as in 1.18.0); the Pi build flash 699,056 and RAM 380,848 (24,656 free); the
+nRF5340 DK build flash 196,360 and RAM 107,048 of 409,600, as in 1.18.0.
 
 Untested on hardware: docs/pi-ota.md has the design, the wiring, the SPI protocol for the Pi's side, the speeds and
-what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported`, and the job records' new fields in RAM. Signed images: 878,206 bytes for the default build, 824,556 for the Pi build.
+what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported` and clearing the
+shadow's `pi`. Signed images: 880,716 bytes for the default build, 830,306 for the Pi build.
 
 The job document `"op": "pi_image"` (version, size, sha256, sig, url, optional minFirmware) and the list of pending
 jobs are parsed in src/ota/ota_job.c. src/ota/ota.c puts firmware first: a Pi image named while a firmware job is pending is

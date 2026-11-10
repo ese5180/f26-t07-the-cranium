@@ -524,13 +524,19 @@ because firmware waits until the Pi job ends.
 
 ## Memory
 
-Figures are from local builds of this branch.
+Figures are from local builds (`scripts/firmware/build.sh --keep --no-upload --without-key`, with `--pi` and
+`--board nrf5340dk`), of this branch on main with firmware 1.18.0, and of main itself.
 
-| Build | Flash | RAM |
-| --- | --- | --- |
-| Default (Bluetooth, no Pi) | 745,624 of 794,474 bytes | 404,500 of 405,504 bytes: about 1 KiB free |
-| `pi_ota_sysbuild.conf` (Pi, no Bluetooth) | 691,896 of 794,474 bytes | 378,600 of 405,504 bytes: about 26 KiB free |
-| nRF5340 DK (no Pi: it has no cloud) | 196,296 of 794,474 bytes | 107,048 of 409,600 bytes |
+| Build | Flash (of 794,474 bytes) | RAM used (of the total) | RAM free |
+| --- | --- | --- | --- |
+| Default (Bluetooth, no Pi), main 1.18.0 | 749,176 | 404,404 of 405,504 | 1,100 |
+| Default, this branch | 749,472 (+296) | 404,404 of 405,504 | 1,100: the same as main |
+| `--pi` (Pi, no Bluetooth), this branch | 699,056 | 380,848 of 405,504 | 24,656 |
+| nRF5340 DK, main and this branch | 196,360 | 107,048 of 409,600 | 302,552 |
+
+The default build pays nothing in RAM: the job record's Pi fields, the parser's Pi branches, the part of a
+job with both and the bus are all only in a Pi build, and the job's kind is a byte in what was padding.
+Its 296 bytes of flash are the `"pi": null` of the diagnostics and the code that refuses a Pi job.
 
 The Pi update takes about 9 KiB of RAM:
 
@@ -548,8 +554,7 @@ The default build has about 1 KiB free, so it cannot hold this as well. That is 
 Bluetooth off, and why `sysbuild.cmake` refuses a build with both.
 
 Giving a Pi board Bluetooth back means finding about 9 KiB elsewhere, for example in the heaps that
-Wi-Fi and TLS were tuned with. That should not be done without measurements on a board. The default build
-grew by 216 bytes, for the Pi fields of the two job records that it keeps in order to refuse a Pi job.
+Wi-Fi and TLS were tuned with. That should not be done without measurements on a board.
 
 ## Cloud
 
