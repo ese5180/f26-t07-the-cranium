@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.20.2
+
+Three small security fixes: a team member who is disabled or demoted stops getting live updates within a minute, a customer's own name is labelled as theirs on the Customers page, and a customer's change limit holds even for requests that arrive together.
+
+Live updates (live-app.mjs) asked Cognito whether the account was good only when the page connected, so a disabled or demoted team member (or a disabled customer) kept receiving pushes until the token ran out, up to an hour. Before a push the live function now asks again, at most once a minute for each connection (remembered in the instance's memory), with the same checks as at connect (`teamMember`, `customer`); a connection whose account is off is closed and forgotten instead of sent to. If Cognito cannot be asked, the push to that connection is skipped and logged, never sent unchecked. No change to the function's role: it already reads those accounts.
+
+A customer can set their own name in Cognito. The customers handler (handlers/customers.mjs `clampedName`) now strips control, formatting and direction characters, folds spaces and cuts the name at 60 characters, and the Customers page shows it as "customer's name: ..." so it cannot pass for a staff name. The phone apps and the desktop app show the same page from the console's bundle, so they change with it.
+
+The customer API's change limit (10 a minute, 60 an hour) counted the recent entries and then wrote, so requests in flight together could all pass. Each change now also takes a slot first: one conditional `UpdateItem` `ADD` on a counter per clock minute and per clock hour (state table, pk `PRF`, sk `LIM#<sub>#<bucket>`, within the customer API's existing role), counted only while below the limit. One over is the same 429, and a slot that cannot be taken is a 503 that changes nothing. Each counter carries a `ttl`; the state table has no expiry set yet, so they stay as a few small items.
+
 ## 2.20.0
 
 Scheduled starts and maintenance windows: a deployment, a staged rollout or a roll back to last good can be scheduled for later, at a time in a time zone, and a group can have a maintenance window inside which its rollouts' stages start. The Deployments page lists what is scheduled, and a release manager can change the time or cancel it before it starts.

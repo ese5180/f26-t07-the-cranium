@@ -307,6 +307,7 @@ export function createCustomerWorld({
       // Looked up at each call, so that a test can make one fail.
       putCustomerAction: (...args) => fake.putCustomerAction(...args),
       recentCustomerActions: (...args) => fake.recentCustomerActions(...args),
+      takeWriteSlot: (...args) => fake.takeWriteSlot(...args),
       ...store,
     },
     config: customerConfig,

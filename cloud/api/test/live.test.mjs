@@ -366,3 +366,74 @@ test('a batch with no change, or no one to tell, reads nothing more; a batch who
   w.fail('list');
   await assert.rejects(w.handler({ Records: [record(TABLES.state, 'INSERT', 'REL', '1.15.1')] }), /DynamoDB is down/);
 });
+
+test('an account turned off or demoted after it connected is dropped at the next push, with a check at most once a minute', async () => {
+  let nowMs = NOW_MS;
+  const team = new Set([MEMBER]);
+  const asked = [];
+  const store = {
+    connections: new Map([
+      ['team', { connectionId: 'team', audience: 'team', sub: MEMBER, until: NOW_S + 3000 }],
+      ['alice', { connectionId: 'alice', audience: 'customer', sub: ALICE, until: NOW_S + 3000 }],
+    ]),
+    async putConnection() {},
+    async deleteConnection(id) {
+      this.connections.delete(id);
+    },
+    async listConnections() {
+      return [...this.connections.values()];
+    },
+    async listOwners() {
+      return new Map([[A, { owner: ALICE, ref: REF_A }]]);
+    },
+  };
+  const sent = [];
+  const closed = [];
+  const handler = createLiveHandler({
+    store,
+    sockets: {
+      async send(id) {
+        sent.push(id);
+        return 'sent';
+      },
+      async close(id) {
+        closed.push(id);
+      },
+    },
+    accounts: {
+      async teamMember(sub) {
+        asked.push(['team', sub]);
+        return team.has(sub);
+      },
+      async customer(sub) {
+        asked.push(['customer', sub]);
+        return sub === ALICE ? !disabled : false;
+      },
+    },
+    keyFor: async () => null,
+    pools: POOLS,
+    tables: TABLES,
+    now: () => nowMs,
+    log: () => {},
+  });
+  let disabled = false;
+  const change = () => ({ Records: [record(TABLES.events, 'INSERT', A, 'E#2026-11-06T17:59:59.000Z#a1b2c3')] });
+
+  await handler(change());
+  assert.deepEqual(sent.sort(), ['alice', 'team']);
+  assert.equal(asked.length, 2);
+  // Soon after: the answer is remembered, so Cognito is not asked again.
+  nowMs += 30_000;
+  await handler(change());
+  assert.equal(asked.length, 2);
+  assert.equal(sent.length, 4);
+  // Both turned off or demoted; a minute on, the next push asks again and drops them instead of sending.
+  team.delete(MEMBER);
+  disabled = true;
+  nowMs += 31_000;
+  const result = await handler(change());
+  assert.deepEqual(result, { sent: 0, closed: 2 });
+  assert.deepEqual(closed.sort(), ['alice', 'team']);
+  assert.equal(sent.length, 4);
+  assert.equal(store.connections.size, 0);
+});

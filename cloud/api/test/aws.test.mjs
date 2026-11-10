@@ -3203,3 +3203,19 @@ test('queryEvents finds search text in the text, what and tag, and a level, in i
   assert.equal('Limit' in search, false);
   assert.equal(info.FilterExpression, '(attribute_not_exists(#level) OR #level <> :warn)');
 });
+
+test('the customer store write slot is one conditional ADD that counts only below the limit', async () => {
+  sdk.reset();
+  const store = createCustomerStore(CUSTOMER_ENV);
+  sdk.reply('UpdateItemCommand', {}, fails('ConditionalCheckFailedException'));
+  assert.deepEqual(await store.takeWriteSlot({ sub: CUSTOMER_SUB, bucket: 'm1', limit: 10, ttl: 99 }), { ok: true });
+  assert.deepEqual(await store.takeWriteSlot({ sub: CUSTOMER_SUB, bucket: 'm1', limit: 10, ttl: 99 }), {
+    ok: false,
+    reason: 'limit',
+  });
+  const update = sdk.inputs('UpdateItemCommand')[0];
+  assert.deepEqual(update.Key, { pk: { S: 'PRF' }, sk: { S: `LIM#${CUSTOMER_SUB}#m1` } });
+  assert.match(update.UpdateExpression, /^ADD #n :one/);
+  assert.equal(update.ConditionExpression, 'attribute_not_exists(#n) OR #n < :limit');
+  assert.deepEqual(update.ExpressionAttributeValues[':limit'], { N: '10' });
+});

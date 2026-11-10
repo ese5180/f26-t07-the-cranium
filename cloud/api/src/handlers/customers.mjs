@@ -40,6 +40,24 @@ const CUSTOMER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // Enough to refuse what is plainly not an address; Cognito decides the rest.
 const EMAIL = /^[^\s@]{1,64}@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const NAME_LIMIT = 60;
+
+/**
+ * A name the customer set themselves in Cognito, as the console may show it: no control or formatting characters
+ * (the bidi overrides among them), spaces folded, and at most NAME_LIMIT characters. It is the customer's word
+ * for themselves, so the console labels it as such and never lets it stand for a staff name.
+ */
+export function clampedName(value) {
+  if (typeof value !== 'string') return '';
+  return [
+    ...value
+      .replace(/[\p{C}\p{Zl}\p{Zp}]/gu, ' ')
+      .replace(/\s+/gu, ' ')
+      .trim(),
+  ]
+    .slice(0, NAME_LIMIT)
+    .join('')
+    .trim();
+}
 // How many customers the list asks about their authenticator, AT_ONCE at a time.
 const MFA_LISTED = 200;
 const AT_ONCE = 8;
@@ -71,7 +89,7 @@ function view(customer, boards, id = customer?.sub) {
   return {
     id,
     email: customer?.email ?? '',
-    name: customer?.name ?? '',
+    name: clampedName(customer?.name),
     status: statusOf(customer),
     enabled: customer?.enabled === true,
     confirmed: customer?.status === 'CONFIRMED',

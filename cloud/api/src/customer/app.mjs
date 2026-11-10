@@ -305,6 +305,31 @@ export function createCustomerApp({
     if (recent.length >= WRITES_PER_HOUR || recent.filter((key) => key >= minuteAgo).length >= WRITES_PER_MINUTE) {
       throw new HttpError(429, 'too_many_changes', 'That is a lot of changes at once. Wait a minute, then try again.');
     }
+    // The count above is read before the write, so requests in flight together all see the same number. The
+    // slots make the limit hold: one conditional ADD each on a counter per clock hour and minute, which only
+    // counts while it is below the limit.
+    const nowMs = now();
+    const nowSec = Math.floor(nowMs / 1000);
+    const slots = [
+      { bucket: `h${Math.floor(nowMs / HOUR_MS)}`, limit: WRITES_PER_HOUR, ttl: nowSec + 2 * 3600 },
+      { bucket: `m${Math.floor(nowMs / MINUTE_MS)}`, limit: WRITES_PER_MINUTE, ttl: nowSec + 600 },
+    ];
+    for (const slot of slots) {
+      let result;
+      try {
+        result = await aws.takeWriteSlot({ sub, ...slot });
+      } catch (error) {
+        log({ level: 'warn', event: 'write_count_failed', requestId, sub, error: describeError(error) });
+        throw new HttpError(503, 'unavailable', 'That could not be saved just now. Try again in a minute.');
+      }
+      if (!result.ok) {
+        throw new HttpError(
+          429,
+          'too_many_changes',
+          'That is a lot of changes at once. Wait a minute, then try again.'
+        );
+      }
+    }
   }
 
   /** The customer's own name for a board, checked: '' takes it away. */

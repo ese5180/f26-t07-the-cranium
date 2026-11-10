@@ -44,6 +44,10 @@
  *     getPreferences(sub)       -> { offline, updated, unexpectedRestart, updatedAt } | null  (none chosen)
  *     setPreferences(sub, { offline, updated, unexpectedRestart }, at)
  *                               -> { ok: true }  all three booleans, each written as given
+ *     takeWriteSlot({ sub, bucket, limit, ttl })
+ *                               -> { ok: true } | { ok: false, reason: "limit" }  one conditional ADD on the
+ *                                  counter item (pk "PRF", sk "LIM#<sub>#<bucket>"): it counts only while the
+ *                                  count is below `limit`, so parallel requests cannot pass it together
  *
  * createCustomerActionLog(env): what customers did, in the audit table's partition "CUS" and no other
  * (lib/audit.mjs). It reads AWS_REGION and AUDIT_TABLE.
@@ -413,6 +417,29 @@ export function createCustomerStore(env) {
         unexpectedRestart: item.unexpectedRestart === true,
         updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : null,
       };
+    },
+
+    async takeWriteSlot({ sub, bucket, limit, ttl }) {
+      try {
+        await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: toItem({ pk: PREFERENCES_PK, sk: `LIM#${sub}#${bucket}` }),
+            UpdateExpression: 'ADD #n :one SET #ttl = :ttl',
+            ConditionExpression: 'attribute_not_exists(#n) OR #n < :limit',
+            ExpressionAttributeNames: { '#n': 'n', '#ttl': 'ttl' },
+            ExpressionAttributeValues: {
+              ':one': { N: '1' },
+              ':limit': { N: String(limit) },
+              ':ttl': { N: String(ttl) },
+            },
+          })
+        );
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'limit' };
+        throw failure('UpdateItem', cause);
+      }
     },
 
     async setPreferences(sub, { offline, updated, unexpectedRestart }, at) {
