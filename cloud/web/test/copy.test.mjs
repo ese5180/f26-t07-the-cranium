@@ -3,6 +3,7 @@
  * sentence of at most 15 words, on the console and on the customer site, and what used to follow it is in the page's
  * "How … works". app.test.mjs checks the same of the pages as drawn, and that the pages people use name no script,
  * key path or AWS service outside a Details; this file covers the pages whose scripts that harness does not load.
+ * It also holds Help to those rules: the apps' apps/shared/help.json and the customer site's Help page.
  */
 
 import assert from 'node:assert/strict';
@@ -93,4 +94,85 @@ test('a page with more to say than its lede says it under "How … works", close
       `"How ${page} work…" in ${hows.join('; ')}`
     );
   }
+});
+
+// Help: apps/shared/help.json, which the iPhone and Android apps show, and the customer site's Help page.
+const HELP_FILE = new URL('../../../apps/shared/help.json', import.meta.url);
+/** What a page may name only under Details or on a Developer page: a file, a script, a cloud service, an ID. */
+const HELP_INTERNALS =
+  /deploy\.sh|DynamoDB|Cognito|~\/|scripts\/|\bAWS\b|\bS3\b|CustomerDomainName|\.(?:sh|py|bin|md|mjs|js|kt|swift)\b|\/dev\/|\/api\/|-D\w|\b[a-z]+_[a-z_]+\b|MCUboot|SHA-256|ECDSA|\b403\b/;
+const sentences = (text) => text.split(/[.?!](?:\s|$)/).filter((part) => part.trim()).length;
+/** Every piece of words a topic shows, each with where it is. */
+const helpWords = (topic) => [
+  [`${topic.id} title`, topic.title],
+  [`${topic.id} summary`, topic.summary],
+  ...topic.blocks.flatMap((block, index) => {
+    const where = `${topic.id} block ${index}`;
+    if (block.rows)
+      return block.rows.flatMap(([label, text]) => [
+        [where, label],
+        [where, text],
+      ]);
+    for (const kind of ['steps', 'list']) if (block[kind]) return block[kind].map((item) => [where, item]);
+    for (const kind of ['heading', 'text', 'note']) if (block[kind]) return [[where, block[kind]]];
+    return [];
+  }),
+];
+
+test('Help in the apps names no file, script, cloud service or ID outside its Developer section, in short answers', () => {
+  const book = JSON.parse(readFileSync(HELP_FILE, 'utf8'));
+  const developer = new Set(book.sections.find((section) => section.title === 'Developer').topics);
+  // The topics that are about scripts and cables are there, and only those.
+  assert.deepEqual([...developer].sort(), ['api-tokens', 'keep-the-app', 'serial-console']);
+  const named = [];
+  const long = [];
+  for (const topic of book.topics.filter((each) => !developer.has(each.id))) {
+    for (const [where, text] of helpWords(topic)) {
+      const found = text.match(HELP_INTERNALS);
+      if (found) named.push(`${where}: "${found[0]}" in "${text}"`);
+      if (sentences(text) > 3) long.push(`${where}: "${text}"`);
+    }
+  }
+  assert.deepEqual(named, []);
+  assert.deepEqual(long, []);
+});
+
+test("Help says a board's state in the same words as the pages", () => {
+  const book = JSON.parse(readFileSync(HELP_FILE, 'utf8'));
+  const rows = Object.fromEntries(
+    book.topics.find((topic) => topic.id === 'board-states').blocks.find((block) => block.rows).rows
+  );
+  const views = readFileSync(new URL('views.js', SITE), 'utf8');
+  const neverReported = views.match(/const NEVER_REPORTED = '([^']+)'/)[1];
+  assert.equal(rows['Never connected'], neverReported);
+  for (const state of ['Online', 'Offline', 'On trial', 'Confirmed', 'Rolled back']) {
+    assert.ok(rows[state], `the row of ${state}`);
+  }
+  assert.match(views, /'Never connected'/);
+  // The Wi-Fi update's steps begin with the names the console gives them (core.js STEPS).
+  const core = readFileSync(new URL('core.js', SITE), 'utf8');
+  const steps = book.topics.find((topic) => topic.id === 'wifi-update').blocks.find((block) => block.steps).steps;
+  for (const step of steps) assert.match(core, new RegExp(String.raw`name: '${step.split(':')[0]}'`), step);
+  const offline = book.topics.find((topic) => topic.id === 'trouble-offline').blocks.find((block) => block.list).list;
+  const help = views.match(/const NEVER_REPORTED_HELP = '([^']+)'/)[1];
+  assert.ok(
+    offline.some((item) => item.includes(help.replace(/^Power/, 'power'))),
+    `"${help}" in the offline topic`
+  );
+});
+
+test("the customer site's Help answers in short plain words, and a board's state as its page says it", () => {
+  const views = readFileSync(new URL('customer-views.js', CUSTOMER), 'utf8');
+  const help = views.slice(views.indexOf('const HELP = ['), views.indexOf('export function helpView'));
+  const answers = [...help.matchAll(new RegExp(STRINGS, 'g'))].map((match) => words(match[0]).join(' '));
+  assert.ok(answers.length >= 20, `${answers.length} questions and answers`);
+  for (const text of answers) {
+    assert.doesNotMatch(text, HELP_INTERNALS);
+    assert.ok(sentences(text) <= 3, `"${text}"`);
+  }
+  const core = readFileSync(new URL('customer-core.js', CUSTOMER), 'utf8');
+  const label = core.match(/new: \{[^}]*label: '([^']+)'/)[1];
+  const text = core.match(/new: '([^']+)'/)[1];
+  assert.ok(answers.includes(`My board shows ${label}.`), label);
+  assert.ok(answers.includes(text), text);
 });

@@ -7,6 +7,14 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.6
+
+Help in the same words as the pages. The apps' Help says "Has not reported to the console yet." for a board that never connected, as the board's page does, and names no file, script or cloud service outside a new Developer section (API tokens, the serial console, keeping the iPhone app); its answers are a few short sentences. The customer site's Help has an answer for a board that shows Not heard from yet, in the words of its page.
+
+`apps/shared/help.json` is the apps' Help; `cloud/web/test/copy.test.mjs` now holds it, and the customer site's Help,
+to the copy rules of 2.25.3: no file, script, cloud service or ID outside the Developer section, at most three
+sentences a piece, and a board's state and the Wi-Fi update's steps in the words of `views.js` and `core.js`.
+
 ## 2.25.5
 
 A Release notes page, under Developer, with a tab for each product: the console, the firmware, the iPhone app, the Android app, the desktop app (Windows and Linux) and the Mac app. Each tab lists every version, newest first, with its date, the first paragraph of its changelog entry and the rest under More, and its release tag and commit; firmware versions also name their boards and their flash and RAM where the changelog gives them. The version in use, or the newest released one, is marked, and a newer version without a tag says "Not released yet". The version number at the foot of every page and the History page's What's new lead there, and in an app the foot's Release notes link opens that app's tab. Every app shows it, as they show the console's pages.
