@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.27.0
+
+Offline mode is a page of the console now, in the iPhone, Android and Mac apps: **Offline**, in the sections (under More on a phone), and from the sign-in page when there is no network. It finds a board nearby over Bluetooth, pairs with the board's own passkey (the phone or the Mac asks for it), shows the board's firmware, uptime, Wi-Fi, cloud, update state and last restart, and accepts an update that has arrived at the board, after asking "Install version 1.20 on Cranium-3F9C?". It needs firmware 1.19.0 and app 0.9.0 (Mac app 0.4.0).
+
+A middle number: the app bridge gains a feature, `bleOffline`, and four methods that every app with it must answer (`ble.offline.connect`, `ble.offline.status`, `ble.offline.accept`, `ble.offline.disconnect`) with two events (`ble.offline.status`, `ble.offline.link`); apps/shared/bridge.json has them. The page (offline.js) reads the status bytes itself and is shown only where the hello offers `bleOffline`; an older app shows nothing new. It works signed out, as a page of its own with a way back. Leaving it lets go of the board, so it never holds the radio against Update over Bluetooth. Tests: offline.test.mjs (the bytes, the flow, the confirm, the refusals), and the bridge test now checks methods with two dots.
+
 ## 2.25.2
 
 Text is larger and easier to read everywhere: the console, the customer site and the phone, Mac and desktop apps. Body text is 15 px on a 24 px line (16 px on a phone), tables and rows 14 px, and nothing written as words is under 13 px; only short labels, badges and IDs sit at 12.5 px. Notes, hints and help text are in the darker secondary ink instead of the faintest one, labels are in sentence case instead of spaced-out capitals, and long paragraphs keep to a readable line. Nothing moved and no words changed.

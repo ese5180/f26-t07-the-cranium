@@ -108,6 +108,8 @@ export const BLUETOOTH = scriptAddress('bluetooth.js', {
   'views.js': VIEWS,
   'updatewatch.js': UPDATEWATCH,
 });
+// Offline mode in the apps: a board's status over Bluetooth with no network (docs/mobile-apps.md).
+export const OFFLINE = scriptAddress('offline.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const APPS = scriptAddress('apps.js', {
   'core.js': CORE,
   'history.js': HISTORY,
