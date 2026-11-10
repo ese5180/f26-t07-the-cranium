@@ -27,7 +27,7 @@
     "network": "The network or the service could not be reached",
     "failed": "Anything else; the message says what"
   },
-  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera"],
+  "features": ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage", "usb", "camera", "bleOffline"],
   "methods": {
     "app.hello": {
       "feature": null,
@@ -210,6 +210,30 @@
       },
       "result": "{}. After the restart: looks for boards that advertise the status service, connects with no pairing, reads each once, and follows the one whose last update over Bluetooth is that version (and that image hash, if given): each status as ble.status with afterRestart true. version is needed with on."
     },
+    "ble.offline.connect": {
+      "feature": "bleOffline",
+      "params": {
+        "id": { "type": "string", "max": 64, "pattern": "^[A-Za-z0-9:-]{1,64}$" }
+      },
+      "result": "{name, payload: base64 of the board's offline status}. Offline mode (firmware 1.19.0 and later; docs/mobile-apps.md, 'Offline mode'): connects to a board from ble.boards (ble.scan finds them), finds its offline service (9112B1B6-2A51-40F0-94D3-A76440F0E6CC) and reads its status characteristic (...B7). The board answers that read only on a link paired with its own passkey, so the system of the phone or the Mac asks the person for the passkey here; the app never sees it. Answers once the first status is read. While the link is up the app reads the status again every 3 s and sends each as ble.offline.status. busy while ble.connect's link is up (and ble.connect is busy while this one is); failed, in words for a person, for a board without the service (firmware before 1.19.0), a passkey the board refused, or 40 s with no answer."
+    },
+    "ble.offline.status": {
+      "feature": "bleOffline",
+      "params": {},
+      "result": "{payload: base64}. The status, read again now on the offline link; failed if no board is connected."
+    },
+    "ble.offline.accept": {
+      "feature": "bleOffline",
+      "params": {
+        "version": { "type": "string", "max": 7, "pattern": "^\\d{1,3}\\.\\d{1,3}$" }
+      },
+      "result": "{}. Writes [0x01, major, minor] to the control point (...B8): the board installs the update that waits, as a press of its button would, if it is that version (the one the person was shown and confirmed). Answers once the board has taken the write; failed, in words, if it refused it (nothing waits, or another version does)."
+    },
+    "ble.offline.disconnect": {
+      "feature": "bleOffline",
+      "params": {},
+      "result": "{}. Lets go of the offline link; nothing if there is none."
+    },
     "usb.open": {
       "feature": "usb",
       "params": {
@@ -256,6 +280,8 @@
     "ble.link": "{state: 'connected'|'disconnected', name, error: string|null}",
     "ble.progress": "{sent, total}",
     "ble.status": "{payload: base64 of the 64 bytes or more, afterRestart: boolean}",
+    "ble.offline.status": "{payload: base64}: the board's offline status, each time it is read while the offline link is up",
+    "ble.offline.link": "{state: 'disconnected', error: string|null}: the offline link went by itself (the board closed its Bluetooth window, Bluetooth went off); not sent for ble.offline.disconnect",
     "usb.data": "{port, data: base64}: bytes the board sent on an open port, in order",
     "usb.closed": "{port, reason: 'unplugged'|'failed'}: the port closed by itself (the cable came out, or reading failed); not sent for usb.close"
   },

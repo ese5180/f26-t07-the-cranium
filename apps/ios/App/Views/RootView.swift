@@ -143,17 +143,9 @@ struct ConsoleTabs: View {
                 BluetoothFlow(model: app.bluetoothModel(), release: app.bluetoothRelease)
                     .environmentObject(app)
             }
-            .fullScreenCover(isPresented: $app.offlineOpen) {
-                OfflineFlow(model: app.offlineModel())
-                    .environmentObject(app)
-            }
             #else
             .sheet(isPresented: $app.bluetoothOpen) {
                 BluetoothFlow(model: app.bluetoothModel(), release: app.bluetoothRelease)
-                    .environmentObject(app)
-            }
-            .sheet(isPresented: $app.offlineOpen) {
-                OfflineFlow(model: app.offlineModel())
                     .environmentObject(app)
             }
             #endif

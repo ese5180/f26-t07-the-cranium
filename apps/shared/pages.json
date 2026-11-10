@@ -10,6 +10,7 @@
     { "route": "#/firmware", "nav": "firmware", "script": null },
     { "route": "#/deployments", "nav": "deployments", "script": null },
     { "route": "#/bluetooth", "nav": "bluetooth", "script": "bluetooth.js" },
+    { "route": "#/offline", "nav": "offline", "script": "offline.js" },
     { "route": "#/fleet", "nav": "fleet", "script": "fleet.js" },
     {
       "route": "#/memfault",

@@ -187,7 +187,6 @@ private fun Page(vm: ConsoleViewModel, route: Route, store: Store, now: Long) {
         Route.BoardSetup -> BoardSetupScreen(vm)
         Route.Account -> AccountScreen(vm, store, now)
         is Route.Bluetooth -> BluetoothScreen(vm, store)
-        Route.Offline -> OfflineScreen(vm)
         Route.SearchPage -> SearchScreen(vm, store)
         is Route.HelpPage -> HelpScreen(vm, route.topic)
     }

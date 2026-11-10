@@ -790,8 +790,12 @@ shell's Bluetooth page: `cloud/web/src/site/assets/updatewatch.js`, with the sam
 
 ## Offline mode
 
-From firmware 1.19.0 and app 0.9.0. When a board has no Wi-Fi or no cloud, the phone talks to it directly over
-Bluetooth: **More, Offline**. It needs no internet and no sign-in beyond the one the app already holds.
+From firmware 1.19.0, console 2.27.0 and app 0.9.0 (Mac app 0.4.0). When a board has no Wi-Fi or no cloud, the app
+talks to it directly over Bluetooth on the console's **Offline** page (`cloud/web/src/site/assets/offline.js`): in the
+sections (under More on a phone) once signed in, and from the sign-in page and "No connection" when the app cannot
+sign in, since it needs no internet and no sign-in. It is in the iPhone, Android and Mac apps, whose hello offers
+`bleOffline`; the desktop app does not offer it (its Web Bluetooth has no pairing box for a passkey), and the website
+has no Bluetooth.
 
 **At the board.** Run `BT_OFFLINE|NEW` once on its serial console (Board setup's command line). The board draws a
 6-digit passkey and a name (`Cranium-3F9C`) with its own random source, keeps them in protected storage and shows the
@@ -801,10 +805,22 @@ on the console, as before. Then, whenever the phone should talk to it, hold Butt
 Bluetooth is open for 3 minutes. The passkey is the board's own (`src/bt/bt_passkey.h` explains what that costs and the
 three-failure lock).
 
-**In the app.** Pick the board (the name above). The phone asks for the passkey; type it. The screen then shows the
-firmware version, how long the board has been up, why it last restarted, Wi-Fi and cloud state, and the update state, and
-refreshes every 3 seconds. When an update that a phone sent (Update over Bluetooth, or any MCUmgr client) has arrived and
-waits, **Accept the update** asks to confirm the version and then installs it, as a press of the install button would.
+**In the app.** Look for boards and pick the board (the name above). The phone or the Mac asks for the passkey in its
+own pairing box; type it. The page then shows the firmware version, how long the board has been up, why it last
+restarted, Wi-Fi and cloud state, and the update state, read again every 3 seconds. When an update that a phone sent
+(Update over Bluetooth, or any MCUmgr client) has arrived and waits, **Accept the waiting update** asks "Install version
+1.20 on Cranium-3F9C?" and only then sends the accept, as a press of the install button would. Leaving the page lets go of
+the board, so the radio is free for Update over Bluetooth; the two never hold a board at once (the app answers `busy`).
+
+**The bridge** (`apps/shared/bridge.json`, feature `bleOffline`). The app does the Bluetooth and the page reads the bytes:
+`ble.scan` finds the boards as for an update; `ble.offline.connect {id}` connects, pairs and answers with the first
+status (`{name, payload}`, base64); each later read comes as the event `ble.offline.status {payload}`;
+`ble.offline.status` gives the last one and reads again; `ble.offline.accept {version: "1.20"}` writes the accept and
+answers once the board took it, or fails with its words; `ble.offline.disconnect` lets go; the event `ble.offline.link`
+says the link went by itself. The iPhone and Mac apps do it in `ShellRadio` with CraniumKit's `OfflineLink`, the Android
+app in `ShellBle` with `ble/OfflineLink.kt`; the page parses the status in `offline.js` (`parseOfflineStatus`), with the
+same cases as `CraniumKit/OfflineStatus.swift` and `core/OfflineStatus.kt`. The classic app's own Offline screen of 0.9.0's
+first draft is gone: every app shows the console's page.
 
 **The service** (`firmware/app/src/policy/bt_offline_policy.h`): `9112B1B6-2A51-40F0-94D3-A76440F0E6CC` with two
 characteristics, both needing an encrypted, authenticated link (LE Secure Connections with the passkey; a link that has
@@ -829,8 +845,9 @@ already arrived, been checked for board, layout and version, and is signed by th
 the signature at the restart). The image still runs on trial and reverts unless it is proved. Only an update waiting in
 the window can be accepted; a cloud update that waits for a button is shown but not accepted from the phone.
 
-**Not covered.** An iPhone and an Android phone have not been run against a board; the board has not been flashed with this
-firmware. See the pull request for what was and was not tested.
+**Not covered.** Firmware 1.19.0 runs on an nRF7002 DK. The Offline page has run in the iPhone Simulator and in a
+browser with a stand-in for the app's bridge, not yet against a board from a phone or a Mac. See the pull request for
+what was and was not tested.
 
 ## Errors to expect
 
