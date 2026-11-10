@@ -4,4 +4,5 @@
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/cranium-env"
 exec python3 "$CRANIUM_PI/cranium_collect.py" --mixxx-dir "$MIXXX_DIR" \
-    --out-dir "$CRANIUM_OUT_DIR" --heartbeat "$CRANIUM_HEARTBEAT" "$@"
+    --out-dir "$CRANIUM_OUT_DIR" --heartbeat "$CRANIUM_HEARTBEAT" \
+    --messages-max-mb "$CRANIUM_MESSAGES_MAX_MB" "$@"

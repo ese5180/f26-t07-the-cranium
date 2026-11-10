@@ -39,21 +39,13 @@ import re
 import sqlite3
 import time
 
+import cranium_mixxxdb
+
 HOME = os.path.expanduser("~")
 METRICS_RE = re.compile(r"CRANIUM_METRICS (\{.*\})\s*$")
 TEXT_MAX = 40
 LATE_S = 3          # a metrics line written this many seconds after its "t": Mixxx is not flushing its log
-NOW_PLAYING_SQL = """
-SELECT pt.id, pt.track_id, pt.pl_datetime_added,
-       l.title, l.artist, l.genre, l.bpm, l.duration, tl.filename
-FROM PlaylistTracks pt
-JOIN Playlists p ON p.id = pt.playlist_id
-JOIN library   l ON l.id = pt.track_id
-LEFT JOIN track_locations tl ON tl.id = l.location
-WHERE p.hidden = 2              -- Mixxx's play-history ("History") playlists
-ORDER BY pt.id DESC
-LIMIT 1
-"""
+HEARTBEAT_MIN = 1.0
 
 
 class LogTail:
@@ -65,6 +57,8 @@ class LogTail:
 
     def __init__(self, path):
         self.path, self.f, self.inode, self.buf = path, None, None, ""
+        # How many times a new log was opened after startup: each is a Mixxx that started.
+        self.new_logs = 0
         self._open(at_end=True)
 
     def _open(self, at_end=False):
@@ -81,6 +75,7 @@ class LogTail:
             self._open()
             if self.f is None:
                 return []
+            self.new_logs += 1
         try:
             st = os.stat(self.path)
             if st.st_ino != self.inode or st.st_size < self.f.tell():   # Mixxx restarted
@@ -89,6 +84,7 @@ class LogTail:
                 self._open()
                 if self.f is None:
                     return []
+                self.new_logs += 1
         except FileNotFoundError:
             pass
         chunk = self.f.read()
@@ -118,7 +114,8 @@ class Collector:
         self.started = time.monotonic()
         self.latest, self.latest_at = None, 0.0
         self.cpu_max = 0.0
-        self.xruns_at_last_hb = None
+        self.xruns_at_last_hb = None    # Mixxx's overload count at the last live heartbeat
+        self.new_logs_seen = 0
         self.tracks_played = 0
         self.play_seconds = 0.0
         self.history_read = False       # the history there was at startup has been seen
@@ -129,11 +126,18 @@ class Collector:
         self.late_warned = False
         os.makedirs(args.out_dir, exist_ok=True)
         self.jsonl = os.path.join(args.out_dir, "messages.jsonl")
+        self.jsonl_max = int(args.messages_max_mb * 1024 * 1024)
+        self.jsonl_f = None
         self.snapshot = os.path.join(args.out_dir, "latest.json")
 
     # ---- inputs
     def read_metrics(self):
-        for line in self.tail.lines():
+        lines = self.tail.lines()
+        if self.tail.new_logs != self.new_logs_seen:
+            # Mixxx started again, with a new log: its overload count starts again at 0.
+            self.new_logs_seen = self.tail.new_logs
+            self.xruns_at_last_hb = 0
+        for line in lines:
             m = METRICS_RE.search(line)
             if not m:
                 continue
@@ -171,15 +175,15 @@ class Collector:
             self.history_read = True    # no database yet, so no old history: every row will be new
             return
         try:
-            con = sqlite3.connect(f"file:{self.args.db}?mode=ro", uri=True, timeout=1)
+            con = cranium_mixxxdb.connect(self.args.db, timeout=1)
             try:
-                row = con.execute(NOW_PLAYING_SQL).fetchone()
+                play = cranium_mixxxdb.newest_play(con)
             finally:
                 con.close()
         except sqlite3.Error as e:
             print(f"(database busy: {e})", flush=True)
             return
-        current = row[:3] if row else None
+        current = (play.id, play.track_id, play.added) if play else None
         last, self.last_np = self.last_np, current
         if not self.history_read:                   # first look: don't re-announce old history
             self.history_read = True
@@ -192,11 +196,10 @@ class Collector:
             return
         if last is not None and current[0] < last[0]:
             return
-        _, _, _, title, artist, genre, bpm, dur, filename = row
-        title = (title or "").strip() or os.path.splitext(filename or "")[0]
         self.tracks_played += 1
-        self.now_playing = {"ti": clip(title) or "Untitled", "ar": clip(artist) or "Unknown artist",
-                            "ge": clip(genre), "bpm10": x10(bpm), "dur": int(dur or 0)}
+        self.now_playing = {"ti": clip(cranium_mixxxdb.title_of(play)) or "Untitled",
+                            "ar": clip(play.artist) or "Unknown artist", "ge": clip(play.genre),
+                            "bpm10": x10(play.bpm), "dur": int(play.duration or 0)}
         self.emit({"t": "np", **self.now_playing})
 
     # ---- outputs
@@ -206,15 +209,18 @@ class Collector:
         m = self.latest or {}
         playing = [d for d in m.get("decks", []) if d.get("playing")] if alive else []
         xr = int(m.get("xruns") or 0) if alive else 0
+        # Overloads since the last live heartbeat. While Mixxx is quiet nothing is counted, and the
+        # count to compare with is kept: only a new Mixxx (read_metrics) starts it again at 0.
         base = self.xruns_at_last_hb if self.xruns_at_last_hb is not None else xr
         hb = {"t": "hb", "up": int(now - self.started), "mx": int(alive), "pl": len(playing),
               "bpm10": x10(playing[0].get("bpm")) if playing else 0,
               "cpu10": x10(m.get("latency_usage_pct")) if alive else 0,
               "cpux10": x10(self.cpu_max),
               "lat10": x10(m.get("output_latency_ms")) if alive else 0,
-              "xr": xr, "xrd": max(0, xr - base), "tp": self.tracks_played,
+              "xr": xr, "xrd": max(0, xr - base) if alive else 0, "tp": self.tracks_played,
               "min10": x10(self.play_seconds / 60)}
-        self.xruns_at_last_hb = xr
+        if alive:
+            self.xruns_at_last_hb = xr
         self.cpu_max = float(m.get("latency_usage_pct") or 0) if alive else 0.0
         self.last_hb = hb
         self.emit(hb)
@@ -223,8 +229,19 @@ class Collector:
     def emit(self, msg):
         line = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
         print(line, flush=True)
-        with open(self.jsonl, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        if self.jsonl_f is None:
+            self.jsonl_f = open(self.jsonl, "a", encoding="utf-8", buffering=1)
+        self.jsonl_f.write(line + "\n")
+        if self.jsonl_f.tell() >= self.jsonl_max:
+            # On an SD card it must not grow for ever: the one before is replaced.
+            self.jsonl_f.close()
+            os.replace(self.jsonl, self.jsonl + ".1")
+            self.jsonl_f = None
+
+    def close(self):
+        if self.jsonl_f is not None:
+            self.jsonl_f.close()
+            self.jsonl_f = None
 
     def write_snapshot(self, alive):
         snap = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "mixxx_metrics_live": alive,
@@ -252,6 +269,26 @@ class Collector:
             time.sleep(0.2)
 
 
+def heartbeat_seconds(text):
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of seconds: {text!r}")
+    if not value >= HEARTBEAT_MIN:      # also refuses nan
+        raise argparse.ArgumentTypeError(f"{text} s: at least {HEARTBEAT_MIN:g}")
+    return value
+
+
+def positive_mb(text):
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a size in MB: {text!r}")
+    if not value > 0:
+        raise argparse.ArgumentTypeError(f"{text} MB: more than 0")
+    return value
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mixxx-dir", default=os.path.join(HOME, ".mixxx"),
@@ -259,7 +296,10 @@ def parse_args(argv=None):
     ap.add_argument("--log", help="Mixxx's log (default MIXXX_DIR/mixxx.log)")
     ap.add_argument("--db", help="Mixxx's database (default MIXXX_DIR/mixxxdb.sqlite)")
     ap.add_argument("--out-dir", default=os.path.join(HOME, ".cranium"))
-    ap.add_argument("--heartbeat", type=float, default=10.0, help="seconds between hb messages")
+    ap.add_argument("--heartbeat", type=heartbeat_seconds, default=10.0,
+                    help=f"seconds between hb messages, at least {HEARTBEAT_MIN:g} (default 10)")
+    ap.add_argument("--messages-max-mb", type=positive_mb, default=10.0,
+                    help="messages.jsonl is moved to messages.jsonl.1 at this size (default 10)")
     args = ap.parse_args(argv)
     args.mixxx_dir = os.path.expanduser(args.mixxx_dir)
     args.log = args.log or os.path.join(args.mixxx_dir, "mixxx.log")
@@ -268,10 +308,13 @@ def parse_args(argv=None):
 
 
 def main():
+    collector = Collector(parse_args())
     try:
-        Collector(parse_args()).run()
+        collector.run()
     except KeyboardInterrupt:
         pass
+    finally:
+        collector.close()
 
 
 if __name__ == "__main__":

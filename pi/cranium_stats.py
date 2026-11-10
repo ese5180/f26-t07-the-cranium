@@ -7,11 +7,12 @@ reads that database read-only (safe while Mixxx is running) and renders a
 self-contained HTML dashboard: top tracks, top artists, genres, BPM, play
 time, sessions, and recent plays.
 
-Usage:
+Usage (bin/cranium-stats runs it for the Mixxx folder of cranium.conf):
   python3 cranium_stats.py                      # writes cranium_dashboard.html
-  python3 cranium_stats.py --serve              # live dashboard on http://<pi-ip>:8080
+  python3 cranium_stats.py --serve              # live dashboard on http://127.0.0.1:8080, on the Pi only
+  python3 cranium_stats.py --serve --host 0.0.0.0   # to every network the Pi is on: no password
   python3 cranium_stats.py --json               # print stats as JSON (for Memfault/other tools)
-  python3 cranium_stats.py --db /path/to/mixxxdb.sqlite
+  python3 cranium_stats.py --mixxx-dir DIR      # Mixxx started with --settings-path DIR
 
 Standard library only, so it runs on the Pi as-is.
 """
@@ -21,25 +22,17 @@ import json
 import os
 import sqlite3
 import sys
+import threading
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-DEFAULT_DB = os.path.expanduser("~/.mixxx/mixxxdb.sqlite")
-SET_LOG = 2  # PlaylistDAO::PLHT_SET_LOG: Mixxx's play-history playlists
+import cranium_mixxxdb
 
-PLAYS_SQL = """
-SELECT pt.playlist_id, p.name, pt.pl_datetime_added,
-       l.id, COALESCE(NULLIF(TRIM(l.artist), ''), 'Unknown artist'),
-       COALESCE(NULLIF(TRIM(l.title), ''), 'Untitled'),
-       COALESCE(l.album, ''), COALESCE(NULLIF(TRIM(l.genre), ''), 'Unknown'),
-       l.bpm, l.key, l.duration
-FROM PlaylistTracks pt
-JOIN Playlists p ON p.id = pt.playlist_id
-JOIN library   l ON l.id = pt.track_id
-WHERE p.hidden = ? AND pt.pl_datetime_added IS NOT NULL
-ORDER BY pt.pl_datetime_added, pt.position
-"""
+DEFAULT_MIXXX_DIR = os.path.expanduser("~/.mixxx")
+# The served page reads the database at most this often, however many requests come in.
+CACHE_SECONDS = 10
 
 
 def parse_utc(s):
@@ -50,20 +43,26 @@ def parse_utc(s):
         return None
 
 
+def text(value, otherwise=""):
+    return (value or "").strip() or otherwise
+
+
 def load_plays(db_path):
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    con = cranium_mixxxdb.connect(db_path, timeout=5)
     try:
-        rows = con.execute(PLAYS_SQL, (SET_LOG,)).fetchall()
+        rows = cranium_mixxxdb.all_plays(con)
     finally:
         con.close()
     plays = []
-    for (pl_id, pl_name, ts, tid, artist, title, album, genre, bpm, key, dur) in rows:
-        t = parse_utc(ts)
+    for row in rows:
+        t = parse_utc(row.added)
         if t is None:
             continue
-        plays.append(dict(session=pl_id, session_name=pl_name, at=t.astimezone(),
-                          track_id=tid, artist=artist, title=title, album=album,
-                          genre=genre, bpm=bpm or 0.0, key=key or "", duration=float(dur or 0)))
+        plays.append(dict(session=row.session, session_name=row.session_name, at=t.astimezone(),
+                          track_id=row.track_id, artist=text(row.artist, "Unknown artist"),
+                          title=text(cranium_mixxxdb.title_of(row), "Untitled"), album=text(row.album),
+                          genre=text(row.genre, "Unknown"), bpm=row.bpm or 0.0, key=row.key or "",
+                          duration=float(row.duration or 0)))
     # Mixxx stores when a track became the main audible track, not how long it
     # played. Estimate play time as the gap to the next play in the same
     # session, capped at the track's length.
@@ -247,46 +246,78 @@ li .meta {{ white-space:nowrap; }}
 </main></body></html>"""
 
 
-def main():
+class CachedStats:
+    """compute_stats(load_plays(db)), read again at most every CACHE_SECONDS, for the served page."""
+
+    def __init__(self, db, seconds=CACHE_SECONDS, clock=time.monotonic):
+        self.db, self.seconds, self.clock = db, seconds, clock
+        self.lock = threading.Lock()
+        self.stats, self.at = None, None
+
+    def get(self):
+        with self.lock:
+            if self.at is None or self.clock() - self.at >= self.seconds:
+                self.stats = compute_stats(load_plays(self.db))
+                self.at = self.clock()
+            return self.stats
+
+
+def make_handler(cache, refresh):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            try:
+                stats = cache.get()
+                if self.path.startswith("/stats.json"):
+                    body, ctype = json.dumps(stats, default=str).encode(), "application/json"
+                else:
+                    body, ctype = render_html(stats, refresh).encode(), "text/html; charset=utf-8"
+                status = 200
+            except sqlite3.Error as e:
+                body, ctype, status = f"Database busy or unreadable: {e}".encode(), "text/plain", 503
+            except Exception as e:  # noqa: BLE001 - an answer, not a dropped connection
+                body = f"Could not build the page: {type(e).__name__}: {e}".encode()
+                ctype, status = "text/plain", 500
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    return Handler
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--db", default=DEFAULT_DB, help=f"Mixxx database (default {DEFAULT_DB})")
+    ap.add_argument("--mixxx-dir", default=DEFAULT_MIXXX_DIR,
+                    help="Mixxx's settings folder, as given to Mixxx's --settings-path (default ~/.mixxx)")
+    ap.add_argument("--db", help="Mixxx's database (default MIXXX_DIR/mixxxdb.sqlite)")
     ap.add_argument("--out", default="cranium_dashboard.html", help="HTML output path")
     ap.add_argument("--json", action="store_true", help="print stats as JSON instead of HTML")
     ap.add_argument("--serve", action="store_true", help="serve a live dashboard")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="address to serve on (default 127.0.0.1, this Pi only). 0.0.0.0 serves every "
+                         "network the Pi is on, with no password: anyone there can read the play history")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--refresh", type=int, default=15, help="browser refresh seconds in --serve mode")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    args.db = args.db or os.path.join(os.path.expanduser(args.mixxx_dir), "mixxxdb.sqlite")
 
     if not os.path.exists(args.db):
-        sys.exit(f"Mixxx database not found: {args.db}\nRun Mixxx once, or pass --db.")
+        sys.exit(f"Mixxx database not found: {args.db}\nRun Mixxx once, or pass --mixxx-dir or --db.")
 
     if args.json:
         print(json.dumps(compute_stats(load_plays(args.db)), indent=2, default=str))
         return
 
     if args.serve:
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                try:
-                    stats = compute_stats(load_plays(args.db))
-                    if self.path.startswith("/stats.json"):
-                        body, ctype = json.dumps(stats, default=str).encode(), "application/json"
-                    else:
-                        body, ctype = render_html(stats, args.refresh).encode(), "text/html; charset=utf-8"
-                    self.send_response(200)
-                except sqlite3.Error as e:
-                    body, ctype = f"Database busy or unreadable: {e}".encode(), "text/plain"
-                    self.send_response(503)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *a):
-                pass
-
-        print(f"Serving on http://0.0.0.0:{args.port}  (JSON at /stats.json)")
-        ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()
+        handler = make_handler(CachedStats(args.db), args.refresh)
+        print(f"Serving on http://{args.host}:{args.port}  (JSON at /stats.json)")
+        if args.host not in ("127.0.0.1", "localhost", "::1"):
+            print("# open to every network on that address, with no password", flush=True)
+        ThreadingHTTPServer((args.host, args.port), handler).serve_forever()
         return
 
     with open(args.out, "w", encoding="utf-8") as f:

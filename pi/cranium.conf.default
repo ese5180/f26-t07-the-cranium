@@ -2,7 +2,7 @@
 # to change in ~/.config/cranium/cranium.conf (never in git), which is read after this one.
 #
 # Format: KEY=value or KEY="value", one per line, # for comments. $HOME and ~ are expanded.
-# The scripts in bin/ read it.
+# The scripts in bin/ read it with bash, so it is bash: MIXXX_ARGS may be an array.
 
 # Mixxx's settings folder (mixxx.cfg, mixxx.log, mixxxdb.sqlite, controllers/). Anything other
 # than ~/.mixxx makes bin/cranium-mixxx pass it to Mixxx as --settings-path.
@@ -17,11 +17,16 @@ MIXXX_AUDIO=native
 # set, as Mixxx writes its own debug lines there too, and the collector would then see nothing.
 MIXXX_LOG_MAX_BYTES=500000000
 
-# More arguments for Mixxx, e.g. "--fullScreen".
-MIXXX_ARGS=""
+# More arguments for Mixxx, none by default. In your cranium.conf, a bash array keeps an argument with
+# spaces whole, and a plain string is split at spaces:
+#   MIXXX_ARGS=(--fullScreen "--resource-path /opt/mixxx res")
+#   MIXXX_ARGS="--fullScreen"
 
 # Where bin/cranium-collect writes latest.json and messages.jsonl.
 CRANIUM_OUT_DIR="$HOME/.cranium"
 
-# Seconds between heartbeat ("hb") messages.
+# Seconds between heartbeat ("hb") messages, at least 1.
 CRANIUM_HEARTBEAT=10
+
+# messages.jsonl is moved to messages.jsonl.1 (replacing the one before) when it reaches this many MB.
+CRANIUM_MESSAGES_MAX_MB=10

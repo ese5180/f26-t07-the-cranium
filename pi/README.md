@@ -8,7 +8,8 @@ Mixxx is doing into the JSON messages that the later steps send to the nRF5340.
 | --- | --- |
 | `mixxx/controllers/Cranium-Metrics.midi.xml`, `.js` | A Mixxx mapping with no controls, loaded on the Midi Through port. Once a second it logs one `CRANIUM_METRICS {...}` line to `mixxx.log`. |
 | `cranium_collect.py` | Reads those lines, and the play history in `mixxxdb.sqlite`, and writes the `np`/`hb` messages. |
-| `cranium_stats.py` | An HTML dashboard of the play history (`--serve` for a live one on port 8080). |
+| `cranium_stats.py`, `bin/cranium-stats` | An HTML dashboard of the play history. `cranium-stats --serve` serves a live one at http://127.0.0.1:8080, on the Pi only; `--host 0.0.0.0` opens it to the Pi's networks, with no password. |
+| `cranium_mixxxdb.py` | Mixxx's play-history queries, shared by the collector and the dashboard. |
 | `bin/cranium-mixxx` | Starts Mixxx with the arguments the metrics need. |
 | `bin/cranium-collect` | Runs the collector with the settings of `cranium.conf`. |
 | `bin/cranium-install` | Copies the mapping into Mixxx's folder, and makes the desktop menu start Mixxx through `cranium-mixxx`. |
@@ -16,8 +17,10 @@ Mixxx is doing into the JSON messages that the later steps send to the nRF5340.
 
 ## The messages
 
-The collector prints each message and appends it to `~/.cranium/messages.jsonl`. Every heartbeat it also
-rewrites `~/.cranium/latest.json` (the last `hb`, now playing, and the raw metrics). The values are integers;
+The collector prints each message and appends it to `~/.cranium/messages.jsonl`. At 10 MB
+(`CRANIUM_MESSAGES_MAX_MB`) that file is moved to `messages.jsonl.1`, replacing the one before. Every heartbeat
+(`CRANIUM_HEARTBEAT`, at least 1 s) it also rewrites `~/.cranium/latest.json` (the last `hb`, now playing, and the
+raw metrics). The values are integers;
 a key ending in `10` is in tenths:
 
 ```json
@@ -32,7 +35,8 @@ The full list of keys is at the top of `cranium_collect.py`. A few things to kno
   untagged track takes its file name as its title.
 - `mx` is 1 while metrics lines arrive, and 0 within about 5 s of Mixxx quitting.
 - `xr` is Mixxx's `audio_latency_overload_count`. Mixxx counts at most one overload every 500 ms, so `xr` counts
-  overload episodes, not raw xruns. `xrd` is how many are new since the last `hb`.
+  overload episodes, not raw xruns. `xrd` is how many are new since the last `hb` in which Mixxx was running:
+  0 while Mixxx is quiet, and counted from 0 again when Mixxx starts again with a new log.
 - `cpu10` is the audio callback's share of its time budget (`audio_latency_usage`), not system CPU.
 
 ## Setting up a Pi
