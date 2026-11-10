@@ -125,6 +125,11 @@ xcrun simctl install booted apps/ios/build/sim/Build/Products/Debug-iphonesimula
 xcrun simctl launch booted com.craniumiot.cranium -CraniumDemo -CraniumTab 1 -CraniumRoute board
 ```
 
+The app shell has two Debug-only arguments as well: `-CraniumStart '/admin#/offline'` opens another page of the
+bundle (here the Offline page, which opens over the sign-in page), and `-CraniumOfflineDemo` has the radio answer
+`ble.state`, `ble.scan` and `ble.offline.*` with one made-up board (1.19.0, version 1.20 waiting), since the Simulator has
+no Bluetooth.
+
 Face ID, with nothing asked: `-CraniumBiometric lock` opens on the lock screen, `offer` shows "Use Face ID
 to open Cranium?", `on` has it on (`-CraniumTab 4 -CraniumRoute account` for the switch), and `relock`
 keeps the lock on screen after 5 minutes away. `-CraniumBiometry touchID` says Touch ID. To try the
