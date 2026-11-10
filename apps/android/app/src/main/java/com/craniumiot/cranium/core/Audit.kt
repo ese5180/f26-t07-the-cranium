@@ -125,6 +125,21 @@ object AuditText {
             "rolled back {} to last good firmware", "tried to roll back {} to last good firmware", "tried to roll back to last good firmware",
             Glyph.RESTART, doneAlone = "rolled back to last good firmware",
         ),
+        // Scheduled starts (console 2.16.0).
+        "schedule.create" to Action(
+            "scheduled the start", "tried to schedule the start", "tried to schedule a start", Glyph.CLOCK,
+            doneAlone = "scheduled a start",
+        ),
+        "schedule.edit" to Action(
+            "changed the scheduled start", "tried to change the scheduled start", "tried to change a scheduled start", Glyph.CLOCK,
+        ),
+        "schedule.cancel" to Action(
+            "cancelled the scheduled start", "tried to cancel the scheduled start", "tried to cancel a scheduled start", Glyph.STOP,
+        ),
+        "schedule.start" to Action(
+            "carried out the scheduled start", "could not carry out the scheduled start", "could not carry out a scheduled start",
+            Glyph.SEND, doneAlone = "carried out a scheduled start",
+        ),
         "device.seen" to Action(
             "saw {} over Bluetooth", "tried to say a phone saw {}", "tried to say a phone saw a board", Glyph.CHIP,
             doneAlone = "saw a board over Bluetooth",
@@ -419,6 +434,19 @@ object AuditText {
         "rollout_unrecorded" to "The rollout could not be recorded, so its canary was withdrawn",
         "partly_started" to "Only some of the rollouts could be started",
         "invalid_healthGate" to "The health gate was not on or off with 0 to 120 minutes",
+        "invalid_kind" to "Not something that can be scheduled: a deployment, a staged rollout or a roll back to last good",
+        "invalid_at" to "The time was not a local date and time",
+        "invalid_timeZone" to "Not a time zone",
+        "invalid_request" to "What to start was not given",
+        "invalid_schedule" to "Not the id of a scheduled start",
+        "unknown_schedule" to "There is no such scheduled start",
+        "schedule_in_past" to "The time was less than a minute from now, or past",
+        "schedule_too_far" to "The time was more than 30 days ahead",
+        "schedule_over" to "The scheduled start has begun, ended or was cancelled",
+        "schedule_changed" to "Someone changed the scheduled start at the same moment",
+        "too_many_schedules" to "There can be at most 50 scheduled starts",
+        "invalid_window" to "The maintenance window was not days, a start and an end, and a time zone",
+        "creator_not_allowed" to "Whoever scheduled it is no longer an enabled release manager, so it did not start",
         // The alert rules (cloud/api/src/handlers/alerts.mjs).
         "invalid_rules" to "The alert rules asked for were not rules, or not within their limits",
         "rules_changed" to "Someone changed the alert rules at the same moment",

@@ -66,6 +66,7 @@ import {
   weekChange,
 } from '../lib/fleet-score.mjs';
 import { MAX_IN_FLIGHT, mapLimit } from '../lib/jobs.mjs';
+import { windowFromItem } from '../lib/schedule.mjs';
 import { deviceFromShadow } from '../lib/shadow.mjs';
 import { updateCounts } from '../lib/updates.mjs';
 import { isThing, requireBluetoothName, requireThing, strictVersion } from '../lib/validate.mjs';
@@ -125,6 +126,8 @@ export function groupFromItem(item, registered) {
     things: things.filter((thing) => registered.has(thing)),
     // Boards that were in it and have since been removed from the project.
     gone: things.filter((thing) => !registered.has(thing)).length,
+    // Its maintenance window (console 2.20.0, lib/schedule.mjs), or null for none.
+    window: windowFromItem(item.window),
     createdAt: item.createdAt ?? null,
     createdBy: item.createdBy ?? null,
     updatedAt: item.updatedAt ?? item.createdAt ?? null,
