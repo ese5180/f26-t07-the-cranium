@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.24.1
+
+A loading screen that looks like the console: the mark, "Cranium" and "Firmware console", and a slim bar that moves while the console starts, centred on any screen and in dark mode. "Still loading? Reload the page." appears only after 8 seconds, instead of from the start. With reduced motion the bar is a still, faint line. The apps load the same page, so they get it with no app change.
+
 ## 2.24.0
 
 Release managers see the Team and Customers pages in every app (iPhone, Android, desktop and Mac), with the same data as on the website. Viewers still see neither, anywhere. Every change there (inviting, tiers, disabling, resets, removals, giving or taking back a board) is still made on the console's website only: in the apps those buttons become "Change on the website", which opens that page in the browser, instead of failing with "The phone app's sign-in cannot be used for this".
