@@ -1274,6 +1274,8 @@ Resources:
   # (identify, report). A board can neither send itself a command nor hear another board's.
   # From firmware 1.14.0 (docs/memfault.md): cranium/<thing>/memfault, publish only, the board's
   # Memfault chunks (MemfaultRule), whose acknowledgements come back on its commands topic.
+  # From firmware 1.18.0 (docs/customer-data.md): cranium/<thing>/session, publish only, the board's
+  # listening sessions, their tracks and what is on the decks now (BoardSessionRule).
   # A change to the document is an update in place: AWS IoT keeps
   # the policy and its name, makes the new document its default version, and every
   # certificate it is attached to has the new rights at once (AWS::IoT::Policy,
@@ -1300,6 +1302,7 @@ Resources:
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/events'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/location'
               - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/memfault'
+              - !Sub 'arn:${AWS::Partition}:iot:${AWS::Region}:${AWS::AccountId}:topic/cranium/${!iot:Connection.Thing.ThingName}/session'
           - Effect: Allow
             Action: iot:Subscribe
             Resource:
@@ -1441,7 +1444,25 @@ Resources:
           - Lambda:
               FunctionArn: !GetAtt EventsFn.Arn
 
-  # AWS IoT may invoke the recorder for these three rules of this account, EventBridge for the
+  # The sessions and tracks a board plays (cloud/api/src/lib/sessions.mjs), to the recorder, on the topic
+  # only that board may publish on. As for BoardLogRule: the thing name from the topic and the time from AWS
+  # IoT, and a message that brings `thing`, `received` or `channel` of its own is not passed on at all.
+  # `channel` tells the recorder it is a session. The recorder holds the rest to the contract.
+  BoardSessionRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      TopicRulePayload:
+        Description: The listening sessions, tracks and now playing of a Cranium board.
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: >-
+          SELECT *, topic(2) AS thing, 'session' AS channel, timestamp() AS received FROM 'cranium/+/session'
+          WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received) AND isUndefined(channel)
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt EventsFn.Arn
+
+  # AWS IoT may invoke the recorder for these rules of this account, EventBridge for the
   # check of the alerts (AlertCheckPermission, below), and nothing else may.
   ShadowEventsPermission:
     Type: AWS::Lambda::Permission
@@ -1469,6 +1490,15 @@ Resources:
       Principal: iot.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !GetAtt BoardLogRule.Arn
+
+  BoardSessionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EventsFn
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt BoardSessionRule.Arn
 
   # ---------------------------------------------------------------------------------
   # The map, commands and alerts (docs/fleet.md).

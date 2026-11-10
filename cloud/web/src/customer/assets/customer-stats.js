@@ -23,8 +23,13 @@ export function weekStart(time) {
   return addDays(day, -((day.getDay() + 6) % 7));
 }
 
-/** When a track started: the session's start plus the track's start. Null if the session has no start. */
+/**
+ * When a track started: the time the board sent for it (playedAt), else the session's start plus the track's
+ * start. Null if neither is known.
+ */
 export function playedAt(session, track) {
+  const sent = typeof track.playedAt === 'string' ? Date.parse(track.playedAt) : NaN;
+  if (!Number.isNaN(sent)) return sent;
   const base = Date.parse(session.startedAt);
   if (Number.isNaN(base)) return null;
   return base + (Number.isFinite(track.start) ? track.start * 1000 : 0);

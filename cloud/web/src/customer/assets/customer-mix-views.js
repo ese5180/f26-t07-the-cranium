@@ -108,6 +108,20 @@ export function mixTools(ctx) {
 
 export function sourceBar(ctx) {
   const { mixes } = ctx;
+  if (mixes.fromBoard) {
+    // The board's own sessions: nothing made up, nothing imported to switch to.
+    const [now] = mixes.nowPlaying ?? [];
+    return h(
+      'div',
+      { class: 'cs-source', key: 'source' },
+      h(
+        'p',
+        { class: 'cs-source-note' },
+        mixIcon('info', 'is-small'),
+        now ? `From your board. Now playing: ${now.title}${now.artist ? `, ${now.artist}` : ''}` : 'From your board'
+      )
+    );
+  }
   const demo = mixes.source === 'demo';
   const count = mixes.journal.sessions.length;
   return h(
