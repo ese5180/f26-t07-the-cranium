@@ -7,6 +7,15 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.13.3
+
+The iPhone app can ask for its own update link: `GET /api/apps/ios/<version>/download?via=app` goes on record as `app.ios_download` with `via: app`, as the Android app's does, for the app's one-tap update through SideStore (apps 0.8.12).
+
+handlers/apps.mjs `downloadIos` reads `via` as `download` does (`link`, `qr` or `app`; anything else `400 invalid_via`).
+The SideStore source was checked against the releases and is unchanged: it lists every published version newest first,
+with its version, build, size, SHA-256 and date, from the release records at each read, so it follows each publish at
+once. docs/mobile-apps.md, "Updating the iPhone app".
+
 ## 2.13.2
 
 The rollout schedule (RolloutTickFn) starts again: it loads the console's settings like the API, and since 2.6.1 those

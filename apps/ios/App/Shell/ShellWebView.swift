@@ -80,7 +80,8 @@ struct ShellWebView: UIViewRepresentable {
                 return
             }
             let newWindow = action.targetFrame == nil
-            switch ShellPolicy.navigation(to: url, mainFrame: action.targetFrame?.isMainFrame ?? false, newWindow: newWindow) {
+            switch ShellPolicy.navigation(to: url, mainFrame: action.targetFrame?.isMainFrame ?? false, newWindow: newWindow,
+                                                 console: model.config?.consoleURL) {
             case .allow:
                 decisionHandler(.allow)
             case .openOutside(let outside):
@@ -107,7 +108,7 @@ struct ShellWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                      for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
             if let url = action.request.url, case .openOutside(let outside) = ShellPolicy.navigation(to: url, mainFrame: true,
-                                                                                                      newWindow: true) {
+                                                                                                      newWindow: true, console: model.config?.consoleURL) {
                 UIApplication.shared.open(outside)
             }
             return nil
