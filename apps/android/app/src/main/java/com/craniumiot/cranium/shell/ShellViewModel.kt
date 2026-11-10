@@ -181,6 +181,10 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         register("ble.status") { ble.status() }
         register("ble.disconnect") { ble.disconnect() }
         register("ble.watch") { params -> ble.watch(params) }
+        register("ble.offline.connect") { params -> ble.offlineConnect(params) }
+        register("ble.offline.status") { ble.offlineStatus() }
+        register("ble.offline.accept") { params -> ble.offlineAccept(params) }
+        register("ble.offline.disconnect") { ble.offlineDisconnect() }
         register("usb.open") { params -> usb.open(params) }
         register("usb.write") { params -> usb.write(params) }
         register("usb.close") { params -> usb.close(params) }
@@ -228,7 +232,11 @@ class ShellViewModel(application: Application) : AndroidViewModel(application) {
         val all = linkedSetOf("auth", "clipboard", "haptics", "share", "open", "keepAwake", "settings", "appUpdate", "storage")
         val biometric = KeystoreVault.state(app)
         if (biometric != BiometricState.NO_HARDWARE && biometric != BiometricState.UNSUPPORTED) all += "biometric"
-        if (ble.hasBluetooth) all += "ble"
+        if (ble.hasBluetooth) {
+            all += "ble"
+            // Offline mode: the board's own service on the same radio (ble.offline.*).
+            all += "bleOffline"
+        }
         if (usb.available) all += "usb"
         if (hasCamera) all += "camera"
         return BridgeSpec.FEATURES.filter { it in all }.toSet()

@@ -10,10 +10,10 @@ import WebKit
 @MainActor
 final class ShellBridgeHost {
     /// What the iPhone offers: everything but the Android app's own updater and USB, and the camera (Scan
-    /// board) where the iPhone has one.
+    /// board) where the iPhone has one. Offline mode (bleOffline) is the board's own GATT service on the same radio.
     static var features: Set<String> {
         var offered: Set<String> = ["auth", "biometric", "ble", "clipboard", "haptics", "share", "open", "keepAwake", "settings",
-                                    "storage"]
+                                    "storage", "bleOffline"]
         if BoardScanner.hasCamera { offered.insert("camera") }
         return offered
     }
@@ -280,6 +280,17 @@ final class ShellBridgeHost {
             } else {
                 radio.stopWatching()
             }
+            return [:]
+        }
+        // Offline mode: the console's Offline page, on the same radio (never with ble.connect's link at once).
+        dispatcher.register("ble.offline.connect") { [unowned self] params in try await radio.offlineConnect(params.string("id")) }
+        dispatcher.register("ble.offline.status") { [unowned self] _ in try radio.offlineStatus() }
+        dispatcher.register("ble.offline.accept") { [unowned self] params in
+            try await radio.offlineAccept(params.string("version"))
+            return [:]
+        }
+        dispatcher.register("ble.offline.disconnect") { [unowned self] _ in
+            radio.offlineDisconnect()
             return [:]
         }
     }

@@ -5,6 +5,7 @@ import com.craniumiot.cranium.ble.BlePermissions
 import com.craniumiot.cranium.ble.BoardScanner
 import com.craniumiot.cranium.ble.BoardSession
 import com.craniumiot.cranium.ble.FoundBoard
+import com.craniumiot.cranium.ble.OfflineLink
 import com.craniumiot.cranium.ble.StatusClient
 import com.craniumiot.cranium.ble.StatusFollower
 import com.craniumiot.cranium.ui.Messages
@@ -121,6 +122,7 @@ class ShellBle(
     // ble.connect, ble.images
 
     suspend fun connect(params: JsonObject): JsonObject {
+        if (offline != null) throw BridgeError("busy", "A board is connected in offline mode. Let it go first.")
         val id = params.text("id")
         val found = scanner.boards.value.firstOrNull { it.address == id }
             ?: throw BridgeError("failed", "That board is not in range any more. Look for it again.")
@@ -314,11 +316,91 @@ class ShellBle(
         emit("ble.link", link("disconnected", name, null))
     }
 
+    // ble.offline.*: offline mode (firmware 1.19.0), the console's Offline page. The page reads the status bytes
+    // itself; this connects, pairs (Android's passkey box), hands over each status and writes the one accept.
+    // Never at the same time as ble.connect's link.
+
+    private var offline: OfflineLink? = null
+
+    suspend fun offlineConnect(params: JsonObject): JsonObject {
+        if (session != null) throw BridgeError("busy", "An update over Bluetooth has a board. Let it finish first.")
+        if (offline != null) throw BridgeError("busy", "A board is connected already. Let it go first.")
+        val id = params.text("id")
+        val found = scanner.boards.value.firstOrNull { it.address == id }
+            ?: throw BridgeError("failed", "That board is not in range any more. Look for it again.")
+        ready()
+        stopScan()
+        lateinit var link: OfflineLink
+        link = OfflineLink(
+            app,
+            found.device,
+            scope,
+            onPayload = { raw ->
+                if (offline === link) emit("ble.offline.status", buildJsonObject { put("payload", ShellChecks.base64(raw)) })
+            },
+            onGone = { words ->
+                if (offline === link) {
+                    offline = null
+                    emit("ble.offline.link", buildJsonObject {
+                        put("state", "disconnected")
+                        put("error", words)
+                    })
+                }
+            },
+        )
+        offline = link
+        val first = try {
+            link.connect()
+        } catch (e: CancellationException) {
+            if (offline === link) offline = null
+            link.close()
+            throw e
+        } catch (e: Exception) {
+            val letGo = offline !== link
+            if (!letGo) offline = null
+            link.close()
+            if (letGo) throw BridgeError("cancelled", "The board was let go.")
+            throw BridgeError("failed", e.message ?: "The board did not answer.")
+        }
+        return buildJsonObject {
+            put("name", found.name ?: found.address)
+            put("payload", ShellChecks.base64(first))
+        }
+    }
+
+    private fun offlineLinked(): OfflineLink = offline ?: throw BridgeError("failed", "No board is connected in offline mode.")
+
+    /** The status read last (at most a few seconds old), and a read now, which comes as ble.offline.status. */
+    fun offlineStatus(): JsonObject {
+        val link = offlineLinked()
+        val last = link.lastPayload ?: throw BridgeError("failed", "The board has not answered yet.")
+        link.refresh()
+        return buildJsonObject { put("payload", ShellChecks.base64(last)) }
+    }
+
+    suspend fun offlineAccept(params: JsonObject): JsonObject {
+        val problem = offlineLinked().accept(params.text("version"))
+        if (problem != null) throw BridgeError("failed", problem)
+        return EMPTY
+    }
+
+    fun offlineDisconnect(): JsonObject {
+        closeOffline()
+        return EMPTY
+    }
+
+    private fun closeOffline() {
+        val link = offline
+        offline = null
+        link?.close()
+    }
+
     /** The page went (another page, a reload): whatever it had going stops. */
     fun release() {
         stopScan()
         stopWatch()
         closeLink()
+        closeOffline()
     }
 
     private companion object {
