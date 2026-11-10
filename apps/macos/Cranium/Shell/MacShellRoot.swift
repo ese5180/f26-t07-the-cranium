@@ -40,6 +40,8 @@ struct MacShellRoot: View {
             }
         }
         .task { await model.start() }
+        // The menus act on the window in front.
+        .focusedSceneValue(\.shellModel, model)
         .sheet(isPresented: $model.showSettings) {
             MacShellSettings(model: model)
         }
@@ -117,5 +119,17 @@ struct MacShellSettings: View {
         .frame(width: 440, height: 440)
         .onChange(of: prefs) { $0.save() }
         .overlay(alignment: .bottomTrailing) { Button("Done") { dismiss() }.padding(12) }
+    }
+}
+
+private struct ShellModelKey: FocusedValueKey {
+    typealias Value = MacShellModel
+}
+
+extension FocusedValues {
+    /// The model of the window in front, for the menus.
+    var shellModel: MacShellModel? {
+        get { self[ShellModelKey.self] }
+        set { self[ShellModelKey.self] = newValue }
     }
 }

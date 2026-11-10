@@ -20,21 +20,10 @@ final class MacBridgeHost {
         }
     }
     let dispatcher = BridgeDispatcher(features: MacBridgeHost.features)
-    private lazy var radio = ShellRadio { [weak self] name, data in self?.send(name, data) }
-    /// The board's USB serial port, for the Serial console and Board setup (usb.*).
-    private lazy var serial: MacSerial = {
-        let serial = MacSerial(choose: { await MacSerialPicker.choose(from: $0) }, emit: { [weak self] name, data in self?.send(name, data) })
-        serial.onOpenChange = { [weak self] open in self?.serialOpen = open; self?.updateAwake() }
-        return serial
-    }()
-    /// The Mac stays awake during a Bluetooth update (the page asks, app.keepAwake) and while a board's port is open.
-    private let awake = MacKeepAwake()
-    private var pageAwake = false
-    private var serialOpen = false
-
-    private func updateAwake() {
-        awake.set(pageAwake || serialOpen)
-    }
+    /// The app's one Bluetooth radio, one serial bridge and keep-awake (MacShared), not this window's own.
+    private var shared: MacShared { owner?.shared ?? MacShared() }
+    private var radio: ShellRadio { shared.radio(for: self) }
+    private var serial: MacSerial { shared.serial }
 
     init(model: MacShellModel) {
         self.owner = model
@@ -46,11 +35,12 @@ final class MacBridgeHost {
         registerSerial()
     }
 
-    /// The page went away (a reload or a new document): the board's ports are closed, as Android does.
+    /// The page went away (a reload or a new document): this window's ports are closed, as Android does, and it no
+    /// longer asks the Mac to stay awake.
     func pageLeft() {
-        serial.closeAll()
-        pageAwake = false
-        updateAwake()
+        guard let shared = owner?.shared else { return }
+        shared.serial.closeAll(owner: self)
+        shared.keepAwake(false, for: self)
     }
 
     // MARK: To the page
@@ -124,12 +114,11 @@ final class MacBridgeHost {
             return [:]
         }
         dispatcher.register("app.keepAwake") { [unowned self] params in
-            pageAwake = params.bool("on")
-            updateAwake()
+            try model.shared.keepAwake(params.bool("on"), for: self)
             return [:]
         }
         dispatcher.register("app.settings") { [unowned self] _ in
-            try model.showSettings = true
+            try model.openSettings()
             return [:]
         }
     }
@@ -273,13 +262,13 @@ extension MacBridgeHost {
 
     /// The Android app's usb.* (ShellUsb), over the Mac's serial ports (MacSerial).
     fileprivate func registerSerial() {
-        dispatcher.register("usb.open") { [unowned self] params in try await serial.open(baudRate: params.int("baudRate")) }
+        dispatcher.register("usb.open") { [unowned self] params in try await serial.open(baudRate: params.int("baudRate"), owner: self, emit: { [weak self] name, data in self?.send(name, data) }) }
         dispatcher.register("usb.write") { [unowned self] params in
-            try await serial.write(port: params.int("port"), base64: params.string("data"))
+            try await serial.write(port: params.int("port"), base64: params.string("data"), owner: self)
             return [:]
         }
         dispatcher.register("usb.close") { [unowned self] params in
-            serial.close(port: params.int("port"))
+            serial.close(port: params.int("port"), owner: self)
             return [:]
         }
     }

@@ -76,8 +76,6 @@ final class SerialLine {
         let fd = fd
         let writes = writeQueue
         source.setCancelHandler { writes.async { Darwin.close(fd) } }
-        source.resume()
-        self.source = source
         // A port that went away may not wake the reader: look for its path now and then.
         let watcher = DispatchSource.makeTimerSource(queue: readQueue)
         watcher.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
@@ -85,8 +83,13 @@ final class SerialLine {
             guard let self else { return }
             if access(self.path, F_OK) != 0 { self.end(.unplugged) }
         }
-        watcher.resume()
+        // Both are kept before either runs, so an ending in the first moments (a port gone at open) can cancel them.
+        lock.lock()
+        self.source = source
         self.watcher = watcher
+        lock.unlock()
+        source.resume()
+        watcher.resume()
     }
 
     private func readAvailable() {

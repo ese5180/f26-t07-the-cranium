@@ -31,11 +31,13 @@ struct MacBoardWindow: View {
     @StateObject private var model: MacShellModel
 
     init(thing: String?) {
-        _model = StateObject(wrappedValue: MacShellModel(startURL: thing.flatMap(MacShellModel.boardURL)))
+        _model = StateObject(wrappedValue: MacShellModel(startURL: thing.flatMap(MacShellModel.boardURL), primary: MacShellModel.main))
     }
 
     var body: some View {
         MacShellRoot(model: model)
+            // The window is closing: its ports are closed and it stops asking the Mac to stay awake.
+            .onDisappear { model.host.pageLeft() }
     }
 }
 
@@ -44,52 +46,56 @@ struct MacBoardWindow: View {
 /// Sign Out. Help: Cranium Help (Command-?), the customer site's Help page.
 struct CraniumCommands: Commands {
     @ObservedObject var model: MacShellModel
+    @FocusedValue(\.shellModel) private var focused
     @Environment(\.openWindow) private var openWindow
+
+    /// The window in front; the first window if none is.
+    private var target: MacShellModel { focused ?? model }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
         CommandGroup(replacing: .appSettings) {
-            Button("Settings\u{2026}") { model.showSettings = true }
+            Button("Settings\u{2026}") { target.openSettings() }
                 .keyboardShortcut(",", modifiers: .command)
         }
         CommandGroup(after: .toolbar) {
-            Button("Back") { model.goBack() }
+            Button("Back") { target.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
-            Button("Forward") { model.goForward() }
+            Button("Forward") { target.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
-            Button("Reload") { Task { await model.reload() } }
+            Button("Reload") { Task { await target.reload() } }
                 .keyboardShortcut("r", modifiers: .command)
-            Button("Look for Newer Pages") { Task { await model.checkForUpdate(force: true) } }
+            Button("Look for Newer Pages") { Task { await target.checkForUpdate(force: true) } }
             #if DEBUG
             Divider()
-            Button("Developer Tools") { model.showDeveloperTools() }
+            Button("Developer Tools") { target.showDeveloperTools() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
             #endif
         }
         CommandMenu("Go") {
             ForEach(Array(MacRoutes.shortcuts.enumerated()), id: \.element.route) { index, section in
                 if let key = MacRoutes.key(at: index) {
-                    Button(section.title) { model.go(to: section.route) }
+                    Button(section.title) { target.go(to: section.route) }
                         .keyboardShortcut(KeyEquivalent(key), modifiers: .command)
                 }
             }
             Divider()
             ForEach(MacRoutes.others, id: \.route) { section in
-                Button(section.title) { model.go(to: section.route) }
+                Button(section.title) { target.go(to: section.route) }
             }
         }
         CommandMenu("Console") {
             Button("Open Board in New Window") {
-                if let thing = model.boardThing { openWindow(id: "board", value: thing) }
+                if let thing = target.boardThing { openWindow(id: "board", value: thing) }
             }
-            .disabled(model.boardThing == nil)
+            .disabled(target.boardThing == nil)
             Divider()
-            Button("Lock Now") { Task { await model.lockNow() } }
+            Button("Lock Now") { Task { await target.lockNow() } }
                 .keyboardShortcut("l", modifiers: [.command, .control])
-            Button("Sign Out") { Task { await model.signOutEverywhere() } }
+            Button("Sign Out") { Task { await target.signOutEverywhere() } }
         }
         CommandGroup(replacing: .help) {
-            Button("Cranium Help") { model.go(to: "help", customer: true) }
+            Button("Cranium Help") { target.go(to: "help", customer: true) }
                 .keyboardShortcut("?", modifiers: .command)
         }
     }
