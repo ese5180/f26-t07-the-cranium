@@ -84,7 +84,6 @@ const LEFT_OUT_REASONS = Object.freeze({
   gone: 'No longer registered',
   unticked: 'Left out by hand',
   no_release: 'No release yet',
-  no_older: 'No older release',
   // Roll back to last good (console 2.14.0).
   no_good: 'No known good version',
   good_revoked: 'Last good was revoked',
@@ -464,7 +463,6 @@ function readPlan(raw) {
               notes: words(object(entry.release).notes),
             }
           : null,
-        from: version(entry.from),
         things: things(entry.things),
         leftOut: readLeftOut(entry.leftOut),
         canary: things(entry.canary),
@@ -612,9 +610,6 @@ const fleetApi = {
   everythingPlan: async () => readPlan((await request('GET', '/api/fleet/update-everything')).plan),
   startEverything: async (body) =>
     array((await request('POST', '/api/fleet/update-everything', body)).rollouts).map(readRollout),
-  rollbackPlan: async (id) => readPlan((await request('GET', `/api/groups/${id}/rollback`)).plan),
-  startRollback: async (id, body) =>
-    array((await request('POST', `/api/groups/${id}/rollback`, body)).rollouts).map(readRollout),
   // Roll back to last good: a group's boards, or (no id) the fleet's.
   lastGoodPlan: async (id = null) =>
     readLastGoodPlan((await request('GET', id ? `/api/groups/${id}/last-good` : '/api/fleet/last-good')).plan),
@@ -1081,12 +1076,8 @@ export function healthCard(ctx) {
 
 // The groups.
 
-function groupRow(group, ctx, fleet) {
+function groupRow(group, ctx) {
   const { canWrite } = ctx.state.me;
-  const types = new Set(
-    group.things.map((thing) => fleet.boards.find((board) => board.thing === thing)?.type).filter(Boolean)
-  );
-  const older = [...types].some((boardType) => fleet.types.find((entry) => entry.type === boardType)?.previous);
   return h(
     'li',
     { key: group.id, class: 'row group-row' },
@@ -1122,8 +1113,6 @@ function groupRow(group, ctx, fleet) {
           'div',
           { class: 'group-actions' },
           group.things.length > 0 ? button('is-small', () => openGroupRollout(group), icon('send'), 'Roll out') : null,
-          // Only where there is an older active release of a type in the group to go back to.
-          older ? button('is-small is-quiet', () => openPlan({ group }), icon('undo'), 'Roll back') : null,
           group.things.length > 0
             ? button('is-small is-quiet', () => openLastGood({ group }), icon('undo'), 'Roll back to last good')
             : null,
@@ -1199,7 +1188,7 @@ export function groupsCard(ctx) {
           )
         )
       ),
-      fleet.groups.map((group) => groupRow(group, ctx, fleet)),
+      fleet.groups.map((group) => groupRow(group, ctx)),
       fleet.groups.length === 0
         ? h('li', { key: 'none', class: 'row group-row' }, h('p', { class: 'quiet' }, 'No groups of your own yet.'))
         : null
@@ -1334,7 +1323,7 @@ export function fleetView(ctx) {
       tools: [
         freshness(state.fleet, ctx),
         canWrite && fleet ? button('', () => openLastGood({}), icon('undo'), 'Roll back to last good') : null,
-        canWrite && fleet ? button('is-primary', () => openPlan({}), icon('send'), 'Update everything') : null,
+        canWrite && fleet ? button('is-primary', () => openPlan(), icon('send'), 'Update everything') : null,
       ],
     }),
     loadProblem(state.fleet, 'the fleet', ctx),
@@ -2299,10 +2288,10 @@ function openGroupRollout(group) {
 }
 
 /**
- * "Update everything", or with a group the roll back of that group: the plan as the server makes it
- * now, by board type, each type's boards ticked; what is left out is listed with why.
+ * "Update everything": the plan as the server makes it now, by board type, each type's boards
+ * ticked; what is left out is listed with why.
  */
-function openPlan({ group = null }) {
+function openPlan() {
   if (tools.dialogs.isOpen()) return;
   let self = null;
   const model = {
@@ -2322,7 +2311,7 @@ function openPlan({ group = null }) {
     model.loadError = null;
     redraw();
     try {
-      model.plan = group ? await fleetApi.rollbackPlan(group.id) : await fleetApi.everythingPlan();
+      model.plan = await fleetApi.everythingPlan();
       model.picked = new Map(
         model.plan.types
           .filter((entry) => entry.release && entry.things.length > 0)
@@ -2346,7 +2335,7 @@ function openPlan({ group = null }) {
       const body = { types, canary: model.canary, ...stageBody(model), abortPercent: model.abortPercent };
       let started;
       try {
-        started = group ? await fleetApi.startRollback(group.id, body) : await fleetApi.startEverything(body);
+        started = await fleetApi.startEverything(body);
       } catch (error) {
         if (error?.status === 409) reload();
         throw error;
@@ -2374,19 +2363,8 @@ function openPlan({ group = null }) {
         h(
           'p',
           { class: 'dialog-lede', key: 'lede' },
-          group
-            ? 'For each board type in the group, the release before its newest, to the boards that can take it.'
-            : 'For each board type, its newest release, to every board of the type that is not on it. Each type is a staged rollout of its own.'
+          'For each board type, its newest release, to every board of the type that is not on it. Each type is a staged rollout of its own.'
         ),
-        group
-          ? h(
-              'p',
-              { class: 'callout', key: 'real' },
-              icon('alert', 'is-small'),
-              ' A board takes only firmware newer than what it runs, so this reaches only boards behind both releases. ' +
-                'A real roll-back is a rebuild of the old source under a newer version, released and rolled out like any other.'
-            )
-          : null,
         model.plan.types.map((entry) =>
           h(
             'section',
@@ -2399,8 +2377,7 @@ function openPlan({ group = null }) {
                 { class: 'fleet-chip board-chip' },
                 `${boardTypeLabel(entry.type)}${entry.release ? ` · layout ${entry.release.layout}` : ''}`
               ),
-              entry.release ? [' ', mono(entry.release.version)] : h('span', { class: 'quiet' }, ' nothing to send'),
-              entry.from ? h('span', { class: 'quiet' }, [' instead of ', mono(entry.from)]) : null
+              entry.release ? [' ', mono(entry.release.version)] : h('span', { class: 'quiet' }, ' nothing to send')
             ),
             entry.things.length > 0
               ? h(
@@ -2444,7 +2421,7 @@ function openPlan({ group = null }) {
       ];
     }
     return dialogFrame({
-      title: group ? ['Roll back ', group.name] : 'Update everything',
+      title: 'Update everything',
       busy: model.sending,
       onClose: () => self.close(),
       onSubmit: chosen > 0 ? submit : null,

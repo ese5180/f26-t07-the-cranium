@@ -77,8 +77,8 @@ image on a board checks it. The board's own check is the last word.
     limit (default 20%, from the first finished board; AWS IoT's abort configuration stops what has not started), the
     health gate, a release revoked, or a cancellation: the rollout stops and says why. Each change of stage is a conditional write on
     the rollout, so two runs of the schedule never start a stage twice.
-  - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything and
-    a group's roll back) takes the canary size, the number of stages, the batch size of each stage but the last (a
+  - **Choices.** The create form (Roll out to a group; New deployment for boards picked by hand; Update everything)
+    takes the canary size, the number of stages, the batch size of each stage but the last (a
     percent or a count of the boards after the canary; the last stage takes the rest; empty stages are left out), the
     soak time, the failure limit and the health gate. The server checks every one (`lib/stages.mjs`).
   - **Suggestions.** `GET /api/rollouts/suggest?release=<version>&group=<id>` (viewers and release managers; the fleet
@@ -98,9 +98,9 @@ image on a board checks it. The board's own check is the last word.
 - **Update everything.** One action: for each board type, its newest active release goes to every board of that type
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
   boards, and what is left out (offline long, Bluetooth only, already current).
-- **Roll back** (a group's, before 2.14.0 and still there). The release before the newest of each type in the group.
-  A board takes only firmware newer than what it runs, so it reaches only boards behind both releases; the review marks
-  the others "Would refuse it".
+- **Roll back** (a group's, before 2.14.0; removed in 2.19.1). The release before the newest of each type in the
+  group. It reached only boards behind both releases, so Roll back to last good (below) replaced it. Rollouts it
+  started stay in the history as `rollback` (`group.rollback`).
 - **Roll back to last good** (from console 2.14.0). One button on each group (Fleet, Groups) and one on the Fleet page
   for every board: each board goes back to its own last good version.
   - **Last good.** The newest version, other than the one it runs, that the board ran confirmed, from its update history
@@ -112,7 +112,7 @@ image on a board checks it. The board's own check is the last word.
   - **How a board takes an older version.** It does not, and this changes no firmware. The console registers only
     versions newer than every earlier one, the application refuses a job that is not newer than what it runs
     (`ota_job.c`, `ota_job_check`, equal refused too), and MCUboot refuses a lower version on a test swap
-    (`CONFIG_MCUBOOT_DOWNGRADE_PREVENTION`). So, as the group's Roll back already said, a real roll back is a rebuild of
+    (`CONFIG_MCUBOOT_DOWNGRADE_PREVENTION`). So a real roll back is a rebuild of
     the old source under a newer version. A release says it is one when its note begins `Rebuild of <version>`
     (`Rebuild of 1.13.0`; set at upload or with Edit note). A board whose last good version is older than what it runs
     goes to the newest active rebuild of that version that is newer than what it runs, of its type and layout; one

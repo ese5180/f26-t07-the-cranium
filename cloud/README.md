@@ -607,10 +607,9 @@ page, and some of it on the others.
   deployment to one board, and every deployment from the API (`POST /api/deployments`), is one job as before.
 - **Update everything** reviews, by type, the newest release, the boards it goes to and the ones it leaves out, and
   starts one staged rollout per type.
-- **Roll back** (on a group, when an older release of one of its types is active) reviews the release before the
-  newest. A board refuses firmware that is not newer than what it runs, so it reaches only boards behind both
-  releases, and the review marks the others "Would refuse it". A real roll-back is a rebuild of the old source under
-  a newer version, released and rolled out like any other.
+- **Roll back to last good** (on a group and on the Fleet page) is the one way back: each board goes to its last good
+  version, as a rebuild of the old source under a newer version (a release whose note begins `Rebuild of <version>`),
+  with the health gate on. The group "Roll back" of the release before the newest was removed in 2.19.1.
 - **A release's note.** "Edit note" on any release, revoked ones too. Scripts set it with an API token:
   `curl -X PUT -H "Authorization: Bearer $CRANIUM_TOKEN" -H 'content-type: application/json'
   -d '{"notes":"…"}' "$CONSOLE/api/t/firmware/1.11.3%2B0/notes"`.
