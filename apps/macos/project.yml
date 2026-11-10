@@ -1,13 +1,12 @@
 # The Xcode project of the Cranium Mac app, for XcodeGen. The .xcodeproj it makes is not in git: run
 # scripts/generate.sh after a change here or after a pull. See README.md and docs/mac-app.md.
 #
-# A native SwiftUI app, not a web view: its own windows, sidebar, tables and menus. What it shares
-# with the iPhone app is the logic, not the screens:
-#   - CraniumKit and CraniumBLE (apps/ios/CraniumKit): configuration, sign-in, the console's API,
-#     the words, Touch ID's gate (MacBiometrics.swift), live updates (Live.swift), the serial console;
-#   - the iPhone app's models (apps/ios/App: AppModel, CustomerModel, BluetoothModel, WebSignIn and
-#     the demo data), compiled here as they are, so the sign-in, the lock, the Bluetooth update and
-#     every check behave as on the phone.
+# The console's own pages in a web view, as the iPhone and desktop apps show them (docs/mac-app.md). What
+# it shares with the iPhone app is the code, not redrawn screens:
+#   - CraniumKit and CraniumBLE (apps/ios/CraniumKit): configuration, the bundle store, the bridge, the
+#     sign-in pools, Touch ID's gate (MacBiometrics.swift), the Bluetooth update;
+#   - ShellRadio (apps/ios/App/Shell), the bridge's Bluetooth, compiled here as it is.
+#   The web bundle itself is built by cloud/web/build-bundle.mjs into the app by a build phase.
 
 name: Cranium
 
@@ -21,7 +20,7 @@ options:
 settings:
   base:
     # The version people see (apps/macos/CHANGELOG.md, docs/versions.md).
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
 
 packages:
@@ -35,17 +34,8 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: Cranium
-      # The iPhone app's models, shared as they are (see above).
-      - path: ../ios/App/AppModel.swift
-      - path: ../ios/App/CustomerModel.swift
-      - path: ../ios/App/BluetoothModel.swift
-      - path: ../ios/App/WebSignIn.swift
-      - path: ../ios/App/DemoData.swift
-      # The website's icon names as SF Symbols (Icon), and the console's colours.
-      - path: ../ios/App/Theme.swift
-      # The Help topics, which both phone apps read too.
-      - path: ../shared/help.json
-        buildPhase: resources
+      # The iPhone app's Bluetooth for the bridge, shared as it is.
+      - path: ../ios/App/Shell/ShellRadio.swift
     dependencies:
       - package: CraniumKit
         product: CraniumKit
@@ -83,11 +73,17 @@ targets:
         script: '"${SRCROOT}/../ios/scripts/stamp-commit.sh"'
         basedOnDependencyAnalysis: false
         showEnvVars: false
+      - name: Copy the web bundle
+        # The console's pages, as the console serves them, for the first start and the fallback: the
+        # iPhone app's script (cloud/web/build-bundle.mjs, which needs Node.js).
+        script: '"${SRCROOT}/../ios/scripts/copy-bundle.sh"'
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
     scheme:
       testTargets:
         - CraniumMacTests
 
-  # The Mac app's own logic that is not in CraniumKit: the sidebar, the windows' routes. CraniumKit's
+  # The Mac app's own logic that is not in CraniumKit: what its web view may load. CraniumKit's
   # tests (swift test) cover the rest, the Mac's Touch ID gate and live client among them.
   CraniumMacTests:
     type: bundle.unit-test
@@ -95,8 +91,7 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: Tests
-      - path: Cranium/Sections.swift
-      - path: Cranium/WebTarget.swift
+      - path: Cranium/Shell/MacNavigation.swift
     dependencies:
       - package: CraniumKit
         product: CraniumKit

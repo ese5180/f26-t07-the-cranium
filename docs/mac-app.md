@@ -1,6 +1,6 @@
 # The Mac app
 
-A native SwiftUI app for macOS 13 or later (`apps/macos`, version 0.1.0, changelog in `apps/macos/CHANGELOG.md`). It is not a web view: it has its own windows, sidebar, tables and menus. It shares the logic of the iPhone app, not the screens: CraniumKit and CraniumBLE (`apps/ios/CraniumKit`) and the iPhone app's models (`AppModel`, `CustomerModel`, `BluetoothModel`, `WebSignIn`, `DemoData`, `Theme`), compiled in by path from `apps/ios/App`.
+A macOS 13 or later app (`apps/macos`, version 0.2.0, changelog in `apps/macos/CHANGELOG.md`) that shows the console's own pages and the customer site's, not redrawn screens. It hosts the same web bundle the iPhone and desktop apps do (`cloud/web/build-bundle.mjs`) in a WKWebView, kept on the Mac and refreshed from the console with every file checked, exactly as the iPhone app does (`BundleStore`, `ShellPolicy`, the bridge, all in CraniumKit). The page that opens first (the customer site, or the console for a build without customers) and the admin or customer switch are the pages' own, so they behave as in the iPhone and desktop apps.
 
 ## Build and run
 
@@ -10,7 +10,7 @@ apps/macos/scripts/generate.sh --ad-hoc      # or without --ad-hoc to sign with 
 open apps/macos/Cranium.xcodeproj
 ```
 
-The Xcode project is made from `apps/macos/project.yml` and is not in git; run the script after a pull. The configuration (`apps/config/`, the same generated file the iPhone app reads) is copied into the built app by a build step, never into the source tree. From the command line:
+The Xcode project is made from `apps/macos/project.yml` and is not in git; run the script after a pull. The configuration (`apps/config/`, the same generated file the iPhone app reads) and the web bundle (built from `cloud/web/src`, which needs Node.js 18 or newer) are copied into the built app by build steps, never into the source tree. From the command line:
 
 ```
 xcodebuild -project apps/macos/Cranium.xcodeproj -scheme Cranium -destination 'platform=macOS' build
@@ -23,29 +23,24 @@ CraniumKit has its own tests (`swift test` in `apps/ios/CraniumKit`).
 
 Signed with a team (`CRANIUM_TEAM_ID`, or `~/.cranium/apple-team-id`), the data protection keychain holds Touch ID to the saved sign-in itself. With `--ad-hoc` ("Sign to Run Locally") the app asks for Touch ID before it reads the sign-in. Nothing is notarized or installed system-wide.
 
-## What it shows
+## What it is
 
-Team side (sidebar groups Console, In the room, More):
-
-- Overview, Boards (search, filter, a board's page with events, log, boots, charts and slots; a board can open in its own window), Firmware (upload, release, deploy, revoke), Deployments, Events, Activity.
-- Bluetooth update (over BluetoothModel, not for a viewer) and a read-only Serial console.
-- Search, API tokens (not for a viewer), History, Help (from `apps/shared/help.json`).
-- Scheduled deployments and the Weekly report: the console's own pages in a web view (`WebPages.swift`), as the iPhone app shows its web pages. The page signs in itself and nothing is kept on disk; only the console's own host loads in it, other addresses open in the browser.
-- Settings: Touch ID, how soon it locks again, lock on sleep, account, about.
-
-Customer side: sign-in, forgot password, Your boards (and a board), Activity, Your listening (the customer site's page in a web view), Account (password, two-step sign-in), Help.
-
-Menus have Command-1 to Command-9 for the first nine sections, Command-R to refresh and Lock Now.
+- The window is the console's pages. Only the bundle's own address (`cranium-app://bundle`) loads in it; every file comes from the bundle on the Mac, never from the network. An `https` link opens in the browser, anything else is dropped, and a page cannot open a second web view. Only the main frame of that address can reach the bridge.
+- The sign-in is the pages' own (password and code on the page); the app keeps the tokens in the Keychain through the bridge and gives the page access tokens only. With Touch ID on, the saved sign-in is behind it, and after the Mac was away for the chosen time (or sleeps, or its screen locks) a lock screen asks for it again.
+- The bridge offers auth, biometric, clipboard, open, settings, storage, share (a save panel) and Bluetooth (the firmware update, `ShellRadio` from the iPhone app, compiled in as it is). It reports its platform as `ios` because the pages treat WebKit without Web Serial that way.
+- Menus: View has Back, Forward, Reload (Command-R, also fetches the newest kept bundle) and Look for Newer Pages; a Debug build adds Developer Tools. Console has Lock Now and App Settings.
 
 ## Left out
 
-- **Board setup over serial.** Web Serial exists only in Chromium, so the console's setup page cannot run in the Mac app's web view, and no native serial setup stack is built. Setup stays in the Electron desktop app or a Chromium browser. The Serial console section only reads lines from a board.
-- Team account management (users, roles, two-step) is a pointer to the web console.
-- Scheduled deployments, the weekly report and Your listening are web views, not native screens; the web views were not exercised against the live site in CI.
+- **Serial console and Board setup.** WebKit has no Web Serial, so these two pages are left out here as in the iPhone app (the web UI hides them and the shell refuses their addresses). They stay in the Electron desktop app or a Chromium browser.
+- The camera, haptics and keep-awake bridge features, which a Mac has no use for.
 - No code signing with a shared identity, notarization or release packaging.
 - Not part of the `apps/shared` and `apps/desktop` parity checks, which cover the web-bundle shells.
-- The look has not been reviewed yet.
+
+## Trying it without a screen
+
+A Debug build run with `CRANIUM_MAC_SMOKE=<file.png>` takes a picture of the page after a few seconds (`CRANIUM_MAC_SMOKE_MS`) and quits, as the desktop app's `CRANIUM_DESKTOP_SMOKE` does. The app is sandboxed: if the path is out of its reach, the picture is in its container's `tmp/cranium-smoke.png`.
 
 ## CI
 
-The `Mac app` job in `.github/workflows/ci.yml` makes the project with XcodeGen and runs the unit tests unsigned. It is not a required check.
+The `Mac app` job in `.github/workflows/ci.yml` makes the project with XcodeGen, builds the bundle and runs the unit tests unsigned. It is not a required check.
