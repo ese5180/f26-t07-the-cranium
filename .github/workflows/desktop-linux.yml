@@ -72,9 +72,19 @@ jobs:
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
           node scripts/prepare.mjs --example
-          CRANIUM_DESKTOP_SMOKE="$RUNNER_TEMP/desktop.png" timeout 120 xvfb-run -a npx electron . | tee "$RUNNER_TEMP/desktop.log"
-          grep -q '"smoke":"done","url":"cranium-app://bundle/#/sign-in"' "$RUNNER_TEMP/desktop.log"
-          grep -q '"name":"Cranium"' "$RUNNER_TEMP/desktop.log"
+          # Electron under xvfb on a shared runner now and then hangs before its first page. Up to three
+          # tries: an app that really does not start fails all three, so the check still means something.
+          for try in 1 2 3; do
+            rm -f "$RUNNER_TEMP/desktop.log" "$RUNNER_TEMP/desktop.png"
+            CRANIUM_DESKTOP_SMOKE="$RUNNER_TEMP/desktop.png" timeout 120 xvfb-run -a npx electron . | tee "$RUNNER_TEMP/desktop.log" || true
+            if grep -q '"smoke":"done","url":"cranium-app://bundle/#/sign-in"' "$RUNNER_TEMP/desktop.log" \
+                && grep -q '"name":"Cranium"' "$RUNNER_TEMP/desktop.log"; then
+              exit 0
+            fi
+            echo "::warning::The app did not start on try $try."
+          done
+          echo "::error::The app did not start in three tries."
+          exit 1
 
       - name: Build the packages
         run: npm run dist -- linux --example

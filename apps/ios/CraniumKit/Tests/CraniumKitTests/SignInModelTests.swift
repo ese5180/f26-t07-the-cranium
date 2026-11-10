@@ -149,7 +149,11 @@ import Testing
         #expect(model.step == .leaving)
         #expect(model.note == why)
         #expect(model.ending == nil, "the reason is on screen first")
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // The reading time is 0.05 s; a busy machine can run it later, so wait for it (10 s at most)
+        // rather than a fixed while.
+        for _ in 0..<200 where model.ending == nil {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         #expect(model.ending == .awsPage(reason: why))
         // Back from the AWS page without signing in: the password step, and still why.
         model.endingSeen()
