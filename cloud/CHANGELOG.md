@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.7
+
+On a 320 px phone the Apps page no longer scrolls sideways: the Android card's "Download cranium-android-….apk" button wraps its words inside the card instead of making the card, and the page, as wide as the words on one line.
+
+`.app-latest-text` was a grid whose one column took the width of the longest line that cannot wrap (the button, 305 px, in a card of 256); it is now `minmax(0, 1fr)`, and `.app-actions .btn` may wrap. site.test.mjs checks both. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.6
 
 On a phone narrower than 400 px (an iPhone mini or SE, most Android phones at 360 px), the customer site's top bar no longer runs off the screen and makes every page scroll sideways. "Connect device" is its Bluetooth icon there, like the two icons beside it, and keeps its words as its tooltip and for a screen reader.
