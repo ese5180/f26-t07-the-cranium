@@ -20,6 +20,9 @@
 #endif
 #include "bt_only.h"
 #include "bt_ota.h"
+#if defined(CONFIG_APP_BT_OFFLINE)
+#include "bt_offline.h"
+#endif
 #if defined(CONFIG_APP_BT_STATIC_PASSKEY)
 #include "bt_passkey.h"
 #endif
@@ -120,6 +123,9 @@ static void on_tick(void)
 {
 	health_feed();
 	bt_ota_on_tick();
+#if defined(CONFIG_APP_BT_OFFLINE)
+	bt_offline_on_tick();
+#endif
 
 	if (bt_ota_take_trouble()) {
 		bt_only_leds_trouble();

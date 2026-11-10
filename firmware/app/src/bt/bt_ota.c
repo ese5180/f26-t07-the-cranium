@@ -1166,6 +1166,37 @@ static void collect_status(struct bt_status *status)
 	status->uptime_seconds = (uint32_t)(k_uptime_get() / MSEC_PER_SEC);
 }
 
+/* ---- the offline mode's view of the window (src/bt/bt_offline.c) ---------------------------- */
+
+int bt_ota_upload_view(struct fw_version *version)
+{
+	if (window.phase == BT_OTA_READY) {
+		*version = track.version;
+		return BT_OTA_UPLOAD_WAITING;
+	}
+
+	if ((window.phase == BT_OTA_OPEN || window.phase == BT_OTA_LINKED) &&
+	    track.image == BT_STATUS_IMAGE_RECEIVING) {
+		return BT_OTA_UPLOAD_RECEIVING;
+	}
+
+	return BT_OTA_UPLOAD_NONE;
+}
+
+static void refresh_status(bool wait);
+
+bool bt_ota_accept_offer(void)
+{
+	if (window.phase != BT_OTA_READY) {
+		return false;
+	}
+
+	/* What Button 2 does: the policy takes any button but 1 as the one that installs. */
+	apply(bt_ota_window_press(&window, 2));
+	refresh_status(false);
+	return true;
+}
+
 struct status_notification {
 	const uint8_t *payload;
 	int sent;
