@@ -556,9 +556,12 @@ test(
     // nRF5340 DK): tools/provision_device.py sets that passkey after registering it with the console,
     // and a passkey sent from this page would be one the console does not know. Where such a block
     // has an #else, that is the nRF7002 DK's, and it stays.
+    // BT_OFFLINE|NEW shows the board's own passkey once, in its reply; Board setup's command line reads it,
+    // and this page's transcript must not hold it, so the page does not offer the command.
     const source = readFileSync(new URL('console_cmd.c', FIRMWARE), 'utf8')
       .replace(/#if defined\(CONFIG_APP_(?:TEST_FAULT_\w+|SESSIONS)\)[\s\S]*?#endif/g, '')
-      .replace(/#if defined\(CONFIG_APP_BT_STATIC_PASSKEY\)[\s\S]*?(?=#else|#endif)/g, '');
+      .replace(/#if defined\(CONFIG_APP_BT_STATIC_PASSKEY\)[\s\S]*?(?=#else|#endif)/g, '')
+      .replace(/#if defined\(CONFIG_APP_BT_OFFLINE\)[\s\S]*?#endif/g, '');
     const entry =
       /\{\s*"([A-Z_]+)",\s*(NULL|"\?"),\s*"[^"]*",\s*(?:"[^"]*"\s*)+,\s*SECTION_\w+,\s*(true|false),\s*(\d+),\s*(\d+),\s*cmd_\w+\s*\}/g;
     const firmware = new Map(
