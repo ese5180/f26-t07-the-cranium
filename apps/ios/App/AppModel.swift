@@ -129,6 +129,7 @@ final class AppModel: ObservableObject {
     /// The release the Bluetooth update was opened for.
     @Published var bluetoothRelease: String?
     @Published var bluetoothOpen = false
+    @Published var offlineOpen = false
 
     private(set) var api: ConsoleAPI?
     private var auth: AuthSession?
@@ -461,6 +462,7 @@ final class AppModel: ObservableObject {
         updatesMissing = false
         deploying = nil
         bluetoothOpen = false
+        offlineOpen = false
     }
 
     private func refreshAfterAccountChange() async {
@@ -516,6 +518,18 @@ final class AppModel: ObservableObject {
     func openBluetooth(release: String?) {
         bluetoothRelease = release
         bluetoothOpen = true
+    }
+
+    // MARK: Offline mode
+
+    /// Made when first needed, like the update's: its radio is what has iOS ask for Bluetooth.
+    private(set) var offline: OfflineModel?
+
+    func offlineModel() -> OfflineModel {
+        if let offline { return offline }
+        let made = OfflineModel()
+        offline = made
+        return made
     }
 
     // MARK: Firmware on the phone
