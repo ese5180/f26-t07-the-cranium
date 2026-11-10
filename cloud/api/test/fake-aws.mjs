@@ -183,6 +183,19 @@ function mergeReported(state, metadata, update, stamp) {
  *                                               is stopped) or "ignored" (the call
  *                                               succeeds and changes nothing)
  */
+/** An account of the staff pool as src/aws-team.mjs describes one. */
+function teamMember(sub, user) {
+  return {
+    sub,
+    email: user.email,
+    name: user.name ?? '',
+    enabled: user.enabled,
+    status: user.status,
+    createdAt: Number.isFinite(user.createdAt) ? user.createdAt : null,
+    mfa: user.mfa === true,
+  };
+}
+
 export function createFakeAws({
   now = Date.now,
   rolloutDelayMs = 0,
@@ -203,7 +216,9 @@ export function createFakeAws({
   const tokens = new Map(); // sk (the digest of a token) -> item
   const eventItems = new Map(); // thing -> Map(sk -> item): the events table
   const lineCounters = new Map(); // thing -> { boot, seq }: the board log's numbers
-  const users = new Map(); // sub -> { email, enabled, status, groups }
+  const users = new Map(); // sub -> { email, enabled, status, groups, createdAt, mfa }
+  const teamMail = []; // { email, kind }: what Cognito would have e-mailed to the team, in order
+  let invited = 0;
   const faults = new Map(); // method -> [error | () => error]
   const calls = [];
   let highest; // the pointer item's value
@@ -838,6 +853,69 @@ export function createFakeAws({
       return user === undefined ? [] : [...user.groups];
     },
 
+    // The team's accounts (src/aws-team.mjs), for the Team page. A password is never here: Cognito's own.
+
+    async listTeam() {
+      return [...users.entries()].map(([sub, user]) => ({ ...teamMember(sub, user), mfa: null }));
+    },
+
+    async getTeamMember(sub) {
+      const user = users.get(sub);
+      return user === undefined ? null : teamMember(sub, user);
+    },
+
+    async inviteTeamMember({ email }) {
+      const lower = String(email).toLowerCase();
+      if ([...users.values()].some((user) => user.email === lower)) return { ok: false, reason: 'exists' };
+      invited += 1;
+      const sub = `00000000-0000-4000-9000-${String(invited).padStart(12, '0')}`;
+      users.set(sub, {
+        email: lower,
+        enabled: true,
+        status: 'FORCE_CHANGE_PASSWORD',
+        groups: new Set(),
+        createdAt: clock(),
+        mfa: false,
+      });
+      teamMail.push({ email: lower, kind: 'invitation' });
+      return { ok: true, member: teamMember(sub, users.get(sub)) };
+    },
+
+    async resendTeamInvitation(email) {
+      const found = [...users.values()].find((user) => user.email === String(email).toLowerCase());
+      if (found === undefined) return { ok: false, reason: 'not_found' };
+      if (found.status !== 'FORCE_CHANGE_PASSWORD') return { ok: false, reason: 'not_invited' };
+      teamMail.push({ email: found.email, kind: 'invitation again' });
+      return { ok: true };
+    },
+
+    async addTeamMemberToGroup(sub, group) {
+      const user = users.get(sub);
+      if (user === undefined) return { ok: false, reason: 'not_found' };
+      user.groups.add(group);
+      return { ok: true };
+    },
+
+    async removeTeamMemberFromGroup(sub, group) {
+      const user = users.get(sub);
+      if (user === undefined) return { ok: false, reason: 'not_found' };
+      user.groups.delete(group);
+      return { ok: true };
+    },
+
+    async setTeamMemberEnabled(sub, enabled) {
+      const user = users.get(sub);
+      if (user === undefined) return { ok: false, reason: 'not_found' };
+      user.enabled = enabled === true;
+      return { ok: true };
+    },
+
+    async deleteTeamMember(sub) {
+      if (!users.has(sub)) return { ok: false, reason: 'not_found' };
+      users.delete(sub);
+      return { ok: true };
+    },
+
     // The fleet.
 
     async describeThing(thing) {
@@ -1299,9 +1377,17 @@ export function createFakeAws({
     },
 
     /** What the user administrator does: create a user and put it in groups. */
-    addUser({ sub, email, groups = [], enabled = true, status = 'CONFIRMED' }) {
+    addUser({ sub, email, groups = [], enabled = true, status = 'CONFIRMED', mfa = status === 'CONFIRMED' }) {
       if (typeof sub !== 'string' || sub === '') throw new TypeError('sub is required');
-      users.set(sub, { email, enabled, status, groups: new Set(groups) });
+      users.set(sub, { email, enabled, status, groups: new Set(groups), createdAt: clock(), mfa });
+    },
+
+    /** What Cognito would have e-mailed to the team: invitations, never a password here. */
+    teamMail,
+
+    /** Whether an account is in the pool now. */
+    hasUser(sub) {
+      return users.has(sub);
     },
 
     /** What the user pool holds as an account's name (getUser's `name`: the first word of its given name or name). */
@@ -1326,6 +1412,12 @@ export function createFakeAws({
         },
         setStatus(status) {
           user.status = status;
+        },
+        groups() {
+          return [...user.groups].sort();
+        },
+        state() {
+          return { enabled: user.enabled, status: user.status, mfa: user.mfa };
         },
         remove() {
           users.delete(sub);

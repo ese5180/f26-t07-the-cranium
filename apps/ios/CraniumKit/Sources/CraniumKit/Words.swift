@@ -1136,6 +1136,26 @@ public enum Words {
                                         triedAlone: "tried to switch off a customer account", icon: "ban"),
         "customer.enable": AuditAction(done: "switched on the customer account of", tried: "tried to switch on the customer account of",
                                        triedAlone: "tried to switch on a customer account", icon: "check"),
+        // A customer's password reset and removal, and the team's accounts from the Team page (docs/accounts.md):
+        // a person by their e-mail address where the entry has it.
+        "customer.reset_password": AuditAction(done: "reset the password of the customer", tried: "tried to reset the password of the customer",
+                                       triedAlone: "tried to reset a customer’s password", icon: "key"),
+        "customer.remove": AuditAction(done: "removed the customer", tried: "tried to remove the customer",
+                                       triedAlone: "tried to remove a customer", icon: "x"),
+        "account.invite": AuditAction(done: "invited", doneAlone: "invited a person to the team", tried: "tried to invite",
+                                       triedAlone: "tried to invite a person to the team", icon: "user"),
+        "account.resend": AuditAction(done: "sent the team invitation again to", doneAlone: "sent a team invitation again", tried: "tried to send the team invitation again to",
+                                       triedAlone: "tried to send a team invitation again", icon: "send"),
+        "account.tier": AuditAction(done: "changed the tier of", tried: "tried to change the tier of",
+                                       triedAlone: "tried to change a tier", icon: "shield"),
+        "account.disable": AuditAction(done: "disabled the account of", tried: "tried to disable the account of",
+                                       triedAlone: "tried to disable an account", icon: "ban"),
+        "account.enable": AuditAction(done: "enabled the account of", tried: "tried to enable the account of",
+                                       triedAlone: "tried to enable an account", icon: "check"),
+        "account.reset": AuditAction(done: "reset the password and authenticator of", tried: "tried to reset the password and authenticator of",
+                                       triedAlone: "tried to reset an account", icon: "key"),
+        "account.remove": AuditAction(done: "removed the account of", tried: "tried to remove the account of",
+                                       triedAlone: "tried to remove an account", icon: "x"),
         // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
         "device.register": AuditAction(done: "registered", doneAlone: "registered a board", tried: "tried to register",
                                        triedAlone: "tried to register a board", icon: "chip"),
@@ -1329,6 +1349,18 @@ public enum Words {
         "unknown_customer": "There is no customer with that ID",
         "customer_exists": "There is a customer with that address already",
         "customer_not_invited": "That customer has signed in already, so there was no invitation to send again",
+        "customer_not_signed_in": "That customer had not chosen a password yet, so there was none to reset",
+        "customer_disabled": "That customer was switched off",
+        "invalid_account": "Not a valid account ID",
+        "invalid_tier": "Not a tier: viewer or release manager",
+        "unknown_account": "There is no account with that ID",
+        "account_exists": "There is an account with that address already",
+        "account_not_invited": "That person has signed in already, so there was no invitation to send again",
+        "account_not_signed_in": "That person had not signed in yet, so there was nothing to reset",
+        "account_disabled": "That account was disabled",
+        "account_has_no_tier": "That account had no tier",
+        "own_account": "Nobody can demote, disable, reset or remove their own account",
+        "last_release_manager": "It would have left no enabled release manager",
         "already_assigned": "That board was that customer’s already",
         "board_taken": "That board belongs to another customer",
         "not_assigned": "That board was not that customer’s",
@@ -1418,7 +1450,8 @@ public enum Words {
         let details = Dictionary(entry.detail.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
         var label = deployment.map { DeploymentId.version(of: $0) ?? $0 } ?? entry.target
         // A customer is told by their address, where the entry has it, not by the id of their account.
-        let customerEmail = entry.action.hasPrefix("customer.") ? details["email"] ?? "" : ""
+        // And a person of the team by theirs (account.*).
+        let customerEmail = entry.action.hasPrefix("customer.") || entry.action.hasPrefix("account.") ? details["email"] ?? "" : ""
         let byAddress = !customerEmail.isEmpty && !customerBoard.contains(entry.action)
         if byAddress { label = customerEmail }
         // A revocation that completed what an earlier request had begun.

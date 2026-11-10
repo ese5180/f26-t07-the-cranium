@@ -27,6 +27,7 @@
     { "route": "#/activity", "nav": "activity", "script": null },
     { "route": "#/apps", "nav": "apps", "script": "apps.js" },
     { "route": "#/customers", "nav": "customers", "script": "customers.js" },
+    { "route": "#/team", "nav": "team", "script": "team.js" },
     {
       "route": "#/serial",
       "nav": "developer",

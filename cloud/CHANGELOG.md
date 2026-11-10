@@ -7,6 +7,22 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.17.0
+
+Account management: a Team page for release managers lists everybody who signs in to the console, with their tier, whether they are enabled, invited or active, whether an authenticator app is set up, when they were added and when they last signed in, and lets a release manager invite, change the tier of, disable, enable, reset and remove an account. The Customers page shows each customer's authenticator too, and can reset a customer's password or remove the account. The console never sees or sets a password.
+
+handlers/team.mjs and aws-team.mjs are new: `GET /api/team`, `POST /api/team` (invite), and `POST
+/api/team/{id}/resend|tier|disable|enable|reset|remove`, release managers on the website only (no API token, no phone
+session), each asked of Cognito at the moment. Nobody changes their own account (`own_account`), and a change that
+would leave no enabled release manager is refused (`last_release_manager`). A reset replaces the account with the
+same tier and a new invitation, because the staff pool requires an authenticator and has admin-only recovery
+(docs/accounts.md). Customers gain `POST /api/customers/{id}/reset-password` (Cognito's admin reset, which e-mails a
+code) and `/remove`, and the list says `enabled`, `confirmed` and `mfa`. New activity-log actions `account.invite`,
+`account.resend`, `account.tier`, `account.disable`, `account.enable`, `account.reset`, `account.remove`,
+`customer.reset_password` and `customer.remove`, each with what it changed before and after; new refusal words for
+their codes. The API role gains `ManageTeam` on the staff pool and three actions on the customer pool, and nothing
+that sets a password. docs/accounts.md.
+
 ## 2.16.1
 
 The console always has a way back to the customer site. Opened on its own name (console.craniumiot.com), it now shows

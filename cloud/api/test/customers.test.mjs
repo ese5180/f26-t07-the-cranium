@@ -593,3 +593,58 @@ test("the console's API takes the customer store beside its own adapter, and nam
   const response = await app(apiEvent('GET', '/api/customers', { claims }));
   assert.equal(response.statusCode, 200);
 });
+
+// The status view, and a reset of the password and a removal (console 2.17.0).
+
+test("the list has each customer's state from Cognito: enabled, confirmed and the authenticator", async () => {
+  const w = await world();
+  w.store.setMfa(w.ada.sub, true);
+  const { body } = await w.console('GET', '/api/customers', { as: w.admin });
+  const ada = body.customers.find((customer) => customer.id === w.ada.sub);
+  const ben = body.customers.find((customer) => customer.id === w.ben.sub);
+  assert.deepEqual([ada.enabled, ada.confirmed, ada.mfa], [true, true, true]);
+  assert.deepEqual([ben.enabled, ben.confirmed, ben.mfa], [true, true, false]);
+});
+
+test("reset a customer's password: Cognito e-mails a code, nobody here sees a password; refused while invited", async () => {
+  const w = await world();
+  const reset = await w.console('POST', `/api/customers/${w.ada.sub}/reset-password`, { as: w.admin, body: {} });
+  assert.equal(reset.status, 200, JSON.stringify(reset.body));
+  assert.equal(reset.body.customer.status, 'reset');
+  assert.deepEqual(w.store.codes, [{ email: 'ada@example.invalid' }]);
+  const viewer = await w.console('POST', `/api/customers/${w.ben.sub}/reset-password`, { as: w.viewer, body: {} });
+  assert.equal(viewer.status, 403);
+  const invited = await w.console('POST', '/api/customers', { as: w.admin, body: { email: 'cat@example.invalid' } });
+  const early = await w.console('POST', `/api/customers/${invited.body.customer.id}/reset-password`, {
+    as: w.admin,
+    body: {},
+  });
+  assert.deepEqual([early.status, early.body.error.code], [409, 'customer_not_signed_in']);
+  await w.console('POST', `/api/customers/${w.ben.sub}/disable`, { as: w.admin, body: {} });
+  const off = await w.console('POST', `/api/customers/${w.ben.sub}/reset-password`, { as: w.admin, body: {} });
+  assert.deepEqual([off.status, off.body.error.code], [409, 'customer_disabled']);
+  const entry = w.fake.auditLog().find((item) => item.action === 'customer.reset_password' && item.outcome === 'ok');
+  assert.deepEqual(entry.changes, [{ field: 'account', from: 'active', to: 'reset' }]);
+  assert.equal(/password"\s*:|Temporary/i.test(JSON.stringify([w.fake.auditLog(), w.logs, reset.body])), false);
+});
+
+test('remove a customer: the account is deleted and its boards stay listed under it, to be taken back', async () => {
+  const w = await world();
+  await w.assign(w.ada, BOARD_A, 'Deck');
+  const removed = await w.console('POST', `/api/customers/${w.ada.sub}/remove`, { as: w.admin, body: {} });
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.equal(removed.body.customer.status, 'gone');
+  assert.equal(w.store.customer(w.ada.sub), null);
+  const listed = (await w.console('GET', '/api/customers', { as: w.admin })).body.customers;
+  assert.deepEqual(
+    listed
+      .filter((customer) => customer.status === 'gone')
+      .map((customer) => customer.boards.map((board) => board.thing)),
+    [[BOARD_A]]
+  );
+  const again = await w.console('POST', `/api/customers/${w.ada.sub}/remove`, { as: w.admin, body: {} });
+  assert.deepEqual([again.status, again.body.error.code], [404, 'unknown_customer']);
+  const entry = w.fake.auditLog().find((item) => item.action === 'customer.remove' && item.outcome === 'ok');
+  assert.deepEqual(entry.changes, [{ field: 'account', from: 'active', to: null }]);
+  assert.equal((await w.console('POST', `/api/customers/${w.ben.sub}/remove`, { as: w.viewer, body: {} })).status, 403);
+});

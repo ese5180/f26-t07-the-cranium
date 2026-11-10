@@ -42,6 +42,7 @@ export function createFakeCustomers({ now = Date.now } = {}) {
   const faults = new Map();
   const calls = [];
   const invitations = []; // { email, resent } in the order Cognito would have sent them
+  const codes = []; // { email }: the reset codes Cognito would have e-mailed, never the code itself
   let made = 0;
 
   const clock = () => {
@@ -55,10 +56,11 @@ export function createFakeCustomers({ now = Date.now } = {}) {
 
   const adapter = {
     async listCustomers() {
-      return [...accounts.values()].map(copy);
+      return [...accounts.values()].map((account) => ({ ...copy(account), mfa: null }));
     },
     async getCustomer(sub) {
-      return copy(accounts.get(sub) ?? null);
+      const account = accounts.get(sub);
+      return account === undefined ? null : { ...copy(account), mfa: account.mfa === true };
     },
     async inviteCustomer({ email, name }) {
       if (byEmail(email) !== null) return { ok: false, reason: 'exists' };
@@ -86,6 +88,19 @@ export function createFakeCustomers({ now = Date.now } = {}) {
       const account = accounts.get(sub);
       if (account === undefined) return { ok: false, reason: 'not_found' };
       account.enabled = enabled === true;
+      return { ok: true };
+    },
+    async resetCustomerPassword(sub) {
+      const account = accounts.get(sub);
+      if (account === undefined) return { ok: false, reason: 'not_found' };
+      if (account.status === 'FORCE_CHANGE_PASSWORD') return { ok: false, reason: 'not_allowed' };
+      account.status = 'RESET_REQUIRED';
+      codes.push({ email: account.email });
+      return { ok: true };
+    },
+    async deleteCustomer(sub) {
+      if (!accounts.has(sub)) return { ok: false, reason: 'not_found' };
+      accounts.delete(sub);
       return { ok: true };
     },
     async listOwnership() {
@@ -129,6 +144,11 @@ export function createFakeCustomers({ now = Date.now } = {}) {
   return Object.assign(fake, {
     calls,
     invitations,
+    codes,
+    /** The customer set up an authenticator app on the site's Account page. */
+    setMfa(sub, on) {
+      accounts.get(sub).mfa = on === true;
+    },
     /** Make the next `times` calls of a method throw, as the real adapter would. */
     failNext(method, { times = 1, code = 'failed' } = {}) {
       if (!Object.hasOwn(adapter, method)) throw new TypeError(`No adapter method ${method}`);

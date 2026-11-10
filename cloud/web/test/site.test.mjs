@@ -44,6 +44,7 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // account.js and map.js: the Account page, and the Map page with the map on a board's page (docs/fleet.md).
 // apps.js: the Apps page, with the QR encoder it imports (qrcode.js).
 // customers.js: the Customers page, the customer site's customers and their boards (docs/customer-site.md).
+// team.js: the Team page, the team's accounts and their tiers (docs/accounts.md).
 // bridge.js and bluetooth.js: the phone app's bridge, fetched only in the app, and its Bluetooth page
 // (docs/mobile-apps.md, "The app shell").
 // live.js: live updates, fetched once the console is shown, when its settings name the live API (docs/live.md).
@@ -65,6 +66,7 @@ const ON_DEMAND = [
   'memfault-page.js',
   'serial.js',
   'setup.js',
+  'team.js',
   'telemetry.js',
 ];
 // Imported by a page's script, so fetched with it and never on a cold load: the Apps page's QR encoder, and

@@ -184,6 +184,36 @@ object AuditText {
             "switched on the customer account of", "tried to switch on the customer account of",
             "tried to switch on a customer account", Glyph.CHECK,
         ),
+        // A customer's password reset and removal, and the team's accounts from the Team page (docs/accounts.md).
+        "customer.reset_password" to Action(
+            "reset the password of the customer", "tried to reset the password of the customer", "tried to reset a customer’s password", Glyph.KEY,
+        ),
+        "customer.remove" to Action(
+            "removed the customer", "tried to remove the customer", "tried to remove a customer", Glyph.X,
+        ),
+        "account.invite" to Action(
+            "invited", "tried to invite", "tried to invite a person to the team", Glyph.USER,
+            doneAlone = "invited a person to the team",
+        ),
+        "account.resend" to Action(
+            "sent the team invitation again to", "tried to send the team invitation again to", "tried to send a team invitation again", Glyph.SEND,
+            doneAlone = "sent a team invitation again",
+        ),
+        "account.tier" to Action(
+            "changed the tier of", "tried to change the tier of", "tried to change a tier", Glyph.SHIELD,
+        ),
+        "account.disable" to Action(
+            "disabled the account of", "tried to disable the account of", "tried to disable an account", Glyph.BAN,
+        ),
+        "account.enable" to Action(
+            "enabled the account of", "tried to enable the account of", "tried to enable an account", Glyph.CHECK,
+        ),
+        "account.reset" to Action(
+            "reset the password and authenticator of", "tried to reset the password and authenticator of", "tried to reset an account", Glyph.KEY,
+        ),
+        "account.remove" to Action(
+            "removed the account of", "tried to remove the account of", "tried to remove an account", Glyph.X,
+        ),
         // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
         "device.register" to Action(
             "registered", "tried to register", "tried to register a board", Glyph.CHIP,
@@ -399,6 +429,18 @@ object AuditText {
         "unknown_customer" to "There is no customer with that ID",
         "customer_exists" to "There is a customer with that address already",
         "customer_not_invited" to "That customer has signed in already, so there was no invitation to send again",
+        "customer_not_signed_in" to "That customer had not chosen a password yet, so there was none to reset",
+        "customer_disabled" to "That customer was switched off",
+        "invalid_account" to "Not a valid account ID",
+        "invalid_tier" to "Not a tier: viewer or release manager",
+        "unknown_account" to "There is no account with that ID",
+        "account_exists" to "There is an account with that address already",
+        "account_not_invited" to "That person has signed in already, so there was no invitation to send again",
+        "account_not_signed_in" to "That person had not signed in yet, so there was nothing to reset",
+        "account_disabled" to "That account was disabled",
+        "account_has_no_tier" to "That account had no tier",
+        "own_account" to "Nobody can demote, disable, reset or remove their own account",
+        "last_release_manager" to "It would have left no enabled release manager",
         "already_assigned" to "That board was that customer’s already",
         "board_taken" to "That board belongs to another customer",
         "not_assigned" to "That board was not that customer’s",
@@ -530,7 +572,9 @@ object AuditText {
         val deployment = entry.target.takeIf { ApiJson.isDeploymentId(it) }
         val details = entry.detail.toMap()
         // A customer is told by their address, where the entry has it, not by the id of their account.
-        val customerEmail = if (entry.action.startsWith("customer.")) details["email"].orEmpty() else ""
+        // And a person of the team by theirs (account.*).
+        val customerEmail =
+            if (entry.action.startsWith("customer.") || entry.action.startsWith("account.")) details["email"].orEmpty() else ""
         val byAddress = customerEmail.isNotEmpty() && entry.action !in CUSTOMER_BOARD
         val label = when {
             deployment != null -> Updates.versionOfDeployment(deployment) ?: deployment

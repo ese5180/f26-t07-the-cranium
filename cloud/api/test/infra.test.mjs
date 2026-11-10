@@ -1011,32 +1011,51 @@ test('the customer API may read the boards, their events, the ownership records 
   assert.ok(block(template, 'CustomerApiFnPermission').includes('FunctionName: !Ref CustomerApiFn'));
 });
 
-test("the console's API may invite, list and switch customers off and on, in the customer pool only", () => {
+test("the console's API may manage customers in the customer pool, and the team in the staff pool, and no more", () => {
   const role = block(template, 'ApiRole');
-  const manage = statement(role, 'ManageCustomers');
-  assert.deepEqual(
-    [...manage.matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]),
-    [
-      'cognito-idp:AdminCreateUser',
-      'cognito-idp:AdminGetUser',
-      'cognito-idp:ListUsers',
-      'cognito-idp:AdminDisableUser',
-      'cognito-idp:AdminEnableUser',
-    ]
-  );
-  assert.ok(manage.includes('Resource: !GetAtt CustomerUserPool.Arn'));
-  // The staff pool's statement is unchanged: a look-up and the groups, nothing that makes or changes an account.
-  const staff = statement(role, 'ReadUsers');
-  assert.ok(staff.includes('Resource: !GetAtt UserPool.Arn'));
-  assert.equal(/AdminCreateUser|ListUsers|AdminDisableUser/.test(staff), false);
+  const actions = (sid) => [...statement(role, sid).matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]);
+  assert.deepEqual(actions('ManageCustomers'), [
+    'cognito-idp:AdminCreateUser',
+    'cognito-idp:AdminGetUser',
+    'cognito-idp:ListUsers',
+    'cognito-idp:AdminDisableUser',
+    'cognito-idp:AdminEnableUser',
+    'cognito-idp:AdminResetUserPassword',
+    'cognito-idp:AdminUserGlobalSignOut',
+    'cognito-idp:AdminDeleteUser',
+  ]);
+  assert.ok(statement(role, 'ManageCustomers').includes('Resource: !GetAtt CustomerUserPool.Arn'));
+  // The Team page (docs/accounts.md): the staff pool only, and no password reset there, which its recovery
+  // (an administrator only) could not deliver.
+  assert.deepEqual(actions('ManageTeam'), [
+    'cognito-idp:ListUsers',
+    'cognito-idp:AdminCreateUser',
+    'cognito-idp:AdminAddUserToGroup',
+    'cognito-idp:AdminRemoveUserFromGroup',
+    'cognito-idp:AdminDisableUser',
+    'cognito-idp:AdminEnableUser',
+    'cognito-idp:AdminUserGlobalSignOut',
+    'cognito-idp:AdminDeleteUser',
+  ]);
+  assert.ok(statement(role, 'ManageTeam').includes('Resource: !GetAtt UserPool.Arn'));
+  assert.equal(statement(role, 'ManageTeam').includes('CustomerUserPool'), false);
+  // The live check's statement is unchanged: a look-up and the groups.
+  assert.deepEqual(actions('ReadUsers'), ['cognito-idp:AdminGetUser', 'cognito-idp:AdminListGroupsForUser']);
+  // Nothing anywhere in the role sets a password or an attribute, or changes MFA or the pool.
   for (const action of [
-    'AdminDeleteUser',
     'AdminSetUserPassword',
-    'AdminAddUserToGroup',
     'AdminUpdateUserAttributes',
+    'AdminSetUserMFAPreference',
+    'SetUserPoolMfaConfig',
+    'UpdateUserPool',
+    'AdminInitiateAuth',
+    'cognito-idp:*',
   ]) {
     assert.equal(role.includes(action), false, action);
   }
+  // Every cognito-idp action of the role is in one of the three statements.
+  const all = [...role.matchAll(/- (cognito-idp:\w+)/g)].map((match) => match[1]);
+  assert.equal(all.length, actions('ManageCustomers').length + actions('ManageTeam').length + 2);
   const variables = block(block(template, 'ApiFn'), 'Variables', 8);
   assert.ok(variables.includes('CUSTOMER_POOL_ID: !Ref CustomerUserPool'));
   assert.ok(

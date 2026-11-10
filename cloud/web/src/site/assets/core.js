@@ -124,6 +124,8 @@ const SECTIONS = [
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
   'apps',
   'customers',
+  // The team's accounts, for release managers (team.js, docs/accounts.md).
+  'team',
   // An update over Bluetooth, in the phone app only (bluetooth.js).
   'bluetooth',
   // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
@@ -329,7 +331,12 @@ export const FILTERS = Object.freeze({
     range: oneOf(['1h', '6h', '24h', '7d', '30d']),
   },
   tokens: { q: searchText, status: oneOf(['active', 'expired', 'revoked']) },
-  customers: { q: searchText, status: oneOf(['invited', 'active', 'disabled', 'gone']) },
+  customers: { q: searchText, status: oneOf(['invited', 'active', 'reset', 'disabled', 'gone']) },
+  team: {
+    q: searchText,
+    tier: oneOf(['release-manager', 'viewer', 'none']),
+    status: oneOf(['confirmed', 'pending', 'reset', 'disabled']),
+  },
   memfault: { q: searchText, version: versionFilter },
   // Not a filter of a list: the boards of the Compare page, as many as it takes (compare.js).
   compare: { boards: compareBoards },
@@ -3029,6 +3036,21 @@ export function createApi({
       record(await post(`/api/customers/${checked(isCustomerId, id)}/boards/${checked(isThing, thing)}/remove`, {})),
     setCustomerEnabled: async (id, enabled) =>
       record(await post(`/api/customers/${checked(isCustomerId, id)}/${enabled ? 'enable' : 'disable'}`, {})),
+    // Cognito's admin reset: it e-mails the customer a code. No password goes either way.
+    resetCustomerPassword: async (id) =>
+      record(await post(`/api/customers/${checked(isCustomerId, id)}/reset-password`, {})),
+    removeCustomer: async (id) => record(await post(`/api/customers/${checked(isCustomerId, id)}/remove`, {})),
+    // The team's accounts (docs/accounts.md). team.js reads the replies. No password goes either way.
+    team: async () => record(await get('/api/team')),
+    inviteTeamMember: async ({ email, tier }) =>
+      record(await post('/api/team', { email, tier: checked(isTier, tier) })),
+    resendTeamInvitation: async (id) => record(await post(`/api/team/${checked(isAccountId, id)}/resend`, {})),
+    setTeamTier: async (id, tier) =>
+      record(await post(`/api/team/${checked(isAccountId, id)}/tier`, { tier: checked(isTier, tier) })),
+    setTeamEnabled: async (id, enabled) =>
+      record(await post(`/api/team/${checked(isAccountId, id)}/${enabled ? 'enable' : 'disable'}`, {})),
+    resetTeamMember: async (id) => record(await post(`/api/team/${checked(isAccountId, id)}/reset`, {})),
+    removeTeamMember: async (id) => record(await post(`/api/team/${checked(isAccountId, id)}/remove`, {})),
   };
 }
 
@@ -3044,6 +3066,17 @@ const CUSTOMER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 export function isCustomerId(value) {
   return typeof value === 'string' && CUSTOMER_ID.test(value);
+}
+
+/** An account of the team: the sub of a person's account in the staff pool, a UUID like a customer's. */
+export function isAccountId(value) {
+  return typeof value === 'string' && CUSTOMER_ID.test(value);
+}
+
+// What a person of the team may do (cloud/api/src/handlers/team.mjs TIERS).
+export const TIERS = Object.freeze(['release-manager', 'viewer']);
+export function isTier(value) {
+  return TIERS.includes(value);
 }
 
 // How often to ask again. A deployment is polled every 3 s while a board is installing
@@ -4396,6 +4429,63 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to switch on a customer account',
     icon: 'check',
   },
+  'customer.reset_password': {
+    done: 'reset the password of the customer',
+    tried: 'tried to reset the password of the customer',
+    triedAlone: 'tried to reset a customer’s password',
+    icon: 'key',
+  },
+  'customer.remove': {
+    done: 'removed the customer',
+    tried: 'tried to remove the customer',
+    triedAlone: 'tried to remove a customer',
+    icon: 'x',
+  },
+  // The team's accounts, from the Team page (docs/accounts.md): a person by their address where the entry has it.
+  'account.invite': {
+    done: 'invited',
+    doneAlone: 'invited a person to the team',
+    tried: 'tried to invite',
+    triedAlone: 'tried to invite a person to the team',
+    icon: 'user',
+  },
+  'account.resend': {
+    done: 'sent the team invitation again to',
+    doneAlone: 'sent a team invitation again',
+    tried: 'tried to send the team invitation again to',
+    triedAlone: 'tried to send a team invitation again',
+    icon: 'send',
+  },
+  'account.tier': {
+    done: 'changed the tier of',
+    tried: 'tried to change the tier of',
+    triedAlone: 'tried to change a tier',
+    icon: 'shield',
+  },
+  'account.disable': {
+    done: 'disabled the account of',
+    tried: 'tried to disable the account of',
+    triedAlone: 'tried to disable an account',
+    icon: 'ban',
+  },
+  'account.enable': {
+    done: 'enabled the account of',
+    tried: 'tried to enable the account of',
+    triedAlone: 'tried to enable an account',
+    icon: 'check',
+  },
+  'account.reset': {
+    done: 'reset the password and authenticator of',
+    tried: 'tried to reset the password and authenticator of',
+    triedAlone: 'tried to reset an account',
+    icon: 'key',
+  },
+  'account.remove': {
+    done: 'removed the account of',
+    tried: 'tried to remove the account of',
+    triedAlone: 'tried to remove an account',
+    icon: 'x',
+  },
   'device.register': {
     done: 'registered',
     doneAlone: 'registered a board',
@@ -4625,6 +4715,19 @@ export const REFUSAL_WORDS = {
   unknown_customer: 'There is no customer with that ID',
   customer_exists: 'There is a customer with that address already',
   customer_not_invited: 'That customer has signed in already, so there was no invitation to send again',
+  customer_not_signed_in: 'That customer had not chosen a password yet, so there was none to reset',
+  customer_disabled: 'That customer was switched off',
+  // The team's accounts (cloud/api/src/handlers/team.mjs).
+  invalid_account: 'Not a valid account ID',
+  invalid_tier: 'Not a tier: viewer or release manager',
+  unknown_account: 'There is no account with that ID',
+  account_exists: 'There is an account with that address already',
+  account_not_invited: 'That person has signed in already, so there was no invitation to send again',
+  account_not_signed_in: 'That person had not signed in yet, so there was nothing to reset',
+  account_disabled: 'That account was disabled',
+  account_has_no_tier: 'That account had no tier',
+  own_account: 'Nobody can demote, disable, reset or remove their own account',
+  last_release_manager: 'It would have left no enabled release manager',
   already_assigned: 'That board was that customer’s already',
   board_taken: 'That board belongs to another customer',
   not_assigned: 'That board was not that customer’s',
@@ -4828,6 +4931,14 @@ export const CHANGE_ACTIONS = Object.freeze([
   'customer.unassign',
   'customer.disable',
   'customer.enable',
+  'customer.reset_password',
+  'customer.remove',
+  'account.invite',
+  'account.tier',
+  'account.disable',
+  'account.enable',
+  'account.reset',
+  'account.remove',
 ]);
 
 // What each field of a change is called on the page; another is shown by its own name.
@@ -4849,6 +4960,8 @@ const CHANGE_FIELDS = Object.freeze({
   email: 'E-mail address',
   alerts: 'E-mail alerts',
   deployment: 'Deployment',
+  tier: 'Tier',
+  authenticator: 'Authenticator app',
 });
 
 /** A field's name in words: "keyHash" is "Key hash". */
@@ -4900,7 +5013,8 @@ export function describeAudit(entry) {
   else if (entry.action === 'group.rollback' && details.get('group')) label = details.get('group');
   else if (entry.action === 'fleet.rollback_last_good') label = details.get('group') || 'the fleet';
   // A customer is told by their address, where the entry has it, not by the id of their account.
-  const customerEmail = String(entry.action ?? '').startsWith('customer.') ? (details.get('email') ?? '') : '';
+  // And a person of the team by theirs (account.*).
+  const customerEmail = /^(?:customer|account)\./.test(String(entry.action ?? '')) ? (details.get('email') ?? '') : '';
   const byAddress = customerEmail !== '' && !CUSTOMER_BOARD.has(entry.action);
   if (byAddress) label = customerEmail;
   // A revocation that completed what an earlier request had begun.
