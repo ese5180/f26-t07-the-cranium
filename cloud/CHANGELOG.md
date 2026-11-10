@@ -7,6 +7,18 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.17.1
+
+The customer site has an About page (`#/about`): what Cranium is, the problem it solves and who it is for, and the
+team, four founders, with a photo or their initials until there is one. It is linked from the home page's top bar and
+foot, the sign-in page, the studio's side panel and the foot of every page, and it opens signed out too, in the
+browser and in the phone apps.
+
+The photos are kept in `cloud/web/team-photos/` and written as `data:` addresses into
+`customer/assets/customer-team-photos.js` by `node cloud/web/build-team-photos.mjs` (at most 60 KB each), so the
+phone apps' bundle still holds only text files and neither the site's policy nor the apps' changed. The first photo
+is 15 KB of WebP, about 20 KB in the bundle. No new routes or refusal words. docs/customer-site.md, "About".
+
 ## 2.17.0
 
 Account management: a Team page for release managers lists everybody who signs in to the console, with their tier, whether they are enabled, invited or active, whether an authenticator app is set up, when they were added and when they last signed in, and lets a release manager invite, change the tier of, disable, enable, reset and remove an account. The Customers page shows each customer's authenticator too, and can reset a customer's password or remove the account. The console never sees or sets a password.

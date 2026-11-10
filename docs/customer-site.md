@@ -27,16 +27,41 @@ Below, `example.com` stands for the customer site's name, so that the steps fit 
 | `#/sessions/<id>` | signed in | One session: its shape on the two decks, every track, its transitions, Export set, and Remove for one of the journal |
 | `#/account` | a customer | Their address, a password change, two-step sign-in on or off, sign out |
 | `#/help` | anybody | Questions and answers about the board, its updates and the account |
+| `#/about` | anybody | What Cranium is, the problem it solves and who it is for, and the team ([About](#about), below) |
 | `https://example.com/admin` | the team | **Admin mode**: the firmware console itself, with a way back ("Leave admin mode") |
 | `https://www.example.com/...` | anybody | Sent to `https://example.com/` (or `/admin`), so that there is one origin |
 
 The pages follow the mockup the owner chose, in the console's colours for light and dark: a dark sidebar of the
 workspace (Overview, Sessions, Transitions, Track library, Saved moments with how many are kept) and of the boards
-(Devices, Account, Help), with "Your deck, a little more connected" and Connect your board at its foot; a top bar with
+(Devices, Account, Help, About), with "Your deck, a little more connected" and Connect your board at its foot; a top bar with
 how many boards are online, Export, and **Connect device**; each page's title with the range (all time, 7 or 30 days)
 and **Import session**; and the switch between **Explore demo** and **My journal**. At 390 px the sidebar gives way to
 a bar of five sections at the foot (Overview, Sessions, Transitions, Library, Devices), and Account is in the top bar.
+About and Help are also in the foot of every page, the home page's top bar and foot, and the sign-in page.
 Every field has a label, every state has a word or an icon as well as a colour, and focus moves to each page's heading.
+
+### About
+
+`#/about` (`aboutView` in `customer-views.js`) says what Cranium is, the problem and who it is for, from the
+README's concept (3.2), and shows the team: four founders, each with a photo or, until there is one, their initials
+in a circle in the site's accent colours. It is public: signed out it opens on its own with Sign in, as Help does,
+including in the phone apps, where it is linked from the sign-in page; signed in it is in the studio's frame.
+
+The photos are not image files on the site: the phone apps' bundle holds only text files, and every app already
+installed refuses a bundle with any other kind. They are kept in `cloud/web/team-photos/` and written as `data:`
+addresses into `customer/assets/customer-team-photos.js` by `node cloud/web/build-team-photos.mjs`. Both the site's
+policy and the apps' allow `data:` images, so nothing in either policy changed. The tests check that the module is
+what the script writes from the folder, and that each photo is at most 60 KB.
+
+To put a real photo in place of a placeholder:
+
+1. Make it square, about 320 by 320, and at most 60 KB: for example
+   `cwebp -q 78 -resize 320 320 -metadata none photo.png -o demetrius-bosket.webp`.
+2. Name it for the person, as the first one is: `vihaan-ravishankar.webp`, `demetrius-bosket.webp`,
+   `adam-shalabi.webp`, `christian-durante.webp` (`.jpg` or `.png` work too), and put it in `cloud/web/team-photos/`.
+3. Run `node cloud/web/build-team-photos.mjs`, and commit the photo with `customer-team-photos.js`.
+
+The photo's alt text is the person's name. Nothing else about a person is on the page.
 
 ### The mixes: the demo, and the customer's own journal
 
@@ -348,7 +373,8 @@ boards, Ben with one, Cleo with an unused invitation, and a board nobody has; th
 
 | | |
 | --- | --- |
-| `cloud/web/src/customer/` | The site: its page (with the home page), `customer.js`, `customer-core.js`, `customer-views.js`, `customer.css` |
+| `cloud/web/src/customer/` | The site: its page (with the home page), `customer.js`, `customer-core.js`, `customer-views.js`, `customer.css`, and the About page's photos in `customer-team-photos.js` |
+| `cloud/web/team-photos/`, `cloud/web/build-team-photos.mjs` | The team's photos, and the script that writes them into `customer-team-photos.js` |
 | `cloud/web/src/customer-site.mjs` | How the web function loads it, with the console's three shared files, and its policy |
 | `cloud/web/src/server.mjs` | `CUSTOMER_HOSTS`: the site, `/admin`, `www.` |
 | `cloud/web/src/site/assets/customers.js` | The console's Customers page |

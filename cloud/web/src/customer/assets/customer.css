@@ -976,6 +976,109 @@
   margin-top: 14px;
 }
 
+/* About: what Cranium is, and the team. */
+
+.cs-about {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 44px;
+}
+
+.cs-about-section {
+  padding-top: 12px;
+  border-top: 2px solid var(--rule);
+}
+
+.cs-about-title {
+  margin-bottom: 6px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+
+.cs-about-text {
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+
+.cs-about-status {
+  margin-top: 24px;
+  padding: 12px 16px;
+  border-radius: var(--radius-panel);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.cs-team {
+  margin-top: 36px;
+}
+
+.cs-team-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cs-person {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+/* A photo, or the initials in a circle until there is one: the same size either way. */
+.cs-person-photo {
+  display: block;
+  width: 128px;
+  height: 128px;
+  margin-bottom: 8px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cs-person-photo.is-initials {
+  display: grid;
+  place-items: center;
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.cs-person-name {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.cs-person-role {
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The links at the foot of every page: About and Help. */
+
+.cs-foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.cs-foot-links a {
+  color: var(--ink-2);
+}
+
+.cs-gate-links {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+
 /* A public page with no session, such as Help. */
 
 .cs-alone-top {
@@ -2332,8 +2435,22 @@ a.cs-panel-foot:hover {
   }
 
   .cs-help,
-  .cs-status {
+  .cs-status,
+  .cs-about {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cs-team-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cs-person-photo {
+    width: 104px;
+    height: 104px;
+  }
+
+  .cs-person-photo.is-initials {
+    font-size: 1.875rem;
   }
 
   .cs-landing-nav {

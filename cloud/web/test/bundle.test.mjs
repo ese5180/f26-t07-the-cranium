@@ -138,6 +138,7 @@ test("the deployed bundle: both sites, their pages with the app's settings tag, 
     'customer-views.js',
     'customer-mixes.js',
     'customer-mix-views.js',
+    'customer-team-photos.js',
     'customer.css',
   ]) {
     assert.ok(
@@ -145,6 +146,10 @@ test("the deployed bundle: both sites, their pages with the app's settings tag, 
       name
     );
   }
+  // The About page's photos travel in the bundle as text, and stay small: at most four of 60 KB each, as
+  // base64 (build-team-photos.mjs).
+  const photos = manifest.files.find((file) => file.path.endsWith('/customer-team-photos.js'));
+  assert.ok(photos.size <= 4 * Math.ceil((60 * 1024) / 3) * 4 + 1024, `${photos.size} bytes of photos`);
   // Each page refers only to files the bundle has.
   for (const page of ['index.html', 'admin/index.html']) {
     const object = appBundle.objects.get(manifest.files.find((file) => file.path === page).sha256);

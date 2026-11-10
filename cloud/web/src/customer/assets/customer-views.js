@@ -53,6 +53,7 @@ import {
   sessionsList,
   transitionsList,
 } from './customer-mix-views.js';
+import { TEAM_PHOTOS } from './customer-team-photos.js';
 
 // Icons the console does not have, drawn the same way: 24 by 24, stroked in the text colour.
 const SITE_ICONS = {
@@ -70,6 +71,10 @@ const SITE_ICONS = {
   help: [
     ['circle', { cx: 12, cy: 12, r: 9 }],
     ['path', { d: 'M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.7M12 17v.1' }],
+  ],
+  info: [
+    ['circle', { cx: 12, cy: 12, r: 9 }],
+    ['path', { d: 'M12 11v5.5M12 7.5v.1' }],
   ],
   external: [
     ['path', { d: 'M14 4.5h5.5V10M19.5 4.5L11 13' }],
@@ -107,8 +112,10 @@ const CRANIUM = Object.freeze([
   ['devices', '#/devices', 'Devices', 'chip'],
   ['account', '#/account', 'Account', 'user'],
   ['help', '#/help', 'Help', 'help'],
+  ['about', '#/about', 'About', 'info'],
 ]);
-// The tab bar of a small screen: the five a phone needs most. Account and Help are in its top bar.
+// The tab bar of a small screen: the five a phone needs most. Account is in its top bar; Help and About
+// are in the foot of every page.
 const TABS = Object.freeze(['overview', 'mixes:sessions', 'mixes:transitions', 'mixes:library', 'devices']);
 const SHORT = { 'mixes:library': 'Library', 'mixes:moments': 'Moments' };
 const TITLES = {
@@ -117,6 +124,7 @@ const TITLES = {
   device: 'Device',
   account: 'Account',
   help: 'Help',
+  about: 'About',
   session: 'Session',
   'mixes:sessions': 'Sessions',
   'mixes:transitions': 'Transitions',
@@ -309,7 +317,8 @@ export function shellView(ctx, page) {
         'footer',
         { class: 'cs-foot' },
         h('span', null, 'Cranium · a little memory for every mix'),
-        h('span', null, FOOT_NOTE)
+        h('span', null, FOOT_NOTE),
+        footLinks()
       )
     ),
     h(
@@ -1364,6 +1373,126 @@ export function helpView(ctx) {
   );
 }
 
+/** The links at the foot of a page, signed in or not: what Cranium is, and help. */
+function footLinks(className = '') {
+  return h(
+    'nav',
+    { class: `cs-foot-links ${className}`.trim(), 'aria-label': 'More' },
+    h('a', { href: '#/about' }, 'About'),
+    h('a', { href: '#/help' }, 'Help')
+  );
+}
+
+// About. What Cranium is, from the project's concept (README 3.2), and the people making it.
+
+export const ABOUT = Object.freeze({
+  eyebrow: 'About Cranium',
+  title: 'Your DJ controller, without the laptop.',
+  lede: 'A small idea from a student team at Penn: let a beginner controller stand on its own.',
+  sections: Object.freeze([
+    Object.freeze([
+      'What it is',
+      'Cranium is an attachment that mounts on a beginner DJ controller, starting with the Pioneer FLX4, ' +
+        'so that the controller no longer needs a laptop. Sound goes out over Bluetooth LE Audio, and a ' +
+        'Raspberry Pi drives the screen, right there on the deck.',
+    ]),
+    Object.freeze([
+      'The problem',
+      'A beginner controller is a great way to start, but it only works with a laptop beside it. Moving up ' +
+        'to an all-in-one system costs far more. Cranium keeps the controller you already know and love, ' +
+        'and takes the laptop out of the picture.',
+    ]),
+    Object.freeze([
+      'Who it is for',
+      'New and intermediate DJs who play on an FLX4, and the friends and family looking for a good gift ' +
+        'for one. Cranium is meant to cost about $200.',
+    ]),
+  ]),
+  status:
+    'Cranium is in development. Its board and its updates work today; the audio, the screen and the ' +
+    'enclosure are still being built.',
+  teamTitle: 'The team',
+  teamLede: 'Four students at Penn, building Cranium together.',
+});
+
+// The founders, in order: [name, the name of their photo in cloud/web/team-photos/, without its ending].
+export const TEAM = Object.freeze([
+  Object.freeze(['Vihaan Ravishankar', 'vihaan-ravishankar']),
+  Object.freeze(['Demetrius Bosket', 'demetrius-bosket']),
+  Object.freeze(['Adam Shalabi', 'adam-shalabi']),
+  Object.freeze(['Christian Durante', 'christian-durante']),
+]);
+const ROLE = 'Founder';
+
+/** A founder's photo, or their initials in a circle until there is one. */
+function portrait(name, photo) {
+  const uri = TEAM_PHOTOS[photo];
+  if (typeof uri === 'string' && uri.startsWith('data:image/')) {
+    return h('img', {
+      class: 'cs-person-photo',
+      src: uri,
+      alt: name,
+      width: 160,
+      height: 160,
+      decoding: 'async',
+    });
+  }
+  return h(
+    'span',
+    { class: 'cs-person-photo is-initials', role: 'img', 'aria-label': name },
+    h('span', { 'aria-hidden': 'true' }, initials(name))
+  );
+}
+
+export function aboutView(ctx) {
+  const signedIn = Boolean(ctx.state.customer || ctx.state.admin);
+  return h(
+    'div',
+    { class: `cs-page ${signedIn ? '' : 'is-alone'}`.trim(), key: 'about' },
+    signedIn ? null : h('a', { class: 'back', href: '#/' }, icon('arrow-left'), 'Home'),
+    head({ eyebrow: ABOUT.eyebrow, title: ABOUT.title, lede: ABOUT.lede }),
+    h(
+      'div',
+      { class: 'cs-about' },
+      ABOUT.sections.map(([title, text]) =>
+        h(
+          'section',
+          { class: 'cs-about-section', key: title },
+          h('h2', { class: 'cs-about-title' }, title),
+          h('p', { class: 'cs-about-text' }, text)
+        )
+      )
+    ),
+    h('p', { class: 'cs-about-status' }, ABOUT.status),
+    h(
+      'section',
+      { class: 'cs-team', 'aria-labelledby': 'team-title' },
+      h('h2', { class: 'cs-about-title', id: 'team-title' }, ABOUT.teamTitle),
+      h('p', { class: 'cs-about-text' }, ABOUT.teamLede),
+      h(
+        'ul',
+        { class: 'cs-team-list' },
+        TEAM.map(([name, photo]) =>
+          h(
+            'li',
+            { class: 'cs-person', key: photo },
+            portrait(name, photo),
+            h('h3', { class: 'cs-person-name' }, name),
+            h('p', { class: 'cs-person-role' }, ROLE)
+          )
+        )
+      )
+    ),
+    signedIn
+      ? null
+      : h(
+          'div',
+          { class: 'button-row cs-help-actions' },
+          h('a', { class: 'btn is-primary', href: '#/sign-in' }, 'Sign in')
+        )
+  );
+}
+
 // Sign-in pages: the console's own layout (app.css .gate), with the site's words.
 
 function gate(...message) {
@@ -1385,7 +1514,8 @@ function gate(...message) {
         )
       ),
       message,
-      h('p', { class: 'gate-foot' }, 'See your boards, how they are and what they did.')
+      h('p', { class: 'gate-foot' }, 'See your boards, how they are and what they did.'),
+      footLinks('cs-gate-links')
     ),
     h('div', { class: 'gate-art' }, domeArt())
   );
@@ -1647,7 +1777,8 @@ export function aloneView(page) {
       ),
       h('a', { class: 'btn is-primary is-small', href: '#/sign-in' }, 'Sign in')
     ),
-    h('main', { class: 'cs-main', id: 'content', tabindex: '-1' }, page)
+    h('main', { class: 'cs-main', id: 'content', tabindex: '-1' }, page),
+    h('footer', { class: 'cs-foot' }, h('span', null, 'Cranium · a student project at Penn'), footLinks())
   );
 }
 

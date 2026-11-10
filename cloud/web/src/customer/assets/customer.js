@@ -45,6 +45,7 @@ import {
   routeHash,
 } from './customer-core.js';
 import {
+  aboutView,
   accountView,
   aloneView,
   deviceView,
@@ -209,6 +210,7 @@ const VIEWS = {
   session: sessionView,
   account: accountView,
   help: helpView,
+  about: aboutView,
 };
 const TITLES = {
   landing: 'Cranium · Your DJ controller, without the laptop',
@@ -221,6 +223,7 @@ const TITLES = {
   session: 'Session',
   account: 'Account',
   help: 'Help',
+  about: 'About',
 };
 const MIX_TITLES = {
   sessions: 'Sessions',
@@ -248,7 +251,7 @@ function draw() {
   let tree;
   if (view === 'sign-in') tree = signInView(signInModel());
   else if (view === 'forgot') tree = forgotView(forgotModel());
-  else if (view === 'help' && !state.customer && !state.admin) tree = aloneView(helpView(ctx));
+  else if ((view === 'help' || view === 'about') && !state.customer && !state.admin) tree = aloneView(VIEWS[view](ctx));
   else tree = shellView(ctx, VIEWS[view](ctx));
   render(app, tree);
   if (drawnView !== view) {
