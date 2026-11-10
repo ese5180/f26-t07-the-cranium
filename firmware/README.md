@@ -1003,7 +1003,7 @@ The console's rule `BoardSessionRule` is also in that release, and drops a messa
 `tests/host/test_sessions.c` checks the dates (leap days, the earliest time, every bad form), the JSON of each message
 against the cloud's contract, each refusal, the escaping, and with canary bytes on both sides that no buffer of any
 size is written past. `tests/host/test_console.c` checks `SESSION_TEST` (not connected, a bad time, the three messages)
-and `tests/host/test_cloud.c` the topic. Not tested on a board.
+and `tests/host/test_cloud.c` the topic. On an nRF7002 DK, `SESSION_TEST` sent its three messages and the cloud kept the session, its tracks and now playing; RAM free in `STATS` was unchanged.
 
 ## Location by Wi-Fi
 
