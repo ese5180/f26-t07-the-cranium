@@ -87,6 +87,14 @@ first, each its version and first paragraph (and its commit and date where the e
 - **The console's version** is at the foot of every page, "Console 2.21.0 · <commit>", from `GET /api/me`, which says
   `console: { version, commit }`. The phone apps read it there too.
 - **What's new**, on the History page, lists the console's versions with their notes, the deployed one marked.
+- **Release notes** (Developer, `#/release-notes`, and `#/release-notes/<product>` for one tab: `console`, `firmware`,
+  `iphone`, `android`, `desktop` or `mac`) has every version of every product in full, newest first: its date, its
+  first paragraph with the rest under More, its release tag and commit, and for the firmware the boards and the flash
+  and RAM its entry names. The current version is the console in use, or the newest with a tag; an untagged version
+  newer than that is "Not released yet". It reads `release-notes.json`, which the same script writes beside
+  `versions.json` (`--notes`) from the seven changelogs (the desktop app's two and the Mac app's too) and the
+  repository's tags. Only that page fetches it, and the API does not get it. The foot's version number and its
+  Release notes link lead there; in an app, the link opens that app's tab.
 - **The iPhone app** on the Apps page is the newest version published as an IPA, with its note (below). Before any is
   published, the page has the version and note of the newest entry in `apps/ios/CHANGELOG.md`, as deployed.
 

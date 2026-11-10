@@ -28,9 +28,10 @@ function block(source) {
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n');
 }
-const coreSections = [...block(core).matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+// A section's name is a word, or two joined by a hyphen (release-notes).
+const coreSections = [...block(core).matchAll(/'([a-z]+(?:-[a-z]+)?)'/g)].map((m) => m[1]);
 const navSections = [...block(views).matchAll(/\['([a-z]+)', '/g)].map((m) => m[1]);
-const sectionOf = (route) => /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?$/.exec(route);
+const sectionOf = (route) => /^#\/([a-z]+(?:-[a-z]+)?)(?:\/([A-Za-z0-9-]+))?$/.exec(route);
 
 test("every section of the console is a page of pages.json, and every page one of the console's", () => {
   assert.ok(coreSections.includes('memfault'));

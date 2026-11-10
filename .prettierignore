@@ -14,6 +14,7 @@ cloud/web/src/site/assets/qrcode.js
 cloud/.deploy/
 cloud/**/history.json
 cloud/**/versions.json
+cloud/**/release-notes.json
 cloud/**/node_modules/
 cloud/**/.aws-sam/
 # The HTML pages are templates the web function fills in by matching their exact text (server.mjs):

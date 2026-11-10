@@ -71,6 +71,8 @@ export const CORE = scriptAddress('core.js');
 export const VIEWS = scriptAddress('views.js', { 'core.js': CORE });
 export const SERIAL = scriptAddress('serial.js', { 'views.js': VIEWS });
 export const HISTORY = scriptAddress('history.js', { 'core.js': CORE, 'views.js': VIEWS });
+// Every version of every product (release-notes.js).
+export const RELEASE_NOTES = scriptAddress('release-notes.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const TELEMETRY = scriptAddress('telemetry.js', { 'core.js': CORE, 'views.js': VIEWS });
 // The Map page and the Account page (docs/fleet.md).
 export const MAP = scriptAddress('map.js', { 'core.js': CORE, 'views.js': VIEWS });

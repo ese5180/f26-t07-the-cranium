@@ -7,6 +7,16 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.4
+
+A Release notes page, under Developer, with a tab for each product: the console, the firmware, the iPhone app, the Android app, the desktop app (Windows and Linux) and the Mac app. Each tab lists every version, newest first, with its date, the first paragraph of its changelog entry and the rest under More, and its release tag and commit; firmware versions also name their boards and their flash and RAM where the changelog gives them. The version in use, or the newest released one, is marked, and a newer version without a tag says "Not released yet". The version number at the foot of every page and the History page's What's new lead there, and in an app the foot's Release notes link opens that app's tab. Every app shows it, as they show the console's pages.
+
+`cloud/web/build-versions.mjs --notes` writes `release-notes.json` beside `versions.json`, from the seven changelogs and
+the repository's tags; `cloud/deploy.sh` passes it, and the local preview builds it from the checkout. `versions.json`
+is unchanged. The page is `release-notes.js`, loaded when it opens; its tabs are a tablist (arrow keys, Home and End).
+`#/release-notes` opens the Console tab and `#/release-notes/<product>` a product's, so a section's name can now have a
+hyphen (core.js, and the apps' page-parity tests).
+
 ## 2.25.3
 
 Every page now opens with one short sentence that says what it is for, at most 15 words, and the rest of what the page used to say first is under a "How … works" line right below it, closed until opened (How deployments work, How the activity log works, How events work, and so on). Nothing was taken away: it moved. Memfault says plainly when it is not connected ("Memfault is not connected.") instead of a tick and "No issues to show.", and a board's Memfault card says "not connected" too; Reports and the fleet health score say the same. Product pages no longer name scripts, key paths or AWS services in their text: Team and Customers say an invitation "goes out by e-mail" instead of naming the sign-in service, and the setup steps behind a message (cloud/deploy.sh, docs/accounts.md, the stack parameter) are under Details. The Apps page's install steps read as words, with their commands and paths under "Commands". The Deployments tiles and a board that never reported no longer name AWS IoT. Every button that is only an icon has a tooltip as well as its spoken name. The customer site's Overview, About and Mixes tabs have shorter lines too.

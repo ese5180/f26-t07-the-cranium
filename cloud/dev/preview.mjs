@@ -114,7 +114,7 @@ import {
   customerClaims,
 } from '../api/test/fake-customers.mjs';
 import { buildImage, imageKey, keyEnv } from '../api/test/images.mjs';
-import { buildVersions } from '../web/build-versions.mjs';
+import { buildReleaseNotes, buildVersions } from '../web/build-versions.mjs';
 import { createWebHandler } from '../web/src/server.mjs';
 import { createCognito } from '../web/test/cognito.mjs';
 import { createCustomerCognito } from '../web/test/customer-cognito.mjs';
@@ -1846,6 +1846,18 @@ export async function createPreview({
   });
   // The versions the deployment would be built with: the console's own and the iPhone app's (versions.json).
   const versions = versionsOfRepository();
+  // And the Release notes page's file, built when it is first asked for: it reads the repository's tags.
+  let releaseNotes;
+  const releaseNotesOnce = () => {
+    if (releaseNotes === undefined) {
+      try {
+        releaseNotes = buildReleaseNotes({ repo: REPOSITORY });
+      } catch {
+        releaseNotes = null;
+      }
+    }
+    return releaseNotes;
+  };
   const app = createApp({
     aws: { ...fake, ...customers },
     config,
@@ -2032,6 +2044,19 @@ export async function createPreview({
           JSON.stringify(versions)
         );
         return;
+      }
+      // release-notes.json, the same way.
+      if (result.statusCode === 404 && !home && /^\/assets\/[0-9a-f]{12}\/release-notes\.json$/.test(path)) {
+        const notes = releaseNotesOnce();
+        if (notes !== null) {
+          send(
+            response,
+            200,
+            { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+            JSON.stringify(notes)
+          );
+          return;
+        }
       }
       sendResult(response, result);
     } else {

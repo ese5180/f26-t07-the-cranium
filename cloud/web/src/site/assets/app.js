@@ -157,6 +157,8 @@ const state = {
   // The phone apps (apps.js): what GET /api/apps says, and versions.json, which the History page reads too.
   apps: resource(),
   versions: resource(),
+  // The Release notes page's release-notes.json (release-notes.js): every version of every product in full.
+  releaseNotes: resource(),
   // In the phone app: what it offers (bridge.js), and the line that says which app and which pages. Null on the website.
   app: null,
   // Whether the live API's WebSocket is open (live.js, docs/live.md): the page then hears of changes at once.
@@ -755,6 +757,23 @@ const pages = {
     },
     interval: () => 0,
   },
+  // Every version of every product, one tab each (release-notes.js), from release-notes.json beside it.
+  'release-notes': {
+    title: 'Release notes',
+    view: (ctx) =>
+      releaseNotesScript
+        ? releaseNotesScript.releaseNotesView(ctx)
+        : scriptPending(ctx, 'release-notes', 'Release notes'),
+    resources: () => [state.releaseNotes],
+    async refresh() {
+      releaseNotesScript ??= await pageScript(() => import('./release-notes.js'));
+      if (releaseNotesScript && !state.releaseNotes.value) {
+        await load(state.releaseNotes, () => releaseNotesScript.readReleaseNotes(window.fetch.bind(window)));
+      }
+      draw();
+    },
+    interval: () => 0,
+  },
   // The phone apps: the Android app to download, the iPhone app to build, and how (apps.js).
   apps: {
     title: 'Apps',
@@ -1000,6 +1019,7 @@ const pages = {
 let serialScript = null;
 let setupScript = null;
 let historyScript = null;
+let releaseNotesScript = null;
 let bluetoothScript = null;
 let bluetoothFlow = null;
 
@@ -2497,6 +2517,18 @@ const actions = {
   unsubscribeAlerts: () => changeAlerts(false),
   setAlertRules: (rules) => changeAlertRules(rules),
   refresh: () => refreshNow(true),
+  // A tab of the Release notes: its address is replaced, not pushed, and drawn at once so the tab keeps the focus.
+  showReleaseNotes(product) {
+    const route = { view: 'release-notes', product };
+    const hash = routeHash(route);
+    if (state.route.view !== 'release-notes' || hash === '#/overview') return;
+    state.route = route;
+    if (location.hash !== hash) {
+      history.replaceState(history.state, '', location.pathname + hash);
+      currentHash = location.hash;
+    }
+    paint();
+  },
   openNotes,
   redraw: draw,
   signOut: () => auth.signOut(),
