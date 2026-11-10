@@ -10,6 +10,8 @@ Offline mode (firmware 1.19.0 and later): the console's Offline page talks to a 
 
 The page is the console's (2.27.0); the app answers the bridge's new `ble.offline.*` methods and offers the feature `bleOffline`. The passkey is the one the board showed once (`BT_OFFLINE|NEW` on its serial console); it goes into the phone's own pairing box and never passes through the app. A middle number, as the bridge gained methods every app must answer. The classic screens have no Offline of their own.
 
+The app's own pages win over older downloaded ones: it starts with the console pages built into it when they are of a newer console than the ones it downloaded, so Offline shows before console 2.27.0 is deployed. A downloaded bundle of the same or a newer console still wins, as before. (Build versionCode 36.)
+
 ## 0.8.22
 
 Shorter words in customer mode, the same as the customer site's: the Overview's line under its title, and the line under each Mixes tab (Sessions, Track library, Your listening, Saved moments), each now one short sentence. The activity log's note on an entry sent by a script is two short sentences; which scripts those are is now in the console's Activity page, under "How the activity log works". A board that never reported says "Has not reported to the console yet." instead of naming AWS IoT.

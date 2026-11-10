@@ -72,7 +72,10 @@ sealed interface BundleUpdate {
  *
  * [launch] picks current, then previous, then the copy built into the app, taking the first one whose
  * every file is there and matches its SHA-256 and that is not bad. A bundle that has not sent app.ready
- * after two starts is marked bad: it is never launched or fetched again. [update] fetches the console's
+ * after two starts is marked bad: it is never launched or fetched again. A downloaded bundle of an older
+ * console than the built-in one gives way to it (the app was built with newer pages than the console has
+ * deployed, such as a new page waiting for its console release); an equal or unknown version keeps the
+ * downloaded one, as before, and [update] takes nothing older than the built-in pages. [update] fetches the console's
  * manifest and the files it names that are not kept yet, at most four at a time, checks each, and only
  * then makes it the current one, in one rename.
  */
@@ -111,6 +114,8 @@ class BundleStore(
                 writeState(state)
                 continue
             }
+            // Older than the pages built into the app: those, and no start of this one is counted.
+            builtInNewerThan(manifest)?.let { return it }
             val loaded = verified(manifest) { sha -> File(objects, sha).takeIf { it.isFile }?.readBytes() } ?: continue
             if (!entry.good) {
                 state = state.copy(bundles = state.bundles + (manifest.id to entry.copy(tries = entry.tries + 1)))
@@ -118,9 +123,22 @@ class BundleStore(
             }
             return LaunchedBundle(manifest, BundleSource.DOWNLOADED, loaded)
         }
-        val manifest = builtIn.manifestText()?.let { runCatching { BundleManifest.read(it) }.getOrNull() } ?: return null
+        builtInBundle()
+    }
+
+    private fun builtInManifest(): BundleManifest? =
+        builtIn.manifestText()?.let { runCatching { BundleManifest.read(it) }.getOrNull() }?.takeIf { it.bridge <= bridgeVersion }
+
+    private fun builtInBundle(): LaunchedBundle? {
+        val manifest = builtInManifest() ?: return null
         val loaded = verified(manifest, builtIn::read) ?: return null
-        LaunchedBundle(manifest, BundleSource.BUILT_IN, loaded)
+        return LaunchedBundle(manifest, BundleSource.BUILT_IN, loaded)
+    }
+
+    /** The built-in bundle, when it is of a newer console than [manifest] and checks out. */
+    private fun builtInNewerThan(manifest: BundleManifest): LaunchedBundle? {
+        val shipped = builtInManifest() ?: return null
+        return if (isNewer(shipped.consoleVersion, manifest.consoleVersion)) builtInBundle() else null
     }
 
     /** The page of [id] started (app.ready): it is good, and kept as the last good one. */
@@ -169,6 +187,11 @@ class BundleStore(
         needsNewerApp = false
         val (bad, currentId) = synchronized(lock) { readState().bad to readManifest(currentFile)?.id }
         if (manifest.id in bad) return@withLock BundleUpdate.Refused("The console's bundle ${manifest.id} did not start on this phone before.")
+        // The console's pages are older than the ones built into the app: nothing to fetch or to offer.
+        val shipped = synchronized(lock) { builtInManifest() }
+        if (shipped != null && isNewer(shipped.consoleVersion, manifest.consoleVersion)) {
+            return@withLock BundleUpdate.UpToDate(shipped.id)
+        }
 
         val missing = manifest.objects.filter { !kept(it) }
         try {
@@ -277,6 +300,21 @@ class BundleStore(
     companion object {
         /** Starts without app.ready before a bundle is taken for bad. */
         const val MAX_TRIES = 2
+
+        /**
+         * Whether console version [a] is newer than [b] ("2.27.0" against "2.25.5"); false when either is
+         * missing or not three numbers, so that a manifest without a version keeps the rule from before.
+         */
+        fun isNewer(a: String?, b: String?): Boolean {
+            fun parts(text: String?): List<Int>? {
+                val numbers = text?.substringBefore('+')?.split('.')?.map { it.toIntOrNull() ?: return null } ?: return null
+                return numbers.takeIf { it.size == 3 }
+            }
+            val x = parts(a) ?: return false
+            val y = parts(b) ?: return false
+            for (i in 0 until 3) if (x[i] != y[i]) return x[i] > y[i]
+            return false
+        }
         const val MAX_DOWNLOADS = 4
         private const val MAX_BAD = 20
     }

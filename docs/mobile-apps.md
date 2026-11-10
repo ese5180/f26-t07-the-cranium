@@ -94,7 +94,11 @@ HTTP API (`GET /app/{proxy+}`, public like the pages, 10 a second and bursts of 
 **On the phone** (`BundleStore` in each app), in app-private storage that is not backed up:
 
 1. **At start** the app shows the current bundle if every file it names is there and matches its SHA-256, and it is not
-   marked bad; else the previous one, checked the same way; else the copy built into the app. A path in a manifest is
+   marked bad; else the previous one, checked the same way; else the copy built into the app. From app 0.9.0 (build 38,
+   versionCode 36; Mac app 0.4.0; the desktop app's store too), a downloaded bundle of an older console than the
+   built-in copy (`console.version` in each manifest) gives way to it, and an update takes nothing older: an app built
+   with newer pages than the console has deployed, such as the Offline page before console 2.27.0, shows them. The same,
+   a newer or an unknown version keeps the downloaded one. A path in a manifest is
    only a key: files are kept as `objects/<sha256>`, so no path from a server ever becomes a file name.
 2. **A good bundle** is one whose pages started: each page tells the app (`app.ready`) once it has drawn its sign-in or
    its first page. One that has not after two starts is marked bad, never fetched again, and the one before it is shown.

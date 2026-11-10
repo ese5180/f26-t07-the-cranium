@@ -8,18 +8,18 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeBundle } from '../../../cloud/web/src/bundle.mjs';
-import { createBundleStore } from '../src/lib/store.mjs';
+import { createBundleStore, isNewerConsole } from '../src/lib/store.mjs';
 
 const CONSOLE = 'https://console.test';
 
-function bundleOf(label, extra = {}) {
+function bundleOf(label, extra = {}, version = '2.4.1') {
   const files = [
     { path: 'index.html', bytes: Buffer.from(`<!doctype html><title>${label}</title>`) },
     { path: 'admin/index.html', bytes: Buffer.from(`<!doctype html><title>${label} console</title>`) },
     { path: 'assets/0123456789ab/core.js', bytes: Buffer.from(`export const label = '${label}';`) },
     { path: 'assets/0123456789ab/shared.js', bytes: Buffer.from('export const same = 1;') },
   ];
-  const { manifest, objects } = makeBundle(files, { version: '2.4.1', commit: null, builtAt: null });
+  const { manifest, objects } = makeBundle(files, { version, commit: null, builtAt: null });
   return { manifest: { ...manifest, ...extra }, objects };
 }
 
@@ -143,4 +143,39 @@ test('files neither manifest names are deleted after an update', async (t) => {
   await three.update(CONSOLE);
   // 'three' and 'two' (previous) share shared.js: 3 + 3 + 1 shared = 7 objects, none of 'one'.
   assert.equal((await readdir(join(root, 'objects'))).length, 7);
+});
+
+test('built-in pages of a newer console win over an older download; a newer, equal or unversioned one still wins', async (t) => {
+  const root = await folder(t);
+  const builtIn = join(root, 'built-in');
+  await writeBuiltIn(builtIn, bundleOf('built in', {}, '2.27.0'));
+  const older = bundleOf('older console', {}, '2.25.5');
+  const served = consoleServing(older);
+  const store = createBundleStore({ root: join(root, 'store'), builtIn, fetch: served.fetch });
+  // Nothing older than the app's own pages is fetched.
+  assert.deepEqual(await store.update(CONSOLE), { status: 'same' });
+  assert.equal(served.asked.filter((url) => url.includes('/app/files/')).length, 0);
+  assert.equal((await store.launch()).source, 'built-in');
+
+  // An older download kept from before the app was updated gives way too, and its starts are not counted.
+  const kept = join(root, 'kept');
+  const before = createBundleStore({ root: kept, builtIn: null, fetch: consoleServing(older).fetch });
+  assert.equal((await before.update(CONSOLE)).status, 'new');
+  const after = createBundleStore({ root: kept, builtIn, fetch: consoleServing(older).fetch });
+  for (let i = 0; i < 3; i += 1) assert.equal((await after.launch()).source, 'built-in');
+
+  for (const [deployed, label] of [
+    ['2.27.1', 'newer'],
+    ['2.27.0', 'equal'],
+    [null, 'unversioned'],
+  ]) {
+    const place = join(root, label);
+    const fresh = bundleOf(label, {}, deployed);
+    const other = createBundleStore({ root: place, builtIn, fetch: consoleServing(fresh).fetch });
+    assert.equal((await other.update(CONSOLE)).status, 'new', label);
+    assert.equal((await other.launch()).manifest.id, fresh.manifest.id, label);
+  }
+  assert.equal(isNewerConsole('2.10.0', '2.9.9'), true);
+  assert.equal(isNewerConsole('2.25.5', '2.27.0'), false);
+  assert.equal(isNewerConsole('2.27.0', null), false);
 });
