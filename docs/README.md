@@ -29,6 +29,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | Document | What it covers |
 | --- | --- |
 | [`new-board-setup.md`](new-board-setup.md) | Setting up a blank board, with the script or by hand |
+| [`led-guide.md`](led-guide.md) | What every LED pattern on the nRF7002 DK and the nRF5340 DK means, and what to do about it |
 | [`code-map.md`](code-map.md) | Where in the code to point for the 3.11 demo, by file and function |
 | [`fleet-demo.md`](fleet-demo.md) | What to show, in order, for the 3.11 fleet-management checkoff |
 
