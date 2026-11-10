@@ -332,7 +332,7 @@ export function createApp({
   let updates = null;
   let memfault = null;
   const fleet = createFleetHandlers(context, { devices, updates: () => updates, memfault: () => memfault });
-  // Raspberry Pi images (console 2.25.0, handlers/pi-images.mjs): deployments look them up, and
+  // Raspberry Pi images (console 2.26.0, handlers/pi-images.mjs): deployments look them up, and
   // revoking one cancels the deployments that carry it.
   let piImages = null;
   const deployments = createDeploymentHandlers(context, { devices, fleet, piImages: () => piImages });
@@ -458,7 +458,7 @@ export function createApp({
       action: 'firmware.revoke',
       maxBody: SMALL_BODY_LIMIT,
     }),
-    // Raspberry Pi images (console 2.25.0, docs/pi-ota.md): listed for every member; uploaded,
+    // Raspberry Pi images (console 2.26.0, docs/pi-ota.md): listed for every member; uploaded,
     // completed and revoked by release managers on the website. The file goes straight to S3.
     route('GET', '/api/pi-images', piImages.list),
     route('POST', '/api/pi-images', piImages.create, { action: 'pi_image.upload', maxBody: SMALL_BODY_LIMIT }),

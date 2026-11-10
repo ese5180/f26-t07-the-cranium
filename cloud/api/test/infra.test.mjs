@@ -1240,7 +1240,7 @@ test("the phone apps' pages may call the API from any origin, with no credential
   assert.ok(cors.includes('AllowCredentials: false'));
   assert.match(cors, /MaxAge: \d+/);
   // The functions answer no preflight and add no such header themselves. The one other CORS of the stack
-  // is the firmware bucket's, for a Pi image's upload from the Firmware page (console 2.25.0).
+  // is the firmware bucket's, for a Pi image's upload from the Firmware page (console 2.26.0).
   assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 2);
 });
 

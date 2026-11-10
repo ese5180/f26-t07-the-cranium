@@ -13,7 +13,7 @@
  * AWS IoT replaces the placeholder with a short-lived download URL each time a board
  * asks for the document. This module never sees such a URL.
  *
- * From console 2.25.0 a deployment can bring a Raspberry Pi image (docs/pi-ota.md): alone
+ * From console 2.26.0 a deployment can bring a Raspberry Pi image (docs/pi-ota.md): alone
  * ("op": "pi_image", id pi-<version>-<time>-<hex>), or with board firmware ("op": "fw_pi_update",
  * the firmware's id with "-pi" after the build number). Its version and digest are in the job's
  * description too, which is what the console reads them back from.
@@ -166,7 +166,7 @@ export function buildPiJobDocument({ version, size, sha256, sig, minFirmware, re
 }
 
 /**
- * From 2.25.0, board firmware and a Raspberry Pi image in one job ("fw_pi_update", docs/pi-ota.md,
+ * From 2.26.0, board firmware and a Raspberry Pi image in one job ("fw_pi_update", docs/pi-ota.md,
  * "Both at once"): `fw` as in buildJobDocument, `pi` as in buildPiJobDocument. A board downloads both,
  * installs the firmware, and sends the Pi its image once that firmware is confirmed.
  */
@@ -235,7 +235,7 @@ function asciiJson(value) {
  * The e-mail address is display data and is left out if the text would not fit.
  */
 export function buildJobDescription({ email, sub, note, pi = null }) {
-  // A Pi image: its version and digest, which the id cannot hold (2.25.0).
+  // A Pi image: its version and digest, which the id cannot hold (2.26.0).
   const image = pi === null ? {} : { pi: pi.version, pis: pi.sha256 };
   const text = asciiJson({ by: email, sub, note, ...image });
   return text.length <= DESCRIPTION_LIMIT ? text : asciiJson({ by: '', sub, note, ...image });
@@ -270,7 +270,7 @@ export function parseJobDescription(text) {
     /^[0-9a-f]{64}$/.test(piSha)
       ? { version: piVersion, sha256: piSha }
       : null;
-  // Only a deployment with a Pi image has one (2.25.0).
+  // Only a deployment with a Pi image has one (2.26.0).
   return { createdBy: sub === '' ? null : { sub, email }, note, ...(pi === null ? {} : { pi }) };
 }
 
@@ -310,7 +310,7 @@ export function summarizeJob(job) {
     id: parsed.id,
     // The board firmware it brings; null for a Pi image alone.
     version: parsed.version,
-    // From 2.25.0: what it brings, and its Pi image ({ version, sha256 }) when it brings one.
+    // From 2.26.0: what it brings, and its Pi image ({ version, sha256 }) when it brings one.
     parts: partsOf(parsed),
     ...(parsed.withPi ? { pi: pi ?? null } : {}),
     status: job.status,
@@ -337,7 +337,7 @@ export function isSettled(summary) {
 
 const REASON = /^[a-z][a-z0-9_]{0,31}$/;
 const DETAIL = /^[\x20-\x7e]{1,200}$/;
-// The steps a board names in an execution: firmware's, and from 2.25.0 a Pi image's. "sending" is a Pi
+// The steps a board names in an execution: firmware's, and from 2.26.0 a Pi image's. "sending" is a Pi
 // image alone on its way to the Pi; "downloading_pi" and "flashing_pi" are the Pi part of a job with both.
 const STEPS = Object.freeze([
   'downloading',
@@ -374,7 +374,7 @@ export function executionDetails(statusDetails) {
     detail: typeof detail === 'string' && DETAIL.test(detail) ? detail : null,
     step: STEPS.includes(step) ? step : null,
     running: strictVersion(read('running'))?.text ?? null,
-    // From 2.25.0, what a board says of a Pi image: how far it is, the version the Pi verified, and
+    // From 2.26.0, what a board says of a Pi image: how far it is, the version the Pi verified, and
     // for a job with both parts, what became of each when it did not succeed.
     // Each only when the board said it, so that a firmware job's details read as they always did.
     ...(percent === null ? {} : { progress: percent }),

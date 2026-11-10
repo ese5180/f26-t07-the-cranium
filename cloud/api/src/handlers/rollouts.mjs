@@ -75,7 +75,7 @@
  * jobs themselves are deployments like any other (handlers/deployments.mjs launch), and their
  * notes say which rollout and which stage they are.
  *
- * A Raspberry Pi image (console 2.25.0, docs/pi-ota.md): `pi` beside `version` sends both in each job,
+ * A Raspberry Pi image (console 2.26.0, docs/pi-ota.md): `pi` beside `version` sends both in each job,
  * to boards that report a Pi; the others are left out (no_pi), or refused when named (400 no_pi). Each
  * stage looks at the image again, and a revoked one stops the rollout (pi_revoked).
  */
@@ -1323,7 +1323,7 @@ export function createRolloutHandlers(
       const options = rolloutOptions(body);
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
       const release = await findRelease(version);
-      // A Raspberry Pi image with it (2.25.0): checked as a deployment checks it.
+      // A Raspberry Pi image with it (2.26.0): checked as a deployment checks it.
       const piImage =
         field(body, 'pi') === undefined ? null : (await deployments.requireParts({ pi: field(body, 'pi') })).piImage;
       if (piImage !== null) entry.detail.pi = piImage.version;

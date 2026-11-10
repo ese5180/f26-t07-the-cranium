@@ -20,7 +20,7 @@ const THING = /^cranium-[0-9a-f]{16}$/;
 // device_id_valid() in firmware/app/src/device.c: 1 to 32 letters and digits.
 const BOARD_NAME = /^[A-Za-z0-9]{1,32}$/;
 // A deployment of board firmware, "-pi" after the build when it brings a Raspberry Pi image too, and
-// one of a Pi image alone (console 2.25.0, docs/pi-ota.md).
+// one of a Pi image alone (console 2.26.0, docs/pi-ota.md).
 const DEPLOYMENT = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})(?:-pi)?-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
 const PI_DEPLOYMENT = /^pi-[A-Za-z0-9_-]{1,31}-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
 // A Raspberry Pi image's version, as a board takes it.
@@ -1220,7 +1220,7 @@ function readDeploymentSummary(raw) {
     id: text(item.id, 64),
     // The board firmware it brings; null for a Raspberry Pi image alone.
     version: versionOrNull(item.version),
-    // From console 2.25.0: what it brings, and its Pi image when it brings one.
+    // From console 2.26.0: what it brings, and its Pi image when it brings one.
     parts: parts.length > 0 ? parts : ['nrf'],
     ...(anObject(item.pi) || item.pi === null ? { pi: readDeploymentPi(item.pi) } : {}),
     status: text(item.status, 32),
@@ -1258,7 +1258,7 @@ function readExecution(raw) {
     startedAt: instant(item.startedAt),
     lastUpdatedAt: instant(item.lastUpdatedAt),
     secondsLeft: whole(item.secondsLeft, 0, 10 ** 7),
-    // The Pi image's part of a deployment that brings one (console 2.25.0).
+    // The Pi image's part of a deployment that brings one (console 2.26.0).
     ...(anObject(item.pi) ? { pi: readPiPart(item.pi) } : {}),
   };
 }
@@ -2986,7 +2986,7 @@ export function createApi({
     },
     /**
      * A deployment of board firmware (`version`), a Raspberry Pi image (`pi`), or both. `waves` paces
-     * it: { perMinute, abortPercent } (console 2.25.0).
+     * it: { perMinute, abortPercent } (console 2.26.0).
      */
     async deploy({ version = null, pi = null, things, note, waves = null }) {
       const body = { things: things.map((thing) => checked(isThing, thing)) };
@@ -3776,7 +3776,7 @@ export function describeExecution(
           quiet: `The board went offline while it was restarting.${STILL_OPEN}`,
         }
       );
-    // A job that brings a Raspberry Pi image too (console 2.25.0, docs/pi-ota.md): both downloads come
+    // A job that brings a Raspberry Pi image too (console 2.26.0, docs/pi-ota.md): both downloads come
     // before anything is installed, and the Pi gets its image once the new firmware is confirmed. A Pi
     // image alone goes through these two as well.
     case 'downloading_pi':
@@ -4365,7 +4365,7 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to revoke a release',
     icon: 'ban',
   },
-  // Raspberry Pi images (console 2.25.0): the record, the file found in S3, a revocation.
+  // Raspberry Pi images (console 2.26.0): the record, the file found in S3, a revocation.
   'pi_image.upload': {
     done: 'began uploading Pi image',
     tried: 'tried to upload Pi image',
@@ -4901,7 +4901,7 @@ export const REFUSAL_WORDS = {
   version_zero: 'Version 0.0.0+0 is never accepted',
   device_busy: 'A board had an unfinished update',
   release_revoked: 'The release is revoked',
-  // Raspberry Pi images (console 2.25.0).
+  // Raspberry Pi images (console 2.26.0).
   not_uploaded: 'The file of that Pi image has not arrived',
   no_pi: 'A board reports no Raspberry Pi',
   invalid_token: 'The API token was not valid, or had been revoked or had expired',

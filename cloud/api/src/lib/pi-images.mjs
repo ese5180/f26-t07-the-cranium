@@ -1,5 +1,5 @@
 /**
- * Raspberry Pi images (console 2.25.0, docs/pi-ota.md): what one is, how its signature is checked,
+ * Raspberry Pi images (console 2.26.0, docs/pi-ota.md): what one is, how its signature is checked,
  * and how it is stored.
  *
  * A Pi image is a file for the Pi's partition B and the record that tools/pi_image.py writes beside

@@ -45,7 +45,7 @@ import { HIDDEN, secretName, secretValue } from './db.mjs';
 export const ACTIONS = Object.freeze([
   'firmware.upload',
   'firmware.revoke',
-  // Raspberry Pi images (console 2.25.0, handlers/pi-images.mjs): the record and its upload URL, the
+  // Raspberry Pi images (console 2.26.0, handlers/pi-images.mjs): the record and its upload URL, the
   // file found in S3, and a revocation.
   'pi_image.upload',
   'pi_image.complete',

@@ -21,7 +21,7 @@
  * boards that had started. So nothing here says that a deployment is over because the
  * job is cancelled: that is read from its executions.
  *
- * From console 2.25.0 a deployment brings board firmware, a Raspberry Pi image (handlers/pi-images.mjs),
+ * From console 2.26.0 a deployment brings board firmware, a Raspberry Pi image (handlers/pi-images.mjs),
  * or both: POST /api/deployments takes `version`, `pi` (the Pi image's version), or both. With both, a
  * board downloads the two, installs its firmware, and sends the Pi its image once that firmware is
  * confirmed (docs/pi-ota.md, "Both at once"). A Pi image goes only to boards that report a "pi"
@@ -365,7 +365,7 @@ export function createDeploymentHandlers(
       reason: row.details.reason,
       detail: row.details.detail,
       ...firmwareOf(row, device),
-      // From 2.25.0: the Pi image's part, for a deployment that brings one (piPartOf).
+      // From 2.26.0: the Pi image's part, for a deployment that brings one (piPartOf).
       ...(pi === null ? {} : { pi }),
       online: device.online,
       queuedAt,

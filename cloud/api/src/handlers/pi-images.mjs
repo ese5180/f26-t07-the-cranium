@@ -1,5 +1,5 @@
 /**
- * Raspberry Pi images on the Firmware page (console 2.25.0, docs/pi-ota.md, "Cloud").
+ * Raspberry Pi images on the Firmware page (console 2.26.0, docs/pi-ota.md, "Cloud").
  *
  *   GET  /api/pi-images                      -> { images: [PiImage] }, newest first; any member
  *   POST /api/pi-images                      body { version, size, sha256, sig, minFirmware?, notes? }

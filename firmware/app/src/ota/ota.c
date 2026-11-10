@@ -976,7 +976,7 @@ static void on_pi_job(const struct ota_job *incoming)
 
 	if (strcmp(order.cleared, incoming->id) == 0 || !cloud_jobs_list_available()) {
 		/* No firmware job before it, or no way to know: a cloud whose device policy is older
-		 * than console 2.25.0 (cloud.h). Then the order is the cloud's.
+		 * than console 2.26.0 (cloud.h). Then the order is the cloud's.
 		 */
 		order.cleared[0] = '\0';
 		pi_ota_set_waiting(false);

@@ -258,7 +258,7 @@ const ROUTES = [
   { route: 'GET /api/firmware/{version}', path: `/api/firmware/${V}`, status: 200, phone: true },
   { route: 'GET /api/firmware/{version}/image', path: `/api/firmware/${V}/image`, status: 200, phone: true },
   { route: 'GET /api/pairing/{name}', path: '/api/pairing/Cranium-1A2B', status: 200, phone: true },
-  // Raspberry Pi images (console 2.25.0): a record that is not one, and an image that does not exist.
+  // Raspberry Pi images (console 2.26.0): a record that is not one, and an image that does not exist.
   { route: 'GET /api/pi-images', status: 200, phone: true },
   { route: 'POST /api/pi-images', status: 400, phone: true, body: {} },
   {

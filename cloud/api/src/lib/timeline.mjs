@@ -28,7 +28,7 @@
  * at its button, on 60 s with one report lost, goes back to waiting_for_device at 90 s, until
  * its next report. That is what is known at that moment, and it is left that way.
  *
- * From console 2.25.0 (docs/pi-ota.md) a deployment can bring a Raspberry Pi image. With board
+ * From console 2.26.0 (docs/pi-ota.md) a deployment can bring a Raspberry Pi image. With board
  * firmware, the steps are downloading -> verifying -> downloading_pi -> rebooting -> testing ->
  * flashing_pi: both downloads before anything is installed, the Pi last. A Pi image alone is
  * downloading_pi -> flashing_pi. The board reports how far a Pi step is on the execution itself

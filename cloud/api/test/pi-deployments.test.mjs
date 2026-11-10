@@ -1,4 +1,4 @@
-// Raspberry Pi images on the console (2.25.0, docs/pi-ota.md): their upload, and deployments that bring
+// Raspberry Pi images on the console (2.26.0, docs/pi-ota.md): their upload, and deployments that bring
 // a Pi image alone or with board firmware, with what each board's execution says of both parts.
 
 import assert from 'node:assert/strict';

@@ -14,9 +14,9 @@ import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, MAX_TOKEN_NAME, MIN_TOKEN_DAYS, TOK
 // "major.minor.revision+build", the build number always present.
 const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]\d{0,9})$/;
 const THING = /^cranium-[0-9a-f]{16}$/;
-// A deployment of board firmware; "-pi" after the build number when it brings a Pi image too (2.25.0).
+// A deployment of board firmware; "-pi" after the build number when it brings a Pi image too (2.26.0).
 const JOB_ID = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})(-pi)?-(\d{8}T\d{6}Z)-[0-9a-f]{4}$/;
-// A deployment of a Raspberry Pi image alone (2.25.0): "pi-", the image's version as letters, digits,
+// A deployment of a Raspberry Pi image alone (2.26.0): "pi-", the image's version as letters, digits,
 // "_" and "-", the time and 4 hex. A board tells it from firmware by the "pi-" (firmware ota_job.h).
 const PI_JOB_ID = /^pi-[A-Za-z0-9_-]{1,31}-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
 // A Raspberry Pi image's version, as a board takes it (firmware ota_job.c copy_pi_version).

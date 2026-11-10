@@ -11,7 +11,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 A board wired to a Raspberry Pi can update the Pi: a signed image comes as a job, goes onto an SD card and over SPI to
 the Pi's partition B, checked by size, SHA-256 and signature, with resume. Board firmware always goes first. Only in a
-build for such a board (scripts/firmware/build.sh --pi), which has no Bluetooth. Deploy console 2.25.0 before one runs it.
+build for such a board (scripts/firmware/build.sh --pi), which has no Bluetooth. Deploy console 2.26.0 before one runs it.
 
 Untested on hardware: docs/pi-ota.md has the design, the wiring, the SPI protocol for the Pi's side, the speeds and
 what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported`, and the job records' new fields in RAM. Signed images: 878,206 bytes for the default build, 824,556 for the Pi build.

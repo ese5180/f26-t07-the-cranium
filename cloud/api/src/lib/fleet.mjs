@@ -332,7 +332,7 @@ export function rolloutFromItem(item) {
     wave: item.wave ?? DEFAULT_WAVE,
     abortPercent: item.abortPercent ?? DEFAULT_ABORT_PERCENT,
     plan: wavePlan(list(item.things).length - list(item.canary?.things).length, item.wave ?? DEFAULT_WAVE),
-    // From console 2.25.0: a Raspberry Pi image that goes with the release, to each board after its
+    // From console 2.26.0: a Raspberry Pi image that goes with the release, to each board after its
     // firmware ({ version, sha256 }); only a rollout that has one says so.
     ...(item.pi && typeof item.pi.version === 'string'
       ? { pi: { version: item.pi.version, sha256: item.pi.sha256 } }

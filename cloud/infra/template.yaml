@@ -1112,7 +1112,7 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
-      # From console 2.25.0: a Raspberry Pi image goes from the Firmware page straight to S3, with a
+      # From console 2.26.0: a Raspberry Pi image goes from the Firmware page straight to S3, with a
       # presigned PUT that the console signs for one key, one size, one SHA-256 and "only if new"
       # (cloud/api/src/handlers/pi-images.mjs). A browser asks first whether it may (CORS). PUT only,
       # with the two headers that URL signs; the URL is the permission, so any origin, as for the
@@ -2633,7 +2633,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt RolloutTickLogGroup.Arn
-              # PIIMG (console 2.25.0): the Raspberry Pi images, which a stage of a rollout with one, and a
+              # PIIMG (console 2.26.0): the Raspberry Pi images, which a stage of a rollout with one, and a
               # scheduled deployment of one, look at before they start. Read only.
               - Sid: ReadReleasesAndFleet
                 Effect: Allow

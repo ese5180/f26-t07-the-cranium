@@ -18,7 +18,7 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
   firmware is on trial.
 - A build for a board wired to a Pi has no Bluetooth, because the two do not fit in RAM together
   ([Memory](#memory)). It is built with `scripts/firmware/build.sh --pi`.
-- **Before any such board runs 1.20.0, deploy console 2.25.0.** Its device policy lets a board ask for its
+- **Before any such board runs 1.20.0, deploy console 2.26.0.** Its device policy lets a board ask for its
   list of pending jobs ([Cloud](#cloud)).
 - Nothing on this page has run on hardware ([Untested on hardware](#untested-on-hardware)).
 
@@ -189,7 +189,7 @@ AWS IoT hands out pending jobs oldest first, whatever they are. The board puts t
    up on, unless its `minFirmware` is newer. Then it is refused with `firmware_too_old`.
 6. **A Pi image left in progress by a restart.** It carries on, with no list in between, from the last
    checkpoint on the card.
-7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.25.0, and
+7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.26.0, and
    the board's guard has dropped the list topic along with the commands topic (`cloud.h`). The board then
    takes jobs in the cloud's order.
 
@@ -437,13 +437,13 @@ grew by 216 bytes, for the Pi fields of the two job records that it keeps in ord
 
 ## Cloud
 
-**Device policy.** Console 2.25.0 adds three permissions, each on the board's own topic only:
+**Device policy.** Console 2.26.0 adds three permissions, each on the board's own topic only:
 
 - publish `$aws/things/<thing>/jobs/get`
 - subscribe `jobs/get/accepted`
 - receive `jobs/get/accepted`
 
-`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.25.0
+`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.26.0
 (`cloud/deploy.sh`) before any board runs a 1.20.0 Pi build.** A Pi build subscribes to the list's
 topic, and an older policy would end its connection until the guard gives up on commands too. A default
 1.20.0 build does not use the topic, and does not need the policy.

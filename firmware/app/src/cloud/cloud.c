@@ -77,7 +77,7 @@ static char topic_list_accepted[TOPIC_MAX];
  * What is subscribed to, in this order. The console lists them from here as well. The commands
  * topic is the last, so that a connection without it takes one fewer: see cloud_subscription().
  * From 1.20.0 the list of pending jobs comes right before it, and the guard drops the two
- * together: both need the device policy of console 2.25.0, so a cloud that still has an older one ends
+ * together: both need the device policy of console 2.26.0, so a cloud that still has an older one ends
  * the connection for either of them.
  */
 static char *const subscribed[] = {
