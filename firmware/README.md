@@ -155,6 +155,7 @@ all start with `[BOOT]`.
 | `STREAM_CHUNK\|<index>\|<base64>` | | the next piece of it |
 | `STREAM_STATUS`, `STREAM_CANCEL` | | how far it is; give up on it |
 | `BUTTON\|<1 or 2>` | | a short press of a button, by the path of the real one, for a test bench |
+| `BT_OFFLINE\|NEW` | | from 1.19.0, on a board built with `CONFIG_APP_BT_OFFLINE`: draw the board's own Bluetooth passkey and name for offline mode, store them, and show the passkey once in the reply (write it down; it is shown nowhere else). From then on the board pairs with that passkey and reports none to the console, so the console's Bluetooth page cannot show it: type it when the phone or Mac asks. Run it again for a new one. The Serial console page does not offer it; Board setup's command line does. See [docs/mobile-apps.md](../docs/mobile-apps.md#offline-mode) |
 | `TEST_WIFI_DEAD` | | only in a test image built with `APP_TEST_FAULT_WIFI_DEAD`, and every other image answers `ERR unknown command`: stops the Wi-Fi chip's power, once, until a restart. Refused during an update or a trial, and on an image with no trailer |
 
 Only the commands marked * work in factory mode. `HELP` comes from the same table as the commands

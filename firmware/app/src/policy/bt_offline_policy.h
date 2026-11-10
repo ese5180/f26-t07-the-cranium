@@ -83,8 +83,11 @@ struct bt_offline_status {
  *    6 running version: major, minor, revision (2), build (4), ending at 13
  *   14 uptime in seconds (4)
  *   18 the waiting update's major, 19 its minor; 0 unless the update state is 4
- * An update that waits is named by its major and minor only, which is what a person is shown; the
- * board checks the whole version.
+ * An update that waits is named by its major and minor only, which is what a person is shown. The
+ * accept is checked against those two numbers and nothing more (bt_offline_accept_check): two waiting
+ * images of the same major and minor, differing in revision or build, are not told apart here. The
+ * image itself was checked for board, layout and version when it arrived, and its signature is
+ * checked by the bootloader.
  */
 void bt_offline_encode(const struct bt_offline_status *status, uint8_t out[BT_OFFLINE_LEN]);
 
