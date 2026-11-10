@@ -155,6 +155,35 @@ function siteOrMixIcon(name) {
   return SITE_ICONS[name] ? siteIcon(name) : mixIcon(name);
 }
 
+/**
+ * Offline mode, in the apps whose hello offers bleOffline (state.app.offline): the console's Offline page
+ * (site/assets/offline.js), a board nearby over Bluetooth with no network and no sign-in. On the sign-in page it
+ * stands above the form, where a phone's keyboard does not cover it; signed in it is in the sections and the top bar.
+ */
+function offlineHref(adminPath) {
+  return `${adminPath}#/offline`;
+}
+
+function offlineEntry(adminPath) {
+  return h(
+    'a',
+    { class: 'cs-offline', href: offlineHref(adminPath), key: 'offline' },
+    mixIcon('bluetooth'),
+    h(
+      'span',
+      { class: 'cs-offline-text' },
+      h('strong', null, 'Offline mode'),
+      h('span', null, 'A board nearby, over Bluetooth, with no network.')
+    ),
+    icon('arrow-right')
+  );
+}
+
+function craniumItems(ctx) {
+  if (!ctx.state.app?.offline) return CRANIUM;
+  return [...CRANIUM, ['offline', offlineHref(ctx.site.adminPath), 'Offline mode', 'bluetooth']];
+}
+
 function navLinks(items, current, className, ctx, { short = false } = {}) {
   return items.map(([section, href, label, iconName]) =>
     h(
@@ -258,7 +287,7 @@ export function shellView(ctx, page) {
         h('p', { class: 'eyebrow cs-nav-title' }, 'Your workspace'),
         h('ul', { class: 'cs-nav-list' }, navLinks(WORKSPACE, current, 'cs-nav-link', ctx)),
         h('p', { class: 'eyebrow cs-nav-title' }, 'Your Cranium'),
-        h('ul', { class: 'cs-nav-list' }, navLinks(CRANIUM, current, 'cs-nav-link'))
+        h('ul', { class: 'cs-nav-list' }, navLinks(craniumItems(ctx), current, 'cs-nav-link'))
       ),
       h(
         'div',
@@ -319,6 +348,18 @@ export function shellView(ctx, page) {
             },
             icon('user')
           ),
+          ctx.state.app?.offline
+            ? h(
+                'a',
+                {
+                  class: 'btn is-icon is-quiet cs-top-offline',
+                  href: offlineHref(ctx.site.adminPath),
+                  'aria-label': 'Offline mode',
+                  title: 'Offline mode: a board nearby, over Bluetooth',
+                },
+                mixIcon('bluetooth')
+              )
+            : null,
           adminButton(ctx, 'is-top'),
           h(
             'button',
@@ -1928,6 +1969,7 @@ export function signInView(model) {
       { class: 'gate-message signin', key: `signin-${step}` },
       h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, TITLES_OF_STEP[step]()),
       lead,
+      model.offline && step === 'password' ? offlineEntry(model.adminPath) : null,
       body,
       h('div', { class: 'signin-other', key: 'other' }, h('a', { class: 'btn is-quiet', href: '#/' }, 'Home'))
     )
