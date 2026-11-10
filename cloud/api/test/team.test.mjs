@@ -78,7 +78,10 @@ test('viewers, API tokens and phone sessions are refused; reads by viewers too',
     clientId: c.config.mobileClientId,
     authTime: Math.floor(c.clock.ms / 1000),
   });
-  assert.equal((await c.call('GET', '/api/team', { claims: phone })).status, 403);
+  // The apps' release managers read the team; every change to it stays on the website.
+  assert.equal((await c.call('GET', '/api/team', { claims: phone })).status, 200);
+  const fromApp = await c.call('POST', `/api/team/${c.viewer.sub}/disable`, { claims: phone, body: {} });
+  assert.deepEqual([fromApp.status, fromApp.body.error.code], [403, 'phone_not_allowed']);
   // A release manager who lost the tier a moment ago cannot change anything with the old token.
   c.fake.user(c.other.sub).setGroups(['viewers']);
   const stale = await post(c, `/api/team/${c.viewer.sub}/disable`, c.other);

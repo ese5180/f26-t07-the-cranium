@@ -2531,6 +2531,13 @@ const actions = {
   signInAgain: () => beginSignIn(),
   // The phone app's own settings: its versions, an update of its pages, and the classic app.
   appSettings: () => appBridge?.call('app.settings').catch(() => notify('The app could not show its settings.', 'bad')),
+  // A page whose changes are made on the website only, opened there in the browser: `view` is its route.
+  openOnWebsite: (view) =>
+    appBridge && appConfig && appBridge.has('open')
+      ? appBridge
+          .call('app.open', { url: `${appConfig.consoleUrl}/#/${view}` })
+          .catch(() => notify('The app could not open the console’s website.', 'bad'))
+      : notify('Make this change on the console’s website.', 'idle'),
   async copy(value, label) {
     try {
       if (appBridge?.has('clipboard')) await appBridge.call('clipboard.write', { text: String(value).slice(0, 1024) });

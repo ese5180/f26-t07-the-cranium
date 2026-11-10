@@ -465,7 +465,7 @@ const ROUTES = [
   { route: 'POST /api/apps/sidestore/revoke', status: 404, phone: false, body: {} },
   // The customer site's Customers page: the website's alone. This console has no customer pool,
   // so a release manager is told so (customers.test.mjs has them with one).
-  { route: 'GET /api/customers', status: 200, phone: false },
+  { route: 'GET /api/customers', status: 200, phone: true },
   { route: 'POST /api/customers', status: 409, phone: false, body: { email: 'dee@example.invalid' } },
   {
     route: 'POST /api/customers/{id}/resend',
@@ -518,7 +518,7 @@ const ROUTES = [
   },
   // The Team page (team.test.mjs): the website's alone, like the customers. The viewer of the world below is
   // the account changed.
-  { route: 'GET /api/team', status: 200, phone: false },
+  { route: 'GET /api/team', status: 200, phone: true },
   { route: 'POST /api/team', status: 201, phone: false, body: { email: 'dee@example.invalid', tier: 'viewer' } },
   {
     route: 'POST /api/team/{id}/resend',

@@ -497,7 +497,7 @@ test('an account gone from the pool still shows with its boards, so that they ca
   assert.equal(w.store.ownership(BOARD_C).owner, undefined);
 });
 
-test("the Customers routes are for the website: an API token or a phone app's session is refused", async () => {
+test("the apps' release managers read the customers; every change stays on the website, and an API token is refused", async () => {
   const w = await world();
   const phone = accessClaims({
     sub: w.admin.sub,
@@ -506,7 +506,9 @@ test("the Customers routes are for the website: an API token or a phone app's se
     authTime: Math.floor(w.clock.ms / 1000),
   });
   const read = await w.console('GET', '/api/customers', { claims: phone });
-  assert.deepEqual([read.status, read.body.error.code], [403, 'phone_not_allowed']);
+  assert.equal(read.status, 200);
+  const change = await w.console('POST', '/api/customers', { claims: phone, body: { email: 'dee@example.invalid' } });
+  assert.deepEqual([change.status, change.body.error.code], [403, 'phone_not_allowed']);
   const made = await w.console('POST', '/api/tokens', { as: w.admin, body: { name: 'script' } });
   assert.equal(made.status, 201);
   const viaToken = await w.consoleApp(
@@ -514,6 +516,20 @@ test("the Customers routes are for the website: an API token or a phone app's se
   );
   assert.equal(viaToken.statusCode, 403);
   assert.equal(JSON.parse(viaToken.body).error.code, 'token_not_allowed');
+});
+
+test('in the apps, only a release manager sees the team and the customers: a viewer is refused', async () => {
+  const w = await world();
+  const viewer = accessClaims({
+    sub: w.viewer.sub,
+    groups: ['viewers'],
+    clientId: 'localmobile',
+    authTime: Math.floor(w.clock.ms / 1000),
+  });
+  for (const path of ['/api/customers', '/api/team']) {
+    const read = await w.console('GET', path, { claims: viewer });
+    assert.deepEqual([read.status, read.body.error.code], [403, 'release_manager_required'], path);
+  }
 });
 
 test('a deployment with no customer pool says so, and changes nothing', async () => {

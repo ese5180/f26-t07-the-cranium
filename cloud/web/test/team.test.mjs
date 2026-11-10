@@ -501,3 +501,44 @@ test("the Customers page labels a customer's own name as theirs, without control
   assert.doesNotMatch(meta, /[‮⁦⁩]/u);
   assert.ok(!meta.includes('x'.repeat(61)));
 });
+
+test('in the apps the Team page shows every account, and its changes open the console’s website', async () => {
+  const app = fakeApp();
+  team.connect(app);
+  await team.refresh();
+  const opened = [];
+  const inApp = {
+    state: { now: NOW, filters: { team: {} }, me: { canWrite: true }, app: { ble: true } },
+    actions: { openOnWebsite: (view) => opened.push(view) },
+  };
+  const root = draw(team.teamView(inApp));
+  const rows = all(root, 'li.team-account');
+  assert.equal(rows.length, 5);
+  // No row can change anything here: each offers the website instead.
+  assert.deepEqual(controls(rows[1]), ['Change on the website']);
+  assert.equal(all(root, 'form.team-invite').length, 0);
+  click(one(root, 'button', 'Invite on the website'));
+  click(one(rows[1], 'button', 'Change on the website'));
+  assert.deepEqual(opened, ['team', 'team']);
+});
+
+test('in the apps the Customers page shows each customer, and its changes open the console’s website', async () => {
+  const app = fakeApp({ customers: CUSTOMER_REPLY });
+  app.state = { devices: { value: { devices: [] }, error: null, loadedAt: NOW, loading: false } };
+  customers.connect(app);
+  const listing = customers.resources(app.state)[0];
+  listing.value = customers.readCustomers(CUSTOMER_REPLY);
+  const opened = [];
+  const root = draw(
+    customers.customersView({
+      state: { now: NOW, filters: { customers: {} }, devices: app.state.devices, app: { ble: true } },
+      actions: { openOnWebsite: (view) => opened.push(view) },
+    })
+  );
+  const row = one(root, 'li.customer', 'ada@example.invalid');
+  assert.match(textOf(row), /Active.*Authenticator/);
+  assert.deepEqual(controls(row), ['Change on the website']);
+  click(one(row, 'button', 'Change on the website'));
+  assert.deepEqual(opened, ['customers']);
+  assert.equal(app.calls.length, 0);
+});

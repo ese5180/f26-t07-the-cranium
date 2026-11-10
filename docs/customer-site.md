@@ -303,8 +303,10 @@ To turn it on:
 | `POST /api/customers/{id}/boards/{thing}/remove` | release managers | `customer.unassign` |
 | `POST /api/customers/{id}/disable`, `.../enable` | release managers | `customer.disable`, `customer.enable` |
 
-The Customers routes are for the website only: a phone app's session (`phone_not_allowed`) and an API token
-(`token_not_allowed`) are refused. Every request to them leaves one entry in the activity log, refusals included, which
+Every change through the Customers routes is made on the website only: an app's session (`phone_not_allowed`) and an
+API token (`token_not_allowed`) are refused. From console 2.24.0 the list itself (`GET /api/customers`, like
+`GET /api/team`) is open to the apps' sessions too, for release managers only (asked of Cognito at each request); a
+token is still refused. Every request to them leaves one entry in the activity log, refusals included, which
 the console reads as sentences ("invited the customer ...", "gave CRVIHAAN01 to ..."). A customer's own reads are not
 recorded; their changes are, in their own partition ([Customer actions](#customer-actions)). An invitation waits for the site to have an address: until `CustomerDomainName` is set the API refuses it
 (`customer_site_has_no_address`), because the e-mail would name no site; boards can be given out before.
