@@ -7,6 +7,10 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.25.1
+
+Two fixes from review. With reduced motion on, the loading screen's "Still loading? Reload the page." waits its 8 seconds like everyone else's instead of showing at once. The LED guide (docs/led-guide.md) now gives the nRF7002 DK's Bluetooth meanings of the double flash (paired) and fast blink (an image arrived: press Button 1), and says the self-test pattern comes with firmware 1.17.1, which is not released yet.
+
 ## 2.25.0
 
 Update over Bluetooth is one clear page, and it says the device it is on. Before the send it is a card to pick a release (newest first, with its size and notes) and a board (with its signal), with the board's window shown beside what to hold. Once it goes it is the board's card of the deployment page: the board, from version to version with the release's notes, a headline with a large percentage, a full-width meter, bytes sent of total, the speed and an estimated time left, and seven steps (connect, check, send, then the board's own Button 1, install, trial and kept, as the board reports them). A send can be cancelled; it ends in a plain state of its own: kept (with a link to the board's page), thrown away at the board, rolled back, cancelled, or failed with the reason and Try again. A screen reader hears the phase and every tenth of the upload, not every piece, and nothing moves for reduced motion. The pages now follow the platform the app says: the Mac app (macos) is "this Mac", the desktop app (windows, linux) "this computer", the phones "this phone" (Help, the app's own settings, the camera and sign-in lines too), and an app that still says ios or android works as before. The phone, Mac and desktop apps load the same bundle, so they get this with no app change; the Mac app's hello says macos from its next version.

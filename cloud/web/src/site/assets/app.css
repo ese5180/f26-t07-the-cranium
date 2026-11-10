@@ -6437,6 +6437,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     stroke-dashoffset: 0;
   }
 
+  /* Not motion: the reload hint only waits its 8 s, then appears at once. */
+  .boot-hint {
+    animation: fade-in 1ms linear 8s backwards !important;
+  }
+
   /* Standing still, the loading bar is a faint full line, not a part done. */
   .boot-bar-fill {
     width: 100%;
