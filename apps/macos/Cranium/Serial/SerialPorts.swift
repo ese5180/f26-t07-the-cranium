@@ -60,9 +60,10 @@ struct SerialBoard: Equatable {
     /// opened first, as on Android.
     let ports: [SerialPortInfo]
 
-    /// The USB serial devices among `ports`, grouped by device: SEGGER first, then by name.
+    /// The SEGGER J-Links among `ports` (USB vendor 0x1366, as bridge.json, the Android app and the page's own
+    /// Web Serial filter have it), grouped by device and sorted by name. Other serial devices are not offered.
     static func group(_ ports: [SerialPortInfo]) -> [SerialBoard] {
-        let usb = ports.filter { $0.vendorID != nil }
+        let usb = ports.filter { $0.vendorID == SerialPortInfo.seggerVendorID }
         let groups = Dictionary(grouping: usb, by: \.deviceKey)
         return groups.map { key, members in
             let sorted = members.sorted { $0.path < $1.path }
@@ -71,12 +72,7 @@ struct SerialBoard: Equatable {
             if let serial = first.serialNumber { title += " (\(serial))" }
             return SerialBoard(key: key, title: title, ports: Array(sorted.prefix(maxPorts)))
         }
-        .sorted { left, right in
-            let leftSegger = left.ports[0].vendorID == SerialPortInfo.seggerVendorID
-            let rightSegger = right.ports[0].vendorID == SerialPortInfo.seggerVendorID
-            if leftSegger != rightSegger { return leftSegger }
-            return (left.title, left.key) < (right.title, right.key)
-        }
+        .sorted { (left, right) in (left.title, left.key) < (right.title, right.key) }
     }
 }
 

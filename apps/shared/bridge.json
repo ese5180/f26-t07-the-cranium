@@ -215,7 +215,7 @@
       "params": {
         "baudRate": { "type": "integer", "min": 1200, "max": 1000000 }
       },
-      "result": "{port, ports}. Android only, on a phone that is a USB host: opens the next free virtual COM port of the SEGGER J-Link on the cable (vendor 0x1366) at baudRate, 8N1: the console's (VCOM1, the last) first, then the other. Android asks the person the first time; a refusal is cancelled, no J-Link failed, every port open busy. What the board sends comes as usb.data. This is the page's Web Serial (bridge.js createBridgeSerial), for the Serial console and Board setup."
+      "result": "{port, ports}. Android on a phone that is a USB host, and the Mac app: opens the next free virtual COM port of the SEGGER J-Link on the cable (vendor 0x1366, no other device) at baudRate, 8N1: the console's (VCOM1, the last) first, then the other. The app asks the person the first time (Android's permission question, the Mac's sheet); a refusal is cancelled, no J-Link failed, every port open busy. What the board sends comes as usb.data. This is the page's Web Serial (bridge.js createBridgeSerial), for the Serial console and Board setup."
     },
     "usb.write": {
       "feature": "usb",

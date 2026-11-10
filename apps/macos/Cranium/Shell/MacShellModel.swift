@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CraniumKit
 import SwiftUI
 import WebKit
@@ -40,6 +41,25 @@ final class MacShellModel: ObservableObject {
     let loaded: LoadedConfig?
     let store: BundleStore
     private(set) var pools: [ShellAuthPool.Pool: ShellAuthPool] = [:]
+    /// The serial bridge, the radio and keep-awake of the whole app (MacShared).
+    let shared: MacShared
+    /// The app's first window. It alone watches the Mac, holds the Touch ID lock and writes the bundle store; a
+    /// board's own window is one of its `secondaries`, shares its sign-ins, store and services, shows its cover,
+    /// and sends what needs the lock or the store to it.
+    private(set) weak var primary: MacShellModel?
+    private var secondaries: [WeakModel] = []
+    private var following: [AnyCancellable] = []
+    static weak var main: MacShellModel?
+
+    private struct WeakModel {
+        weak var model: MacShellModel?
+        init(_ model: MacShellModel) { self.model = model }
+    }
+
+    /// The windows other than the first.
+    private var others: [MacShellModel] { secondaries.compactMap(\.model) }
+    /// Every window: this one and, for the first, the others.
+    var windows: [MacShellModel] { [self] + others }
     lazy var host = MacBridgeHost(model: self)
     weak var webView: WKWebView?
     /// Where this window's page is now (hash changes included), for the menus.
@@ -54,8 +74,27 @@ final class MacShellModel: ObservableObject {
     private var slept = false
     private var observers: [NSObjectProtocol] = []
 
-    init(startURL: URL? = nil) {
+    init(startURL: URL? = nil, primary: MacShellModel? = nil) {
         self.startURL = startURL
+        if let primary {
+            self.primary = primary
+            loaded = primary.loaded
+            store = primary.store
+            pools = primary.pools
+            shared = primary.shared
+            phase = primary.phase
+            cover = primary.cover
+            needsNewerApp = primary.needsNewerApp
+            primary.secondaries.append(WeakModel(self))
+            following = [
+                primary.$phase.sink { [weak self] in self?.phase = $0 },
+                primary.$cover.sink { [weak self] in self?.cover = $0 },
+                primary.$lockMessage.sink { [weak self] in self?.lockMessage = $0 },
+                primary.$needsNewerApp.sink { [weak self] in self?.needsNewerApp = $0 },
+            ]
+            return
+        }
+        shared = MacShared()
         loaded = try? CraniumConfig.load(from: .main)
         let support = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil,
                                                      create: true)) ?? FileManager.default.temporaryDirectory
@@ -64,6 +103,7 @@ final class MacShellModel: ObservableObject {
         if let config = loaded?.config {
             makePools(config)
         }
+        Self.main = self
         #if DEBUG
         // A smoke run may have no window to start it (see smokeIfAsked).
         if ProcessInfo.processInfo.environment["CRANIUM_MAC_SMOKE"] != nil { Task { await start() } }
@@ -100,6 +140,8 @@ final class MacShellModel: ObservableObject {
     func start() async {
         guard !started else { return }
         started = true
+        // A board's window uses the first window's bundle and watches nothing itself.
+        if primary != nil { return }
         observeTheMac()
         guard loaded != nil else {
             phase = .failed("This build has no configuration, so the pages cannot start.")
@@ -119,12 +161,13 @@ final class MacShellModel: ObservableObject {
 
     /// The page started: its bundle is good.
     func pageReady() async {
-        guard let bundle else { return }
+        guard primary == nil, let bundle else { return }
         await store.markReady(bundle.id)
     }
 
     /// Asks the console for a newer bundle; a new one is kept for the next start, and the page is told.
     func checkForUpdate(force: Bool) async {
+        if let primary { return await primary.checkForUpdate(force: force) }
         guard let config, !checking else { return }
         if !force, let lastCheck, Date().timeIntervalSince(lastCheck) < Self.checkEvery { return }
         lastCheck = Date()
@@ -137,7 +180,7 @@ final class MacShellModel: ObservableObject {
             updateNote = "The pages are the console's newest."
         case .updated(let manifest):
             updateNote = "Newer pages are ready (\(manifest.consoleVersion.map { "console \($0)" } ?? manifest.id)): they open at the next start, or with Reload."
-            host.send("app.bundleReady", ["id": .string(manifest.id), "console": .string(manifest.consoleVersion)])
+            broadcast("app.bundleReady", ["id": .string(manifest.id), "console": .string(manifest.consoleVersion)])
         case .needsNewerApp:
             updateNote = "The console's newest pages need a newer version of this app."
         case .refused:
@@ -149,6 +192,10 @@ final class MacShellModel: ObservableObject {
 
     /// The newest good bundle, at the page the web view is on.
     func reload() async {
+        if primary != nil {
+            webView?.reload()
+            return
+        }
         if let newest = await store.newest(), newest.id != bundle?.id {
             phase = .ready(newest)
         }
@@ -221,10 +268,21 @@ final class MacShellModel: ObservableObject {
         }
     }
 
-    /// Signs out of both sign-ins and shows the pages again, now signed out.
+    /// Signs out of both sign-ins and shows the pages of every window again, now signed out.
     func signOutEverywhere() async {
+        if let primary { return await primary.signOutEverywhere() }
         for pool in pools.values { await pool.signOut() }
-        webView?.reload()
+        for window in windows { window.webView?.reload() }
+    }
+
+    /// An event to the page of every window.
+    func broadcast(_ event: String, _ data: [String: JSONValue]) {
+        for window in windows { window.host.send(event, data) }
+    }
+
+    /// The settings sheet is the first window's.
+    func openSettings() {
+        (primary ?? self).showSettings = true
     }
 
     func goBack() { webView?.goBack() }
@@ -254,7 +312,7 @@ final class MacShellModel: ObservableObject {
     }
 
     private func wentAway() async {
-        host.send("app.lifecycle", ["state": "background"])
+        broadcast("app.lifecycle", ["state": "background"])
         for pool in pools.values { await pool.enteredBackground() }
     }
 
@@ -268,7 +326,7 @@ final class MacShellModel: ObservableObject {
         } else if cover == .privacy {
             cover = nil
         }
-        host.send("app.lifecycle", ["state": "foreground"])
+        broadcast("app.lifecycle", ["state": "foreground"])
         Task { await checkForUpdate(force: false) }
     }
 
@@ -282,7 +340,7 @@ final class MacShellModel: ObservableObject {
             pool.lock.relockInterval = interval
             guard again else { continue }
             locked = true
-            host.send("auth.locked", ["pool": .string(name.rawValue)])
+            broadcast("auth.locked", ["pool": .string(name.rawValue)])
         }
         return locked
     }
@@ -297,6 +355,7 @@ final class MacShellModel: ObservableObject {
 
     /// Console > Lock Now.
     func lockNow() async {
+        if let primary { return await primary.lockNow() }
         for pool in pools.values { await pool.enteredBackground() }
         if await checkLocks(force: true) { cover = .lock }
     }
@@ -305,6 +364,7 @@ final class MacShellModel: ObservableObject {
 
     /// The lock screen's Touch ID: each pool that waits for it.
     func unlock() async {
+        if let primary { return await primary.unlock() }
         lockMessage = nil
         do {
             for pool in pools.values {
@@ -329,6 +389,7 @@ final class MacShellModel: ObservableObject {
     /// "Sign out" on the lock screen: each pool that waits for Touch ID is signed out, and the page, told by
     /// auth.locked already, asks for a sign-in.
     func signOutLocked() async {
+        if let primary { return await primary.signOutLocked() }
         for pool in pools.values {
             if await pool.needsUnlock { await pool.signOut() }
         }
@@ -336,6 +397,7 @@ final class MacShellModel: ObservableObject {
     }
 
     func offerBiometric(_ pool: ShellAuthPool.Pool, _ state: ShellAuthPool.BiometricState) {
+        if let primary { return primary.offerBiometric(pool, state) }
         guard state.offer, state.available, let kind = state.kind else { return }
         offer = Offer(pool: pool, biometry: kind)
     }

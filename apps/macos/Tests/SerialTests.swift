@@ -47,13 +47,15 @@ final class SerialPortsTests: XCTestCase {
         XCTAssertEqual(boards[0].ports.map(\.path), ["/dev/cu.usbmodem0006831234561", "/dev/cu.usbmodem0006831234563"])
     }
 
-    func testSeggerComesFirstAndNonUsbPortsAreLeftOut() {
+    func testOnlySeggerJLinksAreOffered() {
         let ports = [
             SerialPortInfo(path: "/dev/cu.usbserial-1", vendorID: 0x0403, productID: 0x6001, product: "FT232R", serialNumber: "A1"),
             SerialPortInfo(path: "/dev/cu.Bluetooth-Incoming-Port", vendorID: nil),
             SerialPortInfo(path: "/dev/cu.usbmodem1", vendorID: 0x1366, productID: 0x1055, product: "J-Link", serialNumber: "S1"),
+            SerialPortInfo(path: "/dev/cu.usbmodem9", vendorID: 0x2341, productID: 0x0043, product: "Uno", serialNumber: "U9"),
         ]
-        XCTAssertEqual(SerialBoard.group(ports).map(\.title), ["J-Link (S1)", "FT232R (A1)"])
+        XCTAssertEqual(SerialBoard.group(ports).map(\.title), ["J-Link (S1)"])
+        XCTAssertTrue(SerialBoard.group(Array(ports.prefix(2))).isEmpty)
     }
 
     func testTwoBoardsWithoutSerialNumbersStayApartByWhereTheyArePlugged() {
@@ -63,7 +65,7 @@ final class SerialPortsTests: XCTestCase {
     }
 
     func testAtMostEightPortsOfABoardAreKept() {
-        let ports = (0..<12).map { SerialPortInfo(path: String(format: "/dev/cu.m%02d", $0), vendorID: 1, productID: 1, serialNumber: "S") }
+        let ports = (0..<12).map { SerialPortInfo(path: String(format: "/dev/cu.m%02d", $0), vendorID: 0x1366, productID: 1, serialNumber: "S") }
         XCTAssertEqual(SerialBoard.group(ports)[0].ports.count, 8)
     }
 
@@ -256,6 +258,13 @@ final class MacSerialTests: XCTestCase {
         func named(_ name: String) -> [[String: JSONValue]] { all.filter { $0.0 == name }.map(\.1) }
     }
 
+    private let owner = NSObject()
+    private let events = Events()
+
+    private func open(_ serial: MacSerial, _ baud: Int = 115_200, as who: AnyObject? = nil) async throws -> [String: JSONValue] {
+        try await serial.open(baudRate: baud, owner: who ?? owner, emit: events.add)
+    }
+
     private struct FakeLister: SerialPortLister {
         var ports: [SerialPortInfo]
         func list() -> [SerialPortInfo] { ports }
@@ -278,21 +287,20 @@ final class MacSerialTests: XCTestCase {
         let paths = [first.slavePath, second.slavePath].sorted()
         let byPath = [first.slavePath: first, second.slavePath: second]
         var asked = 0
-        let events = Events()
         let serial = MacSerial(lister: FakeLister(ports: paths.map { info($0) }), choose: { boards in
             asked += 1
             return boards.first
-        }, emit: events.add)
-        defer { serial.closeAll() }
+        })
+        defer { serial.closeAll(owner: owner) }
 
-        let one = try await serial.open(baudRate: 115_200)
+        let one = try await open(serial, 115_200)
         XCTAssertEqual(one["port"], .int(1))
         XCTAssertEqual(one["ports"], .int(2))
-        let two = try await serial.open(baudRate: 115_200)
+        let two = try await open(serial, 115_200)
         XCTAssertEqual(two["port"], .int(0))
         XCTAssertEqual(asked, 1, "the person is asked the first time only")
         do {
-            _ = try await serial.open(baudRate: 115_200)
+            _ = try await open(serial, 115_200)
             XCTFail("a third open of two ports")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .busy)
@@ -309,19 +317,19 @@ final class MacSerialTests: XCTestCase {
     func testWritesGoToThePortAndBadOnesAreRefused() async throws {
         let pty = try Pty()
         defer { pty.closeMaster(); pty.closeSlave() }
-        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first }, emit: { _, _ in })
-        defer { serial.closeAll() }
-        _ = try await serial.open(baudRate: 115_200)
-        try await serial.write(port: 0, base64: Data("ping\n".utf8).base64EncodedString())
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
+        defer { serial.closeAll(owner: owner) }
+        _ = try await open(serial, 115_200)
+        try await serial.write(port: 0, base64: Data("ping\n".utf8).base64EncodedString(), owner: owner)
         XCTAssertEqual(pty.receive(count: 5), Array("ping\n".utf8))
         do {
-            try await serial.write(port: 0, base64: "***")
+            try await serial.write(port: 0, base64: "***", owner: owner)
             XCTFail("not base64")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .badRequest)
         }
         do {
-            try await serial.write(port: 3, base64: "AA==")
+            try await serial.write(port: 3, base64: "AA==", owner: owner)
             XCTFail("not open")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .failed)
@@ -331,24 +339,22 @@ final class MacSerialTests: XCTestCase {
     func testCloseFreesThePortAndSendsNothing() async throws {
         let pty = try Pty()
         defer { pty.closeMaster(); pty.closeSlave() }
-        let events = Events()
-        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first }, emit: events.add)
-        defer { serial.closeAll() }
-        _ = try await serial.open(baudRate: 115_200)
-        serial.close(port: 0)
-        serial.close(port: 0)
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
+        defer { serial.closeAll(owner: owner) }
+        _ = try await open(serial, 115_200)
+        serial.close(port: 0, owner: owner)
+        serial.close(port: 0, owner: owner)
         XCTAssertEqual(serial.openPorts, [])
-        let again = try await serial.open(baudRate: 9_600)
+        let again = try await open(serial, 9_600)
         XCTAssertEqual(again["port"], .int(0))
         XCTAssertTrue(events.named("usb.closed").isEmpty)
     }
 
     func testUnpluggingTellsThePageAndFreesThePort() async throws {
         let pty = try Pty()
-        let events = Events()
-        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first }, emit: events.add)
-        defer { serial.closeAll(); pty.closeSlave() }
-        _ = try await serial.open(baudRate: 115_200)
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
+        defer { serial.closeAll(owner: owner); pty.closeSlave() }
+        _ = try await open(serial, 115_200)
         pty.closeMaster()
         await wait("usb.closed arrives") { !events.named("usb.closed").isEmpty }
         let closed = try XCTUnwrap(events.named("usb.closed").first)
@@ -359,19 +365,19 @@ final class MacSerialTests: XCTestCase {
     }
 
     func testNoBoardAndNoChoiceAreSaidInWords() async {
-        let none = MacSerial(lister: FakeLister(ports: []), choose: { $0.first }, emit: { _, _ in })
+        let none = MacSerial(lister: FakeLister(ports: []), choose: { $0.first })
         do {
-            _ = try await none.open(baudRate: 115_200)
+            _ = try await open(none, 115_200)
             XCTFail("no board")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .failed)
-            XCTAssertTrue(error.message.contains("No board found"))
+            XCTAssertTrue(error.message.contains("No SEGGER J-Link found"))
         } catch {
             XCTFail("\(error)")
         }
-        let refused = MacSerial(lister: FakeLister(ports: [info("/dev/cu.cranium-test-none")]), choose: { _ in nil }, emit: { _, _ in })
+        let refused = MacSerial(lister: FakeLister(ports: [info("/dev/cu.cranium-test-none")]), choose: { _ in nil })
         do {
-            _ = try await refused.open(baudRate: 115_200)
+            _ = try await open(refused, 115_200)
             XCTFail("the person said no")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .cancelled)
@@ -381,15 +387,66 @@ final class MacSerialTests: XCTestCase {
     }
 
     func testAPortThatWillNotOpenIsFailedNotCrashed() async {
-        let serial = MacSerial(lister: FakeLister(ports: [info("/dev/cu.cranium-test-none")]), choose: { $0.first }, emit: { _, _ in })
+        let serial = MacSerial(lister: FakeLister(ports: [info("/dev/cu.cranium-test-none")]), choose: { $0.first })
         do {
-            _ = try await serial.open(baudRate: 115_200)
+            _ = try await open(serial, 115_200)
             XCTFail("no such port")
         } catch let error as BridgeError {
             XCTAssertEqual(error.code, .failed)
         } catch {
             XCTFail("\(error)")
         }
+    }
+
+    func testAPortBelongsToTheWindowThatOpenedItAndIsBusyInTheOthers() async throws {
+        let pty = try Pty()
+        defer { pty.closeMaster(); pty.closeSlave() }
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
+        let other = NSObject()
+        defer { serial.closeAll(owner: owner); serial.closeAll(owner: other) }
+        _ = try await open(serial, 115_200)
+        do {
+            _ = try await open(serial, 115_200, as: other)
+            XCTFail("the only port is open in the first window")
+        } catch let error as BridgeError {
+            XCTAssertEqual(error.code, .busy)
+        }
+        // The other window can neither write to it nor close it.
+        do {
+            try await serial.write(port: 0, base64: "AA==", owner: other)
+            XCTFail("not its port")
+        } catch let error as BridgeError {
+            XCTAssertEqual(error.code, .failed)
+        }
+        serial.close(port: 0, owner: other)
+        XCTAssertEqual(serial.openPorts, [0])
+        serial.closeAll(owner: other)
+        XCTAssertEqual(serial.openPorts, [0])
+        // The first window's page is left: its port is free for the other.
+        serial.closeAll(owner: owner)
+        let taken = try await open(serial, 115_200, as: other)
+        XCTAssertEqual(taken["port"], .int(0))
+    }
+
+    func testAPageLeftWhileTheSheetIsUpOpensNothing() async throws {
+        let pty = try Pty()
+        defer { pty.closeMaster(); pty.closeSlave() }
+        var release: CheckedContinuation<SerialBoard?, Never>?
+        let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { boards in
+            await withCheckedContinuation { release = $0 }
+        })
+        let asked = Task { try await self.open(serial, 115_200) }
+        await wait("the sheet is up") { release != nil }
+        // The page reloads while the person is still choosing, then the person chooses.
+        serial.closeAll(owner: owner)
+        release?.resume(returning: SerialBoard.group([info(pty.slavePath)]).first)
+        do {
+            _ = try await asked.value
+            XCTFail("the port opened for a page that was gone")
+        } catch let error as BridgeError {
+            XCTAssertEqual(error.code, .cancelled)
+        }
+        XCTAssertEqual(serial.openPorts, [])
     }
 }
 
