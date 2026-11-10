@@ -28,8 +28,8 @@ enum SignInSide: String, CaseIterable, Identifiable {
     }
 
     /// The customer side's gate (CustomerModel), for this side.
-    init(_ gate: CustomerModel.Gate, customerSetUp: Bool) {
-        self = !customerSetUp || gate == .adminSignIn ? .team : .customer
+    init(teamChosen: Bool, customerSetUp: Bool) {
+        self = !customerSetUp || teamChosen ? .team : .customer
     }
 }
 
@@ -55,7 +55,8 @@ struct GateView: View {
     @EnvironmentObject private var customer: CustomerModel
 
     private var customerSetUp: Bool { customer.stage != .notSetUp }
-    private var side: SignInSide { SignInSide(customer.gate, customerSetUp: customerSetUp) }
+    @State private var teamChosen = false
+    private var side: SignInSide { SignInSide(teamChosen: teamChosen, customerSetUp: customerSetUp) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -63,7 +64,7 @@ struct GateView: View {
                 Brand(subtitle: side.subtitle)
                 Spacer(minLength: 16)
                 if customerSetUp {
-                    SideSwitch(side: Binding(get: { side }, set: { customer.gate = $0 == .team ? .adminSignIn : .signIn }))
+                    SideSwitch(side: Binding(get: { side }, set: { teamChosen = $0 == .team; customer.gate = .signIn }))
                 }
             }
             Divider()

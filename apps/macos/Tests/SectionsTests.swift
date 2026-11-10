@@ -5,22 +5,24 @@ import XCTest
 final class SectionsTests: XCTestCase {
     func testTheSidebarHasTheConsolesPagesInOrder() {
         XCTAssertEqual(TeamSection.allCases.map(\.title),
-                       ["Overview", "Boards", "Firmware", "Deployments", "Activity", "Bluetooth update", "Serial console", "Help"])
+                       ["Overview", "Boards", "Firmware", "Deployments", "Events", "Activity", "Bluetooth update", "Serial console", "Search", "API tokens", "History", "Help"])
         XCTAssertEqual(TeamSection.Group.allCases.map(\.rawValue), ["Console", "In the room", "More"])
         XCTAssertEqual(TeamSection.serial.group, .inTheRoom)
     }
 
     func testAViewerHasNoBluetoothUpdate() {
         XCTAssertFalse(TeamSection.visible(canWrite: false).contains(.bluetooth))
+        XCTAssertFalse(TeamSection.visible(canWrite: false).contains(.tokens))
         XCTAssertTrue(TeamSection.visible(canWrite: true).contains(.bluetooth))
         // Everything else is the same for both.
-        XCTAssertEqual(TeamSection.visible(canWrite: false).count, TeamSection.allCases.count - 1)
+        XCTAssertEqual(TeamSection.visible(canWrite: false).count, TeamSection.allCases.count - 2)
     }
 
     func testEachSectionHasItsCommandNumber() {
         XCTAssertEqual(TeamSection.overview.shortcut, "1")
-        XCTAssertEqual(TeamSection.help.shortcut, "8")
-        XCTAssertEqual(Set(TeamSection.allCases.compactMap(\.shortcut)).count, TeamSection.allCases.count)
+        XCTAssertEqual(TeamSection.serial.shortcut, "8")
+        XCTAssertNil(TeamSection.help.shortcut)
+        XCTAssertEqual(Set(TeamSection.allCases.compactMap(\.shortcut)).count, 9)
     }
 
     func testABoardWindowOpensOnlyForAThingName() {
@@ -31,6 +33,6 @@ final class SectionsTests: XCTestCase {
     }
 
     func testTheCustomerSideHasTheSitesSections() {
-        XCTAssertEqual(CustomerSection.allCases.map(\.title), ["Your boards", "Activity", "Help"])
+        XCTAssertEqual(CustomerSection.allCases.map(\.title), ["Your boards", "Activity", "Account", "Help"])
     }
 }
