@@ -209,6 +209,9 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         onCacheChanged = { viewModelScope.launch { showCache() } },
     )
 
+    /** Offline mode: the phone talks to a board directly (firmware 1.19.0). */
+    val offline = com.craniumiot.cranium.ble.OfflineFlow(app, viewModelScope)
+
     val usb = UsbConsole(app, viewModelScope)
 
     /** A newer version of this app on the console (update/): checked when the console opens, installed on a tap. */
@@ -886,6 +889,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         if (route is Route.Bluetooth) bluetooth.start(route.version)
+        if (route is Route.Offline) offline.lookForBoards()
         _nav.update { nav ->
             val stack = nav.stacks.getValue(nav.tab)
             if (stack.last() == route) nav else nav.copy(stacks = nav.stacks + (nav.tab to stack + route))
@@ -899,6 +903,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
         if (stack.last() is Route.Bluetooth && bluetooth.isBusy) return true
         if (stack.size > 1) {
             if (stack.last() is Route.Bluetooth) bluetooth.leave()
+            if (stack.last() is Route.Offline) offline.stop()
             _nav.value = nav.copy(stacks = nav.stacks + (nav.tab to stack.dropLast(1)))
             return true
         }
@@ -1127,7 +1132,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
             Route.History -> if (full || store.history.value == null) load({ it.history }, { copy(history = it) }) { it.history() }
             Route.Account -> loadMe()
             is Route.Bluetooth -> if (due(store.firmware, full)) loadFirmware()
-            Route.More, Route.Serial, Route.BoardSetup -> Unit
+            Route.More, Route.Serial, Route.BoardSetup, Route.Offline -> Unit
         }
     }
 
@@ -1831,6 +1836,7 @@ class ConsoleViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         bluetooth.stopEverything()
+        offline.stop()
         usb.stop()
         auth?.dispose()
     }

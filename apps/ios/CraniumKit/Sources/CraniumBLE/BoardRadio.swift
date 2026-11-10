@@ -121,6 +121,12 @@ public final class BoardRadio: NSObject, @unchecked Sendable {
         return link
     }
 
+    /// A link for offline mode to a board on the list (firmware 1.19.0). Connecting stops the scan.
+    public func offlineLink(for board: DiscoveredBoard) -> OfflineLink? {
+        guard let peripheral = peripherals[board.id] else { return nil }
+        return OfflineLink(name: board.name, peripheral: peripheral, radio: self)
+    }
+
     // MARK: Used by McuMgrBoardTransport, on the main queue
 
     var isReady: Bool { central.state == .poweredOn }
