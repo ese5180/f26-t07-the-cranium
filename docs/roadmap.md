@@ -50,7 +50,6 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
   desktop app is released ([`desktop-app.md`](desktop-app.md), [`mobile-apps.md`](mobile-apps.md)).
 - **One sign-in form** for the team and for customers (console 2.4.5, apps 0.8.3).
 - **Every release image kept in git**, and the console deployed from GitHub Actions ([`ci.md`](ci.md)).
-
 - **A native Mac app** (Mac app 0.3.0): the console's own pages, with the Serial console, Board setup, Bluetooth updates
   and the Mac's menus ([`mac-app.md`](mac-app.md)).
 
@@ -59,8 +58,8 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 - **A redesign of the console**, readability first: the ordered list is the pinned work list issue (#128).
 - **Raspberry Pi updates through the board** (firmware 1.20.0, draft pull request #101), waiting on review fixes and a
   test on a board.
-- **Listening sessions from the board** (firmware 1.18.0, draft pull request #98) and **offline Bluetooth** (firmware
-  1.19.0, draft pull request #97), each waiting for a test on a board.
+- **Listening sessions from the board** (firmware 1.18.0, pull request #98): tested on a board, in review.
+- **Offline Bluetooth** (firmware 1.19.0, draft pull request #97), waiting for a test on a board.
 
 ## Planned next, in this order
 
