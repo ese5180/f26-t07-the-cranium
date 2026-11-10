@@ -171,18 +171,17 @@ test('a board says its type and its groups; a board without Wi-Fi says what a ph
     'nRF5340 DK · 1 board · Bluetooth only',
     'Bench · 2 boards',
   ]);
-  // Roll back is offered for the group: its nRF7002 DK has an older release to go back to.
-  assert.ok(all(groups, 'button').some((el) => textOf(el) === 'Roll back'));
-});
-
-test('a group whose types have no older release is not offered a roll back; a viewer has no buttons', async () => {
-  const { state, answers, ctx } = connected();
-  answers.set('GET /api/fleet', { ...FLEET, types: FLEET.types.map((entry) => ({ ...entry, previous: null })) });
-  await fleet.refreshFor('devices', true);
+  // The old group "Roll back" is gone: only "Roll back to last good" remains.
   assert.equal(
-    all(draw(fleet.groupsCard(ctx)), 'button').some((el) => textOf(el) === 'Roll back'),
+    all(groups, 'button').some((el) => textOf(el) === 'Roll back'),
     false
   );
+});
+
+test('a viewer has no group buttons', async () => {
+  const { state, answers, ctx } = connected();
+  answers.set('GET /api/fleet', FLEET);
+  await fleet.refreshFor('devices', true);
   state.me = { canWrite: false };
   assert.equal(all(draw(fleet.groupsCard(ctx)), 'button').length, 0);
 });
@@ -529,8 +528,8 @@ test("the client sends a note with PUT and asks the fleet's addresses only", asy
   ]) {
     await assert.rejects(api.fleetRequest(method, path), (error) => error.code === 'bad_request', path);
   }
-  await api.fleetRequest('GET', '/api/groups/grp-0a0b0c0d/rollback');
-  assert.deepEqual(calls.at(-1).slice(0, 2), ['GET', '/api/groups/grp-0a0b0c0d/rollback']);
+  await api.fleetRequest('GET', '/api/groups/grp-0a0b0c0d/last-good');
+  assert.deepEqual(calls.at(-1).slice(0, 2), ['GET', '/api/groups/grp-0a0b0c0d/last-good']);
 });
 
 test('a rollout has an address of its own, under the Fleet section', () => {
@@ -712,64 +711,6 @@ test('the Overview says the newest release of each board type, and a board witho
   // Without the fleet's word, as before: one card for the newest, and the board counted as it reported.
   const before = draw(views.overviewView({ state: { ...state, fleet: { value: null } }, actions: {} }));
   assert.match(textOf(all(before, 'section.card').find((el) => textOf(el).startsWith('Fleet'))), /1 never connected/);
-});
-
-test('the roll back review says that a real roll-back is a rebuild of the old source under a newer version', async () => {
-  const { state, answers, ctx } = connected();
-  answers.set('GET /api/fleet', FLEET);
-  answers.set('GET /api/groups/grp-0a0b0c0d/rollback', {
-    plan: {
-      group: { id: 'grp-0a0b0c0d', name: 'Bench' },
-      types: [
-        {
-          type: 'nrf7002dk',
-          release: { version: '1.13.0+0', layout: 1, notes: '' },
-          from: '1.13.1+0',
-          things: [],
-          leftOut: [
-            {
-              thing: A,
-              reason: 'older_refused',
-              text: 'Runs 1.13.1+0: a board takes only firmware newer than what it runs',
-            },
-          ],
-          canary: [],
-        },
-      ],
-    },
-  });
-  await fleet.refreshFor('devices', true);
-  // The dialog as app.js would open it: drawn from what it builds.
-  let build = null;
-  fleet.connect({
-    state,
-    api: { fleetRequest: async (method, path) => answers.get(`${method} ${path}`) },
-    load: async () => {},
-    draw: () => {},
-    clock: { now: () => NOW },
-    refresh: () => {},
-    notify: () => {},
-    keep: () => {},
-    go: () => {},
-    dialogs: {
-      open: (made) => {
-        build = made;
-        return { redraw() {}, close() {} };
-      },
-      submit: () => {},
-      isOpen: () => false,
-      signIn: () => {},
-    },
-  });
-  all(draw(fleet.groupsCard(ctx)), 'button')
-    .find((el) => textOf(el) === 'Roll back')
-    .dispatchEvent({ type: 'click' });
-  await new Promise((resolve) => setImmediate(resolve));
-  const dialog = draw(build());
-  assert.match(textOf(dialog), /Roll back Bench/);
-  assert.match(textOf(dialog), /A real roll-back is a rebuild of the old source under a newer version/);
-  assert.match(textOf(dialog), /Would refuse it/);
-  assert.match(textOf(dialog), /nRF7002 DK · layout 1 1\.13\.0\+0 instead of 1\.13\.1\+0/);
 });
 
 // The stages after the canary (console 2.8.0).

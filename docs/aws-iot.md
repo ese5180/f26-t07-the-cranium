@@ -370,7 +370,7 @@ USB", "… signed in on the phone app".
 | `rollout.create` | A staged rollout started | version, `kind` of target, `group`, boards, `canary` |
 | `rollout.cancel` | A staged rollout cancelled | force, jobs cancelled |
 | `fleet.update_everything` | "Update everything": one staged rollout per board type | the rollouts, the releases by type, how many boards |
-| `group.rollback` | A group rolled back to the release before the newest | the group, the rollouts |
+| `group.rollback` | A group rolled back to the release before the newest (before 2.19.1; entries stay in the history) | the group, the rollouts |
 | `rollout.advance`, `rollout.stop` | The console's own, by the schedule: the waves started after a canary confirmed, or a rollout stopped by itself | version, the waves' job, why it stopped. No person: the actor is empty |
 | `device.seen` | A phone saw a board over Bluetooth and said so | the version it saw, the board's Bluetooth name, `from: phone` |
 | `app.upload` | A URL handed out to send an Android APK to S3 with ([The phone apps](#the-phone-apps-on-the-console)) | the app's version as the target, SHA-256, size, `versionCode` |
@@ -668,13 +668,13 @@ releases from itself and from nothing else, and the board checks an image's TLVs
 type must be newer than every release ever registered, so `1.13.0` names exactly one file, and a build for another
 type takes the next number (`1.13.0+0` for one, `1.13.0+1` or `1.13.1` for the other).
 
-**The guard.** A deployment, a staged rollout that names its boards, "Update everything" and a rollback (for the
+**The guard.** A deployment, a staged rollout that names its boards, "Update everything" (for the
 boards their reviewed plan names), and the check before a Bluetooth send refuse a board of another type
 (`400 incompatible_board`) or another flash layout (`400 incompatible_layout`), on record; a deployment refuses a
 board without Wi-Fi as a job target (`400 bluetooth_only`). The check before a Bluetooth send takes the board's
 thing name (`thing`), or the type and layout the board told the phone (`type`, `layout`); without any of them it has
 nothing to check, as before types, so the phone apps send `thing`. A rollout to a group, a type or the fleet, and the
-plans of "Update everything" and a rollback, leave such boards out instead, each with why (`other_type`,
+plan of "Update everything" leaves such boards out instead, each with why (`other_type`,
 `other_layout`, `bluetooth_only`). "Update everything" takes the newest release of each type: a board of that type
 on another layout is left out until a release is built for its layout.
 
@@ -713,12 +713,10 @@ cancel this console's jobs; it serves no request.
 **"Update everything"** plans, for each board type, its newest active release to every board of that type that is
 not on it, leaving out the Bluetooth-only boards, those offline for more than a day, those already current, those
 on something newer and those busy with another update; it starts one staged rollout per type, after checking the
-reviewed plan against the plan as it is then (`409 plan_changed`). **Rolling a group back** plans the release
-before the newest of each type in the group. A board takes only firmware newer than what it runs
-(`ota_job.c`, `ota_job_check`: equal versions are refused too), so a board on the newest would refuse it: the plan
-leaves such a board out, marked "Would refuse it", and a rollback reaches only boards that are behind both
-releases. That is settled. A real roll-back is a rebuild of the old source under a newer version, released and
-rolled out like any other; the review says so.
+reviewed plan against the plan as it is then (`409 plan_changed`). Rolling back is "Roll back to last good" ([`fleet.md`](fleet.md)): a board takes only firmware newer than what it runs
+(`ota_job.c`, `ota_job_check`: equal versions are refused too), so a real roll back is a rebuild of the old source under a
+newer version (`Rebuild of <version>`), released and rolled out like any other. The group "Roll back" that planned the
+release before the newest was removed in 2.19.1.
 
 **What a phone saw** (`POST /api/devices/{thing}/seen`, pk `SEEN`): the version a phone read from a board over
 Bluetooth, when, and who; the last one per board is kept. It is how a board without Wi-Fi shows on the console.

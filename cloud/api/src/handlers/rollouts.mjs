@@ -16,8 +16,6 @@
  *   POST /api/fleet/update-everything    body { types: [{ type, version, things }], canary?, stages?,
  *                                          batch?, soakMinutes?, abortPercent?, note? }
  *                                        -> 201 { rollouts }                               fleet.update_everything
- *   GET  /api/groups/{id}/rollback       -> { plan }   the previous release of each type, for the group
- *   POST /api/groups/{id}/rollback       body as for update-everything -> 201 { rollouts }  group.rollback
  *   GET  /api/fleet/last-good            -> { plan }   "Roll back to last good", for the fleet or a group:
  *   GET  /api/groups/{id}/last-good                    each board's last good version and the release that
  *                                                      takes it there (lib/last-good.mjs), one target per release
@@ -30,7 +28,7 @@
  * can take a job and are not on the release already (lib/fleet.mjs selectTargets). Boards named
  * one by one are refused if they cannot (400 incompatible_board, 400 bluetooth_only, 409
  * device_busy); boards that a group, a type or the fleet stand for are left out, each with why.
- * "Update everything" and a rollback also leave out boards offline for more than a day.
+ * "Update everything" also leaves out boards offline for more than a day.
  *
  * How it runs. Stage "canary": a job on the canary alone (one board unless asked for more; online
  * boards with a clean update history first). A board reports SUCCEEDED only from the new
@@ -462,40 +460,34 @@ export function createRolloutHandlers(
 
   /**
    * A plan of rollouts, one per board type: for "Update everything" the newest active release of
-   * each type, for a group's rollback the one before it. [{ type, label, release, from, things,
+   * each type. [{ type, label, release, from, things,
    * leftOut, canary }]; `release` is null where there is nothing to send.
    */
-  async function plan({ group = null, rollback = false } = {}) {
+  async function plan() {
     const [loaded, byType] = await Promise.all([fleet.boards(), fleet.releasesByType()]);
     const fleetBoards = loaded.map(({ board }) => board);
-    const inScope = group === null ? fleetBoards : fleetBoards.filter((board) => group.things.includes(board.thing));
     const types = [];
     for (const type of BOARD_TYPES) {
-      const candidates = inScope.filter((board) => board.type === type);
-      if (group !== null && candidates.length === 0) continue;
+      const candidates = fleetBoards.filter((board) => board.type === type);
       const releases = byType[type] ?? [];
-      const release = rollback ? (releases[1] ?? null) : (releases[0] ?? null);
-      const from = rollback ? (releases[0]?.version ?? null) : null;
+      const release = releases[0] ?? null;
       if (release === null) {
-        const text = rollback
-          ? 'There is no older active release of this type'
-          : 'There is no release of this type yet';
+        const text = 'There is no release of this type yet';
         types.push({
           type,
           label: boardLabel(type),
           release: null,
-          from,
           things: [],
           leftOut: candidates.map((board) => ({
             thing: board.thing,
-            reason: rollback ? 'no_older' : 'no_release',
+            reason: 'no_release',
             text,
           })),
           canary: [],
         });
         continue;
       }
-      const chosen = await computedBoards(candidates, release, { leaveOutAway: true, older: rollback });
+      const chosen = await computedBoards(candidates, release, { leaveOutAway: true });
       types.push({
         type,
         label: boardLabel(type),
@@ -505,7 +497,6 @@ export function createRolloutHandlers(
           uploadedAt: release.uploadedAt,
           notes: release.notes,
         },
-        from,
         ...chosen,
         canary: chosen.things.length === 0 ? [] : chooseCanary(chosen.things, fleetBoards, DEFAULT_CANARY),
       });
@@ -519,7 +510,7 @@ export function createRolloutHandlers(
     for (const record of started) noteChange(entry, 'rollout', null, `${record.id} (${record.version})`);
   }
 
-  async function startPlan({ body, actor, entry, purpose, target, group = null }) {
+  async function startPlan({ body, actor, entry, purpose, target }) {
     const options = rolloutOptions(body);
     const asked = field(body, 'types');
     if (!Array.isArray(asked) || asked.length < 1 || asked.length > BOARD_TYPES.length) {
@@ -544,7 +535,7 @@ export function createRolloutHandlers(
     entry.detail.versions = wanted.map((item) => `${item.type} ${item.version.text}`).join(', ');
     entry.detail.things = String(wanted.reduce((sum, item) => sum + item.things.length, 0));
 
-    const now_ = await plan({ group, rollback: purpose === 'rollback' });
+    const now_ = await plan();
     const loaded = (await fleet.boards()).map(({ board }) => board);
     const typeOf = new Map(loaded.map((board) => [board.thing, board.type]));
     const layoutOf = new Map(loaded.map((board) => [board.thing, board.layout]));
@@ -552,12 +543,6 @@ export function createRolloutHandlers(
     for (const item of wanted) {
       const planned = now_.types.find((entry_) => entry_.type === item.type);
       if (!planned || planned.release === null) {
-        if (purpose === 'rollback') {
-          throw conflict(
-            'no_older_release',
-            `There is no older active release of the ${boardLabel(item.type)} to go back to.`
-          );
-        }
         throw planChanged(`There is no release of the ${boardLabel(item.type)}.`);
       }
       if (planned.release.version !== item.version.text) {
@@ -1405,28 +1390,6 @@ export function createRolloutHandlers(
         entry.detail.group = group.name;
       }
       return startLastGood({ body: json(), actor, entry, group });
-    },
-
-    async rollbackPlan({ params }) {
-      const id = requireGroupId(params.id);
-      const group = await liveGroup(id);
-      const found = await plan({ group, rollback: true });
-      return { body: { plan: { ...found, group: { id: group.id, name: group.name } } } };
-    },
-
-    async rollback({ actor, params, json, entry }) {
-      const id = requireGroupId(params.id);
-      entry.target = id;
-      const group = await liveGroup(id);
-      entry.detail.group = group.name;
-      return startPlan({
-        body: json(),
-        actor,
-        entry,
-        purpose: 'rollback',
-        target: { kind: 'group', group: id, groupName: group.name },
-        group,
-      });
     },
   };
 
