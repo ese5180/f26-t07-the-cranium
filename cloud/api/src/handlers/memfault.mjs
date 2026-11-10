@@ -155,8 +155,8 @@ export function createMemfaultHandlers({ aws, now, log }, { devices }) {
    * The processing log of the last `hours`, of one board or all, newest first: each entry made into
    * what the boards sent (lib/memfault-data.mjs logEntries). Up to LOG_PAGES pages.
    */
-  async function processingLog(hours, serial = null, startMs = null) {
-    const end = now();
+  async function processingLog(hours, serial = null, startMs = null, endMs = null) {
+    const end = endMs ?? now();
     const query = {
       start: iso(startMs ?? end - hours * HOUR_MS),
       end: iso(end),
@@ -315,6 +315,35 @@ export function createMemfaultHandlers({ aws, now, log }, { devices }) {
       const late = failureOf(errors);
       if (late !== null) return late;
       return { state: 'ok', things: [...things].sort() };
+    },
+
+    /**
+     * What the weekly report shows of Memfault (lib/reports.mjs): the issues, and the unexpected reboots
+     * from `sinceMs` and before `untilMs` by reason. { state: "ok", issues, reboots } or { state, message }.
+     */
+    async week({ sinceMs, untilMs }) {
+      const errors = [];
+      const take = async (reading) => {
+        try {
+          return await reading;
+        } catch (error) {
+          if (codeOf(error) === null) throw error;
+          if (error.code !== 'not_found') errors.push(error);
+          return null;
+        }
+      };
+      const endMs = Math.min(untilMs, now());
+      const [entries, issueList] = await Promise.all([
+        take(processingLog(Math.ceil((endMs - sinceMs) / HOUR_MS), null, sinceMs, endMs)),
+        take(read('issues', { per_page: LIST_PAGE })),
+      ]);
+      const failed = failureOf(errors);
+      if (failed !== null) return failed;
+      const reboots = split(entries ?? []).reboots.filter((entry) => {
+        const at = Date.parse(entry.at);
+        return !entry.reason.expected && at >= sinceMs && at < untilMs;
+      });
+      return { state: 'ok', issues: listOf(issueList, issueOf), reboots: rebootsByReason(reboots) };
     },
 
     /** The boards of an issue's traces that are ours: [thing], for its alert. Empty if it cannot be read. */

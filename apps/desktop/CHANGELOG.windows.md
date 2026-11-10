@@ -4,6 +4,12 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.12
+
+The weekly fleet report from the console (2.18.0 and later): the Reports page, a printable page per week, its CSV, and the Monday e-mail for release managers.
+
+Nothing of the app changed but its version: the pages are the console's, and the app loads them as before.
+
 ## 0.1.11
 
 Account management from the console (2.17.0 and later): the Team page, where release managers manage the team's accounts, and a customer's password reset and removal.

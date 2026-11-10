@@ -326,6 +326,16 @@ const ROUTES = [
   { route: 'POST /api/alerts/unsubscribe', status: 404, phone: true, body: {} },
   // The alert rules: a change that holds, for release managers.
   { route: 'POST /api/alerts/rules', status: 200, phone: true, body: { rules: { voltage: { on: false } } } },
+  // The weekly fleet report (docs/reports.md): a week before this world's clock, its CSV, and the e-mail.
+  { route: 'GET /api/reports', status: 200, phone: true },
+  { route: 'GET /api/reports/{week}', path: '/api/reports/2026-09-28', status: 200, phone: true },
+  {
+    route: 'GET /api/reports/{week}/export',
+    path: '/api/reports/2026-09-28/export',
+    status: 200,
+    phone: true,
+  },
+  { route: 'POST /api/reports/settings', status: 200, phone: true, body: { email: true } },
   // Board types, groups and staged rollouts (docs/fleet.md). No group or rollout exists in this world:
   // the console's session gets as far as looking for one.
   { route: 'GET /api/fleet', status: 200, phone: true },

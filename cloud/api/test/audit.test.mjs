@@ -164,6 +164,8 @@ test('an audit item carries who, what, when and how it ended', () => {
     'device.register',
     'setup.wifi_defaults',
     'db.export',
+    'report.export',
+    'report.settings',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });

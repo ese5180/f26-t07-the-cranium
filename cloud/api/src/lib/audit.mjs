@@ -117,6 +117,10 @@ export const ACTIONS = Object.freeze([
   'setup.wifi_defaults',
   // An export of the Database page (handlers/db.mjs): which table, the filters, how many items.
   'db.export',
+  // The weekly fleet report (handlers/reports.mjs, docs/reports.md): a week exported as CSV, by any member,
+  // and its Monday e-mail switched on or off by a release manager.
+  'report.export',
+  'report.settings',
 ]);
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 

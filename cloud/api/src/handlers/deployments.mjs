@@ -643,6 +643,16 @@ export function createDeploymentHandlers({ aws, config, now, randomHex, log }, {
     summary: (id) => summaryOf(id),
     detail: (id) => detailOf(id, { fresh: true }),
 
+    /** The summaries of the deployments started from `sinceMs` and before `untilMs`, for the weekly report. */
+    async between({ sinceMs, untilMs }) {
+      const jobs = (await listedJobs()).filter((job) => {
+        const ms = Number(job.createdAt);
+        return Number.isFinite(ms) && ms >= sinceMs && ms < untilMs;
+      });
+      const loaded = await mapLimit(jobs, MAX_IN_FLIGHT, (job) => summaryOf(job.jobId, job));
+      return loaded.filter((summary) => summary !== null);
+    },
+
     async list() {
       const newest = [...(await listedJobs())]
         .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || (a.jobId < b.jobId ? 1 : -1))

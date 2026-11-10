@@ -2493,7 +2493,8 @@ Resources:
   # the alert of a rollout that stopped by itself, the alerts' own part of the events table (pk
   # ALERTS) and the alert topic. From console 2.15.0, the fleet health score's snapshot of the day:
   # a new item of its own partition (pk HEALTH), and a read of the boards' events (pk cranium-*) of the
-  # last week, for their restarts and the ends of their updates. No S3, no Cognito.
+  # last week, for their restarts and the ends of their updates. From console 2.18.0, the weekly report's
+  # Monday e-mail: its own partition (pk RPT) and a read of the activity log. No S3, no Cognito.
   RolloutTickRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2548,6 +2549,24 @@ Resources:
                   ForAllValues:StringEquals:
                     dynamodb:LeadingKeys:
                       - HEALTH
+              # The weekly fleet report's Monday e-mail (docs/reports.md, src/handlers/reports.mjs mailDue): the
+              # setting, the claim of the week's e-mail (put once, on the condition that keeps the first) and the
+              # stored report, in their own partition only; and the week's entries of the activity log, read only.
+              - Sid: WeeklyReports
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - RPT
+              - Sid: ReadAuditForReports
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt AuditTable.Arn
               # What the snapshot counts of the boards' last week: their events, read only.
               - Sid: ReadBoardEvents
                 Effect: Allow

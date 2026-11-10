@@ -228,6 +228,16 @@ object AuditText {
             "exported the {} table", "tried to export the {} table", "tried to export from the database", Glyph.DOWNLOAD,
             doneAlone = "exported from the database",
         ),
+        // The weekly fleet report (docs/reports.md): a week as CSV, by its Monday, and its Monday e-mail.
+        "report.export" to Action(
+            "downloaded the weekly report of", "tried to download the weekly report of", "tried to download a weekly report", Glyph.DOWNLOAD,
+            doneAlone = "downloaded a weekly report",
+        ),
+        "report.settings" to Action(
+            "changed the Monday e-mail of the weekly report", "tried to change the Monday e-mail of the weekly report",
+            "tried to change the Monday e-mail of the weekly report", Glyph.BELL,
+            doneAlone = "changed the Monday e-mail of the weekly report",
+        ),
     )
 
     /** The customer actions whose target is a board, and whose sentence ends with the customer. */
@@ -460,6 +470,12 @@ object AuditText {
         "invalid_filter" to "A filter of the Database page was not valid",
         "invalid_key" to "An item’s key was empty, too long or not plain text",
         "invalid_format" to "An export is CSV or JSON",
+        // The weekly fleet report (docs/reports.md).
+        "invalid_week" to "Not a week: a week is named by its Monday",
+        "unknown_week" to "There is no report of that week",
+        "invalid_report_format" to "A weekly report is downloaded as CSV",
+        "invalid_report_settings" to "The Monday e-mail is on or off, and nothing else",
+        "report_settings_changed" to "Someone changed the Monday e-mail at the same moment",
         "unknown_item" to "There is no item with that key",
     )
 

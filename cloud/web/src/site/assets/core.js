@@ -134,6 +134,8 @@ const SECTIONS = [
   'database',
   // Two to four boards side by side, with their version timelines (compare.js): #/compare?boards=a,b.
   'compare',
+  // The weekly fleet report: the weeks, and a week's page (reports.js, docs/reports.md).
+  'reports',
 ];
 // The tables of the Database page (cloud/api/src/lib/db.mjs TABLES).
 const DB_TABLES = ['state', 'audit', 'events'];
@@ -146,6 +148,13 @@ export function isRolloutId(value) {
 
 export function rolloutHref(id) {
   return isRolloutId(id) ? `#/rollouts/${id}` : null;
+}
+
+/** A week of the weekly report (docs/reports.md): named by its Monday, "2026-11-02". */
+export function isReportWeek(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value && new Date(ms).getUTCDay() === 1;
 }
 // A page's address, and after a ? the filters of its list (docs/search-filters.md): #/events?board=…&q=wifi.
 const ROUTE = /^#\/([a-z]+)(?:\/([A-Za-z0-9-]+))?(?:\?([A-Za-z0-9=&%._~+,:*!'()-]{0,800}))?$/;
@@ -176,6 +185,8 @@ function routeOf(section, item) {
   if (section === 'memfault' && /^[1-9]\d{0,15}$/.test(item)) return { view: 'issue', id: item };
   // One table of the Database page (db-page.js).
   if (section === 'database' && DB_TABLES.includes(item)) return { view: 'database', table: item };
+  // One week's report (reports.js).
+  if (section === 'reports' && isReportWeek(item)) return { view: 'report', week: item };
   return null;
 }
 
@@ -187,6 +198,7 @@ export function routeHash(route) {
   if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
   if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
   if (route?.view === 'database' && DB_TABLES.includes(route.table)) return `#/database/${route.table}`;
+  if (route?.view === 'report' && isReportWeek(route.week)) return `#/reports/${route.week}`;
   if (SECTIONS.includes(route?.view)) return `#/${route.view}`;
   return '#/overview';
 }
@@ -296,6 +308,7 @@ export const ACTIVITY_KINDS = Object.freeze([
   { id: 'apps', label: 'Phone apps', starts: ['app.'] },
   { id: 'customers', label: 'Customers', starts: ['customer.'] },
   { id: 'database', label: 'Database exports', starts: ['db.'] },
+  { id: 'reports', label: 'Weekly reports', starts: ['report.'] },
 ]);
 export const ACTIVITY_OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
@@ -3051,6 +3064,16 @@ export function createApi({
       record(await post(`/api/team/${checked(isAccountId, id)}/${enabled ? 'enable' : 'disable'}`, {})),
     resetTeamMember: async (id) => record(await post(`/api/team/${checked(isAccountId, id)}/reset`, {})),
     removeTeamMember: async (id) => record(await post(`/api/team/${checked(isAccountId, id)}/remove`, {})),
+    // The weekly fleet report (docs/reports.md). reports.js reads the replies.
+    reports: async () => record(await get('/api/reports')),
+    report: async (week) => record(await get(`/api/reports/${checked(isReportWeek, week)}`)),
+    /** A week as CSV, on record: tried once, since each try is on record. */
+    reportExport: async (week) =>
+      record(
+        await request('GET', `/api/reports/${checked(isReportWeek, week)}/export?format=csv`, undefined, { once: true })
+      ),
+    setReportEmail: async (email) =>
+      record(await post('/api/reports/settings', { email: checked((on) => typeof on === 'boolean', email) })),
   };
 }
 
@@ -4508,6 +4531,21 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to export from the database',
     icon: 'download',
   },
+  // The weekly fleet report (docs/reports.md): a week as CSV, by its Monday, and its Monday e-mail.
+  'report.export': {
+    done: 'downloaded the weekly report of',
+    doneAlone: 'downloaded a weekly report',
+    tried: 'tried to download the weekly report of',
+    triedAlone: 'tried to download a weekly report',
+    icon: 'download',
+  },
+  'report.settings': {
+    done: 'changed the Monday e-mail of the weekly report',
+    doneAlone: 'changed the Monday e-mail of the weekly report',
+    tried: 'tried to change the Monday e-mail of the weekly report',
+    triedAlone: 'tried to change the Monday e-mail of the weekly report',
+    icon: 'bell',
+  },
 };
 
 // What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
@@ -4747,6 +4785,12 @@ export const REFUSAL_WORDS = {
   invalid_filter: 'A filter of the Database page was not valid',
   invalid_key: 'An item’s key was empty, too long or not plain text',
   invalid_format: 'An export is CSV or JSON',
+  // The weekly fleet report (docs/reports.md).
+  invalid_week: 'Not a week: a week is named by its Monday',
+  unknown_week: 'There is no report of that week',
+  invalid_report_format: 'A weekly report is downloaded as CSV',
+  invalid_report_settings: 'The Monday e-mail is on or off, and nothing else',
+  report_settings_changed: 'Someone changed the Monday e-mail at the same moment',
   unknown_item: 'There is no item with that key',
 };
 
@@ -4939,6 +4983,7 @@ export const CHANGE_ACTIONS = Object.freeze([
   'account.enable',
   'account.reset',
   'account.remove',
+  'report.settings',
 ]);
 
 // What each field of a change is called on the page; another is shown by its own name.
@@ -4962,6 +5007,7 @@ const CHANGE_FIELDS = Object.freeze({
   deployment: 'Deployment',
   tier: 'Tier',
   authenticator: 'Authenticator app',
+  report_email: 'Monday e-mail of the weekly report',
 });
 
 /** A field's name in words: "keyHash" is "Key hash". */

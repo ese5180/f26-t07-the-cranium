@@ -57,6 +57,7 @@ import {
   MAX_HISTORY_DAYS,
   SNAPSHOT_PK,
   dayOf,
+  fleetCounts,
   fleetScore,
   historyDays,
   historyOf,
@@ -490,7 +491,8 @@ export function createFleetHandlers(
       const loaded = await boards();
       const results = await recentResults(loaded.map(({ board }) => board));
       const score = await scoreNow(loaded, results);
-      const item = snapshotItem(score, now());
+      // From console 2.18.0 it counts the boards too, for the weekly report (docs/reports.md).
+      const item = snapshotItem(score, now(), fleetCounts(loaded.map(({ board }) => board)));
       const put = await aws.putFleetItem({ pk: SNAPSHOT_PK, sk: day, item });
       snapshotDay = day;
       if (put.ok) log({ level: 'info', event: 'health_snapshot', day, score: item.score });

@@ -13,6 +13,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`fleet.md`](fleet.md) | Board types, groups, rollouts, the map, commands and alerts |
 | [`fleet-health.md`](fleet-health.md) | The fleet health score on the Overview: its parts, weights, daily snapshots and API |
 | [`compare.md`](compare.md) | Compare 2 to 4 boards side by side, and each board's version timeline |
+| [`reports.md`](reports.md) | The weekly fleet report: a printable page per week, its CSV, and the Monday e-mail |
 | [`accounts.md`](accounts.md) | The Team page: the team's accounts, tiers and states; customers' password resets and removal |
 | [`alerts.md`](alerts.md) | The alert rules, how each is checked, how alerts reach people, and what phone push would need |
 | [`console-design.md`](console-design.md) | The console's look: phone first, grouped lists, and the principles behind it |

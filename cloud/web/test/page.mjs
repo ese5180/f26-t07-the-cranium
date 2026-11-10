@@ -90,6 +90,8 @@ export const DB = scriptAddress('db-page.js', { 'core.js': CORE, 'views.js': VIE
 // The Team and Customers pages (docs/accounts.md, docs/customer-site.md).
 export const TEAM = scriptAddress('team.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const CUSTOMERS = scriptAddress('customers.js', { 'core.js': CORE, 'views.js': VIEWS });
+// The weekly fleet report (docs/reports.md).
+export const REPORTS = scriptAddress('reports.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
 // A board's QR code and label (docs/new-board-setup.md, "The board's label").
 export const LABELS = scriptAddress('labels.js', { 'qrcode.js': QR, 'core.js': CORE, 'views.js': VIEWS });
