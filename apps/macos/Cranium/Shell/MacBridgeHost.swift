@@ -9,7 +9,7 @@ import WebKit
 /// before one of them sees it. Bluetooth is the iPhone's `ShellRadio`, compiled here as it is.
 @MainActor
 final class MacBridgeHost {
-    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share"]
+    static let features: Set<String> = ["auth", "biometric", "ble", "clipboard", "open", "settings", "storage", "share", "usb"]
 
     private let pages = PageStore.standard()
     private weak var owner: MacShellModel?
@@ -21,6 +21,8 @@ final class MacBridgeHost {
     }
     let dispatcher = BridgeDispatcher(features: MacBridgeHost.features)
     private lazy var radio = ShellRadio { [weak self] name, data in self?.send(name, data) }
+    /// The board's USB serial port, for the Serial console and Board setup (usb.*).
+    private lazy var serial = MacSerial(choose: { await MacSerialPicker.choose(from: $0) }, emit: { [weak self] name, data in self?.send(name, data) })
 
     init(model: MacShellModel) {
         self.owner = model
@@ -29,6 +31,12 @@ final class MacBridgeHost {
         registerDevice()
         registerStorage()
         registerBluetooth()
+        registerSerial()
+    }
+
+    /// The page went away (a reload or a new document): the board's ports are closed, as Android does.
+    func pageLeft() {
+        serial.closeAll()
     }
 
     // MARK: To the page
@@ -58,9 +66,8 @@ final class MacBridgeHost {
             let bundle = model.bundle
             return [
                 "bridge": .int(Bridge.version),
-                // The contract names two platforms; the pages treat a Mac's WebKit as the iPhone's
-                // (no Web Serial), so this app says the same.
-                "platform": "ios",
+                // Pages that do not know `macos` take the transport's platform, ios, as they did.
+                "platform": "macos",
                 "shell": ["version": .string(model.shellVersion), "build": .string(model.shellBuild)],
                 "bundle": ["id": .string(bundle?.id), "console": .string(bundle?.manifest.consoleVersion),
                            "source": .string(bundle?.source.rawValue)],
@@ -237,6 +244,23 @@ final class MacBridgeHost {
             } else {
                 radio.stopWatching()
             }
+            return [:]
+        }
+    }
+}
+
+extension MacBridgeHost {
+    // MARK: usb.*
+
+    /// The Android app's usb.* (ShellUsb), over the Mac's serial ports (MacSerial).
+    fileprivate func registerSerial() {
+        dispatcher.register("usb.open") { [unowned self] params in try await serial.open(baudRate: params.int("baudRate")) }
+        dispatcher.register("usb.write") { [unowned self] params in
+            try await serial.write(port: params.int("port"), base64: params.string("data"))
+            return [:]
+        }
+        dispatcher.register("usb.close") { [unowned self] params in
+            serial.close(port: params.int("port"))
             return [:]
         }
     }
