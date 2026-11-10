@@ -8920,6 +8920,64 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-weight: 600;
 }
 
+/* Scheduled starts and maintenance windows (console 2.20.0): rows of the grouped list, like a rollout's. */
+.schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+}
+
+.schedule-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.schedule-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.schedule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.schedule-time,
+.window-hours {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 10px 14px;
+  margin-top: 8px;
+}
+
+.schedule-window,
+.group-window {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.window-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.window-days .choice {
+  flex: 0 0 auto;
+}
+
 .is-bad-text {
   color: var(--bad);
 }

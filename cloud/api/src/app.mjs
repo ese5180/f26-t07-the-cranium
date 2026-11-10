@@ -102,6 +102,7 @@ import { createProvisionHandlers } from './handlers/provision.mjs';
 import { createReportHandlers } from './handlers/reports.mjs';
 import { createSetupHandlers } from './handlers/setup.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
+import { createScheduleHandlers } from './handlers/schedules.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
 import { createTeamHandlers } from './handlers/team.mjs';
@@ -340,6 +341,8 @@ export function createApp({
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
+  // Starts asked for later (console 2.20.0): made, edited and cancelled here, started by the schedule (tick.mjs).
+  const schedules = createScheduleHandlers(context, { deployments, rollouts, audit });
   const me = createMeHandlers(context);
   const pairing = createPairingHandlers(context);
   // Provisioning through the console (docs/new-board-setup.md): a board registered by a release manager.
@@ -529,6 +532,15 @@ export function createApp({
     route('GET', '/api/rollouts/{id}', rollouts.get),
     route('POST', '/api/rollouts/{id}/cancel', rollouts.cancel, {
       action: 'rollout.cancel',
+      maxBody: SMALL_BODY_LIMIT,
+    }),
+    // Scheduled starts (console 2.20.0): a deployment, a staged rollout or a roll back to last good, started
+    // later by the schedule with the same checks as by hand. Reads for every member; changes for release managers.
+    route('GET', '/api/schedules', schedules.list),
+    route('POST', '/api/schedules', schedules.create, { action: 'schedule.create', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/schedules/{id}', schedules.edit, { action: 'schedule.edit', maxBody: SMALL_BODY_LIMIT }),
+    route('POST', '/api/schedules/{id}/cancel', schedules.cancel, {
+      action: 'schedule.cancel',
       maxBody: SMALL_BODY_LIMIT,
     }),
     // "Update everything": for each board type its newest release, to every board of the type not on it.

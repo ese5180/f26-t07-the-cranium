@@ -706,11 +706,13 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'WriteOwnLog',
       'ReadReleasesAndFleet',
       'WriteRollouts',
+      'StartScheduledRollouts',
       'WriteHealthSnapshots',
       'WeeklyReports',
       'ReadAuditForReports',
       'ReadBoardEvents',
       'AppendAudit',
+      'CheckScheduleCreators',
       'StartAndReadDeployments',
       'CancelAndReadJobs',
       'ReadOneExecution',
@@ -725,17 +727,26 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'NeverChangeAuditEntries',
     ]
   );
-  // Writes in the state table only to a rollout; reads only of releases and the fleet's records.
+  // Writes in the state table only to a rollout and a scheduled start; reads only of releases and the fleet's records.
   const writes = statement(role, 'WriteRollouts');
   assert.ok(writes.includes('Action: dynamodb:UpdateItem'));
   assert.deepEqual(
     [...writes.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['ROL', 'SCH']
+  );
+  // A scheduled rollout's record put: the rollouts' partition only, and no other put in the state table
+  // than that, the health snapshot and the weekly report.
+  const starts = statement(role, 'StartScheduledRollouts');
+  assert.ok(starts.includes('Action: dynamodb:PutItem') && starts.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.deepEqual(
+    [...starts.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
     ['ROL']
   );
+  assert.equal((role.match(/dynamodb:PutItem/g) ?? []).length, 5);
   const reads = statement(role, 'ReadReleasesAndFleet');
   assert.deepEqual(
     [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH']
+    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH', 'SCH']
   );
   // The fleet health score's snapshot: a put of its own partition only, and the boards' events read only.
   const snapshots = statement(role, 'WriteHealthSnapshots');
@@ -759,6 +770,8 @@ test('staged rollouts move on every minute, in a function of their own that can 
     boardEvents.includes('Action: dynamodb:Query') && boardEvents.includes('Resource: !GetAtt EventsTable.Arn')
   );
   assert.ok(boardEvents.includes('ForAllValues:StringLike:') && boardEvents.includes('- cranium-*'));
+  // The update histories for a scheduled roll back to last good: read, never written by this role.
+  assert.ok(boardEvents.includes('- UPD#cranium-*'));
   assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
   // The events table only for the alerts' own part, and the alert topic only to publish to: the alert
   // of a rollout that stopped by itself.
@@ -777,7 +790,14 @@ test('staged rollouts move on every minute, in a function of their own that can 
   assert.ok(send.includes('Action: sns:Publish') && send.includes('Resource: !Ref AlertTopic'));
   assert.equal((role.match(/sns:/g) ?? []).length, 1);
   assert.equal((role.match(/EventsTable/g) ?? []).length, 3);
-  assert.equal(/s3:|cognito-idp:|iotwireless:/.test(role), false);
+  assert.equal(/s3:|iotwireless:/.test(role), false);
+  // Cognito: the two reads of the live check of a scheduled start's creator, of the staff pool, and nothing else.
+  const creators = statement(role, 'CheckScheduleCreators');
+  assert.ok(creators.includes('Resource: !GetAtt UserPool.Arn'));
+  assert.deepEqual(
+    [...role.matchAll(/cognito-idp:(\w+)/g)].map((match) => match[1]),
+    ['AdminGetUser', 'AdminListGroupsForUser']
+  );
   assert.ok(fn.includes('ALERT_TOPIC_ARN: !Ref AlertTopic') && fn.includes('CONSOLE_URL: '));
   assert.equal(/Action: \S+:\*/.test(role), false);
   assert.ok(statement(role, 'PassPresignRoleToIot').includes('iam:PassedToService: iot.amazonaws.com'));

@@ -4,6 +4,10 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.14
+
+Scheduled starts and maintenance windows from the console (2.20.0 and later): a deployment, a staged rollout or a roll back to last good can be scheduled for later, and a group can have a maintenance window.
+
 ## 0.1.13
 
 The weekly fleet report from the console (2.19.0 and later): the Reports page, a printable page per week, its CSV, and the Monday e-mail for release managers.

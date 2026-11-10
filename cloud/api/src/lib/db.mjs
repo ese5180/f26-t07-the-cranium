@@ -29,6 +29,7 @@ export const TABLES = Object.freeze({
       { id: 'TOK', label: 'API tokens', pk: 'TOK' },
       { id: 'GRP', label: 'Groups', pk: 'GRP' },
       { id: 'ROL', label: 'Staged rollouts', pk: 'ROL' },
+      { id: 'SCH', label: 'Scheduled starts', pk: 'SCH' },
       { id: 'SEEN', label: 'Seen over Bluetooth', pk: 'SEEN' },
       { id: 'HEALTH', label: 'Fleet health snapshots', pk: 'HEALTH' },
       { id: 'APP', label: 'Phone app releases', pk: 'APP' },

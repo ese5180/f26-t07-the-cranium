@@ -4,6 +4,15 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.19
+
+Scheduled starts and maintenance windows on the Deployments and Fleet pages (console 2.20.0 and later): a deployment, a staged rollout or a roll back to last good can be scheduled for later, a group can have a maintenance window, and the activity log reads all of it.
+
+The pages are the console's own; the app adds the words for the new activity (`schedule.create`, `schedule.edit`,
+`schedule.cancel`, `schedule.start`) and the new refusals (`schedule_over`, `invalid_window`, `creator_not_allowed`
+and the others), checked
+against core.js by the parity tests.
+
 ## 0.8.18
 
 The weekly fleet report (console 2.19.0 and later): a Reports page of the last twelve weeks, each a page of how the fleet did, what was sent to it and what changed, to share as CSV. The activity log reads its new entries.

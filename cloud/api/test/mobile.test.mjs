@@ -391,6 +391,23 @@ const ROUTES = [
     phone: true,
     body: {},
   },
+  // Scheduled starts (console 2.20.0): an empty body is refused for its kind.
+  { route: 'GET /api/schedules', status: 200, phone: true },
+  { route: 'POST /api/schedules', status: 400, phone: true, body: {} },
+  {
+    route: 'POST /api/schedules/{id}',
+    path: '/api/schedules/sch-20261102T180000Z-abcdef',
+    status: 404,
+    phone: true,
+    body: { at: '2026-12-01T02:00' },
+  },
+  {
+    route: 'POST /api/schedules/{id}/cancel',
+    path: '/api/schedules/sch-20261102T180000Z-abcdef/cancel',
+    status: 404,
+    phone: true,
+    body: {},
+  },
   { route: 'GET /api/fleet/update-everything', status: 200, phone: true },
   // The board has never reported, so the plan leaves it out: asked for all the same, it is refused.
   {
