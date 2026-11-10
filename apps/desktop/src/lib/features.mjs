@@ -16,10 +16,15 @@
  *   camera                                                    no: a computer scans no board's QR code; its
  *                                                             label is printed from here, and the Devices
  *                                                             page lists the boards to open
+ *   bleOffline                                                no: offline mode pairs with the board's own
+ *                                                             passkey, typed into the system's pairing box;
+ *                                                             the window's Web Bluetooth has no such box here,
+ *                                                             so the Offline page is left out (the phones and
+ *                                                             the Mac app have it)
  */
 
 export const FEATURES = Object.freeze(['auth', 'clipboard', 'share', 'open', 'keepAwake', 'settings', 'ble']);
-export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage', 'usb', 'camera']);
+export const NOT_OFFERED = Object.freeze(['biometric', 'haptics', 'appUpdate', 'storage', 'usb', 'camera', 'bleOffline']);
 
 export const METHODS = Object.freeze([
   'app.config',
