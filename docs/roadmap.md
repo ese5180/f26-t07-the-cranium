@@ -59,7 +59,9 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 - **Raspberry Pi updates through the board** (firmware 1.20.0, draft pull request #101), waiting on review fixes and a
   test on a board.
 - **Listening sessions from the board** (firmware 1.18.0, pull request #98): tested on a board, in review.
-- **Offline Bluetooth** (firmware 1.19.0, draft pull request #97), waiting for a test on a board.
+- **Offline Bluetooth mode** (firmware 1.19.0, console 2.27.0, apps 0.9.0, draft pull request): the console's Offline page,
+  in the iPhone, Android and Mac apps, reads a board's status and accepts a waiting update over Bluetooth with the board's
+  own passkey, no cloud ([`mobile-apps.md`](mobile-apps.md#offline-mode)). Firmware 1.19.0 runs on an nRF7002 DK.
 
 ## Planned next, in this order
 

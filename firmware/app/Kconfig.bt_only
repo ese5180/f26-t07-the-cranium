@@ -13,11 +13,10 @@ config APP_BT_ONLY
 	  events and no location. The board updates over Bluetooth from a phone, or over USB, and an image
 	  on trial is kept only by a person, as "proof: person" in firmware/README.md says.
 
-if APP_BT_ONLY
-
 config APP_BT_STATIC_PASSKEY
 	bool "A passkey of its own for pairing, stored at provisioning"
-	default y
+	depends on APP_BT_OTA
+	default y if APP_BT_ONLY
 	select BT_APP_PASSKEY
 	help
 	  The phone has no device shadow to get a fresh passkey from, so the board keeps one 6-digit
@@ -39,4 +38,12 @@ config APP_BT_PASSKEY_FAILURE_BUDGET
 	  at 3, 0.13% at 4 and 2% at 6, against 0.0003% for three tries at a new passkey each time. Three
 	  failures in one window close the window, whatever this is.
 
-endif # APP_BT_ONLY
+config APP_BT_OFFLINE
+	bool "Offline Bluetooth mode: status and accept-update from a phone, with no cloud"
+	depends on APP_BT_OTA
+	select APP_BT_STATIC_PASSKEY
+	help
+	  From 1.19.0. A GATT service of its own with the board's status (firmware version, uptime,
+	  Wi-Fi, cloud, update state, last restart) and one write that accepts the update that a phone
+	  has sent and that waits. Both need a link that paired with the board's own passkey, drawn on
+	  the board by BT_OFFLINE|NEW. See src/bt/bt_offline.h and "Offline mode" in docs/mobile-apps.md.
