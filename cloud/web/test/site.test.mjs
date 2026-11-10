@@ -531,7 +531,7 @@ function pixels(value) {
   return Number(found[1]) * (found[2] === 'rem' ? 16 : 1);
 }
 
-// The type scale (console 2.26): eight steps, as tokens on :root.
+// The type scale (console 2.25.2): eight steps, as tokens on :root.
 const SCALE = Object.freeze({
   '--type-label': 12.5,
   '--type-small': 13,
