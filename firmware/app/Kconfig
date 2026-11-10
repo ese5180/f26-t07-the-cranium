@@ -215,6 +215,23 @@ config APP_LOCATION
 	  The device policy in AWS IoT has to allow publishing there. See "Location" in
 	  firmware/README.md and docs/fleet.md.
 
+# A compatible has a comma, which would split the argument of a Kconfig function.
+CRANIUM_DT_COMPAT_SPIS := nordic,nrf-spis
+
+config APP_PI_LINK
+	bool "Messages from the Raspberry Pi over SPI"
+	depends on APP_CONSOLE && !APP_BT_ONLY
+	default y if $(dt_nodelabel_enabled_with_compat,spi3,$(CRANIUM_DT_COMPAT_SPIS))
+	select SPI
+	select SPI_SLAVE
+	select SPI_ASYNC
+	select GPIO
+	help
+	  The board is the SPI peripheral of the Raspberry Pi on the Arduino SPI pins, with a READY
+	  pin to the Pi (the board's overlay, and docs/pi-link.md). Each message from the Pi is printed
+	  on the serial console as "[PI] <message>", and STATUS|pi says how the link is doing. On by
+	  default where the overlay makes spi3 an SPI peripheral: the nRF7002 DK.
+
 config APP_BT_OTA
 	bool "Firmware update over Bluetooth LE"
 	depends on APP_CONSOLE && BT

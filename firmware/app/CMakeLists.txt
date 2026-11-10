@@ -173,6 +173,13 @@ if(CONFIG_APP_MEMFAULT AND (CONFIG_MEMFAULT_HTTP_ENABLE OR NOT CONFIG_MEMFAULT_N
                       "image (CONFIG_MEMFAULT_HTTP_ENABLE, CONFIG_MEMFAULT_NCS_PROJECT_KEY)")
 endif()
 
+# The SPI link from the Raspberry Pi (docs/pi-link.md).
+target_sources_ifdef(CONFIG_APP_PI_LINK app PRIVATE
+  src/pi/pi_frame.c
+  src/pi/pi_link.c
+  src/pi/pi_rx.c
+)
+
 zephyr_linker_sources_ifdef(CONFIG_LOG SECTIONS src/log_backend_check.ld)
 
 # The sources are grouped in folders under src/ (src/README.md); each folder is on the include path, so
@@ -184,5 +191,6 @@ target_include_directories(app PRIVATE
   src/cloud
   src/mflt
   src/ota
+  src/pi
   src/policy
 )

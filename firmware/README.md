@@ -1089,6 +1089,15 @@ board, on 2026-11-05, 1.14.0's first two chunks reached Memfault and were acknow
 ([`docs/test-results.md`](../docs/test-results.md#firmware-1140-over-bluetooth-and-the-first-data-in-memfault)). What
 the SDK does on a crash, and the hourly heartbeat, have not been seen on a board yet.
 
+## The Raspberry Pi link
+
+On the nRF7002 DK the board is the SPI peripheral of the Raspberry Pi: SPIS3 on the Arduino SPI pins, plus a
+READY pin (D9) to the Pi (`CONFIG_APP_PI_LINK`, `src/pi/`, and the board's overlay). The Pi sends the collector's
+`np` and `hb` messages (`pi/`). Each message is printed on the serial console as `[PI] <message>`, and
+`STATUS|pi` shows the link's state, its counts, and the last `np` and `hb`. The `[PI]` message lines stay on the
+serial console; only `[PI] link up` goes to the cloud's events. The wiring, the frames and the tests are in
+[`docs/pi-link.md`](../docs/pi-link.md).
+
 ## Firmware update over Bluetooth
 
 An image can be uploaded from a phone over Bluetooth LE, for a board that has no Wi-Fi in reach or
