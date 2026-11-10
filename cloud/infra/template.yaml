@@ -351,8 +351,9 @@ Resources:
   # its own, whose issuer is the customer pool and whose audience is the customer site's client.
   # Authorizer above keeps the staff pool and the staff clients, so neither kind of token opens the
   # other's API, at the gateway, before any code runs. The most specific route wins, so nothing
-  # under /api/c/ reaches the console's routes; there is no POST, because the customer API only
-  # reads, and a POST to /api/c/ meets the console's authorizer, which refuses a customer's token.
+  # under /api/c/ reaches the console's routes. GET reads; POST is a customer's few changes (a
+  # board's name of their own, their e-mails: customer/app.mjs), behind the same authorizer. There
+  # is no PUT: a PUT to /api/c/ meets the console's authorizer, which refuses a customer's token.
   CustomerAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -383,6 +384,20 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: 'GET /api/c/{proxy+}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CustomerAuthorizer
+      AuthorizationScopes:
+        - aws.cognito.signin.user.admin
+      Target: !Sub 'integrations/${CustomerApiIntegration}'
+
+  # What a customer may change (docs/customer-site.md, "Customer actions"): the same authorizer and
+  # scope as the reads, and limits of its own below the reads' (Stage). The function checks the
+  # account, counts the customer's changes and checks that the board is theirs.
+  CustomerApiWriteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: 'POST /api/c/{proxy+}'
       AuthorizationType: JWT
       AuthorizerId: !Ref CustomerAuthorizer
       AuthorizationScopes:
@@ -509,6 +524,7 @@ Resources:
       - ApiTokenPutRoute
       - ApiSidestoreRoute
       - CustomerApiReadRoute
+      - CustomerApiWriteRoute
     Properties:
       ApiId: !Ref Api
       StageName: '$default'
@@ -564,6 +580,11 @@ Resources:
         'GET /api/c/{proxy+}':
           ThrottlingBurstLimit: 20
           ThrottlingRateLimit: 10
+        # A customer's changes: a name, a switch. The function also holds each customer to 10 a
+        # minute and 60 an hour (customer/app.mjs).
+        'POST /api/c/{proxy+}':
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
       AccessLogSettings:
         DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogGroup}'
         # The route key, never the path: a query string can carry an authorization
@@ -2051,6 +2072,51 @@ Resources:
                   ForAllValues:StringEquals:
                     dynamodb:LeadingKeys:
                       - OWN
+              # A customer's own name for a board of theirs: an update of an ownership item, which the
+              # function makes only on the condition that the caller owns it under that assignment id,
+              # and only of customerLabel and labelledAt. No PutItem: it can make no ownership item.
+              - Sid: NameOwnedBoards
+                Effect: Allow
+                Action: dynamodb:UpdateItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - OWN
+              # Each customer's choice of e-mails, an item of the PRF partition keyed by their sub.
+              - Sid: CustomerPreferences
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - PRF
+              # What customers did, in the audit table's CUS partition only: an entry is put once (the
+              # code's condition), and read back to count a customer's changes. The console's entries
+              # (AUD) are out of reach.
+              - Sid: RecordCustomerActions
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt AuditTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - CUS
+              - Sid: NeverChangeCustomerActions
+                Effect: Deny
+                Action:
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:PartiQLDelete
+                  - dynamodb:PartiQLInsert
+                  - dynamodb:PartiQLUpdate
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt AuditTable.Arn
               # The events of the boards. Which board's, the function decides: the owner's only.
               - Sid: ReadEvents
                 Effect: Allow
@@ -2086,6 +2152,7 @@ Resources:
         Variables:
           STATE_TABLE: !Ref StateTable
           EVENTS_TABLE: !Ref EventsTable
+          AUDIT_TABLE: !Ref AuditTable
           CUSTOMER_POOL_ID: !Ref CustomerUserPool
           CUSTOMER_CLIENT_ID: !Ref CustomerUserPoolClient
           CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient

@@ -221,6 +221,8 @@ export function readBoard(raw) {
   return {
     id: raw.id,
     name: label(raw.name) || null,
+    // The customer's own name for it, given here (null for none): what Rename starts from.
+    label: label(raw.label) || null,
     boardName: typeof raw.boardName === 'string' && NAME.test(raw.boardName) ? raw.boardName : null,
     status: raw.status,
     online: raw.online === true,
@@ -266,7 +268,7 @@ const list = (value, read) => (Array.isArray(value) ? value.map(read).filter((it
  *                                         the customer API's address in the app (bridge.js)
  */
 export function createCustomerApi({ auth, fetch, onUnauthorized, base = '' }) {
-  async function get(path) {
+  async function get(path, body = null) {
     const token = auth.accessToken();
     if (token === null) {
       onUnauthorized();
@@ -274,9 +276,12 @@ export function createCustomerApi({ auth, fetch, onUnauthorized, base = '' }) {
     }
     let response;
     try {
+      const headers = { authorization: `Bearer ${token}`, accept: 'application/json' };
+      if (body !== null) headers['content-type'] = 'application/json';
       response = await fetch(`${base}${path}`, {
-        method: 'GET',
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        method: body === null ? 'GET' : 'POST',
+        headers,
+        ...(body === null ? {} : { body: JSON.stringify(body) }),
         cache: 'no-store',
         credentials: 'omit',
         signal: AbortSignal.timeout(20000),
@@ -332,8 +337,61 @@ export function createCustomerApi({ auth, fetch, onUnauthorized, base = '' }) {
       if (activity === null) throw unreadable();
       return activity;
     },
+    /** The customer's own name for a board of theirs; '' takes it away. Answers the board as it is now. */
+    async renameBoard(id, name) {
+      if (!BOARD_ID.test(id)) throw new ApiError(404, 'not_your_board', 'There is no board of yours at this address.');
+      const board = readBoard((await get(`/api/c/boards/${id}/label`, { label: String(name).trim() })).board);
+      if (board === null) throw unreadable();
+      return board;
+    },
+    async preferences() {
+      return readPreferences(await get('/api/c/preferences'));
+    },
+    /** Turn some e-mails on or off: { offline?, updated?, unexpectedRestart? }. */
+    async setPreferences(choice) {
+      const body = {};
+      for (const kind of NOTIFICATION_KINDS) if (typeof choice?.[kind] === 'boolean') body[kind] = choice[kind];
+      return readPreferences(await get('/api/c/preferences', body));
+    },
   };
 }
+
+// What a customer may change (docs/customer-site.md, "Customer actions").
+
+export const LABEL_LIMIT = 40;
+export const NOTIFICATION_KINDS = Object.freeze(['offline', 'updated', 'unexpectedRestart']);
+export const NOTIFICATION_WORDS = Object.freeze({
+  offline: { title: 'A board goes offline', text: 'When Cranium loses touch with one of your boards.' },
+  updated: { title: 'An update is installed', text: 'When one of your boards starts running new firmware.' },
+  unexpectedRestart: {
+    title: 'A board restarts unexpectedly',
+    text: 'When a board restarts itself to recover from a problem.',
+  },
+});
+
+function readPreferences(body) {
+  const notifications = body?.notifications ?? {};
+  return {
+    notifications: Object.fromEntries(NOTIFICATION_KINDS.map((kind) => [kind, notifications[kind] === true])),
+    emails: body?.emails === 'on' ? 'on' : 'off',
+  };
+}
+
+/** What is wrong with a board's new name, in words, or '' when it can be saved. */
+export function labelProblem(name) {
+  const text = String(name ?? '').trim();
+  if ([...text].length > LABEL_LIMIT) return `At most ${LABEL_LIMIT} characters.`;
+  if (text !== '' && !/^[\x20-\x7e\u00a0-\u024f]+$/u.test(text))
+    return 'Use letters, numbers, spaces and punctuation only.';
+  return '';
+}
+
+/** How to accept an update that waits at a board: the firmware takes it from the board itself only. */
+export const WAITING_UPDATE_STEPS = Object.freeze([
+  'Press Button 1 on the board to install the update. It downloads, checks it and restarts by itself.',
+  'Press Button 2 instead to turn this update down.',
+  'Cannot reach the board? Ask Cranium: the team can install it over Bluetooth with the phone app.',
+]);
 
 // A customer's own account at Cognito: the calls a signed-in person makes with their own access
 // token, and the reset of a forgotten password, which needs none. Cognito's answer is the one

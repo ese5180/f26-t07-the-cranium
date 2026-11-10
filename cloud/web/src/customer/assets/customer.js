@@ -37,6 +37,7 @@ import {
   authConfig,
   createAccount,
   createCustomerApi,
+  labelProblem,
   namespaced,
   parseRoute,
   signInEither,
@@ -115,6 +116,10 @@ const state = {
   boards: resource(),
   activity: resource(),
   details: new Map(),
+  // A customer's changes (docs/customer-site.md, "Customer actions"): the rename dialog, and their e-mails.
+  boardDialog: null,
+  preferences: resource(),
+  preferencesSave: { busy: false, problem: null, done: false },
   account: {
     profile: resource(),
     password: { busy: false, problem: null, done: false },
@@ -354,6 +359,8 @@ async function refresh(full) {
     }
     if (view === 'account' && (full || state.account.profile.value === null))
       jobs.push(load(state.account.profile, readProfile));
+    if (view === 'account' && (full || state.preferences.value === null))
+      jobs.push(load(state.preferences, () => api.preferences()));
   }
   if (state.admin && state.staff.value === null) jobs.push(load(state.staff, staffMe));
   if (view === 'account' && full && state.app) jobs.push(readBiometric());
@@ -451,6 +458,9 @@ function customerEnded(lead) {
   state.activity = resource();
   state.details.clear();
   state.account.profile = resource();
+  state.boardDialog = null;
+  state.preferences = resource();
+  state.preferencesSave = { busy: false, problem: null, done: false };
   if (!state.admin && !PUBLIC_VIEWS.includes(state.route.view)) {
     state.after = state.route;
     state.signIn = null;
@@ -880,7 +890,14 @@ function context() {
     },
     site,
     mixes: mixesContext(),
-    actions: { refresh: () => refresh(true), signOut, mix: mixActions, ...appActions },
+    actions: {
+      refresh: () => refresh(true),
+      signOut,
+      mix: mixActions,
+      board: boardActions,
+      preferences: preferenceActions,
+      ...appActions,
+    },
     now: Date.now(),
   };
 }
@@ -1086,6 +1103,86 @@ async function giveFile(name, type, body) {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+// A customer's changes: a board's name of their own, and which e-mails they want.
+
+/** Put a board as the API answered it after a change into every list that shows it. */
+function boardChanged(board) {
+  const detail = state.details.get(board.id);
+  if (detail?.value) detail.value = { ...detail.value, board };
+  if (Array.isArray(state.boards.value)) {
+    state.boards.value = state.boards.value.map((item) => (item.id === board.id ? board : item));
+  }
+}
+
+const boardActions = {
+  rename(board) {
+    state.boardDialog = {
+      kind: 'rename',
+      id: board.id,
+      name: board.label ?? '',
+      shown: board.name,
+      busy: false,
+      problem: null,
+    };
+    draw();
+  },
+  waiting(board) {
+    state.boardDialog = { kind: 'waiting', id: board.id, shown: board.name };
+    draw();
+  },
+  setName(value) {
+    if (state.boardDialog?.kind !== 'rename') return;
+    state.boardDialog = { ...state.boardDialog, name: String(value), problem: null };
+    draw();
+  },
+  close() {
+    if (state.boardDialog === null || state.boardDialog.busy) return;
+    state.boardDialog = null;
+    draw();
+  },
+  async save() {
+    const model = state.boardDialog;
+    if (model?.kind !== 'rename' || model.busy) return;
+    const problem = labelProblem(model.name);
+    if (problem) {
+      state.boardDialog = { ...model, problem };
+      draw();
+      return;
+    }
+    state.boardDialog = { ...model, busy: true, problem: null };
+    draw();
+    try {
+      const board = await api.renameBoard(model.id, model.name);
+      boardChanged(board);
+      state.boardDialog = null;
+      toast(board.label ? `Renamed to “${board.label}”.` : 'Your name for the board is taken away.');
+    } catch (error) {
+      state.boardDialog = { ...model, busy: false, problem: error?.message || 'The name could not be saved.' };
+    }
+    draw();
+  },
+};
+
+const preferenceActions = {
+  async toggle(kind, on) {
+    if (state.preferencesSave.busy) return;
+    state.preferencesSave = { busy: true, problem: null, done: false };
+    draw();
+    try {
+      state.preferences.value = await api.setPreferences({ [kind]: on === true });
+      state.preferences.error = null;
+      state.preferencesSave = { busy: false, problem: null, done: true };
+    } catch (error) {
+      state.preferencesSave = {
+        busy: false,
+        problem: error?.message || 'Your choice could not be saved.',
+        done: false,
+      };
+    }
+    draw();
+  },
+};
 
 const mixActions = {
   setSource(source) {

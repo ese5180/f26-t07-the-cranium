@@ -143,6 +143,8 @@ const API_PUT = 'PUT /api/{proxy+}';
 const API_TOKEN_PUT = 'PUT /api/t/{proxy+}';
 // The customer API: its own function, behind the authorizer of the customer pool (docs/customer-site.md).
 const API_CUSTOMER_READ = 'GET /api/c/{proxy+}';
+// What a customer may change: a board's name of their own, and their e-mails.
+const API_CUSTOMER_WRITE = 'POST /api/c/{proxy+}';
 // SideStore on an iPhone: no authorizer; the key in the path is the credential (api/src/handlers/sidestore.mjs).
 const API_SIDESTORE = 'GET /api/sidestore/{proxy+}';
 // How often the schedule moves staged rollouts on, as deployed.
@@ -1852,11 +1854,18 @@ export async function createPreview({
     versions: parseBundledVersions(versions),
   });
   const customerApp = createCustomerApp({
-    aws: { getShadow: fake.getShadow, queryEvents: fake.queryEvents, ...customers },
+    aws: {
+      getShadow: fake.getShadow,
+      queryEvents: fake.queryEvents,
+      putCustomerAction: fake.putCustomerAction,
+      recentCustomerActions: fake.recentCustomerActions,
+      ...customers,
+    },
     config: Object.freeze({
       region: 'us-east-1',
       stateTable: 'local-state',
       eventsTable: 'local-events',
+      auditTable: 'local-audit',
       customerPoolId: CUSTOMER_POOL_ID,
       customerClientId: CUSTOMER_CLIENT_ID,
       issuer: issuerOf(CUSTOMER_POOL_ID),
@@ -1958,6 +1967,7 @@ export async function createPreview({
     if (method === 'GET' && path === '/') routeKey = WEB_ROOT;
     else if (method === 'GET' && path.startsWith('/assets/')) routeKey = WEB_ASSETS;
     else if (method === 'GET' && path.startsWith('/api/c/')) routeKey = API_CUSTOMER_READ;
+    else if (method === 'POST' && path.startsWith('/api/c/')) routeKey = API_CUSTOMER_WRITE;
     else if (method === 'GET' && path.startsWith('/api/t/')) routeKey = API_TOKEN_READ;
     else if (method === 'GET' && path.startsWith('/api/sidestore/')) routeKey = API_SIDESTORE;
     else if (method === 'POST' && path.startsWith('/api/t/')) routeKey = API_TOKEN_WRITE;
@@ -1966,12 +1976,17 @@ export async function createPreview({
     else if (method === 'POST' && path.startsWith('/api/')) routeKey = API_WRITE;
     else if (method === 'PUT' && path.startsWith('/api/')) routeKey = API_PUT;
 
-    if (routeKey === API_CUSTOMER_READ) {
+    if (routeKey === API_CUSTOMER_READ || routeKey === API_CUSTOMER_WRITE) {
       // The customer pool's authorizer: an access token that the customer pool issued, and nothing
       // else. A staff token is unknown to it, as a token of another issuer is to API Gateway.
       const held = customerPool.session(String(headers.authorization ?? '').replace(/^Bearer\s+/i, ''));
       if (held === null) {
         sendGateway(response, 401, 'Unauthorized', { 'www-authenticate': 'Bearer' });
+        return;
+      }
+      const body = routeKey === API_CUSTOMER_WRITE ? await readBody(request, MAX_REQUEST_BYTES) : null;
+      if (routeKey === API_CUSTOMER_WRITE && body === null) {
+        sendGateway(response, 413, 'Request Entity Too Large', { connection: 'close' });
         return;
       }
       const event = gatewayEvent({
@@ -1981,6 +1996,7 @@ export async function createPreview({
         query,
         headers,
         host: consoleHost,
+        body,
         claims: customerClaims({ sub: held.sub }),
       });
       sendResult(response, await customerApp(event));

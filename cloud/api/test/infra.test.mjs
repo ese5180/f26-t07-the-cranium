@@ -930,67 +930,131 @@ test("a customer's token and a staff token each open their own API only, at the 
     ['CustomerUserPoolClient', 'CustomerMobileUserPoolClient']
   );
 
-  const route = block(template, 'CustomerApiReadRoute');
-  for (const line of [
-    "RouteKey: 'GET /api/c/{proxy+}'",
-    'AuthorizationType: JWT',
-    'AuthorizerId: !Ref CustomerAuthorizer',
-    '- aws.cognito.signin.user.admin',
-    'integrations/${CustomerApiIntegration}',
+  for (const [name, method] of [
+    ['CustomerApiReadRoute', 'GET'],
+    ['CustomerApiWriteRoute', 'POST'],
   ]) {
-    assert.ok(route.includes(line), line);
+    const route = block(template, name);
+    for (const line of [
+      `RouteKey: '${method} /api/c/{proxy+}'`,
+      'AuthorizationType: JWT',
+      'AuthorizerId: !Ref CustomerAuthorizer',
+      '- aws.cognito.signin.user.admin',
+      'integrations/${CustomerApiIntegration}',
+    ]) {
+      assert.ok(route.includes(line), `${name}: ${line}`);
+    }
   }
   assert.ok(block(template, 'CustomerApiIntegration').includes('IntegrationUri: !GetAtt CustomerApiFn.Arn'));
-  // Read only: no other route goes to the customer API, and every console route keeps the staff authorizer.
+  // Its reads and its writes, and no other route goes to the customer API; every console route keeps
+  // the staff authorizer.
   const routes = template
     .split(/\n(?= {2}\w+:\n)/)
     .filter((resource) => resource.includes('Type: AWS::ApiGatewayV2::Route'));
-  assert.equal(routes.filter((resource) => resource.includes('integrations/${CustomerApiIntegration}')).length, 1);
+  assert.equal(routes.filter((resource) => resource.includes('integrations/${CustomerApiIntegration}')).length, 2);
   const keys = routes.map((resource) => /RouteKey: '?([^'\n]+)'?/.exec(resource)[1]);
   assert.deepEqual(
     keys.filter((key) => key.includes('/api/c/')),
-    ['GET /api/c/{proxy+}']
+    ['GET /api/c/{proxy+}', 'POST /api/c/{proxy+}']
   );
   for (const resource of routes.filter((text) => text.includes('AuthorizerId: !Ref Authorizer\n'))) {
     assert.equal(/RouteKey: '[^']*\/api\/c\//.test(resource), false);
   }
   const stage = block(template, 'Stage');
   assert.ok(block(stage, 'DependsOn', 4).includes('- CustomerApiReadRoute'));
-  const settings = block(stage, 'RouteSettings', 6)
-    .split("'GET /api/c/{proxy+}':")[1]
-    .split('\n')
-    .slice(1, 3)
-    .join('\n');
-  assert.match(settings, /ThrottlingBurstLimit: \d+\n\s+ThrottlingRateLimit: \d+/);
+  assert.ok(block(stage, 'DependsOn', 4).includes('- CustomerApiWriteRoute'));
+  const limits = (key) =>
+    block(stage, 'RouteSettings', 6)
+      .split(`'${key}':`)[1]
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .slice(1, 3)
+      .map((line) => Number(/: (\d+)$/.exec(line)[1]));
+  assert.equal(limits('GET /api/c/{proxy+}').length, 2);
+  // Writes are held below reads.
+  const [writeBurst, writeRate] = limits('POST /api/c/{proxy+}');
+  const [readBurst, readRate] = limits('GET /api/c/{proxy+}');
+  assert.ok(writeBurst > 0 && writeRate > 0 && writeBurst < readBurst && writeRate < readRate);
 });
 
-test('the customer API may read the boards, their events, the ownership records and the customer pool, and nothing else', () => {
+test('the customer API reads the boards, their events, the owners and the pool, and writes only its own items', () => {
   const role = block(template, 'CustomerApiRole');
   assert.deepEqual(
     [...role.matchAll(/- Sid: (\w+)/g)].map((match) => match[1]),
-    ['WriteOwnLog', 'ReadOwnership', 'ReadEvents', 'ReadShadows', 'CheckCustomers']
+    [
+      'WriteOwnLog',
+      'ReadOwnership',
+      'NameOwnedBoards',
+      'CustomerPreferences',
+      'RecordCustomerActions',
+      'NeverChangeCustomerActions',
+      'ReadEvents',
+      'ReadShadows',
+      'CheckCustomers',
+    ]
   );
   assert.deepEqual(
     [...role.matchAll(/Action: ([a-z0-9-]+:\w+)$/gm)].map((match) => match[1]),
-    ['sts:AssumeRole', 'dynamodb:Query', 'dynamodb:Query', 'iot:GetThingShadow', 'cognito-idp:AdminGetUser']
+    [
+      'sts:AssumeRole',
+      'dynamodb:Query',
+      'dynamodb:UpdateItem',
+      'dynamodb:Query',
+      'iot:GetThingShadow',
+      'cognito-idp:AdminGetUser',
+    ]
   );
+  const leading = (sid) =>
+    [...block(statement(role, sid), 'dynamodb:LeadingKeys', 20).matchAll(/- (\w+)/g)].map((match) => match[1]);
   const ownership = statement(role, 'ReadOwnership');
   assert.ok(ownership.includes('Resource: !GetAtt StateTable.Arn'));
-  assert.ok(ownership.includes('dynamodb:LeadingKeys:\n') && ownership.includes('- OWN'));
+  assert.deepEqual(leading('ReadOwnership'), ['OWN']);
+  // A customer's own name for a board: an update of an ownership item, never a new one.
+  assert.ok(statement(role, 'NameOwnedBoards').includes('Resource: !GetAtt StateTable.Arn'));
+  assert.deepEqual(leading('NameOwnedBoards'), ['OWN']);
+  // Their e-mails: their own preferences item.
+  const preferences = statement(role, 'CustomerPreferences');
+  assert.deepEqual(
+    [...preferences.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:GetItem', 'dynamodb:UpdateItem']
+  );
+  assert.ok(preferences.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.deepEqual(leading('CustomerPreferences'), ['PRF']);
+  // What customers did: the CUS partition of the audit table, put and read, never the console's.
+  const record = statement(role, 'RecordCustomerActions');
+  assert.deepEqual(
+    [...record.matchAll(/- (dynamodb:\w+)/g)].map((match) => match[1]),
+    ['dynamodb:PutItem', 'dynamodb:Query']
+  );
+  assert.ok(record.includes('Resource: !GetAtt AuditTable.Arn'));
+  assert.deepEqual(leading('RecordCustomerActions'), ['CUS']);
+  const never = statement(role, 'NeverChangeCustomerActions');
+  assert.ok(
+    never.includes('Effect: Deny') && never.includes('dynamodb:DeleteItem') && never.includes('dynamodb:UpdateItem')
+  );
   assert.ok(statement(role, 'CheckCustomers').includes('Resource: !GetAtt CustomerUserPool.Arn'));
+  // Every write is held to a partition, and no statement writes anywhere else.
+  for (const sid of ['NameOwnedBoards', 'CustomerPreferences', 'RecordCustomerActions']) {
+    assert.ok(statement(role, sid).includes('ForAllValues:StringEquals:'), sid);
+  }
   for (const word of [
-    'AuditTable',
     'FirmwareBucket',
     ' UserPool.Arn',
     'iot:CreateJob',
-    'PutItem',
-    'UpdateItem',
-    'DeleteItem',
+    'iot:Publish',
+    'iot:UpdateThingShadow',
+    'ses:',
+    'sns:',
+    'BatchWriteItem\n                  - dynamodb:Put',
     'ManagedPolicyArns',
     "Resource: '*'",
+    '- AUD',
   ]) {
     assert.equal(role.includes(word), false, word);
   }
+  // PutItem only on the audit table's customer partition; DeleteItem only in the Deny.
+  assert.equal((role.match(/dynamodb:PutItem/g) ?? []).length, 1);
+  assert.equal((role.match(/dynamodb:DeleteItem/g) ?? []).length, 1);
   const fn = block(template, 'CustomerApiFn');
   for (const line of [
     'Handler: customer.handler',
@@ -1004,7 +1068,14 @@ test('the customer API may read the boards, their events, the ownership records 
   }
   assert.deepEqual(
     [...block(fn, 'Variables', 8).matchAll(/^ {10}(\w+):/gm)].map((match) => match[1]),
-    ['STATE_TABLE', 'EVENTS_TABLE', 'CUSTOMER_POOL_ID', 'CUSTOMER_CLIENT_ID', 'CUSTOMER_MOBILE_CLIENT_ID']
+    [
+      'STATE_TABLE',
+      'EVENTS_TABLE',
+      'AUDIT_TABLE',
+      'CUSTOMER_POOL_ID',
+      'CUSTOMER_CLIENT_ID',
+      'CUSTOMER_MOBILE_CLIENT_ID',
+    ]
   );
   assert.ok(block(fn, 'Variables', 8).includes('CUSTOMER_MOBILE_CLIENT_ID: !Ref CustomerMobileUserPoolClient'));
   assert.ok(read('api/src/customer.mjs').includes('export const handler'));

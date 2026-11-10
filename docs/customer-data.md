@@ -32,7 +32,7 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 | Activity for the last 30 days | Board, already (events) | — |
 | Health: a dot, a sentence and the week's restarts by day (also on the Overview) | Board, already (restart events with the boot diary's reset cause, firmware and update events) | — |
 | The board's own name (`boardName`) | Board, already | — |
-| The name shown (`name`) | **The label an admin gave it when assigning it** | Keep the admin's label, or have the board send a name |
+| The name shown (`name`) | **The customer's own name for it (`label`), else the label an admin gave it** | Not board data: the customer names it on the site |
 | Owned since (`since`) | **The assignment record** | Not board data: it is when the board became theirs |
 | Location | **Always empty** | **Remove it**, or have the board send a Wi-Fi-based location |
 
@@ -72,6 +72,20 @@ Today the mixes come from a made-up demo, or from session files the customer imp
 | Library | Every track: plays, time in all, its latest BPM and key, when it last played |
 | Moments | Transitions the customer saved, with their own note |
 | Ranges | All time, the last 7 days, the last 30 days |
+
+## What a customer can change (console 2.18.0)
+
+These were worth adding; they exist now ([customer-site.md](customer-site.md#customer-actions)). None of them is board
+data, and none changes the board itself.
+
+| Action | Where | Kept as |
+| --- | --- | --- |
+| Rename a board: their own name, at most 40 characters | A board's page, "Rename" | `customerLabel` on the ownership item; the thing name and the admin's label stay |
+| E-mails: a board goes offline, an update is installed, a board restarts unexpectedly; each off by default | Account page | The `PRF` item of the state table, per customer. Chosen and kept; not sent yet |
+| An update waiting at a board (`awaiting_user`) | A board's page: how to accept it | Nothing: the board takes the answer from Button 1 only, so the site explains it rather than sending it |
+
+Each change is on record in the audit table's `CUS` partition, shown in the console's activity log as done by a
+customer, never with their address.
 
 ## Not from the board, and why
 

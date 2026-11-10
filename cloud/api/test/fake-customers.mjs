@@ -39,6 +39,7 @@ function subOf(count) {
 export function createFakeCustomers({ now = Date.now } = {}) {
   const accounts = new Map(); // sub -> { sub, email, name, enabled, status, createdAt }
   const owned = new Map(); // thing -> item of the ownership partition
+  const preferences = new Map(); // sub -> item of the preferences partition
   const faults = new Map();
   const calls = [];
   const invitations = []; // { email, resent } in the order Cognito would have sent them
@@ -111,6 +112,7 @@ export function createFakeCustomers({ now = Date.now } = {}) {
           owner: item.owner,
           ref: item.ref,
           label: item.label ?? '',
+          customerLabel: item.customerLabel ?? '',
           assignedAt: item.assignedAt,
           assignedBy: item.assignedBy,
         }));
@@ -127,6 +129,27 @@ export function createFakeCustomers({ now = Date.now } = {}) {
       const there = owned.get(thing);
       if (there === undefined || there.owner !== owner) return { ok: false, reason: 'not_owner' };
       owned.set(thing, { pk: OWNERSHIP_PK, sk: thing, unassignedAt: at });
+      return { ok: true };
+    },
+    async setCustomerLabel({ thing, owner, ref, label, at }) {
+      const there = owned.get(thing);
+      if (there === undefined || there.owner !== owner || there.ref !== ref) return { ok: false, reason: 'not_owner' };
+      if (label) there.customerLabel = label;
+      else delete there.customerLabel;
+      there.labelledAt = at;
+      return { ok: true };
+    },
+    async getPreferences(sub) {
+      const item = preferences.get(sub);
+      return item === undefined ? null : copy(item);
+    },
+    async setPreferences(sub, { offline, updated, unexpectedRestart }, at) {
+      preferences.set(sub, {
+        offline: offline === true,
+        updated: updated === true,
+        unexpectedRestart: unexpectedRestart === true,
+        updatedAt: at,
+      });
       return { ok: true };
     },
   };
@@ -216,10 +239,10 @@ export function customerClaims({ sub, clientId = CUSTOMER_CLIENT_ID, poolId = CU
   };
 }
 
-/** A GET to the customer API, as API Gateway builds it once the customer authorizer has passed it. */
-export function customerEvent(path, { claims, method = 'GET' } = {}) {
-  const event = apiEvent(method, path, {});
-  event.routeKey = 'GET /api/c/{proxy+}';
+/** A request to the customer API, as API Gateway builds it once the customer authorizer has passed it. */
+export function customerEvent(path, { claims, method = 'GET', body } = {}) {
+  const event = apiEvent(method, path, { body });
+  event.routeKey = `${method === 'POST' ? 'POST' : 'GET'} /api/c/{proxy+}`;
   event.requestContext.routeKey = event.routeKey;
   if (claims !== undefined)
     event.requestContext.authorizer = { jwt: { claims, scopes: ['aws.cognito.signin.user.admin'] } };
@@ -271,13 +294,21 @@ export function createCustomerWorld({
     region: 'us-east-1',
     stateTable: 'local-state',
     eventsTable: 'local-events',
+    auditTable: 'local-audit',
     customerPoolId: CUSTOMER_POOL_ID,
     customerClientId: CUSTOMER_CLIENT_ID,
     customerMobileClientId: CUSTOMER_MOBILE_CLIENT_ID,
     issuer: issuerOf(CUSTOMER_POOL_ID),
   });
   const customerApp = createCustomerApp({
-    aws: { getShadow: fake.getShadow, queryEvents: fake.queryEvents, ...store },
+    aws: {
+      getShadow: fake.getShadow,
+      queryEvents: fake.queryEvents,
+      // Looked up at each call, so that a test can make one fail.
+      putCustomerAction: (...args) => fake.putCustomerAction(...args),
+      recentCustomerActions: (...args) => fake.recentCustomerActions(...args),
+      ...store,
+    },
     config: customerConfig,
     now,
     log: (line) => logs.push(line),
@@ -316,12 +347,12 @@ export function createCustomerWorld({
       return { ...account, claims: customerClaims({ sub: account.sub }) };
     },
     /** A request to the console's API. */
-    async console(method, path, { as, claims, body } = {}) {
-      return decoded(await consoleApp(apiEvent(method, path, { claims: claims ?? as?.claims, body })));
+    async console(method, path, { as, claims, body, query } = {}) {
+      return decoded(await consoleApp(apiEvent(method, path, { claims: claims ?? as?.claims, body, query })));
     },
     /** A request to the customer API. */
-    async customer(path, { as, claims, method } = {}) {
-      return decoded(await customerApp(customerEvent(path, { claims: claims ?? as?.claims, method })));
+    async customer(path, { as, claims, method, body } = {}) {
+      return decoded(await customerApp(customerEvent(path, { claims: claims ?? as?.claims, method, body })));
     },
   };
 }

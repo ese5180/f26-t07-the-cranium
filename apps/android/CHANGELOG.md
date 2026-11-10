@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.17
+
+Customer actions (console 2.18.0 and later): in customer mode a customer renames their boards, chooses which e-mails they want about them, and sees how to accept an update that waits at a board. The activity log reads what customers did.
+
+The pages are the customer site's own, loaded as before; the app has the activity log's words for the two new actions
+(said as done by "A customer") and their refusals, checked against the console by the parity tests.
+
 ## 0.8.16
 
 Account management (console 2.17.0 and later): release managers see and manage the team's accounts on the new Team page, and reset a customer's password or remove a customer on the Customers page. The activity log reads the new entries.

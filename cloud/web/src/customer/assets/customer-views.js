@@ -21,11 +21,15 @@ import {
   BOARDS_EYEBROW,
   BOARDS_LEDE,
   FOOT_NOTE,
+  LABEL_LIMIT,
   MIXES_EYEBROW,
   MIXES_LEDE,
   MIXES_TITLE,
   MIX_TABS,
+  NOTIFICATION_KINDS,
+  NOTIFICATION_WORDS,
   PASSWORD_MIN,
+  WAITING_UPDATE_STEPS,
   WELCOME,
   boardTitle,
   eventWords,
@@ -75,6 +79,10 @@ const SITE_ICONS = {
   info: [
     ['circle', { cx: 12, cy: 12, r: 9 }],
     ['path', { d: 'M12 11v5.5M12 7.5v.1' }],
+  ],
+  pencil: [
+    ['path', { d: 'M4.5 19.5l1-4.2L15.8 5a1.8 1.8 0 0 1 2.6 0l.6.6a1.8 1.8 0 0 1 0 2.6L8.7 18.5z' }],
+    ['path', { d: 'M13.5 7.3l3.2 3.2' }],
   ],
   external: [
     ['path', { d: 'M14 4.5h5.5V10M19.5 4.5L11 13' }],
@@ -336,7 +344,149 @@ export function shellView(ctx, page) {
         )
       )
     ),
-    mixDialog(ctx)
+    mixDialog(ctx) ?? boardDialog(ctx)
+  );
+}
+
+// A customer's changes to a board (docs/customer-site.md, "Customer actions"): its name, and how to accept an
+// update that waits at it. The same frame as the mixes' dialogs.
+
+function boardFrame(ctx, key, title, body, foot) {
+  const close = () => ctx.actions.board.close();
+  return h(
+    'dialog',
+    {
+      key: `board-dialog-${key}`,
+      class: 'dialog cs-dialog',
+      'aria-labelledby': 'board-dialog-title',
+      ref: (el) => {
+        try {
+          if (!el.open) el.showModal();
+        } catch {
+          el.setAttribute('open', '');
+        }
+      },
+      onClose: close,
+      onClick: (event) => {
+        if (event.target === event.currentTarget) close();
+      },
+    },
+    h(
+      'div',
+      { class: 'dialog-form cs-dialog-body' },
+      h(
+        'header',
+        { class: 'dialog-head' },
+        h('h2', { class: 'dialog-title', id: 'board-dialog-title' }, title),
+        h('button', { type: 'button', class: 'btn is-icon is-quiet', 'aria-label': 'Close', onClick: close }, icon('x'))
+      ),
+      h('div', { class: 'dialog-body' }, body),
+      foot ? h('footer', { class: 'dialog-foot' }, foot) : null
+    )
+  );
+}
+
+function renameDialog(ctx, model) {
+  const left = LABEL_LIMIT - [...model.name.trim()].length;
+  return boardFrame(
+    ctx,
+    'rename',
+    'Rename this board',
+    [
+      h(
+        'label',
+        { class: 'field', key: 'name' },
+        h('span', { class: 'field-label' }, 'Your name for it'),
+        h('input', {
+          id: 'board-name',
+          class: 'input',
+          type: 'text',
+          autocomplete: 'off',
+          maxlength: String(LABEL_LIMIT + 10),
+          placeholder: model.shown ?? 'Living room deck',
+          value: model.name,
+          'aria-describedby': 'board-name-hint',
+          disabled: model.busy,
+          onInput: (event) => ctx.actions.board.setName(event.currentTarget.value),
+          onKeydown: (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault?.();
+              ctx.actions.board.save();
+            }
+          },
+        }),
+        h(
+          'span',
+          { class: 'field-hint', id: 'board-name-hint' },
+          left >= 0
+            ? `${left} of ${LABEL_LIMIT} characters left. Only you see it; leave it empty to use the name Cranium gave it.`
+            : `${-left} characters too many.`
+        )
+      ),
+      model.problem
+        ? h(
+            'p',
+            { class: 'signin-problem', role: 'alert', key: 'problem', id: 'board-name-problem' },
+            icon('alert'),
+            h('span', null, model.problem)
+          )
+        : null,
+    ],
+    [
+      h('span', { class: 'dialog-spacer', key: 'spacer' }),
+      button('', () => ctx.actions.board.close(), 'Cancel'),
+      button('is-primary', () => ctx.actions.board.save(), model.busy ? 'Saving…' : 'Save the name'),
+    ]
+  );
+}
+
+function waitingDialog(ctx, model) {
+  return boardFrame(
+    ctx,
+    'waiting',
+    'Install the waiting update',
+    [
+      h(
+        'p',
+        { key: 'why' },
+        `${model.shown ?? 'Your board'} has an update ready and waits for a person at the board to say yes. ` +
+          'For your safety it takes that answer from the board itself, not from this page.'
+      ),
+      h(
+        'ol',
+        { class: 'cs-steps', key: 'steps' },
+        WAITING_UPDATE_STEPS.map((step, index) => h('li', { key: `step-${index}` }, step))
+      ),
+    ],
+    [
+      h('span', { class: 'dialog-spacer', key: 'spacer' }),
+      button('is-primary', () => ctx.actions.board.close(), 'Got it'),
+    ]
+  );
+}
+
+function boardDialog(ctx) {
+  const model = ctx.state.boardDialog;
+  if (!model || !ctx.state.customer) return null;
+  if (model.kind === 'rename') return renameDialog(ctx, model);
+  if (model.kind === 'waiting') return waitingDialog(ctx, model);
+  return null;
+}
+
+/** An update that waits at the board for a person: what it is, and how to say yes. */
+function waitingCard(ctx, board) {
+  return card(
+    { key: 'waiting', title: 'An update is waiting for you' },
+    h(
+      'p',
+      { class: 'card-note' },
+      'Your board has an update ready. Press Button 1 on the board to install it, or Button 2 to turn it down.'
+    ),
+    h(
+      'div',
+      { class: 'button-row' },
+      button('is-primary', () => ctx.actions.board.waiting(board), icon('download'), 'How to install it')
+    )
   );
 }
 
@@ -804,7 +954,12 @@ export function deviceView(ctx) {
       eyebrow: board.boardName && board.boardName !== board.name ? `Board ${board.boardName}` : 'Board',
       title: boardTitle(board),
       lede: words.text,
-      tools: badge(words.tone, words.icon, words.label),
+      tools: [
+        badge(words.tone, words.icon, words.label),
+        ctx.state.customer
+          ? button('is-small cs-rename', () => ctx.actions.board.rename(board), siteIcon('pencil'), 'Rename')
+          : null,
+      ],
     }),
     problem(detail, 'the board', ctx),
     h(
@@ -813,6 +968,7 @@ export function deviceView(ctx) {
       h(
         'div',
         { class: 'cs-column' },
+        board.update?.state === 'awaiting_user' && ctx.state.customer ? waitingCard(ctx, board) : null,
         board.health
           ? card(
               { key: 'health', title: 'This week' },
@@ -1225,6 +1381,7 @@ export function accountView(ctx) {
         'div',
         { class: 'cs-column is-side' },
         profile.value === null && !profile.error ? loadingLine('your account') : authenticatorCard(ctx),
+        notificationsCard(ctx),
         ctx.state.app ? phoneCard(ctx) : null,
         card(
           { key: 'out', title: 'Sign out' },
@@ -1233,6 +1390,67 @@ export function accountView(ctx) {
         )
       )
     )
+  );
+}
+
+/** Which e-mails the customer wants about their boards: each off until they turn it on. */
+function notificationsCard(ctx) {
+  const { preferences, preferencesSave: save } = ctx.state;
+  if (preferences.value === null) {
+    return card(
+      { key: 'emails', title: 'E-mails about your boards' },
+      preferences.error ? problem(preferences, 'your e-mail choices', ctx) : loadingLine('your e-mail choices')
+    );
+  }
+  const chosen = preferences.value.notifications;
+  return card(
+    { key: 'emails', title: 'E-mails about your boards' },
+    h('p', { class: 'card-note' }, 'Choose what Cranium may e-mail you about. Each is off until you turn it on.'),
+    h(
+      'ul',
+      { class: 'cs-switches' },
+      NOTIFICATION_KINDS.map((kind) =>
+        h(
+          'li',
+          { key: kind, class: 'cs-switch-row' },
+          h(
+            'label',
+            { class: 'cs-switch' },
+            h('input', {
+              id: `email-${kind}`,
+              type: 'checkbox',
+              role: 'switch',
+              checked: chosen[kind] === true,
+              disabled: save.busy,
+              onChange: (event) => ctx.actions.preferences.toggle(kind, event.currentTarget.checked),
+            }),
+            h(
+              'span',
+              { class: 'cs-switch-words' },
+              h('span', { class: 'cs-switch-title' }, NOTIFICATION_WORDS[kind].title),
+              h('span', { class: 'quiet' }, NOTIFICATION_WORDS[kind].text)
+            )
+          )
+        )
+      )
+    ),
+    save.problem
+      ? h('p', { class: 'signin-problem', role: 'alert' }, icon('alert'), h('span', null, save.problem))
+      : null,
+    save.done ? h('p', { class: 'cs-done', role: 'status' }, icon('check'), 'Saved.') : null,
+    preferences.value.emails === 'on'
+      ? null
+      : h(
+          'p',
+          { class: 'cs-note' },
+          icon('send'),
+          h(
+            'span',
+            null,
+            'Your choices are kept. Cranium is still setting up its mail, so no e-mails go out yet; they start ' +
+              'with what you chose here.'
+          )
+        )
   );
 }
 

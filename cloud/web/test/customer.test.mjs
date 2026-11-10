@@ -500,6 +500,8 @@ test("a customer's keys are their own: clearing them leaves the admin's session,
 const BOARD = {
   id: '0123456789abcdef',
   name: 'Living room deck',
+  // The customer's own name for it: none yet.
+  label: null,
   boardName: 'CRADA01',
   status: 'online',
   online: true,
@@ -1094,7 +1096,15 @@ const APP_CONFIG = {
  */
 async function openSite(
   t,
-  { hash = '', status = 'CONFIRMED', app: phone = null, liveUrl = null, WebSocket = null, local = null } = {}
+  {
+    hash = '',
+    status = 'CONFIRMED',
+    app: phone = null,
+    liveUrl = null,
+    WebSocket = null,
+    local = null,
+    board: served = BOARD,
+  } = {}
 ) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   // Node has a WebSocket of its own: a tab never gets it, only the stand-in it is given (docs/live.md).
@@ -1144,6 +1154,10 @@ async function openSite(
   };
   const requests = [];
   const addresses = [];
+  // What the customer changed, as the customer API would keep it (cloud/api/src/customer/app.mjs).
+  let board = { ...served };
+  let choices = { offline: false, updated: false, unexpectedRestart: false };
+  const writes = [];
   async function fetch(address, init = {}) {
     addresses.push(address);
     let url = address;
@@ -1162,13 +1176,32 @@ async function openSite(
     const token = String(init.headers?.authorization ?? '').replace('Bearer ', '');
     if (url.startsWith('/api/c/')) {
       if (customers.session(token) === null) return Response.json({ message: 'Unauthorized' }, { status: 401 });
+      if (url === `/api/c/boards/${BOARD.id}/label` && init.method === 'POST') {
+        const { label } = JSON.parse(init.body);
+        writes.push({ url, body: JSON.parse(init.body), type: init.headers['content-type'] });
+        if (label.length > 40) {
+          return Response.json(
+            { error: { code: 'label_too_long', message: "A board's name is at most 40 characters." } },
+            { status: 400 }
+          );
+        }
+        board = { ...board, label: label || null, name: label || BOARD.name };
+        return Response.json({ board });
+      }
+      if (url === '/api/c/preferences') {
+        if (init.method === 'POST') {
+          writes.push({ url, body: JSON.parse(init.body), type: init.headers['content-type'] });
+          choices = { ...choices, ...JSON.parse(init.body) };
+        }
+        return Response.json({ notifications: choices, emails: 'off' });
+      }
       if (url === '/api/c/me') return Response.json({ email: 'ada@example.invalid', name: 'Ada', boards: 1 });
-      if (url === '/api/c/boards') return Response.json({ boards: [BOARD] });
+      if (url === '/api/c/boards') return Response.json({ boards: [board] });
       if (url === '/api/c/activity')
         return Response.json({
           activity: [{ at: BOARD.lastSeen, board: BOARD.id, kind: 'connection', what: 'connected' }],
         });
-      if (url === `/api/c/boards/${BOARD.id}`) return Response.json({ board: BOARD, activity: [] });
+      if (url === `/api/c/boards/${BOARD.id}`) return Response.json({ board, activity: [] });
       return Response.json(
         { error: { code: 'not_your_board', message: 'There is no board of yours at this address.' } },
         { status: 404 }
@@ -1275,6 +1308,7 @@ async function openSite(
     document,
     location,
     stored,
+    writes,
     requests,
     addresses,
     appCalls,
@@ -1926,4 +1960,98 @@ test("About: the team's photos are the folder's, small, and a person without one
   // Every founder's photo has a name the folder can hold.
   const views = await import(SITE_VIEWS);
   for (const [, photo] of views.TEAM) assert.match(`${photo}.webp`, /^[a-z]+(?:-[a-z]+)+\.webp$/);
+});
+
+// A customer's changes (docs/customer-site.md, "Customer actions").
+
+test('Rename: a dialog with a label, the name as typed, saved to the API and shown at once; too long is refused', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  tab.go(`#/devices/${BOARD.id}`);
+  await until(() => /How it is/.test(tab.text()), 'the board');
+  assert.equal(all(tab.app, 'dialog').length, 0);
+  click(all(tab.app, 'button').find((button) => /Rename/.test(textOf(button))));
+  await until(() => tab.document.getElementById('board-name') !== null, 'the rename dialog');
+  const dialog = one(tab.app, 'dialog');
+  assert.equal(dialog.getAttribute('aria-labelledby'), 'board-dialog-title');
+  assert.match(textOf(dialog), /Rename this board/);
+  const input = tab.document.getElementById('board-name');
+  assert.equal(input.parentNode.localName, 'label', 'the field has a label');
+  assert.equal(input.getAttribute('aria-describedby'), 'board-name-hint');
+
+  // Too long: said before anything is sent.
+  await tab.type('board-name', 'x'.repeat(41));
+  assert.match(textOf(one(tab.app, 'dialog')), /1 characters too many\./);
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'Save the name'));
+  await settle();
+  assert.match(textOf(one(tab.app, 'dialog')), /At most 40 characters\./);
+  assert.equal(tab.writes.length, 0);
+
+  await tab.type('board-name', '  Kitchen deck ');
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'Save the name'));
+  await until(() => all(tab.app, 'dialog').length === 0, 'the dialog to close');
+  assert.deepEqual(tab.writes, [
+    { url: `/api/c/boards/${BOARD.id}/label`, body: { label: 'Kitchen deck' }, type: 'application/json' },
+  ]);
+  assert.equal(one(tab.app, 'h1').textContent ?? textOf(one(tab.app, 'h1')), 'Kitchen deck');
+  assert.ok(tab.requests.includes(`POST /api/c/boards/${BOARD.id}/label`));
+  // Cancel closes it and sends nothing.
+  click(all(tab.app, 'button').find((button) => /Rename/.test(textOf(button))));
+  await until(() => tab.document.getElementById('board-name') !== null, 'the dialog again');
+  assert.equal(tab.document.getElementById('board-name').value, 'Kitchen deck');
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'Cancel'));
+  await until(() => all(tab.app, 'dialog').length === 0, 'the dialog to close');
+  assert.equal(tab.writes.length, 1);
+});
+
+test('a waiting update: the board page says how to install it at the board, and offers no button that would', async (t) => {
+  const tab = await openSite(t, {
+    board: { ...BOARD, update: { state: 'awaiting_user', progress: 0, last: 'succeeded' } },
+  });
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  tab.go(`#/devices/${BOARD.id}`);
+  await until(() => /An update is waiting for you/.test(tab.text()), 'the waiting card');
+  assert.match(tab.text(), /Press Button 1 on the board to install it, or Button 2 to turn it down\./);
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'How to install it'));
+  await until(() => all(tab.app, 'dialog').length === 1, 'the instructions');
+  const text = textOf(one(tab.app, 'dialog'));
+  assert.match(text, /Install the waiting update/);
+  assert.match(text, /Press Button 1 on the board/);
+  assert.match(text, /over Bluetooth with the phone app/);
+  assert.equal(
+    all(one(tab.app, 'dialog'), 'button').some((button) => /^(Install|Accept|Approve)/.test(textOf(button))),
+    false
+  );
+  click(all(tab.app, 'button').find((button) => textOf(button) === 'Got it'));
+  await until(() => all(tab.app, 'dialog').length === 0, 'the dialog to close');
+  assert.equal(tab.writes.length, 0);
+  assert.equal(
+    tab.requests.some((request) => request.startsWith('POST /api/')),
+    false
+  );
+});
+
+test('E-mails: three switches on the account page, off until turned on, each saved as it is turned', async (t) => {
+  const tab = await openSite(t);
+  await signInAsCustomer(tab);
+  await until(() => /Hello, Ada\./.test(tab.text()), 'the overview');
+  tab.go('#/account');
+  await until(() => tab.document.getElementById('email-offline') !== null, 'the e-mails card');
+  assert.match(tab.text(), /E-mails about your boards/);
+  assert.match(tab.text(), /no e-mails go out yet/);
+  for (const kind of ['offline', 'updated', 'unexpectedRestart']) {
+    const box = tab.document.getElementById(`email-${kind}`);
+    assert.equal(box.checked, false, kind);
+    assert.equal(box.getAttribute('role'), 'switch');
+    assert.equal(box.parentNode.localName, 'label');
+  }
+  // As a browser does: the box is ticked, then its change is told.
+  tab.document.getElementById('email-offline').checked = true;
+  click(tab.document.getElementById('email-offline'));
+  await until(() => /Saved\./.test(tab.text()), 'the save');
+  assert.deepEqual(tab.writes, [{ url: '/api/c/preferences', body: { offline: true }, type: 'application/json' }]);
+  assert.equal(tab.document.getElementById('email-offline').checked, true);
+  assert.equal(tab.document.getElementById('email-updated').checked, false);
 });

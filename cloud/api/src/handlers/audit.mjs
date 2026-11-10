@@ -13,10 +13,25 @@
  *        a page. `read` is how many it read; `next` continues where it stopped, also when it stopped
  *        for the budget with fewer than a page found. `q` is looked for in the target, the e-mail
  *        address and the request id.
+ *
+ * Both read the console's partition (AUD) and what customers did on the customer site (CUS, written by
+ * the customer API, lib/audit.mjs), merged newest first: an entry of a customer carries `by: "customer"`.
+ * A search for actions of one partition only reads that one.
  */
 
 import { badRequest, describeError, field } from '../http.mjs';
-import { ACTIONS, OUTCOMES, auditDigest, auditItem, decodeCursor, encodeCursor, entryFromItem } from '../lib/audit.mjs';
+import {
+  ACTIONS,
+  AUDIT_PK,
+  CUSTOMER_ACTIONS,
+  CUSTOMER_ACTIONS_PK,
+  OUTCOMES,
+  auditDigest,
+  auditItem,
+  decodeCursor,
+  encodeCursor,
+  entryFromItem,
+} from '../lib/audit.mjs';
 import {
   requireActions,
   requireAuditRange,
@@ -31,6 +46,17 @@ export const SEARCH_BUDGET = 1000;
 const TOP = '~';
 const BOTTOM = '0';
 
+const newestFirst = (a, b) => (a.sk < b.sk ? 1 : a.sk > b.sk ? -1 : 0);
+
+/** The partitions that can hold an entry of these actions (null: any action). */
+function partitionsFor(actions) {
+  if (actions === null) return [AUDIT_PK, CUSTOMER_ACTIONS_PK];
+  const parts = [];
+  if (actions.some((action) => !CUSTOMER_ACTIONS.includes(action))) parts.push(AUDIT_PK);
+  if (actions.some((action) => CUSTOMER_ACTIONS.includes(action))) parts.push(CUSTOMER_ACTIONS_PK);
+  return parts;
+}
+
 export function createAuditHandlers({ aws, log }) {
   /** A page of the entries that match: a Query between the two times, below the cursor, of a bounded read. */
   async function search({ before, limit, actions, outcomes, text, fromMs, toMs }) {
@@ -38,13 +64,35 @@ export function createAuditHandlers({ aws, log }) {
     let high = toMs === null ? TOP : `${new Date(toMs).toISOString()}#${TOP}`;
     if (before !== null && before < high) high = before;
     if (low > high) return { entries: [], next: null, read: 0 };
-    const found = await aws.searchAudit({ low, high, before, actions, outcomes, text, limit, budget: SEARCH_BUDGET });
-    const page = found.items.slice(0, limit);
+    const results = await Promise.all(
+      partitionsFor(actions).map((partition) =>
+        aws.searchAudit({ low, high, before, actions, outcomes, text, limit, budget: SEARCH_BUDGET, partition })
+      )
+    );
+    // Each partition is known down to a key: the one past its page, or where its budget ran out. Of
+    // the entries found, only those at or above the highest of these keys are certain to be in order.
+    let frontier = null;
+    for (const found of results) {
+      let known = null;
+      if (found.items.length > limit && typeof found.items[found.items.length - 1]?.sk === 'string') {
+        known = found.items[found.items.length - 1].sk;
+      } else if (typeof found.next === 'string') known = found.next;
+      if (known !== null && (frontier === null || known > frontier)) frontier = known;
+    }
+    const merged = results
+      .flatMap((found) => found.items)
+      .filter((item) => typeof item?.sk === 'string' && (frontier === null || item.sk >= frontier))
+      .sort(newestFirst);
+    const page = merged.slice(0, limit);
     const last = page[page.length - 1];
     let next = null;
-    if (found.items.length > limit && typeof last?.sk === 'string') next = encodeCursor(last.sk);
-    else if (typeof found.next === 'string') next = encodeCursor(found.next);
-    return { entries: page.map(entryFromItem).filter((entry) => entry !== null), next, read: found.read };
+    if (merged.length > limit && typeof last?.sk === 'string') next = encodeCursor(last.sk);
+    else if (frontier !== null) next = encodeCursor(frontier);
+    return {
+      entries: page.map(entryFromItem).filter((entry) => entry !== null),
+      next,
+      read: results.reduce((sum, found) => sum + found.read, 0),
+    };
   }
 
   return {
@@ -139,8 +187,14 @@ export function createAuditHandlers({ aws, log }) {
       if (actions !== null || outcomes !== null || text !== null || fromMs !== null || toMs !== null) {
         return { body: await search({ before, limit, actions, outcomes, text, fromMs, toMs }) };
       }
-      // One more than the page, to know whether another page follows.
-      const items = await aws.queryAudit({ before, limit: limit + 1 });
+      // One more than the page, to know whether another page follows: of each partition, then of both.
+      const parts = await Promise.all(
+        [AUDIT_PK, CUSTOMER_ACTIONS_PK].map((partition) => aws.queryAudit({ before, limit: limit + 1, partition }))
+      );
+      const items = parts
+        .flat()
+        .sort(newestFirst)
+        .slice(0, limit + 1);
       const page = items.slice(0, limit);
       const last = page[page.length - 1];
       return {

@@ -585,13 +585,14 @@ test('the template sends what no route claims to the web function, and opens not
   assert.deepEqual(guarded.map(keyOf).sort(), [
     'GET /api/c/{proxy+}',
     'GET /api/{proxy+}',
+    'POST /api/c/{proxy+}',
     'POST /api/{proxy+}',
     'PUT /api/{proxy+}',
   ]);
   for (const text of guarded) {
     assert.ok(text.includes('AuthorizationType: JWT'), keyOf(text));
     // The customer site's API is a function of its own, behind an authorizer of its own (docs/customer-site.md).
-    const customer = keyOf(text) === 'GET /api/c/{proxy+}';
+    const customer = keyOf(text).includes(' /api/c/');
     assert.ok(
       text.includes(customer ? 'integrations/${CustomerApiIntegration}' : 'integrations/${ApiIntegration}'),
       keyOf(text)

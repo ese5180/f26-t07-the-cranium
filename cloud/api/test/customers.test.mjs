@@ -531,6 +531,7 @@ test('the customer API needs all of its settings, and the console only the pool 
     AWS_REGION: 'us-east-1',
     STATE_TABLE: 'local-state',
     EVENTS_TABLE: 'local-events',
+    AUDIT_TABLE: 'local-audit',
     CUSTOMER_POOL_ID: CUSTOMER_POOL_ID,
     CUSTOMER_CLIENT_ID: CUSTOMER_CLIENT_ID,
     CUSTOMER_MOBILE_CLIENT_ID: CUSTOMER_MOBILE_CLIENT_ID,

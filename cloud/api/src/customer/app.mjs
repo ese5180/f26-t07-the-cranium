@@ -1,49 +1,79 @@
 /**
- * The customer API (CustomerApiFn): what the customer site reads about a customer's own boards.
- * docs/customer-site.md describes the site; this is its API, apart from the console's in every
- * way that counts:
+ * The customer API (CustomerApiFn): what the customer site reads about a customer's own boards, and
+ * the few things a customer may change. docs/customer-site.md describes the site; this is its API,
+ * apart from the console's in every way that counts:
  *
  *   - Its own function and role. The role may read the shadows of the boards, the events table,
- *     the ownership partition of the state table and the customer pool's users, and nothing else:
- *     no firmware, no deployments, no activity log, no staff accounts (infra/template.yaml).
- *   - Its own route, GET /api/c/{proxy+}, behind its own authorizer, whose issuer is the customer
- *     pool and whose audience is the customer site's client and the phone apps' client of the
- *     customer pool (docs/mobile-apps.md, "Customers"). The console's authorizer keeps the
+ *     the ownership partition of the state table and the customer pool's users; it may update an
+ *     ownership item and a customer's preferences item, and put and read entries of the customers'
+ *     partition of the audit table. Nothing else: no firmware, no deployments, no console entries,
+ *     no staff accounts (infra/template.yaml).
+ *   - Its own routes, GET and POST /api/c/{proxy+}, behind its own authorizer, whose issuer is the
+ *     customer pool and whose audience is the customer site's client and the phone apps' client of
+ *     the customer pool (docs/mobile-apps.md, "Customers"). The console's authorizer keeps the
  *     staff pool and the staff clients, so a customer's token is refused there, and a staff
  *     token here, by the gateway before any code runs. This function checks it all again.
- *   - Read only. A customer changes nothing through it: their password and their authenticator
- *     app are between them and Cognito, and an update is for an admin to send.
+ *   - Mostly read only. A customer may give a board of theirs a name of their own and choose which
+ *     e-mails they want; their password and their authenticator app are between them and Cognito,
+ *     and an update is for an admin to send. An update that waits at a board for a person (the
+ *     step awaiting_user) cannot be accepted from here: the firmware takes that from Button 1 only,
+ *     and no command or shadow field of the cloud reaches it (docs/customer-site.md, "Customer actions").
  *
  * Every request:
  *
  *   1. the token: an access token of the customer site's client or of the phone apps' client,
  *      issued by the customer pool                                                         (401)
- *   2. the account, asked of Cognito: enabled and confirmed. The answer is kept for a minute,
- *      so a disabled customer stops reading within a minute; when Cognito cannot be asked and
- *      there is no answer from the last minute, the request fails                          (403, 503)
+ *   2. the account, asked of Cognito: enabled and confirmed. For a read the answer is kept for a
+ *      minute, so a disabled customer stops reading within a minute; a write always asks again.
+ *      When Cognito cannot be asked and there is no answer to use, the request fails      (403, 503)
  *   3. the route                                                                            (404)
- *   4. ownership: a board is found by its assignment id among the boards this customer owns
+ *   4. a write only: at most WRITES_PER_MINUTE a minute and WRITES_PER_HOUR an hour per customer,
+ *      counted from their entries in the customers' partition of the audit table, so that it holds
+ *      across every instance of the function; one over is refused and leaves no entry   (429)
+ *   5. ownership: a board is found by its assignment id among the boards this customer owns
  *      now, never by its thing name. Another customer's board is as unknown as one that does
  *      not exist                                                                           (404)
  *
  * Routes:
  *
- *   GET /api/c/me                 -> { email, name, boards }
- *   GET /api/c/boards             -> { boards: [Board], generatedAt }      each with its health
- *   GET /api/c/boards/{id}        -> { board: Board, activity: [Event] }   the last 30 days
- *   GET /api/c/activity           -> { activity: [Event] }                 every board, the last 7 days
+ *   GET  /api/c/me                  -> { email, name, boards }
+ *   GET  /api/c/boards              -> { boards: [Board], generatedAt }      each with its health
+ *   GET  /api/c/boards/{id}         -> { board: Board, activity: [Event] }   the last 30 days
+ *   GET  /api/c/activity            -> { activity: [Event] }                 every board, the last 7 days
+ *   GET  /api/c/preferences         -> Preferences
+ *   POST /api/c/boards/{id}/label   { label }  -> { board: Board }           customer_action.rename
+ *        the customer's own name for the board, 1 to LABEL_LIMIT characters; "" takes it away
+ *   POST /api/c/preferences         { offline?, updated?, unexpectedRestart? } -> Preferences
+ *                                                                             customer_action.notifications
  *
- * Board and Event are customer/boards.mjs. Nothing here is written to the activity log: a
- * customer's reads change nothing, and the log is the console's record of what staff did.
+ * Preferences: { notifications: { offline, updated, unexpectedRestart }, emails: "on" | "off" }, each
+ * false until the customer turns it on; `emails` says whether Cranium sends them yet (customer/notify.mjs).
+ *
+ * Board and Event are customer/boards.mjs. A read changes nothing and leaves no entry. Every write that
+ * passes steps 1 to 4 leaves exactly one entry, whatever happened to it, in the audit table's partition
+ * CUS (lib/audit.mjs), with `by: "customer"` and the customer's sub, never their e-mail address: the
+ * console's activity log shows it as done by a customer. Its digest is logged here, as the console does.
  */
 
 import { randomBytes } from 'node:crypto';
 
-import { HttpError, describeError, errorResponse, forbidden, json, notFound } from '../http.mjs';
+import {
+  HttpError,
+  badRequest,
+  describeError,
+  errorResponse,
+  field,
+  forbidden,
+  json,
+  notFound,
+  readJsonObject,
+} from '../http.mjs';
+import { auditDigest, auditItem } from '../lib/audit.mjs';
 import { eventFromItem, eventRange } from '../lib/events.mjs';
 import { deviceFromShadow, unknownDevice } from '../lib/shadow.mjs';
-import { CUSTOMER_KINDS, REF, boardStatus, customerBoard, customerEvent } from './boards.mjs';
+import { CUSTOMER_KINDS, LABEL_LIMIT, REF, boardStatus, customerBoard, customerEvent } from './boards.mjs';
 import { HEALTH_DAYS, HEALTH_EVENTS, HEALTH_KINDS, boardHealth } from './health.mjs';
+import { CUSTOMER_EMAILS_ENABLED, NOTIFICATION_KINDS, preferencesOf } from './notify.mjs';
 
 const SUB = /^[A-Za-z0-9_.:-]{1,128}$/;
 const MAX_PATH = 256;
@@ -59,6 +89,17 @@ const REQUEST_BUDGET_MS = 8_000;
 // A board's events for its health are kept this long: a restart shows within a minute.
 const HEALTH_CACHE_MS = 60_000;
 const KEPT_HEALTH = 512;
+// What a customer may change, and how often (step 4).
+export const WRITES_PER_MINUTE = 10;
+export const WRITES_PER_HOUR = 60;
+const MINUTE_MS = 60_000;
+const HOUR_MS = 3_600_000;
+// A write's body is a few fields: anything longer is not one.
+const WRITE_BODY_LIMIT = 1024;
+// The letters a board's name may have: what the site shows (customer-core.js), with no control,
+// format or invisible character, and no space at either end.
+const LABEL_TEXT = /^[\x20-\x7e\u00a0-\u024f]+$/u;
+const WRITES = Object.freeze({ rename: 'customer_action.rename', preferences: 'customer_action.notifications' });
 
 const unauthorized = () => new HttpError(401, 'unauthorized', 'Sign in to see your boards.');
 const unknownBoard = () => notFound('not_your_board', 'There is no board of yours at this address.');
@@ -100,8 +141,17 @@ function pathSegments(event) {
 }
 
 function routeOf(method, segments) {
-  if (method !== 'GET' || segments === null || segments[0] !== 'api' || segments[1] !== 'c') return null;
+  if (segments === null || segments[0] !== 'api' || segments[1] !== 'c') return null;
   const rest = segments.slice(2);
+  if (method === 'POST') {
+    if (rest.length === 3 && rest[0] === 'boards' && rest[1] !== '' && rest[2] === 'label') {
+      return { name: 'rename', id: rest[1], write: true };
+    }
+    if (rest.length === 1 && rest[0] === 'preferences') return { name: 'preferences', write: true };
+    return null;
+  }
+  if (method !== 'GET') return null;
+  if (rest.length === 1 && rest[0] === 'preferences') return { name: 'preferences.read' };
   if (rest.length === 1 && rest[0] === 'me') return { name: 'me' };
   if (rest.length === 1 && rest[0] === 'boards') return { name: 'boards' };
   if (rest.length === 1 && rest[0] === 'activity') return { name: 'activity' };
@@ -131,9 +181,9 @@ export function createCustomerApp({
   const healthEvents = new Map();
 
   /** Step 2: the account, as Cognito says it is now or said it was in the last minute. */
-  async function liveCustomer(sub, requestId) {
+  async function liveCustomer(sub, requestId, { fresh = false } = {}) {
     let known = answers.get(sub);
-    if (known === undefined || now() - known.at >= LIVE_CHECK_MS) {
+    if (fresh || known === undefined || now() - known.at >= LIVE_CHECK_MS) {
       try {
         const customer = await aws.getCustomer(sub);
         const active = customer !== null && customer.enabled === true && customer.status === 'CONFIRMED';
@@ -233,8 +283,152 @@ export function createCustomerApp({
       .slice(0, limit);
   }
 
+  /** A customer's choices of e-mails, as the API answers them. */
+  async function preferencesReply(sub) {
+    return {
+      notifications: preferencesOf(await aws.getPreferences(sub)),
+      emails: CUSTOMER_EMAILS_ENABLED ? 'on' : 'off',
+    };
+  }
+
+  /** Step 4: refused with 429 when this customer changed too much lately. */
+  async function withinWriteLimits(sub, requestId) {
+    let recent;
+    try {
+      // The hour and the minute up to now: an entry exactly an hour (or a minute) old has left them.
+      recent = await aws.recentCustomerActions({ sub, since: new Date(now() - HOUR_MS + 1).toISOString() });
+    } catch (error) {
+      log({ level: 'warn', event: 'write_count_failed', requestId, sub, error: describeError(error) });
+      throw new HttpError(503, 'unavailable', 'That could not be saved just now. Try again in a minute.');
+    }
+    const minuteAgo = new Date(now() - MINUTE_MS + 1).toISOString();
+    if (recent.length >= WRITES_PER_HOUR || recent.filter((key) => key >= minuteAgo).length >= WRITES_PER_MINUTE) {
+      throw new HttpError(429, 'too_many_changes', 'That is a lot of changes at once. Wait a minute, then try again.');
+    }
+  }
+
+  /** The customer's own name for a board, checked: '' takes it away. */
+  function requireLabel(value) {
+    if (typeof value !== 'string') throw badRequest('invalid_label', 'Give the board a name, or leave it empty.');
+    const label = value.trim();
+    if ([...label].length > LABEL_LIMIT) {
+      throw badRequest('label_too_long', `A board's name is at most ${LABEL_LIMIT} characters.`);
+    }
+    if (label !== '' && !LABEL_TEXT.test(label)) {
+      throw badRequest('invalid_label', 'Use letters, numbers, spaces and punctuation only.');
+    }
+    return label;
+  }
+
+  async function rename(route, sub, body, entry) {
+    const label = requireLabel(field(body, 'label'));
+    for (const name of Object.keys(body)) {
+      if (name !== 'label') throw badRequest('unknown_field', "Only the board's name can be changed here.");
+    }
+    entry.detail.label = label;
+    if (!REF.test(route.id)) throw unknownBoard();
+    entry.detail.board = route.id;
+    const found = (await ownedBoards(sub)).find(({ ownership }) => ownership.ref === route.id);
+    if (found === undefined) throw unknownBoard();
+    entry.target = found.ownership.thing;
+    const before = found.ownership.customerLabel || null;
+    const done = await aws.setCustomerLabel({
+      thing: found.ownership.thing,
+      owner: sub,
+      ref: found.ownership.ref,
+      label,
+      at: new Date(now()).toISOString(),
+    });
+    // Taken back or given to someone else since it was read: no longer theirs.
+    if (!done.ok) throw unknownBoard();
+    entry.changes.push({ field: 'label', from: before, to: label || null });
+    const ownership = { ...found.ownership, customerLabel: label };
+    const [board] = await shownBoards([{ ownership, device: found.device }]);
+    return { board };
+  }
+
+  async function choose(sub, body, entry) {
+    const given = {};
+    for (const name of Object.keys(body)) {
+      if (!NOTIFICATION_KINDS.includes(name)) {
+        throw badRequest('unknown_field', 'Only offline, updated and unexpectedRestart can be chosen.');
+      }
+      if (typeof body[name] !== 'boolean') throw badRequest('invalid_choice', `"${name}" must be true or false.`);
+      given[name] = body[name];
+    }
+    if (Object.keys(given).length === 0)
+      throw badRequest('nothing_chosen', 'Choose at least one e-mail to turn on or off.');
+    const before = preferencesOf(await aws.getPreferences(sub));
+    const after = { ...before, ...given };
+    for (const name of NOTIFICATION_KINDS) {
+      entry.detail[name] = after[name];
+      if (before[name] !== after[name]) {
+        entry.changes.push({ field: name, from: before[name] ? 'on' : 'off', to: after[name] ? 'on' : 'off' });
+      }
+    }
+    await aws.setPreferences(sub, after, new Date(now()).toISOString());
+    return preferencesReply(sub);
+  }
+
+  /** Store the entry of one write. Never throws: a write that could not be recorded is logged. */
+  async function recordAction(entry) {
+    try {
+      const item = { ...auditItem(entry), by: 'customer' };
+      const stored = await aws.putCustomerAction(item);
+      if (!stored.ok) throw new Error('an entry with this time and request id exists');
+      log({
+        event: 'audit_entry',
+        requestId: item.requestId,
+        sub: item.actor.sub,
+        action: item.action,
+        outcome: item.outcome,
+        digest: auditDigest(item),
+      });
+    } catch (error) {
+      log({
+        level: 'error',
+        event: 'audit_write_failed',
+        requestId: entry.requestId,
+        action: entry.action,
+        outcome: entry.outcome,
+        error: describeError(error),
+      });
+    }
+  }
+
+  /** Steps 4 and 5 of a write, and its entry. */
+  async function write(route, sub, event, requestId) {
+    await withinWriteLimits(sub, requestId);
+    const entry = {
+      at: now(),
+      requestId,
+      actor: { sub, email: '' },
+      action: WRITES[route.name],
+      target: '',
+      outcome: 'error',
+      detail: {},
+      changes: [],
+    };
+    try {
+      const body = readJsonObject(event, WRITE_BODY_LIMIT);
+      const result = route.name === 'rename' ? await rename(route, sub, body, entry) : await choose(sub, body, entry);
+      entry.outcome = 'ok';
+      return result;
+    } catch (error) {
+      if (error instanceof HttpError && error.status < 500) {
+        entry.outcome = error.status === 404 ? 'denied' : 'rejected';
+        entry.detail.code = error.code;
+      }
+      throw error;
+    } finally {
+      await recordAction(entry);
+    }
+  }
+
   async function run(route, customer, sub) {
     switch (route.name) {
+      case 'preferences.read':
+        return preferencesReply(sub);
       case 'me': {
         const owned = (await aws.listOwnership()).filter((item) => item.owner === sub);
         return { email: customer.email, name: customer.name, boards: owned.length };
@@ -293,8 +487,10 @@ export function createCustomerApp({
     try {
       const body = await withinBudget(async () => {
         ({ sub, client } = authenticateCustomer(event, config));
-        const customer = await liveCustomer(sub, requestId);
+        // A write asks Cognito again, whatever it said a moment ago.
+        const customer = await liveCustomer(sub, requestId, { fresh: route?.write === true });
         if (route === null) throw notFound('not_found', 'There is nothing at this address.');
+        if (route.write === true) return write(route, sub, event, requestId);
         return run(route, customer, sub);
       });
       response = json(200, body);

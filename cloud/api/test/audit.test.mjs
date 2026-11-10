@@ -164,6 +164,8 @@ test('an audit item carries who, what, when and how it ended', () => {
     'device.register',
     'setup.wifi_defaults',
     'db.export',
+    'customer_action.rename',
+    'customer_action.notifications',
   ]);
   assert.deepEqual(OUTCOMES, ['ok', 'rejected', 'denied', 'error']);
 });
@@ -690,7 +692,14 @@ test('the page size and the cursor are validated', async () => {
     query: { before: cursor, limit: '5', other: 'ignored' },
   });
   assert.deepEqual(response.body, { entries: [], next: null });
-  assert.deepEqual(fake.calls.at(-1).args[0], { before: '2026-10-10T22:15:00.000Z#r1', limit: 6 });
+  // Both partitions: the console's own, and what customers did on the customer site.
+  assert.deepEqual(
+    fake.calls.filter((entry) => entry.method === 'queryAudit').map((entry) => entry.args[0]),
+    [
+      { before: '2026-10-10T22:15:00.000Z#r1', limit: 6, partition: 'AUD' },
+      { before: '2026-10-10T22:15:00.000Z#r1', limit: 6, partition: 'CUS' },
+    ]
+  );
 });
 
 test('items in the table that are not entries are skipped, not shown', async () => {

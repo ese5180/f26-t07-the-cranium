@@ -2463,8 +2463,9 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
     sdk.reset();
     sdk.reply('ListThingsInThingGroupCommand', { things: [THING] });
     sdk.reply('GetThingShadowCommand', fails('ResourceNotFoundException', { status: 404 }));
-    // The positions of the boards (src/aws-map.mjs), and what the board that never reported is.
-    sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] });
+    // The positions of the boards (src/aws-map.mjs), what the board that never reported is, and the
+    // activity log's two partitions: the console's and the customers'.
+    sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] });
     sdk.reply('DescribeThingCommand', { attributes: {} });
     sdk.reply('ListJobsCommand', { jobs: [] });
     sdk.reply('AdminGetUserCommand', {
@@ -2520,11 +2521,19 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       'QueryCommand',
       'ListJobsCommand',
       'QueryCommand',
+      'QueryCommand',
     ]
   );
   assert.deepEqual(
     sdk.inputs('QueryCommand').map((input) => input.TableName),
-    ['local-events', 'local-state', 'local-audit']
+    ['local-events', 'local-state', 'local-audit', 'local-audit']
+  );
+  assert.deepEqual(
+    sdk
+      .inputs('QueryCommand')
+      .slice(2)
+      .map((input) => input.ExpressionAttributeValues[':pk'].S),
+    ['AUD', 'CUS']
   );
   assert.deepEqual(sdk.inputs('ListThingsInThingGroupCommand')[0].thingGroupName, 'cranium-devices');
   assert.deepEqual(
@@ -2693,7 +2702,7 @@ test('setReleaseNotes changes the note of a registered release and nothing else'
 
 // The customer site's adapters (src/customer/aws.mjs), held to the same reference.
 
-const { createBoardReader, createCustomerStore } = await import('../src/customer/aws.mjs');
+const { createBoardReader, createCustomerActionLog, createCustomerStore } = await import('../src/customer/aws.mjs');
 const { createFakeCustomers } = await import('./fake-customers.mjs');
 const CUSTOMER_ENV = Object.freeze({ ...ENV, CUSTOMER_POOL_ID: 'eu-west-1_Customers' });
 const CUSTOMER_SUB = '7ec17d2e-9ee4-4734-8901-33c8fec73372';
@@ -2973,6 +2982,86 @@ test('who owns which board: one owner, conditional writes, and the fake agrees w
   );
 });
 
+test("a customer's own name for a board and their e-mails: conditional on the owner and the id, and the fake agrees", async () => {
+  sdk.reset();
+  const store = createCustomerStore(CUSTOMER_ENV);
+  const fake = createFakeCustomers({ now: () => T0 });
+  const at = new Date(T0).toISOString();
+  const ref = '0123456789abcdef';
+  await fake.assignBoard({ thing: THING, owner: CUSTOMER_SUB, ref, label: 'Deck', at, by: 'admin' });
+
+  sdk.reply('UpdateItemCommand', {}, fails('ConditionalCheckFailedException'), {});
+  const named = { thing: THING, owner: CUSTOMER_SUB, ref, label: 'Kitchen', at };
+  assert.deepEqual(await store.setCustomerLabel(named), await fake.setCustomerLabel(named));
+  const other = { ...named, ref: 'fedcba9876543210' };
+  assert.deepEqual(await store.setCustomerLabel(other), await fake.setCustomerLabel(other));
+  assert.deepEqual(await store.setCustomerLabel({ ...named, label: '' }), { ok: true });
+  const [set, , cleared] = sdk.inputs('UpdateItemCommand');
+  assert.equal(set.TableName, 'state-table');
+  assert.deepEqual(set.Key, { pk: { S: 'OWN' }, sk: { S: THING } });
+  assert.equal(set.ConditionExpression, '#owner = :owner AND #ref = :ref');
+  assert.equal(set.UpdateExpression, 'SET #customerLabel = :label, #labelledAt = :at');
+  assert.deepEqual(set.ExpressionAttributeValues[':label'], { S: 'Kitchen' });
+  assert.equal(cleared.UpdateExpression, 'REMOVE #customerLabel SET #labelledAt = :at');
+  // Never the owner, the id, the admin's label or the thing name.
+  for (const update of [set, cleared]) {
+    assert.doesNotMatch(update.UpdateExpression, /#owner =|#ref =|#label\b|#sk/);
+  }
+
+  sdk.reply('GetItemCommand', {}, { Item: { pk: { S: 'PRF' }, sk: { S: CUSTOMER_SUB }, offline: { BOOL: true } } });
+  assert.equal(await store.getPreferences(CUSTOMER_SUB), null);
+  assert.deepEqual(await store.getPreferences(CUSTOMER_SUB), {
+    offline: true,
+    updated: false,
+    unexpectedRestart: false,
+    updatedAt: null,
+  });
+  assert.deepEqual(sdk.inputs('GetItemCommand')[0].Key, { pk: { S: 'PRF' }, sk: { S: CUSTOMER_SUB } });
+  sdk.reply('UpdateItemCommand', {});
+  const choice = { offline: true, updated: false, unexpectedRestart: true };
+  assert.deepEqual(
+    await store.setPreferences(CUSTOMER_SUB, choice, at),
+    await fake.setPreferences(CUSTOMER_SUB, choice, at)
+  );
+  const prefs = sdk.inputs('UpdateItemCommand').at(-1);
+  assert.deepEqual(prefs.Key, { pk: { S: 'PRF' }, sk: { S: CUSTOMER_SUB } });
+  assert.deepEqual(prefs.ExpressionAttributeValues[':restart'], { BOOL: true });
+  assert.equal(
+    sdk.sent.some((entry) => /Delete|PutItem/.test(entry.command)),
+    false
+  );
+});
+
+test("the customer API's record of what customers did: their partition only, never over an entry", async () => {
+  sdk.reset();
+  assert.throws(() => createCustomerActionLog({ AWS_REGION: 'eu-west-1' }), /AUDIT_TABLE/);
+  const log = createCustomerActionLog({ AWS_REGION: 'eu-west-1', AUDIT_TABLE: 'audit-table' });
+  assert.deepEqual(Object.keys(log).sort(), ['putCustomerAction', 'recentCustomerActions']);
+  sdk.reply('PutItemCommand', {}, fails('ConditionalCheckFailedException'));
+  const item = { sk: '2026-11-09T12:00:00.000Z#r1', action: 'customer_action.rename', by: 'customer' };
+  assert.deepEqual(await log.putCustomerAction(item), { ok: true });
+  assert.deepEqual(await log.putCustomerAction(item), { ok: false, reason: 'exists' });
+  const put = sdk.inputs('PutItemCommand')[0];
+  assert.equal(put.TableName, 'audit-table');
+  assert.deepEqual(put.Item.pk, { S: 'CUS' });
+  assert.equal(put.ConditionExpression, 'attribute_not_exists(#pk)');
+
+  sdk.reply(
+    'QueryCommand',
+    { Items: [{ sk: { S: '2026-11-09T12:00:00.000Z#r1' } }], LastEvaluatedKey: { pk: { S: 'CUS' }, sk: { S: 'x' } } },
+    { Items: [{ sk: { S: '2026-11-09T12:00:01.000Z#r2' } }] }
+  );
+  assert.deepEqual(await log.recentCustomerActions({ sub: CUSTOMER_SUB, since: '2026-11-09T11:00:00.000Z' }), [
+    '2026-11-09T12:00:00.000Z#r1',
+    '2026-11-09T12:00:01.000Z#r2',
+  ]);
+  const query = sdk.inputs('QueryCommand')[0];
+  assert.equal(query.KeyConditionExpression, '#pk = :pk AND #sk >= :since');
+  assert.deepEqual(query.ExpressionAttributeValues[':pk'], { S: 'CUS' });
+  assert.deepEqual(query.ExpressionAttributeValues[':sub'], { S: CUSTOMER_SUB });
+  assert.equal(query.FilterExpression, '#actor.#sub = :sub');
+});
+
 test("the customer API's board reader reads a shadow and a board's events, and nothing else", async () => {
   sdk.reset();
   const reader = createBoardReader({ AWS_REGION: 'eu-west-1', EVENTS_TABLE: 'events-table' });
@@ -3005,6 +3094,7 @@ test("the customer API's Lambda entry point starts with its own settings, and tu
     AWS_REGION: 'eu-west-1',
     STATE_TABLE: 'state-table',
     EVENTS_TABLE: 'events-table',
+    AUDIT_TABLE: 'audit-table',
     CUSTOMER_POOL_ID: 'eu-west-1_Customers',
     CUSTOMER_CLIENT_ID: 'customerclient',
     CUSTOMER_MOBILE_CLIENT_ID: 'customerphone',

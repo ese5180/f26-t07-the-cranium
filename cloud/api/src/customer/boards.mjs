@@ -32,14 +32,17 @@ export function boardStatus(device) {
  * A board as its owner sees it.
  *
  * @param {object} device     a Device from lib/shadow.mjs
- * @param {object} ownership  { ref, label, assignedAt } from the ownership partition
+ * @param {object} ownership  { ref, label, customerLabel, assignedAt } from the ownership partition
  * @param {object} [health]   customer/health.mjs boardHealth, else null
  */
 export function customerBoard(device, ownership, health = null) {
   return {
     id: ownership.ref,
-    // What the admin called it when it was assigned, else what the board calls itself.
-    name: ownership.label || device.name || null,
+    // The owner's own name for it, else what the admin called it when it was assigned, else what
+    // the board calls itself.
+    name: ownership.customerLabel || ownership.label || device.name || null,
+    // The owner's own name only (POST /api/c/boards/{id}/label), or null: what the rename starts from.
+    label: ownership.customerLabel || null,
     boardName: device.name ?? null,
     status: boardStatus(device),
     online: device.online === true,

@@ -176,6 +176,15 @@ object AuditText {
             "took {} back from a customer", "tried to take {} back from a customer", "tried to take a board back from a customer",
             Glyph.UNDO,
         ),
+        // What a customer did on the customer site: "A customer" did it (actorOf).
+        "customer_action.rename" to Action(
+            "named {} on the customer site", "tried to name {} on the customer site",
+            "tried to name a board on the customer site", Glyph.CHIP,
+        ),
+        "customer_action.notifications" to Action(
+            "chose their e-mails on the customer site", "tried to choose their e-mails on the customer site",
+            "tried to choose their e-mails on the customer site", Glyph.SEND,
+        ),
         "customer.disable" to Action(
             "switched off the customer account of", "tried to switch off the customer account of",
             "tried to switch off a customer account", Glyph.BAN,
@@ -445,6 +454,12 @@ object AuditText {
         "board_taken" to "That board belongs to another customer",
         "not_assigned" to "That board was not that customer’s",
         "not_your_board" to "That customer has no such board",
+        "invalid_label" to "Not a name a board can have",
+        "label_too_long" to "A board’s name is at most 40 characters",
+        "unknown_field" to "The request had a field that cannot be changed there",
+        "invalid_choice" to "An e-mail can only be turned on or off",
+        "nothing_chosen" to "No e-mail was turned on or off",
+        "too_many_changes" to "Too many changes in a short time",
         "unavailable" to "The account could not be checked just then",
         "invalid_id" to "Not a board’s identifier of 16 hex digits",
         "invalid_csr" to "Not a certificate signing request a board makes",
@@ -654,8 +669,12 @@ object AuditText {
     }
 
     /** Who did what an entry says: a person, or for what the schedule did, the console. */
-    fun actorOf(entry: AuditEntry): String =
-        if (entry.action in CONSOLE_ACTIONS && entry.actor?.sub.isNullOrEmpty()) "The console" else Words.nameOf(entry.actor)
+    fun actorOf(entry: AuditEntry): String = when {
+        // Only the customer API writes these, and never with the customer's address.
+        entry.action.startsWith("customer_action.") -> "A customer"
+        entry.action in CONSOLE_ACTIONS && entry.actor?.sub.isNullOrEmpty() -> "The console"
+        else -> Words.nameOf(entry.actor)
+    }
 
     /**
      * Where a deployment went, each board by what it is called in [devices]: "to CRVIHAAN01",

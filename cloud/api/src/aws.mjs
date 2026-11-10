@@ -111,7 +111,9 @@
  *
  * Audit (audit table; an item carries sk = "<ISO time>#<request id>")
  *   putAudit(item)                -> { ok: true } | { ok: false, reason: "exists" }
- *   queryAudit({ before, after, limit })
+ *   queryAudit({ before, after, limit, partition })
+ *                                 partition: "AUD" (the console's entries, the default) or "CUS"
+ *                                 (what customers did on the customer site); searchAudit the same
  *                                 -> object[]   at most `limit` items, highest sk first, only
  *                                               items with sk below `before` unless it is null,
  *                                               and above `after` unless it is null or absent
@@ -219,6 +221,7 @@ import {
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 import { GetObjectCommand, PutObjectCommand, PutObjectTaggingCommand, S3Client } from '@aws-sdk/client-s3';
 
+import { AUDIT_PK, CUSTOMER_ACTIONS_PK } from './lib/audit.mjs';
 import { SAME_LINE_MS } from './lib/lines.mjs';
 import { searchSpellings } from './lib/validate.mjs';
 import { FACT_PARTITION, accountName, factPartition } from './lib/updates.mjs';
@@ -242,7 +245,7 @@ const RELEASE_PK = 'REL';
 // The most kinds a query of the events table may filter on.
 const MAX_KINDS = 16;
 const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
-const AUDIT_PK = 'AUD';
+const AUDIT_PKS = Object.freeze([AUDIT_PK, CUSTOMER_ACTIONS_PK]);
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
 const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH']);
@@ -1127,20 +1130,32 @@ export function createAws(env) {
       }
     },
 
-    async queryAudit({ before, after = null, limit }) {
+    async queryAudit({ before, after = null, limit, partition = AUDIT_PK }) {
+      if (!AUDIT_PKS.includes(partition)) throw new TypeError('partition must be AUD or CUS');
       try {
-        return await queryDescending(auditTable, AUDIT_PK, { before: before ?? null, after: after ?? null, limit });
+        return await queryDescending(auditTable, partition, { before: before ?? null, after: after ?? null, limit });
       } catch (cause) {
         throw failure('Query', cause);
       }
     },
 
-    async searchAudit({ low, high, before = null, actions = null, outcomes = null, text = null, limit, budget }) {
+    async searchAudit({
+      low,
+      high,
+      before = null,
+      actions = null,
+      outcomes = null,
+      text = null,
+      limit,
+      budget,
+      partition = AUDIT_PK,
+    }) {
       if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(budget) || budget < 1) {
         throw new TypeError('limit and budget must be positive integers');
       }
+      if (!AUDIT_PKS.includes(partition)) throw new TypeError('partition must be AUD or CUS');
       const names = { '#pk': 'pk', '#sk': 'sk' };
-      const values = { ':pk': { S: AUDIT_PK }, ':low': { S: low }, ':high': { S: high } };
+      const values = { ':pk': { S: partition }, ':low': { S: low }, ':high': { S: high } };
       const filters = [];
       for (const [attribute, prefix, wanted] of [
         ['action', 'a', actions],

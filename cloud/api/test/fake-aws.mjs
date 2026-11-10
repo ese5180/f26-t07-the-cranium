@@ -213,6 +213,13 @@ export function createFakeAws({
   const objects = new Map(); // key -> { body, contentType, sha256Base64, tags }
   const releases = new Map(); // sk -> item
   const auditItems = new Map(); // sk -> item
+  // What customers did on the customer site (pk CUS of the audit table): sk -> item.
+  const customerItems = new Map();
+  const auditPart = (partition) => {
+    if (partition === 'AUD') return auditItems;
+    if (partition === 'CUS') return customerItems;
+    throw new TypeError('partition must be AUD or CUS');
+  };
   const tokens = new Map(); // sk (the digest of a token) -> item
   const eventItems = new Map(); // thing -> Map(sk -> item): the events table
   const lineCounters = new Map(); // thing -> { boot, seq }: the board log's numbers
@@ -772,23 +779,50 @@ export function createFakeAws({
       return { ok: true };
     },
 
-    async queryAudit({ before, after = null, limit }) {
+    // The customer API's (customer/aws.mjs createCustomerActionLog): the partition CUS only.
+    async putCustomerAction(item) {
+      assertStorable(item, 'item');
+      if (typeof item.sk !== 'string' || item.sk === '') throw new TypeError('sk is required');
+      if (customerItems.has(item.sk)) return { ok: false, reason: 'exists' };
+      customerItems.set(item.sk, { ...copy(item), pk: 'CUS' });
+      return { ok: true };
+    },
+
+    async recentCustomerActions({ sub, since }) {
+      return [...customerItems.values()]
+        .filter((item) => item.actor?.sub === sub && item.sk >= since)
+        .map((item) => item.sk);
+    },
+
+    async queryAudit({ before, after = null, limit, partition = 'AUD' }) {
       if (!Number.isInteger(limit) || limit < 1) throw new TypeError('limit must be a positive integer');
-      return [...auditItems.keys()]
+      const part = auditPart(partition);
+      return [...part.keys()]
         .sort()
         .reverse()
         .filter((sk) => before === null || before === undefined || sk < before)
         .filter((sk) => after === null || after === undefined || sk > after)
         .slice(0, limit)
-        .map((sk) => copy(auditItems.get(sk)));
+        .map((sk) => copy(part.get(sk)));
     },
 
     // As aws.mjs: a Query between two keys, filtered, that stops after `budget` items read.
-    async searchAudit({ low, high, before = null, actions = null, outcomes = null, text = null, limit, budget }) {
+    async searchAudit({
+      low,
+      high,
+      before = null,
+      actions = null,
+      outcomes = null,
+      text = null,
+      limit,
+      budget,
+      partition = 'AUD',
+    }) {
       if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(budget) || budget < 1) {
         throw new TypeError('limit and budget must be positive integers');
       }
-      const keys = [...auditItems.keys()]
+      const part = auditPart(partition);
+      const keys = [...part.keys()]
         .sort()
         .reverse()
         .filter((sk) => sk >= low && sk <= high);
@@ -796,7 +830,7 @@ export function createFakeAws({
       let read = 0;
       for (const sk of keys) {
         read += 1;
-        const item = auditItems.get(sk);
+        const item = part.get(sk);
         const matches =
           sk !== before &&
           (actions === null || actions.includes(item.action)) &&
@@ -1023,7 +1057,7 @@ export function createFakeAws({
   // The Database page's reads (src/aws-db.mjs): test/fake-db.mjs, over the items kept here.
   const db = createFakeDb({
     stored: (table) => {
-      if (table === 'audit') return [...auditItems.values()];
+      if (table === 'audit') return [...auditItems.values(), ...customerItems.values()];
       if (table === 'events') return [...eventItems.values()].flatMap((part) => [...part.values()]);
       return [...releases.values(), ...tokens.values(), ...fleetItems.values()];
     },
@@ -1472,6 +1506,10 @@ export function createFakeAws({
     fleetItems,
     auditLog() {
       return [...auditItems.keys()].sort().map((sk) => copy(auditItems.get(sk)));
+    },
+    /** What customers did, as the customer API stored it (pk CUS), oldest first. */
+    customerActionLog() {
+      return [...customerItems.keys()].sort().map((sk) => copy(customerItems.get(sk)));
     },
     highestRegistered() {
       return highest ?? null;
