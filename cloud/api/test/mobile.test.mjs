@@ -234,6 +234,7 @@ const ROUTES = [
   { route: 'GET /api/devices', status: 200, phone: true },
   { route: 'GET /api/devices/{thing}', path: `/api/devices/${THING}`, status: 200, phone: true },
   { route: 'GET /api/devices/{thing}/samples', path: `/api/devices/${THING}/samples`, status: 200, phone: true },
+  { route: 'GET /api/devices/{thing}/timeline', path: `/api/devices/${THING}/timeline`, status: 200, phone: true },
   // What Memfault knows (handlers/memfault.mjs): read-only, and with no Memfault token here it says so in a 200.
   { route: 'GET /api/devices/{thing}/memfault', path: `/api/devices/${THING}/memfault`, status: 200, phone: true },
   { route: 'GET /api/memfault/fleet', status: 200, phone: true },

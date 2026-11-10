@@ -11455,3 +11455,233 @@ span.glance-item:hover {
     break-inside: avoid;
   }
 }
+
+/*
+ * Compare and the version timeline (compare.js, docs/compare.md). The Devices page's tick boxes and the bar of
+ * what is ticked; a board's versions as a vertical timeline, newest at the top; and the Compare page, its boards
+ * side by side from 48rem wide and stacked, one card each, on a phone. Colours are the tokens, so dark mode is
+ * the tokens' own; a row that differs is marked in words as well.
+ */
+
+.device-select {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  margin: -10px 0 -10px -12px;
+  float: left;
+  cursor: pointer;
+}
+
+.device-select input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.selection-bar {
+  position: sticky;
+  z-index: 2;
+  top: calc(var(--topbar) + env(safe-area-inset-top));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+}
+
+.selection-count {
+  margin: 0;
+  font-weight: 600;
+}
+
+.selection-note {
+  margin: 0;
+}
+
+.selection-tools {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.vtimeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vtimeline-item {
+  position: relative;
+  padding: 0 0 var(--space-4) 28px;
+}
+
+/* The line down the left, from each mark to the next. */
+.vtimeline-item::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+  background: var(--line-strong);
+}
+
+.vtimeline-item:last-child::before {
+  display: none;
+}
+
+.vtimeline-mark {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--good);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.vtimeline-item.is-current .vtimeline-mark {
+  background: var(--good);
+}
+
+.vtimeline-item.is-rolled-back .vtimeline-mark {
+  border-color: var(--bad);
+  border-style: dashed;
+}
+
+.vtimeline-item.is-trial .vtimeline-mark {
+  border-color: var(--ink-3);
+}
+
+.vtimeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.vtimeline-version {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.vtimeline-now {
+  color: var(--good);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.vtimeline-when,
+.vtimeline-how,
+.vtimeline-counts {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.vtimeline-counts.is-troubled {
+  color: var(--ink);
+}
+
+.vtimeline-counts .icon {
+  margin-right: 4px;
+  color: var(--warn);
+  vertical-align: -2px;
+}
+
+.vtimeline.is-compact .vtimeline-item {
+  padding-bottom: var(--space-3);
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+@container page (min-width: 48rem) {
+  .compare-grid.is-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compare-grid.is-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .compare-grid.is-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.compare-board {
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-group);
+  background: var(--surface);
+}
+
+.compare-board-head {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--space-2);
+}
+
+.compare-board-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.compare-board-thing {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.compare-facts {
+  margin: 0;
+}
+
+.compare-fact {
+  min-height: 3.25rem;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--line);
+}
+
+.compare-fact dt {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.compare-fact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.compare-fact.is-different {
+  margin: 0 calc(-1 * var(--space-2));
+  padding-right: var(--space-2);
+  padding-left: var(--space-2);
+  background: var(--warn-wash);
+}
+
+.compare-differs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-2);
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+}

@@ -103,6 +103,7 @@ import { createSetupHandlers } from './handlers/setup.mjs';
 import { createRolloutHandlers } from './handlers/rollouts.mjs';
 import { createSerialHandlers } from './handlers/serial.mjs';
 import { createSidestoreHandlers } from './handlers/sidestore.mjs';
+import { createTimelineHandlers } from './handlers/timeline.mjs';
 import { createTokenHandlers } from './handlers/tokens.mjs';
 import { createUpdateHandlers } from './handlers/updates.mjs';
 import {
@@ -332,6 +333,8 @@ export function createApp({
   // updates the boards reported themselves, over Bluetooth or by USB.
   updates = createUpdateHandlers(context, { devices, deployments });
   const events = createEventHandlers(context, { devices });
+  // Each board's version timeline (handlers/timeline.mjs), made from the update history.
+  const timeline = createTimelineHandlers(context, { devices, updates });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
@@ -404,6 +407,7 @@ export function createApp({
     ),
     // What the boards did, and a board's readings: written by the recorder (recorder.mjs).
     route('GET', '/api/devices/{thing}/samples', events.samples),
+    route('GET', '/api/devices/{thing}/timeline', timeline.board),
     route('GET', '/api/devices/{thing}/memfault', memfault.board),
     route('GET', '/api/memfault/fleet', memfault.fleet),
     route('GET', '/api/memfault/issues', memfault.issues),

@@ -12,6 +12,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`mass-updates.md`](mass-updates.md) | Updating many boards at once |
 | [`fleet.md`](fleet.md) | Board types, groups, rollouts, the map, commands and alerts |
 | [`fleet-health.md`](fleet-health.md) | The fleet health score on the Overview: its parts, weights, daily snapshots and API |
+| [`compare.md`](compare.md) | Compare 2 to 4 boards side by side, and each board's version timeline |
 | [`alerts.md`](alerts.md) | The alert rules, how each is checked, how alerts reach people, and what phone push would need |
 | [`console-design.md`](console-design.md) | The console's look: phone first, grouped lists, and the principles behind it |
 | [`live.md`](live.md) | Live updates: how an open page hears of a change as it happens |

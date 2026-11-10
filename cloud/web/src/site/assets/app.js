@@ -35,6 +35,7 @@ import {
   // Search and filters of the long lists (docs/search-filters.md).
   FILTERS,
   activityActions,
+  compareThings,
   cleanSearch,
   filtersHash,
   readFilters,
@@ -168,6 +169,8 @@ const state = {
   filtersOpen: false,
   // The board whose QR code and label its page shows (labels.js), or null.
   labelShown: null,
+  // The boards ticked on the Devices page, in the order they were ticked: for Compare (compare.js).
+  selected: [],
 };
 
 const clock = createClock();
@@ -243,7 +246,15 @@ function paint() {
   // `fleet` is fleet.js once it is here: board types, groups and staged rollouts on every page.
   // `memfault` is memfault-page.js once it is here: a board's reboots, events and issues in Memfault.
   // `labels` is labels.js once a board's page has asked for its QR code and label.
-  const ctx = { state, actions, fleet: fleetScript, memfault: memfaultScript, labels: labelsScript };
+  // `compare` is compare.js once it is here: a board's version timeline, and the Compare page.
+  const ctx = {
+    state,
+    actions,
+    fleet: fleetScript,
+    memfault: memfaultScript,
+    labels: labelsScript,
+    compare: compareScript,
+  };
   nav.hidden = false;
   account.hidden = false;
   render(nav, navView(ctx));
@@ -546,6 +557,8 @@ const pages = {
         due(own, full) ? load(own, () => api.updates({ thing, limit: UPDATES_SHOWN })) : null,
         // What Memfault knows of it (memfault-page.js): read a minute apart at most.
         memfaultReady().then((script) => script?.refreshBoard(thing, full)),
+        // Every version it ran (compare.js): read a minute apart at most.
+        compareReady().then((script) => script?.refreshTimeline(thing, full)),
       ]);
       // The board's own page says its last update: when that is not the list's newest, the list is behind.
       const last = state.deviceDetails.get(thing)?.value?.lastUpdate ?? null;
@@ -777,6 +790,18 @@ const pages = {
       draw();
     },
     interval: () => (memfaultScript ? memfaultScript.MEMFAULT_REFRESH_MS : 0),
+  },
+  // Two to four boards side by side, with their version timelines (compare.js).
+  compare: {
+    title: 'Compare boards',
+    view: (ctx) =>
+      compareScript ? compareScript.compareView(ctx) : scriptPending(ctx, 'compare', 'Compare boards', { tabs: false }),
+    resources: () => [state.devices],
+    async refresh(full) {
+      if (await compareReady()) await compareScript.refreshCompare(compareThings(state.filters.compare), full);
+      draw();
+    },
+    interval: () => IDLE_REFRESH_MS,
   },
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
   fleet: {
@@ -1015,6 +1040,24 @@ let customersScript = null;
 let dbScript = null;
 let memfaultScript = null;
 let labelsScript = null;
+let compareScript = null;
+
+/** compare.js, fetched once, when a board's page or the Compare page is first opened. */
+async function compareReady() {
+  if (!compareScript) {
+    compareScript = await pageScript(() => import('./compare.js'));
+    compareScript?.connect({ state, api, load, draw, now: () => clock.now(), memfault: memfaultReady });
+  }
+  return compareScript;
+}
+
+/** A board ticked or unticked on the Devices page. */
+function toggleSelected(thing) {
+  state.selected = state.selected.includes(thing)
+    ? state.selected.filter((one) => one !== thing)
+    : [...state.selected, thing];
+  draw();
+}
 
 /** labels.js, fetched once, when a board's page first shows its QR code and label. */
 async function labelsReady() {
@@ -2368,6 +2411,17 @@ const actions = {
   closeMore: () => showMore(false),
   // A board's QR code and printable label (labels.js), and the phone app's Scan board.
   toggleLabel: (thing) => toggleLabel(thing),
+  // The boards ticked on the Devices page, and Compare with… on a board's page, which ticks it and goes there.
+  toggleSelected,
+  clearSelected() {
+    state.selected = [];
+    draw();
+  },
+  compareWith(thing) {
+    state.selected = [thing];
+    location.hash = '#/devices';
+  },
+  moreTimeline: (thing) => compareScript?.moreTimeline(thing),
   scanBoard: () => scanBoard(),
   // The Serial page's record of a command a board answered OK to: its name, never a value.
   recordSerialCommand: (command) => api.recordSerialCommand(command),

@@ -48,11 +48,13 @@ const scripts = assets.filter((name) => name.endsWith('.js'));
 // (docs/mobile-apps.md, "The app shell").
 // live.js: live updates, fetched once the console is shown, when its settings name the live API (docs/live.md).
 // labels.js: a board's QR code and label, fetched when its page first shows them; Board setup imports it too.
+// compare.js: a board's version timeline and the Compare page, fetched when either is first opened (docs/compare.md).
 const ON_DEMAND = [
   'account.js',
   'apps.js',
   'bluetooth.js',
   'bridge.js',
+  'compare.js',
   'customers.js',
   'db-page.js',
   'fleet.js',

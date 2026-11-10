@@ -7,6 +7,21 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.16.0
+
+Compare boards and a version timeline: each board's page shows every firmware version it ran, newest at the top, with when it started and ended, how it came (over the air, over Bluetooth, by USB, by a rollback, or before the history), whether it was confirmed or rolled back, and its unexpected restarts and issues while on it. Tick 2 to 4 boards on the Devices page (or Compare with… on a board's page) to set them side by side, with what differs marked.
+
+`GET /api/devices/{thing}/timeline` is new (handlers/timeline.mjs, lib/board-timeline.mjs), for viewers and release
+managers, paged (`limit` 1 to 50, default 20; `cursor`), refusing `invalid_limit`, `invalid_cursor`, `invalid_thing`
+and `unknown_device`. It is made from the board's update history (the records lib/last-good.mjs reads), the version
+its shadow reports, the releases (a release whose note begins `Rebuild of` arrives as a rollback) and the board's
+warnings of the last 90 days: a restart with level warn is an unexpected restart, any other warning an issue; a version
+that ended before events were kept has no counts. The Compare page (`#/compare?boards=a,b`, compare.js) reads only
+routes the console had: the boards, each board's warnings of the last 7 days, Memfault's latest key metrics (the
+metrics card's read) and the timelines in parallel columns. On a phone the boards stack, one card each. The Devices
+page has a tick box on each board and a bar of what is ticked, which later bulk actions can use. No new refusal
+words. docs/compare.md.
+
 ## 2.15.0
 
 A fleet health score on the Overview: one number from 0 to 100 made of boards online, boards crash-free this week, updates that succeeded this week and boards on a good Wi-Fi signal, with a 30-day trend and how far it moved since last week. Each part says what it means and leads to its page.

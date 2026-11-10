@@ -83,6 +83,8 @@ export const MEMFAULT = scriptAddress('memfault-page.js', {
   'views.js': VIEWS,
   'telemetry.js': TELEMETRY,
 });
+// A board's version timeline and the Compare page (docs/compare.md).
+export const COMPARE = scriptAddress('compare.js', { 'core.js': CORE, 'views.js': VIEWS });
 // The Database page (docs/database.md).
 export const DB = scriptAddress('db-page.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const QR = scriptAddress('qrcode.js');
