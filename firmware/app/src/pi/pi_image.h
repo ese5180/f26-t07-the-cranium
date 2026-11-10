@@ -130,7 +130,10 @@ void pi_record_seal(struct pi_record *record);
 /* True if a record read back is whole and of this format. */
 bool pi_record_valid(const struct pi_record *record);
 
-/* CRC-32 (IEEE 802.3, the one zlib.crc32 computes), continued from crc (0 to start). */
-uint32_t pi_crc32(uint32_t crc, const void *data, size_t len);
+/*
+ * CRC-32 (IEEE 802.3, the one zlib.crc32 computes), continued from crc (0 to start). Not pi_crc32():
+ * that name is the Pi message link's (src/pi/pi_frame.h, pull request #58), and both are in a Pi build.
+ */
+uint32_t pi_image_crc32(uint32_t crc, const void *data, size_t len);
 
 #endif /* PI_IMAGE_H_ */

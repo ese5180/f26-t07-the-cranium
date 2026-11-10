@@ -106,7 +106,7 @@ enum pi_err pi_job_check(const struct ota_job *job, uint32_t max_size,
 	return PI_OK;
 }
 
-uint32_t pi_crc32(uint32_t crc, const void *data, size_t len)
+uint32_t pi_image_crc32(uint32_t crc, const void *data, size_t len)
 {
 	/* Four bits at a time: a table of 16 words, fast enough for frames of 16 KiB. */
 	static const uint32_t table[16] = {
@@ -129,13 +129,13 @@ void pi_record_seal(struct pi_record *record)
 {
 	record->magic = PI_RECORD_MAGIC;
 	record->format = PI_RECORD_VERSION;
-	record->crc = pi_crc32(0, record, offsetof(struct pi_record, crc));
+	record->crc = pi_image_crc32(0, record, offsetof(struct pi_record, crc));
 }
 
 bool pi_record_valid(const struct pi_record *record)
 {
 	return record->magic == PI_RECORD_MAGIC && record->format == PI_RECORD_VERSION &&
-	       record->crc == pi_crc32(0, record, offsetof(struct pi_record, crc)) &&
+	       record->crc == pi_image_crc32(0, record, offsetof(struct pi_record, crc)) &&
 	       record->job_id[OTA_JOB_ID_MAX] == '\0' && record->version[OTA_PI_VERSION_MAX] == '\0' &&
 	       record->installed_version[OTA_PI_VERSION_MAX] == '\0' &&
 	       record->done <= record->size && record->hash.length == record->done &&

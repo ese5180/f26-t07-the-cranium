@@ -49,13 +49,13 @@ size_t pi_xfer_frame(uint8_t *buf, enum pi_xfer_type type, uint32_t seq, uint32_
 	buf[7] = 0;
 	put32(buf + 8, seq);
 	put32(buf + 12, payload_len);
-	put32(buf + crc_at, pi_crc32(0, buf, crc_at));
+	put32(buf + crc_at, pi_image_crc32(0, buf, crc_at));
 	return crc_at + PI_XFER_CRC_SIZE;
 }
 
 static bool parse_status(const uint8_t *rx, struct status *out)
 {
-	if (get32(rx) != PI_XFER_STATUS_MAGIC || get32(rx + 16) != pi_crc32(0, rx, 16) ||
+	if (get32(rx) != PI_XFER_STATUS_MAGIC || get32(rx + 16) != pi_image_crc32(0, rx, 16) ||
 	    rx[4] > PI_XFER_BUSY) {
 		return false;
 	}

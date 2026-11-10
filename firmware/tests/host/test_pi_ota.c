@@ -479,10 +479,10 @@ static void test_sha256_known_answers(void)
 
 static void test_crc32_is_zlibs(void)
 {
-	CHECK(pi_crc32(0, "123456789", 9) == 0xcbf43926u);
-	CHECK(pi_crc32(0, "", 0) == 0);
+	CHECK(pi_image_crc32(0, "123456789", 9) == 0xcbf43926u);
+	CHECK(pi_image_crc32(0, "", 0) == 0);
 	/* Continued, it is the same as at once. */
-	CHECK(pi_crc32(pi_crc32(0, "1234", 4), "56789", 5) == 0xcbf43926u);
+	CHECK(pi_image_crc32(pi_image_crc32(0, "1234", 4), "56789", 5) == 0xcbf43926u);
 }
 
 /* ---- the job document and the list -------------------------------------------------------- */
