@@ -1096,6 +1096,9 @@ public enum Words {
         // The alert rules, for everybody who gets the alerts (console 2.13.0).
         "alert.rules": AuditAction(done: "changed the alert rules", doneAlone: "changed the alert rules",
                                    tried: "tried to change the alert rules", triedAlone: "tried to change the alert rules", icon: "bell"),
+        // Each board of a group or the fleet back to its last good version (console 2.14.0).
+        "fleet.rollback_last_good": AuditAction(done: "rolled back {} to last good firmware", doneAlone: "rolled back to last good firmware",
+                                                tried: "tried to roll back {} to last good firmware", triedAlone: "tried to roll back to last good firmware", icon: "restart"),
         "firmware.upload": AuditAction(done: "uploaded firmware", tried: "tried to upload", triedAlone: "tried to upload a file", icon: "upload"),
         "firmware.revoke": AuditAction(done: "revoked firmware", tried: "tried to revoke firmware", triedAlone: "tried to revoke a release", icon: "ban"),
         "deployment.create": AuditAction(done: "deployed", doneAlone: "started a deployment", tried: "tried to deploy",
@@ -1291,6 +1294,8 @@ public enum Words {
         "too_many_boards": "A rollout takes at most 100 boards",
         "plan_changed": "The plan had changed since it was shown",
         "no_older_release": "There is no older release of that type to go back to",
+        "gate_required": "A roll back to last good runs with the health gate on",
+        "invalid_targets": "The releases asked for were not a list of versions, each with its boards",
         "rollout_changed": "The rollout moved on while it was being cancelled",
         "rollout_unrecorded": "The rollout could not be recorded, so its canary was withdrawn",
         "partly_started": "Only some of the rollouts could be started",

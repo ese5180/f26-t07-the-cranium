@@ -4207,6 +4207,14 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to update everything',
     icon: 'send',
   },
+  // Each board of a group or the fleet back to its last good version (console 2.14.0).
+  'fleet.rollback_last_good': {
+    done: 'rolled back {} to last good firmware',
+    doneAlone: 'rolled back to last good firmware',
+    tried: 'tried to roll back {} to last good firmware',
+    triedAlone: 'tried to roll back to last good firmware',
+    icon: 'restart',
+  },
   'device.seen': {
     done: 'saw {} over Bluetooth',
     doneAlone: 'saw a board over Bluetooth',
@@ -4507,6 +4515,8 @@ export const REFUSAL_WORDS = {
   too_many_boards: 'A rollout takes at most 100 boards',
   plan_changed: 'The plan had changed since it was shown',
   no_older_release: 'There is no older release of that type to go back to',
+  gate_required: 'A roll back to last good runs with the health gate on',
+  invalid_targets: 'The releases asked for were not a list of versions, each with its boards',
   rollout_changed: 'The rollout moved on while it was being cancelled',
   rollout_unrecorded: 'The rollout could not be recorded, so its canary was withdrawn',
   partly_started: 'Only some of the rollouts could be started',
@@ -4738,6 +4748,7 @@ export const CHANGE_ACTIONS = Object.freeze([
   'rollout.stop',
   'fleet.update_everything',
   'group.rollback',
+  'fleet.rollback_last_good',
   'customer.create',
   'customer.assign',
   'customer.unassign',
@@ -4813,6 +4824,7 @@ export function describeAudit(entry) {
   if (isRolloutId(entry.target) && isVersion(details.get('version'))) label = details.get('version');
   else if (/^group\.(?:create|update|delete)$/.test(entry.action) && details.get('name')) label = details.get('name');
   else if (entry.action === 'group.rollback' && details.get('group')) label = details.get('group');
+  else if (entry.action === 'fleet.rollback_last_good') label = details.get('group') || 'the fleet';
   // A customer is told by their address, where the entry has it, not by the id of their account.
   const customerEmail = String(entry.action ?? '').startsWith('customer.') ? (details.get('email') ?? '') : '';
   const byAddress = customerEmail !== '' && !CUSTOMER_BOARD.has(entry.action);

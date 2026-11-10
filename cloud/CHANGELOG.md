@@ -7,6 +7,22 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.14.0
+
+Roll back to last good: one button on each group and on the Fleet page sends every board back to the last version it ran confirmed, from its update history, after a preview of each board from → to and of the boards left out and why. Boards going to the same release are one staged rollout, and the health gate is always on.
+
+lib/last-good.mjs is new: a board's last good version is the newest version other than its own that an update brought
+and it kept, or that an update started from (a board starts one only from confirmed firmware). A board takes only newer
+firmware (the console's version rule, ota_job_check, MCUboot's downgrade prevention; no firmware changes), so, as the
+group's Roll back said already, going back is a rebuild of the old source under a newer number: a release whose note
+begins `Rebuild of <version>`. The target of a board is the newest active rebuild of its last good version newer than
+what it runs, of its type and layout, or that version's own release where it is newer. Left out with why: `no_good`,
+`good_revoked`, `no_rebuild`, `unreadable`, and the usual offline, never reported, Bluetooth only, another type or
+layout, busy. `GET`/`POST /api/fleet/last-good` and `/api/groups/{id}/last-good`: one staged rollout per target
+release (`purpose: last_good`), checked against the plan again (`409 plan_changed`), the gate 10 minutes unless asked
+for longer and never off (`400 gate_required`), on record as `fleet.rollback_last_good`. New refusal words
+`gate_required`, `invalid_targets`. docs/fleet.md "Roll back to last good", docs/mass-updates.md.
+
 ## 2.13.5
 
 Board health for customers: on craniumiot.com and in the apps' customer mode, each board says how its week went in plain words ("Running normally", "Restarted unexpectedly twice this week", "Recovered from a problem on Tue 3 Nov", "Updated to 1.15.0 on ...", "Offline since ..."), with a dot in the board list and a strip of its restarts by day on the Overview and the board's page.

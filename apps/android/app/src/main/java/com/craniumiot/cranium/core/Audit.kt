@@ -121,6 +121,10 @@ object AuditText {
             "started updating everything", "tried to update everything", "tried to update everything", Glyph.SEND,
             doneAlone = "started updating everything",
         ),
+        "fleet.rollback_last_good" to Action(
+            "rolled back {} to last good firmware", "tried to roll back {} to last good firmware", "tried to roll back to last good firmware",
+            Glyph.RESTART, doneAlone = "rolled back to last good firmware",
+        ),
         "device.seen" to Action(
             "saw {} over Bluetooth", "tried to say a phone saw {}", "tried to say a phone saw a board", Glyph.CHIP,
             doneAlone = "saw a board over Bluetooth",
@@ -360,6 +364,8 @@ object AuditText {
         "too_many_boards" to "A rollout takes at most 100 boards",
         "plan_changed" to "The plan had changed since it was shown",
         "no_older_release" to "There is no older release of that type to go back to",
+        "gate_required" to "A roll back to last good runs with the health gate on",
+        "invalid_targets" to "The releases asked for were not a list of versions, each with its boards",
         "rollout_changed" to "The rollout moved on while it was being cancelled",
         "rollout_unrecorded" to "The rollout could not be recorded, so its canary was withdrawn",
         "partly_started" to "Only some of the rollouts could be started",

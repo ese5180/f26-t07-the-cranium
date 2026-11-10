@@ -4,6 +4,13 @@ One entry per version, newest first. The version is `craniumVersionName` in `app
 `craniumVersionCode` counts the versions); each is tagged `android-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.14
+
+Roll back to last good on the Fleet page (console 2.14.0 and later): each board goes back to the last version it ran confirmed, after a preview of every board from → to and of the boards left out and why, as one staged rollout per release with the health gate always on. The activity log reads it too.
+
+The page is the console's own; the app adds the words for the new activity (`fleet.rollback_last_good`) and the new
+refusals (`gate_required`, `invalid_targets`), checked against core.js by the parity tests.
+
 ## 0.8.13
 
 Scan board: the Devices page reads a board's QR code with the camera and opens that board's page (console 2.13.4 and later, which prints the codes on the boards' labels). The camera is used only when you tap Scan board, and a code that isn't a board of your console is refused.

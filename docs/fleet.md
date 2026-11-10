@@ -98,8 +98,36 @@ image on a board checks it. The board's own check is the last word.
 - **Update everything.** One action: for each board type, its newest active release goes to every board of that type
   that is not on it, each type as its own staged deployment. The review step lists, by type, the release and the
   boards, and what is left out (offline long, Bluetooth only, already current).
+- **Roll back** (a group's, before 2.14.0 and still there). The release before the newest of each type in the group.
+  A board takes only firmware newer than what it runs, so it reaches only boards behind both releases; the review marks
+  the others "Would refuse it".
+- **Roll back to last good** (from console 2.14.0). One button on each group (Fleet, Groups) and one on the Fleet page
+  for every board: each board goes back to its own last good version.
+  - **Last good.** The newest version, other than the one it runs, that the board ran confirmed, from its update history
+    (`GET /api/updates`): a version an update brought and the board kept (it started, reached AWS IoT and confirmed
+    itself), or a version an update started from (a board starts an update only from firmware it has confirmed). An
+    update that rolled back, was not installed or is still pending says nothing good of its version. Memfault is not
+    asked per board and per version, which would be many reads; the roll back itself runs with the health gate on,
+    which asks Memfault of every board it updates.
+  - **How a board takes an older version.** It does not, and this changes no firmware. The console registers only
+    versions newer than every earlier one, the application refuses a job that is not newer than what it runs
+    (`ota_job.c`, `ota_job_check`, equal refused too), and MCUboot refuses a lower version on a test swap
+    (`CONFIG_MCUBOOT_DOWNGRADE_PREVENTION`). So, as the group's Roll back already said, a real roll back is a rebuild of
+    the old source under a newer version. A release says it is one when its note begins `Rebuild of <version>`
+    (`Rebuild of 1.13.0`; set at upload or with Edit note). A board whose last good version is older than what it runs
+    goes to the newest active rebuild of that version that is newer than what it runs, of its type and layout; one
+    whose last good version is newer (taken back by hand) goes to that release itself.
+  - **The preview** (`GET /api/fleet/last-good`, `GET /api/groups/{id}/last-good`) lists, by target release, each
+    board from → to and the canary, and the boards left out with why: no known good version (`no_good`), its last good
+    version revoked (`good_revoked`), no rebuild of it yet (`no_rebuild`), its history unreadable (`unreadable`),
+    Bluetooth only, offline for more than a day, never reported, another board type or layout, or busy.
+  - **The start** (`POST` to the same address, `{ targets: [{ version, things }], ... }`, release managers) is checked
+    against the plan as it is then (`409 plan_changed`) and starts one staged rollout per target release (`purpose`
+    `last_good`), each with a canary, the stages chosen and the **health gate always on** (10 minutes unless asked for
+    longer; asked off it is `400 gate_required`). On record as `fleet.rollback_last_good`, with the group or the fleet,
+    the versions and the rollouts started.
 
-What is planned for the fleet, such as a rollout safety gate and one-click rollback: [`roadmap.md`](roadmap.md). Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
+What is planned for the fleet: [`roadmap.md`](roadmap.md). Updating a whole fleet at once, and how Memfault could choose the boards while AWS still delivers: [`mass-updates.md`](mass-updates.md).
 
 ## Commands: `cranium/<thing>/commands`
 

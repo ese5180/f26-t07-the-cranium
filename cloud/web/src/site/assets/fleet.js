@@ -84,6 +84,11 @@ const LEFT_OUT_REASONS = Object.freeze({
   unticked: 'Left out by hand',
   no_release: 'No release yet',
   no_older: 'No older release',
+  // Roll back to last good (console 2.14.0).
+  no_good: 'No known good version',
+  good_revoked: 'Last good was revoked',
+  no_rebuild: 'No rebuild of it yet',
+  unreadable: 'History not readable',
 });
 const STAGES = Object.freeze({
   canary: { tone: 'live', icon: 'restart', label: 'Canary' },
@@ -333,6 +338,47 @@ function readPlan(raw) {
   };
 }
 
+/** The plan of a roll back to last good (GET /api/fleet/last-good, /api/groups/{id}/last-good). */
+function readLastGoodPlan(raw) {
+  const plan = object(raw);
+  const moves = (value) =>
+    array(value)
+      .map(object)
+      .filter((entry) => isThing(entry.thing))
+      .map((entry) => ({ thing: entry.thing, from: version(entry.from), to: version(entry.to) }));
+  const leftOutWith = (value) => {
+    const found = moves(value);
+    return readLeftOut(value).map((entry, index) => ({
+      ...entry,
+      from: found[index]?.from ?? null,
+      to: found[index]?.to ?? null,
+    }));
+  };
+  const gate = plan.healthGate ? object(plan.healthGate) : null;
+  return {
+    scope: object(plan.scope),
+    targets: array(plan.targets)
+      .map(object)
+      .filter((entry) => version(object(entry.release).version))
+      .map((entry) => ({
+        type: type(entry.type),
+        release: {
+          version: version(object(entry.release).version),
+          layout: layout(object(entry.release).layout),
+          notes: words(object(entry.release).notes),
+          rebuildOf: words(object(entry.release).rebuildOf, 32) || null,
+        },
+        boards: moves(entry.boards),
+        things: things(entry.things),
+        leftOut: leftOutWith(entry.leftOut),
+        canary: things(entry.canary),
+      })),
+    leftOut: leftOutWith(plan.leftOut),
+    healthGate:
+      gate && Number.isInteger(gate.minutes) && gate.minutes >= 0 ? { on: true, minutes: gate.minutes } : null,
+  };
+}
+
 // Talking to the API: GET and POST under /api/fleet, /api/groups and /api/rollouts only (core.js).
 
 const request = (method, path, body) => tools.api.fleetRequest(method, path, body);
@@ -419,6 +465,13 @@ const fleetApi = {
   rollbackPlan: async (id) => readPlan((await request('GET', `/api/groups/${id}/rollback`)).plan),
   startRollback: async (id, body) =>
     array((await request('POST', `/api/groups/${id}/rollback`, body)).rollouts).map(readRollout),
+  // Roll back to last good: a group's boards, or (no id) the fleet's.
+  lastGoodPlan: async (id = null) =>
+    readLastGoodPlan((await request('GET', id ? `/api/groups/${id}/last-good` : '/api/fleet/last-good')).plan),
+  startLastGood: async (id, body) =>
+    array((await request('POST', id ? `/api/groups/${id}/last-good` : '/api/fleet/last-good', body)).rollouts).map(
+      readRollout
+    ),
 };
 
 /** Each board's type, for the New deployment dialog: thing -> { type, bluetoothOnly }. */
@@ -558,6 +611,11 @@ function targetWords(rollout, ctx) {
   const target = rollout.target ?? {};
   if (rollout.purpose === 'update_everything') return `Update everything: every ${boardTypeLabel(rollout.board)}`;
   if (rollout.purpose === 'rollback') return `Roll back of the group ${target.groupName ?? ''}`.trim();
+  if (rollout.purpose === 'last_good') {
+    return target.kind === 'group'
+      ? `Roll back to last good: the group ${target.groupName ?? target.group ?? ''}`.trim()
+      : `Roll back to last good: every ${boardTypeLabel(target.type ?? rollout.board)}`;
+  }
   if (target.kind === 'group') return `The group ${target.groupName ?? target.group ?? ''}`.trim();
   if (target.kind === 'type') return `Every ${boardTypeLabel(target.type ?? rollout.board)}`;
   if (target.kind === 'fleet') return 'The whole fleet';
@@ -794,6 +852,9 @@ function groupRow(group, ctx, fleet) {
           group.things.length > 0 ? button('is-small', () => openGroupRollout(group), icon('send'), 'Roll out') : null,
           // Only where there is an older active release of a type in the group to go back to.
           older ? button('is-small is-quiet', () => openPlan({ group }), icon('undo'), 'Roll back') : null,
+          group.things.length > 0
+            ? button('is-small is-quiet', () => openLastGood({ group }), icon('undo'), 'Roll back to last good')
+            : null,
           h(
             'button',
             {
@@ -1000,6 +1061,7 @@ export function fleetView(ctx) {
       lede: 'Board types, groups of boards, and releases to many boards at once: a canary first, then stages once it has confirmed.',
       tools: [
         freshness(state.fleet, ctx),
+        canWrite && fleet ? button('', () => openLastGood({}), icon('undo'), 'Roll back to last good') : null,
         canWrite && fleet ? button('is-primary', () => openPlan({}), icon('send'), 'Update everything') : null,
       ],
     }),
@@ -1727,6 +1789,33 @@ function rolloutOptions(model, most, rest = null, redraw = () => {}) {
  * that the dialog is drawn again.
  */
 export function gateChoice(model, set) {
+  if (model.gateLocked) {
+    return h(
+      'div',
+      { class: 'rollout-gate', key: 'gate' },
+      h(
+        'p',
+        { class: 'choice-note' },
+        'Health gate: always on for a roll back. The next stage starts only if Memfault shows no new issue and no ' +
+          'unexpected reboot on the release for this long after the boards before it confirmed.'
+      ),
+      h(
+        'div',
+        { class: 'staged-choices', key: 'gate-minutes' },
+        numberField(
+          'gate-minutes',
+          'Watch for',
+          model.gateMinutes ?? DEFAULT_GATE,
+          0,
+          MAX_GATE,
+          set((value) => {
+            model.gateMinutes = value;
+          }),
+          'min'
+        )
+      )
+    );
+  }
   return h(
     'div',
     { class: 'rollout-gate', key: 'gate' },
@@ -2079,6 +2168,197 @@ function openPlan({ group = null }) {
   reload();
 }
 
+/**
+ * "Roll back to last good" (console 2.14.0), for a group or (no group) the fleet: the plan as the
+ * server makes it now. Each board with where it goes (from -> its last good version) under the
+ * release that takes it there, one staged rollout per release, the health gate always on; what is
+ * left out is listed with why (no known good version, revoked, no rebuild, offline, another type).
+ */
+function openLastGood({ group = null }) {
+  if (tools.dialogs.isOpen()) return;
+  let self = null;
+  const model = {
+    plan: null,
+    loading: true,
+    loadError: null,
+    picked: new Map(),
+    canary: 1,
+    ...stageModel(),
+    gateLocked: true,
+    abortPercent: 20,
+    sending: false,
+    error: null,
+  };
+  const redraw = () => self.redraw();
+  const reload = async () => {
+    model.loading = true;
+    model.loadError = null;
+    redraw();
+    try {
+      model.plan = await fleetApi.lastGoodPlan(group?.id ?? null);
+      model.picked = new Map(
+        model.plan.targets
+          .filter((target) => target.things.length > 0)
+          .map((target) => [target.release.version, new Set(target.things)])
+      );
+      if (model.plan.healthGate) model.gateMinutes = model.plan.healthGate.minutes;
+    } catch (error) {
+      model.loadError = error instanceof ApiError ? error : { message: String(error?.message ?? error) };
+    }
+    model.loading = false;
+    redraw();
+  };
+  const submit = () =>
+    tools.dialogs.submit(self, model, async () => {
+      const targets = model.plan.targets
+        .filter((target) => (model.picked.get(target.release.version)?.size ?? 0) > 0)
+        .map((target) => ({
+          version: target.release.version,
+          things: [...model.picked.get(target.release.version)].sort(),
+        }));
+      const body = {
+        targets,
+        canary: model.canary,
+        ...stageBody({ ...model, healthGate: true }),
+        abortPercent: model.abortPercent,
+      };
+      let started;
+      try {
+        started = await fleetApi.startLastGood(group?.id ?? null, body);
+      } catch (error) {
+        if (error?.status === 409) reload();
+        throw error;
+      }
+      for (const rollout of started) tools.keep(tools.state.rolloutDetails, rollout.id, rollout);
+      self.close(true);
+      tools.notify(`${plural(started.length, 'staged rollout')} started.`);
+      if (started.length === 1) tools.go({ view: 'rollout', id: started[0].id });
+      else tools.go({ view: 'fleet' });
+    });
+  self = tools.dialogs.open(() => {
+    const chosen = [...model.picked.values()].reduce((sum, set) => sum + set.size, 0);
+    const ctx = { state: tools.state };
+    let body;
+    if (model.loading) {
+      body = h('p', { class: 'quiet' }, 'Working out each board’s last good version…');
+    } else if (model.loadError) {
+      body = notice(
+        'bad',
+        'alert',
+        [h('strong', null, 'Could not read the plan. '), sentence(model.loadError.message)],
+        { action: button('is-small', reload, 'Try again') }
+      );
+    } else {
+      body = [
+        h(
+          'p',
+          { class: 'dialog-lede', key: 'lede' },
+          `Each board ${group ? 'of the group' : 'of the fleet'} goes back to the last version it ran confirmed before the one it runs. ` +
+            'Boards that go to the same release are one staged rollout, with the health gate on.'
+        ),
+        h(
+          'p',
+          { class: 'callout', key: 'real' },
+          icon('alert', 'is-small'),
+          ' A board takes only firmware newer than what it runs. So a board goes back by a rebuild of its last good ' +
+            'version under a newer number: a release whose note says "Rebuild of <version>".'
+        ),
+        model.plan.targets.length === 0
+          ? h('p', { class: 'quiet', key: 'none' }, 'No board has a last good version it can be sent.')
+          : null,
+        model.plan.targets.map((target) =>
+          h(
+            'section',
+            { class: 'plan-type', key: target.release.version },
+            h(
+              'h3',
+              { class: 'plan-type-head' },
+              h(
+                'span',
+                { class: 'fleet-chip board-chip' },
+                `${boardTypeLabel(target.type)} · layout ${target.release.layout}`
+              ),
+              ' ',
+              mono(target.release.version),
+              target.release.rebuildOf
+                ? h('span', { class: 'quiet' }, [' rebuild of ', mono(target.release.rebuildOf)])
+                : null
+            ),
+            target.things.length > 0
+              ? h(
+                  'fieldset',
+                  { class: 'choices' },
+                  h('legend', { class: 'sr-only' }, `Boards that ${target.release.version} takes back`),
+                  target.things.map((thing) => {
+                    const move = target.boards.find((entry) => entry.thing === thing);
+                    return choice(
+                      {
+                        key: thing,
+                        type: 'checkbox',
+                        checked: model.picked.get(target.release.version)?.has(thing) ?? false,
+                        onChange: () => {
+                          const set = model.picked.get(target.release.version) ?? new Set();
+                          if (set.has(thing)) set.delete(thing);
+                          else set.add(thing);
+                          model.picked.set(target.release.version, set);
+                          redraw();
+                        },
+                      },
+                      [boardLabel(boardFrom(ctx, thing)), boardThing(boardFrom(ctx, thing))],
+                      h(
+                        'span',
+                        { class: 'choice-note' },
+                        `${move?.from ?? 'unknown'} → ${move?.to ?? target.release.version}`,
+                        target.canary.includes(thing) ? ' · the canary: it goes first' : ''
+                      )
+                    );
+                  })
+                )
+              : h('p', { class: 'quiet' }, 'No board can take it now.'),
+            target.leftOut.length > 0
+              ? [
+                  h('p', { class: 'plan-left-head' }, `Left out: ${plural(target.leftOut.length, 'board')}`),
+                  leftOutList(target.leftOut, ctx),
+                ]
+              : null
+          )
+        ),
+        model.plan.leftOut.length > 0
+          ? h(
+              'section',
+              { class: 'plan-type', key: 'left-out' },
+              h(
+                'p',
+                { class: 'plan-left-head' },
+                `Left out: ${plural(model.plan.leftOut.length, 'board')} with nowhere to go`
+              ),
+              leftOutList(model.plan.leftOut, ctx)
+            )
+          : null,
+        chosen > 1 ? rolloutOptions(model, chosen - 1, null, redraw) : null,
+      ];
+    }
+    return dialogFrame({
+      title: group ? ['Roll back ', group.name, ' to last good'] : 'Roll back the fleet to last good',
+      busy: model.sending,
+      onClose: () => self.close(),
+      onSubmit: chosen > 0 ? submit : null,
+      body,
+      error: model.error ? failure('Nothing was started.', model.error, null, tools.dialogs.signIn) : null,
+      foot: [
+        dialogButton({ key: 'cancel', disabled: model.sending, onClick: () => self.close() }, 'Cancel'),
+        SPACER(),
+        dialogButton(
+          { key: 'go', className: 'is-primary', submit: true, disabled: chosen === 0, sending: model.sending },
+          icon('undo'),
+          model.sending ? 'Starting…' : chosen === 0 ? 'Nothing to roll back' : `Roll back: ${plural(chosen, 'board')}`
+        ),
+      ],
+    });
+  });
+  reload();
+}
+
 // For tests: the readers, as the pages use them.
-export const readers = Object.freeze({ readBoard, readGroup, readRollout, readPlan });
+export const readers = Object.freeze({ readBoard, readGroup, readRollout, readPlan, readLastGoodPlan });
 export { fleetApi as api };

@@ -76,6 +76,7 @@ export const ACTIONS = Object.freeze([
   'rollout.stop',
   'fleet.update_everything',
   'group.rollback',
+  'fleet.rollback_last_good',
   'device.seen',
   'firmware.notes',
   // The phone apps (handlers/apps.mjs): the URL an APK is sent to S3 with, the release published once

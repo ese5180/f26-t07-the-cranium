@@ -18,6 +18,12 @@
  *                                        -> 201 { rollouts }                               fleet.update_everything
  *   GET  /api/groups/{id}/rollback       -> { plan }   the previous release of each type, for the group
  *   POST /api/groups/{id}/rollback       body as for update-everything -> 201 { rollouts }  group.rollback
+ *   GET  /api/fleet/last-good            -> { plan }   "Roll back to last good", for the fleet or a group:
+ *   GET  /api/groups/{id}/last-good                    each board's last good version and the release that
+ *                                                      takes it there (lib/last-good.mjs), one target per release
+ *   POST /api/fleet/last-good            body { targets: [{ version, things }], canary?, stages?, batch?,
+ *   POST /api/groups/{id}/last-good        soakMinutes?, healthGate?, abortPercent?, note? }
+ *                                        -> 201 { rollouts }, one per target, gate on   fleet.rollback_last_good
  *
  * `target` is { kind: "boards", things } | { kind: "group", group } | { kind: "type", type } |
  * { kind: "fleet" }. Whatever it is, a rollout only ever takes boards of the release's type that
@@ -92,7 +98,9 @@ import {
 } from '../lib/fleet.mjs';
 import { GATE_WAIT_MS, UNREAD_WORDS, gateBoards, healthWords } from '../lib/health.mjs';
 import { buildJobDescription, isoTime, mapLimit } from '../lib/jobs.mjs';
+import { planLastGood } from '../lib/last-good.mjs';
 import {
+  DEFAULT_GATE_MINUTES,
   STAGE_ROLLOUT,
   assignStages,
   requireStagePlan,
@@ -108,6 +116,8 @@ const HISTORY_IN_FLIGHT = 8;
 // The update outcomes that count against a board as a canary (lib/updates.mjs OUTCOMES).
 const FAILED_OUTCOMES = new Set(['rolled_back', 'not_installed']);
 const MAX_BOARDS_NAMED = 200;
+// The releases one roll back to last good may send at once: one staged rollout each.
+const MAX_LAST_GOOD_TARGETS = 10;
 // A start of the waves that has not named its job after this long is looked for once and given up.
 const LOST_START_MS = 5 * 60_000;
 // The console's own name in the activity log, for what the schedule does.
@@ -616,6 +626,158 @@ export function createRolloutHandlers(
       );
     }
     noteStarted(entry, started);
+    return { status: 201, body: { rollouts: await Promise.all(started.map(detailOf)) } };
+  }
+
+  // "Roll back to last good" (console 2.14.0, lib/last-good.mjs): each board to its last good version.
+
+  /** thing -> its update records, newest first, for the boards whose history could be read. */
+  async function recordsOfAll(things) {
+    const history = updates();
+    const found = new Map();
+    if (history === null) return found;
+    await mapLimit(things, HISTORY_IN_FLIGHT, async (thing) => {
+      try {
+        found.set(thing, await history.recordsOf(thing));
+      } catch (error) {
+        log({ level: 'warn', event: 'updates_unreadable', thing, error: describeError(error) });
+      }
+    });
+    return found;
+  }
+
+  /**
+   * The plan of a roll back to last good, for a group or (`group` null) the fleet: one target per
+   * release, each with its boards (from -> to), the ones it reaches and its canary, and the boards
+   * left out with why.
+   */
+  async function lastGoodPlan(group = null) {
+    const loaded = (await fleet.boards()).map(({ board }) => board);
+    const inScope = group === null ? loaded : loaded.filter((board) => group.things.includes(board.thing));
+    const wifi = inScope.filter((board) => !board.bluetoothOnly).map((board) => board.thing);
+    const [histories, listed, busy] = await Promise.all([recordsOfAll(wifi), aws.listReleases(), busyOf(wifi)]);
+    const releases = listed.map(releaseFromItem).filter((release) => release !== null);
+    const found = planLastGood({ boards: inScope, histories, releases, busy, nowMs: now() });
+    return {
+      scope: group === null ? { kind: 'fleet' } : { kind: 'group', id: group.id, name: group.name },
+      targets: found.targets.map((target) => ({
+        type: target.release.board,
+        label: target.label,
+        release: {
+          version: target.release.version,
+          board: target.release.board,
+          layout: target.release.layout,
+          uploadedAt: target.release.uploadedAt,
+          notes: target.release.notes,
+          rebuildOf: target.rebuildOf,
+        },
+        boards: target.boards,
+        things: target.things,
+        leftOut: target.leftOut,
+        canary: target.things.length === 0 ? [] : chooseCanary(target.things, loaded, DEFAULT_CANARY),
+      })),
+      leftOut: found.leftOut,
+      healthGate: { on: true, minutes: DEFAULT_GATE_MINUTES },
+      generatedAt: new Date(now()).toISOString(),
+    };
+  }
+
+  /**
+   * Start a reviewed roll back to last good: body { targets: [{ version, things }], canary?, stages?,
+   * batch?, soakMinutes?, healthGate?, abortPercent?, note? }, each target checked against the plan as
+   * it is now. One staged rollout per target, each with the health gate on: without one in the body
+   * it is on for DEFAULT_GATE_MINUTES, and asked off it is refused.
+   */
+  async function startLastGood({ body, actor, entry, group = null }) {
+    const gate = field(body, 'healthGate');
+    if (gate === null || (gate !== undefined && gate?.on === false)) {
+      throw badRequest('gate_required', 'A roll back to last good runs with the health gate on.');
+    }
+    const options = rolloutOptions(body);
+    if (!options.healthGate) options.healthGate = { minutes: DEFAULT_GATE_MINUTES };
+    const asked = field(body, 'targets');
+    if (!Array.isArray(asked) || asked.length < 1 || asked.length > MAX_LAST_GOOD_TARGETS) {
+      throw badRequest(
+        'invalid_targets',
+        `"targets" lists 1 to ${MAX_LAST_GOOD_TARGETS} releases, each with its version and boards.`
+      );
+    }
+    const wanted = asked.map((item) => {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+        throw badRequest('invalid_targets', 'Each entry of "targets" is { version, things }.');
+      }
+      return { version: requireVersion(field(item, 'version')), things: requireBoardList(field(item, 'things')) };
+    });
+    if (new Set(wanted.map((item) => item.version.text)).size !== wanted.length) {
+      throw badRequest('invalid_targets', 'A release is listed twice.');
+    }
+    const every = wanted.flatMap((item) => item.things);
+    if (new Set(every).size !== every.length) throw badRequest('invalid_targets', 'A board is listed twice.');
+    entry.detail.versions = wanted.map((item) => item.version.text).join(', ');
+    entry.detail.things = String(every.length);
+
+    const now_ = await lastGoodPlan(group);
+    const chosen = [];
+    for (const item of wanted) {
+      const planned = now_.targets.find((target) => target.release.version === item.version.text);
+      if (!planned) throw planChanged(`No board's last good version is reached by ${item.version.text} now.`);
+      const outside = item.things.filter((thing) => !planned.things.includes(thing));
+      if (outside.length > 0) {
+        const why = outside.map(
+          (thing) =>
+            planned.leftOut.find((left) => left.thing === thing) ??
+            now_.leftOut.find((left) => left.thing === thing) ?? {
+              thing,
+              reason: 'not_in_plan',
+              text: `Its last good version is not reached by ${item.version.text}`,
+            }
+        );
+        throw planChanged(`${outside.join(', ')} would not take it now: ${why[0].text}.`, why);
+      }
+      chosen.push({ planned, things: item.things });
+    }
+
+    const scope = group === null ? { kind: 'fleet' } : { kind: 'group', group: group.id, groupName: group.name };
+    const started = [];
+    try {
+      for (const { planned, things } of chosen) {
+        const release = await findRelease(requireVersion(planned.release.version));
+        const leftOut = planned.leftOut.concat(
+          planned.things
+            .filter((thing) => !things.includes(thing))
+            .map((thing) => ({ thing, reason: 'unticked', text: 'Left out by hand' }))
+        );
+        started.push(
+          await start({
+            release,
+            things,
+            leftOut,
+            target: { ...scope, type: planned.type },
+            purpose: 'last_good',
+            options,
+            actor,
+          })
+        );
+        entry.detail.rollouts = started.map((record) => record.id).join(' ');
+      }
+    } catch (error) {
+      noteStarted(entry, started);
+      if (started.length === 0) throw error;
+      log({
+        level: 'error',
+        event: 'plan_partly_started',
+        started: started.map((record) => record.id),
+        error: describeError(error),
+      });
+      throw new HttpError(
+        500,
+        'partly_started',
+        `${started.length} of ${chosen.length} rollouts were started ` +
+          `(${started.map((record) => record.id).join(', ')}); the next could not be: ${error.message ?? 'see the log'}`
+      );
+    }
+    noteStarted(entry, started);
+    noteChange(entry, 'plan', null, planWords(options));
     return { status: 201, body: { rollouts: await Promise.all(started.map(detailOf)) } };
   }
 
@@ -1205,6 +1367,24 @@ export function createRolloutHandlers(
     async everything({ actor, json, entry }) {
       entry.target = 'fleet';
       return startPlan({ body: json(), actor, entry, purpose: 'update_everything', target: { kind: 'type' } });
+    },
+
+    async lastGoodPlan({ params }) {
+      const group = params.id === undefined ? null : await liveGroup(requireGroupId(params.id));
+      return { body: { plan: await lastGoodPlan(group) } };
+    },
+
+    async lastGood({ actor, params, json, entry }) {
+      let group = null;
+      if (params.id === undefined) {
+        entry.target = 'fleet';
+      } else {
+        const id = requireGroupId(params.id);
+        entry.target = id;
+        group = await liveGroup(id);
+        entry.detail.group = group.name;
+      }
+      return startLastGood({ body: json(), actor, entry, group });
     },
 
     async rollbackPlan({ params }) {
