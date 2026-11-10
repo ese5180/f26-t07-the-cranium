@@ -41,7 +41,15 @@ struct ShellWebView: UIViewRepresentable {
         context.coordinator.webView = webView
         model.webView = webView
         if let config = model.config {
-            webView.load(URLRequest(url: ShellPolicy.startURL(config: config)))
+            var start = ShellPolicy.startURL(config: config)
+            #if DEBUG
+            // `-CraniumStart '/admin#/offline'`: another page of the bundle to open at, for the Simulator.
+            if let path = UserDefaults.standard.string(forKey: "CraniumStart"), path.hasPrefix("/"),
+               let url = URL(string: path, relativeTo: start)?.absoluteURL, ShellPolicy.isBundle(url) {
+                start = url
+            }
+            #endif
+            webView.load(URLRequest(url: start))
         }
         return webView
     }

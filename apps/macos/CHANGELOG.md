@@ -1,5 +1,9 @@
 # Mac app changelog
 
+## 0.4.0
+
+- Offline mode: the console's Offline page (console 2.27.0) talks to a board over Bluetooth with no network. The app offers the bridge feature `bleOffline` and answers `ble.offline.connect`, `ble.offline.status`, `ble.offline.accept` and `ble.offline.disconnect` with the iPhone's `ShellRadio` and CraniumKit's `OfflineLink`; macOS asks for the board's passkey in its own pairing box. The radio is held by one window as for an update (MacRadioHub): an offline link keeps it until it goes, and a window's page leaving lets it go. Needs firmware 1.19.0. A middle number: the bridge gained methods.
+
 ## 0.3.0
 
 - The Serial console and Board setup are back. The app gives the pages the board's USB serial port through the bridge (`usb.open`, `usb.write`, `usb.close`, `usb.data`, `usb.closed`), as the Android app does: a sheet to choose the board the first time, then POSIX termios at the page's baud (8N1, no flow control), unplug reported to the page. The sandbox gets the serial entitlement and nothing else new. The hello now says platform `macos` and feature `usb`. docs/mac-app.md.
