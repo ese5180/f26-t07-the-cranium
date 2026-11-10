@@ -128,7 +128,7 @@ from the kind of phone. `window.cranium.bridge` is the same object, for feature 
 | `haptics` | `haptics.play` | success, warning, error, selection, impact |
 | `share` | `file.share` | A file (base64, a name, CSV, JSON, text or PDF) through the share sheet: save to Files, AirDrop, mail. For exports to come |
 | `storage` | `storage.get`, `storage.set`, `storage.remove` | What the page means to keep across launches (the customer site's journal and choices), on the phone only: keys `cranium.` plus up to 200 printable characters, values up to 3,000,000 characters, 64 keys and 12 MB in all; one file per key, named by its SHA-256, not backed up (iPhone: Application Support, excluded from backup and file-protected; Android: `noBackupFilesDir`). The iPhone's web view keeps no data of its own, so its `localStorage` lasts only until the app closes |
-| `open` | `app.open` | An `https:`, `sidestore:` or `otpauth:` address outside the app; anything else `not_allowed` |
+| `open` | `app.open` | An `https:`, `sidestore:` or `otpauth:` address outside the app (on the iPhone, a `sidestore:` one only in the two forms of "Updating the iPhone app"); anything else `not_allowed` |
 | `keepAwake` | `app.keepAwake` | The screen stays on during an update over Bluetooth |
 | `settings` | `app.settings` | The shell's own settings: versions, Look for newer pages, Classic app (and Reload on the iPhone) |
 | `appUpdate` (Android) | `update.check`, `update.install` | The APK's own updater, as before; its daily check and notification are unchanged |
@@ -858,6 +858,40 @@ time, SideStore itself among them, and ten new app IDs a week. The app
 is signed with the person's team, so it keeps its own sign-in and settings from one update to the next, but not across
 a change of Apple ID. Nothing in the app uses App Groups, iCloud or push notifications, which a free team cannot sign.
 
+### Updating the iPhone app
+
+From 0.8.12 the app finds its own update. When the pages start and whenever the app comes back (at most every 10
+minutes), it asks the console's `GET /api/apps` with the console sign-in that is already open; it never asks for Face
+ID for this, and a customer's sign-in has no Apps page, so a customer sees nothing. If the newest published iPhone
+version is higher than the app's own (`CFBundleShortVersionString`, then the build, `CFBundleVersion`), a banner above
+the page says **Cranium <new> is ready (this iPhone has <old>)**, and **Update** opens a sheet with two ways, always
+both, SideStore first:
+
+1. **Install with SideStore** (needs SideStore on the iPhone; no Mac, no cable). One tap asks the console for a fresh
+   download link (`GET /api/apps/ios/<version>/download?via=app`, a presigned S3 link good for 15 minutes, on record as
+   `app.ios_download` with `via: app`), checks that it is the version, size and SHA-256 that was offered, and opens
+   `sidestore://install?url=<link>`. SideStore downloads the IPA, signs it with the person's Apple ID and installs it
+   over the app, which keeps its sign-in and settings; the app closes when SideStore replaces it. This is the form
+   SideStore's own URL handler takes for an IPA at an address (its hosts are `install` and `source`, each with a `url`
+   query item); `install` is used rather than `source` because it needs no source link of the person's own and goes
+   straight to that version. If nothing opens the link, SideStore is not on the iPhone: the sheet says so in plain
+   words, says it needs a computer once to install it, and links to the console's Apps page, whose iPhone card has
+   SideStore's guide and the person's own source link (above).
+2. **Install from the Mac** (no SideStore needed). Connect the iPhone to the Mac that installed the app, with its cable
+   or on the same Wi-Fi and unlocked, and run `apps/ios/scripts/renew.sh` in the repository: it builds the newest app
+   from `main` and installs it, keeping what the app stored ([`apps/ios/README.md`](../apps/ios/README.md)). Or open
+   the console's Apps page on the Mac and follow its iPhone steps.
+
+What the app may hand to SideStore is fixed in `ShellPolicy` (CraniumKit), for the page's `app.open` and its links as
+well as for the update: exactly `sidestore://source?url=<this console>/api/sidestore/crs_<key>/source.json` and
+`sidestore://install?url=<IPA>`, the IPA either the console's presigned S3 link
+(`https://<bucket>.s3.<region>.amazonaws.com/apps/ios/cranium-ios-<version>.ipa?…X-Amz-Signature=…`) or an IPA through
+a member's source on this console. One `url` item and nothing else: no path, port, user or fragment, no other query
+item. SideStore's other links (`pairing` and `certificate`, which send a pairing file or a signing certificate to an
+address) and any other address are refused. The console's token goes only to the console; SideStore gets the short-lived
+presigned link and no token. The code is `apps/ios/CraniumKit/Sources/CraniumKit/Shell/AppUpdate.swift`, `ShellModel`
+and `App/Shell/AppUpdateView.swift`; the tests are `AppUpdateTests` and `ShellPolicyTests`.
+
 **How the source works.** The link is `<console>/api/sidestore/crs_<key>/source.json`: a capability URL, since
 SideStore signs in to nothing. The key is 32 random bytes, shown once; the console keeps its SHA-256, never the key, so
 it cannot show it again. **Make a new link** ends the old one at once, and **Turn it off** ends it. The source lists the
@@ -882,7 +916,7 @@ It does not need the console, and it works with SideStore on other phones.
 | A URL | `POST /api/t/apps/ios/uploads`, body `{"version": "0.6.0", "buildVersion": "8", "sha256": "<hex>", "size": 15432100, "notes": "..."}`: a presigned PUT for exactly that size and SHA-256 |
 | The file | `PUT` to that URL with those headers |
 | The check | `POST /api/t/apps/ios/releases/0.6.0`, the same body without `version`. The size and SHA-256 must hold, and then the console reads `Payload/Cranium.app/Info.plist` out of the zip in S3: the bundle ID `com.craniumiot.cranium`, the version and the build described, and `cranium.json` this console's, with no example configuration (`422 ipa_mismatch`, or `ipa_unreadable` for a file that is not an IPA) |
-| A download | `GET /api/apps/ios/0.6.0/download`, any member |
+| A download | `GET /api/apps/ios/0.6.0/download`, any member; `?via=app` from the iPhone app itself, for its own update |
 | The source link | `GET`, `POST /api/apps/sidestore` (a new one) and `POST /api/apps/sidestore/revoke`, a member's own, from the website only |
 
 A version is published once and only upward, by its version and its build (`CURRENT_PROJECT_VERSION`,

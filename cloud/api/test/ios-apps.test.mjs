@@ -229,6 +229,19 @@ test('only release managers publish, with a session or an API token; every membe
     authTime: Math.floor(clock.ms / 1000) - 3600,
   });
   assert.equal((await call('GET', '/api/apps/ios/0.6.0/download', { claims: phone })).status, 200);
+  // The iPhone app's own update (AppUpdate.swift) asks with via=app, and the log says so; nothing else is taken.
+  const own = await call('GET', '/api/apps/ios/0.6.0/download', { claims: phone, query: { via: 'app' } });
+  assert.equal(own.status, 200);
+  assert.equal(own.body.download.sha256, sha256(bytes));
+  assert.equal(
+    fake
+      .auditLog()
+      .filter((entry) => entry.action === 'app.ios_download')
+      .at(-1).detail.via,
+    'app'
+  );
+  const odd = await call('GET', '/api/apps/ios/0.6.0/download', { claims: phone, query: { via: 'x' } });
+  assert.deepEqual([odd.status, odd.body.error.code], [400, 'invalid_via']);
   const change = await call('POST', '/api/apps/ios/uploads', { claims: phone, body: describe('0.7.0', '9', ipa()) });
   assert.deepEqual([change.status, change.body.error.code], [403, 'phone_sign_in_again']);
 });

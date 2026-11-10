@@ -470,9 +470,13 @@ export function createAppHandlers({ aws, config, now }, { versions } = {}) {
 
     iosLink,
 
-    async downloadIos({ params, entry }) {
+    // `via=app`: the iPhone app asked for it itself, for its own update through SideStore (docs/mobile-apps.md,
+    // "Updating the iPhone app").
+    async downloadIos({ params, query, entry }) {
       entry.target = typeof params.version === 'string' ? params.version.slice(0, 32) : '';
-      entry.detail.via = 'link';
+      const via = query.via ?? 'link';
+      if (!VIA.includes(via)) throw badRequest('invalid_via', '"via" is qr or app, or left out.');
+      entry.detail.via = via;
       const link = await iosLink(params.version);
       entry.detail.sha256 = link.release.sha256;
       return {

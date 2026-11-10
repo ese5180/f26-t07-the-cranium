@@ -35,6 +35,13 @@ final class ShellModel: ObservableObject {
     @Published private(set) var checking = false
     @Published private(set) var updateNote: String?
     @Published private(set) var needsNewerApp = false
+    /// A newer iPhone build on the console than the app that runs (`AppUpdate`), and the sheet with its two ways.
+    @Published private(set) var appUpdate: AppUpdate.Release?
+    @Published var showAppUpdate = false
+    @Published private(set) var appUpdateBusy = false
+    @Published private(set) var appUpdateMessage: String?
+    /// SideStore did not open: the sheet says how to get it.
+    @Published private(set) var sideStoreMissing = false
 
     let loaded: LoadedConfig?
     let store: BundleStore
@@ -102,6 +109,8 @@ final class ShellModel: ObservableObject {
     func pageReady() async {
         guard let bundle else { return }
         await store.markReady(bundle.id)
+        // The page has asked for its sign-in by now, so the check of the app's own version can use it.
+        Task { await checkForAppUpdate() }
     }
 
     /// Asks the console for a newer bundle; a new one is kept for the next start, and the page is told.
@@ -126,6 +135,70 @@ final class ShellModel: ObservableObject {
         case .failed(let why):
             updateNote = why
         }
+        await checkForAppUpdate()
+    }
+
+    // MARK: The app's own update
+
+    /// Asks the console's `GET /api/apps` whether it has a newer iPhone build than this one. Only with a console
+    /// sign-in that is open already: the check never asks for Face ID, and a customer's sign-in has no Apps page.
+    func checkForAppUpdate() async {
+        guard let config, let pool = pools[.admin], pool.isUnlocked,
+              let access = try? await pool.access() else { return }
+        guard let data = try? await Self.consoleGET(AppUpdate.appsURL(console: config.consoleURL), token: access.token)
+        else { return }
+        appUpdate = AppUpdate.offer(fromApps: data, runningVersion: shellVersion, build: shellBuild)
+    }
+
+    /// Install with SideStore: a fresh download link from the console, handed to SideStore as
+    /// `sidestore://install?url=<link>`. When nothing opens it, SideStore is not on this iPhone.
+    func installWithSideStore() async {
+        guard let config, let release = appUpdate, !appUpdateBusy else { return }
+        appUpdateBusy = true
+        appUpdateMessage = nil
+        sideStoreMissing = false
+        defer { appUpdateBusy = false }
+        do {
+            guard let pool = pools[.admin], let access = try await pool.access() else {
+                appUpdateMessage = "Sign in to the console in the app first: the download link is for members."
+                return
+            }
+            guard let address = AppUpdate.downloadURL(console: config.consoleURL, version: release.version) else { return }
+            let data = try await Self.consoleGET(address, token: access.token)
+            guard let ipa = AppUpdate.link(fromDownload: data, for: release, console: config.consoleURL),
+                  let install = AppUpdate.installLink(ipa: ipa),
+                  ShellPolicy.mayOpenOutside(install, console: config.consoleURL) else {
+                appUpdateMessage = "The console's answer was not a link to Cranium \(release.version), so nothing was opened."
+                return
+            }
+            if await UIApplication.shared.open(install) {
+                appUpdateMessage = "SideStore is installing Cranium \(release.version). This app closes when it is done; open it again."
+            } else {
+                sideStoreMissing = true
+            }
+        } catch let error as BridgeError {
+            appUpdateMessage = error.message
+        } catch {
+            appUpdateMessage = "The console could not be reached: \(error.localizedDescription)"
+        }
+    }
+
+    /// The console's Apps page, in Safari.
+    func openAppsPage() {
+        guard let config else { return }
+        UIApplication.shared.open(AppUpdate.appsPage(console: config.consoleURL))
+    }
+
+    /// A GET of the console with the console's token, and nothing else: ephemeral, no cookies, no cache, 15 s.
+    private static func consoleGET(_ url: URL, token: String) async throws -> Data {
+        guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSessionBundleFetcher.session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+        guard data.count <= 1 << 20 else { throw URLError(.dataLengthExceedsMaximum) }
+        return data
     }
 
     /// The newest good bundle, at the page the web view is on.
