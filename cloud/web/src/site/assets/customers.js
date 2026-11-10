@@ -429,7 +429,7 @@ function customerRow(ctx, customer, free) {
         h(
           'span',
           { class: 'customer-meta quiet' },
-          customer.name ? `${customer.name} · ` : '',
+          customer.name ? `customer's name: ${customer.name} · ` : '',
           customer.createdAt
             ? h(
                 'time',

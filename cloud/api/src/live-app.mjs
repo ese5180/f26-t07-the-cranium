@@ -37,6 +37,8 @@ import {
 } from './lib/live.mjs';
 
 const SENDS_AT_ONCE = 8;
+/** How long a connection's account is trusted between checks (ms). */
+const RECHECK_MS = 60_000;
 
 /** Run a task for every item, a few at a time. */
 async function each(items, task) {
@@ -119,6 +121,25 @@ export function createLiveHandler({
     return answer(200, { 'Sec-WebSocket-Protocol': PROTOCOL });
   }
 
+  // When each connection's account was last found good (this instance's memory, so at most one check a
+  // minute per connection, however many changes come). The connect checked it once; a token lives up to an hour.
+  const checkedAt = new Map();
+
+  /**
+   * Whether the connection's account is still allowed, asking Cognito at most once in RECHECK_MS. If Cognito
+   * cannot be asked it throws, and the push to that connection is skipped (and logged), never sent unchecked.
+   */
+  async function stillAllowed(connection, atMs) {
+    const last = checkedAt.get(connection.connectionId);
+    if (last !== undefined && atMs - last < RECHECK_MS && atMs >= last) return true;
+    const team = connection.audience === 'team';
+    const allowed = team ? await accounts.teamMember(connection.sub) : await accounts.customer(connection.sub);
+    if (!allowed) return false;
+    if (checkedAt.size >= 5000) checkedAt.clear();
+    checkedAt.set(connection.connectionId, atMs);
+    return true;
+  }
+
   async function fanOut(records) {
     const change = changesOf(records, tables);
     if (change.what.length === 0) return { sent: 0, closed: 0 };
@@ -144,6 +165,15 @@ export function createLiveHandler({
         }
         const message = messageFor(connection, change, owners, atMs);
         if (message === null) return;
+        if (!(await stillAllowed(connection, atMs))) {
+          // Disabled, removed or demoted since it connected: nothing more is pushed to it.
+          await sockets.close(connectionId);
+          await store.deleteConnection(connectionId);
+          checkedAt.delete(connectionId);
+          closed += 1;
+          log({ stream: true, outcome: 'closed', reason: 'account', audience: connection.audience });
+          return;
+        }
         if ((await sockets.send(connectionId, JSON.stringify(message))) === 'gone') {
           await store.deleteConnection(connectionId);
           closed += 1;

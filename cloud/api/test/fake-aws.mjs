@@ -215,6 +215,7 @@ export function createFakeAws({
   const auditItems = new Map(); // sk -> item
   // What customers did on the customer site (pk CUS of the audit table): sk -> item.
   const customerItems = new Map();
+  const writeSlots = new Map(); // "sub#bucket" -> writes counted
   const auditPart = (partition) => {
     if (partition === 'AUD') return auditItems;
     if (partition === 'CUS') return customerItems;
@@ -792,6 +793,15 @@ export function createFakeAws({
       return [...customerItems.values()]
         .filter((item) => item.actor?.sub === sub && item.sk >= since)
         .map((item) => item.sk);
+    },
+
+    // customer/aws.mjs takeWriteSlot: a counter that goes up only while it is below the limit.
+    async takeWriteSlot({ sub, bucket, limit }) {
+      const key = `${sub}#${bucket}`;
+      const n = writeSlots.get(key) ?? 0;
+      if (n >= limit) return { ok: false, reason: 'limit' };
+      writeSlots.set(key, n + 1);
+      return { ok: true };
     },
 
     async queryAudit({ before, after = null, limit, partition = 'AUD' }) {
