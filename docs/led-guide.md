@@ -54,7 +54,6 @@ Wi-Fi or cloud here). LED3 and LED4 are extra.
 | What you see | Meaning |
 | --- | --- |
 | LED1 and LED2 blinking **together**, 5 times a second | **Identify** from the console (Devices → a board → Identify), 15 s unless asked otherwise. Then the state shows again |
-| Both dark ½ s, then LED1, LED2 and both for 1 s each, then dark ½ s | The **hardware self-test** (`SELFTEST`, nRF7002 DK only), once firmware 1.17.1 from PR #92 is released; firmware on main today has no self-test |
 | Every LED dark for about a minute and a half | The bootloader is swapping in a new image after an update. Don't unplug it |
 
 ## Buttons, for reference
