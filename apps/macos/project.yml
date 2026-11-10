@@ -96,6 +96,7 @@ targets:
     sources:
       - path: Tests
       - path: Cranium/Sections.swift
+      - path: Cranium/WebTarget.swift
     dependencies:
       - package: CraniumKit
         product: CraniumKit

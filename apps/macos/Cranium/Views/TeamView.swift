@@ -69,6 +69,8 @@ struct TeamView: View {
         case .search: SearchPage()
         case .tokens: TokensPage()
         case .history: HistoryPage()
+        case .schedules: TeamWebPage(route: "#/deployments")
+        case .reports: TeamWebPage(route: "#/reports")
         case .help: HelpPage()
         }
     }

@@ -16,6 +16,8 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
     case search
     case tokens
     case history
+    case schedules
+    case reports
     case help
 
     var id: String { rawValue }
@@ -33,6 +35,8 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
         case .search: return "Search"
         case .tokens: return "API tokens"
         case .history: return "History"
+        case .schedules: return "Scheduled deployments"
+        case .reports: return "Weekly report"
         case .help: return "Help"
         }
     }
@@ -50,6 +54,8 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
         case .search: return "magnifyingglass"
         case .tokens: return "key"
         case .history: return "clock.arrow.circlepath"
+        case .schedules: return "calendar.badge.clock"
+        case .reports: return "chart.bar.doc.horizontal"
         case .help: return "questionmark.circle"
         }
     }
@@ -57,7 +63,7 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
     /// Which group of the sidebar it is in.
     var group: Group {
         switch self {
-        case .overview, .boards, .firmware, .deployments, .events, .activity: return .console
+        case .overview, .boards, .firmware, .deployments, .schedules, .events, .activity, .reports: return .console
         case .bluetooth, .serial: return .inTheRoom
         case .search, .tokens, .history, .help: return .more
         }
@@ -95,6 +101,8 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
         case "serial": return .serial
         case "tokens": return .tokens
         case "history": return .history
+        case "schedules": return .schedules
+        case "reports": return .reports
         case "help": return .help
         default: return TeamSection(rawValue: key)
         }
@@ -105,6 +113,7 @@ enum TeamSection: String, CaseIterable, Identifiable, Hashable, Codable {
 enum CustomerSection: String, CaseIterable, Identifiable, Hashable, Codable {
     case boards
     case activity
+    case listening
     case account
     case help
 
@@ -114,6 +123,7 @@ enum CustomerSection: String, CaseIterable, Identifiable, Hashable, Codable {
         switch self {
         case .boards: return "Your boards"
         case .activity: return "Activity"
+        case .listening: return "Your listening"
         case .account: return "Account"
         case .help: return "Help"
         }
@@ -123,6 +133,7 @@ enum CustomerSection: String, CaseIterable, Identifiable, Hashable, Codable {
         switch self {
         case .boards: return "cpu"
         case .activity: return "clock.arrow.circlepath"
+        case .listening: return "clock"
         case .account: return "person.crop.circle"
         case .help: return "questionmark.circle"
         }
