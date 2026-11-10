@@ -6,6 +6,12 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 ## Done recently
 
+- **A firmware build image on GitHub Packages** (pull request #93): the NCS 3.4.0 toolchain and SDK in one image, built
+  by `firmware-image.yml`; the firmware jobs move to it once it is published ([`ci.md`](ci.md)).
+- **Listening stats** (console 2.22.0, apps 0.8.20): a "Your listening" tab on the customer site and in the apps'
+  customer mode ([`customer-site.md`](customer-site.md)).
+- **Security hardening** (console 2.21.1): the live connection rechecks the account, customers' own names are clamped,
+  and the customer change limit is atomic.
 - **Bulk board setup** (console 2.21.0): several boards in a row from Board setup, with a shared group, name pattern and
   Wi-Fi, each marked done or failed, and the QR labels printed together ([`new-board-setup.md`](new-board-setup.md)).
 - **"Roll back to last good" as the one way back** (console 2.20.1): the group "Roll back" button is removed
@@ -47,18 +53,17 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 ## In progress
 
-- **Board health for customers**, in plain words.
+- **A hardware self-test step in setup** (firmware 1.17.0, console 2.23.0, draft pull request #92): built, waiting for a
+  test on a board.
+- **The native Mac app** (pull request #94): builds and passes its tests, waiting for a review of its look.
 
 ## Planned next, in this order
 
-1. Push notifications for board events, then home-screen widgets and Live Activities.
-2. A hardware self-test step in setup.
-3. An offline Bluetooth mode, with a passkey for each board.
-4. Sessions and tracks sent from the board, so that Now playing and the play times are real. This replaces the customer
+1. Push notifications for board events, then home-screen widgets and Live Activities (needs the Apple and Firebase
+   keys).
+2. An offline Bluetooth mode, with a passkey for each board.
+3. Sessions and tracks sent from the board, so that Now playing and the play times are real. This replaces the customer
    site's demo and its import journal ([`customer-data.md`](customer-data.md)).
-5. Listening stats.
-6. A firmware build image on GitHub Packages.
-7. The native Mac app (the desktop app is for Windows and Linux).
 
 ## On hold
 
