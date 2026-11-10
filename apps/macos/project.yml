@@ -20,7 +20,7 @@ options:
 settings:
   base:
     # The version people see (apps/macos/CHANGELOG.md, docs/versions.md).
-    MARKETING_VERSION: "0.2.0"
+    MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "1"
 
 packages:
@@ -92,6 +92,7 @@ targets:
     sources:
       - path: Tests
       - path: Cranium/Shell/MacNavigation.swift
+      - path: Cranium/Serial
     dependencies:
       - package: CraniumKit
         product: CraniumKit

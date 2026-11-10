@@ -25,8 +25,10 @@ final class MacNavigationTests: XCTestCase {
         XCTAssertEqual(decide("cranium-app://bundle/", mainFrame: false), .drop)
     }
 
-    func testThePagesThatNeedWebSerialAreLeftOut() {
-        XCTAssertEqual(decide("cranium-app://bundle/admin#/serial"), .drop)
-        XCTAssertEqual(decide("cranium-app://bundle/admin#/setup/flash"), .drop)
+    func testTheSerialPagesLoadBecauseTheAppGivesThemAPort() {
+        XCTAssertEqual(decide("cranium-app://bundle/admin#/serial"), .load)
+        XCTAssertEqual(decide("cranium-app://bundle/admin#/setup/flash"), .load)
+        XCTAssertEqual(decide("cranium-app://bundle/admin#/serial", mainFrame: false), .drop)
+        XCTAssertEqual(decide("cranium-app://other/admin#/serial"), .drop)
     }
 }

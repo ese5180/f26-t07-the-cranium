@@ -92,6 +92,11 @@ struct MacWebView: NSViewRepresentable {
             decisionHandler(response.canShowMIMEType ? .allow : .cancel)
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            // A new document: nothing of the old page is left to read a port.
+            model.host.pageLeft()
+        }
+
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             webView.reload()
         }
