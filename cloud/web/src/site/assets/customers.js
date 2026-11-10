@@ -38,6 +38,7 @@ import {
   loading,
   mono,
   notice,
+  onTheWebsite,
   pageHead,
 } from './views.js';
 
@@ -367,7 +368,7 @@ function assignForm(customer, free) {
   );
 }
 
-function boardItem(customer, board, devices) {
+function boardItem(customer, board, devices, inApp = false) {
   const key = `remove ${customer.id} ${board.thing}`;
   const known = boardOf(board.thing, devices);
   return h(
@@ -387,23 +388,25 @@ function boardItem(customer, board, devices) {
       { class: 'customer-board-since quiet' },
       board.assignedAt ? `since ${dateAndTime(board.assignedAt)}` : ''
     ),
-    confirming === key
-      ? h(
-          'span',
-          { class: 'button-row' },
-          button(
-            'is-small is-danger',
-            () =>
-              act(
-                customer.id,
-                () => app.api.unassignBoard(customer.id, board.thing),
-                `${boardName(known)} is taken back.`
-              ),
-            'Take it back'
-          ),
-          button('is-small is-quiet', () => ask(null), 'Keep')
-        )
-      : button('is-small', () => ask(key), icon('undo'), 'Take back')
+    inApp
+      ? null
+      : confirming === key
+        ? h(
+            'span',
+            { class: 'button-row' },
+            button(
+              'is-small is-danger',
+              () =>
+                act(
+                  customer.id,
+                  () => app.api.unassignBoard(customer.id, board.thing),
+                  `${boardName(known)} is taken back.`
+                ),
+              'Take it back'
+            ),
+            button('is-small is-quiet', () => ask(null), 'Keep')
+          )
+        : button('is-small', () => ask(key), icon('undo'), 'Take back')
   );
 }
 
@@ -448,69 +451,81 @@ function customerRow(ctx, customer, free) {
       { class: 'customer-boards' },
       customer.boards.length === 0
         ? h('li', { class: 'quiet' }, 'No boards yet.')
-        : customer.boards.map((board) => boardItem(customer, board, devices))
+        : customer.boards.map((board) => boardItem(customer, board, devices, ctx.state.app))
     ),
-    customer.status === 'gone' ? null : assignForm(customer, free),
-    h(
-      'div',
-      { class: 'button-row customer-actions' },
-      customer.status === 'invited'
-        ? button(
-            'is-small',
-            () =>
-              act(customer.id, () => app.api.resendInvitation(customer.id), `The invitation to ${name} is sent again.`),
-            icon('send'),
-            'Send the invitation again'
-          )
-        : null,
-      customer.status === 'disabled'
-        ? button(
-            'is-small',
-            () => act(customer.id, () => app.api.setCustomerEnabled(customer.id, true), `${name} can sign in again.`),
-            icon('check'),
-            'Switch on'
-          )
-        : null,
-      customer.status === 'active' || customer.status === 'invited'
-        ? confirming === off
-          ? [
-              h(
-                'span',
-                { class: 'card-note', key: 'ask' },
-                `${name} will not be able to sign in, and stops seeing their boards within a minute.`
-              ),
-              button(
-                'is-small is-danger',
+    ctx.state.app ? h('div', { class: 'button-row customer-actions' }, onTheWebsite(ctx, 'customers')) : null,
+    customer.status === 'gone' || ctx.state.app ? null : assignForm(customer, free),
+    ctx.state.app
+      ? null
+      : h(
+          'div',
+          { class: 'button-row customer-actions' },
+          customer.status === 'invited'
+            ? button(
+                'is-small',
                 () =>
-                  act(customer.id, () => app.api.setCustomerEnabled(customer.id, false), `${name} is switched off.`),
-                'Switch off'
-              ),
-              button('is-small is-quiet', () => ask(null), 'Keep'),
-            ]
-          : button('is-small', () => ask(off), icon('ban'), 'Switch off')
-        : null,
-      customer.status === 'active'
-        ? (confirmStep(
-            `reset ${customer.id}`,
-            `Cognito e-mails ${name} a code to choose a new password with. Their password stops working now.`,
-            'Reset password',
-            () =>
-              act(
-                customer.id,
-                () => app.api.resetCustomerPassword(customer.id),
-                `${name} gets an e-mail with a code to choose a new password.`
+                  act(
+                    customer.id,
+                    () => app.api.resendInvitation(customer.id),
+                    `The invitation to ${name} is sent again.`
+                  ),
+                icon('send'),
+                'Send the invitation again'
               )
-          ) ?? button('is-small', () => ask(`reset ${customer.id}`), icon('key'), 'Reset password'))
-        : null,
-      customer.status === 'gone'
-        ? null
-        : (confirmStep(
-            `delete ${customer.id}`,
-            `${name} is signed out and their account deleted. This cannot be undone; their boards stay here to take back.`,
-            'Remove',
-            () => act(customer.id, () => app.api.removeCustomer(customer.id), `${name} is removed.`)
-          ) ?? button('is-small', () => ask(`delete ${customer.id}`), icon('x'), 'Remove'))
-    ),
+            : null,
+          customer.status === 'disabled'
+            ? button(
+                'is-small',
+                () =>
+                  act(customer.id, () => app.api.setCustomerEnabled(customer.id, true), `${name} can sign in again.`),
+                icon('check'),
+                'Switch on'
+              )
+            : null,
+          customer.status === 'active' || customer.status === 'invited'
+            ? confirming === off
+              ? [
+                  h(
+                    'span',
+                    { class: 'card-note', key: 'ask' },
+                    `${name} will not be able to sign in, and stops seeing their boards within a minute.`
+                  ),
+                  button(
+                    'is-small is-danger',
+                    () =>
+                      act(
+                        customer.id,
+                        () => app.api.setCustomerEnabled(customer.id, false),
+                        `${name} is switched off.`
+                      ),
+                    'Switch off'
+                  ),
+                  button('is-small is-quiet', () => ask(null), 'Keep'),
+                ]
+              : button('is-small', () => ask(off), icon('ban'), 'Switch off')
+            : null,
+          customer.status === 'active'
+            ? (confirmStep(
+                `reset ${customer.id}`,
+                `Cognito e-mails ${name} a code to choose a new password with. Their password stops working now.`,
+                'Reset password',
+                () =>
+                  act(
+                    customer.id,
+                    () => app.api.resetCustomerPassword(customer.id),
+                    `${name} gets an e-mail with a code to choose a new password.`
+                  )
+              ) ?? button('is-small', () => ask(`reset ${customer.id}`), icon('key'), 'Reset password'))
+            : null,
+          customer.status === 'gone'
+            ? null
+            : (confirmStep(
+                `delete ${customer.id}`,
+                `${name} is signed out and their account deleted. This cannot be undone; their boards stay here to take back.`,
+                'Remove',
+                () => act(customer.id, () => app.api.removeCustomer(customer.id), `${name} is removed.`)
+              ) ?? button('is-small', () => ask(`delete ${customer.id}`), icon('x'), 'Remove'))
+        ),
     row.error ? failure('That did not change.', row.error) : null
   );
 }
@@ -617,7 +632,17 @@ export function customersView(ctx) {
       h(
         'div',
         { class: 'customers-side' },
-        inviteCard(ctx, data),
+        ctx.state.app
+          ? card(
+              { key: 'invite', title: 'Invite a customer' },
+              h(
+                'p',
+                { class: 'card-note' },
+                'The apps show the customers and their boards; inviting, giving or taking back a board and every other change is made on the console’s website.'
+              ),
+              onTheWebsite(ctx, 'customers', 'Invite on the website')
+            )
+          : inviteCard(ctx, data),
         card(
           { key: 'free', title: 'Boards nobody has' },
           free.length === 0

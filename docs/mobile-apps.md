@@ -537,8 +537,10 @@ signed in as well has **Admin mode** in its top bar and on Account. The app open
 customer is signed in, else in admin mode when an admin is, else on the one sign-in. Sign out on the
 customer side signs out both, as the website's does; Sign out in admin mode signs the admin out only.
 
-**What a phone cannot do that the site can:** nothing, for a customer. Admins still invite customers and give
-them boards on the console's website only: the Customers routes refuse a phone's token (`phone_not_allowed`).
+**What a phone cannot do that the site can:** nothing, for a customer. From console 2.24.0 a release manager sees
+the Team and Customers pages in every app (iPhone, Android, desktop, Mac); every change to them (inviting, a tier,
+disabling, a reset, removing, giving or taking back a board) is still made on the console's website only, and the
+apps show "Change on the website" in its place. Those write routes refuse an app's session (`phone_not_allowed`).
 
 ## The API
 

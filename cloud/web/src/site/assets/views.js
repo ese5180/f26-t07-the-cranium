@@ -608,6 +608,25 @@ function button(className, onClick, ...children) {
   return h('button', { type: 'button', class: `btn ${className}`.trim(), onClick }, children);
 }
 
+/**
+ * Inside the apps, a page whose changes are made on the website only (Team, Customers) shows its data and,
+ * where its buttons would be, this: the same page on the console's website, in the browser.
+ */
+function onTheWebsite(ctx, view, words = 'Change on the website') {
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn is-small is-quiet website-only',
+      'data-action': 'website',
+      title: 'Changes to this are made on the console’s website',
+      onClick: () => ctx.actions.openOnWebsite(view),
+    },
+    words,
+    icon('arrow-right')
+  );
+}
+
 function meter(percent, label) {
   return h(
     'div',
@@ -2057,7 +2076,7 @@ export {
   whenAt,
 };
 // And for the fleet's pages and dialogs (fleet.js), which draw with the same pieces.
-export { SPACER, choice, consequences, dialogButton, dialogFrame, problemRef, segments, stats, who };
+export { SPACER, choice, consequences, dialogButton, dialogFrame, onTheWebsite, problemRef, segments, stats, who };
 
 /**
  * The foot of every page: the console's own version and the commit it was built from (GET /api/me, from

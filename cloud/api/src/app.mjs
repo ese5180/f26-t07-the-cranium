@@ -384,6 +384,10 @@ export function createApp({
   // The customer site's accounts and who owns which board (docs/customer-site.md): for release
   // managers on the website, never from a phone app or with an API token.
   const customerAdmin = { token: false, phone: false };
+  // Reading the team and the customers' list: release managers only, as above (each list asks Cognito
+  // for a release manager now), from the website or from any of the apps; never with an API token.
+  // Every change to them stays on the website (customerAdmin).
+  const releaseManagerRead = { token: false };
   const customerChange = (action) => ({ action, maxBody: SMALL_BODY_LIMIT });
   // A member's SideStore link, like their API tokens: made and turned off on the website, by themselves.
   const websiteSession = { token: false, phone: false };
@@ -626,7 +630,7 @@ export function createApp({
       websiteSession
     ),
     // Customers of the customer site. The customer API itself is another function (customer/app.mjs).
-    route('GET', '/api/customers', customers.list, null, customerAdmin),
+    route('GET', '/api/customers', customers.list, null, releaseManagerRead),
     route('POST', '/api/customers', customers.create, customerChange('customer.create'), customerAdmin),
     route('POST', '/api/customers/{id}/resend', customers.resend, customerChange('customer.resend'), customerAdmin),
     route('POST', '/api/customers/{id}/boards', customers.assign, customerChange('customer.assign'), customerAdmin),
@@ -649,7 +653,7 @@ export function createApp({
     route('POST', '/api/customers/{id}/remove', customers.remove, customerChange('customer.remove'), customerAdmin),
     // The team's accounts (handlers/team.mjs, docs/accounts.md): for release managers on the website, as the
     // customers are; never from a phone app or with an API token.
-    route('GET', '/api/team', team.list, null, customerAdmin),
+    route('GET', '/api/team', team.list, null, releaseManagerRead),
     route('POST', '/api/team', team.invite, customerChange('account.invite'), customerAdmin),
     route('POST', '/api/team/{id}/resend', team.resend, customerChange('account.resend'), customerAdmin),
     route('POST', '/api/team/{id}/tier', team.tier, customerChange('account.tier'), customerAdmin),

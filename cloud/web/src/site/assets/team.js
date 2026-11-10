@@ -36,6 +36,7 @@ import {
   icon,
   loadProblem,
   loading,
+  onTheWebsite,
   pageHead,
 } from './views.js';
 
@@ -469,18 +470,20 @@ function accountRow(ctx, account, accounts) {
         : null,
     actions.length === 0
       ? null
-      : h(
-          'div',
-          { class: 'button-row team-actions' },
-          actions.map(([key, label, iconName, open]) =>
-            h(
-              'button',
-              { key, type: 'button', class: 'btn is-small', 'data-action': key, onClick: () => open() },
-              icon(iconName),
-              label
+      : ctx.state.app
+        ? h('div', { class: 'button-row team-actions' }, onTheWebsite(ctx, 'team'))
+        : h(
+            'div',
+            { class: 'button-row team-actions' },
+            actions.map(([key, label, iconName, open]) =>
+              h(
+                'button',
+                { key, type: 'button', class: 'btn is-small', 'data-action': key, onClick: () => open() },
+                icon(iconName),
+                label
+              )
             )
           )
-        )
   );
 }
 
@@ -562,7 +565,17 @@ export function teamView(ctx) {
       h(
         'div',
         { class: 'team-side' },
-        inviteCard(),
+        ctx.state.app
+          ? card(
+              { key: 'invite', title: 'Invite a person' },
+              h(
+                'p',
+                { class: 'card-note' },
+                'The apps show the team; inviting and every other change is made on the console’s website.'
+              ),
+              onTheWebsite(ctx, 'team', 'Invite on the website')
+            )
+          : inviteCard(),
         card(
           { key: 'about', title: 'Resetting an account' },
           h(
