@@ -7,6 +7,21 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.20.0
+
+Board setup can set up several boards in a row. A release manager chooses what the boards share once (a group to add
+each to, a name pattern such as Studio{n} with a first number and how many, the Wi-Fi network from the console's
+defaults, and whether to install the newest firmware), then plugs the boards in one after another. Each goes through
+the page's own steps, is marked done or failed with the step and the reason, and is added to the group at the end; a
+failed board can be tried again or skipped, and the QR labels of the finished boards print together.
+
+Web only: setup.js gains the queue (`createBulkQueue`, `checkPattern`, `nextFreeName`, `addThingToGroup`) over the
+existing flow, with no copy of the serial protocol. The pattern gives the board's name (its Board ID) and label, never
+its thing name, which still comes from the register step; a name the console already has, or an earlier slot took, is
+passed over. A board joins its group through `POST /api/groups/{id}`, which keeps the boards the group has and is read
+again if the group changed meanwhile. No server, IAM or app change; each board's register and group changes are on the
+activity log as before. cloud/web/test/bulk.test.mjs; docs/new-board-setup.md.
+
 ## 2.19.0
 
 A weekly fleet report: a Reports page lists the last twelve weeks, Monday to Sunday in New York time, and each week opens as one printable page with the fleet health score and its trend, the boards online, offline and new, the firmware they ran, the week's deployments and staged rollouts with how they ended (health-gate stops and rollbacks counted apart), Memfault's new issues and unexpected reboots by reason, the boards' own restarts, the alerts sent and the activity log's top changes. Print it or save it as a PDF, or download its tables as CSV. A release manager can switch on a Monday e-mail of the summary through the alert topic.

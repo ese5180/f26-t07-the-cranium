@@ -11894,3 +11894,16 @@ span.glance-item:hover {
     text-decoration: none;
   }
 }
+
+/* Board setup, several boards (setup.js): the queue rows */
+.bulk-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.bulk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
