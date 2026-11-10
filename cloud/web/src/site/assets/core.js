@@ -294,7 +294,7 @@ export const ACTIVITY_KINDS = Object.freeze([
   { id: 'boards', label: 'Boards', starts: ['board.', 'serial.', 'device.', 'setup.'] },
   { id: 'people', label: 'Sign-ins, tokens and alerts', starts: ['account.', 'token.', 'alert.'] },
   { id: 'apps', label: 'Phone apps', starts: ['app.'] },
-  { id: 'customers', label: 'Customers', starts: ['customer.'] },
+  { id: 'customers', label: 'Customers', starts: ['customer.', 'customer_action.'] },
   { id: 'database', label: 'Database exports', starts: ['db.'] },
 ]);
 export const ACTIVITY_OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
@@ -1192,6 +1192,8 @@ function readAuditEntry(raw) {
     outcome: text(item.outcome, 24),
     detail,
     requestId: text(item.requestId, 64),
+    // An entry of what a customer did on the customer site (cloud/api/src/lib/audit.mjs).
+    ...(item.by === 'customer' && String(item.action).startsWith('customer_action.') ? { by: 'customer' } : {}),
     // What changed, before and after: only on an entry that recorded it (docs/audit-diff.md).
     ...readChanges(item),
   };
@@ -4441,6 +4443,19 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to remove a customer',
     icon: 'x',
   },
+  // What a customer did on the customer site (docs/customer-site.md, "Customer actions"): "A customer" did it.
+  'customer_action.rename': {
+    done: 'named {} on the customer site',
+    tried: 'tried to name {} on the customer site',
+    triedAlone: 'tried to name a board on the customer site',
+    icon: 'chip',
+  },
+  'customer_action.notifications': {
+    done: 'chose their e-mails on the customer site',
+    tried: 'tried to choose their e-mails on the customer site',
+    triedAlone: 'tried to choose their e-mails on the customer site',
+    icon: 'send',
+  },
   // The team's accounts, from the Team page (docs/accounts.md): a person by their address where the entry has it.
   'account.invite': {
     done: 'invited',
@@ -4513,8 +4528,9 @@ const AUDIT_ACTIONS = {
 // What the schedule that moves staged rollouts on did is the console's own: no person asked for it.
 const CONSOLE_ACTIONS = Object.freeze(['rollout.advance', 'rollout.stop']);
 
-/** Who did what an entry says: a person, or for what the schedule did, the console. */
+/** Who did what an entry says: a person, for what the schedule did the console, or a customer on the customer site. */
 export function actorOf(entry) {
+  if (entry?.by === 'customer') return 'A customer';
   return CONSOLE_ACTIONS.includes(entry?.action) && !entry.actor?.sub ? 'The console' : nameOf(entry?.actor);
 }
 
@@ -4732,6 +4748,13 @@ export const REFUSAL_WORDS = {
   board_taken: 'That board belongs to another customer',
   not_assigned: 'That board was not that customer’s',
   not_your_board: 'That customer has no such board',
+  // A customer's own changes on the customer site (cloud/api/src/customer/app.mjs).
+  invalid_label: 'Not a name a board can have',
+  label_too_long: 'A board’s name is at most 40 characters',
+  unknown_field: 'The request had a field that cannot be changed there',
+  invalid_choice: 'An e-mail can only be turned on or off',
+  nothing_chosen: 'No e-mail was turned on or off',
+  too_many_changes: 'Too many changes in a short time',
   unavailable: 'The account could not be checked just then',
   invalid_id: 'Not a board’s identifier of 16 hex digits',
   invalid_csr: 'Not a certificate signing request a board makes',
@@ -4933,6 +4956,8 @@ export const CHANGE_ACTIONS = Object.freeze([
   'customer.enable',
   'customer.reset_password',
   'customer.remove',
+  'customer_action.rename',
+  'customer_action.notifications',
   'account.invite',
   'account.tier',
   'account.disable',

@@ -122,7 +122,7 @@ function logOf(count, make) {
 
 const reqs = (body) => body.entries.map((entry) => Number(entry.requestId.slice(4)));
 
-test('GET /api/audit with no filter reads as before: no search, no `read`', async () => {
+test('GET /api/audit with no filter reads as before: no search, no `read`, of both partitions', async () => {
   const { console_, ask } = logOf(3, () => ({}));
   const { status, body } = await ask({ limit: '2' });
   assert.equal(status, 200);
@@ -130,7 +130,8 @@ test('GET /api/audit with no filter reads as before: no search, no `read`', asyn
   assert.equal('read' in body, false);
   assert.deepEqual(
     console_.fake.methodsCalled().filter((name) => name.endsWith('Audit')),
-    ['putAudit', 'putAudit', 'putAudit', 'queryAudit']
+    // The console's own entries, and what customers did (lib/audit.mjs CUSTOMER_ACTIONS_PK).
+    ['putAudit', 'putAudit', 'putAudit', 'queryAudit', 'queryAudit']
   );
 });
 

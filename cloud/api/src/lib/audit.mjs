@@ -16,6 +16,11 @@
  * entries: this detects changes to what was recorded, not lies told by the function.
  *
  * Item: pk = "AUD", sk = "<ISO time>#<request id>". Newest first is descending sk.
+ *
+ * What customers do on the customer site (renaming a board, choosing e-mails) is in the partition
+ * pk = "CUS", in the same shape, with `by: "customer"` and the customer's sub but never their e-mail
+ * address. Only the customer API writes there, and its role may write nowhere else of this table;
+ * it logs each entry's digest in its own log group. The console's activity log reads both partitions.
  * A page cursor is the last sk of the page, base64url encoded.
  *
  * A sign-in (account.sign_in) is the one entry that no request asked for. Its key is made from
@@ -117,7 +122,17 @@ export const ACTIONS = Object.freeze([
   'setup.wifi_defaults',
   // An export of the Database page (handlers/db.mjs): which table, the filters, how many items.
   'db.export',
+  // What a customer did on the customer site (customer/app.mjs, docs/customer-site.md): their own name for
+  // one of their boards, and which e-mails they want. Kept in a partition of their own (CUSTOMER_ACTIONS_PK),
+  // with `by: "customer"`, never the customer's e-mail address.
+  'customer_action.rename',
+  'customer_action.notifications',
 ]);
+/** The actions a customer makes, which only the customer API writes, in their own partition. */
+export const CUSTOMER_ACTIONS = Object.freeze(['customer_action.rename', 'customer_action.notifications']);
+// The partitions of the audit table: the console's entries, and what customers did on the customer site.
+export const AUDIT_PK = 'AUD';
+export const CUSTOMER_ACTIONS_PK = 'CUS';
 export const OUTCOMES = Object.freeze(['ok', 'rejected', 'denied', 'error']);
 
 export const REQUEST_ID = /^[A-Za-z0-9+/=_.:-]{1,128}$/;
@@ -294,6 +309,8 @@ export function entryFromItem(item) {
     detail: cleanDetail(item.detail),
     requestId: item.sk.slice(separator + 1),
   };
+  // A customer's own action on the customer site: the console says "A customer" for whoever did it.
+  if (item.by === 'customer' && CUSTOMER_ACTIONS.includes(item.action)) entry.by = 'customer';
   // An entry from before changes were recorded has none: the page says that nothing was recorded.
   if (Array.isArray(item.changes)) {
     const kept = cleanChanges(item.changes);

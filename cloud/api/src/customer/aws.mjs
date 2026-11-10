@@ -25,8 +25,13 @@
  *     deleteCustomer(sub)       -> { ok: true } | { ok: false, reason: "not_found" }  signed out, then deleted
  *
  *   Ownership (state table, pk "OWN", sk = the thing name; a board has one owner at most)
- *     listOwnership()           -> [{ thing, owner, ref, label, assignedAt, assignedBy }]  the owned
- *                                  boards only, any order; consistent read
+ *     listOwnership()           -> [{ thing, owner, ref, label, customerLabel, assignedAt, assignedBy }]
+ *                                  the owned boards only, any order; consistent read. `label` is the
+ *                                  admin's, `customerLabel` the owner's own name for it ('' for none)
+ *     setCustomerLabel({ thing, owner, ref, label, at })
+ *                               -> { ok: true } | { ok: false, reason: "not_owner" }  only while `owner`
+ *                                  owns it under that assignment id; '' takes the name away. Never the
+ *                                  thing name, the owner or the admin's label
  *     assignBoard({ thing, owner, ref, label, at, by })
  *                               -> { ok: true } | { ok: false, reason: "taken" }  only a board
  *                                  that nobody owns; `at` is an ISO time, `by` the admin's sub
@@ -34,6 +39,18 @@
  *                               -> { ok: true } | { ok: false, reason: "not_owner" }  only while
  *                                  `owner` owns it. The item stays, with no owner: the API role may
  *                                  not delete from the state table
+ *
+ *   Preferences (state table, pk "PRF", sk = the customer's sub): the e-mails a customer wants
+ *     getPreferences(sub)       -> { offline, updated, unexpectedRestart, updatedAt } | null  (none chosen)
+ *     setPreferences(sub, { offline, updated, unexpectedRestart }, at)
+ *                               -> { ok: true }  all three booleans, each written as given
+ *
+ * createCustomerActionLog(env): what customers did, in the audit table's partition "CUS" and no other
+ * (lib/audit.mjs). It reads AWS_REGION and AUDIT_TABLE.
+ *
+ *     putCustomerAction(item)   -> { ok: true } | { ok: false, reason: "exists" }  never over another
+ *     recentCustomerActions({ sub, since })
+ *                               -> [sk]  the keys of this customer's entries from `since` (an ISO time) on
  *
  * createBoardReader(env): what the customer API reads about a board, and nothing more. It reads
  * AWS_REGION and EVENTS_TABLE.
@@ -54,7 +71,13 @@ import {
   CognitoIdentityProviderClient,
   ListUsersCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { DynamoDBClient, PutItemCommand, QueryCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
+  QueryCommand,
+  UpdateItemCommand,
+} from '@aws-sdk/client-dynamodb';
 import { GetThingShadowCommand, IoTDataPlaneClient } from '@aws-sdk/client-iot-data-plane';
 
 import {
@@ -70,7 +93,12 @@ import {
   toItem,
 } from '../aws.mjs';
 
+import { CUSTOMER_ACTIONS_PK } from '../lib/audit.mjs';
+
 export const OWNERSHIP_PK = 'OWN';
+export const PREFERENCES_PK = 'PRF';
+// The most pages of the customer partition one count of recent actions reads.
+const MAX_ACTION_PAGES = 10;
 // The largest page of ListUsers.
 const USER_PAGE_SIZE = 60;
 const MAX_KINDS = 16;
@@ -103,6 +131,7 @@ function ownershipOf(item) {
     owner: item.owner,
     ref: typeof item.ref === 'string' ? item.ref : '',
     label: typeof item.label === 'string' ? item.label : '',
+    customerLabel: typeof item.customerLabel === 'string' ? item.customerLabel : '',
     assignedAt: typeof item.assignedAt === 'string' ? item.assignedAt : null,
     assignedBy: typeof item.assignedBy === 'string' ? item.assignedBy : '',
   };
@@ -307,12 +336,15 @@ export function createCustomerStore(env) {
           new UpdateItemCommand({
             TableName: stateTable,
             Key: toItem({ pk: OWNERSHIP_PK, sk: thing }),
-            UpdateExpression: 'REMOVE #owner, #ref, #label, #assignedAt, #assignedBy SET #unassignedAt = :at',
+            UpdateExpression:
+              'REMOVE #owner, #ref, #label, #customerLabel, #labelledAt, #assignedAt, #assignedBy SET #unassignedAt = :at',
             ConditionExpression: '#owner = :owner',
             ExpressionAttributeNames: {
               '#owner': 'owner',
               '#ref': 'ref',
               '#label': 'label',
+              '#customerLabel': 'customerLabel',
+              '#labelledAt': 'labelledAt',
               '#assignedAt': 'assignedAt',
               '#assignedBy': 'assignedBy',
               '#unassignedAt': 'unassignedAt',
@@ -325,6 +357,149 @@ export function createCustomerStore(env) {
         if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_owner' };
         throw failure('UpdateItem', cause);
       }
+    },
+
+    async setCustomerLabel({ thing, owner, ref, label, at }) {
+      const names = {
+        '#owner': 'owner',
+        '#ref': 'ref',
+        '#customerLabel': 'customerLabel',
+        '#labelledAt': 'labelledAt',
+      };
+      const values = { ':owner': { S: owner }, ':ref': { S: ref }, ':at': { S: at } };
+      let update = 'REMOVE #customerLabel SET #labelledAt = :at';
+      if (label) {
+        update = 'SET #customerLabel = :label, #labelledAt = :at';
+        values[':label'] = { S: label };
+      }
+      try {
+        await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: toItem({ pk: OWNERSHIP_PK, sk: thing }),
+            UpdateExpression: update,
+            // Only the owner, and only under the assignment they were given: a board taken back and
+            // given again has another id, and the update makes no item that does not exist.
+            ConditionExpression: '#owner = :owner AND #ref = :ref',
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
+          })
+        );
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'not_owner' };
+        throw failure('UpdateItem', cause);
+      }
+    },
+
+    async getPreferences(sub) {
+      let out;
+      try {
+        out = await dynamo.send(
+          new GetItemCommand({
+            TableName: stateTable,
+            Key: toItem({ pk: PREFERENCES_PK, sk: sub }),
+            ConsistentRead: true,
+          })
+        );
+      } catch (cause) {
+        throw failure('GetItem', cause);
+      }
+      if (!out.Item) return null;
+      const item = fromItem(out.Item);
+      return {
+        offline: item.offline === true,
+        updated: item.updated === true,
+        unexpectedRestart: item.unexpectedRestart === true,
+        updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : null,
+      };
+    },
+
+    async setPreferences(sub, { offline, updated, unexpectedRestart }, at) {
+      try {
+        await dynamo.send(
+          new UpdateItemCommand({
+            TableName: stateTable,
+            Key: toItem({ pk: PREFERENCES_PK, sk: sub }),
+            UpdateExpression: 'SET #offline = :offline, #updated = :updated, #restart = :restart, #at = :at',
+            ExpressionAttributeNames: {
+              '#offline': 'offline',
+              '#updated': 'updated',
+              '#restart': 'unexpectedRestart',
+              '#at': 'updatedAt',
+            },
+            ExpressionAttributeValues: {
+              ':offline': { BOOL: offline === true },
+              ':updated': { BOOL: updated === true },
+              ':restart': { BOOL: unexpectedRestart === true },
+              ':at': { S: at },
+            },
+          })
+        );
+        return { ok: true };
+      } catch (cause) {
+        throw failure('UpdateItem', cause);
+      }
+    },
+  });
+}
+
+/**
+ * @param {Record<string, string|undefined>} env  the Lambda environment
+ */
+export function createCustomerActionLog(env) {
+  const region = required(env, 'AWS_REGION');
+  const auditTable = required(env, 'AUDIT_TABLE');
+  const dynamo = new DynamoDBClient(clientSettings(region));
+
+  return Object.freeze({
+    async putCustomerAction(item) {
+      try {
+        await dynamo.send(
+          new PutItemCommand({
+            TableName: auditTable,
+            Item: toItem({ ...item, pk: CUSTOMER_ACTIONS_PK }),
+            ConditionExpression: 'attribute_not_exists(#pk)',
+            ExpressionAttributeNames: { '#pk': 'pk' },
+          })
+        );
+        return { ok: true };
+      } catch (cause) {
+        if (nameOf(cause) === 'ConditionalCheckFailedException') return { ok: false, reason: 'exists' };
+        throw failure('PutItem', cause);
+      }
+    },
+
+    async recentCustomerActions({ sub, since }) {
+      const keys = [];
+      let start;
+      try {
+        for (let pages = 0; pages < MAX_ACTION_PAGES; pages += 1) {
+          const out = await dynamo.send(
+            new QueryCommand({
+              TableName: auditTable,
+              KeyConditionExpression: '#pk = :pk AND #sk >= :since',
+              FilterExpression: '#actor.#sub = :sub',
+              ProjectionExpression: '#sk',
+              ExpressionAttributeNames: { '#pk': 'pk', '#sk': 'sk', '#actor': 'actor', '#sub': 'sub' },
+              ExpressionAttributeValues: {
+                ':pk': { S: CUSTOMER_ACTIONS_PK },
+                ':since': { S: since },
+                ':sub': { S: sub },
+              },
+              ConsistentRead: true,
+              ExclusiveStartKey: start,
+            })
+          );
+          for (const item of out.Items ?? []) if (typeof item.sk?.S === 'string') keys.push(item.sk.S);
+          if (out.LastEvaluatedKey === undefined || out.LastEvaluatedKey === null) return keys;
+          start = out.LastEvaluatedKey;
+        }
+      } catch (cause) {
+        throw failure('Query', cause);
+      }
+      // More than that in the window is more than any limit allows: count it as full.
+      return keys;
     },
   });
 }

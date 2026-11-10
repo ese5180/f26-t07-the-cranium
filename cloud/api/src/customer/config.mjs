@@ -18,6 +18,7 @@ const PATTERNS = Object.freeze({
   AWS_REGION: /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/,
   STATE_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
   EVENTS_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
+  AUDIT_TABLE: /^[A-Za-z0-9_.-]{3,255}$/,
   CUSTOMER_POOL_ID: /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}_[0-9A-Za-z]{1,64}$/,
   CUSTOMER_CLIENT_ID: /^[\w+]{1,128}$/,
   CUSTOMER_MOBILE_CLIENT_ID: /^[\w+]{1,128}$/,
@@ -44,6 +45,8 @@ export function loadCustomerApiConfig(env = process.env) {
     region: read(env, 'AWS_REGION'),
     stateTable: read(env, 'STATE_TABLE'),
     eventsTable: read(env, 'EVENTS_TABLE'),
+    // What customers did (the partition CUS only), and the count that limits their writes.
+    auditTable: read(env, 'AUDIT_TABLE'),
     customerPoolId,
     customerClientId: read(env, 'CUSTOMER_CLIENT_ID'),
     customerMobileClientId: read(env, 'CUSTOMER_MOBILE_CLIENT_ID'),

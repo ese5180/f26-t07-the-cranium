@@ -2591,3 +2591,60 @@ a.cs-panel-foot:hover {
     transform: none;
   }
 }
+
+/* A customer's changes (docs/customer-site.md, "Customer actions"): the e-mails they want, as switches. The
+   colours are the theme's tokens, so dark mode follows on its own. */
+
+.cs-switches {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cs-switch-row + .cs-switch-row {
+  border-top: 1px solid var(--line);
+}
+
+.cs-switch {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.cs-switch input {
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.cs-switch-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cs-switch-title {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cs-rename .icon {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 640px) {
+  .cs-switch {
+    padding: 12px 0;
+  }
+
+  .cs-dialog-body .dialog-foot {
+    flex-wrap: wrap;
+  }
+}

@@ -19,10 +19,12 @@
  *        the account is signed out and deleted; boards still assigned to it stay listed under it, as
  *        gone, so that they can be taken back
  *
- * Customer: { id, email, name, status, enabled, confirmed, mfa, createdAt, boards: [{ thing, label, assignedAt }] }, with
+ * Customer: { id, email, name, status, enabled, confirmed, mfa, createdAt, boards: [{ thing, label, customerLabel, assignedAt }] }, with
  * status invited (has not signed in yet), active, disabled or gone (boards are still assigned to
  * an account that is no longer in the pool, so that they can be taken back). enabled and confirmed are
  * Cognito's, and mfa whether the customer set up an authenticator app (null where it was not asked).
+ * A board's `label` is the name the admin gave it; `customerLabel` the customer's own on the customer
+ * site ('' for none), which never changes the board's thing name.
  *
  * A board has one owner at most. Assigning it gives it a new id for its owner (customer/boards.mjs),
  * so a link that an earlier owner kept leads nowhere.
@@ -77,7 +79,12 @@ function view(customer, boards, id = customer?.sub) {
     createdAt: Number.isFinite(customer?.createdAt) ? new Date(customer.createdAt).toISOString() : null,
     boards: boards
       .filter((item) => item.owner === id)
-      .map(({ thing, label, assignedAt }) => ({ thing, label, assignedAt }))
+      .map(({ thing, label, customerLabel, assignedAt }) => ({
+        thing,
+        label,
+        customerLabel: customerLabel ?? '',
+        assignedAt,
+      }))
       .sort((a, b) => (a.thing < b.thing ? -1 : 1)),
   };
 }

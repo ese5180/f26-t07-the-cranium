@@ -222,11 +222,79 @@ offline comes from the shadow at every request. Restarts are only expected or un
 coredump or stack reaches a customer ([customer-data.md](customer-data.md#board-health)). The phone apps' customer mode
 loads the same site, so it shows the same.
 
+## Customer actions
+
+From console 2.18.0 a customer can change three things, on the site and in the phone apps' customer mode (which loads
+the same pages):
+
+- **Rename a board.** "Rename" on a board's page opens a dialog for the customer's own name for it, at most 40
+  characters of Latin letters, digits, spaces and punctuation; empty takes it away. It is `customerLabel` on the
+  board's ownership item (`OWN`), shown first wherever the board is named, before the admin's label and the board's
+  own name. The thing name, the owner, the assignment id and the admin's label never change. The console's Customers
+  page shows it as "the customer's label". Taking the board back removes it, so the next owner starts with none.
+- **E-mails about their boards.** On the Account page, three switches: a board goes offline, an update is installed,
+  a board restarts unexpectedly (as the board health counts it). Each is off until the customer turns it on. They are
+  the item `pk = PRF, sk = <the customer's sub>` in the state table. See [Notifications](#notifications) for why
+  none is sent yet.
+- **An update waiting at a board.** When a board reports the step `awaiting_user` (firmware built with
+  `CONFIG_APP_OTA_REQUIRE_USER_CONSENT`), its page has a card "An update is waiting for you" and a dialog that says
+  how to accept it: Button 1 on the board installs it, Button 2 turns it down, and the team can install it over
+  Bluetooth with the phone app. The site cannot accept it, by design: `ota_on_button()` in
+  `firmware/app/src/ota/ota.c` is the only way out of that step, the cloud commands the firmware takes are `identify`,
+  `report` and `memfault` (`firmware/app/src/cloud/command.c`), no shadow field is read for it, and the serial
+  console's `BUTTON` command is a test bench's, absent from a release build. Accepting from the site would need a
+  firmware change (a new command, checked against the pending job id), which this version does not make.
+
+Every write (`POST /api/c/...`):
+
+1. the token: an access token of the customer pool's site or phone client, as for a read (401);
+2. the account, asked of Cognito at that moment, not from the minute's cache: enabled and confirmed (403, or 503 when
+   Cognito cannot be asked);
+3. the limits: at most 10 changes a minute and 60 an hour per customer, counted from their entries in the audit
+   table, so that every instance of the function agrees; one over is refused (429, `too_many_changes`) and leaves no
+   entry. When the count cannot be read, the write fails (503). The gateway also holds the route to a burst of 5 and
+   2 a second;
+4. the body: JSON of at most 1024 characters, only the fields of that route, each of its type (400);
+5. the board: found by its assignment id among the boards the caller owns now; another customer's board, a thing
+   name or an id that does not exist all get the same 404 (`not_your_board`), and the update itself is conditional on
+   the owner and the id, so a board taken back in between is refused the same way.
+
+Each write that passes the limits leaves exactly one entry, whatever happened to it (`ok`, `rejected` for a bad body,
+`denied` for a board that is not theirs, `error`), in the audit table's partition `CUS`: the action
+(`customer_action.rename` or `customer_action.notifications`), the customer's sub, never their address, the board's
+thing name for a rename, and the change before and after. The customer function logs each entry's digest, as the
+console does for its own. The console's activity log reads both partitions, newest first, and says "A customer named
+CRADA01 on the customer site"; its Customers filter includes them. The customer API's role may put and read that
+partition only, and is denied deleting or changing it.
+
+### Notifications
+
+The choices are kept and the logic is written (`cloud/api/src/customer/notify.mjs`: which event is which kind, which
+owner asked for it, the words, never a thing name), but **no e-mail is sent**: `CUSTOMER_EMAILS_ENABLED` is false and
+nothing calls the mailer. The console's alerts go through an SNS topic that only the team subscribes to; addressing one
+customer through it would mean a subscription per customer that shows their address to anyone who lists the topic,
+and SNS sends its own confirmation e-mail first. The stack has no SES identity.
+
+To turn it on:
+
+1. Verify the domain (craniumiot.com) as an SES identity in the stack's Region, with its DKIM records at Cloudflare,
+   and ask AWS to move the account out of the SES sandbox.
+2. Give the function that sees events (the recorder, `EventsRole`) `ses:SendEmail` on that identity only, with
+   `ses:FromAddress` held to one sender, plus `GetItem` on the `PRF` partition and `cognito-idp:AdminGetUser` on the
+   customer pool.
+3. Call `planCustomerEmails` with the events the recorder stores and `createCustomerMailer({ enabled: true, send })`
+   with an SES sender, and set `CUSTOMER_EMAILS_ENABLED` (or a setting) on. Offline should come from the alerts'
+   check after its minutes, not from every disconnection.
+4. Add an unsubscribe link that needs a sign-in (never the address in a URL) and the page's words change by themselves
+   (`emails: "on"`).
+
 ## Routes and rights
 
 | Route | Who | On record |
 | --- | --- | --- |
-| `GET /api/c/me`, `/api/c/boards`, `/api/c/boards/{id}`, `/api/c/activity` | a customer, their own only | no |
+| `GET /api/c/me`, `/api/c/boards`, `/api/c/boards/{id}`, `/api/c/activity`, `/api/c/preferences` | a customer, their own only | no |
+| `POST /api/c/boards/{id}/label` `{ label }` | a customer, their own boards only | `customer_action.rename` (partition `CUS`) |
+| `POST /api/c/preferences` `{ offline?, updated?, unexpectedRestart? }` | a customer, their own | `customer_action.notifications` (partition `CUS`) |
 | `GET /api/customers` | release managers, asked of Cognito now | no |
 | `POST /api/customers` `{ email, name? }` | release managers | `customer.create` |
 | `POST /api/customers/{id}/resend` | release managers | `customer.resend` |
@@ -237,7 +305,7 @@ loads the same site, so it shows the same.
 The Customers routes are for the website only: a phone app's session (`phone_not_allowed`) and an API token
 (`token_not_allowed`) are refused. Every request to them leaves one entry in the activity log, refusals included, which
 the console reads as sentences ("invited the customer ...", "gave CRVIHAAN01 to ..."). A customer's own reads are not
-recorded. An invitation waits for the site to have an address: until `CustomerDomainName` is set the API refuses it
+recorded; their changes are, in their own partition ([Customer actions](#customer-actions)). An invitation waits for the site to have an address: until `CustomerDomainName` is set the API refuses it
 (`customer_site_has_no_address`), because the e-mail would name no site; boards can be given out before.
 
 ## Setting up the name
@@ -378,7 +446,7 @@ boards, Ben with one, Cleo with an unused invitation, and a board nobody has; th
 | `cloud/web/src/customer-site.mjs` | How the web function loads it, with the console's three shared files, and its policy |
 | `cloud/web/src/server.mjs` | `CUSTOMER_HOSTS`: the site, `/admin`, `www.` |
 | `cloud/web/src/site/assets/customers.js` | The console's Customers page |
-| `cloud/api/src/customer/` | The customer API (`app.mjs`, entry `customer.mjs`), what a customer is shown (`boards.mjs`), its adapters (`aws.mjs`) and settings |
+| `cloud/api/src/customer/` | The customer API (`app.mjs`, entry `customer.mjs`), what a customer is shown (`boards.mjs`), its adapters (`aws.mjs`), the e-mails it would send (`notify.mjs`) and settings |
 | `cloud/api/src/handlers/customers.mjs` | The console's Customers routes |
-| `cloud/infra/template.yaml` | `CustomerUserPool`, `CustomerUserPoolClient`, `CustomerMobileUserPoolClient`, `CustomerAuthorizer`, `CustomerApiReadRoute`, `CustomerApiFn` and its role, `CustomerDomain`, `CustomerWwwDomain` |
+| `cloud/infra/template.yaml` | `CustomerUserPool`, `CustomerUserPoolClient`, `CustomerMobileUserPoolClient`, `CustomerAuthorizer`, `CustomerApiReadRoute`, `CustomerApiWriteRoute`, `CustomerApiFn` and its role, `CustomerDomain`, `CustomerWwwDomain` |
 | `apps/ios`, `apps/android` | The phone apps' customer side (docs/mobile-apps.md, "Customers"): iOS `CustomerAPI.swift`, `CustomerAccount.swift`, `CustomerWords.swift`, `CustomerSignIn.swift` in CraniumKit and the screens in `App/Views/Customer*.swift`; Android `core/Customer*.kt`, `ui/CustomerViewModel.kt`, `ui/CustomerScreens.kt` |

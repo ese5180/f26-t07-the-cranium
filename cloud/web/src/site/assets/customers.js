@@ -95,6 +95,8 @@ function readCustomer(raw) {
       .map((board) => ({
         thing: board.thing,
         label: text(board.label, 40),
+        // The customer's own name for it, given on the customer site.
+        customerLabel: text(board.customerLabel, 40),
         assignedAt: typeof board.assignedAt === 'string' && TIME.test(board.assignedAt) ? board.assignedAt : null,
       })),
   };
@@ -375,7 +377,10 @@ function boardItem(customer, board, devices) {
       'span',
       { class: 'customer-board-name' },
       boardLabel(known),
-      board.label ? h('span', { class: 'quiet' }, ` · called “${board.label}”`) : null
+      board.label ? h('span', { class: 'quiet' }, ` · called “${board.label}”`) : null,
+      board.customerLabel
+        ? h('span', { class: 'quiet customer-own-label' }, ` · the customer’s label “${board.customerLabel}”`)
+        : null
     ),
     h(
       'span',

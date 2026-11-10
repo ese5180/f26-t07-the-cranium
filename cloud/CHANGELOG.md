@@ -7,6 +7,32 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.18.0
+
+Customers can now change a little on the customer site and in the phone apps' customer mode: give each of their
+boards a name of their own (Rename, on the board's page), choose which e-mails they want about their boards (a board
+goes offline, an update is installed, a board restarts unexpectedly: each off until turned on, on the Account page),
+and see clearly when an update waits at a board for them, with how to accept it there.
+
+The customer API takes two writes, `POST /api/c/boards/{id}/label` and `POST /api/c/preferences`, and one more read,
+`GET /api/c/preferences`, through a new route `POST /api/c/{proxy+}` behind the customer pool's authorizer, held below
+the reads (burst 5, rate 2). Every write asks Cognito again whether the account is on, is held to 10 a minute and 60
+an hour per customer, finds the board among the customer's own (another customer's is the same 404 as one that does
+not exist), and leaves an entry in a new partition of the audit table (`CUS`), with `by: "customer"` and the
+customer's sub, never their address. The console's activity log reads both partitions and says "A customer named
+... on the customer site"; the Customers page shows the customer's label beside the admin's. The customer's name is
+`customerLabel` on the ownership item; the thing name and the admin's label never change, and taking a board back
+removes it. Preferences are `pk = PRF, sk = <sub>` in the state table.
+
+An update that waits at a board (`awaiting_user`) is not accepted from the site: the firmware takes it from Button 1
+only, and no cloud command or shadow field reaches it, so the site says how to accept it at the board. E-mails are
+chosen and kept, and decided by `customer/notify.mjs`, but none is sent yet: the stack has no SES identity and the
+alerts' SNS topic cannot address one customer; docs/customer-site.md, "Notifications", says what turning it on takes.
+
+IAM: CustomerApiRole gains UpdateItem on OWN items, GetItem and UpdateItem on PRF items, PutItem and Query on the
+audit table's CUS partition (with a Deny on changing them), and the function the setting `AUDIT_TABLE`. Refusal words
+for the new codes in core.js and both apps. docs/customer-site.md, "Customer actions".
+
 ## 2.17.1
 
 The customer site has an About page (`#/about`): what Cranium is, the problem it solves and who it is for, and the
