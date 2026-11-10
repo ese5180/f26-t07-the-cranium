@@ -5443,6 +5443,7 @@ export function deploymentsView(ctx) {
     }
     body = [
       deploymentsTop(deployments, ctx),
+      ctx.fleet?.schedulesPanel?.(ctx) ?? null,
       everyUpdateCard(ctx),
       h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
       card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text })),
@@ -5451,7 +5452,8 @@ export function deploymentsView(ctx) {
     const leads = ctx.state.updates?.value?.updates != null;
     body = [
       deploymentsTop(deployments, ctx),
-      // Staged rollouts: a canary, then stages (fleet.js).
+      // Starts scheduled for later (console 2.19.0), then the staged rollouts: a canary, then stages (fleet.js).
+      ctx.fleet?.schedulesPanel?.(ctx) ?? null,
       ctx.fleet?.rolloutsPanel(ctx) ?? null,
       everyUpdateCard(ctx),
       h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
@@ -6719,8 +6721,14 @@ export function deployDialog(model, ctx) {
         : null
     );
   } else {
-    body = wizardReview(model, release, chosen, now);
+    body = [
+      wizardReview(model, release, chosen, now),
+      // Now, or later (console 2.19.0): with the fleet's script only, which schedules.
+      ctx.fleet?.scheduleFields && model.when ? ctx.fleet.scheduleFields(model, model.redraw) : null,
+    ];
   }
+  const later = model.when === 'later' && Boolean(ctx.fleet?.scheduleFields);
+  const timeReady = !later || ctx.fleet.scheduleReady(model);
 
   const refusedBoards = model.error ? busyBoards(model.error) : [];
   const last = model.step === WIZARD_STEPS.length - 1;
@@ -6736,7 +6744,7 @@ export function deployDialog(model, ctx) {
     title: 'New deployment',
     busy: model.sending,
     onClose: model.close,
-    onSubmit: last ? model.submit : canGoOn ? model.next : null,
+    onSubmit: last ? (timeReady ? model.submit : null) : canGoOn ? model.next : null,
     body: [
       h(
         'ol',
@@ -6793,15 +6801,17 @@ export function deployDialog(model, ctx) {
               key: 'go',
               className: 'is-primary',
               submit: true,
-              disabled: chosen.length === 0,
+              disabled: chosen.length === 0 || !timeReady,
               sending: model.sending,
             },
-            icon('send'),
+            icon(later ? 'clock' : 'send'),
             model.sending
               ? 'Starting…'
-              : chosen.length > 1 && model.staged
-                ? `Start staged rollout to ${plural(chosen.length, 'board')}`
-                : `Deploy to ${plural(chosen.length, 'board')}`
+              : later
+                ? `Schedule ${chosen.length > 1 && model.staged ? 'staged rollout' : 'deployment'} to ${plural(chosen.length, 'board')}`
+                : chosen.length > 1 && model.staged
+                  ? `Start staged rollout to ${plural(chosen.length, 'board')}`
+                  : `Deploy to ${plural(chosen.length, 'board')}`
           )
         : dialogButton(
             {

@@ -7,6 +7,30 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.19.0
+
+Scheduled starts and maintenance windows: a deployment, a staged rollout or a roll back to last good can be scheduled for later, at a time in a time zone, and a group can have a maintenance window inside which its rollouts' stages start. The Deployments page lists what is scheduled, and a release manager can change the time or cancel it before it starts.
+
+lib/schedule.mjs is new: local times in IANA time zones (a time skipped by the change to summer time is taken as the
+same time after it, one that happens twice as the first), and windows `{ days, start, end, timeZone }` read on the
+wall clock of their zone, over midnight too. handlers/schedules.mjs is new: `GET /api/schedules`, `POST /api/schedules`
+`{ kind, at, timeZone, request }` (`deployment`, `rollout` or `last_good`), `POST /api/schedules/{id}` to change it and
+`/cancel`, stored in the state table (pk `SCH`), on record as `schedule.create`, `schedule.edit`, `schedule.cancel`
+with what changed before and after. The rollouts schedule (tick.mjs) starts the due ones first, through the same
+handlers as a start by hand, each claimed by a conditional write so that it starts once, as `schedule.start`; one cut
+off after its claim is never started again (`start_lost`). A group gains `window` (`POST /api/groups/{id}`, `400
+invalid_window`); a rollout to it starts no stage outside it and says `waiting: "window"`. The schedule's role gains
+`UpdateItem` of `SCH`, `PutItem` of `ROL` (a scheduled rollout's record) and `Query` of the boards' update histories
+(`UPD#cranium-*`, read only, for a scheduled roll back to last good), and reads `SCH`. New refusal words in core.js and
+the iOS and Android lists; the Database page lists the schedules. docs/fleet.md, docs/mass-updates.md.
+
+A scheduled start runs as its creator, so right before it begins the schedule asks Cognito whether they are still an
+enabled release manager (auth.mjs `requireLiveWriter`, the check of every write). If not, it is cancelled with code
+`creator_not_allowed`, on record as `schedule.cancel` by the console, and an alert; if Cognito cannot be asked it waits
+and asks again, never starting unasked. The schedule's role gains `AdminGetUser` and `AdminListGroupsForUser` of the
+staff pool. A deployment or rollout already under way is never paused, stopped or cancelled for what becomes of its
+creator.
+
 ## 2.18.0
 
 Customers can now change a little on the customer site and in the phone apps' customer mode: give each of their

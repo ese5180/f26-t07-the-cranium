@@ -1792,6 +1792,9 @@ function openDeploy(version) {
     // The health gate (docs/fleet.md): on, for 10 minutes, unless the person changes it.
     healthGate: true,
     gateMinutes: 10,
+    // Now, or at a time in a time zone (console 2.19.0, fleet.js scheduleModel): only with the fleet's script.
+    ...(fleetScript?.scheduleModel ? fleetScript.scheduleModel(clock.now()) : {}),
+    redraw: () => self.redraw(),
     setHealthGate: change((value) => {
       model.healthGate = value;
     }),
@@ -1890,6 +1893,30 @@ function openDeploy(version) {
     submit: () =>
       submitFrom(self, model, async () => {
         let deployment;
+        // Later: the same request, scheduled, and started by the console then (handlers/schedules.mjs).
+        if (model.when === 'later' && fleetScript?.scheduleStart) {
+          const things = [...model.things].sort();
+          const staged = things.length > 1;
+          await fleetScript.scheduleStart(
+            staged ? 'rollout' : 'deployment',
+            staged
+              ? fleetScript.rolloutBody({
+                  version: model.version,
+                  things,
+                  note: singleLine(model.note),
+                  canary: model.canary,
+                  stages: model.stages,
+                  soakMinutes: model.soakMinutes,
+                  abortPercent: model.abortPercent,
+                  healthGate: model.healthGate,
+                  gateMinutes: model.gateMinutes,
+                })
+              : { version: model.version, things, ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}) },
+            model
+          );
+          self.close(true);
+          return;
+        }
         try {
           // More than one board: a staged rollout, a canary first (docs/fleet.md).
           if (model.things.size > 1 && fleetScript) {

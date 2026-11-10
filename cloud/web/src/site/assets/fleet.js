@@ -113,6 +113,7 @@ export function connect(given) {
   state.fleet ??= resource();
   state.fleetHealth ??= resource();
   state.rollouts ??= resource();
+  state.schedules ??= resource();
   state.rolloutDetails ??= new Map();
 }
 
@@ -225,8 +226,76 @@ function readGroup(raw) {
     name: words(item.name, 40),
     things: things(item.things),
     gone: count(item.gone),
+    window: readWindow(item.window),
     updatedAt: iso(item.updatedAt),
     updatedBy: object(item.updatedBy),
+  };
+}
+
+// Maintenance windows and scheduled starts (console 2.19.0).
+
+const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ZONE = /^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$/;
+const DAY_NAMES = Object.freeze(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+const SCHEDULE_ID = /^sch-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
+const SCHEDULE_KINDS = Object.freeze(['deployment', 'rollout', 'last_good']);
+const SCHEDULE_LOOKS = Object.freeze({
+  scheduled: ['idle', 'clock', 'Scheduled'],
+  starting: ['live', 'send', 'Starting'],
+  started: ['good', 'check-circle', 'Started'],
+  failed: ['bad', 'alert', 'Not started'],
+  cancelled: ['idle', 'stop', 'Cancelled'],
+});
+const LOCAL_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+/** A group's maintenance window: { days, start, end, timeZone }, or null for none or not one. */
+function readWindow(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const days = array(raw.days).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  if (days.length === 0 || !CLOCK_TIME.test(raw.start ?? '') || !CLOCK_TIME.test(raw.end ?? '')) return null;
+  if (typeof raw.timeZone !== 'string' || !ZONE.test(raw.timeZone)) return null;
+  return { days: [...new Set(days)].sort(), start: raw.start, end: raw.end, timeZone: raw.timeZone };
+}
+
+/** A window in words, as the API says it: "weekdays 01:00–05:00 America/New_York". */
+export function windowWords(window) {
+  if (!window) return '';
+  const days = window.days.join(',');
+  let which = window.days.map((day) => DAY_NAMES[day]).join(' ');
+  if (days === '0,1,2,3,4,5,6') which = 'every day';
+  else if (days === '1,2,3,4,5') which = 'weekdays';
+  else if (days === '0,6') which = 'weekends';
+  return `${which} ${window.start}\u2013${window.end} ${window.timeZone}`;
+}
+
+function readSchedule(raw) {
+  const item = object(raw);
+  const request = object(item.request);
+  const target = object(request.target);
+  const started = object(item.started);
+  const error = item.error ? object(item.error) : null;
+  return {
+    id: typeof item.id === 'string' && SCHEDULE_ID.test(item.id) ? item.id : '',
+    kind: SCHEDULE_KINDS.includes(item.kind) ? item.kind : 'deployment',
+    version: version(request.version),
+    target,
+    things: things(request.things ?? target.things),
+    group: words(item.group, 16) || null,
+    groupName: words(item.groupName, 40) || null,
+    at: LOCAL_TIME.test(item.at ?? '') ? item.at : '',
+    timeZone: typeof item.timeZone === 'string' && ZONE.test(item.timeZone) ? item.timeZone : 'UTC',
+    dueAt: iso(item.dueAt),
+    status: Object.hasOwn(SCHEDULE_LOOKS, item.status) ? item.status : 'failed',
+    waiting: item.waiting === 'window' ? 'window' : null,
+    window: words(item.window, 120) || null,
+    note: words(request.note, 200),
+    createdAt: iso(item.createdAt),
+    createdBy: object(item.createdBy),
+    started: {
+      deployments: array(started.deployments).filter((id) => typeof id === 'string' && id.length <= 64),
+      rollouts: array(started.rollouts).filter(isRolloutId),
+    },
+    error: error ? { code: words(error.code, 40), text: words(error.text, 300) } : null,
   };
 }
 
@@ -295,6 +364,8 @@ function readRollout(raw) {
             reason: words(stopped.reason, 40) || null,
           },
     finishedAt: iso(item.finishedAt),
+    // From console 2.19.0: "window" while a stage waits for its group's maintenance window.
+    waiting: item.waiting === 'window' ? 'window' : null,
     canaryJob: item.canaryJob ? readJob(item.canaryJob) : null,
     wavesJob: item.wavesJob ? readJob(item.wavesJob) : null,
     waves: array(item.waves)
@@ -521,6 +592,20 @@ const fleetApi = {
       ).suggestion
     ),
   cancelRollout: async (id) => readRollout((await request('POST', `/api/rollouts/${id}/cancel`, {})).rollout),
+  // Scheduled starts (console 2.19.0). An API from before has none: its 404 is an empty list.
+  schedules: async () => {
+    try {
+      return array((await request('GET', '/api/schedules')).schedules)
+        .map(readSchedule)
+        .filter((item) => item.id);
+    } catch (error) {
+      if (error?.status === 404) return [];
+      throw error;
+    }
+  },
+  createSchedule: async (body) => readSchedule((await request('POST', '/api/schedules', body)).schedule),
+  editSchedule: async (id, body) => readSchedule((await request('POST', `/api/schedules/${id}`, body)).schedule),
+  cancelSchedule: async (id) => readSchedule((await request('POST', `/api/schedules/${id}/cancel`, {})).schedule),
   createGroup: async (body) => readGroup((await request('POST', '/api/groups', body)).group),
   updateGroup: async (id, body) => readGroup((await request('POST', `/api/groups/${id}`, body)).group),
   deleteGroup: async (id) => readGroup((await request('POST', `/api/groups/${id}/delete`, {})).group),
@@ -552,11 +637,16 @@ export async function boardTypes() {
 }
 
 /** A staged rollout of boards named one by one, from the New deployment dialog. */
-export async function startRollout({ version: release, things: boards, note, canary, abortPercent, ...plan }) {
+/** The body of a staged rollout of boards named one by one, as the New deployment dialog sends it. */
+export function rolloutBody({ version: release, things: boards, note, canary, abortPercent, ...plan }) {
   const body = { version: release, target: { kind: 'boards', things: boards }, canary, abortPercent };
   if (plan.stages !== undefined) Object.assign(body, stageBody({ unit: 'even', sizes: [], ...plan }));
   if (note) body.note = note;
-  const rollout = await fleetApi.startRollout(body);
+  return body;
+}
+
+export async function startRollout(choices) {
+  const rollout = await fleetApi.startRollout(rolloutBody(choices));
   tools.keep(tools.state.rolloutDetails, rollout.id, rollout);
   return rollout;
 }
@@ -581,6 +671,8 @@ export async function refreshFor(view, full) {
     jobs.push(load(state.fleetHealth, fleetApi.health));
   if (view === 'deployments' && due(state.rollouts, full, FLEET_REFRESH_MS / 3))
     jobs.push(load(state.rollouts, fleetApi.rollouts));
+  if (view === 'deployments' && due(state.schedules, full, FLEET_REFRESH_MS / 3))
+    jobs.push(load(state.schedules, fleetApi.schedules));
   await Promise.all(jobs);
 }
 
@@ -650,6 +742,8 @@ function boardChipOf(board) {
 }
 
 function stageBadge(rollout) {
+  // A stage due outside its group's maintenance window waits for it (console 2.19.0).
+  if (rollout.waiting === 'window') return badge('act', 'clock', 'Waiting for the window');
   const look = STAGES[rollout.stage];
   return badge(look.tone, look.icon, look.label);
 }
@@ -1007,6 +1101,14 @@ function groupRow(group, ctx, fleet) {
         h('span', { class: 'quiet' }, ` · ${plural(group.things.length, 'board')}`),
         group.gone > 0 ? h('span', { class: 'tag' }, `${group.gone} no longer registered`) : null
       ),
+      group.window
+        ? h(
+            'p',
+            { class: 'row-note group-window' },
+            icon('clock', 'is-small'),
+            ` Maintenance window: ${windowWords(group.window)}`
+          )
+        : null,
       h(
         'p',
         { class: 'fleet-chips' },
@@ -1579,11 +1681,20 @@ function openGroup(group) {
   const fleet = tools.state.fleet.value;
   if (!fleet) return;
   let self = null;
-  const model = { name: group?.name ?? '', things: new Set(group?.things ?? []), sending: false, error: null };
+  const model = {
+    name: group?.name ?? '',
+    things: new Set(group?.things ?? []),
+    ...windowModel(group?.window ?? null),
+    sending: false,
+    error: null,
+  };
   const redraw = () => self.redraw();
   const submit = () =>
     tools.dialogs.submit(self, model, async () => {
       const body = { name: singleLine(model.name), things: [...model.things].sort() };
+      // The maintenance window: sent when there is one, or to take one away.
+      if (model.windowOn) body.window = windowBody(model);
+      else if (group?.window) body.window = null;
       let saved;
       try {
         saved = group ? await fleetApi.updateGroup(group.id, body) : await fleetApi.createGroup(body);
@@ -1600,7 +1711,7 @@ function openGroup(group) {
       title: group ? ['Edit ', group.name] : 'New group',
       busy: model.sending,
       onClose: () => self.close(),
-      onSubmit: singleLine(model.name) ? submit : null,
+      onSubmit: singleLine(model.name) && windowReady(model) ? submit : null,
       body: [
         h(
           'label',
@@ -1639,6 +1750,7 @@ function openGroup(group) {
             )
           )
         ),
+        windowFields(model, redraw),
       ],
       error: model.error ? failure('The group was not saved.', model.error, null, tools.dialogs.signIn) : null,
       foot: [
@@ -1649,7 +1761,7 @@ function openGroup(group) {
             key: 'save',
             className: 'is-primary',
             submit: true,
-            disabled: !singleLine(model.name),
+            disabled: !singleLine(model.name) || !windowReady(model),
             sending: model.sending,
           },
           icon('check'),
@@ -2056,6 +2168,7 @@ function openGroupRollout(group) {
     canary: 1,
     abortPercent: 20,
     ...stageModel(),
+    ...scheduleModel(tools.clock.now()),
     note: '',
     sending: false,
     error: null,
@@ -2080,16 +2193,22 @@ function openGroupRollout(group) {
   };
   const submit = () =>
     tools.dialogs.submit(self, model, async () => {
+      const body = {
+        version: model.version,
+        target: { kind: 'group', group: group.id },
+        canary: model.canary,
+        ...stageBody(model),
+        abortPercent: model.abortPercent,
+        ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}),
+      };
+      if (model.when === 'later') {
+        await scheduleStart('rollout', body, model);
+        self.close(true);
+        return;
+      }
       let rollout;
       try {
-        rollout = await fleetApi.startRollout({
-          version: model.version,
-          target: { kind: 'group', group: group.id },
-          canary: model.canary,
-          ...stageBody(model),
-          abortPercent: model.abortPercent,
-          ...(singleLine(model.note) ? { note: singleLine(model.note) } : {}),
-        });
+        rollout = await fleetApi.startRollout(body);
       } catch (error) {
         after(error);
         throw error;
@@ -2108,7 +2227,7 @@ function openGroupRollout(group) {
       title: ['Roll out to ', group.name],
       busy: model.sending,
       onClose: () => self.close(),
-      onSubmit: release ? submit : null,
+      onSubmit: release && scheduleReady(model) ? submit : null,
       body:
         offered.length === 0
           ? empty({
@@ -2145,6 +2264,7 @@ function openGroupRollout(group) {
                 Math.max(0, (model.suggestion?.things.length ?? ofType.length) - model.canary),
                 redraw
               ),
+              scheduleFields(model, redraw, group.window),
               h(
                 'div',
                 { class: 'callout', key: 'what' },
@@ -2162,9 +2282,15 @@ function openGroupRollout(group) {
         dialogButton({ key: 'cancel', disabled: model.sending, onClick: () => self.close() }, 'Cancel'),
         SPACER(),
         dialogButton(
-          { key: 'go', className: 'is-primary', submit: true, disabled: !release, sending: model.sending },
-          icon('send'),
-          model.sending ? 'Starting…' : 'Start staged rollout'
+          {
+            key: 'go',
+            className: 'is-primary',
+            submit: true,
+            disabled: !release || !scheduleReady(model),
+            sending: model.sending,
+          },
+          icon(model.when === 'later' ? 'clock' : 'send'),
+          model.sending ? 'Starting…' : model.when === 'later' ? 'Schedule staged rollout' : 'Start staged rollout'
         ),
       ],
     });
@@ -2356,6 +2482,7 @@ function openLastGood({ group = null }) {
     ...stageModel(),
     gateLocked: true,
     abortPercent: 20,
+    ...scheduleModel(tools.clock.now()),
     sending: false,
     error: null,
   };
@@ -2392,6 +2519,21 @@ function openLastGood({ group = null }) {
         ...stageBody({ ...model, healthGate: true }),
         abortPercent: model.abortPercent,
       };
+      if (model.when === 'later') {
+        // Later, the plan is made again then: each board ticked goes to its last good version as it is then.
+        const { targets: _targets, ...options } = body;
+        await scheduleStart(
+          'last_good',
+          {
+            ...options,
+            ...(group ? { group: group.id } : {}),
+            things: targets.flatMap((target) => target.things).sort(),
+          },
+          model
+        );
+        self.close(true);
+        return;
+      }
       let started;
       try {
         started = await fleetApi.startLastGood(group?.id ?? null, body);
@@ -2506,22 +2648,35 @@ function openLastGood({ group = null }) {
             )
           : null,
         chosen > 1 ? rolloutOptions(model, chosen - 1, null, redraw) : null,
+        chosen > 0 ? scheduleFields(model, redraw, group?.window ?? null) : null,
       ];
     }
     return dialogFrame({
       title: group ? ['Roll back ', group.name, ' to last good'] : 'Roll back the fleet to last good',
       busy: model.sending,
       onClose: () => self.close(),
-      onSubmit: chosen > 0 ? submit : null,
+      onSubmit: chosen > 0 && scheduleReady(model) ? submit : null,
       body,
       error: model.error ? failure('Nothing was started.', model.error, null, tools.dialogs.signIn) : null,
       foot: [
         dialogButton({ key: 'cancel', disabled: model.sending, onClick: () => self.close() }, 'Cancel'),
         SPACER(),
         dialogButton(
-          { key: 'go', className: 'is-primary', submit: true, disabled: chosen === 0, sending: model.sending },
-          icon('undo'),
-          model.sending ? 'Starting…' : chosen === 0 ? 'Nothing to roll back' : `Roll back: ${plural(chosen, 'board')}`
+          {
+            key: 'go',
+            className: 'is-primary',
+            submit: true,
+            disabled: chosen === 0 || !scheduleReady(model),
+            sending: model.sending,
+          },
+          icon(model.when === 'later' ? 'clock' : 'undo'),
+          model.sending
+            ? 'Starting…'
+            : chosen === 0
+              ? 'Nothing to roll back'
+              : model.when === 'later'
+                ? `Schedule roll back: ${plural(chosen, 'board')}`
+                : `Roll back: ${plural(chosen, 'board')}`
         ),
       ],
     });
@@ -2529,6 +2684,434 @@ function openLastGood({ group = null }) {
   reload();
 }
 
+// Scheduled starts and maintenance windows (console 2.19.0, docs/mass-updates.md).
+
+/** The browser's own time zone, the default of every time asked for. */
+export function browserTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+const pad = (value) => String(value).padStart(2, '0');
+
+/** The choices of when a start runs: now, or at a local time in a time zone (tomorrow 02:00 to begin with). */
+export function scheduleModel(nowMs) {
+  const tomorrow = new Date(nowMs + 86_400_000);
+  return {
+    when: 'now',
+    at: `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T02:00`,
+    timeZone: browserTimeZone(),
+  };
+}
+
+/** Whether the choices of when can be sent: now, or a full date and time and a time zone. */
+export function scheduleReady(model) {
+  return model.when !== 'later' || (LOCAL_TIME.test(model.at ?? '') && ZONE.test(model.timeZone ?? ''));
+}
+
+/** "When?": start now, or schedule for later. `window` is the group's maintenance window, if it has one. */
+export function scheduleFields(model, redraw, window = null) {
+  const later = model.when === 'later';
+  const pick = (when) => () => {
+    model.when = when;
+    redraw();
+  };
+  const typed = (apply) => (event) => {
+    apply(String(event?.target?.value ?? ''));
+    redraw();
+  };
+  return h(
+    'fieldset',
+    { class: 'choices schedule-fields', key: 'when' },
+    h('legend', null, 'When?'),
+    choice({ key: 'now', type: 'radio', name: 'when', checked: !later, onChange: pick('now') }, 'Start now'),
+    choice(
+      { key: 'later', type: 'radio', name: 'when', checked: later, onChange: pick('later') },
+      'Schedule for later',
+      h(
+        'span',
+        { class: 'choice-note' },
+        'The console starts it then, with the same checks as a start now: busy boards, the release, the health gate.'
+      )
+    ),
+    later
+      ? h(
+          'div',
+          { class: 'schedule-time', key: 'time' },
+          h(
+            'label',
+            { class: 'field', key: 'at' },
+            h('span', { class: 'field-label' }, 'Date and time'),
+            h('input', {
+              class: 'input',
+              type: 'datetime-local',
+              name: 'schedule-at',
+              value: model.at,
+              onInput: typed((value) => {
+                model.at = value;
+              }),
+            })
+          ),
+          h(
+            'label',
+            { class: 'field', key: 'zone' },
+            h('span', { class: 'field-label' }, 'Time zone'),
+            h('input', {
+              class: 'input',
+              type: 'text',
+              name: 'schedule-zone',
+              autocomplete: 'off',
+              spellcheck: 'false',
+              value: model.timeZone,
+              onInput: typed((value) => {
+                model.timeZone = value.trim();
+              }),
+            })
+          ),
+          window
+            ? h(
+                'p',
+                { class: 'quiet schedule-window', key: 'window' },
+                icon('clock', 'is-small'),
+                ` The group's maintenance window is ${windowWords(window)}: outside it, the start waits for it, and so does each stage.`
+              )
+            : null
+        )
+      : null
+  );
+}
+
+/** Schedule a start of `kind` with `request` at the dialog's time; the list is read again. */
+export async function scheduleStart(kind, request, model) {
+  let made;
+  try {
+    made = await fleetApi.createSchedule({ kind, at: model.at, timeZone: model.timeZone, request });
+  } catch (error) {
+    after(error);
+    throw error;
+  }
+  tools.notify(`Scheduled for ${made.at.replace('T', ' ')} ${made.timeZone}.`);
+  tools.load(tools.state.schedules, fleetApi.schedules);
+  tools.go({ view: 'deployments' });
+  return made;
+}
+
+function scheduleWhat(item) {
+  if (item.kind === 'last_good') {
+    return `Roll back to last good: ${item.groupName ? `the group ${item.groupName}` : 'the fleet'}`;
+  }
+  const release = item.version ?? 'a release';
+  if (item.kind === 'deployment') return `Deployment of ${release} to ${plural(item.things.length, 'board')}`;
+  const { target } = item;
+  let to = plural(item.things.length, 'board');
+  if (target.kind === 'group') to = `the group ${item.groupName ?? target.group ?? ''}`.trim();
+  else if (target.kind === 'type') to = `every ${boardTypeLabel(target.type)}`;
+  else if (target.kind === 'fleet') to = 'the fleet';
+  return `Staged rollout of ${release} to ${to}`;
+}
+
+function scheduleRow(item, ctx) {
+  const look = item.waiting === 'window' ? ['act', 'clock', 'Waiting for the window'] : SCHEDULE_LOOKS[item.status];
+  const open = ctx.state.me?.canWrite && item.status === 'scheduled';
+  const rollout = item.started.rollouts[0];
+  const deployment = item.started.deployments[0];
+  let link = null;
+  if (rollout) {
+    link = h(
+      'a',
+      { href: rolloutHref(rollout) },
+      item.started.rollouts.length > 1 ? 'Its first rollout' : 'Its rollout'
+    );
+  } else if (deployment) {
+    link = h('a', { href: deploymentHref(deployment) }, 'Its deployment');
+  }
+  return h(
+    'li',
+    { key: item.id, class: 'row schedule-row' },
+    h(
+      'div',
+      { class: 'schedule-main' },
+      h('p', { class: 'schedule-title' }, h('span', { class: 'schedule-what' }, scheduleWhat(item)), badge(...look)),
+      h(
+        'p',
+        { class: 'row-note dotted' },
+        h('span', { class: 'schedule-when' }, `${item.at.replace('T', ' ')} ${item.timeZone}`),
+        item.waiting === 'window' && item.window ? h('span', null, `Window: ${item.window}`) : null,
+        h('span', null, 'By ', who(item.createdBy)),
+        item.error ? h('span', { class: 'is-bad-text' }, item.error.text) : null,
+        link ? h('span', null, link) : null
+      )
+    ),
+    open
+      ? h(
+          'div',
+          { class: 'schedule-actions' },
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn is-small is-quiet',
+              'aria-label': `Change the time of: ${scheduleWhat(item)}`,
+              onClick: () => openEditSchedule(item),
+            },
+            'Change time'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn is-small is-danger-quiet',
+              'aria-label': `Cancel: ${scheduleWhat(item)}`,
+              onClick: () => openCancelSchedule(item),
+            },
+            'Cancel'
+          )
+        )
+      : null
+  );
+}
+
+/** The Deployments page's list of scheduled starts: those to come first, then the last few that ran or ended. */
+export function schedulesPanel(ctx) {
+  const list = ctx.state.schedules?.value;
+  if (!list || list.length === 0) return null;
+  const open = list
+    .filter((item) => item.status === 'scheduled' || item.status === 'starting')
+    .sort((a, b) => ((a.dueAt ?? '') < (b.dueAt ?? '') ? -1 : 1));
+  const done = list.filter((item) => !open.includes(item)).slice(0, 3);
+  return card(
+    { key: 'schedules', title: 'Scheduled', className: 'is-flush schedules-card' },
+    h(
+      'ul',
+      { class: 'rows' },
+      [...open, ...done].map((item) => scheduleRow(item, ctx))
+    )
+  );
+}
+
+function reloadSchedules() {
+  tools.load(tools.state.schedules, fleetApi.schedules);
+  tools.draw();
+}
+
+function openEditSchedule(item) {
+  if (tools.dialogs.isOpen()) return;
+  let self = null;
+  const model = { when: 'later', at: item.at, timeZone: item.timeZone, sending: false, error: null };
+  const redraw = () => self.redraw();
+  const submit = () =>
+    tools.dialogs.submit(self, model, async () => {
+      let changed;
+      try {
+        changed = await fleetApi.editSchedule(item.id, { at: model.at, timeZone: model.timeZone });
+      } catch (error) {
+        if (error?.status === 409) reloadSchedules();
+        throw error;
+      }
+      self.close(true);
+      tools.notify(`Now at ${changed.at.replace('T', ' ')} ${changed.timeZone}.`);
+      reloadSchedules();
+    });
+  self = tools.dialogs.open(() =>
+    dialogFrame({
+      title: ['Change the time: ', scheduleWhat(item)],
+      busy: model.sending,
+      onClose: () => self.close(),
+      onSubmit: model.when === 'later' && scheduleReady(model) ? submit : null,
+      body: [
+        scheduleFields(model, redraw),
+        item.window
+          ? h('p', { class: 'quiet', key: 'window' }, `It waits for the group's maintenance window: ${item.window}.`)
+          : null,
+      ],
+      error: model.error ? failure('The time was not changed.', model.error, null, tools.dialogs.signIn) : null,
+      foot: [
+        dialogButton({ key: 'cancel', disabled: model.sending, onClick: () => self.close() }, 'Cancel'),
+        SPACER(),
+        dialogButton(
+          {
+            key: 'go',
+            className: 'is-primary',
+            submit: true,
+            disabled: model.when !== 'later' || !scheduleReady(model),
+            sending: model.sending,
+          },
+          icon('clock'),
+          'Save the time'
+        ),
+      ],
+    })
+  );
+}
+
+function openCancelSchedule(item) {
+  if (tools.dialogs.isOpen()) return;
+  let self = null;
+  const model = { sending: false, error: null };
+  const submit = () =>
+    tools.dialogs.submit(self, model, async () => {
+      try {
+        await fleetApi.cancelSchedule(item.id);
+      } catch (error) {
+        if (error?.status === 409) reloadSchedules();
+        throw error;
+      }
+      self.close(true);
+      tools.notify('The scheduled start is cancelled.');
+      reloadSchedules();
+    });
+  self = tools.dialogs.open(() =>
+    dialogFrame({
+      title: ['Cancel: ', scheduleWhat(item), '?'],
+      busy: model.sending,
+      onClose: () => self.close(),
+      onSubmit: submit,
+      body: consequences([
+        `It was to start at ${item.at.replace('T', ' ')} ${item.timeZone}; it will not start.`,
+        'Nothing has been started yet, so there is nothing else to stop.',
+      ]),
+      error: model.error ? failure('Not cancelled.', model.error, null, tools.dialogs.signIn) : null,
+      foot: [
+        dialogButton({ key: 'keep', disabled: model.sending, onClick: () => self.close() }, 'Keep it'),
+        SPACER(),
+        dialogButton(
+          { key: 'go', className: 'is-danger', submit: true, sending: model.sending },
+          icon('stop'),
+          'Cancel the scheduled start'
+        ),
+      ],
+    })
+  );
+}
+
+/** A group's maintenance window in its dialog: off, or weekdays 01:00 to 05:00 in the browser's zone to begin with. */
+function windowModel(window) {
+  return {
+    windowOn: window !== null,
+    windowDays: new Set(window?.days ?? [1, 2, 3, 4, 5]),
+    windowStart: window?.start ?? '01:00',
+    windowEnd: window?.end ?? '05:00',
+    windowZone: window?.timeZone ?? browserTimeZone(),
+  };
+}
+
+function windowBody(model) {
+  return {
+    days: [...model.windowDays].sort(),
+    start: model.windowStart,
+    end: model.windowEnd,
+    timeZone: model.windowZone,
+  };
+}
+
+function windowReady(model) {
+  return (
+    !model.windowOn ||
+    (model.windowDays.size > 0 &&
+      CLOCK_TIME.test(model.windowStart) &&
+      CLOCK_TIME.test(model.windowEnd) &&
+      model.windowStart !== model.windowEnd &&
+      ZONE.test(model.windowZone))
+  );
+}
+
+function windowFields(model, redraw) {
+  const input = (key, label, value, apply, type = 'time') =>
+    h(
+      'label',
+      { class: 'field', key },
+      h('span', { class: 'field-label' }, label),
+      h('input', {
+        class: 'input',
+        type,
+        name: `window-${key}`,
+        value,
+        onInput: (event) => {
+          apply(String(event?.target?.value ?? '').trim());
+          redraw();
+        },
+      })
+    );
+  return h(
+    'fieldset',
+    { class: 'choices window-fields', key: 'window' },
+    h('legend', null, 'Maintenance window'),
+    choice(
+      {
+        key: 'on',
+        type: 'checkbox',
+        name: 'window-on',
+        checked: model.windowOn,
+        onChange: () => {
+          model.windowOn = !model.windowOn;
+          redraw();
+        },
+      },
+      'Only update these boards inside a window',
+      h(
+        'span',
+        { class: 'choice-note' },
+        'A staged rollout to the group starts no stage outside it, and a scheduled start waits for it. A start by hand begins at once.'
+      )
+    ),
+    model.windowOn
+      ? h(
+          'div',
+          { class: 'window-choices', key: 'choices' },
+          h(
+            'div',
+            { class: 'window-days', role: 'group', 'aria-label': 'Days it opens on' },
+            DAY_NAMES.map((day, index) =>
+              choice(
+                {
+                  key: day,
+                  type: 'checkbox',
+                  name: `window-day-${index}`,
+                  checked: model.windowDays.has(index),
+                  onChange: () => {
+                    if (model.windowDays.has(index)) model.windowDays.delete(index);
+                    else model.windowDays.add(index);
+                    redraw();
+                  },
+                },
+                day
+              )
+            )
+          ),
+          h(
+            'div',
+            { class: 'window-hours' },
+            input('start', 'From', model.windowStart, (value) => {
+              model.windowStart = value;
+            }),
+            input('end', 'To', model.windowEnd, (value) => {
+              model.windowEnd = value;
+            }),
+            input(
+              'zone',
+              'Time zone',
+              model.windowZone,
+              (value) => {
+                model.windowZone = value;
+              },
+              'text'
+            )
+          ),
+          h(
+            'p',
+            { class: 'quiet', key: 'words' },
+            windowReady(model)
+              ? `Open ${windowWords(windowBody(model))}. A "To" at or before "From" is the next morning.`
+              : 'Choose at least one day, two different times and a time zone.'
+          )
+        )
+      : null
+  );
+}
+
 // For tests: the readers, as the pages use them.
-export const readers = Object.freeze({ readBoard, readGroup, readRollout, readPlan, readLastGoodPlan });
+export const readers = Object.freeze({ readBoard, readGroup, readRollout, readPlan, readLastGoodPlan, readSchedule });
 export { fleetApi as api };

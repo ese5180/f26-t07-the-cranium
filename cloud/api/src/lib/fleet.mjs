@@ -348,6 +348,8 @@ export function rolloutFromItem(item) {
     // From console 2.13.0: the health gate, null for none (lib/health.mjs).
     healthGate: Number.isInteger(item.healthGate?.minutes) ? { minutes: item.healthGate.minutes } : null,
     stopped: item.stopped ?? null,
+    // From console 2.19.0: "window" while a stage waits for its group's maintenance window.
+    waiting: item.waiting === 'window' && isOpenRollout(item) ? 'window' : null,
     finishedAt: item.finishedAt ?? null,
     updatedAt: item.updatedAt ?? item.createdAt,
   };

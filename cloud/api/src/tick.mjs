@@ -16,16 +16,24 @@
  * From console 2.15.0 it also stores the fleet health score's snapshot of the day (docs/fleet-health.md,
  * handlers/fleet.mjs snapshot): on the first run of each UTC day, once, on the condition that keeps the first.
  * A snapshot that cannot be made is logged and tried again on the next run; it never holds up the rollouts.
+ *
+ * From console 2.19.0 it first starts the scheduled starts that are due (handlers/schedules.mjs startDue):
+ * a deployment, a staged rollout or a roll back to last good, through the same handlers as a start by
+ * hand, each claimed by a conditional write so that it starts once. A roll back to last good reads the
+ * boards' update histories for its plan, read only.
  */
 
 import { randomBytes } from 'node:crypto';
 
+import { createDirectory } from './auth.mjs';
 import { createAuditHandlers } from './handlers/audit.mjs';
 import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createRolloutHandlers, runRolloutTick } from './handlers/rollouts.mjs';
+import { createScheduleHandlers } from './handlers/schedules.mjs';
+import { createUpdateHandlers } from './handlers/updates.mjs';
 import { pace } from './lib/iot-pace.mjs';
 
 /**
@@ -53,8 +61,40 @@ export function createRolloutTick({
   const fleet = createFleetHandlers(context, { devices, memfault: () => memfault });
   const deployments = createDeploymentHandlers(context, { devices, fleet });
   const audit = createAuditHandlers(context);
-  const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, memfault: () => memfault });
+  // The boards' update histories, for a scheduled roll back to last good: read only. Who started or sent
+  // each update is not needed for a plan, so the user pool and the activity log are not asked, and a
+  // backfill is not put (the API's reads do that); the role may read the history and no more.
+  const history = createUpdateHandlers(
+    {
+      ...context,
+      aws: {
+        ...context.aws,
+        getUser: async () => null,
+        queryAudit: async () => [],
+        putUpdateFact: async () => ({ ok: true }),
+      },
+    },
+    { devices, deployments }
+  );
+  const rollouts = createRolloutHandlers(context, {
+    devices,
+    deployments,
+    fleet,
+    audit,
+    updates: () => history,
+    memfault: () => memfault,
+  });
+  // A scheduled start runs as its creator: Cognito is asked first whether they still may (auth.mjs).
+  const directory = createDirectory({ aws: context.aws, now, log });
+  const schedules = createScheduleHandlers(context, { deployments, rollouts, audit, directory });
   return async () => {
+    // Scheduled starts that are due, before the rollouts move on (handlers/schedules.mjs).
+    try {
+      const started = await schedules.startDue();
+      if (started.due > 0) log({ event: 'schedules_due', ...started });
+    } catch (error) {
+      log({ level: 'error', event: 'schedules_not_read', error: String(error?.message ?? error).slice(0, 200) });
+    }
     const outcome = await runRolloutTick(rollouts, log);
     if (typeof alerts?.watch === 'function') await alerts.watch(memfault);
     try {

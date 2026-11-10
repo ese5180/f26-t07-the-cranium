@@ -31,11 +31,18 @@ The console already updates many boards at once ([`fleet.md`](fleet.md), "Groups
   offline, another type). A board takes only newer firmware, so going back means a rebuild of the old source under a
   newer number, uploaded with a note that begins `Rebuild of <version>` ([`fleet.md`](fleet.md)).
 
+- **Later, or in a maintenance window** (from console 2.19.0). Each of these can be scheduled ("Schedule for later":
+  "at 02:00 tonight", in a time zone), and a group can have a maintenance window ("weekdays 01:00–05:00,
+  America/New_York"): a rollout to it starts no stage outside the window, and a scheduled start waits for it. The
+  console starts a schedule with the same checks as a start by hand, once, and the Deployments page lists what is
+  scheduled, waiting, started or not started and why ([`fleet.md`](fleet.md)).
+
 **The steps:**
 1. Upload the release on the Firmware page. `scripts/firmware/build.sh` builds the next version, uploads it there and gives
    Memfault its release and symbols.
 2. Put the boards in a group, under Fleet, Groups.
-3. Start a deployment or a staged rollout to the group, the type, or every board. For a group, look at the suggested
+3. Start a deployment or a staged rollout to the group, the type, or every board, now or scheduled for later (give
+   the group a maintenance window to keep its stages inside it). For a group, look at the suggested
    stages, change them if needed, and start; the rollout's page shows each stage as it goes, and why it stopped if
    it did. Alerts (rules on the Alerts page, [`alerts.md`](alerts.md)) say so by e-mail and on every open page.
 

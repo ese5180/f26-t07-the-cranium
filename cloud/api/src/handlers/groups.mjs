@@ -4,12 +4,15 @@
  * group of its board type, which is not stored: it is the type (handlers/fleet.mjs).
  *
  *   GET  /api/groups               -> { groups: [Group], types: [{ type, label, things }] }
- *   POST /api/groups               body { name, things? }      -> 201 { group }   group.create
- *   POST /api/groups/{id}          body { name?, things? }     -> { group }       group.update
+ *   POST /api/groups               body { name, things?, window? }    -> 201 { group }   group.create
+ *   POST /api/groups/{id}          body { name?, things?, window? }   -> { group }       group.update
  *   POST /api/groups/{id}/delete   body {}                     -> { group }       group.delete
  *
- * A Group is { id, name, things, gone, createdAt, createdBy, updatedAt, updatedBy }: `things` are
+ * A Group is { id, name, things, gone, window, createdAt, createdBy, updatedAt, updatedBy }: `things` are
  * the boards in it that are still registered, `gone` how many were removed from the project since.
+ * `window` is its maintenance window (console 2.19.0, lib/schedule.mjs), or null for none: a staged
+ * rollout to the group starts no stage outside it, and a scheduled start for it waits for it
+ * (handlers/rollouts.mjs, schedules.mjs). Given as null, it is taken away.
  *
  * Where groups live. In the state table (pk GRP), not as AWS IoT thing groups:
  *
@@ -38,6 +41,7 @@ import { HttpError, badRequest, conflict, field, notFound, unprocessable } from 
 import { boardsValue, change } from '../lib/audit.mjs';
 import { BOARD_TYPES } from '../lib/boards.mjs';
 import { MAX_GROUPS, MAX_GROUP_BOARDS, boardLabel, requireGroupId, requireGroupName } from '../lib/fleet.mjs';
+import { requireWindow, windowFromItem, windowWords } from '../lib/schedule.mjs';
 import { isThing } from '../lib/validate.mjs';
 import { groupFromItem } from './fleet.mjs';
 
@@ -126,6 +130,7 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       entry.detail.name = name;
       const things = requireMembers(field(body, 'things'), { optional: false });
       named(entry, things);
+      const window = field(body, 'window') === undefined ? null : requireWindow(field(body, 'window'));
       const registered = await requireRegistered(things);
       const items = await liveItems();
       if (items.length >= MAX_GROUPS) {
@@ -142,6 +147,7 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
           id,
           name,
           things,
+          window,
           createdAt: at,
           createdBy: by,
           updatedAt: at,
@@ -156,6 +162,7 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       entry.target = item.id;
       change(entry, 'name', null, item.name);
       change(entry, 'boards', null, boardsValue(item.things));
+      change(entry, 'window', null, windowWords(window));
       fleet.forgetGroups();
       return { status: 201, body: { group: groupFromItem(item, registered) } };
     },
@@ -166,8 +173,9 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
       const body = json();
       const name = field(body, 'name') === undefined ? undefined : requireGroupName(field(body, 'name'));
       const things = requireMembers(field(body, 'things'), { optional: true });
-      if (name === undefined && things === undefined) {
-        throw badRequest('nothing_to_change', 'Give the group a new "name", its "things", or both.');
+      const window = field(body, 'window') === undefined ? undefined : requireWindow(field(body, 'window'));
+      if (name === undefined && things === undefined && window === undefined) {
+        throw badRequest('nothing_to_change', 'Give the group a new "name", its "things", its "window", or more.');
       }
       const item = await existing(id);
       entry.detail.name = name ?? item.name;
@@ -185,9 +193,15 @@ export function createGroupHandlers({ aws, now, randomHex }, { devices, fleet })
         entry.detail.removed = String([...before].filter((thing) => !things.includes(thing)).length);
         named(entry, things);
       }
+      if (window !== undefined) {
+        set.window = window;
+        entry.detail.window = windowWords(window) ?? 'none';
+      }
       const changed = await aws.updateFleetItem({ pk: 'GRP', sk: id, rev: item.rev, set });
       if (!changed.ok) throw groupChanged();
       if (set.name !== undefined) change(entry, 'name', item.name, set.name);
+      if (set.window !== undefined)
+        change(entry, 'window', windowWords(windowFromItem(item.window)), windowWords(window));
       if (set.things !== undefined) change(entry, 'boards', boardsValue(item.things ?? []), boardsValue(set.things));
       fleet.forgetGroups();
       const all = new Set([...registered, ...(await devices.groupThings())]);
