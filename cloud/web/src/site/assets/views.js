@@ -2411,7 +2411,12 @@ function auditChanges(entry, ctx) {
   return h(
     'details',
     { class: 'more audit-diff', key: 'changes' },
-    h('summary', null, summary, h('span', { class: 'sr-only' }, ` in the entry of ${whenInDay(entry.at)}`)),
+    h(
+      'summary',
+      null,
+      summary,
+      entry.at ? h('span', { class: 'sr-only' }, ` in the entry of ${timeOfDay(entry.at)}`) : null
+    ),
     diff.none
       ? h('p', { class: 'audit-diff-none' }, 'No details recorded for this entry.')
       : h(

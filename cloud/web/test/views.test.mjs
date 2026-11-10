@@ -4496,6 +4496,10 @@ test('an entry that recorded its changes opens to each field, what it was and wh
   const line = one(page(views.activityView, state), 'li.log-line');
   const diff = one(line, 'details.audit-diff');
   assert.match(textOf(one(diff, 'summary')), /What changed: 4 fields/);
+  // A screen reader hears which entry: its time of day, in words, not an element's name.
+  const heard = textOf(one(one(diff, 'summary'), 'span.sr-only'));
+  assert.doesNotMatch(heard, /object/);
+  assert.match(heard, /^in the entry of \d/);
   const rows = all(diff, 'div.audit-change');
   assert.deepEqual(
     rows.map((row) => textOf(one(row, 'dt'))),
