@@ -2471,7 +2471,9 @@ Resources:
   # a rollout (pk ROL); an entry added to the activity log, never changed; the jobs of this
   # console, the boards' shadows and attributes, and handing the presign role to AWS IoT; and, for
   # the alert of a rollout that stopped by itself, the alerts' own part of the events table (pk
-  # ALERTS) and the alert topic. No S3, no Cognito, none of the boards' events.
+  # ALERTS) and the alert topic. From console 2.15.0, the fleet health score's snapshot of the day:
+  # a new item of its own partition (pk HEALTH), and a read of the boards' events (pk cranium-*) of the
+  # last week, for their restarts and the ends of their updates. No S3, no Cognito.
   RolloutTickRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2507,6 +2509,7 @@ Resources:
                       - GRP
                       - SEEN
                       - ALR
+                      - HEALTH
               - Sid: WriteRollouts
                 Effect: Allow
                 Action: dynamodb:UpdateItem
@@ -2515,6 +2518,25 @@ Resources:
                   ForAllValues:StringEquals:
                     dynamodb:LeadingKeys:
                       - ROL
+              # The fleet health score's daily snapshot (docs/fleet-health.md): put once a day, on the
+              # condition that keeps the first (src/aws.mjs putFleetItem). Only its own partition.
+              - Sid: WriteHealthSnapshots
+                Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt StateTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - HEALTH
+              # What the snapshot counts of the boards' last week: their events, read only.
+              - Sid: ReadBoardEvents
+                Effect: Allow
+                Action: dynamodb:Query
+                Resource: !GetAtt EventsTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys:
+                      - cranium-*
               - Sid: AppendAudit
                 Effect: Allow
                 Action: dynamodb:PutItem

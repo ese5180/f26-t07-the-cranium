@@ -65,6 +65,7 @@ import {
   when,
   who,
 } from './views.js';
+import { lineChart } from './telemetry.js';
 
 const FLEET_REFRESH_MS = 30_000;
 const ROLLOUT_REFRESH_MS = 5_000;
@@ -121,6 +122,68 @@ const object = (value) => (value !== null && typeof value === 'object' && !Array
 const array = (value) => (Array.isArray(value) ? value : []);
 const words = (value, max = 500) => (typeof value === 'string' ? value.slice(0, max) : '');
 const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+
+// The fleet health score (docs/fleet-health.md): its parts in order, each with the page that explains it.
+// The links are the console's own, never the answer's.
+export const SCORE_PARTS = Object.freeze([
+  { id: 'online', href: '#/devices?status=offline', link: 'Offline boards' },
+  { id: 'crashFree', href: '#/memfault', link: 'Memfault issues' },
+  { id: 'updates', href: '#/deployments', link: 'Deployments' },
+  { id: 'signal', href: '#/diagnostics', link: 'Diagnostics' },
+]);
+export const SCORE_HISTORY_DAYS = 30;
+const SCORE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
+
+const within = (value, low, high) =>
+  typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high ? value : null;
+
+/** The score of GET /api/fleet/health, checked: anything not of the expected shape is left out. */
+export function readScore(raw) {
+  const value = object(raw);
+  const byId = new Map(
+    array(value.parts)
+      .map(object)
+      .map((part) => [part.id, part])
+  );
+  const memfault = object(value.memfault);
+  return {
+    value: Number.isInteger(value.value) ? within(value.value, 0, 100) : null,
+    days: count(value.days) || 7,
+    change: Number.isInteger(value.change) ? within(value.change, -100, 100) : null,
+    historyDays: count(value.historyDays) || SCORE_HISTORY_DAYS,
+    memfault: { state: words(memfault.state, 32) || 'ok', message: words(memfault.message, 300) },
+    parts: SCORE_PARTS.filter((known) => byId.has(known.id)).map((known) => {
+      const part = byId.get(known.id);
+      return {
+        ...known,
+        label: words(part.label, 40) || known.link,
+        meaning: words(part.meaning, 200),
+        weight: within(part.weight, 0, 1) ?? 0,
+        counted: count(part.counted),
+        of: count(part.of),
+        value: within(part.value, 0, 1),
+      };
+    }),
+    history: array(value.history)
+      .map(object)
+      .filter((one) => typeof one.day === 'string' && SCORE_DAY.test(one.day))
+      .map((one) => ({ day: one.day, score: Number.isInteger(one.score) ? within(one.score, 0, 100) : null })),
+  };
+}
+
+/** How the score moved since last week, in words: "↑ 4 since last week". */
+export function changeWords(change) {
+  if (change === null) return 'No snapshot from a week ago yet';
+  if (change === 0) return 'No change since last week';
+  return `${change > 0 ? '↑' : '↓'} ${Math.abs(change)} since last week`;
+}
+
+/** The score's tone: good from 80, fair from 50, else bad. */
+export function scoreTone(value) {
+  if (value === null) return 'idle';
+  return value >= 80 ? 'good' : value >= 50 ? 'warn' : 'bad';
+}
 const version = (value) => (isVersion(value) ? value : null);
 const things = (value) => array(value).filter(isThing);
 const type = (value) => (BOARD_TYPES.includes(value) ? value : 'nrf7002dk');
@@ -405,8 +468,10 @@ const fleetApi = {
     };
   },
   async health() {
-    const body = await request('GET', '/api/fleet/health');
+    const body = await request('GET', `/api/fleet/health?days=${SCORE_HISTORY_DAYS}`);
     return {
+      // Null from an API before console 2.15.0, which has no score: then no card is drawn.
+      score: body.score === undefined ? null : readScore(body.score),
       types: array(body.types)
         .map(object)
         .map((entry) => ({
@@ -723,6 +788,111 @@ export function compatibilityCard(device, ctx) {
 }
 
 // On the Overview: how the fleet is doing.
+
+const percentOf = (value) => (value === null ? '–' : `${Math.round(value * 100)}%`);
+
+function scorePart(part) {
+  return h(
+    'li',
+    { key: part.id, class: 'score-part' },
+    h(
+      'a',
+      {
+        class: 'score-part-link',
+        href: part.href,
+        'aria-label': `${part.label}: ${percentOf(part.value)}. ${part.link}`,
+      },
+      h(
+        'span',
+        { class: 'score-part-head' },
+        h('span', { class: 'score-part-label' }, part.label),
+        h('span', { class: 'score-part-weight quiet' }, `weight ${Math.round(part.weight * 100)}%`),
+        h('strong', { class: 'score-part-value' }, percentOf(part.value))
+      ),
+      h('span', { class: 'score-part-meaning' }, part.meaning),
+      h(
+        'span',
+        { class: 'score-part-count quiet' },
+        part.of === 0 ? 'Nothing to count yet' : `${part.counted} of ${part.of}`
+      ),
+      icon('chevron-right', 'is-small')
+    )
+  );
+}
+
+/** The fleet health score, its trend over the last days, and its parts, each a way to the page that explains it. */
+export function healthScoreCard(ctx) {
+  const score = ctx.state.fleetHealth?.value?.score;
+  if (!score) return null;
+  const card = { title: 'Fleet health score', key: 'health-score' };
+  const nowMs = ctx.state.now ?? Date.now();
+  const fromMs =
+    Date.parse(`${new Date(nowMs).toISOString().slice(0, 10)}T00:00:00Z`) - (score.historyDays - 1) * DAY_MS;
+  const points = score.history
+    .filter((one) => one.score !== null)
+    .map((one) => ({ ms: Date.parse(`${one.day}T00:00:00Z`), v: one.score }))
+    .filter((point) => point.ms >= fromMs);
+  if (score.value !== null) points.push({ ms: nowMs, v: score.value });
+  const memfaultNote =
+    score.memfault.state === 'ok'
+      ? null
+      : score.memfault.state === 'not_configured'
+        ? 'Crash-free counts the restarts in the boards’ events only: the console has no Memfault token.'
+        : `Crash-free counts the restarts in the boards’ events only just now. ${score.memfault.message}`.trim();
+  return h(
+    'section',
+    { class: 'card health-score', key: card.key, 'aria-label': card.title },
+    h(
+      'div',
+      { class: 'health-score-head' },
+      h('h2', { class: 'eyebrow' }, card.title),
+      h(
+        'p',
+        { class: `health-score-value is-${scoreTone(score.value)}` },
+        h('strong', null, score.value === null ? '–' : String(score.value)),
+        h('span', { class: 'quiet' }, ' / 100')
+      ),
+      h(
+        'p',
+        {
+          class: `health-score-change ${score.change > 0 ? 'is-up' : score.change < 0 ? 'is-down' : ''}`.trim(),
+        },
+        changeWords(score.change)
+      ),
+      score.value === null ? h('p', { class: 'quiet' }, 'No boards with Wi-Fi to count yet.') : null
+    ),
+    h(
+      'div',
+      { class: 'health-score-trend' },
+      lineChart(ctx, {
+        key: 'fleet-health-score',
+        title: `Score, last ${score.historyDays} days`,
+        unit: 'points out of 100',
+        axisUnit: '',
+        points,
+        fromMs,
+        toMs: nowMs,
+        yMin: 0,
+        yMax: 100,
+        yTicks: [0, 50, 100],
+        format: (value) => String(Math.round(value)),
+        tickFormat: String,
+        gapMs: 1.5 * DAY_MS,
+        describe: 'one snapshot a day, and the score now',
+        emptyText: 'The first snapshot is stored today; the trend fills in day by day.',
+        daily: true,
+      })
+    ),
+    h('ul', { class: 'score-parts' }, score.parts.map(scorePart)),
+    memfaultNote ? h('p', { class: 'card-note' }, memfaultNote) : null,
+    h(
+      'p',
+      { class: 'card-note' },
+      `Online and Wi-Fi signal are now; crash-free and update success are of the last ${score.days} days. `,
+      'The score is the weighted mean of the parts that have something to count.'
+    )
+  );
+}
 
 export function healthCard(ctx) {
   const health = ctx.state.fleetHealth?.value;

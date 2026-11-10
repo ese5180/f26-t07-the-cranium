@@ -325,7 +325,8 @@ export function createApp({
   // Bluetooth send ask the fleet for each board's type. Fleet health counts the update history's
   // updates, which are made after the deployments they read.
   let updates = null;
-  const fleet = createFleetHandlers(context, { devices, updates: () => updates });
+  let memfault = null;
+  const fleet = createFleetHandlers(context, { devices, updates: () => updates, memfault: () => memfault });
   const deployments = createDeploymentHandlers(context, { devices, fleet });
   // The update history (handlers/updates.mjs): every update of every board, deployments and the
   // updates the boards reported themselves, over Bluetooth or by USB.
@@ -347,7 +348,7 @@ export function createApp({
   const commands = createCommandHandlers(context, { devices, fleet });
   const alerts = createAlertHandlers(context);
   // What Memfault knows of the boards, read from its REST API on the server (docs/memfault.md).
-  const memfault = createMemfaultHandlers(context, { devices });
+  memfault = createMemfaultHandlers(context, { devices });
   // The phone apps on the Apps page (docs/mobile-apps.md): the Android app's releases, the iPhone app's
   // version, the apps' configuration, and the console's own version beside who is signed in.
   const apps = createAppHandlers(context, { versions });

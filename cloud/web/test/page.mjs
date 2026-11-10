@@ -76,7 +76,7 @@ export const TELEMETRY = scriptAddress('telemetry.js', { 'core.js': CORE, 'views
 export const MAP = scriptAddress('map.js', { 'core.js': CORE, 'views.js': VIEWS });
 export const ACCOUNT = scriptAddress('account.js', { 'core.js': CORE, 'views.js': VIEWS });
 // The fleet's parts of every page, and the Apps page with its QR encoder (docs/fleet.md, docs/versions.md).
-export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS });
+export const FLEET = scriptAddress('fleet.js', { 'core.js': CORE, 'views.js': VIEWS, 'telemetry.js': TELEMETRY });
 // What Memfault knows (docs/memfault.md).
 export const MEMFAULT = scriptAddress('memfault-page.js', {
   'core.js': CORE,

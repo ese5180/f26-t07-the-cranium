@@ -706,6 +706,8 @@ test('staged rollouts move on every minute, in a function of their own that can 
       'WriteOwnLog',
       'ReadReleasesAndFleet',
       'WriteRollouts',
+      'WriteHealthSnapshots',
+      'ReadBoardEvents',
       'AppendAudit',
       'StartAndReadDeployments',
       'CancelAndReadJobs',
@@ -731,8 +733,20 @@ test('staged rollouts move on every minute, in a function of their own that can 
   const reads = statement(role, 'ReadReleasesAndFleet');
   assert.deepEqual(
     [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR']
+    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH']
   );
+  // The fleet health score's snapshot: a put of its own partition only, and the boards' events read only.
+  const snapshots = statement(role, 'WriteHealthSnapshots');
+  assert.ok(snapshots.includes('Action: dynamodb:PutItem') && snapshots.includes('Resource: !GetAtt StateTable.Arn'));
+  assert.deepEqual(
+    [...snapshots.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
+    ['HEALTH']
+  );
+  const boardEvents = statement(role, 'ReadBoardEvents');
+  assert.ok(
+    boardEvents.includes('Action: dynamodb:Query') && boardEvents.includes('Resource: !GetAtt EventsTable.Arn')
+  );
+  assert.ok(boardEvents.includes('ForAllValues:StringLike:') && boardEvents.includes('- cranium-*'));
   assert.ok(statement(role, 'AppendAudit').includes('Action: dynamodb:PutItem'));
   // The events table only for the alerts' own part, and the alert topic only to publish to: the alert
   // of a rollout that stopped by itself.
@@ -750,7 +764,7 @@ test('staged rollouts move on every minute, in a function of their own that can 
   const send = statement(role, 'SendAlerts');
   assert.ok(send.includes('Action: sns:Publish') && send.includes('Resource: !Ref AlertTopic'));
   assert.equal((role.match(/sns:/g) ?? []).length, 1);
-  assert.equal((role.match(/EventsTable/g) ?? []).length, 2);
+  assert.equal((role.match(/EventsTable/g) ?? []).length, 3);
   assert.equal(/s3:|cognito-idp:|iotwireless:/.test(role), false);
   assert.ok(fn.includes('ALERT_TOPIC_ARN: !Ref AlertTopic') && fn.includes('CONSOLE_URL: '));
   assert.equal(/Action: \S+:\*/.test(role), false);

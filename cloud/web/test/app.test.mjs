@@ -457,7 +457,7 @@ test('the console starts on the page in the address and loads what that page sho
     'GET /api/firmware',
     // What fleet.js shows on the overview: the boards' types and groups, and the fleet's health.
     'GET /api/fleet',
-    'GET /api/fleet/health',
+    'GET /api/fleet/health?days=30',
     'GET /api/me',
     // Every update of every board however it came, for the Updates card.
     'GET /api/updates?limit=25',

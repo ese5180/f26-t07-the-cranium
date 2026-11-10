@@ -3520,7 +3520,8 @@ export function overviewView(ctx) {
   let cards = null;
   if (!blank) {
     cards = [
-      // What needs looking at comes before the rest (fleet.js).
+      // What needs looking at comes before the rest (fleet.js): the fleet health score first, then its detail.
+      ctx.fleet?.healthScoreCard(ctx) ?? null,
       ctx.fleet?.healthCard(ctx) ?? null,
       h(
         'div',
