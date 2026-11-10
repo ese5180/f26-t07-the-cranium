@@ -53,6 +53,11 @@ versions in the files are in [`versions.md`](versions.md); what each change did 
 
 ## In progress
 
+- **Raspberry Pi updates from the console** (firmware 1.20.0, console 2.26.0, apps 0.8.22, draft pull request #101,
+  which supersedes #42): Pi images on the Firmware page; deployments of firmware, a Pi image, or both, where both
+  download first, the firmware is installed and the Pi gets its image once that firmware is confirmed. Built and
+  tested on the host; waiting for a test on a board, an SD card and a Pi.
+
 - **A hardware self-test step in setup** (firmware 1.17.0, console 2.23.0, draft pull request #92): built, waiting for a
   test on a board.
 - **The native Mac app** (pull request #94): builds and passes its tests, waiting for a review of its look.

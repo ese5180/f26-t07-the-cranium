@@ -9,9 +9,19 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.20.0
 
-A board wired to a Raspberry Pi can update the Pi: a signed image comes as a job, goes onto an SD card and over SPI to
-the Pi's partition B, checked by size, SHA-256 and signature, with resume. Board firmware always goes first. Only in a
-build for such a board (scripts/firmware/build.sh --pi), which has no Bluetooth. Deploy console 2.26.0 before one runs it.
+A board wired to a Raspberry Pi updates the Pi: a signed image goes onto an SD card and over SPI to the Pi's partition
+B. One job can bring firmware and a Pi image: both download first, the firmware installs, and the Pi gets its image once
+that firmware is confirmed. Only in a Pi build (build.sh --pi, no Bluetooth). Deploy console 2.26.0 first.
+
+Both at once (docs/pi-ota.md, "Both at once"): the job document `"op": "fw_pi_update"` carries both parts, and is parsed
+with the URL of the part being downloaded (ota_job_parse_part()). src/ota/ota.c adds OTA_STAGING_PI (the Pi image onto
+the card, after the firmware is in the slot and before the swap) and OTA_FLASHING_PI (after the confirmation); the update
+record keeps `with_pi` and `pi_step` in what was padding, so its size is unchanged. A firmware that does not stay leaves
+the Pi untouched (`"nrf":"not_installed","pi":"not_flashed"`); a Pi that fails leaves the confirmed firmware
+(`"nrf":"installed","pi":"failed"`); a build without Pi updates installed by such a job says `pi_unsupported`. A restart
+in each phase goes on, and so does a withdrawal. The Pi build's MQTT buffer is 6 KB, for a reply with two URLs; the
+shadow's `pi` object says whether a card is in (`card`). RAM: 380,848 of 405,504 bytes in the Pi build, 404,700 in the
+default build (804 bytes free).
 
 Untested on hardware: docs/pi-ota.md has the design, the wiring, the SPI protocol for the Pi's side, the speeds and
 what has not run. The default build is as before, apart from refusing a Pi image job as `unsupported`, and the job records' new fields in RAM. Signed images: 878,206 bytes for the default build, 824,556 for the Pi build.

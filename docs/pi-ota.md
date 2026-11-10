@@ -14,6 +14,9 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
 - It goes to the SD card first, and from there to the Pi, in frames that each carry a CRC-32.
 - The SD card and the Pi share one SPI bus, each with its own chip select. A READY line from the Pi paces
   the transfer.
+- One deployment can bring both: board firmware and a Pi image in one job (`fw_pi_update`). Both are
+  downloaded first, then the firmware is installed, and the Pi gets its image only once that firmware is
+  confirmed ([Both at once](#both-at-once)).
 - Board firmware always goes first. A Pi image waits while a firmware job is pending, and while new
   firmware is on trial.
 - A build for a board wired to a Pi has no Bluetooth, because the two do not fit in RAM together
@@ -29,6 +32,7 @@ side has to implement, the limits, and what has not run on hardware yet. The Pi'
 - [The job](#the-job)
 - [Signing](#signing)
 - [Order: firmware first](#order-firmware-first)
+- [Both at once](#both-at-once)
 - [Download and resume](#download-and-resume)
 - [The SD card](#the-sd-card)
 - [The SPI protocol](#the-spi-protocol)
@@ -196,6 +200,65 @@ AWS IoT hands out pending jobs oldest first, whatever they are. The board puts t
 **One gap:** a restart in the moment between marking the firmware job `IN_PROGRESS` and starting it.
 The board then finds the job in progress with no record of it, and closes it as `interrupted`, as it
 always has for an update cut off by a restart. Deploy again.
+
+## Both at once
+
+From firmware 1.20.0 and console 2.26.0, one deployment can bring board firmware and a Pi image together:
+a job with `"op": "fw_pi_update"`, `fw` as in a firmware job and `pi` as in a Pi image's job. Its ID is the
+firmware's with `-pi` after the build number (`cranium-1-20-0-b0-pi-<time>-<hex>`), so a board's list of
+pending jobs counts it as firmware. The console makes it (Deployments, "Both"); `buildBundleJobDocument()`
+in `cloud/api/src/lib/jobs.mjs` builds the document.
+
+**The order** (`ota.c`, with `pi_ota.c` for the Pi part):
+
+1. The board checks both parts before it downloads anything: the firmware as always (newer than what
+   runs, fits the slot), and the Pi part's signature, size and `minFirmware`. `minFirmware` is checked
+   against the firmware the job brings, which is what will run when the Pi gets its image. A Pi that has
+   the image already: the job goes on as a firmware job.
+2. The firmware downloads into the secondary slot and is checked (size, SHA-256, header, board type).
+   Step `downloading`.
+3. The Pi image downloads onto the SD card and is checked (size, SHA-256), from the checkpoint on the
+   card if there is one. Step `downloading_pi`, with `progress`. Nothing is installed yet.
+4. Only then is the installation announced (step `rebooting`), the job looked at once more, the trial
+   swap requested and the board restarted. The update record says that a Pi image waits on the card
+   (`with_pi`, `pi_step`, in what was padding, so older images still read the record).
+5. The new firmware runs on trial and is confirmed when it reaches AWS IoT, as always.
+6. After the confirmation, and not before, the board asks for the job's document again, with the Pi
+   image's URL, and sends the image from the card to the Pi over SPI ([The SPI protocol](#the-spi-protocol)).
+   Step `flashing_pi`, with `progress`. Whatever the card lacks is downloaded first.
+7. The Pi verified it: the job `SUCCEEDED`, with `running` and `pi_version`.
+
+**When a part fails:**
+
+| What | The job | The Pi |
+| --- | --- | --- |
+| A check of either part, before any download | `REJECTED`, with the reason | Untouched |
+| The firmware's download or check | `FAILED`, as for firmware | Untouched |
+| The Pi image's download onto the card | `FAILED` with the card's or the download's reason; the slot is erased | Untouched |
+| The new firmware does not stay (rolled back, not installed, trial lost) | `FAILED`, `"nrf":"not_installed"`, `"pi":"not_flashed"` | Untouched |
+| The transfer to the Pi, or the Pi's own check | `FAILED` with the Pi's reason, `"nrf":"installed"`, `"pi":"failed"` | Told to drop what it got |
+| The firmware the job brought is not a Pi build | `FAILED`, `pi_unsupported`, `"pi":"not_flashed"` | Untouched |
+
+**A restart in each phase:**
+
+- During either download, or before the swap: the job is in progress and the board has no record. It
+  starts both parts again: the firmware from its first byte, the Pi image from its last checkpoint.
+- On trial: as for firmware; the confirmation is followed by the Pi's turn.
+- During the transfer to the Pi: the firmware is confirmed and the record says `flashing`. The board goes
+  straight back to the Pi's turn. The Pi may answer BEGIN with the chunk it expects next, and gets only
+  the rest (`test_pi_link.py`, "a board that restarts while flashing").
+- A record that was lost after the installation: the firmware the job brings is the one that runs, so
+  only the Pi's turn is left, and the board takes it.
+
+**Withdrawn (cancelled with force) in each phase:** during the Pi image's download the download stops and
+the slot is erased; during the transfer the Pi is sent ABORT and the record cleared. The confirmed firmware
+stays. A cancellation without force leaves a board that has started alone, as always.
+
+**Memory.** The reply that carries the document now carries two presigned URLs, each 1.5 to 2 KB once
+AWS IoT has put them in. A Pi build's MQTT buffer is 6 KB (`pi_ota.conf`), 2 KiB more than the default
+build's. The board keeps only the URL of the part it downloads (`ota_job_parse_part()`), so the job record
+in RAM grows by the Pi part's size and digest only. **The size of a real reply with two URLs has not been
+measured.**
 
 ## Download and resume
 
@@ -468,14 +531,25 @@ aws iot create-job --profile cranium --job-id <pi-...> --targets <thing ARN> \
 ID can also come from `buildPiJobDocument()` and `buildPiJobId()` in `cloud/api/src/lib/jobs.mjs`, which
 `jobs.test.mjs` tests.
 
-**A console page for Pi images is a follow-up.** It would need:
+**On the console (2.26.0).** The Firmware page lists the Pi images under the releases, labelled as the Pi's.
+A release manager uploads one with the image and its `.pi.json` record: the record goes to
+`POST /api/pi-images`, which checks the signature against the project's key as a board does (422
+`bad_signature`), and hands out a presigned PUT for `firmware/pi-<sha256>.img` signed for that size, that
+SHA-256 and "only if new". The browser sends the file straight to S3, and `POST /api/pi-images/<version>/complete`
+checks what arrived. Revoking (`.../revoke`) tags the object, so the bucket serves it no more, and cancels the
+deployments that carry it. Records are in the state table, pk `PIIMG`.
 
-1. An upload of the image and its `.pi.json` record, with the signature checked against
-   `fw_signing_pub.pem`, as the Firmware page checks images.
-2. A list of Pi images.
-3. A deploy dialog that builds the document and the ID with the functions above, with an in-progress
-   timeout sized to the image (above), and only to boards built with `--pi`.
-4. The shadow's `pi` object on the board's page.
+A new deployment chooses board firmware, a Pi image, or both. A Pi image is offered only to boards that
+report a `pi` object in their shadow, which only a Pi build does (400 `no_pi` otherwise). Its time limit in
+AWS IoT is reckoned from its size (`piTimeoutMinutes()`, at most a week). To more than one board, firmware
+or both go as a staged rollout (each stage's job carries both; boards without a Pi are left out, `no_pi`;
+a revoked Pi image stops the rollout, `pi_revoked`), and a Pi image alone goes as one deployment in waves
+that AWS IoT paces and stops at the failure threshold. Scheduled starts take a Pi image too. Each board's
+card on the deployment page says where its Pi part is: waits, downloading, on the SD card, sending to the
+Pi, verified, failed, or not sent.
+
+**Roll back.** "Roll back to last good" is for board firmware. For the Pi, roll back by deploying the older
+Pi image; the Pi's own A/B keeps the image it ran before until the new one is confirmed on its side.
 
 **Fleet.** A Pi build carries the board type `nrf7002dk` like any other, so the console offers it to
 every nRF7002 DK. Deploy it only to boards wired to a Pi, or they lose Bluetooth.
@@ -490,6 +564,10 @@ every nRF7002 DK. Deploy it only to boards wired to a Pi, or they lose Bluetooth
 | `firmware/tests/hil/test_pi_link.py` | `pi_link.c` against `tools/pi_link_sim.py`, and the simulator's own checks | 13 tests |
 | `firmware/tests/hil/test_pi_image.py` | The tool's manifest is the board's, a signature holds and breaks, the built-in key, and the record and the document | 6 tests |
 | `cloud/api`: `node --test` | `buildPiJobDocument`, `buildPiJobId`, and the device policy | 5 tests |
+| `ota_pi_tests`, from 1.20.0 | Both at once: the order, a firmware that does not stay (Pi untouched), a Pi that fails, a Pi image that does not get onto the card, a restart in each phase, withdrawal in each phase, the Pi part's checks first | 780 checks in all |
+| `pi_ota_tests`, from 1.20.0 | The `fw_pi_update` document: both parts, the URL of each part, refusals | 414 checks in all |
+| `test_pi_link.py`, from 1.20.0 | A board that restarts in the middle of a transfer goes on where the Pi is; a failure after that | 2 tests |
+| `cloud/api/test/pi-deployments.test.mjs` | Pi images (signature, upload, check, revoke), deployments of a Pi image alone and of both, waves, rollouts, the shadow and the timeline | 9 tests |
 
 The download tests cover:
 

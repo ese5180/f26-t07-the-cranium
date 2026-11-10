@@ -7,6 +7,31 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.26.0
+
+Raspberry Pi updates from the console. The Firmware page lists Pi images beside the releases, labelled as the Pi's, and a release manager uploads one with its signed record: the console checks the signature, and the image goes straight to S3. A deployment brings board firmware, a Pi image, or both; with both, a board downloads the two, installs its firmware, and sends the Pi its image once that firmware is confirmed. Needs firmware 1.20.0 in a Pi build.
+
+API: `GET/POST /api/pi-images`, `POST /api/pi-images/{version}/complete` and `.../revoke` (handlers/pi-images.mjs,
+lib/pi-images.mjs; audit actions `pi_image.upload`, `pi_image.complete`, `pi_image.revoke`). A record's signature is
+checked against the project key with the manifest a board builds (422 `bad_signature`); the presigned PUT signs the size,
+the SHA-256 and `if-none-match: *`; `complete` asks S3 for what arrived (HeadObject with its checksum). Records in the
+state table, pk `PIIMG`. Revoking tags the object (the bucket then refuses it) and cancels with force the deployments that
+carry it. `POST /api/deployments` takes `version`, `pi` or both, and optional `waves` ({ perMinute, abortPercent }, AWS
+IoT's pacing and abort): a Pi image alone is a `pi_image` job with id `pi-<version>-<time>-<hex>`, both a `fw_pi_update`
+job with the firmware's id and `-pi`; its in-progress limit is sized to the image; only boards whose shadow reports `pi`
+take one (400 `no_pi`, refusal word in the apps too, with `not_uploaded`). A deployment summary says `parts` and, when it
+has one, `pi`; each execution of one with a Pi image has `pi`: { state, progress, version }. The timeline has the phases
+`downloading_pi` and `flashing_pi`, and reads a Pi step's progress from the execution. Staged rollouts and scheduled starts
+take `pi` beside `version`; a stage leaves out boards without a Pi (`no_pi`) and a revoked Pi image stops a rollout
+(`pi_revoked`). The shadow's `pi` object and the ota states `downloading_pi` and `flashing_pi` are read.
+
+Infrastructure: the firmware bucket allows a browser's PUT (CORS: PUT only, with `if-none-match`, `x-amz-checksum-sha256`
+and `content-type`); the bucket policy still refuses any write under firmware/ that is not "only if new". The rollout
+tick may read `PIIMG`. The API's role already stores, reads and tags under firmware/. Apps 0.8.22 name the new activity
+log entries and refusals as the website does, and read deployment ids with `-pi`; their pages are the console's bundle.
+
+cloud/api/test/pi-deployments.test.mjs, cloud/web/test/pi.test.mjs; docs/pi-ota.md ("Both at once", "Cloud").
+
 ## 2.23.2
 
 The deployment page reads in order again. A board's card had lost its inner padding, so its words ran to the edge; the status ("Restarting", "Downloading") no longer reserves an empty band above it once the download figure is gone, and is now a section heading smaller than the page's own title (the version), with the download percentage a little smaller and level with it. In the flash memory map the version numbers are no larger than their labels, and the swap arrows between the two slots sit in the line between them instead of floating over it. The phone and desktop apps load the same bundle, so they get this with no app change.
