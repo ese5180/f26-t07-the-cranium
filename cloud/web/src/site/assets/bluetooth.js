@@ -95,6 +95,21 @@ const radioWords = (device) => ({
   unknown: 'Bluetooth is not ready yet. Look again in a moment.',
 });
 
+/**
+ * What the page says when the console has no passkey for the board that is pairing. A board with a passkey
+ * of its own (an nRF7002 DK after BT_OFFLINE|NEW, firmware 1.19.0 and later, or an nRF5340 DK set up with one
+ * the console does not hold) never reports one, so the console cannot have it: the person types the board's
+ * own passkey. The console cannot tell that board from one that is offline, so both are said.
+ */
+export function noPasskeyWords(device) {
+  return {
+    title: 'The console has no passkey for this board',
+    text:
+      `If the board has its own passkey (set with BT_OFFLINE|NEW), type that one when this ${device} asks. ` +
+      'If not, the board may be offline: its serial console shows the passkey on a [BT] passkey line.',
+  };
+}
+
 /** The latest few seconds of progress count for the speed. */
 export const SPEED_WINDOW_MS = 8000;
 /** Less progress than this says nothing about a speed. */
@@ -1105,18 +1120,23 @@ export function bluetoothView(ctx) {
   const run = describeRun(flow, { device, now: state.now ?? Date.now() });
   const body = [];
   if (run) {
-    // A problem with the passkey, while pairing, is a note under the card; a failure is the card's own words.
-    body.push(runCard(model, ctx, run, device));
-    if (flow.step === 'pairing' && !flow.passkey) {
+    // No passkey from the console: said above the card, where the passkey would be pinned, because it is what
+    // the person needs while the pairing box is up. Still asking: a note under the card. A failure is the
+    // card's own words.
+    const pairingWithout = flow.step === 'pairing' && !flow.passkey;
+    if (pairingWithout && flow.passkeyMissing) {
+      const missing = noPasskeyWords(device);
       body.push(
         h(
-          'p',
-          { class: 'quiet bt-fineprint', key: 'nopasskey' },
-          flow.passkeyMissing
-            ? 'The console has no passkey for this board: it may be offline. The passkey is on the board’s serial console, [BT] passkey.'
-            : 'Asking the console for the passkey…'
+          'div',
+          { key: 'nopasskey', role: 'status' },
+          notice('warn', 'lock', missing.title, { more: h('p', { class: 'notice-more' }, missing.text) })
         )
       );
+    }
+    body.push(runCard(model, ctx, run, device));
+    if (pairingWithout && !flow.passkeyMissing) {
+      body.push(h('p', { class: 'quiet bt-fineprint', key: 'nopasskey' }, 'Asking the console for the passkey…'));
     }
     if (flow.step === 'ready' && flow.problem) body.push(notice('bad', 'alert', flow.problem, { key: 'problem' }));
   } else {

@@ -310,7 +310,11 @@ bridge; the share sheet, the file chooser and the quick actions; Scan board with
    cranium-…"), so that a mix-up between two boards shows. From app 0.6.2 it is also on the clipboard
    as soon as it arrives, for 2 minutes (on the iPhone for this phone only; on Android marked sensitive),
    and the top of the screen says so: in the pairing box, tap the field, **Paste**, **Pair**. Otherwise it
-   is on the board's serial console, `[BT] passkey`.
+   is on the board's serial console, `[BT] passkey`. A board with **its own passkey** (an nRF7002 DK after
+   `BT_OFFLINE|NEW`, see [Offline mode](#offline-mode)) reports none, so the console never has it: after about
+   8 s the page says "The console has no passkey for this board" and to type the board's own passkey when the
+   phone or Mac asks (or, for a board without one that is offline, the `[BT] passkey` line). The console cannot
+   tell those two apart; pairing then goes on as usual.
 6. The app sends the image: the one on the phone if it has it (see [Cache](#cache)), else one it
    downloads from AWS first. Right before it sends, whatever the image came from, it asks the console
    whether the release is still active and the image is still its own
@@ -790,10 +794,22 @@ shell's Bluetooth page: `cloud/web/src/site/assets/updatewatch.js`, with the sam
 
 ## Offline mode
 
-From firmware 1.19.0, console 2.27.0 and app 0.9.0 (Mac app 0.4.0). When a board has no Wi-Fi or no cloud, the app
-talks to it directly over Bluetooth on the console's **Offline** page (`cloud/web/src/site/assets/offline.js`): in the
-sections (under More on a phone) once signed in, and from the sign-in page and "No connection" when the app cannot
-sign in, since it needs no internet and no sign-in. It is in the iPhone, Android and Mac apps, whose hello offers
+From firmware 1.19.0 (1.19.1 with sessions), console 2.27.0 and app 0.9.0 (Mac app 0.4.0). When a board has no Wi-Fi or
+no cloud, the app talks to it directly over Bluetooth on the console's **Offline** page
+(`cloud/web/src/site/assets/offline.js`). It needs no internet and no sign-in, so it is easy to reach from where the
+app opens:
+
+- the customer site's sign-in page, where the iPhone and Android apps start: an **Offline mode** row above the form,
+  where a phone's keyboard does not cover it (`customer-views.js offlineEntry`); signed in, Offline mode is in the
+  sections (Your Cranium) and a Bluetooth button in the top bar. Each leads to `/admin#/offline`, which opens the
+  page on its own, with Back to where it came from;
+- the console's own sign-in page (the same row above the form), "No connection" and the lock screen;
+- the console's sections (under More on a phone) once signed in.
+
+The lock screen ("Cranium is locked") shows Offline mode on purpose: the page reads nothing of the console, shows no
+console data and needs no sign-in; what stands between a person and the board is the board's own passkey and a press
+of its Button 1. The customer site's landing page is not shown in the apps (they open on the sign-in page), so it has
+no entry. It is in the iPhone, Android and Mac apps, whose hello offers
 `bleOffline`; the desktop app does not offer it (its Web Bluetooth has no pairing box for a passkey), and the website
 has no Bluetooth.
 

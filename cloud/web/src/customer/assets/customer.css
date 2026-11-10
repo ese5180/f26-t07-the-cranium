@@ -2796,3 +2796,52 @@ a.cs-panel-foot:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * Offline mode, in the apps that offer it (customer-views.js offlineEntry): on the sign-in page above the form, so
+ * that a phone's keyboard never covers it, as one row that leads to the console's Offline page.
+ */
+.cs-offline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--tap);
+  margin: 4px 0 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--work-wash);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.cs-offline:hover {
+  box-shadow: inset 0 0 0 1px var(--work);
+}
+
+.cs-offline > .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--work);
+}
+
+.cs-offline-text {
+  display: grid;
+  gap: 2px;
+  font-size: var(--type-small);
+  color: var(--ink-2);
+}
+
+.cs-offline-text strong {
+  color: var(--ink);
+  font-size: var(--type-body);
+}
+
+/* A phone's top bar with Offline mode in it (the apps): the mark alone, so that every tool still fits. */
+@media (max-width: 480px) {
+  .cs-top:has(.cs-top-offline) .cs-top-brand .cs-brand-text {
+    display: none;
+  }
+}
