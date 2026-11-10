@@ -234,6 +234,7 @@ const MIX_TITLES = {
   sessions: 'Sessions',
   transitions: 'Transitions',
   library: 'Track library',
+  listening: 'Your listening',
   moments: 'Saved moments',
 };
 
@@ -1067,6 +1068,7 @@ function mixesContext() {
     app: state.app !== null,
     place: state.app ? 'this app' : 'this browser',
     elsewhere: state.app ? 'the website or another phone' : 'another browser',
+    allSessions: all,
     sessions: inRange(all, mixes.range, now),
     pairs,
     find: (id) =>

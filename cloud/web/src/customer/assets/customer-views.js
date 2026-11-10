@@ -48,6 +48,7 @@ import {
 } from './customer-core.js';
 import {
   libraryList,
+  listeningList,
   mixDialog,
   mixIcon,
   mixTools,
@@ -114,6 +115,7 @@ const WORKSPACE = Object.freeze([
   ['mixes:sessions', '#/mixes/sessions', 'Sessions', 'layers'],
   ['mixes:transitions', '#/mixes/transitions', 'Transitions', 'swap'],
   ['mixes:library', '#/mixes/library', 'Track library', 'note'],
+  ['mixes:listening', '#/mixes/listening', 'Your listening', 'clock'],
   ['mixes:moments', '#/mixes/moments', 'Saved moments', 'bookmark'],
 ]);
 const CRANIUM = Object.freeze([
@@ -137,6 +139,7 @@ const TITLES = {
   'mixes:sessions': 'Sessions',
   'mixes:transitions': 'Transitions',
   'mixes:library': 'Track library',
+  'mixes:listening': 'Your listening',
   'mixes:moments': 'Saved moments',
 };
 
@@ -1051,13 +1054,24 @@ const MIX_WORDS = Object.freeze({
     title: 'Your rotation, revealed.',
     text: 'The tracks you keep coming back to, across every session, ranked by how often you play them.',
   },
+  listening: {
+    label: 'Your listening',
+    title: 'Your week on the decks.',
+    text: 'How long you played this week and last, which days were busy, and the tracks and artists you play most.',
+  },
   moments: {
     label: 'Saved moments',
     title: 'Keep the good ones.',
     text: 'A note on a transition worth trying again, kept with your account for your next set.',
   },
 });
-const MIX_PAGES = { sessions: sessionsList, transitions: transitionsList, library: libraryList, moments: momentsList };
+const MIX_PAGES = {
+  sessions: sessionsList,
+  transitions: transitionsList,
+  library: libraryList,
+  listening: listeningList,
+  moments: momentsList,
+};
 
 export function mixesView(ctx) {
   const tab = MIX_TABS.includes(ctx.state.route.tab) ? ctx.state.route.tab : 'sessions';
@@ -1069,7 +1083,7 @@ export function mixesView(ctx) {
       eyebrow: MIXES_EYEBROW,
       title: words.title,
       lede: words.text,
-      tools: tab === 'moments' ? null : mixTools(ctx),
+      tools: tab === 'moments' || tab === 'listening' ? null : mixTools(ctx),
     }),
     MIX_PAGES[tab](ctx)
   );
