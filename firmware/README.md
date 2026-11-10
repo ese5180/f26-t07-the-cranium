@@ -209,7 +209,7 @@ IDs, network names, passwords, URLs and data stay exactly as typed.
   STATUS            [<device or wifi or      print the configuration, or one
                     cloud or certs or        section of it
                     update>]
-  SELFTEST          [BUTTON]                 check LEDs, buttons, Wi-Fi scan,
+* SELFTEST          [BUTTON]                 check LEDs, buttons, Wi-Fi scan,
                                              external flash and RAM; BUTTON
                                              waits for Button 1
 +-- Loading a certificate -----------------------------------------------------+
