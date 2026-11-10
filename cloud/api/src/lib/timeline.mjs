@@ -27,9 +27,21 @@
  * A phase can go back. All of this needs the board to count as online, so a board that is held
  * at its button, on 60 s with one report lost, goes back to waiting_for_device at 90 s, until
  * its next report. That is what is known at that moment, and it is left that way.
+ *
+ * From console 2.26.0 (docs/pi-ota.md) a deployment can bring a Raspberry Pi image. With board
+ * firmware, the steps are downloading -> verifying -> downloading_pi -> rebooting -> testing ->
+ * flashing_pi: both downloads before anything is installed, the Pi last. A Pi image alone is
+ * downloading_pi -> flashing_pi. The board reports how far a Pi step is on the execution itself
+ * (statusDetails.progress), which is what the progress of those two phases is.
  */
 
-const STEPS = Object.freeze(['downloading', 'verifying', 'rebooting', 'testing']);
+const STEPS = Object.freeze(['downloading', 'verifying', 'downloading_pi', 'rebooting', 'testing', 'flashing_pi']);
+const ANNOUNCED = Object.freeze({
+  rebooting: 'rebooting',
+  downloading_pi: 'downloading_pi',
+  flashing_pi: 'flashing_pi',
+});
+const PI_PHASES = Object.freeze(['downloading_pi', 'flashing_pi']);
 
 /**
  * @param {object} input
@@ -38,9 +50,19 @@ const STEPS = Object.freeze(['downloading', 'verifying', 'rebooting', 'testing']
  * @param {string|null} [input.step]    statusDetails.step, already sanitized
  * @param {string} input.jobId          the deployment this execution belongs to
  * @param {object|null} [input.device]  the board as lib/shadow.mjs describes it
+ * @param {number|null} [input.progress] statusDetails.progress, already sanitized: a Pi step's
+ * @param {boolean} [input.piOnly]      the deployment brings a Pi image and no firmware
  * @returns {{ phase: string, progress: number|null }}
  */
-export function deriveTimeline({ status, reason = null, step = null, jobId, device = null }) {
+export function deriveTimeline({
+  status,
+  reason = null,
+  step = null,
+  jobId,
+  device = null,
+  progress = null,
+  piOnly = false,
+}) {
   const ota = device?.ota ?? null;
   const tracking = ota !== null && ota.job === jobId;
 
@@ -53,11 +75,16 @@ export function deriveTimeline({ status, reason = null, step = null, jobId, devi
       return { phase, progress: null };
     }
     case 'IN_PROGRESS': {
+      if (piOnly) {
+        // A Pi image alone: "downloading", then "sending" to the Pi.
+        return { phase: step === 'sending' ? 'flashing_pi' : 'downloading_pi', progress };
+      }
       // The execution names the step the board announced to AWS; the shadow may be a
       // step further, or lag behind. An update only moves forward: take the later one.
-      const announced = step === 'rebooting' ? 'rebooting' : 'downloading';
+      const announced = ANNOUNCED[step] ?? 'downloading';
       const live = tracking && STEPS.includes(ota.state) ? ota.state : null;
       const phase = live !== null && STEPS.indexOf(live) > STEPS.indexOf(announced) ? live : announced;
+      if (PI_PHASES.includes(phase)) return { phase, progress: phase === announced ? progress : null };
       return { phase, progress: live === phase ? ota.progress : null };
     }
     case 'SUCCEEDED':

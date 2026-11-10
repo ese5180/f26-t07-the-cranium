@@ -35,6 +35,8 @@ export const RESTART_WINDOW_MS = 240_000;
 
 // `bluetooth`: a person opened the board's Bluetooth window, for an update from a phone. Cloud
 // updates wait until it closes.
+// `downloading_pi` and `flashing_pi` (firmware 1.20.0): the Pi image of a job that brings board
+// firmware too, before the firmware is installed and after it is confirmed (docs/pi-ota.md).
 const OTA_STATES = Object.freeze([
   'idle',
   'awaiting_user',
@@ -43,7 +45,14 @@ const OTA_STATES = Object.freeze([
   'rebooting',
   'testing',
   'bluetooth',
+  'downloading_pi',
+  'flashing_pi',
 ]);
+// A board wired to a Raspberry Pi, in a build with Pi updates (firmware 1.20.0), reports "pi".
+const PI_STATES = Object.freeze(['idle', 'waiting_for_firmware', 'downloading', 'sending']);
+const PI_RESULTS = Object.freeze(['none', 'succeeded', 'failed', 'refused', 'cancelled', 'downloaded']);
+const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
+const JOB_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const OTA_RESULTS = Object.freeze(['none', 'succeeded', 'failed', 'rolled_back', 'declined', 'refused', 'cancelled']);
 const SHORT_ASCII = /^[\x20-\x7e]{0,64}$/;
 // Later than any real timestamp, small enough to stay a valid date in milliseconds.
@@ -240,6 +249,10 @@ export function readReported(reported, metadata) {
     };
   }
 
+  const pi = readPi(reported, metadata);
+  // Only on a board that reports one, so that every other board reads as it always did.
+  if (pi !== null) result.pi = pi;
+
   result.rssi = integerIn(own(own(reported, 'wifi'), 'rssi'), -127, 0);
   result.uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
   result.stuck = readStuck(reported);
@@ -248,6 +261,51 @@ export function readReported(reported, metadata) {
   result.diary = readDiary(reported);
   result.bt = readBt(reported);
   return result;
+}
+
+// How much earlier than the board's start, by AWS IoT's stamps, its "pi" may have been reported and
+// still count as this boot's: the uptime is whole seconds, and the two reports go out a moment apart.
+export const PI_FRESH_SLACK_SEC = 60;
+
+/**
+ * Whether the shadow's "pi" was reported since the board last started, by AWS IoT's own stamps: the
+ * board started at the uptime's stamp less the uptime, and pi.state's stamp is no earlier than that.
+ * A reported key stays in the shadow until something deletes it, and firmware before 1.20.0 never
+ * did, so a board moved from a Pi build to another build would keep a "pi" from before. A build
+ * without Pi updates clears it from 1.20.0 on (its diagnostics report "pi": null); this covers the
+ * older ones.
+ */
+export function piReportIsFresh(reported, metadata) {
+  const piStamp = own(own(own(metadata, 'pi'), 'state'), 'timestamp');
+  const upStamp = own(own(metadata, 'uptime'), 'timestamp');
+  const uptime = integerIn(own(reported, 'uptime'), 0, 2 ** 32);
+  if (!Number.isFinite(piStamp) || !Number.isFinite(upStamp) || uptime === null) return false;
+  return piStamp >= upStamp - uptime - PI_FRESH_SLACK_SEC;
+}
+
+/**
+ * What a board says of its Raspberry Pi (firmware 1.20.0, docs/pi-ota.md, "Reports"): { state, job,
+ * progress, last, error, installed, card }, or null if it says nothing, which every board without a Pi
+ * build does, or if what it said is from before its last start (piReportIsFresh). Its presence is what
+ * makes a board one that a Pi image can be sent to.
+ */
+function readPi(reported, metadata) {
+  const pi = own(reported, 'pi');
+  const state = oneOf(own(pi, 'state'), PI_STATES);
+  if (state === null || !piReportIsFresh(reported, metadata)) return null;
+  const job = own(pi, 'job');
+  const error = own(pi, 'error');
+  const installed = own(pi, 'installed');
+  const card = own(pi, 'card');
+  return {
+    state,
+    job: typeof job === 'string' && JOB_ID.test(job) ? job : null,
+    progress: integerIn(own(pi, 'progress'), 0, 100) ?? 0,
+    last: oneOf(own(pi, 'last'), PI_RESULTS) ?? 'none',
+    error: typeof error === 'string' && SHORT_ASCII.test(error) ? error : '',
+    installed: typeof installed === 'string' && PI_VERSION.test(installed) ? installed : null,
+    card: typeof card === 'boolean' ? card : null,
+  };
 }
 
 /**

@@ -39,6 +39,7 @@ import {
   boardOfImage,
   isBoardType,
   isLayout,
+  isPiBuild,
   layoutOfImage,
   releaseBoard,
   releaseLayout,
@@ -141,6 +142,9 @@ export function releaseFromItem(item) {
     // release from before them.
     board: releaseBoard(item),
     layout: releaseLayout(item),
+    // A build with Raspberry Pi image updates (TLV 0xA3, firmware 1.20.0): only such a release goes out
+    // with a Pi image in one deployment. Left out for every other release, which reads as before.
+    ...(item.pi === true ? { pi: true } : {}),
     notes: text(item.notes, MAX_NOTES),
     uploadedBy: person(item.uploadedBy),
     uploadedAt,
@@ -392,6 +396,7 @@ export function createFirmwareHandlers({ aws, config, now, log }, { deployments,
         filename,
         board,
         layout,
+        ...(isPiBuild(info.protectedTlvs) ? { pi: true } : {}),
         notes,
         uploadedBy: { sub: actor.sub, email: actor.email },
         uploadedAt: new Date(now()).toISOString(),

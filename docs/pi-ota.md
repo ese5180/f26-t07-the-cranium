@@ -1,0 +1,699 @@
+# Raspberry Pi image updates through the board
+
+From firmware 1.20.0, a board wired to a Raspberry Pi can update the Pi. An AWS IoT job brings a signed
+image. The board downloads it over HTTPS onto a microSD card, checks it, and sends it over SPI to the Pi's
+partition B. This page covers the board's side: the design, the wiring, the SPI protocol that the Pi's
+side has to implement, the limits, and what has not run on hardware yet. The Pi's side is separate work.
+
+**In short:**
+
+- The image travels the way firmware does: a job, a presigned HTTPS URL, and status on the job and in
+  the shadow.
+- It has to fit three checks: its size, a SHA-256 over all of it, and an ECDSA signature over a manifest.
+  The project's firmware signing key signs that manifest.
+- It goes to the SD card first, and from there to the Pi, in frames that each carry a CRC-32.
+- The SD card and the Pi share one SPI bus (SPIM2), each with its own chip select. A READY line from the
+  Pi paces the transfer. It is apart from the Pi's message link ([Next to the message link](#next-to-the-message-link)).
+- One deployment can bring both: board firmware and a Pi image in one job (`fw_pi_update`). Both are
+  downloaded first, then the firmware is installed, and the Pi gets its image only once that firmware is
+  confirmed ([Both at once](#both-at-once)).
+- Board firmware always goes first. A Pi image waits while a firmware job is pending, and while new
+  firmware is on trial.
+- A build for a board wired to a Pi has no Bluetooth, because the two do not fit in RAM together
+  ([Memory](#memory)). It is built with `scripts/firmware/build.sh --pi`.
+- **Before any such board runs 1.20.0, deploy console 2.26.0.** Its device policy lets a board ask for its
+  list of pending jobs ([Cloud](#cloud)).
+- Nothing on this page has run on hardware ([Untested on hardware](#untested-on-hardware)).
+
+## Contents
+
+- [The parts](#the-parts)
+- [Wiring](#wiring)
+- [Next to the message link](#next-to-the-message-link)
+- [The job](#the-job)
+- [Signing](#signing)
+- [Order: firmware first](#order-firmware-first)
+- [Both at once](#both-at-once)
+- [Download and resume](#download-and-resume)
+- [The SD card](#the-sd-card)
+- [The SPI protocol](#the-spi-protocol)
+- [Reports](#reports)
+- [Speed](#speed)
+- [Memory](#memory)
+- [Cloud](#cloud)
+- [Tests](#tests)
+- [Untested on hardware](#untested-on-hardware)
+
+## The parts
+
+| File | What it does | Tested on the host |
+| --- | --- | --- |
+| `src/ota/ota_job.c` | Parses the `pi_image` document and the list of pending jobs | `test_pi_ota.c` |
+| `src/ota/ota.c` | Puts firmware before a Pi image, and passes a Pi job to `pi_ota.c` | `test_ota_bt.c` (`ota_pi_tests`) |
+| `src/pi/pi_image.c` | The manifest, the checks on a job, the error reasons, the record kept on the card, and CRC-32 | `test_pi_ota.c` |
+| `src/pi/pi_sha256.c` | SHA-256 whose state can be saved, for resume | `test_pi_ota.c` |
+| `src/pi/pi_sd.c` | Files on the SD card through Zephyr's file system API: errors, retries, time limits, and releasing the bus | `test_pi_ota.c`, against an in-memory file system |
+| `src/pi/pi_dl.c` | The download onto the card: hashing, checkpoints and resume | `test_pi_ota.c`, with a fake HTTP server |
+| `src/pi/pi_xfer.c` | The board's end of the SPI protocol | `test_pi_xfer.py`, against `tools/pi_xfer_sim.py` |
+| `src/pi/pi_ota.c` | Glue: the devices, the custom DFU target, the thread, and the reports | Built only |
+| `boards/pi_ota.overlay` | The bus, its two devices and the two pins, in a Pi build only | Built |
+| `pi_ota.conf`, `pi_ota_sysbuild.conf` | The build for a board wired to a Pi | Built |
+| `tools/pi_image.py` | Signs an image and prints the commands to deploy it | `test_pi_image.py` |
+
+## Wiring
+
+There is one SPI bus for this update. The SD card and the Pi's image receiver share SCK, MOSI and MISO,
+and each has its own chip select. The board is the controller, on SPIM2, with EasyDMA. Only the nRF7002 DK
+has these pins in its build (`boards/pi_ota.overlay`, added by `sysbuild.cmake` to a Pi build alone).
+
+| Signal | nRF pin | DK header | SparkFun microSD breakout | Raspberry Pi |
+| --- | --- | --- | --- | --- |
+| SCK | P0.04 | A0 | SCK | The image receiver's SCLK |
+| MOSI | P0.05 | A1 | DI | The image receiver's MOSI |
+| MISO | P0.06 | A2 | DO | The image receiver's MISO |
+| SD card chip select | P0.07 | A3 | CS | – |
+| Pi image chip select | P0.25 | A4 | – | The image receiver's CE |
+| READY, Pi to board | P1.04 | D2 | – | A free GPIO, push-pull output (not GPIO 25) |
+| Card detect | P1.05 | D3 | CD | – |
+| 3.3 V | VDD | 3.3V | VCC | – |
+| Ground | GND | GND | GND | GND |
+
+Earlier drafts of this work (pull requests #42 and #101) used SPIM3 on the Arduino SPI pins (P1.13 to P1.15, D11 to D13), with the
+SD card's chip select on P1.11 (D9) and the Pi's on P1.12 (D10). Those pins now belong to the message link.
+
+**The SD module.** The pins CD, DO, GND, SCK, VCC, DI and CS make it SparkFun's microSD transflash
+breakout (BOB-00544 class). It is the card in SPI mode with no logic on the board, and it runs at 3.3 V
+only. The DK's I/O runs at 3.0 V by default, which works with it. Card detect is a switch.
+`pi_ota.overlay` treats it as closed to ground when a card is in (active low, with the internal
+pull-up). If yours reads the other way, change `cd-gpios`.
+
+**Why these pins.**
+
+- The Pi's message link (`docs/pi-link.md`, pull request #58) owns SPIS3 (SERIAL3), the Arduino
+  SPI pins P1.12 to P1.15 (D10 to D13) and READY on P1.11 (D9), and on the Pi SPI0 (GPIO 8 to 11) and
+  GPIO 25. Nothing here uses any of them ([Next to the message link](#next-to-the-message-link)).
+- Serial instances, which SPIM, SPIS, TWIM and UARTE share:
+  - SERIAL0 is the console (uart0, P0.19 to P0.22).
+  - SERIAL1 is TF-M's UART (uart1, P1.00 and P1.01, `CONFIG_TFM_SECURE_UART1`).
+  - SERIAL3 is the message link's.
+  - SERIAL4 is the external flash on the nRF7002 DK (P0.08 to P0.11).
+  - That leaves SERIAL2.
+- Pins already taken on the nRF7002 DK:
+  - The Wi-Fi chip: QSPI and P0.12 to P0.18, P0.23, P0.24, P0.28 to P0.31, and P1.10 (D8).
+  - The LEDs and buttons: P1.06 to P1.09 (D4 to D7).
+  - The Arduino I2C: P1.02 and P1.03. The 32 kHz crystal: P0.00 and P0.01. NFC: P0.02 and P0.03.
+- The analog header pins A0 to A4 (P0.04 to P0.07, P0.25) are free and used as plain digital pins.
+- The board's GPIO forwarder would hand P1.04 and P1.05 to the network core; the board overlay turns it
+  off, so they stay with the application core.
+
+**The bus exists only in a Pi build.** No board overlay includes it: `sysbuild.cmake` adds
+`pi_ota.overlay` for a Pi build alone, so the default build has no node, driver or RAM for it.
+
+**On a shared bus:**
+
+- An SD card in SPI mode may keep driving DO (MISO) after its chip select goes high, until it sees
+  clocks. Before every frame to the Pi, the board clocks 16 bits with both chip selects high, and it does
+  the same after every operation on the card (`release_bus()` in `pi_ota.c`).
+- **The Pi's SPI peripheral must tri-state MISO whenever its CE is high.** Otherwise it fights the card.
+- Zephyr's `spi_config` for each device sets its own frequency and chip select on every transaction.
+  The SD card starts at 400 kHz and then runs at 8 MHz. The image transfer runs at 8 MHz, which is SPIM2's
+  limit. Lower either one in `pi_ota.overlay` (`spi-max-frequency`).
+
+**Wiring advice:**
+
+- Keep the wires short: under 10 cm at 8 MHz, or slow the bus down.
+- Join the grounds.
+- Do not power the Pi from the DK.
+
+## Next to the message link
+
+Pull request #58 (`docs/pi-link.md`) brings the other Pi work: the Pi sends its messages (now
+playing, heartbeats) to the board over SPI. The two are separate links, and neither needs the other:
+
+| | Message link (#58) | Image transfer (this page) |
+| --- | --- | --- |
+| Direction | Pi to board | Board to Pi |
+| SPI roles | Pi controller (SPI0, CE0), board peripheral (SPIS3) | Board controller (SPIM2), Pi target |
+| nRF pins | P1.11 to P1.15 (D9 to D13) | P0.04 to P0.07, P0.25, P1.04, P1.05 |
+| Pi pins | GPIO 8 to 11, GPIO 25 | Its SPI target interface and a READY GPIO, none of GPIO 8 to 11 or 25 |
+| Firmware | `src/pi/pi_link.c`, `pi_frame.c`, `pi_rx.c`, `CONFIG_APP_PI_LINK` | `src/pi/pi_ota.c`, `pi_xfer.c`, `pi_sd.c`, `pi_dl.c`, `pi_image.c`, `pi_sha256.c`, `CONFIG_APP_PI_OTA`, `CONFIG_APP_PI_XFER_*` |
+| Devicetree | `&spi3` and `pi-ready-gpios` in the nRF7002 DK overlay | `boards/pi_ota.overlay`, in a Pi build only |
+| Pi side | `pi/cranium_link.py` | Not written yet: `tools/pi_xfer_sim.py` is its contract |
+| Builds | Default on the nRF7002 DK | `build.sh --pi` only |
+
+**Who owns what.** The message link owns its pins, its SPI instance, its files and `pi/cranium_link.py`.
+This work does not change them, and adds no Pi-side code. The Pi-side receiver of images, when it is
+written, is a separate program (or a separate part of the Pi's service) on its own SPI interface; whether
+it shares a process with `cranium_link.py` is for the Pi's side to decide. Both share only
+`src/pi/` as a folder and its line in the include path.
+
+**Carrying images over the message link instead** (the Pi as controller, pulling chunks) would save the
+Pi an SPI target interface, which Linux supports poorly. That would be a change to both protocols, made
+with the message link's owners, and is not part of this work.
+
+## The job
+
+The document comes from `tools/pi_image.py` or from `buildPiJobDocument()` in `cloud/api/src/lib/jobs.mjs`:
+
+```json
+{ "op": "pi_image", "v": 1,
+  "pi": { "version": "2026.11.06-1", "size": 104857600, "sha256": "<64 hex>",
+          "sig": "<128 hex>", "url": "${aws:iot:s3-presigned-url-v2:https://s3.<region>.amazonaws.com/<bucket>/firmware/pi-<version>-<sha256>.img}",
+          "minFirmware": "1.20.0" } }
+```
+
+| Field | Rule |
+| --- | --- |
+| `version` | 1 to 31 letters, digits or `. _ + -`. It is the Pi image's own version. |
+| `size` | 1 byte to 4 GiB − 1 bytes. A board also refuses anything above `CONFIG_APP_PI_OTA_MAX_SIZE_MB` (2048), and anything larger than the free space on the card. |
+| `sha256`, `sig` | Lowercase hex. `sig` is ECDSA P-256 `r‖s` over the manifest. |
+| `url` | Must start with the board's provisioned download prefix, as for firmware. The image lives under `firmware/`, so the presign role and the prefix need no change. |
+| `minFirmware` | Optional. It is signed with the rest. A board running older firmware refuses the job with `firmware_too_old`. |
+
+The job ID starts with `pi-`. That prefix is how a board tells a Pi image from firmware in its list of
+pending jobs, which carries no documents.
+
+A board built without Pi updates (the default) refuses a Pi job as `unsupported`, which is what it has
+always answered to a document it does not know.
+
+## Signing
+
+The signature covers this text, which the board builds from the job's fields (`pi_manifest_text()`) and
+which `tools/pi_image.py` builds the same way:
+
+```
+cranium-pi-image-v1
+version=<version>
+size=<decimal>
+sha256=<64 lowercase hex>
+min_firmware=<major.minor.revision+build, or none>
+```
+
+The key is the firmware signing key, `~/.cranium/mcuboot_signing_key.pem`. Its public half,
+`firmware/keys/fw_signing_pub.pem`, is built into the board as `src/pi/pi_key.h`, and `test_pi_image.py`
+fails if the two ever differ. The board checks the signature with PSA (`psa_verify_message`, ECDSA with
+SHA-256) before it downloads anything. It refuses a job whose signature does not hold, with
+`bad_signature`.
+
+**Why the same key:**
+
+- It is the key the project already guards. A second key would be a second secret to keep, and nobody
+  who can sign firmware is less trusted than someone signing a Pi image.
+- The first line of the manifest keeps the two uses apart. MCUboot signs a hash of an image header, never
+  text that starts `cranium-pi-image-v1`, so a signature from one use cannot pass in the other.
+- The manifest is signed, not the image. A board checks the signature before it downloads, and checks
+  the SHA-256 once the download ends.
+
+## Order: firmware first
+
+AWS IoT hands out pending jobs oldest first, whatever they are. The board puts them in its own order
+(`ota.c`):
+
+1. **Only one is pending.** It runs.
+2. **The next job named is a Pi image, and the board is idle.** The board asks for its list of pending
+   jobs (`$aws/things/<thing>/jobs/get`).
+   - If the list holds a job whose ID does not start with `pi-`, that firmware job goes first. The board
+     marks it `IN_PROGRESS`, with `"step":"before_pi_image"`, and asks for the next job. AWS IoT now names
+     the firmware job, because it lists jobs in progress before queued ones. The board then runs it as
+     usual: download, install, MCUboot swap, restart, confirm.
+   - The Pi image's job stays `QUEUED` throughout, and nothing is reported on it. The shadow says
+     `pi.state = "waiting_for_firmware"`.
+3. **A Pi image is named while firmware is under way, or on trial and not yet confirmed.** It waits,
+   `QUEUED`.
+4. **After the confirmation.** The board reports the firmware job, then asks for the next job again.
+   This time the list holds no firmware, so the Pi image starts.
+5. **The firmware update fails or rolls back.** The Pi image still runs, on the firmware the board ended
+   up on, unless its `minFirmware` is newer. Then it is refused with `firmware_too_old`.
+6. **A Pi image left in progress by a restart.** It carries on, with no list in between, from the last
+   checkpoint on the card.
+7. **The list cannot be asked for.** This happens when the cloud's device policy is older than 2.26.0, and
+   the board's guard has dropped the list topic along with the commands topic (`cloud.h`). The board then
+   takes jobs in the cloud's order.
+
+**One gap:** a restart in the moment between marking the firmware job `IN_PROGRESS` and starting it.
+The board then finds the job in progress with no record of it, and closes it as `interrupted`, as it
+always has for an update cut off by a restart. Deploy again.
+
+## Both at once
+
+From firmware 1.20.0 and console 2.26.0, one deployment can bring board firmware and a Pi image together:
+a job with `"op": "fw_pi_update"`, `fw` as in a firmware job and `pi` as in a Pi image's job. Its ID is the
+firmware's with `-pi` after the build number (`cranium-1-20-0-b0-pi-<time>-<hex>`), so a board's list of
+pending jobs counts it as firmware. The console makes it (Deployments, "Both"); `buildBundleJobDocument()`
+in `cloud/api/src/lib/jobs.mjs` builds the document.
+
+**Only a Pi build goes out with a Pi image.** A build with Pi updates carries a third protected TLV,
+`0xa3` with the value `pi` (`MCUBOOT_EXTRA_IMGTOOL_ARGS` in `firmware/app/Kconfig`; `CMakeLists.txt` stops a
+Pi build without it and any other build with it). The signature covers it. The console reads it when the
+release is uploaded and keeps `pi: true` on that release; a deployment of firmware and a Pi image together
+with any other release is refused (422 `not_pi_build`), on the Deployments page, in a staged rollout and in
+a scheduled start alike. A board that took such a job anyway (a release from before this rule) answers
+`pi_unsupported` after the swap, as in the table below.
+
+**The order** (`ota.c`, with `pi_ota.c` for the Pi part):
+
+1. The board checks both parts before it downloads anything: the firmware as always (newer than what
+   runs, fits the slot), and the Pi part's signature, size and `minFirmware`. `minFirmware` is checked
+   against the firmware the job brings, which is what will run when the Pi gets its image. A Pi that has
+   the image already: the job goes on as a firmware job.
+2. The firmware downloads into the secondary slot and is checked (size, SHA-256, header, board type).
+   Step `downloading`.
+3. The Pi image downloads onto the SD card and is checked (size, SHA-256), from the checkpoint on the
+   card if there is one. Step `downloading_pi`, with `progress`. Nothing is installed yet.
+4. Only then is the installation announced (step `rebooting`), the job looked at once more, the trial
+   swap requested and the board restarted. The update record says that a Pi image waits on the card
+   (`with_pi`, `pi_step`, in what was padding, so older images still read the record).
+5. The new firmware runs on trial and is confirmed when it reaches AWS IoT, as always.
+6. After the confirmation, and not before, the board asks for the job's document again, with the Pi
+   image's URL, and sends the image from the card to the Pi over SPI ([The SPI protocol](#the-spi-protocol)).
+   Step `flashing_pi`, with `progress`. Whatever the card lacks is downloaded first.
+7. The Pi verified it: the job `SUCCEEDED`, with `running` and `pi_version`.
+
+**When a part fails:**
+
+| What | The job | The Pi |
+| --- | --- | --- |
+| A check of either part, before any download | `REJECTED`, with the reason | Untouched |
+| The firmware's download or check | `FAILED`, as for firmware | Untouched |
+| The Pi image's download onto the card | `FAILED` with the card's or the download's reason; the slot is erased | Untouched |
+| The new firmware does not stay (rolled back, not installed, trial lost) | `FAILED`, `"nrf":"not_installed"`, `"pi":"not_flashed"` | Untouched |
+| The transfer to the Pi, or the Pi's own check | `FAILED` with the Pi's reason, `"nrf":"installed"`, `"pi":"failed"` | Told to drop what it got |
+| The firmware the job brought is not a Pi build | `FAILED`, `pi_unsupported`, `"pi":"not_flashed"` | Untouched |
+
+**A restart in each phase:**
+
+- During either download, or before the swap: the job is in progress and the board has no record. It
+  starts both parts again: the firmware from its first byte, the Pi image from its last checkpoint.
+- On trial: as for firmware; the confirmation is followed by the Pi's turn.
+- During the transfer to the Pi: the firmware is confirmed and the record says `flashing`. The board goes
+  straight back to the Pi's turn. The Pi may answer BEGIN with the chunk it expects next, and gets only
+  the rest (`test_pi_xfer.py`, "a board that restarts while flashing").
+- A record that was lost after the installation: the firmware the job brings is the one that runs, so
+  only the Pi's turn is left, and the board takes it.
+
+**Withdrawn (cancelled with force) in each phase:** during the Pi image's download the download stops and
+the slot is erased; during the transfer the Pi is sent ABORT and the record cleared. The confirmed firmware
+stays. A cancellation without force leaves a board that has started alone, as always.
+
+**Memory.** The reply that carries the document now carries two presigned URLs, each 1.5 to 2 KB once
+AWS IoT has put them in. A Pi build's MQTT buffer is 6 KB (`pi_ota.conf`), 2 KiB more than the default
+build's. The board keeps only the URL of the part it downloads (`ota_job_parse_part()`), so the job record
+in RAM grows by the Pi part's size and digest only, and only in a Pi build. `test_pi_ota.c`
+("the reply with two URLs fits the Pi build's buffer") builds the worst reply the board accepts at all:
+each URL's path and query at the parser's limit of 2,047 characters (a session token of about 1.7 KB),
+the longest version, job ID and status details. It is 5,312 bytes, under the 6,144 of `pi_ota.conf`, which
+the test reads, and over the default build's 4,096. A longer session token is refused by the parser
+(`bad_document`), not cut off. **A real reply from AWS IoT has not been measured.**
+
+## Download and resume
+
+The download goes through the firmware's own downloader, `fota_download`: the same HTTPS connection and
+the same events, which reach `pi_ota.c` through `ota.c`. The image itself goes to a custom DFU target
+(`dfu_target_custom_*()` in `pi_ota.c`), which writes it to the SD card.
+
+1. **Before the download**, the thread mounts the card and reads the record in `/SD:/PIOTA/RECORD.BIN`
+   (`pi_dl_begin()`):
+   - The same image is already all on the card and good: it goes straight to the Pi.
+   - The same image is partly there: it goes on from the last checkpoint.
+   - Otherwise the board checks that the card has room for the image plus 64 KiB, and starts an empty
+     `/SD:/PIOTA/IMAGE.BIN`.
+2. **During the download.** Each piece goes onto the card where it arrives, and into the SHA-256. Every
+   `CONFIG_APP_PI_OTA_CHECKPOINT_KB` (1 MiB) the file is synced and the record saved: how many bytes are
+   good, and the hash's state after them. The record is written to `RECORD.TMP` first and renamed over
+   the old one, and a load takes the temporary copy if a reset came between the two.
+3. **After a lost connection.** The board asks for the job again, for a fresh URL, and goes on from the
+   last byte written (an HTTP range). The hash is still in memory.
+4. **After a failed write to the card, or a restart.** The download goes back to the last checkpoint:
+   the file is cut there and the saved hash is taken up.
+5. **At the end.** The size and the digest are compared with the job's. On a mismatch the image and its
+   record are deleted and the job fails with `digest_mismatch`, so the next attempt starts from nothing.
+6. **Attempts.** An attempt that got bytes onto the card resets the count. After
+   `CONFIG_APP_PI_OTA_DOWNLOAD_ATTEMPTS` (10) attempts in a row with nothing new, the job fails with
+   `download_failed`.
+
+## The SD card
+
+The card is a `zephyr,sdhc-spi-slot` with a `zephyr,sdmmc-disk` child named `SD`, mounted with FatFS at
+`/SD:`. Format it FAT32 on a computer: the board does not format it, and it reads 8.3 names only. FAT32
+holds files up to 4 GiB − 1, which matches the size limit. Cards over 32 GB come as exFAT and have to be
+reformatted as FAT32.
+
+`pi_sd.c` provides:
+
+- create, write, read at an offset, seek, truncate and sync
+- the size of a file and the free space (`fs_statvfs`)
+- an atomic save of a small file
+
+Every error maps to a reason:
+
+| Reason | When |
+| --- | --- |
+| `sd_absent` | The card-detect switch says there is no card |
+| `sd_full` | FatFS wrote less than asked, or returned `-ENOSPC` |
+| `sd_timeout` | An operation took longer than `CONFIG_APP_PI_SD_TIMEOUT_MS` (5 s) |
+| `sd_io` | Anything else |
+
+A read or a write that fails is tried once more from the same position.
+
+## The SPI protocol
+
+This is the contract for the Pi's end. The board is the SPI controller, mode 0, MSB first, 8-bit words,
+at up to 8 MHz. Every multi-byte value is little-endian. A frame is one transaction, with the Pi's chip
+select low throughout.
+
+**Frame, board to Pi:**
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | Magic `CPI1` (`0x31495043`) |
+| 4 | 1 | Type: BEGIN 1, DATA 2, VERIFY 3, ABORT 4, POLL 5 |
+| 5 | 1 | Flags, 0 |
+| 6 | 2 | Reserved, 0 |
+| 8 | 4 | Sequence number |
+| 12 | 4 | Payload length N |
+| 16 | N | Payload |
+| 16+N | 4 | CRC-32 (IEEE 802.3, the same as `zlib.crc32`) of bytes 0 to 16+N−1 |
+
+**Payloads:**
+
+| Type | Sequence | Payload |
+| --- | --- | --- |
+| BEGIN | 0 | 80 bytes: protocol version u16 (1); target partition u8 (2, partition B); 0 u8; chunk size u32; image size u64; SHA-256 of the image, 32 bytes; image version, 32 bytes of ASCII padded with zeros |
+| DATA | Chunk index, from 0 | Offset u32 (= index × chunk size), then the chunk. Every chunk is full except the last. |
+| VERIFY | Number of chunks | Image size u64, then the SHA-256, 32 bytes |
+| ABORT | Any | Reason u16 (a status code below), then 0 u16 |
+| POLL | That of the frame it asks about | None. The frame is 20 bytes, and while it goes out the Pi clocks out its status. |
+
+**Status, Pi to board,** 20 bytes, clocked out during a POLL:
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | Magic `CPR1` (`0x31525043`) |
+| 4 | 1 | ACK 0, NAK 1, BUSY 2 |
+| 5 | 1 | Code: OK 0, BAD_CRC 1, BAD_SEQ 2, BAD_STATE 3, BAD_TARGET 4, BAD_VERSION 5, NO_SPACE 6, WRITE_ERROR 7, HASH_MISMATCH 8, ABORTED 9 |
+| 6 | 2 | Reserved, 0 |
+| 8 | 4 | The sequence number of the frame it answers |
+| 12 | 4 | `next_seq`: the DATA sequence number it expects next |
+| 16 | 4 | CRC-32 of bytes 0 to 15 |
+
+**READY (flow control).** READY is a push-pull output on the Pi, high when the Pi is ready.
+
+1. Before BEGIN, the board waits for READY to be high, for up to `CONFIG_APP_PI_XFER_BEGIN_TIMEOUT_MS`
+   (60 s). If it never rises, the job fails with `pi_not_ready`.
+2. After **every** transaction, the Pi takes READY low, then raises it when it is ready for the next
+   transaction. The board waits for that rising edge. After a frame, "ready" means the status is loaded
+   for the POLL. After a POLL, it means the Pi is ready for the next frame.
+3. The waits are 2 s after an ordinary frame, 60 s after BEGIN (the Pi prepares partition B), and 10 min
+   after VERIFY (the Pi hashes all of partition B).
+
+**One exchange** is the frame, the wait for READY, the POLL, and the wait for READY again. The board
+then reads the status.
+
+**What the board does with an answer:**
+
+| Answer | The board |
+| --- | --- |
+| ACK for this sequence number | Goes on |
+| NAK BAD_CRC, no READY, a damaged status, or an ACK for another frame | Sends the same frame again, up to `CONFIG_APP_PI_XFER_ATTEMPTS` (5) times. **The Pi must ACK a frame it has already applied, and not apply it twice.** |
+| BUSY | POLLs again after the next READY, up to 100 times |
+| NAK BAD_SEQ with a lower `next_seq` | Goes back to that chunk, which it reads from the card again |
+| NAK BAD_SEQ with a higher `next_seq` | Aborts |
+| Any other NAK | The end. The job fails with `pi_rejected`, or `pi_verify_failed` for HASH_MISMATCH, with the code in the log. |
+| BEGIN's ACK with `next_seq` > 0 | Starts at that chunk. The Pi already has the ones before, from an earlier try with the same image. A Pi may always answer 0. |
+
+**The sequence:**
+
+1. BEGIN.
+2. DATA 0 to n−1.
+3. The board checks its own SHA-256 of what it read back from the card. If that does not match, it
+   sends ABORT with HASH_MISMATCH and the job fails with `sd_readback_mismatch`.
+4. VERIFY: the Pi hashes partition B and compares that with the image's SHA-256. Its ACK means
+   partition B holds the image.
+
+What the Pi does next, such as marking B to boot or switching to it, is the Pi's side.
+
+**ABORT** goes out when the job is withdrawn, when the card fails, or when the board gives up. After it,
+the Pi drops what it has.
+
+**Chunks** are `CONFIG_APP_PI_OTA_CHUNK_KB` (4 KiB) long, and at most 32 KiB.
+
+**What the Pi's end checks:** `tools/pi_xfer_sim.py` is the executable version of this contract. It
+checks every frame and its CRC, the order and the offsets, the BEGIN's fields, and the final hash. Use it
+as the reference when building the Pi's end.
+
+**A warning for the Pi's end.** On a Raspberry Pi running Linux, SPI in peripheral (target) mode is not
+what the stock `spidev` driver offers. Check that the Pi model and kernel in use can act as an SPI target
+with DMA before relying on 8 MHz.
+
+## Reports
+
+**On the job,** as firmware reports:
+
+- `IN_PROGRESS` with `step` (`downloading` or `sending`) and `progress` in percent. It is sent at the
+  start, at each new step, and every 30 s.
+- `SUCCEEDED` with `pi_version` and the board's `running` firmware.
+- `REJECTED` (for a queued job) or `FAILED` (for one in progress), with a `reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `bad_signature` | The manifest's signature does not hold |
+| `too_large` | Over the size limit |
+| `already_installed` | The Pi already has this image |
+| `firmware_too_old` | Below `minFirmware` |
+| `sd_absent`, `sd_io`, `sd_full`, `sd_timeout` | The card |
+| `download_failed` | Too many attempts with nothing new |
+| `size_mismatch`, `digest_mismatch` | Not the announced image |
+| `sd_readback_mismatch` | The card changed it |
+| `pi_not_ready`, `pi_timeout` | The Pi did not answer |
+| `pi_rejected` | The Pi refused it |
+| `pi_verify_failed` | The Pi's hash differs |
+| `link_io` | The SPI driver failed |
+| `aborted` | Withdrawn |
+
+**In the shadow,** under `pi`:
+
+- `state`: `idle`, `waiting_for_firmware`, `downloading` or `sending`
+- `job`, and `progress` in percent
+- `last` and `error`: the last outcome and its reason
+- `installed`: the version the Pi verified last
+- `card`: whether the card-detect switch sees a card
+
+A Pi build reports `pi` whenever it changes, and each time it connects. **Every other build clears it**
+from 1.20.0: its diagnostics report carries `"pi": null`, which AWS IoT takes as a deletion. The console
+counts a board as one with a Pi only when its `pi` was reported since the board last started (by AWS IoT's
+stamps: `pi.state` no earlier than the uptime's stamp less the uptime, with 60 s of slack;
+`piReportIsFresh()` in `cloud/api/src/lib/shadow.mjs`). So a board moved to a build without Pi updates,
+even firmware from before 1.20.0 that never clears `pi`, is not offered Pi images (400 `no_pi`).
+
+## Speed
+
+These are estimates; none of these figures has been measured. One number is measured: a firmware image
+over the same downloader and TLS took 62 to 86 s for about 800 KB, roughly 10 KB/s
+([test-results.md](test-results.md)).
+
+**Download onto the card.** The network bounds this, not the card. An SD card in SPI mode at 4 to 8 MHz,
+through FatFS, writes about 100 to 400 KB/s.
+
+| Image | At 10 KB/s (as firmware downloads now) | At 50 KB/s |
+| --- | --- | --- |
+| 100 MB | about 2.8 h | about 35 min |
+| 1 GB | about 28 h | about 5.8 h |
+
+**Card to Pi, on the shared bus.** Each 4 KiB chunk is first read from the card and then sent to the Pi.
+At 8 MHz:
+
+- The card read takes about 6 to 10 ms.
+- The frame takes about 4 ms.
+- The two READY waits take about 2 to 10 ms, depending on the Pi's latency.
+
+That gives about 170 to 340 KB/s. At 4 MHz it is roughly 105 to 185 KB/s.
+
+| Image | At 8 MHz | At 4 MHz |
+| --- | --- | --- |
+| 100 MB | about 5 to 10 min | about 9 to 16 min |
+| 1 GB | about 50 to 100 min | about 1.6 to 2.7 h |
+
+Two separate buses could overlap the card read with the send, and would take about half the time. Larger
+chunks (16 to 32 KiB) cut the handshakes, but they need RAM that this board does not have
+([Memory](#memory)).
+
+**It works for 1 GB, slowly.** Checkpoints every MiB mean a lost connection or a restart loses at most
+1 MiB. AWS IoT's in-progress timeout has to be longer than all of this, so create a Pi job with a long
+one ([Cloud](#cloud)). The board does not stall a firmware job meanwhile. It cannot run one either,
+because firmware waits until the Pi job ends.
+
+## Memory
+
+Figures are from local builds (`scripts/firmware/build.sh --keep --no-upload --without-key`, with `--pi` and
+`--board nrf5340dk`), of this branch on main with firmware 1.18.0, and of main itself.
+
+| Build | Flash (of 794,474 bytes) | RAM used (of the total) | RAM free |
+| --- | --- | --- | --- |
+| Default (Bluetooth, no Pi), main 1.18.0 | 749,176 | 404,404 of 405,504 | 1,100 |
+| Default, this branch | 749,472 (+296) | 404,404 of 405,504 | 1,100: the same as main |
+| `--pi` (Pi, no Bluetooth), this branch | 699,056 | 380,848 of 405,504 | 24,656 |
+| nRF5340 DK, main and this branch | 196,360 | 107,048 of 409,600 | 302,552 |
+
+The default build pays nothing in RAM: the job record's Pi fields, the parser's Pi branches, the part of a
+job with both and the bus are all only in a Pi build, and the job's kind is a byte in what was padding.
+Its 296 bytes of flash are the `"pi": null` of the diagnostics and the code that refuses a Pi job.
+
+The Pi update takes about 9 KiB of RAM:
+
+| Item | Size |
+| --- | --- |
+| The chunk buffer | 4 KiB |
+| The thread's stack | 2 KiB |
+| FatFS | about 1.2 KiB |
+| The download's state | about 0.5 KiB |
+| The SD host | about 0.4 KiB |
+| The rest | small |
+
+The downloader is the firmware's own, so it takes no second downloader thread, buffer or TLS session.
+The default build has about 1 KiB free, so it cannot hold this as well. That is why a Pi build turns
+Bluetooth off, and why `sysbuild.cmake` refuses a build with both.
+
+Giving a Pi board Bluetooth back means finding about 9 KiB elsewhere, for example in the heaps that
+Wi-Fi and TLS were tuned with. That should not be done without measurements on a board.
+
+## Cloud
+
+**Device policy.** Console 2.26.0 adds three permissions, each on the board's own topic only:
+
+- publish `$aws/things/<thing>/jobs/get`
+- subscribe `jobs/get/accepted`
+- receive `jobs/get/accepted`
+
+`cloud/api/test/pi-infra.test.mjs` holds the policy to that. **Deploy console 2.26.0
+(`cloud/deploy.sh`) before any board runs a 1.20.0 Pi build.** A Pi build subscribes to the list's
+topic, and an older policy would end its connection until the guard gives up on commands too. A default
+1.20.0 build does not use the topic, and does not need the policy.
+
+**Signing and uploading an image.** Run:
+
+```sh
+tools/pi_image.py sign pi-2026.11.06-1.img --version 2026.11.06-1 [--min-firmware 1.20.0]
+```
+
+It writes `pi-2026.11.06-1.img.pi.json`, and prints the commands below. It runs none of them.
+
+```sh
+aws s3 cp pi-2026.11.06-1.img s3://<bucket>/firmware/pi-<version>-<sha256>.img --profile cranium
+aws iot create-job --profile cranium --job-id <pi-...> --targets <thing ARN> \
+  --document '<the printed document>' \
+  --presigned-url-config roleArn=<PresignRole ARN>,expiresInSec=600 \
+  --timeout-config inProgressTimeoutInMinutes=2880
+```
+
+`tools/pi_image.py verify <record>` checks a record against the public key. The job document and the job
+ID can also come from `buildPiJobDocument()` and `buildPiJobId()` in `cloud/api/src/lib/jobs.mjs`, which
+`jobs.test.mjs` tests.
+
+**On the console (2.26.0).** The Firmware page lists the Pi images under the releases, labelled as the Pi's.
+A release manager uploads one with the image and its `.pi.json` record: the record goes to
+`POST /api/pi-images`, which checks the signature against the project's key as a board does (422
+`bad_signature`), and hands out a presigned PUT for `firmware/pi-<version>-<sha256>.img` (a `+` in the version written `~`) signed for that size, that
+SHA-256 and "only if new". The browser sends the file straight to S3, and `POST /api/pi-images/<version>/complete`
+checks what arrived. Each version has its own object, so two versions with the same bytes are two objects.
+Revoking (`.../revoke`) tags that version's object only, so the bucket serves it no more, and cancels the
+deployments that carry it. A revoked version stays taken: the same version cannot be uploaded again (409
+`version_exists`), and nothing of it becomes active again. Records are in the state table, pk `PIIMG`.
+
+A new deployment chooses board firmware, a Pi image, or both. A Pi image is offered only to boards that
+report a `pi` object in their shadow, which only a Pi build does (400 `no_pi` otherwise). Its time limit in
+AWS IoT is reckoned from its size (`piTimeoutMinutes()`, at most a week). To more than one board, firmware
+or both go as a staged rollout (each stage's job carries both; boards without a Pi are left out, `no_pi`;
+a revoked Pi image stops the rollout, `pi_revoked`), and a Pi image alone goes as one deployment in waves
+that AWS IoT paces and stops at the failure threshold. Scheduled starts take a Pi image too. Each board's
+card on the deployment page says where its Pi part is: waits, downloading, on the SD card, sending to the
+Pi, verified, failed, or not sent.
+
+**Roll back.** "Roll back to last good" is for board firmware. For the Pi, roll back by deploying the older
+Pi image; the Pi's own A/B keeps the image it ran before until the new one is confirmed on its side.
+
+**Fleet.** A Pi build carries the board type `nrf7002dk` like any other, so the console offers it to
+every nRF7002 DK. Deploy it only to boards wired to a Pi, or they lose Bluetooth.
+
+## Tests
+
+| Where | What it covers | Checks |
+| --- | --- | --- |
+| `make -C firmware/tests/host`: `pi_ota_tests` | SHA-256 (FIPS vectors, saved and taken up again), CRC-32, the document and its refusals, the list of jobs, the manifest against the golden text, every check on a job, the record, the card's layer with faults, and the download with a fake server | 389 |
+| `make -C firmware/tests/host`: `ota_pi_tests` | `ota.c` with `CONFIG_APP_PI_OTA`, re-running the no-consent tests plus the order cases below | 553 |
+| `make -C firmware/tests/host`: `ota_bt_no_consent_tests` | A board without Pi updates refuses a Pi job as `unsupported` | Part of its total |
+| `firmware/tests/hil/test_pi_xfer.py` | `pi_xfer.c` against `tools/pi_xfer_sim.py`, and the simulator's own checks | 13 tests |
+| `firmware/tests/hil/test_pi_image.py` | The tool's manifest is the board's, a signature holds and breaks, the built-in key, and the record and the document | 6 tests |
+| `cloud/api`: `node --test` | `buildPiJobDocument`, `buildPiJobId`, and the device policy | 5 tests |
+| `ota_pi_tests`, from 1.20.0 | Both at once: the order, a firmware that does not stay (Pi untouched), a Pi that fails, a Pi image that does not get onto the card, a restart in each phase, withdrawal in each phase, the Pi part's checks first | 780 checks in all |
+| `pi_ota_tests`, from 1.20.0 | The `fw_pi_update` document: both parts, the URL of each part, refusals | 414 checks in all |
+| `test_pi_xfer.py`, from 1.20.0 | A board that restarts in the middle of a transfer goes on where the Pi is; a failure after that | 2 tests |
+| `cloud/api/test/pi-deployments.test.mjs` | Pi images (signature, upload, check, revoke), deployments of a Pi image alone and of both, waves, rollouts, the shadow and the timeline | 9 tests |
+
+The download tests cover:
+
+- start to end
+- a resume after lost connections
+- a card that fails, then back to the checkpoint
+- a restart, then resuming from the checkpoint
+- a damaged record, and a card with less than its checkpoint
+- a wrong digest or size
+- no room
+- no card, or one pulled in the middle
+- a stopped download taken up by a new job
+- a reset to nothing
+
+The order tests in `ota_pi_tests` cover:
+
+- firmware first, then the Pi image, through a restart onto the new firmware on trial and its confirmation
+- a Pi image alone
+- firmware alone
+- a Pi image while firmware is on trial
+- a Pi image after a rollback
+- `minFirmware` refusing it
+- a cloud with no list
+- a Pi image left in progress by a restart
+- a withdrawn Pi job
+
+The link tests cover:
+
+- sizes and chunk sizes from 1 byte to 70 KB
+- damaged frames and statuses
+- no READY
+- a busy Pi
+- a Pi that lost chunks
+- a Pi that already has part of the image
+- a refusal at BEGIN or DATA
+- a failed VERIFY
+- a Pi that never answers
+- a card that changed the image
+- a withdrawn job
+
+## Untested on hardware
+
+None of this has run on a board, a card or a Pi. All of the following are untested:
+
+- The SD card on SPIM2 through Zephyr's SD host:
+  - its initialisation at 400 kHz and its run at 8 MHz
+  - FatFS on a real card
+  - the free space on a real card
+  - the time limits against a slow card
+- The shared bus:
+  - whether the release clocks are enough for a given card
+  - whether a given Pi tri-states MISO
+  - the READY edges and their latency
+  - EasyDMA transfers of 4 KiB frames
+- The card-detect polarity of the actual breakout.
+- The custom DFU target in `fota_download`:
+  - identifying a Pi image by expectation
+  - the resume with an HTTP range from the target's offset
+  - the events through `ota.c`
+- PSA's ECDSA check with the built-in key.
+- The jobs list and its topic on AWS IoT:
+  - marking a firmware job `IN_PROGRESS` to put it first
+  - the policy, which is not deployed yet
+- The shadow's `pi` object.
+- Every speed figure above.
+- RAM and stack: the thread's 2 KiB stack has not been measured. Measure it with the thread analyser,
+  as in `firmware/README.md`, on the first bring-up.
+
+Report anything that cannot be run as not run. Do not report it as passed.

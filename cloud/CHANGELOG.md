@@ -7,6 +7,38 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.26.0
+
+Raspberry Pi updates from the console. The Firmware page lists Pi images beside the releases, labelled as the Pi's, and a release manager uploads one with its signed record: the console checks the signature, and the image goes straight to S3. A deployment brings board firmware, a Pi image, or both; with both, a board downloads the two, installs its firmware, and sends the Pi its image once that firmware is confirmed. Needs firmware 1.20.0 in a Pi build.
+
+API: `GET/POST /api/pi-images`, `POST /api/pi-images/{version}/complete` and `.../revoke` (handlers/pi-images.mjs,
+lib/pi-images.mjs; audit actions `pi_image.upload`, `pi_image.complete`, `pi_image.revoke`). A record's signature is
+checked against the project key with the manifest a board builds (422 `bad_signature`); the presigned PUT signs the size,
+the SHA-256 and `if-none-match: *`; `complete` asks S3 for what arrived (HeadObject with its checksum). Records in the
+state table, pk `PIIMG`. Revoking tags the object (the bucket then refuses it) and cancels with force the deployments that
+carry it. `POST /api/deployments` takes `version`, `pi` or both, and optional `waves` ({ perMinute, abortPercent }, AWS
+IoT's pacing and abort): a Pi image alone is a `pi_image` job with id `pi-<version>-<time>-<hex>`, both a `fw_pi_update`
+job with the firmware's id and `-pi`; its in-progress limit is sized to the image; only boards whose shadow reports `pi`
+take one (400 `no_pi`, refusal word in the apps too, with `not_uploaded`). A deployment summary says `parts` and, when it
+has one, `pi`; each execution of one with a Pi image has `pi`: { state, progress, version }. The timeline has the phases
+`downloading_pi` and `flashing_pi`, and reads a Pi step's progress from the execution. Staged rollouts and scheduled starts
+take `pi` beside `version`; a stage leaves out boards without a Pi (`no_pi`) and a revoked Pi image stops a rollout
+(`pi_revoked`). The shadow's `pi` object and the ota states `downloading_pi` and `flashing_pi` are read.
+
+Infrastructure: the firmware bucket allows a browser's PUT (CORS: PUT only, with `if-none-match`, `x-amz-checksum-sha256`
+and `content-type`); the bucket policy still refuses any write under firmware/ that is not "only if new". The rollout
+tick may read `PIIMG`. The API's role already stores, reads and tags under firmware/. Apps 0.8.23 name the new activity
+log entries and refusals as the website does, and read deployment ids with `-pi`; their pages are the console's bundle.
+
+Rules from review: each Pi image version has its own object, `firmware/pi-<version>-<sha256>.img` (a `+` written
+`~`), so revoking one version never stops another with the same bytes, and a revoked version stays taken (409
+`version_exists`). A board counts as one with a Pi only when its shadow's `pi` was reported since it last started
+(`piReportIsFresh()`, lib/shadow.mjs); firmware 1.20.0 builds without Pi updates also clear it. Firmware and a Pi
+image together need a release that is a Pi build: a release keeps `pi: true` when its image has the protected TLV
+0xA3 `pi` (lib/boards.mjs `isPiBuild`), and any other is refused with 422 `not_pi_build` (refusal word in the apps).
+
+cloud/api/test/pi-deployments.test.mjs, cloud/web/test/pi.test.mjs; docs/pi-ota.md ("Both at once", "Cloud").
+
 ## 2.25.3
 
 Every page now opens with one short sentence that says what it is for, at most 15 words, and the rest of what the page used to say first is under a "How … works" line right below it, closed until opened (How deployments work, How the activity log works, How events work, and so on). Nothing was taken away: it moved. Memfault says plainly when it is not connected ("Memfault is not connected.") instead of a tick and "No issues to show.", and a board's Memfault card says "not connected" too; Reports and the fleet health score say the same. Product pages no longer name scripts, key paths or AWS services in their text: Team and Customers say an invitation "goes out by e-mail" instead of naming the sign-in service, and the setup steps behind a message (cloud/deploy.sh, docs/accounts.md, the stack parameter) are under Details. The Apps page's install steps read as words, with their commands and paths under "Commands". The Deployments tiles and a board that never reported no longer name AWS IoT. Every button that is only an icon has a tooltip as well as its spoken name. The customer site's Overview, About and Mixes tabs have shorter lines too.

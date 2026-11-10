@@ -176,7 +176,7 @@ object Updates {
 
     /** The version a deployment installs, recovered from its id. */
     fun versionOfDeployment(id: String?): String? {
-        val match = id?.let { Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})-\\d{8}T\\d{6}Z-[0-9a-f]{4}$").matchEntire(it) }
+        val match = id?.let { Regex("^cranium-(\\d{1,3})-(\\d{1,3})-(\\d{1,5})-b(\\d{1,10})(?:-pi)?-\\d{8}T\\d{6}Z-[0-9a-f]{4}$").matchEntire(it) }
             ?: return null
         val (major, minor, revision, build) = match.destructured
         val version = "${major.toInt()}.${minor.toInt()}.${revision.toInt()}+${build.toLong()}"

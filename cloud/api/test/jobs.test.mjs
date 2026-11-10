@@ -10,6 +10,8 @@ import {
   buildJobDescription,
   buildJobDocument,
   buildJobId,
+  buildPiJobDocument,
+  buildPiJobId,
   countExecutions,
   emptyCounts,
   executionDetails,
@@ -201,6 +203,7 @@ test('a job becomes a DeploymentSummary', () => {
   assert.deepEqual(summarizeJob(job), {
     id: 'cranium-1-1-0-b7-20261010T221500Z-9f3a',
     version: '1.1.0+7',
+    parts: ['nrf'],
     status: 'IN_PROGRESS',
     createdAt: '2026-10-10T22:15:00.000Z',
     completedAt: null,
@@ -400,4 +403,57 @@ test('mapLimit keeps the order and never runs more tasks than allowed', async ()
   );
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.ok(started <= 3, `${started} tasks started`);
+});
+
+// From 1.20.0: a Raspberry Pi image (docs/pi-ota.md, "Cloud"), as tools/pi_image.py signs it.
+const PI = { version: '2026.11.06-1', size: 104857600, sha256: SHA, sig: 'c4'.repeat(64) };
+
+test("a Pi image's job document is what the board parses", () => {
+  const text = buildPiJobDocument({ ...PI, region: 'us-east-1', bucket: 'cranium-ota-firmware-1abc2def3ghi' });
+  assert.deepEqual(JSON.parse(text), {
+    op: 'pi_image',
+    v: 1,
+    pi: {
+      ...PI,
+      url: `\${aws:iot:s3-presigned-url-v2:https://s3.us-east-1.amazonaws.com/cranium-ota-firmware-1abc2def3ghi/firmware/pi-${PI.version}-${SHA}.img}`,
+    },
+  });
+  const withMinimum = JSON.parse(
+    buildPiJobDocument({ ...PI, minFirmware: '1.15.0', region: 'us-east-1', bucket: 'b-1' })
+  );
+  assert.equal(withMinimum.pi.minFirmware, '1.15.0');
+});
+
+test("the largest Pi image's job document stays below its limit, and bad values are refused", () => {
+  const text = buildPiJobDocument({
+    version: 'v'.repeat(31),
+    size: 0xffffffff,
+    sha256: 'f'.repeat(64),
+    sig: 'f'.repeat(128),
+    minFirmware: '255.255.65535+4294967295',
+    region: 'r'.repeat(32),
+    bucket: `a${'b'.repeat(61)}c`,
+  });
+  assert.ok(Buffer.byteLength(text) < 768);
+  const good = { ...PI, region: 'us-east-1', bucket: 'b-1' };
+  for (const bad of [
+    { version: 'a b' },
+    { version: 'v'.repeat(32) },
+    { size: 0 },
+    { size: 2 ** 32 },
+    { sha256: SHA.toUpperCase() },
+    { sig: 'c4'.repeat(63) },
+    { minFirmware: 'latest' },
+    { bucket: 'B' },
+  ]) {
+    assert.throws(() => buildPiJobDocument({ ...good, ...bad }), TypeError, JSON.stringify(bad));
+  }
+});
+
+test("a Pi image's job id starts with pi-, which is how a board tells it from firmware", () => {
+  const id = buildPiJobId('2026.11.06+1', NOW, '9f3a');
+  assert.equal(id, 'pi-2026-11-06-1-20261010T221500Z-9f3a');
+  assert.ok(/^[A-Za-z0-9_-]{1,64}$/.test(buildPiJobId('v'.repeat(31), NOW, '0000')));
+  assert.throws(() => buildPiJobId('a b', NOW, '9f3a'), TypeError);
+  assert.throws(() => buildPiJobId('1', NOW, 'XYZ1'), TypeError);
 });

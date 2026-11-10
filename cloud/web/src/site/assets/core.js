@@ -19,7 +19,12 @@ const VERSION = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,4})\+(0|[1-9]
 const THING = /^cranium-[0-9a-f]{16}$/;
 // device_id_valid() in firmware/app/src/device.c: 1 to 32 letters and digits.
 const BOARD_NAME = /^[A-Za-z0-9]{1,32}$/;
-const DEPLOYMENT = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
+// A deployment of board firmware, "-pi" after the build when it brings a Raspberry Pi image too, and
+// one of a Pi image alone (console 2.26.0, docs/pi-ota.md).
+const DEPLOYMENT = /^cranium-(\d{1,3})-(\d{1,3})-(\d{1,5})-b(\d{1,10})(?:-pi)?-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
+const PI_DEPLOYMENT = /^pi-[A-Za-z0-9_-]{1,31}-\d{8}T\d{6}Z-[0-9a-f]{4}$/;
+// A Raspberry Pi image's version, as a board takes it.
+export const PI_VERSION = /^[A-Za-z0-9._+-]{1,31}$/;
 const CURSOR = /^[A-Za-z0-9_-]{1,512}$/;
 
 /** Parse "major.minor.revision+build"; null for anything else. */
@@ -58,7 +63,7 @@ export function isThing(text) {
 }
 
 export function isDeploymentId(text) {
-  return typeof text === 'string' && DEPLOYMENT.test(text);
+  return typeof text === 'string' && (DEPLOYMENT.test(text) || PI_DEPLOYMENT.test(text));
 }
 
 // Boards by name. A board's thing name (cranium-…) is its identity in AWS IoT: it is in every
@@ -91,7 +96,7 @@ export function boardOf(thing, devices) {
   return (devices ?? []).find((device) => device.thing === thing) ?? { thing, name: null };
 }
 
-/** The firmware version a deployment installs, recovered from its id. */
+/** The firmware version a deployment installs, recovered from its id; null for a Pi image alone. */
 export function versionOfDeployment(id) {
   const match = typeof id === 'string' ? DEPLOYMENT.exec(id) : null;
   if (!match) return null;
@@ -301,7 +306,7 @@ const versionFilter = (value) => (/^\d{1,3}(?:\.\d{1,5}){0,2}(?:\+\d{1,10})?$/.t
  * start of its name. The API is asked for a kind's actions (GET /api/audit?actions=).
  */
 export const ACTIVITY_KINDS = Object.freeze([
-  { id: 'firmware', label: 'Firmware', starts: ['firmware.', 'pairing.'] },
+  { id: 'firmware', label: 'Firmware', starts: ['firmware.', 'pairing.', 'pi_image.'] },
   {
     id: 'deployments',
     label: 'Deployments and rollouts',
@@ -852,7 +857,74 @@ function readDevice(raw) {
     // Where it is, from the Wi-Fi it hears (docs/fleet.md), and why it is not on the map if it is not.
     position: readPosition(item.position),
     location: readLocation(item.location),
+    // From firmware 1.20.0, a board wired to a Raspberry Pi (docs/pi-ota.md): only a board that reports one.
+    ...(anObject(item.pi) ? { pi: readBoardPi(item.pi) } : {}),
   };
+}
+
+const PI_STATES = ['idle', 'waiting_for_firmware', 'downloading', 'sending'];
+
+function readBoardPi(value) {
+  return {
+    state: PI_STATES.includes(value.state) ? value.state : 'idle',
+    job: isDeploymentId(value.job) ? value.job : null,
+    progress: whole(value.progress, 0, 100) ?? 0,
+    last: boardText(value.last, 24) || 'none',
+    error: boardText(value.error, 64),
+    installed: typeof value.installed === 'string' && PI_VERSION.test(value.installed) ? value.installed : null,
+    card: typeof value.card === 'boolean' ? value.card : null,
+  };
+}
+
+/** A Raspberry Pi image of the Firmware page (GET /api/pi-images), or null if it is not one. */
+export function readPiImage(raw) {
+  const item = record(raw);
+  if (!PI_VERSION.test(item.version ?? '') || !/^[0-9a-f]{64}$/.test(item.sha256 ?? '')) return null;
+  return {
+    version: item.version,
+    size: whole(item.size, 1, 2 ** 32 - 1) ?? 0,
+    sha256: item.sha256,
+    sig: /^[0-9a-f]{128}$/.test(item.sig ?? '') ? item.sig : '',
+    minFirmware: versionOrNull(item.minFirmware),
+    notes: text(item.notes, 500),
+    status: ['uploading', 'active', 'revoked'].includes(item.status) ? item.status : 'revoked',
+    uploadedAt: instant(item.uploadedAt),
+    uploadedBy: person(item.uploadedBy),
+    activatedAt: instant(item.activatedAt),
+    revokedAt: instant(item.revokedAt),
+    revokedReason: text(item.revokedReason, 200),
+    key: text(item.key, 100),
+  };
+}
+
+/** Where the Pi part of a deployment is on one board (cloud/api deployments.mjs piPartOf). */
+const PI_PART_STATES = ['waiting', 'downloading', 'on_card', 'flashing', 'flashed', 'failed', 'not_flashed'];
+
+function readPiPart(value) {
+  return {
+    state: PI_PART_STATES.includes(value.state) ? value.state : 'waiting',
+    progress: whole(value.progress, 0, 100),
+    version: typeof value.version === 'string' && PI_VERSION.test(value.version) ? value.version : null,
+  };
+}
+
+/** What a Pi part says, for the deployment page: [tone, icon, words]. */
+export const PI_PART_WORDS = Object.freeze({
+  waiting: ['idle', 'clock', 'Waits for its turn'],
+  downloading: ['live', 'download', 'Downloading onto the SD card'],
+  on_card: ['live', 'check', 'On the SD card, checked'],
+  flashing: ['live', 'upload', 'Sending to the Pi'],
+  flashed: ['good', 'check-circle', 'On the Pi, verified'],
+  failed: ['bad', 'x-circle', 'The Pi did not take it'],
+  not_flashed: ['idle', 'minus-circle', 'Not sent to the Pi'],
+});
+
+export function describePiPart(part) {
+  if (!part) return null;
+  const [tone, iconName, label] = PI_PART_WORDS[part.state] ?? PI_PART_WORDS.waiting;
+  const shown =
+    part.progress !== null && ['downloading', 'flashing'].includes(part.state) ? `${label} · ${part.progress}%` : label;
+  return { tone, icon: iconName, label: shown };
 }
 
 function readDevices(body) {
@@ -1143,9 +1215,14 @@ function readDeploymentSummary(raw) {
   const item = record(raw);
   const counts = {};
   for (const name of COUNTS) counts[name] = whole(item.counts?.[name], 0, 1000) ?? 0;
+  const parts = texts(item.parts).filter((part) => part === 'nrf' || part === 'pi');
   return {
     id: text(item.id, 64),
+    // The board firmware it brings; null for a Raspberry Pi image alone.
     version: versionOrNull(item.version),
+    // From console 2.26.0: what it brings, and its Pi image when it brings one.
+    parts: parts.length > 0 ? parts : ['nrf'],
+    ...(anObject(item.pi) || item.pi === null ? { pi: readDeploymentPi(item.pi) } : {}),
     status: text(item.status, 32),
     createdAt: instant(item.createdAt),
     completedAt: instant(item.completedAt),
@@ -1154,6 +1231,12 @@ function readDeploymentSummary(raw) {
     things: texts(item.things),
     counts,
   };
+}
+
+function readDeploymentPi(value) {
+  if (!anObject(value) || !PI_VERSION.test(value.version ?? '') || !/^[0-9a-f]{64}$/.test(value.sha256 ?? ''))
+    return null;
+  return { version: value.version, sha256: value.sha256 };
 }
 
 function readExecution(raw) {
@@ -1175,6 +1258,8 @@ function readExecution(raw) {
     startedAt: instant(item.startedAt),
     lastUpdatedAt: instant(item.lastUpdatedAt),
     secondsLeft: whole(item.secondsLeft, 0, 10 ** 7),
+    // The Pi image's part of a deployment that brings one (console 2.26.0).
+    ...(anObject(item.pi) ? { pi: readPiPart(item.pi) } : {}),
   };
 }
 
@@ -1248,7 +1333,17 @@ function readAudit(body) {
 
 export const EVENT_KINDS = Object.freeze(['connection', 'firmware', 'update', 'restart', 'bluetooth', 'health']);
 const EVENT_ID = /^[0-9a-f]{6}$/;
-const UPDATE_STATES = ['idle', 'awaiting_user', 'downloading', 'verifying', 'rebooting', 'testing', 'bluetooth'];
+const UPDATE_STATES = [
+  'idle',
+  'awaiting_user',
+  'downloading',
+  'verifying',
+  'rebooting',
+  'testing',
+  'bluetooth',
+  'downloading_pi',
+  'flashing_pi',
+];
 // The typed fields an event may carry, each with how it is read.
 const EVENT_FIELDS = {
   version: versionOrNull,
@@ -2889,13 +2984,55 @@ export function createApi({
         cancelled: Array.isArray(reply.cancelled) ? reply.cancelled.filter(isDeploymentId) : [],
       };
     },
-    async deploy({ version, things, note }) {
-      const body = {
-        version: checked(isVersion, version),
-        things: things.map((thing) => checked(isThing, thing)),
-      };
+    /**
+     * A deployment of board firmware (`version`), a Raspberry Pi image (`pi`), or both. `waves` paces
+     * it: { perMinute, abortPercent } (console 2.26.0).
+     */
+    async deploy({ version = null, pi = null, things, note, waves = null }) {
+      const body = { things: things.map((thing) => checked(isThing, thing)) };
+      if (version) body.version = checked(isVersion, version);
+      if (pi) body.pi = checked((value) => PI_VERSION.test(value), pi);
       if (note) body.note = note;
+      if (waves) body.waves = { perMinute: waves.perMinute, abortPercent: waves.abortPercent };
       return readDeployment(record(record(await post('/api/deployments', body)).deployment));
+    },
+    /** The Raspberry Pi images (GET /api/pi-images), newest first. */
+    async piImages() {
+      return list(record(await get('/api/pi-images')).images)
+        .map(readPiImage)
+        .filter((image) => image !== null);
+    },
+    /**
+     * A Pi image's record, as tools/pi_image.py signed it: { image, upload }, where upload is the URL to
+     * PUT the file to, with the headers it was signed for. Tried once: a second would hand out a second URL.
+     */
+    async createPiImage(described) {
+      const reply = record(await request('POST', '/api/pi-images', described, { once: true }));
+      const upload = record(reply.upload);
+      const headers = {};
+      for (const name of ['if-none-match', 'x-amz-checksum-sha256']) {
+        if (typeof upload.headers?.[name] === 'string') headers[name] = upload.headers[name];
+      }
+      return {
+        image: readPiImage(reply.image),
+        upload: {
+          url: /^https:\/\//.test(upload.url ?? '') ? upload.url : '',
+          headers,
+          expiresAt: instant(upload.expiresAt),
+        },
+      };
+    },
+    async completePiImage(version) {
+      const path = `/api/pi-images/${encodeURIComponent(checked((value) => PI_VERSION.test(value), version))}/complete`;
+      return readPiImage(record(await post(path, {})).image);
+    },
+    async revokePiImage(version, reason) {
+      const path = `/api/pi-images/${encodeURIComponent(checked((value) => PI_VERSION.test(value), version))}/revoke`;
+      const reply = record(await post(path, { reason }));
+      return {
+        image: readPiImage(reply.image),
+        cancelled: Array.isArray(reply.cancelled) ? reply.cancelled.filter(isDeploymentId) : [],
+      };
     },
     async cancel(id, force) {
       const path = `/api/deployments/${checked(isDeploymentId, id)}/cancel`;
@@ -3639,6 +3776,41 @@ export function describeExecution(
           quiet: `The board went offline while it was restarting.${STILL_OPEN}`,
         }
       );
+    // A job that brings a Raspberry Pi image too (console 2.26.0, docs/pi-ota.md): both downloads come
+    // before anything is installed, and the Pi gets its image once the new firmware is confirmed. A Pi
+    // image alone goes through these two as well.
+    case 'downloading_pi':
+      return underWay(
+        'download',
+        3,
+        {
+          title: progress === null ? 'Downloading the Pi image' : `Downloading the Pi image ${progress}%`,
+          text:
+            'The board is downloading the Raspberry Pi image onto its SD card. Nothing is installed yet: ' +
+            'its own firmware, if this brings one, waits in its spare slot until both are here and checked.',
+          extra: { progress, said: 'Downloading the Pi image' },
+        },
+        {
+          was: 'downloading the Pi image',
+          quiet: `The board went offline while it downloaded the Pi image. It goes on from the SD card.${STILL_OPEN}`,
+        }
+      );
+    case 'flashing_pi':
+      return underWay(
+        'upload',
+        5,
+        {
+          title: progress === null ? 'Sending to the Pi' : `Sending to the Pi ${progress}%`,
+          text:
+            "The board is sending the image from its SD card to the Raspberry Pi's spare partition over SPI. " +
+            'Its own firmware, if this brought one, is confirmed already.',
+          extra: { progress, said: 'Sending to the Pi' },
+        },
+        {
+          was: 'sending the Pi its image',
+          quiet: `The board went offline while it sent the Pi its image. It sends it again when it is back.${STILL_OPEN}`,
+        }
+      );
     case 'testing':
       return underWay(
         'pulse',
@@ -4193,6 +4365,25 @@ const AUDIT_ACTIONS = {
     triedAlone: 'tried to revoke a release',
     icon: 'ban',
   },
+  // Raspberry Pi images (console 2.26.0): the record, the file found in S3, a revocation.
+  'pi_image.upload': {
+    done: 'began uploading Pi image',
+    tried: 'tried to upload Pi image',
+    triedAlone: 'tried to upload a Pi image',
+    icon: 'upload',
+  },
+  'pi_image.complete': {
+    done: 'finished uploading Pi image',
+    tried: 'tried to finish uploading Pi image',
+    triedAlone: 'tried to finish a Pi image upload',
+    icon: 'check',
+  },
+  'pi_image.revoke': {
+    done: 'revoked Pi image',
+    tried: 'tried to revoke Pi image',
+    triedAlone: 'tried to revoke a Pi image',
+    icon: 'ban',
+  },
   'deployment.create': {
     done: 'deployed',
     doneAlone: 'started a deployment',
@@ -4710,6 +4901,10 @@ export const REFUSAL_WORDS = {
   version_zero: 'Version 0.0.0+0 is never accepted',
   device_busy: 'A board had an unfinished update',
   release_revoked: 'The release is revoked',
+  // Raspberry Pi images (console 2.26.0).
+  not_uploaded: 'The file of that Pi image has not arrived',
+  no_pi: 'A board reports no Raspberry Pi',
+  not_pi_build: 'The release is not a build with Raspberry Pi updates',
   invalid_token: 'The API token was not valid, or had been revoked or had expired',
   token_not_allowed: 'An API token cannot be used for that',
   phone_not_allowed: 'The phone app’s sign-in cannot be used for that',
@@ -5020,6 +5215,9 @@ function auditFact(entry, key, value) {
 export const CHANGE_ACTIONS = Object.freeze([
   'firmware.upload',
   'firmware.revoke',
+  'pi_image.upload',
+  'pi_image.complete',
+  'pi_image.revoke',
   'firmware.notes',
   'deployment.create',
   'deployment.cancel',
