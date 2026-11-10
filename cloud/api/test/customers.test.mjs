@@ -11,6 +11,7 @@ import { createApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { authenticateCustomer } from '../src/customer/app.mjs';
 import { customerEvent as shownEvent } from '../src/customer/boards.mjs';
+import { clampedName } from '../src/handlers/customers.mjs';
 import { loadCustomerAdminConfig, loadCustomerApiConfig } from '../src/customer/config.mjs';
 import { accessClaims, apiEvent, createFakeAws, fakeEnv } from './fake-aws.mjs';
 import {
@@ -648,4 +649,12 @@ test('remove a customer: the account is deleted and its boards stay listed under
   const entry = w.fake.auditLog().find((item) => item.action === 'customer.remove' && item.outcome === 'ok');
   assert.deepEqual(entry.changes, [{ field: 'account', from: 'active', to: null }]);
   assert.equal((await w.console('POST', `/api/customers/${w.ben.sub}/remove`, { as: w.viewer, body: {} })).status, 403);
+});
+
+test('a name a customer set themselves is clamped: no control or direction characters, folded spaces, 60 characters', () => {
+  assert.equal(clampedName('Ada Lovelace'), 'Ada Lovelace');
+  assert.equal(clampedName('\u202Eevil\u202C  name\n\t\u0000x\u2028y'), 'evil name x y');
+  assert.equal([...clampedName('é'.repeat(100))].length, 60);
+  assert.equal(clampedName(undefined), '');
+  assert.equal(clampedName({ toString: () => 'x' }), '');
 });

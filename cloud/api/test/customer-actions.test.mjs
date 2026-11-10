@@ -572,3 +572,25 @@ test('the mailer sends nothing while e-mails are off; turned on, it sends to an 
   // With no sender, turning it on sends nothing either.
   assert.equal(createCustomerMailer({ enabled: true, getCustomer }).enabled, false);
 });
+
+test('requests in flight together cannot pass the limit: the count is taken with a conditional slot', async () => {
+  const w = await world();
+  // Every request reads the same old count, as parallel requests do.
+  w.fake.recentCustomerActions = async () => [];
+  const answers = await Promise.all(
+    Array.from({ length: 15 }, (_, count) => w.choose(w.ada, { offline: count % 2 === 0 }))
+  );
+  const statuses = answers.map((answer) => answer.status);
+  assert.equal(statuses.filter((status) => status === 200).length, WRITES_PER_MINUTE);
+  assert.equal(statuses.filter((status) => status === 429).length, 5);
+});
+
+test('a slot that cannot be taken fails closed with a 503', async () => {
+  const w = await world();
+  w.fake.takeWriteSlot = async () => {
+    throw new Error('throttled');
+  };
+  const response = await w.choose(w.ada, { offline: true });
+  assert.deepEqual([response.status, response.body.error.code], [503, 'unavailable']);
+  assert.equal(w.fake.customerActionLog().length, 0);
+});

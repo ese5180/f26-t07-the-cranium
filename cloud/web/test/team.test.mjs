@@ -482,3 +482,22 @@ test('the Customers page shows the authenticator, and asks twice before a reset 
   assert.deepEqual(customers.readCustomers(CUSTOMER_REPLY).customers[0].mfa, true);
   assert.deepEqual(core.readFilters('customers', { status: 'reset' }).status, 'reset');
 });
+
+test("the Customers page labels a customer's own name as theirs, without control or direction characters", () => {
+  const app = fakeApp({ customers: CUSTOMER_REPLY });
+  app.state = { devices: { value: { devices: [] }, error: null, loadedAt: NOW, loading: false } };
+  customers.connect(app);
+  const listing = customers.resources(app.state)[0];
+  const spoof = { ...CUSTOMER_REPLY.customers[0], name: '\u202EAdmin \u2066(staff)\u2069 ' + 'x'.repeat(200) };
+  listing.value = customers.readCustomers({ ...CUSTOMER_REPLY, customers: [spoof] });
+  const root = draw(
+    customers.customersView({
+      state: { now: NOW, filters: { customers: {} }, devices: app.state.devices },
+      actions: {},
+    })
+  );
+  const meta = textOf(one(root, 'li.customer'));
+  assert.match(meta, /customer's name: Admin \(staff\) x+/);
+  assert.doesNotMatch(meta, /[‮⁦⁩]/u);
+  assert.ok(!meta.includes('x'.repeat(61)));
+});
