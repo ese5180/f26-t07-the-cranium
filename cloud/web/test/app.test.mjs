@@ -32,7 +32,7 @@ import {
   textOf,
 } from './page.mjs';
 // The Map and Account pages (docs/fleet.md).
-import { ACCOUNT, BLUETOOTH, BRIDGE, FLEET, LABELS, LIVE, MAP, MEMFAULT } from './page.mjs';
+import { ACCOUNT, APPS, BLUETOOTH, BRIDGE, CUSTOMERS, FLEET, LABELS, LIVE, MAP, MEMFAULT } from './page.mjs';
 import {
   INSTALLING,
   MANAGER,
@@ -332,6 +332,8 @@ async function openTab(t, options = {}) {
         'live.js': LIVE,
         'memfault-page.js': MEMFAULT,
         'labels.js': LABELS,
+        'apps.js': APPS,
+        'customers.js': CUSTOMERS,
       },
       `tab ${copies}`
     )
@@ -2745,12 +2747,14 @@ const PRODUCT_PAGES = [
   '#/memfault',
   '#/alerts',
   '#/activity',
+  '#/apps',
+  '#/customers',
   '#/account',
 ];
-// A board's page, Reports, Apps, Team, Customers, Board setup and Database fetch scripts of their own, which this
-// harness does not serve: copy.test.mjs, team.test.mjs and memfault.test.mjs hold those to the same rules.
+// A board's page, Reports, Team, Board setup and Database fetch scripts of their own, which this harness does not
+// serve: copy.test.mjs, team.test.mjs and memfault.test.mjs hold those to the same rules.
 const DEVELOPER_PAGES = ['#/serial', '#/tokens', '#/history'];
-const INTERNALS = /cloud\/deploy\.sh|DynamoDB|Cognito|~\/\.cranium\//;
+const INTERNALS = /deploy\.sh|DynamoDB|Cognito|~\/\.cranium|scripts\/|\bAWS\b|CustomerDomainName/;
 
 /** The text of a node, leaving out every <details>, which is closed until someone opens it. */
 const outsideDetails = (node) =>
@@ -2761,20 +2765,39 @@ const outsideDetails = (node) =>
       : node.childNodes.map(outsideDetails).join(' ');
 
 test('every page opens with a lede of at most 15 words, and no product page names internals outside Details', async (t) => {
-  const tab = await openTab(t);
+  // No app published yet, and no address for the customer site yet: the cards that say so are drawn too.
+  const replies = {
+    '/api/apps': { android: { releases: [] }, ios: {} },
+    '/api/customers': { configured: true, customers: [], siteUrl: '' },
+  };
+  const tab = await openTab(t, {
+    answer: (method, url) => (Object.hasOwn(replies, url) ? Response.json(replies[url]) : null),
+  });
   let ledes = 0;
+  const named = [];
   for (const route of [...PRODUCT_PAGES, ...DEVELOPER_PAGES]) {
     await tab.goto(route);
     await tab.wait(0);
+    // A page whose script is fetched when it opens says "Loading the page…" until it has come.
+    await until(() => !textOf(tab.main).includes('Loading the page'), route);
     for (const lede of all(tab.main, 'p.page-lede')) {
       const words = textOf(lede).split(/\s+/).filter(Boolean);
       assert.ok(words.length <= 15, `${route}: "${textOf(lede)}" is ${words.length} words`);
       ledes += 1;
     }
     if (PRODUCT_PAGES.includes(route)) {
-      assert.doesNotMatch(outsideDetails(tab.main).replace(/\s+/g, ' '), INTERNALS, route);
+      const text = outsideDetails(tab.main).replace(/\s+/g, ' ');
+      for (const found of text.matchAll(new RegExp(INTERNALS, 'g'))) {
+        named.push(`${route}: …${text.slice(Math.max(0, found.index - 60), found.index + 40)}…`);
+      }
     }
   }
+  assert.deepEqual(named, []);
+  // The pages were drawn, not only their loading lines.
+  await tab.goto('#/apps');
+  assert.match(textOf(tab.main), /Get the code\. Commands/);
+  await tab.goto('#/customers');
+  assert.match(textOf(tab.main), /invitations wait until the customer site has its address/);
   // Most pages have a lede; a page that failed to draw would have none and prove nothing.
   assert.ok(ledes >= 12, `${ledes} ledes`);
 });

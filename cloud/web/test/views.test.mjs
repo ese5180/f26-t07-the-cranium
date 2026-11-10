@@ -733,7 +733,7 @@ test('the devices page shows a board that has an update waiting for it', async (
   assert.equal(one(offered, 'a.fact-link').getAttribute('href'), `#/deployments/${OFFERED}`);
   // A resting cue that the whole card is a link, and the hint of a board that never connected, below its rows.
   assert.equal(all(one(offered, 'h2.device-name'), 'svg').length, 1);
-  assert.match(textOf(one(never, 'p.device-seen')), /^Has not reported to AWS IoT yet\.$/);
+  assert.match(textOf(one(never, 'p.device-seen')), /^Has not reported to the console yet\.$/);
   assert.match(textOf(one(never, 'p.device-help')), /Power it up and check that it was provisioned\./);
   assert.equal(all(offered, 'p.device-help').length, 0);
   // No news is drawn as less than news.
@@ -828,7 +828,7 @@ test('a board that has never had a heartbeat says so, and the list of devices ke
   });
   assert.equal(textOf(one(page(views.overviewView, state), 'span.board-line-note')), 'Never connected');
   const list = page(views.devicesView, state);
-  assert.equal(textOf(one(list, 'p.device-seen')), 'Has not reported to AWS IoT yet.');
+  assert.equal(textOf(one(list, 'p.device-seen')), 'Has not reported to the console yet.');
   assert.deepEqual(all(one(list, 'article.device'), 'dt').map(textOf), ['Firmware', 'Update', 'Signal', 'Uptime']);
   const own = page(views.deviceView, state, { thing: NEVER });
   assert.equal(textOf(one(one(own, 'div.fact', 'Heartbeat'), 'dd')), 'None yet');

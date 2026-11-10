@@ -2445,7 +2445,7 @@ function boardCard(ctx, device) {
                   heartbeatAge(device.lastSeen, now)
                 ),
               ]
-            : 'No heartbeat yet: it has not reported to AWS IoT.'
+            : 'No heartbeat yet: it has not reported to the console.'
         )
       ),
       presence(device, now)
