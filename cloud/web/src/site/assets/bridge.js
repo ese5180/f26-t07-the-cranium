@@ -177,6 +177,24 @@ export function createBridge(transport, { timers = globalThis } = {}) {
   return { call, on };
 }
 
+// What an app's hello may call its system: the phones, the Mac app, and the desktop app's windows or linux.
+// An app from before the Mac app says ios or android; a word not listed here reads as none.
+const PLATFORMS = new Set(['ios', 'android', 'macos', 'windows', 'linux']);
+
+/**
+ * What the pages call the device the app runs on: "phone", "Mac" or "computer", and "device" when the app
+ * did not say. Wording that follows it ("keep this Mac near the board") never says phone on a laptop.
+ */
+export function deviceName(platform) {
+  if (platform === 'ios' || platform === 'android') return 'phone';
+  if (platform === 'macos') return 'Mac';
+  if (platform === 'windows' || platform === 'linux') return 'computer';
+  return 'device';
+}
+
+/** "this phone", "this Mac", "this computer" or "this device". */
+export const thisDevice = (platform) => `this ${deviceName(platform)}`;
+
 /** The app's hello, reduced to what the pages use; null when it is not one. */
 export function readHello(value) {
   if (!isRecord(value) || !Number.isInteger(value.bridge) || value.bridge < 1) return null;
@@ -185,7 +203,7 @@ export function readHello(value) {
   const bundle = isRecord(value.bundle) ? value.bundle : {};
   return {
     bridge: value.bridge,
-    platform: value.platform === 'ios' || value.platform === 'android' ? value.platform : null,
+    platform: PLATFORMS.has(value.platform) ? value.platform : null,
     shell: { version: text(shell.version), build: text(shell.build) },
     bundle: {
       id: text(bundle.id, 16),
@@ -342,7 +360,14 @@ export function createVault(bridge, pool) {
 /** The line a page shows about the app it is in: "iPhone app 0.8.0 (14), pages 2.1.1 from the console". */
 export function appWords(hello) {
   if (!hello) return null;
-  const name = hello.platform === 'ios' ? 'iPhone app' : hello.platform === 'android' ? 'Android app' : 'The app';
+  const name =
+    {
+      ios: 'iPhone app',
+      android: 'Android app',
+      macos: 'Mac app',
+      windows: 'Desktop app',
+      linux: 'Desktop app',
+    }[hello.platform] ?? 'The app';
   const shell = hello.shell.version
     ? ` ${hello.shell.version}${hello.shell.build ? ` (${hello.shell.build})` : ''}`
     : '';

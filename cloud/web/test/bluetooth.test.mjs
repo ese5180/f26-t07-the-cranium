@@ -90,7 +90,7 @@ function status({
 }
 
 /** Everything a flow talks to, and what it was asked. */
-function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {}) {
+function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on', device = 'phone' } = {}) {
   let now = START;
   const timers = new Map();
   let nextTimer = 0;
@@ -164,6 +164,7 @@ function world({ clearance = null, imageBytes = SENT.bytes, radio = 'on' } = {})
       clearTimeout: (id) => timers.delete(id),
     },
     devices: () => [{ thing: THING, online: true }],
+    device,
   });
   flow.setReleases(RELEASES);
   const settle = async () => {
@@ -467,6 +468,288 @@ test('an upload that breaks off says how to go on, and nothing is followed', asy
 
 test('the page is only for release managers in the app', () => {
   const words = (state) => JSON.stringify(bt.bluetoothView({ state, bluetooth: null }));
-  assert.match(words({ app: null, me: { canWrite: true } }), /in the phone apps only/);
+  assert.match(words({ app: null, me: { canWrite: true } }), /in the apps only/);
   assert.match(words({ app: { ble: true }, me: { canWrite: false } }), /Only a release manager/);
+});
+
+// The page's states and figures.
+
+const textOf = (node) => JSON.stringify(node);
+
+test('the speed and the time left come from the progress reported, and say nothing before there is enough', () => {
+  assert.deepEqual(bt.transferStats([], 1000), { speed: null, secondsLeft: null });
+  assert.deepEqual(bt.transferStats([{ at: 0, sent: 0 }], 1000), { speed: null, secondsLeft: null });
+  // Under 1.5 s of progress is too little to go on, and so is progress that does not move.
+  assert.deepEqual(
+    bt.transferStats(
+      [
+        { at: 0, sent: 0 },
+        { at: 1000, sent: 10 },
+      ],
+      1000
+    ),
+    { speed: null, secondsLeft: null }
+  );
+  assert.deepEqual(
+    bt.transferStats(
+      [
+        { at: 0, sent: 5 },
+        { at: 5000, sent: 5 },
+      ],
+      1000
+    ),
+    { speed: null, secondsLeft: null }
+  );
+  // 100 bytes a second, 600 to go.
+  const samples = [0, 1, 2, 3, 4].map((s) => ({ at: s * 1000, sent: s * 100 }));
+  assert.deepEqual(bt.transferStats(samples, 1000), { speed: 100, secondsLeft: 6 });
+  // Only the last 8 s count: the board was slow at first.
+  const slowThenFast = [
+    { at: 0, sent: 0 },
+    { at: 10000, sent: 100 },
+    { at: 12000, sent: 300 },
+    { at: 14000, sent: 500 },
+  ];
+  assert.equal(bt.transferStats(slowThenFast, 1000).speed, 100);
+  assert.equal(bt.transferStats(slowThenFast.slice(1), 1000).speed, 100);
+  assert.equal(
+    bt.transferStats(
+      [
+        { at: 0, sent: 0 },
+        { at: 4000, sent: 400 },
+        { at: 8000, sent: 800 },
+      ],
+      800
+    ).secondsLeft,
+    0
+  );
+});
+
+test('a time left is rounded, and is said to be about so long', () => {
+  assert.equal(bt.timeLeftWords(null), null);
+  assert.equal(bt.timeLeftWords(3), 'under 5 s');
+  assert.equal(bt.timeLeftWords(32), 'about 30 s');
+  assert.equal(bt.timeLeftWords(59), 'about 1 min');
+  assert.equal(bt.timeLeftWords(60), 'about 1 min');
+  assert.equal(bt.timeLeftWords(195), 'about 3 min 15 s');
+});
+
+test('release notes in one line, and a percentage that is 100 only when every byte went', () => {
+  assert.equal(bt.notesSnippet('  Two\n lines  '), 'Two lines');
+  assert.equal(bt.notesSnippet(''), null);
+  assert.equal(bt.notesSnippet(undefined), null);
+  assert.equal(bt.notesSnippet('x'.repeat(200), 20), `${'x'.repeat(19)}…`);
+  assert.equal(bt.percentSent(null), 0);
+  assert.equal(bt.percentSent({ sent: 0, total: 0 }), 0);
+  assert.equal(bt.percentSent({ sent: 199, total: 200 }), 99);
+  assert.equal(bt.percentSent({ sent: 200, total: 200 }), 100);
+});
+
+test('the page says what the app reports at each step, and only that', async () => {
+  const w = await atTheBoard();
+  let run = bt.describeRun(w.flow.flow, { device: 'Mac' });
+  assert.equal(run.title, 'Paired with Cranium-1A2B');
+  assert.deepEqual(
+    run.steps.map((step) => step.state),
+    ['done', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming', 'upcoming']
+  );
+  w.hold('ble.upload');
+  const sending = w.flow.send();
+  await until(() => w.asked('ble.upload').length === 1, 'the upload');
+  w.emit('ble.progress', { sent: 8, total: 160 });
+  run = bt.describeRun(w.flow.flow, { device: 'Mac' });
+  assert.equal(run.title, 'Sending 1.13.0+0 to Cranium-1A2B');
+  assert.match(run.text, /Keep this Mac near the board/);
+  assert.equal(run.percent, 5);
+  assert.equal(run.steps[2].state, 'current');
+  // The live line changes every tenth only: no reading out of every piece.
+  assert.equal(run.announce, 'Sending 1.13.0+0 to Cranium-1A2B: 0% sent.');
+  w.emit('ble.progress', { sent: 15, total: 160 });
+  assert.equal(bt.describeRun(w.flow.flow, { device: 'Mac' }).announce, run.announce);
+  w.emit('ble.progress', { sent: 96, total: 160 });
+  assert.equal(bt.describeRun(w.flow.flow, { device: 'Mac' }).announce, 'Sending 1.13.0+0 to Cranium-1A2B: 60% sent.');
+  w.refuse('ble.upload', Object.assign(new Error('The board went out of range.'), { code: 'failed' }));
+  await sending;
+  run = bt.describeRun(w.flow.flow, { device: 'Mac' });
+  assert.equal(run.tone, 'bad');
+  assert.equal(run.outcome, 'failed');
+  assert.equal(run.text, w.flow.flow.problem);
+  assert.deepEqual(
+    run.steps.map((step) => step.state),
+    ['done', 'done', 'failed', 'skipped', 'skipped', 'skipped', 'skipped']
+  );
+});
+
+test('a send can be cancelled: the app is told, the page says so, and the broken upload is not a failure', async () => {
+  const w = await atTheBoard();
+  w.hold('ble.upload');
+  const sending = w.flow.send();
+  await until(() => w.asked('ble.upload').length === 1, 'the upload');
+  w.emit('ble.progress', { sent: 40, total: 160 });
+  w.flow.cancel();
+  assert.equal(w.flow.flow.step, 'cancelled');
+  assert.equal(w.asked('ble.cancel').length, 1);
+  assert.ok(w.asked('ble.disconnect').length >= 1);
+  // The app answers the upload it was stopped in the middle of with an error: not shown as one.
+  w.refuse('ble.upload', Object.assign(new Error('cancelled'), { code: 'cancelled' }));
+  await sending;
+  assert.equal(w.flow.flow.step, 'cancelled');
+  assert.equal(w.flow.flow.problem, null);
+  const run = bt.describeRun(w.flow.flow, { device: 'Mac' });
+  assert.equal(run.title, 'Cancelled');
+  assert.match(run.text, /Cranium-1A2B keeps running 1\.12\.0\+0/);
+  assert.equal(run.steps[2].state, 'stopped');
+  // Before the first piece goes, cancelling is going back to the start.
+  const v = await atTheBoard();
+  v.flow.cancel();
+  assert.equal(v.flow.flow.step, 'release');
+});
+
+test('progress is kept for the speed, at most 40 readings', async () => {
+  const w = await atTheBoard();
+  w.hold('ble.upload');
+  w.flow.send();
+  await until(() => w.asked('ble.upload').length === 1, 'the upload');
+  for (let index = 1; index <= 60; index += 1) w.emit('ble.progress', { sent: index, total: 160 });
+  assert.equal(w.flow.flow.samples.length, 40);
+  assert.equal(w.flow.flow.samples.at(-1).sent, 60);
+});
+
+test('after the send the steps are the board’s own, and what it ends in says so', () => {
+  const base = {
+    step: 'following',
+    release: '1.13.0+0',
+    releases: RELEASES,
+    board: { id: 'p', name: BOARD.name },
+    running: '1.12.0+0',
+    passkey: { passkey: '1', thing: THING },
+    facts: { version: '1.13.0+0', thing: THING },
+    progress: { sent: 10, total: 10 },
+    samples: [],
+    problem: null,
+  };
+  const row = (step, state, title, detail = null, at = null) => ({ step, state, title, detail, at });
+  const sent = row('sent', 'done', 'Sent');
+  const button = (line) =>
+    bt.describeRun({ ...base, line: { finished: false, note: null, outcome: null, ...line } }, { now: 0 });
+
+  const waiting = button({
+    deadline: 90000,
+    waitingForButton: true,
+    rows: [sent, row('button', 'current', 'Button 1 pressed, accepted')],
+  });
+  assert.equal(waiting.tone, 'act');
+  assert.equal(waiting.title, 'Press Button 1 on the board');
+  assert.match(waiting.text, /1:30 left/);
+  assert.equal(waiting.steps[3].state, 'current');
+
+  const restarting = button({
+    rows: [
+      sent,
+      row('button', 'done', 'x'),
+      row('installing', 'current', 'Installing and restarting', 'The bootloader.'),
+    ],
+  });
+  assert.equal(restarting.title, 'Cranium-1A2B is restarting into 1.13.0+0');
+  assert.equal(restarting.busy, true);
+  assert.equal(restarting.steps[4].state, 'current');
+  assert.equal(restarting.steps[5].state, 'upcoming');
+
+  const kept = button({
+    outcome: 'kept',
+    tentative: false,
+    finished: true,
+    rows: [
+      sent,
+      row('button', 'done', 'x', null, Date.parse('2026-11-05T12:01:00Z')),
+      row('installing', 'done', 'x'),
+      row('trial', 'done', 'x'),
+      row('end', 'done', 'Kept 1.13.0+0'),
+    ],
+  });
+  assert.equal(kept.tone, 'good');
+  assert.equal(kept.outcome, 'kept');
+  assert.equal(kept.title, 'Kept 1.13.0+0');
+  assert.equal(kept.thing, THING);
+  assert.ok(kept.steps.slice(3).every((step) => step.state === 'done'));
+
+  const declined = button({
+    outcome: 'declined',
+    finished: true,
+    rows: [
+      sent,
+      row('button', 'failed', 'Button 2 pressed: the image was thrown away', 'The board said so over Bluetooth.'),
+    ],
+  });
+  assert.equal(declined.tone, 'warn');
+  assert.equal(declined.title, 'Button 2 pressed: the image was thrown away');
+  assert.equal(declined.steps[3].state, 'failed');
+  assert.equal(declined.steps[4].state, 'skipped');
+
+  const back = button({
+    outcome: 'rolled_back',
+    rolledBackTo: '1.12.0+0',
+    finished: true,
+    rows: [
+      sent,
+      row('button', 'done', 'x'),
+      row('installing', 'done', 'x'),
+      row('trial', 'done', 'x'),
+      row('end', 'failed', 'Rolled back', 'The bootloader put the old one back.'),
+    ],
+  });
+  assert.equal(back.tone, 'bad');
+  assert.equal(back.title, 'Rolled back to 1.12.0+0');
+  assert.equal(back.text, 'The bootloader put the old one back.');
+  // No step is made up: one the timeline does not have is not started.
+  assert.equal(describeKeys(restarting.steps), 'done done done done current upcoming upcoming');
+});
+
+const describeKeys = (steps) => steps.map((step) => step.state).join(' ');
+
+test('the page says the device the app runs on, not a phone, wherever it speaks of it', () => {
+  const view = (device) =>
+    textOf(
+      bt.bluetoothView({
+        state: { app: { ble: true, device }, me: { canWrite: true }, now: 0 },
+        bluetooth: {
+          flow: {
+            step: 'release',
+            releases: RELEASES,
+            release: RELEASES[1].version,
+            boards: [],
+            running: null,
+            problem: null,
+          },
+        },
+      })
+    );
+  assert.match(view('phone'), /from this phone\./);
+  assert.match(view('Mac'), /from this Mac\./);
+  assert.match(view('Mac'), /for this Mac to find/);
+  assert.doesNotMatch(view('Mac'), /phone/);
+  assert.match(view('computer'), /from this computer\./);
+  assert.match(view(undefined), /from this device\./);
+  const flow = (device) => {
+    const w = world({ radio: 'unsupported', device });
+    return w.flow.lookForBoards().then(() => w.flow.flow.problem);
+  };
+  return Promise.all([flow('Mac'), flow('computer')]).then(([mac, computer]) => {
+    assert.equal(mac, 'This Mac has no Bluetooth LE.');
+    assert.equal(computer, 'This computer has no Bluetooth LE.');
+  });
+});
+
+test('the cards of the page: a board is picked by its signal, and a run has the live line and the steps', async () => {
+  const w = await atTheBoard();
+  const page = textOf(
+    bt.bluetoothView({
+      state: { app: { ble: true, device: 'Mac' }, me: { canWrite: true }, now: 0 },
+      bluetooth: w.flow,
+    })
+  );
+  assert.match(page, /1\.12\.0\+0/);
+  assert.match(page, /Steps of the update over Bluetooth/);
+  assert.match(page, /"role":"status","aria-live":"polite"/);
+  assert.match(page, /Newest/);
 });

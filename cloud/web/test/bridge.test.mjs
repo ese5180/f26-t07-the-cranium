@@ -176,6 +176,28 @@ test('the hello: the version, the app and its pages, and only the features this 
     'iPhone app 0.8.0 (14), pages of console 2.1.1, from the console. The console has newer pages, which need a newer app'
   );
   assert.equal(line.hello.needsNewerApp, false);
+  // The Mac app says macos, the desktop app windows or linux; an older app says ios or android.
+  const words = (platform) => bridge.appWords({ ...line.hello, platform });
+  assert.equal(bridge.readHello({ ...HELLO, platform: 'macos' }).platform, 'macos');
+  assert.equal(bridge.readHello({ ...HELLO, platform: 'windows' }).platform, 'windows');
+  assert.equal(bridge.readHello({ ...HELLO, platform: 'linux' }).platform, 'linux');
+  assert.equal(bridge.readHello({ ...HELLO, platform: 'ios' }).platform, 'ios');
+  assert.equal(bridge.readHello({ ...HELLO, platform: 'beos' }).platform, null);
+  assert.match(words('macos'), /^Mac app 0\.8\.0/);
+  assert.match(words('windows'), /^Desktop app 0\.8\.0/);
+  assert.match(words('linux'), /^Desktop app 0\.8\.0/);
+  assert.match(words(null), /^The app 0\.8\.0/);
+  // What a page calls the device: a phone is a phone, a laptop is not.
+  assert.deepEqual(['ios', 'android', 'macos', 'windows', 'linux', null].map(bridge.deviceName), [
+    'phone',
+    'phone',
+    'Mac',
+    'computer',
+    'computer',
+    'device',
+  ]);
+  assert.equal(bridge.thisDevice('macos'), 'this Mac');
+  assert.equal(bridge.thisDevice('ios'), 'this phone');
   assert.equal(bridge.readHello({ bridge: 0 }), null);
   assert.equal(bridge.readHello('hello'), null);
 
