@@ -46,6 +46,11 @@ final class MacRadioHub {
         return true
     }
 
+    /// An offline link came up for the holder (ble.offline.connect): the radio stays held until it goes.
+    func linkUp(_ window: String) {
+        if owner == window { linked = true }
+    }
+
     /// Scanning or watching stopped: the radio is let go unless a link is up.
     func stoppedUsing(_ window: String) {
         if owner == window, !linked { owner = nil }
@@ -54,12 +59,13 @@ final class MacRadioHub {
     /// An event from the radio, to the holder only. A link that went away lets the radio go.
     func deliver(_ name: String, _ data: [String: JSONValue]) {
         guard let owner else { return }
-        if name == "ble.link" {
+        let isLink = name == "ble.link" || name == "ble.offline.link"
+        if isLink {
             if case .string("connected")? = data["state"] { linked = true }
             if case .string("disconnected")? = data["state"] { linked = false }
         }
         sinks[owner]?(name, data)
-        if name == "ble.link", !linked { self.owner = nil }
+        if isLink, !linked { self.owner = nil }
     }
 
     static var busy: BridgeError {
