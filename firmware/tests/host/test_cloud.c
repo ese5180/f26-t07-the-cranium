@@ -721,6 +721,28 @@ static void test_memfault_hears_of_the_connection_and_the_reports(void)
 	CHECK(lib.reports_sent == 1 && lib.reports_failed == 1);
 }
 
+/* A session message goes to the board's own session topic, at QoS 0, and the longest fits the buffer. */
+static void test_a_session_goes_to_the_session_topic(void)
+{
+	const char json[] = "{\"v\":1,\"type\":\"now\",\"playing\":false}";
+	uint32_t published = now_stats().published;
+
+	CHECK(cloud_session_publish(json) == 0);
+	CHECK_TEXT(lib.sent_topic, "cranium/" THING "/session");
+	CHECK(lib.sent_shadow_topic == AWS_IOT_SHADOW_TOPIC_NONE);
+	CHECK(lib.sent_qos == MQTT_QOS_0_AT_MOST_ONCE);
+	CHECK_TEXT(lib.sent_payload, json);
+	CHECK(now_stats().published == published + 1);
+
+	lib.send_result = -EAGAIN;
+	CHECK(cloud_session_publish(json) == -EAGAIN);
+	lib.send_result = 0;
+
+	for (size_t i = 0; cloud_subscription(i) != NULL; i++) {
+		CHECK(strstr(cloud_subscription(i), "/session") == NULL);
+	}
+}
+
 #define JOB_REPLY(url)                                                                             \
 	"{\"clientToken\":\"x\",\"timestamp\":1760137000,\"execution\":{\"jobId\":\"job-7\","     \
 	"\"status\":\"QUEUED\",\"queuedAt\":1760136000,\"versionNumber\":1,\"executionNumber\":1,"   \
@@ -859,6 +881,7 @@ int main(void)
 	test_memfault_hears_of_the_connection_and_the_reports();
 	test_a_jobs_reply_is_read_where_it_arrives();
 	test_a_report_waits_for_its_own_acknowledgement();
+	test_a_session_goes_to_the_session_topic();
 
 	printf("%d cloud checks, %d failed\n", checks, failures);
 	return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -15,6 +15,7 @@
 #include "command.h"
 #include "identity.h"
 #include "location.h"
+#include "sessions.h"
 #include "mflt.h"
 #if defined(CONFIG_APP_MEMFAULT)
 #include "mflt_link.h"
@@ -36,6 +37,7 @@ LOG_MODULE_REGISTER(cloud, CONFIG_APP_LOG_LEVEL);
 #define COMMANDS_TOPIC_LENGTH OWN_TOPIC_LENGTH("commands")
 #define LOCATION_TOPIC_LENGTH OWN_TOPIC_LENGTH("location")
 #define MEMFAULT_TOPIC_LENGTH OWN_TOPIC_LENGTH("memfault")
+#define SESSION_TOPIC_LENGTH  OWN_TOPIC_LENGTH("session")
 #define PUBLISH_QOS0_HEADER 5
 BUILD_ASSERT(EVENTS_TOPIC_LENGTH < TOPIC_MAX, "the events topic must fit its buffer");
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX - 1 <=
@@ -44,6 +46,9 @@ BUILD_ASSERT(PUBLISH_QOS0_HEADER + EVENTS_TOPIC_LENGTH + CLOUD_EVENTS_JSON_MAX -
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + LOCATION_TOPIC_LENGTH + LOCATION_JSON_MAX - 1 <=
 		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
 	     "the longest location must fit the MQTT buffer with its topic");
+BUILD_ASSERT(PUBLISH_QOS0_HEADER + SESSION_TOPIC_LENGTH + SESSION_JSON_MAX - 1 <=
+		     CONFIG_MQTT_HELPER_RX_TX_BUFFER_SIZE,
+	     "the longest session message must fit the MQTT buffer with its topic");
 #if defined(CONFIG_APP_MEMFAULT)
 BUILD_ASSERT(PUBLISH_QOS0_HEADER + MEMFAULT_TOPIC_LENGTH + MFLT_LINK_HEADER +
 			     CONFIG_APP_MEMFAULT_CHUNK_MAX <=
@@ -675,6 +680,24 @@ int cloud_location_publish(const char *json)
 	}
 
 	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic_location, AWS_IOT_SHADOW_TOPIC_NONE, json);
+}
+
+/* QoS 0, as the events: a session message that did not get there is made again by the next one. */
+int cloud_session_publish(const char *json)
+{
+	char topic[SESSION_TOPIC_LENGTH + 1];
+	int written;
+
+	if (!atomic_get(&topics_ready)) {
+		return -ENOTCONN;
+	}
+
+	written = snprintk(topic, sizeof(topic), "cranium/%s/session", identity_thing_name());
+	if (written < 0 || written >= (int)sizeof(topic)) {
+		return -ENOSPC;
+	}
+
+	return publish_at(MQTT_QOS_0_AT_MOST_ONCE, topic, AWS_IOT_SHADOW_TOPIC_NONE, json);
 }
 
 #if defined(CONFIG_APP_MEMFAULT)

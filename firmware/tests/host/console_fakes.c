@@ -223,6 +223,18 @@ void cloud_disconnect(void)
 	fake.cloud_connected = false;
 }
 
+int cloud_session_publish(const char *json)
+{
+	if (!fake.cloud_connected) {
+		return -ENOTCONN;
+	}
+	if (fake.session_messages < 4) {
+		snprintf(fake.session_json[fake.session_messages], sizeof(fake.session_json[0]), "%s", json);
+	}
+	fake.session_messages++;
+	return 0;
+}
+
 bool cloud_is_connected(void)
 {
 	return fake.cloud_connected;

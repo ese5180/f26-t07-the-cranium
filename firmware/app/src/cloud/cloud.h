@@ -129,6 +129,13 @@ int cloud_event_publish(const char *json);
 int cloud_location_publish(const char *json);
 
 /*
+ * Publish one listening session or now playing message (src/cloud/sessions.h) to
+ * cranium/<thing name>/session, at QoS 0, from 1.18.0. The device policy has to allow that topic, as it
+ * has to allow the events topic. The topic is built here on the stack, so that it takes no RAM of its own.
+ */
+int cloud_session_publish(const char *json);
+
+/*
  * Publish one frame of Memfault data (src/mflt/mflt_link.h) to cranium/<thing name>/memfault, at QoS 0:
  * binary, len bytes, from 1.14.0 with CONFIG_APP_MEMFAULT only. The device policy has to allow
  * that topic, as it has to allow the events topic.

@@ -25,6 +25,9 @@
 #include "identity.h"
 #include "net.h"
 #include "ota.h"
+#if defined(CONFIG_APP_SESSIONS)
+#include "sessions.h"
+#endif
 #include "stuck.h"
 #include "version.h"
 
@@ -1535,6 +1538,39 @@ static void cmd_button(int argc, char **argv)
 	reply_ok("button %s", argv[0]);
 }
 
+#if defined(CONFIG_APP_SESSIONS)
+/*
+ * For a board with no Raspberry Pi: three messages of a made-up session on the session topic, the first
+ * track at the given time plus 10 s. The board has no clock, so the person gives the time, as UTC:
+ * SESSION_TEST|2026-11-10T02:00:00Z. The cloud refuses a time before 2024 or a day ahead.
+ */
+static void cmd_session_test(int argc, char **argv)
+{
+	int64_t started;
+	int err;
+
+	ARG_UNUSED(argc);
+
+	if (session_time_parse(argv[0], &started) != 0 || started < SESSION_EARLIEST_S) {
+		reply_err("time must be UTC like 2026-11-10T02:00:00Z");
+		return;
+	}
+
+	if (!cloud_is_connected()) {
+		reply_err("not connected to the cloud");
+		return;
+	}
+
+	err = session_test_send(started);
+	if (err != 0) {
+		reply_err("could not send (%d)", err);
+		return;
+	}
+
+	reply_ok("3 messages sent");
+}
+#endif
+
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 static int do_wifi_dead(void *arg)
 {
@@ -1657,6 +1693,11 @@ static const struct console_command commands[] = {
 
 	{ "BUTTON", NULL, "BUTTON|<1 or 2>", "act as if the button was pressed", SECTION_TEST, false,
 	  1, 1, cmd_button },
+#if defined(CONFIG_APP_SESSIONS)
+	{ "SESSION_TEST", NULL, "SESSION_TEST|<UTC time>",
+	  "send a made-up session", SECTION_TEST, false, 1, 1,
+	  cmd_session_test },
+#endif
 #if defined(CONFIG_APP_TEST_FAULT_WIFI_DEAD)
 	{ "TEST_WIFI_DEAD", NULL, "TEST_WIFI_DEAD", "stop the Wi-Fi chip's power, until a restart",
 	  SECTION_TEST, false, 0, 0, cmd_test_wifi_dead },

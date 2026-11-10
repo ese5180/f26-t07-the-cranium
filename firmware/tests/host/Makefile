@@ -24,9 +24,9 @@ WARNINGS := -Wall -Wextra -Werror
 CONSOLE_DEFINES := -D_GNU_SOURCE -DCONFIG_APP_CONSOLE=1 -DCONFIG_APP_CLOUD_EVENTS=1 -DCONFIG_APP_LOG_LEVEL=0 \
 	-DCONFIG_APP_THING_NAME_PREFIX=\"cranium-\" -DCONFIG_MQTT_HELPER_SEC_TAG=201 \
 	-DCONFIG_APP_DOWNLOAD_SEC_TAG=202 -DCONFIG_MQTT_HELPER_PORT=8883 -DCONFIG_MQTT_KEEPALIVE=120 \
-	-DCONFIG_APP_LOCATION=1 -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
+	-DCONFIG_APP_LOCATION=1 -DCONFIG_APP_SESSIONS=1 -DCONFIG_APP_BOARD_TYPE=\"nrf7002dk\" -DCONFIG_APP_IMAGE_LAYOUT=1
 CONSOLE_SOURCES := $(SRC)/console_cmd.c $(SRC)/console_parser.c $(SRC)/console_stream.c \
-	$(SRC)/device.c $(SRC)/factory.c $(SRC)/identity.c $(SRC)/ota/version.c console_fakes.c
+	$(SRC)/device.c $(SRC)/factory.c $(SRC)/identity.c $(SRC)/ota/version.c $(SRC)/cloud/sessions.c console_fakes.c
 CONSOLE_HEADERS := $(wildcard $(addsuffix /*.h,$(SRC_DIRS))) console_fakes.h
 
 .PHONY: test clean
@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -78,6 +78,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/bt_only_ota_tests
 	./$(BUILD)/console_bt_only_tests
 	./$(BUILD)/bt_only_leds_tests
+	./$(BUILD)/sessions_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -86,6 +87,12 @@ $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 $(BUILD)/base64.o: $(ZEPHYR_BASE)/lib/utils/base64.c
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+# The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
+# dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.
+$(BUILD)/sessions_tests: test_sessions.c $(SRC)/cloud/sessions.c $(SRC)/cloud/sessions.h $(SRC)/cloud/cloud.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_sessions.c $(SRC)/cloud/sessions.c
 
 $(BUILD)/host_tests: test_main.c $(SRC)/ota/ota_job.c $(SRC)/ota/ota_outcome.c $(SRC)/ota/version.c $(BUILD)/cJSON.o
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ $^ -lm

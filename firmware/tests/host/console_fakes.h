@@ -65,6 +65,9 @@ struct fake_board {
 	bool cloud_connected;
 	bool cloud_connecting;
 	int cloud_disconnects;
+	/* What cloud_session_publish() was given: the count, and the first four messages. */
+	int session_messages;
+	char session_json[4][512];
 	/* What cloud_stats_get() says, apart from the state, which follows the two above. */
 	struct cloud_stats cloud_stats;
 	/* What the main loop says of its next attempt to connect: app_cloud_retry_in(). */
