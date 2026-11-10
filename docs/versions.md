@@ -1,8 +1,8 @@
 # Versions
 
 These things have their own version number, changelog and git tags. The rule is the same for all of them: the last number
-for a small change or a fix (1.11.0 to 1.11.1), the middle one for a larger update (1.11.x to 1.12.0), and never the
-first. Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
+for almost everything (1.11.0 to 1.11.1), the middle one only for something big (1.11.x to 1.12.0), and never the
+first; see [Which number goes up](#which-number-goes-up). Each version is a git tag on the commit it was built from, so `git checkout <tag>` gives exactly that source.
 
 | What | Version lives in | Changelog | In the files (2026-11-10) | Shown |
 | --- | --- | --- | --- | --- |
@@ -11,6 +11,26 @@ first. Each version is a git tag on the commit it was built from, so `git checko
 | iPhone app | `MARKETING_VERSION` in `apps/ios/project.yml` (and `CURRENT_PROJECT_VERSION`, the build, counts the versions) | [`apps/ios/CHANGELOG.md`](../apps/ios/CHANGELOG.md) | 0.8.20; the newest tag is `ios-v0.8.16`, published | More, Help, About in the app; the console's Apps page and every member's SideStore source, each version as it was published (before the first, from the changelog as deployed) |
 | Android app | `craniumVersionName` in `apps/android/gradle.properties` | [`apps/android/CHANGELOG.md`](../apps/android/CHANGELOG.md) | 0.8.20; the newest tag is `android-v0.8.16`, published | More, Help, About in the app; the console's Apps page, each version as it was published |
 | Desktop app, Windows and Linux (one each) | `extraMetadata.version` in `apps/desktop/electron-builder.<platform>.yml`, `windows` or `linux`; a checkout of `apps/desktop/` alone runs as 0.0.0 | `apps/desktop/CHANGELOG.<platform>.md` | 0.1.14 for each; the newest tags are `desktop-windows-v0.1.0` and `desktop-linux-v0.1.0` | The app's Settings and About; the pages' foot names the app's version ([docs/desktop-app.md](desktop-app.md)) |
+
+## Which number goes up
+
+**The last number by default.** Almost every change is a patch: 2.25.1 to 2.25.2, 1.18.0 to 1.18.1, 0.8.22 to 0.8.23.
+There is no upper limit; 2.25.17 is fine.
+
+| Change | Number |
+| --- | --- |
+| A fix, wording, docs, a test, a refactor nobody sees | last |
+| A new control, card, column, chart or setting on a page that already exists | last |
+| One step of a larger series (each page of a redesign, each part of a feature built over several PRs) | last |
+| A look or layout change, however large on one page | last |
+| **Something big**: a new kind of thing the product does, which someone would announce (a new way to update boards, a new board type, a new product area or set of pages, a customer-facing site) | middle |
+| A change to a contract that other parts must follow together: the API in a way old apps break, the app bridge, a job document the firmware reads, the flash layout or the bootloader | middle |
+| The last PR of a series that, all together, is big (for example the redesign once every page is done) | middle, once, at the end |
+| The first number | never, unless the owner says so |
+
+When in doubt, it is the last number. A middle bump resets the last to 0 (2.25.7 to 2.26.0). Firmware numbers that were
+uploaded to the console are used up even if never released, so a later build takes the next free number. When two
+branches claim the same number, the one that merges second renumbers.
 
 The two phone apps keep the same number for the same features. From 0.8.0 their screens are the console's own pages,
 kept on the phone and updated from the console (docs/mobile-apps.md, "The app shell"): a new console version changes
