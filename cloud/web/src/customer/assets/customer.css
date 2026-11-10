@@ -71,17 +71,15 @@
 }
 
 .cs-brand-name {
-  font-size: 1.25rem;
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.028em;
 }
 
 .cs-brand-sub {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 /* The frame of a signed-in page: a sidebar, and the page beside it. */
@@ -153,7 +151,7 @@
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   color: var(--ink-2);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -213,7 +211,7 @@
 
 .cs-side-card-text {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .cs-side-card-link {
@@ -226,7 +224,7 @@
   background: none;
   color: var(--ink);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -262,7 +260,7 @@
   border: 1px solid var(--line-strong);
   border-radius: 50%;
   background: var(--well);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 700;
 }
 
@@ -274,7 +272,7 @@
 
 .cs-who-email {
   overflow: hidden;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -282,7 +280,7 @@
 
 .cs-who-role {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .cs-sign-out {
@@ -317,7 +315,7 @@
   display: flex;
   gap: 8px;
   color: var(--ink-3);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-crumbs-here {
@@ -336,7 +334,7 @@
   align-items: center;
   gap: 8px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   text-decoration: none;
 }
 
@@ -400,10 +398,8 @@
   margin: 0 auto;
   padding: 18px 0 28px;
   border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-tabbar {
@@ -438,7 +434,7 @@
 }
 
 .cs-title {
-  font-size: clamp(2rem, 1.5rem + 2vw, 3.25rem);
+  font-size: clamp(var(--type-heading), 1.5rem + 2vw, var(--type-display));
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.02;
@@ -452,7 +448,7 @@
 
 .cs-lede {
   color: var(--ink-2);
-  font-size: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  font-size: var(--type-large);
   text-wrap: pretty;
 }
 
@@ -461,7 +457,7 @@
   align-items: flex-start;
   gap: 10px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-note > .icon {
@@ -497,7 +493,7 @@
   align-items: center;
   gap: 8px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
 }
 
@@ -516,7 +512,7 @@
 }
 
 .cs-tile-value {
-  font-size: clamp(1.75rem, 1.4rem + 1.2vw, 2.5rem);
+  font-size: clamp(var(--type-heading), 1.4rem + 1.2vw, var(--type-display));
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1;
@@ -524,12 +520,12 @@
 }
 
 .cs-tile-value.is-time {
-  font-size: clamp(1.5rem, 1.2rem + 1vw, 2.125rem);
+  font-size: var(--type-heading);
 }
 
 .cs-tile-note {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* Two columns: what matters, and beside it what happened. */
@@ -603,13 +599,13 @@
 
 .cs-board-name {
   overflow-wrap: anywhere;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
 .cs-board-meta {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-board-go {
@@ -629,7 +625,7 @@
   align-items: center;
   gap: 8px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-health.is-attention .cs-health-text {
@@ -709,13 +705,13 @@
 
 .cs-week-more {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   line-height: 1;
 }
 
 .cs-week-label {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
 }
 
 /* What the boards did. */
@@ -763,8 +759,8 @@
 }
 
 .cs-event-meta {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* Admin. */
@@ -777,7 +773,7 @@
 }
 
 .cs-admin-title {
-  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.025em;
 }
@@ -813,10 +809,8 @@
 
 .cs-table thead th {
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
 }
 
 .cs-table-name {
@@ -826,15 +820,15 @@
 
 .cs-table-sub {
   display: block;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
   font-weight: 400;
 }
 
 .cs-table-update {
   max-width: 28rem;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 /* One board. */
@@ -856,7 +850,7 @@
 }
 
 .cs-placeholder-title {
-  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.25rem);
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.028em;
   line-height: 1.1;
@@ -865,7 +859,7 @@
 .cs-placeholder-text {
   max-width: 40rem;
   color: var(--ink-2);
-  font-size: 1rem;
+  font-size: var(--type-large);
 }
 
 /* Account. */
@@ -909,7 +903,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
   background: var(--well);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   letter-spacing: 0.06em;
   overflow-wrap: anywhere;
 }
@@ -944,7 +938,7 @@
 
 .cs-help-title {
   margin-bottom: 4px;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
 }
@@ -991,7 +985,7 @@
 
 .cs-about-title {
   margin-bottom: 6px;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
 }
@@ -1051,15 +1045,13 @@
 }
 
 .cs-person-name {
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 700;
 }
 
 .cs-person-role {
   color: var(--ink-3);
-  font-size: 0.8125rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--type-small);
 }
 
 /* The links at the foot of every page: About and Help. */
@@ -1076,7 +1068,7 @@
 
 .cs-gate-links {
   margin-top: 8px;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 /* A public page with no session, such as Help. */
@@ -1132,7 +1124,7 @@
 
 .cs-landing-nav a {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 500;
   text-decoration: none;
 }
@@ -1178,7 +1170,7 @@
 .cs-hero-text {
   max-width: 36rem;
   color: var(--ink-2);
-  font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
+  font-size: var(--type-large);
   text-wrap: pretty;
 }
 
@@ -1190,8 +1182,8 @@
 
 .cs-hero-note {
   max-width: 34rem;
-  color: var(--ink-3);
-  font-size: 0.875rem;
+  color: var(--ink-2);
+  font-size: var(--type-table);
 }
 
 .cs-hero-art {
@@ -1226,6 +1218,9 @@
 }
 
 .cs-hero-sleeve {
+  /* Lettering printed on the drawing of a record sleeve, not text to read. */
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   position: absolute;
   bottom: 6%;
   left: -4%;
@@ -1237,8 +1232,6 @@
   color: var(--ink);
   font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   transform: rotate(-5deg);
 }
 
@@ -1256,7 +1249,7 @@
 }
 
 .cs-band-title {
-  font-size: clamp(1.75rem, 1.3rem + 2vw, 2.875rem);
+  font-size: clamp(var(--type-heading), 1.3rem + 2vw, var(--type-display));
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.05;
@@ -1265,7 +1258,7 @@
 
 .cs-band-text {
   color: var(--ink-2);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   text-wrap: pretty;
 }
 
@@ -1289,7 +1282,7 @@
 
 .cs-feature p {
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .cs-feature .tag {
@@ -1297,7 +1290,7 @@
 }
 
 .cs-feature-title {
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.015em;
 }
@@ -1324,7 +1317,7 @@
   content: counter(step, decimal-leading-zero);
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -1351,8 +1344,8 @@
   gap: 12px 24px;
   padding: 24px var(--gutter) 32px;
   border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-landing-foot-nav {
@@ -1415,7 +1408,7 @@
   background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
   cursor: pointer;
 }
@@ -1437,8 +1430,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-source-note .icon {
@@ -1474,7 +1467,7 @@
 
 .cs-hero-card-title {
   max-width: 22ch;
-  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.12;
@@ -1484,7 +1477,7 @@
 .cs-hero-card-lede {
   max-width: 46ch;
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .cs-link-more {
@@ -1494,7 +1487,7 @@
   width: fit-content;
   margin-top: 6px;
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1535,22 +1528,24 @@
 }
 
 .cs-sleeve-text {
+  /* Lettering printed on the drawing of a record sleeve, not text to read. */
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ink-2);
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
   line-height: 1.25;
-  text-transform: uppercase;
 }
 
 .cs-hero-card-caption {
+  /* Lettering printed on the drawing of a record sleeve, not text to read. */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   position: absolute;
   right: 20px;
   bottom: 12px;
   color: var(--ink-3);
   font-size: 0.625rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
 }
 
 /* The Overview below the figures: the last set, and beside it the rotation and a moment. */
@@ -1581,7 +1576,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 1.1875rem;
+  font-size: var(--type-title);
   font-weight: 650;
   letter-spacing: -0.015em;
 }
@@ -1598,7 +1593,7 @@
   align-items: center;
   gap: 6px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   text-decoration: none;
 }
 
@@ -1613,7 +1608,7 @@
 
 .cs-count {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
 }
 
 .cs-panel {
@@ -1634,8 +1629,8 @@
   gap: 12px;
   padding: 14px clamp(16px, 1.8vw, 22px);
   border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 a.cs-panel-foot {
@@ -1684,7 +1679,7 @@ a.cs-panel-foot:hover {
 }
 
 .cs-set-title {
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 650;
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
@@ -1700,16 +1695,14 @@ a.cs-panel-foot:hover {
 }
 
 .cs-set-meta {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-demo-tag {
   align-self: flex-start;
   margin-left: auto;
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--type-label);
 }
 
 .cs-shape {
@@ -1725,12 +1718,12 @@ a.cs-panel-foot:hover {
 }
 
 .cs-shape-head .eyebrow {
-  font-size: 0.625rem;
+  font-size: var(--type-small);
 }
 
 .cs-shape-time {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1748,7 +1741,7 @@ a.cs-panel-foot:hover {
 
 .cs-lane-name {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-weight: 600;
 }
 
@@ -1771,7 +1764,7 @@ a.cs-panel-foot:hover {
   border-radius: 3px;
   background: var(--deck-a);
   color: var(--deck-a-ink);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-weight: 500;
   line-height: 26px;
   text-overflow: ellipsis;
@@ -1785,8 +1778,8 @@ a.cs-panel-foot:hover {
 
 .cs-shape-note {
   padding-left: 22px;
-  color: var(--ink-3);
-  font-size: 0.6875rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* A track: its square, its name, its artist. */
@@ -1850,7 +1843,7 @@ a.cs-panel-foot:hover {
 
 .cs-track-title {
   overflow: hidden;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1859,7 +1852,7 @@ a.cs-panel-foot:hover {
 .cs-track-artist {
   overflow: hidden;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1903,7 +1896,7 @@ a.cs-panel-foot:hover {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-search-input:focus {
@@ -1920,22 +1913,20 @@ a.cs-panel-foot:hover {
 
 .cs-search-note {
   color: var(--ink-3);
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--type-small);
   white-space: nowrap;
 }
 
 .cs-tracks-none {
   padding: 22px;
-  color: var(--ink-3);
-  font-size: 0.875rem;
+  color: var(--ink-2);
+  font-size: var(--type-table);
 }
 
 .cs-tracktable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-tracktable th,
@@ -1951,10 +1942,8 @@ a.cs-panel-foot:hover {
   padding-top: 10px;
   padding-bottom: 10px;
   color: var(--ink-3);
-  font-size: 0.625rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .cs-tracktable tbody tr:last-child > * {
@@ -1987,22 +1976,22 @@ a.cs-panel-foot:hover {
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--well);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-weight: 600;
 }
 
 /* The side of the Overview: on repeat, a moment to come back to. */
 
 .cs-card-title {
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .cs-card-lede {
   margin-top: 2px;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-repeat-list {
@@ -2021,13 +2010,13 @@ a.cs-panel-foot:hover {
 
 .cs-rank {
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
 .cs-plays {
   color: var(--ink-2);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   white-space: nowrap;
 }
 
@@ -2050,13 +2039,13 @@ a.cs-panel-foot:hover {
 }
 
 .cs-revisit-pair {
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   line-height: 1.5;
 }
 
 .cs-revisit-text {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .cs-revisit .btn {
@@ -2118,7 +2107,7 @@ a.cs-panel-foot:hover {
 }
 
 .cs-pair-title {
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -2131,8 +2120,8 @@ a.cs-panel-foot:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-pair-set {
@@ -2147,7 +2136,7 @@ a.cs-panel-foot:hover {
   border-radius: 0 6px 6px 0;
   background: var(--well);
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -2165,8 +2154,8 @@ a.cs-panel-foot:hover {
 }
 
 .cs-fine {
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .cs-pairs-wrap {
@@ -2246,7 +2235,7 @@ a.cs-panel-foot:hover {
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--well);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 
@@ -2261,7 +2250,7 @@ a.cs-panel-foot:hover {
   border-radius: 8px;
   background: var(--paper);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-done {
@@ -2269,7 +2258,7 @@ a.cs-panel-foot:hover {
   align-items: flex-start;
   gap: 8px;
   color: var(--good);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .cs-export-list {
@@ -2414,7 +2403,7 @@ a.cs-panel-foot:hover {
     gap: 3px;
     padding: 9px 2px 10px;
     color: var(--ink-3);
-    font-size: 0.6875rem;
+    font-size: var(--type-label);
     font-weight: 500;
     text-decoration: none;
   }
@@ -2541,10 +2530,8 @@ a.cs-panel-foot:hover {
     display: block;
     margin-bottom: 2px;
     color: var(--ink-3);
-    font-size: 0.6875rem;
+    font-size: var(--type-small);
     font-weight: 600;
-    letter-spacing: 0.085em;
-    text-transform: uppercase;
   }
 
   .cs-foot {
@@ -2653,7 +2640,7 @@ a.cs-panel-foot:hover {
 
 .cs-list-title {
   margin-bottom: 14px;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
@@ -2680,7 +2667,7 @@ a.cs-panel-foot:hover {
 .cs-daybar-count,
 .cs-daybar-day {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
 }
 
 .cs-daybar-fill {
@@ -2758,7 +2745,7 @@ a.cs-panel-foot:hover {
 .cs-toplist-artist,
 .cs-toplist-plays {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .cs-toplist-plays {
