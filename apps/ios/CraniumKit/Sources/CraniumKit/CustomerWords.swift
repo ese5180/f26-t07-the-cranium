@@ -285,19 +285,19 @@ public enum CustomerWords {
     public static let mixTabs = ["sessions", "transitions", "library", "listening", "moments"]
     public static let mixes: [String: (label: String, title: String, text: String)] = [
         "sessions": ("Sessions", "Every set has a story.",
-                     "Each time you play, a session: when it started, how long it ran, and the tracks in the order you played them, deck by deck."),
+                     "Every set you play: when, how long, and its tracks deck by deck."),
         "transitions": ("Transitions", "The space between tracks.",
                         "Which tracks you put together, and how long both decks played at once."),
         "library": ("Track library", "Your rotation, revealed.",
-                    "The tracks you keep coming back to, across every session, ranked by how often you play them."),
+                    "The tracks you play most, ranked across every session."),
         "listening": ("Your listening", "Your week on the decks.",
-                      "How long you played this week and last, which days were busy, and the tracks and artists you play most."),
+                      "Time played this week and last, your busy days, and your top tracks and artists."),
         "moments": ("Saved moments", "Keep the good ones.",
-                    "A note on a transition worth trying again, kept with your account for your next set."),
+                    "Notes on transitions worth trying again, kept with your account."),
     ]
     public static let mixesEyebrow = "Your mixes, remembered"
     public static let mixesTitle = "Find your next great mix."
-    public static let mixesLede = "A home for the tracks, the transitions and the happy accidents of every set."
+    public static let mixesLede = "A home for the tracks, transitions and happy accidents of every set."
     public static let notBuiltYet = "Not built yet"
     public static let mixesWhy = "Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx " +
         "plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime."

@@ -1136,6 +1136,28 @@ body:has(.boot) .masthead {
   font-size: var(--type-table);
 }
 
+/* "How … works": a page's longer help, under its lede and closed until asked for. */
+.page-how {
+  max-width: var(--measure);
+  margin-top: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--type-table);
+}
+
+.page-how summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.page-how summary:hover {
+  color: var(--accent);
+}
+
+.page-how p {
+  margin-top: var(--space-2);
+  text-wrap: pretty;
+}
+
 .page-meta .mono {
   overflow-wrap: anywhere;
   /* An id that does not fit on one line breaks into lines of equal length. */
@@ -4575,6 +4597,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .more[open] summary {
   margin-bottom: 4px;
+}
+
+/* A Details under a paragraph of its own, rather than under a row of buttons. */
+.more.is-spaced {
+  margin-top: var(--space-2);
 }
 
 /* Deployments. */

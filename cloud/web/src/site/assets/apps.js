@@ -524,6 +524,7 @@ function olderReleases(releases, ctx) {
               disabled: busy === `download:${release.version}`,
               onClick: () => download(release),
               'aria-label': `Download ${release.version}`,
+              title: `Download ${release.version}`,
             },
             icon('download'),
             'Download'
@@ -919,7 +920,11 @@ export function appsView(ctx) {
     { class: 'page apps-page', key: 'page' },
     pageHead({
       title: 'Apps',
-      lede: 'The console on a phone. Both apps do what this website does, and send firmware to a board over Bluetooth.',
+      lede: 'The console on a phone, including firmware updates over Bluetooth.',
+      how: {
+        title: 'How the apps work',
+        text: ['Both apps do what this website does, and send firmware to a board over Bluetooth.'],
+      },
     }),
     loadProblem(resource, 'the apps', ctx),
     apps

@@ -724,6 +724,7 @@ function transitionCard(ctx, pair) {
         type: 'button',
         class: 'btn is-icon is-quiet cs-pair-keep',
         'aria-pressed': saved ? 'true' : 'false',
+        title: saved ? 'Kept: see your note' : 'Keep this transition',
         'aria-label': saved
           ? `Kept: ${pair.from.title} to ${pair.to.title}. See your note`
           : `Keep ${pair.from.title} to ${pair.to.title}`,
@@ -958,6 +959,7 @@ function dialog(ctx, key, title, body, foot) {
             type: 'button',
             class: 'btn is-icon is-quiet',
             'aria-label': 'Close',
+            title: 'Close',
             onClick: () => ctx.actions.mix.close(),
           },
           icon('x')

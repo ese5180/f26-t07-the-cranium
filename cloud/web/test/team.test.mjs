@@ -454,7 +454,7 @@ test('the Customers page shows the authenticator, and asks twice before a reset 
 
   click(one(row, 'button', 'Reset password'));
   root = page();
-  assert.match(textOf(one(root, 'li.customer')), /Cognito e-mails ada@example\.invalid a code/);
+  assert.match(textOf(one(root, 'li.customer')), /ada@example\.invalid gets a code by e-mail/);
   assert.equal(
     app.calls.some(([name]) => name === 'resetCustomerPassword'),
     false
@@ -541,4 +541,43 @@ test('in the apps the Customers page shows each customer, and its changes open t
   click(one(row, 'button', 'Change on the website'));
   assert.deepEqual(opened, ['customers']);
   assert.equal(app.calls.length, 0);
+});
+
+// Copy rules: a short lede with the rest under "How … works", and no AWS service or doc path outside a Details.
+const outsideDetails = (node) =>
+  node.nodeType === 3
+    ? node.textContent
+    : node.localName === 'details'
+      ? ' '
+      : node.childNodes.map(outsideDetails).join(' ');
+
+test('Team and Customers open with a short lede, say how they work below it, and name no AWS service outside Details', async () => {
+  const app = fakeApp({ customers: CUSTOMER_REPLY });
+  app.state = { devices: { value: { devices: [] }, error: null, loadedAt: NOW, loading: false } };
+  team.connect(app);
+  await team.refresh();
+  customers.connect(app);
+  customers.resources(app.state)[0].value = customers.readCustomers(CUSTOMER_REPLY);
+  const pages = [
+    draw(team.teamView(ctx())),
+    draw(
+      customers.customersView({
+        state: { now: NOW, filters: { customers: {} }, devices: app.state.devices },
+        actions: {},
+      })
+    ),
+  ];
+  for (const root of pages) {
+    const lede = textOf(one(root, 'p.page-lede'));
+    assert.ok(lede.split(' ').length <= 15, lede);
+    assert.match(textOf(one(root, 'details.page-how')), /Every change here is in the activity log\./);
+    assert.doesNotMatch(outsideDetails(root), /Cognito|DynamoDB|cloud\/deploy\.sh|docs\//);
+  }
+  assert.match(textOf(pages[0]), /No password is ever shown or set here\./);
+  assert.match(textOf(pages[1]), /A customer sees their own boards and nothing else of the fleet\./);
+  // Why a reset replaces the account is kept, under Details.
+  assert.match(
+    textOf(pages[0]),
+    /Cognito can neither e-mail a reset code nor forget an authenticator\. See docs\/accounts\.md\./
+  );
 });

@@ -489,8 +489,31 @@ export async function refreshBoard(thing, full = false) {
 
 /** Why Memfault's data is not there, when it is not. */
 function stateNotice(memfault) {
-  if (memfault.state === 'ok') return null;
+  if (memfault.state === 'ok' || memfault.state === 'not_configured') return null;
   return h('div', { class: 'page-notice', key: 'memfault-state' }, notice('warn', 'alert', memfault.message));
+}
+
+/**
+ * Memfault not connected: said plainly, never as "No issues", with how to connect it behind Details (the
+ * server's words name the script and the doc, which are for whoever runs the console).
+ */
+function notConnected(memfault) {
+  return card(
+    { key: 'not-connected', title: 'Issues' },
+    empty({
+      iconName: 'minus-circle',
+      title: 'Memfault is not connected.',
+      text: 'Crashes and traces show here once the console is connected to Memfault. Until then nothing is checked.',
+    }),
+    memfault.message
+      ? h(
+          'details',
+          { class: 'more is-spaced memfault-connect', key: 'details' },
+          h('summary', null, 'Details'),
+          h('p', { class: 'card-note' }, memfault.message)
+        )
+      : null
+  );
 }
 
 function reasonBadge(reason) {
@@ -564,9 +587,14 @@ export function memfaultView(ctx) {
   const target = state.memfault?.issues ?? resource();
   const head = pageHead({
     title: 'Memfault',
-    lede:
-      'Crashes and other traces the boards sent to Memfault, grouped into issues, then the fleet as Memfault sees it. ' +
-      'Read from Memfault by the console.',
+    lede: 'Crashes and traces the boards sent to Memfault, grouped into issues.',
+    how: {
+      title: 'How Memfault works',
+      text: [
+        'Below the issues is the fleet as Memfault sees it: reboots by reason, versions and the latest metrics.',
+        'The console reads all of it from Memfault.',
+      ],
+    },
   });
   const data = target.value;
   if (!data)
@@ -584,20 +612,23 @@ export function memfaultView(ctx) {
     head,
     loadProblem(target, 'Memfault', ctx),
     stateNotice(data.memfault),
-    card(
-      { key: 'issues', title: 'Issues' },
-      data.issues.length === 0
-        ? empty({
-            iconName: 'check',
-            title: data.memfault.state === 'ok' ? 'No issues.' : 'No issues to show.',
-            text:
-              data.memfault.state === 'ok'
-                ? 'No board has sent a crash or a trace that Memfault made an issue of.'
-                : null,
-          })
-        : issuesFiltered(ctx, data.issues)
-    ),
-    fleetCards(ctx)
+    data.memfault.state === 'not_configured' ? notConnected(data.memfault) : null,
+    data.memfault.state === 'not_configured'
+      ? null
+      : card(
+          { key: 'issues', title: 'Issues' },
+          data.issues.length === 0
+            ? empty({
+                iconName: data.memfault.state === 'ok' ? 'check' : 'minus-circle',
+                title: data.memfault.state === 'ok' ? 'No issues.' : 'No issues could be read.',
+                text:
+                  data.memfault.state === 'ok'
+                    ? 'No board has sent a crash or a trace that Memfault made an issue of.'
+                    : null,
+              })
+            : issuesFiltered(ctx, data.issues)
+        ),
+    data.memfault.state === 'not_configured' ? null : fleetCards(ctx)
   );
 }
 

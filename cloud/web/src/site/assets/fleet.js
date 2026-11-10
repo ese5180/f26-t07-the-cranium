@@ -926,7 +926,7 @@ export function healthScoreCard(ctx) {
     score.memfault.state === 'ok'
       ? null
       : score.memfault.state === 'not_configured'
-        ? 'Crash-free counts the restarts in the boards’ events only: the console has no Memfault token.'
+        ? 'Crash-free counts the restarts in the boards’ events only: Memfault is not connected.'
         : `Crash-free counts the restarts in the boards’ events only just now. ${score.memfault.message}`.trim();
   return h(
     'section',
@@ -1319,7 +1319,11 @@ export function fleetView(ctx) {
     { class: 'page' },
     pageHead({
       title: 'Fleet',
-      lede: 'Board types, groups of boards, and releases to many boards at once: a canary first, then stages once it has confirmed.',
+      lede: 'Board types, groups of boards, and releases to many boards at once.',
+      how: {
+        title: 'How rollouts work',
+        text: ['A rollout goes to a canary first, then to the other boards in stages once the canary has confirmed.'],
+      },
       tools: [
         freshness(state.fleet, ctx),
         canWrite && fleet ? button('', () => openLastGood({}), icon('undo'), 'Roll back to last good') : null,

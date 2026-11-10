@@ -2827,7 +2827,7 @@ async function boot() {
         title: outcome.reason === 'network' ? 'No connection' : 'Cranium is locked',
         text:
           outcome.reason === 'network'
-            ? 'The app could not reach Cognito to renew your sign-in. Check the connection.'
+            ? 'The app could not renew your sign-in. Check the connection.'
             : 'Unlock it to go on, or sign in with your password and code.',
         action: { label: outcome.reason === 'network' ? 'Try again' : 'Unlock', run: () => window.location.reload() },
       });

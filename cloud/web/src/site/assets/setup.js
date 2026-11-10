@@ -1152,10 +1152,14 @@ function sharedFlow() {
   return shared;
 }
 
-const LEDE =
-  'Plug a board in by USB and take it from what it has to online on the console: the golden image, the newest ' +
-  'firmware, its ID, its Wi-Fi network and its certificate. For release managers, in Chrome or Edge on a computer, ' +
-  'or in the desktop app.';
+const LEDE = 'Set up a board over USB and bring it online on the console.';
+const HOW = {
+  title: 'How board setup works',
+  text: [
+    'Setup gives the board the golden image, the newest firmware, its ID, its Wi-Fi network and its certificate.',
+    'It is for release managers, in Chrome or Edge on a computer, or in the desktop app.',
+  ],
+};
 
 const STATUS_WORDS = {
   todo: 'To do',
@@ -1172,7 +1176,7 @@ function explained(title, text, command) {
     'div',
     { class: 'page', key: 'page' },
     developerTabs('setup'),
-    pageHead({ title: 'Board setup', lede: LEDE }),
+    pageHead({ title: 'Board setup', lede: LEDE, how: HOW }),
     h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
   );
 }
@@ -1831,6 +1835,7 @@ export function setupView(ctx, flow) {
     pageHead({
       title: 'Board setup',
       lede: LEDE,
+      how: HOW,
       tools: h(
         'div',
         { class: 'setup-tools', key: 'head-tools' },

@@ -3203,13 +3203,20 @@ test("a board's update history says when it is cut, and an arrow means a link", 
 
 test('the activity log says what it covers, without claiming more', async () => {
   const drawn = page(views.activityView, await consoleState(WORLD));
-  const lede = textOf(one(drawn, 'p.page-lede'));
+  // The lede is one short sentence; what the log covers, and what it does not, is under "How the activity log works".
+  assert.equal(
+    textOf(one(drawn, 'p.page-lede')),
+    'Who changed what in this console, when, and whether it went through.'
+  );
+  const how = one(drawn, 'details.page-how');
+  assert.equal(textOf(one(how, 'summary')), 'How the activity log works');
+  const lede = textOf(how);
   assert.match(lede, /made through this console’s API/);
   assert.match(lede, /A job made directly in AWS IoT does not pass through that API, so it is not in this log/);
   assert.match(textOf(one(drawn, 'p.log-summary')), /^All 4 entries/);
   assert.equal(textOf(one(drawn, 'div.log-more')), 'That is every entry in this log.');
   assert.doesNotMatch(textOf(drawn), /whole log/);
-  const deployments = textOf(one(page(views.deploymentsView, await consoleState(WORLD)), 'p.page-lede'));
+  const deployments = textOf(one(page(views.deploymentsView, await consoleState(WORLD)), 'details.page-how'));
   assert.match(deployments, /A job made directly in AWS IoT is not listed here/);
   // What a board does depends on what it runs, and this says so.
   assert.match(
@@ -3299,17 +3306,18 @@ test("the tag on a script's line is explained once, in words on the page", async
     const key = one(drawn, 'p.log-key');
     assert.equal(all(drawn, 'p.log-key').length, 1, 'once');
     // What the code that sets the tag and the API function do: see SCRIPTED_REQUEST and the README.
+    assert.match(textOf(key), /^Script, no sign-in Sent by a script, not by someone signed in\./);
     assert.match(
       textOf(key),
-      /^Script, no sign-in Sent by a script .* with AWS credentials, directly to the API function\. Nobody signed in\./
-    );
-    assert.match(
-      textOf(key),
-      /has to be an active release manager, so the entry does not show that this person did it\.$/
+      /The name is the one the script gave, so the entry does not show that this person did it\.$/
     );
     // A tooltip cannot be reached on a touch screen, and would only say it again.
     for (const tag of all(drawn, 'span.tag.is-warn')) assert.equal(tag.getAttribute('title'), null);
   }
+  // Which scripts, and how they reach the API, is in the Activity page's "How the activity log works".
+  const how = one(page(views.activityView, state), 'details.page-how');
+  assert.match(textOf(how), /with AWS credentials, directly to the API function\./);
+  assert.match(textOf(how), /The name it gave has to be an active release manager\./);
   const plain = await consoleState(WORLD);
   assert.equal(all(page(views.activityView, plain), 'p.log-key').length, 0);
   assert.equal(all(page(views.overviewView, plain), 'p.log-key').length, 0);

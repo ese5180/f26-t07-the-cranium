@@ -604,9 +604,14 @@ export function databaseView(ctx) {
     developerTabs('database'),
     pageHead({
       title: 'Database',
-      lede:
-        'The console’s DynamoDB tables, read only. Secret fields read hidden, for everybody. ' +
-        'Counts and sizes are DynamoDB’s, brought up to date about every six hours: rough.',
+      lede: 'The console’s DynamoDB tables, read only.',
+      how: {
+        title: 'How the database page works',
+        text: [
+          'Secret fields read hidden, for everybody.',
+          'Counts and sizes are DynamoDB’s, brought up to date about every six hours: rough.',
+        ],
+      },
       tools: freshness(view.list, ctx),
     }),
     tables.error ? failure('The tables could not be read.', tables.error) : null,

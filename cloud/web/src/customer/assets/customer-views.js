@@ -311,7 +311,12 @@ export function shellView(ctx, page) {
           ),
           h(
             'a',
-            { class: 'btn is-icon is-quiet cs-top-account', href: '#/account', 'aria-label': 'Account' },
+            {
+              class: 'btn is-icon is-quiet cs-top-account',
+              href: '#/account',
+              'aria-label': 'Account',
+              title: 'Account',
+            },
             icon('user')
           ),
           adminButton(ctx, 'is-top'),
@@ -381,7 +386,11 @@ function boardFrame(ctx, key, title, body, foot) {
         'header',
         { class: 'dialog-head' },
         h('h2', { class: 'dialog-title', id: 'board-dialog-title' }, title),
-        h('button', { type: 'button', class: 'btn is-icon is-quiet', 'aria-label': 'Close', onClick: close }, icon('x'))
+        h(
+          'button',
+          { type: 'button', class: 'btn is-icon is-quiet', 'aria-label': 'Close', title: 'Close', onClick: close },
+          icon('x')
+        )
       ),
       h('div', { class: 'dialog-body' }, body),
       foot ? h('footer', { class: 'dialog-foot' }, foot) : null
@@ -1042,7 +1051,7 @@ const MIX_WORDS = Object.freeze({
   sessions: {
     label: 'Sessions',
     title: 'Every set has a story.',
-    text: 'Each time you play, a session: when it started, how long it ran, and the tracks in the order you played them, deck by deck.',
+    text: 'Every set you play: when, how long, and its tracks deck by deck.',
   },
   transitions: {
     label: 'Transitions',
@@ -1052,17 +1061,17 @@ const MIX_WORDS = Object.freeze({
   library: {
     label: 'Track library',
     title: 'Your rotation, revealed.',
-    text: 'The tracks you keep coming back to, across every session, ranked by how often you play them.',
+    text: 'The tracks you play most, ranked across every session.',
   },
   listening: {
     label: 'Your listening',
     title: 'Your week on the decks.',
-    text: 'How long you played this week and last, which days were busy, and the tracks and artists you play most.',
+    text: 'Time played this week and last, your busy days, and your top tracks and artists.',
   },
   moments: {
     label: 'Saved moments',
     title: 'Keep the good ones.',
-    text: 'A note on a transition worth trying again, kept with your account for your next set.',
+    text: 'Notes on transitions worth trying again, kept with your account.',
   },
 });
 const MIX_PAGES = {
@@ -1625,7 +1634,7 @@ function footLinks(className = '') {
 export const ABOUT = Object.freeze({
   eyebrow: 'About Cranium',
   title: 'Your DJ controller, without the laptop.',
-  lede: 'A small idea from a student team at Penn: let a beginner controller stand on its own.',
+  lede: 'A student team at Penn, letting a beginner controller stand on its own.',
   sections: Object.freeze([
     Object.freeze([
       'What it is',

@@ -304,9 +304,8 @@ object AuditText {
     private const val SCRIPTED_REQUEST = "bench-"
 
     const val SCRIPTED_TAG = "Script, no sign-in"
-    const val SCRIPTED_NOTE = "Sent by a script (the test bench, or scripts/firmware/ota.sh without an API token) with AWS credentials, " +
-        "directly to the API function. Nobody signed in. The name is the one the script gave, which has to be an active " +
-        "release manager, so the entry does not show that this person did it."
+    const val SCRIPTED_NOTE = "Sent by a script, not by someone signed in. The name is the one the script gave, so the " +
+        "entry does not show that this person did it."
 
     private val OUTCOMES = mapOf(
         "rejected" to StateWords(Tone.WARN, Glyph.BAN, "Refused"),

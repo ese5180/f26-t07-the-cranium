@@ -159,7 +159,7 @@ async function sendInvite() {
     const email = text(reply?.customer?.email, 320) || invite.email.trim();
     invite.email = '';
     invite.name = '';
-    app.notify(`Invited ${email}. Cognito e-mails the invitation, with a temporary password.`);
+    app.notify(`Invited ${email}. The invitation goes out by e-mail, with a temporary password.`);
   } catch (error) {
     invite.error = error;
   } finally {
@@ -178,10 +178,10 @@ function ask(key) {
 const STATUS_BADGES = {
   invited: ['warn', 'clock', 'Invited', 'Has not signed in yet'],
   active: ['good', 'check', 'Active', 'Has signed in with their own password'],
-  reset: ['warn', 'key', 'Password reset', 'Has to choose a new password with the code Cognito e-mailed'],
+  reset: ['warn', 'key', 'Password reset', 'Has to choose a new password with the code sent by e-mail'],
   disabled: ['idle', 'ban', 'Switched off', 'Cannot sign in'],
   gone: ['bad', 'alert', 'Account gone', 'Not in the customer pool any more: take its boards back'],
-  other: ['idle', 'minus', 'Other state', 'Cognito reports another state'],
+  other: ['idle', 'minus', 'Other state', 'The sign-in service reports another state'],
 };
 
 function statusBadge(status) {
@@ -277,13 +277,25 @@ function inviteCard(ctx, data) {
       'p',
       { class: 'card-note' },
       noAddress
-        ? 'Invitations wait for the customer site to have an address (CustomerDomainName): an invitation names it.'
+        ? 'Invitations wait until the customer site has an address, because an invitation names it.'
         : [
-            'Cognito e-mails the invitation with a temporary password, which works for 7 days. The customer signs in at ',
+            'The invitation goes out by e-mail with a temporary password, which works for 7 days. The customer signs in at ',
             h('a', { href: data.siteUrl }, data.siteUrl),
             '.',
           ]
     ),
+    noAddress
+      ? h(
+          'details',
+          { class: 'more is-spaced', key: 'address-details' },
+          h('summary', null, 'Details'),
+          h(
+            'p',
+            { class: 'card-note' },
+            'The address is the stack’s CustomerDomainName, set when the console is deployed.'
+          )
+        )
+      : null,
     invite.error ? failure('Nobody was invited.', invite.error) : null
   );
 }
@@ -507,7 +519,7 @@ function customerRow(ctx, customer, free) {
           customer.status === 'active'
             ? (confirmStep(
                 `reset ${customer.id}`,
-                `Cognito e-mails ${name} a code to choose a new password with. Their password stops working now.`,
+                `${name} gets a code by e-mail to choose a new password with. Their password stops working now.`,
                 'Reset password',
                 () =>
                   act(
@@ -534,9 +546,14 @@ export function customersView(ctx) {
   const data = listing.value;
   const head = pageHead({
     title: 'Customers',
-    lede:
-      'The people who sign in to the customer site, and the boards that are theirs. A customer sees their own boards ' +
-      'and nothing else of the fleet. Every change here is in the activity log.',
+    lede: 'The people who sign in to the customer site, and their boards.',
+    how: {
+      title: 'How customers work',
+      text: [
+        'A customer sees their own boards and nothing else of the fleet.',
+        'Every change here is in the activity log.',
+      ],
+    },
     tools: data?.siteUrl
       ? h('a', { class: 'btn is-small', href: data.siteUrl }, 'Open the customer site', icon('arrow-right'))
       : null,

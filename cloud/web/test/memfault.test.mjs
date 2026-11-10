@@ -114,7 +114,7 @@ test("a board's page says whether forwarding is on, and why not", () => {
   assert.match(said({ keyStored: true, firmware: true, url: null }), /Memfault: forwarding on\./);
   assert.match(
     said({ keyStored: false, firmware: true, url: null }),
-    /Memfault: off\. No project key is stored in AWS/
+    /Memfault: not connected\. The board keeps its data until Memfault is connected\. Details No project key is stored in AWS/
   );
   // No key says so first: it is the same for every board.
   assert.match(said({ keyStored: false, firmware: false, url: null }), /No project key is stored/);

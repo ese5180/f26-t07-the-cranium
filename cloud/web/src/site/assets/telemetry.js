@@ -1823,10 +1823,15 @@ export function eventsView(ctx) {
   const devices = state.devices.value?.devices ?? [];
   const head = pageHead({
     title: 'Events',
-    lede:
-      'What every board did, as it reported it: connections, updates, restarts, Bluetooth and its health, with what ' +
-      'people did in this console alongside, and every line a board prints on its serial console. Events and lines are ' +
-      'kept for 90 days.',
+    lede: 'What every board did and printed, with what people did in this console.',
+    how: {
+      title: 'How events work',
+      text: [
+        'Each board’s connections, updates, restarts, Bluetooth and its health, as it reported them, with what people ' +
+          'did in this console alongside, and every line a board prints on its serial console.',
+        'Events and lines are kept for 90 days.',
+      ],
+    },
     tools: freshness(page.data, ctx),
   });
 
@@ -2599,9 +2604,13 @@ export function diagnosticsView(ctx) {
   const chosen = state.route.thing ?? null;
   const head = pageHead({
     title: 'Diagnostics',
-    lede:
-      'How each board is doing, live: its heartbeat, signal, memory and restarts, as it reports them. ' +
-      'Refreshed every 10 seconds; the charts every minute.',
+    lede: 'How each board is doing, live: heartbeat, signal, memory and restarts.',
+    how: {
+      title: 'How diagnostics work',
+      text: [
+        'Each figure is what the board itself reported. The page refreshes every 10 seconds, and the charts every minute.',
+      ],
+    },
     tools: freshness(state.devices, ctx),
   });
   let body;

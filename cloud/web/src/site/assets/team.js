@@ -171,7 +171,7 @@ export function actionsFor(account, accounts) {
         openChange({
           title: `Send the invitation again to ${name}`,
           lines: [
-            'Cognito e-mails a new temporary password, which works for 3 days.',
+            'They get a new temporary password by e-mail, which works for 3 days.',
             'The earlier temporary password stops working.',
           ],
           action: 'Send it again',
@@ -261,7 +261,7 @@ export function actionsFor(account, accounts) {
         openChange({
           title: `Reset the password and authenticator of ${name}`,
           lines: [
-            'Their account is replaced by a new one with the same tier, and Cognito e-mails them a new invitation ' +
+            'Their account is replaced by a new one with the same tier, and they get a new invitation by e-mail ' +
               'with a temporary password. Nobody here sees it.',
             'At the next sign-in they choose a password and set up an authenticator app again.',
             'Their sessions end now. Earlier entries of the activity log keep the old account’s id.',
@@ -308,7 +308,7 @@ async function sendInvite() {
     const reply = await app.api.inviteTeamMember({ email: invite.email.trim(), tier: invite.tier });
     const email = text(reply?.account?.email, 320) || invite.email.trim();
     invite.email = '';
-    app.notify(`Invited ${email}. Cognito e-mails the invitation, with a temporary password.`);
+    app.notify(`Invited ${email}. The invitation goes out by e-mail, with a temporary password.`);
   } catch (error) {
     invite.error = error;
   } finally {
@@ -325,7 +325,7 @@ const STATE_BADGES = {
   pending: ['warn', 'clock', 'Invited', 'Has not signed in yet'],
   reset: ['warn', 'key', 'Reset', 'Has to choose a new password'],
   disabled: ['idle', 'ban', 'Disabled', 'Cannot sign in'],
-  other: ['idle', 'minus', 'Other state', 'Cognito reports another state'],
+  other: ['idle', 'minus', 'Other state', 'The sign-in service reports another state'],
 };
 
 function stateBadge(account) {
@@ -409,8 +409,8 @@ function inviteCard() {
     h(
       'p',
       { class: 'card-note' },
-      'Cognito e-mails the invitation with a temporary password, which works for 3 days. At the first sign-in ' +
-        'they choose a password and set up an authenticator app. Nobody here sees either.'
+      'The invitation goes out by e-mail with a temporary password, which works for 3 days. At the first sign-in ' +
+        'they choose a password and set up an authenticator app; nobody here sees either.'
     ),
     invite.error ? failure('Nobody was invited.', invite.error) : null
   );
@@ -491,9 +491,14 @@ export function teamView(ctx) {
   const data = listing.value;
   const head = pageHead({
     title: 'Team',
-    lede:
-      'Everybody who signs in to this console, what they may do and how their account stands. Every change here ' +
-      'is in the activity log; no password is ever shown or set here.',
+    lede: 'Everybody who signs in to this console, and what they may do.',
+    how: {
+      title: 'How the team works',
+      text: [
+        'Each person’s row says what they may do and how their account stands.',
+        'Every change here is in the activity log. No password is ever shown or set here.',
+      ],
+    },
   });
   if (data === null) {
     return h(
@@ -581,10 +586,19 @@ export function teamView(ctx) {
           h(
             'p',
             { class: 'card-note' },
-            'This pool requires an authenticator app and lets only an administrator recover an account, so ' +
-              'Cognito can neither e-mail a reset code nor forget an authenticator. A reset therefore replaces the ' +
-              'account, with its tier, and Cognito e-mails a new invitation: a new password and a new authenticator ' +
-              'in one step. See docs/accounts.md.'
+            'A reset gives the person a new password and a new authenticator in one step: their account is ' +
+              'replaced, with its tier, and a new invitation goes out by e-mail.'
+          ),
+          h(
+            'details',
+            { class: 'more is-spaced' },
+            h('summary', null, 'Details'),
+            h(
+              'p',
+              { class: 'card-note' },
+              'This pool requires an authenticator app and lets only an administrator recover an account, so ' +
+                'Cognito can neither e-mail a reset code nor forget an authenticator. See docs/accounts.md.'
+            )
           )
         )
       )

@@ -2,10 +2,16 @@
 
 The console is the website at console.craniumiot.com (and the customer site at craniumiot.com), its API and its AWS
 stack: everything in `cloud/`. One entry per version, newest first; the version is in `cloud/VERSION`, and each version
-is tagged `console-v<version>` on the commit it was built from. A small change or a fix is a patch (1.9.0 to 1.9.1), a
-larger update the middle number, never the first; 2.0.0 should have been 1.11.0 (docs/versions.md). The first
-paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
-history; each names its commit.
+is tagged `console-v<version>` on the commit it was built from. The version goes up by the last number for almost
+everything, the middle only for something big, never the first (docs/versions.md, "Which number goes up"); 2.0.0 should
+have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
+were given later, from the history; each names its commit.
+
+## 2.25.3
+
+Every page now opens with one short sentence that says what it is for, at most 15 words, and the rest of what the page used to say first is under a "How … works" line right below it, closed until opened (How deployments work, How the activity log works, How events work, and so on). Nothing was taken away: it moved. Memfault says plainly when it is not connected ("Memfault is not connected.") instead of a tick and "No issues to show.", and a board's Memfault card says "not connected" too; Reports and the fleet health score say the same. Product pages no longer name scripts, key paths or AWS services in their text: Team and Customers say an invitation "goes out by e-mail" instead of naming the sign-in service, and the setup steps behind a message (cloud/deploy.sh, docs/accounts.md, the stack parameter) are under Details. Every button that is only an icon has a tooltip as well as its spoken name. The customer site's Overview, About and Mixes tabs have shorter lines too.
+
+pageHead takes `how: { title, text }` and draws it as a `details.page-how` under the lede (app.css has its look, from the existing tokens). The customer words changed in the same commit in the iPhone and Android apps (CustomerWords.swift, CustomerText.kt; apps 0.8.22), with the activity log's note on scripted entries (Words.swift, Audit.kt). copy.test.mjs checks that every page's lede in the sources, on the console and the customer site, is one sentence of at most 15 words; app.test.mjs and team.test.mjs check the drawn pages the same way, and that no product page shows cloud/deploy.sh, DynamoDB, Cognito or a key path outside a Developer page or a Details. The header of this file now gives the version rule of docs/versions.md.
 
 ## 2.25.2
 

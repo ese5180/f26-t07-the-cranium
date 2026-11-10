@@ -2729,3 +2729,52 @@ test('the activity log is searched by the server, a moment after the typing stop
   assert.equal(tab.location.hash, '#/activity');
   assert.ok(tab.requests.some((request) => request.url === '/api/audit?limit=50'));
 });
+
+// Copy rules of the redesign: a page opens with one short sentence of at most 15 words, and the pages people use
+// name no script, key path or AWS service in their text. A Developer page (Board setup, Serial, API tokens, Database,
+// History) may, and so may a "Details" or a "How … works", which are closed until someone opens them.
+const PRODUCT_PAGES = [
+  '#/overview',
+  '#/devices',
+  '#/map',
+  '#/diagnostics',
+  '#/events',
+  '#/firmware',
+  '#/deployments',
+  '#/fleet',
+  '#/memfault',
+  '#/alerts',
+  '#/activity',
+  '#/account',
+];
+// A board's page, Reports, Apps, Team, Customers, Board setup and Database fetch scripts of their own, which this
+// harness does not serve: copy.test.mjs, team.test.mjs and memfault.test.mjs hold those to the same rules.
+const DEVELOPER_PAGES = ['#/serial', '#/tokens', '#/history'];
+const INTERNALS = /cloud\/deploy\.sh|DynamoDB|Cognito|~\/\.cranium\//;
+
+/** The text of a node, leaving out every <details>, which is closed until someone opens it. */
+const outsideDetails = (node) =>
+  node.nodeType === 3
+    ? node.textContent
+    : node.localName === 'details'
+      ? ' '
+      : node.childNodes.map(outsideDetails).join(' ');
+
+test('every page opens with a lede of at most 15 words, and no product page names internals outside Details', async (t) => {
+  const tab = await openTab(t);
+  let ledes = 0;
+  for (const route of [...PRODUCT_PAGES, ...DEVELOPER_PAGES]) {
+    await tab.goto(route);
+    await tab.wait(0);
+    for (const lede of all(tab.main, 'p.page-lede')) {
+      const words = textOf(lede).split(/\s+/).filter(Boolean);
+      assert.ok(words.length <= 15, `${route}: "${textOf(lede)}" is ${words.length} words`);
+      ledes += 1;
+    }
+    if (PRODUCT_PAGES.includes(route)) {
+      assert.doesNotMatch(outsideDetails(tab.main).replace(/\s+/g, ' '), INTERNALS, route);
+    }
+  }
+  // Most pages have a lede; a page that failed to draw would have none and prove nothing.
+  assert.ok(ledes >= 12, `${ledes} ledes`);
+});

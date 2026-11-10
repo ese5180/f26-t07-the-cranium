@@ -163,7 +163,26 @@ test('when Memfault cannot be read the page says why, in the words of the server
   state.issues = loaded({ memfault: { state: 'unreachable', message: words }, issues: [] });
   const root = draw(memfault.memfaultView(ctx({ view: 'memfault' }, state)));
   assert.ok(textOf(root).includes(words));
-  assert.match(textOf(root), /No issues to show\./);
+  // Not a tick: nothing was read, so nothing is known to be well.
+  assert.match(textOf(root), /No issues could be read\./);
+  assert.doesNotMatch(textOf(root), /No issues to show|No issues\./);
+});
+
+test('when Memfault is not connected the page says so plainly, with how to connect it under Details', () => {
+  const state = tools();
+  const words =
+    'The console has no Memfault token yet, so it cannot show what Memfault knows. Store one with cloud/deploy.sh.';
+  state.issues = loaded({ memfault: { state: 'not_configured', message: words }, issues: [] });
+  const root = draw(memfault.memfaultView(ctx({ view: 'memfault' }, state)));
+  assert.match(textOf(root), /Memfault is not connected\./);
+  assert.match(textOf(root), /Crashes and traces show here once the console is connected to Memfault\./);
+  assert.doesNotMatch(textOf(root), /No issues/);
+  // The server's words, which name the script, are behind Details and not in a warning above the page.
+  const details = one(root, 'details.memfault-connect');
+  assert.ok(textOf(details).includes(words));
+  assert.equal(all(root, '.page-notice').length, 0);
+  // No fleet from Memfault either, which would say "no reboots" of a fleet nobody read.
+  assert.doesNotMatch(textOf(root), /No board reported a reboot/);
 });
 
 test("an issue's page shows each trace's board, version and the crashed thread's backtrace and registers", () => {

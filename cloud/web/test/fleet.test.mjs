@@ -1337,7 +1337,7 @@ test('the score card says when the score went down, when nothing can be counted,
   assert.equal(textOf(one(card, 'p.health-score-change')), 'No snapshot from a week ago yet');
   assert.match(textOf(card), /No boards with Wi-Fi to count yet\./);
   assert.match(textOf(card), /The first snapshot is stored today/);
-  assert.match(textOf(card), /the console has no Memfault token/);
+  assert.match(textOf(card), /Memfault is not connected\./);
   // An answer without a score (an older API) draws no card.
   answers.set('GET /api/fleet/health?days=30', { types: [], updates: {}, attention: [] });
   await fleet.refreshFor('overview', true);
