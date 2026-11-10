@@ -7,6 +7,13 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.13.1
+
+The rollout schedule (RolloutTickFn) starts again: it loads the console's settings like the API, and since 2.6.1 those
+require `DEVICE_POLICY` and `FIRMWARE_DOWNLOAD_PREFIX`, which it was never given, so it failed on start and staged rollouts
+did not go past their canary. A new test, `cloud/api/test/config-env-infra.test.mjs`, checks that every function that
+loads the settings is given every one they require.
+
 ## 2.13.0
 
 Safer staged rollouts and alert rules: a rollout's Health gate holds each next stage until Memfault shows no new issue and no unexpected reboot on the release for 10 minutes (on by default), and stops the rollout with the board and the issue when it does; the new Alerts page lets release managers turn on and tune alerts for a board offline, a new Memfault issue, a crash loop, a rollout that stopped by itself and low supply voltage; and each alert shows at once on every open page.
