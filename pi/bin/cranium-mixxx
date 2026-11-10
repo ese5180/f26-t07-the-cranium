@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Starts Mixxx the way the Cranium metrics need it (pi/README.md):
+#   --log-flush-level warning  the mapping's CRANIUM_METRICS lines are warnings; without this Mixxx
+#                              writes them to mixxx.log only when its buffer fills or on a critical
+#   --log-max-file-size        MIXXX_LOG_MAX_BYTES, as Mixxx stops logging at 100 MB by default
+#   --developer                only if mixxx.cfg does not have [Controller] midi_through_enabled 1:
+#                              otherwise Mixxx hides the Midi Through port the mapping runs on
+#   --settings-path            only if MIXXX_DIR is not ~/.mixxx
+# Then MIXXX_ARGS, then any arguments given here.
+#
+# Under pasuspender, which frees the sound card from PulseAudio, as Mixxx's own menu entry does, but
+# only if pasuspender is there and works: it is checked first, so that Mixxx is started once, and
+# an error of Mixxx's own is never taken for pasuspender failing.
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+
+args=(--log-flush-level warning --log-max-file-size "$MIXXX_LOG_MAX_BYTES")
+if [ "$(readlink -m "$MIXXX_DIR")" != "$(readlink -m "$HOME/.mixxx")" ]; then
+    args+=(--settings-path "$MIXXX_DIR")
+fi
+# Mixxx writes the setting as 1 or true.
+if ! sed -n '/^\[Controller\]/,/^\[/p' "$MIXXX_DIR/mixxx.cfg" 2>/dev/null \
+        | grep -qE '^midi_through_enabled[[:space:]]+(1|true)[[:space:]]*$'; then
+    args+=(--developer)
+fi
+# MIXXX_ARGS as a bash array keeps an argument with spaces whole: MIXXX_ARGS=(--fullScreen "--x y").
+# As a plain string it is split at spaces, and never glob-expanded.
+if [[ "$(declare -p MIXXX_ARGS 2>/dev/null)" == "declare -a"* ]]; then
+    args+=("${MIXXX_ARGS[@]}")
+elif [ -n "${MIXXX_ARGS:-}" ]; then
+    read -r -a extra <<< "$MIXXX_ARGS"
+    args+=("${extra[@]}")
+fi
+args+=("$@")
+
+wrap=()
+if command -v pasuspender > /dev/null && pasuspender -- true > /dev/null 2>&1; then
+    wrap=(pasuspender --)
+fi
+
+case "$MIXXX_AUDIO" in
+    native)  exec "${wrap[@]}" mixxx "${args[@]}" ;;
+    pw-jack) exec "${wrap[@]}" pw-jack mixxx "${args[@]}" ;;
+    *) echo "cranium-mixxx: MIXXX_AUDIO is \"$MIXXX_AUDIO\": it must be native or pw-jack" >&2; exit 2 ;;
+esac

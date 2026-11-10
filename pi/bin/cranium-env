@@ -1,0 +1,13 @@
+# Sourced by the scripts in this folder: the settings of cranium.conf.default, then of
+# ~/.config/cranium/cranium.conf (or $CRANIUM_CONF) over them. Sets CRANIUM_PI to the pi/ folder.
+
+CRANIUM_PI=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
+# shellcheck source=../cranium.conf.default
+. "$CRANIUM_PI/cranium.conf.default"
+CRANIUM_CONF=${CRANIUM_CONF:-$HOME/.config/cranium/cranium.conf}
+if [ -f "$CRANIUM_CONF" ]; then
+    # shellcheck source=/dev/null
+    . "$CRANIUM_CONF"
+fi
+MIXXX_DIR=${MIXXX_DIR/#\~/$HOME}
+CRANIUM_OUT_DIR=${CRANIUM_OUT_DIR/#\~/$HOME}

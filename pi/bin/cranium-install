@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Sets up this user for Cranium step 1 (pi/README.md). It can be run again after a change.
+#  - copies the Cranium Metrics mapping into MIXXX_DIR/controllers
+#  - adds a per-user copy of Mixxx's menu entry that starts Mixxx through bin/cranium-mixxx, so
+#    Mixxx started from the desktop menu flushes its log too. Mixxx's own entry is left as it is;
+#    deleting ~/.local/share/applications/org.mixxx.Mixxx.desktop undoes this.
+# It does not change mixxx.cfg: the mapping is chosen in Mixxx's preferences (pi/README.md).
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+
+system_entry=/usr/share/applications/org.mixxx.Mixxx.desktop
+apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+launcher="$CRANIUM_PI/bin/cranium-mixxx"
+# The menu entry names the launcher as it is, unquoted: only characters that the desktop entry
+# format takes as they are (no spaces, quotes, $, &, |, ; and the like). Checked first, so that
+# nothing is half done.
+case "$launcher" in
+    *[!A-Za-z0-9._/+@:,=-]*)
+        echo "the path $launcher cannot go in a menu entry: move the repository to a path of letters," \
+             "digits and . _ / + @ : , = - only" >&2
+        exit 1 ;;
+esac
+
+controllers="$MIXXX_DIR/controllers"
+mkdir -p "$controllers"
+cp "$CRANIUM_PI/mixxx/controllers/Cranium-Metrics.midi.xml" "$CRANIUM_PI/mixxx/controllers/Cranium-Metrics.js" "$controllers/"
+echo "mapping copied to $controllers (restart Mixxx if it is running)"
+
+if [ -f "$system_entry" ]; then
+    mkdir -p "$apps"
+    # Mixxx's own entry with its Exec line replaced. The launcher decides about pasuspender itself, so
+    # nothing here starts Mixxx a second time when the first one exits with an error.
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            Exec=*) printf 'Exec=%s\n' "$launcher" ;;
+            *) printf '%s\n' "$line" ;;
+        esac
+    done < "$system_entry" > "$apps/org.mixxx.Mixxx.desktop"
+    echo "menu entry: $apps/org.mixxx.Mixxx.desktop starts $launcher"
+else
+    echo "no $system_entry: start Mixxx with $launcher"
+fi

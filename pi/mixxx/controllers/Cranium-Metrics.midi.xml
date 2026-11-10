@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MixxxControllerPreset mixxxVersion="2.4.0" schemaVersion="1">
+    <info>
+        <name>Cranium Metrics</name>
+        <author>Cranium team</author>
+        <description>Logs Mixxx engine and deck metrics once per second as JSON lines (prefix CRANIUM_METRICS) for the telemetry daemon.</description>
+    </info>
+    <controller id="CraniumMetrics">
+        <scriptfiles>
+            <file functionprefix="CraniumMetrics" filename="Cranium-Metrics.js"/>
+        </scriptfiles>
+        <controls/>
+        <outputs/>
+    </controller>
+</MixxxControllerPreset>

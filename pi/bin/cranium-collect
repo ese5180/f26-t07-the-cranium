@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Runs the collector (pi/cranium_collect.py) with the settings of cranium.conf. Any arguments are
+# passed on to it, after those, so they win: e.g. cranium-collect --heartbeat 2
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+exec python3 "$CRANIUM_PI/cranium_collect.py" --mixxx-dir "$MIXXX_DIR" \
+    --out-dir "$CRANIUM_OUT_DIR" --heartbeat "$CRANIUM_HEARTBEAT" \
+    --messages-max-mb "$CRANIUM_MESSAGES_MAX_MB" "$@"

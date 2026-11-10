@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The play-history dashboard (pi/cranium_stats.py), for the Mixxx folder of cranium.conf. Any arguments
+# are passed on to it: e.g. cranium-stats --serve, or cranium-stats --json
+set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/cranium-env"
+exec python3 "$CRANIUM_PI/cranium_stats.py" --mixxx-dir "$MIXXX_DIR" "$@"
