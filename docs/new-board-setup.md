@@ -90,6 +90,22 @@ What it can't do:
   serial port ([docs/mobile-apps.md](mobile-apps.md#the-serial-pages)). The iPhone can't open a USB serial port at
   all, so the iPhone app has no Board setup and no Serial console.
 
+### Several boards
+
+**Set up several boards** (top right of Board setup) is a queue over the same steps. Choose once: the group every
+board joins (or none), a name pattern with `{n}` (letters and digits, for example `Studio{n}`), the first number and how
+many boards, the Wi-Fi network (filled from the console's defaults, and read from its fields only when a board needs
+it), and whether to install the newest firmware. **Make the queue** reserves the names: the first free ones from the
+first number, skipping any name a board on the console already has. Then plug a board in and press **Connect the next
+board**: the page runs the single-board steps (the golden image is not part of a queue; use one board at a time for a
+blank board), adds the board to the group and marks it done, or failed with the step and the reason. **Retry** puts a
+failed board back at its place with its name (a board that failed only at the group is not set up again); **Skip**
+passes it over. Names are re-checked before each board, so one that another person took meanwhile gives way to the next
+free number. The pattern gives the board's name (Board ID) and its label; the thing name still comes from the register
+step. The group is changed with `POST /api/groups/{id}`, so the activity log has each board's register and group entries
+as for a single board; there is no summary entry for a batch. The Android app and the desktop app run the same page, so
+they have it; the iPhone app has no Board setup.
+
 **It has not run on a board yet.** Its tests (`cloud/web/test/setup.test.mjs`) run it against a stand-in board that
 speaks the console and serial recovery, and a stand-in for the console's API.
 
