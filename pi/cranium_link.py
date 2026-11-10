@@ -189,38 +189,51 @@ class Link:
 # ---- where the messages come from
 
 class JsonlFollower:
-    """New lines of messages.jsonl. A file that is there at startup is read from its end."""
+    """New lines of messages.jsonl. A file that is there at startup is read from its end.
+
+    The collector moves the file to messages.jsonl.1 when it is full and starts a new one: what is
+    left of the old file is read first, then the new one from its start, so no line is lost."""
 
     def __init__(self, path):
-        self.path, self.f, self.buf = path, None, ""
+        self.path, self.f, self.ino, self.buf = path, None, None, ""
         self._open(at_end=True)
 
     def _open(self, at_end=False):
         try:
             self.f = open(self.path, "r", encoding="utf-8", errors="replace")
         except FileNotFoundError:
+            self.f = None
             return
+        self.ino = os.fstat(self.f.fileno()).st_ino
         if at_end:
             self.f.seek(0, os.SEEK_END)
-        self.buf = ""
+
+    def _changed(self):
+        """The path is now another file (moved, then made again), or this one was cut short."""
+        try:
+            st = os.stat(self.path)
+        except FileNotFoundError:
+            return False                # moved, and not made again yet: keep reading the old one
+        return st.st_ino != self.ino or st.st_size < self.f.tell()
 
     def lines(self):
         if self.f is None:
             self._open()
             if self.f is None:
                 return []
-        try:
-            if os.stat(self.path).st_size < self.f.tell():      # truncated or replaced
-                self.f.close()
-                self._open()
-        except FileNotFoundError:
-            return []
-        chunk = self.f.read()
-        if not chunk:
-            return []
-        self.buf += chunk
+        self.buf += self.f.read()       # the rest of the file in hand, also after it was moved
+        if self._changed():
+            self.f.close()
+            self._open()
+            if self.f is not None:
+                self.buf += self.f.read()
         *out, self.buf = self.buf.split("\n")
         return [line.strip() for line in out if line.strip()]
+
+    def close(self):
+        if self.f is not None:
+            self.f.close()
+            self.f = None
 
 
 def follow(link, follower, waiting=None, report_every=60.0, clock=time.monotonic, sleep=time.sleep,
