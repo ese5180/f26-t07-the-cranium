@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.6
+
+On a phone narrower than 400 px (an iPhone mini or SE, most Android phones at 360 px), the customer site's top bar no longer runs off the screen and makes every page scroll sideways. "Connect device" is its Bluetooth icon there, like the two icons beside it, and keeps its words as its tooltip and for a screen reader.
+
+customer.css has a `max-width: 400px` block after the 560 px one, that draws `.btn.cs-connect` as an icon button and keeps `.cs-connect-label` for a screen reader only. customer.test.mjs checks the label and the rule. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.4
 
 A screen reader on the Activity page now hears which entry a "What changed" line belongs to by its time of day ("What changed: 4 fields in the entry of 07:50 AM"), instead of "in the entry of [object Object]".
