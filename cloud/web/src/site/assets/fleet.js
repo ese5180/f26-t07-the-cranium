@@ -315,6 +315,11 @@ function readRollout(raw) {
   return {
     id: isRolloutId(item.id) ? item.id : '',
     version: version(item.version) ?? '',
+    // A Raspberry Pi image that goes with the firmware in each stage's job (console 2.26.0), or null.
+    pi:
+      item.pi && typeof item.pi.version === 'string' && /^[A-Za-z0-9._+-]{1,31}$/.test(item.pi.version)
+        ? { version: item.pi.version }
+        : null,
     board: type(item.board),
     purpose: words(item.purpose, 32) || 'deploy',
     target: object(item.target),
@@ -1502,7 +1507,7 @@ export function rolloutView(ctx) {
     { class: 'page' },
     pageHead({
       eyebrow: 'Staged rollout of',
-      title: mono(rollout.version),
+      title: [mono(rollout.version), rollout.pi ? [' + ', mono(`Pi image ${rollout.pi.version}`)] : null],
       back: { href: '#/fleet', label: 'Fleet' },
       lede: [
         targetWords(rollout, ctx),

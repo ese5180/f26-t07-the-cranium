@@ -384,6 +384,23 @@ test('the name a board reports is an event when it is first seen and when it cha
   ]);
 });
 
+test("a Pi build's two update steps are recorded, and an unknown state does not stop the recorder", () => {
+  // Firmware 1.20.0 with Raspberry Pi updates reports these while a job brings firmware and a Pi image.
+  const job = 'cranium-1-20-1-b0-pi-20261110T120000Z-ab12';
+  const at = (state) => heartbeat({ ota: { state, job, progress: 30, last: 'none', error: '' } });
+  const [toCard] = changesBetween(at('downloading'), at('downloading_pi'));
+  assert.equal(toCard.what, 'step');
+  assert.equal(toCard.fields.state, 'downloading_pi');
+  assert.match(toCard.text, /Raspberry Pi image onto the SD card/);
+  const [toPi] = changesBetween(at('testing'), at('flashing_pi'));
+  assert.equal(toPi.fields.state, 'flashing_pi');
+  assert.match(toPi.text, /Sending the Raspberry Pi its image/);
+  const { items } = recordsFromDocument(documentOf(at('downloading'), at('downloading_pi')), options);
+  assert.equal(eventFromItem(items[0]).state, 'downloading_pi');
+  // A state from a later firmware is not a reason to throw away the whole report.
+  assert.doesNotThrow(() => changesBetween(at('idle'), at('a_later_state')));
+});
+
 test('a name is stored with its event and read back field by field', () => {
   const before = heartbeat({ diag: { id: 'CRVIHAAN01', ...diag() } });
   const after = heartbeat({ diag: { id: 'CRBENCH02', ...diag() } });

@@ -9,7 +9,7 @@ were given later, from the history; each names its commit.
 
 ## 2.26.0
 
-Raspberry Pi updates from the console. The Firmware page lists Pi images beside the releases, labelled as the Pi's, and a release manager uploads one with its signed record: the console checks the signature, and the image goes straight to S3. A deployment brings board firmware, a Pi image, or both; with both, a board downloads the two, installs its firmware, and sends the Pi its image once that firmware is confirmed. Needs firmware 1.20.0 in a Pi build.
+Raspberry Pi updates from the console. The Firmware page lists Pi images beside the releases, labelled as the Pi's, and a release manager uploads one with its signed record: the console checks the signature, and the image goes straight to S3. A deployment brings board firmware, a Pi image, or both; with both, a board downloads the two, installs its firmware, and sends the Pi its image once that firmware is confirmed. The Pi itself has no network and never talks to the console: every job goes to a board, and what the console shows of a Pi is what its board reports. Needs firmware 1.20.0 in a Pi build.
 
 API: `GET/POST /api/pi-images`, `POST /api/pi-images/{version}/complete` and `.../revoke` (handlers/pi-images.mjs,
 lib/pi-images.mjs; audit actions `pi_image.upload`, `pi_image.complete`, `pi_image.revoke`). A record's signature is
@@ -38,6 +38,8 @@ image together need a release that is a Pi build: a release keeps `pi: true` whe
 0xA3 `pi` (lib/boards.mjs `isPiBuild`), and any other is refused with 422 `not_pi_build` (refusal word in the apps).
 
 cloud/api/test/pi-deployments.test.mjs, cloud/web/test/pi.test.mjs; docs/pi-ota.md ("Both at once", "Cloud").
+
+Found in the local preview, before any board ran it: the events recorder threw on the board states `downloading_pi` and `flashing_pi` (they now have words, and a state it does not know no longer stops it); the deployment dialog listed boards without a Pi for a Pi image (now only those that report one, with a count of the rest); a Pi image alone was shown as "unknown version" with the firmware's steps, a restart and "Installed and confirmed" (now "Pi image <version>", the steps Offered, Accepted by the board, On the SD card, Sent to the Pi, Verified by the Pi, a reason in words for each failure, and no flash slots); with both, the Pi's step follows the confirmation; the client kept a release's `pi: true` and a rollout's Pi image; a board's update card names the two Pi steps (website, iPhone, Android). The preview has a `pi` scenario and a stand-in for S3 that takes the Firmware page's upload.
 
 ## 2.25.16
 
