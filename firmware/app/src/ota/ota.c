@@ -293,6 +293,17 @@ static void send_final_report(void)
 				 firmware_kept ? "installed" : "not_installed",
 				 firmware_kept ? "failed" : "not_flashed");
 	} else
+#else
+	if (ota.record.with_pi && ota.report == REPORT_SUCCEEDED) {
+		/*
+		 * A job with a Pi image installed this, a build that cannot send one: the job's own
+		 * firmware was not a Pi build. It stays, and the Pi was left alone. Said as it is.
+		 */
+		err = job_update(ota.record.job_id, "FAILED", TOKEN_REPORT, &ota.report_sequence,
+				 "\"reason\":\"pi_unsupported\",\"running\":\"%s\",\"nrf\":\"installed\","
+				 "\"pi\":\"not_flashed\"",
+				 fw_version_running_string());
+	} else
 #endif
 	if (ota.report == REPORT_SUCCEEDED) {
 		err = job_update(ota.record.job_id, "SUCCEEDED", TOKEN_REPORT, &ota.report_sequence,

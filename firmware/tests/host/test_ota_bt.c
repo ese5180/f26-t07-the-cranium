@@ -2185,6 +2185,24 @@ static void test_a_board_without_a_pi_refuses_its_image(void)
 	CHECK(last_update_says("\"reason\":\"unsupported\""));
 	CHECK(ota_state() == OTA_IDLE);
 	CHECK(fake.downloads == 0);
+
+	/*
+	 * This build installed by a job with a Pi image (its record says so): the job brought firmware
+	 * that cannot send the Pi its image. It is kept, and the job says that the Pi was left alone.
+	 */
+	fresh_fake();
+	with_job_record();
+	fake.stored.phase = RECORD_TESTING;
+	fake.stored.with_pi = 1;
+	fake.stored.pi_step = RECORD_PI_STAGED;
+	fake.swap_type = BOOT_SWAP_TYPE_REVERT;
+	fake.cloud_up = true;
+	restart();
+	ota_on_cloud_up();
+	CHECK(fake.confirms == 1);
+	CHECK(last_update_says("\"status\":\"FAILED\""));
+	CHECK(last_update_says("\"reason\":\"pi_unsupported\""));
+	CHECK(last_update_says("\"pi\":\"not_flashed\""));
 }
 #endif
 #endif

@@ -4,11 +4,12 @@
  * the Pi with tools/pi_link_sim.py.
  *
  *   pi_link_harness <image file> <chunk bytes> [--corrupt-at OFFSET] [--abort-at SEQ]
- *                   [--attempts N]
+ *                   [--attempts N] [--reset-at SEQ]
  *
  * The image is what the SD card would hold. --corrupt-at flips a bit of it as it is read, as a
  * card that went bad after the download would; the digest stays the right one. --abort-at sets the
- * flag that a withdrawn job sets, when that chunk is about to be read.
+ * flag that a withdrawn job sets, when that chunk is about to be read. --reset-at stops the board
+ * dead when that chunk is about to be read, as a restart would: no ABORT, nothing more on the bus.
  *
  * Messages, little-endian. To the Pi: 'X', u32 length, the bytes the board clocks out, u8 1 if it
  * reads what comes back. From the Pi: those bytes if asked for, then u8 1 if READY rose after the
@@ -28,6 +29,7 @@ static uint8_t *image;
 static uint32_t image_size;
 static long corrupt_at = -1;
 static long abort_at = -1;
+static long reset_at = -1;
 static uint32_t chunk_size;
 static volatile bool abort_flag;
 static int pending_edge = -1;
@@ -102,9 +104,27 @@ static bool ready(void *ctx)
 	return get8() == 1;
 }
 
+/* The board restarts: the end message says so, and nothing else reaches the Pi. */
+static void reset_now(void)
+{
+	static const uint8_t no_code;
+
+	put("E", 1);
+	put32((uint32_t)PI_ERR_ABORTED);
+	put(&no_code, 1);
+	put32(0);
+	put32(0);
+	fflush(stdout);
+	fprintf(stderr, "reset\n");
+	exit(0);
+}
+
 static enum pi_err source_read(void *ctx, uint32_t offset, uint8_t *buf, size_t len)
 {
 	(void)ctx;
+	if (reset_at >= 0 && offset / chunk_size == (uint32_t)reset_at) {
+		reset_now();
+	}
 	if (abort_at >= 0 && offset / chunk_size == (uint32_t)abort_at) {
 		abort_flag = true;
 	}
@@ -149,6 +169,8 @@ int main(int argc, char **argv)
 			abort_at = atol(argv[i + 1]);
 		} else if (strcmp(argv[i], "--attempts") == 0) {
 			options.attempts = atoi(argv[i + 1]);
+		} else if (strcmp(argv[i], "--reset-at") == 0) {
+			reset_at = atol(argv[i + 1]);
 		} else {
 			return 2;
 		}

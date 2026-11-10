@@ -41,8 +41,9 @@ def image(size, seed=7):
 
 
 class Link(unittest.TestCase):
-    def send(self, data, chunk=4096, faults=None, args=()):
-        pi = sim.PiSim(faults=faults or sim.Faults())
+    def send(self, data, chunk=4096, faults=None, args=(), pi=None):
+        if pi is None:
+            pi = sim.PiSim(faults=faults or sim.Faults())
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "image.bin")
             with open(path, "wb") as f:
@@ -122,6 +123,39 @@ class Link(unittest.TestCase):
         self.assertEqual(result["started_at"], 4)
         self.assertEqual([s for k, s in pi.log if k == sim.DATA], list(range(4, 10)))
         self.assertEqual(result["reason"], "pi_verify_failed")
+
+    def test_a_board_that_restarts_while_flashing_goes_on_where_the_pi_is(self):
+        # From 1.20.0, the last step of a job with firmware and a Pi image: the board restarts in the
+        # middle of the transfer (no ABORT reaches the Pi), comes back on its confirmed firmware and
+        # sends the same image again from the card. The Pi kept the chunks it had, says where it is
+        # at BEGIN, and gets the rest.
+        data = image(40_000)
+        pi = sim.PiSim()
+        pi, first = self.send(data, args=("--reset-at", "5"), pi=pi)
+        self.assertEqual(first["reason"], "reset")
+        self.assertIsNone(pi.aborted)
+        self.assertFalse(pi.verified)
+        self.assertEqual([s for k, s in pi.log if k == sim.DATA], [0, 1, 2, 3, 4])
+
+        pi.log.clear()
+        pi.faults = sim.Faults(resume_from=5)
+        pi, second = self.send(data, pi=pi)
+        self.assertEqual(second["reason"], "ok")
+        self.assertEqual(second["started_at"], 5)
+        self.assertEqual([s for k, s in pi.log if k == sim.DATA], list(range(5, 10)))
+        self.assertTrue(pi.verified)
+        self.assertEqual(bytes(pi.partition), data)
+
+    def test_a_pi_flash_that_fails_after_a_restart_is_reported(self):
+        # The same, with a Pi that refuses the image's hash at the end: the board reports it, and
+        # its firmware (confirmed before the transfer began) is not the Pi's business.
+        data = image(20_000)
+        pi = sim.PiSim()
+        pi, _ = self.send(data, args=("--reset-at", "2"), pi=pi)
+        pi.faults = sim.Faults(resume_from=2, refuse={(sim.VERIFY, 5): sim.HASH_MISMATCH})
+        pi, result = self.send(data, pi=pi)
+        self.assertEqual(result["reason"], "pi_verify_failed")
+        self.assertFalse(pi.verified)
 
     def test_the_pi_hash_check_failing_is_reported(self):
         data = image(10_000)
