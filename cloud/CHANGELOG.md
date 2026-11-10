@@ -7,7 +7,7 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
-## 2.26.0
+## 2.25.2
 
 Text is larger and easier to read everywhere: the console, the customer site and the phone, Mac and desktop apps. Body text is 15 px on a 24 px line (16 px on a phone), tables and rows 14 px, and nothing written as words is under 13 px; only short labels, badges and IDs sit at 12.5 px. Notes, hints and help text are in the darker secondary ink instead of the faintest one, labels are in sentence case instead of spaced-out capitals, and long paragraphs keep to a readable line. Nothing moved and no words changed.
 
