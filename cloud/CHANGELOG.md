@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.7
+
+On a 320 px phone the Apps page no longer scrolls sideways: the Android card's "Download cranium-android-….apk" button wraps its words inside the card instead of making the card, and the page, as wide as the words on one line.
+
+`.app-latest-text` was a grid whose one column took the width of the longest line that cannot wrap (the button, 305 px, in a card of 256); it is now `minmax(0, 1fr)`, and `.app-actions .btn` may wrap. site.test.mjs checks both. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.5
 
 A Release notes page, under Developer, with a tab for each product: the console, the firmware, the iPhone app, the Android app, the desktop app (Windows and Linux) and the Mac app. Each tab lists every version, newest first, with its date, the first paragraph of its changelog entry and the rest under More, and its release tag and commit; firmware versions also name their boards and their flash and RAM where the changelog gives them. The version in use, or the newest released one, is marked, and a newer version without a tag says "Not released yet". The version number at the foot of every page and the History page's What's new lead there, and in an app the foot's Release notes link opens that app's tab. Every app shows it, as they show the console's pages.
