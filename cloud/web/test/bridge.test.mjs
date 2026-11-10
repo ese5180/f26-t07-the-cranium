@@ -283,11 +283,12 @@ test('every method a page asks the app for is in the contract, with only the par
     ['src/site/assets/bridge.js', 'bridge.call'],
     ['src/site/assets/app.js', 'appBridge'],
     ['src/site/assets/bluetooth.js', 'bridge.call'],
+    ['src/site/assets/offline.js', 'bridge.call'],
     ['src/customer/assets/customer.js', 'appBridge'],
   ].map(([path]) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'));
   const asked = new Set();
   for (const source of sources) {
-    for (const match of source.matchAll(/\.call\(\s*'([a-zA-Z]+\.[a-zA-Z]+)'(?:\s*,\s*\{([^}]*)\})?/g)) {
+    for (const match of source.matchAll(/\.call\(\s*'([a-zA-Z]+(?:\.[a-zA-Z]+)+)'(?:\s*,\s*\{([^}]*)\})?/g)) {
       asked.add(match[1]);
       const method = CONTRACT.methods[match[1]];
       assert.ok(method, `${match[1]} is not in apps/shared/bridge.json`);
@@ -295,7 +296,7 @@ test('every method a page asks the app for is in the contract, with only the par
       for (const key of keys) assert.ok(Object.hasOwn(method.params, key), `${match[1]} takes no ${key}`);
     }
     // Through quietly(method, params), as bluetooth.js asks for what it can do without.
-    for (const match of source.matchAll(/quietly\(\s*'([a-zA-Z]+\.[a-zA-Z]+)'/g)) {
+    for (const match of source.matchAll(/quietly\(\s*'([a-zA-Z]+(?:\.[a-zA-Z]+)+)'/g)) {
       asked.add(match[1]);
       assert.ok(CONTRACT.methods[match[1]], `${match[1]} is not in apps/shared/bridge.json`);
     }
@@ -310,6 +311,10 @@ test('every method a page asks the app for is in the contract, with only the par
     'auth.signOut',
     'ble.upload',
     'ble.watch',
+    'ble.offline.connect',
+    'ble.offline.status',
+    'ble.offline.accept',
+    'ble.offline.disconnect',
     'usb.open',
     'usb.write',
     'usb.close',
@@ -325,6 +330,7 @@ test('every method a page asks the app for is in the contract, with only the par
       'appUpdate',
       'auth',
       'ble',
+      'bleOffline',
       'biometric',
       'camera',
       'clipboard',

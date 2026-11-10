@@ -145,6 +145,8 @@ const SECTIONS = [
   'team',
   // An update over Bluetooth, in the phone app only (bluetooth.js).
   'bluetooth',
+  // Offline mode: a board's status over Bluetooth, in the apps that offer bleOffline (offline.js).
+  'offline',
   // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
   'memfault',
   // The console's DynamoDB tables, read only, for release managers, under Developer (db-page.js).

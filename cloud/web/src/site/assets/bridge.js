@@ -37,6 +37,8 @@ const UNTIMED = new Set([
   'ble.upload',
   'ble.status',
   'ble.watch',
+  'ble.offline.connect',
+  'ble.offline.accept',
   'usb.open',
   'camera.scan',
 ]);
@@ -54,6 +56,7 @@ const FEATURES = new Set([
   'storage',
   'usb',
   'camera',
+  'bleOffline',
 ]);
 const MAX_ID = 2147483647;
 

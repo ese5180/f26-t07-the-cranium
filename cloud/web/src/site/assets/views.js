@@ -374,6 +374,9 @@ const ICONS = {
   ],
   code: [['path', { d: 'M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15' }]],
   bluetooth: [['path', { d: 'M7 7.5l10 9-5 4.5v-18l5 4.5-10 9' }]],
+  'cloud-off': [
+    ['path', { d: 'M7.5 18.5h10a3.5 3.5 0 0 0 .7-6.93A5.5 5.5 0 0 0 7.9 9.6 4.5 4.5 0 0 0 7.5 18.5zM4 4l16 16' }],
+  ],
   'chevron-right': [['polyline', { points: '9.5 5.5 16 12 9.5 18.5' }]],
   'chevron-left': [['polyline', { points: '14.5 5.5 8 12 14.5 18.5' }]],
   chart: [['path', { d: 'M4 4.5v15h16M8 15.5l3.5-4 3 2.5L19 8' }]],
@@ -1714,7 +1717,7 @@ function gateFrame(className, message) {
 }
 
 /** A single message in the middle of the page, with at most one thing to do. */
-export function gateView({ iconName = 'lock', title, text, detail, code, action, waiting, leaving }) {
+export function gateView({ iconName = 'lock', title, text, detail, code, action, waiting, leaving, offline }) {
   const moving = waiting || leaving;
   return gateFrame(
     `gate ${moving ? 'is-moving' : ''}`.trim(),
@@ -1726,8 +1729,29 @@ export function gateView({ iconName = 'lock', title, text, detail, code, action,
       h('h1', { class: 'gate-title', id: 'page-title', tabindex: '-1' }, title),
       text ? h('p', { class: 'gate-text' }, text) : null,
       detail ? h('p', { class: 'gate-text' }, detail, code ? [' ', mono(code)] : null) : null,
-      action ? button(`is-large ${action.quiet ? '' : 'is-primary'}`.trim(), action.run, action.label) : null
+      action ? button(`is-large ${action.quiet ? '' : 'is-primary'}`.trim(), action.run, action.label) : null,
+      offlineLink(offline)
     )
+  );
+}
+
+/**
+ * In an app with offline mode (bleOffline), the gates and the sign-in page lead to the Offline page: it
+ * needs no network and no sign-in, which is when it is wanted most (offline.js).
+ */
+function offlineLink(open) {
+  if (typeof open !== 'function') return null;
+  return h(
+    'div',
+    { class: 'signin-other gate-offline', key: 'offline' },
+    h(
+      'button',
+      { type: 'button', class: 'btn is-quiet', onClick: open },
+      icon('cloud-off'),
+      'Offline mode',
+      icon('arrow-right')
+    ),
+    h('p', { class: 'signin-note' }, 'A board nearby, over Bluetooth, with no network.')
   );
 }
 
@@ -1922,7 +1946,8 @@ export function signInView(model) {
           icon('arrow-right')
         ),
         h('p', { class: 'signin-note' }, 'The same account and the same code, on Amazon’s page.')
-      )
+      ),
+      offlineLink(model.offline)
     )
   );
 }
@@ -1940,6 +1965,8 @@ const SECTIONS = [
   ['deployments', 'Deployments', 'send', true],
   // An update over Bluetooth: in the phone app, for release managers (bluetooth.js).
   ['bluetooth', 'Bluetooth', 'bluetooth', false],
+  // Offline mode: a board's status over Bluetooth with no network, in the apps that offer it (offline.js).
+  ['offline', 'Offline', 'cloud-off', false],
   // Board types, groups, staged rollouts and "Update everything" (fleet.js).
   ['fleet', 'Fleet', 'layers', false],
   // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
@@ -2001,6 +2028,7 @@ export function navView(ctx) {
   const shown = SECTIONS.filter(([view]) => {
     if (view === 'customers' || view === 'team') return ctx.state.me?.canWrite === true;
     if (view === 'bluetooth') return ctx.state.app?.ble === true && ctx.state.me?.canWrite === true;
+    if (view === 'offline') return ctx.state.app?.offline === true;
     return true;
   });
   const open = ctx.state.moreOpen === true;

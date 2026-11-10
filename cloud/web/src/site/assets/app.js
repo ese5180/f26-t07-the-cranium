@@ -243,8 +243,20 @@ function paint() {
     nav.hidden = true;
     account.hidden = true;
     if (foot) foot.hidden = true;
-    const node = state.gate.signIn ? signInView(signInModel()) : gateView(state.gate);
-    node.key = state.gate.signIn ? 'sign-in' : 'gate';
+    const offline = state.app?.offline ? openOfflineFromGate : null;
+    let node;
+    if (state.gate.offline) {
+      node = offlineScript
+        ? offlineScript.offlineView({
+            state,
+            offline: offlineFlow,
+            back: { label: state.gate.from?.signIn ? 'Sign in' : 'Back', run: closeOfflineGate },
+          })
+        : gateView({ title: 'Offline mode could not be loaded', action: { label: 'Back', run: closeOfflineGate } });
+    } else {
+      node = state.gate.signIn ? signInView({ ...signInModel(), offline }) : gateView({ ...state.gate, offline });
+    }
+    node.key = state.gate.offline ? 'offline' : state.gate.signIn ? 'sign-in' : 'gate';
     render(main, node);
     return;
   }
@@ -351,7 +363,13 @@ function showGate(gate) {
   if (dialog) dialog.close(true);
   document.title = 'Cranium · Firmware console';
   paint();
+  // In an app, an address of the Offline page opens it over the first gate: offline mode needs no sign-in.
+  if (!gate.offline && !offlineLinkFollowed && state.app?.offline && location.hash === '#/offline') {
+    offlineLinkFollowed = true;
+    openOfflineFromGate();
+  }
 }
+let offlineLinkFollowed = false;
 
 // The toasts on the page, by what they say: the same message twice is one message, for longer.
 const toastsShown = new Map();
@@ -942,6 +960,22 @@ const pages = {
     holdStill: () => bluetoothFlow?.flow.busy === true,
     everySecond: true,
   },
+  // Offline mode, in the apps that offer it (offline.js): a board's status straight over Bluetooth. Nothing
+  // of the console is read, so it works with no network; the gates lead here too (openOfflineFromGate).
+  offline: {
+    title: 'Offline',
+    view: (ctx) =>
+      offlineScript
+        ? offlineScript.offlineView({ ...ctx, offline: offlineFlow })
+        : scriptPending(ctx, 'offline', 'Offline', { tabs: false }),
+    resources: () => [],
+    async refresh() {
+      await offlineReady();
+      draw();
+    },
+    interval: () => 0,
+    holdStill: () => offlineFlow?.flow.step === 'connecting' || offlineFlow?.flow.accepting === true,
+  },
   // Read again now and then, so that a token that runs out reads as expired.
   tokens: {
     title: 'API tokens',
@@ -1044,6 +1078,39 @@ async function bluetoothReady() {
   }
   return bluetoothScript;
 }
+let offlineScript = null;
+let offlineFlow = null;
+
+/** offline.js, fetched once, and its flow, where the app offers offline mode. */
+async function offlineReady() {
+  offlineScript ??= await pageScript(() => import('./offline.js'));
+  if (offlineScript && !offlineFlow && appBridge?.has('bleOffline')) {
+    offlineFlow = offlineScript.createOfflineFlow({
+      bridge: appBridge,
+      onChange: draw,
+      device: state.app?.device ?? 'device',
+    });
+  }
+  return offlineScript;
+}
+
+/** From a gate or the sign-in page: the Offline page on its own, with a way back to where it was opened. */
+async function openOfflineFromGate() {
+  const from = state.gate;
+  if (!from || from.offline) return;
+  await offlineReady();
+  state.gate = { offline: true, from };
+  paint();
+  document.getElementById('page-title')?.focus({ preventScroll: true });
+}
+
+function closeOfflineGate() {
+  if (!state.gate?.offline) return;
+  offlineFlow?.leave();
+  state.gate = state.gate.from;
+  paint();
+}
+
 let telemetryScript = null;
 let mapScript = null;
 let accountScript = null;
@@ -1771,6 +1838,8 @@ function showRoute() {
     return;
   }
   if (dialog) dialog.close(true);
+  // Leaving the Offline page lets go of the board, so that the radio is free for an update over Bluetooth.
+  if (state.route?.view === 'offline' && route.view !== 'offline') offlineFlow?.leave();
   // A page's filters are what its address says: none when it has no ?.
   if (Object.hasOwn(FILTERS, route.view)) state.filters[route.view] = readFilters(route.view, route.query ?? {});
   state.filtersOpen = false;
@@ -2833,6 +2902,8 @@ async function boot() {
     }
     state.app = {
       ble: appBridge.has('ble'),
+      // Offline mode: a board's own status over Bluetooth, with no network (offline.js).
+      offline: appBridge.has('bleOffline'),
       settings: appBridge.has('settings'),
       // The camera, for Scan board on the Devices page (camera.scan).
       scan: appBridge.has('camera'),
