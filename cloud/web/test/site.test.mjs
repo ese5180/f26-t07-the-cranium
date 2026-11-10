@@ -524,6 +524,126 @@ test('type stays in the weights that system fonts have', () => {
   }
 });
 
+/** A size in px from "<n>rem" or "<n>px", or null for anything else. */
+function pixels(value) {
+  const found = /^([\d.]+)(rem|px)$/.exec(value);
+  if (!found) return null;
+  return Number(found[1]) * (found[2] === 'rem' ? 16 : 1);
+}
+
+// The type scale (console 2.26): eight steps, as tokens on :root.
+const SCALE = Object.freeze({
+  '--type-label': 12.5,
+  '--type-small': 13,
+  '--type-table': 14,
+  '--type-body': 15,
+  '--type-large': 16,
+  '--type-title': 20,
+  '--type-heading': 32,
+  '--type-display': 40,
+});
+
+/**
+ * Whether a font-size keeps to the scale: one of its tokens; a size relative to the text around
+ * it with a step of the scale as its floor; a fluid size between two steps; or a figure larger
+ * than the scale's largest step, which is a number to glance at rather than text to read.
+ */
+function onTheScale(value) {
+  if (/^var\(--type-[a-z]+\)$/.test(value)) return true;
+  if (/^max\(var\(--type-[a-z]+\), [\d.]+em\)$/.test(value)) return true;
+  if (/^clamp\(var\(--type-[a-z]+\), [^,]+, var\(--type-[a-z]+\)\)$/.test(value)) return true;
+  if (['0', 'inherit', '1em'].includes(value)) return true;
+  // Inside a larger title or figure: a share of it, which stays well above the floor.
+  if (/^0\.(5|55|68)em$/.test(value)) return true;
+  const fluid = /^clamp\(([\d.]+)rem, [^,]+, ([\d.]+)rem\)$/.exec(value);
+  if (fluid) return Number(fluid[1]) * 16 >= SCALE['--type-display'];
+  const fixed = pixels(value);
+  return fixed !== null && fixed > SCALE['--type-display'];
+}
+
+test('type keeps to one scale, and nothing people read is under 13 px', () => {
+  const root = declared(':root');
+  for (const [token, size] of Object.entries(SCALE)) {
+    assert.equal(pixels(root.get(token) ?? ''), size, token);
+  }
+  // Only labels, badges and IDs, never sentences, sit under 13 px, and none under 12.5 px.
+  for (const [token, size] of Object.entries(SCALE)) {
+    if (token !== '--type-label') assert.equal(size >= 13, true, token);
+  }
+  // Body text is 15 px on a 24 px line, and a step larger on a phone on the same line; tables 14 on 20.
+  assert.equal(declared('body').get('font'), 'var(--type-body) / var(--leading-body) var(--sans)');
+  assert.equal(Math.round(15 * Number(root.get('--leading-body'))), 24);
+  const phone = declared(':root', '@media (max-width: 800px)');
+  assert.equal(pixels(phone.get('--type-body')), 16);
+  assert.equal(Math.round(16 * Number(phone.get('--leading-body'))), 24);
+  assert.equal(declared('.data-table').get('font-size'), 'var(--type-table)');
+  assert.equal(Math.round(14 * Number(root.get('--leading-table'))), 20);
+  // Every size in the stylesheet is on the scale. A board's label is set in points, for the paper
+  // it is printed on, and so is what print does to a page.
+  for (const rule of rules) {
+    const size = rule.values.get('font-size');
+    if (!size || rule.media === '@media print') continue;
+    if (rule.selectors.every((selector) => selector.startsWith('.board-label'))) {
+      assert.match(size, /^[\d.]+pt$/, rule.selectors.join());
+      continue;
+    }
+    assert.equal(onTheScale(size), true, `${rule.selectors.join()} ${size}`);
+  }
+  // A mono ID is a share of the text around it, never under the label step.
+  assert.equal(declared('.mono').get('font-size'), 'max(var(--type-label), 0.92em)');
+  // Prose keeps to a readable line.
+  assert.equal(root.get('--measure'), '68ch');
+  assert.equal(declared('.page-lede').get('max-width'), 'var(--measure)');
+});
+
+test('labels are in sentence case, and sentences are not in the faintest ink', () => {
+  // No label is set in capitals and spaced out. The customer site keeps capitals only for the
+  // lettering drawn on a record sleeve, which is part of a picture.
+  for (const rule of rules) {
+    assert.notEqual(rule.values.get('text-transform'), 'uppercase', rule.selectors.join());
+  }
+  const site = readRules(readFileSync(new URL('../src/customer/assets/customer.css', import.meta.url), 'utf8'));
+  for (const rule of site) {
+    if (rule.values.get('text-transform') !== 'uppercase') continue;
+    for (const selector of rule.selectors) assert.match(selector, /sleeve|hero-card-caption/, selector);
+  }
+  for (const rule of site) {
+    const size = rule.values.get('font-size');
+    if (!size || rule.selectors.some((selector) => /sleeve|hero-card-caption|cover-ring|initials/.test(selector))) {
+      continue;
+    }
+    assert.equal(onTheScale(size), true, `${rule.selectors.join()} ${size}`);
+  }
+  // Notes, hints and help are sentences: they take --ink-2. --ink-3 is for metadata.
+  for (const selector of ['.field-hint', '.stat-note', '.chart-empty', '.menu-note', '.console .card-sub']) {
+    assert.equal(declared(selector).get('color'), 'var(--ink-2)', selector);
+  }
+  // And both secondary inks read on every ground they stand on, in both themes.
+  const themes = {
+    light: declared(':root'),
+    dark: new Map([...declared(':root'), ...declared(':root', '@media (prefers-color-scheme: dark)')]),
+  };
+  for (const [name, colours] of Object.entries(themes)) {
+    for (const text of ['--ink', '--ink-2', '--ink-3', '--accent', '--good', '--warn', '--bad', '--work']) {
+      for (const ground of ['--paper', '--surface', '--well', '--grouped']) {
+        const ratio = contrast(colours.get(text), colours.get(ground));
+        assert.equal(ratio >= 4.5, true, `${text} on ${ground}, ${name}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+    for (const [text, wash] of [
+      ['--accent', '--accent-wash'],
+      ['--good', '--good-wash'],
+      ['--warn', '--warn-wash'],
+      ['--bad', '--bad-wash'],
+      ['--work', '--work-wash'],
+      ['--ink-2', '--well'],
+    ]) {
+      const ratio = contrast(colours.get(text), colours.get(wash));
+      assert.equal(ratio >= 4.5, true, `${text} on ${wash}, ${name}: ${ratio.toFixed(2)}:1`);
+    }
+  }
+});
+
 test('what a dialog says about a failed request does not scroll away with its body', () => {
   // The body takes the room that is left and scrolls. The message keeps its own height
   // between the body and the buttons, up to a share of the window.

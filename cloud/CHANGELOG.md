@@ -7,6 +7,12 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.26.0
+
+Text is larger and easier to read everywhere: the console, the customer site and the phone, Mac and desktop apps. Body text is 15 px on a 24 px line (16 px on a phone), tables and rows 14 px, and nothing written as words is under 13 px; only short labels, badges and IDs sit at 12.5 px. Notes, hints and help text are in the darker secondary ink instead of the faintest one, labels are in sentence case instead of spaced-out capitals, and long paragraphs keep to a readable line. Nothing moved and no words changed.
+
+The stylesheets now use one type scale of eight steps (12.5, 13, 14, 15, 16, 20, 32 and 40 px), defined once as `--type-*` tokens in app.css, in place of about sixty separate sizes; customer.css uses the same tokens. Very large figures (an update's percentage, a health score) stay larger than the scale, and the printed board label stays in points. site.test.mjs checks that every size is on the scale, that no token people read is under 13 px, that no label is uppercase, and the contrast of every text colour on every ground in both themes. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.1
 
 Two fixes from review. With reduced motion on, the loading screen's "Still loading? Reload the page." waits its 8 seconds like everyone else's instead of showing at once. The LED guide (docs/led-guide.md) now gives the nRF7002 DK's Bluetooth meanings of the double flash (paired) and fast blink (an image arrived: press Button 1), and says the self-test pattern comes with firmware 1.17.1, which is not released yet.

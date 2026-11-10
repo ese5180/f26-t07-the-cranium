@@ -72,6 +72,26 @@
   --band-online: #d3e6cf;
   --lift: 0 24px 60px -24px rgb(28 24 20 / 0.45);
 
+  /*
+   * The type scale: eight steps, and nothing people read is set off it. 13 px is the floor for
+   * anything read as words; only labels, badges and IDs (never sentences) sit at 12.5 px.
+   * Body text is 15 px on a 24 px line, 16 px on a phone; tables are 14 px on 20 px.
+   */
+  --type-label: 0.78125rem; /* 12.5 px: labels, badges, counts, mono IDs */
+  --type-small: 0.8125rem; /* 13 px: secondary text, in --ink-2 */
+  --type-table: 0.875rem; /* 14 px: rows and tables */
+  --type-body: 0.9375rem; /* 15 px: body (16 px on a phone, below) */
+  --type-large: 1rem; /* 16 px: card titles, a lede */
+  --type-title: 1.25rem; /* 20 px: section and dialog titles */
+  --type-heading: 2rem; /* 32 px: page titles, figures */
+  --type-display: 2.5rem; /* 40 px: the largest figures */
+  --leading-body: 1.6; /* 24 px on 15 px */
+  --leading-table: 1.43; /* 20 px on 14 px */
+  --leading-small: 1.54; /* 20 px on 13 px */
+  --leading-title: 1.15;
+  /* Prose stays within a comfortable line. */
+  --measure: 68ch;
+
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
@@ -267,9 +287,17 @@ body {
   min-width: 320px;
   background: var(--paper);
   color: var(--ink);
-  font: 0.9375rem/1.5 var(--sans);
+  font: var(--type-body) / var(--leading-body) var(--sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* On a phone, body text is a step larger, on the same 24 px line. */
+@media (max-width: 800px) {
+  :root {
+    --type-body: 1rem;
+    --leading-body: 1.5;
+  }
 }
 
 h1,
@@ -328,7 +356,8 @@ strong {
 .mono,
 .code {
   font-family: var(--mono);
-  font-size: 0.92em;
+  /* Relative to the text around it, never under the label step. */
+  font-size: max(var(--type-label), 0.92em);
   letter-spacing: -0.015em;
 }
 
@@ -348,7 +377,7 @@ strong {
 /* A board's thing name beside its own name: what AWS IoT knows it by, smaller and quieter. */
 .board-thing {
   color: var(--ink-3);
-  font-size: 0.8125em;
+  font-size: max(var(--type-small), 0.8125em);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
@@ -370,11 +399,9 @@ strong {
 
 .eyebrow {
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.085em;
   line-height: 1.4;
-  text-transform: uppercase;
 }
 
 .icon {
@@ -486,14 +513,14 @@ body.is-scrolled .masthead {
 }
 
 .brand-name {
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.028em;
 }
 
 .brand-sub {
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   letter-spacing: 0.002em;
 }
 
@@ -502,7 +529,7 @@ body.is-scrolled .masthead {
   flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 600;
   letter-spacing: -0.012em;
   text-align: center;
@@ -576,7 +603,7 @@ body.is-scrolled .masthead-title {
 .account-email {
   display: block;
   overflow: hidden;
-  font-size: 0.84375rem;
+  font-size: var(--type-table);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -587,8 +614,8 @@ body.is-scrolled .masthead-title {
   flex-wrap: wrap;
   gap: 0 6px;
   min-width: 0;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .account-role {
@@ -661,7 +688,7 @@ body.is-scrolled .masthead-title {
   min-height: 52px;
   padding: var(--space-2) var(--space-4);
   color: var(--ink);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   text-decoration: none;
 }
 
@@ -698,8 +725,8 @@ body.is-scrolled .masthead-title {
 
 .nav-sheet-detail {
   overflow: hidden;
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -751,7 +778,7 @@ body.is-scrolled .masthead-title {
     min-height: var(--tabbar);
     padding: 6px 2px 4px;
     color: var(--ink-3);
-    font-size: 0.6875rem;
+    font-size: var(--type-label);
     font-weight: 600;
     letter-spacing: 0.01em;
   }
@@ -867,7 +894,7 @@ body.is-scrolled .masthead-title {
     min-height: 40px;
     padding: 8px var(--space-3);
     border-radius: 8px;
-    font-size: 0.9375rem;
+    font-size: var(--type-body);
   }
 
   .nav-link:hover {
@@ -965,7 +992,7 @@ body:has(.boot) .masthead {
 
 .boot-name {
   color: var(--ink);
-  font-size: 1.5rem;
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1.1;
@@ -973,10 +1000,8 @@ body:has(.boot) .masthead {
 
 .boot-sub {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .boot-bar {
@@ -998,8 +1023,8 @@ body:has(.boot) .masthead {
 }
 
 .boot-hint {
-  color: var(--ink-3);
-  font-size: 0.875rem;
+  color: var(--ink-2);
+  font-size: var(--type-table);
   animation: fade-in 0.5s var(--ease) 8s backwards;
 }
 
@@ -1047,7 +1072,7 @@ body:has(.boot) .masthead {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 18px;
-  font-size: clamp(2rem, 1.7rem + 1.2vw, 2.75rem);
+  font-size: clamp(var(--type-heading), 1.7rem + 1.2vw, var(--type-display));
   font-weight: 700;
   letter-spacing: -0.022em;
   line-height: 1.05;
@@ -1096,11 +1121,11 @@ body:has(.boot) .masthead {
 }
 
 .page-lede {
-  max-width: 62ch;
+  max-width: var(--measure);
   overflow-wrap: anywhere;
   margin-top: 8px;
   color: var(--ink-2);
-  font-size: 1rem;
+  font-size: var(--type-large);
   letter-spacing: -0.008em;
   text-wrap: pretty;
 }
@@ -1108,7 +1133,7 @@ body:has(.boot) .masthead {
 .page-meta {
   margin-top: 6px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .page-meta .mono {
@@ -1132,7 +1157,7 @@ body:has(.boot) .masthead {
   gap: 6px;
   margin-bottom: 18px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 500;
   text-decoration: none;
 }
@@ -1149,7 +1174,7 @@ body:has(.boot) .masthead {
   margin: clamp(36px, 4vw, 56px) 0 0;
   padding-top: 12px;
   border-top: 2px solid var(--rule);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
 }
@@ -1163,7 +1188,7 @@ body:has(.boot) .masthead {
   align-items: center;
   gap: 8px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1199,7 +1224,7 @@ body:has(.boot) .masthead {
   color: var(--ink);
   cursor: pointer;
   font: inherit;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   letter-spacing: -0.006em;
   text-decoration: none;
@@ -1257,7 +1282,7 @@ body:has(.boot) .masthead {
 .btn.is-small {
   min-height: 32px;
   padding: 0 11px;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .btn.is-small .icon {
@@ -1268,7 +1293,7 @@ body:has(.boot) .masthead {
 .btn.is-large {
   min-height: 48px;
   padding: 0 26px;
-  font-size: 1rem;
+  font-size: var(--type-large);
 }
 
 .btn.is-icon {
@@ -1313,7 +1338,7 @@ body:has(.boot) .masthead {
   background: var(--well);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.78125rem;
+  font-size: var(--type-label);
   font-weight: 600;
   letter-spacing: -0.003em;
   line-height: 1.5;
@@ -1446,8 +1471,8 @@ body:has(.boot) .masthead {
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   color: var(--ink-2);
-  font-size: 0.71875rem;
-  font-weight: 500;
+  font-size: var(--type-label);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1487,7 +1512,7 @@ body:has(.boot) .masthead {
 
 .card > .card-head > .eyebrow {
   color: var(--ink);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
   text-transform: none;
@@ -1501,10 +1526,8 @@ body:has(.boot) .masthead {
 
 .card.is-zone > .card-head > .eyebrow {
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
 }
 
 .card-more {
@@ -1512,7 +1535,7 @@ body:has(.boot) .masthead {
   align-items: center;
   gap: 4px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
@@ -1534,8 +1557,9 @@ body:has(.boot) .masthead {
 
 .card-note {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
+  max-width: var(--measure);
 }
 
 /* The ink panel: what matters most on this page. */
@@ -1567,7 +1591,7 @@ body:has(.boot) .masthead {
 /* A board's thing name beside its own name: what AWS IoT knows it by, smaller and quieter. */
 .board-thing {
   color: var(--ink-3);
-  font-size: 0.8125em;
+  font-size: max(var(--type-small), 0.8125em);
   font-weight: 400;
   overflow-wrap: anywhere;
 }
@@ -1596,7 +1620,7 @@ body:has(.boot) .masthead {
 
 .fact dt {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   line-height: 1.625rem;
 }
 
@@ -1611,7 +1635,7 @@ body:has(.boot) .masthead {
 }
 
 .fact-strong {
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
@@ -1627,7 +1651,7 @@ body:has(.boot) .masthead {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .fact-link {
@@ -1635,11 +1659,11 @@ body:has(.boot) .masthead {
   align-items: center;
   gap: 4px;
   width: fit-content;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .digest {
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
   word-break: break-all;
   /* A digest that does not fit on one line breaks into lines of equal length. */
@@ -1724,7 +1748,7 @@ body:has(.boot) .masthead {
   padding-top: 12px;
   border-top: 4px solid var(--line-strong);
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
 }
 
 .signal-band.is-here {
@@ -1778,7 +1802,7 @@ body:has(.boot) .masthead {
   padding: 0 9px;
   border-radius: 4px;
   color: var(--on-bar);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   transform-origin: left center;
@@ -1863,7 +1887,7 @@ body:has(.boot) .masthead {
   gap: 8px 20px;
   margin-top: 12px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .legend-item {
@@ -1896,7 +1920,7 @@ body:has(.boot) .masthead {
 
 .stat-value {
   order: -1;
-  font-size: clamp(2.25rem, 2rem + 1vw, 3rem);
+  font-size: var(--type-display);
   font-weight: 600;
   letter-spacing: -0.025em;
   line-height: 1;
@@ -1905,14 +1929,14 @@ body:has(.boot) .masthead {
 .stat-label {
   overflow-wrap: anywhere;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
   line-height: 1.3;
 }
 
 .stat-note {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* One tile per board. */
@@ -1974,7 +1998,7 @@ body:has(.boot) .masthead {
 .tile-words {
   margin-top: 10px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .notice {
@@ -2018,7 +2042,7 @@ body:has(.boot) .masthead {
 .notice-ref {
   margin-top: 2px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .empty {
@@ -2066,7 +2090,7 @@ body:has(.boot) .masthead {
 }
 
 .empty-title {
-  font-size: 1.375rem;
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.024em;
 }
@@ -2108,7 +2132,7 @@ body:has(.boot) .masthead {
 
 .row-note {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -2179,7 +2203,7 @@ body:has(.boot) .masthead {
 }
 
 .field-label {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
 }
 
@@ -2188,8 +2212,8 @@ body:has(.boot) .masthead {
 }
 
 .field-hint {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* How much of a limited field is used, shown once the limit is in sight. */
@@ -2261,14 +2285,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .gate-brand-name {
-  font-size: 1.375rem;
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.028em;
 }
 
 .gate-brand-sub {
   color: var(--ink-3);
-  font-size: 0.78125rem;
+  font-size: var(--type-label);
 }
 
 .gate-message {
@@ -2301,7 +2325,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .gate-text {
   color: var(--ink-2);
-  font-size: clamp(1rem, 0.95rem + 0.3vw, 1.1875rem);
+  font-size: var(--type-large);
   letter-spacing: -0.008em;
   text-wrap: pretty;
 }
@@ -2312,8 +2336,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .gate-foot {
   max-width: 34rem;
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .gate-art {
@@ -2372,7 +2396,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 /* At least 16 px: a phone does not zoom into a field with text that large. */
 .signin-form .input {
   padding: 11px 13px;
-  font-size: 1rem;
+  font-size: var(--type-large);
 }
 
 .signin-form .input[readonly],
@@ -2410,7 +2434,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border-radius: var(--radius);
   background: var(--bad-wash);
   color: var(--ink);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .signin-problem .icon {
@@ -2440,7 +2464,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--ink);
   caret-color: var(--accent);
   font-family: var(--mono);
-  font-size: 1.625rem;
+  font-size: var(--type-heading);
   font-weight: 600;
   text-align: center;
   -webkit-appearance: none;
@@ -2474,8 +2498,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .signin-note {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* Overview. */
@@ -2526,7 +2550,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .figure-unit {
   color: var(--ink-2);
-  font-size: 1rem;
+  font-size: var(--type-large);
   letter-spacing: -0.008em;
 }
 
@@ -2574,7 +2598,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   justify-content: flex-end;
   gap: 4px 9px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   white-space: nowrap;
 }
 
@@ -2584,12 +2608,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .fleet-version {
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
 }
 
 .fleet-version.quiet {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 500;
 }
 
@@ -2619,7 +2643,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding: 0 0 8px;
   border-top: 0;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   font-weight: 500;
 }
 
@@ -2666,7 +2690,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .board-line-fw .quiet,
 .board-line-signal .quiet {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   font-weight: 400;
 }
 
@@ -2677,7 +2701,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .board-line-update {
   min-width: 0;
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 .board-line-update .status {
@@ -2697,12 +2721,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 8px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 .board-line-note {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 @container board-list (max-width: 38.75rem) {
@@ -2731,7 +2755,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 
   .board-line-fw {
-    font-size: 0.875rem;
+    font-size: var(--type-table);
   }
 }
 
@@ -2767,7 +2791,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .release-figure .mono {
   min-width: 0;
-  font-size: clamp(2rem, 1.5rem + 1.4vw, 3rem);
+  font-size: clamp(var(--type-heading), 1.5rem + 1.4vw, var(--type-display));
   font-weight: 600;
   letter-spacing: -0.028em;
   line-height: 1;
@@ -2788,7 +2812,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 12px;
   overflow-wrap: anywhere;
-  font-size: clamp(1.375rem, 1.2rem + 0.7vw, 1.875rem);
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -2837,7 +2861,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .calm.is-good .calm-title {
-  font-size: clamp(1.75rem, 1.3rem + 1.7vw, 2.875rem);
+  font-size: clamp(var(--type-heading), 1.3rem + 1.7vw, var(--type-display));
   letter-spacing: -0.022em;
 }
 
@@ -2871,7 +2895,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .run-version {
   color: var(--ink);
-  font-size: clamp(1.25rem, 1.15rem + 0.5vw, 1.625rem);
+  font-size: var(--type-title);
   font-weight: 600;
   line-height: 1.1;
   text-decoration: none;
@@ -2958,7 +2982,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .board-run-state .status {
-  font-size: clamp(1.5rem, 1.25rem + 1vw, 2.25rem);
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.022em;
   line-height: 1.1;
@@ -2966,7 +2990,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .board-run-note {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .welcome {
@@ -2987,7 +3011,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .welcome.panel .guide > .card-head > .eyebrow {
-  font-size: clamp(2rem, 1.5rem + 1.6vw, 3rem);
+  font-size: clamp(var(--type-heading), 1.5rem + 1.6vw, var(--type-display));
   font-weight: 700;
   letter-spacing: -0.028em;
   line-height: 1.05;
@@ -3047,7 +3071,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .guide-title {
   overflow-wrap: anywhere;
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.018em;
 }
@@ -3060,7 +3084,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   overflow-wrap: anywhere;
   margin-top: 4px;
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   text-wrap: pretty;
 }
 
@@ -3083,13 +3107,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .journey-title {
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
 }
 
 .journey-text {
-  max-width: 68ch;
+  max-width: var(--measure);
   color: var(--ink-2);
   text-wrap: pretty;
 }
@@ -3176,7 +3200,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .log-detail {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -3192,7 +3216,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .log-when {
   padding-top: 6px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -3214,7 +3238,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .audit-change {
@@ -3248,10 +3272,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .audit-diff-tag {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 .audit-diff-value {
@@ -3271,12 +3293,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .audit-diff-empty {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .audit-diff-none {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* A phone: the field over its two values, and each value on a line of its own. */
@@ -3319,13 +3341,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .log.is-compact .log-what {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .log-summary {
   margin-bottom: 18px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .log-scope {
@@ -3339,10 +3361,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* What the tag on some lines means, said once. */
 .log-key {
-  max-width: 82ch;
+  max-width: var(--measure);
   margin-bottom: 18px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   line-height: 1.5;
 }
 
@@ -3362,7 +3384,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-self: start;
   position: sticky;
   top: 88px;
-  font-size: clamp(1.375rem, 1.2rem + 0.8vw, 2rem);
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.028em;
   line-height: 1.1;
@@ -3455,7 +3477,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .device-name {
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
@@ -3464,12 +3486,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .device-seen {
   margin-top: 2px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 .device-thing {
   margin-top: 1px;
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   line-height: 1.3;
 }
 
@@ -3497,11 +3519,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .device-help {
   margin-top: 8px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .device-version {
-  font-size: clamp(1.5rem, 1.3rem + 0.5vw, 1.875rem);
+  font-size: var(--type-title);
   font-weight: 600;
   line-height: 1.1;
 }
@@ -3534,7 +3556,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   .device-columns {
     padding: 10px 0 8px;
     color: var(--ink-3);
-    font-size: 0.75rem;
+    font-size: var(--type-small);
     font-weight: 500;
   }
 
@@ -3577,12 +3599,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
   .device-grid .device-version.mono {
     font-family: var(--mono);
-    font-size: 0.9375rem;
+    font-size: var(--type-body);
     letter-spacing: 0;
   }
 
   .device-grid .fact dd {
-    font-size: 0.875rem;
+    font-size: var(--type-table);
   }
 
   .device-grid .status {
@@ -3601,7 +3623,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .board-now.is-idle .status {
-  font-size: clamp(1.125rem, 1rem + 0.4vw, 1.375rem);
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -3615,7 +3637,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem);
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.018em;
 }
@@ -3626,7 +3648,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .board-silent-text {
-  max-width: 68ch;
+  max-width: var(--measure);
   color: var(--ink-2);
 }
 
@@ -3744,14 +3766,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   min-width: 0;
   white-space: nowrap;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   font-weight: 500;
 }
 
 .flash-version {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -3762,7 +3784,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .flash-none {
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 500;
 }
 
@@ -3772,7 +3794,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   justify-content: flex-end;
   gap: 7px;
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 500;
   text-align: right;
 }
@@ -3833,7 +3855,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .flash-row.is-boot .flash-state {
   color: var(--ink-3);
   font-family: var(--mono);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 400;
 }
 
@@ -3858,8 +3880,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .flash-note {
   margin-top: 8px;
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* Firmware. */
@@ -3888,7 +3910,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .timeline-count {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .timeline {
@@ -3975,13 +3997,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   top: -6px;
   left: 42px;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .station-version {
-  font-size: clamp(1.25rem, 1rem + 0.9vw, 1.875rem);
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.028em;
   line-height: 1.15;
@@ -3996,7 +4018,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .station-state {
   margin-top: 2px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
 }
 
@@ -4011,7 +4033,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .station-when,
 .station-boards {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 /* A file on its way to the boards: what a release manager comes to this page to do. */
@@ -4066,7 +4088,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border: 1.5px solid var(--stage);
   border-radius: 50%;
   color: var(--stage-on);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -4084,13 +4106,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .upload-stage-label {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 500;
 }
 
 .upload-stage-word {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 /* Finished is ink, as it is on the steps of an update. Green is for what was proved. */
@@ -4138,7 +4160,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: clamp(1.75rem, 1.35rem + 1.5vw, 2.75rem);
+  font-size: clamp(var(--type-heading), 1.35rem + 1.5vw, var(--type-display));
   font-weight: 700;
   letter-spacing: -0.022em;
   line-height: 1.05;
@@ -4153,18 +4175,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .verified-text {
-  max-width: 62ch;
+  max-width: var(--measure);
   color: var(--ink-2);
 }
 
 .verified-checks .check {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .verified-after {
   padding-top: 12px;
   border-top: 1px solid var(--line);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .upload-state.is-verified .facts {
@@ -4176,7 +4198,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .upload-verifying {
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 600;
 }
 
@@ -4192,7 +4214,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .upload-main > .eyebrow,
 .trust-title {
   color: var(--ink);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   letter-spacing: -0.018em;
   text-transform: none;
@@ -4217,7 +4239,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .upload.is-readonly .trust p {
-  max-width: 76ch;
+  max-width: var(--measure);
 }
 
 /* The three places a signature is made and checked. */
@@ -4258,13 +4280,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .chain-title {
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   letter-spacing: -0.008em;
 }
 
 .chain-text {
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   line-height: 1.35;
 }
 
@@ -4285,7 +4307,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .fingerprint-note {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .drop {
@@ -4348,7 +4370,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .drop-title {
   overflow-wrap: anywhere;
-  font-size: clamp(1.25rem, 1.1rem + 0.5vw, 1.5rem);
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.028em;
 }
@@ -4373,8 +4395,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   max-width: 50ch;
   overflow-wrap: anywhere;
   margin-top: 8px;
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .drop-where {
@@ -4401,7 +4423,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -4464,7 +4486,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .release-version {
-  font-size: clamp(1.375rem, 1.2rem + 0.6vw, 1.75rem);
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.028em;
   line-height: 1.15;
@@ -4477,7 +4499,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .release-notes {
-  max-width: 76ch;
+  max-width: var(--measure);
   overflow-wrap: anywhere;
 }
 
@@ -4512,7 +4534,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 4px 12px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .slot-fit-bar {
@@ -4544,7 +4566,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   width: fit-content;
   color: var(--ink-2);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .more summary:hover {
@@ -4598,7 +4620,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex-wrap: wrap;
   align-self: center;
   gap: 4px 18px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .counts .status {
@@ -4649,7 +4671,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .execution-name {
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -4671,7 +4693,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: flex-start;
   gap: 14px;
   /* A section head: smaller than the page's own title (the version), larger than the words. */
-  font-size: clamp(1.375rem, 1.2rem + 0.7vw, 1.75rem);
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.014em;
   line-height: 1.15;
@@ -4690,21 +4712,21 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .execution-text {
-  max-width: 68ch;
+  max-width: var(--measure);
   color: var(--ink-2);
-  font-size: 1rem;
+  font-size: var(--type-large);
   text-wrap: pretty;
 }
 
 /* What to do about an update that ended short. */
 .execution-next {
-  max-width: 74ch;
+  max-width: var(--measure);
   font-weight: 600;
 }
 
 .execution-code {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -4775,7 +4797,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border: 1px solid var(--line-mark);
   border-radius: var(--radius-small);
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   line-height: 1.25;
 }
 
@@ -4823,7 +4845,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: grid;
   gap: 6px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .moment {
@@ -4862,11 +4884,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .execution.is-compact .execution-title {
-  font-size: 1.375rem;
+  font-size: var(--type-title);
 }
 
 .execution.is-compact .execution-text {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .execution.is-compact .execution-foot {
@@ -4942,7 +4964,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   min-width: 0;
   padding: 50px 12px 0 0;
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   line-height: 1.3;
 }
 
@@ -4998,7 +5020,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   overflow-wrap: anywhere;
   margin-top: 1px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 400;
 }
 
@@ -5187,7 +5209,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .steps.is-compact .step {
   padding-top: 38px;
   padding-right: 14px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .steps.is-compact .step::before {
@@ -5270,7 +5292,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   transform: translateX(-50%);
   border-radius: var(--radius-small);
   background: var(--bad-wash);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
   line-height: 1.625rem;
   white-space: nowrap;
@@ -5346,7 +5368,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .dialog-title {
   padding-top: 3px;
-  font-size: 1.625rem;
+  font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.028em;
   line-height: 1.15;
@@ -5397,7 +5419,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .dialog-hint {
   align-self: center;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .choices {
@@ -5470,7 +5492,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .choice-note,
 .choice-hint {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -5478,7 +5500,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .choice-warning .icon {
@@ -5493,7 +5515,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-3);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .wizard-steps li {
@@ -5510,7 +5532,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   height: 1.375rem;
   border: 1.5px solid var(--line-strong);
   border-radius: 50%;
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-weight: 600;
 }
 
@@ -5607,7 +5629,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     0 0 0 1px var(--paper),
     var(--lift);
   color: var(--paper);
-  font-size: 0.9rem;
+  font-size: var(--type-table);
   pointer-events: auto;
 }
 
@@ -5937,7 +5959,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
   /* The title stays a title at large text, and does not take the room of what it asks about. */
   .dialog-title {
-    font-size: 1.25rem;
+    font-size: var(--type-title);
   }
 
   .dialog-head {
@@ -6236,7 +6258,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   /* The setup command stays on one line, where it reads as one command. */
   .code {
     padding-inline: 5px;
-    font-size: 0.8em;
+    font-size: max(var(--type-label), 0.8em);
     letter-spacing: -0.02em;
   }
 }
@@ -6571,7 +6593,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .dev-tabs .nav-link {
   margin-inline: -6px;
   padding: 5px 6px 6px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 /* API tokens. */
@@ -6588,7 +6610,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .token-count {
   flex: 1 1 260px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .token-title {
@@ -6673,7 +6695,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .serial-board {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 
@@ -6690,7 +6712,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   overflow: auto;
   border-block: 1px solid var(--line-strong);
   font-family: var(--mono);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   line-height: 1.5;
   overscroll-behavior: contain;
 }
@@ -6701,9 +6723,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .serial-blank {
   padding-top: 6px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .serial-line {
@@ -6731,7 +6753,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex: none;
   margin-left: auto;
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -6751,7 +6773,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex: none;
   color: var(--ink-3);
   font-family: var(--sans);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   font-weight: 400;
 }
 
@@ -6798,7 +6820,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding-left: 10px;
   border-left: 2px solid var(--line-strong);
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
 }
 
 .serial-tag {
@@ -6831,9 +6853,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 /* What the page itself says. */
 .serial-line.is-note {
   margin-block: 4px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-family: var(--sans);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .serial-line.is-note .icon {
@@ -6870,7 +6892,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .serial-prompt-row .btn {
@@ -6882,7 +6904,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: baseline;
   gap: 6px;
   color: var(--bad);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
 }
 
@@ -6904,7 +6926,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 8px;
   margin-bottom: 18px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .serial-group {
@@ -6946,18 +6968,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .serial-row .btn.mono {
   font-family: var(--mono);
-  font-size: 0.78125rem;
+  font-size: var(--type-label);
 }
 
 .serial-name {
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
 }
 
 .serial-does {
   margin-top: -6px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .serial-row.is-plain .serial-does {
@@ -6974,7 +6996,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 6px;
   color: var(--ink-2);
   font-family: var(--mono);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 
@@ -7002,7 +7024,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 6px;
   margin-top: -4px;
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 
@@ -7057,7 +7079,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .history-figure {
   margin-top: 6px;
-  font-size: clamp(1.75rem, 3vw, 2.625rem);
+  font-size: clamp(var(--type-heading), 3vw, var(--type-display));
   font-weight: 600;
   line-height: 1.15;
 }
@@ -7067,7 +7089,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .history-built-subject {
-  max-width: 62ch;
+  max-width: var(--measure);
   margin-top: 8px;
   color: var(--ink-2);
   overflow-wrap: anywhere;
@@ -7075,14 +7097,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .history-state {
   margin-top: 8px;
-  font-size: 1.1875rem;
+  font-size: var(--type-title);
   font-weight: 600;
 }
 
 .history-note {
   margin-top: 4px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .history-filter {
@@ -7093,7 +7115,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .history-count {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -7116,7 +7138,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .history-summary {
   margin-block: 12px clamp(18px, 2vw, 26px);
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .history-list {
@@ -7134,7 +7156,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .history-time {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   font-variant-numeric: tabular-nums;
 }
 
@@ -7158,7 +7180,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .history-hash {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 @media (min-width: 900px) {
@@ -7227,7 +7249,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--ink-2);
   cursor: pointer;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -7259,7 +7281,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .inline-field-label {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -7267,7 +7289,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   width: auto;
   max-width: 100%;
   padding: 6px 10px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .custom-range {
@@ -7290,14 +7312,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .custom-error {
   flex-basis: 100%;
   color: var(--bad);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
 }
 
 .custom-note {
   flex-basis: 100%;
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 /* The legend, which also chooses what is shown. */
@@ -7321,7 +7343,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--ink);
   cursor: pointer;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 500;
 }
 
@@ -7341,7 +7363,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .chip-count {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -7351,7 +7373,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 6px;
   margin-left: 6px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .band-swatch {
@@ -7411,7 +7433,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .timeline-range {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .timeline-plot {
@@ -7434,7 +7456,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .tl-tick-label {
   fill: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -7446,7 +7468,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .tl-lane-name {
   fill: var(--ink);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--type-label);
   font-weight: 600;
 }
 
@@ -7456,7 +7478,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .tl-lane-thing {
   fill: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 400;
 }
 
@@ -7470,7 +7492,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .tl-lane-state {
   fill: var(--ink-3);
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 500;
 }
 
@@ -7547,7 +7569,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .tl-unloaded-label {
   fill: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--type-small);
 }
 
 .tl-drag {
@@ -7596,7 +7618,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .tip-head {
   margin-bottom: 6px;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .tip-list {
@@ -7625,15 +7647,15 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .tip-text strong {
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   line-height: 1.35;
 }
 
 .tip-meta,
 .tip-more {
-  color: var(--ink-3);
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .tip-more {
@@ -7642,8 +7664,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .timeline-note {
   margin-top: 10px;
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .event-card,
@@ -7653,7 +7675,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .event-count {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .event-table-wrap {
@@ -7665,7 +7687,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
+  line-height: var(--leading-table);
 }
 
 .event-table th,
@@ -7682,7 +7705,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .data-table thead th {
   border-top: 0;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -7698,7 +7721,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .event-day th {
   padding-top: 18px;
   border-top: 2px solid var(--rule);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 700;
 }
 
@@ -7737,7 +7760,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .event-board .mono {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
 }
 
 .event-kind {
@@ -7768,12 +7791,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .log-tag {
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
 .log-text {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -7781,14 +7804,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: block;
   margin-top: 2px;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .event-link {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   white-space: nowrap;
 }
 
@@ -7856,7 +7879,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .picker-name {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -7866,7 +7889,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 5px;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .picker-state.is-good {
@@ -7875,7 +7898,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .picker-fact {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -7893,7 +7916,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .diag-name {
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 700;
   overflow-wrap: anywhere;
 }
@@ -7903,14 +7926,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .diag-thing {
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   line-height: 1.3;
 }
 
 .diag-heartbeat {
   margin-top: 2px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .diag-age {
@@ -7946,10 +7969,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .section-label {
   margin-bottom: 10px;
   color: var(--ink-3);
-  font-size: 0.71875rem;
+  font-size: var(--type-small);
   font-weight: 600;
-  letter-spacing: 0.085em;
-  text-transform: uppercase;
 }
 
 .cert-list {
@@ -8028,7 +8049,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .chart-summary {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -8046,7 +8067,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   top: -17px;
   right: 8px;
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
 }
 
 .chart-y-label {
@@ -8054,7 +8075,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   top: var(--top);
   right: 8px;
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   transform: translateY(-50%);
@@ -8100,7 +8121,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   top: var(--top);
   left: 6px;
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   line-height: 1;
   transform: translateY(-50%);
 }
@@ -8159,7 +8180,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   background: var(--surface);
   box-shadow: var(--lift);
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   pointer-events: none;
   transform: translateX(12px);
 }
@@ -8170,7 +8191,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .chart-tip strong {
   color: var(--ink);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -8181,8 +8202,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: grid;
   place-items: center;
   padding: 0 16px;
-  color: var(--ink-3);
-  font-size: 0.875rem;
+  color: var(--ink-2);
+  font-size: var(--type-table);
   text-align: center;
 }
 
@@ -8197,7 +8218,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   top: 5px;
   left: var(--x);
   color: var(--ink-3);
-  font-size: 0.6875rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   transform: translateX(-50%);
@@ -8210,7 +8231,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .chart-table summary {
   color: var(--ink-2);
   cursor: pointer;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .chart-table .data-table {
@@ -8341,8 +8362,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .menu-note {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .notice.is-good {
@@ -8409,7 +8430,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border-top-left-radius: var(--radius-small);
   background: var(--surface);
   color: var(--ink-2);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   opacity: 0.92;
 }
 
@@ -8437,7 +8458,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .map-canvas .leaflet-popup-content {
   margin: 14px 16px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   line-height: 1.45;
 }
 
@@ -8570,7 +8591,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   margin: 0;
   padding: 0;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   list-style: none;
 }
 
@@ -8641,7 +8662,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .map-row-note {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .map-row-tools {
@@ -8675,7 +8696,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 4px;
   margin: 0;
   padding-left: 1.25rem;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .position-note {
@@ -8748,7 +8769,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   color: var(--ink-2);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-weight: 500;
   line-height: 1.5;
   white-space: nowrap;
@@ -8789,7 +8810,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .field-count {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -8846,13 +8867,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .health-share {
   margin-left: auto;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .health-versions-list {
   margin: 0;
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .health .stats {
@@ -8865,7 +8886,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .health .stat-value {
-  font-size: clamp(1.75rem, 1.5rem + 0.8vw, 2.25rem);
+  font-size: var(--type-heading);
 }
 
 .health-fine {
@@ -8895,7 +8916,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .attention-why {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 /* The Fleet page: one tile per board type, the groups and the staged rollouts. */
@@ -8913,7 +8934,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .fleet-type-count {
   margin: 0;
-  font-size: clamp(2rem, 1.8rem + 0.9vw, 2.75rem);
+  font-size: clamp(var(--type-heading), 1.8rem + 0.9vw, var(--type-display));
   font-weight: 600;
   letter-spacing: -0.025em;
   line-height: 1;
@@ -8921,7 +8942,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .fleet-type-count span {
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -8929,7 +8950,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .fleet-type-note {
   margin: 0;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .groups-card,
@@ -8938,10 +8959,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .card-lede {
-  max-width: 76ch;
+  max-width: var(--measure);
   margin: 10px 0 12px;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .group-row,
@@ -9082,7 +9103,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .wave-head {
   margin: 0;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 /* The stages of a rollout, and the choices that make them. */
@@ -9096,7 +9117,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .stage-counts,
 .stage-timing {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .stage-timing {
@@ -9126,13 +9147,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: center;
   gap: 4px;
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .plan-left-head {
   margin: 4px 0 0;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -9173,8 +9194,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 8px 24px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
 }
 
 .foot-version .mono {
@@ -9221,7 +9242,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .whats-new-note {
-  max-width: 76ch;
+  max-width: var(--measure);
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
@@ -9280,7 +9301,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 12px;
-  font-size: 1.75rem;
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -9295,14 +9316,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .app-version .badge {
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   letter-spacing: 0;
 }
 
 .app-note {
-  max-width: 68ch;
+  max-width: var(--measure);
   color: var(--ink-2);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   overflow-wrap: anywhere;
 }
 
@@ -9380,7 +9401,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .app-how-title {
   margin-bottom: 8px;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
@@ -9411,7 +9432,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border: 1px solid var(--line-strong);
   border-radius: 50%;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -9475,7 +9496,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .app-count {
   margin-top: 24px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 /* A member's SideStore source link on the iPhone card: made, on show once, or how it stands. */
@@ -9514,7 +9535,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .release-figure.is-small {
-  font-size: 1.5rem;
+  font-size: var(--type-title);
 }
 
 /* The Customers page (customers.js): the customer site's accounts and their boards. */
@@ -9563,17 +9584,17 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .customer-email {
   overflow-wrap: anywhere;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
 .customer-meta {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
 .customer-id {
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .customer-boards {
@@ -9597,7 +9618,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .customer-board-since {
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .customer-assign,
@@ -9665,7 +9686,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--ink);
 }
 .bt-passkey-digits {
-  font-size: 1.75rem;
+  font-size: var(--type-heading);
   font-weight: 700;
   letter-spacing: 0.15em;
 }
@@ -9734,7 +9755,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .tl-count text {
   fill: var(--surface);
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -9762,7 +9783,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   margin: 12px 0 0;
   padding: 0;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   list-style: none;
 }
 
@@ -9910,7 +9931,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .setup-step-title {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 600;
 }
 
@@ -9918,6 +9939,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .setup-note,
 .setup-text {
   overflow-wrap: anywhere;
+  max-width: var(--measure);
   color: var(--ink-2);
   font-weight: 400;
 }
@@ -9976,7 +9998,7 @@ body.console {
 
 /* The large title: a phone's 34 pt, bold; a desktop's a little larger. */
 .console .page-title {
-  font-size: clamp(1.875rem, 1.6rem + 1vw, 2.375rem);
+  font-size: var(--type-heading);
   letter-spacing: -0.024em;
 }
 
@@ -9986,7 +10008,7 @@ body.console {
 
 .console .page-lede {
   margin-top: var(--space-1);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .console .back {
@@ -9994,7 +10016,7 @@ body.console {
   margin: calc(-1 * var(--space-3)) 0 0 -6px;
   padding-right: var(--space-2);
   color: var(--accent);
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 500;
 }
 
@@ -10094,7 +10116,7 @@ body.console {
 .console .card > .card-head > .eyebrow,
 .console .card.is-zone > .card-head > .eyebrow {
   color: var(--ink);
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 600;
   letter-spacing: -0.012em;
   text-transform: none;
@@ -10104,7 +10126,7 @@ body.console {
   min-height: var(--tap);
   margin: calc(-1 * var(--space-3)) 0;
   color: var(--accent);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .console .card-body {
@@ -10132,7 +10154,7 @@ body.console {
 .console .panel .card > .card-head > .eyebrow,
 .console .card-body .card > .card-head > .eyebrow {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -10211,7 +10233,7 @@ body.console {
 
 .glance-value {
   overflow: hidden;
-  font-size: 1.375rem;
+  font-size: var(--type-title);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -10222,7 +10244,7 @@ body.console {
 
 .glance-label {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   font-weight: 500;
 }
 
@@ -10352,7 +10374,7 @@ body.console {
     padding: 0;
     border-top: 0;
     color: var(--ink-2);
-    font-size: 0.875rem;
+    font-size: var(--type-table);
   }
 
   .console .device-grid .device .fact dt {
@@ -10375,7 +10397,7 @@ body.console {
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--line);
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .dev-tabs .nav-link[aria-current="page"] {
@@ -10404,14 +10426,14 @@ body.console {
 
 .console .health-part > .eyebrow {
   color: var(--ink);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
   letter-spacing: -0.01em;
   text-transform: none;
 }
 
 .console .health .stat-value {
-  font-size: 1.75rem;
+  font-size: var(--type-heading);
 }
 
 .console .health .stat-label {
@@ -10442,7 +10464,7 @@ body.console {
 .console .health-score-head > .eyebrow {
   margin: 0 0 var(--space-2);
   color: var(--ink);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   font-weight: 600;
   letter-spacing: -0.01em;
   text-transform: none;
@@ -10475,7 +10497,7 @@ body.console {
 .health-score-change {
   margin: var(--space-1) 0 0;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .health-score-change.is-up {
@@ -10550,7 +10572,7 @@ body.console {
 }
 
 .score-part-weight {
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .score-part-value {
@@ -10560,11 +10582,11 @@ body.console {
 
 .score-part-meaning {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .score-part-count {
-  font-size: 0.75rem;
+  font-size: var(--type-label);
 }
 
 .console .health-score > .card-note {
@@ -10742,7 +10764,7 @@ body.console {
 
   .console .picker-name {
     flex-basis: 100%;
-    font-size: 0.9375rem;
+    font-size: var(--type-body);
   }
 
   .console .picker-link[aria-current="page"] {
@@ -10797,7 +10819,7 @@ body.console {
 
 .console .section-label {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   letter-spacing: 0.01em;
   text-transform: none;
 }
@@ -10826,7 +10848,7 @@ body.console {
   border-radius: var(--radius-group);
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--line);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   text-align: left;
 }
 
@@ -10891,11 +10913,11 @@ span.glance-item:hover {
   }
 
   .glance.is-compact .glance-value {
-    font-size: 1.125rem;
+    font-size: var(--type-title);
   }
 
   .glance.is-compact .glance-label {
-    font-size: 0.6875rem;
+    font-size: var(--type-small);
   }
 
   /* A board's row: its mark, its name, how it is in words, what it runs, and a chevron. */
@@ -10913,11 +10935,11 @@ span.glance-item:hover {
   }
 
   .console .device-grid .device-name {
-    font-size: 0.9375rem;
+    font-size: var(--type-body);
   }
 
   .console .device-grid .device-seen {
-    font-size: 0.8125rem;
+    font-size: var(--type-table);
   }
 
   .console .device-grid > .card.device {
@@ -10996,7 +11018,7 @@ span.glance-item:hover {
 
   .console .device-grid .device-version {
     font-family: var(--mono);
-    font-size: 0.875rem;
+    font-size: var(--type-table);
     font-weight: 500;
   }
 
@@ -11055,16 +11077,16 @@ span.glance-item:hover {
   }
 
   .console .stat-value {
-    font-size: 1.375rem;
+    font-size: var(--type-title);
   }
 
   .console .stat-label {
-    font-size: 0.75rem;
+    font-size: var(--type-small);
     line-height: 1.3;
   }
 
   .console .stat-note {
-    font-size: 0.6875rem;
+    font-size: var(--type-small);
     line-height: 1.3;
   }
 }
@@ -11092,8 +11114,8 @@ span.glance-item:hover {
 
 .console .card-sub {
   margin: var(--space-5) 0 var(--space-2);
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -11110,7 +11132,7 @@ span.glance-item:hover {
 
 .console .trace-message {
   margin: 0 0 var(--space-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .console .thread {
@@ -11123,7 +11145,7 @@ span.glance-item:hover {
   align-items: center;
   gap: var(--space-1);
   min-height: var(--tap);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .console .backtrace {
@@ -11131,13 +11153,13 @@ span.glance-item:hover {
   padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-3) + 24px);
   border-radius: 10px;
   background: var(--well);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .console .registers {
   max-width: none;
   margin-bottom: var(--space-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .console .memfault-line {
@@ -11178,7 +11200,7 @@ span.glance-item:hover {
 
 .console .row-value {
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -11197,12 +11219,12 @@ span.glance-item:hover {
 
 .console .metric-value dt {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .console .metric-value dd {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -11269,7 +11291,7 @@ span.glance-item:hover {
 }
 
 .console .setup-step-title {
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
 }
 
 /*
@@ -11411,7 +11433,7 @@ span.glance-item:hover {
 
 .input.filter-day {
   padding: 6px 10px;
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .filter-foot {
@@ -11426,7 +11448,7 @@ span.glance-item:hover {
 .filter-count {
   margin: 0;
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -11467,7 +11489,7 @@ span.glance-item:hover {
 
 .label-panel-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--type-large);
 }
 
 .label-panel-text {
@@ -11702,13 +11724,13 @@ span.glance-item:hover {
 }
 
 .vtimeline-version {
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
 .vtimeline-now {
   color: var(--good);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -11717,7 +11739,7 @@ span.glance-item:hover {
 .vtimeline-counts {
   margin: 2px 0 0;
   color: var(--ink-2);
-  font-size: 0.875rem;
+  font-size: var(--type-table);
 }
 
 .vtimeline-counts.is-troubled {
@@ -11775,7 +11797,7 @@ span.glance-item:hover {
 
 .compare-board-thing {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 
@@ -11791,7 +11813,7 @@ span.glance-item:hover {
 
 .compare-fact dt {
   color: var(--ink-3);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
 }
 
 .compare-fact dd {
@@ -11812,7 +11834,7 @@ span.glance-item:hover {
   gap: 2px;
   margin-left: var(--space-2);
   color: var(--ink-2);
-  font-size: 0.75rem;
+  font-size: var(--type-small);
   font-weight: 600;
 }
 
@@ -11862,12 +11884,12 @@ span.glance-item:hover {
 
 .team-email {
   overflow-wrap: anywhere;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 600;
 }
 
 .team-meta {
-  font-size: 0.8125rem;
+  font-size: var(--type-table);
   overflow-wrap: anywhere;
 }
 
@@ -11946,12 +11968,12 @@ span.glance-item:hover {
 
 .report-day-name {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .report-subhead {
   margin: var(--space-4) 0 var(--space-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
 }
 
 .report-new,
@@ -11974,7 +11996,7 @@ span.glance-item:hover {
   }
 
   .report-day-name {
-    font-size: 0.75rem;
+    font-size: var(--type-small);
   }
 }
 
@@ -12053,7 +12075,7 @@ span.glance-item:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .bt-via .icon {
@@ -12074,7 +12096,7 @@ span.glance-item:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 500;
 }
 
@@ -12090,9 +12112,9 @@ span.glance-item:hover {
 
 .bt-notes {
   flex-basis: 100%;
-  max-width: 68ch;
+  max-width: var(--measure);
   color: var(--ink-2);
-  font-size: 0.9375rem;
+  font-size: var(--type-body);
   text-wrap: pretty;
 }
 
@@ -12130,25 +12152,25 @@ span.glance-item:hover {
 
 .bt-stats dt {
   color: var(--ink-3);
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .bt-stats dd {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--type-large);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .bt-estimate {
-  color: var(--ink-3);
-  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-size: var(--type-small);
   font-weight: 400;
 }
 
 .bt-fineprint {
-  max-width: 68ch;
-  font-size: 0.875rem;
+  max-width: var(--measure);
+  font-size: var(--type-table);
 }
 
 .bt-actions {
@@ -12178,7 +12200,7 @@ span.glance-item:hover {
 }
 
 .bt-pick-title {
-  font-size: 1.125rem;
+  font-size: var(--type-title);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -12190,8 +12212,8 @@ span.glance-item:hover {
   margin: 0;
   padding: 0;
   list-style: none;
-  color: var(--ink-3);
-  font-size: 0.875rem;
+  color: var(--ink-2);
+  font-size: var(--type-table);
 }
 
 .bt-setup li {
@@ -12207,7 +12229,7 @@ span.glance-item:hover {
   height: 24px;
   border: 1.5px solid var(--line-mark);
   border-radius: 50%;
-  font-size: 0.75rem;
+  font-size: var(--type-label);
   font-weight: 600;
 }
 
@@ -12303,7 +12325,7 @@ span.glance-item:hover {
 
 .bt-board-name {
   flex: 1;
-  font-size: 1.0625rem;
+  font-size: var(--type-large);
   font-weight: 500;
 }
 
@@ -12311,7 +12333,7 @@ span.glance-item:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.8125rem;
+  font-size: var(--type-small);
 }
 
 .bt-board-go {
