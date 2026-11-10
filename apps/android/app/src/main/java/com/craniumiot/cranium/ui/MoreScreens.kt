@@ -49,6 +49,7 @@ fun MoreScreen(vm: ConsoleViewModel, store: Store) {
         if (canWrite) {
             item(key = "bluetooth") { ListRow("Update over Bluetooth", leading = { GlyphIcon(Glyph.BLUETOOTH, tint = console.ink2) }, onClick = { vm.open(Route.Bluetooth(null)) }) }
         }
+        item(key = "offline") { ListRow("Offline", leading = { GlyphIcon(Glyph.BLUETOOTH, tint = console.ink2) }, onClick = { vm.open(Route.Offline)  }) }
         item(key = "serial") {
             ListRow(
                 "Serial console", supporting = if (canWrite) null else "For release managers",
