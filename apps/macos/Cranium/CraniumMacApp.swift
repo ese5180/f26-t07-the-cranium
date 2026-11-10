@@ -7,7 +7,7 @@ import SwiftUI
 /// them: the window and menus, Touch ID on the saved sign-in, Bluetooth for a firmware update.
 @main
 struct CraniumMacApp: App {
-    @StateObject private var model = MacShellModel()
+    @StateObject private var model = MacShellModel.main
 
     var body: some Scene {
         Window("Cranium", id: "main") {
@@ -36,8 +36,6 @@ struct MacBoardWindow: View {
 
     var body: some View {
         MacShellRoot(model: model)
-            // The window is closing: its ports are closed and it stops asking the Mac to stay awake.
-            .onDisappear { model.host.pageLeft() }
     }
 }
 

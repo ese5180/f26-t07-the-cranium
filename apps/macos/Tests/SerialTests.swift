@@ -258,10 +258,10 @@ final class MacSerialTests: XCTestCase {
         func named(_ name: String) -> [[String: JSONValue]] { all.filter { $0.0 == name }.map(\.1) }
     }
 
-    private let owner = NSObject()
+    private let owner = "window-1"
     private let events = Events()
 
-    private func open(_ serial: MacSerial, _ baud: Int = 115_200, as who: AnyObject? = nil) async throws -> [String: JSONValue] {
+    private func open(_ serial: MacSerial, _ baud: Int = 115_200, as who: String? = nil) async throws -> [String: JSONValue] {
         try await serial.open(baudRate: baud, owner: who ?? owner, emit: events.add)
     }
 
@@ -402,7 +402,7 @@ final class MacSerialTests: XCTestCase {
         let pty = try Pty()
         defer { pty.closeMaster(); pty.closeSlave() }
         let serial = MacSerial(lister: FakeLister(ports: [info(pty.slavePath)]), choose: { $0.first })
-        let other = NSObject()
+        let other = "window-2"
         defer { serial.closeAll(owner: owner); serial.closeAll(owner: other) }
         _ = try await open(serial, 115_200)
         do {
@@ -485,5 +485,83 @@ final class MacKeepAwakeTests: XCTestCase {
         awake.set(false)
         awake.set(false)
         XCTAssertFalse(awake.isHeld)
+    }
+}
+
+@MainActor
+final class MacRadioHubTests: XCTestCase {
+    private final class Inbox: @unchecked Sendable {
+        var items: [String] = []
+        func add(_ name: String, _ data: [String: JSONValue]) { items.append(name) }
+    }
+
+    private func make() -> (MacRadioHub, Inbox, Inbox) {
+        let hub = MacRadioHub()
+        let one = Inbox(), two = Inbox()
+        hub.register("one", emit: one.add)
+        hub.register("two", emit: two.add)
+        return (hub, one, two)
+    }
+
+    func testTheHolderKeepsTheEventsAndTheOtherGetsNone() throws {
+        let (hub, one, two) = make()
+        try hub.claim("one")
+        hub.deliver("ble.progress", ["sent": 1, "total": 2])
+        hub.deliver("ble.boards", ["boards": []])
+        XCTAssertEqual(one.items, ["ble.progress", "ble.boards"])
+        XCTAssertTrue(two.items.isEmpty)
+        // Another window cannot take it, or use it.
+        XCTAssertThrowsError(try hub.claim("two")) { XCTAssertEqual(($0 as? BridgeError)?.code, .busy) }
+        hub.deliver("ble.progress", ["sent": 2, "total": 2])
+        XCTAssertEqual(one.items.count, 3)
+        XCTAssertTrue(two.items.isEmpty)
+    }
+
+    func testAnotherWindowCannotCancelOrDisconnectTheHoldersUpload() throws {
+        let (hub, _, _) = make()
+        try hub.claim("one")
+        XCTAssertThrowsError(try hub.require("two")) { XCTAssertEqual(($0 as? BridgeError)?.code, .busy) }
+        XCTAssertNoThrow(try hub.require("one"))
+        // Nobody else's release counts either.
+        XCTAssertFalse(hub.release("two"))
+        XCTAssertTrue(hub.owns("one"))
+    }
+
+    func testNobodyHoldingMeansAnyWindowMayClaim() throws {
+        let (hub, _, _) = make()
+        XCTAssertNoThrow(try hub.require("two"))
+        try hub.claim("two")
+        XCTAssertTrue(hub.owns("two"))
+        try hub.claim("two")
+    }
+
+    func testLetGoOnPageLeaveOrCloseFreesItForTheOther() throws {
+        let (hub, one, two) = make()
+        try hub.claim("one")
+        XCTAssertTrue(hub.release("one"))
+        XCTAssertNoThrow(try hub.claim("two"))
+        hub.deliver("ble.progress", [:])
+        XCTAssertTrue(one.items.isEmpty)
+        XCTAssertEqual(two.items, ["ble.progress"])
+        // A closed window holds nothing and hears nothing.
+        XCTAssertTrue(hub.release("two"))
+        hub.unregister("two")
+        try hub.claim("one")
+        hub.deliver("ble.boards", [:])
+        XCTAssertEqual(one.items, ["ble.boards"])
+    }
+
+    func testALinkThatDropsLetsTheRadioGoAndStoppingAScanDoesNotDropALink() throws {
+        let (hub, one, _) = make()
+        try hub.claim("one")
+        hub.deliver("ble.link", ["state": "connected", "name": "x", "error": .null])
+        hub.stoppedUsing("one")
+        XCTAssertTrue(hub.owns("one"), "a scan stopped while linked keeps the radio")
+        hub.deliver("ble.link", ["state": "disconnected", "name": "x", "error": .null])
+        XCTAssertEqual(one.items, ["ble.link", "ble.link"])
+        XCTAssertNil(hub.owner)
+        XCTAssertNoThrow(try hub.claim("two"))
+        hub.stoppedUsing("two")
+        XCTAssertNil(hub.owner, "a scan alone is let go when stopped")
     }
 }

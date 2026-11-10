@@ -95,6 +95,7 @@ targets:
       - path: Cranium/Serial
       - path: Cranium/Shell/MacKeepAwake.swift
       - path: Cranium/Shell/MacRoutes.swift
+      - path: Cranium/Shell/MacRadioHub.swift
     dependencies:
       - package: CraniumKit
         product: CraniumKit

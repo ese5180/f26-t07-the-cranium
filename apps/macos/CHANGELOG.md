@@ -10,6 +10,11 @@
 - Board windows share the app's sign-ins, Touch ID lock, bundle store, serial bridge and Bluetooth radio with the first window: Lock Now and Sign Out cover every window, one Touch ID prompt, one bundle updater, a port busy in all windows once open. The menus act on the window in front.
 - The serial picker offers SEGGER J-Links only. A reload while the sheet is up opens no port. A port gone at open ends cleanly. Keep-awake is held only while a page asks for it.
 
+## 0.3.0 (second review)
+
+- The Bluetooth radio has one holder: the window that scans, connects or watches keeps it, with its events, until the link ends, it lets go, its page leaves or its window closes. Other windows get a busy error and cannot cancel or disconnect it.
+- Closing a window (the main one too) lets go of its serial ports, keep-awake and radio. Serial state is kept per stable window id. The app's own model is made once, so a board window restored first at launch follows it. Settings opens on the window in front.
+
 ## 0.2.0
 
 - The app shows the console's own pages and the customer site's from the web bundle the iPhone and desktop apps host, in a web view, so it looks the same as the website. The native SwiftUI screens (Overview, Boards, Firmware and the rest) are removed. The bundle is kept on the Mac and refreshed from the console with every file checked, through the iPhone app's code in CraniumKit; sign-in, Touch ID and the Bluetooth update go through the bridge. View menu: Back, Forward, Reload (Developer Tools in Debug).
