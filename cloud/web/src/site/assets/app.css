@@ -7487,6 +7487,12 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   .tl-lane-thing {
     display: none;
   }
+
+  /* "No events" after a state such as "Never connected": the empty track beneath says it, and at
+     the label size the line would run past the edge. */
+  .tl-lane-state + .tl-lane-state {
+    display: none;
+  }
 }
 
 .tl-lane-state {
