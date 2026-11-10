@@ -16,8 +16,9 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 | Each board's status, firmware, last seen | Board, already | — |
 | Firmware versions across their boards | Board, already | — |
 | Recent activity: online/offline, updates, restarts, Bluetooth | Board, already (events) | — |
-| Latest session, and a moment to revisit | **Demo data, or a file the customer imports** | **Sessions and tracks** (see Mixes) |
-| Hours on the decks, sessions, plays, unique tracks, overlaps | **Worked out from demo or imported sessions** | Worked out from the sessions the board sends |
+| Latest session, and a moment to revisit | **The board's sessions once it has sent one (console 2.23.0), else demo data or a file the customer imports** | **Sessions and tracks** (see Mixes) |
+| Hours on the decks, sessions, plays, unique tracks, overlaps | **Worked out from the board's sessions, else from demo or imported ones** | Worked out from the sessions the board sends |
+| Now playing | **The board's now playing message (console 2.23.0)** | A now playing message (see below) |
 
 ## Devices, and each device's page
 
@@ -36,9 +37,11 @@ fields in `boards.mjs`); the pages are `cloud/web/src/customer/assets/`; the mix
 | Owned since (`since`) | **The assignment record** | Not board data: it is when the board became theirs |
 | Location | **Always empty** | **Remove it**, or have the board send a Wi-Fi-based location |
 
-## Mixes: none of it comes from the board today
+## Mixes: from the board once it sends sessions (console 2.23.0)
 
-Today the mixes come from a made-up demo, or from session files the customer imports, kept only in their browser.
+The mixes come from the sessions the board sends, as soon as it has sent one (`GET /api/c/sessions`, see "The messages"
+below). Until then they come from a made-up demo, or from session files the customer imports, kept only in their
+browser, and the page says which.
 
 ### What the board must send for each session
 
@@ -72,6 +75,45 @@ Today the mixes come from a made-up demo, or from session files the customer imp
 | Library | Every track: plays, time in all, its latest BPM and key, when it last played |
 | Moments | Transitions the customer saved, with their own note |
 | Ranges | All time, the last 7 days, the last 30 days |
+
+## The messages (firmware 1.18.0 and console 2.23.0)
+
+A board publishes on `cranium/<thing>/session`, publish only, the same way as `events`, `location` and `memfault`: the
+device policy lets a board publish on its own thing's topic and nowhere else. The rule `BoardSessionRule` takes the
+thing name from the topic and the time from AWS IoT, and drops any message that brings `thing`, `received` or
+`channel` of its own. The recorder (`cloud/api/src/lib/sessions.mjs`) holds the rest to this contract. Every message
+is JSON of at most 6144 bytes with `"v": 1`; a field that is not listed, a value out of range or a text with a
+control character drops the whole message (logged by reason, never by content). Times are ISO 8601 UTC with a `Z`
+(`2026-11-09T21:04:00Z`) between 2024-01-01 and a day ahead. Texts are 1 to 120 characters (an artist may be empty).
+
+A session, sent when it starts, as each track starts, and when it ends; the same `id` and `startedAt` every time:
+
+```json
+{ "v": 1, "type": "session", "id": "a1", "startedAt": "2026-11-09T21:04:00Z", "endedAt": "2026-11-09T23:10:00Z",
+  "title": "Friday set",
+  "tracks": [ { "title": "Strobe", "artist": "deadmau5", "playedAt": "2026-11-09T21:09:12Z", "durationS": 600 } ] }
+```
+
+`id` is 1 to 40 of `A-Z a-z 0-9 _ -`, unique per board. `endedAt` (optional) is at or after `startedAt` and at most 24
+hours later. `title` and `tracks` are optional; at most 20 tracks a message, each played between the start and the end
+(or 24 hours after the start while it has no end), `durationS` a whole number of 1 to 14400. The board sends only the
+tracks that are new; tracks are kept by `playedAt` and session, so a track sent twice is stored once.
+
+What is on the decks now, replaced by each message:
+
+```json
+{ "v": 1, "type": "now", "playing": true, "title": "Strobe", "artist": "deadmau5",
+  "playedAt": "2026-11-09T21:09:12Z", "durationS": 600 }
+{ "v": 1, "type": "now", "playing": false }
+```
+
+With `durationS`, the site shows it until the track has ended; without, for 15 minutes after the message. `session`
+(optional) names the session id it belongs to.
+
+Stored in the events table under `pk = SES#<thing>`: `S#<startedAt>#<id>` a session, `T#<playedAt>#<id>` a track,
+`NOW` the now playing (kept a day; sessions and tracks 400 days). The customer API serves them for the caller's own
+boards only, as sessions in the site's shape (`source: "board"`, a hashed id, no deck, BPM or key yet) and the now
+playing, and the site uses them when there are any.
 
 ## What a customer can change (console 2.18.0)
 

@@ -1109,7 +1109,12 @@ export function sessionView(ctx) {
     { class: 'cs-page', key: `session-${session.id}` },
     back,
     head({
-      eyebrow: session.source === 'demo' ? 'A session of the demo' : 'A session of your journal',
+      eyebrow:
+        session.source === 'demo'
+          ? 'A session of the demo'
+          : session.source === 'board'
+            ? 'A session from your board'
+            : 'A session of your journal',
       title: session.title,
     }),
     sessionPage(ctx, session)
@@ -1551,7 +1556,7 @@ const HELP = [
     [
       [
         'Where are my sessions and tracks?',
-        'Your board does not send what you play yet: that is being built. Until it is, Explore demo shows made-up sessions, and My journal holds the session files you import, kept on this device only.',
+        'Your board sends what you play, and the Mixes pages show it once it has. Until it has, Explore demo shows made-up sessions, and My journal holds the session files you import, kept on this device only.',
       ],
     ],
   ],

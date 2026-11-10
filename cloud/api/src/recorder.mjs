@@ -31,6 +31,7 @@ import { isScheduledCheck } from './alerts.mjs';
 import { describeError } from './http.mjs';
 import { recordsOf } from './lib/events.mjs';
 import { isLineMessage, recordsFromLine } from './lib/lines.mjs';
+import { isSessionMessage, recordsFromSession } from './lib/sessions.mjs';
 import { factsFromItems } from './lib/updates.mjs';
 
 /**
@@ -88,7 +89,25 @@ export function createRecorder({
     return { recorded: 1 };
   }
 
+  /** A session or "now playing" message of a board (lib/sessions.mjs): idempotent puts into its own partition. */
+  async function recordSession(message) {
+    const made = recordsFromSession(message, { nowMs: clock() });
+    if (made.ignored !== undefined) {
+      log({ level: 'warn', event: 'message_ignored', reason: made.ignored, channel: 'session' });
+      return { recorded: 0 };
+    }
+    try {
+      for (const item of made.items) await store.putEvent(item);
+    } catch (error) {
+      log({ level: 'error', event: 'record_failed', thing: made.thing, error: describeError(error) });
+      throw error;
+    }
+    log({ event: 'recorded', thing: made.thing, kinds: ['session'], items: made.items.length });
+    return { recorded: made.items.length };
+  }
+
   return async function handler(message) {
+    if (isSessionMessage(message)) return recordSession(message);
     if (isLineMessage(message)) return recordLine(message);
     // Every 5 minutes (AlertCheckRule): the alerts that are due, and nothing to record.
     if (isScheduledCheck(message)) return { recorded: 0, alerts: alerts === null ? 0 : await alerts.check() };

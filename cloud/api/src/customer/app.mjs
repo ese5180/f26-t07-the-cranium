@@ -40,6 +40,7 @@
  *   GET  /api/c/boards              -> { boards: [Board], generatedAt }      each with its health
  *   GET  /api/c/boards/{id}         -> { board: Board, activity: [Event] }   the last 30 days
  *   GET  /api/c/activity            -> { activity: [Event] }                 every board, the last 7 days
+ *   GET  /api/c/sessions            -> { sessions, nowPlaying, generatedAt } what their boards played (customer/sessions.mjs)
  *   GET  /api/c/preferences         -> Preferences
  *   POST /api/c/boards/{id}/label   { label }  -> { board: Board }           customer_action.rename
  *        the customer's own name for the board, 1 to LABEL_LIMIT characters; "" takes it away
@@ -72,6 +73,7 @@ import { auditDigest, auditItem } from '../lib/audit.mjs';
 import { eventFromItem, eventRange } from '../lib/events.mjs';
 import { deviceFromShadow, unknownDevice } from '../lib/shadow.mjs';
 import { CUSTOMER_KINDS, LABEL_LIMIT, REF, boardStatus, customerBoard, customerEvent } from './boards.mjs';
+import { boardSessions } from './sessions.mjs';
 import { HEALTH_DAYS, HEALTH_EVENTS, HEALTH_KINDS, boardHealth } from './health.mjs';
 import { CUSTOMER_EMAILS_ENABLED, NOTIFICATION_KINDS, preferencesOf } from './notify.mjs';
 
@@ -155,6 +157,7 @@ function routeOf(method, segments) {
   if (rest.length === 1 && rest[0] === 'me') return { name: 'me' };
   if (rest.length === 1 && rest[0] === 'boards') return { name: 'boards' };
   if (rest.length === 1 && rest[0] === 'activity') return { name: 'activity' };
+  if (rest.length === 1 && rest[0] === 'sessions') return { name: 'sessions' };
   if (rest.length === 2 && rest[0] === 'boards' && rest[1] !== '') return { name: 'board', id: rest[1] };
   return null;
 }
@@ -467,6 +470,14 @@ export function createCustomerApp({
       }
       case 'activity':
         return { activity: await activityOf(await ownedBoards(sub), OVERVIEW_DAYS, OVERVIEW_EVENTS) };
+      case 'sessions': {
+        // Ownership first, as for every read: only the boards this customer owns now are read.
+        const mine = (await aws.listOwnership()).filter((item) => item.owner === sub && REF.test(item.ref));
+        return {
+          ...(await boardSessions({ aws, boards: mine, nowMs: now(), log })),
+          generatedAt: new Date(now()).toISOString(),
+        };
+      }
       case 'board': {
         if (!REF.test(route.id)) throw unknownBoard();
         const found = (await ownedBoards(sub)).find(({ ownership }) => ownership.ref === route.id);

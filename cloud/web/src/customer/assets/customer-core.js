@@ -337,6 +337,12 @@ export function createCustomerApi({ auth, fetch, onUnauthorized, base = '' }) {
       if (activity === null) throw unreadable();
       return activity;
     },
+    /** What their boards played, as the API sends it: { sessions, nowPlaying }, each checked by the mixes (customer-mixes.js). */
+    async sessions() {
+      const body = await get('/api/c/sessions');
+      if (!Array.isArray(body.sessions) || !Array.isArray(body.nowPlaying)) throw unreadable();
+      return { sessions: body.sessions, nowPlaying: body.nowPlaying };
+    },
     /** The customer's own name for a board of theirs; '' takes it away. Answers the board as it is now. */
     async renameBoard(id, name) {
       if (!BOARD_ID.test(id)) throw new ApiError(404, 'not_your_board', 'There is no board of yours at this address.');

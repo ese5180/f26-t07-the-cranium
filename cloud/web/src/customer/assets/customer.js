@@ -61,6 +61,8 @@ import {
 } from './customer-views.js';
 import {
   ImportProblem,
+  boardSession,
+  nowPlayingOf,
   LIMITS,
   RANGES,
   cleanJournal,
@@ -115,6 +117,8 @@ const state = {
   staff: resource(),
   boards: resource(),
   activity: resource(),
+  // What their boards played (customer-mixes.js boardSession): the real sessions, which the mixes show when there are any.
+  sessions: resource(),
   details: new Map(),
   // A customer's changes (docs/customer-site.md, "Customer actions"): the rename dialog, and their e-mails.
   boardDialog: null,
@@ -334,6 +338,14 @@ function detailOf(id) {
   return state.details.get(id);
 }
 
+async function readSessions() {
+  const { sessions, nowPlaying } = await api.sessions();
+  return {
+    sessions: sessions.map(boardSession).filter((session) => session !== null),
+    nowPlaying: nowPlaying.map(nowPlayingOf).filter((item) => item !== null),
+  };
+}
+
 async function readProfile() {
   const profile = await account.profile();
   if (!profile.ok) {
@@ -354,6 +366,7 @@ async function refresh(full) {
     if (state.me.value === null) jobs.push(load(state.me, () => api.me()));
     if (view === 'overview' || view === 'devices') jobs.push(load(state.boards, () => api.boards()));
     if (view === 'overview') jobs.push(load(state.activity, () => api.activity()));
+    if (['overview', 'mixes', 'session'].includes(view)) jobs.push(load(state.sessions, readSessions));
     if (view === 'device') {
       const { id } = state.route;
       jobs.push(load(detailOf(id), () => api.board(id)));
@@ -457,6 +470,7 @@ function customerEnded(lead) {
   state.me = resource();
   state.boards = resource();
   state.activity = resource();
+  state.sessions = resource();
   state.details.clear();
   state.account.profile = resource();
   state.boardDialog = null;
@@ -1058,12 +1072,18 @@ function mixesContext() {
   followOwner();
   const now = Date.now();
   if (mixes.demo === null) mixes.demo = demoJournal(now);
-  const all = mixes.source === 'journal' ? mixes.journal.sessions : mixes.demo.sessions;
+  // The board's own sessions when it has sent any; else the demo or the imported journal, marked as such.
+  const sent = state.customer ? (state.sessions.value?.sessions ?? []) : [];
+  const fromBoard = sent.length > 0;
+  const all = fromBoard ? sent : mixes.source === 'journal' ? mixes.journal.sessions : mixes.demo.sessions;
   const pairs = new Map(
-    transitionsOf([...mixes.demo.sessions, ...mixes.journal.sessions]).map((pair) => [pair.id, pair])
+    transitionsOf([...sent, ...mixes.demo.sessions, ...mixes.journal.sessions]).map((pair) => [pair.id, pair])
   );
   return {
     ...mixes,
+    fromBoard,
+    source: fromBoard ? 'board' : mixes.source,
+    nowPlaying: fromBoard ? (state.sessions.value?.nowPlaying ?? []) : [],
     // Where the journal is kept, as the pages say it.
     app: state.app !== null,
     place: state.app ? 'this app' : 'this browser',
@@ -1072,6 +1092,7 @@ function mixesContext() {
     sessions: inRange(all, mixes.range, now),
     pairs,
     find: (id) =>
+      sent.find((session) => session.id === id) ??
       mixes.journal.sessions.find((session) => session.id === id) ??
       mixes.demo.sessions.find((session) => session.id === id) ??
       null,

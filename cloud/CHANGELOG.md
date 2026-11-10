@@ -7,6 +7,16 @@ larger update the middle number, never the first; 2.0.0 should have been 1.11.0 
 paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1 were given later, from the
 history; each names its commit.
 
+## 2.23.0
+
+The cloud now takes the sessions and tracks a board plays, and the customer site shows them: Now playing, play times, the Mixes pages and Your listening come from the board's own sessions as soon as it has sent one. Until it has, the site keeps the demo and the imported journal, marked as such. Nothing changes for a board that sends nothing; the firmware that sends them is a separate update (1.18.0).
+
+A board publishes on `cranium/<thing>/session`: a session (`id`, `startedAt`, `endedAt`, `title`, up to 20 tracks of `title`, `artist`, `playedAt`, `durationS`) or a now playing (`playing`, `title`, `artist`, `playedAt`, `durationS`), each under 6 KB. The rule `BoardSessionRule` takes the thing name from the topic and the time from AWS IoT, passes no message that brings `thing`, `received` or `channel` of its own, and hands it to the recorder, which checks every field strictly (lib/sessions.mjs): an unknown field, a time before 2024 or a day ahead, a track outside its session, a control character or a message too big drops the whole message, with a reason in the log and never its content. Items go into the events table under their own partition (`SES#<thing>`), kept 400 days, so nothing that reads a board's events sees them; the same message again replaces its own items. The device policy lets a board publish only on its own `session` topic, the same way as its other topics. The recorder's role is unchanged (PutItem on the events table); the customer API's role already reads that table.
+
+`GET /api/c/sessions` answers `{ sessions, nowPlaying, generatedAt }` for the boards the caller owns now and no others (the ownership items, as for every customer read). A session is in the shape the site reads, with `source: "board"`, the board's reference and an id that is a hash, never the thing name or the board's own id; a track has `playedAt` as sent. A now playing that has ended, or that was switched off, is left out. The site's `customer-stats.js` uses a track's `playedAt` when it has one. The phone and desktop apps load the same bundle, so no app changes.
+
+cloud/api/test/board-sessions.test.mjs; docs/customer-data.md.
+
 ## 2.22.0
 
 The customer site has a new page, Your listening (`#/mixes/listening`, in the side panel between Track library and

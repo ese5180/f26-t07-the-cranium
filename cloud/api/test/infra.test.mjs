@@ -542,7 +542,7 @@ test('the recorder is a function of its own: own log, own role, PutItem on the e
   assert.ok(block(block(template, 'Outputs', 0), 'EventsFunctionName').includes('Value: !Ref EventsFn'));
 });
 
-test('three IoT rules feed the recorder: shadow documents, presence and board logs, only for things named like the boards', () => {
+test('four IoT rules feed the recorder: shadow documents, presence, board logs and board sessions, only for things named like the boards', () => {
   const sql = (name) =>
     block(template, name)
       .split('Sql: >-\n')[1]
@@ -564,7 +564,13 @@ test('three IoT rules feed the recorder: shadow documents, presence and board lo
     "SELECT *, topic(2) AS thing, timestamp() AS received FROM 'cranium/+/events' " +
       "WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received)"
   );
-  for (const name of ['ShadowEventsRule', 'PresenceEventsRule', 'BoardLogRule']) {
+  // The same for the sessions a board plays, which also say what channel they came on.
+  assert.equal(
+    sql('BoardSessionRule'),
+    "SELECT *, topic(2) AS thing, 'session' AS channel, timestamp() AS received FROM 'cranium/+/session' " +
+      "WHERE startswith(topic(2), 'cranium-') AND isUndefined(thing) AND isUndefined(received) AND isUndefined(channel)"
+  );
+  for (const name of ['ShadowEventsRule', 'PresenceEventsRule', 'BoardLogRule', 'BoardSessionRule']) {
     const rule = block(template, name);
     assert.ok(rule.includes('Type: AWS::IoT::TopicRule'), name);
     assert.ok(rule.includes("AwsIotSqlVersion: '2016-03-23'"), name);
@@ -572,7 +578,7 @@ test('three IoT rules feed the recorder: shadow documents, presence and board lo
     assert.ok(rule.includes('FunctionArn: !GetAtt EventsFn.Arn'), name);
     assert.equal(/RoleArn|Republish|S3:|DynamoDBv2/.test(rule), false, name);
   }
-  // AWS IoT may invoke the recorder for exactly these three rules of this account (and EventBridge for
+  // AWS IoT may invoke the recorder for exactly these four rules of this account (and EventBridge for
   // the check of the alerts: map-infra.test.mjs).
   const permissions = template
     .split(/\n(?= {2}\w+:\n)/)
@@ -582,11 +588,12 @@ test('three IoT rules feed the recorder: shadow documents, presence and board lo
         resource.includes('FunctionName: !Ref EventsFn') &&
         resource.includes('Principal: iot.amazonaws.com')
     );
-  assert.equal(permissions.length, 3);
+  assert.equal(permissions.length, 4);
   for (const [name, rule] of [
     ['ShadowEventsPermission', 'ShadowEventsRule'],
     ['PresenceEventsPermission', 'PresenceEventsRule'],
     ['BoardLogPermission', 'BoardLogRule'],
+    ['BoardSessionPermission', 'BoardSessionRule'],
   ]) {
     const permission = block(template, name);
     assert.ok(permission.includes('Principal: iot.amazonaws.com'), name);
@@ -607,7 +614,7 @@ test('a board may publish its log on its own events topic, and do nothing else t
   assert.ok(publish.includes(`- ${topic}`));
   // Only under Publish: a board neither subscribes to it nor receives on it. Its other topics of this
   // kind, location and commands, are checked in map-infra.test.mjs, and memfault in memfault-infra.test.mjs.
-  assert.equal(policy.split('cranium/').length - 1, 5);
+  assert.equal(policy.split('cranium/').length - 1, 6);
   assert.equal(policy.split('/events').length - 1, 1);
   for (const text of statements.filter((item) => !item.includes('Action: iot:Publish'))) {
     assert.equal(text.includes('/events'), false);

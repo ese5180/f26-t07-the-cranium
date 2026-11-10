@@ -156,3 +156,37 @@ test('the source says whether the numbers are made up, imported or the board', (
   assert.equal(hourWords(12), '12 pm');
   assert.equal(hourWords(21), '9 pm');
 });
+
+test('sessions from the board: the time the board sent for a track is its play time, and the source is the board', async () => {
+  const { boardSession, nowPlayingOf } = await import(mixesAddress);
+  const raw = {
+    id: 's0123abcd',
+    title: 'Friday set',
+    startedAt: '2026-11-10T01:00:00Z',
+    source: 'journal',
+    tracks: [
+      { title: 'Strobe', artist: 'deadmau5', start: 60, end: 360, playedAt: '2026-11-10T01:05:00Z', durationS: 300 },
+      { title: '', artist: 'x', start: 0, playedAt: '2026-11-10T01:00:00Z' },
+      { title: 'No time', artist: 'x', start: 0 },
+    ],
+  };
+  const board = boardSession(raw);
+  assert.equal(board.source, 'board');
+  assert.equal(board.id, 's0123abcd');
+  assert.equal(board.tracks.length, 1);
+  // The board's time, not the session start plus 60 s.
+  assert.equal(playedAt(board, board.tracks[0]), Date.parse('2026-11-10T01:05:00Z'));
+  assert.equal(sourceOf([board]), 'board');
+  assert.equal(sourceWords('board'), null);
+  assert.equal(listeningStats([board], NOW).source, 'board');
+  assert.equal(listeningStats([board], NOW).topTracks[0].name, 'Strobe');
+  assert.equal(boardSession({ ...raw, id: 'not-an-id' }), null);
+  assert.equal(boardSession({ ...raw, tracks: [] }), null);
+  assert.equal(boardSession(null), null);
+  assert.deepEqual(nowPlayingOf({ title: 'A', artist: 'B', playedAt: '2026-11-10T01:05:00Z', board: 'x' }), {
+    title: 'A',
+    artist: 'B',
+    playedAt: '2026-11-10T01:05:00.000Z',
+  });
+  assert.equal(nowPlayingOf({ title: '', playedAt: '2026-11-10T01:05:00Z' }), null);
+});

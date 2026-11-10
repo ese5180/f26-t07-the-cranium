@@ -407,6 +407,50 @@ export function demoJournal(now) {
   return { sessions, moments: [] };
 }
 
+/**
+ * A session the board sent, as the API serves it (cloud/api/src/customer/sessions.mjs), checked again: its
+ * own id and board kept, its source always "board", a track without a name or a time dropped. Null for a
+ * session with nothing left.
+ */
+export function boardSession(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const startedAt = isoOf(raw.startedAt);
+  if (startedAt === null || typeof raw.id !== 'string' || !/^s[0-9a-f]{8}$/.test(raw.id)) return null;
+  if (!Array.isArray(raw.tracks)) return null;
+  const tracks = [];
+  for (const item of raw.tracks.slice(0, LIMITS.tracks)) {
+    if (item === null || typeof item !== 'object') continue;
+    const name = text(item.title);
+    const start = seconds(item.start);
+    const playedAt = isoOf(item.playedAt);
+    if (name === '' || start === null || playedAt === null) continue;
+    const end = seconds(item.end);
+    tracks.push({
+      title: name,
+      artist: text(item.artist),
+      deck: null,
+      start,
+      end: end !== null && end > start ? end : null,
+      bpm: null,
+      key: null,
+      playedAt,
+    });
+  }
+  if (tracks.length === 0) return null;
+  const session = { id: raw.id, title: text(raw.title) || 'A session', startedAt, source: 'board', tracks };
+  const endedAt = isoOf(raw.endedAt);
+  if (endedAt !== null) session.endedAt = endedAt;
+  return session;
+}
+
+/** What is on a deck now, from the API: { title, artist, playedAt }, or null. */
+export function nowPlayingOf(raw) {
+  if (raw === null || typeof raw !== 'object') return null;
+  const title = text(raw.title);
+  const playedAt = isoOf(raw.playedAt);
+  return title === '' || playedAt === null ? null : { title, artist: text(raw.artist), playedAt };
+}
+
 // Working things out.
 
 export function inRange(sessions, range, now) {
