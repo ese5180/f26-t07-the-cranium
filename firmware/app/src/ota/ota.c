@@ -22,6 +22,9 @@
 #include "image_compat.h"
 #include "mflt.h"
 #include "ota_job.h"
+#if defined(CONFIG_APP_PI_OTA)
+#include "pi_ota.h"
+#endif
 #include "store.h"
 #include "version.h"
 
@@ -58,13 +61,35 @@ enum record_phase {
 	RECORD_TESTING = 2,
 };
 
-/* Survives the restart, so that the outcome can be reported whichever image runs. */
+/* How far the Pi part of a job with both has got (ota_record.pi_step). */
+enum record_pi_step {
+	RECORD_PI_NONE = 0,
+	/* On the SD card and checked, before the firmware was handed to the bootloader. */
+	RECORD_PI_STAGED = 1,
+	/* The firmware is confirmed and the Pi is being sent its image. */
+	RECORD_PI_FLASHING = 2,
+	/* The Pi verified the image. */
+	RECORD_PI_DONE = 3,
+	/* The Pi part failed: the low bits are the enum pi_err. */
+	RECORD_PI_FAILED = 0x40,
+};
+
+/*
+ * Survives the restart, so that the outcome can be reported whichever image runs. with_pi and
+ * pi_step (1.20.0) sit where the padding after job_id was, which older firmware always wrote as
+ * zero, so the record keeps its size and an older image still reads it after a rollback.
+ */
 struct ota_record {
 	uint32_t magic;
 	uint8_t phase;
 	char job_id[OTA_JOB_ID_MAX + 1];
+	/* The job brings a Pi image too, which goes to the Pi once this firmware is confirmed. */
+	uint8_t with_pi;
+	uint8_t pi_step;
 	struct fw_version target;
 };
+
+_Static_assert(sizeof(struct ota_record) == 80, "the record's size is fixed: older images read it");
 
 enum final_report {
 	REPORT_NONE,
@@ -112,6 +137,11 @@ static struct {
 	char last_error[24];
 	bool changed;
 
+	/* The job carries a Pi image that goes after its firmware (OTA_JOB_KIND_BUNDLE). */
+	bool with_pi;
+	/* The record says the Pi still has to get its image: at the next connection. */
+	bool resume_pi;
+
 #if defined(CONFIG_APP_BT_OTA)
 	/* The cloud update that this boot found installed, or on trial: for the Bluetooth status. */
 	struct fw_version installed;
@@ -121,6 +151,24 @@ static struct {
 
 /* See ota_stuck_progress(). The downloader's thread adds to it as well. */
 static atomic_t stuck_progress;
+
+#if defined(CONFIG_APP_PI_OTA)
+/*
+ * The order of a firmware update and a Pi image (docs/pi-ota.md, "Order"). AWS IoT hands out the
+ * oldest pending job first, whatever it is, so before a Pi image starts the board asks for the list
+ * of pending jobs. A firmware job in it goes first: the board marks it in progress, which puts it
+ * at the head of the list, and the Pi image stays queued until the firmware is done.
+ */
+static struct {
+	/* The Pi image job that the list was asked for. */
+	char asked[OTA_JOB_ID_MAX + 1];
+	int seconds_asked;
+	/* The list had no firmware job before this Pi image: it may start when it is next. */
+	char cleared[OTA_JOB_ID_MAX + 1];
+	/* The firmware job that was moved ahead of a Pi image: in progress, but not started. */
+	char promoted[OTA_JOB_ID_MAX + 1];
+} order;
+#endif
 
 static const char *const state_names[] = {
 	[OTA_IDLE] = "idle",
@@ -133,6 +181,8 @@ static const char *const state_names[] = {
 	[OTA_COMMITTING] = "verifying",
 	[OTA_REBOOTING] = "rebooting",
 	[OTA_TESTING] = "testing",
+	[OTA_STAGING_PI] = "downloading_pi",
+	[OTA_FLASHING_PI] = "flashing_pi",
 #if defined(CONFIG_APP_BT_OTA)
 	[OTA_BLUETOOTH] = "bluetooth",
 #endif
@@ -226,6 +276,35 @@ static void send_final_report(void)
 		return;
 	}
 
+#if defined(CONFIG_APP_PI_OTA)
+	if (ota.record.with_pi && ota.report == REPORT_SUCCEEDED) {
+		const char *pi_version = pi_ota_installed_version();
+
+		err = job_update(ota.record.job_id, "SUCCEEDED", TOKEN_REPORT, &ota.report_sequence,
+				 "\"running\":\"%s\",\"pi_version\":\"%s\"",
+				 fw_version_running_string(), pi_version[0] != '\0' ? pi_version : "unknown");
+	} else if (ota.record.with_pi) {
+		/* Either the firmware did not stay, and the Pi was left alone, or the Pi failed. */
+		bool firmware_kept = ota.record.pi_step >= RECORD_PI_FAILED;
+
+		err = job_update(ota.record.job_id, "FAILED", TOKEN_REPORT, &ota.report_sequence,
+				 "\"reason\":\"%s\",\"running\":\"%s\",\"nrf\":\"%s\",\"pi\":\"%s\"",
+				 ota.report_reason, fw_version_running_string(),
+				 firmware_kept ? "installed" : "not_installed",
+				 firmware_kept ? "failed" : "not_flashed");
+	} else
+#else
+	if (ota.record.with_pi && ota.report == REPORT_SUCCEEDED) {
+		/*
+		 * A job with a Pi image installed this, a build that cannot send one: the job's own
+		 * firmware was not a Pi build. It stays, and the Pi was left alone. Said as it is.
+		 */
+		err = job_update(ota.record.job_id, "FAILED", TOKEN_REPORT, &ota.report_sequence,
+				 "\"reason\":\"pi_unsupported\",\"running\":\"%s\",\"nrf\":\"installed\","
+				 "\"pi\":\"not_flashed\"",
+				 fw_version_running_string());
+	} else
+#endif
 	if (ota.report == REPORT_SUCCEEDED) {
 		err = job_update(ota.record.job_id, "SUCCEEDED", TOKEN_REPORT, &ota.report_sequence,
 				 "\"running\":\"%s\"", fw_version_running_string());
@@ -245,6 +324,9 @@ static void send_final_report(void)
 static void go_idle(void)
 {
 	ota.started = false;
+	ota.with_pi = false;
+	/* A job with both parts is over: replies keep the firmware's URL again. */
+	cloud_jobs_set_part(OTA_JOB_PART_FIRMWARE);
 	enter(OTA_IDLE);
 }
 
@@ -563,6 +645,19 @@ static void check_download(void)
 
 	LOG_INF("Image verified");
 	atomic_inc(&stuck_progress);
+#if defined(CONFIG_APP_PI_OTA)
+	if (ota.with_pi) {
+		/*
+		 * Both downloads before anything is installed: the Pi image goes onto the card now, and
+		 * the firmware is handed over only once that is done (on_pi_staged()).
+		 */
+		LOG_INF("Now the Pi image of the same job, onto the SD card");
+		enter(OTA_STAGING_PI);
+		cloud_jobs_set_part(OTA_JOB_PART_PI);
+		pi_ota_bundle(&ota.job, PI_OTA_BUNDLE_STAGE);
+		return;
+	}
+#endif
 	enter(OTA_COMMITTING);
 	announce_commit();
 }
@@ -601,6 +696,8 @@ static void install_download(void)
 	ota.record.phase = RECORD_ARMED;
 	memcpy(ota.record.job_id, ota.job.id, sizeof(ota.record.job_id));
 	ota.record.target = ota.job.version;
+	ota.record.with_pi = ota.with_pi ? 1 : 0;
+	ota.record.pi_step = ota.with_pi ? RECORD_PI_STAGED : RECORD_PI_NONE;
 
 	err = store_write(STORE_OTA_RECORD, &ota.record, sizeof(ota.record));
 	if (err) {
@@ -635,6 +732,7 @@ static void accept_job(const struct ota_job *job)
 {
 	ota.job = *job;
 	ota.started = false;
+	ota.with_pi = false;
 	ota.download_attempts = 0;
 	ota.progress = 0;
 
@@ -673,6 +771,19 @@ static void on_job_withdrawn(void)
 		/* Downloaded and checked, but not handed to the bootloader yet. */
 		abandon_job(true);
 		break;
+#if defined(CONFIG_APP_PI_OTA)
+	case OTA_STAGING_PI:
+		/* The firmware goes; the Pi image stays on the card, for a later job to go on from. */
+		pi_ota_withdrawn();
+		abandon_job(true);
+		break;
+	case OTA_FLASHING_PI:
+		/* The firmware stays, it is confirmed. The Pi is told to drop what it got. */
+		pi_ota_withdrawn();
+		record_clear();
+		abandon_job(false);
+		break;
+#endif
 	default:
 		/* Idle, or running a new image on trial. */
 		break;
@@ -706,13 +817,246 @@ static void settle_interrupted_job(const struct ota_job *job)
 static bool same_image(const struct ota_job *a, const struct ota_job *b)
 {
 	return fw_version_compare(&a->version, &b->version) == 0 && a->size == b->size &&
-	       memcmp(a->sha256, b->sha256, sizeof(a->sha256)) == 0;
+	       memcmp(a->sha256, b->sha256, sizeof(a->sha256)) == 0 && a->kind == b->kind
+#if defined(CONFIG_APP_PI_OTA)
+	       && a->pi_size == b->pi_size &&
+	       memcmp(a->pi_sha256, b->pi_sha256, sizeof(a->pi_sha256)) == 0
+#endif
+		;
 }
+
+#if defined(CONFIG_APP_PI_OTA)
+static void save_record(void)
+{
+	if (store_write(STORE_OTA_RECORD, &ota.record, sizeof(ota.record)) != 0) {
+		LOG_WRN("The update record could not be saved");
+	}
+}
+
+/*
+ * The firmware of a job with both is confirmed: the Pi's turn. The job's document is asked for again,
+ * with the Pi image's URL, and on_job() hands it to pi_ota.c, which sends what is on the card and
+ * downloads first whatever is not.
+ */
+static void begin_pi_flash(void)
+{
+	LOG_INF("Firmware confirmed: the Pi gets its image (job %s)", ota.record.job_id);
+	ota.record.pi_step = RECORD_PI_FLASHING;
+	save_record();
+	memcpy(ota.job.id, ota.record.job_id, sizeof(ota.job.id));
+	ota.job.kind = OTA_JOB_KIND_BUNDLE;
+	ota.with_pi = true;
+	ota.started = true;
+	cloud_jobs_set_part(OTA_JOB_PART_PI);
+	enter(OTA_FLASHING_PI);
+	(void)job_update(ota.record.job_id, "IN_PROGRESS", TOKEN_NONE, NULL,
+			 "\"step\":\"flashing_pi\",\"progress\":\"0\",\"running\":\"%s\"",
+			 fw_version_running_string());
+	(void)cloud_jobs_request_next();
+}
+
+/* The Pi part of a job with both has ended a step: see pi_ota_bundle_take_result(). */
+static void on_pi_bundle_result(enum pi_err err)
+{
+	if (err == PI_ERR_ABORTED) {
+		/* Withdrawn: on_job_withdrawn() has dealt with it. */
+		return;
+	}
+
+	if (ota.state == OTA_STAGING_PI) {
+		cloud_jobs_set_part(OTA_JOB_PART_FIRMWARE);
+		if (err != PI_OK) {
+			/* Nothing is installed, neither part: the firmware leaves the slot too. */
+			discard_download();
+			fail_job(pi_err_reason(err), "Pi image not on the card; nothing installed");
+			return;
+		}
+		LOG_INF("Both images are here and checked: installing the firmware");
+		atomic_inc(&stuck_progress);
+		enter(OTA_COMMITTING);
+		announce_commit();
+		return;
+	}
+
+	if (ota.state != OTA_FLASHING_PI) {
+		return;
+	}
+
+	if (err == PI_OK) {
+		ota.record.pi_step = RECORD_PI_DONE;
+		ota.report = REPORT_SUCCEEDED;
+		set_last("succeeded", "");
+	} else {
+		ota.record.pi_step = RECORD_PI_FAILED | (uint8_t)err;
+		ota.report = REPORT_FAILED;
+		ota.report_reason = pi_err_reason(err);
+		set_last("failed", ota.report_reason);
+	}
+	save_record();
+	go_idle();
+	send_final_report();
+}
+
+/*
+ * A job with both that is in progress, and that this board has no record of: it restarted before
+ * the firmware went to the bootloader. Both parts start again: the firmware from its first byte, the
+ * Pi image from its last checkpoint on the card. If the firmware it brings already runs, the record
+ * was lost after the installation, and only the Pi is left to do.
+ */
+static void resume_bundle(const struct ota_job *job)
+{
+	enum pi_err pi_verdict = pi_ota_bundle_check(job);
+
+	if (pi_verdict != PI_OK && pi_verdict != PI_ERR_ALREADY_INSTALLED) {
+		refuse_job(job->id, true, pi_err_reason(pi_verdict));
+		return;
+	}
+
+	if (fw_version_compare(&job->version, fw_version_running()) == 0) {
+		if (pi_verdict == PI_ERR_ALREADY_INSTALLED) {
+			settle_interrupted_job(job);
+			return;
+		}
+		memset(&ota.record, 0, sizeof(ota.record));
+		ota.record.magic = RECORD_MAGIC;
+		ota.record.phase = RECORD_TESTING;
+		memcpy(ota.record.job_id, job->id, sizeof(ota.record.job_id));
+		ota.record.target = job->version;
+		ota.record.with_pi = 1;
+		ota.have_record = true;
+		begin_pi_flash();
+		return;
+	}
+
+	if (ota_job_check(job, fw_version_running(), SECONDARY_SLOT_SIZE) != OTA_JOB_OK) {
+		settle_interrupted_job(job);
+		return;
+	}
+
+	LOG_INF("Job %s was cut off by a restart: both parts again, the Pi image from the card",
+		job->id);
+	ota.job = *job;
+	ota.with_pi = pi_verdict == PI_OK;
+	ota.started = true;
+	ota.download_attempts = 0;
+	ota.progress = 0;
+	start_download();
+}
+
+/* Ask for the list of pending jobs, to see whether firmware has to go before this Pi image. */
+static void ask_for_list(const char *pi_job_id)
+{
+	strncpy(order.asked, pi_job_id, sizeof(order.asked) - 1);
+	order.asked[sizeof(order.asked) - 1] = '\0';
+	order.seconds_asked = 0;
+	if (cloud_jobs_request_list() != 0) {
+		LOG_WRN("Could not ask for the list of jobs; will retry");
+	}
+}
+
+static void on_pi_job(const struct ota_job *incoming)
+{
+	/* A job with both parts is under way: its Pi image goes first, this one waits, queued. */
+	if (ota.state == OTA_STAGING_PI || ota.state == OTA_FLASHING_PI) {
+		pi_ota_set_waiting(true);
+		return;
+	}
+
+	/* The one under way, with a fresh URL, or one that a restart cut off: it goes on. */
+	if (pi_ota_owns(incoming->id) || (incoming->in_progress && !pi_ota_busy())) {
+		pi_ota_on_job(incoming);
+		return;
+	}
+
+	if (pi_ota_busy()) {
+		return;
+	}
+
+	/* A firmware update under way, or on trial: the Pi image stays queued until it is over. */
+	if (ota.state != OTA_IDLE) {
+		pi_ota_set_waiting(true);
+		return;
+	}
+
+	if (strcmp(order.cleared, incoming->id) == 0 || !cloud_jobs_list_available()) {
+		/* No firmware job before it, or no way to know: a cloud whose device policy is older
+		 * than console 2.26.0 (cloud.h). Then the order is the cloud's.
+		 */
+		order.cleared[0] = '\0';
+		pi_ota_set_waiting(false);
+		pi_ota_on_job(incoming);
+		return;
+	}
+
+	ask_for_list(incoming->id);
+}
+
+/* The list of pending jobs, asked for by ask_for_list(). */
+static void on_job_list(enum ota_job_result result, const struct ota_job *firmware)
+{
+	if (order.asked[0] == '\0') {
+		return;
+	}
+
+	switch (result) {
+	case OTA_JOB_OK:
+		if (ota.state != OTA_IDLE) {
+			/* Busy already: the Pi image is asked about again when that is over. */
+			order.asked[0] = '\0';
+			pi_ota_set_waiting(true);
+			return;
+		}
+		/*
+		 * Firmware first. Marked in progress, it is the next job that the cloud names, and the
+		 * Pi image stays queued: nothing about it changes.
+		 */
+		LOG_INF("Firmware job %s goes before Pi image job %s", firmware->id, order.asked);
+		strncpy(order.promoted, firmware->id, sizeof(order.promoted) - 1);
+		order.asked[0] = '\0';
+		pi_ota_set_waiting(true);
+		(void)job_update(firmware->id, "IN_PROGRESS", TOKEN_NONE, NULL,
+				 "\"step\":\"before_pi_image\"");
+		(void)cloud_jobs_request_next();
+		break;
+	case OTA_JOB_NONE:
+		memcpy(order.cleared, order.asked, sizeof(order.cleared));
+		order.asked[0] = '\0';
+		(void)cloud_jobs_request_next();
+		break;
+	default:
+		/* Unreadable: the tick asks again. */
+		break;
+	}
+}
+#endif
 
 static void on_job(const struct ota_job *incoming)
 {
 	bool same_job = strcmp(incoming->id, ota.job.id) == 0;
+	bool promoted = false;
 	enum ota_job_result verdict;
+
+#if defined(CONFIG_APP_PI_OTA)
+	/* The Pi part's turn, and the document with its URL, as begin_pi_flash() asked. */
+	if (ota.state == OTA_FLASHING_PI) {
+		if (ota.have_record && strcmp(incoming->id, ota.record.job_id) == 0) {
+			if (incoming->kind == OTA_JOB_KIND_BUNDLE) {
+				pi_ota_bundle(incoming, PI_OTA_BUNDLE_FLASH);
+			}
+			return;
+		}
+		/* AWS IoT names the job in progress first: another one means this one is gone. */
+		on_job_withdrawn();
+	}
+
+	/* A fresh URL for the Pi image of the job whose firmware waits in the slot. */
+	if (ota.state == OTA_STAGING_PI && same_job) {
+		if (incoming->kind == OTA_JOB_KIND_BUNDLE) {
+			pi_ota_bundle(incoming, PI_OTA_BUNDLE_STAGE);
+		}
+		return;
+	}
+#endif
 
 	/* The job whose outcome is about to be reported is not a new offer, and neither
 	 * is one that was just answered.
@@ -721,6 +1065,43 @@ static void on_job(const struct ota_job *incoming)
 	    strcmp(incoming->id, ota.closed_job_id) == 0) {
 		return;
 	}
+
+	if (incoming->kind == OTA_JOB_KIND_PI_IMAGE) {
+#if defined(CONFIG_APP_PI_OTA)
+		on_pi_job(incoming);
+#else
+		/* What a board without a Pi has always answered to a document it does not know. */
+		if (ota.state == OTA_IDLE) {
+			refuse_job(incoming->id, incoming->in_progress, "unsupported");
+		}
+#endif
+		return;
+	}
+
+#if !defined(CONFIG_APP_PI_OTA)
+	/* Firmware with a Pi image: only a build for a board wired to a Pi takes that. */
+	if (incoming->kind == OTA_JOB_KIND_BUNDLE) {
+		if (ota.state == OTA_IDLE) {
+			refuse_job(incoming->id, incoming->in_progress, "unsupported");
+		}
+		return;
+	}
+#endif
+
+#if defined(CONFIG_APP_PI_OTA)
+	/* Another job is next while a Pi image is under way: the Pi image's job is gone. */
+	if (pi_ota_busy()) {
+		pi_ota_withdrawn();
+	}
+
+	promoted = order.promoted[0] != '\0' && strcmp(order.promoted, incoming->id) == 0;
+	if (promoted && ota.state == OTA_IDLE) {
+		/* Moved ahead of a Pi image: in progress by this board's hand, so new all the same. */
+		order.promoted[0] = '\0';
+	} else {
+		promoted = false;
+	}
+#endif
 
 	if (ota.state == OTA_REBOOTING && same_job) {
 		/* The last look: still in progress after the settle time means go. */
@@ -736,7 +1117,7 @@ static void on_job(const struct ota_job *incoming)
 	 */
 	if (!same_job && (ota.state == OTA_RETRY_WAIT || ota.state == OTA_STARTING ||
 			  ota.state == OTA_DOWNLOADING || ota.state == OTA_COMMITTING ||
-			  ota.state == OTA_REBOOTING)) {
+			  ota.state == OTA_REBOOTING || ota.state == OTA_STAGING_PI)) {
 		on_job_withdrawn();
 	}
 
@@ -775,16 +1156,40 @@ static void on_job(const struct ota_job *incoming)
 		return;
 	}
 
-	if (incoming->in_progress) {
+#if defined(CONFIG_APP_PI_OTA)
+	if (incoming->kind == OTA_JOB_KIND_BUNDLE && incoming->in_progress && !promoted) {
+		resume_bundle(incoming);
+		return;
+	}
+#endif
+
+	if (incoming->in_progress && !promoted) {
 		settle_interrupted_job(incoming);
 		return;
 	}
 
 	verdict = ota_job_check(incoming, fw_version_running(), SECONDARY_SLOT_SIZE);
 	if (verdict != OTA_JOB_OK) {
-		refuse_job(incoming->id, false, ota_job_result_reason(verdict));
+		/* One that was moved ahead is in progress: it can only fail. */
+		refuse_job(incoming->id, promoted, ota_job_result_reason(verdict));
 		return;
 	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	if (incoming->kind == OTA_JOB_KIND_BUNDLE) {
+		/* The Pi part is checked before anything of either part is downloaded. */
+		enum pi_err pi_verdict = pi_ota_bundle_check(incoming);
+
+		if (pi_verdict != PI_OK && pi_verdict != PI_ERR_ALREADY_INSTALLED) {
+			refuse_job(incoming->id, promoted, pi_err_reason(pi_verdict));
+			return;
+		}
+		accept_job(incoming);
+		/* The Pi has that image already: the firmware alone, as a firmware job. */
+		ota.with_pi = pi_verdict == PI_OK;
+		return;
+	}
+#endif
 
 	accept_job(incoming);
 }
@@ -838,6 +1243,13 @@ int ota_init(void)
 		return -EIO;
 	}
 
+#if defined(CONFIG_APP_PI_OTA)
+	/* A Pi without its update is no reason to give up the board's own. */
+	if (pi_ota_init() != 0) {
+		LOG_ERR("Pi image update could not start");
+	}
+#endif
+
 	err = fota_download_init(download_callback);
 	if (err) {
 		LOG_ERR("Download library could not be initialised: %d", err);
@@ -864,6 +1276,23 @@ int ota_init(void)
 			note_installed(BT_STATUS_OUTCOME_PENDING);
 			break;
 		case OTA_RESTART_CONFIRMED:
+#if defined(CONFIG_APP_PI_OTA)
+			if (ota.record.with_pi && (ota.record.pi_step == RECORD_PI_STAGED ||
+						   ota.record.pi_step == RECORD_PI_FLASHING)) {
+				/* Cut off while the Pi got its image, or right before: again. */
+				LOG_INF("The Pi has yet to get the image of job %s", ota.record.job_id);
+				ota.resume_pi = true;
+				break;
+			}
+			if (ota.record.with_pi && ota.record.pi_step >= RECORD_PI_FAILED) {
+				/* The Pi failed, and the report did not get out. */
+				ota.report = REPORT_FAILED;
+				ota.report_reason = pi_err_reason(
+					(enum pi_err)(ota.record.pi_step & ~RECORD_PI_FAILED));
+				set_last("failed", ota.report_reason);
+				break;
+			}
+#endif
 			/* Confirmed earlier, but the report did not get out. */
 			ota.report = REPORT_SUCCEEDED;
 			set_last("succeeded", "");
@@ -942,10 +1371,25 @@ void ota_on_cloud_up(void)
 			ota.report = REPORT_SUCCEEDED;
 			note_installed(BT_STATUS_OUTCOME_KEPT);
 		}
+#if defined(CONFIG_APP_PI_OTA)
+		if (ota.have_record && ota.record.with_pi) {
+			/* Not over yet: the job's Pi image goes now, and only now. */
+			ota.report = REPORT_NONE;
+			ota.resume_pi = true;
+		}
+#endif
 #if defined(CONFIG_APP_BT_OTA)
 		bt_ota_on_cloud_proof();
 #endif
 	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	if (ota.resume_pi && ota.state == OTA_IDLE && ota.have_record) {
+		ota.resume_pi = false;
+		begin_pi_flash();
+		return;
+	}
+#endif
 
 	send_final_report();
 #if defined(CONFIG_APP_BT_OTA)
@@ -986,6 +1430,13 @@ void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
 		return;
 	}
 
+	if (kind == CLOUD_JOB_LIST) {
+#if defined(CONFIG_APP_PI_OTA)
+		on_job_list(result, incoming);
+#endif
+		return;
+	}
+
 	/* Read on the MQTT library's thread already, with this connection's prefix: cloud.h. */
 	switch (result) {
 	case OTA_JOB_OK:
@@ -1001,6 +1452,13 @@ void ota_on_job_message(enum cloud_job_message kind, enum ota_job_result result,
 		if (ota.state != OTA_STARTING) {
 			on_job_withdrawn();
 		}
+#if defined(CONFIG_APP_PI_OTA)
+		if (pi_ota_busy()) {
+			pi_ota_withdrawn();
+		}
+		pi_ota_set_waiting(false);
+		order.asked[0] = '\0';
+#endif
 		break;
 	case OTA_JOB_MALFORMED:
 		LOG_WRN("Ignoring a jobs message that could not be parsed");
@@ -1090,6 +1548,15 @@ void ota_on_button(enum app_button button)
 
 void ota_on_download(enum app_download_event what, int value)
 {
+#if defined(CONFIG_APP_PI_OTA)
+	/* A Pi image comes through the same downloader, while the firmware's own download does not. */
+	if ((ota.state == OTA_IDLE || ota.state == OTA_STAGING_PI || ota.state == OTA_FLASHING_PI) &&
+	    pi_ota_busy()) {
+		pi_ota_on_download(what, value);
+		return;
+	}
+#endif
+
 	if (ota.state != OTA_DOWNLOADING) {
 		return;
 	}
@@ -1170,6 +1637,33 @@ void ota_on_tick(void)
 	    ++ota.seconds_since_report >= REPORT_RETRY_SECONDS) {
 		send_final_report();
 	}
+
+#if defined(CONFIG_APP_PI_OTA)
+	if (order.asked[0] != '\0' && ++order.seconds_asked >= REFRESH_TIMEOUT_SECONDS &&
+	    cloud_is_connected()) {
+		char again[OTA_JOB_ID_MAX + 1];
+
+		memcpy(again, order.asked, sizeof(again));
+		ask_for_list(again);
+	}
+
+	pi_ota_on_tick();
+
+	{
+		enum pi_err pi_result;
+
+		if (pi_ota_bundle_take_result(&pi_result)) {
+			on_pi_bundle_result(pi_result);
+		}
+	}
+
+	/* The Pi's turn, and no document has come to start it: ask again. */
+	if (ota.state == OTA_FLASHING_PI && !pi_ota_busy() &&
+	    ota.seconds_in_state >= REFRESH_TIMEOUT_SECONDS && cloud_is_connected()) {
+		ota.seconds_in_state = 0;
+		(void)cloud_jobs_request_next();
+	}
+#endif
 }
 
 enum ota_state ota_state(void)
@@ -1191,7 +1685,7 @@ const char *ota_job_id(void)
 	}
 #endif
 
-	if (ota.state == OTA_TESTING && ota.have_record) {
+	if ((ota.state == OTA_TESTING || ota.state == OTA_FLASHING_PI) && ota.have_record) {
 		return ota.record.job_id;
 	}
 

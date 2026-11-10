@@ -1,0 +1,85 @@
+/*
+ * From 1.20.0, only in a build with SB_CONFIG_APP_PI_OTA (pi_ota_sysbuild.conf), which sysbuild.cmake
+ * adds this to: the SPI bus of the SD card and of the Pi image transfer, and the two pins the update
+ * reads (docs/pi-ota.md, "Wiring"). The board overlays do not include it, so the default build has no
+ * node, driver or RAM for any of this. nRF7002 DK only: the nRF5340 DK has no cloud.
+ *
+ *   SPIM2 (SERIAL2)  SCK P0.04 (A0)  MOSI P0.05 (A1)  MISO P0.06 (A2)
+ *   SD card CS  P0.07 (A3)    Pi image CS  P0.25 (A4)
+ *   READY from the Pi  P1.04 (D2)    SD card detect  P1.05 (D3)
+ *
+ * Why these: the Pi's message link (src/pi/pi_link.c, docs/pi-link.md) owns SPIS3 (SERIAL3) and the
+ * Arduino SPI pins P1.11 to P1.15 (D9 to D13); nothing here touches them. SERIAL0 is the console
+ * (uart0, P0.19 to P0.22), SERIAL1 TF-M's UART (uart1, P1.00 and P1.01), SERIAL4 the external flash
+ * (spi4, P0.08 to P0.11); the Wi-Fi chip has QSPI and P0.12 to P0.18, P0.23, P0.24, P0.28 to P0.31 and
+ * P1.10; the Arduino I2C is P1.02 and P1.03; the LEDs and buttons are P1.06 to P1.09; P0.00 and P0.01
+ * are the 32 kHz crystal and P0.02 and P0.03 NFC. SERIAL2 and the analog header pins are free. The
+ * board overlay turns the GPIO forwarder off, so P1.04 and P1.05 stay with the application core.
+ *
+ * One SPIM instance for both devices: each has its own chip select (cs-gpios, index = reg) and its
+ * own frequency, and Zephyr sets the bus up for whichever a transaction is for. The SD card starts
+ * at 400 kHz and then runs at its spi-max-frequency. SPIM2 goes to 8 MHz at most.
+ */
+
+&pinctrl {
+	pi_ota_spi_default: pi_ota_spi_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 5)>;
+		};
+
+		/* An SD card's DO is open until it drives it: keep it from floating. */
+		group2 {
+			psels = <NRF_PSEL(SPIM_MISO, 0, 6)>;
+			bias-pull-up;
+		};
+	};
+
+	pi_ota_spi_sleep: pi_ota_spi_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 5)>,
+				<NRF_PSEL(SPIM_MISO, 0, 6)>;
+			low-power-enable;
+		};
+	};
+};
+
+/ {
+	pi_ota: pi-ota {
+		compatible = "cranium,pi-ota";
+		ready-gpios = <&gpio1 4 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+		/* SparkFun's microSD breakout: CD is closed to ground with a card in. */
+		cd-gpios = <&gpio1 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+	};
+};
+
+&spi2 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	pinctrl-0 = <&pi_ota_spi_default>;
+	pinctrl-1 = <&pi_ota_spi_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* What MOSI sends while only receiving: an SD card in SPI mode wants 0xFF. */
+	overrun-character = <0xff>;
+	cs-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>, <&gpio0 25 GPIO_ACTIVE_LOW>;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		spi-max-frequency = <8000000>;
+
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+
+	pi_xfer: pi-xfer@1 {
+		compatible = "cranium,pi-xfer";
+		reg = <1>;
+		spi-max-frequency = <8000000>;
+	};
+};

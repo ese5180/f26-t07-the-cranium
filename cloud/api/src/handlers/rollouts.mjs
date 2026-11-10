@@ -74,6 +74,10 @@
  * Stored in the state table, pk ROL, sk the rollout's id (rol-<time>-<6 hex>, in time order). The
  * jobs themselves are deployments like any other (handlers/deployments.mjs launch), and their
  * notes say which rollout and which stage they are.
+ *
+ * A Raspberry Pi image (console 2.26.0, docs/pi-ota.md): `pi` beside `version` sends both in each job,
+ * to boards that report a Pi; the others are left out (no_pi), or refused when named (400 no_pi). Each
+ * stage looks at the image again, and a revoked one stops the rollout (pi_revoked).
  */
 
 import { HttpError, badRequest, conflict, describeError, field, notFound, unprocessable } from '../http.mjs';
@@ -135,6 +139,7 @@ const STOP_TEXT = Object.freeze({
   canary_failed: 'The canary did not confirm the update',
   aborted: 'Too many boards failed: AWS IoT stopped the rest',
   revoked: 'The release was revoked',
+  pi_revoked: 'The Raspberry Pi image was revoked',
   cancelled_elsewhere: 'A deployment of it was cancelled outside the rollout',
   job_missing: 'Its job is gone from AWS IoT',
   job_failed: 'The next stage could not be started',
@@ -345,7 +350,20 @@ export function createRolloutHandlers(
    * Start a rollout on boards that were chosen already: its canary job, then its record. If the
    * record cannot be written, the job is cancelled again: a canary nobody follows is no rollout.
    */
-  async function start({ release, things, leftOut, target, purpose, options, actor, entry }) {
+  /** The chosen boards, with those that report no Pi left out, for a rollout with a Pi image. */
+  async function withPi(chosen, piImage) {
+    if (piImage === null || chosen.things.length === 0) return chosen;
+    const loaded = await devices.loadDevices(chosen.things);
+    const things = [];
+    const leftOut = [...chosen.leftOut];
+    chosen.things.forEach((thing, index) => {
+      if (loaded[index]?.pi) things.push(thing);
+      else leftOut.push({ thing, reason: 'no_pi', text: 'Reports no Raspberry Pi: no Pi build, or no Pi wired' });
+    });
+    return { things, leftOut };
+  }
+
+  async function start({ release, piImage = null, things, leftOut, target, purpose, options, actor, entry }) {
     if (things.length > MAX_ROLLOUT_BOARDS) {
       throw unprocessable('too_many_boards', `A rollout takes at most ${MAX_ROLLOUT_BOARDS} boards.`);
     }
@@ -360,6 +378,7 @@ export function createRolloutHandlers(
       version: release.version,
       board: release.board,
       layout: release.layout,
+      ...(piImage === null ? {} : { pi: { version: piImage.version, sha256: piImage.sha256 } }),
       purpose,
       target,
       note: options.note,
@@ -385,9 +404,15 @@ export function createRolloutHandlers(
       rev: 0,
     };
     const { abort } = rolloutConfigs(options);
-    const description = buildJobDescription({ email: actor.email, sub: actor.sub, note: stageNote(record, 'canary') });
+    const description = buildJobDescription({
+      email: actor.email,
+      sub: actor.sub,
+      note: stageNote(record, 'canary'),
+      pi: record.pi ?? null,
+    });
     const { id: job } = await deployments.launch({
       release,
+      piImage,
       things: canary,
       description,
       actorSub: actor.sub,
@@ -880,15 +905,20 @@ export function createRolloutHandlers(
     const releaseItem = await aws.getRelease(releaseKey(requireVersion(item.version).parts));
     const release = releaseFromItem(releaseItem);
     if (release === null || release.status !== 'active') return stop(item, 'revoked');
+    const piImage = item.pi ? await deployments.piImageNow(item.pi.version) : null;
+    if (item.pi && piImage === null) return stop(item, 'pi_revoked');
     const rest = item.rest?.things ?? [];
     const loaded = (await fleet.boards({ only: rest })).map(({ board }) => board);
     const gone = rest
       .filter((thing) => !loaded.some((board) => board.thing === thing))
       .map((thing) => ({ thing, reason: 'gone', text: 'No longer registered' }));
-    const chosen = await computedBoards(loaded, release, {
-      leaveOutAway: item.purpose !== 'deploy',
-      older: item.purpose === 'rollback',
-    });
+    const chosen = await withPi(
+      await computedBoards(loaded, release, {
+        leaveOutAway: item.purpose !== 'deploy',
+        older: item.purpose === 'rollback',
+      }),
+      piImage
+    );
     const leftOut = [...gone, ...chosen.leftOut];
     const startedAt = new Date(now()).toISOString();
     if (chosen.things.length === 0) return finish(item, { rest: { things: [], leftOut, job: null, startedAt: null } });
@@ -900,11 +930,17 @@ export function createRolloutHandlers(
 
     const { rollout: pace, abort } = rolloutConfigs(item);
     const by = item.createdBy ?? CONSOLE_ACTOR;
-    const description = buildJobDescription({ email: by.email, sub: by.sub, note: stageNote(item, 'waves') });
+    const description = buildJobDescription({
+      email: by.email,
+      sub: by.sub,
+      note: stageNote(item, 'waves'),
+      pi: item.pi ?? null,
+    });
     let job;
     try {
       ({ id: job } = await deployments.launch({
         release,
+        piImage,
         things: chosen.things,
         description,
         actorSub: by.sub || 'rollout',
@@ -946,15 +982,20 @@ export function createRolloutHandlers(
     const releaseItem = await aws.getRelease(releaseKey(requireVersion(item.version).parts));
     const release = releaseFromItem(releaseItem);
     if (release === null || release.status !== 'active') return stop(item, 'revoked');
+    const piImage = item.pi ? await deployments.piImageNow(item.pi.version) : null;
+    if (item.pi && piImage === null) return stop(item, 'pi_revoked');
     const planned = item.stages[index].things ?? [];
     const loaded = (await fleet.boards({ only: planned })).map(({ board }) => board);
     const gone = planned
       .filter((thing) => !loaded.some((board) => board.thing === thing))
       .map((thing) => ({ thing, reason: 'gone', text: 'No longer registered' }));
-    const chosen = await computedBoards(loaded, release, {
-      leaveOutAway: item.purpose !== 'deploy',
-      older: item.purpose === 'rollback',
-    });
+    const chosen = await withPi(
+      await computedBoards(loaded, release, {
+        leaveOutAway: item.purpose !== 'deploy',
+        older: item.purpose === 'rollback',
+      }),
+      piImage
+    );
     const leftOut = [...gone, ...chosen.leftOut];
     const at = new Date(now()).toISOString();
     if (chosen.things.length === 0) {
@@ -975,11 +1016,17 @@ export function createRolloutHandlers(
 
     const { abort } = rolloutConfigs(item);
     const by = item.createdBy ?? CONSOLE_ACTOR;
-    const description = buildJobDescription({ email: by.email, sub: by.sub, note: stageNote(item, n) });
+    const description = buildJobDescription({
+      email: by.email,
+      sub: by.sub,
+      note: stageNote(item, n),
+      pi: item.pi ?? null,
+    });
     let job;
     try {
       ({ id: job } = await deployments.launch({
         release,
+        piImage,
         things: chosen.things,
         description,
         actorSub: by.sub || 'rollout',
@@ -1276,11 +1323,16 @@ export function createRolloutHandlers(
       const options = rolloutOptions(body);
       if (caller?.clientId !== undefined && caller.clientId === config.mobileClientId) entry.detail.from = 'phone';
       const release = await findRelease(version);
+      // A Raspberry Pi image with it (2.26.0): checked as a deployment checks it.
+      const piImage =
+        field(body, 'pi') === undefined ? null : (await deployments.requireParts({ pi: field(body, 'pi') })).piImage;
+      if (piImage !== null) entry.detail.pi = piImage.version;
 
       let chosen;
       let stored = { kind };
       if (kind === 'boards') {
         const things = requireBoardList(field(target, 'things'));
+        if (piImage !== null) await deployments.requirePiTargets(things);
         chosen = await namedBoards(things, release);
       } else {
         const loaded = (await fleet.boards()).map(({ board }) => board);
@@ -1306,13 +1358,14 @@ export function createRolloutHandlers(
           stored = { kind, type };
           candidates = loaded.filter((board) => board.type === type);
         }
-        chosen = await computedBoards(candidates, release);
+        chosen = await withPi(await computedBoards(candidates, release), piImage);
       }
       entry.detail.things = String(chosen.things.length);
       nameBoards(entry, 'boards', chosen.things);
       if (chosen.things.length === 0) throw nothingToDeploy(chosen.leftOut);
       const record = await start({
         release,
+        piImage,
         things: chosen.things,
         leftOut: chosen.leftOut,
         target: stored,

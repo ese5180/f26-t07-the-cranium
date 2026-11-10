@@ -753,7 +753,7 @@ test('staged rollouts move on every minute, in a function of their own that can 
   const reads = statement(role, 'ReadReleasesAndFleet');
   assert.deepEqual(
     [...reads.split('dynamodb:LeadingKeys:')[1].matchAll(/- (\w+)/g)].map((match) => match[1]),
-    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH', 'SCH']
+    ['REL', 'ROL', 'GRP', 'SEEN', 'ALR', 'HEALTH', 'SCH', 'PIIMG']
   );
   // The fleet health score's snapshot: a put of its own partition only, and the boards' events read only.
   const snapshots = statement(role, 'WriteHealthSnapshots');
@@ -1239,8 +1239,36 @@ test("the phone apps' pages may call the API from any origin, with no credential
   // A token travels in a header; no cookie of this API is ever sent across origins.
   assert.ok(cors.includes('AllowCredentials: false'));
   assert.match(cors, /MaxAge: \d+/);
-  // The only CORS of the stack: the functions answer no preflight and add no such header themselves.
-  assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 1);
+  // The functions answer no preflight and add no such header themselves. The one other CORS of the stack
+  // is the firmware bucket's, for a Pi image's upload from the Firmware page (console 2.26.0).
+  assert.equal((template.match(/CorsConfiguration:/g) ?? []).length, 2);
+});
+
+test('the firmware bucket takes a PUT from a browser and nothing else, with only the headers a Pi upload signs', () => {
+  const bucket = block(template, 'FirmwareBucket');
+  const cors = bucket.slice(bucket.indexOf('CorsConfiguration:'));
+  assert.ok(cors.includes('CorsRules:'));
+  assert.deepEqual(
+    [
+      ...cors
+        .split('AllowedMethods:')[1]
+        .split('AllowedOrigins:')[0]
+        .matchAll(/- (\S+)/g),
+    ].map((m) => m[1]),
+    ['PUT']
+  );
+  assert.deepEqual(
+    [
+      ...cors
+        .split('AllowedHeaders:')[1]
+        .split('MaxAge:')[0]
+        .matchAll(/- (\S+)/g),
+    ].map((m) => m[1]),
+    ['if-none-match', 'x-amz-checksum-sha256', 'content-type']
+  );
+  assert.ok(!cors.includes('ExposedHeaders') && !cors.includes('GET') && !cors.includes('DELETE'));
+  // Still write-once: the bucket's policy refuses a PUT under firmware/ that does not say "only if new".
+  assert.ok(block(template, 'FirmwareBucketPolicy').includes('DenyOverwritingFirmware'));
 });
 
 test("the phone apps' bundle has a route of its own to the web function, public and with its own limits", () => {

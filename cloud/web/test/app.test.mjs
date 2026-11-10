@@ -754,7 +754,12 @@ test('a page whose boards are at rest is read every 30 s, and so are lists that 
   await tab.wait(29000);
   assert.deepEqual(tab.since(mark), []);
   await tab.wait(1000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet'], 'and what fleet.js shows of it');
+  // And the Raspberry Pi images beside the releases (console 2.26.0).
+  assert.deepEqual(
+    tab.since(mark).sort(),
+    ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images'],
+    'and what fleet.js shows of it'
+  );
 
   await tab.goto('#/activity');
   mark = tab.requests.length;
@@ -772,7 +777,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   await tab.press(tab.dialog(), 'button', 'Keep the release');
   mark = tab.requests.length;
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images']);
 
   // With a file in hand.
   await chooseFile(tab);
@@ -781,7 +786,7 @@ test('a refresh by the clock waits while it would get in the way', async (t) => 
   assert.deepEqual(tab.since(mark), []);
   await tab.press(tab.main, 'button', 'Choose another file');
   await tab.wait(30000);
-  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet']);
+  assert.deepEqual(tab.since(mark).sort(), ['GET /api/firmware', 'GET /api/fleet', 'GET /api/pi-images']);
 });
 
 test('the log does not take away the pages that were loaded by hand', async (t) => {

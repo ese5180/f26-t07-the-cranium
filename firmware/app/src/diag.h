@@ -25,8 +25,11 @@
 
 /* The longest board type that goes into the report: lower-case letters and digits. */
 #define DIAG_BOARD_MAX 16
-/* What main.c holds the report in: the longest, with every number at its largest, fits. */
-#define DIAG_REPORT_MAX 224
+/*
+ * What main.c holds the report in: the longest, with every number at its largest, fits, and from
+ * 1.20.0 the ',"pi":null' of a build without Pi updates (diag.c).
+ */
+#define DIAG_REPORT_MAX 240
 
 struct diag_values {
 	char id[DEVICE_ID_MAX + 1];

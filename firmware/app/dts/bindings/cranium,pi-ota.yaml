@@ -1,0 +1,19 @@
+# The pins of a Raspberry Pi image update (docs/pi-ota.md) that are not the SPI bus's own.
+
+description: Raspberry Pi image update, the board's pins
+
+compatible: "cranium,pi-ota"
+
+properties:
+  ready-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      READY from the Pi, an input. The Pi takes it low after each SPI transaction and raises it
+      when it is ready for the next one; the board waits for the rising edge.
+
+  cd-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      The SD slot's card-detect switch, an input, active when a card is in.

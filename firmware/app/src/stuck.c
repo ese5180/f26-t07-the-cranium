@@ -74,7 +74,9 @@ static enum stuck_update update_kind(void)
 		/*
 		 * OTA_VERIFYING comes and goes within one event, so no tick sees it. A hash that
 		 * blocks is for the watchdog. OTA_TESTING has the trial's deadline, and
-		 * OTA_BLUETOOTH the limits of a window.
+		 * OTA_BLUETOOTH the limits of a window. OTA_STAGING_PI and OTA_FLASHING_PI move a
+		 * Pi image, which can take hours, with the limits of its own (pi_ota.c), as a job
+		 * with a Pi image alone does.
 		 */
 		return STUCK_UPDATE_BOUNDED;
 	}
