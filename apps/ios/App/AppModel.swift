@@ -195,13 +195,7 @@ final class AppModel: ObservableObject {
         self.auth = auth
         passwordSignIn = PasswordSignIn(config: loaded.config, http: URLSession.shared, session: auth)
         api = ConsoleAPI(config: loaded.config, http: URLSession.shared, tokens: auth)
-        #if os(macOS)
-        // The Mac app (apps/macos): Touch ID, held by the Keychain where the build may (MacBiometricGate).
-        let lock = BiometricLock(gate: MacBiometricGate.standard(), settings: settings, session: auth)
-        lock.relockInterval = MacLockPreferences.load().relock.interval
-        #else
         let lock = BiometricLock(gate: KeychainBiometricGate(), settings: settings, session: auth)
-        #endif
         self.lock = lock
         await open(await lock.launch())
     }
@@ -870,34 +864,3 @@ final class ChangeRunner: ObservableObject {
         lastError = nil
     }
 }
-
-#if os(macOS)
-/// What the Mac app (apps/macos) needs beyond the phone's: away is another app in front, which is
-/// not covered as the app switcher is; the Mac asleep locks at once; the live socket's token.
-extension AppModel {
-    /// Another app is in front, or every window is closed: the time away starts, with no cover.
-    func wentAway() async {
-        // The Touch ID prompt itself takes the app out of the front: that is no time away.
-        guard !unlocking, !biometricBusy else { return }
-        lock?.enteredBackground()
-        await auth?.forgetRefreshTokenIfDue()
-    }
-
-    /// The Mac sleeps or its screen locks: Touch ID before anything shows again, if it is on.
-    func lockNow() {
-        guard let lock, stage == .signedIn, lock.isOn else { return }
-        cover = .lock
-    }
-
-    /// How long away before Touch ID is asked again (Settings).
-    func setRelock(_ choice: RelockChoice) {
-        lock?.relockInterval = choice.interval
-    }
-
-    /// A fresh access token for the live socket, or nil while signed out or locked.
-    func liveToken() async -> String? {
-        guard stage == .signedIn, cover == nil, let auth else { return nil }
-        return try? await auth.accessToken()
-    }
-}
-#endif

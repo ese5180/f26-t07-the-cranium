@@ -392,3 +392,41 @@ final class MacSerialTests: XCTestCase {
         }
     }
 }
+
+final class MacRoutesTests: XCTestCase {
+    func testTheFirstNineSectionsHaveCommandKeys() {
+        XCTAssertEqual(MacRoutes.shortcuts.count, 9)
+        XCTAssertEqual((0..<9).compactMap(MacRoutes.key(at:)).map(String.init), ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        XCTAssertNil(MacRoutes.key(at: 9))
+        XCTAssertEqual(MacRoutes.shortcuts.map(\.route).prefix(3), ["overview", "devices", "map"])
+        XCTAssertTrue(MacRoutes.shortcuts.map(\.route).contains("serial"))
+        let all = (MacRoutes.shortcuts + MacRoutes.others).map(\.route)
+        XCTAssertEqual(Set(all).count, all.count)
+        XCTAssertTrue(all.allSatisfy { $0.range(of: "^[a-z]{1,20}$", options: .regularExpression) != nil })
+    }
+
+    func testABoardsPageIsFoundAndNothingElseIs() {
+        XCTAssertEqual(MacRoutes.thing(inFragment: "/devices/cranium-0123456789abcdef"), "cranium-0123456789abcdef")
+        XCTAssertNil(MacRoutes.thing(inFragment: "/devices"))
+        XCTAssertNil(MacRoutes.thing(inFragment: "/serial"))
+        XCTAssertNil(MacRoutes.thing(inFragment: "/devices/a b"))
+        XCTAssertNil(MacRoutes.thing(inFragment: "/devices/x?y=1"))
+        XCTAssertNil(MacRoutes.thing(inFragment: nil))
+        XCTAssertEqual(MacRoutes.boardURL("cranium-1")?.absoluteString, "cranium-app://bundle/admin#/devices/cranium-1")
+        XCTAssertNil(MacRoutes.boardURL("../x"))
+    }
+}
+
+final class MacKeepAwakeTests: XCTestCase {
+    func testTheAssertionIsTakenOnceAndLetGo() {
+        let awake = MacKeepAwake()
+        awake.set(false)
+        XCTAssertFalse(awake.isHeld)
+        awake.set(true)
+        awake.set(true)
+        XCTAssertTrue(awake.isHeld)
+        awake.set(false)
+        awake.set(false)
+        XCTAssertFalse(awake.isHeld)
+    }
+}

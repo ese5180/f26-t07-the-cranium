@@ -27,9 +27,11 @@ Signed with a team (`CRANIUM_TEAM_ID`, or `~/.cranium/apple-team-id`), the data 
 
 - The window is the console's pages. Only the bundle's own address (`cranium-app://bundle`) loads in it; every file comes from the bundle on the Mac, never from the network. An `https` link opens in the browser, anything else is dropped, and a page cannot open a second web view. Only the main frame of that address can reach the bridge.
 - The sign-in is the pages' own (password and code on the page); the app keeps the tokens in the Keychain through the bridge and gives the page access tokens only. With Touch ID on, the saved sign-in is behind it, and after the Mac was away for the chosen time (or sleeps, or its screen locks) a lock screen asks for it again.
-- The bridge offers auth, biometric, clipboard, open, settings, storage, share (a save panel) and Bluetooth (the firmware update, `ShellRadio` from the iPhone app, compiled in as it is).
-- The board's USB serial port: `usb.open`, `usb.write` and `usb.close` and the `usb.data` and `usb.closed` events of `apps/shared/bridge.json`, as the Android app has them (see "Serial console and Board setup"). The app says `usb` in its hello, so the pages make it their Web Serial and show the Serial console and Board setup. It reports its platform as `macos`; a page that does not know that name takes the iPhone's `ios` from the transport, as before.
-- Menus: View has Back, Forward, Reload (Command-R, also fetches the newest kept bundle) and Look for Newer Pages; a Debug build adds Developer Tools. Console has Lock Now and App Settings.
+- The bridge offers auth, biometric, clipboard, open, settings, keepAwake, storage, share (a save panel), usb and Bluetooth (the firmware update, `ShellRadio` from the iPhone app, compiled in as it is).
+- The board's USB serial port: `usb.open`, `usb.write` and `usb.close` and the `usb.data` and `usb.closed` events of `apps/shared/bridge.json`, as the Android app has them (see "Serial console and Board setup"). The app says `usb` in its hello, so the pages make it their Web Serial and show the Serial console and Board setup. It reports its platform as `macos` (the pages accept it from console 2.25.0; an older page takes the iPhone's `ios` from the transport, as before).
+- Menus: the app menu has Settings (Command-,). View has Back, Forward, Reload (Command-R, also fetches the newest kept bundle) and Look for Newer Pages; a Debug build adds Developer Tools. Go has the console's sections, Command-1 to Command-9 (Overview, Devices, Map, Diagnostics, Events, Firmware, Deployments, Serial Console, Board Setup) and the rest without a key; they change the page's hash route, or load the console if the customer site is showing. Console has Open Board in New Window (on a board's page: a window of its own with its own web view), Lock Now and Sign Out (both sign-ins, then the page shows signed out). Help has Cranium Help (Command-?), the customer site's Help page. There is no Show Sidebar: the pages draw their own navigation.
+- Files: an `<input type=file>` in the page (the Firmware page's image, the Pi image) opens the Mac's open panel, for the bundle's own main frame only.
+- Staying awake: `app.keepAwake` (the Bluetooth update) and an open serial port hold an IOKit power assertion that keeps the display awake, as the desktop app's powerSaveBlocker does; it is released when the page asks, when the page is left, and when the last port closes.
 
 ## Serial console and Board setup
 
@@ -45,7 +47,7 @@ What the Mac app still lacks next to the Android and desktop apps:
 
 - No separate Mac-side serial recovery or flashing: the page runs both (`serial.js`, `setup.js`, `recovery.js`) over these bytes, so Board setup behaves as in the desktop app, but it has not yet been run against a board from this app (see the pull request).
 - No unplug notification from the I/O Registry; the path check above finds a removed board within half a second.
-- No `appUpdate` (the Android APK updater) and no camera, haptics or keep-awake, which a Mac has no use for.
+- No `appUpdate` (the Android APK updater) and no camera or haptics, which a Mac has no use for.
 - No code signing with a shared identity, notarization or release packaging; the desktop app's auto-update and installers have no Mac counterpart.
 - Not part of the `apps/shared` and `apps/desktop` parity checks, which cover the web-bundle shells. `apps/shared/bridge.json` still says `usb` is Android only and the hello platform is `ios` or `android`; the contract text follows with the console's change that adds `macos`.
 

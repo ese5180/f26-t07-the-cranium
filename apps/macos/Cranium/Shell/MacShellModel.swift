@@ -42,6 +42,10 @@ final class MacShellModel: ObservableObject {
     private(set) var pools: [ShellAuthPool.Pool: ShellAuthPool] = [:]
     lazy var host = MacBridgeHost(model: self)
     weak var webView: WKWebView?
+    /// Where this window's page is now (hash changes included), for the menus.
+    @Published private(set) var currentURL: URL?
+    /// Another start address than the default, for a board's own window.
+    let startURL: URL?
 
     /// The console is asked for a newer bundle at most this often when the app comes back.
     static let checkEvery: TimeInterval = 10 * 60
@@ -50,7 +54,8 @@ final class MacShellModel: ObservableObject {
     private var slept = false
     private var observers: [NSObjectProtocol] = []
 
-    init() {
+    init(startURL: URL? = nil) {
+        self.startURL = startURL
         loaded = try? CraniumConfig.load(from: .main)
         let support = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil,
                                                      create: true)) ?? FileManager.default.temporaryDirectory
@@ -186,6 +191,40 @@ final class MacShellModel: ObservableObject {
         window.contentView = view
         window.orderBack(nil)
         offscreen = (window, coordinator)
+    }
+
+    func pageMoved(_ url: URL?) { currentURL = url }
+
+    /// The console's pages (not the customer site) are on screen.
+    var onConsolePage: Bool {
+        guard let url = currentURL, ShellPolicy.isBundle(url) else { return false }
+        return url.path == "/admin" || url.path.hasPrefix("/admin/")
+    }
+
+    /// The board whose page is on screen (`#/devices/<thing>`), if one is.
+    var boardThing: String? {
+        onConsolePage ? MacRoutes.thing(inFragment: currentURL?.fragment) : nil
+    }
+
+    static func boardURL(_ thing: String) -> URL? { MacRoutes.boardURL(thing) }
+
+    /// A section of the console's pages (`overview`, `devices`, ...) or of the customer site's (`help`).
+    /// On the page already it is a change of the hash; otherwise the page is loaded at it.
+    func go(to route: String, customer: Bool = false) {
+        guard let webView, route.range(of: "^[a-z]{1,20}$", options: .regularExpression) != nil else { return }
+        let base = customer ? "\(ShellPolicy.origin)/" : "\(ShellPolicy.origin)/admin"
+        let onSide = customer ? (currentURL.map(ShellPolicy.isBundle) ?? false) && !onConsolePage : onConsolePage
+        if onSide {
+            webView.callAsyncJavaScript("window.location.hash = hash;", arguments: ["hash": "#/\(route)"], in: nil, in: .page, completionHandler: nil)
+        } else if let url = URL(string: "\(base)#/\(route)") {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    /// Signs out of both sign-ins and shows the pages again, now signed out.
+    func signOutEverywhere() async {
+        for pool in pools.values { await pool.signOut() }
+        webView?.reload()
     }
 
     func goBack() { webView?.goBack() }

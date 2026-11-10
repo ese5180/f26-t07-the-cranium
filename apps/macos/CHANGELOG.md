@@ -3,6 +3,7 @@
 ## 0.3.0
 
 - The Serial console and Board setup are back. The app gives the pages the board's USB serial port through the bridge (`usb.open`, `usb.write`, `usb.close`, `usb.data`, `usb.closed`), as the Android app does: a sheet to choose the board the first time, then POSIX termios at the page's baud (8N1, no flow control), unplug reported to the page. The sandbox gets the serial entitlement and nothing else new. The hello now says platform `macos` and feature `usb`. docs/mac-app.md.
+- The Firmware page's file chooser works again (an open panel). The app keeps the Mac awake during a Bluetooth update or while a serial port is open. Menus as in 0.1.0: Command-1 to Command-9 for the console's sections (a Go menu), Open Board in New Window, Sign Out, Help (Command-?), Settings in the app menu; Show Sidebar is gone. The unused Mac-only code of the old native screens (the live socket, the serial console, AppModel's and CustomerModel's Mac parts) is removed from the iPhone app's sources.
 
 ## 0.2.0
 
