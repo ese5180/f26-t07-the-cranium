@@ -1663,17 +1663,21 @@ function commandForms(session, ctx) {
   );
 }
 
-const LEDE =
-  'Drive a board on its USB cable from this browser. What you type here goes only over the ' +
-  'cable to the board, never to the server, and nothing is saved. A command that changes the board is put in the ' +
-  'activity log once the board has done it, by its name only.';
+const LEDE = 'Drive a board on its USB cable from this browser.';
+const HOW = {
+  title: 'How the serial console works',
+  text: [
+    'What you type here goes only over the cable to the board, never to the server, and nothing is saved.',
+    'A command that changes the board is put in the activity log once the board has done it, by its name only.',
+  ],
+};
 
 function explained(title, text, command) {
   return h(
     'div',
     { class: 'page', key: 'page' },
     developerTabs('serial'),
-    pageHead({ title: 'Serial console', lede: 'Drive a board on its USB cable from this browser.' }),
+    pageHead({ title: 'Serial console', lede: LEDE, how: HOW }),
     h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
   );
 }
@@ -1700,7 +1704,7 @@ export function serialView(ctx, session) {
     'div',
     { class: 'page serial-page', key: 'page' },
     developerTabs('serial'),
-    pageHead({ title: 'Serial console', lede: LEDE }),
+    pageHead({ title: 'Serial console', lede: LEDE, how: HOW }),
     h(
       'div',
       { class: 'serial-layout', key: 'layout' },

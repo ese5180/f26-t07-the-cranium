@@ -935,7 +935,21 @@ function freshness(resource, ctx) {
   );
 }
 
-function pageHead({ title, lede, meta, back, tools, eyebrow }) {
+/**
+ * A page's "How … works": the help that does not fit a lede of one short sentence, closed until asked for.
+ * `how` is { title, text }, text a list of paragraphs (strings or nodes).
+ */
+function howItWorks(how) {
+  if (!how) return null;
+  return h(
+    'details',
+    { class: 'page-how' },
+    h('summary', null, how.title),
+    how.text.map((paragraph, index) => h('p', { key: String(index) }, paragraph))
+  );
+}
+
+function pageHead({ title, lede, meta, back, tools, eyebrow, how }) {
   return h(
     'header',
     { class: 'page-head' },
@@ -955,7 +969,8 @@ function pageHead({ title, lede, meta, back, tools, eyebrow }) {
           title
         ),
         lede ? h('p', { class: 'page-lede' }, lede) : null,
-        meta ? h('div', { class: 'page-meta dotted' }, meta) : null
+        meta ? h('div', { class: 'page-meta dotted' }, meta) : null,
+        howItWorks(how)
       ),
       tools ? h('div', { class: 'page-tools' }, tools) : null
     )
@@ -2244,9 +2259,8 @@ export function accountView(ctx) {
 
 const SCRIPTED_TAG = 'Script, no sign-in';
 const SCRIPTED_NOTE =
-  'Sent by a script (the test bench, or scripts/firmware/ota.sh without an API token) with AWS credentials, directly to the API ' +
-  'function. Nobody signed in. The name is the one the script gave, which has to be an active release manager, ' +
-  'so the entry does not show that this person did it.';
+  'Sent by a script, not by someone signed in. The name is the one the script gave, so the entry does not show that ' +
+  'this person did it.';
 
 /** What the tag on such a line means, said once, in words a touch screen can reach. */
 function scriptedKey(entries, className) {
@@ -5166,7 +5180,7 @@ export function firmwareView(ctx) {
     { class: 'page' },
     pageHead({
       title: 'Firmware',
-      lede: 'Signed images that can be offered to boards. A version, once used, is never reused.',
+      lede: 'Signed releases to send to boards; a version, once used, is never reused.',
       tools: freshness(state.firmware, ctx),
     }),
     loadProblem(state.firmware, 'the releases', ctx),
@@ -5525,12 +5539,17 @@ export function deploymentsView(ctx) {
     { class: 'page' },
     pageHead({
       title: 'Deployments',
-      lede:
-        'Every update of every board, newest first, however it came: a deployment, over Bluetooth from a phone, or by ' +
-        'USB or another tool. A deployment sends one release to a set of boards. ' +
-        `A board on firmware ${FIRST_WITH_NO_BUTTON} or newer starts as soon as it sees it, and older firmware ` +
-        'waits for someone to press Button 1 on the board. ' +
-        'A job made directly in AWS IoT is not listed here as a deployment; its updates are in Every update, as the boards reported them.',
+      lede: 'Every update of every board, newest first, however it came.',
+      how: {
+        title: 'How deployments work',
+        text: [
+          'An update comes from a deployment, over Bluetooth from a phone, or by USB or another tool. ' +
+            'A deployment sends one release to a set of boards.',
+          `A board on firmware ${FIRST_WITH_NO_BUTTON} or newer starts as soon as it sees it, and older firmware ` +
+            'waits for someone to press Button 1 on the board.',
+          'A job made directly in AWS IoT is not listed here as a deployment; its updates are in Every update, as the boards reported them.',
+        ],
+      },
       tools: [freshness(state.deployments, ctx), start],
     }),
     loadProblem(state.deployments, 'the deployments', ctx),
@@ -6088,12 +6107,20 @@ export function activityView(ctx) {
     { class: 'page' },
     pageHead({
       title: 'Activity',
-      lede:
-        'Every upload, deployment, cancellation and revocation made through this console’s API, with who asked ' +
-        'for it and whether it went through; every sign-in, on the website or the phone app; and every change made to ' +
-        'a board at its serial console from this console’s Serial page, by its name only. A job made directly in AWS IoT ' +
-        'does not pass through that API, so it is not in this log, though its board’s page lists it. A deployment that ' +
-        'is over shows how it ended. This console has no way to change an entry.',
+      lede: 'Who changed what in this console, when, and whether it went through.',
+      how: {
+        title: 'How the activity log works',
+        text: [
+          'Every upload, deployment, cancellation and revocation made through this console’s API is here, with who ' +
+            'asked for it and whether it went through; so is every sign-in, on the website or the phone app, and every ' +
+            'change made to a board at its serial console from this console’s Serial page, by its name only.',
+          'A job made directly in AWS IoT does not pass through that API, so it is not in this log, though its board’s ' +
+            'page lists it. A deployment that is over shows how it ended. This console has no way to change an entry.',
+          'A line from a script without a sign-in came from the test bench, or scripts/firmware/ota.sh without an API ' +
+            'token, with AWS credentials, directly to the API function. The name it gave has to be an active release ' +
+            'manager.',
+        ],
+      },
       tools: freshness(state.audit, ctx),
     }),
     activityFilters(ctx, audit),
@@ -6277,9 +6304,11 @@ export function tokensView(ctx) {
     developerTabs('tokens'),
     pageHead({
       title: 'API tokens',
-      lede:
-        'A token lets a script use this console’s API as you, without signing in, until it expires or ' +
-        'you revoke it. Each person makes and sees only their own.',
+      lede: 'Tokens let your scripts use this console’s API as you, without signing in.',
+      how: {
+        title: 'How tokens work',
+        text: ['A token works until it expires or you revoke it. Each person makes and sees only their own.'],
+      },
       tools: freshness(state.tokens, ctx),
     }),
     loadProblem(state.tokens, 'your API tokens', ctx),
@@ -6341,6 +6370,7 @@ function dialogFrame({ title, body, error, foot, onSubmit, onClose, busy }) {
           type: 'button',
           class: 'btn is-quiet is-icon',
           'aria-label': 'Close',
+          title: 'Close',
           disabled: busy,
           onClick: onClose,
         },
@@ -7515,12 +7545,19 @@ const COMMAND_TITLES = { identify: 'Identify', report: 'Report now', memfault: '
 function memfaultCard(device, memfault) {
   if (memfault === null || device.location?.bluetoothOnly) return null;
   let line;
+  let details = null;
   if (!memfault.keyStored) {
-    line = [
-      h('strong', null, 'Memfault: off.'),
-      ' No project key is stored in AWS, so the board keeps its data. ',
-      'cloud/deploy.sh stores one from ~/.cranium/memfault_project_key.',
-    ];
+    line = [h('strong', null, 'Memfault: not connected.'), ' The board keeps its data until Memfault is connected.'];
+    details = h(
+      'details',
+      { class: 'more is-spaced memfault-connect', key: 'details' },
+      h('summary', null, 'Details'),
+      h(
+        'p',
+        { class: 'card-note' },
+        'No project key is stored in AWS. cloud/deploy.sh stores one from ~/.cranium/memfault_project_key.'
+      )
+    );
   } else if (!memfault.firmware) {
     line = [h('strong', null, 'Memfault: needs firmware 1.14.0.'), ' Older firmware sends nothing to Memfault.'];
   } else {
@@ -7532,6 +7569,7 @@ function memfaultCard(device, memfault) {
   return card(
     { key: 'memfault', title: 'Memfault' },
     h('p', { class: 'memfault-line', key: 'line' }, ...line),
+    details,
     memfault.url
       ? h(
           'p',

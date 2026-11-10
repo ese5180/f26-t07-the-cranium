@@ -93,7 +93,7 @@ export const MIX_TABS = Object.freeze(['sessions', 'transitions', 'library', 'li
 // The mixes' words that the phone apps' Classic screens share (CustomerText.kt, CustomerWords.swift).
 export const MIXES_EYEBROW = 'Your mixes, remembered';
 export const MIXES_TITLE = 'Find your next great mix.';
-export const MIXES_LEDE = 'A home for the tracks, the transitions and the happy accidents of every set.';
+export const MIXES_LEDE = 'A home for the tracks, transitions and happy accidents of every set.';
 export const NOT_BUILT = 'Not built yet';
 export const WHY_EMPTY =
   'Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx ' +

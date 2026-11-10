@@ -90,7 +90,7 @@ object CustomerText {
     // Mixes (customer-views.js MIX_WORDS).
     const val MIXES_EYEBROW = "Your mixes, remembered"
     const val MIXES_TITLE = "Find your next great mix."
-    const val MIXES_LEDE = "A home for the tracks, the transitions and the happy accidents of every set."
+    const val MIXES_LEDE = "A home for the tracks, transitions and happy accidents of every set."
     const val NOT_BUILT = "Not built yet"
     const val WHY_EMPTY = "Why it is empty: your board does not send what you play. That needs the Raspberry Pi to record the tracks Mixxx " +
         "plays and the board to pass them on, and neither is built yet. Nothing here is made up in the meantime."
@@ -102,18 +102,18 @@ object CustomerText {
     val MIX_TABS: List<MixTab> = listOf(
         MixTab(
             "sessions", "Sessions", "Every set has a story.",
-            "Each time you play, a session: when it started, how long it ran, and the tracks in the order you played them, deck by deck.",
+            "Every set you play: when, how long, and its tracks deck by deck.",
         ),
         MixTab("transitions", "Transitions", "The space between tracks.", "Which tracks you put together, and how long both decks played at once."),
         MixTab(
             "library", "Track library", "Your rotation, revealed.",
-            "The tracks you keep coming back to, across every session, ranked by how often you play them.",
+            "The tracks you play most, ranked across every session.",
         ),
         MixTab(
             "listening", "Your listening", "Your week on the decks.",
-            "How long you played this week and last, which days were busy, and the tracks and artists you play most.",
+            "Time played this week and last, your busy days, and your top tracks and artists.",
         ),
-        MixTab("moments", "Saved moments", "Keep the good ones.", "A note on a transition worth trying again, kept with your account for your next set."),
+        MixTab("moments", "Saved moments", "Keep the good ones.", "Notes on transitions worth trying again, kept with your account."),
     )
 
     // Account.

@@ -349,7 +349,11 @@ function emailCard(data, ctx) {
 export function reportsView(ctx) {
   const head = pageHead({
     title: 'Reports',
-    lede: 'One page a week, Monday to Sunday in New York time: how the fleet did, what was sent to it, and what changed.',
+    lede: 'One page a week: how the fleet did, what it was sent, and what changed.',
+    how: {
+      title: 'How reports work',
+      text: ['A week runs Monday to Sunday, in New York time.'],
+    },
   });
   const data = listing.value;
   if (data === null) {
@@ -558,7 +562,13 @@ function memfaultCard(report) {
           ['Unexpected reboots', reboots, 'in Memfault'],
           ['Board restarts', restarts.reduce((sum, one) => sum + one.count, 0), 'unexpected, from the boards'],
         ])
-      : h('p', { class: 'quiet' }, memfault.message || 'Memfault could not be read for this report.'),
+      : h(
+          'p',
+          { class: 'quiet' },
+          memfault.state === 'not_configured'
+            ? 'Memfault is not connected, so this report has nothing from it.'
+            : memfault.message || 'Memfault could not be read for this report.'
+        ),
     memfault.newIssues.length > 0
       ? h(
           'ul',

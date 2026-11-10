@@ -4,6 +4,10 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.8.22
+
+Shorter words in customer mode, the same as the customer site's: the Overview's line under its title, and the line under each Mixes tab (Sessions, Track library, Your listening, Saved moments), each now one short sentence. The activity log's note on an entry sent by a script is two short sentences; which scripts those are is now in the console's Activity page, under "How the activity log works".
+
 ## 0.8.21
 
 The Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal.

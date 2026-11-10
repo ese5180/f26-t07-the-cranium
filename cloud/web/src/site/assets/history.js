@@ -394,7 +394,7 @@ export function historyView(ctx) {
         null,
         'Every change to the project, newest first, as ',
         mono('git log'),
-        ' had it when this console was deployed.'
+        ' had it at deploy time.'
       ),
     }),
     whatsNew(ctx),

@@ -375,7 +375,11 @@ export function mapView(ctx) {
   const devices = state.devices.value?.devices ?? null;
   const head = pageHead({
     title: 'Map',
-    lede: 'Every board where the Wi-Fi it hears puts it, worked out by AWS IoT Core Device Location.',
+    lede: 'Every board on a map, placed by the Wi-Fi networks it hears.',
+    how: {
+      title: 'How the map works',
+      text: ['Each place is worked out by AWS IoT Core Device Location from the Wi-Fi access points the board hears.'],
+    },
     tools: freshness(state.devices, ctx),
   });
   if (devices === null) {
