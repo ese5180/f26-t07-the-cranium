@@ -9,7 +9,7 @@ A version without an entry here still gets a note: the subjects of the firmware 
 
 ## 1.18.0
 
-The board can send listening sessions and what is on the decks to the cloud, for the customer site's Mixes pages and Now playing. Until the Raspberry Pi link is in the firmware, the console's SESSION_TEST command sends a made-up session to try it. Needs console 2.23.0 deployed first (the device policy). Not tested on a board.
+The board can send listening sessions and what is on the decks to the cloud, for the customer site's Mixes pages and Now playing. Until the Raspberry Pi link is in the firmware, the console's SESSION_TEST command sends a made-up session to try it. Needs console 2.23.0 deployed first (the device policy). Tested on an nRF7002 DK: SESSION_TEST sends three messages that reach the cloud.
 
 The messages go to `cranium/<thing name>/session` at QoS 0 and are checked again by the cloud
 (docs/customer-data.md, "The messages"). `src/cloud/sessions.c` builds the JSON and checks what the cloud would refuse;
