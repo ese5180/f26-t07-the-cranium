@@ -1547,25 +1547,36 @@ function failedMark(description) {
   return description.tone === 'warn' ? 'minus' : 'x';
 }
 
-function stepList(description, { compact = false, preview = false, viewer = false } = {}) {
+function stepList(
+  description,
+  {
+    compact = false,
+    preview = false,
+    viewer = false,
+    // The marks of steps not yet done, by position, and the step whose rail fills with `progress`.
+    marks = STEP_ICONS,
+    progressAt = DOWNLOAD_STEP,
+    label = 'Steps of the update',
+  } = {}
+) {
   const at = description.steps.findIndex((step) => step.state === 'failed');
   const look = `is-${description.tone ?? 'idle'} ${compact ? 'is-compact' : ''} ${preview ? 'is-preview' : ''}`;
   // The mark of a step that failed takes the tone of the headline above it.
   return h(
     'ol',
-    { class: `steps ${look}`.replace(/\s+/g, ' ').trim(), 'aria-label': 'Steps of the update' },
+    { class: `steps ${look}`.replace(/\s+/g, ' ').trim(), 'aria-label': label },
     description.steps.map((step, index) => {
       const state = STEP_STATES[step.state];
       const current = step.state === 'current';
       const failed = step.state === 'failed';
-      const downloading = current && index === DOWNLOAD_STEP && description.progress !== null;
+      const downloading = current && index === progressAt && description.progress !== null;
       let path = '';
       if (at > 0 && index <= at) {
         path = 'is-on-return';
         if (index === 0) path += ' is-return-start';
         if (index === at) path += ' is-return-end';
       }
-      let mark = state.icon ?? STEP_ICONS[index];
+      let mark = state.icon ?? marks[index];
       if (failed) mark = failedMark(description);
       return h(
         'li',
@@ -2076,7 +2087,19 @@ export {
   whenAt,
 };
 // And for the fleet's pages and dialogs (fleet.js), which draw with the same pieces.
-export { SPACER, choice, consequences, dialogButton, dialogFrame, onTheWebsite, problemRef, segments, stats, who };
+export {
+  SPACER,
+  choice,
+  consequences,
+  dialogButton,
+  dialogFrame,
+  onTheWebsite,
+  problemRef,
+  segments,
+  stats,
+  stepList,
+  who,
+};
 
 /**
  * The foot of every page: the console's own version and the commit it was built from (GET /api/me, from
@@ -2175,7 +2198,11 @@ export function accountView(ctx) {
         }
       : { title: 'Sign in again to go on.', text: 'Session ended' };
   // In the phone app the app keeps the sign-in and renews it (bridge.js).
-  if (ctx.state.app) session = { title: 'The app keeps this sign-in and renews it.', text: 'Signed in on this phone' };
+  if (ctx.state.app)
+    session = {
+      title: 'The app keeps this sign-in and renews it.',
+      text: `Signed in on this ${ctx.state.app.device ?? 'device'}`,
+    };
   const role = me.canWrite ? 'Release manager' : 'Viewer';
   // The account id is what the activity log files this person's actions under.
   const identity = [me.email, me.sub ? `Account ${me.sub}` : ''].filter(Boolean).join(' · ');

@@ -1013,6 +1013,7 @@ async function bluetoothReady() {
       now: () => clock.now(),
       onChange: draw,
       devices: () => state.devices.value?.devices ?? [],
+      device: state.app?.device ?? 'device',
     });
   }
   return bluetoothScript;
@@ -1169,7 +1170,7 @@ async function scanBoard() {
 const SCAN_REFUSED = 'That code is not a board of this console, so the app did not open it.';
 const scanFailed = (error) =>
   error?.code === 'unavailable'
-    ? 'The app cannot use the camera: allow it in the phone’s settings.'
+    ? `The app cannot use the camera: allow it in the settings of this ${state.app?.device ?? 'device'}.`
     : `The code could not be read. ${error?.message ?? ''}`.trim();
 
 /** memfault-page.js, fetched once, when a Memfault page or a board's page is first opened. */
@@ -2754,6 +2755,9 @@ async function boot() {
       // The camera, for Scan board on the Devices page (camera.scan).
       scan: appBridge.has('camera'),
       words: bridgeScript.appWords(appBridge.hello),
+      // What the app runs on, as the bridge says: the pages say "this phone", "this Mac" or "this computer".
+      platform: appBridge.platform ?? null,
+      device: bridgeScript.deviceName(appBridge.platform),
       example: appConfig?.example === true,
     };
     // Five minutes in the background with Face ID or a fingerprint on: the app locked the sign-in again.
@@ -2806,7 +2810,7 @@ async function boot() {
       base: config.apiBase ?? '',
       // A change from the phone needs the password and code of the last 15 minutes.
       onSignInAgain: () =>
-        beginSignIn('To change anything from the phone, sign in again first: your password and the code.'),
+        beginSignIn('To change anything from the app, sign in again first: your password and the code.'),
     });
     outcome = await auth.resume();
   } catch (error) {
