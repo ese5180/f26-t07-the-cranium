@@ -23,14 +23,19 @@
 #endif
 
 /*
- * What a phone reads and what its write is checked against, copied by the main loop under the lock and
- * read by the Bluetooth host's thread. Nothing else is shared with it but the accept flag.
+ * What a phone reads, written by the main loop under the lock and read by the Bluetooth host's thread. A
+ * write is checked against the same bytes (the update state, and the waiting update's major and minor),
+ * so nothing else is kept: the board has about 1 KB of RAM free. Nothing else is shared with the Bluetooth
+ * thread but the accept flag.
  */
 static struct k_spinlock lock;
 static uint8_t payload[BT_OFFLINE_LEN];
-static bool waiting;
-static struct bt_offline_version waiting_version;
 static atomic_t accept_pending;
+
+/* Byte 3 of the status is the update state; 18 and 19 the waiting update's major and minor (format 1). */
+#define PAYLOAD_UPDATE        3
+#define PAYLOAD_WAITING_MAJOR 18
+#define PAYLOAD_WAITING_MINOR 19
 
 static ssize_t read_status(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
 			   uint16_t len, uint16_t offset)
@@ -47,7 +52,7 @@ static ssize_t read_status(struct bt_conn *conn, const struct bt_gatt_attr *attr
 static ssize_t write_control(struct bt_conn *conn, const struct bt_gatt_attr *attr, const void *buf,
 			     uint16_t len, uint16_t offset, uint8_t flags)
 {
-	struct bt_offline_version version;
+	struct bt_offline_version version = { 0 };
 	bool is_waiting;
 	k_spinlock_key_t key;
 
@@ -60,8 +65,9 @@ static ssize_t write_control(struct bt_conn *conn, const struct bt_gatt_attr *at
 	}
 
 	key = k_spin_lock(&lock);
-	is_waiting = waiting;
-	version = waiting_version;
+	is_waiting = payload[PAYLOAD_UPDATE] == BT_OFFLINE_UPDATE_BT_WAITING;
+	version.major = payload[PAYLOAD_WAITING_MAJOR];
+	version.minor = payload[PAYLOAD_WAITING_MINOR];
 	k_spin_unlock(&lock, key);
 
 	switch (bt_offline_accept_check(buf, len, is_waiting, &version)) {
@@ -149,8 +155,6 @@ void bt_offline_on_tick(void)
 
 	key = k_spin_lock(&lock);
 	bt_offline_encode(&status, payload);
-	waiting = upload == BT_OTA_UPLOAD_WAITING;
-	waiting_version = status.waiting;
 	k_spin_unlock(&lock, key);
 }
 
