@@ -26,7 +26,7 @@
   --deck-a-ink: #7a2c08;
   --deck-b: #e4dccf;
   --deck-b-ink: #3b332c;
-  --radius-panel: 12px;
+  --radius-panel: var(--radius-card);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -150,7 +150,7 @@
   min-width: 22px;
   padding: 1px 7px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--ink-2);
   font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
@@ -200,7 +200,7 @@
 .cs-side-card > .icon {
   box-sizing: content-box;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--well);
   color: var(--ink-2);
 }
@@ -674,7 +674,7 @@
   justify-items: center;
   gap: 4px;
   padding: 4px 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--well);
 }
 
@@ -1399,7 +1399,7 @@
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-tile);
   background: var(--well);
 }
 
@@ -1407,7 +1407,7 @@
   min-height: 34px;
   padding: 6px 14px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--ink-2);
   font: inherit;
@@ -1524,7 +1524,7 @@
   height: 134px;
   padding: 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--well);
   box-shadow: var(--lift);
   transform: translateY(-50%) rotate(-12deg);
@@ -1754,7 +1754,7 @@ a.cs-panel-foot:hover {
   position: relative;
   height: 26px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--well);
 }
 
@@ -1795,7 +1795,7 @@ a.cs-panel-foot:hover {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--cover-0);
   color: var(--on-cover);
 }
@@ -1826,7 +1826,7 @@ a.cs-panel-foot:hover {
 .cs-cover.is-large {
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .cs-cover.is-large .cs-cover-ring {
@@ -1984,7 +1984,7 @@ a.cs-panel-foot:hover {
   width: 22px;
   height: 22px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--well);
   font-size: var(--type-label);
   font-weight: 600;
@@ -2143,7 +2143,7 @@ a.cs-panel-foot:hover {
   margin: 4px 0 0;
   padding: 10px 12px;
   border-left: 3px solid var(--accent);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background: var(--well);
   color: var(--ink);
   font-size: var(--type-table);
@@ -2201,22 +2201,6 @@ a.cs-panel-foot:hover {
   gap: 4px;
 }
 
-/*
- * From 401px to 440px (an iPhone 17 Pro is 402 points wide) the top bar's brand word, its two icons and "Connect
- * device" are wider than the screen: the brand is its mark there, and keeps its name for a screen reader. Up to
- * 400px "Connect device" is its icon instead (the 400px block below), and the brand word fits again.
- */
-@media (min-width: 401px) and (max-width: 440px) {
-  .cs-top-brand .cs-brand-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-}
-
 /* The dialogs of the mixes. */
 
 .cs-dialog {
@@ -2238,7 +2222,7 @@ a.cs-panel-foot:hover {
 .cs-chain {
   padding: 14px 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--well);
   font-weight: 600;
   line-height: 1.6;
@@ -2253,13 +2237,13 @@ a.cs-panel-foot:hover {
 
 .cs-connect-state {
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--well);
 }
 
 .cs-columns-list {
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--well);
   font-size: var(--type-small);
   overflow-wrap: anywhere;
@@ -2273,7 +2257,7 @@ a.cs-panel-foot:hover {
 .cs-file-input {
   padding: 14px;
   border: 1px dashed var(--line-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--paper);
   font: inherit;
   font-size: var(--type-table);
@@ -2290,7 +2274,7 @@ a.cs-panel-foot:hover {
 .cs-export-list {
   display: grid;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .cs-export-list li {
@@ -2313,7 +2297,7 @@ a.cs-panel-foot:hover {
 
 /* Narrower screens. */
 
-@media (max-width: 1080px) {
+@media (max-width: 1100px) {
   .cs-tiles,
   .cs-features,
   .cs-steps-band {
@@ -2606,11 +2590,11 @@ a.cs-panel-foot:hover {
 }
 
 /*
- * Under 400 px the top bar's brand, its two icons and "Connect device" are wider than the screen (375 px
- * scrolled sideways by 13 px, 320 px by 68): the button is its icon alone there, like the two beside it,
- * and keeps its words for a screen reader and as its tooltip.
+ * Up to 460 px (the breakpoint set of tokens v2) the top bar's brand, its two icons and "Connect device" are wider
+ * than the screen (an iPhone 17 Pro's 402 points by 15 px, 375 px by 13, 320 px by 68): the button is its icon alone
+ * there, like the two beside it, and keeps its words for a screen reader and as its tooltip.
  */
-@media (max-width: 400px) {
+@media (max-width: 460px) {
   .btn.cs-connect {
     flex: none;
     width: 34px;
@@ -2681,7 +2665,7 @@ a.cs-panel-foot:hover {
   height: 16px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 700px) {
   .cs-switch {
     padding: 12px 0;
   }
@@ -2730,7 +2714,7 @@ a.cs-panel-foot:hover {
   width: 100%;
   max-width: 28px;
   min-height: 3px;
-  border-radius: 4px 4px 0 0;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
   background: var(--accent);
 }
 
@@ -2807,7 +2791,7 @@ a.cs-panel-foot:hover {
   flex: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .cs-listening-tops {
     grid-template-columns: minmax(0, 1fr);
   }

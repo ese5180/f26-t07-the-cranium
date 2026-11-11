@@ -424,7 +424,7 @@ test('the print stylesheet prints the report alone: no bars, no buttons, section
 test('on a phone the days stay seven across; colours are the tokens, so dark mode is theirs', () => {
   const block = CSS.slice(CSS.indexOf('.report-days {'));
   assert.match(block, /grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/);
-  assert.match(CSS, /@media \(max-width: 480px\) \{\s*\.report-days/);
+  assert.match(CSS, /@media \(max-width: 460px\) \{\s*\.report-days/);
   const ours = CSS.slice(CSS.indexOf('The weekly fleet report (reports.js'), CSS.lastIndexOf('@media print'));
   assert.doesNotMatch(ours, /#[0-9a-f]{3,6}\b/i, 'no colour of its own outside print');
 });

@@ -58,10 +58,10 @@ test('the bars are clear of the island, the home indicator and the sides', () =>
   assert.doesNotMatch(CUSTOMER, /env\(safe-area-inset/);
 });
 
-test("the customer site's top bar fits a 402px iPhone: its brand is its mark from 401px to 440px", () => {
-  const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (min-width: 401px) and (max-width: 440px)'));
-  assert.match(
-    block,
-    /^@media \(min-width: 401px\) and \(max-width: 440px\) \{\s*\.cs-top-brand \.cs-brand-text \{[^}]*clip-path: inset\(50%\)/
-  );
+test("the customer site's top bar fits a 402px iPhone: Connect device is its icon up to 460px", () => {
+  // At 402 px the brand, the two icons and "Connect device" in words were 15 px wider than the screen: up to 460 px
+  // (the breakpoint set of tokens v2) the button is its icon, and the brand keeps its word.
+  const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 460px)'));
+  assert.match(block, /^@media \(max-width: 460px\) \{\s*\.btn\.cs-connect \{/);
+  assert.doesNotMatch(CUSTOMER, /\.cs-top-brand \.cs-brand-text \{[^}]*clip-path/);
 });
