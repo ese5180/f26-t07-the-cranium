@@ -386,7 +386,8 @@ strong {
  * copy, a search and a screen reader, but out of sight, and the ellipsis is drawn here, so a copy never
  * takes it. It never breaks onto a second line.
  */
-.thing-id {
+.thing-id,
+.thing-full {
   white-space: nowrap;
 }
 

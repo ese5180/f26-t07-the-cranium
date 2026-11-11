@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { CORE, VIEWS, all, click, controls, createDocument, descendants, one, textOf, withText } from './page.mjs';
@@ -1837,8 +1838,13 @@ test('a board is shown by its own name first and its thing name second, on every
   assert.equal(textOf(one(own, 'h1')), 'Board CRVIHAAN01');
   assert.equal(textOf(one(own, 'div.page-meta')), `AWS IoT thing ${WAITING}`);
   const plain = page(views.deviceView, state, { thing: INSTALLING });
+  // A board without a name is its thing name in the short form, "…5da0b9e5": the whole of it is in the title for a
+  // copy and a screen reader, out of sight, and written out under the title.
   assert.equal(textOf(one(plain, 'h1')), `Board ${INSTALLING}`);
-  assert.equal(all(plain, 'div.page-meta').length, 0);
+  const short = one(one(plain, 'h1'), 'span.thing-id');
+  assert.equal(short.getAttribute('title'), INSTALLING);
+  assert.equal(textOf(one(short, 'span.thing-id-head')), INSTALLING.slice(0, -8));
+  assert.equal(textOf(one(plain, 'div.page-meta')), `Board ID ${INSTALLING}`);
   // Before its own copy has come, the page takes the name from the list of boards.
   const early = page(views.deviceView, { ...state, deviceDetails: new Map() }, { thing: WAITING });
   assert.equal(textOf(one(early, 'h1')), 'Board CRVIHAAN01');
@@ -4578,4 +4584,27 @@ test('the diff stays on the page through the search and filters, and off the ove
   };
   assert.equal(all(page(views.activityView, filtered), 'details.audit-diff').length, 1);
   assert.equal(all(page(views.overviewView, state), 'details.audit-diff').length, 0);
+});
+
+test('a board without a name is shown by the short form of its thing name, which a copy takes whole and never wraps', async () => {
+  const state = await consoleState(NAMED);
+  const list = page(views.devicesView, state);
+  const unnamed = all(list, 'article.device').find((item) => textOf(one(item, 'h2')) === INSTALLING);
+  const label = one(one(unnamed, 'h2'), 'a.cover-link');
+  // In sight: "…" (drawn by the style sheet) and the last 8 characters. In the page: all of it.
+  assert.ok(label.getAttribute('class').split(' ').includes('thing-id'));
+  assert.equal(label.getAttribute('title'), INSTALLING);
+  assert.equal(textOf(one(label, 'span.thing-id-head')), INSTALLING.slice(0, -8));
+  assert.equal(textOf(label), INSTALLING);
+  // A named board says its name, and its thing name, short, after it.
+  const named = all(list, 'article.device').find((item) => textOf(one(item, 'h2')) === 'CRVIHAAN01');
+  assert.equal(one(named, 'span.board-thing').getAttribute('title'), WAITING);
+  assert.equal(textOf(one(one(named, 'span.board-thing'), 'span.thing-id-head')), WAITING.slice(0, -8));
+
+  // The style sheet: the start out of sight but in the page, the ellipsis drawn, and no break inside.
+  const css = readFileSync(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
+  assert.match(css, /\.thing-id,\s*\.thing-full \{\s*white-space: nowrap;\s*\}/);
+  assert.match(css, /\.thing-id::before \{\s*content: "…";\s*\}/);
+  assert.match(css, /\.thing-id-head \{[^}]*clip-path: inset\(50%\);[^}]*\}/);
+  assert.doesNotMatch(css.match(/\.thing-id-head \{[^}]*\}/)[0], /display: none|visibility: hidden/);
 });

@@ -583,6 +583,12 @@ function boardLabel(board, className = '', href = deviceHref(board.thing)) {
   );
 }
 
+/** A board by what people call it, as boardLabel() says it, in words that lead nowhere: for inside a link. */
+function boardWords(board) {
+  const named = boardName(board) !== board.thing;
+  return named ? boardName(board) : thingId(board.thing);
+}
+
 /**
  * The thing name of a board that has a name of its own, short, smaller and quieter, after a space that
  * sets it apart from the name in what is read and copied; nothing for a board without one.
@@ -2537,9 +2543,9 @@ function auditFact(fact, ctx) {
     return h('span', { key: `fact-${fact.key}`, title: `Code ${fact.value}` }, `${fact.words}.`);
   }
   // The log keeps a board's thing name; the board is called by its own name, as listed now.
-  if (fact.key === 'thing') {
+  if (fact.key === 'thing' || (fact.key === 'canary' && isThing(fact.value))) {
     const board = boardOf(fact.value, ctx.state.devices?.value?.devices);
-    return h('span', { key: 'fact-thing' }, `${fact.label} `, boardLabel(board), boardThing(board));
+    return h('span', { key: `fact-${fact.key}` }, `${fact.label} `, boardLabel(board), boardThing(board));
   }
   if (fact.key === 'boards') {
     const things = fact.value.split(' ').filter((thing) => isThing(thing));
@@ -3280,11 +3286,16 @@ function updateRow(update, ctx, { withBoard = false } = {}) {
         'span',
         { class: 'row-note dotted' },
         withBoard
-          ? h('span', { key: 'board' }, boardName(boardOf(update.thing, ctx.state.devices?.value?.devices)))
+          ? h('span', { key: 'board' }, boardWords(boardOf(update.thing, ctx.state.devices?.value?.devices)))
           : null,
         update.from ? h('span', { key: 'from' }, 'from ', mono(update.from)) : null,
-        h('span', { key: 'how', class: 'update-how' }, updateHow(update)),
-        time ? h('span', { key: 'when' }, when(time, now)) : null
+        // The row leads to its deployment: the deployment's id is its tooltip, not more words in the row.
+        h(
+          'span',
+          { key: 'how', class: 'update-how', title: update.how === 'deployment' ? update.deployment || null : null },
+          update.how === 'deployment' ? 'in a deployment' : updateHow(update)
+        ),
+        time ? h('span', { key: 'when' }, whenAt(time, now)) : null
       )
     ),
     statusLine(outcome),
@@ -4237,14 +4248,17 @@ export function deviceView(ctx) {
     back: { href: '#/devices', label: 'Devices' },
     eyebrow: 'Board',
     // A name is set in the sans at display size, like a version; a thing name stays monospaced.
-    title: named ? h('span', { class: 'board-title' }, boardName(board)) : mono(thing),
+    // A thing name in its short form, "…5da0b9e5"; the whole of it is under the title, and is what a copy takes.
+    title: named ? h('span', { class: 'board-title' }, boardName(board)) : thingId(thing),
     lede: detail
       ? [
           seenLine(detail.device, state.now),
           detail.device.lastSeen || detail.device.online ? null : ` ${NEVER_REPORTED_HELP}`,
         ]
       : null,
-    meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
+    meta: named
+      ? h('span', null, 'AWS IoT thing ', mono(thing, 'thing-full'))
+      : h('span', null, 'Board ID ', mono(thing, 'thing-full')),
     tools: missing(resource)
       ? null
       : [

@@ -64,6 +64,7 @@ import {
   facts,
   failure,
   filterBar,
+  thingId,
   filterSelect,
   freshness,
   h,
@@ -1095,7 +1096,12 @@ function timelineTip(lane, spot, span, y, below) {
     h(
       'p',
       { class: 'tip-head' },
-      lane.id === 'console' ? 'Console' : [mono(lane.label), boardThing({ thing: lane.thing, name: lane.label })],
+      lane.id === 'console'
+        ? 'Console'
+        : [
+            lane.label === lane.thing ? thingId(lane.thing) : mono(lane.label),
+            boardThing({ thing: lane.thing, name: lane.label }),
+          ],
       many ? h('span', { class: 'tip-count' }, `${spot.events.length} events close together`) : null
     ),
     h(
@@ -1259,11 +1265,15 @@ function timeline(lanes, span, page, data) {
       h(
         'text',
         { class: 'tl-lane-name', x: '0', y: String(top + 14) },
-        lane.id === 'console' ? 'Console' : lane.label,
+        lane.id === 'console' ? 'Console' : shortThing(lane.label),
         // The thing name after the board's own, quieter; left out where the timeline is narrow.
-        lane.thing && lane.label !== lane.thing ? h('tspan', { class: 'tl-lane-thing', dx: '8' }, lane.thing) : null,
+        lane.thing && lane.label !== lane.thing
+          ? h('tspan', { class: 'tl-lane-thing', dx: '8' }, shortThing(lane.thing))
+          : null,
         state ? h('tspan', { class: `tl-lane-state is-${state.tone}`, dx: '10' }, state.words) : null,
-        lane.shown.length === 0 ? h('tspan', { class: 'tl-lane-state', dx: '10' }, 'No events') : null
+        lane.shown.length === 0 ? h('tspan', { class: 'tl-lane-state', dx: '10' }, 'No events') : null,
+        // A thing name is in its short form, "…5da0b9e5": the whole of it is the lane's tooltip.
+        lane.thing ? h('title', null, lane.thing) : null
       ),
       h('rect', {
         class: 'tl-track',
@@ -2636,4 +2646,9 @@ export function diagnosticsView(ctx) {
     ];
   }
   return h('div', { class: 'page is-diagnostics' }, head, loadProblem(state.devices, 'the boards', ctx), body);
+}
+
+/** A thing name as the timeline's text can show it, "…5da0b9e5"; anything else as it is. */
+function shortThing(text) {
+  return isThing(text) ? `…${text.slice(-8)}` : text;
 }
