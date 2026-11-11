@@ -53,10 +53,7 @@ struct HelpTopicView: View {
                     }
                 }
                 if topic.id == "about" { AboutRows() }
-                Section {
-                    Text("From \(topic.sources.joined(separator: ", ")) in the repository.")
-                        .font(.caption).foregroundStyle(theme.ink3)
-                }
+                // A topic's sources are files of the repository: for the people who keep Help, not shown, as on Android.
             } else {
                 Section { StateRow(kind: .failed, text: "This Help topic is not in the app.") }
             }

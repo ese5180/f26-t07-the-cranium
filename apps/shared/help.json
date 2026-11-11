@@ -1,12 +1,13 @@
 {
   "version": 1,
-  "about": "Help for the Cranium phone apps. Every fact here comes from the repository; each topic lists where. Blocks: heading, text, steps, list, rows (label and text), note, see (other topics), links.",
+  "about": "Help for the Cranium phone apps. Every fact here comes from the repository; each topic lists where. Blocks: heading, text, steps, list, rows (label and text), note, see (other topics), links. The words follow the pages': plain words from the user's side, and no file, script, cloud service or ID outside the Developer section (cloud/web/test/copy.test.mjs checks it).",
   "sections": [
-    { "title": "Start here", "topics": ["getting-started", "sign-in-again", "biometric-sign-in", "keep-the-app"] },
+    { "title": "Start here", "topics": ["getting-started", "sign-in-again", "biometric-sign-in"] },
     { "title": "Updates", "topics": ["wifi-update", "bluetooth-update", "deployments"] },
     { "title": "Boards", "topics": ["board-states", "leds", "buttons", "boards-and-diagnostics"] },
-    { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity", "api-tokens", "serial-console"] },
+    { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity"] },
     { "title": "Troubleshooting", "topics": ["trouble-offline", "trouble-bluetooth", "trouble-upload", "trouble-sign-in"] },
+    { "title": "Developer", "topics": ["api-tokens", "serial-console", "resend-wifi", "keep-the-app"] },
     { "title": "About", "topics": ["about"] }
   ],
   "topics": [
@@ -17,15 +18,15 @@
       "keywords": ["account", "role", "viewer", "release manager", "password", "authenticator", "invitation"],
       "sources": ["cloud/README.md", "docs/aws-iot.md", "docs/mobile-apps.md", "apps/ios/README.md"],
       "blocks": [
-        { "text": "An administrator makes your account: nobody can sign up alone. You get an invitation by e-mail with a temporary password that is valid for three days. At the first sign-in you choose a password and register an authenticator app." },
+        { "text": "An administrator makes your account: there is no sign-up. The invitation e-mail has a temporary password that works for three days. At the first sign-in you choose a password and set up an authenticator app." },
         { "heading": "Signing in" },
-        { "text": "Sign in with your e-mail address, a password of at least 12 characters, and the code from your authenticator app. The app opens the console's own sign-in page." },
+        { "text": "Sign in with your e-mail address, a password of at least 12 characters, and the code from your authenticator app." },
         { "heading": "Roles" },
         { "rows": [
           ["Viewer", "Sees everything: boards, releases, deployments, events and the activity log. Changes nothing."],
-          ["Release manager", "Also uploads and revokes firmware, starts and cancels deployments, and sends a release to a board over Bluetooth. Only a release manager can download firmware."]
+          ["Release manager", "Also uploads and revokes firmware, starts and cancels deployments, and sends a release to a board over Bluetooth."]
         ] },
-        { "text": "An administrator gives or takes away the release manager role, and the change counts at once. Your role is on More, Account." },
+        { "text": "An administrator gives or takes away the release manager role, and it counts at once. Your role is on More, Account." },
         { "see": ["sign-in-again", "trouble-sign-in"] }
       ]
     },
@@ -36,11 +37,11 @@
       "keywords": ["15 minutes", "fresh sign-in", "phone_sign_in_again", "password", "code"],
       "sources": ["docs/mobile-apps.md", "apps/ios/README.md"],
       "blocks": [
-        { "text": "A change made from the phone needs a sign-in, with password and code, in the last 15 minutes. That covers uploading, revoking, deploying, cancelling, and making or ending API tokens. A phone left unlocked and signed in cannot change anything hours later." },
-        { "text": "When your sign-in is older, the app asks you to sign in again. Afterwards the change goes ahead once, with what you had entered. If another account signs in, nothing is changed in its name." },
+        { "text": "A change made from the phone needs a sign-in, with password and code, in the last 15 minutes. So a phone left signed in cannot change anything hours later." },
+        { "text": "When your sign-in is older, the app asks you to sign in again, and then makes the change you asked for. If another account signs in instead, nothing is changed." },
         { "list": [
-          "Reading never asks.",
-          "The three calls made while standing at a board for an update over Bluetooth do not ask either: the image, the passkey and the check before a send."
+          "Looking never asks.",
+          "Standing at a board for an update over Bluetooth does not ask either."
         ] }
       ]
     },
@@ -51,19 +52,19 @@
       "keywords": ["Face ID", "Touch ID", "fingerprint", "biometric", "unlock", "stay signed in", "30 days"],
       "sources": ["docs/mobile-apps.md"],
       "blocks": [
-        { "text": "After you sign in with your password and code, the app can keep your session behind Face ID on an iPhone (Touch ID on an iPhone with a Home button) or your fingerprint on Android. Then opening the app asks for that instead, for up to 30 days." },
+        { "text": "After you sign in with your password and code, the app can open with Face ID or Touch ID on an iPhone, or your fingerprint on Android, for up to 30 days." },
         { "steps": [
           "Sign in with your password and code.",
           "Say yes when the app offers Face ID or your fingerprint, or turn it on later under More, Account.",
-          "From then on the app asks for Face ID or your fingerprint when it opens, and again after 5 minutes away."
+          "From then on the app asks for it when it opens, and again after 5 minutes away."
         ] },
         { "heading": "What still asks for the password and code" },
         { "list": [
-          "A change: uploading, deploying, revoking, cancelling, API tokens. The console needs a sign-in with password and code in the last 15 minutes, and it cannot see your phone's Face ID.",
-          "Face ID set up again, a new fingerprint added, or the phone's passcode turned off: the saved session cannot be opened any more.",
+          "A change, such as an upload or a deployment, once the last full sign-in is over 15 minutes old. The console cannot see your phone's Face ID.",
+          "Face ID set up again, a new fingerprint added, or the phone's passcode turned off.",
           "Signing out, or 30 days after the last full sign-in."
         ] },
-        { "note": "With it off, the app keeps you signed in for an hour after a sign-in, as before." },
+        { "note": "With it off, the app keeps you signed in for an hour after a sign-in." },
         { "see": ["sign-in-again", "trouble-sign-in"] }
       ]
     },
@@ -83,31 +84,31 @@
           ["renew.sh --status", "When the app stops opening, and whether the iPhone is in reach."],
           ["renew.sh --unschedule", "Stop the hourly check."]
         ] },
-        { "text": "It builds the newest commit on main, so work in progress is never installed. Over Wi-Fi the iPhone has to be on the Mac's network, unlocked at least once since it restarted, and ticked Connect via network in Xcode, Window, Devices and Simulators. A failure shows a notification on the Mac; the log is ~/Library/Logs/cranium-renew.log." }
+        { "text": "It builds the newest commit on main, so work in progress is never installed. Over Wi-Fi the iPhone has to be on the Mac's network, unlocked once since it restarted, and ticked Connect via network in Xcode, Window, Devices and Simulators. A failure shows a notification on the Mac; the log is ~/Library/Logs/cranium-renew.log." }
       ]
     },
     {
       "id": "wifi-update",
       "title": "How an update over Wi-Fi works",
       "summary": "The seven steps of a deployment, from the offer to the confirmed firmware.",
-      "keywords": ["ota", "deployment", "steps", "offered", "downloading", "trial", "confirmed", "rollback", "aws iot jobs"],
+      "keywords": ["ota", "deployment", "steps", "offered", "downloading", "trial", "confirmed", "rollback", "jobs"],
       "sources": ["docs/aws-iot.md", "firmware/README.md", "cloud/web/src/site/assets/core.js"],
       "blocks": [
-        { "text": "A release manager deploys a release to one or more boards. A board on firmware 1.7.2 or newer starts as soon as it sees the offer, with nobody at the board. Older firmware waits for someone to press Button 1; Button 2 declines." },
+        { "text": "A release manager deploys a release to one or more boards. A board on firmware 1.7.2 or newer starts as soon as it sees the offer, with nobody at the board. Older firmware waits for a press of Button 1; Button 2 declines." },
         { "heading": "The steps" },
         { "steps": [
-          "Offered: AWS IoT offers the update to the board.",
-          "Accepted by the board: the board checks the offer: a known format, a strictly newer version, an image that fits the slot.",
-          "Downloading: over HTTPS into the board's spare slot. The firmware it runs is not touched.",
-          "Download checked: the board compares the SHA-256 with the release's and checks the version in the signed header. On a mismatch it erases the image and installs nothing.",
-          "Restarting: the bootloader, MCUboot, checks the signature and swaps the images.",
-          "On trial: the new firmware runs on trial. It has 5 minutes to join Wi-Fi and reach AWS IoT.",
-          "Confirmed: it reached AWS IoT, confirmed itself, and is kept."
+          "Offered: the console offers the update to the board.",
+          "Accepted by the board: the board checks that the update is newer than what it runs and fits.",
+          "Downloading: into the board's spare space. The firmware it runs is not touched.",
+          "Download checked: the board checks that the download is whole and is the release's. If not, it throws it away and installs nothing.",
+          "Restarting: the board checks the signature and starts the new firmware.",
+          "On trial: the new firmware has 5 minutes to join Wi-Fi and reach the console.",
+          "Confirmed: it reached the console, and is kept."
         ] },
         { "heading": "When it goes wrong" },
         { "list": [
-          "Not confirmed within 5 minutes, or the watchdog fires: the board restarts and MCUboot puts the previous firmware back. The deployment says Rolled back.",
-          "A failed download is tried again with a fresh link, up to five attempts in all.",
+          "Not confirmed within 5 minutes: the board restarts into the firmware it had. The deployment says Rolled back.",
+          "A failed download is tried again, up to five times in all.",
           "Ten minutes with no progress restart the board, with nothing installed."
         ] },
         { "see": ["deployments", "board-states"] }
@@ -120,30 +121,29 @@
       "keywords": ["ble", "bluetooth", "passkey", "pairing", "window", "button 1", "3 minutes", "proof", "phone"],
       "sources": ["firmware/README.md", "docs/mobile-apps.md", "apps/ios/CraniumKit/Sources/CraniumKit/UserMessage.swift"],
       "blocks": [
-        { "text": "For a board in the room, with Wi-Fi or without. Release managers only: the phone downloads the release from AWS and sends it to the board." },
+        { "text": "For a board in the room, with Wi-Fi or without. Release managers only: the phone downloads the release and sends it to the board." },
         { "steps": [
-          "At the board, hold Button 1 for five seconds and let go. LED1 shows four short flashes: Bluetooth is open for 3 minutes (2 before firmware 1.11.2).",
-          "In the app, open Update over Bluetooth, pick a release, then the board. It shows as Cranium- and four hex digits, new for each window.",
-          "Type the 6-digit passkey into the phone's pairing prompt. When the board is online, the app shows it from the cloud, with the board the console gave it for. Otherwise it is on the board's serial console, the line [BT] passkey.",
-          "The app asks the console whether the release is still active, then sends the image. Without that yes, nothing is sent, also when the console cannot be reached. Keep the phone near the board, and the app open.",
-          "When it has arrived, LED1 blinks fast. Press Button 1 within two minutes to install it. Button 2 throws it away; with no press it is erased.",
-          "The board restarts and runs the new image on trial."
+          "At the board, hold Button 1 for five seconds and let go. LED1 shows four short flashes: Bluetooth is open for 3 minutes.",
+          "In the app, open Update over Bluetooth, pick a release, then the board. It shows as Cranium- and four letters or digits, new each time.",
+          "Type the 6-digit passkey into the phone's pairing prompt. When the board is online, the app shows it; otherwise it is on the board's serial console.",
+          "The app checks with the console that the release can still be sent, then sends it. Without the console's yes nothing is sent, also when the console cannot be reached. Keep the phone near the board, and the app open.",
+          "When it has arrived, LED1 blinks fast. Press Button 1 within two minutes to install it; Button 2 throws it away, and with no press it is erased.",
+          "The board restarts and runs the new firmware on trial."
         ] },
         { "heading": "Good to know" },
         { "list": [
-          "A board takes one image per window, and only a version strictly newer than what it runs.",
-          "A new passkey is drawn for each attempt. Three failed attempts close the window.",
-          "A phone that does not finish pairing is dropped after 45 s, and a link on which nothing happens after 120 s (30 s up to 1.11.1).",
-          "Button 2 closes the window at any point."
+          "A board takes one update each time Bluetooth is open, and only a newer version than it runs.",
+          "Each attempt has a new passkey. Three failed attempts close Bluetooth.",
+          "A phone that does not finish pairing is dropped after 45 s, and a connection with nothing happening after 120 s.",
+          "Button 2 closes Bluetooth at any point."
         ] },
         { "heading": "How the board keeps it" },
-        { "text": "An image installed over Bluetooth is kept only when it shows, within five minutes, that it can receive a further update. With neither proof by then, the board restarts and the bootloader goes back." },
+        { "text": "The new firmware is kept only if, within five minutes, it shows it can take a further update. If not, the board goes back to the firmware it had." },
         { "rows": [
-          ["Proved by the cloud", "It reaches the cloud. Nobody has to do anything."],
-          ["Kept by a person at the board", "Only with no Wi-Fi: after the image has run at least 60 s, a person holds Button 1, pairs a phone with a new passkey, and reads the image list. The app reads it when it connects."],
-          ["With Wi-Fi there", "A person has no say: only the cloud can prove it."]
+          ["With Wi-Fi", "It reaches the console. Nobody has to do anything."],
+          ["Without Wi-Fi", "After a minute, hold Button 1 and connect the phone again with a new passkey. The app does the rest."]
         ] },
-        { "text": "A board's page shows the last update over Bluetooth, its result and its proof." },
+        { "text": "A board's page shows its last update over Bluetooth and how it was kept." },
         { "see": ["trouble-bluetooth", "leds"] }
       ]
     },
@@ -154,14 +154,15 @@
       "keywords": ["deploy", "cancel", "force", "offer again", "job", "waiting", "updating"],
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/core.js"],
       "blocks": [
-        { "text": "A deployment sends one release to a set of boards. A board on firmware 1.7.2 or newer starts as soon as it sees it, and older firmware waits for someone to press Button 1 on the board. A job made directly in AWS IoT is not listed; its board's page shows it." },
-        { "text": "Each board's part shows the seven steps of the update, live: every 3 s while a board is at work, every 10 s while boards wait." },
+        { "text": "A deployment sends one release to a set of boards. Each board's part shows the seven steps of its update, live." },
+        { "text": "A board on firmware 1.7.2 or newer starts a deployment on its own. Older firmware waits for someone to press Button 1 on the board." },
+        { "note": "An update started outside the console is not listed here; its board's page shows it." },
         { "heading": "Cancelling" },
         { "rows": [
-          ["Withdraw the offer", "Boards that have not started are no longer offered this update. A board that is already downloading or installing carries on and finishes."],
-          ["Withdraw and stop boards", "Forced. A board that is downloading or checking the image stops before installing. A board already restarting into the new firmware cannot be stopped."]
+          ["Withdraw the offer", "Boards that have not started no longer get it. A board already downloading or installing finishes."],
+          ["Withdraw and stop boards", "A board that is downloading or checking stops before installing. A board already restarting cannot be stopped."]
         ] },
-        { "text": "A cancellation takes a few seconds to reach every board's record and cannot be undone. To try again, start a new deployment. A board cannot get another deployment until its current one has finished or been cancelled." },
+        { "text": "A cancellation cannot be undone: to try again, start a new deployment. A board takes one deployment at a time." },
         { "see": ["wifi-update"] }
       ]
     },
@@ -169,29 +170,29 @@
       "id": "board-states",
       "title": "What a board's state means",
       "summary": "Online, on trial, confirmed, rolled back, stuck restarts, revoked releases.",
-      "keywords": ["online", "offline", "confirmed", "on trial", "rolled back", "stuck", "wifi_silent", "no_cloud", "update_stall", "revoked", "golden image", "restarting", "heartbeat"],
+      "keywords": ["online", "offline", "never connected", "confirmed", "on trial", "rolled back", "stuck", "wifi_silent", "no_cloud", "update_stall", "revoked", "golden image", "restarting", "heartbeat"],
       "sources": ["docs/aws-iot.md", "firmware/README.md", "cloud/web/src/site/assets/core.js", "cloud/web/src/site/assets/views.js"],
       "blocks": [
         { "rows": [
-          ["Online", "Its last heartbeat (every 30 s) is less than 90 s old. A board that said it is restarting gets 240 s."],
-          ["Offline", "No heartbeat for 90 s. What the app shows of it is what it last reported."],
-          ["Never connected", "It has not reported to AWS IoT yet."],
+          ["Online", "It reported in the last 90 s. A board reports every 30 s, and one that said it is restarting stays online for 240 s."],
+          ["Offline", "No report for 90 s. The app shows what it last reported."],
+          ["Never connected", "Has not reported to the console yet."],
           ["Confirmed", "The firmware it runs has proved itself, and is kept."],
-          ["On trial", "A new image is running and has not confirmed yet. The bootloader goes back to the previous firmware if the board restarts before it confirms."],
-          ["Rolled back", "The new firmware started but did not reconnect to AWS IoT, so it was never confirmed, and the bootloader put the previous firmware back."],
-          ["Revoked release", "No new deployments of it; open ones are cancelled and its image is refused. Boards that already run it keep running it: to replace it there, upload a newer version and deploy that."],
-          ["Not a registered release", "The board runs a version that is not in the list of releases: it got there some other way."]
+          ["On trial", "New firmware is running and has not confirmed yet. If the board restarts first, it goes back to the firmware it had."],
+          ["Rolled back", "The new firmware did not reach the console in time, so the board went back to the firmware it had."],
+          ["Revoked release", "It can no longer be deployed, its open deployments are cancelled, and boards refuse it. Boards that already run it keep it until you deploy a newer version."],
+          ["Not a registered release", "The board runs a version that is not in the list of releases."]
         ] },
         { "heading": "Stuck restarts" },
-        { "text": "From firmware 1.7.0 the board restarts itself when it is stuck. None of these fires while an image is on trial or a Bluetooth window is open." },
+        { "text": "From firmware 1.7.0 a stuck board restarts itself, but never while new firmware is on trial or Bluetooth is open." },
         { "rows": [
-          ["wifi_silent", "The Wi-Fi chip has not answered for 120 s."],
-          ["no_cloud", "15 minutes with the link up and no cloud connection."],
-          ["update_stall", "An update that has not moved for 600 s."]
+          ["The Wi-Fi chip stopped answering", "For 2 minutes."],
+          ["No connection to the cloud for 15 minutes", "Wi-Fi is up, and the console cannot be reached."],
+          ["An update stopped moving", "For 10 minutes."]
         ] },
-        { "text": "Restarts in a row back off: a dead chip restarts after about 2 minutes, 5 minutes, 30 minutes and 2 hours, then about four times a day." },
+        { "text": "Restarts in a row wait longer each time: about 2 minutes, 5 minutes, 30 minutes and 2 hours, then about four a day." },
         { "heading": "The golden image" },
-        { "text": "Firmware 1.5.0 is the frozen golden image: one image a person can always go back to, at the board, with no laptop, no Wi-Fi and no cloud. Identity, Wi-Fi settings and certificates stay." },
+        { "text": "Firmware 1.5.0 is the golden image: one a person can always go back to at the board, with no laptop, Wi-Fi or cloud. The board keeps its name, Wi-Fi and certificates." },
         { "steps": [
           "Press and hold RESET.",
           "Press and hold Button 2.",
@@ -211,17 +212,17 @@
       "blocks": [
         { "text": "LED1 shows what the board is doing, in a cycle of two seconds. From firmware 1.8.0, LED2 lights only when the board is online, taking turns with LED1." },
         { "rows": [
-          ["LED1 and LED2 take turns", "A quarter of a second each: connected to the cloud, nothing to do."],
-          ["Slow blink", "One second on, one second off: joining Wi-Fi."],
-          ["Medium blink", "Half a second on, half off: Wi-Fi is up, connecting to the cloud."],
+          ["LED1 and LED2 take turns", "Connected, nothing to do."],
+          ["Slow blink", "One second on, one off: joining Wi-Fi."],
+          ["Medium blink", "Half a second on, half off: Wi-Fi is up, connecting to the console."],
           ["Double flash", "Downloading or checking an update."],
-          ["Triple flash", "A new image is running on trial."],
-          ["Fast blink", "An update waits for a button press: an image that arrived over Bluetooth, or an offer on firmware before 1.7.2."],
-          ["Four short flashes", "Bluetooth is open, and no phone is linked yet."],
+          ["Triple flash", "New firmware is running on trial."],
+          ["Fast blink", "An update waits for a press of Button 1."],
+          ["Four short flashes", "Bluetooth is open, and no phone is connected yet."],
           ["Short flash every two seconds", "Set up, but not provisioned yet."],
           ["Long flash every two seconds", "Factory mode, waiting for setup."]
         ] },
-        { "note": "LED1 and LED2 are the only LEDs wired to the nRF5340. No firmware here changes the board's other LEDs." }
+        { "note": "The board's other LEDs are not Cranium's." }
       ]
     },
     {
@@ -233,11 +234,11 @@
       "blocks": [
         { "rows": [
           ["Button 1, held 5 s", "Opens Bluetooth for three minutes, for an update from a phone."],
-          ["Button 1, pressed", "Installs an image that arrived over Bluetooth, or an offer on firmware before 1.7.2."],
-          ["Button 2, pressed", "Throws away an image that arrived over Bluetooth, declines an offer on older firmware, and closes a Bluetooth window."],
-          ["Button 2, held 5 s", "Factory reset: erases the device ID, Wi-Fi network, cloud settings, device key and certificates, and restarts in factory mode. It does nothing while an update is offered or under way."]
+          ["Button 1, pressed", "Installs an update that is waiting at the board."],
+          ["Button 2, pressed", "Throws away or declines a waiting update, and closes Bluetooth."],
+          ["Button 2, held 5 s", "Factory reset: the board forgets its name, Wi-Fi and certificates, and starts in factory mode. Not while an update is under way."]
         ] },
-        { "note": "From firmware 1.7.2 on, no button has anything to do with an update over the internet. A button already down when the board starts does nothing when it is let go." }
+        { "note": "From firmware 1.7.2, an update over Wi-Fi needs no button." }
       ]
     },
     {
@@ -247,15 +248,15 @@
       "keywords": ["diagnostics", "signal", "rssi", "memory", "heap", "uptime", "certificates", "boot", "diary", "mac", "channel", "device id"],
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/telemetry.js", "docs/aws-iot.md"],
       "blocks": [
-        { "text": "Every board registered to this project, as it last reported. A board shows its own device ID, from firmware 1.11.4, and its thing name under it." },
+        { "text": "Every board of this project, as it last reported. From firmware 1.11.4 a board shows its own device ID, with its thing name under it." },
         { "rows": [
           ["Heartbeat", "Every 30 s. The page refreshes every 10 s, the charts every minute."],
-          ["Signal", "Wi-Fi strength in dBm: Excellent from −55, Good from −67, Fair from −75, Weak below."],
-          ["Memory", "Free system heap, and the least that has been free since the board started. Below 15% free is low."],
-          ["Diagnostics report", "Wi-Fi channel, MAC and memory, every 5 minutes, from firmware 1.10.0."],
-          ["Last boots", "Why each boot before ended and how far each got, from the chip's own record of its reset, from firmware 1.7.4."],
-          ["Last update over Bluetooth", "Its result and how it was proved, from firmware 1.9.0."],
-          ["Certificates", "The start of each certificate ID. The certificate belongs to this board alone; its private key never leaves the board."]
+          ["Signal", "Wi-Fi strength: Excellent from −55 dBm, Good from −67, Fair from −75, Weak below."],
+          ["Memory", "Free memory now, and the least since the board started. Below 15% free is low."],
+          ["Diagnostics report", "Wi-Fi channel and memory, every 5 minutes, from firmware 1.10.0."],
+          ["Last boots", "Why each start before ended, from firmware 1.7.4."],
+          ["Last update over Bluetooth", "Its result and how it was kept, from firmware 1.9.0."],
+          ["Certificates", "Each belongs to this board alone, and its private key never leaves the board."]
         ] },
         { "see": ["board-states", "events"] }
       ]
@@ -267,39 +268,35 @@
       "keywords": ["overview", "home", "fleet", "newest release", "recent"],
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/core.js"],
       "blocks": [
-        { "text": "What the boards last reported, and what is being updated right now." },
+        { "text": "What the boards last reported, and what is being updated right now. It refreshes by itself." },
         { "rows": [
-          ["Updates in progress", "One line per board of every deployment that is under way, with its step and download."],
-          ["Boards online", "How many boards have a heartbeat less than 90 s old."],
+          ["Updates in progress", "One line per board that is updating, with its step."],
+          ["Boards online", "How many boards reported in the last 90 s."],
           ["Newest release", "The newest release that can be deployed."],
           ["Recent", "The newest entries of the activity log."]
-        ] },
-        { "text": "It refreshes by itself while it is on screen: every 3 s while a board is at work, every 10 s while boards wait." }
+        ] }
       ]
     },
     {
       "id": "firmware-and-signing",
       "title": "Firmware and signing",
-      "summary": "Signed images, how the server verifies them, and revoking.",
+      "summary": "Signed releases, how the console checks them, and revoking.",
       "keywords": ["upload", "release", "signed", "signature", "ecdsa", "key", "fingerprint", "revoke", "mcuboot", "slot", "version"],
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/core.js", "docs/aws-iot.md", "binaries/README.md"],
       "blocks": [
-        { "text": "Signed images that can be offered to boards. A version, once used, is never reused." },
-        { "heading": "The server verifies every upload" },
+        { "text": "Signed firmware that can be offered to boards. A version, once used, is never used again." },
+        { "heading": "Every upload is checked" },
         { "steps": [
-          "Signed at build, with the project's private key.",
-          "Checked on upload, by this server, with the public key.",
-          "Checked at boot, by the board's bootloader."
+          "Signed when it is built, with the project's private key.",
+          "Checked on upload by the console, with the public key.",
+          "Checked again by the board when it starts."
         ] },
-        { "text": "An image is stored only if its ECDSA P-256 signature checks out against this project's signing key. The console holds only the public half of that key: it can check a signature, never make one." },
-        { "heading": "Uploading" },
-        { "text": "Each build leaves its signed image in binaries/latest.signed.bin. The app reads its header first, then the server checks it: image format, flash layout, signature area, image hash, signing key, signature and version. Nothing is stored unless all pass." },
+        { "text": "The console keeps only firmware whose signature matches this project's key. It holds only the public half of the key, so it can check a signature but never make one." },
         { "heading": "Revoking" },
         { "list": [
-          "The image stops downloading at once, also for a board in the middle of downloading it.",
-          "Every unfinished deployment of it is cancelled.",
-          "It can never be deployed again, and its version number stays used: the next upload must still be newer.",
-          "Boards that already run it keep running it. To replace it there, upload a newer version and deploy that.",
+          "It stops downloading at once, and every unfinished deployment of it is cancelled.",
+          "It can never be deployed again, and its version stays used.",
+          "Boards that run it keep it until you deploy a newer version.",
           "It cannot be undone."
         ] },
         { "see": ["trouble-upload"] }
@@ -312,24 +309,24 @@
       "keywords": ["events", "timeline", "connection", "restart", "health", "kinds", "range"],
       "sources": ["cloud/web/src/site/assets/telemetry.js"],
       "blocks": [
-        { "text": "What every board did, as it reported it: connections, updates, restarts, Bluetooth and its health, with what people did in this console alongside. Events are kept for 90 days." },
+        { "text": "What every board did, as it reported it, with what people did in the console alongside. Events are kept for 90 days." },
         { "rows": [
           ["Update, Firmware", "The update path."],
           ["Restart, Wi-Fi and memory", "The board's health."],
           ["Bluetooth, Console", "What people did."],
-          ["Connection", "The edges of the bands: a band is a board online."]
+          ["Connection", "A band is a board online."]
         ] },
-        { "text": "A range that ends now refreshes every 15 s. A custom range may be at most 31 days." }
+        { "text": "A range that ends now refreshes every 15 s. A range you choose may be at most 31 days." }
       ]
     },
     {
       "id": "activity",
       "title": "The activity log",
-      "summary": "Every change made through the console's API, with who asked for it.",
+      "summary": "Every change made through the console, with who asked for it.",
       "keywords": ["activity", "audit", "log", "who", "refused"],
       "sources": ["cloud/web/src/site/assets/views.js"],
       "blocks": [
-        { "text": "Every upload, deployment, cancellation and revocation made through the console's API, with who asked for it and whether it went through, refusals included. A job made directly in AWS IoT does not pass through that API, so it is not in this log. Nobody can change an entry." }
+        { "text": "Every upload, deployment, cancellation and revocation made through the console, with who asked for it and whether it went through. Nobody can change an entry." }
       ]
     },
     {
@@ -342,11 +339,11 @@
         { "text": "A token lets a script use the console's API as you, without signing in, until it expires or you revoke it. Each person makes and sees only their own." },
         { "list": [
           "Send it as Authorization: Bearer crn_… to the API under /api/t/.",
-          "scripts/firmware/ota.sh uses the token in ~/.cranium/console-token (readable by you alone: chmod 600), or in CRANIUM_TOKEN.",
-          "It acts as you, with what you may do at that moment: a viewer's token only reads.",
-          "A change made with a token is in the activity log under your name, with the token's ID.",
-          "A token cannot make or revoke tokens, or read a board's Bluetooth passkey.",
-          "It is shown once, when it is made. Valid for 1 to 90 days; it cannot be extended."
+          "scripts/firmware/ota.sh uses the token in ~/.cranium/console-token (chmod 600), or in CRANIUM_TOKEN.",
+          "It may do what you may do at that moment: a viewer's token only reads.",
+          "A change made with it is in the activity log under your name, with the token's ID.",
+          "It cannot make or revoke tokens, or read a board's Bluetooth passkey.",
+          "It is shown once. Valid for 1 to 90 days; it cannot be extended."
         ] }
       ]
     },
@@ -357,77 +354,91 @@
       "keywords": ["serial", "usb", "cable", "terminal", "uart", "115200", "web serial", "commands", "otg"],
       "sources": ["cloud/web/src/site/assets/serial.js", "firmware/README.md", "apps/android/app/src/main/java/com/craniumiot/cranium/usb/UsbConsole.kt", "apps/ios/App/Views/MoreView.swift"],
       "blocks": [
-        { "text": "The serial console drives a board on its USB cable, one command per line. What you type goes over the cable to the board, never to the server, and nothing is saved." },
+        { "text": "The serial console drives a board on its USB cable, one command per line. What you type goes to the board, never to the server, and nothing is saved." },
         { "heading": "Where it works" },
         { "rows": [
-          ["The console's Serial console", "In Chrome or Edge on a computer: Web Serial exists only there. For release managers: it drives a board directly and can erase it."],
+          ["The console's Serial console", "In Chrome or Edge on a computer, for release managers. It drives a board directly and can erase it."],
           ["The Android app", "On a phone that can be a USB host (USB OTG). Android asks you to allow the app to use the board."],
           ["A plain serial monitor", "The board's second virtual COM port, at 115200 baud: screen /dev/cu.usbmodem<port> 115200"],
-          ["The iPhone app", "iOS gives apps no way to open a USB serial port, so it has no serial console."]
+          ["The iPhone app", "iOS lets no app open a USB serial port, so it has no serial console."]
         ] },
         { "heading": "Commands" },
         { "list": [
           "One command per line, like COMMAND|arg1|arg2. HELP or ? lists them, with the firmware version.",
-          "Every command ends with one final line: OK, or ERR and the reason.",
-          "Lines that start with a [TAG] are logs and events, such as [BT] passkey 123456 while a phone pairs."
+          "Every command ends with one line: OK, or ERR and the reason.",
+          "Lines that start with a [TAG] are logs, such as [BT] passkey 123456 while a phone pairs."
         ] },
-        { "note": "A release build can leave the console out (-Dapp_CONFIG_APP_CONSOLE=n): then no serial command exists at all." },
+        { "note": "A release build can leave the console out (-Dapp_CONFIG_APP_CONSOLE=n): then no serial command exists." },
         { "see": ["bluetooth-update"] }
+      ]
+    },
+    {
+      "id": "resend-wifi",
+      "title": "Sending the Wi-Fi network again",
+      "summary": "With the board on USB, from a computer with the repository.",
+      "keywords": ["wifi", "hotspot", "provision", "provision_device.py", "usb", "network", "ssid"],
+      "sources": ["docs/new-board-setup.md", "firmware/README.md"],
+      "blocks": [
+        { "text": "Connect the board to the computer by USB, and run from the repository:" },
+        { "rows": [
+          ["python tools/provision_device.py --wifi", "Sends the board the Wi-Fi network's name and password again. Its identity and certificates stay."]
+        ] },
+        { "see": ["trouble-offline"] }
       ]
     },
     {
       "id": "trouble-offline",
       "title": "A board is offline",
-      "summary": "No heartbeat for 90 s: what to check.",
-      "keywords": ["offline", "not online", "no heartbeat", "wifi", "hotspot", "provision", "certificate"],
+      "summary": "No report for 90 s: what to check.",
+      "keywords": ["offline", "not online", "never connected", "no heartbeat", "wifi", "hotspot", "provision", "certificate"],
       "sources": ["docs/aws-iot.md", "docs/new-board-setup.md", "cloud/README.md", "firmware/README.md"],
       "blocks": [
         { "list": [
-          "A board counts as offline 90 s after its last heartbeat. A page that is open can take about 125 s to show it.",
-          "Usually it is the hotspot: it is not on, or its name differs by a character. Give it a few minutes.",
-          "To send the Wi-Fi network again, with the board on USB: python tools/provision_device.py --wifi",
+          "A board counts as offline 90 s after its last report. An open page can take about two minutes to show it.",
+          "Usually it is the Wi-Fi: the hotspot is off, or its name differs by a character. Give it a few minutes.",
+          "Never connected: power it up and check that it was provisioned.",
+          "To send it the Wi-Fi network again, connect it by USB: see Sending the Wi-Fi network again, under Developer.",
           "A board that never comes online: its certificate must be attached to it. Its page lists its certificates.",
           "From firmware 1.7.0 a stuck board restarts itself."
         ] },
-        { "see": ["leds", "board-states"] }
+        { "see": ["leds", "board-states", "resend-wifi"] }
       ]
     },
     {
       "id": "trouble-bluetooth",
       "title": "Bluetooth can't find the board",
-      "summary": "The window, the passkey, and a refused or broken upload.",
+      "summary": "Opening Bluetooth, the passkey, and a refused or broken send.",
       "keywords": ["no board found", "bluetooth", "pairing failed", "passkey", "window closed", "upload refused", "disconnected"],
       "sources": ["docs/mobile-apps.md", "firmware/README.md", "apps/ios/CraniumKit/Sources/CraniumBLE/BoardRadio.swift"],
       "blocks": [
         { "rows": [
-          ["No board found", "The window is not open, or closed after 3 minutes. Hold Button 1 for 5 s, then look again."],
-          ["Pairing fails", "A wrong passkey. Three failures close the window: open it again and use the new passkey."],
-          ["Upload refused at the start", "Not newer than what runs, or one already sent in this window. Pick a newer release, or open a new window."],
-          ["Disconnected during the upload", "Out of range, or the window closed. Open a new window and send it again: it starts over."],
-          ["The console does not clear the send", "The release was revoked since, or the image is not the release's. Nothing was sent."],
-          ["Bluetooth is off or not allowed", "Turn it on in Control Center, and allow Cranium in Settings, Privacy & Security, Bluetooth."]
+          ["No board found", "Bluetooth is not open, or closed after 3 minutes. Hold Button 1 for 5 s, then look again."],
+          ["Pairing fails", "A wrong passkey. Three failures close Bluetooth: open it again and use the new passkey."],
+          ["Refused at the start", "Not newer than what the board runs, or one was already sent this time. Pick a newer release, or open Bluetooth again."],
+          ["Disconnected while sending", "Out of range, or Bluetooth closed. Open it again and send again."],
+          ["The console says no", "The release was revoked, or it is not the release's firmware. Nothing was sent."],
+          ["Bluetooth is off or not allowed", "Turn it on, and allow Cranium to use Bluetooth in the phone's settings."]
         ] },
-        { "text": "The name is new for each window: Cranium- and four hex digits." },
         { "see": ["bluetooth-update"] }
       ]
     },
     {
       "id": "trouble-upload",
       "title": "The upload was refused",
-      "summary": "What the server checks, and what each refusal means.",
+      "summary": "What the console checks, and what each refusal means.",
       "keywords": ["refused", "upload", "version not newer", "wrong key", "signature", "too large", "0.0.0"],
       "sources": ["docs/aws-iot.md", "binaries/README.md", "cloud/web/src/site/assets/core.js"],
       "blocks": [
-        { "text": "The server stores only an MCUboot image whose SHA-256 and ECDSA P-256 signature verify against this project's key, built for this product's flash layout, with a version higher than every release registered before, revoked ones included." },
+        { "text": "The console keeps only firmware built for this board, signed with this project's key, and newer than every release before it, revoked ones included." },
         { "rows": [
-          ["Not newer", "Versions only go up. The refusal names the highest version registered so far."],
-          ["Already registered", "This exact file, or another with the same version, is a release already."],
+          ["Not newer", "Versions only go up. The refusal names the highest so far."],
+          ["Already registered", "This file, or another with the same version, is a release already."],
           ["Signing key", "Signed with another key than this project's."],
-          ["Too large", "It must fit the board's update slot."],
-          ["Version 0.0.0+0", "Never accepted: give the build a version first."],
-          ["Not an MCUboot image", "Choose the *.signed.bin file from the build."]
+          ["Too large", "It must fit the board's space for an update."],
+          ["Version 0.0.0", "Never accepted: give the build a version first."],
+          ["Not a firmware image", "Choose the signed file from the build."]
         ] },
-        { "text": "A refusal of the file itself is final: choose another file. Nothing was stored." }
+        { "text": "Nothing was stored. Choose another file." }
       ]
     },
     {
@@ -441,8 +452,8 @@
           "A password of at least 12 characters, and the code from your authenticator app.",
           "Repeated wrong passwords lock an account for a while.",
           "Lost phone or password: an administrator resets both, and your role stays.",
-          "An account removed, disabled or left without a role cannot sign in: ask an administrator.",
-          "Refused with 403: you are not a release manager. Ask an administrator for the role."
+          "An account removed, disabled or without a role cannot sign in: ask an administrator.",
+          "A change refused as not allowed: you are not a release manager. Ask an administrator for the role."
         ] },
         { "see": ["getting-started", "sign-in-again"] }
       ]
@@ -454,7 +465,7 @@
       "keywords": ["version", "build", "commit", "repository", "github", "console", "website"],
       "sources": ["README.md", "docs/aws-iot.md"],
       "blocks": [
-        { "text": "Cranium for iPhone: the firmware console for the project's nRF7002 DK boards." },
+        { "text": "Cranium: the firmware console for the project's boards, on your phone." },
         { "links": [
           ["The console", "https://console.craniumiot.com"],
           ["The code on GitHub", "https://github.com/ese5180/f26-t07-the-cranium"]
