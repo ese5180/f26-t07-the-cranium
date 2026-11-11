@@ -4257,9 +4257,8 @@ export function deviceView(ctx) {
           detail.device.lastSeen || detail.device.online ? null : ` ${NEVER_REPORTED_HELP}`,
         ]
       : null,
-    meta: named
-      ? h('span', null, 'AWS IoT thing ', mono(thing, 'thing-full'))
-      : h('span', null, 'Board ID ', mono(thing, 'thing-full')),
+    // "Board ID" either way: the AWS IoT name of it is for Details and the developer pages.
+    meta: h('span', null, 'Board ID ', mono(thing, 'thing-full')),
     tools: missing(resource)
       ? null
       : [
