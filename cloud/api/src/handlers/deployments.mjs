@@ -788,7 +788,7 @@ export function createDeploymentHandlers(
         400,
         'no_pi',
         `${without.length === 1 ? `${without[0]} does` : `These boards do`} not report a Raspberry Pi: ` +
-          `${without.length === 1 ? 'it runs' : 'they run'} no build with Pi updates (scripts/firmware/build.sh --pi), ` +
+          `${without.length === 1 ? 'it runs' : 'they run'} no Pi build, ` +
           'or no Pi is wired.',
         without.map((thing) => ({ thing }))
       );
@@ -841,7 +841,7 @@ export function createDeploymentHandlers(
     if (release !== null && piImage !== null && release.pi !== true) {
       throw unprocessable(
         'not_pi_build',
-        `Release ${release.version} is not a build with Raspberry Pi updates (scripts/firmware/build.sh --pi), ` +
+        `Release ${release.version} is not a Pi build (a build with Raspberry Pi updates), ` +
           'so it cannot go out with a Pi image. Deploy a Pi build, or the Pi image alone.'
       );
     }

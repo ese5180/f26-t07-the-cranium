@@ -3485,6 +3485,9 @@ export const PI_STEPS = [
   { name: 'Sent to the Pi', doing: 'Sending to the Pi', failed: 'Not taken by the Pi' },
   { name: 'Verified by the Pi' },
 ];
+// What each Pi step is drawn with while it is not done: the same icons as the headlines of those steps.
+export const PI_MARKS = ['send', 'press', 'download', 'upload', 'check-circle'];
+export const BOTH_MARKS = ['send', 'press', 'download', 'shield', 'restart', 'pulse', 'check-circle', 'upload'];
 const PI_ON_CARD = 2;
 const PI_SENT = 3;
 // Board firmware and a Pi image together: the firmware's steps, then the Pi's, once the firmware is confirmed.
@@ -3520,7 +3523,7 @@ const PI_FAILURES = {
   unsupported: {
     at: ACCEPTED,
     title: 'Refused: not a Pi build',
-    text: 'The board runs firmware without Raspberry Pi updates (scripts/firmware/build.sh --pi).',
+    text: 'The board runs firmware without Raspberry Pi updates: it needs a Pi build.',
   },
   sd_absent: { at: PI_ON_CARD, title: 'No SD card in the board', text: 'The board’s card-detect switch sees no card.' },
   sd_io: { at: PI_ON_CARD, title: 'The board’s SD card failed', text: 'Reading or writing the card failed.' },
@@ -3729,9 +3732,10 @@ export function describeExecution(execution, known = {}) {
   const described = describeFirmwareExecution(execution, known);
   const part = execution?.pi ?? null;
   if (!part) return described;
+  // A Pi image alone changes nothing on the board: there is no way back to draw when it stops.
   return (known.version ?? null) === null
-    ? describePiAlone(described, execution, part)
-    : describeWithPi(described, execution, part);
+    ? { ...describePiAlone(described, execution, part), marks: PI_MARKS, noReturn: true }
+    : { ...describeWithPi(described, execution, part), marks: BOTH_MARKS };
 }
 
 /** A Pi image alone: what the board did with it, in PI_STEPS. */
@@ -3993,9 +3997,10 @@ function describeFirmwareExecution(
         3,
         {
           title: progress === null ? 'Downloading the Pi image' : `Downloading the Pi image ${progress}%`,
-          text:
-            'The board is downloading the Raspberry Pi image onto its SD card. Nothing is installed yet: ' +
-            'its own firmware, if this brings one, waits in its spare slot until both are here and checked.',
+          text: version
+            ? 'The board is downloading the Raspberry Pi image onto its SD card. Nothing is installed yet: ' +
+              `${version} waits in its spare slot until both are here and checked.`
+            : 'The board is downloading the Raspberry Pi image onto its SD card. Its own firmware stays as it is.',
           extra: { progress, said: 'Downloading the Pi image' },
         },
         {
@@ -4010,8 +4015,8 @@ function describeFirmwareExecution(
         {
           title: progress === null ? 'Sending to the Pi' : `Sending to the Pi ${progress}%`,
           text:
-            "The board is sending the image from its SD card to the Raspberry Pi's spare partition over SPI. " +
-            'Its own firmware, if this brought one, is confirmed already.',
+            "The board is sending the image from its SD card to the Raspberry Pi's spare partition over SPI." +
+            (version ? ` Its new firmware, ${version}, is confirmed already.` : ''),
           extra: { progress, said: 'Sending to the Pi' },
         },
         {

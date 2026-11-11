@@ -1575,7 +1575,9 @@ function stepList(
     label = 'Steps of the update',
   } = {}
 ) {
-  const at = description.steps.findIndex((step) => step.state === 'failed');
+  // A Pi image alone (2.26.0) draws no way back: nothing on the board changed.
+  const at = description.noReturn ? -1 : description.steps.findIndex((step) => step.state === 'failed');
+  const drawn = description.marks ?? marks;
   const look = `is-${description.tone ?? 'idle'} ${compact ? 'is-compact' : ''} ${preview ? 'is-preview' : ''}`;
   // The mark of a step that failed takes the tone of the headline above it.
   return h(
@@ -1592,7 +1594,7 @@ function stepList(
         if (index === 0) path += ' is-return-start';
         if (index === at) path += ' is-return-end';
       }
-      let mark = state.icon ?? marks[index];
+      let mark = state.icon ?? drawn[index];
       if (failed) mark = failedMark(description);
       return h(
         'li',
@@ -1626,6 +1628,7 @@ function stepList(
  * in particular.
  */
 function returnPath(execution, description) {
+  if (description.noReturn) return null;
   const at = description.steps.findIndex((step) => step.state === 'failed');
   if (at < 1) return null;
   const { phase, ranAtEnd } = execution;
@@ -6956,7 +6959,7 @@ function wizardParts(model) {
             ? h(
                 'span',
                 { class: 'quiet' },
-                'The release must be a build for a board wired to a Pi (scripts/firmware/build.sh --pi): the console refuses any other with a Pi image.'
+                'The release must be a Pi build, for a board wired to a Pi: the console refuses any other with a Pi image.'
               )
             : null
         )
@@ -7028,13 +7031,21 @@ export function deployDialog(model, ctx) {
       ),
     ];
   } else if (model.step === 1 && devices.length === 0 && withoutPi > 0) {
-    body = empty({
-      iconName: 'chip',
-      title: 'No board reports a Raspberry Pi.',
-      text:
-        'A Pi image goes only to a board that reports one: a Pi build (scripts/firmware/build.sh --pi) wired to a Pi. ' +
-        'The Pi itself has no network; its board brings it the image.',
-    });
+    body = [
+      empty({
+        iconName: 'chip',
+        title: 'No board reports a Raspberry Pi.',
+        text:
+          'A Pi image goes only to a board that runs a Pi build and is wired to a Pi. ' +
+          'The Pi itself has no network; its board brings it the image.',
+      }),
+      h(
+        'details',
+        { class: 'more', key: 'pi-build' },
+        h('summary', null, 'Details'),
+        h('p', null, 'A Pi build is made with ', h('code', { class: 'code' }, 'scripts/firmware/build.sh --pi'), '.')
+      ),
+    ];
   } else if (model.step === 1 && devices.length === 0 && notOffered > 0) {
     body = empty({
       iconName: 'chip',
