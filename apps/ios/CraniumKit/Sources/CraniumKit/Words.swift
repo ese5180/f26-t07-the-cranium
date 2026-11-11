@@ -1171,6 +1171,9 @@ public enum Words {
                                        triedAlone: "tried to reset an account", icon: "key"),
         "account.remove": AuditAction(done: "removed the account of", tried: "tried to remove the account of",
                                        triedAlone: "tried to remove an account", icon: "x"),
+        // A board's name given in the console, or taken away (docs/fleet.md, Board names).
+        "device.rename": AuditAction(done: "renamed", doneAlone: "renamed a board", tried: "tried to rename",
+                                     triedAlone: "tried to rename a board", icon: "chip"),
         // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
         "device.register": AuditAction(done: "registered", doneAlone: "registered a board", tried: "tried to register",
                                        triedAlone: "tried to register a board", icon: "chip"),
