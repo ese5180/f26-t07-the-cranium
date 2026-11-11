@@ -142,6 +142,43 @@ test('board firmware and a Pi image: the firmware steps, then the Pi, once the f
   assert.equal(rolled.steps.at(-1).state, 'skipped');
 });
 
+test('a Pi image alone says nothing of firmware it did not bring, draws its sending step as the headline does, and no way back', () => {
+  const alone = core.describeExecution(
+    {
+      phase: 'flashing_pi',
+      status: 'IN_PROGRESS',
+      online: true,
+      progress: 20,
+      pi: { state: 'flashing', progress: 20, version: 'v' },
+    },
+    { version: null }
+  );
+  assert.doesNotMatch(alone.text, /firmware/);
+  assert.equal(alone.icon, 'upload');
+  assert.equal(alone.marks[3], 'upload');
+  assert.equal(alone.noReturn, true);
+  const downloading = core.describeExecution(
+    { phase: 'downloading_pi', status: 'IN_PROGRESS', online: true, progress: 20, pi: { state: 'downloading' } },
+    { version: null }
+  );
+  assert.doesNotMatch(downloading.text, /spare slot|if this brings/);
+
+  const both = core.describeExecution(
+    {
+      phase: 'flashing_pi',
+      status: 'IN_PROGRESS',
+      online: true,
+      progress: 20,
+      pi: { state: 'flashing', progress: 20, version: 'v' },
+    },
+    { version: '1.20.1+0' }
+  );
+  assert.match(both.text, /Its new firmware, 1\.20\.1\+0, is confirmed already\./);
+  assert.equal(both.marks.length, both.steps.length);
+  assert.equal(both.marks.at(-1), 'upload');
+  assert.notEqual(both.noReturn, true);
+});
+
 test("a board's update card names the Pi steps of a job with both", () => {
   for (const [state, title] of [
     ['downloading_pi', 'Downloading the Raspberry Pi image'],
