@@ -7,7 +7,7 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
-## 2.25.10
+## 2.25.12
 
 A value with no space in it, such as your e-mail address on Account, now breaks onto a second line inside its card instead of running out of it and making the page scroll sideways (at 320 px with a short address, at 390 px with a longer one). The same holds wherever a page lists label and value side by side: IDs, digests and addresses on Team, Customers, Firmware and a board's page.
 
