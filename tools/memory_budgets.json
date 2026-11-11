@@ -7,8 +7,8 @@
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
   "no Bluetooth": {
-    "_measured": "not reported before this check; the default's floors until a first run measures it",
-    "app": { "flash_free_min": 40960, "ram_free_min": 1000 },
+    "_measured": "1.18.0, first run of this check (#189): app 128410 flash / 36104 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM",
+    "app": { "flash_free_min": 122880, "ram_free_min": 32768 },
     "mcuboot": { "flash_free_min": 14336 },
     "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   },
