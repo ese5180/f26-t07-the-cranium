@@ -19,7 +19,9 @@
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
   "Pi image updates": {
-    "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",
-    "app": { "ram_free_min": 20480 }
+    "_measured": "1.20.0, the Raspberry Pi work (local build, scripts/firmware/build.sh --pi): app 95418 flash / 24656 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM",
+    "app": { "flash_free_min": 90112, "ram_free_min": 20480 },
+    "mcuboot": { "flash_free_min": 14336 },
+    "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
   }
 }
