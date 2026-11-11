@@ -551,20 +551,54 @@ function linkTo(href, props, ...children) {
 }
 
 /**
- * A board by what people call it (boardName in core.js), as a link to its page. Its thing
- * name is the tooltip; where there is room, boardThing() writes it out next to the name.
+ * A board's thing name in its short form, "…5da0b9e5": its last 8 characters, which tell the boards apart.
+ * The whole name is in the page, so a copy, a search and a screen reader have all of it; only its start is
+ * out of sight (.thing-id-head), and the ellipsis is drawn by the style sheet, so it is never copied. It
+ * never breaks onto a second line.
  */
-function boardLabel(board, className = '', href = deviceHref(board.thing)) {
-  return linkTo(href, { class: `mono ${className}`.trim(), title: board.thing }, boardName(board));
+function thingParts(thing) {
+  if (!isThing(thing)) return thing ?? '';
+  const cut = thing.length - THING_SHOWN;
+  return [h('span', { class: 'thing-id-head', key: 'head' }, thing.slice(0, cut)), thing.slice(cut)];
+}
+
+const THING_SHOWN = 8;
+
+/** A thing name, short (thingParts), with the whole of it as its tooltip. */
+export function thingId(thing, className = '') {
+  return h('span', { class: `thing-id mono ${className}`.trim(), title: thing }, thingParts(thing));
 }
 
 /**
- * The thing name of a board that has a name of its own, smaller and quieter, after a space
- * that sets it apart from the name in what is read and copied; nothing for a board without one.
+ * A board by what people call it (boardName in core.js), as a link to its page: its own name, or else its
+ * thing name in the short form. Its thing name is the tooltip; where there is room, boardThing() writes it
+ * out next to the name.
+ */
+function boardLabel(board, className = '', href = deviceHref(board.thing)) {
+  const named = boardName(board) !== board.thing;
+  return linkTo(
+    href,
+    { class: `${named ? '' : 'thing-id '}mono ${className}`.trim(), title: board.thing },
+    named ? boardName(board) : thingParts(board.thing)
+  );
+}
+
+/** A board by what people call it, as boardLabel() says it, in words that lead nowhere: for inside a link. */
+function boardWords(board) {
+  const named = boardName(board) !== board.thing;
+  return named ? boardName(board) : thingId(board.thing);
+}
+
+/**
+ * The thing name of a board that has a name of its own, short, smaller and quieter, after a space that
+ * sets it apart from the name in what is read and copied; nothing for a board without one.
  */
 function boardThing(board, className = '') {
   if (boardName(board) === board.thing) return null;
-  return [' ', h('span', { class: `board-thing mono ${className}`.trim() }, board.thing)];
+  return [
+    ' ',
+    h('span', { class: `board-thing thing-id mono ${className}`.trim(), title: board.thing }, thingParts(board.thing)),
+  ];
 }
 
 /** A time, told relative to now, with the exact time as its tooltip. */
@@ -573,12 +607,15 @@ function when(iso, now, prefix = '') {
   return h('time', { datetime: iso, title: exactTime(iso) }, `${prefix}${timeAgo(iso, now)}`);
 }
 
-/** The same, with the time of day written out: for where the exact moment matters. */
+/**
+ * The same, with the time of day written out, in the one form a time has in a row: "1:04 PM · 42 min ago",
+ * another day's "Nov 9, 1:04 PM · 2 d ago". Old enough to be told by its date, the date and time alone.
+ */
 function whenAt(iso, now, prefix = '') {
   if (!iso) return null;
   // Old enough to be told by its date already: the day is not said twice.
   if (toldByDate(iso, now)) return h('time', { datetime: iso, title: exactTime(iso) }, `${prefix}${dateAndTime(iso)}`);
-  return [when(iso, now, prefix), ` (${clockTime(iso, now)})`];
+  return h('time', { datetime: iso, title: exactTime(iso) }, `${prefix}${clockTime(iso, now)} · ${timeAgo(iso, now)}`);
 }
 
 /** The time of day alone: for an entry under a heading that names its day. */
@@ -2371,31 +2408,63 @@ function activityLine(entry, ctx, compact) {
         ending ? [' ', badge(ending.tone, ending.icon, ending.label)] : null,
         description.scripted ? [' ', h('span', { class: 'tag is-warn' }, SCRIPTED_TAG)] : null
       ),
-      compact
-        ? null
-        : h(
-            'p',
-            { class: 'log-detail dotted' },
-            description.facts.map((fact) => auditFact(fact, ctx)),
-            // Two accounts can show the same address, or one that looks the same. The id tells them apart.
-            actor?.sub
-              ? h(
-                  'span',
-                  { key: 'account', class: 'log-ref', title: account },
-                  'Account ',
-                  mono(shortAccount(actor.sub))
-                )
-              : null,
-            // A sign-in was asked for by no request: its id is made of the sign-in itself.
-            entry.requestId && entry.action !== 'account.sign_in'
-              ? h('span', { key: 'request', class: 'log-ref' }, 'Request ', mono(entry.requestId))
-              : null
-          ),
+      compact ? null : auditDetail(entry, description, ctx),
       compact ? null : auditChanges(entry, ctx)
     ),
     // The full log files its lines under the day, so a line says when in that day.
     h('span', { class: 'log-when' }, compact ? when(entry.at, ctx.state.now) : whenInDay(entry.at))
   );
+}
+
+/**
+ * What a log entry adds to its sentence. The facts read as words (a board, a reason) stay in sight; the
+ * identifiers (a digest, a deployment or another code, the account and the request) are behind Details,
+ * closed until opened: they tell entries and people apart, and nobody reads them to learn what happened.
+ */
+const AUDIT_IDS = new Set(['sha256', 'token', 'id', 'job', 'rollouts', 'target']);
+
+function auditDetail(entry, description, ctx) {
+  const { actor } = entry;
+  const isId = (fact) => AUDIT_IDS.has(fact.key);
+  const plain = description.facts.filter((fact) => !isId(fact));
+  const ids = [
+    ...description.facts.filter(isId).map((fact) => auditFact(fact, ctx)),
+    // Two accounts can show the same address, or one that looks the same. The id tells them apart.
+    actor?.sub
+      ? h(
+          'span',
+          { key: 'account', class: 'log-ref', title: `Account ${actor.sub}` },
+          'Account ',
+          mono(shortAccount(actor.sub))
+        )
+      : null,
+    // A sign-in was asked for by no request: its id is made of the sign-in itself.
+    entry.requestId && entry.action !== 'account.sign_in'
+      ? h('span', { key: 'request', class: 'log-ref' }, 'Request ', mono(entry.requestId))
+      : null,
+  ].filter(Boolean);
+  return [
+    plain.length > 0
+      ? h(
+          'p',
+          { class: 'log-detail dotted', key: 'detail' },
+          plain.map((fact) => auditFact(fact, ctx))
+        )
+      : null,
+    ids.length > 0
+      ? h(
+          'details',
+          { class: 'more log-ids', key: 'ids' },
+          h(
+            'summary',
+            null,
+            'Details',
+            entry.at ? h('span', { class: 'sr-only' }, ` of the entry of ${timeOfDay(entry.at)}`) : null
+          ),
+          h('p', { class: 'log-detail dotted' }, ids)
+        )
+      : null,
+  ];
 }
 
 /**
@@ -2474,9 +2543,9 @@ function auditFact(fact, ctx) {
     return h('span', { key: `fact-${fact.key}`, title: `Code ${fact.value}` }, `${fact.words}.`);
   }
   // The log keeps a board's thing name; the board is called by its own name, as listed now.
-  if (fact.key === 'thing') {
+  if (fact.key === 'thing' || (fact.key === 'canary' && isThing(fact.value))) {
     const board = boardOf(fact.value, ctx.state.devices?.value?.devices);
-    return h('span', { key: 'fact-thing' }, `${fact.label} `, boardLabel(board), boardThing(board));
+    return h('span', { key: `fact-${fact.key}` }, `${fact.label} `, boardLabel(board), boardThing(board));
   }
   if (fact.key === 'boards') {
     const things = fact.value.split(' ').filter((thing) => isThing(thing));
@@ -3217,11 +3286,16 @@ function updateRow(update, ctx, { withBoard = false } = {}) {
         'span',
         { class: 'row-note dotted' },
         withBoard
-          ? h('span', { key: 'board' }, boardName(boardOf(update.thing, ctx.state.devices?.value?.devices)))
+          ? h('span', { key: 'board' }, boardWords(boardOf(update.thing, ctx.state.devices?.value?.devices)))
           : null,
         update.from ? h('span', { key: 'from' }, 'from ', mono(update.from)) : null,
-        h('span', { key: 'how', class: 'update-how' }, updateHow(update)),
-        time ? h('span', { key: 'when' }, when(time, now)) : null
+        // The row leads to its deployment: the deployment's id is its tooltip, not more words in the row.
+        h(
+          'span',
+          { key: 'how', class: 'update-how', title: update.how === 'deployment' ? update.deployment || null : null },
+          update.how === 'deployment' ? 'in a deployment' : updateHow(update)
+        ),
+        time ? h('span', { key: 'when' }, whenAt(time, now)) : null
       )
     ),
     statusLine(outcome),
@@ -3682,25 +3756,29 @@ function whenLastSeen(device) {
 
 function firmwareFact(device, revokedOnes, releases) {
   if (!device.fw) return h('span', { class: 'quiet' }, 'Not reported');
+  // One badge: what most needs saying. A revoked release, then firmware still on trial, then a version
+  // that is not a registered release (a fact about today's list of releases), else that it is confirmed.
+  const revoked = revokedOnes.has(device.fw.version);
+  let mark;
+  if (revoked) mark = badge('bad', 'ban', 'Revoked release');
+  else if (!device.fw.confirmed)
+    mark = badge(
+      'warn',
+      'pulse',
+      'On trial',
+      'Not confirmed yet. The bootloader goes back to the previous firmware if the board ' +
+        'restarts before it confirms.'
+    );
+  else if (isUnregistered(device.fw.version, releases))
+    mark = badge('warn', 'alert', NOT_REGISTERED, 'Confirmed: it runs this firmware for good.');
+  else mark = badge('good', 'check', 'Confirmed');
   return [
     mono(device.fw.version, 'fact-strong device-version'),
-    // Said of the version and of whether it was confirmed. Whether it is a registered
-    // release is a fact about today's list of releases.
+    // Said of the version and of whether it was confirmed.
     whenLastSeen(device),
-    device.fw.confirmed
-      ? badge('good', 'check', 'Confirmed')
-      : badge(
-          'warn',
-          'pulse',
-          'On trial',
-          'Not confirmed yet. The bootloader goes back to the previous firmware if the board ' +
-            'restarts before it confirms.'
-        ),
-    isUnregistered(device.fw.version, releases) ? badge('warn', 'alert', NOT_REGISTERED) : null,
+    mark,
     // Revoking does not touch a board that runs the release.
-    revokedOnes.has(device.fw.version)
-      ? [badge('bad', 'ban', 'Revoked release'), factNote('To replace it, upload a newer version and deploy that.')]
-      : null,
+    revoked ? factNote('To replace it, upload a newer version and deploy that.') : null,
   ];
 }
 
@@ -3799,6 +3877,26 @@ const NEVER_REPORTED_HELP = 'Power it up and check that it was provisioned.';
 
 function seenLine(device, now) {
   return heartbeatWords(device, now) ?? NEVER_REPORTED;
+}
+
+/**
+ * Under a board's name in the list. On a phone, where the row has no badge, the state and when it was last
+ * heard of (seenLine). Wider, the badge beside it says the state, so the line says only what it adds: when
+ * a board that is not online was last heard of, or that it never was.
+ */
+function seenInRow(device, now, viaPhone) {
+  if (viaPhone) return h('p', { class: 'device-seen' }, viaPhone.line);
+  const up = device.online && !isRestarting(device);
+  return [
+    h('p', { class: 'device-seen is-narrow', key: 'narrow' }, seenLine(device, now)),
+    up
+      ? null
+      : h(
+          'p',
+          { class: 'device-seen is-wide', key: 'wide' },
+          device.lastSeen ? whenAt(device.lastSeen, now, 'Last heartbeat ') : NEVER_REPORTED
+        ),
+  ];
 }
 
 /** The state of the fleet as a whole, at the top of the Devices page. */
@@ -3998,7 +4096,7 @@ export function devicesView(ctx) {
                 h('h2', { class: 'device-name' }, boardLabel(device, 'cover-link'), icon('arrow-right', 'is-small')),
                 boardName(device) === device.thing ? null : h('p', { class: 'device-thing' }, boardThing(device)),
                 ctx.fleet?.boardTags(device, ctx) ?? null,
-                h('p', { class: 'device-seen' }, viaPhone ? viaPhone.line : seenLine(device, state.now)),
+                seenInRow(device, state.now, viaPhone),
                 device.lastSeen || device.online || viaPhone
                   ? null
                   : h('p', { class: 'device-help' }, NEVER_REPORTED_HELP)
@@ -4150,14 +4248,17 @@ export function deviceView(ctx) {
     back: { href: '#/devices', label: 'Devices' },
     eyebrow: 'Board',
     // A name is set in the sans at display size, like a version; a thing name stays monospaced.
-    title: named ? h('span', { class: 'board-title' }, boardName(board)) : mono(thing),
+    // A thing name in its short form, "…5da0b9e5"; the whole of it is under the title, and is what a copy takes.
+    title: named ? h('span', { class: 'board-title' }, boardName(board)) : thingId(thing),
     lede: detail
       ? [
           seenLine(detail.device, state.now),
           detail.device.lastSeen || detail.device.online ? null : ` ${NEVER_REPORTED_HELP}`,
         ]
       : null,
-    meta: named ? h('span', null, 'AWS IoT thing ', mono(thing)) : null,
+    meta: named
+      ? h('span', null, 'AWS IoT thing ', mono(thing, 'thing-full'))
+      : h('span', null, 'Board ID ', mono(thing, 'thing-full')),
     tools: missing(resource)
       ? null
       : [

@@ -379,7 +379,29 @@ strong {
   color: var(--ink-3);
   font-size: max(var(--type-small), 0.8125em);
   font-weight: 400;
-  overflow-wrap: anywhere;
+}
+
+/*
+ * A thing name in its short form, "…5da0b9e5" (thingParts in views.js): its start is in the page, for a
+ * copy, a search and a screen reader, but out of sight, and the ellipsis is drawn here, so a copy never
+ * takes it. It never breaks onto a second line.
+ */
+.thing-id,
+.thing-full {
+  white-space: nowrap;
+}
+
+.thing-id::before {
+  content: "…";
+}
+
+.thing-id-head {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .sr-only {
@@ -10500,8 +10522,9 @@ body.console {
 }
 
 /*
- * The boards as a list: a row each, led by a mark of how it is, its name and when it was last
- * heard of, its badge at the end and a chevron, as the whole row leads to the board's page.
+ * The boards as a list: a row each, its name and when it was last heard of, its badge at the end and a
+ * chevron, as the whole row leads to the board's page. How it is is said once: by its badge, or on a
+ * phone by the words under its name; no mark beside them says it again.
  */
 .console .device-grid {
   gap: 0;
@@ -10513,40 +10536,11 @@ body.console {
 
 .console .device-grid > .card.device {
   position: relative;
-  padding: var(--space-3) var(--space-4) var(--space-3) calc(var(--space-4) + 20px);
+  padding: var(--space-3) var(--space-4);
 }
 
 .console .device-grid > .card.device + .card.device {
   border-top: 1px solid var(--line);
-}
-
-.console .device-grid > .card.device::before {
-  content: "";
-  position: absolute;
-  top: calc(var(--space-3) + 7px);
-  left: var(--space-4);
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--line-mark);
-  border-radius: 50%;
-}
-
-.console .device.is-up::before {
-  border-color: var(--bar-good);
-  background: var(--bar-good);
-}
-
-.console .device.is-restarting::before {
-  border-color: var(--bar-live);
-  background: var(--bar-live);
-}
-
-.console .device.is-never::before {
-  border-style: dashed;
-}
-
-.console .device.is-phone::before {
-  border-color: var(--bar-live);
 }
 
 .console .device-grid .device-head {
@@ -11128,6 +11122,11 @@ span.glance-item:hover {
   }
 }
 
+/* Under a board's name in the list, wide: when an offline board was last heard of; its badge says how it is. */
+.console .device-grid .device-seen.is-narrow {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .console .devices-panel {
     display: none;
@@ -11153,7 +11152,7 @@ span.glance-item:hover {
     font-size: var(--type-small);
   }
 
-  /* A board's row: its mark, its name, how it is in words, what it runs, and a chevron. */
+  /* A board's row: its name, how it is in words, what it runs, and a chevron. */
   .console .device-grid .device-head {
     display: block;
     margin-bottom: 2px;
@@ -11173,6 +11172,14 @@ span.glance-item:hover {
 
   .console .device-grid .device-seen {
     font-size: var(--type-table);
+  }
+
+  .console .device-grid .device-seen.is-narrow {
+    display: block;
+  }
+
+  .console .device-grid .device-seen.is-wide {
+    display: none;
   }
 
   .console .device-grid > .card.device {

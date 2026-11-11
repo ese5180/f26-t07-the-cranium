@@ -194,12 +194,12 @@ test("a board's page has its versions as a vertical timeline, newest first, with
     /Confirmed.*Runs now.*Since .*Over Bluetooth from a phone.*0 unexpected restarts · 0 issues/
   );
   assert.ok(items[0].getAttribute('class').includes('is-current'));
-  assert.match(
-    textOf(items[1]),
-    /Rolled back.*Over the air, deployment cranium-1-13-1|Rolled back.*Over the air, deployment/
-  );
+  // The link says where it leads, with the deployment's id as its tooltip; a time reads "Nov 3, 2026, 2:02 PM".
+  assert.match(textOf(items[1]), /Rolled back.*Over the air, in a deployment/);
   assert.ok(items[1].getAttribute('class').includes('is-rolled-back'));
   assert.equal(all(items[1], 'a')[0].getAttribute('href'), `#/deployments/${JOB}`);
+  assert.equal(all(items[1], 'a')[0].getAttribute('title'), JOB);
+  assert.doesNotMatch(textOf(items[0]), /\d:\d{2}:\d{2}/, 'no seconds in a span of days');
   assert.match(textOf(items[1]), /2 unexpected restarts · 1 issue/);
   assert.match(textOf(items[2]), /Before the history: by USB or at setup.*not known: before events were kept/);
   // Older versions, when there are more.

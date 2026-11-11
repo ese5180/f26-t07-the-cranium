@@ -373,10 +373,12 @@ test("a board's page shows its last positions on a small map, with a trail, and 
   const page = drawn(views.deviceView(ctx));
   const card = one(page, 'section.location-card');
   assert.equal(one(card, 'div.map-canvas').getAttribute('id'), 'board-map');
-  assert.match(textOf(card), /Within 35 m Placed 5 min ago/);
+  assert.match(textOf(card), /Within 35 m Placed \d{1,2}:\d{2}\s?[AP]M · 5 min ago/);
   // Newest first, each with how far it was from the one before (when that is more than a few metres).
-  // The time of day in brackets is the reader's own, so it is not compared.
-  const listed = all(one(card, 'ol.position-list'), 'li').map((item) => textOf(item).replace(/ \([^)]*\)/, ''));
+  // Each says when as "1:04 PM · 5 min ago"; the time of day is the reader's own, so it is not compared.
+  const listed = all(one(card, 'ol.position-list'), 'li').map((item) =>
+    textOf(item).replace(/^(?:[A-Z][a-z]{2} \d{1,2}, )?\d{1,2}:\d{2}\s?[AP]M · /, '')
+  );
   assert.deepEqual(listed, [
     '5 min ago within 35 m, 1.3 km from the one before',
     '3 h ago within 25 m',

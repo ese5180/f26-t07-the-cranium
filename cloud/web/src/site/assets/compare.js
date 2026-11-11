@@ -16,6 +16,7 @@ import {
   compareThings,
   deploymentHref,
   duration,
+  dateAndTime,
   exactTime,
   isThing,
   plural,
@@ -139,10 +140,10 @@ export function arrivalWords(stay) {
   return ARRIVAL_WORDS[stay.arrived] ?? ARRIVAL_WORDS.usb;
 }
 
-/** When a version ran: "3 Nov 2026, 14:02 to 5 Nov 2026, 09:10 (1 d 19 h)", "since …", or what is not known. */
+/** When a version ran: "Nov 3, 2026, 2:02 PM to Nov 5, 2026, 9:10 AM (1 d 19 h)", "since …", or what is not known. */
 export function spanWords(stay, nowMs) {
-  const from = stay.startedAt ? exactTime(stay.startedAt) : null;
-  const to = stay.endedAt ? exactTime(stay.endedAt) : null;
+  const from = stay.startedAt ? dateAndTime(stay.startedAt) : null;
+  const to = stay.endedAt ? dateAndTime(stay.endedAt) : null;
   const endMs = stay.endedAt ? Date.parse(stay.endedAt) : stay.current ? nowMs : null;
   const length = stay.startedAt && endMs !== null ? ` (${duration((endMs - Date.parse(stay.startedAt)) / 1000)})` : '';
   if (stay.current) return from ? `Since ${from}${length}` : 'Runs it now, since before the history';
@@ -186,7 +187,8 @@ function stayItem(stay, index, nowMs) {
         'p',
         { class: 'vtimeline-how' },
         arrivalWords(stay),
-        href ? [', ', h('a', { href }, 'deployment ', mono(stay.deployment))] : null
+        // The link says where it leads; the deployment's id is its tooltip, not a 40-character line.
+        href ? [', ', h('a', { href, title: stay.deployment }, 'in a deployment')] : null
       ),
       h(
         'p',
