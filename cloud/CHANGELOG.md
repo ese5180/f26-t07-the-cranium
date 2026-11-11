@@ -7,6 +7,14 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.10
+
+Help in the same words as the pages. The apps' Help says "Has not reported to the console yet." for a board that never connected, as the board's page does, and names no file, script or cloud service outside a new Developer section (API tokens, the serial console, sending a board the Wi-Fi network again, keeping the iPhone app); its answers are a few short sentences. The customer site's Help has an answer for a board that shows Not heard from yet, in the words of its page.
+
+`apps/shared/help.json` is the apps' Help; `cloud/web/test/copy.test.mjs` now holds it, and the customer site's Help,
+to the copy rules of 2.25.3: no file, script, cloud service or ID outside the Developer section, at most three
+sentences a piece, and a board's state and the Wi-Fi update's steps in the words of `views.js` and `core.js`.
+
 ## 2.25.9
 
 The local preview (cloud/dev/preview.mjs --customer) saves a customer's own changes again: renaming a board and turning the e-mails on or off answered "That could not be saved just now" (503) every time. Nothing deployed changes.

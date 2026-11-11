@@ -1524,6 +1524,7 @@ const HELP = [
         'My board shows Offline.',
         'Check that it is switched on and that its Wi-Fi works. It reports again within 30 seconds of getting back online. A board that is restarting after an update can be quiet for a few minutes.',
       ],
+      ['My board shows Not heard from yet.', 'It has not reported yet. Switch it on and connect it to Wi-Fi.'],
       [
         'What is the name of my board?',
         'The name Cranium gave it when it was put on your account. Its own device name, which it was set up with, is shown beside it when it is different.',
