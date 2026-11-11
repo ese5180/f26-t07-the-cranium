@@ -519,10 +519,21 @@ test("the home page uses the console's colours, value for value, in both themes 
     ['ink', (text) => colours(text, '.on-ink')],
     ['dark ink', (text) => colours(text, '.on-ink', darkInkOf(text))],
   ];
+  // The console's older names are aliases of its tokens v2 (app.css): the home page keeps the older names.
+  const V2 = {
+    '--line': '--border',
+    '--line-field': '--border-strong',
+    '--accent-wash': '--accent-soft',
+    '--good-wash': '--good-soft',
+    '--warn-wash': '--warn-soft',
+    '--bad-wash': '--bad-soft',
+    '--work': '--info',
+    '--work-wash': '--info-soft',
+  };
   for (const [name, of] of blocks) {
     const console = of(consoleCss);
     for (const [token, value] of of(css)) {
-      assert.equal(value, console.get(token), `${name}: ${token}`);
+      assert.equal(value, console.get(V2[token] ?? token), `${name}: ${token}`);
     }
   }
 });

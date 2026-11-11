@@ -246,8 +246,8 @@ test('both colour schemes and reduced motion are provided for', () => {
   assert.match(css, /--accent: #b7410e;/);
   assert.match(css, /@media \(prefers-color-scheme: dark\)/);
   assert.match(css, /--paper: #171411;/);
-  assert.match(css, /--surface: #211d19;/);
-  assert.match(css, /--accent: #e2703a;/);
+  assert.match(css, /--surface: #1e1a17;/);
+  assert.match(css, /--accent: #e8794a;/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /:focus-visible/);
 });
@@ -368,6 +368,19 @@ test('the frame is a tab bar on a phone and a sidebar from 861 px, around the pa
   }
 });
 
+/**
+ * The colours of a theme, from the rules that set them, later ones over earlier ones, with every alias (tokens v2: an
+ * older name that is var(--newer)) read as what it stands for in that theme.
+ */
+function theme(...maps) {
+  const merged = new Map(maps.flatMap((map) => [...map]));
+  const resolve = (value, depth = 0) => {
+    const alias = /^var\((--[a-z0-9-]+)\)$/.exec(value ?? '');
+    return alias && depth < 8 && merged.has(alias[1]) ? resolve(merged.get(alias[1]), depth + 1) : value;
+  };
+  return new Map([...merged].map(([name, value]) => [name, resolve(value)]));
+}
+
 /** The contrast of two colours as WCAG defines it, from "#rrggbb". */
 function contrast(first, second) {
   const luminance = (hex) => {
@@ -383,8 +396,8 @@ function contrast(first, second) {
 
 test('lettering on a filled button or a tinted panel is readable in both themes', () => {
   const themes = {
-    light: declared(':root'),
-    dark: new Map([...declared(':root'), ...declared(':root', '@media (prefers-color-scheme: dark)')]),
+    light: theme(declared(':root')),
+    dark: theme(declared(':root'), declared(':root', '@media (prefers-color-scheme: dark)')),
   };
   // [lettering, what it stands on]
   const pairs = [
@@ -427,13 +440,13 @@ test('lettering on a filled button or a tinted panel is readable in both themes'
 });
 
 test('on the ink panel, lettering and marks hold up in both themes', () => {
-  const light = new Map([...declared(':root'), ...declared('.on-ink')]);
-  const dark = new Map([
-    ...declared(':root'),
-    ...declared(':root', '@media (prefers-color-scheme: dark)'),
-    ...declared('.on-ink'),
-    ...declared('.on-ink', '@media (prefers-color-scheme: dark)'),
-  ]);
+  const light = theme(declared(':root'), declared('.on-ink'));
+  const dark = theme(
+    declared(':root'),
+    declared(':root', '@media (prefers-color-scheme: dark)'),
+    declared('.on-ink'),
+    declared('.on-ink', '@media (prefers-color-scheme: dark)')
+  );
   const letters = ['--ink', '--ink-2', '--ink-3', '--accent', '--work', '--good', '--warn', '--bad'];
   const marks = ['--bar-live', '--bar-good', '--bar-warn', '--bar-bad', '--line-mark'];
   const washes = [
@@ -490,8 +503,8 @@ test('colour keeps to what it means', () => {
 
 test('a change in the activity log reads in both themes and on a phone, and not by colour alone', () => {
   const themes = {
-    light: declared(':root'),
-    dark: new Map([...declared(':root'), ...declared(':root', '@media (prefers-color-scheme: dark)')]),
+    light: theme(declared(':root')),
+    dark: theme(declared(':root'), declared(':root', '@media (prefers-color-scheme: dark)')),
   };
   assert.equal(declared('.is-was .audit-diff-value').get('color'), 'var(--bad)');
   assert.equal(declared('.is-was .audit-diff-value').get('background'), 'var(--bad-wash)');
@@ -579,7 +592,7 @@ test('type keeps to one scale, and nothing people read is under 13 px', () => {
   // Body text is 15 px on a 24 px line, and a step larger on a phone on the same line; tables 14 on 20.
   assert.equal(declared('body').get('font'), 'var(--type-body) / var(--leading-body) var(--sans)');
   assert.equal(Math.round(15 * Number(root.get('--leading-body'))), 24);
-  const phone = declared(':root', '@media (max-width: 800px)');
+  const phone = declared(':root', '@media (max-width: 860px)');
   assert.equal(pixels(phone.get('--type-body')), 16);
   assert.equal(Math.round(16 * Number(phone.get('--leading-body'))), 24);
   assert.equal(declared('.data-table').get('font-size'), 'var(--type-table)');
@@ -626,8 +639,8 @@ test('labels are in sentence case, and sentences are not in the faintest ink', (
   }
   // And both secondary inks read on every ground they stand on, in both themes.
   const themes = {
-    light: declared(':root'),
-    dark: new Map([...declared(':root'), ...declared(':root', '@media (prefers-color-scheme: dark)')]),
+    light: theme(declared(':root')),
+    dark: theme(declared(':root'), declared(':root', '@media (prefers-color-scheme: dark)')),
   };
   for (const [name, colours] of Object.entries(themes)) {
     for (const text of ['--ink', '--ink-2', '--ink-3', '--accent', '--good', '--warn', '--bad', '--work']) {
@@ -765,14 +778,14 @@ test('with forced colours the current section is still marked, and the steps sti
 
 test('layouts that change with the width agree on where they change', () => {
   // The steps stand in a column up to where the rail takes over from the bar.
-  assert.equal(declared('.steps', '@media (max-width: 800px)').get('grid-template-columns'), 'minmax(0, 1fr)');
-  assert.equal(declared('.step.has-progress::before', '@media (min-width: 801px)').has('background'), true);
+  assert.equal(declared('.steps', '@media (max-width: 860px)').get('grid-template-columns'), 'minmax(0, 1fr)');
+  assert.equal(declared('.step.has-progress::before', '@media (min-width: 861px)').has('background'), true);
   // Next to the rail the bar is hidden from the eye, not from a screen reader.
-  assert.equal(declared('.execution-state .meter', '@media (min-width: 801px)').has('display'), false);
+  assert.equal(declared('.execution-state .meter', '@media (min-width: 861px)').has('display'), false);
   // The tools of a page take a row of their own on every page, or on none.
-  assert.equal(declared('.page-tools', '@media (max-width: 1120px)').get('flex'), '1 1 100%');
+  assert.equal(declared('.page-tools', '@media (max-width: 1100px)').get('flex'), '1 1 100%');
   // A dialog hangs from the same line at every step, also on a phone.
-  assert.equal(declared('.dialog', '@media (max-width: 720px)').has('margin-top'), false);
+  assert.equal(declared('.dialog', '@media (max-width: 700px)').has('margin-top'), false);
   // In a window that low the whole dialog scrolls.
   assert.equal(declared('.dialog', '@media (max-height: 480px)').get('overflow-y'), 'auto');
 });
@@ -853,4 +866,80 @@ test('Leaflet is the pinned 1.9.4 of its npm package, with its licence, fetched 
   assert.equal(/<a\s/.test(map), false);
   // The tiles are OpenStreetMap's, as the policy names them, asked for with the page's origin as Referer.
   assert.match(map, /referrerPolicy: 'strict-origin-when-cross-origin'/);
+});
+
+test('tokens v2: the new names hold the values, the older names are their aliases, and card edges show in the dark', () => {
+  const root = declared(':root');
+  for (const name of [
+    '--canvas',
+    '--surface',
+    '--sunken',
+    '--border',
+    '--border-strong',
+    '--accent-soft',
+    '--good-soft',
+    '--warn-soft',
+    '--bad-soft',
+    '--info',
+    '--info-soft',
+    '--idle',
+    '--idle-soft',
+  ]) {
+    assert.match(root.get(name) ?? '', /^#[0-9a-f]{6}$/, name);
+  }
+  // The older names stand for the new ones, for every scope that sets colours (the ink panels too).
+  const aliases = {
+    '--grouped': '--canvas',
+    '--line': '--border',
+    '--line-field': '--border-strong',
+    '--accent-wash': '--accent-soft',
+    '--good-wash': '--good-soft',
+    '--warn-wash': '--warn-soft',
+    '--bad-wash': '--bad-soft',
+    '--work': '--info',
+    '--work-wash': '--info-soft',
+    '--radius': '--radius-control',
+    '--radius-small': '--radius-control',
+    '--radius-group': '--radius-card',
+  };
+  for (const scope of [':root', '.on-ink']) {
+    for (const [old, now] of Object.entries(aliases)) {
+      assert.equal(declared(scope).get(old), `var(${now})`, `${old} in ${scope}`);
+    }
+  }
+  // One radius set and one spacing scale (the design audit: 6 · 10 · 14 · pill; 4 to 48 px).
+  assert.deepEqual(
+    ['--radius-control', '--radius-tile', '--radius-card', '--radius-pill'].map((name) => root.get(name)),
+    ['6px', '10px', '14px', '999px']
+  );
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6, 7].map((step) => root.get(`--space-${step}`)),
+    ['4px', '8px', '12px', '16px', '24px', '32px', '48px']
+  );
+  // Every radius is a token, or a shape of its own: a meter's 1-4 px ends, a circle, a printed label in mm.
+  const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const [, value] of plain.matchAll(/border(?:-[a-z-]+)?-radius:\s*([^;]+);/g)) {
+    for (const part of value.trim().split(/\s+/)) {
+      assert.match(part, /^(?:0|[1-4]px|50%|2mm|inherit|var\(--radius(?:-[a-z]+)?\))$/, `border-radius: ${value}`);
+    }
+  }
+  // One breakpoint set.
+  const widths = new Set(
+    [...plain.matchAll(/@media[^{]*\((?:max|min)-width: (\d+)px\)/g)].map((match) => Number(match[1]))
+  );
+  assert.deepEqual(
+    [...widths].sort((a, b) => a - b),
+    [380, 460, 461, 560, 700, 701, 860, 861, 1100, 1101]
+  );
+  // A card is lifted by elevation 1: its edge, which in the dark theme stands out from the page by 1.5:1 or more.
+  assert.equal(declared('.console .card-body').get('box-shadow'), 'var(--elevation-1)');
+  assert.match(root.get('--elevation-1'), /^0 0 0 1px var\(--border\)/);
+  const dark = theme(declared(':root'), declared(':root', '@media (prefers-color-scheme: dark)'));
+  assert.equal(contrast(dark.get('--border'), dark.get('--canvas')) >= 1.5, true, 'the edge of a card, dark');
+  const light = theme(declared(':root'));
+  assert.equal(contrast(light.get('--border'), light.get('--canvas')) >= 1.25, true, 'the edge of a card, light');
+  // An input's edge is a mark, 3:1 or better, in both themes.
+  for (const colours of [light, dark]) {
+    assert.equal(contrast(colours.get('--border-strong'), colours.get('--surface')) >= 3, true);
+  }
 });
