@@ -152,10 +152,13 @@ export function createBundleStore({ root, builtIn, fetch: fetchIt = globalThis.f
         log({ bundle: id, outcome: 'marked_bad', reason: 'no app.ready after two starts' });
         continue;
       }
-      // Older than the pages built into the app: those, and no start of this one is counted.
-      if (own && isNewerConsole(own.consoleVersion, found.manifest.consoleVersion)) {
+      // Older than the pages built into the app: those, and no start of this one is counted. Their own
+      // starts are counted instead: two without app.ready, and this download is shown again.
+      const ownFailed = own && !s.good.has(own.id) && (s.starts[own.id] ?? 0) >= STARTS_BEFORE_BAD;
+      if (own && !ownFailed && isNewerConsole(own.consoleVersion, found.manifest.consoleVersion)) {
         const bundle = await builtInBundle();
         if (bundle) {
+          if (!s.good.has(own.id)) s.starts[own.id] = (s.starts[own.id] ?? 0) + 1;
           await saveState();
           return bundle;
         }
