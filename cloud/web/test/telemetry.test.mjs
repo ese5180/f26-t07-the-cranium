@@ -527,9 +527,15 @@ test('the timeline has a lane per board and the console, a marker per event and 
   const world = setup(eventsWorld());
   await telemetry.refreshEvents(true);
   const page = drawn(telemetry.eventsView(world.ctx));
+  // A board without a name by its thing name in the short form, "…5da0b9e5", the whole of it the lane's tooltip.
+  const lanes = all(page, 'text.tl-lane-name');
   assert.deepEqual(
-    all(page, 'text.tl-lane-name').map((lane) => lane.childNodes[0].textContent),
-    [A, B, 'Console']
+    lanes.map((lane) => lane.childNodes[0].textContent),
+    [`…${A.slice(-8)}`, `…${B.slice(-8)}`, 'Console']
+  );
+  assert.deepEqual(
+    lanes.map((lane) => all(lane, 'title').map(textOf).join('')),
+    [A, B, '']
   );
   assert.equal(all(page, 'svg.tl-mark').length, 6);
   assert.equal(all(page, 'svg.tl-mark.is-warn').length, 2);
@@ -976,7 +982,9 @@ test('the Events page calls a board by its name in its lane, its tooltip, its ro
   // The lane: the name, then the thing name, quieter, then its state.
   const lane = one(page, 'text.tl-lane-name', 'CRVIHAAN01');
   assert.equal(lane.childNodes[0].textContent, 'CRVIHAAN01');
-  assert.equal(textOf(one(lane, 'tspan.tl-lane-thing')), A);
+  // The thing name in its short form, "…5da0b9e5", the whole of it the lane's tooltip.
+  assert.equal(textOf(one(lane, 'tspan.tl-lane-thing')), `…${A.slice(-8)}`);
+  assert.equal(textOf(one(lane, 'title')), A);
   assert.equal(all(one(page, 'text.tl-lane-name', B), 'tspan.tl-lane-thing').length, 0);
   const mark = all(page, 'svg.tl-mark').find((el) => /download_failed/.test(el.getAttribute('aria-label')));
   assert.match(mark.getAttribute('aria-label'), /^CRVIHAAN01, /);

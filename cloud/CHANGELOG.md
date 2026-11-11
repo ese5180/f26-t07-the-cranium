@@ -7,6 +7,16 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.13
+
+Readable rows. A board without a name of its own is shown by the end of its ID, "…5da0b9e5", everywhere it is listed: the Devices list and its groups, the Fleet page, a board's page, Deployments, Events and Activity. Copying the ID gives the whole of it, and it never breaks onto two lines. A time in a row reads "1:04 PM · 42 min ago" (another day's "Nov 9, 1:04 PM · 2 d ago"). A cell says one thing once: the Devices list drops the dot beside each board, its firmware cell shows one badge, and the line under a board's name says when an offline board was last heard of, not the state its badge already says. A board's version timeline gives its dates without seconds, and its deployment as a link that reads "in a deployment", as Deployments' list of updates does. In the activity log, the account, the request, a deployment's or token's ID and a digest are behind a closed Details under each entry.
+
+`thingId()` and `thingParts()` in `views.js` draw the short form: the whole thing name is in the page, its start
+clipped out of sight (`.thing-id-head`), and the ellipsis is drawn by `app.css`, so a copy, a search and a screen reader
+get the whole ID. `boardLabel()` and `boardThing()` use it, and the Events timeline's lanes say `…5da0b9e5` with the
+whole ID as their tooltip. `whenAt()` writes the one form, and `clockTime()`, `dateAndTime()` and `timeOfDay()` say
+"1:04 PM", not "01:04 PM". The apps show these pages, so they change with them; no native word changes.
+
 ## 2.25.12
 
 A value with no space in it, such as your e-mail address on Account, now breaks onto a second line inside its card instead of running out of it and making the page scroll sideways (at 320 px with a short address, at 390 px with a longer one). The same holds wherever a page lists label and value side by side: IDs, digests and addresses on Team, Customers, Firmware and a board's page.

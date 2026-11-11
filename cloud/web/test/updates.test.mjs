@@ -202,7 +202,9 @@ test('the Overview tells of the update over Bluetooth that came after the last d
     rows.map((row) => textOf(one(row, '.row-title'))),
     ['1.2.3+4', '1.2.3+4']
   );
-  assert.match(textOf(rows[0]), new RegExp(`from 1\\.2\\.3\\+4.*deployment ${FINISHED}.*Kept`));
+  // The row leads to the deployment, so the deployment's id is its tooltip rather than more words in it.
+  assert.match(textOf(rows[0]), /from 1\.2\.3\+4.*in a deployment.*Kept/);
+  assert.equal(one(rows[0], 'span.update-how').getAttribute('title'), FINISHED);
   assert.match(textOf(rows[1]), /from 1\.2\.3\+3.*USB or another tool.*Rolled back/);
   assert.equal(one(rows[0], 'a.row-title').getAttribute('href'), `#/deployments/${FINISHED}`);
   assert.equal(one(rows[1], 'a.row-title').getAttribute('href'), `#/devices/${WAITING}`);
