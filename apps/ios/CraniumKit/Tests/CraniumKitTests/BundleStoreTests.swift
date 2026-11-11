@@ -115,8 +115,38 @@ import Testing
         // The app updated, with 2.27.0 built in: those start, and the download's start is not counted.
         let (_, newBuiltIn) = try folders(builtIn: Self.make("new built-in", version: "2.27.0"))
         let store = BundleStore(root: root, builtIn: newBuiltIn)
+        let shown = try #require(await store.launch())
+        #expect(shown.source == .builtIn)
+        await store.markReady(shown.id)
         for _ in 0..<3 { #expect(await store.launch()?.source == .builtIn) }
         #expect(await store.isBad(older.id) == false)
+    }
+
+    @Test func builtInPagesThatNeverStartGiveWayToTheDownloadAfterTwoStarts() async throws {
+        let (root, builtIn) = try folders(builtIn: Self.make("built-in", version: "2.27.0"))
+        let older = Self.make("console", version: "2.25.5")
+        // Kept from before (its pages had started), as on a phone that had the console's bundle.
+        let earlier = BundleStore(root: root, builtIn: nil)
+        #expect(await earlier.update(consoleURL: Self.console, fetcher: FakeConsole(older)) == .updated(try BundleManifest.read(older.text)))
+        await earlier.markReady(older.id)
+        let store = BundleStore(root: root, builtIn: builtIn)
+        // The built-in pages start twice and never say app.ready: then the download again.
+        #expect(await store.launch()?.source == .builtIn)
+        #expect(await store.launch()?.source == .builtIn)
+        #expect(await store.launch()?.id == older.id)
+        #expect(await store.newest()?.id == older.id)
+        #expect(await store.launch()?.id == older.id)
+
+        // Built-in pages that did say app.ready keep winning.
+        let (root2, builtIn2) = try folders(builtIn: Self.make("built-in", version: "2.27.0"))
+        let before = BundleStore(root: root2, builtIn: nil)
+        _ = await before.update(consoleURL: Self.console, fetcher: FakeConsole(older))
+        await before.markReady(older.id)
+        let good = BundleStore(root: root2, builtIn: builtIn2)
+        let first = try #require(await good.launch())
+        #expect(first.source == .builtIn)
+        await good.markReady(first.id)
+        for _ in 0..<3 { #expect(await good.launch()?.source == .builtIn) }
     }
 
     @Test func aNewerOrEqualDownloadStillWins() async throws {
