@@ -10,6 +10,8 @@ Shorter words in customer mode, the same as the customer site's: the Overview's 
 
 The shell's page keeps clear of a display cutout (a camera hole or notch, also at the side in landscape) as well as the status and navigation bars and the keyboard (`shell/ShellScreen.kt`, `safeDrawingPadding`), as the iPhone app keeps clear of the Dynamic Island.
 
+The classic activity log has words for a board renamed in the console (console 2.25.14 and later): "renamed", as the console says it; the shared pages show the name itself.
+
 ## 0.8.21
 
 The Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal.

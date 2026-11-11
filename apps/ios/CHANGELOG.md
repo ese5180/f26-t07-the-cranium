@@ -10,6 +10,8 @@ Shorter words in customer mode, the same as the customer site's: the Overview's 
 
 The app fills the iPhone's screen edge to edge: the shell's web view runs under the Dynamic Island and the home indicator, and the pages (console 2.25.11 and later) keep their bars clear of them and of the rounded corners themselves. The web view no longer adds an inset of its own, so there are no double gaps (`App/Shell/ShellRoot.swift`, `ShellWebView.swift`).
 
+The classic activity log has words for a board renamed in the console (console 2.25.14 and later): "renamed", as the console says it; the shared pages show the name itself.
+
 ## 0.8.21
 
 The Help answer about sessions and tracks now says that a board sends its sessions once its firmware supports it (1.18.0, not yet released), and that until then the site shows the demo or the imported journal.

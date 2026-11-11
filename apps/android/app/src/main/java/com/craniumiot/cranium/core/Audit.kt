@@ -238,6 +238,11 @@ object AuditText {
         "account.remove" to Action(
             "removed the account of", "tried to remove the account of", "tried to remove an account", Glyph.X,
         ),
+        // A board's name given in the console, or taken away (docs/fleet.md, Board names).
+        "device.rename" to Action(
+            "renamed", "tried to rename", "tried to rename a board", Glyph.CHIP,
+            doneAlone = "renamed a board",
+        ),
         // A new board registered in AWS IoT through the console (docs/new-board-setup.md).
         "device.register" to Action(
             "registered", "tried to register", "tried to register a board", Glyph.CHIP,
