@@ -162,7 +162,21 @@ test('built-in pages of a newer console win over an older download; a newer, equ
   const before = createBundleStore({ root: kept, builtIn: null, fetch: consoleServing(older).fetch });
   assert.equal((await before.update(CONSOLE)).status, 'new');
   const after = createBundleStore({ root: kept, builtIn, fetch: consoleServing(older).fetch });
-  for (let i = 0; i < 3; i += 1) assert.equal((await after.launch()).source, 'built-in');
+  // Two starts of the built-in pages with no app.ready: the download is shown again.
+  assert.equal((await after.launch()).source, 'built-in');
+  assert.equal((await after.launch()).source, 'built-in');
+  assert.equal((await after.launch()).source, 'downloaded');
+  assert.equal((await after.launch()).source, 'downloaded');
+
+  // Built-in pages that said app.ready keep winning.
+  const keptGood = join(root, 'kept-good');
+  const earlier = createBundleStore({ root: keptGood, builtIn: null, fetch: consoleServing(older).fetch });
+  await earlier.update(CONSOLE);
+  const good = createBundleStore({ root: keptGood, builtIn, fetch: consoleServing(older).fetch });
+  const shown = await good.launch();
+  assert.equal(shown.source, 'built-in');
+  await good.ready(shown.manifest.id);
+  for (let i = 0; i < 3; i += 1) assert.equal((await good.launch()).source, 'built-in');
 
   for (const [deployed, label] of [
     ['2.27.1', 'newer'],

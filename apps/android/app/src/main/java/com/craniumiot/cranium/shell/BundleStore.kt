@@ -75,7 +75,9 @@ sealed interface BundleUpdate {
  * after two starts is marked bad: it is never launched or fetched again. A downloaded bundle of an older
  * console than the built-in one gives way to it (the app was built with newer pages than the console has
  * deployed, such as a new page waiting for its console release); an equal or unknown version keeps the
- * downloaded one, as before, and [update] takes nothing older than the built-in pages. [update] fetches the console's
+ * downloaded one, as before, and [update] takes nothing older than the built-in pages. Those built-in pages'
+ * starts are counted as a download's: if they have not sent app.ready after two starts, the downloaded
+ * bundle is served again, so that a broken build cannot keep a phone on a blank page. [update] fetches the console's
  * manifest and the files it names that are not kept yet, at most four at a time, checks each, and only
  * then makes it the current one, in one rename.
  */
@@ -115,7 +117,14 @@ class BundleStore(
                 continue
             }
             // Older than the pages built into the app: those, and no start of this one is counted.
-            builtInNewerThan(manifest)?.let { return it }
+            builtInNewerThan(manifest, state)?.let { shipped ->
+                val own = state.bundles[shipped.manifest.id] ?: Entry()
+                if (!own.good) {
+                    state = state.copy(bundles = state.bundles + (shipped.manifest.id to own.copy(tries = own.tries + 1)))
+                    writeState(state)
+                }
+                return shipped
+            }
             val loaded = verified(manifest) { sha -> File(objects, sha).takeIf { it.isFile }?.readBytes() } ?: continue
             if (!entry.good) {
                 state = state.copy(bundles = state.bundles + (manifest.id to entry.copy(tries = entry.tries + 1)))
@@ -135,10 +144,16 @@ class BundleStore(
         return LaunchedBundle(manifest, BundleSource.BUILT_IN, loaded)
     }
 
-    /** The built-in bundle, when it is of a newer console than [manifest] and checks out. */
-    private fun builtInNewerThan(manifest: BundleManifest): LaunchedBundle? {
+    /**
+     * The built-in bundle, when it is of a newer console than [manifest], checks out, and has not failed to
+     * start twice (its starts are in [state] like a download's).
+     */
+    private fun builtInNewerThan(manifest: BundleManifest, state: State): LaunchedBundle? {
         val shipped = builtInManifest() ?: return null
-        return if (isNewer(shipped.consoleVersion, manifest.consoleVersion)) builtInBundle() else null
+        if (!isNewer(shipped.consoleVersion, manifest.consoleVersion)) return null
+        val entry = state.bundles[shipped.id] ?: Entry()
+        if (!entry.good && entry.tries >= MAX_TRIES) return null
+        return builtInBundle()
     }
 
     /** The page of [id] started (app.ready): it is good, and kept as the last good one. */
