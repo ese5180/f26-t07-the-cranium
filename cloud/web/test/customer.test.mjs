@@ -2075,9 +2075,16 @@ test('on a narrow phone the top bar fits: Connect device is its icon, and keeps 
   assert.equal(connect.getAttribute('title'), 'Connect device');
   // At 375 px the brand, the two icons and the words were 13 px wider than the screen, at 360 px 28.
   const css = readFileSync(new URL('assets/customer.css', CUSTOMER_DIR), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  const narrow = [...css.matchAll(/@media \(max-width: (\d+)px\) \{((?:\s*[^{}]+\{[^}]*\})*)\s*\}/g)]
+  // Each @media (max-width: N px) block's body, found by counting braces.
+  const narrow = [...css.matchAll(/@media \(max-width: (\d+)px\) \{/g)]
     .filter((match) => Number(match[1]) >= 375 && Number(match[1]) < 560)
-    .map((match) => match[2])
+    .map((match) => {
+      let depth = 1;
+      let at = match.index + match[0].length;
+      const start = at;
+      for (; at < css.length && depth > 0; at += 1) depth += css[at] === '{' ? 1 : css[at] === '}' ? -1 : 0;
+      return css.slice(start, at - 1);
+    })
     .join('\n');
   assert.match(narrow, /\.cs-connect-label \{[^}]*clip-path: inset\(50%\)/);
   assert.match(narrow, /\.btn\.cs-connect \{[^}]*width: 34px/);
