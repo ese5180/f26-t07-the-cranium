@@ -122,6 +122,10 @@ export function decode(bytes, start = 0) {
         let chunks = [];
         if (indefinite) {
           for (;;) {
+            // Each chunk is a definite string of the same kind (RFC 8949, 3.2.3).
+            if (at < b.length && b[at] !== 0xff && (b[at] >> 5 !== major || (b[at] & 0x1f) === 31)) {
+              throw new CborError('a chunk of another kind inside a string');
+            }
             const part = item(depth + 1);
             if (part === BREAK) break;
             chunks.push(major === 3 ? new TextEncoder().encode(part) : part);
@@ -145,7 +149,7 @@ export function decode(bytes, start = 0) {
           }
         } else {
           const length = argument(info);
-          for (let index = 0; index < length; index += 1) list.push(item(depth + 1));
+          for (let index = 0; index < length; index += 1) list.push(value(depth + 1));
         }
         return list;
       }
@@ -153,10 +157,16 @@ export function decode(bytes, start = 0) {
         const map = {};
         const entry = () => {
           const key = item(depth + 1);
-          if (key === BREAK) return false;
-          const value = item(depth + 1);
-          if (value === BREAK) throw new CborError('a map ends between a key and its value');
-          if (typeof key === 'string' || typeof key === 'number') map[String(key)] = value;
+          if (key === BREAK) {
+            if (!indefinite) throw new CborError('a break inside a map of known length');
+            return false;
+          }
+          const entryValue = item(depth + 1);
+          if (entryValue === BREAK) throw new CborError('a map ends between a key and its value');
+          // An own property even for "__proto__", which an assignment would take as the map's prototype.
+          if (typeof key === 'string' || typeof key === 'number') {
+            Object.defineProperty(map, String(key), { value: entryValue, enumerable: true, writable: true, configurable: true });
+          }
           return true;
         };
         if (indefinite) {
@@ -169,7 +179,7 @@ export function decode(bytes, start = 0) {
       }
       case 6:
         argument(info);
-        return item(depth + 1);
+        return value(depth + 1);
       default:
         if (info === 20) return false;
         if (info === 21) return true;
@@ -178,7 +188,12 @@ export function decode(bytes, start = 0) {
         throw new CborError('a simple value this decoder does not take');
     }
   };
-  const value = item(0);
-  if (value === BREAK) throw new CborError('a break with nothing to end');
-  return { value, end: at };
+  // An item where a break may not stand: anywhere but inside something of indefinite length.
+  const value = (depth) => {
+    const found = item(depth);
+    if (found === BREAK) throw new CborError('a break with nothing to end');
+    return found;
+  };
+  const top = value(0);
+  return { value: top, end: at };
 }
