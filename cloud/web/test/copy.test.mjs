@@ -123,7 +123,7 @@ test('Help in the apps names no file, script, cloud service or ID outside its De
   const book = JSON.parse(readFileSync(HELP_FILE, 'utf8'));
   const developer = new Set(book.sections.find((section) => section.title === 'Developer').topics);
   // The topics that are about scripts and cables are there, and only those.
-  assert.deepEqual([...developer].sort(), ['api-tokens', 'keep-the-app', 'serial-console']);
+  assert.deepEqual([...developer].sort(), ['api-tokens', 'keep-the-app', 'resend-wifi', 'serial-console']);
   const named = [];
   const long = [];
   for (const topic of book.topics.filter((each) => !developer.has(each.id))) {
@@ -175,4 +175,37 @@ test("the customer site's Help answers in short plain words, and a board's state
   const text = core.match(/new: '([^']+)'/)[1];
   assert.ok(answers.includes(`My board shows ${label}.`), label);
   assert.ok(answers.includes(text), text);
+});
+
+test('Help keeps the facts people act on, in plain words', () => {
+  const book = JSON.parse(readFileSync(HELP_FILE, 'utf8'));
+  const said = (id) =>
+    helpWords(book.topics.find((topic) => topic.id === id))
+      .map(([, text]) => text)
+      .join(' ');
+  for (const [id, fact] of [
+    // Who starts a deployment on their own, and what is not listed.
+    [
+      'deployments',
+      /firmware 1\.7\.2 or newer starts a deployment on its own\. Older firmware waits for someone to press Button 1/,
+    ],
+    ['deployments', /started outside the console is not listed here; its board's page shows it/],
+    // What revoking does.
+    ['board-states', /open deployments are cancelled, and boards refuse it/],
+    ['board-states', /restarting stays online for 240 s/],
+    ['board-states', /2 minutes, 5 minutes, 30 minutes and 2 hours/],
+    // Bluetooth: no send without the console, and an image nobody installs is erased.
+    ['bluetooth-update', /Without the console's yes nothing is sent, also when the console cannot be reached/],
+    ['bluetooth-update', /with no press it is erased/],
+    ['bluetooth-update', /after 120 s/],
+    // An offline board: the Wi-Fi network again over USB, and its certificate.
+    ['trouble-offline', /Wi-Fi network again, connect it by USB/],
+    ['trouble-offline', /its certificate must be attached to it\. Its page lists its certificates/],
+    ['resend-wifi', /python tools\/provision_device\.py --wifi/],
+    // What a board's page shows.
+    ['boards-and-diagnostics', /Excellent from −55 dBm, Good from −67, Fair from −75/],
+    ['boards-and-diagnostics', /From firmware 1\.11\.4 a board shows its own device ID, with its thing name under it/],
+  ]) {
+    assert.match(said(id), fact, id);
+  }
 });

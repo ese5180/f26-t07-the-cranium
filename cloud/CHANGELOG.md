@@ -9,7 +9,7 @@ were given later, from the history; each names its commit.
 
 ## 2.25.10
 
-Help in the same words as the pages. The apps' Help says "Has not reported to the console yet." for a board that never connected, as the board's page does, and names no file, script or cloud service outside a new Developer section (API tokens, the serial console, keeping the iPhone app); its answers are a few short sentences. The customer site's Help has an answer for a board that shows Not heard from yet, in the words of its page.
+Help in the same words as the pages. The apps' Help says "Has not reported to the console yet." for a board that never connected, as the board's page does, and names no file, script or cloud service outside a new Developer section (API tokens, the serial console, sending a board the Wi-Fi network again, keeping the iPhone app); its answers are a few short sentences. The customer site's Help has an answer for a board that shows Not heard from yet, in the words of its page.
 
 `apps/shared/help.json` is the apps' Help; `cloud/web/test/copy.test.mjs` now holds it, and the customer site's Help,
 to the copy rules of 2.25.3: no file, script, cloud service or ID outside the Developer section, at most three

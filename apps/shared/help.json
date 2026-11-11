@@ -7,7 +7,7 @@
     { "title": "Boards", "topics": ["board-states", "leds", "buttons", "boards-and-diagnostics"] },
     { "title": "The console", "topics": ["overview", "firmware-and-signing", "events", "activity"] },
     { "title": "Troubleshooting", "topics": ["trouble-offline", "trouble-bluetooth", "trouble-upload", "trouble-sign-in"] },
-    { "title": "Developer", "topics": ["api-tokens", "serial-console", "keep-the-app"] },
+    { "title": "Developer", "topics": ["api-tokens", "serial-console", "resend-wifi", "keep-the-app"] },
     { "title": "About", "topics": ["about"] }
   ],
   "topics": [
@@ -126,15 +126,15 @@
           "At the board, hold Button 1 for five seconds and let go. LED1 shows four short flashes: Bluetooth is open for 3 minutes.",
           "In the app, open Update over Bluetooth, pick a release, then the board. It shows as Cranium- and four letters or digits, new each time.",
           "Type the 6-digit passkey into the phone's pairing prompt. When the board is online, the app shows it; otherwise it is on the board's serial console.",
-          "The app checks with the console that the release can still be sent, then sends it. Keep the phone near the board, and the app open.",
-          "When it has arrived, LED1 blinks fast. Press Button 1 within two minutes to install it; Button 2 throws it away.",
+          "The app checks with the console that the release can still be sent, then sends it. Without the console's yes nothing is sent, also when the console cannot be reached. Keep the phone near the board, and the app open.",
+          "When it has arrived, LED1 blinks fast. Press Button 1 within two minutes to install it; Button 2 throws it away, and with no press it is erased.",
           "The board restarts and runs the new firmware on trial."
         ] },
         { "heading": "Good to know" },
         { "list": [
           "A board takes one update each time Bluetooth is open, and only a newer version than it runs.",
           "Each attempt has a new passkey. Three failed attempts close Bluetooth.",
-          "A phone that does not finish pairing is dropped after 45 s.",
+          "A phone that does not finish pairing is dropped after 45 s, and a connection with nothing happening after 120 s.",
           "Button 2 closes Bluetooth at any point."
         ] },
         { "heading": "How the board keeps it" },
@@ -155,6 +155,8 @@
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/core.js"],
       "blocks": [
         { "text": "A deployment sends one release to a set of boards. Each board's part shows the seven steps of its update, live." },
+        { "text": "A board on firmware 1.7.2 or newer starts a deployment on its own. Older firmware waits for someone to press Button 1 on the board." },
+        { "note": "An update started outside the console is not listed here; its board's page shows it." },
         { "heading": "Cancelling" },
         { "rows": [
           ["Withdraw the offer", "Boards that have not started no longer get it. A board already downloading or installing finishes."],
@@ -172,13 +174,13 @@
       "sources": ["docs/aws-iot.md", "firmware/README.md", "cloud/web/src/site/assets/core.js", "cloud/web/src/site/assets/views.js"],
       "blocks": [
         { "rows": [
-          ["Online", "It reported in the last 90 s. A board reports every 30 s."],
+          ["Online", "It reported in the last 90 s. A board reports every 30 s, and one that said it is restarting stays online for 240 s."],
           ["Offline", "No report for 90 s. The app shows what it last reported."],
           ["Never connected", "Has not reported to the console yet."],
           ["Confirmed", "The firmware it runs has proved itself, and is kept."],
           ["On trial", "New firmware is running and has not confirmed yet. If the board restarts first, it goes back to the firmware it had."],
           ["Rolled back", "The new firmware did not reach the console in time, so the board went back to the firmware it had."],
-          ["Revoked release", "It can no longer be deployed. Boards that run it keep it until you deploy a newer version."],
+          ["Revoked release", "It can no longer be deployed, its open deployments are cancelled, and boards refuse it. Boards that already run it keep it until you deploy a newer version."],
           ["Not a registered release", "The board runs a version that is not in the list of releases."]
         ] },
         { "heading": "Stuck restarts" },
@@ -188,7 +190,7 @@
           ["No connection to the cloud for 15 minutes", "Wi-Fi is up, and the console cannot be reached."],
           ["An update stopped moving", "For 10 minutes."]
         ] },
-        { "text": "Restarts in a row wait longer each time, up to about four a day." },
+        { "text": "Restarts in a row wait longer each time: about 2 minutes, 5 minutes, 30 minutes and 2 hours, then about four a day." },
         { "heading": "The golden image" },
         { "text": "Firmware 1.5.0 is the golden image: one a person can always go back to at the board, with no laptop, Wi-Fi or cloud. The board keeps its name, Wi-Fi and certificates." },
         { "steps": [
@@ -246,10 +248,10 @@
       "keywords": ["diagnostics", "signal", "rssi", "memory", "heap", "uptime", "certificates", "boot", "diary", "mac", "channel", "device id"],
       "sources": ["cloud/web/src/site/assets/views.js", "cloud/web/src/site/assets/telemetry.js", "docs/aws-iot.md"],
       "blocks": [
-        { "text": "Every board of this project, as it last reported." },
+        { "text": "Every board of this project, as it last reported. From firmware 1.11.4 a board shows its own device ID, with its thing name under it." },
         { "rows": [
           ["Heartbeat", "Every 30 s. The page refreshes every 10 s, the charts every minute."],
-          ["Signal", "Wi-Fi strength: Excellent, Good, Fair or Weak."],
+          ["Signal", "Wi-Fi strength: Excellent from −55 dBm, Good from −67, Fair from −75, Weak below."],
           ["Memory", "Free memory now, and the least since the board started. Below 15% free is low."],
           ["Diagnostics report", "Wi-Fi channel and memory, every 5 minutes, from firmware 1.10.0."],
           ["Last boots", "Why each start before ended, from firmware 1.7.4."],
@@ -371,6 +373,20 @@
       ]
     },
     {
+      "id": "resend-wifi",
+      "title": "Sending the Wi-Fi network again",
+      "summary": "With the board on USB, from a computer with the repository.",
+      "keywords": ["wifi", "hotspot", "provision", "provision_device.py", "usb", "network", "ssid"],
+      "sources": ["docs/new-board-setup.md", "firmware/README.md"],
+      "blocks": [
+        { "text": "Connect the board to the computer by USB, and run from the repository:" },
+        { "rows": [
+          ["python tools/provision_device.py --wifi", "Sends the board the Wi-Fi network's name and password again. Its identity and certificates stay."]
+        ] },
+        { "see": ["trouble-offline"] }
+      ]
+    },
+    {
       "id": "trouble-offline",
       "title": "A board is offline",
       "summary": "No report for 90 s: what to check.",
@@ -381,9 +397,11 @@
           "A board counts as offline 90 s after its last report. An open page can take about two minutes to show it.",
           "Usually it is the Wi-Fi: the hotspot is off, or its name differs by a character. Give it a few minutes.",
           "Never connected: power it up and check that it was provisioned.",
+          "To send it the Wi-Fi network again, connect it by USB: see Sending the Wi-Fi network again, under Developer.",
+          "A board that never comes online: its certificate must be attached to it. Its page lists its certificates.",
           "From firmware 1.7.0 a stuck board restarts itself."
         ] },
-        { "see": ["leds", "board-states"] }
+        { "see": ["leds", "board-states", "resend-wifi"] }
       ]
     },
     {
