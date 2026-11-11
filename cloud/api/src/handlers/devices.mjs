@@ -1,5 +1,10 @@
 /**
- * Boards: GET /api/devices and GET /api/devices/{thing}.
+ * Boards: GET /api/devices and GET /api/devices/{thing}, and a board's name in the console:
+ *
+ *   POST /api/devices/{thing}/label   body { label }   -> { thing, label }   device.rename, release managers
+ *
+ * `label` is 1 to 40 printable characters, trimmed, or null or "" to take the name away (lib/names.mjs).
+ * Every Device in a reply carries its `label`, or null.
  *
  * The boards of this project are the members of one thing group. What a board says
  * about itself comes from its shadow and is display data only (lib/shadow.mjs).
@@ -11,9 +16,11 @@
  * MEMFAULT_KEY_CACHE_MS, and a question AWS does not answer says no for MEMFAULT_KEY_RETRY_MS.
  */
 
-import { describeError, notFound } from '../http.mjs';
+import { describeError, field, notFound } from '../http.mjs';
+import { change } from '../lib/audit.mjs';
 import { EXECUTION_STATUSES, isoTime } from '../lib/jobs.mjs';
 import { memfaultView } from '../lib/memfault.mjs';
+import { NAMES_PK, labelFromItem, requireBoardLabel } from '../lib/names.mjs';
 import { deviceFromShadow, unknownDevice } from '../lib/shadow.mjs';
 import { isThing, parseJobId, requireThing } from '../lib/validate.mjs';
 
@@ -65,6 +72,31 @@ function history(executions) {
 
 export function createDeviceHandlers({ aws, config, now, log }) {
   const shadows = new Map();
+  // The names given in the console, thing -> label, and when they were read: { labels, at }.
+  let names = null;
+
+  /** Every board's name given in the console. A partition that cannot be read names nobody; it never fails a list. */
+  async function readLabels() {
+    if (names !== null && now() - names.at < SHADOW_CACHE_MS) return names.labels;
+    const labels = new Map();
+    try {
+      for (const item of await aws.listFleetItems(NAMES_PK)) {
+        const label = labelFromItem(item);
+        if (label !== null && isThing(item?.thing)) labels.set(item.thing, label);
+      }
+    } catch (error) {
+      log({ level: 'warn', event: 'labels_unreadable', error: describeError(error).message });
+      return labels;
+    }
+    names = { labels, at: now() };
+    return labels;
+  }
+
+  /** The Devices with their names given in the console. */
+  async function labelled(devices) {
+    const labels = await readLabels();
+    return devices.map((device) => ({ ...device, label: labels.get(device.thing) ?? null }));
+  }
   // Whether a Memfault project key is stored, and until when that answer holds: { stored, until }.
   let memfaultKey = null;
 
@@ -135,8 +167,26 @@ export function createDeviceHandlers({ aws, config, now, log }) {
     loadShadows,
 
     async list() {
-      const devices = await loadDevices(await groupThings());
+      const devices = await labelled(await loadDevices(await groupThings()));
       return { body: { devices, generatedAt: new Date(now()).toISOString() } };
+    },
+
+    /** A board's name in the console, given or taken away: one item, replaced, and a change on record. */
+    async rename({ actor, params, json, entry }) {
+      const thing = requireThing(params.thing);
+      entry.target = thing;
+      const label = requireBoardLabel(field(json(), 'label') ?? null);
+      if (!(await groupThings()).includes(thing)) {
+        throw notFound('unknown_device', 'No board with that name is registered.');
+      }
+      const before = labelFromItem(await aws.getFleetItem({ pk: NAMES_PK, sk: thing }));
+      const item = { thing, label, at: new Date(now()).toISOString(), by: { sub: actor.sub, email: actor.email } };
+      await aws.putFleetItem({ pk: NAMES_PK, sk: thing, item, replace: true });
+      names = null;
+      if (label !== null) entry.detail.name = label;
+      if (before !== null) entry.detail.renamedFrom = before;
+      change(entry, 'name', before, label);
+      return { body: { thing, label } };
     },
 
     async get({ params }) {
@@ -145,7 +195,7 @@ export function createDeviceHandlers({ aws, config, now, log }) {
         throw notFound('unknown_device', 'No board with that name is registered.');
       }
       const [[device], principals, executions, keyStored] = await Promise.all([
-        loadDevices([thing]),
+        loadDevices([thing]).then(labelled),
         aws.listThingPrincipals(thing),
         aws.listJobExecutionsForThing(thing),
         memfaultKeyStored(),

@@ -2463,9 +2463,9 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
     sdk.reset();
     sdk.reply('ListThingsInThingGroupCommand', { things: [THING] });
     sdk.reply('GetThingShadowCommand', fails('ResourceNotFoundException', { status: 404 }));
-    // The positions of the boards (src/aws-map.mjs), what the board that never reported is, and the
-    // activity log's two partitions: the console's and the customers'.
-    sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] });
+    // The names given in the console (src/lib/names.mjs), the positions of the boards (src/aws-map.mjs), what the
+    // board that never reported is, and the activity log's two partitions: the console's and the customers'.
+    sdk.reply('QueryCommand', { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] }, { Items: [] });
     sdk.reply('DescribeThingCommand', { attributes: {} });
     sdk.reply('ListJobsCommand', { jobs: [] });
     sdk.reply('AdminGetUserCommand', {
@@ -2500,6 +2500,7 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       position: null,
       location: { status: 'none', at: null, apCount: null, checkedAt: null, bluetoothOnly: false },
     },
@@ -2517,6 +2518,7 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       'ListThingsInThingGroupCommand',
       'GetThingShadowCommand',
       'QueryCommand',
+      'QueryCommand',
       'DescribeThingCommand',
       'QueryCommand',
       'ListJobsCommand',
@@ -2524,14 +2526,16 @@ test("the Lambda entry point serves a viewer's reads through the adapter", async
       'QueryCommand',
     ]
   );
+  // The first is the boards' names given in the console (pk NAME of the state table).
   assert.deepEqual(
     sdk.inputs('QueryCommand').map((input) => input.TableName),
-    ['local-events', 'local-state', 'local-audit', 'local-audit']
+    ['local-state', 'local-events', 'local-state', 'local-audit', 'local-audit']
   );
+  assert.equal(sdk.inputs('QueryCommand')[0].ExpressionAttributeValues[':pk'].S, 'NAME');
   assert.deepEqual(
     sdk
       .inputs('QueryCommand')
-      .slice(2)
+      .slice(3)
       .map((input) => input.ExpressionAttributeValues[':pk'].S),
     ['AUD', 'CUS']
   );

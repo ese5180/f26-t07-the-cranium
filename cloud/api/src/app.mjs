@@ -485,6 +485,9 @@ export function createApp({
       { action: 'serial.command', maxBody: SMALL_BODY_LIMIT, unrecordedCodes: ['rate_limited'] },
       atBoard
     ),
+    // A board's name in the console (handlers/devices.mjs, lib/names.mjs): release managers, on record, and from a
+    // phone with a sign-in in the last 15 minutes, as every change is.
+    route('POST', '/api/devices/{thing}/label', devices.rename, { action: 'device.rename', maxBody: SMALL_BODY_LIMIT }),
     // A board's last 20 positions from Wi-Fi (handlers/location.mjs).
     route('GET', '/api/devices/{thing}/positions', location.positions),
     // A command to a board, now: identify (blink) or report (handlers/commands.mjs). Release managers

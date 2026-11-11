@@ -166,6 +166,7 @@ test('an audit item carries who, what, when and how it ended', () => {
     'account.reset',
     'account.remove',
     'device.register',
+    'device.rename',
     'setup.wifi_defaults',
     'db.export',
     'customer_action.rename',

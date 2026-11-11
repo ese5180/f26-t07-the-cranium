@@ -4608,3 +4608,47 @@ test('a board without a name is shown by the short form of its thing name, which
   assert.match(css, /\.thing-id-head \{[^}]*clip-path: inset\(50%\);[^}]*\}/);
   assert.doesNotMatch(css.match(/\.thing-id-head \{[^}]*\}/)[0], /display: none|visibility: hidden/);
 });
+
+test('a release manager names a board on its page, and the name leads wherever the board is shown', async () => {
+  const LABELLED = Object.freeze({
+    ...WORLD,
+    devices: WORLD.devices.map((item) =>
+      item.thing === WAITING ? { ...item, name: 'CRVIHAAN01', label: 'Demo deck 1' } : item
+    ),
+  });
+  const state = await consoleState(LABELLED);
+  // The name given in the console comes first, before the board's own name, on the list and on its page.
+  const list = page(views.devicesView, state);
+  const card = all(list, 'article.device').find((item) => textOf(one(item, 'h2')) === 'Demo deck 1');
+  assert.equal(one(card, 'a.cover-link').getAttribute('href'), `#/devices/${WAITING}`);
+  assert.equal(textOf(one(page(views.deviceView, state, { thing: WAITING }), 'h1')), 'Board Demo deck 1');
+
+  // Rename opens the form, with the name it has; Save and Remove the name ask the app to change it.
+  const { actions, calls } = recorder();
+  const head = page(views.deviceView, state, { thing: WAITING }, actions);
+  click(one(head, 'button', 'Rename'));
+  assert.deepEqual(calls.at(-1), ['toggleRename', WAITING]);
+  const renaming = { ...state, renaming: { thing: WAITING, draft: 'Demo deck 1', busy: false, error: null } };
+  const open = page(views.deviceView, renaming, { thing: WAITING }, actions);
+  const form = one(open, 'section.rename-card');
+  const input = one(form, 'input');
+  assert.equal(input.getAttribute('maxlength'), '40');
+  assert.equal(input.getAttribute('placeholder'), 'CRVIHAAN01', "the board's own name, what it is called without one");
+  click(one(form, 'button', 'Remove the name'));
+  assert.deepEqual(calls.at(-1), ['renameBoard', WAITING, null]);
+  click(one(form, 'button', 'Cancel'));
+  assert.deepEqual(calls.at(-1), ['toggleRename', WAITING]);
+  // A board with no name given has nothing to remove.
+  const plain = page(
+    views.deviceView,
+    { ...renaming, renaming: { ...renaming.renaming, thing: INSTALLING } },
+    {
+      thing: INSTALLING,
+    }
+  );
+  assert.equal(withText(one(plain, 'section.rename-card'), 'button', 'Remove the name').length, 0);
+
+  // A viewer has no Rename.
+  const viewer = await consoleState(LABELLED, { viewer: true });
+  assert.equal(withText(page(views.deviceView, viewer, { thing: WAITING }), 'button', 'Rename').length, 0);
+});

@@ -72,13 +72,28 @@ export function isBoardName(text) {
   return typeof text === 'string' && BOARD_NAME.test(text);
 }
 
+/** A name given in the console: one line of 1 to 40 printable characters, with no space at either end. */
+export function isBoardLabel(text) {
+  return (
+    typeof text === 'string' &&
+    text === text.trim() &&
+    [...text].length >= 1 &&
+    [...text].length <= MAX_BOARD_LABEL &&
+    !UNPRINTABLE.test(text)
+  );
+}
+
+export const MAX_BOARD_LABEL = 40;
+
 /**
- * What to call a board ({ thing, name }): its own name, or its thing name if it has none.
+ * What to call a board ({ thing, label, name }): the name given in the console, else its own name, else its thing
+ * name.
  * `short` cuts a thing name to its start, for a tab's title or a sentence that is read out;
  * `full` adds the thing name to a name, for a tooltip or a line that has to say both.
  */
 export function boardName(board, { short = false, full = false } = {}) {
   const thing = typeof board?.thing === 'string' ? board.thing : '';
+  if (isBoardLabel(board?.label)) return full && thing ? `${board.label} · ${thing}` : board.label;
   if (isBoardName(board?.name)) return full && thing ? `${board.name} · ${thing}` : board.name;
   return short && thing.length > 12 ? `${thing.slice(0, 12)}…` : thing;
 }
@@ -848,6 +863,8 @@ function readDevice(raw) {
     thing: text(item.thing, 64),
     // From firmware 1.11.4. Shown beside the thing name, never in its place.
     name: isBoardName(item.name) ? item.name : null,
+    // The name a release manager gave it in the console (cloud/api/src/lib/names.mjs). It leads where it is set.
+    label: isBoardLabel(item.label) ? item.label : null,
     online: item.online === true,
     lastSeen: instant(item.lastSeen),
     fw,
@@ -3043,6 +3060,14 @@ export function createApi({
         record(await request('POST', `/api/devices/${checked(isThing, thing)}/commands`, body, { once: true })).command
       );
     },
+    /** A board's name in the console, given (1 to 40 printable characters) or taken away (null): the name now. */
+    renameBoard: async (thing, label) => {
+      const given = label === null ? null : checked(isBoardLabel, String(label).trim());
+      const reply = record(
+        await request('POST', `/api/devices/${checked(isThing, thing)}/label`, { label: given }, { once: true })
+      );
+      return isBoardLabel(reply.label) ? reply.label : null;
+    },
     alerts: async () => readAlerts(await get('/api/alerts')),
     subscribeAlerts: async () =>
       text(record(await request('POST', '/api/alerts/subscribe', {}, { once: true })).subscription, 16),
@@ -4563,6 +4588,14 @@ const AUDIT_ACTIONS = {
     tried: 'tried to remove the account of',
     triedAlone: 'tried to remove an account',
     icon: 'x',
+  },
+  // A board's name given in the console, or taken away (cloud/api/src/lib/names.mjs).
+  'device.rename': {
+    done: 'renamed',
+    doneAlone: 'renamed a board',
+    tried: 'tried to rename',
+    triedAlone: 'tried to rename a board',
+    icon: 'chip',
   },
   'device.register': {
     done: 'registered',

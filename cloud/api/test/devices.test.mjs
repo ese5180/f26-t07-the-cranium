@@ -66,6 +66,7 @@ test('boards are listed by name with what their shadows say', async () => {
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       ...UNPLACED,
     },
     // Registered, but it has never connected: there is no shadow.
@@ -82,6 +83,7 @@ test('boards are listed by name with what their shadows say', async () => {
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       ...UNPLACED,
     },
     {
@@ -97,6 +99,7 @@ test('boards are listed by name with what their shadows say', async () => {
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       ...UNPLACED,
     },
   ]);
@@ -211,6 +214,7 @@ test('a hostile shadow shows as little as it deserves', async () => {
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       ...UNPLACED,
     },
     {
@@ -226,6 +230,7 @@ test('a hostile shadow shows as little as it deserves', async () => {
       diag: null,
       diary: null,
       bt: null,
+      label: null,
       ...UNPLACED,
     },
   ]);
