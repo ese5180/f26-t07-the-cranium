@@ -26,12 +26,12 @@ shows as failed (6147aea's first attempt, on 2026-11-05). Re-run it from the run
 | --- | --- | --- | --- |
 | No private key in git | Each push to `main` or `feature/**`, each pull request, and by hand | `scripts/ci/scan-tracked-files.sh` | No tracked file of this commit holds a PEM private key, and no `wifi_secrets.h` is tracked, in any case of its name. It looks at this commit, not at older ones |
 | Host tests | The same | `make -C firmware/tests/host` with gcc, with the address and undefined-behaviour sanitizers on | The parsers, the console, the update code and the golden policy do what their tests say, on a fake of the hardware |
-| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
+| Python tests | The same | `test_board.py`, `test_recover.py`, `test_golden.py`, `test_build_report.py`, `test_memory_budget.py`, `test_check_image.py`, `test_flash_layout.py`, `test_memfault_upload.py`, `test_provision.py`, `test_bt_only_check.py`, and `test_new_board.py` for `scripts/board/new-board.sh` | The tools do what their tests say, against stand-ins for a board and against the console's real code on a pseudo-terminal. `scripts/board/new-board.sh` runs against stand-ins for nrfutil, west, AWS and the tools, and has not run on a board |
 | Cloud tests | The same | `node --test` in `cloud/api`, `cloud/web` and `cloud/dev`, with Node 22 | The console's API and pages do what their tests say, with an in-memory stand-in for AWS |
 | Desktop app (core) | Ubuntu, Node 22 | `npm ci` and `npm test` in `apps/desktop`, then the app started once under a virtual display with the example configuration | The desktop app's core does what its tests say, with no Electron, and the app opens on Linux and draws the customer site's sign-in from its built-in pages ([docs/desktop-app.md](desktop-app.md)). It cannot sign in, and nothing is packaged |
-| Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact. See [The firmware jobs](#the-firmware-jobs) |
-| Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links. Nothing more |
-| Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi, cloud or Memfault code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, as for the default |
+| Firmware (default) | The same | `west build` of the default configuration, in Nordic's toolchain image for the SDK | The commit compiles, links and fits, with a job summary of its sizes and an artifact, and every image keeps its [memory headroom](#memory-headroom). See [The firmware jobs](#the-firmware-jobs) |
+| Firmware (no Bluetooth) | The same | The same build with `-DSB_EXTRA_CONF_FILE=no_bt_sysbuild.conf` | A build without Bluetooth, which every build has from 1.9.0, still compiles and links, and keeps its [memory headroom](#memory-headroom) |
+| Firmware (nRF5340 DK) | The same | `west build` for `nrf5340dk/nrf5340/cpuapp/ns`, the board with Bluetooth only | It compiles, links without Wi-Fi, cloud or Memfault code, and fits, with the Bluetooth controller on the network core, and the image says board type `nrf5340dk` and flash layout `1` (TLVs `0xA1`, `0xA2`). A job summary of its sizes and an artifact, and its [memory headroom](#memory-headroom), as for the default |
 | Android app | Ubuntu, JDK 17 | `./gradlew testDebugUnitTest assembleDebug` in `apps/android`, with the example configuration | The app's unit tests pass (with the parity test of `apps/shared/pages.json` against the console's pages) and it builds. It cannot sign in: the real configuration is never in git |
 | iPhone app | macOS, the runner's newest Xcode | `swift test` in `apps/ios/CraniumKit`, then the XcodeGen project built for iPhone without signing | The logic package's tests pass (with the same parity test) and the app compiles for iPhone. Nothing is signed or installed |
 | Check the release's files | A release is published | `scripts/release/verify-github-release.sh` | See [The check on a release](#the-check-on-a-release) |
@@ -184,6 +184,31 @@ size is shown against its limit. The limits come from the build itself: the regi
 linker's map file, and `slot0_partition` in the devicetree. The used sizes are what the linker reports,
 from the start of a region to the end of what is in it, so TF-M's flash looks nearly full, because its
 veneers sit at a fixed place near the end. The job fails if anything is over its limit.
+
+### Memory headroom
+
+Every firmware job, whatever its configuration, runs `tools/memory_budget.py` right after the build. For
+each image of the build (the application `app`, `mcuboot`, `tfm`, and the network core's image under the
+name of its build folder, such as `hci_ipc` or `netcore_blinky`) it writes flash and RAM used, total and
+free to the job summary, and the same numbers as `memory.json` in an artifact named
+`firmware-memory-<configuration>-<commit>` (30 days). Used and total are read as `tools/build_report.py`
+reads them.
+
+`tools/memory_budgets.json` holds, for each configuration of the job, the least flash and RAM each image
+must keep free (`flash_free_min`, `ram_free_min`, in bytes). The job fails, with a GitHub error line that
+names the configuration, the image, what is left and the floor, when an image keeps less, when it uses
+more than its region holds, when a floor names an image the build does not have, or when the
+configuration has no floors at all (a new build job gets its floors when it is added; a test checks that
+every configuration of the matrix has them). An image with no floor is reported all the same.
+
+The floors start just below what the builds had when they were set (the `_measured` note of each
+configuration says what): for the nRF7002 DK's default build, the application keeps 1,000 bytes of RAM
+and 40 KiB of flash, MCUboot 14 KiB of flash and TF-M 500 bytes of flash. A change that needs less
+headroom lowers the floor in the same pull request and says why there; one that frees memory may raise
+it. The `Pi` floors (the application keeps 20 KiB of RAM) are for the firmware job's Raspberry Pi
+configuration, which comes with that work and is not on main yet.
+
+Locally, after a build: `python3 -I tools/memory_budget.py --build build --configuration default`.
 
 ## The firmware build image
 
@@ -545,6 +570,7 @@ python3 firmware/tests/hil/test_board.py
 python3 firmware/tests/hil/test_recover.py
 python3 firmware/tests/hil/test_golden.py
 python3 firmware/tests/hil/test_build_report.py
+python3 firmware/tests/hil/test_memory_budget.py
 python3 firmware/tests/hil/test_check_image.py
 python3 firmware/tests/hil/test_flash_layout.py
 python3 firmware/tests/hil/test_memfault_upload.py

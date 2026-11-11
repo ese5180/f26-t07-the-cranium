@@ -102,6 +102,12 @@ from 1.14.0 (400 KiB before). Then come 64 bytes for Memfault's reboot reason (`
 for its coredump (`MFLT_COREDUMP`, `0x2006f040`), 64 left unused, and the 64 KiB the two cores share, from
 `0x20070000`. See [Memfault](#memfault).
 
+Every build on GitHub Actions reports what each image (application, MCUboot, TF-M, network core) uses of its
+flash and RAM and what is left, and fails when an image keeps less than its floor in `tools/memory_budgets.json`:
+for the nRF7002 DK the application keeps at least 1,000 bytes of RAM and 40 KiB of flash. After a local build,
+`python3 -I tools/memory_budget.py --build build --configuration default` prints the same table
+([docs/ci.md](../docs/ci.md#memory-headroom)).
+
 ## Serial console
 
 The board is set up and debugged from a plain serial monitor, one command per line, on the
