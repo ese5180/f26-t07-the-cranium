@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.15
+
+A board's page says "Board ID cranium-…" under its title whether or not the board has a name. A named board's page said "AWS IoT thing cranium-…" there, naming an AWS service on a product page.
+
+views.test.mjs now holds a board's page to the rule app.test.mjs holds the other product pages to (no AWS service, script or key path outside a Details), for a named board, an unnamed one and one that never reported: app.test.mjs cannot load a board's page, so it was not checked before. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.14
 
 Board names. A release manager names a board on its page (Rename, up to 40 characters, or empty to take the name away), and the name leads everywhere the console and the apps show the board: Devices, a board's page, Deployments, Fleet, Events and Activity, with the board's ID after it. Viewers see the name and cannot change it. Each change is in the activity log as "renamed", with the name before and after. The board's own name, which it reports, still shows where no name is given, and the customer site's names stay the customers' own.

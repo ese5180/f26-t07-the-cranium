@@ -1836,7 +1836,7 @@ test('a board is shown by its own name first and its thing name second, on every
   // The board's own page: the name is its title, the thing name right under it.
   const own = page(views.deviceView, state, { thing: WAITING });
   assert.equal(textOf(one(own, 'h1')), 'Board CRVIHAAN01');
-  assert.equal(textOf(one(own, 'div.page-meta')), `AWS IoT thing ${WAITING}`);
+  assert.equal(textOf(one(own, 'div.page-meta')), `Board ID ${WAITING}`);
   const plain = page(views.deviceView, state, { thing: INSTALLING });
   // A board without a name is its thing name in the short form, "…5da0b9e5": the whole of it is in the title for a
   // copy and a screen reader, out of sight, and written out under the title.
@@ -1845,6 +1845,22 @@ test('a board is shown by its own name first and its thing name second, on every
   assert.equal(short.getAttribute('title'), INSTALLING);
   assert.equal(textOf(one(short, 'span.thing-id-head')), INSTALLING.slice(0, -8));
   assert.equal(textOf(one(plain, 'div.page-meta')), `Board ID ${INSTALLING}`);
+  // A product page names no AWS service, script or key path outside a Details, named or not (app.test.mjs holds
+  // the other pages to the same rule; it cannot load a board's page).
+  const internals = /deploy\.sh|DynamoDB|Cognito|~\/\.cranium|scripts\/|\bAWS\b|CustomerDomainName/;
+  const outsideDetails = (node) =>
+    node.nodeType === 3
+      ? node.textContent
+      : node.localName === 'details'
+        ? ' '
+        : node.childNodes.map(outsideDetails).join(' ');
+  for (const [which, root] of [
+    ['named', own],
+    ['unnamed', plain],
+    ['never reported', page(views.deviceView, state, { thing: NEVER })],
+  ]) {
+    assert.doesNotMatch(outsideDetails(root).replace(/\s+/g, ' '), internals, which);
+  }
   // Before its own copy has come, the page takes the name from the list of boards.
   const early = page(views.deviceView, { ...state, deviceDetails: new Map() }, { thing: WAITING });
   assert.equal(textOf(one(early, 'h1')), 'Board CRVIHAAN01');
