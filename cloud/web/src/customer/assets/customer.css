@@ -86,11 +86,12 @@
 
 /* The column of the sidebar is painted on the frame, so that it goes down as far as the page does. */
 .cs-shell {
+  --side-width: calc(264px + var(--safe-left));
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: var(--side-width) minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100dvh;
-  background: linear-gradient(to right, var(--side) 264px, transparent 264px);
+  background: linear-gradient(to right, var(--side) var(--side-width), transparent var(--side-width));
 }
 
 .cs-side {
@@ -101,7 +102,7 @@
   gap: 28px;
   height: 100vh;
   height: 100dvh;
-  padding: 26px 18px 20px;
+  padding: calc(26px + var(--safe-top)) 18px calc(20px + var(--safe-bottom)) calc(18px + var(--safe-left));
   overflow-y: auto;
   background: var(--side);
 }
@@ -292,6 +293,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding-right: var(--safe-right);
 }
 
 .cs-top {
@@ -396,7 +398,7 @@
   width: calc(100% - 2 * var(--gutter));
   max-width: calc(1280px - 2 * var(--gutter));
   margin: 0 auto;
-  padding: 18px 0 28px;
+  padding: 18px 0 calc(28px + var(--safe-bottom));
   border-top: 1px solid var(--line);
   color: var(--ink-2);
   font-size: var(--type-small);
@@ -1111,7 +1113,7 @@
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 14px var(--gutter);
+  padding: calc(14px + var(--safe-top)) max(var(--gutter), var(--safe-right)) 14px max(var(--gutter), var(--safe-left));
   border-bottom: 1px solid var(--line);
   background: var(--paper);
 }
@@ -1138,7 +1140,7 @@
   width: 100%;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 var(--gutter);
+  padding: 0 max(var(--gutter), var(--safe-right)) 0 max(var(--gutter), var(--safe-left));
 }
 
 .cs-landing-main:focus {
@@ -1342,7 +1344,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px 24px;
-  padding: 24px var(--gutter) 32px;
+  padding: 24px max(var(--gutter), var(--safe-right)) calc(32px + var(--safe-bottom))
+    max(var(--gutter), var(--safe-left));
   border-top: 1px solid var(--line);
   color: var(--ink-2);
   font-size: var(--type-small);
@@ -2191,10 +2194,26 @@ a.cs-panel-foot:hover {
   gap: 4px;
 }
 
+/*
+ * Up to the width of an iPhone 17 Pro (402px) and a Pro Max in a narrow window, the top bar's brand word, its two
+ * icons and "Connect device" are wider than the screen: the brand is its mark there, and keeps its name for a
+ * screen reader.
+ */
+@media (max-width: 440px) {
+  .cs-top-brand .cs-brand-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 /* The dialogs of the mixes. */
 
 .cs-dialog {
-  width: min(600px, calc(100vw - 32px));
+  width: min(600px, calc(100vw - 2 * max(16px, var(--safe-left), var(--safe-right))));
 }
 
 .cs-dialog-body .dialog-body {
@@ -2325,8 +2344,14 @@ a.cs-panel-foot:hover {
     top: 0;
     z-index: 15;
     min-height: 0;
-    padding: 10px 16px;
+    padding: calc(10px + var(--safe-top)) 16px 10px;
     background: var(--paper);
+  }
+
+  /* A phone in landscape: the page clear of the notch or the island at either side. */
+  .cs-body {
+    padding-right: var(--safe-right);
+    padding-left: var(--safe-left);
   }
 
   .cs-top-brand {
@@ -2379,7 +2404,7 @@ a.cs-panel-foot:hover {
   }
 
   .cs-body {
-    padding-bottom: 68px;
+    padding-bottom: calc(68px + var(--safe-bottom-bar));
   }
 
   .cs-tabbar {
@@ -2389,7 +2414,7 @@ a.cs-panel-foot:hover {
     left: 0;
     z-index: 20;
     display: block;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
   }
 
   .cs-tabbar ul {

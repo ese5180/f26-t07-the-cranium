@@ -7,6 +7,18 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.11
+
+The console and the customer site fit an iPhone's screen in the apps, edge to edge, clear of the Dynamic Island, the home indicator and the rounded corners (reference: iPhone 17 Pro, 402 x 874). The top bar starts under the island, the tab bar ends above the home indicator and high enough that its first and last tabs are out of the corners, dialogs stay between the two, and in landscape the sidebars, the pages and the sign-in pages keep clear of the island at the side. On the customer site the top bar fits a 402-point phone: up to 440 px its brand is the mark alone. A browser shows the pages as before.
+
+`index.html` of both sites asks for `viewport-fit=cover`, and `app.css` names the safe areas (`--safe-top`,
+`--safe-right`, `--safe-bottom`, `--safe-left`, from `env(safe-area-inset-*)`) and `--safe-bottom-bar`: the inset, but
+at least 44px where there is one. The console's tab bar, sidebar, page, foot, toasts, sign-in pages and dialogs, and the
+customer site's top bar, tab bar, sidebar, landing bar, foot and dialogs pad with them. `cloud/web/test/safe-area.test.mjs`
+checks the rules. The apps change with it (0.8.22): the iPhone shell's web view runs under the island and the home
+indicator with no inset of its own, and the Android shell's page keeps clear of a display cutout as well as the system
+bars and the keyboard.
+
 ## 2.25.5
 
 A Release notes page, under Developer, with a tab for each product: the console, the firmware, the iPhone app, the Android app, the desktop app (Windows and Linux) and the Mac app. Each tab lists every version, newest first, with its date, the first paragraph of its changelog entry and the rest under More, and its release tag and commit; firmware versions also name their boards and their flash and RAM where the changelog gives them. The version in use, or the newest released one, is marked, and a newer version without a tag says "Not released yet". The version number at the foot of every page and the History page's What's new lead there, and in an app the foot's Release notes link opens that app's tab. Every app shows it, as they show the console's pages.

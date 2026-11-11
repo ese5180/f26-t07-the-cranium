@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,7 +96,9 @@ fun ShellScreen(vm: ShellViewModel, onClassic: () -> Unit) {
     }
 
     AppUpdateFrame(vm.updater) {
-        Box(Modifier.fillMaxSize().background(colors.paper).systemBarsPadding().imePadding()) {
+        // Clear of the status and navigation bars, a display cutout (a camera hole or notch, also at a side in
+        // landscape) and the keyboard: the page is never drawn under any of them.
+        Box(Modifier.fillMaxSize().background(colors.paper).safeDrawingPadding()) {
             when (start) {
                 is ShellStart.Ready -> key(generation) {
                     AndroidView(
