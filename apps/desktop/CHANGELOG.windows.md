@@ -4,6 +4,12 @@ One entry per version, newest first; the version is `extraMetadata.version` in `
 released version is tagged `desktop-windows-v<version>` ([docs/versions.md](../../docs/versions.md)). The first
 paragraph is what a release says.
 
+## 0.1.15
+
+The app reads only well-formed answers from a board over Bluetooth. Its CBOR reader took a "break" byte where none may stand (inside a list or map of known length, or after a tag) as a value, read a number as part of a text string sent in pieces, and took a key named "__proto__" as the shape of the whole answer instead of as a key. Each of these is now refused as a reading error, as other malformed answers already were; what Zephyr's MCUmgr sends reads as before.
+
+src/lib/cbor.mjs; smp.test.mjs checks each case.
+
 ## 0.1.14
 
 Scheduled starts and maintenance windows from the console (2.20.0 and later): a deployment, a staged rollout or a roll back to last good can be scheduled for later, and a group can have a maintenance window.
