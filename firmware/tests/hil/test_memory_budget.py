@@ -188,7 +188,8 @@ class TheProjectsFloors(unittest.TestCase):
     def test_the_nrf7002_dk_keeps_the_floors_it_was_given(self):
         floors = memory_budget.load_budgets(memory_budget.DEFAULT_BUDGETS, "default")
         self.assertGreaterEqual(floors["app"]["ram_free_min"], 1000)
-        self.assertGreaterEqual(floors["app"]["flash_free_min"], 40 * 1024)
+        # 40 KiB until offline Bluetooth mode (firmware 1.19.1, #127), which takes about 4.5 KB: 39.5 KiB since.
+        self.assertGreaterEqual(floors["app"]["flash_free_min"], 39 * 1024 + 512)
         self.assertGreaterEqual(floors["tfm"]["flash_free_min"], 500)
 
 
