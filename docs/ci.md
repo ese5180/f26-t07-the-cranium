@@ -205,8 +205,12 @@ The floors start just below what the builds had when they were set (the `_measur
 configuration says what): for the nRF7002 DK's default build, the application keeps 1,000 bytes of RAM
 and 40 KiB of flash, MCUboot 14 KiB of flash and TF-M 500 bytes of flash. A change that needs less
 headroom lowers the floor in the same pull request and says why there; one that frees memory may raise
-it. The `Pi` floors (the application keeps 20 KiB of RAM) are for the firmware job's Raspberry Pi
-configuration, which comes with that work and is not on main yet.
+it. The `Pi image updates` floors (the application keeps 20 KiB of RAM) are for the firmware job's
+configuration of that name, which comes with the Raspberry Pi work and is not on main yet: a key is the
+configuration's name exactly as the matrix writes it, so a job on an open pull request has its floors
+before it lands, and the same test passes before and after it does. A key that is neither in the matrix
+nor listed as coming in `test_memory_budget.py` fails that test, so that a renamed job cannot leave its
+floors behind.
 
 Locally, after a build: `python3 -I tools/memory_budget.py --build build --configuration default`.
 

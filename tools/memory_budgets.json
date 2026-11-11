@@ -18,8 +18,8 @@
     "mcuboot": { "flash_free_min": 20480 },
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
-  "Pi": {
-    "_measured": "for the firmware job's Pi configuration, which comes with the Raspberry Pi work (#165); not built on main yet",
+  "Pi image updates": {
+    "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",
     "app": { "ram_free_min": 20480 }
   }
 }

@@ -171,6 +171,20 @@ class TheProjectsFloors(unittest.TestCase):
         self.assertIn("python3 -I tools/memory_budget.py --build build --configuration", job)
         self.assertLess(job.index("tools/memory_budget.py"), job.index("tools/build_report.py"))
 
+    def test_every_floor_is_for_a_configuration_of_the_matrix_or_one_on_its_way(self):
+        # Configurations of the firmware job on open pull requests, by their names in those PRs' ci.yml,
+        # so that their first run finds floors. Once such a job is on main it is in the matrix as well,
+        # and this still passes; take its name out of here then.
+        coming = {"Pi image updates"}  # #165, the Raspberry Pi work
+        workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+        job = workflow.split("\n  firmware:\n", 1)[1].split("\n  # A release of firmware", 1)[0]
+        in_matrix = set(re.findall(r"^ +- configuration: (.+)$", job, re.MULTILINE))
+        keys = {key for key in json.loads(memory_budget.DEFAULT_BUDGETS.read_text()) if not key.startswith("_")}
+        self.assertEqual(keys - in_matrix - coming, set(), "floors for a configuration no job has")
+        for configuration in in_matrix | coming:
+            with self.subTest(configuration=configuration):
+                self.assertIn("app", memory_budget.load_budgets(memory_budget.DEFAULT_BUDGETS, configuration))
+
     def test_the_nrf7002_dk_keeps_the_floors_it_was_given(self):
         floors = memory_budget.load_budgets(memory_budget.DEFAULT_BUDGETS, "default")
         self.assertGreaterEqual(floors["app"]["ram_free_min"], 1000)
