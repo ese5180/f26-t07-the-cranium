@@ -152,6 +152,8 @@ function sectionOf(route) {
 }
 
 function siteOrMixIcon(name) {
+  // Offline mode has the console's own mark (a cloud struck through), not Bluetooth's: Connect device has that.
+  if (name === 'cloud-off') return icon('cloud-off');
   return SITE_ICONS[name] ? siteIcon(name) : mixIcon(name);
 }
 
@@ -168,7 +170,7 @@ function offlineEntry(adminPath) {
   return h(
     'a',
     { class: 'cs-offline', href: offlineHref(adminPath), key: 'offline' },
-    mixIcon('bluetooth'),
+    icon('cloud-off'),
     h(
       'span',
       { class: 'cs-offline-text' },
@@ -181,7 +183,7 @@ function offlineEntry(adminPath) {
 
 function craniumItems(ctx) {
   if (!ctx.state.app?.offline) return CRANIUM;
-  return [...CRANIUM, ['offline', offlineHref(ctx.site.adminPath), 'Offline mode', 'bluetooth']];
+  return [...CRANIUM, ['offline', offlineHref(ctx.site.adminPath), 'Offline mode', 'cloud-off']];
 }
 
 function navLinks(items, current, className, ctx, { short = false } = {}) {
@@ -357,7 +359,7 @@ export function shellView(ctx, page) {
                   'aria-label': 'Offline mode',
                   title: 'Offline mode: a board nearby, over Bluetooth',
                 },
-                mixIcon('bluetooth')
+                icon('cloud-off')
               )
             : null,
           adminButton(ctx, 'is-top'),
