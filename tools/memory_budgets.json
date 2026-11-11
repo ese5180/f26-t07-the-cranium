@@ -1,0 +1,25 @@
+{
+  "_about": "The least flash and RAM, in bytes, each image of a firmware build must keep free; tools/memory_budget.py checks them in every firmware job (docs/ci.md, 'Memory headroom'). Keyed by the firmware job's matrix configuration, then by image: app, mcuboot, tfm, or the network core's build folder. Each floor starts just below what the build had when it was set. Lower one only in the pull request that needs it, and say why there.",
+  "default": {
+    "_measured": "1.18.0, main e29e53a: app 45298 flash / 1100 RAM free, mcuboot 15212 flash, tfm 552 flash / 12532 RAM",
+    "app": { "flash_free_min": 40960, "ram_free_min": 1000 },
+    "mcuboot": { "flash_free_min": 14336 },
+    "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
+  },
+  "no Bluetooth": {
+    "_measured": "not reported before this check; the default's floors until a first run measures it",
+    "app": { "flash_free_min": 40960, "ram_free_min": 1000 },
+    "mcuboot": { "flash_free_min": 14336 },
+    "tfm": { "flash_free_min": 500, "ram_free_min": 12288 }
+  },
+  "nRF5340 DK": {
+    "_measured": "1.18.0, main e29e53a: app 598114 flash / 302552 RAM free, mcuboot 22016 flash, tfm 49708 flash / 19316 RAM",
+    "app": { "flash_free_min": 589824, "ram_free_min": 294912 },
+    "mcuboot": { "flash_free_min": 20480 },
+    "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
+  },
+  "Pi": {
+    "_measured": "for the firmware job's Pi configuration, which comes with the Raspberry Pi work (#165); not built on main yet",
+    "app": { "ram_free_min": 20480 }
+  }
+}

@@ -1116,7 +1116,8 @@ test('the signing key comes from nowhere but the job, and is neither cached nor 
   assert.match(WORKFLOW, /imgtool\.py" keygen -t ecdsa-p256 -k "\$HOME\/\.cranium\/mcuboot_signing_key\.pem"/);
   assert.doesNotMatch(WORKFLOW, /python3? tools\/keys\.py/, 'it would write over the public key in the repository');
   for (const path of WORKFLOW.matchAll(/^\s+path: (.+)$/gm)) {
-    assert.ok(['~/ncs', '~/.ccache', 'ci-artifact/'].includes(path[1]), path[1]);
+    // memory-report/ holds only tools/memory_budget.py's numbers.
+    assert.ok(['~/ncs', '~/.ccache', 'ci-artifact/', 'memory-report/'].includes(path[1]), path[1]);
   }
   assert.doesNotMatch(WORKFLOW, /path: ~\/\.cranium/);
   // Only a cache of exactly this SDK. The compiler's cache may come from an earlier run on main:

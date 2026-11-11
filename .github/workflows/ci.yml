@@ -119,6 +119,7 @@ jobs:
           run_test test_recover.py 'OK'
           run_test test_golden.py 'OK (skipped=1)'
           run_test test_build_report.py 'OK'
+          run_test test_memory_budget.py 'OK'
           run_test test_check_image.py 'OK'
           run_test test_flash_layout.py 'OK (skipped=1)'
           run_test test_memfault_upload.py 'OK'
@@ -311,6 +312,7 @@ jobs:
     env:
       BOARD: ${{ matrix.board }}
       CMAKE_ARGS: ${{ matrix.cmake-args }}
+      CONFIGURATION: ${{ matrix.configuration }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -392,6 +394,23 @@ jobs:
           cd "$HOME/ncs"
           west build -d "$GITHUB_WORKSPACE/build" -b "$BOARD" --sysbuild --pristine=always "$GITHUB_WORKSPACE/firmware/app" "${arguments[@]}"
           ccache --show-stats || true
+
+      # Flash and RAM used, total and free for each image (app, MCUboot, TF-M, the network core), against
+      # the floors in tools/memory_budgets.json: the job fails when an image keeps less than its floor
+      # (docs/ci.md, "Memory headroom").
+      - name: Check the memory headroom of each image
+        run: |
+          python3 -I tools/memory_budget.py --build build --configuration "$CONFIGURATION" \
+            --summary "$GITHUB_STEP_SUMMARY" --json memory-report/memory.json
+
+      - name: Upload the memory report
+        if: always() && hashFiles('memory-report/memory.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware-memory-${{ matrix.configuration }}-${{ github.sha }}
+          path: memory-report/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Save the compiler cache
         if: github.ref == 'refs/heads/main'
