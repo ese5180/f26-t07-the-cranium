@@ -335,7 +335,8 @@ test('the frame is a tab bar on a phone and a sidebar from 861 px, around the pa
   const phone = '@media (max-width: 860px)';
   assert.equal(declared('.nav', phone).get('position'), 'fixed');
   assert.equal(declared('.nav', phone).get('bottom'), '0');
-  assert.match(declared('.nav', phone).get('padding'), /env\(safe-area-inset-bottom\)/);
+  // Above the home indicator, and out of the screen's rounded corners (safe-area.test.mjs).
+  assert.match(declared('.nav', phone).get('padding'), /var\(--safe-bottom-bar\)/);
   assert.equal(declared('.nav-item.is-secondary', phone).get('display'), 'none');
   assert.equal(declared('.nav-item', phone).get('flex'), '1 1 0');
   assert.equal(declared('.nav-item', phone).get('min-width'), '0');
@@ -357,7 +358,7 @@ test('the frame is a tab bar on a phone and a sidebar from 861 px, around the pa
   // Wider: every section in a sidebar, and no More.
   const wide = '@media (min-width: 861px)';
   assert.equal(declared('.nav-item.is-more', wide).get('display'), 'none');
-  assert.equal(declared('body.is-framed', wide).get('padding-left'), 'var(--sidebar)');
+  assert.equal(declared('body.is-framed', wide).get('padding-left'), 'calc(var(--sidebar) + var(--safe-left))');
   assert.equal(declared('body.is-framed .masthead', wide).get('position'), 'fixed');
   assert.equal(declared('.nav-list', wide).get('flex-direction'), 'column');
   // The address and the session give way with an ellipsis rather than pushing the buttons out.

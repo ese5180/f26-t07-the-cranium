@@ -449,6 +449,20 @@ strong {
   top: 12px;
 }
 
+/*
+ * The screen's safe areas (index.html asks for them with viewport-fit=cover): an iPhone's Dynamic Island or notch,
+ * its home indicator and, in landscape, the sides. Each is 0 on a screen without one, and in a browser.
+ * --safe-bottom-bar is where a bar at the foot of the screen ends: above the home indicator and, on a screen with
+ * rounded corners (one with a bottom inset), at least 44px up, so that no tab sits in a corner.
+ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-bottom-bar: max(var(--safe-bottom), min(calc(var(--safe-bottom) * 100), 44px));
+}
+
 .masthead {
   position: sticky;
   top: 0;
@@ -752,7 +766,7 @@ body.is-scrolled .masthead-title {
     bottom: 0;
     left: 0;
     z-index: 30;
-    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
     border-top: 1px solid var(--line);
     background: var(--bar);
   }
@@ -824,20 +838,20 @@ body.is-scrolled .masthead-title {
   }
 
   .main {
-    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-6));
+    padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-6));
   }
 
   .foot {
-    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-5));
+    padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-5));
   }
 
   .toasts {
-    bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + var(--space-3));
+    bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-3));
   }
 
   html {
     scroll-padding-top: calc(var(--topbar) + env(safe-area-inset-top) + 0.5rem);
-    scroll-padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 0.5rem);
+    scroll-padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + 0.5rem);
   }
 }
 
@@ -850,7 +864,7 @@ body.is-scrolled .masthead-title {
   }
 
   body.is-framed {
-    padding-left: var(--sidebar);
+    padding-left: calc(var(--sidebar) + var(--safe-left));
   }
 
   body.is-framed .masthead {
@@ -858,7 +872,7 @@ body.is-scrolled .masthead-title {
     top: 0;
     bottom: 0;
     left: 0;
-    width: var(--sidebar);
+    width: calc(var(--sidebar) + var(--safe-left));
     overflow-y: auto;
     border-right: 1px solid var(--line);
     border-bottom: 0;
@@ -871,7 +885,8 @@ body.is-scrolled .masthead-title {
     align-items: stretch;
     gap: var(--space-5);
     min-height: 100%;
-    padding: var(--space-5) var(--space-3) var(--space-4);
+    padding: var(--space-5) var(--space-3) calc(var(--space-4) + var(--safe-bottom))
+      calc(var(--space-3) + var(--safe-left));
   }
 
   body.is-framed .brand {
@@ -940,7 +955,7 @@ body.is-scrolled .masthead-title {
 .main {
   max-width: var(--page);
   margin: 0 auto;
-  padding: clamp(20px, 2.2vw, 32px) var(--gutter) 96px;
+  padding: clamp(20px, 2.2vw, 32px) max(var(--gutter), var(--safe-right)) 96px max(var(--gutter), var(--safe-left));
 }
 
 .main:focus {
@@ -2287,7 +2302,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   flex-direction: column;
   justify-content: space-between;
   gap: 48px;
-  padding: clamp(24px, 4vw, 56px) clamp(20px, 5vw, 88px);
+  padding: calc(clamp(24px, 4vw, 56px) + var(--safe-top)) calc(clamp(20px, 5vw, 88px) + var(--safe-right))
+    clamp(24px, 4vw, 56px) calc(clamp(20px, 5vw, 88px) + var(--safe-left));
 }
 
 .gate-brand {
@@ -5349,10 +5365,11 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
  * its steps stay where they are when its height changes from one step to the next.
  */
 .dialog {
-  --dialog-top: max(16px, 9vh);
-  width: min(640px, calc(100vw - 2 * var(--gutter)));
-  max-height: min(780px, calc(100vh - var(--dialog-top) - 16px));
-  max-height: min(780px, calc(100dvh - var(--dialog-top) - 16px));
+  --dialog-top: max(16px, 9vh, calc(var(--safe-top) + 12px));
+  --dialog-bottom: max(16px, calc(var(--safe-bottom) + 12px));
+  width: min(640px, calc(100vw - 2 * max(var(--gutter), var(--safe-left), var(--safe-right))));
+  max-height: min(780px, calc(100vh - var(--dialog-top) - var(--dialog-bottom)));
+  max-height: min(780px, calc(100dvh - var(--dialog-top) - var(--dialog-bottom)));
   margin-top: var(--dialog-top);
   padding: 0;
   overflow: hidden;
@@ -5639,7 +5656,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: grid;
   gap: 8px;
   position: fixed;
-  bottom: 24px;
+  bottom: calc(24px + var(--safe-bottom));
   left: 50%;
   z-index: 40;
   width: min(480px, calc(100vw - 2 * var(--gutter)));
@@ -5981,7 +5998,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
   /* As tall as the screen allows, from the same line at every step of a dialog. */
   .dialog {
-    --dialog-top: 16px;
+    --dialog-top: max(16px, calc(var(--safe-top) + 12px));
   }
 
   /* The title stays a title at large text, and does not take the room of what it asks about. */
@@ -9216,7 +9233,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .foot {
   max-width: var(--page);
   margin: -64px auto 0;
-  padding: 0 var(--gutter) 32px;
+  padding: 0 max(var(--gutter), var(--safe-right)) calc(32px + var(--safe-bottom)) max(var(--gutter), var(--safe-left));
 }
 
 .foot-inner {
