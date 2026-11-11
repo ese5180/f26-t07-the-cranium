@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.12
+
+A value with no space in it, such as your e-mail address on Account, now breaks onto a second line inside its card instead of running out of it and making the page scroll sideways (at 320 px with a short address, at 390 px with a longer one). The same holds wherever a page lists label and value side by side: IDs, digests and addresses on Team, Customers, Firmware and a board's page.
+
+`.fact dd` takes `overflow-wrap: anywhere`, and a badge in it may wrap (`.fact dd .badge`: the "Not a registered release" badge on a board's page made it 334 px wide at 320). site.test.mjs checks both. The apps load the same bundle, so they get this with no app change.
+
 ## 2.25.11
 
 The console and the customer site fit an iPhone's screen in the apps, edge to edge, clear of the Dynamic Island, the home indicator and the rounded corners (reference: iPhone 17 Pro, 402 x 874). The top bar starts under the island, the tab bar ends above the home indicator and high enough that its first and last tabs are out of the corners, dialogs stay between the two, and in landscape the sidebars, the pages and the sign-in pages keep clear of the island at the side. On the customer site the top bar fits a 402-point phone: from 401 to 440 px its brand is the mark alone (below 400 px "Connect device" is its icon, since 2.25.6). A browser shows the pages as before.

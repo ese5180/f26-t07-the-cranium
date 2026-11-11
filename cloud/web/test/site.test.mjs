@@ -802,6 +802,15 @@ test("on a 320 px phone the Apps page's download button wraps inside its card", 
   assert.equal(declared('.app-actions .btn').get('overflow-wrap'), 'anywhere');
 });
 
+test("a fact's value with no space in it breaks inside its card", () => {
+  // On Account at 320 px "manager@preview.invalid" ran 48 px out of its cell, and the page scrolled sideways; a
+  // longer address does at 390 px.
+  assert.equal(declared('.fact dd').get('overflow-wrap'), 'anywhere');
+  // And a badge in one ("Not a registered release" on a board's page was 334 px wide at 320).
+  assert.equal(declared('.fact dd .badge').get('white-space'), 'normal');
+  assert.equal(declared('.fact dd .badge').get('max-width'), '100%');
+});
+
 test('a percentage and the name of a slot stay in one piece', () => {
   const stylesheet = readFileSync(new URL('../src/site/assets/app.css', import.meta.url), 'utf8');
   // In a narrow column of the overview it broke as "40" and "%" on two lines.
