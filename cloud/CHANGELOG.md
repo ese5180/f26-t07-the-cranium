@@ -7,6 +7,17 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.15
+
+Design tokens v2, the first step of the redesign's design system. The colours take the design audit's values: a page a step darker than its cards, borders and secondary text as the audit measured them, and in the dark theme a card's edge that stands out from the page (1.51:1, from 1.44:1). Corners come in one set (6 px controls, 10 px tiles, 14 px cards and sheets, pills), and the layouts change at one set of widths (380, 460, 560, 700, 860 and 1100 px) instead of 24. Nothing moves except where a width or a corner was rounded to the set: on the customer site "Connect device" is its icon up to 460 px, so the top bar fits every phone with the brand's name.
+
+`app.css` names the new tokens (`--canvas`, `--surface`, `--sunken`, `--border`, `--border-strong`, `--*-soft`,
+`--info`, `--idle`, `--radius-control/-tile/-card/-pill`, `--space-1` to `--space-7`, `--elevation-1/-2`); the older
+names (`--grouped`, `--line`, `--line-field`, `--*-wash`, `--work`, `--radius*`) are aliases of them, declared in every
+scope that sets colours, so a rule written with either reads the same inside an ink panel. A card's edge is
+`var(--elevation-1)`. home.css takes the same values. site.test.mjs pins the tokens, the aliases, the radius and
+breakpoint sets and the card edge's contrast.
+
 ## 2.25.14
 
 Board names. A release manager names a board on its page (Rename, up to 40 characters, or empty to take the name away), and the name leads everywhere the console and the apps show the board: Devices, a board's page, Deployments, Fleet, Events and Activity, with the board's ID after it. Viewers see the name and cannot change it. Each change is in the activity log as "renamed", with the name before and after. The board's own name, which it reports, still shows where no name is given, and the customer site's names stay the customers' own.

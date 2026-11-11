@@ -16,31 +16,31 @@
   color-scheme: light dark;
 
   --paper: #faf7f2;
-  --surface: #fffdfa;
+  --surface: #fffdf9;
   --well: #f4efe7;
-  --line: #e7dfd3;
+  --border: #ddd3c5;
   --line-strong: #d1c6b6;
-  --line-field: #94887a;
+  --border-strong: #8f8375;
   --rule: #1c1814;
   --ink: #1c1814;
-  --ink-2: #574e45;
-  --ink-3: #72675b;
+  --ink-2: #544b42;
+  --ink-3: #6b6055;
 
   --accent: #b7410e;
   --accent-strong: #983509;
-  --accent-wash: #f8e8dd;
+  --accent-soft: #f8e6da;
   --on-accent: #fffaf5;
 
-  --good: #2d6a3e;
-  --good-wash: #e4efe2;
-  --warn: #8f5b00;
-  --warn-wash: #f8ecd0;
+  --good: #2a6539;
+  --good-soft: #e3eee0;
+  --warn: #875500;
+  --warn-soft: #f7ead0;
   --bad: #9c1c3f;
-  --bad-wash: #f9e3e6;
+  --bad-soft: #f8e2e5;
   /* The system at work: downloading, checking, restarting, on trial. Rust is never this:
      rust is the brand and "your move". */
-  --work: #1c5c94;
-  --work-wash: #e2ecf4;
+  --info: #1c5c94;
+  --info-soft: #e1ebf4;
   /* The fill of a button or message that destroys something: a red that carries light
      lettering in both themes, where --bad itself turns into a text colour in the dark. */
   --bad-fill: #9c1c3f;
@@ -95,14 +95,15 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
-  --radius: 6px;
-  --radius-small: 5px;
   --gutter: clamp(16px, 3.4vw, 48px);
   --page: 1720px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   /* The app's system (console 2.7, docs/console-design.md): a grouped page, groups on it, bars over it. */
-  --grouped: #f3eee6;
+  --canvas: #f3eee6;
+  --sunken: #f7f2ea;
+  --idle: #6b6055;
+  --idle-soft: #ece6dc;
   /* Nearly opaque, and not blurred: a filter on the bar would hold the tab bar and its sheet inside it. */
   --bar: rgb(250 247 242 / 0.97);
   --scrim: rgb(28 24 20 / 0.36);
@@ -112,7 +113,12 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --radius-group: 12px;
+  --space-7: 48px;
+  /* One radius set: controls, small cards and tiles, cards and sheets, and pills. */
+  --radius-control: 6px;
+  --radius-tile: 10px;
+  --radius-card: 14px;
+  --radius-pill: 999px;
   /* The smallest target for a finger: 44 pt (Apple), 48 dp (Material) where a row has the room. */
   --tap: 44px;
   --topbar: 52px;
@@ -124,29 +130,29 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --paper: #171411;
-    --surface: #211d19;
+    --surface: #1e1a17;
     --well: #2a2520;
-    --line: #342e28;
+    --border: #3a332c;
     --line-strong: #4a4239;
-    --line-field: #7d7166;
+    --border-strong: #857a6e;
     --rule: #6d6257;
     --ink: #f3eee7;
-    --ink-2: #c2b8ac;
-    --ink-3: #9c9185;
+    --ink-2: #c9bfb3;
+    --ink-3: #a3988c;
 
-    --accent: #e2703a;
+    --accent: #e8794a;
     --accent-strong: #ee8855;
-    --accent-wash: #3a2418;
+    --accent-soft: #3a2418;
     --on-accent: #1a120c;
 
     --good: #86c794;
-    --good-wash: #1f2c21;
+    --good-soft: #1d2b20;
     --warn: #e2b455;
-    --warn-wash: #33290f;
+    --warn-soft: #33290f;
     --bad: #ff9d96;
-    --bad-wash: #3a1b20;
-    --work: #8abcea;
-    --work-wash: #1c2a37;
+    --bad-soft: #3a1b20;
+    --info: #8abcea;
+    --info-soft: #1b2936;
     --bad-fill: #b92f52;
     --on-bad-fill: #fff6f5;
 
@@ -171,7 +177,10 @@
     --shade: rgb(0 0 0 / 0.6);
     --lift: 0 24px 60px -24px rgb(0 0 0 / 0.8);
 
-    --grouped: #110e0c;
+    --canvas: #14110f;
+    --sunken: #191614;
+    --idle: #a3988c;
+    --idle-soft: #2a2521;
     --bar: rgb(23 20 17 / 0.97);
     --scrim: rgb(0 0 0 / 0.55);
   }
@@ -188,9 +197,9 @@
   --paper: #1c1814;
   --surface: #1c1814;
   --well: #2b2520;
-  --line: #3a332c;
+  --border: #3a332c;
   --line-strong: #574e44;
-  --line-field: #8a7f72;
+  --border-strong: #8a7f72;
   --line-mark: #8a7f72;
   --rule: #f7f2ea;
   --ink: #f7f2ea;
@@ -199,17 +208,17 @@
 
   --accent: #ef7a41;
   --accent-strong: #f6955f;
-  --accent-wash: #3e2415;
+  --accent-soft: #3e2415;
   --on-accent: #1a120c;
 
   --good: #8fd4a0;
-  --good-wash: #1f2e23;
+  --good-soft: #1f2e23;
   --warn: #ecbf62;
-  --warn-wash: #372c10;
+  --warn-soft: #372c10;
   --bad: #ff9d96;
-  --bad-wash: #431c22;
-  --work: #93c3ef;
-  --work-wash: #1c2a37;
+  --bad-soft: #431c22;
+  --info: #93c3ef;
+  --info-soft: #1c2a37;
 
   --bar-good: #7fcb99;
   --bar-live: #6faee6;
@@ -232,6 +241,31 @@
 }
 
 /* Inside the panel links are the panel's ink: rust there would read as "your move". */
+/*
+ * Tokens v2 (the design audit's design system, console 2.25.15): the names above hold the values; these older names
+ * are aliases of them, declared for every scope that sets colours, so that a page written with either reads the same
+ * inside an ink panel too. New rules use the new names.
+ */
+:root,
+.on-ink,
+.execution:not(.is-idle, .is-compact) {
+  --grouped: var(--canvas);
+  --line: var(--border);
+  --line-field: var(--border-strong);
+  --accent-wash: var(--accent-soft);
+  --good-wash: var(--good-soft);
+  --warn-wash: var(--warn-soft);
+  --bad-wash: var(--bad-soft);
+  --work: var(--info);
+  --work-wash: var(--info-soft);
+  --radius: var(--radius-control);
+  --radius-small: var(--radius-control);
+  --radius-group: var(--radius-card);
+  /* Elevation: 0 the page; 1 a card, its edge and a faint shadow; 2 menus, dialogs and the bulk bar. */
+  --elevation-1: 0 0 0 1px var(--border), 0 1px 2px rgb(28 24 20 / 0.05);
+  --elevation-2: var(--lift);
+}
+
 .on-ink a:not(.btn),
 .execution:not(.is-idle, .is-compact) a:not(.btn) {
   color: var(--ink);
@@ -250,7 +284,7 @@
     --paper: #28241f;
     --surface: #28241f;
     --well: #332e28;
-    --line: #443e36;
+    --border: #443e36;
     --line-strong: #61574c;
     --line-mark: #938779;
     --ink-2: #d6ccc0;
@@ -258,13 +292,13 @@
     --good: #97dba8;
     --warn: #efc46c;
     --bad: #ffa79c;
-    --work: #9ccaf2;
+    --info: #9ccaf2;
     --bar-bad: #d0324a;
-    --accent-wash: #46291a;
-    --good-wash: #243428;
-    --warn-wash: #3d3214;
-    --bad-wash: #4a2126;
-    --work-wash: #22313f;
+    --accent-soft: #46291a;
+    --good-soft: #243428;
+    --warn-soft: #3d3214;
+    --bad-soft: #4a2126;
+    --info-soft: #22313f;
 
     /* A step above the page is not much on its own: the heaviest rule on the page says it. */
     box-shadow: inset 0 3px 0 var(--ink);
@@ -293,7 +327,7 @@ body {
 }
 
 /* On a phone, body text is a step larger, on the same 24 px line. */
-@media (max-width: 800px) {
+@media (max-width: 860px) {
   :root {
     --type-body: 1rem;
     --leading-body: 1.5;
@@ -365,7 +399,7 @@ strong {
   display: inline-block;
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--well);
   overflow-wrap: anywhere;
 }
@@ -696,7 +730,7 @@ body.is-scrolled .masthead-title {
   overscroll-behavior: contain;
   padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right))
     calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
   background: var(--grouped);
   box-shadow: var(--lift);
   animation: sheet-up 0.32s var(--ease);
@@ -748,7 +782,7 @@ body.is-scrolled .masthead-title {
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--accent-wash);
   color: var(--accent);
 }
@@ -930,7 +964,7 @@ body.is-scrolled .masthead-title {
     gap: var(--space-3);
     min-height: 40px;
     padding: 8px var(--space-3);
-    border-radius: 8px;
+    border-radius: var(--radius-control);
     font-size: var(--type-body);
   }
 
@@ -1046,7 +1080,7 @@ body:has(.boot) .masthead {
   width: 160px;
   height: 3px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--line);
 }
 
@@ -1393,7 +1427,7 @@ body:has(.boot) .masthead {
   gap: 5px;
   padding: 2px 9px 2px 6px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: var(--well);
   color: var(--ink);
   font-family: var(--sans);
@@ -1528,7 +1562,7 @@ body:has(.boot) .masthead {
 .tag {
   padding: 1px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--ink-2);
   font-size: var(--type-label);
   font-weight: 600;
@@ -1867,7 +1901,7 @@ body:has(.boot) .masthead {
   min-width: 6px;
   height: 28px;
   padding: 0 9px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   color: var(--on-bar);
   font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
@@ -1891,7 +1925,7 @@ body:has(.boot) .masthead {
 }
 
 .segments.is-thin .segment:only-child {
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .segment.is-good,
@@ -3304,7 +3338,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   display: grid;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-tile);
   background: var(--surface);
   font-size: var(--type-small);
 }
@@ -3346,7 +3380,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 .audit-diff-value {
   padding: 0 3px;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .is-was .audit-diff-value {
@@ -4808,7 +4842,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* Where the big numerals stand, they say it for the words. */
-@media (min-width: 801px) {
+@media (min-width: 861px) {
   .said-big {
     position: absolute;
     width: 1px;
@@ -5183,7 +5217,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
  * It stays for a screen reader, where it is what says how far the download is. Where the
  * steps stand in a column (see "Narrower screens") the bar stays in view.
  */
-@media (min-width: 801px) {
+@media (min-width: 861px) {
   .step.has-progress::before {
     background: linear-gradient(to right, var(--bar-live) var(--progress, 0%), var(--line) var(--progress, 0%));
   }
@@ -5340,7 +5374,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   width: calc(100% / 7 * var(--at));
   border: 2px solid var(--stop-fill);
   border-bottom: 0;
-  border-radius: 14px 14px 0 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
 
 .return-arc::before {
@@ -5404,7 +5438,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   box-shadow: var(--lift);
   color: var(--ink);
@@ -5733,7 +5767,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   margin: -1px -6px 0 0;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: none;
   color: inherit;
   cursor: pointer;
@@ -5746,7 +5780,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 /* Narrower screens. */
 
 /* Below this the tools of a page do not fit next to its heading on every page. They take a row of their own: how fresh it is on the left, its action on the right. */
-@media (max-width: 1120px) {
+@media (max-width: 1100px) {
   .page-tools {
     flex: 1 1 100%;
     justify-content: space-between;
@@ -5758,7 +5792,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1100px) {
   /* Beside the upload, the three places of a signature stand one below the other. */
   .upload.panel .chain {
     grid-template-columns: minmax(0, 1fr);
@@ -5794,7 +5828,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   /*
    * One column, in the order of the document, which is the order in which the Tab key
    * and a screen reader go through the sections.
@@ -5887,7 +5921,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .main {
     padding-top: 26px;
     padding-bottom: 96px;
@@ -6062,7 +6096,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
  * at this width their names run into one another. The words carry the percent here, and
  * the bar stands in view: the big figures and the rail have no room.
  */
-@media (max-width: 800px) {
+@media (max-width: 860px) {
   .board-run-figure,
   .execution-figure {
     display: none;
@@ -6113,7 +6147,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     width: 18px;
     border-top: 2px solid var(--stop-fill);
     border-left: 2px solid var(--stop-fill);
-    border-top-left-radius: 8px;
+    border-top-left-radius: var(--radius-control);
     background: none;
   }
 
@@ -6123,7 +6157,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     width: 18px;
     border-bottom: 2px solid var(--stop-fill);
     border-left: 2px solid var(--stop-fill);
-    border-bottom-left-radius: 8px;
+    border-bottom-left-radius: var(--radius-control);
     background: none;
   }
 
@@ -6640,7 +6674,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* Where the rail cannot show the download, the bar does. */
-@media (forced-colors: active) and (min-width: 801px) {
+@media (forced-colors: active) and (min-width: 861px) {
   .execution-state .meter,
   .board-run-state .meter {
     position: static;
@@ -7111,14 +7145,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--warn);
 }
 
-@media (max-width: 800px) {
+@media (max-width: 860px) {
   .serial-time {
     display: none;
   }
 }
 
 /* Next to the forms the panel stays in view, so a reply shows beside what asked for it. */
-@media (min-width: 1100px) {
+@media (min-width: 1101px) {
   .serial-layout {
     grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
   }
@@ -7257,13 +7291,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: var(--type-table);
 }
 
-@media (min-width: 900px) {
+@media (min-width: 861px) {
   .history-panel {
     grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   .history-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -7412,7 +7446,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   min-height: 32px;
   padding: 0 11px 0 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
@@ -7557,7 +7591,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* A narrow timeline has room for the board's name and its state; its tooltip has the thing name. */
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   .tl-lane-thing {
     display: none;
   }
@@ -7821,7 +7855,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .event-pick {
   padding: 2px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--ink);
   cursor: pointer;
@@ -7895,7 +7929,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .event-table thead {
     position: absolute;
     width: 1px;
@@ -8464,7 +8498,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   align-items: start;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .map-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -8847,7 +8881,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 4px;
   padding: 1px 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--ink-2);
   font-size: var(--type-label);
   font-weight: 500;
@@ -9237,7 +9271,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-weight: 600;
 }
 
-@media (max-width: 880px) {
+@media (max-width: 860px) {
   .health {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -9619,7 +9653,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   width: clamp(12rem, calc(var(--qr-modules, 41) * 3px), 100%);
   max-width: 100%;
   height: auto;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .qr-paper {
@@ -9900,13 +9934,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   gap: 6px;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .customers-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .customer-assign {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -9936,7 +9970,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   margin: 0 0 1rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--accent);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-control);
   background: var(--accent-wash);
   color: var(--ink);
 }
@@ -10085,7 +10119,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   border-top: 2px solid var(--rule);
 }
 
-@media (min-width: 1001px) {
+@media (min-width: 1101px) {
   .updates-panel {
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr);
   }
@@ -10336,7 +10370,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .arch-watermark {
@@ -10389,7 +10423,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 /* A section in a group, or a group in a group, is not boxed twice. */
@@ -10459,7 +10493,7 @@ body.console {
   overflow: hidden;
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .glance-list > li + li {
@@ -10531,7 +10565,7 @@ body.console {
   overflow: hidden;
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .device-grid > .card.device {
@@ -10620,9 +10654,9 @@ body.console {
   min-height: 36px;
   margin: 0;
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
   color: var(--ink-2);
   font-size: var(--type-table);
 }
@@ -10648,7 +10682,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .health-part > .eyebrow {
@@ -10685,7 +10719,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .health-score-head > .eyebrow {
@@ -10747,7 +10781,7 @@ body.console {
   padding: 0;
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
   list-style: none;
 }
 
@@ -10821,7 +10855,7 @@ body.console {
   margin: 0;
 }
 
-@media (max-width: 880px) {
+@media (max-width: 860px) {
   .console .health-score {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -10868,7 +10902,7 @@ body.console {
   border-top: 0;
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 @media (max-width: 860px) {
@@ -10935,7 +10969,7 @@ body.console {
     z-index: 2;
     margin: calc(-1 * var(--space-4)) calc(-1 * var(--gutter)) 0;
     padding: var(--space-2) var(--gutter) var(--space-5);
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
     background: var(--grouped);
     box-shadow: 0 -10px 28px -14px rgb(0 0 0 / 0.35);
   }
@@ -10957,7 +10991,7 @@ body.console {
     overflow: hidden;
     border-radius: var(--radius-group);
     background: var(--surface);
-    box-shadow: 0 0 0 1px var(--line);
+    box-shadow: var(--elevation-1);
   }
 
   .console .picker-list > li + li > .picker-link {
@@ -11002,7 +11036,7 @@ body.console {
 
 /* Diagnostics on a wider screen: the boards as tiles, the chosen one marked in the accent. */
 .console .picker-link {
-  border-radius: 10px;
+  border-radius: var(--radius-tile);
 }
 
 .console .picker-link[aria-current="page"] {
@@ -11035,7 +11069,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .diag-card > .card-body {
@@ -11052,7 +11086,7 @@ body.console {
 }
 
 /* On a phone a dialog is a sheet from the foot of the screen, at one height for every step. */
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .console .dialog {
     width: 100%;
     max-width: 100%;
@@ -11060,7 +11094,7 @@ body.console {
     max-height: none;
     margin: auto 0 0;
     border: 0;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
     padding-bottom: env(safe-area-inset-bottom);
   }
 
@@ -11074,7 +11108,7 @@ body.console {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
   font-size: var(--type-table);
   text-align: left;
 }
@@ -11091,7 +11125,7 @@ body.console {
   display: block;
   height: 86px;
   margin-top: var(--space-3);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: repeating-linear-gradient(to bottom, var(--well) 0 16px, transparent 16px 30px);
   animation: skeleton 1.6s ease-in-out infinite;
 }
@@ -11285,7 +11319,7 @@ span.glance-item:hover {
   border-top: 0;
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 @media (max-width: 860px) {
@@ -11391,7 +11425,7 @@ span.glance-item:hover {
 .console .backtrace {
   margin: 0 0 var(--space-3);
   padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-3) + 24px);
-  border-radius: 10px;
+  border-radius: var(--radius-tile);
   background: var(--well);
   font-size: var(--type-small);
 }
@@ -11518,7 +11552,7 @@ span.glance-item:hover {
   padding: 0 var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .console .setup-step {
@@ -11587,7 +11621,7 @@ span.glance-item:hover {
   cursor: pointer;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .db-filters {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -11630,7 +11664,7 @@ span.glance-item:hover {
 .input.filter-input {
   min-height: var(--tap);
   padding-left: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--grouped);
 }
 
@@ -11642,7 +11676,7 @@ span.glance-item:hover {
 .filter-toggle .chip-count {
   min-width: 1.4em;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-wash);
   color: var(--accent);
   font-weight: 700;
@@ -11696,7 +11730,7 @@ span.glance-item:hover {
   margin: var(--space-3) 0;
 }
 
-@media (min-width: 700px) {
+@media (min-width: 701px) {
   .filter-toggle {
     display: none;
   }
@@ -12153,7 +12187,7 @@ span.glance-item:hover {
   margin-top: 12px;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .team-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -12230,7 +12264,7 @@ span.glance-item:hover {
   margin-top: var(--space-4);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 460px) {
   .report-days {
     gap: var(--space-1);
   }
@@ -12436,7 +12470,7 @@ span.glance-item:hover {
   padding: clamp(18px, 2.3vw, 28px);
   border-radius: var(--radius-group);
   background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: var(--elevation-1);
 }
 
 .bt-pick-title {
@@ -12502,7 +12536,7 @@ span.glance-item:hover {
   align-items: start;
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1101px) {
   .bt-columns {
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   }
@@ -12605,7 +12639,7 @@ span.glance-item:hover {
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 860px) {
   .bt-stats {
     grid-template-columns: minmax(0, 1fr);
   }
