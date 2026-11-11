@@ -98,7 +98,12 @@ HTTP API (`GET /app/{proxy+}`, public like the pages, 10 a second and bursts of 
    versionCode 36; Mac app 0.4.0; the desktop app's store too), a downloaded bundle of an older console than the
    built-in copy (`console.version` in each manifest) gives way to it, and an update takes nothing older: an app built
    with newer pages than the console has deployed, such as the Offline page before console 2.27.0, shows them. The same,
-   a newer or an unknown version keeps the downloaded one. A path in a manifest is
+   a newer or an unknown version keeps the downloaded one. The built-in pages' starts are counted like a download's:
+   two without `app.ready`, and the downloaded bundle is shown again, so a broken build cannot keep a phone on a blank
+   page. **Release builds of the apps come from `main` after that console is deployed** (tag `console-v<version>`
+   first, then the app), so built-in pages are only "newer" when they really are newer than what the console serves;
+   a build from a branch with a console version that never ships would otherwise hold phones on its pages until the
+   console passes that number. A path in a manifest is
    only a key: files are kept as `objects/<sha256>`, so no path from a server ever becomes a file name.
 2. **A good bundle** is one whose pages started: each page tells the app (`app.ready`) once it has drawn its sign-in or
    its first page. One that has not after two starts is marked bad, never fetched again, and the one before it is shown.

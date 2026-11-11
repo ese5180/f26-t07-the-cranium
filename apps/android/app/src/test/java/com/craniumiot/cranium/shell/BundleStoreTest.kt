@@ -89,7 +89,22 @@ class BundleStoreTest {
         assertEquals(BundleSource.DOWNLOADED, before.launch()!!.source)
         // The app is updated with 2.27.0's pages built in.
         val (after, shipped) = storeWithBuiltIn("2.27.0")
+        assertEquals(shipped.manifest.id, after.launch()!!.manifest.id)
+        after.markReady(shipped.manifest.id)
         repeat(3) { assertEquals(shipped.manifest.id, after.launch()!!.manifest.id) }
+    }
+
+    @Test
+    fun `built-in pages that never start give way to the download after two starts`() {
+        val (before, _) = storeWithBuiltIn("2.20.0")
+        val older = Console(bundleOf(pages("console"), version = "2.25.5"))
+        assertTrue(update(before, older) is BundleUpdate.Taken)
+        before.markReady(before.launch()!!.manifest.id)
+        val (after, shipped) = storeWithBuiltIn("2.27.0")
+        assertEquals(shipped.manifest.id, after.launch()!!.manifest.id)
+        assertEquals(shipped.manifest.id, after.launch()!!.manifest.id)
+        // Two starts and no app.ready: the downloaded pages again, from now on.
+        repeat(2) { assertEquals(older.bundle.manifest.id, after.launch()!!.manifest.id) }
     }
 
     @Test

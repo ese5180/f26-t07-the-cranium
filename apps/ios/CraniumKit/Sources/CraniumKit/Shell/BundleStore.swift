@@ -60,7 +60,9 @@ public struct LoadedBundle: Equatable, Sendable {
 /// app.ready after two starts is bad, and is never fetched again. A downloaded bundle of an older console
 /// than the built-in one gives way to it: an app built with newer pages than the console has deployed (a
 /// new page, such as Offline, waiting for its console release) shows them. Equal or unknown versions keep
-/// the downloaded one, as before.
+/// the downloaded one, as before. Its starts are counted as a download's are: built-in pages that have not
+/// said app.ready after two starts give way to the downloaded bundle again, so that a broken build cannot
+/// keep a phone on a blank page.
 public actor BundleStore {
     public enum UpdateOutcome: Equatable, Sendable {
         case upToDate
@@ -154,8 +156,11 @@ public actor BundleStore {
     }
 
     /// The built-in bundle, when it is of a newer console than `manifest` and checks out.
-    private func builtInNewer(than manifest: BundleManifest) -> LoadedBundle? {
+    /// Only while those pages have not failed to start twice: `state` counts their starts like a download's.
+    private func builtInNewer(than manifest: BundleManifest, state: State) -> LoadedBundle? {
         guard let shipped = builtInManifest(), Self.isNewer(shipped.consoleVersion, than: manifest.consoleVersion) else { return nil }
+        let entry = state.bundles[shipped.id] ?? State.Entry(tries: 0, good: false)
+        if !entry.good && entry.tries >= Self.maxTries { return nil }
         return builtInBundle()
     }
 
@@ -182,7 +187,12 @@ public actor BundleStore {
                 continue
             }
             // Older than the pages built into the app: those, and no start of this one is counted.
-            if let shipped = builtInNewer(than: manifest) {
+            if let shipped = builtInNewer(than: manifest, state: state) {
+                var own = state.bundles[shipped.id] ?? State.Entry(tries: 0, good: false)
+                if !own.good {
+                    own.tries += 1
+                    state.bundles[shipped.id] = own
+                }
                 save(state)
                 return shipped
             }
@@ -227,7 +237,7 @@ public actor BundleStore {
             guard let manifest = manifest(at: file), manifest.bridge <= Bridge.version, !state.bad.contains(manifest.id) else { continue }
             let entry = state.bundles[manifest.id] ?? State.Entry(tries: 0, good: false)
             if !entry.good && entry.tries >= Self.maxTries { continue }
-            if let shipped = builtInNewer(than: manifest) { return shipped }
+            if let shipped = builtInNewer(than: manifest, state: state) { return shipped }
             let bundle = LoadedBundle(manifest: manifest, source: .downloaded, objects: objectsDir)
             if bundle.isWhole() { return bundle }
         }
