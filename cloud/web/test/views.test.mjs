@@ -733,7 +733,9 @@ test('the devices page shows a board that has an update waiting for it', async (
   assert.equal(one(offered, 'a.fact-link').getAttribute('href'), `#/deployments/${OFFERED}`);
   // A resting cue that the whole card is a link, and the hint of a board that never connected, below its rows.
   assert.equal(all(one(offered, 'h2.device-name'), 'svg').length, 1);
-  assert.match(textOf(one(never, 'p.device-seen')), /^Has not reported to the console yet\.$/);
+  // On a phone the line says it under the name; wider, beside its badge, it says the same.
+  assert.match(textOf(one(never, 'p.device-seen.is-narrow')), /^Has not reported to the console yet\.$/);
+  assert.match(textOf(one(never, 'p.device-seen.is-wide')), /^Has not reported to the console yet\.$/);
   assert.match(textOf(one(never, 'p.device-help')), /Power it up and check that it was provisioned\./);
   assert.equal(all(offered, 'p.device-help').length, 0);
   // No news is drawn as less than news.
@@ -772,7 +774,15 @@ test('a board says what state it is in and when its last heartbeat arrived, in t
     assert.equal(textOf(one(overview, 'span.board-line-note')), words);
 
     const list = page(views.devicesView, state);
-    assert.equal(textOf(one(list, 'p.device-seen')), words);
+    // On a phone, where the row has no badge, the line says the state and when; wider, the badge says the
+    // state and the line only when a board that is not up was last heard of, as "1:04 PM · 3 min ago".
+    assert.equal(textOf(one(list, 'p.device-seen.is-narrow')), words);
+    const wide = all(list, 'p.device-seen.is-wide');
+    if (badge === 'Online') assert.equal(wide.length, 0, words);
+    else {
+      const at = core.clockTime(board.lastSeen, state.now);
+      assert.equal(textOf(wide[0]), `Last heartbeat ${at} · ${words.replace(/^.*heartbeat /, '')}`);
+    }
     const shown = one(one(list, 'header.device-head'), 'span.badge');
     assert.equal(textOf(shown), badge);
     // Offline, the tooltip gives the moment itself, and not how long ago that was.
@@ -828,7 +838,8 @@ test('a board that has never had a heartbeat says so, and the list of devices ke
   });
   assert.equal(textOf(one(page(views.overviewView, state), 'span.board-line-note')), 'Never connected');
   const list = page(views.devicesView, state);
-  assert.equal(textOf(one(list, 'p.device-seen')), 'Has not reported to the console yet.');
+  assert.equal(textOf(one(list, 'p.device-seen.is-narrow')), 'Has not reported to the console yet.');
+  assert.equal(textOf(one(list, 'p.device-seen.is-wide')), 'Has not reported to the console yet.');
   assert.deepEqual(all(one(list, 'article.device'), 'dt').map(textOf), ['Firmware', 'Update', 'Signal', 'Uptime']);
   const own = page(views.deviceView, state, { thing: NEVER });
   assert.equal(textOf(one(one(own, 'div.fact', 'Heartbeat'), 'dd')), 'None yet');
@@ -1545,7 +1556,9 @@ test('the log says what happened in the words of the console', async () => {
       'account 7a7a7a7a… tried to upload zephyr.signed.bin Refused',
     ]
   );
-  const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
+  // The facts in sight, then the identifiers behind Details (the account, the request, a deployment, a digest).
+  const detail = (line) => all(line, 'p.log-detail').flatMap((facts) => facts.children.map(textOf));
+  const ids = (line) => one(one(line, 'details.log-ids'), 'p.log-detail').children.map(textOf);
   assert.deepEqual(detail(lines[0]), [
     `Reason: ${REASON}`,
     'Deployments cancelled 1',
@@ -1569,6 +1582,12 @@ test('the log says what happened in the words of the console', async () => {
     'Request req-1',
   ]);
   assert.equal(one(lines[3], 'button').getAttribute('aria-label'), `Copy the SHA-256 of ${'c'.repeat(12)}…`);
+  // What is read stays in sight; the identifiers are behind Details, closed until opened.
+  assert.deepEqual(ids(lines[0]), ['Account 0b1c2d3e…', 'Request req-1']);
+  assert.deepEqual(ids(lines[1]), [`Deployment ${WITHDRAWN}`, 'Account f9e8d7c6…', 'Request req-1']);
+  assert.deepEqual(ids(lines[3]), [`SHA-256 ${'c'.repeat(12)}…`, 'Account 7a7a7a7a…', 'Request req-1']);
+  assert.equal(one(lines[3], 'details.log-ids').hasAttribute('open'), false);
+  assert.equal(textOf(one(one(lines[0], 'details.log-ids'), 'summary')).startsWith('Details'), true);
   // A reason is prose; an identifier is set as one.
   assert.equal(all(one(lines[0], 'span', 'Reason:'), 'span.mono').length, 0);
   assert.equal(all(one(lines[3], 'span', 'Signed with'), 'span.mono').length, 0);
@@ -1626,7 +1645,8 @@ test('the log names the boards a deployment went to, a board changed over USB an
   );
   assert.equal(one(lines[1], 'a.log-target').getAttribute('href'), `#/devices/${WAITING}`);
   assert.equal(all(lines[2], 'a.log-target').length, 0);
-  const detail = (line) => one(line, 'p.log-detail').children.map(textOf);
+  const detail = (line) => all(line, 'p.log-detail').flatMap((facts) => facts.children.map(textOf));
+  const ids = (line) => one(one(line, 'details.log-ids'), 'p.log-detail').children.map(textOf);
   assert.deepEqual(detail(lines[0]), [
     'From the phone app',
     `Deployment ${OFFERED}`,
@@ -1636,6 +1656,7 @@ test('the log names the boards a deployment went to, a board changed over USB an
   assert.deepEqual(detail(lines[1]), ['Running 1.12.0+0', 'Command WIFI', 'Account 0b1c2d3e…', 'Request req-1']);
   // A sign-in's id is made of the sign-in, not a request's: it is not shown as one.
   assert.deepEqual(detail(lines[3]), ['Account 0b1c2d3e…']);
+  assert.deepEqual(ids(lines[1]), ['Account 0b1c2d3e…', 'Request req-1']);
   assert.match(
     textOf(one(page(views.activityView, await consoleState({ ...WORLD, devices: named, entries })), 'p.log-summary')),
     /2 commands over USB.*1 sign-in/
@@ -1688,7 +1709,7 @@ test('a deployment that was cancelled says so next to what its board is still do
     ['openCancel']
   );
   // Who cancelled it is in the log.
-  assert.match(textOf(one(drawn, 'div.page-meta')), /Cancelled 15 min ago \(.+\) by /);
+  assert.match(textOf(one(drawn, 'div.page-meta')), /Cancelled \d{1,2}:\d{2}\s?[AP]M · 15 min ago by /);
 });
 
 test('a board on the deployment page: what it is and what it has done are not contradicted', async () => {
@@ -1725,7 +1746,7 @@ test('a board on the deployment page: what it is and what it has done are not co
   const ended = await card(
     execution(WAITING, 'declined', { status: 'REJECTED', reason: 'declined', lastUpdatedAt: ago(30) })
   );
-  assert.match(textOf(one(ended, 'p.execution-foot')), /Ended 30 s ago \(.+\)/);
+  assert.match(textOf(one(ended, 'p.execution-foot')), /Ended \d{1,2}:\d{2}\s?[AP]M · 30 s ago/);
   assert.match(textOf(one(ended, 'p.execution-next')), /start a new deployment/);
 });
 
@@ -1842,10 +1863,10 @@ test('the activity log calls the board whose passkey was read by its own name', 
   const fact = one(named, 'span', `Board CRVIHAAN01 ${WAITING}`);
   assert.equal(one(fact, 'a').getAttribute('href'), `#/devices/${WAITING}`);
   assert.equal(textOf(one(fact, 'a')), 'CRVIHAAN01');
-  assert.equal(textOf(one(plain, 'p.log-detail').children[0]), `Board ${INSTALLING}`);
+  assert.equal(textOf(all(plain, 'p.log-detail')[0].children[0]), `Board ${INSTALLING}`);
   // Without the list of boards the log still names the board, by its thing name.
   const unread = page(views.activityView, { ...state, devices: { ...state.devices, value: null } });
-  assert.equal(textOf(one(all(unread, 'li.log-line')[0], 'p.log-detail').children[0]), `Board ${WAITING}`);
+  assert.equal(textOf(all(all(unread, 'li.log-line')[0], 'p.log-detail')[0].children[0]), `Board ${WAITING}`);
 });
 
 test('choosing boards to deploy to: each by its name, with its thing name beside it', () => {
@@ -3351,9 +3372,9 @@ test('a line under a day says the time of that day, and old times do not say the
   assert.ok(textOf(meta).includes(`Started ${told} by`), textOf(meta));
   assert.ok(textOf(meta).includes(`finished ${told}`), textOf(meta));
   assert.doesNotMatch(textOf(meta), /\(/, 'no time of day in brackets after a date');
-  // A recent one still says how long ago, and when.
+  // A recent one says when, and how long ago: "1:04 PM · 6 min ago".
   const recent = one(page(views.deploymentView, await consoleState(WORLD), { id: OFFERED }), 'div.page-meta');
-  assert.match(textOf(recent), /Started 6 min ago \(/);
+  assert.match(textOf(recent), /Started \d{1,2}:\d{2}\s?[AP]M · 6 min ago by/);
 });
 
 test('a release signed with an earlier key says so, and the panel says what that means', async () => {
@@ -3950,7 +3971,11 @@ test('of an offline board, the version and its confirmation are told as last see
     assert.match(textOf(facts(gone)), /^Firmware ?1\.2\.3\+5 when last seen ?Confirmed/);
     assert.match(textOf(one(gone, 'div.fact', 'Uptime')), /when last seen$/);
     const stranger = view(await consoleState(worldOf(onVersion('1.3.0+0', quiet))));
-    assert.match(textOf(facts(stranger)), /^Firmware ?1\.3\.0\+0 when last seen ?Confirmed ?Not a registered release$/);
+    // One badge in the cell: that it is not a registered release says more than that it was confirmed, which
+    // its tooltip still says.
+    assert.match(textOf(facts(stranger)), /^Firmware ?1\.3\.0\+0 when last seen ?Not a registered release$/);
+    assert.equal(all(facts(stranger), 'span.badge').length, 1);
+    assert.match(one(facts(stranger), 'span.badge').getAttribute('title'), /^Confirmed/);
     const heard = view(await consoleState(worldOf(onVersion('1.2.3+5', { uptime: 3700 }))));
     assert.doesNotMatch(textOf(facts(heard)), /when last seen/);
     assert.doesNotMatch(textOf(one(heard, 'div.fact', 'Uptime')), /when last seen/);

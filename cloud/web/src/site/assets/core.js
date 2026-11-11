@@ -442,7 +442,7 @@ export function exactTime(iso) {
 export function clockTime(iso, nowMs) {
   const then = new Date(Date.parse(iso));
   if (Number.isNaN(then.getTime())) return '';
-  const time = { hour: '2-digit', minute: '2-digit' };
+  const time = { hour: 'numeric', minute: '2-digit' };
   return then.toDateString() === new Date(nowMs).toDateString()
     ? then.toLocaleTimeString(undefined, time)
     : then.toLocaleString(undefined, { day: 'numeric', month: 'short', ...time });
@@ -456,7 +456,7 @@ export function dateAndTime(iso) {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
   });
 }
@@ -465,7 +465,7 @@ export function dateAndTime(iso) {
 export function timeOfDay(iso) {
   const then = new Date(Date.parse(iso));
   if (Number.isNaN(then.getTime())) return '';
-  return then.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return then.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
 /** "Today", "Yesterday" or a date: the heading a log entry is filed under. */
