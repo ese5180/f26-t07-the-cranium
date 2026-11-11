@@ -153,6 +153,19 @@ test('a board is called by its own name where it has one, and by its thing name 
   assert.equal(core.boardName(unnamed, { full: true }), THING);
   assert.equal(core.boardName(null), '');
 
+  // A name given in the console leads, before the board's own name and its thing name.
+  const labelled = { thing: THING, name: 'CRVIHAAN01', label: 'Demo deck 1' };
+  assert.equal(core.boardName(labelled), 'Demo deck 1');
+  assert.equal(core.boardName(labelled, { full: true }), `Demo deck 1 · ${THING}`);
+  assert.equal(core.boardName({ thing: THING, label: 'Bench · left' }), 'Bench · left');
+  // One printable line of 1 to 40 characters, as the API keeps it; anything else is no name, and the next one shows.
+  for (const label of ['', ' Demo', 'Demo ', 'a\nb', 'tab\there', 'x'.repeat(41), 42, null]) {
+    assert.equal(core.isBoardLabel(label), false, JSON.stringify(label));
+    assert.equal(core.boardName({ thing: THING, name: 'CRVIHAAN01', label }), 'CRVIHAAN01');
+  }
+  assert.equal(core.isBoardLabel('x'.repeat(40)), true);
+  assert.equal(core.isBoardLabel('Café rack 2'), true);
+
   // A view that has only the thing name finds the board in the list, or one without a name.
   const other = { thing: 'cranium-00000000000000aa', name: 'CRBENCH02', online: true };
   assert.equal(core.boardOf(other.thing, [named, other]), other);
@@ -1168,6 +1181,8 @@ test('what a board reports is cut down to known shapes', async () => {
     rssi: 12,
     uptime: -5,
     name: '<img src=x onerror=alert(1)>',
+    // A right-to-left override would turn the name around on the page.
+    label: 'Demo\u202e1kced',
     extra: { nested: true },
   };
   const honest = {
@@ -1190,6 +1205,7 @@ test('what a board reports is cut down to known shapes', async () => {
     'diag',
     'diary',
     'fw',
+    'label',
     'lastSeen',
     'location',
     'name',
@@ -1216,11 +1232,13 @@ test('what a board reports is cut down to known shapes', async () => {
   assert.equal(bad.ota.progress, 0);
   assert.equal(bad.ota.state.length <= 24, true);
   assert.equal(bad.ota.last, 'none?evil');
+  assert.equal(bad.label, null);
   assert.equal(bad.ota.error.length, 64);
   assert.match(bad.ota.error, /^[\x20-\x7e]*$/);
   assert.deepEqual(good, {
     ...honest,
     name: null,
+    label: null,
     stuck: null,
     diag: null,
     diary: null,

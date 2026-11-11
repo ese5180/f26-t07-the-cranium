@@ -175,7 +175,8 @@
  *                                   thresholdPercentage, minNumberOfExecutedThings }] }
  *   Fleet records in the state table, in these partitions only: "GRP" (groups), "ROL" (staged
  *   rollouts), "SEEN" (what a phone last saw of a board), "ALR" (the alert rules), "HEALTH" (the daily
- *   health snapshots), "RPT" (the weekly reports) and "SCH" (scheduled starts). Any other pk is a TypeError, so that
+ *   health snapshots), "RPT" (the weekly reports), "SCH" (scheduled starts) and "NAME" (board names given in the
+ *   console, lib/names.mjs). Any other pk is a TypeError, so that
  *   these can never touch a release or a token. Items hold plain data, as releases do.
  *   getFleetItem({ pk, sk })      -> object | null   consistent read
  *   listFleetItems(pk, { limit }) -> object[]        the partition, highest sk first, at most `limit`
@@ -249,7 +250,7 @@ const POINTER_KEY = Object.freeze({ pk: { S: 'META' }, sk: { S: 'HIGHEST' } });
 const AUDIT_PKS = Object.freeze([AUDIT_PK, CUSTOMER_ACTIONS_PK]);
 const TOKEN_PK = 'TOK';
 // The partitions of the fleet's records (handlers/groups.mjs, handlers/rollouts.mjs, handlers/fleet.mjs).
-const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH']);
+const FLEET_PKS = Object.freeze(['GRP', 'ROL', 'SEEN', 'ALR', 'HEALTH', 'RPT', 'SCH', 'NAME']);
 
 const THROTTLING = new Set([
   'ThrottlingException',

@@ -124,6 +124,8 @@ export const ACTIONS = Object.freeze([
   // A board registered in AWS IoT through the console (handlers/provision.mjs), by tools/provision_device.py
   // or scripts/new-board.sh with a console token: docs/new-board-setup.md.
   'device.register',
+  // A board's name given or taken away on its page (handlers/devices.mjs, lib/names.mjs): the name before and after.
+  'device.rename',
   // Board setup's Wi-Fi defaults handed to a release manager (handlers/setup.mjs): whether any, never which.
   'setup.wifi_defaults',
   // An export of the Database page (handlers/db.mjs): which table, the filters, how many items.

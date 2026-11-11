@@ -310,6 +310,14 @@ const ROUTES = [
     phone: true,
     body: { cmd: 'identify' },
   },
+  // A board's name in the console (lib/names.mjs): a change like any other, from a phone with a fresh sign-in.
+  {
+    route: 'POST /api/devices/{thing}/label',
+    path: `/api/devices/${THING}/label`,
+    status: 200,
+    phone: true,
+    body: { label: 'Demo deck 1' },
+  },
   // Provisioning through the console: a release manager's, on the website, with a token, or with the apps'
   // sign-in, which the desktop app's Board setup uses.
   {

@@ -23,6 +23,33 @@ is said where it comes up. [`test-results.md`](test-results.md) says what has ru
 - A `nrf5340dk` is never a target of an AWS IoT job. The console lists it as "Bluetooth only", with its last version
   as a phone last saw it.
 
+## Board names
+
+A board has up to three names, and the console shows the first it has, with the ID after it, short ("…5da0b9e5"):
+
+1. **The name given in the console** (console 2.25.14). A release manager names a board on its page: Rename, then
+   up to 40 printable characters on one line, or empty to take the name away. It leads everywhere the console and the
+   apps show the board: Devices, a board's page, Deployments, Fleet, Events, Activity. Viewers see it, and cannot
+   change it.
+2. **The board's own name**, the device ID set at its serial console, which firmware from 1.11.4 reports.
+3. **Its thing name**, `cranium-` and 16 hex digits: its identity in AWS IoT, in every address and record. It never
+   changes, and renaming a board does not touch it.
+
+`POST /api/devices/{thing}/label` with `{"label": "Demo deck 1"}`, or `{"label": null}` (or `""`) to take it away,
+answers `{ thing, label }`. Release managers only, and from a phone with a sign-in in the last 15 minutes, as every
+change is. A name is trimmed; anything longer than 40 characters, with a line break, a tab or another control or
+format character is refused with `400 invalid_label`. Each change is in the activity log as `device.rename`, with
+the name before and after. Every Device that `GET /api/devices` and `GET /api/devices/{thing}` return carries its
+`label`, or null.
+
+The names are kept in the state table, one item per board (pk `NAME`, sk the thing name: `{ thing, label, at, by }`,
+`cloud/api/src/lib/names.mjs`), which the API role already reads and writes: no new permission. Not in the board's
+shadow, whose desired state the board would be sent, and not as a thing attribute, which would take `iot:UpdateThing`.
+The role may not delete there, so a name taken away is stored as `label: null`.
+
+The customer site's name for a board is the customer's own (they rename their board on the customer site) and is
+kept apart: one never changes the other.
+
 ## Compatibility: the right image on the right board
 
 Every image carries what it is compatible with, in its protected (signed) TLV area, and each step that can put an

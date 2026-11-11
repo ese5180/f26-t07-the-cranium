@@ -26,6 +26,7 @@ import {
   asksForButton,
   boardName,
   COMPARE_MAX,
+  MAX_BOARD_LABEL,
   compareHref,
   boardOf,
   BLUETOOTH_ONLY_TYPES,
@@ -4263,6 +4264,7 @@ export function deviceView(ctx) {
       ? null
       : [
           detail ? commandTools(detail.device, ctx) : null,
+          renameButton(thing, ctx),
           labelButton(thing, ctx),
           // Tick it on the Devices page, and pick the boards to set beside it (compare.js).
           button('is-small', () => ctx.actions.compareWith(thing), icon('swap', 'is-small'), 'Compare with…'),
@@ -4307,6 +4309,8 @@ export function deviceView(ctx) {
     { class: 'page is-board' },
     head,
     loadProblem(resource, 'this board', ctx),
+    // Its name in the console, while a release manager changes it.
+    state.renaming?.thing === thing ? renameCard(device, ctx) : null,
     // Its QR code and printable label (labels.js), while the person has them shown.
     state.labelShown === thing ? (ctx.labels?.boardLabel(device, ctx) ?? null) : null,
     commandNotice(device, ctx),
@@ -7575,6 +7579,82 @@ function identifyButton(device, ctx, { compact = false } = {}) {
 
 /** The tools of a board's page: Identify, and a menu with Report now. */
 /** Show QR / Print label on a board's page: its code and sticker (labels.js, docs/new-board-setup.md). */
+/** Rename, on a board's page: a release manager's, as every change is. */
+function renameButton(thing, ctx) {
+  if (!ctx.state.me?.canWrite) return null;
+  const open = ctx.state.renaming?.thing === thing;
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn is-small',
+      key: 'rename',
+      'aria-expanded': open ? 'true' : 'false',
+      onClick: () => ctx.actions.toggleRename(thing),
+    },
+    'Rename'
+  );
+}
+
+/**
+ * The name a release manager gives a board in the console (cloud/api/src/lib/names.mjs): it leads wherever the
+ * console shows the board, before its own name and its ID, which stay as they are. Empty takes the name away.
+ */
+function renameCard(device, ctx) {
+  const renaming = ctx.state.renaming;
+  const own = boardName({ thing: device.thing, name: device.name });
+  return card(
+    { key: 'rename', title: 'Name this board', className: 'rename-card' },
+    h(
+      'form',
+      {
+        class: 'rename-form',
+        novalidate: true,
+        'aria-busy': renaming.busy ? 'true' : null,
+        onSubmit(event) {
+          event.preventDefault();
+          ctx.actions.renameBoard(device.thing, renaming.draft);
+        },
+      },
+      h(
+        'label',
+        { class: 'field' },
+        h('span', { class: 'field-label' }, 'Name'),
+        h('input', {
+          class: 'input',
+          id: 'board-label',
+          type: 'text',
+          autocomplete: 'off',
+          maxlength: String(MAX_BOARD_LABEL),
+          placeholder: own,
+          value: renaming.draft,
+          readonly: renaming.busy,
+          onInput: (event) => {
+            renaming.draft = event.target.value;
+          },
+        })
+      ),
+      h(
+        'p',
+        { class: 'card-note' },
+        `Up to ${MAX_BOARD_LABEL} characters. It leads wherever the console shows this board; its ID stays the same.`
+      ),
+      h(
+        'div',
+        { class: 'button-row' },
+        h(
+          'button',
+          { type: 'submit', class: 'btn is-primary', 'aria-disabled': renaming.busy ? 'true' : null },
+          renaming.busy ? 'Saving…' : 'Save'
+        ),
+        device.label ? button('', () => ctx.actions.renameBoard(device.thing, null), 'Remove the name') : null,
+        button('is-quiet', () => ctx.actions.toggleRename(device.thing), 'Cancel')
+      )
+    ),
+    renaming.error ? failure('The name was not changed.', renaming.error) : null
+  );
+}
+
 function labelButton(thing, ctx) {
   const shown = ctx.state.labelShown === thing;
   return h(

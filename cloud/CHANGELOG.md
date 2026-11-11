@@ -7,6 +7,15 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.14
+
+Board names. A release manager names a board on its page (Rename, up to 40 characters, or empty to take the name away), and the name leads everywhere the console and the apps show the board: Devices, a board's page, Deployments, Fleet, Events and Activity, with the board's ID after it. Viewers see the name and cannot change it. Each change is in the activity log as "renamed", with the name before and after. The board's own name, which it reports, still shows where no name is given, and the customer site's names stay the customers' own.
+
+`POST /api/devices/{thing}/label` with `{ "label": "…" }`, or null to take it away (handlers/devices.mjs,
+lib/names.mjs): trimmed, 1 to 40 printable characters on one line, else `400 invalid_label`; release managers only;
+`device.rename` on record. Every Device carries `label`. The names are kept in the state table (pk `NAME`, an item per
+board, `label: null` when taken away), which the API role already reads and writes: no template change. `boardName()`
+in core.js puts the label first. docs/fleet.md, "Board names".
 ## 2.25.13
 
 Readable rows. A board without a name of its own is shown by the end of its ID, "…5da0b9e5", everywhere it is listed: the Devices list and its groups, the Fleet page, a board's page, Deployments, Events and Activity. Copying the ID gives the whole of it, and it never breaks onto two lines. A time in a row reads "1:04 PM · 42 min ago" (another day's "Nov 9, 1:04 PM · 2 d ago"). A cell says one thing once: the Devices list drops the dot beside each board, its firmware cell shows one badge, and the line under a board's name says when an offline board was last heard of, not the state its badge already says. A board's version timeline gives its dates without seconds, and its deployment as a link that reads "in a deployment", as Deployments' list of updates does. In the activity log, the account, the request, a deployment's or token's ID and a digest are behind a closed Details under each entry.

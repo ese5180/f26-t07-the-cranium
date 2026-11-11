@@ -17,6 +17,8 @@ import {
   boardChanges,
   boardName,
   boardOf,
+  isBoardLabel,
+  MAX_BOARD_LABEL,
   cancelNotice,
   codeComplete,
   createApi,
@@ -171,6 +173,8 @@ const state = {
   filtersOpen: false,
   // The board whose QR code and label its page shows (labels.js), or null.
   labelShown: null,
+  // A board's name in the console, while a release manager changes it: { thing, draft, busy, error }.
+  renaming: null,
   // The boards ticked on the Devices page, in the order they were ticked: for Compare (compare.js).
   selected: [],
 };
@@ -1157,6 +1161,48 @@ function toggleSelected(thing) {
 async function labelsReady() {
   labelsScript ??= await pageScript(() => import('./labels.js'));
   return labelsScript;
+}
+
+/** The form that names a board, on its page: open with the name it has, or closed again. */
+function toggleRename(thing) {
+  if (state.renaming?.thing === thing) {
+    if (!state.renaming.busy) state.renaming = null;
+  } else {
+    state.renaming = { thing, draft: knownBoard(thing).label ?? '', busy: false, error: null };
+  }
+  draw();
+}
+
+/** Give a board a name in the console, or take it away (null or empty): then read the board and the list again. */
+async function renameBoard(thing, label) {
+  const renaming = state.renaming;
+  if (!state.me?.canWrite || renaming?.thing !== thing || renaming.busy) return;
+  const given = label === null ? null : String(label).trim() || null;
+  if (given !== null && !isBoardLabel(given)) {
+    renaming.error = new ApiError(
+      400,
+      'invalid_label',
+      `A board's name is one line of 1 to ${MAX_BOARD_LABEL} printable characters.`
+    );
+    draw();
+    return;
+  }
+  renaming.busy = true;
+  renaming.error = null;
+  draw();
+  try {
+    const now = await api.renameBoard(thing, given);
+    state.renaming = null;
+    notify(now === null ? 'The name is taken away. The board is called by its own name again.' : `Renamed to ${now}.`);
+    await Promise.all([
+      load(entry(state.deviceDetails, thing), () => api.device(thing)),
+      load(state.devices, api.devices),
+    ]);
+  } catch (error) {
+    renaming.busy = false;
+    renaming.error = asProblem(error);
+  }
+  draw();
 }
 
 /** A board's QR code and label on its page: shown, or hidden again. */
@@ -2544,6 +2590,8 @@ const actions = {
   closeMore: () => showMore(false),
   // A board's QR code and printable label (labels.js), and the phone app's Scan board.
   toggleLabel: (thing) => toggleLabel(thing),
+  toggleRename: (thing) => toggleRename(thing),
+  renameBoard: (thing, label) => renameBoard(thing, label),
   // The boards ticked on the Devices page, and Compare with… on a board's page, which ticks it and goes there.
   toggleSelected,
   clearSelected() {
