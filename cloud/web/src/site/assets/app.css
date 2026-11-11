@@ -1652,6 +1652,8 @@ body:has(.boot) .masthead {
   align-items: center;
   gap: 6px 10px;
   min-width: 0;
+  /* An e-mail address, an ID or a digest has no space to break at: it breaks anywhere rather than run out of the card. */
+  overflow-wrap: anywhere;
   /* The height of a badge: a row with one is as tall as the same row in the card next to it. */
   min-height: 1.625rem;
 }
