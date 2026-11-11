@@ -31,6 +31,10 @@ struct ShellWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = UIColor(named: "PagePaper") ?? .systemBackground
         webView.scrollView.backgroundColor = webView.backgroundColor
+        // The page keeps clear of the Dynamic Island, the home indicator and the sides itself, with
+        // env(safe-area-inset-*) (viewport-fit=cover): the scroll view adds no inset of its own, or there
+        // would be two, and a sticky bar would stick under the island.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         #if DEBUG
         if #available(iOS 16.4, *) { webView.isInspectable = true }
         #endif

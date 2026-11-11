@@ -27,8 +27,11 @@ struct ShellRoot: View {
             ZStack {
                 Theme.page.paper.ignoresSafeArea()
                 if model.bundle != nil {
+                    // Edge to edge, under the Dynamic Island, the home indicator and the sides in landscape: the
+                    // page (viewport-fit=cover) keeps its bars clear of them with env(safe-area-inset-*). Not
+                    // the keyboard's area, which still makes the web view shorter.
                     ShellWebView(model: model)
-                        .ignoresSafeArea(.container, edges: .bottom)
+                        .ignoresSafeArea(.container, edges: .all)
                 } else {
                     ProgressView()
                 }

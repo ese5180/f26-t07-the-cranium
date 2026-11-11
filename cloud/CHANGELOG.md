@@ -7,6 +7,18 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.11
+
+The console and the customer site fit an iPhone's screen in the apps, edge to edge, clear of the Dynamic Island, the home indicator and the rounded corners (reference: iPhone 17 Pro, 402 x 874). The top bar starts under the island, the tab bar ends above the home indicator and high enough that its first and last tabs are out of the corners, dialogs stay between the two, and in landscape the sidebars, the pages and the sign-in pages keep clear of the island at the side. On the customer site the top bar fits a 402-point phone: from 401 to 440 px its brand is the mark alone (below 400 px "Connect device" is its icon, since 2.25.6). A browser shows the pages as before.
+
+`index.html` of both sites asks for `viewport-fit=cover`, and `app.css` names the safe areas (`--safe-top`,
+`--safe-right`, `--safe-bottom`, `--safe-left`, from `env(safe-area-inset-*)`) and `--safe-bottom-bar`: the inset, but
+at least 44px where there is one. The console's tab bar, sidebar, page, foot, toasts, sign-in pages and dialogs, and the
+customer site's top bar, tab bar, sidebar, landing bar, foot and dialogs pad with them. `cloud/web/test/safe-area.test.mjs`
+checks the rules. The apps change with it (0.8.22): the iPhone shell's web view runs under the island and the home
+indicator with no inset of its own, and the Android shell's page keeps clear of a display cutout as well as the system
+bars and the keyboard.
+
 ## 2.25.9
 
 The local preview (cloud/dev/preview.mjs --customer) saves a customer's own changes again: renaming a board and turning the e-mails on or off answered "That could not be saved just now" (503) every time. Nothing deployed changes.

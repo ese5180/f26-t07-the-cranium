@@ -1,0 +1,67 @@
+/**
+ * The pages fill an iPhone's screen edge to edge in the apps (the shell's web view runs under the Dynamic Island,
+ * the home indicator and the sides) and keep clear of what is there: they ask for the whole screen with
+ * viewport-fit=cover and pad their bars with env(safe-area-inset-*), through the --safe-* properties of app.css.
+ * A bar at the foot of the screen ends at least 44px up on a screen with rounded corners, so that its first and
+ * last tabs are not in a corner.
+ */
+
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const APP = read('../src/site/assets/app.css');
+const CUSTOMER = read('../src/customer/assets/customer.css');
+
+/** The declarations of every rule for a selector, in order. */
+function rules(css, selector) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [...css.matchAll(new RegExp(String.raw`(?:^|[}\n])\s*${escaped}\s*\{([^}]*)\}`, 'g'))].map((m) => m[1]);
+}
+
+test('the console and the customer site ask for the whole screen', () => {
+  for (const page of ['../src/site/index.html', '../src/customer/index.html']) {
+    assert.match(read(page), /<meta name="viewport" content="[^"]*viewport-fit=cover/, page);
+  }
+});
+
+test('the safe areas have a name each, and the foot bar clears a rounded corner', () => {
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    assert.match(APP, new RegExp(String.raw`--safe-${side}: env\(safe-area-inset-${side}, 0px\);`));
+  }
+  // 0 with no inset (a browser), the inset when it is 44px or more, and 44px when it is less.
+  assert.match(
+    APP,
+    /--safe-bottom-bar: max\(var\(--safe-bottom\), min\(calc\(var\(--safe-bottom\) \* 100\), 44px\)\);/
+  );
+});
+
+test('the bars are clear of the island, the home indicator and the sides', () => {
+  // The console: its tab bar on a phone, and its sidebar beside the island in landscape.
+  assert.ok(
+    rules(APP, '.nav').some((body) =>
+      /padding: 0 var\(--safe-right\) var\(--safe-bottom-bar\) var\(--safe-left\)/.test(body)
+    )
+  );
+  assert.match(APP, /body\.is-framed \{\s*padding-left: calc\(var\(--sidebar\) \+ var\(--safe-left\)\);/);
+  assert.ok(rules(APP, '.main').some((body) => /max\(var\(--gutter\), var\(--safe-left\)\)/.test(body)));
+  assert.match(rules(APP, '.gate-copy')[0], /var\(--safe-top\)/);
+  assert.match(rules(APP, '.dialog')[0], /--dialog-top: max\(16px, 9vh, calc\(var\(--safe-top\) \+ 12px\)\)/);
+  // The customer site: its top bar under the island, its tab bar, its sidebar and the landing page's bar.
+  assert.ok(rules(CUSTOMER, '.cs-top').some((body) => /padding: calc\(10px \+ var\(--safe-top\)\)/.test(body)));
+  assert.ok(rules(CUSTOMER, '.cs-tabbar').some((body) => /var\(--safe-bottom-bar\)/.test(body)));
+  assert.ok(rules(CUSTOMER, '.cs-body').some((body) => /calc\(68px \+ var\(--safe-bottom-bar\)\)/.test(body)));
+  assert.match(rules(CUSTOMER, '.cs-side')[0], /calc\(18px \+ var\(--safe-left\)\)/);
+  assert.match(rules(CUSTOMER, '.cs-landing-top')[0], /calc\(14px \+ var\(--safe-top\)\)/);
+  // The customer site pads with the names alone.
+  assert.doesNotMatch(CUSTOMER, /env\(safe-area-inset/);
+});
+
+test("the customer site's top bar fits a 402px iPhone: its brand is its mark from 401px to 440px", () => {
+  const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (min-width: 401px) and (max-width: 440px)'));
+  assert.match(
+    block,
+    /^@media \(min-width: 401px\) and \(max-width: 440px\) \{\s*\.cs-top-brand \.cs-brand-text \{[^}]*clip-path: inset\(50%\)/
+  );
+});
