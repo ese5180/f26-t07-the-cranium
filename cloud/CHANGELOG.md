@@ -7,6 +7,20 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.5
+
+Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.22.0 and its bootloader, which takes one debug-port flash.
+
+`POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
+(`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
+`firmware/keys/golden_promote_pub.pem`, empty until that file exists), it names this release's image hash, size and
+version, the release is active, and its counter is above every other release's; once per release.
+`POST /api/golden/promotions` makes one AWS IoT job, `gold-<version>-c<counter>-<time>-<4 hex>`, with the document
+`{"op":"golden_promote","v":1,"record":"<hex>"}`, to boards that are registered, of the release's type and free;
+`GET /api/golden/promotions` lists the latest. Both writes are on the activity log (`firmware.golden_record`,
+`golden.promote`), from the website only. A board's report beside `diag` gives `golden: {version, counter, state}`, and
+a device carries it where it is reported. The apps host the console, so they have it with this version. Tests:
+cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs.
 ## 2.27.4
 
 A board taken back from one customer and given to another no longer shows the new owner what it did for the old one. The customer site's activity (a board's page and the overview) and its sessions, tracks and now playing (Mixes) were read for the last 30 days of the board, whoever owned it then: the next owner of a board saw the earlier owner's sessions and track names, and its restarts and updates. Each is now read from the time the board was given to this customer only. The board's health stays the board's own.

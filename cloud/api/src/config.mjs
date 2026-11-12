@@ -5,10 +5,14 @@
  * missing or malformed value stops the function from starting, which is the safe
  * outcome: nothing here has a default that could quietly weaken a check.
  *
- * The only key material is the firmware signing PUBLIC key. The console verifies
- * signatures with it and can never produce one.
+ * The only key material is the firmware signing PUBLIC key, and from console 2.27.5 the golden
+ * image's PUBLIC key (lib/golden.mjs), which a stack may not have. The console verifies signatures
+ * with them and can never produce one.
  */
 
+import { createHash } from 'node:crypto';
+
+import { loadGoldenKey } from './lib/golden.mjs';
 import { loadSigningKey } from './lib/mcuboot.mjs';
 
 const PATTERNS = Object.freeze({
@@ -40,6 +44,10 @@ const PATTERNS = Object.freeze({
 
 // Memfault (docs/memfault.md), for a board's page: the slugs of the link to a board in Memfault. Each may
 // be empty, and a stack from before them has neither: then there is no link. Neither is a secret.
+// The golden key (firmware/keys/golden_promote_pub.pem, as base64 DER), for promotion records; empty
+// or missing when there is none yet, and then no record is accepted.
+const GOLDEN_KEY = /^(?:|MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE[A-Za-z0-9+/]{86}==)$/;
+
 const MEMFAULT_SLUG = /^(?:|[a-z0-9][a-z0-9-]{0,62})$/;
 // The live API's WebSocket (docs/live.md), for the phone apps' configuration (handlers/apps.mjs): the
 // stack's LiveUrl output, wss://<API id>.execute-api.<region>.amazonaws.com/<stage>. A stack from before
@@ -82,6 +90,8 @@ function publicKeyPem(base64) {
  */
 export function loadConfig(env = process.env) {
   const signingKey = loadSigningKey(publicKeyPem(read(env, 'SIGNING_PUBLIC_KEY_B64')));
+  const goldenBase64 = optional(env, 'GOLDEN_PUBLIC_KEY_B64', GOLDEN_KEY);
+  const goldenKey = loadGoldenKey(goldenBase64);
   const slotSize = Number(read(env, 'SLOT_SIZE'));
   const loadAddress = Number(read(env, 'LOAD_ADDRESS'));
   if (slotSize > 0xffffffff || loadAddress > 0xffffffff) {
@@ -103,6 +113,10 @@ export function loadConfig(env = process.env) {
     // { key, keyHash }: the public key and the SHA-256 of its DER encoding.
     signingKey,
     signingKeyFingerprint: signingKey.keyHash.toString('hex'),
+    // The golden key (lib/golden.mjs): a KeyObject, or null when the stack has none.
+    goldenKey,
+    goldenKeyFingerprint:
+      goldenKey === null ? '' : createHash('sha256').update(Buffer.from(goldenBase64, 'base64')).digest('hex'),
     slotSize,
     loadAddress,
     // Where the e-mail alerts go (docs/fleet.md). aws-map.mjs subscribes to it; nothing here publishes.

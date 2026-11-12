@@ -735,6 +735,16 @@ export function createFakeAws({
       return { ok: true, release: copy(item) };
     },
 
+    async setReleaseGolden({ sk, golden }) {
+      assertStorable(golden, 'golden');
+      const item = releases.get(sk);
+      if (item === undefined || item.status !== 'active' || item.golden !== undefined) {
+        return { ok: false, reason: 'not_available' };
+      }
+      item.golden = copy(golden);
+      return { ok: true, release: copy(item) };
+    },
+
     async setReleaseNotes({ sk, notes }) {
       if (typeof notes !== 'string') throw new TypeError('notes must be text');
       const item = releases.get(sk);
