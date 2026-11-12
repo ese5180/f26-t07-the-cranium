@@ -13598,3 +13598,13 @@ button.back {
   color: var(--ink);
   font-size: var(--type-body);
 }
+
+/* Our own issues (issues-page.js): a signature is one long word, so it may break anywhere on a phone. */
+.own-issue-sig {
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  overflow-wrap: anywhere;
+}
+.own-issue-row .ui-badge {
+  flex: none;
+}

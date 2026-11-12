@@ -94,6 +94,7 @@ import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
+import { createIssueHandlers } from './handlers/issues.mjs';
 import { createLocationHandlers } from './handlers/location.mjs';
 import { createMemfaultHandlers } from './handlers/memfault.mjs';
 import { createMeHandlers } from './handlers/me.mjs';
@@ -338,6 +339,8 @@ export function createApp({
   const events = createEventHandlers(context, { devices });
   // Each board's version timeline (handlers/timeline.mjs), made from the update history.
   const timeline = createTimelineHandlers(context, { devices, updates });
+  // Our own issues (handlers/issues.mjs): the boards' crashes, faults and stuck restarts, grouped by signature.
+  const issues = createIssueHandlers(context, { devices });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
@@ -425,6 +428,8 @@ export function createApp({
     route('GET', '/api/memfault/fleet', memfault.fleet),
     route('GET', '/api/memfault/issues', memfault.issues),
     route('GET', '/api/memfault/issues/{id}', memfault.issue),
+    route('GET', '/api/issues', issues.list),
+    route('GET', '/api/issues/{id}', issues.get),
     route('GET', '/api/events', events.list),
     // What the boards printed on their serial consoles, from firmware 1.12.0 (lib/lines.mjs).
     route('GET', '/api/events/log', events.log),

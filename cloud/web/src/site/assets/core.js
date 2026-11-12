@@ -149,6 +149,9 @@ const SECTIONS = [
   'offline',
   // What Memfault knows of the boards: its issues, and an issue's traces (memfault-page.js).
   'memfault',
+  // Our own issues: the boards' crashes, faults and stuck restarts, grouped by signature (issues-page.js),
+  // under Memfault in the sections (docs/own-observability.md).
+  'issues',
   // The console's DynamoDB tables, read only, for release managers, under Developer (db-page.js).
   'database',
   // Two to four boards side by side, with their version timelines (compare.js): #/compare?boards=a,b.
@@ -160,6 +163,8 @@ const SECTIONS = [
 export const RELEASE_PRODUCTS = Object.freeze(['console', 'firmware', 'iphone', 'android', 'desktop', 'mac']);
 // The tables of the Database page (cloud/api/src/lib/db.mjs TABLES).
 const DB_TABLES = ['state', 'audit', 'events'];
+// One of our own issues (cloud/api/src/lib/issues.mjs): 12 hex digits of its signature's SHA-256.
+export const OWN_ISSUE = /^[0-9a-f]{12}$/;
 // A staged rollout's id (cloud/api/src/lib/fleet.mjs): rol-<yyyymmddThhmmssZ>-<6 hex>.
 const ROLLOUT = /^rol-\d{8}T\d{6}Z-[0-9a-f]{6}$/;
 
@@ -204,6 +209,8 @@ function routeOf(section, item) {
   if (section === 'rollouts' && isRolloutId(item)) return { view: 'rollout', id: item };
   // One Memfault issue: its traces and backtraces (memfault-page.js).
   if (section === 'memfault' && /^[1-9]\d{0,15}$/.test(item)) return { view: 'issue', id: item };
+  // One of our own issues: its boards and its timeline (issues-page.js).
+  if (section === 'issues' && OWN_ISSUE.test(item)) return { view: 'own-issue', id: item };
   // One table of the Database page (db-page.js).
   if (section === 'database' && DB_TABLES.includes(item)) return { view: 'database', table: item };
   // One week's report (reports.js).
@@ -220,6 +227,7 @@ export function routeHash(route) {
   if (route?.view === 'diagnostics' && isThing(route.thing)) return `#/diagnostics/${route.thing}`;
   if (route?.view === 'rollout' && isRolloutId(route.id)) return `#/rollouts/${route.id}`;
   if (route?.view === 'issue' && /^[1-9]\d{0,15}$/.test(route.id ?? '')) return `#/memfault/${route.id}`;
+  if (route?.view === 'own-issue' && OWN_ISSUE.test(route.id ?? '')) return `#/issues/${route.id}`;
   if (route?.view === 'database' && DB_TABLES.includes(route.table)) return `#/database/${route.table}`;
   if (route?.view === 'report' && isReportWeek(route.week)) return `#/reports/${route.week}`;
   if (route?.view === 'release-notes' && RELEASE_PRODUCTS.includes(route.product)) {
@@ -381,6 +389,7 @@ export const FILTERS = Object.freeze({
     status: oneOf(['confirmed', 'pending', 'reset', 'disabled']),
   },
   memfault: { q: searchText, version: versionFilter },
+  issues: { q: searchText, status: oneOf(['open', 'regressed', 'fixed']) },
   // Not a filter of a list: the boards of the Compare page, as many as it takes (compare.js).
   compare: { boards: compareBoards },
 });
@@ -2975,6 +2984,12 @@ export function createApi({
      * The Apps page's reads (apps.js reads its own answers): the apps, their configuration, and a link
      * to download an Android release, which the console puts on record. Tried once: a link is for now.
      */
+    // Our own issues (issues-page.js): reads only, of the list and of one issue, over a number of days.
+    async issuesRequest(path) {
+      const read = typeof path === 'string' && /^\/api\/issues(?:\/[0-9a-f]{12})?(?:\?days=[1-9]\d?)?$/.test(path);
+      if (!read) throw new ApiError(0, 'bad_request', 'That is not a request of the Issues pages.');
+      return record(await request('GET', path));
+    },
     // What Memfault knows (memfault-page.js): reads only, of these four routes: the fleet, the issues, an
     // issue and a board.
     async memfaultRequest(path) {
@@ -4752,6 +4767,8 @@ export const REFUSAL_WORDS = {
   unauthorized: 'The sign-in was not accepted',
   unknown_deployment: 'There is no such deployment',
   unknown_device: 'A board is not registered',
+  unknown_issue: 'No such issue in this window',
+  invalid_issue: 'Not a valid issue id',
   unknown_version: 'There is no such release',
   image_unavailable: 'The image could not be read; it may have been revoked',
   image_mismatch: 'The stored image is not the one that was verified',

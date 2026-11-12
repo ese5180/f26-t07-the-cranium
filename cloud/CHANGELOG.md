@@ -7,6 +7,15 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.9
+
+Our own Issues, the first stage of doing what Memfault does on our own. The console groups the restarts that say something went wrong (the watchdog, a brownout, a lockup, a restart for being stuck) into issues by what went wrong, with how often and on which boards and versions, first and last seen, and whether an issue came back in a newer version after a fix. A new Issues page, linked from the Memfault page, lists them; an issue's page shows its boards and each time it happened. Memfault's page is unchanged.
+
+- Grouping (`cloud/api/src/lib/issues.mjs`): signature `<type>:<detail>[@<where>]`, id the first 12 hex digits of its SHA-256; the version an occurrence happened on is the board's last firmware event before it; fixed in a newer version that ran without it, regressed when it comes back after that. `lib/events.mjs` reads `pc` and `frame` on an event, for the faults the firmware will report (stage 2).
+- API (`handlers/issues.mjs`): `GET /api/issues?days=1-90` and `GET /api/issues/{id}`, reads for every member, made from each board's restart and firmware events; a board that cannot be read is counted in `unread`.
+- Console (`issues-page.js`): `#/issues` and `#/issues/<id>` under Memfault in the sections, with search and a status filter; `core.js` `issuesRequest` asks for nothing else. The apps list both pages (`apps/shared/pages.json`).
+- Design for the rest (`docs/own-observability.md`): coredumps, symbol files, metrics, vitals, logs, timeline, rollout cohorts and abort, alert integrations, sampling and recordings, stage by stage (#236).
+
 ## 2.27.6
 
 Six fixes. A board's Wi-Fi location lines (firmware 1.13.0 and later) were thrown away by the board log; they are kept now. An update over Bluetooth that a board refused because the image was for another board or flash layout left no record on its page, no event and no alert; it now shows as refused, warns and alerts. A cloud update refused for the same reason says so in words instead of a code. The Activity page's day filter keeps whole local days on the days the clocks change, and a scheduled start's default "tomorrow" is the next calendar day. A scheduled time that happens twice is the first of the two in every time zone, also where the clocks go back by half an hour. The Memfault page lists versions with as many boards newest first (1.10 above 1.9).

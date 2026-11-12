@@ -24,6 +24,13 @@
       "script": "memfault-page.js",
       "api": ["GET /api/memfault/issues/{id}"]
     },
+    { "route": "#/issues", "nav": "memfault", "script": "issues-page.js", "api": ["GET /api/issues"] },
+    {
+      "route": "#/issues/0123456789ab",
+      "nav": "memfault",
+      "script": "issues-page.js",
+      "api": ["GET /api/issues/{id}"]
+    },
     { "route": "#/alerts", "nav": "alerts", "script": "account.js", "api": ["GET /api/alerts"] },
     { "route": "#/reports", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports"] },
     { "route": "#/reports/2026-11-02", "nav": "reports", "script": "reports.js", "api": ["GET /api/reports/{week}"] },

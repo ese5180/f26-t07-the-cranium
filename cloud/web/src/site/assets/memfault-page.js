@@ -592,6 +592,8 @@ export function memfaultView(ctx) {
   const head = pageHead({
     title: 'Memfault',
     lede: 'Crashes and traces the boards sent to Memfault, grouped into issues.',
+    // Our own issues, made by the console from the boards' events (issues-page.js).
+    tools: h('a', { class: 'ui-btn btn is-small', href: '#/issues' }, 'Our own issues', icon('arrow-right')),
     how: {
       title: 'How Memfault works',
       text: [
