@@ -22,6 +22,7 @@ the firmware is described in [`firmware/README.md`](../firmware/README.md) and t
 | [`search-filters.md`](search-filters.md) | Search and filters on the console's long lists, kept in the page's address |
 | [`audit-diff.md`](audit-diff.md) | What each activity entry changed, before and after, and what is never recorded |
 | [`memfault.md`](memfault.md) | Memfault: crashes, reboots and fleet metrics, sent over the AWS IoT connection |
+| [`firmware-memory.md`](firmware-memory.md) | Where the nRF7002 DK's RAM and flash go, the stack and heap reports in the shadow, and how to size them |
 | [`raspberry-pi-ota.md`](raspberry-pi-ota.md) | The Raspberry Pi's operating system and its over-the-air updates |
 
 ## Boards
