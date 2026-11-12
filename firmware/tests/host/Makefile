@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -81,6 +81,8 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/sessions_tests
 	./$(BUILD)/matter_policy_tests
 	./$(BUILD)/matter_lib_tests
+	./$(BUILD)/matter_cert_tests
+	./$(BUILD)/matter_attest_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -105,6 +107,21 @@ MATTER_LIB_SOURCES := $(MATTER_LIB)/mt_tlv.c $(MATTER_LIB)/mt_btp.c $(MATTER_LIB
 $(BUILD)/matter_lib_tests: test_matter_lib.c $(MATTER_LIB_SOURCES) $(wildcard $(MATTER_LIB)/*.h)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_lib.c $(MATTER_LIB_SOURCES)
+
+# Matter certificates: the Matter SDK's test certificates from TLV to exactly their DER, and the ones this
+# library makes (matter_cert_vectors.h has the vectors).
+$(BUILD)/matter_cert_tests: test_matter_cert.c matter_cert_vectors.h $(MATTER_LIB)/mt_cert.c $(MATTER_LIB)/mt_der.c \
+		$(MATTER_LIB)/mt_tlv.c $(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -D_GNU_SOURCE -I$(MATTER_LIB) -o $@ test_matter_cert.c $(MATTER_LIB)/mt_cert.c \
+		$(MATTER_LIB)/mt_der.c $(MATTER_LIB)/mt_tlv.c
+
+# Device attestation: the Matter SDK's test DAC and PAI against the built-in test PAAs (matter_attest_vectors.h).
+$(BUILD)/matter_attest_tests: test_matter_attest.c matter_attest_vectors.h $(MATTER_LIB)/mt_attest.c \
+		$(MATTER_LIB)/mt_test_paa.c $(MATTER_LIB)/mt_der.c $(MATTER_LIB)/mt_tlv.c $(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_attest.c $(MATTER_LIB)/mt_attest.c \
+		$(MATTER_LIB)/mt_test_paa.c $(MATTER_LIB)/mt_der.c $(MATTER_LIB)/mt_tlv.c
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.
