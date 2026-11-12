@@ -870,7 +870,7 @@ export function compatibilityCard(device, ctx) {
     ]),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       'A release goes only to boards of its type and its flash layout; the board checks it again before it installs.'
     )
   );
@@ -930,7 +930,7 @@ export function healthScoreCard(ctx) {
         : `Crash-free counts the restarts in the boards’ events only just now. ${score.memfault.message}`.trim();
   return h(
     'section',
-    { class: 'card health-score', key: card.key, 'aria-label': card.title },
+    { class: 'ui-card card health-score', key: card.key, 'aria-label': card.title },
     h(
       'div',
       { class: 'health-score-head' },
@@ -973,10 +973,10 @@ export function healthScoreCard(ctx) {
       })
     ),
     h('ul', { class: 'score-parts' }, score.parts.map(scorePart)),
-    memfaultNote ? h('p', { class: 'card-note' }, memfaultNote) : null,
+    memfaultNote ? h('p', { class: 'ui-card-note card-note' }, memfaultNote) : null,
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       `Online and Wi-Fi signal are now; crash-free and update success are of the last ${score.days} days. `,
       'The score is the weighted mean of the parts that have something to count.'
     )
@@ -991,7 +991,7 @@ export function healthCard(ctx) {
   const { updates } = health;
   return h(
     'section',
-    { class: 'card health', key: 'health', 'aria-label': 'Fleet health' },
+    { class: 'ui-card card health', key: 'health', 'aria-label': 'Fleet health' },
     h(
       'div',
       { class: 'health-part health-versions' },
@@ -1120,7 +1120,7 @@ function groupRow(group, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-quiet',
+              class: 'ui-btn btn is-small is-quiet',
               'aria-label': `Edit ${group.name}`,
               onClick: () => openGroup(group),
             },
@@ -1130,7 +1130,7 @@ function groupRow(group, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-danger-quiet',
+              class: 'ui-btn btn is-small is-danger-quiet',
               'aria-label': `Delete ${group.name}`,
               onClick: () => openDeleteGroup(group),
             },
@@ -2834,7 +2834,7 @@ function scheduleRow(item, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-quiet',
+              class: 'ui-btn btn is-small is-quiet',
               'aria-label': `Change the time of: ${scheduleWhat(item)}`,
               onClick: () => openEditSchedule(item),
             },
@@ -2844,7 +2844,7 @@ function scheduleRow(item, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-danger-quiet',
+              class: 'ui-btn btn is-small is-danger-quiet',
               'aria-label': `Cancel: ${scheduleWhat(item)}`,
               onClick: () => openCancelSchedule(item),
             },

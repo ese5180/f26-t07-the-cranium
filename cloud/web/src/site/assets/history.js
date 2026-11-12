@@ -156,11 +156,14 @@ function newEntry(entry, current) {
 /** The console's versions, newest first, each with its note: the first paragraph of cloud/CHANGELOG.md's entry. */
 function whatsNew(ctx) {
   const data = ctx.state.versions?.value;
-  if (!data) return ctx.state.versions ? h('p', { class: 'loading', key: 'whats-new' }, 'Loading what is new…') : null;
+  if (!data)
+    return ctx.state.versions
+      ? h('p', { class: 'ui-loading loading', key: 'whats-new' }, 'Loading what is new…')
+      : null;
   if (data.missing || data.failed || data.changelogs.console.length === 0) {
     return h(
       'section',
-      { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+      { class: 'ui-card card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
       h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
       h(
         'p',
@@ -175,10 +178,10 @@ function whatsNew(ctx) {
   const current = data.console.version;
   return h(
     'section',
-    { class: 'card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
+    { class: 'ui-card card whats-new', key: 'whats-new', 'aria-labelledby': 'whats-new-title' },
     h(
       'header',
-      { class: 'card-head' },
+      { class: 'ui-card-head card-head' },
       h('h2', { class: 'eyebrow', id: 'whats-new-title' }, 'What\u2019s new'),
       current ? h('span', { class: 'quiet' }, 'This console is ', mono(current)) : null,
       // Every version in full, and the firmware's and the apps' too.
@@ -280,7 +283,7 @@ function tagFilter(commits, ctx) {
       {
         type: 'button',
         key: tag,
-        class: 'btn is-small history-choice',
+        class: 'ui-btn btn is-small history-choice',
         'aria-pressed': shownTag === tag ? 'true' : 'false',
         onClick: choose(tag),
       },
@@ -351,7 +354,7 @@ function historyBody(ctx) {
   if (data.missing) {
     return h(
       'section',
-      { class: 'card', key: 'missing' },
+      { class: 'ui-card card', key: 'missing' },
       empty({
         iconName: 'list',
         title: 'There is no history in this copy of the console.',

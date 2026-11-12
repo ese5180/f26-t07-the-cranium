@@ -1177,7 +1177,7 @@ function explained(title, text, command) {
     { class: 'page', key: 'page' },
     developerTabs('setup'),
     pageHead({ title: 'Board setup', lede: LEDE, how: HOW }),
-    h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
+    h('section', { class: 'ui-card card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
   );
 }
 
@@ -1200,7 +1200,7 @@ function boardFacts(flow) {
           ['Firmware', board.app === 'shell' ? 'From before the console' : 'None runs'],
           ['Bootloader', board.app === 'none' ? 'Listening for serial recovery' : 'Not known'],
         ];
-  return h('section', { class: 'card setup-board', key: 'board', 'aria-label': 'The board' }, facts(rows));
+  return h('section', { class: 'ui-card card setup-board', key: 'board', 'aria-label': 'The board' }, facts(rows));
 }
 
 function progressOf(flow) {
@@ -1407,7 +1407,7 @@ function setupForm(flow) {
     h(
       'div',
       { class: 'setup-tools' },
-      h('button', { type: 'submit', class: 'btn is-primary', disabled: flow.busy }, 'Set it up')
+      h('button', { type: 'submit', class: 'ui-btn btn is-primary', disabled: flow.busy }, 'Set it up')
     )
   );
 }
@@ -1723,7 +1723,7 @@ function bulkSettingsForm(flow) {
       : h(
           'div',
           { class: 'setup-tools' },
-          h('button', { type: 'submit', class: 'btn is-primary' }, 'Make the queue'),
+          h('button', { type: 'submit', class: 'ui-btn btn is-primary' }, 'Make the queue'),
           button('is-quiet', () => closeBulk(flow), 'One board at a time')
         )
   );
@@ -1767,7 +1767,7 @@ function bulkQueueCard(flow, ctx) {
     .map((item) => labelOf({ thing: item.thing, name: item.label }, ctx.state.origin));
   return h(
     'section',
-    { class: 'card', key: 'bulk-queue', 'aria-label': 'The queue' },
+    { class: 'ui-card card', key: 'bulk-queue', 'aria-label': 'The queue' },
     h(
       'p',
       { class: 'setup-text', role: 'status' },
@@ -1800,7 +1800,7 @@ function bulkView(flow, ctx) {
   return [
     h(
       'section',
-      { class: 'card', key: 'bulk-settings' },
+      { class: 'ui-card card', key: 'bulk-settings' },
       h('h2', { class: 'setup-step-title' }, 'Set up several boards'),
       h(
         'p',
@@ -1846,7 +1846,7 @@ export function setupView(ctx, flow) {
     }),
     selfCheckCard(),
     notice('warn', 'alert', 'A board with nothing on it needs the debug probe once.', {
-      more: h('span', { class: 'notice-more' }, ` ${WORDS.probe}`),
+      more: h('span', { class: 'ui-notice-more notice-more' }, ` ${WORDS.probe}`),
     }),
     ...(bulkUi.on ? bulkView(current, ctx) : [boardFacts(current), stepper(current), onlineLabel(current, ctx)])
   );
@@ -2206,7 +2206,7 @@ function selfCheckCard() {
   const rows = selfCheck.results ?? [];
   return h(
     'section',
-    { class: 'card setup-board', key: 'self-check', 'aria-label': 'Self-check' },
+    { class: 'ui-card card setup-board', key: 'self-check', 'aria-label': 'Self-check' },
     h('h2', { class: 'setup-step-title' }, 'Self-check, against a simulated board'),
     selfCheck.running
       ? h('p', { class: 'setup-phase', role: 'status' }, 'Running the steps against a board simulated in this page.')

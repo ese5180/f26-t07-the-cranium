@@ -47,7 +47,7 @@ test('the bars are clear of the island, the home indicator and the sides', () =>
   assert.match(APP, /body\.is-framed \{\s*padding-left: calc\(var\(--sidebar\) \+ var\(--safe-left\)\);/);
   assert.ok(rules(APP, '.main').some((body) => /max\(var\(--gutter\), var\(--safe-left\)\)/.test(body)));
   assert.match(rules(APP, '.gate-copy')[0], /var\(--safe-top\)/);
-  assert.match(rules(APP, '.dialog')[0], /--dialog-top: max\(16px, 9vh, calc\(var\(--safe-top\) \+ 12px\)\)/);
+  assert.match(rules(APP, '.ui-dialog')[0], /--dialog-top: max\(16px, 9vh, calc\(var\(--safe-top\) \+ 12px\)\)/);
   // The customer site: its top bar under the island, its tab bar, its sidebar and the landing page's bar.
   assert.ok(rules(CUSTOMER, '.cs-top').some((body) => /padding: calc\(10px \+ var\(--safe-top\)\)/.test(body)));
   assert.ok(rules(CUSTOMER, '.cs-tabbar').some((body) => /var\(--safe-bottom-bar\)/.test(body)));

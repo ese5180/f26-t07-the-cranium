@@ -510,7 +510,7 @@ function notConnected(memfault) {
           'details',
           { class: 'more is-spaced memfault-connect', key: 'details' },
           h('summary', null, 'Details'),
-          h('p', { class: 'card-note' }, memfault.message)
+          h('p', { class: 'ui-card-note card-note' }, memfault.message)
         )
       : null
   );
@@ -576,7 +576,11 @@ function issuesFiltered(ctx, issues) {
           : [],
     }),
     shown.length === 0
-      ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No issues match. Try other words, or Clear.')
+      ? h(
+          'p',
+          { class: 'quiet ui-filter-none filter-none', key: 'none' },
+          'No issues match. Try other words, or Clear.'
+        )
       : issueRows(shown, ctx.state.now),
   ];
 }
@@ -655,7 +659,7 @@ function threadBlock(thread, index) {
     thread.registers.length > 0
       ? h(
           'table',
-          { class: 'data-table registers' },
+          { class: 'ui-table data-table registers' },
           h(
             'tbody',
             null,
@@ -814,7 +818,7 @@ function rebootCard(fleet) {
       : [
           h(
             'p',
-            { class: 'card-note', key: 'total' },
+            { class: 'ui-card-note card-note', key: 'total' },
             `${plural(total, 'reboot', 'reboots')}, ${unexpected === 0 ? 'none' : unexpected} unexpected.`
           ),
           h(
@@ -890,7 +894,7 @@ function versionCard(fleet) {
     fleet.releases.length > 0
       ? h(
           'p',
-          { class: 'card-note', key: 'releases' },
+          { class: 'ui-card-note card-note', key: 'releases' },
           `${plural(fleet.releases.length, 'release', 'releases')} in Memfault in all.`
         )
       : null
@@ -1072,7 +1076,7 @@ export function metricsSection(thing, ctx) {
     data.metrics.unnamed > 0
       ? h(
           'p',
-          { class: 'card-note', key: 'unnamed' },
+          { class: 'ui-card-note card-note', key: 'unnamed' },
           `${plural(data.metrics.unnamed, 'heartbeat', 'heartbeats')} of the week came without names: Memfault lacks the symbols of their build.`
         )
       : null;

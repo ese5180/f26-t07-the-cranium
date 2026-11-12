@@ -530,7 +530,7 @@ function drawing(name) {
 // Small pieces used by every view.
 
 function badge(tone, iconName, label, title) {
-  return h('span', { class: `badge is-${tone}`, title }, icon(iconName), h('span', null, label));
+  return h('span', { class: `ui-badge badge is-${tone}`, title }, icon(iconName), h('span', null, label));
 }
 
 function mono(content, className = '') {
@@ -643,7 +643,7 @@ function signed(number) {
 }
 
 function button(className, onClick, ...children) {
-  return h('button', { type: 'button', class: `btn ${className}`.trim(), onClick }, children);
+  return h('button', { type: 'button', class: `ui-btn btn ${className}`.trim(), onClick }, children);
 }
 
 /**
@@ -655,7 +655,7 @@ function onTheWebsite(ctx, view, words = 'Change on the website') {
     'button',
     {
       type: 'button',
-      class: 'btn is-small is-quiet website-only',
+      class: 'ui-btn btn is-small is-quiet website-only',
       'data-action': 'website',
       title: 'Changes to this are made on the console’s website',
       onClick: () => ctx.actions.openOnWebsite(view),
@@ -669,7 +669,7 @@ function meter(percent, label) {
   return h(
     'div',
     {
-      class: 'meter',
+      class: 'ui-meter meter',
       role: 'progressbar',
       'aria-label': label,
       'aria-valuemin': '0',
@@ -677,7 +677,7 @@ function meter(percent, label) {
       'aria-valuenow': String(percent),
       vars: { '--progress': `${percent}%` },
     },
-    h('span', { class: 'meter-fill' })
+    h('span', { class: 'ui-meter-fill meter-fill' })
   );
 }
 
@@ -744,16 +744,16 @@ function countWords(counts, atButton = 0) {
 function stats(rows) {
   return h(
     'dl',
-    { class: 'stats' },
+    { class: 'ui-stats stats' },
     rows
       .filter(Boolean)
       .map(([label, value, note]) =>
         h(
           'div',
-          { key: label, class: 'stat' },
-          h('dt', { class: 'stat-label' }, label),
-          h('dd', { class: 'stat-value' }, String(value)),
-          note ? h('dd', { class: 'stat-note' }, note) : null
+          { key: label, class: 'ui-stat stat' },
+          h('dt', { class: 'ui-stat-label stat-label' }, label),
+          h('dd', { class: 'ui-stat-value stat-value' }, String(value)),
+          note ? h('dd', { class: 'ui-stat-note stat-note' }, note) : null
         )
       )
   );
@@ -785,12 +785,12 @@ function boardTiles(devices, phone = new Set()) {
 function empty({ iconName, title, text, command, action }) {
   return h(
     'div',
-    { class: 'empty' },
-    drawing(iconName) ?? h('span', { class: 'empty-icon' }, icon(iconName)),
-    h('p', { class: 'empty-title' }, title),
-    text ? h('p', { class: 'empty-text' }, text) : null,
+    { class: 'ui-empty empty' },
+    drawing(iconName) ?? h('span', { class: 'ui-empty-icon empty-icon' }, icon(iconName)),
+    h('p', { class: 'ui-empty-title empty-title' }, title),
+    text ? h('p', { class: 'ui-empty-text empty-text' }, text) : null,
     command ? h('code', { class: 'code' }, command) : null,
-    action ? h('a', { class: 'btn', href: action.href, onClick: action.onClick ?? null }, action.label) : null
+    action ? h('a', { class: 'ui-btn btn', href: action.href, onClick: action.onClick ?? null }, action.label) : null
   );
 }
 
@@ -812,12 +812,12 @@ const NOTICE_ROLES = { bad: 'alert', warn: 'status' };
 function notice(tone, iconName, said, { more = null, action = null } = {}) {
   return h(
     'div',
-    { class: `notice is-${tone}` },
+    { class: `ui-notice notice is-${tone}` },
     icon(iconName),
     h(
       'div',
-      { class: 'notice-text' },
-      h('span', { class: 'notice-said', role: NOTICE_ROLES[tone] ?? null }, said),
+      { class: 'ui-notice-text notice-text' },
+      h('span', { class: 'ui-notice-said notice-said', role: NOTICE_ROLES[tone] ?? null }, said),
       more
     ),
     action
@@ -830,7 +830,7 @@ function problemRef(error) {
   if (!coded && !error.requestId) return null;
   return h(
     'span',
-    { class: 'notice-ref dotted' },
+    { class: 'ui-notice-ref notice-ref dotted' },
     coded ? h('span', null, 'Code ', mono(error.code)) : null,
     error.requestId ? h('span', null, 'Request ', mono(error.requestId)) : null
   );
@@ -905,7 +905,7 @@ function missing(resource) {
 }
 
 function loading(what) {
-  return h('p', { class: 'loading', key: 'loading' }, `Loading ${what}…`);
+  return h('p', { class: 'ui-loading loading', key: 'loading' }, `Loading ${what}…`);
 }
 
 /** What a card shows while its data is on the way; nothing once loading has failed. */
@@ -918,7 +918,7 @@ function copyButton(value, label, ctx) {
     'button',
     {
       type: 'button',
-      class: 'btn is-quiet is-icon',
+      class: 'ui-btn btn is-quiet is-icon',
       title: `Copy ${label}`,
       'aria-label': `Copy ${label}`,
       onClick: () => ctx.actions.copy(value, label),
@@ -963,7 +963,7 @@ function freshness(resource, ctx) {
       'button',
       {
         type: 'button',
-        class: 'btn is-quiet is-icon',
+        class: 'ui-btn btn is-quiet is-icon',
         title: 'Refresh now',
         'aria-label': 'Refresh now',
         onClick: ctx.actions.refresh,
@@ -990,26 +990,26 @@ function howItWorks(how) {
 function pageHead({ title, lede, meta, back, tools, eyebrow, how }) {
   return h(
     'header',
-    { class: 'page-head' },
+    { class: 'ui-page-head page-head' },
     back ? h('a', { class: 'back', href: back.href }, icon('chevron-left'), back.label) : null,
     h(
       'div',
-      { class: 'page-head-row' },
+      { class: 'ui-page-head-row page-head-row' },
       h(
         'div',
-        { class: 'page-head-text' },
+        { class: 'ui-page-head-text page-head-text' },
         // The eyebrow says what kind of thing the title names, so it is part of the
         // heading: a list of headings reads "Deployment of 1.2.3+5", not "1.2.3+5".
         h(
           'h1',
-          { class: 'page-title', id: 'page-title', tabindex: '-1' },
+          { class: 'ui-page-title page-title', id: 'page-title', tabindex: '-1' },
           eyebrow ? h('span', { class: 'eyebrow' }, eyebrow, ' ') : null,
           title
         ),
-        lede ? h('p', { class: 'page-lede' }, lede) : null,
-        meta ? h('div', { class: 'page-meta dotted' }, meta) : null
+        lede ? h('p', { class: 'ui-page-lede page-lede' }, lede) : null,
+        meta ? h('div', { class: 'ui-page-meta page-meta dotted' }, meta) : null
       ),
-      tools ? h('div', { class: 'page-tools' }, tools) : null
+      tools ? h('div', { class: 'ui-page-tools page-tools' }, tools) : null
     ),
     howItWorks(how)
   );
@@ -1038,7 +1038,7 @@ export function filterBar(ctx, view, { label, placeholder, controls = [], shown 
     'section',
     {
       key: 'filter-bar',
-      class: `filter-bar ${open ? 'is-open' : ''} ${controls.length > 0 ? 'has-controls' : ''}`
+      class: `ui-filter-bar filter-bar ${open ? 'is-open' : ''} ${controls.length > 0 ? 'has-controls' : ''}`
         .replace(/\s+/g, ' ')
         .trim(),
       role: 'search',
@@ -1046,14 +1046,14 @@ export function filterBar(ctx, view, { label, placeholder, controls = [], shown 
     },
     h(
       'div',
-      { class: 'filter-row' },
+      { class: 'ui-filter-row filter-row' },
       h(
         'label',
-        { class: 'filter-search' },
+        { class: 'ui-filter-search filter-search' },
         icon('search', 'is-small'),
         h('span', { class: 'sr-only' }, `Search ${label}`),
         h('input', {
-          class: 'input filter-input',
+          class: 'input ui-filter-input filter-input',
           type: 'search',
           value: filters.q ?? '',
           placeholder,
@@ -1070,7 +1070,7 @@ export function filterBar(ctx, view, { label, placeholder, controls = [], shown 
             'button',
             {
               type: 'button',
-              class: 'btn is-small filter-toggle',
+              class: 'ui-btn btn is-small ui-filter-toggle filter-toggle',
               'aria-expanded': open ? 'true' : 'false',
               onClick: ctx.actions.toggleFilters,
             },
@@ -1080,17 +1080,17 @@ export function filterBar(ctx, view, { label, placeholder, controls = [], shown 
           )
         : null
     ),
-    controls.length > 0 ? h('div', { class: 'filter-controls' }, controls) : null,
+    controls.length > 0 ? h('div', { class: 'ui-filter-controls filter-controls' }, controls) : null,
     h(
       'div',
-      { class: 'filter-foot' },
-      h('p', { class: 'filter-count', role: 'status' }, counted ?? ''),
+      { class: 'ui-filter-foot filter-foot' },
+      h('p', { class: 'ui-filter-count filter-count', role: 'status' }, counted ?? ''),
       narrowed
         ? h(
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-quiet filter-clear',
+              class: 'ui-btn btn is-small is-quiet filter-clear',
               onClick: () => ctx.actions.clearFilters(view),
             },
             icon('x', 'is-small'),
@@ -1106,7 +1106,7 @@ export function filterSelect(ctx, view, { name, label, all, options }) {
   const value = ctx.state.filters?.[view]?.[name] ?? '';
   return h(
     'label',
-    { class: 'inline-field filter-field', key: name },
+    { class: 'inline-field ui-filter-field filter-field', key: name },
     h('span', { class: 'inline-field-label' }, label),
     h(
       'select',
@@ -1128,10 +1128,10 @@ export function filterDay(ctx, view, { name, label }) {
   const value = ctx.state.filters?.[view]?.[name] ?? '';
   return h(
     'label',
-    { class: 'inline-field filter-field', key: name },
+    { class: 'inline-field ui-filter-field filter-field', key: name },
     h('span', { class: 'inline-field-label' }, label),
     h('input', {
-      class: 'input filter-day',
+      class: 'input ui-filter-day filter-day',
       type: 'date',
       value,
       onChange: (event) => ctx.actions.setFilter(view, name, event.currentTarget.value),
@@ -1156,7 +1156,7 @@ export function noneMatch(ctx, view, what) {
     }),
     h(
       'p',
-      { class: 'button-row filter-none', key: 'clear' },
+      { class: 'ui-button-row button-row ui-filter-none filter-none', key: 'clear' },
       button('', () => ctx.actions.clearFilters(view), icon('x', 'is-small'), 'Clear the search and filters')
     )
   );
@@ -1165,17 +1165,17 @@ export function noneMatch(ctx, view, what) {
 function card({ key, title, more, className = '' }, ...body) {
   return h(
     'section',
-    { key, class: `card ${className}`.trim() },
+    { key, class: `ui-card card ${className}`.trim() },
     title || more
       ? h(
           'header',
-          { class: 'card-head' },
-          title ? h('h2', { class: 'eyebrow' }, title) : null,
-          more ? h('a', { class: 'card-more', href: more.href }, more.label, icon('chevron-right')) : null
+          { class: 'ui-card-head card-head' },
+          title ? h('h2', { class: 'ui-card-title eyebrow' }, title) : null,
+          more ? h('a', { class: 'ui-card-more card-more', href: more.href }, more.label, icon('chevron-right')) : null
         )
       : null,
     // The body is the group of a grouped list (console 2.7): the heading stands above it.
-    h('div', { class: 'card-body' }, body)
+    h('div', { class: 'ui-card-body card-body' }, body)
   );
 }
 
@@ -1248,13 +1248,13 @@ function signalBars(quality, old = false) {
 export function toastView(message, close) {
   return h(
     'div',
-    { class: 'toast-body' },
-    h('span', { class: 'toast-text' }, message),
+    { class: 'ui-toast-body toast-body' },
+    h('span', { class: 'ui-toast-text toast-text' }, message),
     h(
       'button',
       {
         type: 'button',
-        class: 'toast-close',
+        class: 'ui-toast-close toast-close',
         title: 'Close',
         'aria-label': 'Close',
         onClick: close,
@@ -1773,7 +1773,7 @@ function signInButton(model, label) {
     {
       key: 'send',
       type: 'submit',
-      class: 'btn is-large is-primary',
+      class: 'ui-btn btn is-large is-primary',
       'aria-disabled': model.busy ? 'true' : null,
     },
     model.busy ? 'Checking…' : label
@@ -1825,7 +1825,11 @@ function passwordStep(model) {
       'div',
       { class: 'signin-actions', key: 'actions' },
       signInButton(model, 'Continue'),
-      h('button', { type: 'button', class: 'btn is-quiet', onClick: model.forgotPassword }, 'Forgot your password?')
+      h(
+        'button',
+        { type: 'button', class: 'ui-btn btn is-quiet', onClick: model.forgotPassword },
+        'Forgot your password?'
+      )
     )
   );
 }
@@ -1884,7 +1888,7 @@ function codeStep(model) {
         'button',
         {
           type: 'button',
-          class: 'btn is-quiet',
+          class: 'ui-btn btn is-quiet',
           'aria-disabled': model.busy ? 'true' : null,
           onClick: model.startOver,
         },
@@ -1917,7 +1921,7 @@ export function signInView(model) {
         { class: 'signin-other', key: 'other' },
         h(
           'button',
-          { type: 'button', class: 'btn is-quiet', onClick: model.useAwsPage },
+          { type: 'button', class: 'ui-btn btn is-quiet', onClick: model.useAwsPage },
           'Use the AWS sign-in page',
           icon('arrow-right')
         ),
@@ -2304,7 +2308,7 @@ export function accountView(ctx) {
     ctx.state.customerSite
       ? h(
           'a',
-          { class: 'btn is-small is-quiet', href: ctx.state.customerSite },
+          { class: 'ui-btn btn is-small is-quiet', href: ctx.state.customerSite },
           icon('arrow-left'),
           ctx.state.customerSite === '/' ? 'Leave admin mode' : 'Customer site'
         )
@@ -2697,7 +2701,7 @@ function asReported(devices, now) {
   const seen = when(oldestSeen(quiet).lastSeen, now);
   return h(
     'p',
-    { class: 'card-note fleet-note', key: 'reported' },
+    { class: 'ui-card-note card-note fleet-note', key: 'reported' },
     quiet.length === 1 ? 'As last reported ' : 'As last reported, the oldest ',
     seen,
     '.'
@@ -2952,7 +2956,7 @@ function boardsCard(ctx, devices) {
       devices.length > BOARDS_SHOWN
         ? h(
             'p',
-            { class: 'card-note board-more', key: 'more' },
+            { class: 'ui-card-note card-note board-more', key: 'more' },
             h('a', { href: '#/devices' }, `and ${plural(devices.length - BOARDS_SHOWN, 'more board')}`)
           )
         : null,
@@ -3128,14 +3132,14 @@ function releasesByTypeCard(ctx, byType) {
           h('p', { class: 'release-figure is-small' }, mono(release.version), releaseBadge(release)),
           h(
             'p',
-            { class: 'card-note' },
+            { class: 'ui-card-note card-note' },
             'Uploaded ',
             when(release.uploadedAt, state.now),
             ' by ',
             who(release.uploadedBy)
           ),
           ofType !== null && ofType.length > 0
-            ? h('p', { class: 'card-note' }, `${on} of ${plural(ofType.length, 'board')} on it`)
+            ? h('p', { class: 'ui-card-note card-note' }, `${on} of ${plural(ofType.length, 'board')} on it`)
             : null
         );
       })
@@ -3177,7 +3181,7 @@ function releaseCard(ctx, newest) {
       h('p', { class: 'release-figure', key: 'version' }, mono(shown.version), releaseBadge(shown)),
       h(
         'p',
-        { class: 'card-note', key: 'meta' },
+        { class: 'ui-card-note card-note', key: 'meta' },
         'Uploaded ',
         when(shown.uploadedAt, state.now),
         ' by ',
@@ -3185,13 +3189,13 @@ function releaseCard(ctx, newest) {
       ),
       h(
         'p',
-        { class: 'card-note', key: 'size' },
+        { class: 'ui-card-note card-note', key: 'size' },
         fileSize(shown.size),
         ' · SHA-256 ',
         mono(`${shown.sha256.slice(0, 12)}…`)
       ),
-      note ? h('p', { class: 'card-note', key: 'note' }, note) : null,
-      unused ? h('p', { class: 'card-note', key: 'unused' }, unused) : null,
+      note ? h('p', { class: 'ui-card-note card-note', key: 'note' }, note) : null,
+      unused ? h('p', { class: 'ui-card-note card-note', key: 'unused' }, unused) : null,
     ];
   }
   return card(
@@ -3424,7 +3428,7 @@ function updatesCard(ctx, devices) {
       since
         ? h(
             'p',
-            { class: 'card-note calm-note', key: 'last' },
+            { class: 'ui-card-note card-note calm-note', key: 'last' },
             'Last update: ',
             linkTo(deviceHref(since.thing), { class: 'mono' }, since.to ?? 'Unknown version'),
             ' ',
@@ -3443,7 +3447,7 @@ function updatesCard(ctx, devices) {
       !since && lastDone
         ? h(
             'p',
-            { class: 'card-note calm-note' },
+            { class: 'ui-card-note card-note calm-note' },
             // Off the record, what the board runs did not come from a deployment: say whose this is.
             offRecord ? 'Last deployment from this console: ' : news ? null : 'Last deployment: ',
             linkTo(deploymentHref(lastDone.id), { class: 'mono' }, lastDone.version ?? lastDone.id),
@@ -3462,13 +3466,13 @@ function updatesCard(ctx, devices) {
       !since && !lastDone
         ? h(
             'p',
-            { class: 'card-note' },
+            { class: 'ui-card-note card-note' },
             news && atRest ? 'No update is in progress. ' : null,
             'Deployments from this console appear here while boards are being updated.'
           )
         : null,
-      news && work ? h('p', { class: 'card-note calm-work', key: 'work' }, work) : null,
-      after ? h('p', { class: 'card-note calm-since', key: 'since' }, after) : null,
+      news && work ? h('p', { class: 'ui-card-note card-note calm-work', key: 'work' }, work) : null,
+      after ? h('p', { class: 'ui-card-note card-note calm-since', key: 'since' }, after) : null,
       showBar
         ? h(
             'div',
@@ -3501,12 +3505,12 @@ function updatesCard(ctx, devices) {
             'div',
             { class: 'run-head' },
             linkTo(deploymentHref(deployment.id), { class: 'run-version mono' }, deployment.version ?? deployment.id),
-            h('span', { class: 'card-note' }, startedBy(deployment, now))
+            h('span', { class: 'ui-card-note card-note' }, startedBy(deployment, now))
           ),
           deployment.status === 'CANCELED'
             ? h(
                 'p',
-                { class: 'card-note run-note' },
+                { class: 'ui-card-note card-note run-note' },
                 isUnderWay(deployment)
                   ? 'This deployment was cancelled. A board that had already started carries on unless it is stopped.'
                   : 'This deployment was cancelled, but a board was already restarting into the new firmware. That cannot be stopped.'
@@ -3520,7 +3524,7 @@ function updatesCard(ctx, devices) {
                   boardLine(execution, deployment, ctx, byThing.get(execution.thing))
                 )
               )
-            : h('p', { class: 'card-note' }, counted.join(', '))
+            : h('p', { class: 'ui-card-note card-note' }, counted.join(', '))
         );
       })
     );
@@ -3540,7 +3544,7 @@ function updatesCard(ctx, devices) {
     history !== null && history.length > 0
       ? h(
           'p',
-          { class: 'card-note update-summary', key: 'summary' },
+          { class: 'ui-card-note card-note update-summary', key: 'summary' },
           updateSummary(history, Boolean(state.updates.value.cursor))
         )
       : null
@@ -3609,7 +3613,7 @@ function openRevocations(ctx, firmware) {
           ? 'Finish revoking on the Firmware page.'
           : 'A release manager can finish revoking on the Firmware page.',
       ],
-      { action: h('a', { class: 'btn is-small', href: '#/firmware' }, 'Firmware', icon('arrow-right')) }
+      { action: h('a', { class: 'ui-btn btn is-small', href: '#/firmware' }, 'Firmware', icon('arrow-right')) }
     )
   );
 }
@@ -4033,8 +4037,13 @@ export function selectionBar(ctx, devices) {
       'div',
       { class: 'selection-tools' },
       href
-        ? h('a', { class: 'btn is-small is-primary', href }, icon('swap', 'is-small'), 'Compare')
-        : h('button', { type: 'button', class: 'btn is-small', disabled: true }, icon('swap', 'is-small'), 'Compare'),
+        ? h('a', { class: 'ui-btn btn is-small is-primary', href }, icon('swap', 'is-small'), 'Compare')
+        : h(
+            'button',
+            { type: 'button', class: 'ui-btn btn is-small', disabled: true },
+            icon('swap', 'is-small'),
+            'Compare'
+          ),
       button('is-small', () => ctx.actions.clearSelected(), icon('x', 'is-small'), 'Clear')
     )
   );
@@ -4086,7 +4095,7 @@ export function devicesView(ctx) {
           return h(
             'article',
             // How it is, for the mark that leads its row on a phone: the badge beside it says it in words.
-            { key: device.thing, class: `card device ${presenceLook(device, viaPhone)}` },
+            { key: device.thing, class: `ui-card card device ${presenceLook(device, viaPhone)}` },
             h(
               'header',
               { class: 'device-head' },
@@ -4349,7 +4358,7 @@ export function deviceView(ctx) {
                 ),
                 h(
                   'p',
-                  { class: 'card-note', key: 'note' },
+                  { class: 'ui-card-note card-note', key: 'note' },
                   'The start of each certificate ID. The certificate belongs to this board alone; ',
                   'its private key never leaves the board.'
                 ),
@@ -4383,7 +4392,7 @@ export function deviceView(ctx) {
                   older > 0
                     ? h(
                         'p',
-                        { class: 'card-note history-cut', key: 'cut' },
+                        { class: 'ui-card-note card-note history-cut', key: 'cut' },
                         `The newest ${executions.length} are shown. ${plural(older, 'older update is', 'older updates are')} not listed.`
                       )
                     : null,
@@ -4407,7 +4416,7 @@ function boardHistory(thing, ctx) {
   return [
     updateRows(updates, ctx),
     ctx.state.boardUpdates.get(thing).value.cursor
-      ? h('p', { class: 'card-note history-cut', key: 'cut' }, `The newest ${updates.length} are shown.`)
+      ? h('p', { class: 'ui-card-note card-note history-cut', key: 'cut' }, `The newest ${updates.length} are shown.`)
       : null,
   ];
 }
@@ -4693,11 +4702,11 @@ function verifiedResult(ctx) {
     ),
     h(
       'div',
-      { class: 'button-row' },
+      { class: 'ui-button-row button-row' },
       deployed
         ? h(
             'a',
-            { class: 'btn is-primary is-large', href: deploymentHref(deployed.id) },
+            { class: 'ui-btn btn is-primary is-large', href: deploymentHref(deployed.id) },
             'Open its deployment',
             icon('arrow-right')
           )
@@ -4794,7 +4803,7 @@ function refusalFacts(error) {
   const check = failedCheck(error.code);
   return h(
     'p',
-    { class: 'notice-more upload-refusal' },
+    { class: 'ui-notice-more notice-more upload-refusal' },
     check ? ['Check that failed: ', h('strong', null, check), '. '] : null,
     'Nothing was stored.'
   );
@@ -4852,12 +4861,12 @@ function uploadPanel(ctx) {
       'div',
       { class: 'upload-progress' },
       h('p', { class: 'upload-verifying' }, 'Uploaded. The server is verifying the signature…'),
-      h('div', { class: 'meter is-busy' }, h('span', { class: 'meter-fill' }))
+      h('div', { class: 'ui-meter meter is-busy' }, h('span', { class: 'ui-meter-fill meter-fill' }))
     );
   } else if (final || doomed) {
     next = h(
       'div',
-      { class: 'button-row', key: 'another' },
+      { class: 'ui-button-row button-row', key: 'another' },
       button('is-primary', actions.resetUpload, icon('file'), 'Choose another file')
     );
   } else if (!review.blocked) {
@@ -4882,7 +4891,7 @@ function uploadPanel(ctx) {
         ? null
         : h(
             'div',
-            { class: 'button-row', key: 'send' },
+            { class: 'ui-button-row button-row', key: 'send' },
             button('is-primary', actions.startUpload, icon('upload'), refused ? 'Try again' : 'Upload for verification')
           ),
     ];
@@ -5111,7 +5120,7 @@ function releaseRow(release, ctx) {
         'button',
         {
           type: 'button',
-          class: 'btn is-small is-quiet',
+          class: 'ui-btn btn is-small is-quiet',
           'aria-label': `Edit the note of ${release.version}`,
           onClick: () => actions.openNotes(release),
         },
@@ -5130,7 +5139,7 @@ function releaseRow(release, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small',
+              class: 'ui-btn btn is-small',
               'aria-label': `Deploy ${release.version}`,
               onClick: () => actions.openDeploy(release.version),
             },
@@ -5142,7 +5151,7 @@ function releaseRow(release, ctx) {
         'button',
         {
           type: 'button',
-          class: 'btn is-small is-danger-quiet',
+          class: 'ui-btn btn is-small is-danger-quiet',
           'aria-label': `Revoke ${release.version}`,
           onClick: () => actions.openRevoke(release),
         },
@@ -5333,7 +5342,7 @@ export function firmwareView(ctx) {
         )
       : null,
     timeline,
-    canWrite ? null : h('section', { class: 'card upload is-readonly', key: 'upload' }, trustPanel(ctx)),
+    canWrite ? null : h('section', { class: 'ui-card card upload is-readonly', key: 'upload' }, trustPanel(ctx)),
     h('h2', { class: 'section-title', key: 'title' }, 'Releases'),
     releases
   );
@@ -5547,12 +5556,16 @@ function everyUpdateCard(ctx) {
         : [
             updateRows(updates, ctx, { withBoard: true }),
             resource.value.cursor
-              ? h('p', { class: 'card-note history-cut', key: 'cut' }, `The newest ${updates.length} are shown.`)
+              ? h(
+                  'p',
+                  { class: 'ui-card-note card-note history-cut', key: 'cut' },
+                  `The newest ${updates.length} are shown.`
+                )
               : null,
           ],
       h(
         'p',
-        { class: 'card-note', key: 'note' },
+        { class: 'ui-card-note card-note', key: 'note' },
         'Each says how it came: a deployment (its row opens the deployment), over Bluetooth from someone\u2019s phone, ',
         'or by USB or another tool.'
       )
@@ -5663,7 +5676,7 @@ export function deploymentsView(ctx) {
   if (canWrite && deployable) {
     start = button('is-primary', () => ctx.actions.openDeploy(null), icon('plus'), 'New deployment');
   } else if (canWrite) {
-    start = h('a', { class: 'btn is-primary', href: '#/firmware' }, icon('upload'), 'Upload firmware first');
+    start = h('a', { class: 'ui-btn btn is-primary', href: '#/firmware' }, icon('upload'), 'Upload firmware first');
   }
   return h(
     'div',
@@ -5775,7 +5788,7 @@ function executionCard(execution, deployment, ctx, boards = 1) {
     'article',
     {
       key: execution.thing,
-      class: `card execution is-${description.tone}${compact ? ' is-compact' : ''}`,
+      class: `ui-card card execution is-${description.tone}${compact ? ' is-compact' : ''}`,
     },
     h(
       'header',
@@ -5897,7 +5910,7 @@ function cancellation(deployment, ctx) {
                 ? null
                 : ' Revoking cancels every open deployment of a release.',
             ],
-            { action: h('a', { class: 'btn is-small', href: '#/firmware' }, 'Firmware', icon('arrow-right')) }
+            { action: h('a', { class: 'ui-btn btn is-small', href: '#/firmware' }, 'Firmware', icon('arrow-right')) }
           )
         )
       : null,
@@ -5989,7 +6002,7 @@ export function deploymentView(ctx) {
             {
               key: 'cancel',
               type: 'button',
-              class: 'btn is-danger-quiet',
+              class: 'ui-btn btn is-danger-quiet',
               onClick: () => ctx.actions.openCancel(deployment),
             },
             icon('stop'),
@@ -6002,7 +6015,7 @@ export function deploymentView(ctx) {
             {
               key: 'offer',
               type: 'button',
-              class: 'btn',
+              class: 'ui-btn btn',
               onClick: () => ctx.actions.openDeploy(deployment.version),
             },
             icon('send'),
@@ -6174,7 +6187,7 @@ export function activityView(ctx) {
               'button',
               {
                 type: 'button',
-                class: 'btn',
+                class: 'ui-btn btn',
                 disabled: state.audit.loadingMore,
                 onClick: ctx.actions.loadMoreActivity,
               },
@@ -6218,7 +6231,7 @@ export function activityView(ctx) {
               'button',
               {
                 type: 'button',
-                class: 'btn',
+                class: 'ui-btn btn',
                 disabled: state.audit.loadingMore,
                 onClick: ctx.actions.loadMoreActivity,
               },
@@ -6312,7 +6325,7 @@ function tokenRow(token, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-small',
+              class: 'ui-btn btn is-small',
               'aria-label': `Revoke the token ${token.name}`,
               onClick: () => ctx.actions.openRevokeToken(token),
             },
@@ -6420,7 +6433,11 @@ export function tokensView(ctx) {
         ],
       }),
       shown.length === 0
-        ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No tokens match. Try other words, or Clear.')
+        ? h(
+            'p',
+            { class: 'quiet ui-filter-none filter-none', key: 'none' },
+            'No tokens match. Try other words, or Clear.'
+          )
         : h(
             'ul',
             { class: 'rows token-list', key: 'list' },
@@ -6458,7 +6475,7 @@ export function tokensView(ctx) {
           'button',
           {
             type: 'button',
-            class: 'btn is-primary',
+            class: 'ui-btn btn is-primary',
             disabled: !listing || full,
             title: full ? 'Revoke a token you no longer use first.' : null,
             onClick: actions.openCreateToken,
@@ -6480,7 +6497,7 @@ function dialogFrame({ title, body, error, foot, onSubmit, onClose, busy }) {
   return h(
     'form',
     {
-      class: 'dialog-form',
+      class: 'ui-dialog-form dialog-form',
       method: 'dialog',
       // Where the keyboard goes if the control that had it is gone.
       tabindex: '-1',
@@ -6493,13 +6510,13 @@ function dialogFrame({ title, body, error, foot, onSubmit, onClose, busy }) {
     },
     h(
       'header',
-      { class: 'dialog-head' },
-      h('h2', { class: 'dialog-title', id: 'dialog-title' }, title),
+      { class: 'ui-dialog-head dialog-head' },
+      h('h2', { class: 'ui-dialog-title dialog-title', id: 'dialog-title' }, title),
       h(
         'button',
         {
           type: 'button',
-          class: 'btn is-quiet is-icon',
+          class: 'ui-btn btn is-quiet is-icon',
           'aria-label': 'Close',
           title: 'Close',
           disabled: busy,
@@ -6508,12 +6525,12 @@ function dialogFrame({ title, body, error, foot, onSubmit, onClose, busy }) {
         icon('x')
       )
     ),
-    h('div', { class: 'dialog-body' }, body),
+    h('div', { class: 'ui-dialog-body dialog-body' }, body),
     // What the server said to a request that failed stands outside the part that
     // scrolls, above the button that was used: in a small window it would otherwise
     // lie below what can be seen, and the dialog would seem to have done nothing.
-    error ? h('div', { class: 'dialog-error', key: 'error' }, error) : null,
-    h('footer', { class: 'dialog-foot' }, foot)
+    error ? h('div', { class: 'ui-dialog-error dialog-error', key: 'error' }, error) : null,
+    h('footer', { class: 'ui-dialog-foot dialog-foot' }, foot)
   );
 }
 
@@ -6539,7 +6556,7 @@ function dialogButton(options, ...label) {
     {
       key,
       type: submit ? 'submit' : 'button',
-      class: `btn ${className}`.trim(),
+      class: `ui-btn btn ${className}`.trim(),
       disabled,
       autofocus,
       'aria-disabled': sending ? 'true' : null,
@@ -6550,7 +6567,7 @@ function dialogButton(options, ...label) {
   );
 }
 
-const SPACER = () => h('span', { class: 'dialog-spacer', key: 'spacer' });
+const SPACER = () => h('span', { class: 'ui-dialog-spacer dialog-spacer', key: 'spacer' });
 
 function consequences(items) {
   return h(
@@ -6814,7 +6831,7 @@ function heldBy(entries, devices) {
     const named = boardName(board) !== board.thing;
     return h(
       'p',
-      { class: 'notice-more' },
+      { class: 'ui-notice-more notice-more' },
       'That update',
       named ? [' on ', mono(boardName(board))] : null,
       ' is ',
@@ -6824,7 +6841,7 @@ function heldBy(entries, devices) {
   }
   return h(
     'ul',
-    { class: 'plain-list notice-more' },
+    { class: 'plain-list ui-notice-more notice-more' },
     entries.map((entry) => {
       const board = boardOf(entry.thing, devices);
       return h(
@@ -7003,7 +7020,7 @@ export function deployDialog(model, ctx) {
     foot: [
       dialogButton({ key: 'cancel', disabled: model.sending, onClick: model.close }, 'Cancel'),
       SPACER(),
-      hint ? h('span', { class: 'dialog-hint', id: 'dialog-hint', key: 'hint' }, hint) : null,
+      hint ? h('span', { class: 'ui-dialog-hint dialog-hint', id: 'dialog-hint', key: 'hint' }, hint) : null,
       model.step > 0 ? dialogButton({ key: 'back', disabled: model.sending, onClick: model.back }, 'Back') : null,
       last
         ? dialogButton(
@@ -7313,7 +7330,9 @@ export function revokeDialog(model, ctx) {
       ),
       SPACER(),
       // The field can lie below what can be seen, and the button stands in view.
-      reason ? null : h('span', { class: 'dialog-hint', id: 'dialog-hint', key: 'hint' }, 'Give a reason first.'),
+      reason
+        ? null
+        : h('span', { class: 'ui-dialog-hint dialog-hint', id: 'dialog-hint', key: 'hint' }, 'Give a reason first.'),
       dialogButton(
         {
           key: 'go',
@@ -7448,7 +7467,7 @@ export function createTokenDialog(model, ctx) {
     foot: [
       dialogButton({ key: 'keep', disabled: model.sending, onClick: model.close }, 'Cancel'),
       SPACER(),
-      hint ? h('span', { class: 'dialog-hint', id: 'dialog-hint', key: 'hint' }, hint) : null,
+      hint ? h('span', { class: 'ui-dialog-hint dialog-hint', id: 'dialog-hint', key: 'hint' }, hint) : null,
       dialogButton(
         {
           key: 'go',
@@ -7563,7 +7582,7 @@ function identifyButton(device, ctx, { compact = false } = {}) {
     {
       type: 'button',
       key: 'identify',
-      class: compact ? 'btn is-quiet is-icon identify-button' : 'btn is-small identify-button',
+      class: compact ? 'ui-btn btn is-quiet is-icon identify-button' : 'ui-btn btn is-small identify-button',
       disabled: busy || !device.online,
       title: device.online
         ? `Blink the lights of ${name} for 15 s`
@@ -7586,7 +7605,7 @@ function renameButton(thing, ctx) {
     'button',
     {
       type: 'button',
-      class: 'btn is-small',
+      class: 'ui-btn btn is-small',
       key: 'rename',
       'aria-expanded': open ? 'true' : 'false',
       onClick: () => ctx.actions.toggleRename(thing),
@@ -7635,15 +7654,15 @@ function renameCard(device, ctx) {
       ),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         `Up to ${MAX_BOARD_LABEL} characters. It leads wherever the console shows this board; its ID stays the same.`
       ),
       h(
         'div',
-        { class: 'button-row' },
+        { class: 'ui-button-row button-row' },
         h(
           'button',
-          { type: 'submit', class: 'btn is-primary', 'aria-disabled': renaming.busy ? 'true' : null },
+          { type: 'submit', class: 'ui-btn btn is-primary', 'aria-disabled': renaming.busy ? 'true' : null },
           renaming.busy ? 'Saving…' : 'Save'
         ),
         device.label ? button('', () => ctx.actions.renameBoard(device.thing, null), 'Remove the name') : null,
@@ -7660,7 +7679,7 @@ function labelButton(thing, ctx) {
     'button',
     {
       type: 'button',
-      class: 'btn is-small',
+      class: 'ui-btn btn is-small',
       key: 'label',
       'aria-expanded': shown ? 'true' : 'false',
       onClick: () => ctx.actions.toggleLabel(thing),
@@ -7683,7 +7702,7 @@ function commandTools(device, ctx) {
       h(
         'summary',
         {
-          class: 'btn is-small is-icon',
+          class: 'ui-btn btn is-small is-icon',
           title: 'More',
           'aria-label': `More for ${boardName(device, { short: true })}`,
         },
@@ -7761,7 +7780,7 @@ function memfaultCard(device, memfault) {
       h('summary', null, 'Details'),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         'No project key is stored in AWS. cloud/deploy.sh stores one from ~/.cranium/memfault_project_key.'
       )
     );
@@ -7892,7 +7911,7 @@ function locationCard(device, ctx) {
       : null,
     h(
       'p',
-      { class: 'card-note', key: 'note' },
+      { class: 'ui-card-note card-note', key: 'note' },
       'Worked out by AWS IoT Core Device Location from the Wi-Fi access points the board hears. ',
       'Only the position is kept, never the access points.'
     )

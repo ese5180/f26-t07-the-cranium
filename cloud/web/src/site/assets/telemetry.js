@@ -1534,7 +1534,7 @@ function customForm(page) {
       h('span', { class: 'inline-field-label' }, 'To'),
       h('input', { class: 'input', type: 'datetime-local', value: page.custom.to, onInput: set('to'), required: true })
     ),
-    h('button', { type: 'submit', class: 'btn is-small is-primary' }, 'Show'),
+    h('button', { type: 'submit', class: 'ui-btn btn is-small is-primary' }, 'Show'),
     button(
       'is-small is-quiet',
       () => {
@@ -1756,7 +1756,7 @@ function boardLogCard(page, data, devices, now) {
   if (!page.log) {
     body = h(
       'p',
-      { class: 'card-note', key: 'off' },
+      { class: 'ui-card-note card-note', key: 'off' },
       'Hidden. The board log is every line a board on firmware 1.12.0 or ' +
         'later prints on its serial console, a passkey or anything like a password never among them.'
     );
@@ -1776,10 +1776,10 @@ function boardLogCard(page, data, devices, now) {
   }
   return h(
     'section',
-    { key: 'log', class: 'card log-card', 'aria-label': 'Board log' },
+    { key: 'log', class: 'ui-card card log-card', 'aria-label': 'Board log' },
     h(
       'header',
-      { class: 'card-head log-head' },
+      { class: 'ui-card-head card-head log-head' },
       h('h2', { class: 'eyebrow' }, 'Board log'),
       page.log && log && !log.error
         ? h(
@@ -1800,7 +1800,7 @@ function boardLogCard(page, data, devices, now) {
           'button',
           {
             type: 'button',
-            class: 'btn is-small',
+            class: 'ui-btn btn is-small',
             'aria-pressed': page.log ? 'true' : 'false',
             onClick: toggleLog,
           },
@@ -1815,7 +1815,7 @@ function boardLogCard(page, data, devices, now) {
           { class: 'log-more', key: 'more' },
           h(
             'button',
-            { type: 'button', class: 'btn', disabled: page.linesMore.loading, onClick: loadMoreLines },
+            { type: 'button', class: 'ui-btn btn', disabled: page.linesMore.loading, onClick: loadMoreLines },
             page.linesMore.loading ? 'Loading…' : 'Load 500 more lines'
           ),
           page.linesMore.error ? failure('Could not load more.', page.linesMore.error) : null
@@ -1872,12 +1872,12 @@ export function eventsView(ctx) {
           'section',
           {
             key: 'chart',
-            class: `card timeline-card ${page.data.loading ? 'is-refreshing' : ''}`.trim(),
+            class: `ui-card card timeline-card ${page.data.loading ? 'is-refreshing' : ''}`.trim(),
             'aria-label': 'Timeline',
           },
           h(
             'header',
-            { class: 'card-head' },
+            { class: 'ui-card-head card-head' },
             h('h2', { class: 'eyebrow' }, 'Timeline'),
             h('p', { class: 'timeline-range' }, rangeWords(span))
           ),
@@ -1885,7 +1885,7 @@ export function eventsView(ctx) {
           timelineKey(lanes),
           h(
             'p',
-            { class: 'card-note timeline-note' },
+            { class: 'ui-card-note card-note timeline-note' },
             'Hover, tap or tab to a marker for the time and what happened; drag across the timeline to zoom in.',
             lines.length > 0
               ? ' A tick at the foot of a lane is a line of that board’s own log, listed under Board log.'
@@ -1896,10 +1896,10 @@ export function eventsView(ctx) {
         ),
         h(
           'section',
-          { key: 'list', class: 'card event-card' },
+          { key: 'list', class: 'ui-card card event-card' },
           h(
             'header',
-            { class: 'card-head' },
+            { class: 'ui-card-head card-head' },
             h('h2', { class: 'eyebrow' }, 'All events'),
             h(
               'p',
@@ -1927,7 +1927,7 @@ export function eventsView(ctx) {
             data.cursor
               ? h(
                   'button',
-                  { type: 'button', class: 'btn', disabled: page.more.loading, onClick: loadMoreEvents },
+                  { type: 'button', class: 'ui-btn btn', disabled: page.more.loading, onClick: loadMoreEvents },
                   page.more.loading ? 'Loading…' : 'Load 500 more'
                 )
               : null,
@@ -1972,7 +1972,7 @@ function dailyTable(title, points, format) {
     h('summary', null, `${title} by the day, as a table`),
     h(
       'table',
-      { class: 'data-table' },
+      { class: 'ui-table data-table' },
       h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Day'), h('th', { scope: 'col' }, 'Value'))),
       h(
         'tbody',
@@ -2216,7 +2216,7 @@ export function lineChart(ctx, options) {
           h('summary', null, `${title} by the hour, as a table`),
           h(
             'table',
-            { class: 'data-table' },
+            { class: 'ui-table data-table' },
             h(
               'thead',
               null,
@@ -2246,7 +2246,7 @@ export function lineChart(ctx, options) {
               )
             )
           ),
-          h('p', { class: 'card-note' }, `In ${unit}. Each reading is one report of the board.`)
+          h('p', { class: 'ui-card-note card-note' }, `In ${unit}. Each reading is one report of the board.`)
         )
       : null
   );
@@ -2351,7 +2351,7 @@ function bootTable(device) {
     { class: 'event-table-wrap' },
     h(
       'table',
-      { class: 'data-table boot-table' },
+      { class: 'ui-table data-table boot-table' },
       h('caption', { class: 'sr-only' }, 'The last boots of this board, newest first'),
       h(
         'thead',
@@ -2382,7 +2382,7 @@ function bootTable(device) {
     ),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       `${plural(device.diary.boots, 'boot')} in all since the diary began. Each line says why the boot before it ended, `,
       'from the chip’s own record of its reset.'
     )
@@ -2434,7 +2434,7 @@ function boardCard(ctx, device) {
 
   return h(
     'section',
-    { key: device.thing, class: 'card diag-card', 'aria-labelledby': `diag-${device.thing}` },
+    { key: device.thing, class: 'ui-card card diag-card', 'aria-labelledby': `diag-${device.thing}` },
     h(
       'header',
       { class: 'diag-head' },
@@ -2527,7 +2527,9 @@ function boardCard(ctx, device) {
                   ),
           ],
         ]),
-        device.diag?.at ? h('p', { class: 'card-note' }, 'Diagnostics report ', when(device.diag.at, now), '.') : null
+        device.diag?.at
+          ? h('p', { class: 'ui-card-note card-note' }, 'Diagnostics report ', when(device.diag.at, now), '.')
+          : null
       ),
       h(
         'div',

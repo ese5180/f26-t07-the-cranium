@@ -342,7 +342,7 @@ function placedRow(device, ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-quiet is-icon',
+              class: 'ui-btn btn is-quiet is-icon',
               key: 'show',
               title: 'Show it on the map',
               'aria-label': `Show ${boardName(device, { short: true })} on the map`,
@@ -409,7 +409,7 @@ export function mapView(ctx) {
       { class: 'map-layout', key: 'layout' },
       h(
         'section',
-        { class: 'card map-card', key: 'map', 'aria-label': 'Map of the boards' },
+        { class: 'ui-card card map-card', key: 'map', 'aria-label': 'Map of the boards' },
         placed.length > 0
           ? [
               h(
@@ -456,7 +456,7 @@ export function mapView(ctx) {
         placed.length > 0 ? legend() : null,
         h(
           'p',
-          { class: 'card-note map-note', key: 'note' },
+          { class: 'ui-card-note card-note map-note', key: 'note' },
           'Only the position is kept, and the last 20 of each board, never the access points it heard. ',
           'The map is drawn from OpenStreetMap: this page fetches its tiles from tile.openstreetmap.org.'
         )

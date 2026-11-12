@@ -379,7 +379,7 @@ function body(ctx, selected) {
   if (data.missing) {
     return h(
       'section',
-      { class: 'card', key: 'missing' },
+      { class: 'ui-card card', key: 'missing' },
       empty({
         iconName: 'list',
         title: 'There are no release notes in this copy of the console.',

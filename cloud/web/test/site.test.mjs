@@ -943,3 +943,125 @@ test('tokens v2: the new names hold the values, the older names are their aliase
     assert.equal(contrast(colours.get('--border-strong'), colours.get('--surface')) >= 3, true);
   }
 });
+
+test('shared components: one ui-* name per piece, the older name its alias, the views writing both', () => {
+  // Every older name stands with its ui-* name in the rules that style the piece on its own.
+  const aliases = {
+    '.page-head': '.ui-page-head',
+    '.page-title': '.ui-page-title',
+    '.page-lede': '.ui-page-lede',
+    '.page-tools': '.ui-page-tools',
+    '.console .card-body': '.console .ui-card-body',
+    '.stat': '.ui-stat',
+    '.data-table': '.ui-table',
+    '.filter-bar': '.ui-filter-bar',
+    '.btn': '.ui-btn',
+    '.btn.is-primary': '.ui-btn.is-primary',
+    '.btn:disabled': '.ui-btn:disabled',
+    '.badge': '.ui-badge',
+    '.badge.is-bad': '.ui-badge.is-bad',
+    '.meter': '.ui-meter',
+    '.meter-fill': '.ui-meter-fill',
+    '.empty': '.ui-empty',
+    '.notice': '.ui-notice',
+    '.toast': '.ui-toast',
+    '.toasts': '.ui-toasts',
+    '.dialog': '.ui-dialog',
+    '.dialog-foot': '.ui-dialog-foot',
+  };
+  for (const [old, now] of Object.entries(aliases)) {
+    const with_ = rules.filter((rule) => rule.selectors.includes(old));
+    assert.ok(with_.length > 0, old);
+    assert.ok(
+      with_.some((rule) => rule.selectors.includes(now)),
+      `${old} and ${now} in one rule`
+    );
+    assert.deepEqual(declared(now), declared(old), `${now} reads as ${old}`);
+  }
+  // Pieces that are new have rules of their own.
+  for (const piece of ['.ui-card-title', '.ui-table-wrap', '.ui-board', '.ui-steps', '.ui-step', '.ui-error']) {
+    assert.ok(declared(piece).size > 0, piece);
+  }
+  // A board is its label first, its ID second: smaller, quieter, and never under 13 px.
+  assert.equal(css.indexOf('.ui-board-label {') < css.indexOf('.ui-board-id {'), true);
+  assert.equal(declared('.ui-board-id').get('font-size'), 'var(--type-small)');
+  // Badges are read as words: 13 px, not the label step.
+  assert.equal(declared(':where(.console) .ui-badge').get('font-size'), 'var(--type-small)');
+  // Buttons are a finger's height on a phone; the focus ring follows a button's corner.
+  assert.equal(
+    declared(':where(.console) .ui-btn:not(.is-small)', '@media (max-width: 860px)').get('min-height'),
+    'var(--tap)'
+  );
+  assert.equal(declared('.ui-btn:focus-visible').get('border-radius'), 'var(--radius-control)');
+  assert.equal(declared('.ui-btn:focus-visible').get('outline'), '2px solid var(--accent)');
+  // A table scrolls sideways in its own frame, and on a phone a stacked one names each cell's column.
+  assert.equal(declared('.ui-table-wrap').get('overflow-x'), 'auto');
+  assert.equal(
+    declared('.ui-table.is-stacked td[data-label]::before', '@media (max-width: 560px)').get('content'),
+    'attr(data-label)'
+  );
+  // Dialogs and cards share the corners of the radius set; the dialog's scrim dims the page in both themes.
+  assert.equal(declared(':where(.console) .ui-dialog').get('border-radius'), 'var(--radius-card)');
+  assert.equal(declared(':where(.console) .ui-dialog::backdrop').get('background'), 'var(--scrim)');
+  // Motion: the toast's rise stops with reduced motion, as everything does.
+  assert.match(declared(':where(.console) .ui-toast').get('animation'), /^rise /);
+  const still = rules.find(
+    (rule) => rule.media === '@media (prefers-reduced-motion: reduce)' && rule.selectors.includes('*')
+  );
+  assert.equal(still.values.get('animation'), 'none !important');
+
+  // The views write the ui-* name with the older one.
+  const views = readFileSync(new URL('assets/views.js', SITE), 'utf8');
+  for (const pair of [
+    "'ui-page-head page-head'",
+    "'ui-page-title page-title'",
+    '`ui-card card ',
+    "'ui-card-body card-body'",
+    "'ui-card-title eyebrow'",
+    "'ui-stat stat'",
+    "'ui-meter meter'",
+    "'ui-empty empty'",
+    "'ui-loading loading'",
+    '`ui-notice notice is-',
+    '`ui-badge badge is-',
+    '`ui-btn btn ',
+    "'ui-dialog-foot dialog-foot'",
+    "'ui-toast-body toast-body'",
+  ]) {
+    assert.ok(views.includes(pair), pair);
+  }
+  // And no page writes an older name alone.
+  for (const name of scripts) {
+    const text = readFileSync(new URL(`assets/${name}`, SITE), 'utf8');
+    assert.equal(/class(?:Name)?:?\s*=?\s*['`](?:btn|badge|card|dialog|toast)[ '`]/.test(text), false, name);
+  }
+});
+
+test('shared components: their words read in both themes', () => {
+  const themes = {
+    light: theme(declared(':root')),
+    dark: theme(declared(':root'), declared(':root', '@media (prefers-color-scheme: dark)')),
+  };
+  for (const [name, colours] of Object.entries(themes)) {
+    const pairs = [
+      // [lettering, ground, at least]
+      ['--ink', '--good-soft', 4.5], // a badge's word on its tone
+      ['--ink', '--warn-soft', 4.5],
+      ['--ink', '--bad-soft', 4.5], // a badge, and the error state
+      ['--ink', '--info-soft', 4.5],
+      ['--ink', '--accent-soft', 4.5],
+      ['--ink-2', '--surface', 4.5], // a board's ID, a step's text, a stat's label
+      ['--ink-2', '--sunken', 4.5], // a row under the pointer
+      ['--on-accent', '--accent', 4.5], // the current step's number
+      ['--surface', '--ink', 4.5], // a finished step's mark
+      ['--on-bad-fill', '--bad-fill', 4.5], // a failed step's mark
+      ['--bad', '--bad-soft', 3], // the error's icon
+      ['--line-mark', '--surface', 3], // a step's ring and the line between steps
+      ['--bar-live', '--info-soft', 3], // a meter's fill on its track
+    ];
+    for (const [text, ground, least] of pairs) {
+      const ratio = contrast(colours.get(text), colours.get(ground));
+      assert.equal(ratio >= least, true, `${name}: ${text} on ${ground} is ${ratio.toFixed(2)}`);
+    }
+  }
+});

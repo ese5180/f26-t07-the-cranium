@@ -901,7 +901,8 @@ body.is-scrolled .masthead-title {
     padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-5));
   }
 
-  .toasts {
+  .toasts,
+  .ui-toasts {
     bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + var(--space-3));
   }
 
@@ -999,7 +1000,8 @@ body.is-scrolled .masthead-title {
     justify-content: flex-start;
   }
 
-  body.is-framed .toasts {
+  body.is-framed .toasts,
+  body.is-framed .ui-toasts {
     left: calc(50% + var(--sidebar) / 2);
   }
 
@@ -1019,7 +1021,8 @@ body.is-scrolled .masthead-title {
 }
 
 .boot,
-.loading {
+.loading,
+.ui-loading {
   padding: 48px 0;
   color: var(--ink-3);
   text-align: center;
@@ -1114,12 +1117,14 @@ body:has(.boot) .masthead {
   animation: settle 0.5s var(--ease) backwards;
 }
 
-.page-head {
+.page-head,
+.ui-page-head {
   margin-bottom: clamp(18px, 1.8vw, 26px);
 }
 
 /* What stands to the right of the heading reads on the same line as the last line of the text. */
-.page-head-row {
+.page-head-row,
+.ui-page-head-row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
@@ -1128,17 +1133,20 @@ body:has(.boot) .masthead {
   gap: 16px 32px;
 }
 
-.page-head-text {
+.page-head-text,
+.ui-page-head-text {
   min-width: 0;
 }
 
 /* The eyebrow of a title is part of the heading and takes a row of its own above it. */
-.page-title .eyebrow {
+.page-title .eyebrow,
+.ui-page-title .eyebrow {
   flex-basis: 100%;
   margin-bottom: -2px;
 }
 
-.page-title {
+.page-title,
+.ui-page-title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1150,7 +1158,8 @@ body:has(.boot) .masthead {
   overflow-wrap: anywhere;
 }
 
-.page-title:focus {
+.page-title:focus,
+.ui-page-title:focus {
   outline: none;
 }
 
@@ -1159,6 +1168,7 @@ body:has(.boot) .masthead {
  * leaves holes around the dots at this size. Below 20px versions stay monospaced.
  */
 .page-title .mono,
+.ui-page-title .mono,
 .run-version.mono,
 .release-figure .mono,
 .flash-version .mono,
@@ -1171,11 +1181,13 @@ body:has(.boot) .masthead {
   letter-spacing: -0.018em;
 }
 
-.page-title .mono {
+.page-title .mono,
+.ui-page-title .mono {
   font-weight: 700;
 }
 
-.page.is-board .page-title .mono {
+.page.is-board .page-title .mono,
+.page.is-board .ui-page-title .mono {
   font-family: var(--mono);
   font-size: 0.68em;
   letter-spacing: -0.03em;
@@ -1187,11 +1199,13 @@ body:has(.boot) .masthead {
   font-variant-numeric: tabular-nums;
 }
 
-.page-title .badge {
+.page-title .badge,
+.ui-page-title .ui-badge {
   letter-spacing: 0;
 }
 
-.page-lede {
+.page-lede,
+.ui-page-lede {
   max-width: var(--measure);
   overflow-wrap: anywhere;
   margin-top: 8px;
@@ -1201,7 +1215,8 @@ body:has(.boot) .masthead {
   text-wrap: pretty;
 }
 
-.page-meta {
+.page-meta,
+.ui-page-meta {
   margin-top: 6px;
   color: var(--ink-2);
   font-size: var(--type-table);
@@ -1229,14 +1244,16 @@ body:has(.boot) .masthead {
   text-wrap: pretty;
 }
 
-.page-meta .mono {
+.page-meta .mono,
+.ui-page-meta .mono {
   overflow-wrap: anywhere;
   /* An id that does not fit on one line breaks into lines of equal length. */
   text-wrap: balance;
 }
 
 /* To the right of the heading, and still to the right when a long text pushes it to a line below. */
-.page-tools {
+.page-tools,
+.ui-page-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1304,7 +1321,8 @@ body:has(.boot) .masthead {
 
 /* Pieces. */
 
-.btn {
+.btn,
+.ui-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1330,66 +1348,78 @@ body:has(.boot) .masthead {
   appearance: none;
 }
 
-.btn:hover {
+.btn:hover,
+.ui-btn:hover {
   border-color: var(--ink);
   color: var(--ink);
 }
 
-.btn.is-primary {
+.btn.is-primary,
+.ui-btn.is-primary {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--on-accent);
 }
 
-.btn.is-primary:hover:not(:disabled, [aria-disabled="true"]) {
+.btn.is-primary:hover:not(:disabled, [aria-disabled="true"]),
+.ui-btn.is-primary:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: var(--accent-strong);
   background: var(--accent-strong);
   color: var(--on-accent);
 }
 
-.btn.is-danger {
+.btn.is-danger,
+.ui-btn.is-danger {
   border-color: var(--bad-fill);
   background: var(--bad-fill);
   color: var(--on-bad-fill);
 }
 
-.btn.is-danger-quiet .icon {
+.btn.is-danger-quiet .icon,
+.ui-btn.is-danger-quiet .icon {
   color: var(--bad);
 }
 
-.btn.is-danger-quiet:hover {
+.btn.is-danger-quiet:hover,
+.ui-btn.is-danger-quiet:hover {
   border-color: var(--bad);
 }
 
-.btn.is-quiet {
+.btn.is-quiet,
+.ui-btn.is-quiet {
   border-color: transparent;
   background: none;
   color: var(--ink-2);
 }
 
-.btn.is-quiet:hover {
+.btn.is-quiet:hover,
+.ui-btn.is-quiet:hover {
   background: var(--well);
   color: var(--ink);
 }
 
-.btn.is-small {
+.btn.is-small,
+.ui-btn.is-small {
   min-height: 32px;
   padding: 0 11px;
   font-size: var(--type-small);
 }
 
-.btn.is-small .icon {
+.btn.is-small .icon,
+.ui-btn.is-small .icon {
   width: 15px;
   height: 15px;
 }
 
-.btn.is-large {
+.btn.is-large,
+.ui-btn.is-large {
   min-height: 48px;
   padding: 0 26px;
   font-size: var(--type-large);
 }
 
-.btn.is-icon {
+.btn.is-icon,
+.ui-btn.is-icon {
   flex: none;
   width: 34px;
   min-height: 34px;
@@ -1403,25 +1433,30 @@ body:has(.boot) .masthead {
  * keeps the keyboard's focus, and is only held back (aria-disabled).
  */
 .btn:disabled,
-.btn[aria-disabled="true"] {
+.ui-btn:disabled,
+.btn[aria-disabled="true"],
+.ui-btn[aria-disabled="true"] {
   border-color: var(--line-strong);
   background: var(--well);
   color: var(--ink-3);
   cursor: default;
 }
 
-.btn.is-quiet:disabled {
+.btn.is-quiet:disabled,
+.ui-btn.is-quiet:disabled {
   border-color: transparent;
   background: none;
 }
 
-.button-row {
+.button-row,
+.ui-button-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.badge {
+.badge,
+.ui-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1438,34 +1473,41 @@ body:has(.boot) .masthead {
   white-space: nowrap;
 }
 
-.badge .icon {
+.badge .icon,
+.ui-badge .icon {
   width: 14px;
   height: 14px;
   stroke-width: 2;
   color: var(--ink-2);
 }
 
-.badge.is-good {
+.badge.is-good,
+.ui-badge.is-good {
   background: var(--good-wash);
 }
 
-.badge.is-warn {
+.badge.is-warn,
+.ui-badge.is-warn {
   background: var(--warn-wash);
 }
 
-.badge.is-bad {
+.badge.is-bad,
+.ui-badge.is-bad {
   background: var(--bad-wash);
 }
 
-.badge.is-live {
+.badge.is-live,
+.ui-badge.is-live {
   background: var(--work-wash);
 }
 
-.badge.is-act {
+.badge.is-act,
+.ui-badge.is-act {
   background: var(--accent-wash);
 }
 
-.badge.is-idle {
+.badge.is-idle,
+.ui-badge.is-idle {
   border-color: var(--line-strong);
   background: none;
   color: var(--ink-2);
@@ -1582,18 +1624,21 @@ body:has(.boot) .masthead {
 }
 
 /* A section of a page: a heavy rule and a heading, no box. */
-.card {
+.card,
+.ui-card {
   position: relative;
   min-width: 0;
   padding: 12px 0 0;
   border-top: 2px solid var(--rule);
 }
 
-.card.is-flush {
+.card.is-flush,
+.ui-card.is-flush {
   padding: 0;
 }
 
-.card-head {
+.card-head,
+.ui-card-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1603,7 +1648,8 @@ body:has(.boot) .masthead {
   margin-bottom: 16px;
 }
 
-.card > .card-head > .eyebrow {
+.card > .card-head > .eyebrow,
+.ui-card > .ui-card-head > .eyebrow {
   color: var(--ink);
   font-size: var(--type-large);
   font-weight: 700;
@@ -1612,18 +1658,21 @@ body:has(.boot) .masthead {
 }
 
 /* A section inside a panel carries no rule of its own; the panel holds it together. */
-.card.is-zone {
+.card.is-zone,
+.ui-card.is-zone {
   padding: 0;
   border-top: 0;
 }
 
-.card.is-zone > .card-head > .eyebrow {
+.card.is-zone > .card-head > .eyebrow,
+.ui-card.is-zone > .ui-card-head > .eyebrow {
   color: var(--ink-3);
   font-size: var(--type-small);
   font-weight: 600;
 }
 
-.card-more {
+.card-more,
+.ui-card-more {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1634,21 +1683,25 @@ body:has(.boot) .masthead {
   white-space: nowrap;
 }
 
-.card-more .icon {
+.card-more .icon,
+.ui-card-more .icon {
   width: 14px;
   height: 14px;
   transition: transform 0.2s var(--ease);
 }
 
-.card-more:hover {
+.card-more:hover,
+.ui-card-more:hover {
   color: var(--accent);
 }
 
-.card-more:hover .icon {
+.card-more:hover .icon,
+.ui-card-more:hover .icon {
   transform: translateX(2px);
 }
 
-.card-note {
+.card-note,
+.ui-card-note {
   color: var(--ink-2);
   font-size: var(--type-table);
   overflow-wrap: anywhere;
@@ -1779,7 +1832,8 @@ body:has(.boot) .masthead {
   min-width: 0;
 }
 
-.meter {
+.meter,
+.ui-meter {
   width: 100%;
   max-width: 440px;
   height: 8px;
@@ -1789,7 +1843,8 @@ body:has(.boot) .masthead {
   background: var(--work-wash);
 }
 
-.meter-fill {
+.meter-fill,
+.ui-meter-fill {
   display: block;
   width: var(--progress, 0%);
   height: 100%;
@@ -1798,7 +1853,8 @@ body:has(.boot) .masthead {
   transition: width 0.6s var(--ease);
 }
 
-.meter.is-busy .meter-fill {
+.meter.is-busy .meter-fill,
+.ui-meter.is-busy .ui-meter-fill {
   width: 36%;
   animation: sweep 1.5s ease-in-out infinite;
 }
@@ -1998,13 +2054,15 @@ body:has(.boot) .masthead {
 }
 
 /* Big numbers. Proportional figures: tabular ones look loose at this size. */
-.stats {
+.stats,
+.ui-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 20px 0;
 }
 
-.stat {
+.stat,
+.ui-stat {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2019,7 +2077,8 @@ body:has(.boot) .masthead {
   border-left: 0;
 }
 
-.stat-value {
+.stat-value,
+.ui-stat-value {
   order: -1;
   font-size: var(--type-display);
   font-weight: 600;
@@ -2027,7 +2086,8 @@ body:has(.boot) .masthead {
   line-height: 1;
 }
 
-.stat-label {
+.stat-label,
+.ui-stat-label {
   overflow-wrap: anywhere;
   color: var(--ink-2);
   font-size: var(--type-small);
@@ -2035,7 +2095,8 @@ body:has(.boot) .masthead {
   line-height: 1.3;
 }
 
-.stat-note {
+.stat-note,
+.ui-stat-note {
   color: var(--ink-2);
   font-size: var(--type-small);
 }
@@ -2102,7 +2163,8 @@ body:has(.boot) .masthead {
   font-size: var(--type-small);
 }
 
-.notice {
+.notice,
+.ui-notice {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -2112,41 +2174,49 @@ body:has(.boot) .masthead {
   background: var(--well);
 }
 
-.notice.is-bad {
+.notice.is-bad,
+.ui-notice.is-bad {
   border-color: transparent;
   background: var(--bad-wash);
 }
 
-.notice.is-warn {
+.notice.is-warn,
+.ui-notice.is-warn {
   border-color: transparent;
   background: var(--warn-wash);
 }
 
-.notice > .icon {
+.notice > .icon,
+.ui-notice > .icon {
   margin-top: 2px;
 }
 
-.notice > .btn {
+.notice > .btn,
+.ui-notice > .ui-btn {
   flex: none;
 }
 
-.notice-text {
+.notice-text,
+.ui-notice-text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.notice-more {
+.notice-more,
+.ui-notice-more {
   margin-top: 4px;
 }
 
-.notice-ref {
+.notice-ref,
+.ui-notice-ref {
   margin-top: 2px;
   color: var(--ink-2);
   font-size: var(--type-small);
 }
 
-.empty {
+.empty,
+.ui-empty {
   display: grid;
   justify-items: center;
   gap: 8px;
@@ -2174,7 +2244,8 @@ body:has(.boot) .masthead {
   stroke-dasharray: 3 4;
 }
 
-.empty-icon {
+.empty-icon,
+.ui-empty-icon {
   display: grid;
   place-items: center;
   width: 48px;
@@ -2185,24 +2256,28 @@ body:has(.boot) .masthead {
   color: var(--ink-2);
 }
 
-.empty-icon .icon {
+.empty-icon .icon,
+.ui-empty-icon .icon {
   width: 22px;
   height: 22px;
 }
 
-.empty-title {
+.empty-title,
+.ui-empty-title {
   font-size: var(--type-title);
   font-weight: 700;
   letter-spacing: -0.024em;
 }
 
-.empty-text {
+.empty-text,
+.ui-empty-text {
   max-width: 54ch;
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
 
-.empty .btn {
+.empty .btn,
+.ui-empty .ui-btn {
   margin-top: 8px;
 }
 
@@ -2900,7 +2975,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   overflow-wrap: anywhere;
 }
 
-.card-note + .card-note {
+.card-note + .card-note,
+.ui-card-note + .ui-card-note {
   margin-top: 2px;
 }
 
@@ -5428,7 +5504,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
  * A dialog hangs from a fixed line near the top of the window, so that its title and
  * its steps stay where they are when its height changes from one step to the next.
  */
-.dialog {
+.dialog,
+.ui-dialog {
   --dialog-top: max(16px, 9vh, calc(var(--safe-top) + 12px));
   --dialog-bottom: max(16px, calc(var(--safe-bottom) + 12px));
   width: min(640px, calc(100vw - 2 * max(var(--gutter), var(--safe-left), var(--safe-right))));
@@ -5444,16 +5521,19 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   color: var(--ink);
 }
 
-.dialog[open] {
+.dialog[open],
+.ui-dialog[open] {
   display: flex;
   animation: rise 0.28s var(--ease) backwards;
 }
 
-.dialog::backdrop {
+.dialog::backdrop,
+.ui-dialog::backdrop {
   background: var(--shade);
 }
 
-.dialog-form {
+.dialog-form,
+.ui-dialog-form {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -5462,11 +5542,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* Takes the focus when the control that had it goes away with what changed. */
-.dialog-form:focus {
+.dialog-form:focus,
+.ui-dialog-form:focus {
   outline: none;
 }
 
-.dialog-head {
+.dialog-head,
+.ui-dialog-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -5474,7 +5556,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   padding: 24px 16px 4px 28px;
 }
 
-.dialog-title {
+.dialog-title,
+.ui-dialog-title {
   padding-top: 3px;
   font-size: var(--type-title);
   font-weight: 700;
@@ -5484,7 +5567,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   hyphens: auto;
 }
 
-.dialog-body {
+.dialog-body,
+.ui-dialog-body {
   display: grid;
   align-content: start;
   gap: 16px;
@@ -5499,18 +5583,21 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
  * message longer than the window can spare scrolls by itself. The space above it is
  * its own, so that what scrolls past never touches it.
  */
-.dialog-error {
+.dialog-error,
+.ui-dialog-error {
   flex: none;
   max-height: 45vh;
   padding: 10px 28px 20px;
   overflow-y: auto;
 }
 
-.dialog-body:has(+ .dialog-error) {
+.dialog-body:has(+ .dialog-error),
+.ui-dialog-body:has(+ .ui-dialog-error) {
   padding-bottom: 6px;
 }
 
-.dialog-foot {
+.dialog-foot,
+.ui-dialog-foot {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -5519,12 +5606,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   background: var(--paper);
 }
 
-.dialog-spacer {
+.dialog-spacer,
+.ui-dialog-spacer {
   flex: 1;
 }
 
 /* Why the button next to it cannot be used yet. */
-.dialog-hint {
+.dialog-hint,
+.ui-dialog-hint {
   align-self: center;
   color: var(--ink-2);
   font-size: var(--type-table);
@@ -5716,7 +5805,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   background: var(--ink-3);
 }
 
-.toasts {
+.toasts,
+.ui-toasts {
   display: grid;
   gap: 8px;
   position: fixed;
@@ -5729,7 +5819,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 /* The hairline in the colour of the page keeps it apart from an ink panel behind it. */
-.toast {
+.toast,
+.ui-toast {
   padding: 11px 16px;
   border-radius: var(--radius);
   background: var(--ink);
@@ -5741,24 +5832,28 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   pointer-events: auto;
 }
 
-.toast.is-bad {
+.toast.is-bad,
+.ui-toast.is-bad {
   background: var(--bad-fill);
   color: var(--on-bad-fill);
 }
 
-.toast-body {
+.toast-body,
+.ui-toast-body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
 
-.toast-text {
+.toast-text,
+.ui-toast-text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.toast-close {
+.toast-close,
+.ui-toast-close {
   display: grid;
   flex: none;
   place-items: center;
@@ -5773,7 +5868,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   cursor: pointer;
 }
 
-.toast-close:focus-visible {
+.toast-close:focus-visible,
+.ui-toast-close:focus-visible {
   outline-color: currentColor;
 }
 
@@ -5781,13 +5877,15 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* Below this the tools of a page do not fit next to its heading on every page. They take a row of their own: how fresh it is on the left, its action on the right. */
 @media (max-width: 1100px) {
-  .page-tools {
+  .page-tools,
+  .ui-page-tools {
     flex: 1 1 100%;
     justify-content: space-between;
   }
 
   /* Where it does not fit next to the freshness either, it stays on the right below it. */
-  .page-tools > .btn {
+  .page-tools > .btn,
+  .ui-page-tools > .ui-btn {
     margin-left: auto;
   }
 }
@@ -5958,20 +6056,24 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .stats {
+  .stats,
+  .ui-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stat {
+  .stat,
+  .ui-stat {
     padding: 0 12px;
   }
 
-  .stat:nth-child(odd) {
+  .stat:nth-child(odd),
+  .ui-stat:nth-child(odd) {
     padding-left: 0;
     border-left: 0;
   }
 
-  .stat:last-child:nth-child(odd) {
+  .stat:last-child:nth-child(odd),
+  .ui-stat:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
 
@@ -6061,32 +6163,39 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 
   /* As tall as the screen allows, from the same line at every step of a dialog. */
-  .dialog {
+  .dialog,
+  .ui-dialog {
     --dialog-top: max(16px, calc(var(--safe-top) + 12px));
   }
 
   /* The title stays a title at large text, and does not take the room of what it asks about. */
-  .dialog-title {
+  .dialog-title,
+  .ui-dialog-title {
     font-size: var(--type-title);
   }
 
-  .dialog-head {
+  .dialog-head,
+  .ui-dialog-head {
     padding: 18px 10px 4px 18px;
   }
 
-  .dialog-body {
+  .dialog-body,
+  .ui-dialog-body {
     padding: 10px 18px 20px;
   }
 
-  .dialog-error {
+  .dialog-error,
+  .ui-dialog-error {
     padding: 10px 18px 16px;
   }
 
-  .dialog-foot {
+  .dialog-foot,
+  .ui-dialog-foot {
     padding: 14px 18px;
   }
 
-  .toasts {
+  .toasts,
+  .ui-toasts {
     bottom: 16px;
   }
 }
@@ -6293,15 +6402,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 @media (max-width: 460px) {
   /* The message takes the width of the phone, and what can be done about it goes below it. */
-  .notice {
+  .notice,
+  .ui-notice {
     flex-wrap: wrap;
   }
 
-  .notice-text {
+  .notice-text,
+  .ui-notice-text {
     flex: 1 1 calc(100% - 30px);
   }
 
-  .notice > .btn {
+  .notice > .btn,
+  .ui-notice > .ui-btn {
     margin-left: 30px;
   }
 
@@ -6348,15 +6460,18 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
   .release-actions,
   .release-actions .btn,
-  .dialog-foot .btn {
+  .dialog-foot .btn,
+  .ui-dialog-foot .ui-btn {
     flex: 1 1 auto;
   }
 
-  .dialog-spacer {
+  .dialog-spacer,
+  .ui-dialog-spacer {
     display: none;
   }
 
-  .dialog-hint {
+  .dialog-hint,
+  .ui-dialog-hint {
     flex-basis: 100%;
     order: -1;
   }
@@ -6373,33 +6488,40 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 /* A window this low has no room for a fixed head and foot: the whole dialog scrolls. */
 @media (max-height: 480px) {
-  .dialog {
+  .dialog,
+  .ui-dialog {
     overflow-y: auto;
   }
 
-  .dialog-form {
+  .dialog-form,
+  .ui-dialog-form {
     display: block;
     flex: none;
     width: 100%;
   }
 
   .dialog-body,
-  .dialog-error {
+  .ui-dialog-body,
+  .dialog-error,
+  .ui-dialog-error {
     max-height: none;
     overflow-y: visible;
   }
 }
 
 @media (pointer: coarse) {
-  .btn {
+  .btn,
+  .ui-btn {
     min-height: 44px;
   }
 
-  .btn.is-small {
+  .btn.is-small,
+  .ui-btn.is-small {
     min-height: 40px;
   }
 
-  .btn.is-icon {
+  .btn.is-icon,
+  .ui-btn.is-icon {
     width: 44px;
     min-height: 44px;
   }
@@ -6410,6 +6532,7 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
    */
   .back,
   .card-more,
+  .ui-card-more,
   .fact-link {
     min-height: 44px;
   }
@@ -6419,7 +6542,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
     margin-bottom: 7px;
   }
 
-  .card-more {
+  .card-more,
+  .ui-card-more {
     margin-block: -12px;
   }
 
@@ -6447,8 +6571,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   .run-version,
   .log-target,
   .card-note a,
+  .ui-card-note a,
   .guide-text a,
-  .empty-text a {
+  .empty-text a,
+  .ui-empty-text a {
     display: inline-block;
     margin-block: -12px;
     padding-block: 12px;
@@ -6579,7 +6705,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 
   /* Standing still, a bar that is a third full would read as a third done. */
-  .meter.is-busy .meter-fill {
+  .meter.is-busy .meter-fill,
+  .ui-meter.is-busy .ui-meter-fill {
     width: 100%;
     opacity: 0.4;
   }
@@ -6587,8 +6714,10 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 
 @media (forced-colors: active) {
   .badge,
+  .ui-badge,
   .tag,
   .toast,
+  .ui-toast,
   .segment,
   .swatch,
   .tile {
@@ -6596,11 +6725,13 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   }
 
   .meter,
+  .ui-meter,
   .flash-row {
     border: 1px solid CanvasText;
   }
 
   .meter-fill,
+  .ui-meter-fill,
   .slot-fit-fill,
   .live-dot,
   .presence-dot.is-on,
@@ -7798,7 +7929,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .event-table,
-.data-table {
+.data-table,
+.ui-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--type-table);
@@ -7808,7 +7940,9 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 .event-table th,
 .event-table td,
 .data-table th,
-.data-table td {
+.ui-table th,
+.data-table td,
+.ui-table td {
   padding: 8px 10px 8px 0;
   border-top: 1px solid var(--line);
   text-align: left;
@@ -7816,7 +7950,8 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .event-table thead th,
-.data-table thead th {
+.data-table thead th,
+.ui-table thead th {
   border-top: 0;
   color: var(--ink-3);
   font-size: var(--type-small);
@@ -7824,11 +7959,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
 }
 
 .data-table td,
-.data-table tbody th {
+.ui-table td,
+.data-table tbody th,
+.ui-table tbody th {
   font-variant-numeric: tabular-nums;
 }
 
-.data-table tbody th {
+.data-table tbody th,
+.ui-table tbody th {
   font-weight: 600;
 }
 
@@ -8480,12 +8618,14 @@ body:has(.gate) .masthead:has(.nav[hidden]) {
   font-size: var(--type-small);
 }
 
-.notice.is-good {
+.notice.is-good,
+.ui-notice.is-good {
   border-color: transparent;
   background: var(--good-wash);
 }
 
-.notice.is-wait {
+.notice.is-wait,
+.ui-notice.is-wait {
   background: var(--work-wash);
   border-color: transparent;
 }
@@ -10286,16 +10426,19 @@ body.console {
 }
 
 /* The large title: a phone's 34 pt, bold; a desktop's a little larger. */
-.console .page-title {
+.console .page-title,
+.console .ui-page-title {
   font-size: var(--type-heading);
   letter-spacing: -0.024em;
 }
 
-.console .page-head {
+.console .page-head,
+.console .ui-page-head {
   margin-bottom: var(--space-5);
 }
 
-.console .page-lede {
+.console .page-lede,
+.console .ui-page-lede {
   margin-top: var(--space-1);
   font-size: var(--type-body);
 }
@@ -10378,7 +10521,8 @@ body.console {
 }
 
 /* A section: its heading above, sticky; its body the group. */
-.console .card {
+.console .card,
+.console .ui-card {
   padding: 0;
   border-top: 0;
 }
@@ -10396,14 +10540,17 @@ body.console {
   padding: 16px 0 18px;
 }
 
-.console .card-head {
+.console .card-head,
+.console .ui-card-head {
   min-height: 0;
   margin: 0 0 var(--space-2);
   padding: 0 var(--space-1);
 }
 
 .console .card > .card-head > .eyebrow,
-.console .card.is-zone > .card-head > .eyebrow {
+.console .ui-card > .ui-card-head > .eyebrow,
+.console .card.is-zone > .card-head > .eyebrow,
+.console .ui-card.is-zone > .ui-card-head > .eyebrow {
   color: var(--ink);
   font-size: var(--type-large);
   font-weight: 600;
@@ -10411,14 +10558,16 @@ body.console {
   text-transform: none;
 }
 
-.console .card-more {
+.console .card-more,
+.console .ui-card-more {
   min-height: var(--tap);
   margin: calc(-1 * var(--space-3)) 0;
   color: var(--accent);
   font-size: var(--type-body);
 }
 
-.console .card-body {
+.console .card-body,
+.console .ui-card-body {
   min-width: 0;
   padding: var(--space-4);
   border-radius: var(--radius-group);
@@ -10428,7 +10577,8 @@ body.console {
 
 /* A section in a group, or a group in a group, is not boxed twice. */
 .console .panel .card-body,
-.console .card-body .card-body {
+.console .card-body .card-body,
+.console .ui-card-body .ui-card-body {
   padding: 0;
   border-radius: 0;
   background: none;
@@ -10436,12 +10586,14 @@ body.console {
 }
 
 .console .panel .card-head,
-.console .card-body .card-head {
+.console .card-body .card-head,
+.console .ui-card-body .ui-card-head {
   padding: 0;
 }
 
 .console .panel .card > .card-head > .eyebrow,
-.console .card-body .card > .card-head > .eyebrow {
+.console .card-body .card > .card-head > .eyebrow,
+.console .ui-card-body .ui-card > .ui-card-head > .eyebrow {
   color: var(--ink-3);
   font-size: var(--type-small);
   font-weight: 600;
@@ -10450,6 +10602,7 @@ body.console {
 
 /* The heading of a section of the page stays in view while its rows go by under it. */
 .console .page > .card > .card-head,
+.console .page > .ui-card > .ui-card-head,
 .console .overview > .card > .card-head {
   position: sticky;
   top: var(--sticky-top, 0px);
@@ -10467,7 +10620,9 @@ body.console {
 
 /* Sections stand one under the other with room between them. */
 .console .page > * + .card,
+.console .page > * + .ui-card,
 .console .page > .card + *,
+.console .page > .ui-card + *,
 .console .page > .panel + .card {
   margin-top: var(--space-6);
 }
@@ -10919,11 +11074,13 @@ body.console {
   }
 
   /* The Map: the map from edge to edge under the bar, and the boards in a sheet that slides over it. */
-  .console .page.is-map .page-lede {
+  .console .page.is-map .page-lede,
+  .console .page.is-map .ui-page-lede {
     display: none;
   }
 
-  .console .page.is-map .page-head {
+  .console .page.is-map .page-head,
+  .console .page.is-map .ui-page-head {
     margin-bottom: var(--space-3);
   }
 
@@ -11087,7 +11244,8 @@ body.console {
 
 /* On a phone a dialog is a sheet from the foot of the screen, at one height for every step. */
 @media (max-width: 700px) {
-  .console .dialog {
+  .console .dialog,
+  .console .ui-dialog {
     width: 100%;
     max-width: 100%;
     height: calc(100dvh - 32px - env(safe-area-inset-top));
@@ -11098,13 +11256,15 @@ body.console {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .console .dialog[open] {
+  .console .dialog[open],
+  .console .ui-dialog[open] {
     animation: sheet-up 0.32s var(--ease) backwards;
   }
 }
 
 /* Loading: the words, and grey lines where the rows will be, in place of a spinner. */
-.console .loading {
+.console .loading,
+.console .ui-loading {
   padding: var(--space-4);
   border-radius: var(--radius-group);
   background: var(--surface);
@@ -11114,13 +11274,15 @@ body.console {
 }
 
 .console .card-body > .loading,
+.console .ui-card-body > .ui-loading,
 .console .panel .loading {
   padding: 0;
   background: none;
   box-shadow: none;
 }
 
-.console .loading::after {
+.console .loading::after,
+.console .ui-loading::after {
   content: "";
   display: block;
   height: 86px;
@@ -11330,36 +11492,44 @@ span.glance-item:hover {
 
 /* Figures on a phone: compact, two to a row, not four big tiles. */
 @media (max-width: 860px) {
-  .console .stats {
+  .console .stats,
+  .console .ui-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3) 0;
   }
 
-  .console .stat:nth-child(odd) {
+  .console .stat:nth-child(odd),
+  .console .ui-stat:nth-child(odd) {
     padding-left: 0;
     border-left: 0;
   }
 
   .console .stat-label,
-  .console .stat-note {
+  .console .ui-stat-label,
+  .console .stat-note,
+  .console .ui-stat-note {
     overflow-wrap: normal;
   }
 
-  .console .stat {
+  .console .stat,
+  .console .ui-stat {
     gap: 2px;
     padding: 0 var(--space-2);
   }
 
-  .console .stat-value {
+  .console .stat-value,
+  .console .ui-stat-value {
     font-size: var(--type-title);
   }
 
-  .console .stat-label {
+  .console .stat-label,
+  .console .ui-stat-label {
     font-size: var(--type-small);
     line-height: 1.3;
   }
 
-  .console .stat-note {
+  .console .stat-note,
+  .console .ui-stat-note {
     font-size: var(--type-small);
     line-height: 1.3;
   }
@@ -11631,7 +11801,8 @@ span.glance-item:hover {
    box stands first; on a phone the filters fold under the Filters button, from 700 px they stand in a row.
    Every colour is a token, so the bar follows the dark theme. */
 
-.filter-bar {
+.filter-bar,
+.ui-filter-bar {
   display: grid;
   gap: var(--space-2);
   margin: 0 0 var(--space-4);
@@ -11640,13 +11811,15 @@ span.glance-item:hover {
   background: var(--surface);
 }
 
-.filter-row {
+.filter-row,
+.ui-filter-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.filter-search {
+.filter-search,
+.ui-filter-search {
   position: relative;
   display: flex;
   flex: 1 1 auto;
@@ -11654,26 +11827,30 @@ span.glance-item:hover {
   min-width: 0;
 }
 
-.filter-search > .icon {
+.filter-search > .icon,
+.ui-filter-search > .icon {
   position: absolute;
   left: 12px;
   color: var(--ink-3);
   pointer-events: none;
 }
 
-.input.filter-input {
+.input.filter-input,
+.input.ui-filter-input {
   min-height: var(--tap);
   padding-left: 36px;
   border-radius: var(--radius-pill);
   background: var(--grouped);
 }
 
-.filter-toggle {
+.filter-toggle,
+.ui-filter-toggle {
   flex: none;
   min-height: var(--tap);
 }
 
-.filter-toggle .chip-count {
+.filter-toggle .chip-count,
+.ui-filter-toggle .chip-count {
   min-width: 1.4em;
   padding: 0 6px;
   border-radius: var(--radius-pill);
@@ -11683,34 +11860,40 @@ span.glance-item:hover {
   text-align: center;
 }
 
-.filter-controls {
+.filter-controls,
+.ui-filter-controls {
   display: none;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
 }
 
-.filter-bar.is-open .filter-controls {
+.filter-bar.is-open .filter-controls,
+.ui-filter-bar.is-open .ui-filter-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
 
-.filter-field {
+.filter-field,
+.ui-filter-field {
   justify-content: space-between;
   min-height: var(--tap);
 }
 
-.filter-field .input {
+.filter-field .input,
+.ui-filter-field .input {
   width: auto;
   max-width: 62%;
 }
 
-.input.filter-day {
+.input.filter-day,
+.input.ui-filter-day {
   padding: 6px 10px;
   font-size: var(--type-table);
 }
 
-.filter-foot {
+.filter-foot,
+.ui-filter-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -11719,33 +11902,40 @@ span.glance-item:hover {
   min-height: 1.5rem;
 }
 
-.filter-count {
+.filter-count,
+.ui-filter-count {
   margin: 0;
   color: var(--ink-2);
   font-size: var(--type-small);
   font-variant-numeric: tabular-nums;
 }
 
-.filter-none {
+.filter-none,
+.ui-filter-none {
   margin: var(--space-3) 0;
 }
 
 @media (min-width: 701px) {
-  .filter-toggle {
+  .filter-toggle,
+  .ui-filter-toggle {
     display: none;
   }
 
   .filter-controls,
-  .filter-bar.is-open .filter-controls {
+  .ui-filter-controls,
+  .filter-bar.is-open .filter-controls,
+  .ui-filter-bar.is-open .ui-filter-controls {
     display: flex;
   }
 
-  .filter-field {
+  .filter-field,
+  .ui-filter-field {
     justify-content: flex-start;
     min-height: 0;
   }
 
-  .filter-field .input {
+  .filter-field .input,
+  .ui-filter-field .input {
     max-width: 16rem;
   }
 }
@@ -12672,4 +12862,526 @@ span.glance-item:hover {
   .bt-run .meter-fill {
     transition: none;
   }
+}
+
+/*
+ * Shared components (console 2.25.17, the redesign's second step).
+ *
+ * The console's pieces under one set of names, ui-*: page head, card, stat tile, table, filter bar, buttons,
+ * badges, step list, meter, the empty, loading and error states, toast and dialog. Each older name is an alias
+ * for one release: every rule above that styles a piece on its own carries both names, and the views write both,
+ * so a page reads the same whichever it uses. The rules that place a piece on one page still name the older
+ * class; they move to the new names with each page's redesign, and then the older names go.
+ *
+ *   ui-page-head, -row, -title, -lede, -meta, -tools   page-head, page-title, page-lede, page-meta, page-tools
+ *   ui-card, ui-card-head, -title, -body, -more, -note  card, card-head, card > .eyebrow, card-body, card-more
+ *   ui-stats, ui-stat, -label, -value, -note            stats, stat (a tile with .is-tiles on the list)
+ *   ui-table, ui-table-wrap, ui-board                   data-table
+ *   ui-filter-bar and its parts                         filter-bar, filter-search, filter-field, filter-count …
+ *   ui-btn, ui-button-row                               btn, button-row
+ *   ui-badge                                            badge
+ *   ui-steps, ui-step                                   (new: numbered steps that say where a task is)
+ *   ui-meter, ui-meter-fill                             meter, meter-fill
+ *   ui-empty, ui-loading, ui-error, ui-notice           empty, loading, (new), notice
+ *   ui-toasts, ui-toast                                 toasts, toast
+ *   ui-dialog and its parts                             dialog, dialog-head, dialog-body, dialog-foot …
+ *
+ * What follows sets the components' common rules (corners, heights, focus, motion) for the console only, at the
+ * specificity of one class, so a page's own rules above still win where they place a piece.
+ */
+
+/* Focus: the ring follows the piece's corner; the global one would round it to 3 px. */
+.ui-btn:focus-visible,
+.btn:focus-visible,
+.ui-card-more:focus-visible,
+.card-more:focus-visible {
+  border-radius: var(--radius-control);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-btn.is-primary:focus-visible,
+.btn.is-primary:focus-visible,
+.ui-btn.is-danger:focus-visible,
+.btn.is-danger:focus-visible {
+  outline-offset: 3px;
+}
+
+/* Buttons: one height on a desk, a finger's on a phone; the small and the icon ones keep theirs. */
+:where(.console) .ui-btn,
+:where(.console) .btn {
+  min-height: 40px;
+  line-height: 1.2;
+  touch-action: manipulation;
+}
+
+:where(.console) .ui-btn.is-icon,
+:where(.console) .btn.is-icon {
+  width: 40px;
+  min-height: 40px;
+}
+
+:where(.console) .ui-btn.is-small,
+:where(.console) .btn.is-small {
+  min-height: 32px;
+}
+
+:where(.console) .ui-btn:active:not(:disabled, [aria-disabled="true"]),
+:where(.console) .btn:active:not(:disabled, [aria-disabled="true"]) {
+  background-color: var(--sunken);
+}
+
+:where(.console) .ui-btn.is-primary:active:not(:disabled, [aria-disabled="true"]),
+:where(.console) .btn.is-primary:active:not(:disabled, [aria-disabled="true"]) {
+  background-color: var(--accent-strong);
+}
+
+:where(.console) .ui-btn.is-danger:active:not(:disabled, [aria-disabled="true"]),
+:where(.console) .btn.is-danger:active:not(:disabled, [aria-disabled="true"]) {
+  background-color: var(--bad-fill);
+}
+
+@media (max-width: 860px) {
+  :where(.console) .ui-btn:not(.is-small),
+  :where(.console) .btn:not(.is-small) {
+    min-height: var(--tap);
+  }
+
+  :where(.console) .ui-btn.is-icon:not(.is-small),
+  :where(.console) .btn.is-icon:not(.is-small) {
+    width: var(--tap);
+  }
+}
+
+/* A row of buttons, its main one last; .is-end sets them at the far edge, as a dialog's foot does. */
+.ui-button-row.is-end {
+  justify-content: flex-end;
+}
+
+/* Badges: 13 px, the floor for anything read as words, on a pill-high row. */
+:where(.console) .ui-badge,
+:where(.console) .badge {
+  min-height: 24px;
+  font-size: var(--type-small);
+}
+
+.ui-badge.is-info {
+  background: var(--info-soft);
+}
+
+.ui-badge.is-info > .icon {
+  color: var(--info);
+}
+
+/* A card's title: the heading over its group. */
+.ui-card-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--type-large);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: var(--leading-title);
+}
+
+/* Stat tiles: a figure with its label under it, each in a tile of its own, as many to a row as fit. */
+.ui-stats.is-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: var(--space-3);
+}
+
+.ui-stats.is-tiles > .ui-stat {
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-left: 0;
+  border-radius: var(--radius-tile);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-stats.is-tiles .ui-stat-value {
+  font-size: var(--type-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-stat-note.is-good,
+.ui-stat-note.is-warn,
+.ui-stat-note.is-bad {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink);
+}
+
+/* A table: a real one, in a frame that scrolls sideways on its own rather than the page. */
+.ui-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ui-table-wrap:focus-visible {
+  outline-offset: 2px;
+  border-radius: var(--radius-card);
+}
+
+.ui-table caption {
+  padding: var(--space-3) var(--space-4) 0;
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  text-align: left;
+}
+
+.ui-table th,
+.ui-table td {
+  padding: 10px var(--space-3);
+  vertical-align: middle;
+}
+
+.ui-table :is(th, td):first-child {
+  padding-left: var(--space-4);
+}
+
+.ui-table :is(th, td):last-child {
+  padding-right: var(--space-4);
+}
+
+.ui-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--border);
+  white-space: nowrap;
+}
+
+.ui-table tbody tr:hover {
+  background: var(--sunken);
+}
+
+.ui-table .is-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* A column that sorts: its heading is a button, with the order said by aria-sort on the heading. */
+.ui-table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  margin: -6px -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ui-table-sort:hover {
+  color: var(--ink);
+}
+
+.ui-table-sort .icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0;
+}
+
+[aria-sort="ascending"] > .ui-table-sort .icon,
+[aria-sort="descending"] > .ui-table-sort .icon {
+  opacity: 1;
+}
+
+[aria-sort="descending"] > .ui-table-sort .icon {
+  transform: rotate(180deg);
+}
+
+/* A board in a table or a list: its label first, its ID second, smaller and quieter. */
+.ui-board {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-board-label {
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-board-id {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: var(--type-small);
+  overflow-wrap: anywhere;
+}
+
+/* On a phone a table marked .is-stacked reads as a card per row, each cell under the name of its column. */
+@media (max-width: 560px) {
+  .ui-table.is-stacked thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ui-table.is-stacked,
+  .ui-table.is-stacked tbody,
+  .ui-table.is-stacked tr,
+  .ui-table.is-stacked :is(th, td) {
+    display: block;
+  }
+
+  .ui-table.is-stacked tr {
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .ui-table.is-stacked tr:first-child {
+    border-top: 0;
+  }
+
+  .ui-table.is-stacked :is(th, td) {
+    padding: var(--space-1) var(--space-4);
+    border-top: 0;
+    text-align: left;
+  }
+
+  .ui-table.is-stacked td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--ink-2);
+    font-size: var(--type-small);
+    font-weight: 600;
+  }
+}
+
+/* The filter bar stands on the page as a card does, edge and all. */
+:where(.console) .ui-filter-bar,
+:where(.console) .filter-bar {
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-1);
+}
+
+/* The step list: numbered steps, each with its mark, what it is, and where it stands. */
+.ui-steps {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: ui-step;
+}
+
+.ui-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  padding-bottom: var(--space-5);
+  counter-increment: ui-step;
+}
+
+.ui-step:last-child {
+  padding-bottom: 0;
+}
+
+/* The line from each mark to the next. */
+.ui-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 32px;
+  bottom: 4px;
+  left: 13px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--line-mark);
+}
+
+.ui-step.is-done:not(:last-child)::after {
+  background: var(--ink);
+}
+
+.ui-step-mark {
+  display: grid;
+  grid-row: span 3;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--line-mark);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--type-small);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.ui-step-mark:empty::before {
+  content: counter(ui-step);
+}
+
+.ui-step-mark .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.4;
+}
+
+.ui-step.is-current > .ui-step-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ui-step.is-done > .ui-step-mark {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.ui-step.is-bad > .ui-step-mark {
+  border-color: var(--bad-fill);
+  background: var(--bad-fill);
+  color: var(--on-bad-fill);
+}
+
+.ui-step-title {
+  margin: 0;
+  padding-top: 3px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ui-step.is-todo > .ui-step-title {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.ui-step-text {
+  max-width: var(--measure);
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: var(--type-table);
+}
+
+.ui-step-state {
+  margin-top: var(--space-1);
+}
+
+/* The meter: a track and a fill, in the colour of what it measures, with its words beside it. */
+:where(.console) .ui-meter,
+:where(.console) .meter {
+  border-radius: 4px;
+}
+
+.ui-meter.is-good {
+  background: var(--good-soft);
+}
+
+.ui-meter.is-good > .ui-meter-fill {
+  background: var(--bar-good);
+}
+
+.ui-meter.is-warn {
+  background: var(--warn-soft);
+}
+
+.ui-meter.is-warn > .ui-meter-fill {
+  background: var(--bar-warn);
+}
+
+.ui-meter.is-bad {
+  background: var(--bad-soft);
+}
+
+.ui-meter.is-bad > .ui-meter-fill {
+  background: var(--bar-bad);
+}
+
+/* A read that failed: what could not be read, why where it is known, and Try again. */
+.ui-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-tile);
+  background: var(--bad-soft);
+  color: var(--ink);
+}
+
+.ui-error > .icon {
+  flex: none;
+  margin-top: 3px;
+  color: var(--bad);
+}
+
+.ui-error-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-error-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ui-error-detail {
+  margin: 2px 0 0;
+  font-size: var(--type-table);
+}
+
+.ui-error > .ui-btn {
+  flex: none;
+}
+
+/* A toast rises into place; with reduced motion it is simply there. */
+:where(.console) .ui-toast,
+:where(.console) .toast {
+  border-radius: var(--radius-tile);
+  animation: rise 0.24s var(--ease) backwards;
+}
+
+.ui-toast.is-good .ui-toast-text::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--bar-good);
+  vertical-align: 1px;
+}
+
+:where(.console) .ui-toast-close,
+:where(.console) .toast-close {
+  width: 32px;
+  height: 32px;
+  margin: -5px -10px -5px 0;
+}
+
+/* The dialog: a sheet's corners and the lift of what stands over the page, a scrim that dims it in both themes. */
+:where(.console) .ui-dialog,
+:where(.console) .dialog {
+  border-color: var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-2);
+}
+
+:where(.console) .ui-dialog::backdrop,
+:where(.console) .dialog::backdrop {
+  background: var(--scrim);
+}
+
+/* The foot a step down from the body, as the page is from its cards. */
+:where(.console) .ui-dialog-foot,
+:where(.console) .dialog-foot {
+  background: var(--sunken);
 }

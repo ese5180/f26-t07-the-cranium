@@ -878,7 +878,7 @@ function runCard(model, ctx, run, device) {
     : null;
   return h(
     'article',
-    { key: 'run', class: `card execution bt-run is-${run.tone}`, 'data-phase': flow.step },
+    { key: 'run', class: `ui-card card execution bt-run is-${run.tone}`, 'data-phase': flow.step },
     h(
       'header',
       { class: 'execution-head' },
@@ -905,7 +905,7 @@ function runCard(model, ctx, run, device) {
           ? h(
               'div',
               {
-                class: `meter bt-meter${run.busy ? ' is-busy' : ''}`,
+                class: `ui-meter meter bt-meter${run.busy ? ' is-busy' : ''}`,
                 role: 'progressbar',
                 'aria-label': run.busy ? 'Working' : `${run.version} sent to ${flow.board?.name}`,
                 'aria-valuemin': '0',
@@ -913,7 +913,7 @@ function runCard(model, ctx, run, device) {
                 'aria-valuenow': run.busy ? null : String(run.percent),
                 vars: { '--progress': `${run.percent}%` },
               },
-              h('span', { class: 'meter-fill' })
+              h('span', { class: 'ui-meter-fill meter-fill' })
             )
           : null,
         sending ? runStats(model) : null,
@@ -936,14 +936,14 @@ function runCard(model, ctx, run, device) {
       { class: 'actions bt-actions' },
       flow.step === 'ready' ? button('is-primary', model.send, icon('send'), 'Send') : null,
       run.outcome === 'kept' && boardHref
-        ? linkTo(boardHref, { class: 'btn is-primary' }, icon('chip'), 'Open the board’s page')
+        ? linkTo(boardHref, { class: 'ui-btn btn is-primary' }, icon('chip'), 'Open the board’s page')
         : null,
       run.outcome === 'kept' || run.outcome === 'unknown' ? button('', model.reset, 'Update another board') : null,
       run.outcome && !['kept', 'unknown'].includes(run.outcome)
         ? button('is-primary', model.reset, icon('restart'), 'Try again')
         : null,
       run.outcome && !['kept', 'unknown'].includes(run.outcome) && boardHref
-        ? linkTo(boardHref, { class: 'btn' }, 'Open the board’s page')
+        ? linkTo(boardHref, { class: 'ui-btn btn' }, 'Open the board’s page')
         : null,
       canCancel ? button('is-quiet', model.cancel, icon('x'), 'Cancel') : null,
       flow.step === 'ready' ? button('is-quiet', model.reset, 'Cancel') : null,
@@ -988,7 +988,7 @@ function releaseList(model, flow) {
             'span',
             { class: 'choice-title' },
             mono(release.version),
-            index === 0 ? h('span', { class: 'badge is-good' }, 'Newest') : null,
+            index === 0 ? h('span', { class: 'ui-badge badge is-good' }, 'Newest') : null,
             h('span', { class: 'quiet' }, fileSize(release.size))
           ),
           notesSnippet(release.notes) ? h('span', { class: 'choice-note' }, notesSnippet(release.notes)) : null
@@ -1082,7 +1082,8 @@ export function bluetoothView(ctx) {
       notice('warn', 'lock', 'Only a release manager can send firmware to a board.')
     );
   }
-  if (!model) return h('div', { class: 'page', key: 'page' }, head, h('p', { class: 'loading' }, 'Loading…'));
+  if (!model)
+    return h('div', { class: 'page', key: 'page' }, head, h('p', { class: 'ui-loading loading' }, 'Loading…'));
   const { flow } = model;
   const pinned =
     flow.step === 'pairing' && flow.passkey
@@ -1124,7 +1125,7 @@ export function bluetoothView(ctx) {
       body.push(
         h(
           'section',
-          { key: 'boards', class: 'card bt-pick' },
+          { key: 'boards', class: 'ui-card card bt-pick' },
           setupHead(1),
           h('h2', { class: 'bt-pick-title' }, 'Pick the board'),
           flow.boards.length === 0
@@ -1147,7 +1148,7 @@ export function bluetoothView(ctx) {
       body.push(
         h(
           'section',
-          { key: 'release', class: 'card bt-pick' },
+          { key: 'release', class: 'ui-card card bt-pick' },
           setupHead(0),
           h(
             'div',

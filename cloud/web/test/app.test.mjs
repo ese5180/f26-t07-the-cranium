@@ -653,7 +653,7 @@ test('a deployment that ends while its cancel button has the focus does not hand
   one(tab.main, 'button', 'Cancel deployment').focus();
   tab.becomes({ ...WORLD, deployments: [declined] });
   await tab.wait(3000);
-  assert.equal(one(tab.main, 'button', 'Offer again').getAttribute('class'), 'btn');
+  assert.equal(one(tab.main, 'button', 'Offer again').getAttribute('class'), 'ui-btn btn');
   assert.equal(tab.document.activeElement.id, 'page-title');
 });
 
