@@ -19,14 +19,14 @@
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
   "Matter (nRF7002 DK)": {
-    "_measured": "1.21.0, the Matter variant (firmware/matter) with Wi-Fi and the border router, before the commissioner library: app 141338 flash / 146448 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 11480 flash",
-    "app": { "flash_free_min": 131072, "ram_free_min": 139264 },
+    "_measured": "1.21.0, the Matter variant (firmware/matter): own commissioner up to the Thread join, Wi-Fi and the border router: app 121666 flash / 133608 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 11480 flash. The commissioner's remaining parts (certificates, CASE, OTA provider) are expected to take about 60 KB of the flash; the floor goes down with them, not below 40960 / 8192",
+    "app": { "flash_free_min": 114688, "ram_free_min": 126976 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
     "mcuboot": { "flash_free_min": 10240 }
   },
   "Matter (nRF5340 DK)": {
-    "_measured": "1.21.0, the Matter variant (firmware/matter), first build: app 117334 flash / 206024 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16744 flash",
-    "app": { "flash_free_min": 110592, "ram_free_min": 196608 },
+    "_measured": "1.21.0, the Matter variant without Wi-Fi (no border router): app 572298 flash / 295776 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16744 flash",
+    "app": { "flash_free_min": 565248, "ram_free_min": 286720 },
     "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
     "mcuboot": { "flash_free_min": 14336 }
   },
