@@ -281,7 +281,7 @@ $(BUILD)/ui_bt_tests: test_ui.c $(SRC)/ui.c $(SRC)/ui.h $(SRC)/app_events.h
 BT_ONLY_DEFINES := -DCONFIG_APP_BT_OTA=1 -DCONFIG_APP_BT_ONLY=1 -DCONFIG_APP_BT_STATIC_PASSKEY=1 \
 	-DCONFIG_APP_BT_PASSKEY_FAILURE_BUDGET=3 -DCONFIG_BT_DEVICE_NAME=\"Cranium\"
 CONSOLE_BT_ONLY_DEFINES := $(filter-out -DCONFIG_APP_LOCATION=1,$(subst \"nrf7002dk\",\"nrf5340dk\",$(CONSOLE_DEFINES))) \
-	$(BT_ONLY_DEFINES)
+	$(BT_ONLY_DEFINES) -DCONFIG_APP_BT_OFFLINE=1
 
 $(BUILD)/bt_passkey_policy_tests: test_bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.c $(SRC)/policy/bt_passkey_policy.h
 	@mkdir -p $(BUILD)
