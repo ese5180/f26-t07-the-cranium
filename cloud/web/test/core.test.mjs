@@ -3737,6 +3737,8 @@ test("a command at a board's serial console reads as what it did, to which board
     'BUTTON',
     'REBOOT',
     'ENTER_BOOTLOADER',
+    'BT_PASSKEY',
+    'BT_OFFLINE',
   ]) {
     assert.match(core.SERIAL_WORDS[name], /\{\}/, name);
   }

@@ -7,6 +7,10 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.3
+
+A Bluetooth passkey set at a board's serial console is on record now: `BT_PASSKEY` (the nRF5340 DK's passkey and name) and `BT_OFFLINE|NEW` (the board's own passkey for Offline mode), once the board answers OK, go into the activity log as "set or erased the Bluetooth passkey of …" and "made a new Bluetooth passkey for … over USB", like every other command that changes a board there. Only the command's name is recorded, never the passkey. Both commands came after the list of recorded commands and were left out of it; a test now reads the firmware's command table and fails for a command that is neither recorded nor listed as one that only asks.
+
 ## 2.27.0
 
 Offline mode is a page of the console now, in the iPhone, Android and Mac apps: **Offline**, in the sections (under More on a phone), and from the sign-in page when there is no network. It finds a board nearby over Bluetooth, pairs with the board's own passkey (the phone or the Mac asks for it), shows the board's firmware, uptime, Wi-Fi, cloud, update state and last restart, and accepts an update that has arrived at the board, after asking "Install version 1.20 on Cranium-3F9C?". In the apps it is easy to reach from where they open: an Offline mode row above the form on the customer site's sign-in page and on the console's, and in the customer site's sections and top bar. It needs firmware 1.19.0 and app 0.9.0 (Mac app 0.4.0).

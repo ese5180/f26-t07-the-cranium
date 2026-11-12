@@ -4,6 +4,10 @@ One entry per version, newest first. The version is `MARKETING_VERSION` in `apps
 `CURRENT_PROJECT_VERSION` counts the versions); each is tagged `ios-v<version>` on its commit. The two phone apps keep the
 same numbers for the same features. The first paragraph of an entry is what the console's Apps page shows.
 
+## 0.9.1
+
+The activity log names the two serial console commands that set a board's Bluetooth passkey, `BT_PASSKEY` and `BT_OFFLINE|NEW`, in the same words as the console (2.27.3), and the Android app's USB serial console puts them on record once the board answers OK. Never the passkey. (build 39)
+
 ## 0.9.0
 
 Offline mode (firmware 1.19.0 and later): the console's Offline page talks to a board directly over Bluetooth, with no Wi-Fi or internet, and opens from the sign-in page too. Find the board, type its passkey when the phone asks, see its firmware, uptime, Wi-Fi, cloud, update state and last restart, and accept an update that has arrived at the board, after confirming its version.

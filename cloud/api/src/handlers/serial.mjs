@@ -27,8 +27,9 @@ import { BOARD_NAME } from '../lib/shadow.mjs';
 import { strictVersion } from '../lib/validate.mjs';
 
 // What changes a board at its serial console and answers OK before it does: console_cmd.c's
-// commands_that_change_the_board, the two that erase it (INIT, FACTORY_RESET), and the two
-// that restart it, one of them into the bootloader that takes an image over the cable.
+// commands_that_change_the_board, the two that erase it (INIT, FACTORY_RESET), the two
+// that restart it, one of them into the bootloader that takes an image over the cable, and the
+// two that set the board's own Bluetooth passkey (BT_PASSKEY, BT_OFFLINE|NEW).
 export const SERIAL_COMMANDS = Object.freeze([
   'INIT',
   'SET_ID',
@@ -44,6 +45,8 @@ export const SERIAL_COMMANDS = Object.freeze([
   'BUTTON',
   'REBOOT',
   'ENTER_BOOTLOADER',
+  'BT_PASSKEY',
+  'BT_OFFLINE',
 ]);
 export const SERIAL_FIELDS = Object.freeze(['command', 'device', 'version']);
 export const SERIAL_PER_MINUTE = 30;

@@ -51,7 +51,7 @@ object SerialRules {
      */
     val RECORDED = setOf(
         "INIT", "SET_ID", "RESET_CONFIG", "FACTORY_RESET", "WIFI", "WIFI_SEC", "CLEAR_WIFI", "CLOUD", "KEYGEN",
-        "MQTT_HOST", "MQTT_RECONNECT", "BUTTON", "REBOOT", "ENTER_BOOTLOADER",
+        "MQTT_HOST", "MQTT_RECONNECT", "BUTTON", "REBOOT", "ENTER_BOOTLOADER", "BT_PASSKEY", "BT_OFFLINE",
     )
     private val RECORD_DEVICE = Regex("^[0-9A-Za-z]{1,32}$")
     private val RECORD_VERSION = Regex("^(0|[1-9]\\d{0,2})\\.(0|[1-9]\\d{0,2})\\.(0|[1-9]\\d{0,4})\\+(0|[1-9]\\d{0,9})$")

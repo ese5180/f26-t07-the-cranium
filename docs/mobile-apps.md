@@ -584,7 +584,7 @@ says which one it was, once the board has answered it with `OK`:
 
 - **When.** Right after the board's final line for the command is `OK ...`, for these commands only: `INIT`,
   `SET_ID`, `RESET_CONFIG`, `FACTORY_RESET`, `WIFI`, `WIFI_SEC`, `CLEAR_WIFI`, `CLOUD`, `KEYGEN`, `MQTT_HOST`,
-  `MQTT_RECONNECT`, `BUTTON`, `REBOOT`, `ENTER_BOOTLOADER`. Not after `ERR`, not for a command that only asks
+  `MQTT_RECONNECT`, `BUTTON`, `REBOOT`, `ENTER_BOOTLOADER`, `BT_PASSKEY`, `BT_OFFLINE`. Not after `ERR`, not for a command that only asks
   (`GET_ID`, `STATUS`, `NET`, `MQTT`, `HELP`), and not for what the app sends by itself (`ECHO|OFF`, the `GET_ID`
   after connecting). A command typed by hand counts the same as one from a form; compare the name in capitals.
 - **What.** `command` is the command's name in capitals, as the firmware compares it. `device` and `version` are what
