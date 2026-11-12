@@ -298,8 +298,10 @@ object Telemetry {
         "pending" to "Waiting to be proved", "succeeded" to "Succeeded", "rolled_back" to "Rolled back",
         "not_installed" to "Not installed", "trial_lost" to "Lost its trial", "superseded" to "Replaced by a cloud update",
         "flash_error" to "Could not be written to flash",
+        "incompatible_board" to "Refused: the image is for another board",
+        "incompatible_layout" to "Refused: the image is for another flash layout",
     )
-    val BAD_BT = setOf("rolled_back", "not_installed", "trial_lost", "flash_error")
+    val BAD_BT = setOf("rolled_back", "not_installed", "trial_lost", "flash_error", "incompatible_board", "incompatible_layout")
     val PROOF_WORDS = mapOf("person" to "Kept by a person at the board", "cloud" to "Proved by the cloud", "none" to "Not proved")
 
     /** Why a boot ended, in words: "the watchdog", "a brownout and a CPU lockup". */
