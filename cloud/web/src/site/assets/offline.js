@@ -418,7 +418,7 @@ function updatePanel(model, flow, device) {
           'button',
           {
             type: 'button',
-            class: 'btn is-primary',
+            class: 'ui-btn btn is-primary',
             disabled: flow.accepting,
             'aria-busy': flow.accepting ? 'true' : null,
             onClick: model.accept,
@@ -455,7 +455,7 @@ function boardCard(model, flow, device) {
   const connecting = flow.step === 'connecting';
   return h(
     'article',
-    { class: 'card of-board', key: 'board' },
+    { class: 'ui-card card of-board', key: 'board' },
     h(
       'header',
       { class: 'of-board-head' },
@@ -519,7 +519,7 @@ export function offlineView(ctx) {
     body.push(
       h(
         'section',
-        { key: 'boards', class: 'card bt-pick' },
+        { key: 'boards', class: 'ui-card card bt-pick' },
         h('h2', { class: 'bt-pick-title' }, 'Pick the board'),
         flow.boards.length === 0
           ? h(
@@ -541,7 +541,7 @@ export function offlineView(ctx) {
     body.push(
       h(
         'section',
-        { key: 'restarting', class: 'card of-board' },
+        { key: 'restarting', class: 'ui-card card of-board' },
         h(
           'p',
           { class: 'status is-good' },
@@ -560,7 +560,7 @@ export function offlineView(ctx) {
     body.push(
       h(
         'section',
-        { key: 'start', class: 'card bt-pick' },
+        { key: 'start', class: 'ui-card card bt-pick' },
         h('h2', { class: 'bt-pick-title' }, 'Open the board’s window'),
         windowStep(),
         flow.problem ? notice('bad', 'alert', flow.problem) : null,
