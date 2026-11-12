@@ -2405,7 +2405,7 @@ a.cs-panel-foot:hover {
     left: 0;
     z-index: 20;
     display: block;
-    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
+    padding: 0 var(--safe-right-bar) var(--safe-bottom-bar) var(--safe-left-bar);
   }
 
   .cs-tabbar ul {

@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.6
+
+On an iPhone the pages keep out of the screen's rounded corners: the first and last tabs of the tab bar, on the console and on the customer site, sit 20 px in from the sides, past the corner's curve (about 55 pt on an iPhone 17 Pro), and a dialog on a phone, a sheet to the foot of the screen, keeps its buttons above the home indicator and in from the corners. A browser and the Android app, where the page has no inset, are unchanged.
+
+`app.css` adds `--safe-corner` (20 px on a screen with an inset at the foot or the sides, which has rounded corners; 0 elsewhere) and `--safe-left-bar` and `--safe-right-bar`, the side inset or the corner's room, whichever is more. The two tab bars pad with them, and the phone's dialog sheet with `--safe-corner` and `--safe-bottom-bar`. safe-area.test.mjs pins them. Chrome, drawing the console as an iPhone 17 Pro shows it (its insets, its corners masked), found the tabs' ends in the curve on every page in portrait before, and nothing after. The iPhone shell already ran the page edge to edge with the insets reaching it (2.25.11), and is unchanged.
+
 ## 2.27.4
 
 A board taken back from one customer and given to another no longer shows the new owner what it did for the old one. The customer site's activity (a board's page and the overview) and its sessions, tracks and now playing (Mixes) were read for the last 30 days of the board, whoever owned it then: the next owner of a board saw the earlier owner's sessions and track names, and its restarts and updates. Each is now read from the time the board was given to this customer only. The board's health stays the board's own.

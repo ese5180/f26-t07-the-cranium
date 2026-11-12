@@ -517,6 +517,14 @@ strong {
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-bottom-bar: max(var(--safe-bottom), min(calc(var(--safe-bottom) * 100), 44px));
+  /*
+   * The display's rounded corners (about 55pt on an iPhone 17 Pro): a screen with an inset at the foot or the sides
+   * has them. A bar along the foot of the screen keeps --safe-corner clear at each end, past the side inset, so that
+   * its first and last tabs and the text in them stay out of the curve. 0 in a browser.
+   */
+  --safe-corner: min(calc((var(--safe-bottom) + var(--safe-left) + var(--safe-right)) * 100), 20px);
+  --safe-left-bar: max(var(--safe-left), var(--safe-corner));
+  --safe-right-bar: max(var(--safe-right), var(--safe-corner));
 }
 
 .masthead {
@@ -822,7 +830,7 @@ body.is-scrolled .masthead-title {
     bottom: 0;
     left: 0;
     z-index: 30;
-    padding: 0 var(--safe-right) var(--safe-bottom-bar) var(--safe-left);
+    padding: 0 var(--safe-right-bar) var(--safe-bottom-bar) var(--safe-left-bar);
     border-top: 1px solid var(--line);
     background: var(--bar);
   }
@@ -11253,7 +11261,7 @@ body.console {
     margin: auto 0 0;
     border: 0;
     border-radius: var(--radius-card) var(--radius-card) 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding: 0 var(--safe-corner) var(--safe-bottom-bar);
   }
 
   .console .dialog[open],
