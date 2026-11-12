@@ -14,7 +14,17 @@ project(cranium_matter)
 target_sources(app PRIVATE
   src/main.c
   src/ot_leader.c
+  src/matter_shell.c
   src/policy/matter_policy.c
+  src/matter/mt_tlv.c
+  src/matter/mt_btp.c
+  src/matter/mt_msg.c
+  src/matter/mt_im.c
+  src/matter/mt_pase_msg.c
+  src/matter/mt_crypto.c
+  src/matter/mt_ble.c
+  src/matter/mt_ble_adv.c
+  src/matter/mt_commission.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
 
