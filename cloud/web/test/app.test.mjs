@@ -482,6 +482,13 @@ test('an address that is not a page of the console becomes the overview, and say
   assert.deepEqual(tab.toasts(), ['That address is not a page of this console. Here is the overview.']);
 });
 
+test('the Fleet page has moved (#115): its address leads to Deployments, and says where its parts went', async (t) => {
+  const tab = await openTab(t, { hash: '#/fleet' });
+  assert.equal(tab.location.hash, '#/deployments');
+  assert.equal(textOf(one(tab.main, 'h1')), 'Deployments');
+  assert.deepEqual(tab.toasts(), ['The Fleet page is now part of Deployments; groups of boards are on Devices.']);
+});
+
 test('the console opened without an address is not an address that went wrong', async (t) => {
   const tab = await openTab(t, { hash: '' });
   assert.equal(tab.location.hash, '#/overview');
@@ -2743,7 +2750,6 @@ const PRODUCT_PAGES = [
   '#/events',
   '#/firmware',
   '#/deployments',
-  '#/fleet',
   '#/memfault',
   '#/alerts',
   '#/activity',

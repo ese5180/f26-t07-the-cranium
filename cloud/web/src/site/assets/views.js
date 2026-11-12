@@ -1959,46 +1959,56 @@ export function signInView(model) {
 
 // The masthead: sections and who is signed in.
 
-// [view, label, icon, primary]: a primary section is a tab of its own on a phone; the rest are under More.
+// [view, label, icon, primary, group]: a primary section is a tab of its own on a phone; the rest are under More.
+// The sidebar and the More sheet show the sections in their groups (NAV_GROUPS), in this order (console 2.28.0).
 const SECTIONS = [
-  ['overview', 'Overview', 'home', true],
-  ['devices', 'Devices', 'chip', true],
-  ['map', 'Map', 'pin', true],
-  ['diagnostics', 'Diagnostics', 'chart', false],
-  ['events', 'Events', 'list', false],
-  ['firmware', 'Firmware', 'package', false],
-  ['deployments', 'Deployments', 'send', true],
+  ['overview', 'Overview', 'home', true, 'main'],
+  ['devices', 'Devices', 'chip', true, 'main'],
+  ['map', 'Map', 'pin', false, 'main'],
+  ['firmware', 'Firmware', 'package', false, 'releases'],
+  // Deployments holds the staged rollouts and "Update everything" too (the Fleet page's, until 2.28.0).
+  ['deployments', 'Deployments', 'send', true, 'releases'],
   // An update over Bluetooth: in the phone app, for release managers (bluetooth.js).
-  ['bluetooth', 'Bluetooth', 'bluetooth', false],
+  ['bluetooth', 'Bluetooth', 'bluetooth', false, 'releases'],
   // Offline mode: a board's status over Bluetooth with no network, in the apps that offer it (offline.js).
-  ['offline', 'Offline', 'cloud-off', false],
-  // Board types, groups, staged rollouts and "Update everything" (fleet.js).
-  ['fleet', 'Fleet', 'layers', false],
-  // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
-  ['memfault', 'Memfault', 'alert', false],
+  ['offline', 'Offline', 'cloud-off', false, 'releases'],
   // The alert rules and the alerts that went out (account.js).
-  ['alerts', 'Alerts', 'bell', false],
+  ['alerts', 'Alerts', 'bell', true, 'watch'],
+  // What Memfault knows of the boards: issues, traces and backtraces (memfault-page.js).
+  ['memfault', 'Crashes', 'alert', false, 'watch'],
+  ['diagnostics', 'Diagnostics', 'chart', false, 'watch'],
+  ['events', 'Events', 'list', false, 'watch'],
   // The weekly fleet report: a page a week, printable, and its CSV (reports.js, docs/reports.md).
-  ['reports', 'Reports', 'file', false],
-  ['activity', 'Activity', 'clock', false],
+  ['reports', 'Reports', 'file', false, 'watch'],
+  ['activity', 'Activity', 'clock', false, 'watch'],
   // The phone apps: where to get them, and how to put them on a phone (apps.js).
-  ['apps', 'Apps', 'phone', false],
+  ['apps', 'Apps', 'phone', false, 'admin'],
   // The customer site's customers: for release managers only (cloud/api/src/handlers/customers.mjs).
-  ['customers', 'Customers', 'users', false],
+  ['customers', 'Customers', 'users', false, 'admin'],
   // The team's accounts and what each may do: for release managers only (cloud/api/src/handlers/team.mjs).
-  ['team', 'Team', 'shield', false],
-  ['developer', 'Developer', 'code', false],
+  ['team', 'Team', 'shield', false, 'admin'],
+  ['developer', 'Developer', 'code', false, 'admin'],
 ];
+// The groups of the sidebar and the More sheet; the first has no heading.
+const NAV_GROUPS = Object.freeze([
+  ['main', null],
+  ['releases', 'Releases'],
+  ['watch', 'Monitoring'],
+  ['admin', 'Admin'],
+]);
+// A tab's shorter name, where the whole one would crowd a phone's tab bar.
+const TAB_LABELS = Object.freeze({ deployments: 'Deploy' });
 const SECTION_OF = {
   device: 'devices',
   deployment: 'deployments',
   serial: 'developer',
-  setup: 'developer',
+  // Board setup is where a board starts: under Devices (#114), still a tab of the Developer pages.
+  setup: 'devices',
   history: 'developer',
   'release-notes': 'developer',
   tokens: 'developer',
   database: 'developer',
-  rollout: 'fleet',
+  rollout: 'deployments',
   issue: 'memfault',
   compare: 'devices',
   report: 'reports',
@@ -2024,9 +2034,9 @@ export function serialPagesHidden(win = globalThis) {
 }
 
 /**
- * The sections: a sidebar on a wide screen, a tab bar at the foot of a phone's screen. On a phone
- * the primary sections are tabs and the rest are in the sheet that More opens (state.moreOpen,
- * app.js); the sheet's links are drawn only while it is open, so that there is one link per section.
+ * The sections: a sidebar on a wide screen, in groups under their headings, and on a phone a floating tab bar of the
+ * primary sections, the rest in the sheet that More opens (state.moreOpen, app.js); the sheet's links are drawn only
+ * while it is open, so that there is one link per section.
  */
 export function navView(ctx) {
   const current = SECTION_OF[ctx.state.route.view] ?? ctx.state.route.view;
@@ -2038,30 +2048,71 @@ export function navView(ctx) {
   });
   const open = ctx.state.moreOpen === true;
   const inMore = shown.some(([view, , , primary]) => !primary && view === current);
+  const groups = NAV_GROUPS.map(([group, heading]) => ({
+    group,
+    heading,
+    sections: shown.filter((section) => section[4] === group),
+  })).filter((entry) => entry.sections.length > 0);
+  const link = ([view, label, iconName, primary]) =>
+    h(
+      'li',
+      { key: view, class: primary ? 'nav-item' : 'nav-item is-secondary' },
+      h(
+        'a',
+        {
+          class: 'nav-link',
+          href: sectionHref(view, ctx),
+          // Keeps the room the name takes in bold, so that the sections stay where they are.
+          'data-label': label,
+          'aria-current': view === current ? 'page' : null,
+        },
+        h('span', { class: 'nav-pill', 'aria-hidden': 'true' }),
+        icon(iconName, 'nav-icon'),
+        TAB_LABELS[view]
+          ? [
+              h('span', { class: 'nav-label is-long' }, label),
+              h('span', { class: 'nav-label is-short' }, TAB_LABELS[view]),
+            ]
+          : h('span', { class: 'nav-label' }, label)
+      )
+    );
+  const sheetLink = (view, label, iconName, detail = null) =>
+    h(
+      'li',
+      { key: view },
+      h(
+        'a',
+        {
+          class: 'nav-sheet-link',
+          href: view === 'account' ? '#/account' : sectionHref(view, ctx),
+          'aria-current': view === current ? 'page' : null,
+        },
+        h('span', { class: 'nav-sheet-icon' }, icon(iconName)),
+        h(
+          'span',
+          { class: 'nav-sheet-label' },
+          label,
+          detail ? h('span', { class: 'nav-sheet-detail' }, detail) : null
+        ),
+        icon('chevron-right', 'nav-sheet-chevron')
+      )
+    );
   return h(
     'div',
     { class: 'nav-body' },
     h(
       'ul',
       { class: 'nav-list', key: 'list' },
-      shown.map(([view, label, iconName, primary]) =>
-        h(
-          'li',
-          { key: view, class: primary ? 'nav-item' : 'nav-item is-secondary' },
-          h(
-            'a',
-            {
-              class: 'nav-link',
-              href: sectionHref(view, ctx),
-              // Keeps the room the name takes in bold, so that the sections stay where they are.
-              'data-label': label,
-              'aria-current': view === current ? 'page' : null,
-            },
-            icon(iconName, 'nav-icon'),
-            h('span', { class: 'nav-label' }, label)
-          )
-        )
-      ),
+      groups.map((entry) => [
+        entry.heading
+          ? h(
+              'li',
+              { key: `group-${entry.group}`, class: 'nav-heading', role: 'presentation' },
+              h('span', { class: 'nav-heading-text' }, entry.heading)
+            )
+          : null,
+        entry.sections.map(link),
+      ]),
       h(
         'li',
         { key: 'more', class: 'nav-item is-more' },
@@ -2074,6 +2125,7 @@ export function navView(ctx) {
             'aria-controls': 'nav-sheet',
             onClick: () => ctx.actions?.toggleMore?.(),
           },
+          h('span', { class: 'nav-pill', 'aria-hidden': 'true' }),
           icon('more', 'nav-icon'),
           h('span', { class: 'nav-label' }, 'More')
         )
@@ -2094,48 +2146,25 @@ export function navView(ctx) {
             'div',
             { class: 'nav-sheet-panel', role: 'group', 'aria-label': 'More' },
             h('span', { class: 'nav-sheet-grip', 'aria-hidden': 'true' }),
-            h(
-              'ul',
-              { class: 'nav-sheet-list' },
-              shown
-                .filter(([, , , primary]) => !primary)
-                .map(([view, label, iconName]) =>
-                  h(
-                    'li',
-                    { key: view },
-                    h(
-                      'a',
-                      {
-                        class: 'nav-sheet-link',
-                        href: sectionHref(view, ctx),
-                        'aria-current': view === current ? 'page' : null,
-                      },
-                      h('span', { class: 'nav-sheet-icon' }, icon(iconName)),
-                      h('span', { class: 'nav-sheet-label' }, label),
-                      icon('chevron-right', 'nav-sheet-chevron')
-                    )
-                  )
-                ),
-              h(
-                'li',
-                { key: 'account' },
+            groups
+              .map((entry) => ({ ...entry, sections: entry.sections.filter(([, , , primary]) => !primary) }))
+              .filter((entry) => entry.sections.length > 0)
+              .map((entry) =>
                 h(
-                  'a',
-                  {
-                    class: 'nav-sheet-link',
-                    href: '#/account',
-                    'aria-current': current === 'account' ? 'page' : null,
-                  },
-                  h('span', { class: 'nav-sheet-icon' }, icon('user')),
+                  'div',
+                  { key: entry.group, class: 'nav-sheet-group' },
+                  entry.heading ? h('p', { class: 'nav-sheet-heading' }, entry.heading) : null,
                   h(
-                    'span',
-                    { class: 'nav-sheet-label' },
-                    'Account',
-                    ctx.state.me?.email ? h('span', { class: 'nav-sheet-detail' }, ctx.state.me.email) : null
-                  ),
-                  icon('chevron-right', 'nav-sheet-chevron')
+                    'ul',
+                    { class: 'nav-sheet-list' },
+                    entry.sections.map(([view, label, iconName]) => sheetLink(view, label, iconName))
+                  )
                 )
-              )
+              ),
+            h(
+              'div',
+              { key: 'account', class: 'nav-sheet-group' },
+              h('ul', { class: 'nav-sheet-list' }, sheetLink('account', 'Account', 'user', ctx.state.me?.email ?? null))
             )
           )
         : null
@@ -4147,7 +4176,9 @@ export function devicesView(ctx) {
           );
         })
       ),
-      // The groups of boards, made and changed here by release managers (fleet.js).
+      // The board types, and the groups of boards, made and changed here by release managers (fleet.js; the
+      // Fleet page's until console 2.28.0).
+      ctx.fleet?.boardTypesPanel?.(ctx) ?? null,
       ctx.fleet?.groupsCard(ctx) ?? null,
     ];
   }
@@ -4161,6 +4192,10 @@ export function devicesView(ctx) {
       tools: [
         state.app?.scan ? button('is-small', () => ctx.actions.scanBoard(), 'Scan board') : null,
         freshness(state.devices, ctx),
+        // Board setup is where a new board starts (#114): over USB, where this app or browser has a serial port.
+        state.me?.canWrite && !serialPagesHidden()
+          ? h('a', { class: 'ui-btn btn is-small', href: '#/setup' }, icon('plus', 'is-small'), 'Set up a board')
+          : null,
       ],
     }),
     loadProblem(state.devices, 'the boards', ctx),
@@ -5680,6 +5715,7 @@ export function deploymentsView(ctx) {
     body = [
       deploymentsTop(deployments, ctx),
       ctx.fleet?.schedulesPanel?.(ctx) ?? null,
+      ctx.fleet?.rolloutsPanel(ctx) ?? null,
       everyUpdateCard(ctx),
       h('h2', { class: 'section-title', key: 'jobs-title' }, 'Deployments'),
       card({ key: 'none' }, empty({ iconName: 'send', title: 'No deployments yet.', text })),
@@ -5723,7 +5759,8 @@ export function deploymentsView(ctx) {
           'A job made directly in AWS IoT is not listed here as a deployment; its updates are in Every update, as the boards reported them.',
         ],
       },
-      tools: [freshness(state.deployments, ctx), start],
+      // The fleet's own buttons too, from the Fleet page that this one took in (console 2.28.0, fleet.js).
+      tools: [freshness(state.deployments, ctx), ctx.fleet?.deploymentTools?.(ctx) ?? null, start],
     }),
     loadProblem(state.deployments, 'the deployments', ctx),
     body

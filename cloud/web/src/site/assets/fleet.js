@@ -6,15 +6,16 @@
  *
  * What it draws:
  *
- *  - the Fleet page (#/fleet): each board type with its newest release and how many boards run it,
- *    the groups, the staged rollouts, and "Update everything";
+ *  - until console 2.28.0 a Fleet page (#/fleet, now leading to Deployments): its board types and groups are on
+ *    the Devices page, its staged rollouts, "Update everything" and "Roll back to last good" on Deployments;
  *  - a staged rollout's page (#/rollouts/<id>): its canary, its stages (or waves), what was left out and why,
  *    its health gate, and why it stopped, with the board and the Memfault issue when the gate stopped it;
  *  - on the Overview, the fleet's health: versions by type, the last week's updates, and the boards
  *    that need looking at;
  *  - on the Devices page, each board's type and groups, "Bluetooth only" for a board without Wi-Fi
- *    with its version as a phone last saw it, and the groups;
- *  - on the Deployments page, the staged rollouts.
+ *    with its version as a phone last saw it, the board types and the groups;
+ *  - on the Deployments page, every staged rollout, and the buttons for "Update everything" and
+ *    "Roll back to last good".
  *
  * Every change it makes is a request to the API, which decides: the dialogs show what the server
  * will do, and the server's answer is what counts.
@@ -69,7 +70,6 @@ import { lineChart } from './telemetry.js';
 
 const FLEET_REFRESH_MS = 30_000;
 const ROLLOUT_REFRESH_MS = 5_000;
-const ROLLOUTS_ON_DEPLOYMENTS = 4;
 const ATTENTION_SHOWN = 6;
 const LEFT_OUT_REASONS = Object.freeze({
   bluetooth_only: 'Bluetooth only',
@@ -671,17 +671,6 @@ export async function refreshFor(view, full) {
   await Promise.all(jobs);
 }
 
-export async function refreshFleet(full) {
-  const { state, load, api } = tools;
-  await Promise.all([
-    load(state.fleet, fleetApi.fleet),
-    load(state.rollouts, fleetApi.rollouts),
-    due(state.fleetHealth, full, FLEET_REFRESH_MS) ? load(state.fleetHealth, fleetApi.health) : null,
-    due(state.firmware, full, FLEET_REFRESH_MS) ? load(state.firmware, api.firmware) : null,
-    due(state.devices, full, FLEET_REFRESH_MS) ? load(state.devices, api.devices) : null,
-  ]);
-}
-
 function detailOf(state) {
   let item = state.rolloutDetails.get(state.route.id);
   if (!item) {
@@ -700,7 +689,6 @@ export async function refreshRollout(full) {
   ]);
 }
 
-export const fleetResources = (state) => [state.fleet, state.rollouts];
 export const fleetInterval = (state) =>
   (state.rollouts?.value ?? []).some(open) ? ROLLOUT_REFRESH_MS * 2 : FLEET_REFRESH_MS;
 export const rolloutResources = (state) => [detailOf(state)];
@@ -1227,27 +1215,32 @@ function rolloutRow(rollout, ctx) {
   );
 }
 
+/** Every staged rollout, on the Deployments page (the Fleet page's list until console 2.28.0). */
 export function rolloutsPanel(ctx) {
   const rollouts = ctx.state.rollouts?.value;
-  if (!rollouts || rollouts.length === 0) return null;
+  if (!rollouts) return null;
   return card(
-    {
-      key: 'rollouts',
-      title: 'Staged rollouts',
-      more: { href: '#/fleet', label: 'All on the Fleet page' },
-      className: 'is-flush rollouts-card',
-    },
-    h(
-      'ul',
-      { class: 'rows' },
-      rollouts.slice(0, ROLLOUTS_ON_DEPLOYMENTS).map((rollout) => rolloutRow(rollout, ctx))
-    )
+    { key: 'rollouts', title: 'Staged rollouts', className: 'is-flush rollouts-card' },
+    rollouts.length === 0
+      ? h(
+          'p',
+          { class: 'card-lede' },
+          'A deployment to more than one board, a group or a type starts here: a canary first, then stages.'
+        )
+      : h(
+          'ul',
+          { class: 'rows' },
+          rollouts.map((rollout) => rolloutRow(rollout, ctx))
+        )
   );
 }
 
-// The Fleet page.
+// The board types, on the Devices page, and the fleet's own buttons, on the Deployments page (console 2.28.0).
 
-function typesCard(ctx, fleet) {
+/** Each board type with its newest release and how many boards run it. */
+export function boardTypesPanel(ctx) {
+  const fleet = fleetOf(ctx);
+  if (!fleet || fleet.boards.length === 0) return null;
   const health = ctx.state.fleetHealth?.value;
   return h(
     'section',
@@ -1281,59 +1274,13 @@ function typesCard(ctx, fleet) {
   );
 }
 
-export function fleetView(ctx) {
-  const { state } = ctx;
-  const fleet = fleetOf(ctx);
-  const { canWrite } = state.me;
-  let body;
-  if (!fleet) {
-    body = pending(state.fleet, 'the fleet');
-  } else if (fleet.boards.length === 0) {
-    body = card(
-      { key: 'none' },
-      empty({ iconName: 'chip', title: 'No boards yet.', text: 'Register a board with tools/provision_device.py.' })
-    );
-  } else {
-    const rollouts = state.rollouts.value ?? [];
-    body = [
-      typesCard(ctx, fleet),
-      groupsCard(ctx),
-      card(
-        { key: 'rollouts', title: 'Staged rollouts', className: 'is-flush' },
-        rollouts.length === 0
-          ? h(
-              'p',
-              { class: 'card-lede' },
-              'A deployment to more than one board, a group or a type starts here: a canary first, then stages.'
-            )
-          : h(
-              'ul',
-              { class: 'rows' },
-              rollouts.map((rollout) => rolloutRow(rollout, ctx))
-            )
-      ),
-    ];
-  }
-  return h(
-    'div',
-    { class: 'page' },
-    pageHead({
-      title: 'Fleet',
-      lede: 'Board types, groups of boards, and releases to many boards at once.',
-      how: {
-        title: 'How rollouts work',
-        text: ['A rollout goes to a canary first, then to the other boards in stages once the canary has confirmed.'],
-      },
-      tools: [
-        freshness(state.fleet, ctx),
-        canWrite && fleet ? button('', () => openLastGood({}), icon('undo'), 'Roll back to last good') : null,
-        canWrite && fleet ? button('is-primary', () => openPlan(), icon('send'), 'Update everything') : null,
-      ],
-    }),
-    loadProblem(state.fleet, 'the fleet', ctx),
-    loadProblem(state.rollouts, 'the staged rollouts', ctx),
-    body
-  );
+/** "Roll back to last good" and "Update everything", for a release manager once the fleet is read. */
+export function deploymentTools(ctx) {
+  if (!ctx.state.me?.canWrite || !fleetOf(ctx)) return [];
+  return [
+    button('', () => openLastGood({}), icon('undo'), 'Roll back to last good'),
+    button('', () => openPlan(), icon('send'), 'Update everything'),
+  ];
 }
 
 // A staged rollout's page.
@@ -1474,7 +1421,7 @@ export function rolloutView(ctx) {
     return h(
       'div',
       { class: 'page' },
-      pageHead({ title: 'Staged rollout', back: { href: '#/fleet', label: 'Fleet' } }),
+      pageHead({ title: 'Staged rollout', back: { href: '#/deployments', label: 'Deployments' } }),
       loadProblem(target, 'the rollout', ctx),
       pending(target, 'the rollout')
     );
@@ -1501,7 +1448,7 @@ export function rolloutView(ctx) {
     pageHead({
       eyebrow: 'Staged rollout of',
       title: mono(rollout.version),
-      back: { href: '#/fleet', label: 'Fleet' },
+      back: { href: '#/deployments', label: 'Deployments' },
       lede: [
         targetWords(rollout, ctx),
         ' · ',
