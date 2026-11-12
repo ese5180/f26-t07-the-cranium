@@ -11,7 +11,7 @@ were given later, from the history; each names its commit.
 
 Two changes. **Make golden** on the Firmware page, and the Events timeline's numbers are readable again.
 
-**Make golden.** Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
+**Make golden.** On the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
 
 `POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
 (`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
