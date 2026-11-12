@@ -23,6 +23,19 @@ int mt_sha256(const uint8_t *const *parts, const size_t *lens, size_t count, uin
 int mt_hkdf_from_key(psa_key_id_t key, const uint8_t *salt, size_t salt_len, const uint8_t *info, size_t info_len,
 		     uint8_t *out, size_t out_len);
 
+/* HKDF-SHA256 from raw secret bytes. */
+int mt_hkdf(const uint8_t *secret, size_t secret_len, const uint8_t *salt, size_t salt_len, const uint8_t *info,
+	    size_t info_len, uint8_t *out, size_t out_len);
+int mt_hmac_sha256(const uint8_t *key, size_t key_len, const uint8_t *msg, size_t len, uint8_t out[32]);
+
+/* An ephemeral P-256 key for ECDH: its public key out, and the shared X coordinate with a peer. */
+int mt_ecdh_new(psa_key_id_t *key, uint8_t pub[65]);
+int mt_ecdh_shared(psa_key_id_t key, const uint8_t peer_pub[65], uint8_t shared[32]);
+
+/* AES-CCM with a one-time raw key (CASE's S2K and S3K): text and its 16-byte MIC after it. */
+int mt_ccm_once(bool encrypt, const uint8_t key[16], const uint8_t nonce[13], uint8_t *data, size_t len,
+		uint8_t mic[16]);
+
 /* Imports a 128-bit AES-CCM key (16-byte tag) for one direction of a session. */
 int mt_ccm_import(const uint8_t key[16], psa_key_id_t *id);
 int mt_ccm_encrypt(psa_key_id_t key, const uint8_t nonce[13], const uint8_t *aad, size_t aad_len, uint8_t *data,

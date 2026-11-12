@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests $(BUILD)/matter_case_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -83,6 +83,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/matter_lib_tests
 	./$(BUILD)/matter_cert_tests
 	./$(BUILD)/matter_attest_tests
+	./$(BUILD)/matter_case_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -122,6 +123,13 @@ $(BUILD)/matter_attest_tests: test_matter_attest.c matter_attest_vectors.h $(MAT
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_attest.c $(MATTER_LIB)/mt_attest.c \
 		$(MATTER_LIB)/mt_test_paa.c $(MATTER_LIB)/mt_der.c $(MATTER_LIB)/mt_tlv.c
+
+# CASE: Sigma message bodies, and the destination ID, compressed fabric ID and IPK against the specification's
+# examples (sha256_host.h stands in for PSA's hash).
+$(BUILD)/matter_case_tests: test_matter_case.c sha256_host.h $(MATTER_LIB)/mt_case_msg.c $(MATTER_LIB)/mt_tlv.c \
+		$(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_case.c $(MATTER_LIB)/mt_case_msg.c $(MATTER_LIB)/mt_tlv.c
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.

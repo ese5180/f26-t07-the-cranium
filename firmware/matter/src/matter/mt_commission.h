@@ -1,13 +1,13 @@
 /*
- * Commissioning a Matter-over-Thread device onto this board's Thread network, as far as this library goes today:
+ * Commissioning a Matter-over-Thread device onto this board's Thread network and fabric:
  *   1. Bluetooth: find the device by discriminator, connect, BTP handshake.
  *   2. PASE: PBKDF parameters, SPAKE2+ with the setup passcode, the PASE session keys.
  *   3. Over the PASE session: ArmFailSafe, SetRegulatoryConfig, the device's certificates and attestation
  *      (against the Matter test PAAs), its CSR, this fabric's root certificate and the device's NOC,
  *      AddOrUpdateThreadNetwork with this board's dataset, ConnectNetwork: the device joins the board's Thread
  *      network with its operational identity.
- * Still to come (docs/matter-thread.md): CASE over Thread and CommissioningComplete. Until then the device
- * leaves again when its fail-safe expires.
+ *   4. Over Thread: CASE with the device's new identity, then CommissioningComplete. The device is kept in the
+ *      fabric's node list.
  */
 #ifndef MT_COMMISSION_H_
 #define MT_COMMISSION_H_
@@ -34,7 +34,8 @@ enum mt_stage {
 	MT_STAGE_ADD_NOC,
 	MT_STAGE_THREAD_NETWORK,
 	MT_STAGE_CONNECT_NETWORK,
-	MT_STAGE_ON_THREAD, /* the furthest this version goes */
+	MT_STAGE_CASE,      /* on Thread: CASE and CommissioningComplete */
+	MT_STAGE_DONE,
 	MT_STAGE_FAILED,
 };
 
