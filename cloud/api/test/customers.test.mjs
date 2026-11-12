@@ -691,6 +691,9 @@ test('a board given to another customer shows them none of its activity from bef
   const id = (await w.customer('/api/c/boards', { as: w.ben })).body.boards[0].id;
   assert.deepEqual((await w.customer(`/api/c/boards/${id}`, { as: w.ben })).body.activity, []);
   assert.deepEqual((await w.customer('/api/c/activity', { as: w.ben })).body.activity, []);
+  const health = (await w.customer('/api/c/boards', { as: w.ben })).body.boards[0].health;
+  assert.deepEqual(health?.restarts7d ?? [], []);
+  assert.equal(health?.unexpectedRestarts7d ?? 0, 0);
   // What happens to it from then on is Ben's to see.
   w.advance(MINUTE);
   w.fake.device(BOARD_A).disconnect('CONNECTION_LOST');

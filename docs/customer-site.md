@@ -291,7 +291,7 @@ To turn it on:
 
 ## Routes and rights
 
-A board's activity, sessions, tracks and now playing are read from the time it was given to the customer who reads them (its `assignedAt`): a board taken back and given to someone else shows them nothing it did for its earlier owner. Its health is the board's own and counts the whole week.
+A board's activity, sessions, tracks, now playing and health are read from the time it was given to the customer who reads them (its `assignedAt`): a board taken back and given to someone else shows them nothing it did for its earlier owner, and a board given back to its first owner shows them only what it did since then.
 
 | Route | Who | On record |
 | --- | --- | --- |
