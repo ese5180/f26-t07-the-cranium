@@ -41,7 +41,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/command_mflt_tests $(BUILD)/mflt_link_tests $(BUILD)/reset_cause_tests \
 		$(BUILD)/bt_passkey_policy_tests $(BUILD)/bt_passkey_tests \
 		$(BUILD)/bt_only_tests $(BUILD)/bt_only_ota_tests $(BUILD)/console_bt_only_tests \
-		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests $(BUILD)/matter_case_tests
+		$(BUILD)/bt_only_leds_tests $(BUILD)/sessions_tests $(BUILD)/matter_policy_tests $(BUILD)/matter_lib_tests $(BUILD)/matter_cert_tests $(BUILD)/matter_attest_tests $(BUILD)/matter_case_tests $(BUILD)/matter_ota_tests
 	./$(BUILD)/host_tests
 	./$(BUILD)/console_tests
 	./$(BUILD)/console_output_tests
@@ -84,6 +84,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/matter_cert_tests
 	./$(BUILD)/matter_attest_tests
 	./$(BUILD)/matter_case_tests
+	./$(BUILD)/matter_ota_tests
 
 $(BUILD)/cJSON.o: $(CJSON_DIR)/cJSON.c
 	@mkdir -p $(BUILD)
@@ -130,6 +131,14 @@ $(BUILD)/matter_case_tests: test_matter_case.c sha256_host.h $(MATTER_LIB)/mt_ca
 		$(wildcard $(MATTER_LIB)/*.h)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_case.c $(MATTER_LIB)/mt_case_msg.c $(MATTER_LIB)/mt_tlv.c
+
+# The OTA provider: BDX, the OTA cluster commands, the image store's header, the IM server side, CASE as
+# responder.
+MATTER_OTA_SOURCES := $(MATTER_LIB)/mt_bdx.c $(MATTER_LIB)/mt_ota.c $(MATTER_LIB)/mt_im.c $(MATTER_LIB)/mt_case_msg.c \
+	$(MATTER_LIB)/mt_tlv.c
+$(BUILD)/matter_ota_tests: test_matter_ota.c $(MATTER_OTA_SOURCES) $(wildcard $(MATTER_LIB)/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -I$(MATTER_LIB) -o $@ test_matter_ota.c $(MATTER_OTA_SOURCES)
 
 # The listening sessions' JSON and times (src/cloud/sessions.c): what is refused, what is escaped, the
 # dates, and that nothing is written past the buffer. It needs nothing but the C library and a fake publish.

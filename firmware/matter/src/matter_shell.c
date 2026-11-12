@@ -6,6 +6,10 @@
  *   matter nodes                                    the commissioned devices
  *   matter onoff <node> on|off|toggle [endpoint]    switch a device (endpoint 1 by default)
  *   matter forget <node>                            remove a device from the list (not from the device)
+ *   matter ota status                                the stored image and the provider's state
+ *   matter ota begin <vid> <pid> <version> <name> <length>, ota write <offset> <hex>, ota finish
+ *                                                    store an image (tools/matter_ota_upload.py does this)
+ *   matter ota announce <node>                       tell a device this board has an update for it
  */
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +20,9 @@
 #include "mt_controller.h"
 #include "mt_fabric.h"
 #include "mt_im.h"
+#include "mt_ota.h"
+#include "mt_ota_store.h"
+#include "mt_server.h"
 #include "ot_leader.h"
 
 static const struct shell *last_shell;
@@ -130,6 +137,121 @@ static int cmd_forget(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_ota_status(const struct shell *sh, size_t argc, char **argv)
+{
+	struct mt_ota_image img;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	if (mt_ota_store_image(&img)) {
+		shell_print(sh, "image %s: vendor 0x%04x product 0x%04x version %u, %u bytes", img.name, img.vendor_id,
+			    img.product_id, img.version, img.length);
+	} else {
+		shell_print(sh, "no image stored");
+	}
+	shell_print(sh, "provider: %s", mt_server_state());
+	return 0;
+}
+
+static int cmd_ota_begin(const struct shell *sh, size_t argc, char **argv)
+{
+	struct mt_ota_image img = {0};
+
+	ARG_UNUSED(argc);
+	img.vendor_id = (uint16_t)strtoul(argv[1], NULL, 0);
+	img.product_id = (uint16_t)strtoul(argv[2], NULL, 0);
+	img.version = (uint32_t)strtoul(argv[3], NULL, 0);
+	img.length = (uint32_t)strtoul(argv[5], NULL, 0);
+	if (strlen(argv[4]) == 0 || strlen(argv[4]) > MT_OTA_NAME_LEN) {
+		shell_error(sh, "name: 1 to 16 characters");
+		return -EINVAL;
+	}
+	strcpy(img.name, argv[4]);
+	int err = mt_ota_store_begin(&img);
+
+	if (err) {
+		shell_error(sh, "could not start: %d", err);
+	} else {
+		shell_print(sh, "OK");
+	}
+	return err;
+}
+
+static int hexval(char c)
+{
+	return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+
+static int cmd_ota_write(const struct shell *sh, size_t argc, char **argv)
+{
+	uint8_t data[256];
+	size_t n = strlen(argv[2]);
+
+	ARG_UNUSED(argc);
+	if (n % 2 != 0 || n / 2 > sizeof(data)) {
+		shell_error(sh, "hex: an even number of digits, at most 512");
+		return -EINVAL;
+	}
+	for (size_t i = 0; i < n / 2; i++) {
+		int hi = hexval(argv[2][2 * i]);
+		int lo = hexval(argv[2][2 * i + 1]);
+
+		if (hi < 0 || lo < 0) {
+			shell_error(sh, "not hex");
+			return -EINVAL;
+		}
+		data[i] = (uint8_t)(hi << 4 | lo);
+	}
+	int err = mt_ota_store_write((uint32_t)strtoul(argv[1], NULL, 0), data, n / 2);
+
+	if (err) {
+		shell_error(sh, "write failed: %d", err);
+	} else {
+		shell_print(sh, "OK");
+	}
+	return err;
+}
+
+static int cmd_ota_finish(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	int err = mt_ota_store_finish();
+
+	if (err) {
+		shell_error(sh, "could not finish: %d", err);
+	} else {
+		shell_print(sh, "OK");
+	}
+	return err;
+}
+
+static int cmd_ota_announce(const struct shell *sh, size_t argc, char **argv)
+{
+	uint64_t node = strtoull(argv[1], NULL, 16);
+
+	ARG_UNUSED(argc);
+	if (mt_fabric_node(node) == NULL) {
+		shell_error(sh, "no such node: see matter nodes");
+		return -ENOENT;
+	}
+	last_shell = sh;
+	int err = mt_server_announce(node, onoff_done);
+
+	if (err) {
+		shell_error(sh, "could not start: %d", err);
+	}
+	return err;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(ota_cmds,
+	SHELL_CMD(status, NULL, "the stored image and the provider", cmd_ota_status),
+	SHELL_CMD_ARG(begin, NULL, "<vid> <pid> <version> <name> <length>: start storing an image", cmd_ota_begin, 6, 0),
+	SHELL_CMD_ARG(write, NULL, "<offset> <hex>: a piece of the image", cmd_ota_write, 3, 0),
+	SHELL_CMD(finish, NULL, "the image is complete", cmd_ota_finish),
+	SHELL_CMD_ARG(announce, NULL, "<node>: tell a device an update is here", cmd_ota_announce, 2, 0),
+	SHELL_SUBCMD_SET_END);
+
 SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
 	SHELL_CMD_ARG(pair, NULL, "<manual code> [fail-safe s]: commission a device", cmd_pair, 2, 1),
 	SHELL_CMD(status, NULL, "commissioning stage and Thread role", cmd_status),
@@ -137,5 +259,6 @@ SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
 	SHELL_CMD(nodes, NULL, "commissioned devices", cmd_nodes),
 	SHELL_CMD_ARG(onoff, NULL, "<node> on|off|toggle [endpoint]: switch a device", cmd_onoff, 3, 1),
 	SHELL_CMD_ARG(forget, NULL, "<node>: remove a device from the list", cmd_forget, 2, 0),
+	SHELL_CMD(ota, &ota_cmds, "the OTA provider", NULL),
 	SHELL_SUBCMD_SET_END);
 SHELL_CMD_REGISTER(matter, &matter_cmds, "Matter commissioner", NULL);

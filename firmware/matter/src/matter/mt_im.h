@@ -78,6 +78,28 @@ struct mt_im_invoke_result {
 };
 bool mt_im_parse_invoke_response(const uint8_t *in, size_t len, struct mt_im_invoke_result *res);
 
+/* The server side, for the few commands this board answers (the OTA provider's). */
+struct mt_im_invoke_request {
+	uint16_t endpoint;
+	uint32_t cluster;
+	uint32_t command;
+	const uint8_t *fields; /* the CommandFields structure, as TLV with its context tag */
+	size_t fields_len;
+};
+bool mt_im_parse_invoke_request(const uint8_t *in, size_t len, struct mt_im_invoke_request *out);
+
+/*
+ * Starts an InvokeResponse with a response command and returns with the writer inside its fields; the caller
+ * puts them and calls mt_im_invoke_end() (the same closing as a request).
+ */
+void mt_im_response_begin(struct mt_tlv_writer *w, uint16_t endpoint, uint32_t cluster, uint32_t command);
+/* An InvokeResponse with only a status for the command (0: success). */
+int mt_im_response_status(uint8_t *out, size_t cap, const struct mt_im_invoke_request *req, uint8_t status);
+
+#define MT_IM_STATUS_UNSUPPORTED_COMMAND 0x81u
+#define MT_IM_STATUS_INVALID_COMMAND     0x85u
+#define MT_IM_STATUS_UNSUPPORTED_CLUSTER 0xC3u
+
 /* A StatusResponse body; status 0 is success. */
 int mt_im_status_response(uint8_t *out, size_t cap, uint8_t status);
 

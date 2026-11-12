@@ -53,6 +53,22 @@ int mt_case_sigma3(uint8_t *out, size_t cap, const uint8_t *encrypted, size_t le
 size_t mt_case_destination_message(uint8_t out[32 + 65 + 8 + 8], const uint8_t random[32],
 				   const uint8_t root_pub[65], uint64_t fabric_id, uint64_t node_id);
 
+/* The responder's side, for devices that open CASE to this board (an OTA requestor). */
+struct mt_case_sigma1 {
+	const uint8_t *random;
+	uint16_t session_id;
+	const uint8_t *destination_id;
+	const uint8_t *eph_pub;
+};
+bool mt_case_parse_sigma1(const uint8_t *in, size_t len, struct mt_case_sigma1 *out);
+int mt_case_tbe2(uint8_t *out, size_t cap, const uint8_t *noc, size_t noc_len, const uint8_t sig[64],
+		 const uint8_t resumption_id[16]);
+int mt_case_sigma2(uint8_t *out, size_t cap, const uint8_t random[32], uint16_t session_id,
+		   const uint8_t eph_pub[65], const uint8_t *encrypted, size_t encrypted_len);
+/* Sigma3: the encrypted TBEData3 with its MIC; TBEData3: the initiator's NOC and signature. */
+bool mt_case_parse_sigma3(const uint8_t *in, size_t len, const uint8_t **encrypted, size_t *encrypted_len);
+bool mt_case_parse_tbe3(const uint8_t *in, size_t len, const uint8_t **noc, size_t *noc_len, const uint8_t **sig);
+
 #ifdef __cplusplus
 }
 #endif

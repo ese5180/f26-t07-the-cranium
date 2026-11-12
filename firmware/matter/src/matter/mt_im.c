@@ -156,3 +156,91 @@ bool mt_im_parse_invoke_response(const uint8_t *in, size_t len, struct mt_im_inv
 	}
 	return false;
 }
+
+bool mt_im_parse_invoke_request(const uint8_t *in, size_t len, struct mt_im_invoke_request *out)
+{
+	struct mt_tlv_reader r;
+	struct mt_tlv_element e;
+	bool got_path = false;
+
+	memset(out, 0, sizeof(*out));
+	mt_tlv_reader_init(&r, in, len);
+	if (!mt_tlv_next(&r, &e) || e.type != MT_TLV_STRUCT) {
+		return false;
+	}
+	/* InvokeRequests (2): the first CommandDataIB */
+	if (!mt_tlv_find(&r, 2, &e) || e.type != MT_TLV_ARRAY) {
+		return false;
+	}
+	if (!mt_tlv_next(&r, &e) || e.type != MT_TLV_STRUCT) {
+		return false;
+	}
+	while (mt_tlv_next(&r, &e) && e.type != MT_TLV_END) {
+		if (e.context && e.tag == 0 && e.type == MT_TLV_LIST) {
+			while (mt_tlv_next(&r, &e) && e.type != MT_TLV_END) {
+				if (e.context && e.tag == 0 && e.type == MT_TLV_UINT) {
+					out->endpoint = (uint16_t)e.v.u;
+				} else if (e.context && e.tag == 1 && e.type == MT_TLV_UINT) {
+					out->cluster = (uint32_t)e.v.u;
+					got_path = true;
+				} else if (e.context && e.tag == 2 && e.type == MT_TLV_UINT) {
+					out->command = (uint32_t)e.v.u;
+				}
+			}
+		} else if (e.context && e.tag == 1 && e.type == MT_TLV_STRUCT) {
+			size_t start = r.pos - 2;
+
+			if (!mt_tlv_skip_container(&r)) {
+				return false;
+			}
+			out->fields = &in[start];
+			out->fields_len = r.pos - start;
+		} else if (e.type == MT_TLV_STRUCT || e.type == MT_TLV_ARRAY || e.type == MT_TLV_LIST) {
+			if (!mt_tlv_skip_container(&r)) {
+				return false;
+			}
+		}
+	}
+	return !r.error && got_path && mt_tlv_close_all(&r);
+}
+
+void mt_im_response_begin(struct mt_tlv_writer *w, uint16_t endpoint, uint32_t cluster, uint32_t command)
+{
+	mt_tlv_start(w, MT_TLV_ANON, MT_TLV_STRUCT);
+	mt_tlv_put_bool(w, 0, false); /* SuppressResponse */
+	mt_tlv_start(w, 1, MT_TLV_ARRAY); /* InvokeResponses */
+	mt_tlv_start(w, MT_TLV_ANON, MT_TLV_STRUCT); /* InvokeResponseIB */
+	mt_tlv_start(w, 0, MT_TLV_STRUCT); /* CommandDataIB */
+	mt_tlv_start(w, 0, MT_TLV_LIST);
+	mt_tlv_put_uint(w, 0, endpoint);
+	mt_tlv_put_uint(w, 1, cluster);
+	mt_tlv_put_uint(w, 2, command);
+	mt_tlv_end(w);
+	mt_tlv_start(w, 1, MT_TLV_STRUCT);
+}
+
+int mt_im_response_status(uint8_t *out, size_t cap, const struct mt_im_invoke_request *req, uint8_t status)
+{
+	struct mt_tlv_writer w;
+
+	mt_tlv_writer_init(&w, out, cap);
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
+	mt_tlv_put_bool(&w, 0, false);
+	mt_tlv_start(&w, 1, MT_TLV_ARRAY);
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
+	mt_tlv_start(&w, 1, MT_TLV_STRUCT); /* CommandStatusIB */
+	mt_tlv_start(&w, 0, MT_TLV_LIST);
+	mt_tlv_put_uint(&w, 0, req->endpoint);
+	mt_tlv_put_uint(&w, 1, req->cluster);
+	mt_tlv_put_uint(&w, 2, req->command);
+	mt_tlv_end(&w);
+	mt_tlv_start(&w, 1, MT_TLV_STRUCT); /* StatusIB */
+	mt_tlv_put_uint(&w, 0, status);
+	mt_tlv_end(&w);
+	mt_tlv_end(&w);
+	mt_tlv_end(&w);
+	mt_tlv_end(&w);
+	mt_tlv_put_uint(&w, 0xFF, MT_IM_REVISION);
+	mt_tlv_end(&w);
+	return mt_tlv_finish(&w);
+}

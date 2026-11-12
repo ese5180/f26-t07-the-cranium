@@ -21,6 +21,7 @@
 #include "mt_fabric.h"
 #include "mt_im.h"
 #include "mt_msg.h"
+#include "mt_server.h"
 
 LOG_MODULE_REGISTER(mt_ctl, LOG_LEVEL_INF);
 
@@ -587,6 +588,10 @@ static void rx_handler(struct k_work *w)
 	size_t hdr;
 
 	ARG_UNUSED(w);
+	/* Exchanges a device starts (CASE to this board, OTA) are the server's. */
+	if (mt_server_rx(msg, len, &rx_slot.from)) {
+		goto done;
+	}
 	hdr = mt_msg_decode_header(msg, len, &h);
 	if (hdr == 0) {
 		goto done;
@@ -675,6 +680,16 @@ static void rx_loop(void *a, void *b, void *c)
 		rx_slot.len = (uint16_t)n;
 		k_work_submit_to_queue(&wq, &rx_work);
 	}
+}
+
+int mt_ctl_sendto(const uint8_t *buf, size_t len, const struct sockaddr_in6 *to)
+{
+	return zsock_sendto(sock, buf, len, 0, (const struct sockaddr *)to, sizeof(*to)) < 0 ? -errno : 0;
+}
+
+void mt_ctl_schedule(struct k_work_delayable *work, k_timeout_t delay)
+{
+	k_work_reschedule_for_queue(&wq, work, delay);
 }
 
 int mt_ctl_init(void)
