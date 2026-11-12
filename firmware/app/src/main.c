@@ -23,6 +23,9 @@
 #include "bt_offline.h"
 #endif
 #endif
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+#include "bt_passkey.h"
+#endif
 #include "cloud.h"
 #include "cloud_events.h"
 #include "console.h"
@@ -695,6 +698,13 @@ int main(void)
 	mflt_init();
 
 	decide_mode();
+#if defined(CONFIG_APP_BT_STATIC_PASSKEY)
+	/*
+	 * The board's own passkey from protected storage, before anything can open a window or ask
+	 * for STATUS. Without this it read "unset" after every restart, whatever was stored (#199).
+	 */
+	bt_passkey_init();
+#endif
 	console_start();
 	stuck_init();
 

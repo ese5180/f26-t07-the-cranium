@@ -24,6 +24,11 @@
  * person to choose a file and a mode in a phone app after pairing: 30 s was not, on the first test.
  */
 #define BT_OTA_QUIET_LIMIT_SECONDS   120
+/*
+ * Once the window's time is up, a link stays only while an image arrives: this long without a piece
+ * of one closes the window.
+ */
+#define BT_OTA_OVERTIME_QUIET_SECONDS 15
 /* The most a window can last up to the arrival of an image. A slot at 1 KB/s would just fit. */
 #define BT_OTA_SESSION_LIMIT_SECONDS 900
 /* A person has this long to press a button when an image has arrived. */
@@ -137,6 +142,8 @@ struct bt_ota_link {
 	bool connected;
 	/* LE Secure Connections, MITM protected, with a full-length key. */
 	bool secure;
+	/* An upload has started on it and has not finished or been refused. */
+	bool receiving;
 	/* Since the window opened. */
 	uint32_t failed_pairings;
 	uint32_t commands;

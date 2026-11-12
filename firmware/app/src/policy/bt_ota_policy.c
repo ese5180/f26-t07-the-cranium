@@ -146,6 +146,18 @@ static uint32_t tick_linked(struct bt_ota_window *window, const struct bt_ota_li
 		return BT_OTA_DO_TRY_PROOF;
 	}
 
+	/*
+	 * The window's time is up: only an image that is still arriving keeps the link, and the window,
+	 * open. Anything else (a phone that only reads, or polls the image list, or one that reconnects
+	 * as soon as it is dropped) no longer holds it open until the session limit.
+	 */
+	if (window->window_left == 0) {
+		window->quiet_seconds = active && link->receiving ? 0 : window->quiet_seconds + 1;
+		return window->quiet_seconds >= BT_OTA_OVERTIME_QUIET_SECONDS
+			       ? close_window(window, BT_OTA_CLOSED_TIME_UP)
+			       : 0;
+	}
+
 	window->quiet_seconds = active ? 0 : window->quiet_seconds + 1;
 	if (window->quiet_seconds >= BT_OTA_QUIET_LIMIT_SECONDS) {
 		window->quiet_seconds = 0;

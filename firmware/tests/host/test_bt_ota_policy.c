@@ -200,7 +200,7 @@ static void test_three_failed_pairings_close_the_window(void)
 static void test_an_authenticated_link_outlives_the_window_while_it_is_busy(void)
 {
 	struct bt_ota_window window;
-	struct bt_ota_link link = { .connected = true, .secure = true };
+	struct bt_ota_link link = { .connected = true, .secure = true, .receiving = true };
 
 	bt_ota_window_open(&window, false, 5);
 	CHECK(bt_ota_window_tick(&window, &link) == 0);
@@ -214,13 +214,13 @@ static void test_an_authenticated_link_outlives_the_window_while_it_is_busy(void
 	CHECK(window.phase == BT_OTA_LINKED);
 }
 
-static void test_a_quiet_link_is_dropped_and_ends_a_window_that_is_over(void)
+static void test_a_quiet_link_is_dropped_while_the_window_has_time(void)
 {
 	struct bt_ota_window window;
 	struct bt_ota_link link = { .connected = true, .secure = true };
 	uint32_t actions = 0;
 
-	bt_ota_window_open(&window, false, 5);
+	bt_ota_window_open(&window, false, BT_OTA_QUIET_LIMIT_SECONDS + 30);
 	CHECK(bt_ota_window_tick(&window, &link) == 0);
 
 	for (int second = 1; second < BT_OTA_QUIET_LIMIT_SECONDS; second++) {
@@ -232,8 +232,110 @@ static void test_a_quiet_link_is_dropped_and_ends_a_window_that_is_over(void)
 
 	link.connected = false;
 	link.secure = false;
-	CHECK(bt_ota_window_tick(&window, &link) == BT_OTA_DO_CLOSE);
+	CHECK(bt_ota_window_tick(&window, &link) == BT_OTA_DO_ADVERTISE);
+	CHECK(window.phase == BT_OTA_OPEN);
+}
+
+static void test_a_quiet_link_ends_a_window_that_is_over(void)
+{
+	struct bt_ota_window window;
+	struct bt_ota_link link = { .connected = true, .secure = true };
+	int second = 0;
+	uint32_t actions = 0;
+
+	bt_ota_window_open(&window, false, 5);
+	while (actions == 0 && second < BT_OTA_QUIET_LIMIT_SECONDS) {
+		actions = bt_ota_window_tick(&window, &link);
+		second++;
+	}
+
+	CHECK(actions == BT_OTA_DO_CLOSE);
+	CHECK(second > 5 && second <= 5 + BT_OTA_OVERTIME_QUIET_SECONDS);
 	CHECK(window.phase == BT_OTA_CLOSED);
+	CHECK(window.closed == BT_OTA_CLOSED_TIME_UP);
+}
+
+/*
+ * Seconds from the window's opening to the tick that closes it, for a linked phone that sends a
+ * command each second or not, with an upload under way or not; 0 if it outlived the session limit.
+ */
+static int seconds_to_close(uint16_t window_seconds, bool commands, bool receiving)
+{
+	struct bt_ota_window window;
+	struct bt_ota_link link = { .connected = true, .secure = true, .receiving = receiving };
+
+	bt_ota_window_open(&window, false, window_seconds);
+
+	for (int second = 1; second <= BT_OTA_SESSION_LIMIT_SECONDS + 1; second++) {
+		uint32_t actions;
+
+		if (commands) {
+			link.commands++;
+		}
+		actions = bt_ota_window_tick(&window, &link);
+		CHECK((actions & BT_OTA_DO_DISCARD) == 0);
+		if (actions & BT_OTA_DO_CLOSE) {
+			CHECK(window.phase == BT_OTA_CLOSED);
+			CHECK(window.closed == (second > BT_OTA_SESSION_LIMIT_SECONDS
+							? BT_OTA_CLOSED_SESSION_LIMIT
+							: BT_OTA_CLOSED_TIME_UP));
+			return second;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * #204: a phone that stays connected without sending an image (one that reads the status, polls
+ * the image list, or reconnects within a second of being dropped, so that the main loop never sees
+ * it gone) held a 180-s window open until the 900-s session limit. The window's time now ends it.
+ */
+static void test_a_linked_phone_that_sends_no_image_cannot_hold_a_window_past_its_time(void)
+{
+	const uint16_t window_seconds = 180;
+	const int last = window_seconds + BT_OTA_OVERTIME_QUIET_SECONDS;
+	int closed;
+
+	/* Only reads (no SMP commands), as a phone in offline mode does. */
+	closed = seconds_to_close(window_seconds, false, false);
+	CHECK(closed >= window_seconds && closed <= last);
+
+	/* Polls the image list every second: busy, but nothing arrives. */
+	closed = seconds_to_close(window_seconds, true, false);
+	CHECK(closed >= window_seconds && closed <= last);
+
+	/* An upload that started and then stopped sending. */
+	closed = seconds_to_close(window_seconds, false, true);
+	CHECK(closed >= window_seconds && closed <= last);
+
+	/* An image that keeps arriving still gets the session limit, as before. */
+	CHECK(seconds_to_close(window_seconds, true, true) == BT_OTA_SESSION_LIMIT_SECONDS + 1);
+}
+
+static void test_an_upload_that_stalls_after_the_window_s_time_closes_it(void)
+{
+	struct bt_ota_window window;
+	struct bt_ota_link link = { .connected = true, .secure = true, .receiving = true };
+	uint32_t actions = 0;
+	int quiet = 0;
+
+	bt_ota_window_open(&window, false, 10);
+	for (int second = 0; second < 60; second++) {
+		link.commands++;
+		CHECK(bt_ota_window_tick(&window, &link) == 0);
+	}
+
+	/* Past its time and still open while pieces came; then the phone stops. */
+	CHECK(window.phase == BT_OTA_LINKED);
+	while (actions == 0 && quiet < BT_OTA_SESSION_LIMIT_SECONDS) {
+		actions = bt_ota_window_tick(&window, &link);
+		quiet++;
+	}
+
+	CHECK(actions == BT_OTA_DO_CLOSE);
+	CHECK(quiet == BT_OTA_OVERTIME_QUIET_SECONDS);
+	CHECK(window.closed == BT_OTA_CLOSED_TIME_UP);
 }
 
 static void test_a_link_lost_within_the_window_advertises_again(void)
@@ -383,7 +485,7 @@ static void test_a_window_can_be_given_up_on(void)
 static void test_nothing_lasts_past_the_session_limit(void)
 {
 	struct bt_ota_window window;
-	struct bt_ota_link link = { .connected = true, .secure = true };
+	struct bt_ota_link link = { .connected = true, .secure = true, .receiving = true };
 	uint32_t actions = 0;
 	int seconds = 0;
 
@@ -747,7 +849,10 @@ int main(void)
 	test_a_connection_that_has_not_paired_cannot_hold_a_window_open();
 	test_three_failed_pairings_close_the_window();
 	test_an_authenticated_link_outlives_the_window_while_it_is_busy();
-	test_a_quiet_link_is_dropped_and_ends_a_window_that_is_over();
+	test_a_quiet_link_is_dropped_while_the_window_has_time();
+	test_a_quiet_link_ends_a_window_that_is_over();
+	test_a_linked_phone_that_sends_no_image_cannot_hold_a_window_past_its_time();
+	test_an_upload_that_stalls_after_the_window_s_time_closes_it();
 	test_a_link_lost_within_the_window_advertises_again();
 	test_a_link_that_loses_its_security_counts_as_lost();
 	test_an_image_that_arrives_is_offered_also_if_the_link_just_went();
