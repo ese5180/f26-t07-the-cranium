@@ -80,17 +80,15 @@ Free in the application image of the default build, in bytes, measured from the 
 | --- | ---: | ---: |
 | main before (1.19.2 sources) | 40,506 | 1,004 |
 | with the stack and heap reports and the topic buffers | 39,354 | 1,476 |
-| and IPv6 off | 64,658 | 4,628 |
-| 1.19.3 (golden image promotion) with all of it | 62,330 | 4,556 |
 
 | Change | RAM | Flash | Behaviour |
 | --- | ---: | ---: | --- |
-| IPv6 off (`CONFIG_NET_IPV6=n`, board file) | +3,152 | +25,304 | Unchanged: the board goes online on its IPv4 address (src/net.c), a job's URL may not hold an IPv6 address (src/ota/ota_job.c), and AWS IoT and S3 are reached over IPv4. |
 | Jobs and events topic buffers as long as their topics (src/cloud/cloud.c) | +508 | | Unchanged: the same topics, which the host tests check fill their buffers exactly. |
 | Stack and heap reports (src/stack_watch.c) | -36 | -1,152 | New: two reports in the shadow and a warning in the log; nothing else changes. |
 
 ## Not done, and why
 
+- **IPv6 off** (`CONFIG_NET_IPV6=n`: 3,152 bytes of RAM and 25,304 of flash). IPv6 stays on.
 - **The nRF70 firmware patches in external flash** (`SB_CONFIG_WIFI_PATCHES_EXT_FLASH_STORE`, 87.5 KB of
   flash). The patches become a separate image that has to be written into external flash by the debugger
   or by a second MCUboot image, which needs a new partition, so a new flash layout that every board in the
