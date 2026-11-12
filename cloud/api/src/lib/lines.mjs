@@ -28,7 +28,8 @@
  *   WIFI, net, health               health (the Events page's "Wi-Fi and memory")
  *   CONSOLE, factory                setting: a setting of the board changed, at its serial console
  *   CMD                             setting: the board's answer to a command from the console (1.13.0)
- *   app, cloud, identity, store, ui log
+ *   app, cloud, identity,           log
+ *   location, store, ui
  *
  * `connection` is left to AWS IoT's own word that a board connected or disconnected (the presence
  * rule), from which the Events page draws when a board was online: a line of the board's is never one.
@@ -69,6 +70,8 @@ export const TAGS = Object.freeze([
   'factory',
   'health',
   'identity',
+  // Wi-Fi location's scans (cloud/location.c), from firmware 1.13.0: counts of access points only.
+  'location',
   'net',
   'ota',
   'store',
@@ -92,6 +95,7 @@ export const KIND_OF_TAG = Object.freeze({
   app: 'log',
   cloud: 'log',
   identity: 'log',
+  location: 'log',
   store: 'log',
   ui: 'log',
 });

@@ -31,6 +31,7 @@ import {
   isUnderWay,
   isUnfinished,
   keyInCode,
+  localDayBounds,
   offeredBoards,
   onlyChoice,
   parseRoute,
@@ -2588,9 +2589,11 @@ function activityQuery() {
   if (q !== '') asked.q = q;
   if (filters.kind) asked.actions = activityActions(filters.kind);
   if (filters.outcome) asked.outcomes = [filters.outcome];
-  const dayStart = (day) => new Date(`${day}T00:00:00`).getTime();
-  if (filters.from) asked.from = new Date(dayStart(filters.from)).toISOString();
-  if (filters.to) asked.to = new Date(dayStart(filters.to) + 86_400_000 - 1).toISOString();
+  // Local days, which are 23 or 25 hours long when the clocks change.
+  const from = filters.from ? localDayBounds(filters.from) : null;
+  const to = filters.to ? localDayBounds(filters.to) : null;
+  if (from) asked.from = new Date(from.fromMs).toISOString();
+  if (to) asked.to = new Date(to.toMs).toISOString();
   if (asked.from && asked.to && asked.from >= asked.to) delete asked.to;
   return asked;
 }

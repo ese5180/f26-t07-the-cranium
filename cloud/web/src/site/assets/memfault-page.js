@@ -13,7 +13,7 @@
  * type is left out.
  */
 
-import { isThing, plural, signalQuality } from './core.js';
+import { compareVersions, isThing, parseVersion, plural, signalQuality } from './core.js';
 import { lineChart } from './telemetry.js';
 import {
   badge,
@@ -847,6 +847,14 @@ function rebootCard(fleet) {
   );
 }
 
+/** Newest first by version number (1.10 above 1.9), anything that is not a version last. */
+function newerFirst(a, b) {
+  const parse = (text) => parseVersion(/\+\d+$/.test(text) ? text : `${text}+0`);
+  const [left, right] = [parse(a), parse(b)];
+  if (left === null || right === null) return (left === null) - (right === null) || (a < b ? -1 : a > b ? 1 : 0);
+  return compareVersions(right, left);
+}
+
 /** The software versions the boards last ran, as Memfault saw them, with whether its symbols are there. */
 export function versionsOf(fleet) {
   const found = new Map();
@@ -857,7 +865,7 @@ export function versionsOf(fleet) {
   const symbols = new Map(fleet.releases.map((one) => [one.version, one.symbols]));
   return [...found.entries()]
     .map(([version, boards]) => ({ version, boards, symbols: symbols.get(version) ?? null }))
-    .sort((a, b) => b.boards - a.boards || (a.version < b.version ? 1 : -1));
+    .sort((a, b) => b.boards - a.boards || newerFirst(a.version, b.version));
 }
 
 function versionCard(fleet) {

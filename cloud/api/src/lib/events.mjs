@@ -227,8 +227,17 @@ const BT_WORDS = Object.freeze({
   trial_lost: 'lost its trial',
   superseded: 'was replaced by a cloud update',
   flash_error: 'could not be written to flash',
+  incompatible_board: 'was refused: the image is for another board',
+  incompatible_layout: 'was refused: the image is for another flash layout',
 });
-const BAD_BT = new Set(['rolled_back', 'not_installed', 'trial_lost', 'flash_error']);
+const BAD_BT = new Set([
+  'rolled_back',
+  'not_installed',
+  'trial_lost',
+  'flash_error',
+  'incompatible_board',
+  'incompatible_layout',
+]);
 const PROOF_WORDS = Object.freeze({ person: ', kept by a person at the board', cloud: ', proved by the cloud' });
 
 function causeWords(causes) {

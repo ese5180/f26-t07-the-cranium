@@ -204,7 +204,8 @@ more. Only then does it ask the bootloader for the swap, so a reset during the w
 installs nothing.
 
 Failure reasons a board can report: `download_failed`, `digest_mismatch`,
-`header_mismatch`, `flash_error`, `interrupted`, `rolled_back`, `not_installed`, `trial_lost`. The last
+`header_mismatch`, `incompatible_board`, `incompatible_layout`, `flash_error`, `interrupted`, `rolled_back`,
+`not_installed`, `trial_lost`. The last
 means that the board runs the update's version with nothing proving it and nothing to revert to: a
 golden image restore cut off at its start can leave that, as can a serial upload of the same version.
 Refusal reasons: `bad_document`, `unsupported`, `url_not_allowed`, `not_newer`,
@@ -569,7 +570,7 @@ the same for events and lines:
 | `STUCK`, `stuck`, `boot_diary` | `restart` | why a board restarted, or is about to |
 | `WIFI`, `net`, `health` | `health` | the Events page's "Wi-Fi and memory" |
 | `CONSOLE`, `factory` | `setting` (new) | a setting of the board changed at its serial console, or erased by a factory reset: what a person did to the board, which the page can then show on its own |
-| `app`, `cloud`, `identity`, `store`, `ui` | `log` (new) | the rest of what the board says |
+| `app`, `cloud`, `identity`, `location` (from console 2.27.7), `store`, `ui` | `log` (new) | the rest of what the board says |
 
 `connection` stays AWS IoT's own word that a board connected or disconnected: the page draws when a board was online
 from it, and a line of the board's must never count as one. A line that starts with `WRN: ` or `ERR: `, or a `STUCK`
@@ -857,7 +858,7 @@ The recorder (EventsFn) and the location function make the alerts:
 | Alert | From |
 | --- | --- |
 | Offline for more than 15 minutes, and back | AWS IoT's presence messages (the presence rule). Kept per board; a message counts only if it is newer than the one kept: by time when they are more than a minute apart, else by AWS's `versionNumber` (which a connection's connect and disconnect share), and within one connection the disconnect comes last. AWS says these messages may come out of order and twice. An EventBridge rule (`AlertCheckRule`, `rate(5 minutes)`) runs the recorder, which raises "offline" for a board disconnected for 15 minutes, and "back" when it connects after that |
-| An update that failed or rolled back | A shadow report's update result `failed` or `rolled_back`, and a Bluetooth update record `rolled_back`, `trial_lost`, `not_installed` or `flash_error` |
+| An update that failed or rolled back | A shadow report's update result `failed` or `rolled_back`, and a Bluetooth update record `rolled_back`, `trial_lost`, `not_installed`, `flash_error`, `incompatible_board` or `incompatible_layout` |
 | A deployment that stopped by itself | An event `{kind: "update", what: "stopped", job: <deployment>}`, keyed by the deployment. Nothing records one yet: see the note below |
 | A restart for being stuck | The event `restart` / `stuck` |
 | A move of more than 1 km | The location function |

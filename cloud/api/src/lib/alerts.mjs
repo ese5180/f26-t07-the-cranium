@@ -144,7 +144,14 @@ const DEPLOYMENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const REASON = /^[A-Z][A-Z_]{0,47}$/;
 const PRINTABLE = /^[\x20-\x7e]{1,200}$/;
 const SENT_KEY = /^S#(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)#([A-Za-z0-9_-]{1,64})#([a-z]+)$/;
-const BAD_BLUETOOTH = new Set(['rolled_back', 'not_installed', 'trial_lost', 'flash_error']);
+const BAD_BLUETOOTH = new Set([
+  'rolled_back',
+  'not_installed',
+  'trial_lost',
+  'flash_error',
+  'incompatible_board',
+  'incompatible_layout',
+]);
 const BAD_RESULTS = new Set(['failed', 'rolled_back']);
 const SUBJECT_MAX = 100;
 // A page of the console a line of an e-mail links to.

@@ -652,7 +652,14 @@ function outcomeWords(outcome, rolledBackTo) {
   }
 }
 
+// The image was for another board or flash layout: the board turned it away and never ran it.
+const REFUSED_WORDS = Object.freeze({
+  incompatible_board: 'refused: the image is for another board',
+  incompatible_layout: 'refused: the image is for another flash layout',
+});
+
 function recordWords(bt) {
+  if (Object.hasOwn(REFUSED_WORDS, bt.result)) return REFUSED_WORDS[bt.result];
   if (bt.result === 'succeeded') return 'kept';
   if (bt.result === 'pending') return 'on trial';
   if (bt.result === 'superseded') return 'replaced by a cloud update';
