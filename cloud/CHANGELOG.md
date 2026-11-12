@@ -7,6 +7,12 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.2
+
+On an iPhone the pages keep out of the screen's rounded corners: the first and last tabs of the tab bar, on the console and on the customer site, sit 20 px in from the sides, past the corner's curve (about 55 pt on an iPhone 17 Pro), and a dialog on a phone, a sheet to the foot of the screen, keeps its buttons above the home indicator and in from the corners. A browser and the Android app, where the page has no inset, are unchanged.
+
+`app.css` adds `--safe-corner` (20 px on a screen with an inset at the foot or the sides, which has rounded corners; 0 elsewhere) and `--safe-left-bar` and `--safe-right-bar`, the side inset or the corner's room, whichever is more. The two tab bars pad with them, and the phone's dialog sheet with `--safe-corner` and `--safe-bottom-bar`. safe-area.test.mjs pins them. Chrome, drawing the console as an iPhone 17 Pro shows it (its insets, its corners masked), found the tabs' ends in the curve on every page in portrait before, and nothing after. The iPhone shell already ran the page edge to edge with the insets reaching it (2.25.11), and is unchanged.
+
 ## 2.27.0
 
 Offline mode is a page of the console now, in the iPhone, Android and Mac apps: **Offline**, in the sections (under More on a phone), and from the sign-in page when there is no network. It finds a board nearby over Bluetooth, pairs with the board's own passkey (the phone or the Mac asks for it), shows the board's firmware, uptime, Wi-Fi, cloud, update state and last restart, and accepts an update that has arrived at the board, after asking "Install version 1.20 on Cranium-3F9C?". In the apps it is easy to reach from where they open: an Offline mode row above the form on the customer site's sign-in page and on the console's, and in the customer site's sections and top bar. It needs firmware 1.19.0 and app 0.9.0 (Mac app 0.4.0).

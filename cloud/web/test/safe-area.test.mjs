@@ -41,7 +41,7 @@ test('the bars are clear of the island, the home indicator and the sides', () =>
   // The console: its tab bar on a phone, and its sidebar beside the island in landscape.
   assert.ok(
     rules(APP, '.nav').some((body) =>
-      /padding: 0 var\(--safe-right\) var\(--safe-bottom-bar\) var\(--safe-left\)/.test(body)
+      /padding: 0 var\(--safe-right-bar\) var\(--safe-bottom-bar\) var\(--safe-left-bar\)/.test(body)
     )
   );
   assert.match(APP, /body\.is-framed \{\s*padding-left: calc\(var\(--sidebar\) \+ var\(--safe-left\)\);/);
@@ -64,4 +64,23 @@ test("the customer site's top bar fits a 402px iPhone: Connect device is its ico
   const block = CUSTOMER.slice(CUSTOMER.indexOf('@media (max-width: 460px)'));
   assert.match(block, /^@media \(max-width: 460px\) \{\s*\.btn\.cs-connect \{/);
   assert.doesNotMatch(CUSTOMER, /\.cs-top-brand \.cs-brand-text \{[^}]*clip-path/);
+});
+
+test("the bars at the foot of the screen keep their ends out of the display's rounded corners", () => {
+  // 0 in a browser (no inset anywhere), 20px on a screen with an inset at the foot or the sides: one with
+  // rounded corners, about 55pt on an iPhone 17 Pro.
+  assert.match(
+    APP,
+    /--safe-corner: min\(calc\(\(var\(--safe-bottom\) \+ var\(--safe-left\) \+ var\(--safe-right\)\) \* 100\), 20px\);/
+  );
+  assert.match(APP, /--safe-left-bar: max\(var\(--safe-left\), var\(--safe-corner\)\);/);
+  assert.match(APP, /--safe-right-bar: max\(var\(--safe-right\), var\(--safe-corner\)\);/);
+  // The console's tab bar and the customer site's: the first and last tabs clear the curve.
+  const bar = /padding: 0 var\(--safe-right-bar\) var\(--safe-bottom-bar\) var\(--safe-left-bar\)/;
+  assert.ok(rules(APP, '.nav').some((body) => bar.test(body)));
+  assert.ok(rules(CUSTOMER, '.cs-tabbar').some((body) => bar.test(body)));
+  // A dialog on a phone is a sheet to the foot of the screen: its foot's buttons are above the home indicator
+  // and in from the corners.
+  const sheet = APP.slice(APP.indexOf('@media (max-width: 700px) {\n  .console .dialog,'));
+  assert.match(sheet, /^[^}]*padding: 0 var\(--safe-corner\) var\(--safe-bottom-bar\);/);
 });
