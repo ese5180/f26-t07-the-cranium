@@ -2,7 +2,9 @@
  * What a customer's boards played (GET /api/c/sessions): the sessions and tracks the boards sent
  * (lib/sessions.mjs), as the customer site reads them, and what is on each board's decks now.
  *
- * Only the boards given are read, and the caller gives only the boards the customer owns now. A
+ * Only the boards given are read, and the caller gives only the boards the customer owns now, and of each
+ * only what it played since it was given to them (`assignedAt`): a session that started before, a track
+ * played before and a now playing from before belong to an earlier owner, and are left out. A
  * board's thing name, its ownership and the session ids the board chose never leave: a board is its
  * `ref`, and a session's id is a hash of the two. A board that sent nothing adds nothing, and a
  * board whose items cannot be read is left out with a line in the log, not an error for the page.
@@ -65,7 +67,8 @@ function shown(ref, session, tracks) {
 /**
  * @param {object} options
  * @param {{ queryEvents: Function }} options.aws
- * @param {{ thing: string, ref: string }[]} options.boards  the customer's own, from the ownership items
+ * @param {{ thing: string, ref: string, assignedAt?: string }[]} options.boards  the customer's own, from the
+ *                                 ownership items
  * @param {number} options.nowMs
  * @returns {Promise<{ sessions: object[], nowPlaying: object[] }>} sessions newest first
  */
@@ -73,12 +76,14 @@ export async function boardSessions({ aws, boards, nowMs, log = () => {} }) {
   const nowSec = nowMs / 1000;
   const live = (item) => !(Number.isFinite(item?.ttl) && item.ttl <= nowSec);
   const parts = await Promise.allSettled(
-    boards.map(async ({ thing, ref }) => {
+    boards.map(async ({ thing, ref, assignedAt }) => {
       const pk = `${PARTITION}${thing}`;
+      const since = typeof assignedAt === 'string' ? Date.parse(assignedAt) : Number.NaN;
+      const theirs = (iso) => !Number.isFinite(since) || Date.parse(iso) >= since;
       const sessions = (await aws.queryEvents({ thing: pk, ...SESSION_RANGE, limit: SESSIONS_PER_BOARD }))
         .filter(live)
         .map(sessionFromItem)
-        .filter((session) => session !== null);
+        .filter((session) => session !== null && theirs(session.startedAt));
       const oldest = sessions.reduce((low, session) => (session.startedAt < low ? session.startedAt : low), '9');
       const tracks =
         sessions.length === 0
@@ -86,9 +91,10 @@ export async function boardSessions({ aws, boards, nowMs, log = () => {} }) {
           : (await aws.queryEvents({ thing: pk, ...trackRange(oldest), limit: TRACKS_PER_BOARD }))
               .filter(live)
               .map(trackFromItem)
-              .filter((track) => track !== null);
+              .filter((track) => track !== null && theirs(track.playedAt));
       const [now] = await aws.queryEvents({ thing: pk, ...NOW_RANGE, limit: 1 });
-      const playing = live(now) ? nowPlayingFromItem(now, nowMs) : null;
+      const found = live(now) ? nowPlayingFromItem(now, nowMs) : null;
+      const playing = found !== null && theirs(found.playedAt) ? found : null;
       return {
         sessions: sessions.map((session) => shown(ref, session, tracks)).filter((session) => session.tracks.length > 0),
         nowPlaying: playing === null ? [] : [{ board: ref, ...playing }],

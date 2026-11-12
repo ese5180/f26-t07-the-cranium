@@ -291,9 +291,12 @@ To turn it on:
 
 ## Routes and rights
 
+A board's activity, sessions, tracks and now playing are read from the time it was given to the customer who reads them (its `assignedAt`): a board taken back and given to someone else shows them nothing it did for its earlier owner. Its health is the board's own and counts the whole week.
+
 | Route | Who | On record |
 | --- | --- | --- |
 | `GET /api/c/me`, `/api/c/boards`, `/api/c/boards/{id}`, `/api/c/activity`, `/api/c/preferences` | a customer, their own only | no |
+| `GET /api/c/sessions` | a customer, their own boards only | no |
 | `POST /api/c/boards/{id}/label` `{ label }` | a customer, their own boards only | `customer_action.rename` (partition `CUS`) |
 | `POST /api/c/preferences` `{ offline?, updated?, unexpectedRestart? }` | a customer, their own | `customer_action.notifications` (partition `CUS`) |
 | `GET /api/customers` | release managers, asked of Cognito now | no |

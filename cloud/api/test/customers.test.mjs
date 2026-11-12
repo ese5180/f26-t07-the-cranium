@@ -674,3 +674,26 @@ test('a name a customer set themselves is clamped: no control or direction chara
   assert.equal(clampedName(undefined), '');
   assert.equal(clampedName({ toString: () => 'x' }), '');
 });
+
+test('a board given to another customer shows them none of its activity from before it was theirs', async () => {
+  const w = await world();
+  await w.assign(w.ada, BOARD_A);
+  w.fake.device(BOARD_A).report({ uptime: 5, fw: { version: '1.11.3+0', confirmed: false } });
+  w.fake.device(BOARD_A).disconnect('CONNECTION_LOST');
+  w.advance(MINUTE);
+  assert.ok((await w.customer('/api/c/activity', { as: w.ada })).body.activity.length >= 2);
+  assert.equal(
+    (await w.console('POST', `/api/customers/${w.ada.sub}/boards/${BOARD_A}/remove`, { as: w.admin })).status,
+    200
+  );
+  w.advance(MINUTE);
+  await w.assign(w.ben, BOARD_A);
+  const id = (await w.customer('/api/c/boards', { as: w.ben })).body.boards[0].id;
+  assert.deepEqual((await w.customer(`/api/c/boards/${id}`, { as: w.ben })).body.activity, []);
+  assert.deepEqual((await w.customer('/api/c/activity', { as: w.ben })).body.activity, []);
+  // What happens to it from then on is Ben's to see.
+  w.advance(MINUTE);
+  w.fake.device(BOARD_A).disconnect('CONNECTION_LOST');
+  w.advance(MINUTE);
+  assert.ok((await w.customer(`/api/c/boards/${id}`, { as: w.ben })).body.activity.length >= 1);
+});
