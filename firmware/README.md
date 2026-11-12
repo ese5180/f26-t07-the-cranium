@@ -11,6 +11,9 @@ no Wi-Fi: see [The nRF5340 DK (Bluetooth only)](#the-nrf5340-dk-bluetooth-only).
 | `hci_ipc` | network core | The Bluetooth LE controller, for [firmware update over Bluetooth](#firmware-update-over-bluetooth), in every build from 1.9.0. Flashed over the debug port only. |
 | `netcore_blinky` | network core | Only in a build with `no_bt_sysbuild.conf`, and in every build before 1.9.0: blinks LED2 once a second. No radio stack, no console, no keys. |
 
+A separate application, `matter/`, makes the board a Matter commissioner and Thread leader instead: see
+[`docs/matter-thread.md`](../docs/matter-thread.md). It is not part of this build.
+
 `app/` started as a copy of Nordic's `samples/net/aws_iot` from nRF Connect SDK v3.4.0;
 files derived from it keep Nordic's copyright notice and licence identifier.
 

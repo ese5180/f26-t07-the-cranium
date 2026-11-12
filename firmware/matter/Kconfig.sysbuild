@@ -15,9 +15,15 @@ config NETCORE_IPC_RADIO_IEEE802154
 config NETCORE_IPC_RADIO_BT_HCI_IPC
 	default y
 
-# The Wi-Fi chip, on the nRF7002 DK only: the border router's backbone.
+config CRANIUM_BORDER_ROUTER
+	bool "Thread border router with Wi-Fi as its backbone (nRF7002 DK)"
+	help
+	  Adds Wi-Fi and Zephyr's OpenThread border router to the application (border_router.conf). Off by
+	  default: it does not fit in the nRF5340's flash yet (docs/matter-thread.md).
+
+# The Wi-Fi chip, only for the border router.
 config WIFI_NRF70
-	default y if BOARD_NRF7002DK
+	default y if CRANIUM_BORDER_ROUTER
 
 config PARTITION_MANAGER
 	default n

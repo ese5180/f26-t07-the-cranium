@@ -3,8 +3,9 @@
  * (docs/matter-thread.md, "The build"). It is not one of firmware/app/flash_layouts.json: a board running the
  * main image refuses this one as an update, and the other way round.
  *
- * Internal flash (1 MiB): MCUboot 32 KiB, the application 956 KiB, settings 36 KiB (Thread dataset, the Matter
- * fabric and keys, Wi-Fi credentials). External flash: the second image slot.
+ * Internal flash (1 MiB): MCUboot 48 KiB, the application 940 KiB, settings 36 KiB (Thread dataset, the Matter
+ * fabric and keys, Wi-Fi credentials). External flash: the second image slot. MCUboot has 48 KiB because on the
+ * nRF7002 DK its SPI flash driver does not fit in 32 KiB.
  */
 
 /delete-node/ &boot_partition;
@@ -17,13 +18,13 @@
 		boot_partition: partition@0 {
 			compatible = "zephyr,mapped-partition";
 			label = "mcuboot";
-			reg = <0x00000000 DT_SIZE_K(32)>;
+			reg = <0x00000000 DT_SIZE_K(48)>;
 		};
 
-		slot0_partition: partition@8000 {
+		slot0_partition: partition@c000 {
 			compatible = "zephyr,mapped-partition";
 			label = "image-0";
-			reg = <0x00008000 DT_SIZE_K(956)>;
+			reg = <0x0000c000 DT_SIZE_K(940)>;
 		};
 
 		storage_partition: partition@f7000 {
@@ -50,7 +51,7 @@
 
 		slot1_partition: partition@0 {
 			label = "image-1";
-			reg = <0x00000000 DT_SIZE_K(956)>;
+			reg = <0x00000000 DT_SIZE_K(940)>;
 		};
 	};
 };
