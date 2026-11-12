@@ -12778,11 +12778,19 @@ span.glance-item:hover {
     border-radius: 0 0 var(--radius-group) var(--radius-group);
     background: var(--surface);
   }
+
+  html:has(.bt-next) {
+    scroll-padding-bottom: calc(max(var(--space-3), var(--safe-bottom-bar)) + 6rem);
+  }
 }
 
 @media (max-width: 860px) {
   .bt-next {
     bottom: calc(var(--tabbar) + var(--safe-bottom-bar));
+  }
+
+  html:has(.bt-next) {
+    scroll-padding-bottom: calc(var(--tabbar) + var(--safe-bottom-bar) + 6rem);
   }
 
   .bt-next .btn {

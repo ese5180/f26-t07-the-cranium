@@ -837,4 +837,13 @@ test('the next step is in reach once a release is chosen: a bar at the card foot
   assert.match(block('@media (max-width: 1100px)'), /bottom: max\(var\(--space-3\), var\(--safe-bottom-bar\)\);/);
   assert.match(block('@media (max-width: 1100px)'), /background: var\(--surface\);/);
   assert.match(block('@media (max-width: 860px)'), /bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom-bar\)\);/);
+  // A focused control scrolls clear of the bar, on the pages that show it.
+  assert.match(
+    css,
+    /html:has\(\.bt-next\) \{\n    scroll-padding-bottom: calc\(max\(var\(--space-3\), var\(--safe-bottom-bar\)\) \+ 6rem\);/
+  );
+  assert.match(
+    css,
+    /html:has\(\.bt-next\) \{\n    scroll-padding-bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom-bar\) \+ 6rem\);/
+  );
 });
