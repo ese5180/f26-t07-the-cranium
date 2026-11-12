@@ -12,6 +12,7 @@
 #include "matter_policy.h"
 #include "mt_attest.h"
 #include "mt_ble.h"
+#include "mt_controller.h"
 #include "mt_cert.h"
 #include "mt_fabric.h"
 #include "mt_btp.h"
@@ -369,6 +370,22 @@ static void next_step(void)
 	}
 }
 
+static void commissioning_completed(uint64_t node, int result)
+{
+	if (stage != MT_STAGE_CASE) {
+		return;
+	}
+	if (result != 0) {
+		LOG_ERR("commissioning failed at CASE/CommissioningComplete: %d", result);
+		stage = MT_STAGE_FAILED;
+		return;
+	}
+	(void)mt_fabric_add_node(node, dev_vid, dev_pid);
+	stage = MT_STAGE_DONE;
+	LOG_INF("node 0x%016llx commissioned: vendor 0x%04x product 0x%04x", (unsigned long long)node, dev_vid,
+		dev_pid);
+}
+
 /* What a stage takes from its response; false when it has failed the commissioning. */
 static bool stage_data(const uint8_t *f0, size_t f0_len, const uint8_t *f1, size_t f1_len)
 {
@@ -474,12 +491,17 @@ static void handle_invoke_response(const uint8_t *body, size_t len)
 		}
 	}
 	stage++;
-	if (stage == MT_STAGE_ON_THREAD) {
-		(void)mt_fabric_add_node(new_node_id, dev_vid, dev_pid);
-		LOG_INF("the device is joining this board's Thread network as node 0x%016llx; CASE is not in this "
-			"version, so it leaves again when its fail-safe of %u s ends",
-			(unsigned long long)new_node_id, fail_safe_s);
+	if (stage == MT_STAGE_CASE) {
+		/* The device leaves Bluetooth for Thread: the rest is over CASE. */
 		mt_ble_close();
+		LOG_INF("node 0x%016llx is joining this board's Thread network; CASE next",
+			(unsigned long long)new_node_id);
+		int err = mt_ctl_invoke(new_node_id, 0, MT_CL_GENERAL_COMMISSIONING, MT_CMD_COMMISSIONING_COMPLETE,
+					NULL, NULL, commissioning_completed);
+
+		if (err) {
+			fail("CASE", err);
+		}
 		return;
 	}
 	next_step();
@@ -639,7 +661,7 @@ static void rx_handler(struct k_work *w)
 		}
 		if (stage == MT_STAGE_PASE && p.protocol_id == MT_PROTO_SECURE_CHANNEL) {
 			pase_handle(p.opcode, body, len);
-		} else if (stage >= MT_STAGE_ARM_FAIL_SAFE && stage < MT_STAGE_ON_THREAD &&
+		} else if (stage >= MT_STAGE_ARM_FAIL_SAFE && stage < MT_STAGE_CASE &&
 			   p.protocol_id == MT_PROTO_IM && p.opcode == MT_IM_INVOKE_RESPONSE) {
 			handle_invoke_response(body, len);
 		} else {
@@ -678,7 +700,7 @@ static void closed_handler(struct k_work *w)
 	mt_spake_abort(&spake);
 	secure = false;
 	tx_busy = false;
-	if (stage != MT_STAGE_ON_THREAD && stage != MT_STAGE_FAILED && stage != MT_STAGE_IDLE) {
+	if (stage < MT_STAGE_CASE && stage != MT_STAGE_IDLE) {
 		LOG_ERR("commissioning stopped at %s: the device went away", mt_stage_name(stage));
 		stage = MT_STAGE_FAILED;
 	}
@@ -739,7 +761,7 @@ int mt_commission_start(const char *setup_code, uint16_t fail_safe)
 		k_work_init(&closed_work, closed_handler);
 		init = true;
 	}
-	if (stage != MT_STAGE_IDLE && stage != MT_STAGE_ON_THREAD && stage != MT_STAGE_FAILED) {
+	if (stage != MT_STAGE_IDLE && stage != MT_STAGE_DONE && stage != MT_STAGE_FAILED) {
 		return -EBUSY;
 	}
 	/* Checked before anything starts: a typo never leaves the commissioner busy. */
@@ -776,7 +798,7 @@ const char *mt_stage_name(enum mt_stage s)
 	static const char *const names[] = {
 		"idle", "scanning", "BTP", "PASE", "ArmFailSafe", "SetRegulatoryConfig", "PAI certificate",
 		"DAC certificate", "attestation", "CSR", "AddTrustedRootCertificate", "AddNOC",
-		"AddOrUpdateThreadNetwork", "ConnectNetwork", "on Thread", "failed",
+		"AddOrUpdateThreadNetwork", "ConnectNetwork", "CASE", "done", "failed",
 	};
 
 	return (unsigned int)s < sizeof(names) / sizeof(names[0]) ? names[s] : "?";

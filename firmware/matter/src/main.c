@@ -9,6 +9,8 @@
 #include <zephyr/settings/settings.h>
 
 #include "matter_policy.h"
+#include "mt_controller.h"
+#include "mt_fabric.h"
 #include "ot_leader.h"
 #if defined(CONFIG_CRANIUM_MATTER_BORDER_ROUTER)
 #include "border_router.h"
@@ -26,6 +28,12 @@ static void thread_up(struct k_work *work)
 
 	if (ot_leader_start() == 0) {
 		LOG_INF("Thread up (role %s), SRP server on", ot_leader_role());
+		/* The fabric, then sessions to the devices already on it. */
+		if (mt_fabric_init() != 0 || mt_ctl_init() != 0) {
+			LOG_ERR("the Matter fabric could not start");
+			return;
+		}
+		mt_ctl_reconnect_all();
 		return;
 	}
 	uint32_t ms = mp_backoff_ms(thread_attempt++, MP_RETRY_FIRST_MS, MP_RETRY_CAP_MS);
