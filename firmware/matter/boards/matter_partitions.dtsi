@@ -4,7 +4,7 @@
  * main image refuses this one as an update, and the other way round.
  *
  * Internal flash (1 MiB): MCUboot 48 KiB, the application 940 KiB, settings 36 KiB (Thread dataset, the Matter
- * fabric and keys, Wi-Fi credentials). External flash: the second image slot. MCUboot has 48 KiB because on the
+ * fabric and keys, Wi-Fi credentials). External flash: the second image slot, and from 2 MB the OTA store (1 MB). MCUboot has 48 KiB because on the
  * nRF7002 DK its SPI flash driver does not fit in 32 KiB.
  */
 
@@ -52,6 +52,12 @@
 		slot1_partition: partition@0 {
 			label = "image-1";
 			reg = <0x00000000 DT_SIZE_K(940)>;
+		};
+
+		/* The image this board offers its Matter devices as OTA provider (src/matter/mt_ota_store.c). */
+		ota_store_partition: partition@200000 {
+			label = "ota-store";
+			reg = <0x00200000 DT_SIZE_M(1)>;
 		};
 	};
 };
