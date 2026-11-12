@@ -10,7 +10,10 @@
 #include <zephyr/logging/log.h>
 
 #include "matter_policy.h"
+#include "mt_attest.h"
 #include "mt_ble.h"
+#include "mt_cert.h"
+#include "mt_fabric.h"
 #include "mt_btp.h"
 #include "mt_crypto.h"
 #include "mt_im.h"
@@ -64,6 +67,7 @@ static psa_key_id_t key_r2i;
 static struct mt_counter_window peer_counters;
 
 /* PASE */
+static uint8_t attestation_challenge[16];
 static uint8_t pase_random[MT_PASE_RANDOM_LEN];
 static uint8_t pbkdf_req[64];
 static size_t pbkdf_req_len;
@@ -226,6 +230,54 @@ static void fields_regulatory(struct mt_tlv_writer *w)
 	mt_tlv_put_uint(w, 2, 2); /* Breadcrumb */
 }
 
+/* The device's certificates and attestation, and what the fabric gives it. */
+static uint8_t pai[600];
+static size_t pai_len;
+static uint8_t dac[600];
+static size_t dac_len;
+static uint8_t attest_nonce[32];
+static uint8_t csr_nonce[32];
+static uint8_t dac_public_key[65];
+static uint16_t dev_vid;
+static uint16_t dev_pid;
+static uint8_t noc[MT_CERT_TLV_MAX];
+static size_t noc_len;
+static uint64_t new_node_id;
+
+static void fields_pai(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_uint(w, 0, 2); /* CertificateType: PAI */
+}
+
+static void fields_dac(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_uint(w, 0, 1); /* CertificateType: DAC */
+}
+
+static void fields_attestation(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_bytes(w, 0, attest_nonce, sizeof(attest_nonce));
+}
+
+static void fields_csr(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_bytes(w, 0, csr_nonce, sizeof(csr_nonce));
+	mt_tlv_put_bool(w, 1, false); /* IsForUpdateNOC */
+}
+
+static void fields_root(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_bytes(w, 0, mt_fabric()->rcac, mt_fabric()->rcac_len);
+}
+
+static void fields_noc(struct mt_tlv_writer *w)
+{
+	mt_tlv_put_bytes(w, 0, noc, noc_len);                          /* NOCValue; no ICAC */
+	mt_tlv_put_bytes(w, 2, mt_fabric()->epoch_key, 16);           /* IPKValue */
+	mt_tlv_put_uint(w, 3, mt_fabric()->own_node_id);              /* CaseAdminSubject: this board */
+	mt_tlv_put_uint(w, 4, 0xFFF1);                                /* AdminVendorId: the test vendor */
+}
+
 static uint8_t dataset[254];
 static size_t dataset_len;
 
@@ -273,6 +325,30 @@ static void next_step(void)
 	case MT_STAGE_REGULATORY:
 		err = invoke(0, MT_CL_GENERAL_COMMISSIONING, MT_CMD_SET_REGULATORY_CONFIG, fields_regulatory);
 		break;
+	case MT_STAGE_PAI_CERT:
+		err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_CERT_CHAIN_REQUEST, fields_pai);
+		break;
+	case MT_STAGE_DAC_CERT:
+		err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_CERT_CHAIN_REQUEST, fields_dac);
+		break;
+	case MT_STAGE_ATTESTATION:
+		err = mt_random(attest_nonce, sizeof(attest_nonce));
+		if (!err) {
+			err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_ATTESTATION_REQUEST, fields_attestation);
+		}
+		break;
+	case MT_STAGE_CSR:
+		err = mt_random(csr_nonce, sizeof(csr_nonce));
+		if (!err) {
+			err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_CSR_REQUEST, fields_csr);
+		}
+		break;
+	case MT_STAGE_ROOT_CERT:
+		err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_ADD_TRUSTED_ROOT, fields_root);
+		break;
+	case MT_STAGE_ADD_NOC:
+		err = invoke(0, MT_CL_OPERATIONAL_CREDS, MT_CMD_ADD_NOC, fields_noc);
+		break;
 	case MT_STAGE_THREAD_NETWORK:
 		err = ot_leader_dataset(dataset, sizeof(dataset), &dataset_len);
 		if (err == 0 && !dataset_ext_panid()) {
@@ -293,6 +369,67 @@ static void next_step(void)
 	}
 }
 
+/* What a stage takes from its response; false when it has failed the commissioning. */
+static bool stage_data(const uint8_t *f0, size_t f0_len, const uint8_t *f1, size_t f1_len)
+{
+	switch (stage) {
+	case MT_STAGE_PAI_CERT:
+	case MT_STAGE_DAC_CERT: {
+		uint8_t *dst = stage == MT_STAGE_PAI_CERT ? pai : dac;
+		size_t *dst_len = stage == MT_STAGE_PAI_CERT ? &pai_len : &dac_len;
+
+		if (f0 == NULL || f0_len > sizeof(pai)) {
+			fail("certificate", -EBADMSG);
+			return false;
+		}
+		memcpy(dst, f0, f0_len);
+		*dst_len = f0_len;
+		return true;
+	}
+	case MT_STAGE_ATTESTATION: {
+		struct mt_attest_input in = {
+			.dac = dac, .dac_len = dac_len, .pai = pai, .pai_len = pai_len, .elements = f0,
+			.elements_len = f0_len, .signature = f1, .nonce = attest_nonce,
+			.challenge = attestation_challenge,
+		};
+
+		if (f0 == NULL || f1 == NULL || f1_len != 64) {
+			fail("attestation response", -EBADMSG);
+			return false;
+		}
+		enum mt_attest_result r = mt_attest_verify(&in, mt_verify, dac_public_key, &dev_vid, &dev_pid);
+
+		if (r != MT_ATTEST_OK) {
+			fail("device attestation", -(int)r);
+			return false;
+		}
+		LOG_INF("attestation passed: vendor 0x%04x product 0x%04x (Matter test PAA)", dev_vid, dev_pid);
+		return true;
+	}
+	case MT_STAGE_CSR: {
+		uint8_t node_key[65];
+
+		if (f0 == NULL || f1 == NULL || f1_len != 64 ||
+		    !mt_attest_csr(f0, f0_len, f1, csr_nonce, attestation_challenge, dac_public_key, mt_verify,
+				   node_key)) {
+			fail("CSR", -EBADMSG);
+			return false;
+		}
+		int n = mt_fabric_issue_noc(node_key, &new_node_id, noc, sizeof(noc));
+
+		if (n < 0) {
+			fail("NOC", n);
+			return false;
+		}
+		noc_len = (size_t)n;
+		LOG_INF("NOC issued: node 0x%016llx", (unsigned long long)new_node_id);
+		return true;
+	}
+	default:
+		return true;
+	}
+}
+
 /* An InvokeResponse: success means the command's response says 0 (its first field) or a status of 0. */
 static void handle_invoke_response(const uint8_t *body, size_t len)
 {
@@ -309,17 +446,39 @@ static void handle_invoke_response(const uint8_t *body, size_t len)
 	if (res.has_fields) {
 		struct mt_tlv_reader r;
 		struct mt_tlv_element e;
+		const uint8_t *f0 = NULL;
+		size_t f0_len = 0;
+		const uint8_t *f1 = NULL;
+		size_t f1_len = 0;
 
 		mt_tlv_reader_init(&r, res.fields, res.fields_len);
-		if (mt_tlv_next(&r, &e) && mt_tlv_find(&r, 0, &e) && e.type == MT_TLV_UINT && e.v.u != 0) {
-			fail("command answered with an error", (int)e.v.u);
+		if (!mt_tlv_next(&r, &e)) {
+			fail("unreadable response", -EBADMSG);
+			return;
+		}
+		while (mt_tlv_next(&r, &e) && r.depth > 0) {
+			if (e.context && e.tag == 0 && e.type == MT_TLV_UINT && e.v.u != 0) {
+				fail("command answered with an error", (int)e.v.u);
+				return;
+			}
+			if (e.context && e.tag == 0 && e.type == MT_TLV_BYTES) {
+				f0 = e.data;
+				f0_len = e.len;
+			} else if (e.context && e.tag == 1 && e.type == MT_TLV_BYTES) {
+				f1 = e.data;
+				f1_len = e.len;
+			}
+		}
+		if (!stage_data(f0, f0_len, f1, f1_len)) {
 			return;
 		}
 	}
 	stage++;
 	if (stage == MT_STAGE_ON_THREAD) {
-		LOG_INF("the device is joining this board's Thread network; CASE and its certificates are not in this "
-			"version, so it leaves again when its fail-safe of %u s ends", fail_safe_s);
+		(void)mt_fabric_add_node(new_node_id, dev_vid, dev_pid);
+		LOG_INF("the device is joining this board's Thread network as node 0x%016llx; CASE is not in this "
+			"version, so it leaves again when its fail-safe of %u s ends",
+			(unsigned long long)new_node_id, fail_safe_s);
 		mt_ble_close();
 		return;
 	}
@@ -413,6 +572,7 @@ static void pase_handle(uint8_t opcode, const uint8_t *body, size_t len)
 		if (!err) {
 			err = mt_ccm_import(&keys[16], &key_r2i);
 		}
+		memcpy(attestation_challenge, &keys[32], 16);
 		memset(keys, 0, sizeof(keys));
 	} else if (opcode == MT_SC_STATUS_REPORT) {
 		uint16_t general;
@@ -586,6 +746,11 @@ int mt_commission_start(const char *setup_code, uint16_t fail_safe)
 	if (mp_parse_manual_code(setup_code, &code) != MP_CODE_OK) {
 		return -EINVAL;
 	}
+	int ferr = mt_fabric_init();
+
+	if (ferr) {
+		return ferr;
+	}
 	fail_safe_s = fail_safe;
 	(void)mt_random((uint8_t *)&ephemeral_node, sizeof(ephemeral_node));
 	(void)mt_random((uint8_t *)&unsecured_counter, sizeof(unsecured_counter));
@@ -609,7 +774,8 @@ enum mt_stage mt_commission_stage(void)
 const char *mt_stage_name(enum mt_stage s)
 {
 	static const char *const names[] = {
-		"idle", "scanning", "BTP", "PASE", "ArmFailSafe", "SetRegulatoryConfig",
+		"idle", "scanning", "BTP", "PASE", "ArmFailSafe", "SetRegulatoryConfig", "PAI certificate",
+		"DAC certificate", "attestation", "CSR", "AddTrustedRootCertificate", "AddNOC",
 		"AddOrUpdateThreadNetwork", "ConnectNetwork", "on Thread", "failed",
 	};
 
