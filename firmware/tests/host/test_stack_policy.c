@@ -97,7 +97,7 @@ static void test_a_report_too_long_is_cut_and_says_so(void)
 {
 	char buf[STACK_REPORT_MAX];
 	struct stack_report report;
-	char name[STACK_NAME_MAX + 1];
+	char name[32];
 
 	stack_report_begin(&report, buf, sizeof(buf));
 	for (int i = 0; i < 60; i++) {
