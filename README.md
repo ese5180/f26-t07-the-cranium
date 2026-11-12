@@ -35,7 +35,6 @@
 
 - Adam:  Customer perspectives of 3 exact target customers (intermediate level Pioneer FLX4 owners who play small/medium live events)
   - Already held interviews, obtained specific pricing perspectives and target DJ controllers.
-- (via Chris) Subject Matter Expert: Garrett Treanor (Indiana University - Expertise in Digital Audio Processing, Research in Immersive/Spatial Audio)
 - Competitor's (DeckShark) Community Discord - finding additional consumer perspectives and specific failure points of direct competitors.
 
 ### 3.2.5 System-Level Diagrams
