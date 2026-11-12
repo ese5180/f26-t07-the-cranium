@@ -22,7 +22,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Cloud update (OTA) | Takes an AWS IoT job, downloads a signed image, checks it, swaps on restart, confirms or rolls back | 1.0 | `src/ota/ota.c` | Any MCUboot device with a network link; keep the job states and the rollback trial |
 | Signed images | Every image is signed; the bootloader holds only the public key | 1.0 | `firmware/keys/`, `scripts/firmware/build.sh` | Keep the private key off CI; build and sign on a trusted machine |
 | Update recovery | Interrupted, cancelled, stalled and refused updates each have a defined end state | 1.x | README "When an update fails" | The same table works for any OTA design |
-| Stuck detection | Restarts a board whose Wi-Fi chip or update hangs, and reports why | 1.5 | `src/policy/stuck_policy.h` | Watch progress, not just liveness |
+| Stuck detection | Restarts a board whose Wi-Fi chip or update hangs, and reports why | 1.7.0 | `src/policy/stuck_policy.h` | Watch progress, not just liveness |
 | Golden image | One sealed image in external flash that only the bootloader restores, from a button held at boot | 1.x | README "Golden image", `sysbuild/mcuboot/golden` | The last way back with no laptop, Wi-Fi or cloud |
 | Serial recovery | MCUboot takes an image over UART | 1.x | README "Serial recovery" | Needs neither Wi-Fi nor a debugger |
 | Factory mode | A board with no valid ID boots into setup, off the network | 1.x | README "Factory mode" | Clean provisioning path |
@@ -38,7 +38,7 @@ The firmware is one Zephyr application (`firmware/app`) behind MCUboot, document
 | Offline mode | With no Wi-Fi or cloud, a paired phone reads the board's status and accepts a waiting update | 1.19.0 | `src/bt/bt_offline.c` | Own GATT service, authenticated link only |
 | Listening sessions | Sends what is played to the cloud for the customer site | 1.18.0 | README "Sessions" | Product-specific telemetry over MQTT |
 | LED and button language | Fixed patterns for every state on both DKs | 1.x | `docs/led-guide.md`, README "Buttons" | One table a customer can read |
-| Memory budgets | Every build reports flash and RAM free per board; CI fails below the floors | 1.17 | `tools/memory_budget.py`, `tools/memory_budgets.json` | Catch growth before it reaches the board |
+| Memory budgets | Every build reports flash and RAM free per board; CI fails below the floors | — (#189) | `tools/memory_budget.py`, `tools/memory_budgets.json` | Catch growth before it reaches the board |
 | nRF5340 DK support | The same app as a Bluetooth-only board | 1.x | README "The nRF5340 DK" | Shows how to port to a board with no Wi-Fi |
 
 ## Cloud and console features
@@ -133,8 +133,8 @@ The phone sets the board up over Bluetooth, then talks Matter to it over Wi-Fi o
 
 | Feature | State | Where | Reuse notes |
 | --- | --- | --- | --- |
-| Thread leader and border router | Built, CI green, not yet on hardware | `firmware/matter/`, PR #198 | Zephyr's border-router code, adapted to this SDK |
-| Our own Matter library | TLV, BTP, PASE, CASE, Interaction Model, attestation, certificates, all in C on PSA crypto | `firmware/matter/`, `docs/matter-thread.md` | Fits where the full Matter SDK was 1.4 MB too big |
+| Thread leader and border router | Built, CI green, not yet on hardware | `firmware/matter/` (arrives with PR #198) | Zephyr's border-router code, adapted to this SDK |
+| Our own Matter library | TLV, BTP, PASE, CASE, Interaction Model, attestation, certificates, all in C on PSA crypto | `firmware/matter/`, `docs/matter-thread.md` (arrive with PR #198) | Fits where the full Matter SDK was 1.4 MB too big |
 | Commissioner | Pairs a Thread device over BLE, checks its certificate, issues its own, keeps it across restarts | PR #198 | Matter test credentials only for now |
 | OTA provider | Sends updates to the devices it commissioned, over BDX | PR #198 | Images kept in external flash |
 | Phone as Matter controller | In progress: the board as a Matter node the phone commissions and updates | PR #198 + an app PR | Apple Matter framework on iPhone |
