@@ -7,6 +7,22 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.7
+
+Make golden: on the Firmware page a release manager uploads a release's golden promotion record, signed offline with the golden key, and makes that release the golden image on one board, a group or every board that runs it. Each board's page shows its golden image and what came of the last promotion. It needs firmware 1.19.3 and its bootloader, which takes one debug-port flash. Until a board has them, Make golden does not offer it, and the API refuses it by name.
+
+`POST /api/firmware/{version}/golden` keeps a record only if its signature is good with the stack's golden public key
+(`GOLDEN_PUBLIC_KEY_B64`, the template's `GoldenPublicKey`, which `deploy.sh` reads from
+`firmware/keys/golden_promote_pub.pem`, empty until that file exists), it names this release's image hash, size and
+version, the release is active, and its counter is above every other release's; once per release.
+`POST /api/golden/promotions` makes one AWS IoT job, `gold-<version>-c<counter>-<time>-<4 hex>`, with the document
+`{"op":"golden_promote","v":1,"record":"<hex>"}`, to boards that are registered, of the release's type and free.
+A board that reports no golden image, so firmware before 1.19.3, is refused with `golden_unsupported` and no job is
+made. `GET /api/golden/promotions` lists the latest. Both writes are on the activity log (`firmware.golden_record`,
+`golden.promote`), from the website only. A board's report beside `diag` gives `golden: {version, counter, state}`, and
+a device carries it where it is reported. The apps host the console, so they have it with this version. Tests:
+cloud/api/test/golden.test.mjs, cloud/web/test/golden.test.mjs.
+
 ## 2.27.6
 
 Six fixes. A board's Wi-Fi location lines (firmware 1.13.0 and later) were thrown away by the board log; they are kept now. An update over Bluetooth that a board refused because the image was for another board or flash layout left no record on its page, no event and no alert; it now shows as refused, warns and alerts. A cloud update refused for the same reason says so in words instead of a code. The Activity page's day filter keeps whole local days on the days the clocks change, and a scheduled start's default "tomorrow" is the next calendar day. A scheduled time that happens twice is the first of the two in every time zone, also where the clocks go back by half an hour. The Memfault page lists versions with as many boards newest first (1.10 above 1.9).

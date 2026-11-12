@@ -78,6 +78,7 @@ import {
   gateView,
   navView,
   notesDialog,
+  goldenDialog,
   overviewView,
   render,
   revokeDialog,
@@ -2287,6 +2288,96 @@ function openNotes(release) {
   self = openDialog(() => notesDialog(model, { state, actions }));
 }
 
+// Golden image promotion (console 2.27.7, firmware/README.md "Golden image"): a release's record, signed
+// offline, then the boards that make it their golden image.
+
+/** The 130 bytes of a promotion record. */
+const GOLDEN_RECORD_SIZE = 130;
+
+function openGolden(release) {
+  if (!state.me.canWrite || dialogOpen()) return;
+  let self = null;
+  const devices = () => state.devices.value?.devices ?? [];
+  const fleet = () => state.fleet?.value ?? null;
+  // Only a board that runs the release can seal it, and only firmware 1.19.3 and later takes a promotion:
+  // every such board reports its golden image. The others would refuse the job.
+  const running = () =>
+    devices().filter((device) => device.fw?.version === model.release.version && Boolean(device.golden));
+  const model = {
+    get release() {
+      return state.firmware.value?.releases.find((item) => item.version === release.version) ?? release;
+    },
+    get boards() {
+      return running();
+    },
+    get groups() {
+      return fleet()?.groups ?? [];
+    },
+    scope: 'fleet',
+    bytes: null,
+    sending: false,
+    error: null,
+    close: () => self.close(),
+    signIn: beginSignIn,
+    setScope(value) {
+      model.scope = value;
+      model.error = null;
+      self.redraw();
+    },
+    async setFile(file) {
+      model.error = null;
+      model.bytes = null;
+      if (file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length === GOLDEN_RECORD_SIZE) model.bytes = bytes;
+        else {
+          model.error = asProblem(
+            new Error(`A promotion record is ${GOLDEN_RECORD_SIZE} bytes, and this file is ${bytes.length}.`)
+          );
+        }
+      }
+      self.redraw();
+    },
+    /** The boards the promotion goes to, as the choice says. */
+    targets() {
+      const boards = running();
+      if (model.scope.startsWith('board:')) return boards.filter((device) => `board:${device.thing}` === model.scope);
+      if (model.scope.startsWith('group:')) {
+        const id = model.scope.slice('group:'.length);
+        const members = new Set(
+          (fleet()?.boards ?? []).filter((board) => board.groups?.includes(id)).map((board) => board.thing)
+        );
+        return boards.filter((device) => members.has(device.thing));
+      }
+      return boards;
+    },
+    submit: () =>
+      submitFrom(self, model, async () => {
+        if (!model.release.golden) {
+          const changed = await api.uploadGolden(release.version, model.bytes);
+          const firmware = state.firmware.value;
+          if (firmware) {
+            firmware.releases = firmware.releases.map((item) => (item.version === changed.version ? changed : item));
+          }
+          notify(`The golden record of ${changed.version} is checked and saved. Now choose the boards.`);
+          model.sending = false;
+          self.busy = false;
+          self.redraw();
+          return;
+        }
+        const things = model.targets().map((device) => device.thing);
+        const started = await api.promoteGolden({ version: release.version, things, note: '' });
+        self.close(true);
+        notify(
+          `${release.version} goes golden on ${started.things.length === 1 ? '1 board' : `${started.things.length} boards`}. ` +
+            'Each restarts once when idle; its page then shows the golden image.'
+        );
+        refreshNow(true);
+      }),
+  };
+  self = openDialog(() => goldenDialog(model, { state, actions }));
+}
+
 // API tokens. A new token is shown once, in the dialog that made it, and is gone with
 // the dialog: nothing else on the page ever holds it.
 
@@ -2658,6 +2749,7 @@ const actions = {
     paint();
   },
   openNotes,
+  openGolden,
   redraw: draw,
   signOut: () => auth.signOut(),
   toggleMore: () => showMore(!state.moreOpen),

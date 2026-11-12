@@ -92,6 +92,7 @@ import { createDeploymentHandlers } from './handlers/deployments.mjs';
 import { createDeviceHandlers } from './handlers/devices.mjs';
 import { createEventHandlers } from './handlers/events.mjs';
 import { UPLOAD_BODY_LIMIT, createFirmwareHandlers } from './handlers/firmware.mjs';
+import { createGoldenHandlers } from './handlers/golden.mjs';
 import { createFleetHandlers } from './handlers/fleet.mjs';
 import { createGroupHandlers } from './handlers/groups.mjs';
 import { createLocationHandlers } from './handlers/location.mjs';
@@ -339,6 +340,8 @@ export function createApp({
   // Each board's version timeline (handlers/timeline.mjs), made from the update history.
   const timeline = createTimelineHandlers(context, { devices, updates });
   const firmware = createFirmwareHandlers(context, { deployments, fleet });
+  // Golden image promotion (console 2.27.7, firmware 1.19.3): a release's signed record, and its jobs.
+  const golden = createGoldenHandlers(context, { devices, fleet });
   const groups = createGroupHandlers(context, { devices, fleet });
   const rollouts = createRolloutHandlers(context, { devices, deployments, fleet, audit, updates: () => updates });
   // Starts asked for later (console 2.20.0): made, edited and cancelled here, started by the schedule (tick.mjs).
@@ -457,6 +460,23 @@ export function createApp({
       action: 'firmware.revoke',
       maxBody: SMALL_BODY_LIMIT,
     }),
+    // Golden image promotion (handlers/golden.mjs): a record signed offline for a release, and the job
+    // that makes it the golden image on boards. Release managers only, on record, from the website only.
+    route(
+      'POST',
+      '/api/firmware/{version}/golden',
+      golden.uploadRecord,
+      { action: 'firmware.golden_record', maxBody: SMALL_BODY_LIMIT },
+      { token: false, phone: false }
+    ),
+    route('GET', '/api/golden/promotions', golden.list),
+    route(
+      'POST',
+      '/api/golden/promotions',
+      golden.promote,
+      { action: 'golden.promote', maxBody: SMALL_BODY_LIMIT },
+      { token: false, phone: false }
+    ),
     // An update over the internet from the phone app too, and stopping one. From the phone a
     // deployment is to one board, and needs a sign-in in the last 15 minutes: see
     // deployments.create. Uploading and revoking stay on the website.

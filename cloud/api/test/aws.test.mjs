@@ -643,6 +643,7 @@ test('the adapter and the in-memory fake have the same methods', () => {
       'getFleetItem',
       'listFleetItems',
       'putFleetItem',
+      'setReleaseGolden',
       'setReleaseNotes',
       'updateFleetItem',
       // The update history (lib/updates.mjs): a board's facts, read, and put by the backfill.
@@ -2702,6 +2703,40 @@ test('setReleaseNotes changes the note of a registered release and nothing else'
     },
   ]);
   assert.deepEqual(await aws.setReleaseNotes({ sk: SK, notes: '' }), { ok: false, reason: 'not_found' });
+});
+
+test('setReleaseGolden stores a promotion record once, on an active release', async () => {
+  const aws = adapter();
+  const golden = { record: 'Q0dMRA==', counter: 3, uploadedBy: { sub: 'abc', email: 'someone' }, uploadedAt: 'now' };
+  sdk.reply(
+    'UpdateItemCommand',
+    {
+      Attributes: {
+        ...RELEASE_ITEM,
+        golden: {
+          M: {
+            record: { S: 'Q0dMRA==' },
+            counter: { N: '3' },
+            uploadedBy: { M: { sub: { S: 'abc' }, email: { S: 'someone' } } },
+            uploadedAt: { S: 'now' },
+          },
+        },
+      },
+    },
+    fails('ConditionalCheckFailedException')
+  );
+  assert.deepEqual(await aws.setReleaseGolden({ sk: SK, golden }), {
+    ok: true,
+    release: { ...RELEASE, pk: 'REL', sk: SK, golden },
+  });
+  const [input] = sdk.inputs('UpdateItemCommand');
+  assert.equal(input.UpdateExpression, 'SET #golden = :golden');
+  assert.equal(
+    input.ConditionExpression,
+    'attribute_exists(#pk) AND #status = :active AND attribute_not_exists(#golden)'
+  );
+  assert.deepEqual(input.ExpressionAttributeValues[':active'], { S: 'active' });
+  assert.deepEqual(await aws.setReleaseGolden({ sk: SK, golden }), { ok: false, reason: 'not_available' });
 });
 
 // The customer site's adapters (src/customer/aws.mjs), held to the same reference.

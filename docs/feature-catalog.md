@@ -48,6 +48,7 @@ The cloud is one AWS SAM stack (`cloud/infra/template.yaml`): an HTTP API, AWS I
 | Feature | What it does | Since | Where | Reuse notes |
 | --- | --- | --- | --- | --- |
 | Devices and board pages | Every board as it last reported: version, Wi-Fi, cloud, update state, boot diary, diagnostics | 1.x | `devices`, `device` pages | Reads the device shadow; no polling of boards |
+| Make golden | A release manager uploads a release's signed promotion record (checked against the golden public key and the release's image hash) and makes it golden on one board, a group or every board that runs it; each board's golden version on its page; both on the activity log | 2.27.7 | `cloud/api/src/handlers/golden.mjs`, Firmware page | The console verifies and never signs: the golden private key stays offline |
 | Board names | A label first, the hardware ID second, everywhere | 2.25.14 | console 2.25.14 | People recognise names, not IDs |
 | Firmware releases | Upload a signed image; the console checks the signature and registers the version once | 1.x | `firmware` page, `scripts/firmware/upload-to-console.sh` | A version number is burned once uploaded |
 | Deployments and staged rollouts | Send a release to one board, a group or the fleet, in waves, with rollback to the last good | 1.x | `deployments`, `rollout`, `docs/mass-updates.md` | Built on AWS IoT jobs |
@@ -161,6 +162,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-12 | Make golden: a release's signed golden record, its promotion to boards, each board's golden image | console 2.27.7 | open |
 | 2026-11-11 | Board log keeps location lines; refused Bluetooth and cloud updates for another board shown, warned and alerted | console 2.27.6 | #241 |
 | 2026-11-11 | Customer site: a reassigned board's health, like its activity and sessions, covers only the new owner's time | console 2.27.5 | #227 |
 | 2026-11-11 | Update over Bluetooth: Look for boards stays in reach after choosing a release | console 2.27.5 | #227 |
