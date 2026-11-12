@@ -56,6 +56,15 @@ All in `:root` of `app.css`, with dark values under `prefers-color-scheme: dark`
 The customer site (`cloud/web/src/customer/`) shares these colours and its grouped look. It also loads `app.css`, so
 the console's page rules are under the `console` class of the console's `<body>`.
 
+## Components
+
+From console 2.25.17 the pieces every page uses have one set of names, `ui-*`, in `app.css` ("Shared components"):
+page head, card, stat tile, table, filter bar, buttons, badges, step list, meter, the empty, loading and error states,
+notice, toast and dialog. A new page uses these names only. The older names (`btn`, `badge`, `card`, `data-table`,
+`dialog` and the rest) are aliases for one release: the rules that style a piece on its own carry both, and the views write
+both. Each page's redesign moves its own rules to the new names; then the older names go. A board is named by its label
+first and its ID second (`ui-board`). `cloud/web/test/site.test.mjs` pins the names, the aliases and their contrast.
+
 ## Where things are
 
 | Part | Code |

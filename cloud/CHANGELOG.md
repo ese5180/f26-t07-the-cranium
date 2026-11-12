@@ -7,6 +7,18 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.25.17
+
+Shared components, the redesign's second step: the console's pieces under one set of names, so the pages that follow are built from them. Buttons are 40 px tall on a desk and 44 px on a phone, and their focus ring follows their corners; badges are 13 px, the floor for anything read as words; the filter bar and dialogs take the corners and the edge of the cards, and a toast the corners of a tile; a dialog dims the page in the light theme too, and its foot is a step down from its body. Nothing else on a page moves.
+
+`app.css` names the components `ui-*`: page head, card (with `ui-card-title`), stat tile (`ui-stats.is-tiles`), table
+(`ui-table`, `ui-table-wrap`, a sortable heading, `.is-stacked` on a phone, `ui-board`: a board's label first and its ID
+second), filter bar, buttons, badges (`.is-info` too), step list (`ui-steps`, new), meter (with tones), empty, loading and
+error (`ui-error`, new) states, notice, toast and dialog. Each older name is an alias for one release: every rule that
+styles a piece on its own carries both names, and the views write both (`ui-btn btn`). Page rules that place a piece still
+name the older class and move with each page's redesign. site.test.mjs pins the names, the aliases and the components'
+contrast in both themes.
+
 ## 2.25.16
 
 Design tokens v2, the first step of the redesign's design system. The colours take the design audit's values: a page a step darker than its cards, borders and secondary text as the audit measured them, and in the dark theme a card's edge that stands out from the page (1.51:1, from 1.44:1). Corners come in one set (6 px controls, 10 px tiles, 14 px cards and sheets, pills), and the layouts change at one set of widths (380, 460, 560, 700, 860 and 1100 px) instead of 24. Nothing moves except where a width or a corner was rounded to the set: on the customer site "Connect device" is its icon up to 460 px, so the top bar fits every phone with the brand's name.

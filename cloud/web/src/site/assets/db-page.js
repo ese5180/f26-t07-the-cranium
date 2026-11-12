@@ -420,8 +420,8 @@ function filterForm(table, spec) {
     field('Text', input('text', { maxlength: String(MAX_TEXT), placeholder: 'in what is shown' })),
     h(
       'div',
-      { class: 'button-row db-filter-buttons' },
-      h('button', { type: 'submit', class: 'btn is-primary' }, icon('list'), 'Apply'),
+      { class: 'ui-button-row button-row db-filter-buttons' },
+      h('button', { type: 'submit', class: 'ui-btn btn is-primary' }, icon('list'), 'Apply'),
       button(
         'is-quiet',
         () => {
@@ -517,7 +517,7 @@ function itemView(ctx) {
       item.value ? fields(item.value.item) : item.error ? null : loading('the item'),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         'Fields that hold a credential, or something as good as one, read hidden for everybody.'
       )
     )
@@ -530,7 +530,7 @@ function exportCard(table, limit) {
     { key: 'export', title: 'Export' },
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       `The items of these filters, up to ${limit.toLocaleString('en-US')}, as they are shown here. `,
       'Each export goes in the activity log.',
       tools.share
@@ -541,14 +541,14 @@ function exportCard(table, limit) {
     ),
     h(
       'div',
-      { class: 'button-row' },
+      { class: 'ui-button-row button-row' },
       ['csv', 'json'].map((format) =>
         h(
           'button',
           {
             key: format,
             type: 'button',
-            class: 'btn',
+            class: 'ui-btn btn',
             disabled: busy !== false || (tools.inApp && !tools.share),
             onClick: () => exportAs(table, format),
           },
@@ -628,7 +628,7 @@ export function databaseView(ctx) {
         : [
             h(
               'p',
-              { class: 'card-note', key: 'how' },
+              { class: 'ui-card-note card-note', key: 'how' },
               page.reading === 'query'
                 ? ['A Query of the partition ', mono(page.partition ?? ''), '. ']
                 : 'A Scan of one page of the table. ',
@@ -649,7 +649,7 @@ export function databaseView(ctx) {
             page.cursor
               ? h(
                   'div',
-                  { class: 'button-row', key: 'more' },
+                  { class: 'ui-button-row button-row', key: 'more' },
                   button('', () => more(table), view.more ? 'Reading…' : 'Load more')
                 )
               : null,

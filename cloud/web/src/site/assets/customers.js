@@ -201,7 +201,7 @@ function mfaBadge(customer) {
 function confirmStep(key, question, label, run) {
   return confirming === key
     ? [
-        h('span', { class: 'card-note', key: `${key} ask` }, question),
+        h('span', { class: 'ui-card-note card-note', key: `${key} ask` }, question),
         button('is-small is-danger', run, label),
         button('is-small is-quiet', () => ask(null), 'Keep'),
       ]
@@ -261,12 +261,12 @@ function inviteCard(ctx, data) {
       ),
       h(
         'div',
-        { class: 'button-row' },
+        { class: 'ui-button-row button-row' },
         h(
           'button',
           {
             type: 'submit',
-            class: 'btn is-primary',
+            class: 'ui-btn btn is-primary',
             'aria-disabled': invite.busy || noAddress ? 'true' : null,
           },
           invite.busy ? 'Inviting…' : 'Invite'
@@ -275,7 +275,7 @@ function inviteCard(ctx, data) {
     ),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       noAddress
         ? 'Invitations wait until the customer site has an address, because an invitation names it.'
         : [
@@ -291,7 +291,7 @@ function inviteCard(ctx, data) {
           h('summary', null, 'Details'),
           h(
             'p',
-            { class: 'card-note' },
+            { class: 'ui-card-note card-note' },
             'The address is the stack’s CustomerDomainName, set when the console is deployed.'
           )
         )
@@ -308,7 +308,7 @@ function freeBoards(ctx, customers) {
 
 function assignForm(customer, free) {
   const row = rowOf(customer.id);
-  if (free.length === 0) return h('p', { class: 'card-note' }, 'Every board has a customer already.');
+  if (free.length === 0) return h('p', { class: 'ui-card-note card-note' }, 'Every board has a customer already.');
   return h(
     'form',
     {
@@ -369,10 +369,10 @@ function assignForm(customer, free) {
     ),
     h(
       'div',
-      { class: 'button-row' },
+      { class: 'ui-button-row button-row' },
       h(
         'button',
-        { type: 'submit', class: 'btn', 'aria-disabled': row.busy || !isThing(row.thing) ? 'true' : null },
+        { type: 'submit', class: 'ui-btn btn', 'aria-disabled': row.busy || !isThing(row.thing) ? 'true' : null },
         icon('plus'),
         row.busy ? 'Giving…' : 'Give board'
       )
@@ -405,7 +405,7 @@ function boardItem(customer, board, devices, inApp = false) {
       : confirming === key
         ? h(
             'span',
-            { class: 'button-row' },
+            { class: 'ui-button-row button-row' },
             button(
               'is-small is-danger',
               () =>
@@ -465,13 +465,15 @@ function customerRow(ctx, customer, free) {
         ? h('li', { class: 'quiet' }, 'No boards yet.')
         : customer.boards.map((board) => boardItem(customer, board, devices, ctx.state.app))
     ),
-    ctx.state.app ? h('div', { class: 'button-row customer-actions' }, onTheWebsite(ctx, 'customers')) : null,
+    ctx.state.app
+      ? h('div', { class: 'ui-button-row button-row customer-actions' }, onTheWebsite(ctx, 'customers'))
+      : null,
     customer.status === 'gone' || ctx.state.app ? null : assignForm(customer, free),
     ctx.state.app
       ? null
       : h(
           'div',
-          { class: 'button-row customer-actions' },
+          { class: 'ui-button-row button-row customer-actions' },
           customer.status === 'invited'
             ? button(
                 'is-small',
@@ -499,7 +501,7 @@ function customerRow(ctx, customer, free) {
               ? [
                   h(
                     'span',
-                    { class: 'card-note', key: 'ask' },
+                    { class: 'ui-card-note card-note', key: 'ask' },
                     `${name} will not be able to sign in, and stops seeing their boards within a minute.`
                   ),
                   button(
@@ -555,7 +557,7 @@ export function customersView(ctx) {
       ],
     },
     tools: data?.siteUrl
-      ? h('a', { class: 'btn is-small', href: data.siteUrl }, 'Open the customer site', icon('arrow-right'))
+      ? h('a', { class: 'ui-btn btn is-small', href: data.siteUrl }, 'Open the customer site', icon('arrow-right'))
       : null,
   });
   if (data === null) {
@@ -609,7 +611,7 @@ export function customersView(ctx) {
             h('summary', null, 'Details'),
             h(
               'p',
-              { class: 'card-note' },
+              { class: 'ui-card-note card-note' },
               'The address is the stack’s CustomerDomainName, set when the console is deployed.'
             )
           )
@@ -648,7 +650,11 @@ export function customersView(ctx) {
                 ],
               }),
               shown.length === 0
-                ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No customers match. Try other words, or Clear.')
+                ? h(
+                    'p',
+                    { class: 'quiet ui-filter-none filter-none', key: 'none' },
+                    'No customers match. Try other words, or Clear.'
+                  )
                 : h(
                     'ul',
                     { class: 'customers', key: 'rows' },
@@ -664,7 +670,7 @@ export function customersView(ctx) {
               { key: 'invite', title: 'Invite a customer' },
               h(
                 'p',
-                { class: 'card-note' },
+                { class: 'ui-card-note card-note' },
                 'The apps show the customers and their boards; inviting, giving or taking back a board and every other change is made on the console’s website.'
               ),
               onTheWebsite(ctx, 'customers', 'Invite on the website')
@@ -673,7 +679,7 @@ export function customersView(ctx) {
         card(
           { key: 'free', title: 'Boards nobody has' },
           free.length === 0
-            ? h('p', { class: 'card-note' }, 'None: every board has a customer.')
+            ? h('p', { class: 'ui-card-note card-note' }, 'None: every board has a customer.')
             : h(
                 'ul',
                 { class: 'customers-free' },

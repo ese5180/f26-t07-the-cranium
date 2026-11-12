@@ -363,7 +363,7 @@ function command(line, ctx) {
       'button',
       {
         type: 'button',
-        class: 'btn is-quiet is-icon',
+        class: 'ui-btn btn is-quiet is-icon',
         title: `Copy ${line}`,
         'aria-label': `Copy ${line}`,
         onClick: () => ctx.actions.copy(line, 'the command'),
@@ -391,7 +391,7 @@ function configButton() {
     'button',
     {
       type: 'button',
-      class: 'btn is-small',
+      class: 'ui-btn btn is-small',
       disabled: busy === 'config',
       onClick: saveConfig,
     },
@@ -421,13 +421,13 @@ function qrBlock(release, ctx) {
       { class: 'app-qr is-empty', key: 'qr' },
       h(
         'button',
-        { type: 'button', class: 'btn', disabled: busy === 'qr', onClick: () => showQr(release) },
+        { type: 'button', class: 'ui-btn btn', disabled: busy === 'qr', onClick: () => showQr(release) },
         icon('arrow-right'),
         'Show a QR code for a phone'
       ),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         "A link the phone's camera can open: it downloads the APK without signing in, for 15 minutes."
       )
     );
@@ -461,13 +461,13 @@ function qrBlock(release, ctx) {
           ),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         "Point the phone's camera at it and open the link. Whoever scans it before then can download the " +
           'APK without signing in: show it to your own phone only. The link is on record under your name.'
       ),
       h(
         'button',
-        { type: 'button', class: 'btn is-small', disabled: busy === 'qr', onClick: () => showQr(release) },
+        { type: 'button', class: 'ui-btn btn is-small', disabled: busy === 'qr', onClick: () => showQr(release) },
         icon('restart'),
         over ? 'Make a new one' : 'Make another'
       )
@@ -519,13 +519,13 @@ function olderReleases(releases, ctx) {
               ' ',
               h('span', { class: 'quiet' }, `${fileSize(release.size)} · `, publishedLine(release, ctx.state.now))
             ),
-            release.notes ? h('p', { class: 'card-note' }, release.notes) : null
+            release.notes ? h('p', { class: 'ui-card-note card-note' }, release.notes) : null
           ),
           h(
             'button',
             {
               type: 'button',
-              class: 'btn is-small',
+              class: 'ui-btn btn is-small',
               disabled: busy === `download:${release.version}`,
               onClick: () => download(release),
               'aria-label': `Download ${release.version}`,
@@ -567,7 +567,13 @@ function androidCard(apps, versions, ctx) {
       }),
       ctx.state.me?.canWrite
         ? commands(
-            h('p', { class: 'card-note' }, 'The token is read from ', mono('~/.cranium/console-token'), '.'),
+            h(
+              'p',
+              { class: 'ui-card-note card-note' },
+              'The token is read from ',
+              mono('~/.cranium/console-token'),
+              '.'
+            ),
             command('apps/android/build-release.sh', ctx)
           )
         : null,
@@ -602,7 +608,7 @@ function androidCard(apps, versions, ctx) {
                 'button',
                 {
                   type: 'button',
-                  class: 'btn is-quiet is-icon',
+                  class: 'ui-btn btn is-quiet is-icon',
                   title: 'Copy the SHA-256',
                   'aria-label': 'Copy the SHA-256',
                   onClick: () => ctx.actions.copy(latest.sha256, `the SHA-256 of ${latest.version}`),
@@ -616,12 +622,12 @@ function androidCard(apps, versions, ctx) {
         ]),
         h(
           'div',
-          { class: 'button-row app-actions' },
+          { class: 'ui-button-row button-row app-actions' },
           h(
             'button',
             {
               type: 'button',
-              class: 'btn is-primary',
+              class: 'ui-btn btn is-primary',
               disabled: busy === `download:${latest.version}`,
               onClick: () => download(latest),
             },
@@ -650,7 +656,7 @@ function linkBlock(ctx) {
       h(
         'div',
         { class: 'app-qr-text' },
-        h('a', { class: 'btn is-primary', href: made.add }, icon('plus'), 'Add to SideStore'),
+        h('a', { class: 'ui-btn btn is-primary', href: made.add }, icon('plus'), 'Add to SideStore'),
         h(
           'div',
           { class: 'app-command' },
@@ -659,7 +665,7 @@ function linkBlock(ctx) {
             'button',
             {
               type: 'button',
-              class: 'btn is-quiet is-icon',
+              class: 'ui-btn btn is-quiet is-icon',
               title: 'Copy the source link',
               'aria-label': 'Copy the source link',
               onClick: () => ctx.actions.copy(made.url, 'your source link'),
@@ -669,7 +675,7 @@ function linkBlock(ctx) {
         ),
         h(
           'p',
-          { class: 'card-note' },
+          { class: 'ui-card-note card-note' },
           'On the iPhone, tap Add to SideStore, or scan the code with its camera. In SideStore you ' +
             'can also add the address under Sources. It is shown this once: keep it to yourself, since whoever has it can ' +
             'download the app without signing in. If it got out, make a new one, which ends this one.'
@@ -680,9 +686,13 @@ function linkBlock(ctx) {
   const ask = (what, words, run) =>
     h(
       'div',
-      { class: 'button-row', key: `ask-${what}` },
-      h('button', { type: 'button', class: 'btn is-small is-danger', disabled: busy === 'link', onClick: run }, words),
-      h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: () => confirmFirst('') }, 'Keep it')
+      { class: 'ui-button-row button-row', key: `ask-${what}` },
+      h(
+        'button',
+        { type: 'button', class: 'ui-btn btn is-small is-danger', disabled: busy === 'link', onClick: run },
+        words
+      ),
+      h('button', { type: 'button', class: 'ui-btn btn is-small is-quiet', onClick: () => confirmFirst('') }, 'Keep it')
     );
   if (link.status === 'active' && link.source !== null) {
     const { source } = link;
@@ -718,12 +728,12 @@ function linkBlock(ctx) {
           ? ask('revoke', 'Turn it off: SideStore stops updating the app', revokeLink)
           : h(
               'div',
-              { class: 'button-row' },
+              { class: 'ui-button-row button-row' },
               h(
                 'button',
                 {
                   type: 'button',
-                  class: 'btn is-small',
+                  class: 'ui-btn btn is-small',
                   disabled: busy === 'link',
                   onClick: () => confirmFirst('replace'),
                 },
@@ -734,7 +744,7 @@ function linkBlock(ctx) {
                 'button',
                 {
                   type: 'button',
-                  class: 'btn is-small is-quiet',
+                  class: 'ui-btn btn is-small is-quiet',
                   disabled: busy === 'link',
                   onClick: () => confirmFirst('revoke'),
                 },
@@ -748,17 +758,17 @@ function linkBlock(ctx) {
     'div',
     { class: 'app-source', key: 'link' },
     link.status === 'failed'
-      ? h('p', { class: 'card-note' }, 'Whether you have a link could not be looked up just now.')
+      ? h('p', { class: 'ui-card-note card-note' }, 'Whether you have a link could not be looked up just now.')
       : null,
     h(
       'button',
-      { type: 'button', class: 'btn is-primary', disabled: busy === 'link', onClick: makeLink },
+      { type: 'button', class: 'ui-btn btn is-primary', disabled: busy === 'link', onClick: makeLink },
       icon('key'),
       'Make my SideStore link'
     ),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       'A link of your own, which SideStore reads without signing in to the console. It is shown once.'
     )
   );
@@ -771,14 +781,14 @@ function sidestoreSection(apps, ctx) {
     h('h3', { class: 'app-how-title' }, 'On any iPhone, with SideStore'),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       'Free, with your own Apple ID, and a computer only the first time. SideStore signs the app ' +
         'on the iPhone and installs each new version from your own source.'
     ),
     apps.ios.latest === null
       ? h(
           'p',
-          { class: 'card-note' },
+          { class: 'ui-card-note card-note' },
           'No iPhone version is published on the console yet: your source lists it once one is.'
         )
       : null,
@@ -794,7 +804,7 @@ function sidestoreSection(apps, ctx) {
     ]),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       'What to do when something goes wrong: ',
       h('a', { href: UPDATES_GUIDE, target: '_blank', rel: 'noopener noreferrer' }, 'updates on every phone'),
       ' (opens GitHub).'
@@ -827,12 +837,12 @@ function iphoneCard(apps, versions, ctx) {
       published
         ? h(
             'div',
-            { class: 'button-row app-actions' },
+            { class: 'ui-button-row button-row app-actions' },
             h(
               'button',
               {
                 type: 'button',
-                class: 'btn is-small',
+                class: 'ui-btn btn is-small',
                 disabled: busy === `ipa:${published.version}`,
                 onClick: () => downloadIpa(published),
               },
@@ -849,7 +859,7 @@ function iphoneCard(apps, versions, ctx) {
       h('h3', { class: 'app-how-title' }, 'Or install it with a Mac'),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         'It takes Xcode 16 or later, ',
         mono('brew install xcodegen'),
         ', your Apple ID in Xcode (a free Personal Team), and Developer Mode on the iPhone.'
@@ -874,7 +884,7 @@ function iphoneCard(apps, versions, ctx) {
       ]),
       h(
         'p',
-        { class: 'card-note' },
+        { class: 'ui-card-note card-note' },
         'All of it, with what to do when something goes wrong: ',
         h(
           'a',
@@ -883,7 +893,11 @@ function iphoneCard(apps, versions, ctx) {
         ),
         ' (opens GitHub).'
       ),
-      h('p', { class: 'card-note' }, "The owner's iPhone is kept up to date this way, over the Mac's Wi-Fi.")
+      h(
+        'p',
+        { class: 'ui-card-note card-note' },
+        "The owner's iPhone is kept up to date this way, over the Mac's Wi-Fi."
+      )
     )
   );
 }
@@ -893,7 +907,7 @@ function buildCard(ctx) {
     { key: 'build', title: 'Build the Android app yourself', className: 'app-card' },
     h(
       'p',
-      { class: 'card-note', key: 'lede' },
+      { class: 'ui-card-note card-note', key: 'lede' },
       'On Windows, Linux or macOS, with JDK 17 and the Android SDK. A debug build is signed ' +
         "with your own computer's key: Android will not put it over the team's APK, so uninstall that first."
     ),

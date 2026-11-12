@@ -328,19 +328,23 @@ function emailCard(data, ctx) {
       said
     ),
     settings.updatedBy
-      ? h('p', { class: 'card-note' }, `Last changed by ${settings.updatedBy}, ${exactTime(settings.updatedAt)}.`)
+      ? h(
+          'p',
+          { class: 'ui-card-note card-note' },
+          `Last changed by ${settings.updatedBy}, ${exactTime(settings.updatedAt)}.`
+        )
       : null,
     canChange
       ? h(
           'p',
-          { class: 'button-row' },
+          { class: 'ui-button-row button-row' },
           button(
             settings.email ? '' : 'is-primary',
             () => ctx.actions.setReportEmail(!settings.email),
             saving.busy ? 'Saving…' : settings.email ? 'Switch the e-mail off' : 'Switch the e-mail on'
           )
         )
-      : h('p', { class: 'card-note' }, 'A release manager switches it on or off.'),
+      : h('p', { class: 'ui-card-note card-note' }, 'A release manager switches it on or off.'),
     saving.error ? failure('The setting was not changed.', saving.error) : null
   );
 }
@@ -414,7 +418,11 @@ function healthCard(report) {
         )
       )
     ),
-    h('p', { class: 'card-note' }, 'From the daily snapshots of the score (0 to 100). A dash: no snapshot that day.')
+    h(
+      'p',
+      { class: 'ui-card-note card-note' },
+      'From the daily snapshots of the score (0 to 100). A dash: no snapshot that day.'
+    )
   );
 }
 
@@ -459,9 +467,9 @@ function boardsCard(report) {
         )
       : null,
     versions.unknown
-      ? h('p', { class: 'card-note' }, `${plural(versions.unknown, 'board')} did not say which firmware.`)
+      ? h('p', { class: 'ui-card-note card-note' }, `${plural(versions.unknown, 'board')} did not say which firmware.`)
       : null,
-    boards.known ? h('p', { class: 'card-note' }, asOf) : null
+    boards.known ? h('p', { class: 'ui-card-note card-note' }, asOf) : null
   );
 }
 
@@ -543,7 +551,7 @@ function deploymentsCard(report) {
     updates.succeeded !== null
       ? h(
           'p',
-          { class: 'card-note' },
+          { class: 'ui-card-note card-note' },
           `As the boards reported them: ${plural(updates.succeeded, 'update')} kept, ${updates.failed} failed, ` +
             `${updates.rolledBack} rolled back by the board.`
         )
@@ -664,7 +672,12 @@ function alertsCard(report) {
                 )
               )
           ),
-          h('p', { class: 'card-note' }, h('a', { href: '#/activity' }, 'The activity log'), ' has every entry.')
+          h(
+            'p',
+            { class: 'ui-card-note card-note' },
+            h('a', { href: '#/activity' }, 'The activity log'),
+            ' has every entry.'
+          )
         )
       : null
   );
@@ -717,7 +730,11 @@ export function reportView(ctx) {
     deploymentsCard(report),
     memfaultCard(report),
     alertsCard(report),
-    h('p', { class: 'card-note report-made' }, `Made ${exactTime(report.generatedAt)} from the console’s records.`)
+    h(
+      'p',
+      { class: 'ui-card-note card-note report-made' },
+      `Made ${exactTime(report.generatedAt)} from the console’s records.`
+    )
   );
 }
 

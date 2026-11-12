@@ -529,7 +529,7 @@ test('the overview does not read as all well right after a rollout went wrong', 
   assert.equal(textOf(titleOf(failed)), 'The last deployment failed.');
   assert.equal(titleOf(failed).getAttribute('class'), 'calm-title is-bad');
   assert.equal(textOf(badgeOf(failed)), 'Failed');
-  assert.equal(badgeOf(failed).getAttribute('class'), 'badge is-bad');
+  assert.equal(badgeOf(failed).getAttribute('class'), 'ui-badge badge is-bad');
   assert.match(textOf(failed), /2 min ago\. No update is in progress\./);
 
   const partly = await updates([
@@ -626,7 +626,7 @@ test('the overview keeps the log at full width below two columns, and only so ma
   assert.equal(textOf(all(glance, 'span.glance-value')[0]), '9/9');
   const grid = one(overview, 'div.overview');
   assert.deepEqual(
-    grid.children.map((child) => child.getAttribute('class').replace('card ', '')),
+    grid.children.map((child) => child.getAttribute('class').replace('ui-card card ', '')),
     ['overview-boards', 'overview-activity']
   );
   const boards = one(grid, 'section.overview-boards');
@@ -884,7 +884,7 @@ test('the newest release is the newest one that can be deployed, on both cards t
 test('a board that waits for its button is the one thing on the page that asks for somebody', async () => {
   const state = await consoleState(WORLD);
   const card = one(page(views.deploymentView, state, { id: OFFERED }), 'article.execution');
-  assert.equal(card.getAttribute('class'), 'card execution is-act');
+  assert.equal(card.getAttribute('class'), 'ui-card card execution is-act');
   assert.equal(textOf(one(card, 'p.execution-title')), 'Press Button 1 on the board');
   assert.equal(
     all(one(card, 'p.execution-title'), 'span').filter((item) => item.getAttribute('role') === 'status').length,
@@ -2118,7 +2118,7 @@ test('a refused image leads to another file; only a request that failed is offer
   );
   // One way on, and it is not the same bytes again.
   assert.deepEqual(controls(refused.panel), ['Choose another file']);
-  assert.equal(one(refused.panel, 'button', 'Choose another file').getAttribute('class'), 'btn is-primary');
+  assert.equal(one(refused.panel, 'button', 'Choose another file').getAttribute('class'), 'ui-btn btn is-primary');
   assert.equal(all(refused.panel, 'textarea').length, 0);
   assert.equal(withText(refused.panel, 'li.check', 'Signature').length, 0);
   click(one(refused.panel, 'button', 'Choose another file'));
@@ -2475,7 +2475,7 @@ test('with nothing to deploy, the way on is the Firmware page and not an empty d
     assert.deepEqual(controls(drawn), ['Refresh now', 'Upload firmware first']);
     const link = one(drawn, 'a.btn', 'Upload firmware first');
     assert.equal(link.getAttribute('href'), '#/firmware');
-    assert.equal(link.getAttribute('class'), 'btn is-primary');
+    assert.equal(link.getAttribute('class'), 'ui-btn btn is-primary');
     // The words that name the page lead to it.
     assert.equal(one(one(drawn, 'p.empty-text'), 'a', 'Firmware page').getAttribute('href'), '#/firmware');
   }
@@ -2874,7 +2874,7 @@ test('revoking again: a release that is revoked already is finished, not asked f
   );
   assert.deepEqual(controls(finish.dialog), ['Close', 'Close', 'Finish revoking']);
   const go = one(finish.dialog, 'button', 'Finish revoking');
-  assert.equal(go.getAttribute('class'), 'btn is-primary');
+  assert.equal(go.getAttribute('class'), 'ui-btn btn is-primary');
   assert.equal(go.disabled, false);
   submit(finish.dialog);
   assert.deepEqual(finish.calls, [['submit']]);
@@ -2910,11 +2910,24 @@ test('a dialog says that a request failed next to its buttons, outside the part 
   };
   const parts = (dialog) => one(dialog, 'form').children.map((part) => part.getAttribute('class'));
   for (const [name, open] of Object.entries(dialogs)) {
-    assert.deepEqual(parts(open()), ['dialog-head', 'dialog-body', 'dialog-foot'], name);
+    assert.deepEqual(
+      parts(open()),
+      ['ui-dialog-head dialog-head', 'ui-dialog-body dialog-body', 'ui-dialog-foot dialog-foot'],
+      name
+    );
     // The body of a dialog scrolls. A message at its end would lie below what a small
     // window shows, and the button that was used would seem to have done nothing.
     const dialog = open({ error: failed });
-    assert.deepEqual(parts(dialog), ['dialog-head', 'dialog-body', 'dialog-error', 'dialog-foot'], name);
+    assert.deepEqual(
+      parts(dialog),
+      [
+        'ui-dialog-head dialog-head',
+        'ui-dialog-body dialog-body',
+        'ui-dialog-error dialog-error',
+        'ui-dialog-foot dialog-foot',
+      ],
+      name
+    );
     assert.equal(all(one(dialog, 'div.dialog-body'), 'div.notice').length, 0, name);
     assert.equal(
       textOf(one(one(dialog, 'div.dialog-error'), 'span.notice-said')),

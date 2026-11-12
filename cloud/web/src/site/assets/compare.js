@@ -218,7 +218,7 @@ export function timelineList(thing, ctx, { compact = false } = {}) {
     cursor
       ? h(
           'p',
-          { class: 'button-row', key: 'more' },
+          { class: 'ui-button-row button-row', key: 'more' },
           button(
             'is-small',
             () => ctx.actions.moreTimeline(thing),
@@ -236,7 +236,7 @@ export function timelineSection(thing, ctx) {
     timelineList(thing, ctx),
     h(
       'p',
-      { class: 'card-note', key: 'note' },
+      { class: 'ui-card-note card-note', key: 'note' },
       'Every version this board ran, from its update history. Restarts and issues are its warnings while on each.'
     )
   );
@@ -389,7 +389,7 @@ export function compareView(ctx) {
       { key: 'facts', title: 'Side by side', className: 'compare-card' },
       h(
         'p',
-        { class: 'card-note compare-summary', key: 'summary' },
+        { class: 'ui-card-note card-note compare-summary', key: 'summary' },
         differing === 0
           ? 'These boards agree on everything compared.'
           : `${plural(differing, 'row differs', 'rows differ')}.`

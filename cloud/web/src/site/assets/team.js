@@ -397,10 +397,10 @@ function inviteCard() {
       ),
       h(
         'div',
-        { class: 'button-row' },
+        { class: 'ui-button-row button-row' },
         h(
           'button',
-          { type: 'submit', class: 'btn is-primary', 'aria-disabled': invite.busy ? 'true' : null },
+          { type: 'submit', class: 'ui-btn btn is-primary', 'aria-disabled': invite.busy ? 'true' : null },
           icon('plus'),
           invite.busy ? 'Inviting…' : 'Invite'
         )
@@ -408,7 +408,7 @@ function inviteCard() {
     ),
     h(
       'p',
-      { class: 'card-note' },
+      { class: 'ui-card-note card-note' },
       'The invitation goes out by e-mail with a temporary password, which works for 3 days. At the first sign-in ' +
         'they choose a password and set up an authenticator app; nobody here sees either.'
     ),
@@ -460,25 +460,25 @@ function accountRow(ctx, account, accounts) {
       )
     ),
     account.you
-      ? h('p', { class: 'card-note' }, 'Your own account: another release manager changes it.')
+      ? h('p', { class: 'ui-card-note card-note' }, 'Your own account: another release manager changes it.')
       : lonely
         ? h(
             'p',
-            { class: 'card-note' },
+            { class: 'ui-card-note card-note' },
             'The only enabled release manager: make somebody else one before you demote, disable, reset or remove them.'
           )
         : null,
     actions.length === 0
       ? null
       : ctx.state.app
-        ? h('div', { class: 'button-row team-actions' }, onTheWebsite(ctx, 'team'))
+        ? h('div', { class: 'ui-button-row button-row team-actions' }, onTheWebsite(ctx, 'team'))
         : h(
             'div',
-            { class: 'button-row team-actions' },
+            { class: 'ui-button-row button-row team-actions' },
             actions.map(([key, label, iconName, open]) =>
               h(
                 'button',
-                { key, type: 'button', class: 'btn is-small', 'data-action': key, onClick: () => open() },
+                { key, type: 'button', class: 'ui-btn btn is-small', 'data-action': key, onClick: () => open() },
                 icon(iconName),
                 label
               )
@@ -559,7 +559,11 @@ export function teamView(ctx) {
                 ],
               }),
               shown.length === 0
-                ? h('p', { class: 'quiet filter-none', key: 'none' }, 'No accounts match. Try other words, or Clear.')
+                ? h(
+                    'p',
+                    { class: 'quiet ui-filter-none filter-none', key: 'none' },
+                    'No accounts match. Try other words, or Clear.'
+                  )
                 : h(
                     'ul',
                     { class: 'team-list', key: 'rows' },
@@ -575,7 +579,7 @@ export function teamView(ctx) {
               { key: 'invite', title: 'Invite a person' },
               h(
                 'p',
-                { class: 'card-note' },
+                { class: 'ui-card-note card-note' },
                 'The apps show the team; inviting and every other change is made on the console’s website.'
               ),
               onTheWebsite(ctx, 'team', 'Invite on the website')
@@ -585,7 +589,7 @@ export function teamView(ctx) {
           { key: 'about', title: 'Resetting an account' },
           h(
             'p',
-            { class: 'card-note' },
+            { class: 'ui-card-note card-note' },
             'A reset gives the person a new password and a new authenticator in one step: their account is ' +
               'replaced, with its tier, and a new invitation goes out by e-mail.'
           ),
@@ -595,7 +599,7 @@ export function teamView(ctx) {
             h('summary', null, 'Details'),
             h(
               'p',
-              { class: 'card-note' },
+              { class: 'ui-card-note card-note' },
               'This pool requires an authenticator app and lets only an administrator recover an account, so ' +
                 'Cognito can neither e-mail a reset code nor forget an authenticator. See docs/accounts.md.'
             )

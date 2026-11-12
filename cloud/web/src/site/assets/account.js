@@ -60,7 +60,7 @@ function whoCard(ctx) {
     ]),
     h(
       'p',
-      { class: 'card-note', key: 'note' },
+      { class: 'ui-card-note card-note', key: 'note' },
       'The activity log files what you do under your account, with the address it had at the time.'
     )
   );
@@ -80,10 +80,15 @@ function alertControls(alerts, ctx) {
   if (alerts.subscription === 'confirmed') {
     return h(
       'div',
-      { class: 'button-row', key: 'controls' },
+      { class: 'ui-button-row button-row', key: 'controls' },
       h(
         'button',
-        { type: 'button', class: 'btn is-small', disabled: busy, onClick: () => ctx.actions.unsubscribeAlerts() },
+        {
+          type: 'button',
+          class: 'ui-btn btn is-small',
+          disabled: busy,
+          onClick: () => ctx.actions.unsubscribeAlerts(),
+        },
         icon('x'),
         'Stop the alerts'
       )
@@ -91,12 +96,12 @@ function alertControls(alerts, ctx) {
   }
   return h(
     'div',
-    { class: 'button-row', key: 'controls' },
+    { class: 'ui-button-row button-row', key: 'controls' },
     h(
       'button',
       {
         type: 'button',
-        class: 'btn is-small is-primary',
+        class: 'ui-btn btn is-small is-primary',
         disabled: busy,
         onClick: () => ctx.actions.subscribeAlerts(),
       },
@@ -213,13 +218,13 @@ function alertsCard(ctx) {
     ruleList(alerts),
     h(
       'p',
-      { class: 'card-note', key: 'page' },
+      { class: 'ui-card-note card-note', key: 'page' },
       linkTo('#/alerts', {}, 'Alert rules'),
       ': turn each on or off and set when it goes.'
     ),
     h(
       'p',
-      { class: 'card-note', key: 'limit' },
+      { class: 'ui-card-note card-note', key: 'limit' },
       `At most one e-mail ${alerts.rules.everyMinutes === 60 ? 'an hour' : `every ${alerts.rules.everyMinutes} minutes`} for each `,
       'board and kind of alert; what happens in between comes with the next one. Each names the board and links to it ',
       'here. No secret, no network name and no position is in one.'
@@ -241,7 +246,12 @@ function sentCard(ctx) {
           alerts.recent.map((item) => sentRow(item, ctx))
         ),
     alerts.recent.length > 0
-      ? h('p', { class: 'card-note', key: 'when' }, 'Newest first. ', when(alerts.recent[0].at, ctx.state.now))
+      ? h(
+          'p',
+          { class: 'ui-card-note card-note', key: 'when' },
+          'Newest first. ',
+          when(alerts.recent[0].at, ctx.state.now)
+        )
       : null
   );
 }
@@ -379,12 +389,12 @@ function rulesCard(ctx) {
     editable
       ? h(
           'div',
-          { class: 'button-row', key: 'save' },
+          { class: 'ui-button-row button-row', key: 'save' },
           h(
             'button',
             {
               type: 'button',
-              class: 'btn is-small is-primary',
+              class: 'ui-btn btn is-small is-primary',
               disabled: !changed || ctx.state.alerts.busy,
               onClick: async () => {
                 if (await ctx.actions.setAlertRules(changes)) {
@@ -402,7 +412,7 @@ function rulesCard(ctx) {
                 'button',
                 {
                   type: 'button',
-                  class: 'btn is-small',
+                  class: 'ui-btn btn is-small',
                   disabled: ctx.state.alerts.busy,
                   onClick: () => {
                     ctx.state.alerts.draft = null;
@@ -416,12 +426,12 @@ function rulesCard(ctx) {
         )
       : h(
           'p',
-          { class: 'card-note', key: 'who' },
+          { class: 'ui-card-note card-note', key: 'who' },
           'Release managers change these; each change is in the activity log.'
         ),
     h(
       'p',
-      { class: 'card-note', key: 'always' },
+      { class: 'ui-card-note card-note', key: 'always' },
       'These always go too: an update that failed or was rolled back, a board that restarted itself for being stuck, ',
       'and a board that moved.'
     )
@@ -444,7 +454,7 @@ function deliveryCard(ctx) {
     alertControls(alerts, ctx),
     h(
       'p',
-      { class: 'card-note', key: 'push' },
+      { class: 'ui-card-note card-note', key: 'push' },
       'Each alert also shows on every open page of the console, and in the phone and desktop apps while they are open. ',
       'A notification on a phone that is not showing the app needs Apple’s and Google’s push services, which are not ',
       'set up: the e-mail is that alert.'

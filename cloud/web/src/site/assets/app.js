@@ -363,7 +363,7 @@ function notify(message, tone = 'good') {
     return;
   }
   const toast = document.createElement('div');
-  toast.className = `toast is-${tone}`;
+  toast.className = `ui-toast toast is-${tone}`;
   let expiry = 0;
   // Where the keyboard came from, if it has come here: it goes back when the toast is gone.
   let cameFrom = null;
@@ -1795,7 +1795,7 @@ function dialogOpen() {
 
 function openDialog(build) {
   const el = document.createElement('dialog');
-  el.className = 'dialog';
+  el.className = 'ui-dialog dialog';
   el.setAttribute('aria-labelledby', 'dialog-title');
   document.body.append(el);
 

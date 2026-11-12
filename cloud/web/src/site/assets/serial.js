@@ -1129,7 +1129,7 @@ function connectionTools(session) {
           session.phase === 'silent'
             ? h(
                 'button',
-                { type: 'button', key: 'again', class: 'btn is-small', onClick: session.probe },
+                { type: 'button', key: 'again', class: 'ui-btn btn is-small', onClick: session.probe },
                 icon('restart'),
                 'Ask again'
               )
@@ -1139,7 +1139,7 @@ function connectionTools(session) {
             {
               type: 'button',
               key: 'off',
-              class: 'btn is-small',
+              class: 'ui-btn btn is-small',
               disabled: session.phase === 'closing',
               onClick: session.disconnect,
             },
@@ -1151,7 +1151,7 @@ function connectionTools(session) {
           {
             type: 'button',
             key: 'on',
-            class: 'btn is-small is-primary',
+            class: 'ui-btn btn is-small is-primary',
             disabled: session.phase === 'opening',
             onClick: session.connect,
           },
@@ -1162,7 +1162,7 @@ function connectionTools(session) {
       {
         type: 'button',
         key: 'clear',
-        class: 'btn is-small is-quiet',
+        class: 'ui-btn btn is-small is-quiet',
         disabled: session.lines.length === 0,
         onClick: session.clear,
       },
@@ -1240,7 +1240,7 @@ function typedInput(session, ctx) {
         onInput: (event) => noteHidden(holdsSecret(event.currentTarget.value)),
         onKeydown: recall,
       }),
-      h('button', { type: 'submit', class: 'btn', disabled: !ready }, icon('send'), 'Send')
+      h('button', { type: 'submit', class: 'ui-btn btn', disabled: !ready }, icon('send'), 'Send')
     ),
     h(
       'p',
@@ -1411,7 +1411,7 @@ function commandRow(command, session, ctx) {
     return h(
       'div',
       { class: 'serial-row is-plain', key: command.name },
-      h('button', { type: 'button', class: 'btn is-small mono', onClick: send }, command.name),
+      h('button', { type: 'button', class: 'ui-btn btn is-small mono', onClick: send }, command.name),
       h('p', { class: 'serial-does' }, command.text),
       reply
     );
@@ -1426,7 +1426,7 @@ function commandRow(command, session, ctx) {
     h(
       'div',
       { class: 'serial-row-foot' },
-      h('button', { type: 'submit', class: `btn is-small ${action} mono`.trim() }, command.name)
+      h('button', { type: 'submit', class: `ui-btn btn is-small ${action} mono`.trim() }, command.name)
     ),
     reply
   );
@@ -1579,7 +1579,7 @@ function mqttHostForm(session, ctx) {
       ? h(
           'div',
           { class: 'serial-row-foot', key: 'foot' },
-          h('button', { type: 'submit', class: 'btn is-small' }, 'Set server')
+          h('button', { type: 'submit', class: 'ui-btn btn is-small' }, 'Set server')
         )
       : h(
           'div',
@@ -1593,11 +1593,11 @@ function mqttHostForm(session, ctx) {
           ),
           h(
             'button',
-            { type: 'button', id: 'serial-MQTT_HOST-yes', class: 'btn is-small is-primary', onClick: confirm },
+            { type: 'button', id: 'serial-MQTT_HOST-yes', class: 'ui-btn btn is-small is-primary', onClick: confirm },
             'Yes, set the server'
           ),
           ' ',
-          h('button', { type: 'button', class: 'btn is-small is-quiet', onClick: cancel }, 'Cancel')
+          h('button', { type: 'button', class: 'ui-btn btn is-small is-quiet', onClick: cancel }, 'Cancel')
         ),
     mqttReply(command.name, session)
   );
@@ -1615,7 +1615,7 @@ function mqttPanel(session, ctx) {
       { class: 'serial-row is-plain', key: check.name },
       h(
         'button',
-        { type: 'button', class: 'btn is-small', onClick: () => sendPlain(check.name, session, ctx) },
+        { type: 'button', class: 'ui-btn btn is-small', onClick: () => sendPlain(check.name, session, ctx) },
         icon('pulse'),
         'Check MQTT'
       ),
@@ -1629,7 +1629,7 @@ function mqttPanel(session, ctx) {
       { class: 'serial-row is-plain', key: reconnect.name },
       h(
         'button',
-        { type: 'button', class: 'btn is-small', onClick: () => sendPlain(reconnect.name, session, ctx) },
+        { type: 'button', class: 'ui-btn btn is-small', onClick: () => sendPlain(reconnect.name, session, ctx) },
         icon('restart'),
         'Reconnect'
       ),
@@ -1678,7 +1678,7 @@ function explained(title, text, command) {
     { class: 'page', key: 'page' },
     developerTabs('serial'),
     pageHead({ title: 'Serial console', lede: LEDE, how: HOW }),
-    h('section', { class: 'card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
+    h('section', { class: 'ui-card card', key: 'why' }, empty({ iconName: 'lock', title, text, command }))
   );
 }
 
