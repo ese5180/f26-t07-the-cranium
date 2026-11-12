@@ -34,7 +34,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 		$(BUILD)/ui_tests $(BUILD)/golden_policy_tests $(BUILD)/bt_ota_policy_tests $(BUILD)/bt_status_tests \
 		$(BUILD)/bt_ota_tests $(BUILD)/ota_bt_tests $(BUILD)/ota_bt_no_consent_tests $(BUILD)/ota_bt_no_confirm_tests \
 		$(BUILD)/console_bt_tests $(BUILD)/app_bt_tests $(BUILD)/ui_bt_tests \
-		$(BUILD)/stuck_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
+		$(BUILD)/stuck_policy_tests $(BUILD)/stack_policy_tests $(BUILD)/join_policy_tests $(BUILD)/console_fault_tests \
 		$(BUILD)/fault_wifi_tests $(BUILD)/fault_wifi_command_tests $(BUILD)/app_fault_tests \
 		$(BUILD)/console_sim_fault $(BUILD)/cloud_tests $(BUILD)/cloud_events_tests \
 		$(BUILD)/command_tests $(BUILD)/location_tests $(BUILD)/location_bt_tests $(BUILD)/image_compat_tests \
@@ -59,6 +59,7 @@ test: $(BUILD)/host_tests $(BUILD)/console_tests $(BUILD)/console_output_tests $
 	./$(BUILD)/app_bt_tests
 	./$(BUILD)/ui_bt_tests
 	./$(BUILD)/stuck_policy_tests
+	./$(BUILD)/stack_policy_tests
 	./$(BUILD)/join_policy_tests
 	./$(BUILD)/console_fault_tests
 	./$(BUILD)/fault_wifi_tests
@@ -312,6 +313,11 @@ $(BUILD)/bt_only_leds_tests: test_bt_only_leds.c $(SRC)/bt_only/bt_only_leds.c $
 # mutate_join.py and mutate_net.py show that these tests notice when a policy, or what net.c tells
 # it, is wrong: `make mutants` runs them.
 # test_app.c has the wiring.
+# The stack report (src/stack_watch.h): the share of each stack used, the warning, and its JSON.
+$(BUILD)/stack_policy_tests: test_stack_policy.c $(SRC)/policy/stack_policy.c $(SRC)/policy/stack_policy.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_stack_policy.c $(SRC)/policy/stack_policy.c
+
 $(BUILD)/stuck_policy_tests: test_stuck_policy.c $(SRC)/policy/stuck_policy.c $(SRC)/policy/stuck_policy.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) $(WARNINGS) -o $@ test_stuck_policy.c $(SRC)/policy/stuck_policy.c

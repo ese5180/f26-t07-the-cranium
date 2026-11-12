@@ -257,6 +257,25 @@ config APP_BT_OTA_TRIAL_MIN_SECONDS
 
 endif # APP_BT_OTA
 
+config APP_STACK_WATCH
+	bool "The stack use of every thread, in the shadow and the log"
+	depends on !APP_BT_ONLY
+	default y
+	select INIT_STACKS
+	select THREAD_STACK_INFO
+	select THREAD_MONITOR
+	select SYS_HEAP_RUNTIME_STATS
+	help
+	  The most of its stack each thread, and the interrupt stack, has ever used, sent into the
+	  device shadow with the diagnostics report as "stacks", and a warning in the log for each one
+	  past 80 % (src/stack_watch.h), and the peak of every heap as "heaps". It reads the fill
+	  pattern that CONFIG_INIT_STACKS leaves and the heaps' own statistics. docs/firmware-memory.md
+	  has the size of each stack and heap.
+
+# The list of heaps that the heap report walks: the system heap, the nRF70 driver's two, and room.
+config SYS_HEAP_ARRAY_SIZE
+	default 8 if APP_STACK_WATCH
+
 config APP_MEMFAULT
 	bool "Memfault: coredumps, metrics and reboot reasons, sent over AWS IoT"
 	depends on MEMFAULT
