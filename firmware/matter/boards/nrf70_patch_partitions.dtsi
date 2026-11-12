@@ -1,0 +1,18 @@
+/*
+ * The nRF70's firmware patches in the DK's external flash, after the second application slot: 88 KB of the
+ * application's internal flash freed. The driver loads them into the nRF70 from here at start-up. MCUboot treats
+ * them as its second image (image 1: slot2 holds them, slot3 takes an update), signed with the same key.
+ */
+&mx25r64 {
+	partitions {
+		slot2_partition: nrf70_wifi_fw_partition: nrf70_fw_partition: partition@eb000 {
+			label = "image-2";
+			reg = <0x000eb000 DT_SIZE_K(128)>;
+		};
+
+		slot3_partition: partition@10b000 {
+			label = "image-3";
+			reg = <0x0010b000 DT_SIZE_K(128)>;
+		};
+	};
+};

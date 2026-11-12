@@ -3,13 +3,6 @@
 #
 mainmenu "Cranium Matter commissioner and Thread border router"
 
-config NCS_SAMPLE_MATTER_ZAP_FILE_PATH
-	string
-	default "${APPLICATION_CONFIG_DIR}/src/default_zap/template.zap"
-	help
-	  The data model the Matter code generator reads. The commissioner serves no clusters of its own yet
-	  (src/empty_provider.cpp answers every request), so it is the smallest one.
-
 config CRANIUM_THREAD_CHANNEL
 	int "Thread channel of a network this board forms"
 	range 11 26
@@ -17,13 +10,6 @@ config CRANIUM_THREAD_CHANNEL
 	help
 	  Used only when the board has no Thread network yet and forms one. Keep it away from the Wi-Fi channel:
 	  25 is clear of Wi-Fi 1 and 6, 15 of Wi-Fi 11 (src/policy/matter_policy.c, mp_pick_thread_channel()).
-
-config CRANIUM_MATTER_ATTESTATION_PARTIAL
-	bool "Accept devices without checking their certificates up to a trusted PAA"
-	default y
-	help
-	  For development: retail devices pass without their PAAs built in. Off, only devices with Matter test
-	  certificates (vendor 0xFFF1) pass. See src/attestation.h.
 
 config CRANIUM_MATTER_BORDER_ROUTER
 	bool "Thread border router with Wi-Fi as the backbone"
