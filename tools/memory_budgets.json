@@ -18,6 +18,18 @@
     "mcuboot": { "flash_free_min": 20480 },
     "tfm": { "flash_free_min": 49152, "ram_free_min": 18432 }
   },
+  "Matter (nRF7002 DK)": {
+    "_measured": "1.21.0, the Matter variant (firmware/matter), first build: app 114634 flash / 205896 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 12824 flash",
+    "app": { "flash_free_min": 106496, "ram_free_min": 196608 },
+    "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
+    "mcuboot": { "flash_free_min": 10240 }
+  },
+  "Matter (nRF5340 DK)": {
+    "_measured": "1.21.0, the Matter variant (firmware/matter), first build: app 117334 flash / 206024 RAM free, ipc_radio 70284 flash / 7528 RAM, mcuboot 16744 flash",
+    "app": { "flash_free_min": 110592, "ram_free_min": 196608 },
+    "ipc_radio": { "flash_free_min": 65536, "ram_free_min": 6144 },
+    "mcuboot": { "flash_free_min": 14336 }
+  },
   "Pi image updates": {
     "_measured": "the firmware job's configuration 'Pi image updates', which comes with the Raspberry Pi work (#165); not built on main yet",
     "app": { "ram_free_min": 20480 }

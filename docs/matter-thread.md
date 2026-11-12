@@ -37,7 +37,7 @@ from start to finish while also leading the Thread network; its parts are ported
 | Thread leader and border router bring-up (`thread_srp`, `border_router`) | forms the network with a random dataset, becomes leader, runs the SRP server, joins Wi-Fi and makes it the border router's backbone |
 | Commissioning rules (`policy/`) | setup-code checks, retry and back-off, reconnect versus re-commission; plain C with host tests |
 | Shell commands, start-up, update hooks | `matter controller ...` commands; the order everything starts in |
-| SDK patches (`sdk/patch_sdk.py`) | six small changes the SDK needs for a commissioner to build and to finish PASE |
+| SDK patches (`sdk/patch_sdk.py`) | nine small changes the SDK needs for a commissioner and border router to build, to parse certificates, to finish PASE and to keep Matter on Thread next to Wi-Fi |
 | Build variant | its own Kconfig, sysbuild, flash layout and data model, not a Nordic sample's |
 
 | Linked, open source | Why not ours |
@@ -81,10 +81,12 @@ separate application, `firmware/matter/`, built for the same boards:
 
 ```sh
 cp -c -R /opt/nordic/ncs/v3.4.0 ~/ncs-matter                     # a copy-on-write copy of the SDK (macOS)
-python3 -I firmware/matter/sdk/patch_sdk.py ~/ncs-matter          # the six SDK changes, below
+python3 -I firmware/matter/sdk/patch_sdk.py ~/ncs-matter          # the nine SDK changes, below
 export ZEPHYR_BASE=~/ncs-matter/zephyr
-west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter   # Wi-Fi backbone
-west build -b nrf5340dk/nrf5340/cpuapp --sysbuild firmware/matter   # Thread only
+west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter   # commissioner and Thread leader
+west build -b nrf5340dk/nrf5340/cpuapp --sysbuild firmware/matter   # the same on the nRF5340 DK
+# With the border router on Wi-Fi (nRF7002 DK only). It does not fit yet: see "Memory, per board".
+west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter -- -DSB_EXTRA_CONF_FILE=border_router_sysbuild.conf
 ```
 
 Without the patched SDK the build stops at once and says so. `firmware/matter/VERSION` is a link to
@@ -95,15 +97,15 @@ Without the patched SDK the build stops at once and says so. `firmware/matter/VE
 Over the serial console (the DK's first virtual COM port, 115200 baud), with the Matter shell:
 
 ```
-wifi cred add -s "<network>" -k 1 -p "<password>"     # nRF7002 DK only, once; then restart
+wifi cred add -s "<network>" -k 1 -p "<password>"     # border router build only, once; then restart
 matter controller pairing code <node id> <manual code or MT:... QR payload>
 matter controller invoke-cmd <node id> <endpoint> 6 2  # On/Off cluster, Toggle
 ```
 
 At start-up the board forms a Thread network if it has none (random keys and PAN ID, channel
 `CONFIG_CRANIUM_THREAD_CHANNEL`, 25 by default), becomes leader, turns the SRP server on and starts the
-commissioner. On the nRF7002 DK it joins the stored Wi-Fi network, and the border router starts once Wi-Fi is
-up; the log warns when the Thread channel overlaps the Wi-Fi channel and names one that does not. A setup code
+commissioner. With the border router, the board also joins the stored Wi-Fi network, and the border router
+starts once Wi-Fi is up; the log warns when the Thread channel overlaps the Wi-Fi channel and names one that does not. A setup code
 is checked (length, check digit, passcode rules) before anything starts.
 
 The data model in `src/default_zap` is the Matter code generator's root node, the smallest it makes; the
@@ -125,45 +127,67 @@ other; switching between them is a flash over the debug port, because the flash 
 and over Matter are the next steps (see [Order of work](#order-of-work)): until then the variant is installed and
 updated over the debug port.
 
-The flash layout is this variant's own (`firmware/matter/boards/matter_partitions.dtsi`): MCUboot 32 KB, the
-application 956 KB and settings 36 KB in internal flash, and the second image slot in the DK's external flash. It is not one
+The flash layout is this variant's own (`firmware/matter/boards/matter_partitions.dtsi`): MCUboot 48 KB (its SPI
+flash driver on the nRF7002 DK does not fit in 32 KB), the application 940 KB and settings 36 KB in internal flash, and the second image slot in the DK's external flash. It is not one
 of the layouts in `firmware/app/flash_layouts.json`, so a board refuses to install a Matter image sent from the
 console as an update, and the other way round: changing between the two is a debug-port flash.
 
 ### SDK changes
 
-The commissioner needs six small changes to the SDK's Matter and Oberon crypto modules: three that let the
+The board needs nine small changes to the SDK's Matter, Oberon crypto and Zephyr OpenThread code: three that let the
 controller library build and plug the Bluetooth central in, and three fixes to the SPAKE2+ prover side (the
-commissioner's side of PASE, which no Nordic sample uses). They are in `firmware/matter/sdk/patch_sdk.py`, which
-is idempotent and checks every anchor. The build never changes the shared SDK in place: locally it patches a
+commissioner's side of PASE, which no Nordic sample uses), and one that lets Matter's certificate code read a
+device's public key with mbedTLS 4, which this SDK has (no device build reads other devices' certificates, so
+that code had never been built against it), and one that makes Matter's own Wi-Fi support follow
+`CONFIG_CHIP_WIFI` instead of the presence of the nRF70 chip, so that Matter stays on Thread while Wi-Fi carries
+the border router's backbone (Matter-over-Wi-Fi builds are unchanged, as `CHIP_WIFI` selects the nRF70 driver),
+and one that lets Zephyr's border router code build against this SDK's OpenThread, which is older than the one
+it was written for. Nordic builds no border router on Zephyr, so nothing in the SDK had tried it. They are in
+`firmware/matter/sdk/patch_sdk.py`, which is idempotent and checks every anchor. The build never changes the shared SDK in place: locally it patches a
 copy-on-write clone of the SDK, and in CI the job's own SDK after it has been cached.
 
 ## Memory, per board
 
-Estimates first; each is replaced by a real build's numbers as the parts land (CI reports them on every build
-from the `Matter (nRF7002 DK)` and `Matter (nRF5340 DK)` jobs, against floors in `tools/memory_budgets.json`).
+From real builds of this branch (SDK v3.4.0, patched). CI builds the first two on every push
+(`Matter (nRF7002 DK)`, `Matter (nRF5340 DK)`) and checks them against floors in `tools/memory_budgets.json`.
+Bytes; free in brackets.
 
-| Part | Flash (est.) | RAM (est.) |
-| --- | --- | --- |
-| Zephyr, MCUboot hooks, Bluetooth host (central + peripheral), SMP | 120 KB | 40 KB |
-| OpenThread FTD, SRP and DNS-SD server | 170 KB | 45 KB |
-| Border router (routing, mDNS, NAT64 off) | 60 KB | 30 KB |
-| Matter stack with the controller library | 520 KB | 150 KB |
-| Wi-Fi driver and supplicant (nRF7002 DK only) | 180 KB | 90 KB |
-| **nRF7002 DK** | **about 1,050 of 956 KB** | **about 355 of 512 KB** |
-| **nRF5340 DK** | **about 870 of 956 KB** | **about 265 of 512 KB** |
+| Build | Application flash | Application RAM | Network core (`ipc_radio`) | MCUboot flash |
+| --- | --- | --- | --- | --- |
+| nRF7002 DK: commissioner and Thread leader | 839,584 of 954,218 (114,634) | 252,856 of 458,752 (205,896) | flash 191,860 of 262,144 (70,284); RAM 58,008 of 65,536 (7,528) | 36,328 of 49,152 (12,824) |
+| nRF5340 DK: the same | 836,884 of 954,218 (117,334) | 252,728 of 458,752 (206,024) | the same | 32,408 of 49,152 (16,744) |
+| nRF7002 DK with the border router on Wi-Fi | **does not link: 455,078 bytes of flash and 45,400 of RAM over** (with a 956 KB slot) | | | |
 
-So the nRF5340 DK fits; the nRF7002 DK is over in flash by about 100 KB at first and needs trimming: the Wi-Fi
-firmware patches move to external flash (about 70 KB), logs drop to errors, the Matter shell goes. If that is
-not enough, code can run from external flash (QSPI XIP), which is the last resort.
+Where the application's flash goes (commissioner build): the Matter stack with the controller library about
+390 KB, OpenThread with the SRP server about 145 KB, the Bluetooth host about 48 KB, crypto about 50 KB, this
+project's code about 25 KB. The border router build adds the nRF70 driver and its firmware (about 160 KB, the
+firmware alone 88 KB), the WPA supplicant (about 150 KB), Zephyr's IP stack for two interfaces, the border
+router and OpenThread's border agent with DTLS (about 100 KB), on top of that. That is roughly 1.4 MB of code
+for the 0.94 MB the nRF5340 has for an application, and Zephyr's border-router platform code (infra
+interface, mDNS socket, UDP, TREL) would add to it, since this SDK does not build it yet.
+
+**So the nRF7002 DK cannot be commissioner and border router at once in one image on its nRF5340.** What would
+make it possible, in the order worth trying:
+
+1. Cut the border router build hard: the nRF70 firmware into external flash (88 KB; needs MCUboot to manage a
+   second image), the Wi-Fi and Matter shells and most logs (about 80 KB), the border agent and the OpenThread
+   commissioner (about 60 KB). That is about 230 KB, half of what is missing.
+2. Run code from external flash. Not on this DK: its external flash is on SPI, because the nRF7002 has the
+   QSPI, and the nRF5340 executes in place only over QSPI.
+3. A bigger application processor next to the nRF7002: the nRF54LM20 (2 MB) or the nRF54H20, both supported by
+   the SDK with the nRF7002 as a companion chip. The code here is board-independent C and C++.
+4. Split the roles: one board is the commissioner and Thread leader (this build, which fits), another is the
+   border router (a Thread border router of any make, or a second DK with an OpenThread border router and no
+   Matter). Matter devices then reach Wi-Fi through it.
 
 ## Order of work
 
 1. This plan.
-2. The variant builds: Thread leader and border router, multiprotocol network core, both boards. Real memory
-   numbers, CI jobs and floors.
+2. The variant builds: Thread leader, multiprotocol network core, both boards, real memory numbers, CI jobs
+   and floors (done). The border router build is there and configured, and does not fit (above).
 3. The commissioner: the controller library, the Bluetooth central, the Thread dataset handed to devices,
-   commissioning by shell command (`matter controller pairing ...`) with the robustness rules below.
+   commissioning by shell command (`matter controller pairing ...`) with the robustness rules below (built, not
+   yet tested on hardware).
 4. Matter OTA: the board as OTA requestor (it takes an image from an OTA provider on the network, into MCUboot's
    second slot) and, later, as OTA provider to its own devices.
 5. Board tests by the owner.
@@ -198,8 +222,9 @@ certificates, marked as such.
 On the nRF7002 DK, with the Matter image flashed over the debug port, and a Matter-over-Thread device that can
 be factory reset (a retail one, or a second DK running a Matter light with test certificates):
 
-1. The board forms the Thread network, becomes leader, and joins Wi-Fi.
-2. A laptop on the same Wi-Fi sees the border router (`_meshcop._udp`) and can ping a Thread device.
+1. The board forms the Thread network and becomes leader: the log says `Thread up (role leader), SRP server on`, then `Commissioner ready`.
+2. Once the border router fits: it joins Wi-Fi, and a laptop on the same Wi-Fi gets a route to the Thread
+   network, can ping a commissioned device and sees its `_matter._tcp` record over mDNS.
 3. `matter controller pairing code <node> <setup code>` commissions the device; `matter controller invoke`
    turns it on and off.
 4. After a restart the board reconnects to it without commissioning again.

@@ -7,6 +7,22 @@ choosing a release, in at most 440 characters. Anything after it is detail for t
 
 A version without an entry here still gets a note: the subjects of the firmware commits since the previous version.
 
+## 1.21.0
+
+A new, separate firmware for the DKs: the board as Matter commissioner and Thread leader, adding Matter-over-Thread devices over Bluetooth with no phone or hub (firmware/matter, docs/matter-thread.md). The image boards run today is unchanged. The Thread border router on Wi-Fi is built in but does not fit the nRF5340 yet. Not yet tested on hardware.
+
+The Matter variant is its own application, flashed over the debug port: its flash layout is not one the main
+image's updates accept, and it leaves out TF-M, AWS IoT, Memfault and the cloud updates. The network core runs
+Bluetooth and 802.15.4 together (`ipc_radio`). Commissioning is by shell command (`matter controller pairing code
+<node> <code>`); setup codes are checked before anything starts, and the retry and reconnect rules have host
+tests (`test_matter_policy.c`). The SDK needs nine changes, applied to a copy of it by
+`firmware/matter/sdk/patch_sdk.py`, never to a shared install. Matter test vendor and test certificates only.
+
+nRF7002 DK, commissioner and Thread leader: application flash 839,584 of 954,218 bytes (114,634 free), RAM
+252,856 of 458,752 (205,896 free); network core 191,860 of 262,144 flash, 58,008 of 65,536 RAM; MCUboot 36,328 of
+49,152. nRF5340 DK: application flash 836,884 (117,334 free), RAM 252,728 (206,024 free). With the border router on Wi-Fi the application does not link: 455,078 bytes of flash and 45,400 of RAM
+over. Firmware update over Matter and over Bluetooth in this variant are not in it yet.
+
 ## 1.19.2
 
 Three fixes, not yet tried on a board. The board's own Bluetooth passkey is read at every start again, so it no longer shows as unset after a restart or an update. A Bluetooth window closes when its time is up unless an image is still arriving. Memfault gets this firmware's metrics under the right names, with no more "Invalid type" errors every minute.
