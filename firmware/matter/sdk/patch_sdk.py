@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""The six changes to nRF Connect SDK v3.4.0 that the Matter commissioner needs (docs/matter-thread.md, "SDK changes").
+"""The seven changes to nRF Connect SDK v3.4.0 that the Matter commissioner needs (docs/matter-thread.md, "SDK changes").
 
     python3 -I firmware/matter/sdk/patch_sdk.py <SDK workspace> [--check]
 
 1-3 let the Matter controller library build and plug this project's Bluetooth central into the SDK's Bluetooth
-manager; 4-6 fix the SPAKE2+ prover side (the commissioner's side of PASE), which no Nordic sample uses. Each patch
+manager; 4-6 fix the SPAKE2+ prover side (the commissioner's side of PASE), which no Nordic sample uses; 7 lets
+the certificate code that reads a device's public key build with mbedTLS 4, which SDK v3.4.0 has (only a
+commissioner reads other devices' certificates, so no Nordic build compiles it). Each patch
 is guarded by a marker, so running it twice changes nothing, and every anchor is checked: an SDK whose code moved
 fails here, not later in the build. --check only says whether each file is patched, unpatched, or cannot be.
 
@@ -28,6 +30,7 @@ KCONF = os.path.join(M, "config/nrfconnect/chip-module/Kconfig")
 SPAKE = os.path.join(M, "src/crypto/PSASpake2p.cpp")
 OB_CORE = os.path.join(OB, "core/psa_crypto.c")
 OB_DRV = os.path.join(OB, "oberon/drivers/oberon_spake2p.c")
+CERT = os.path.join(M, "src/crypto/CHIPCryptoPALmbedTLSCert.cpp")
 
 rc = 0
 
@@ -206,6 +209,60 @@ patch(OB_DRV, 'mac_len == 0', [
      '        status = oberon_get_confirmation_keys(op, op->KconfPV, op->KconfVP);\n'
      '        if (status) return status;\n'
      '    }\n'),
+])
+
+# ---- 7) CHIPCryptoPALmbedTLSCert.cpp: public keys from certificates and CSRs with mbedTLS 4 ----
+# mbedTLS 4 (TF-PSA-crypto) has no mbedtls_pk_ec() or mbedtls_ecp_point_write_binary(): a PK context holds the
+# raw public key, which mbedtls_pk_write_pubkey_psa() copies out in the uncompressed point format CHIP wants.
+patch(CERT, 'mbedtls_pk_write_pubkey_psa', [
+    ('    mbedtls_ecp_keypair * keypair = nullptr;\n\n    P256ECDSASignature signature;',
+     '#if (MBEDTLS_VERSION_NUMBER < 0x04000000)\n    mbedtls_ecp_keypair * keypair = nullptr;\n#endif\n\n    P256ECDSASignature signature;'),
+    ('    VerifyOrExit(csr.CHIP_CRYPTO_PAL_PRIVATE(sig_pk) == MBEDTLS_PK_ECDSA, error = CHIP_ERROR_WRONG_KEY_TYPE);\n\n'
+     '    keypair = mbedtls_pk_ec(csr.CHIP_CRYPTO_PAL_PRIVATE_X509(pk));\n\n'
+     '    // Copy the public key from the CSR\n'
+     '    result = mbedtls_ecp_point_write_binary(&keypair->CHIP_CRYPTO_PAL_PRIVATE(grp), &keypair->CHIP_CRYPTO_PAL_PRIVATE(Q),\n'
+     '                                            MBEDTLS_ECP_PF_UNCOMPRESSED, &pubkey_size, Uint8::to_uchar(pubkey), pubkey.Length());\n',
+     '#if (MBEDTLS_VERSION_NUMBER >= 0x04000000)\n'
+     '    // [on-device commissioner] mbedTLS 4: the PK context holds the raw public key.\n'
+     '    VerifyOrExit(csr.CHIP_CRYPTO_PAL_PRIVATE(sig_pk) == MBEDTLS_PK_SIGALG_ECDSA, error = CHIP_ERROR_WRONG_KEY_TYPE);\n'
+     '    result = mbedtls_pk_write_pubkey_psa(&csr.CHIP_CRYPTO_PAL_PRIVATE_X509(pk), Uint8::to_uchar(pubkey), pubkey.Length(),\n'
+     '                                         &pubkey_size);\n'
+     '#else\n'
+     '    VerifyOrExit(csr.CHIP_CRYPTO_PAL_PRIVATE(sig_pk) == MBEDTLS_PK_ECDSA, error = CHIP_ERROR_WRONG_KEY_TYPE);\n\n'
+     '    keypair = mbedtls_pk_ec(csr.CHIP_CRYPTO_PAL_PRIVATE_X509(pk));\n\n'
+     '    // Copy the public key from the CSR\n'
+     '    result = mbedtls_ecp_point_write_binary(&keypair->CHIP_CRYPTO_PAL_PRIVATE(grp), &keypair->CHIP_CRYPTO_PAL_PRIVATE(Q),\n'
+     '                                            MBEDTLS_ECP_PF_UNCOMPRESSED, &pubkey_size, Uint8::to_uchar(pubkey), pubkey.Length());\n'
+     '#endif\n'),
+    ('    mbedtls_x509_crt mbed_cert;\n    mbedtls_ecp_keypair * keypair = nullptr;\n    size_t pubkey_size            = 0;\n',
+     '    mbedtls_x509_crt mbed_cert;\n#if (MBEDTLS_VERSION_NUMBER < 0x04000000)\n    mbedtls_ecp_keypair * keypair = nullptr;\n#endif\n    size_t pubkey_size            = 0;\n'),
+    ('    VerifyOrExit(mbedtls_pk_get_type(&(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk))) == MBEDTLS_PK_ECKEY,\n'
+     '                 error = CHIP_ERROR_INVALID_ARGUMENT);\n\n'
+     '    keypair = mbedtls_pk_ec(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk));\n'
+     '    VerifyOrExit(keypair->CHIP_CRYPTO_PAL_PRIVATE(grp).id == MapECPGroupId(pubkey.Type()), error = CHIP_ERROR_INVALID_ARGUMENT);\n'
+     '    // Copy the public key from the cert in raw point format\n'
+     '    result =\n'
+     '        mbedtls_ecp_point_write_binary(&keypair->CHIP_CRYPTO_PAL_PRIVATE(grp), &keypair->CHIP_CRYPTO_PAL_PRIVATE(Q),\n'
+     '                                       MBEDTLS_ECP_PF_UNCOMPRESSED, &pubkey_size, Uint8::to_uchar(pubkey.Bytes()), pubkey.Length());\n',
+     '#if (MBEDTLS_VERSION_NUMBER >= 0x04000000)\n'
+     '    // [on-device commissioner] mbedTLS 4: a P-256 public key, copied out as the raw uncompressed point.\n'
+     '    VerifyOrExit(mbedtls_pk_get_key_type(&(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk))) ==\n'
+     '                         PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1) &&\n'
+     '                     mbedtls_pk_get_bitlen(&(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk))) == 256 &&\n'
+     '                     pubkey.Type() == SupportedECPKeyTypes::ECP256R1,\n'
+     '                 error = CHIP_ERROR_INVALID_ARGUMENT);\n'
+     '    result = mbedtls_pk_write_pubkey_psa(&(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk)), Uint8::to_uchar(pubkey.Bytes()),\n'
+     '                                         pubkey.Length(), &pubkey_size);\n'
+     '#else\n'
+     '    VerifyOrExit(mbedtls_pk_get_type(&(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk))) == MBEDTLS_PK_ECKEY,\n'
+     '                 error = CHIP_ERROR_INVALID_ARGUMENT);\n\n'
+     '    keypair = mbedtls_pk_ec(mbed_cert.CHIP_CRYPTO_PAL_PRIVATE_X509(pk));\n'
+     '    VerifyOrExit(keypair->CHIP_CRYPTO_PAL_PRIVATE(grp).id == MapECPGroupId(pubkey.Type()), error = CHIP_ERROR_INVALID_ARGUMENT);\n'
+     '    // Copy the public key from the cert in raw point format\n'
+     '    result =\n'
+     '        mbedtls_ecp_point_write_binary(&keypair->CHIP_CRYPTO_PAL_PRIVATE(grp), &keypair->CHIP_CRYPTO_PAL_PRIVATE(Q),\n'
+     '                                       MBEDTLS_ECP_PF_UNCOMPRESSED, &pubkey_size, Uint8::to_uchar(pubkey.Bytes()), pubkey.Length());\n'
+     '#endif\n'),
 ])
 
 print("PATCH_RESULT:", "OK" if rc == 0 else "FAILED")
