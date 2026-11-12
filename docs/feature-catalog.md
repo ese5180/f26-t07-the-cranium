@@ -163,6 +163,7 @@ Each feature as it lands, newest first. Earlier features are in the sections abo
 
 | Date | Feature | Version | PR |
 | --- | --- | --- | --- |
+| 2026-11-15 | Our own Issues: crashes, faults and stuck restarts grouped by signature, with boards, versions and regressions | console 2.28.2 | draft |
 | 2026-11-12 | Console navigation in groups, a floating tab bar shaped for the iPhone 17 Pro's corners, Fleet folded into Devices and Deployments, Memfault named Crashes | console 2.28.0 | #258 |
 | 2026-11-12 | Events timeline: group numbers readable, no overlaps, inside the plot on a phone | console 2.27.7 | #250 |
 | 2026-11-12 | Make golden: a release's signed golden record, its promotion to boards, each board's golden image | console 2.27.7 | #250 |

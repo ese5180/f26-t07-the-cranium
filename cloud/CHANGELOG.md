@@ -7,6 +7,15 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.28.2
+
+Our own Issues, the first stage of doing what Memfault does on our own. The console groups the restarts that say something went wrong (the watchdog, a brownout, a lockup, a restart for being stuck) into issues by what went wrong, with how often and on which boards and versions, first and last seen, and whether an issue came back in a newer version after a fix. A new Issues page, linked from the Memfault page, lists them; an issue's page shows its boards and each time it happened. Memfault's page is unchanged.
+
+- Grouping (`cloud/api/src/lib/issues.mjs`): signature `<type>:<detail>[@<where>]`, id the first 12 hex digits of its SHA-256; the version an occurrence happened on is the board's last firmware event before it; fixed in a newer version that ran without it, regressed when it comes back after that. `lib/events.mjs` reads `pc` and `frame` on an event, for the faults the firmware will report (stage 2).
+- API (`handlers/issues.mjs`): `GET /api/issues?days=1-90` and `GET /api/issues/{id}`, reads for every member, made from each board's restart and firmware events; a board that cannot be read is counted in `unread`.
+- Console (`issues-page.js`): `#/issues` and `#/issues/<id>` under Memfault in the sections, with search and a status filter; `core.js` `issuesRequest` asks for nothing else. The apps list both pages (`apps/shared/pages.json`).
+- Design for the rest (`docs/own-observability.md`): coredumps, symbol files, metrics, vitals, logs, timeline, rollout cohorts and abort, alert integrations, sampling and recordings, stage by stage (#236).
+
 ## 2.28.0
 
 A new navigation, and a phone layout designed around the iPhone 17 Pro's rounded corners. The sidebar shows the sections in groups: Overview, Devices and Map; Releases; Monitoring; Admin. On a phone the tabs are Overview, Devices, Deploy, Alerts and More, in a floating bar whose rounded ends follow the screen's corners. The Fleet page is gone: board types and groups are on Devices, and staged rollouts, Update everything and Roll back to last good are on Deployments. Old Fleet links lead to Deployments. Memfault is called Crashes in the navigation.

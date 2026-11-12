@@ -2012,6 +2012,9 @@ const SECTION_OF = {
   database: 'developer',
   rollout: 'deployments',
   issue: 'memfault',
+  // Our own issues belong with Memfault's: the crashes (issues-page.js).
+  issues: 'memfault',
+  'own-issue': 'memfault',
   compare: 'devices',
   report: 'reports',
 };
