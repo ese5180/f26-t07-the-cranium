@@ -265,6 +265,22 @@ const ROUTES = [
     phone: true,
     body: { reason: 'bricks the encoder' },
   },
+  // Golden image promotion (handlers/golden.mjs): this console has no golden key, so a record and a
+  // promotion get as far as saying so. From the website only.
+  {
+    route: 'POST /api/firmware/{version}/golden',
+    path: `/api/firmware/${V}/golden`,
+    status: 409,
+    phone: false,
+    body: { record: 'AAAA' },
+  },
+  { route: 'GET /api/golden/promotions', status: 200, phone: true },
+  {
+    route: 'POST /api/golden/promotions',
+    status: 409,
+    phone: false,
+    body: { version: VERSION, things: [THING], note: '' },
+  },
   {
     route: 'POST /api/firmware/{version}/bluetooth',
     path: `/api/firmware/${V}/bluetooth`,
