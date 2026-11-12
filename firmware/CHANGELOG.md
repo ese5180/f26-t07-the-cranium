@@ -31,9 +31,11 @@ diagnostics report carries `"golden":{"version","counter","state"}`. The record 
 takes no more RAM.
 
 Memory (nRF7002 DK, default, with a throwaway golden key): MCUboot 53,052 bytes (50,324 before), 12,484 free of 64 KiB
-and 8,388 below its state page; application 38,218 bytes of flash and 932 of RAM free (40,810 and 1,004 in 1.19.1).
+and 8,388 below its state page; application 38,154 bytes of flash and 932 of RAM free with #235 in (38,218 without it) (40,810 and 1,004 in 1.19.1).
 The floors in `tools/memory_budgets.json` were lowered to 37,888 / 900, and MCUboot's to 12,288. Tests:
 `firmware/tests/host/test_golden_record.c`, `firmware/tests/hil/test_golden_promote.py`.
+
+A Bluetooth passkey set, erased or drawn at the serial console (BT_PASSKEY, BT_OFFLINE|NEW) now leaves a 'Bluetooth pairing code changed' line in the board log, never the passkey (#235).
 
 ## 1.19.2
 
