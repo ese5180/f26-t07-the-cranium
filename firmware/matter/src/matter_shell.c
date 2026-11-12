@@ -12,11 +12,16 @@
  *   matter ota announce <node>                       tell a device this board has an update for it
  *   matter device                                    this board as a device: its onboarding codes, the phone's fabric
  *   matter open                                      advertise over Bluetooth for a phone to add this board
+ *   matter selftest                                  check the Matter pieces with known answers (matter_selftest.c)
+ *   matter reboot                                    restart the board
  */
 #include <stdlib.h>
 #include <string.h>
 
+#include <openthread.h>
+#include <openthread/srp_server.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/reboot.h>
 
 #include "mt_commission.h"
 #include "mt_controller.h"
@@ -32,6 +37,8 @@
 #include "ot_leader.h"
 
 static const struct shell *last_shell;
+
+int matter_selftest_cmd(const struct shell *sh, size_t argc, char **argv);
 
 static int cmd_pair(const struct shell *sh, size_t argc, char **argv)
 {
@@ -59,7 +66,13 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
-	shell_print(sh, "commissioning: %s; Thread: %s", mt_stage_name(mt_commission_stage()), ot_leader_role());
+	otSrpServerState srp;
+
+	openthread_mutex_lock();
+	srp = otSrpServerGetState(openthread_get_default_instance());
+	openthread_mutex_unlock();
+	shell_print(sh, "commissioning: %s; Thread: %s; SRP: %s", mt_stage_name(mt_commission_stage()), ot_leader_role(),
+		    srp == OT_SRP_SERVER_STATE_RUNNING ? "running" : srp == OT_SRP_SERVER_STATE_STOPPED ? "stopped" : "off");
 	return 0;
 }
 
@@ -283,6 +296,16 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 	return err;
 }
 
+static int cmd_reboot(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	shell_print(sh, "restarting");
+	k_sleep(K_MSEC(100));
+	sys_reboot(SYS_REBOOT_COLD);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(ota_cmds,
 	SHELL_CMD(status, NULL, "the stored image and the provider", cmd_ota_status),
 	SHELL_CMD_ARG(begin, NULL, "<vid> <pid> <version> <name> <length>: start storing an image", cmd_ota_begin, 6, 0),
@@ -301,5 +324,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(matter_cmds,
 	SHELL_CMD(ota, &ota_cmds, "the OTA provider", NULL),
 	SHELL_CMD(device, NULL, "this board as a device: its codes and the phone's fabric", cmd_device),
 	SHELL_CMD(open, NULL, "advertise for a phone to add this board (15 minutes)", cmd_open),
+	SHELL_CMD(reboot, NULL, "restart the board", cmd_reboot),
+	SHELL_CMD(selftest, NULL, "check the Matter pieces on the board (known answers)", matter_selftest_cmd),
 	SHELL_SUBCMD_SET_END);
 SHELL_CMD_REGISTER(matter, &matter_cmds, "Matter commissioner", NULL);

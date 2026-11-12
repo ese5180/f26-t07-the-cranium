@@ -49,6 +49,12 @@ extern const size_t mt_test_cd_len;
 
 static const uint32_t server_clusters[] = {CL_DESCRIPTOR, CL_ACL, CL_BASIC, CL_OTA_REQ, CL_GEN_COMM, CL_NET_COMM,
 					   CL_OP_CREDS};
+/* Endpoint 1: an on/off light, the board's LED, so that a phone has something to switch. */
+#define CL_IDENTIFY 0x0003u
+#define CL_ONOFF    0x0006u
+static const uint32_t ep1_clusters[] = {CL_DESCRIPTOR, CL_IDENTIFY, CL_ONOFF};
+static bool onoff_state;
+
 static const struct mt_dev_platform *plat;
 static uint8_t regulatory_config;
 static uint8_t net_status;          /* LastNetworkingStatus */
@@ -56,6 +62,13 @@ static uint8_t net_id[32];
 static size_t net_id_len;
 static bool net_configured;
 static uint64_t ota_providers_node; /* DefaultOTAProviders (one entry) */
+
+bool mt_dev_im_changed;
+
+bool mt_dev_im_onoff(void)
+{
+	return onoff_state;
+}
 
 void mt_dev_im_set_platform(const struct mt_dev_platform *p)
 {
@@ -124,6 +137,8 @@ static bool encode_attr(struct mt_tlv_writer *w, const struct mt_dev_session *s,
 				}
 			} else if (attr == 2) {
 				mt_tlv_put_uint(w, MT_TLV_ANON, MT_CL_OTA_PROVIDER);
+			} else {
+				mt_tlv_put_uint(w, MT_TLV_ANON, 1); /* PartsList: endpoint 1 */
 			}
 			mt_tlv_end(w);
 			return true;
@@ -289,7 +304,67 @@ static bool encode_attr(struct mt_tlv_writer *w, const struct mt_dev_session *s,
 	return false;
 }
 
-static void report_one(struct mt_tlv_writer *w, const struct mt_dev_session *s, uint32_t cluster, uint32_t attr)
+/* Endpoint 1's attributes. */
+static bool attr_list_ep1(uint32_t cluster, uint32_t *out, size_t *n)
+{
+	size_t c = 0;
+
+	if (cluster == CL_DESCRIPTOR) {
+		for (uint32_t a = 0; a < 4; a++) {
+			out[c++] = a;
+		}
+	} else if (cluster == CL_IDENTIFY) {
+		out[c++] = 0;
+		out[c++] = 1;
+	} else if (cluster == CL_ONOFF) {
+		out[c++] = 0;
+	} else {
+		return false;
+	}
+	out[c++] = ATTR_FEATURE_MAP;
+	out[c++] = ATTR_CLUSTER_REVISION;
+	*n = c;
+	return true;
+}
+
+static bool encode_ep1(struct mt_tlv_writer *w, uint32_t cluster, uint32_t attr)
+{
+	if (attr == ATTR_FEATURE_MAP) {
+		mt_tlv_put_uint(w, 2, 0);
+		return cluster == CL_DESCRIPTOR || cluster == CL_IDENTIFY || cluster == CL_ONOFF;
+	}
+	if (attr == ATTR_CLUSTER_REVISION) {
+		mt_tlv_put_uint(w, 2, cluster == CL_ONOFF ? 6 : cluster == CL_IDENTIFY ? 4 : 2);
+		return cluster == CL_DESCRIPTOR || cluster == CL_IDENTIFY || cluster == CL_ONOFF;
+	}
+	if (cluster == CL_DESCRIPTOR && attr <= 3) {
+		mt_tlv_start(w, 2, MT_TLV_ARRAY);
+		if (attr == 0) {
+			mt_tlv_start(w, MT_TLV_ANON, MT_TLV_STRUCT);
+			mt_tlv_put_uint(w, 0, 0x0100); /* On/Off Light */
+			mt_tlv_put_uint(w, 1, 3);
+			mt_tlv_end(w);
+		} else if (attr == 1) {
+			for (size_t i = 0; i < sizeof(ep1_clusters) / 4; i++) {
+				mt_tlv_put_uint(w, MT_TLV_ANON, ep1_clusters[i]);
+			}
+		}
+		mt_tlv_end(w);
+		return true;
+	}
+	if (cluster == CL_IDENTIFY && attr <= 1) {
+		mt_tlv_put_uint(w, 2, attr == 1 ? 1 : 0); /* IdentifyTime 0; IdentifyType: light output */
+		return true;
+	}
+	if (cluster == CL_ONOFF && attr == 0) {
+		mt_tlv_put_bool(w, 2, onoff_state);
+		return true;
+	}
+	return false;
+}
+
+static void report_one(struct mt_tlv_writer *w, const struct mt_dev_session *s, uint32_t ep, uint32_t cluster,
+		       uint32_t attr)
 {
 	size_t mark = w->len;
 	int depth = w->depth;
@@ -298,18 +373,18 @@ static void report_one(struct mt_tlv_writer *w, const struct mt_dev_session *s, 
 	mt_tlv_start(w, 1, MT_TLV_STRUCT);           /* AttributeDataIB */
 	mt_tlv_put_uint(w, 0, 1);                    /* DataVersion */
 	mt_tlv_start(w, 1, MT_TLV_LIST);
-	mt_tlv_put_uint(w, 2, 0);
+	mt_tlv_put_uint(w, 2, ep);
 	mt_tlv_put_uint(w, 3, cluster);
 	mt_tlv_put_uint(w, 4, attr);
 	mt_tlv_end(w);
-	if (!encode_attr(w, s, cluster, attr)) {
+	if (!(ep == 0 ? encode_attr(w, s, cluster, attr) : encode_ep1(w, cluster, attr))) {
 		/* rewrite as an AttributeStatusIB */
 		w->len = mark;
 		w->depth = depth;
 		mt_tlv_start(w, MT_TLV_ANON, MT_TLV_STRUCT);
 		mt_tlv_start(w, 0, MT_TLV_STRUCT);
 		mt_tlv_start(w, 0, MT_TLV_LIST);
-		mt_tlv_put_uint(w, 2, 0);
+		mt_tlv_put_uint(w, 2, ep);
 		mt_tlv_put_uint(w, 3, cluster);
 		mt_tlv_put_uint(w, 4, attr);
 		mt_tlv_end(w);
@@ -328,54 +403,207 @@ static void report_one(struct mt_tlv_writer *w, const struct mt_dev_session *s, 
 static void report_path(struct mt_tlv_writer *w, const struct mt_dev_session *s, bool has_ep, uint32_t ep,
 			bool has_cl, uint32_t cluster, bool has_attr, uint32_t attr, size_t limit)
 {
-	if (has_ep && ep != 0) {
-		return;
-	}
-	for (size_t c = 0; c < sizeof(server_clusters) / 4; c++) {
-		uint32_t cl = server_clusters[c];
-		uint32_t attrs[24];
-		size_t n;
-
-		if (has_cl && cl != cluster) {
-			continue;
-		}
-		if (!attr_list(cl, attrs, &n)) {
-			continue;
-		}
-		if (has_attr) {
-			attrs[0] = attr;
-			n = 1;
-		}
-		for (size_t a = 0; a < n; a++) {
-			size_t before = w->len;
-			int d = w->depth;
-
-			report_one(w, s, cl, attrs[a]);
-			if (w->len > limit) {
-				w->len = before;
-				w->depth = d;
-				w->overflow = false;
-				return;
-			}
-		}
-		if (has_cl) {
-			return;
-		}
-	}
-	if (has_cl && !has_attr) {
-		return;
-	}
-	if (has_cl && has_attr) {
-		/* a cluster this board does not have */
+	for (uint32_t e = 0; e <= 1; e++) {
+		const uint32_t *list = e == 0 ? server_clusters : ep1_clusters;
+		size_t count = e == 0 ? sizeof(server_clusters) / 4 : sizeof(ep1_clusters) / 4;
 		bool known = false;
 
-		for (size_t c = 0; c < sizeof(server_clusters) / 4; c++) {
-			known |= server_clusters[c] == cluster;
+		if (has_ep && ep != e) {
+			continue;
 		}
-		if (!known) {
-			report_one(w, s, cluster, attr);
+		for (size_t c = 0; c < count; c++) {
+			uint32_t cl = list[c];
+			uint32_t attrs[24];
+			size_t n;
+
+			if (has_cl && cl != cluster) {
+				continue;
+			}
+			if (!(e == 0 ? attr_list(cl, attrs, &n) : attr_list_ep1(cl, attrs, &n))) {
+				continue;
+			}
+			known = true;
+			if (has_attr) {
+				attrs[0] = attr;
+				n = 1;
+			}
+			for (size_t a = 0; a < n; a++) {
+				size_t before = w->len;
+				int d = w->depth;
+
+				report_one(w, s, e, cl, attrs[a]);
+				if (w->len > limit) {
+					w->len = before;
+					w->depth = d;
+					w->overflow = false;
+					return;
+				}
+			}
+		}
+		/* a concrete path to a cluster this endpoint does not have */
+		if (has_ep && has_cl && has_attr && !known) {
+			report_one(w, s, e, cluster, attr);
 		}
 	}
+}
+
+/* Paths of a read or a subscription. */
+struct path {
+	bool has_ep, has_cl, has_attr;
+	uint32_t ep, cl, attr;
+};
+#define MAX_PATHS 8
+
+static int read_paths(struct mt_tlv_reader *r, struct path *paths)
+{
+	struct mt_tlv_element e;
+	int n = 0;
+
+	while (mt_tlv_next(r, &e) && e.type != MT_TLV_END) {
+		struct path p = {0};
+
+		if (e.type != MT_TLV_LIST) {
+			return -1;
+		}
+		while (mt_tlv_next(r, &e) && e.type != MT_TLV_END) {
+			if (e.context && e.type == MT_TLV_UINT) {
+				if (e.tag == 2) {
+					p.has_ep = true;
+					p.ep = (uint32_t)e.v.u;
+				} else if (e.tag == 3) {
+					p.has_cl = true;
+					p.cl = (uint32_t)e.v.u;
+				} else if (e.tag == 4) {
+					p.has_attr = true;
+					p.attr = (uint32_t)e.v.u;
+				}
+			}
+		}
+		if (n < MAX_PATHS) {
+			paths[n++] = p;
+		}
+	}
+	return r->error ? -1 : n;
+}
+
+/* A ReportData: subscription ID (or none), reports of the paths, and whether a StatusResponse is wanted. */
+static int report_data(const struct mt_dev_session *s, bool sub, uint32_t sub_id, const struct path *paths, int n,
+		       uint8_t *out, size_t cap)
+{
+	struct mt_tlv_writer w;
+
+	mt_tlv_writer_init(&w, out, cap);
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
+	if (sub) {
+		mt_tlv_put_uint(&w, 0, sub_id);
+	}
+	if (n > 0) {
+		mt_tlv_start(&w, 1, MT_TLV_ARRAY);
+		for (int i = 0; i < n; i++) {
+			report_path(&w, s, paths[i].has_ep, paths[i].ep, paths[i].has_cl, paths[i].cl, paths[i].has_attr,
+				    paths[i].attr, cap - 16);
+		}
+		mt_tlv_end(&w);
+	}
+	/* A read needs no StatusResponse; a subscription's reports do. */
+	mt_tlv_put_bool(&w, 4, !sub);
+	mt_tlv_put_uint(&w, 0xFF, MT_IM_REVISION);
+	mt_tlv_end(&w);
+	return mt_tlv_finish(&w);
+}
+
+static struct {
+	enum { SUB_NONE, SUB_PRIMED, SUB_ACTIVE } state;
+	uint32_t id;
+	uint16_t max_interval;
+	struct path paths[MAX_PATHS];
+	int n;
+	struct mt_dev_session session;
+} sub;
+
+static int handle_subscribe(const struct mt_dev_session *s, const uint8_t *in, size_t len, uint8_t *out, size_t cap)
+{
+	struct mt_tlv_reader r;
+	struct mt_tlv_element e;
+	uint16_t ceiling = 60;
+
+	if (s->pase) {
+		return -1;
+	}
+	mt_tlv_reader_init(&r, in, len);
+	if (!mt_tlv_next(&r, &e) || e.type != MT_TLV_STRUCT) {
+		return -1;
+	}
+	sub.n = 0;
+	while (mt_tlv_next(&r, &e) && e.type != MT_TLV_END) {
+		if (e.context && e.tag == 2 && e.type == MT_TLV_UINT) {
+			ceiling = (uint16_t)e.v.u;
+		} else if (e.context && e.tag == 3 && e.type == MT_TLV_ARRAY) {
+			sub.n = read_paths(&r, sub.paths);
+			if (sub.n < 0) {
+				return -1;
+			}
+		} else if (e.type == MT_TLV_STRUCT || e.type == MT_TLV_ARRAY || e.type == MT_TLV_LIST) {
+			if (!mt_tlv_skip_container(&r)) {
+				return -1;
+			}
+		}
+	}
+	sub.id++;
+	sub.state = SUB_PRIMED;
+	sub.session = *s;
+	/* at least 10 s, at most an hour, within the client's ceiling */
+	sub.max_interval = ceiling < 10 ? 10 : ceiling > 3600 ? 3600 : ceiling;
+	return report_data(s, true, sub.id, sub.paths, sub.n, out, cap);
+}
+
+int mt_dev_sub_status(uint8_t *out_opcode, uint8_t *out, size_t cap)
+{
+	struct mt_tlv_writer w;
+
+	if (sub.state != SUB_PRIMED) {
+		return -1;
+	}
+	sub.state = SUB_ACTIVE;
+	mt_tlv_writer_init(&w, out, cap);
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
+	mt_tlv_put_uint(&w, 0, sub.id);
+	mt_tlv_put_uint(&w, 2, sub.max_interval);
+	mt_tlv_put_uint(&w, 0xFF, MT_IM_REVISION);
+	mt_tlv_end(&w);
+	*out_opcode = 0x04; /* SubscribeResponse */
+	return mt_tlv_finish(&w);
+}
+
+int mt_dev_sub_report(bool changes, uint8_t *out, size_t cap)
+{
+	static const struct path onoff = {true, true, true, 1, CL_ONOFF, 0};
+
+	if (sub.state != SUB_ACTIVE) {
+		return -1;
+	}
+	if (!changes) {
+		return report_data(&sub.session, true, sub.id, NULL, 0, out, cap); /* keep-alive */
+	}
+	/* Only the changed attribute, when the subscription covers it. */
+	for (int i = 0; i < sub.n; i++) {
+		const struct path *p = &sub.paths[i];
+
+		if ((!p->has_ep || p->ep == 1) && (!p->has_cl || p->cl == CL_ONOFF) && (!p->has_attr || p->attr == 0)) {
+			return report_data(&sub.session, true, sub.id, &onoff, 1, out, cap);
+		}
+	}
+	return -1;
+}
+
+uint16_t mt_dev_sub_max_interval(void)
+{
+	return sub.state == SUB_ACTIVE ? sub.max_interval : 0;
+}
+
+void mt_dev_sub_end(void)
+{
+	sub.state = SUB_NONE;
 }
 
 static int handle_read(const struct mt_dev_session *s, const uint8_t *in, size_t len, uint8_t *out, size_t cap)
@@ -771,14 +999,37 @@ int mt_dev_im(const struct mt_dev_session *s, uint8_t opcode, const uint8_t *in,
 	case OP_TIMED:
 		*out_opcode = OP_STATUS;
 		return mt_im_status_response(out, cap, ST_SUCCESS);
-	case OP_SUBSCRIBE:
-		*out_opcode = OP_STATUS;
-		return mt_im_status_response(out, cap, ST_INVALID_ACTION);
+	case OP_SUBSCRIBE: {
+		int n = handle_subscribe(s, in, len, out, cap);
+
+		if (n < 0) {
+			*out_opcode = OP_STATUS;
+			return mt_im_status_response(out, cap, ST_INVALID_ACTION);
+		}
+		*out_opcode = OP_REPORT;
+		return n;
+	}
 	case OP_INVOKE:
 		*out_opcode = OP_INVOKE_RESP;
 		if (!mt_im_parse_invoke_request(in, len, &q)) {
 			*out_opcode = OP_STATUS;
 			return mt_im_status_response(out, cap, ST_INVALID_ACTION);
+		}
+		if (q.endpoint == 1) {
+			if (q.cluster == CL_ONOFF && q.command <= 2) {
+				onoff_state = q.command == 2 ? !onoff_state : q.command == 1;
+				if (plat && plat->set_onoff) {
+					plat->set_onoff(onoff_state);
+				}
+				mt_dev_im_changed = true;
+				return status_only(out, cap, &q, ST_SUCCESS);
+			}
+			if (q.cluster == CL_IDENTIFY && q.command == 0) {
+				return status_only(out, cap, &q, ST_SUCCESS);
+			}
+			return status_only(out, cap, &q,
+					   q.cluster == CL_ONOFF || q.cluster == CL_IDENTIFY ? MT_IM_STATUS_UNSUPPORTED_COMMAND
+											: MT_IM_STATUS_UNSUPPORTED_CLUSTER);
 		}
 		if (q.endpoint != 0) {
 			return status_only(out, cap, &q, ST_UNSUPPORTED_ENDPOINT);

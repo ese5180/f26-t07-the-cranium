@@ -77,8 +77,13 @@ static bool transfer_active;
 static uint16_t block_size;
 static uint32_t blocks_sent;
 
+static struct k_work_delayable report_work;
+static void report_fn(struct k_work *w);
+
 static void reset(void)
 {
+	mt_dev_sub_end();
+	(void)k_work_cancel_delayable(&report_work);
 	if (key_i2r != PSA_KEY_ID_NULL) {
 		psa_destroy_key(key_i2r);
 		key_i2r = PSA_KEY_ID_NULL;
@@ -109,6 +114,8 @@ static void retransmit(struct k_work *w)
 }
 
 /* Sends a response on the peer's exchange: reliable, acknowledging what it answers. */
+static bool as_initiator; /* set around a message this board starts (subscription reports) */
+
 static int respond(bool secure, uint16_t exchange, uint16_t protocol, uint8_t opcode, const uint8_t *body,
 		   size_t len, bool has_ack, uint32_t ack, bool reliable)
 {
@@ -127,7 +134,7 @@ static int respond(bool secure, uint16_t exchange, uint16_t protocol, uint8_t op
 	n = mt_msg_encode_header(&h, tx, sizeof(tx));
 	size_t hdr = n;
 
-	p.exchange_flags = reliable ? MT_EX_RELIABLE : 0; /* the responder: no initiator flag */
+	p.exchange_flags = (reliable ? MT_EX_RELIABLE : 0) | (as_initiator ? MT_EX_INITIATOR : 0);
 	p.opcode = opcode;
 	p.exchange_id = exchange;
 	p.protocol_id = protocol;
@@ -437,6 +444,45 @@ static void bdx_in(uint8_t opcode, const uint8_t *body, size_t len, uint16_t exc
 	}
 }
 
+/* The phone's subscription: the exchange it was made on, and the reports this board starts. */
+static uint16_t sub_exchange;
+static bool sub_waiting_status;
+static uint16_t report_exchange;
+
+static void send_report(bool changes)
+{
+	static uint8_t out[1100];
+	int n = mt_dev_sub_report(changes, out, sizeof(out));
+
+	if (n < 0 || state != S_SESSION || id.kind != MT_ID_PHONE_FABRIC) {
+		return;
+	}
+	report_exchange++;
+	as_initiator = true;
+	(void)respond(true, report_exchange, MT_PROTO_IM, MT_IM_REPORT_DATA, out, (size_t)n, false, 0, true);
+	as_initiator = false;
+	uint16_t max = mt_dev_sub_max_interval();
+
+	mt_ctl_schedule(&report_work, K_SECONDS(max > 10 ? max - 5 : max));
+}
+
+static void report_fn(struct k_work *w)
+{
+	ARG_UNUSED(w);
+	if (mt_dev_sub_max_interval() == 0) {
+		return;
+	}
+	if (tx_waiting) {
+		/* a message of ours is still unanswered: try a little later */
+		mt_ctl_schedule(&report_work, K_SECONDS(2));
+		return;
+	}
+	bool changes = mt_dev_im_changed;
+
+	mt_dev_im_changed = false;
+	send_report(changes);
+}
+
 bool mt_server_rx(uint8_t *msg, size_t len, const struct sockaddr_in6 *from)
 {
 	struct mt_msg_header h;
@@ -445,6 +491,7 @@ bool mt_server_rx(uint8_t *msg, size_t len, const struct sockaddr_in6 *from)
 
 	if (!init) {
 		k_work_init_delayable(&retx, retransmit);
+		k_work_init_delayable(&report_work, report_fn);
 		(void)mt_random((uint8_t *)&unsecured_counter, sizeof(unsecured_counter));
 		init = true;
 	}
@@ -474,8 +521,23 @@ bool mt_server_rx(uint8_t *msg, size_t len, const struct sockaddr_in6 *from)
 	if (ph == 0) {
 		return false;
 	}
-	/* Only exchanges the device started are the server's. */
+	/* Exchanges the device started are the server's, and the answers to the reports this board starts. */
 	if (!(p.exchange_flags & MT_EX_INITIATOR)) {
+		if (secure && id.kind == MT_ID_PHONE_FABRIC && p.exchange_id == report_exchange) {
+			if (p.has_ack && tx_waiting && p.ack_counter == tx_counter) {
+				tx_waiting = false;
+				k_work_cancel_delayable(&retx);
+			}
+			if (p.exchange_flags & MT_EX_RELIABLE) {
+				uint8_t empty;
+
+				as_initiator = true;
+				(void)respond(true, p.exchange_id, MT_PROTO_SECURE_CHANNEL, MT_SC_STANDALONE_ACK, &empty, 0,
+					      true, h.counter, false);
+				as_initiator = false;
+			}
+			return true;
+		}
 		return false;
 	}
 	if (!secure && !(p.opcode == MT_SC_SIGMA1 || (p.opcode == MT_SC_SIGMA3 && state == S_SIGMA3) ||
@@ -500,8 +562,28 @@ bool mt_server_rx(uint8_t *msg, size_t len, const struct sockaddr_in6 *from)
 		static uint8_t out[1100];
 		struct mt_dev_session ds = {.pase = false, .challenge = NULL, .fabric_index = MT_NODE_FABRIC_INDEX};
 		uint8_t op;
-		int n = mt_dev_im(&ds, p.opcode, body, blen, &op, out, sizeof(out));
+		int n;
 
+		if (p.opcode == MT_IM_STATUS_RESPONSE && sub_waiting_status && p.exchange_id == sub_exchange) {
+			/* the priming report was taken: the SubscribeResponse, then reports on a timer */
+			sub_waiting_status = false;
+			n = mt_dev_sub_status(&op, out, sizeof(out));
+			if (n >= 0) {
+				(void)respond(true, p.exchange_id, MT_PROTO_IM, op, out, (size_t)n, true, h.counter, true);
+				uint16_t max = mt_dev_sub_max_interval();
+
+				mt_ctl_schedule(&report_work, K_SECONDS(max > 10 ? max - 5 : max));
+				return true;
+			}
+		}
+		n = mt_dev_im(&ds, p.opcode, body, blen, &op, out, sizeof(out));
+		if (p.opcode == 0x03 && op == MT_IM_REPORT_DATA) {
+			sub_waiting_status = true;
+			sub_exchange = p.exchange_id;
+		}
+		if (mt_dev_im_changed && mt_dev_sub_max_interval() != 0) {
+			mt_ctl_schedule(&report_work, K_MSEC(200));
+		}
 		if (n >= 0) {
 			(void)respond(true, p.exchange_id, MT_PROTO_IM, op, out, (size_t)n, true, h.counter, true);
 		} else if (reliable) {

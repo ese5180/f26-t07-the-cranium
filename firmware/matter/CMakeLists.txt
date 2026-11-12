@@ -43,6 +43,7 @@ target_sources(app PRIVATE
   src/matter/mt_peripheral.c
   src/matter/mt_ota_req.c
   src/matter_node.c
+  src/matter_selftest.c
 )
 target_include_directories(app PRIVATE src src/policy src/matter)
 

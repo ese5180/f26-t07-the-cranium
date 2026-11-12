@@ -19,6 +19,8 @@
 #include <zephyr/net/wifi_mgmt.h>
 #endif
 
+#include <dk_buttons_and_leds.h>
+
 #include "matter_node.h"
 #include "matter_policy.h"
 #include "mt_controller.h"
@@ -86,7 +88,19 @@ static void ota_announced(uint64_t node, uint16_t endpoint)
 	k_work_reschedule(&update_work, K_SECONDS(1));
 }
 
+static void set_onoff(bool on)
+{
+	static bool leds;
+
+	if (!leds) {
+		leds = dk_leds_init() == 0;
+	}
+	(void)dk_set_led(DK_LED2, on);
+	LOG_INF("light %s", on ? "on" : "off");
+}
+
 static const struct mt_dev_platform platform = {
+	.set_onoff = set_onoff,
 #if defined(CONFIG_WIFI)
 	.wifi_add = wifi_add,
 	.wifi_connect = wifi_connect,

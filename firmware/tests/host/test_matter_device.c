@@ -90,9 +90,11 @@ static int wadd(const uint8_t *s, size_t sl, const uint8_t *p, size_t pl) { (voi
 static int wconn(void) { wifi_connects++; return 0; }
 static int tadd(const uint8_t *d, size_t n) { (void)d; (void)n; return 0; }
 static void ann(uint64_t node, uint16_t ep) { (void)ep; announced = node; }
+static int light;
+static void onoff(bool on) { light = on ? 1 : 2; }
 static const struct mt_dev_platform platform = {
 	.wifi_add = wadd, .wifi_connect = wconn, .thread_add = tadd, .wifi = true, .software_version = 0x011500,
-	.software_version_string = "1.21.0", .ota_announced = ann,
+	.software_version_string = "1.21.0", .ota_announced = ann, .set_onoff = onoff,
 };
 
 /* ---- helpers ---- */
@@ -308,7 +310,7 @@ static void test_reads(void)
 	}
 	CHECK(!r.error && r.depth == 0);
 
-	/* Subscribe: refused cleanly */
+	/* Subscribe over PASE: refused cleanly */
 	m = mt_dev_im(&s, 0x03, req, (size_t)n, &op, resp, sizeof(resp));
 	CHECK(op == MT_IM_STATUS_RESPONSE && m > 0);
 }
@@ -348,8 +350,125 @@ static void test_btp_server(void)
 	CHECK(!mt_btp_parse_handshake_request(bad, 9, &mtu, &win));
 }
 
+static int invoke_ep(uint16_t ep, uint32_t cluster, uint32_t cmd, struct mt_im_invoke_result *res)
+{
+	struct mt_tlv_writer w;
+	struct mt_dev_session s = {.pase = false, .challenge = challenge, .fabric_index = 1};
+	uint8_t op = 0;
+
+	mt_tlv_writer_init(&w, req, sizeof(req));
+	mt_im_invoke_begin(&w, ep, cluster, cmd, false);
+	int n = mt_im_invoke_end(&w);
+	int m = mt_dev_im(&s, MT_IM_INVOKE_REQUEST, req, (size_t)n, &op, resp, sizeof(resp));
+
+	CHECK(m > 0 && mt_im_parse_invoke_response(resp, (size_t)m, res));
+	return m;
+}
+
+/* finds a uint/bool attribute value in a report: endpoint, cluster, attribute */
+static bool report_value(const uint8_t *buf, size_t len, uint32_t ep, uint32_t cl, uint32_t at, uint64_t *v,
+			 bool *has_sub, uint64_t *sub_id)
+{
+	struct mt_tlv_reader r;
+	struct mt_tlv_element e;
+	uint64_t pe = 99, pc = 99, pa = 99;
+	bool found = false;
+
+	*has_sub = false;
+	mt_tlv_reader_init(&r, buf, len);
+	while (mt_tlv_next(&r, &e)) {
+		if (r.depth == 1 && e.context && e.tag == 0 && e.type == MT_TLV_UINT) {
+			*has_sub = true;
+			*sub_id = e.v.u;
+		}
+		if (e.context && e.type == MT_TLV_UINT && r.depth == 5) {
+			if (e.tag == 2) pe = e.v.u;
+			if (e.tag == 3) pc = e.v.u;
+			if (e.tag == 4) pa = e.v.u;
+		}
+		if (e.context && e.tag == 2 && r.depth == 4 && pe == ep && pc == cl && pa == at) {
+			*v = e.type == MT_TLV_BOOL ? e.v.b : e.v.u;
+			found = true;
+		}
+	}
+	return found && !r.error && r.depth == 0;
+}
+
+static void test_light_and_subscription(void)
+{
+	struct mt_im_invoke_result r;
+	struct mt_dev_session s = {.pase = false, .challenge = challenge, .fabric_index = 1};
+	uint8_t op;
+	uint64_t v = 7;
+	bool has_sub;
+	uint64_t sub_id = 0;
+
+	mt_dev_im_set_platform(&platform);
+	invoke_ep(1, 0x0006, 1, &r); /* On */
+	CHECK(!r.has_fields && r.status == 0 && light == 1 && mt_dev_im_onoff());
+	invoke_ep(1, 0x0006, 2, &r); /* Toggle */
+	CHECK(r.status == 0 && light == 2 && !mt_dev_im_onoff());
+	invoke_ep(1, 0x0003, 0, &r); /* Identify */
+	CHECK(r.status == 0);
+	invoke_ep(1, 0x0008, 0, &r); /* Level: not here */
+	CHECK(r.status == MT_IM_STATUS_UNSUPPORTED_CLUSTER);
+	invoke_ep(2, 0x0006, 0, &r);
+	CHECK(r.status == 0x7F);
+
+	/* read: the light's device type and its OnOff */
+	struct mt_attr_path paths[] = {{1, 0x1D, 0}, {1, 0x06, 0}, {0, 0x1D, 3}};
+	int n = mt_im_read_request(req, sizeof(req), paths, 3);
+	int m = mt_dev_im(&s, MT_IM_READ_REQUEST, req, (size_t)n, &op, resp, sizeof(resp));
+
+	CHECK(m > 0 && report_value(resp, (size_t)m, 1, 0x06, 0, &v, &has_sub, &sub_id) && v == 0 && !has_sub);
+
+	/* subscribe to endpoint 1, max interval ceiling 30 */
+	struct mt_tlv_writer w;
+
+	mt_tlv_writer_init(&w, req, sizeof(req));
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_STRUCT);
+	mt_tlv_put_bool(&w, 0, false);
+	mt_tlv_put_uint(&w, 1, 0);
+	mt_tlv_put_uint(&w, 2, 30);
+	mt_tlv_start(&w, 3, MT_TLV_ARRAY);
+	mt_tlv_start(&w, MT_TLV_ANON, MT_TLV_LIST);
+	mt_tlv_put_uint(&w, 2, 1);
+	mt_tlv_end(&w);
+	mt_tlv_end(&w);
+	mt_tlv_put_bool(&w, 7, true);
+	mt_tlv_put_uint(&w, 0xFF, MT_IM_REVISION);
+	mt_tlv_end(&w);
+	n = mt_tlv_finish(&w);
+	m = mt_dev_im(&s, 0x03, req, (size_t)n, &op, resp, sizeof(resp));
+	CHECK(op == MT_IM_REPORT_DATA && m > 0);
+	CHECK(report_value(resp, (size_t)m, 1, 0x06, 0, &v, &has_sub, &sub_id) && has_sub && sub_id > 0);
+	uint64_t first_id = sub_id;
+
+	CHECK(mt_dev_sub_max_interval() == 0); /* not active until the client took the priming report */
+	m = mt_dev_sub_status(&op, resp, sizeof(resp));
+	CHECK(m > 0 && op == 0x04 && mt_dev_sub_max_interval() == 30);
+	CHECK(mt_dev_sub_status(&op, resp, sizeof(resp)) == -1); /* only once */
+
+	/* a change: only OnOff is reported */
+	mt_dev_im_changed = false;
+	invoke_ep(1, 0x0006, 1, &r);
+	CHECK(mt_dev_im_changed);
+	m = mt_dev_sub_report(true, resp, sizeof(resp));
+	CHECK(m > 0 && report_value(resp, (size_t)m, 1, 0x06, 0, &v, &has_sub, &sub_id) && v == 1 && sub_id == first_id);
+	/* a keep-alive: no reports, the subscription ID */
+	m = mt_dev_sub_report(false, resp, sizeof(resp));
+	CHECK(m > 0 && m < 20);
+	mt_dev_sub_end();
+	CHECK(mt_dev_sub_report(false, resp, sizeof(resp)) == -1);
+	/* not over PASE */
+	s.pase = true;
+	m = mt_dev_im(&s, 0x03, req, (size_t)n, &op, resp, sizeof(resp));
+	CHECK(op == MT_IM_STATUS_RESPONSE);
+}
+
 int main(void)
 {
+	test_light_and_subscription();
 	test_commissioning();
 	test_reads();
 	test_btp_server();
