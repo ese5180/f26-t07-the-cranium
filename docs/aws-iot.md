@@ -414,7 +414,7 @@ Serial page (another terminal, `tools/provision_device.py`), and what a board is
 **Changes at a board's serial console.** The Serial page drives a board over USB from the browser, so the server sees
 no command. Once the board has answered OK to one that changes it (`INIT`, `SET_ID`, `RESET_CONFIG`, `FACTORY_RESET`,
 `WIFI`, `WIFI_SEC`, `CLEAR_WIFI`, `CLOUD`, `KEYGEN`, `MQTT_HOST`, `MQTT_RECONNECT`, `BUTTON`, `REBOOT`,
-`ENTER_BOOTLOADER`), the page posts `POST /api/serial/commands` with the command's name, and the board's device ID
+`ENTER_BOOTLOADER`, `BT_PASSKEY`, `BT_OFFLINE`), the page posts `POST /api/serial/commands` with the command's name, and the board's device ID
 and firmware version as the board gave them (`GET_ID`). Never a value: the body may hold those three fields and
 nothing else, so a client that sent a network name or a password would be refused, on record. Only a release manager
 may post, as for every change; a phone app's session needs no fresh sign-in for it, as for the calls made at a board
