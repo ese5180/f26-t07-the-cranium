@@ -1,231 +1,161 @@
-# Matter over Thread: the board as commissioner and border router
+# Matter over Thread: the nRF7002 DK as commissioner and border router
 
-Issue #197. This is the plan, kept up to date as the work lands. It says what runs where, how it lives next to
-the Wi-Fi and Bluetooth the board already uses, what it costs in memory, and what is left out to make room.
+Issue #197. One board, the nRF7002 DK, in one image:
 
-## What it is for
+1. **Thread border router.** It forms and leads a Thread network on its 802.15.4 radio and joins it to the
+   Wi-Fi network it is on, so that phones, laptops and the cloud on Wi-Fi reach Thread devices by IPv6.
+2. **Matter commissioner.** It adds Matter-over-Thread devices by itself, with no phone and no hub: it finds a
+   new device over Bluetooth LE, proves the setup code (PASE), checks the device, gives it the fabric's
+   credentials and the Thread network, and then talks to it over Thread (CASE).
+3. **Firmware updates over Matter.** The board is a Matter OTA provider: it updates the Thread devices it
+   commissioned. The board's own image keeps the update paths it has (MCUboot, over Bluetooth or the debug
+   port), because it is the commissioner, not a device on someone else's fabric.
 
-One board does three jobs at once:
+Nordic ships nothing for (1) on Zephyr or for (2) at all, and the Matter SDK's own commissioner does not fit next
+to Wi-Fi and the border router in the nRF5340's 1 MB of flash (it needed about 1.4 MB). So the commissioner is
+this project's own compact library, and the border router's platform code is built and adapted here.
 
-1. **Thread border router.** The board starts and leads a Thread network on its 802.15.4 radio and joins it to
-   the Wi-Fi network it is already on. Phones, laptops and the cloud on the Wi-Fi side can then reach Thread
-   devices by IPv6, and Thread devices can reach them.
-2. **Matter commissioner.** The board adds Matter-over-Thread devices by itself, with no phone and no hub: it
-   finds a new device over Bluetooth LE, proves the setup code (PASE), checks the device's certificate, gives it
-   an operational certificate and the Thread network's credentials, then talks to it over Thread (CASE).
-3. **Firmware update over Matter.** Next to the two update paths the board has (the cloud over Wi-Fi, and a
-   phone over Bluetooth), a Matter OTA path: a laptop or phone on the same Wi-Fi or Bluetooth can send the board
-   a new image, and the board can hand images to the Thread devices it commissioned.
+## What is done, and what is not yet
 
-**The board that does all three is the nRF7002 DK**: it is the only one with Wi-Fi, so only it can be a border
-router. The nRF5340 DK can run the same image as a Thread-only commissioner, which is useful for testing but
-not the goal.
+| Part | State |
+| --- | --- |
+| Thread leader with SRP and DNS-SD server | built, on both DKs |
+| Border router on Wi-Fi (routing, SRP advertising proxy, mDNS) | built, on the nRF7002 DK; nRF70 firmware in external flash |
+| Bluetooth central for commissioning, BTP | built |
+| PASE (SPAKE2+ prover through PSA) and its session | built |
+| ArmFailSafe, SetRegulatoryConfig, AddOrUpdateThreadNetwork, ConnectNetwork | built: the device joins the board's Thread network |
+| Device attestation (Matter test PAA only) | not yet |
+| The fabric's root certificate and NOC issuing, CSRRequest, AddTrustedRootCertificate, AddNOC | not yet |
+| CASE over Thread, CommissioningComplete, storing the fabric and nodes | not yet |
+| OnOff control, OTA provider for the devices | not yet |
+| Tested on hardware | nothing yet |
 
-Nordic ships nothing for this. Its Matter support only builds the device side (a light, a lock), its Bluetooth
-layer only advertises, and none of its samples is a commissioner or a border router. So the commissioner and
-the router are this project's own code, not a Nordic sample adapted. The approach comes from a working
-on-device commissioner built earlier on an nRF54L15 DK, which commissioned a retail Matter-over-Thread light
-from start to finish while also leading the Thread network; its parts are ported here (see
-[What is reused](#what-is-reused)).
+Until CASE is in, a device commissioned this far joins the Thread network and leaves again when its fail-safe
+timer ends, as the Matter specification wants for an unfinished commissioning.
 
-## Our code, and the libraries it links
+## Our code, and what it links
 
 | Ours (`firmware/matter/`) | What it does |
 | --- | --- |
-| Bluetooth central for Matter (`ble_central`) | scans for a device by its discriminator, connects, finds the CHIPoBLE service, subscribes and writes: the transport Matter's commissioning runs over, which the SDK lacks |
-| Commissioner (`controller_client`, `attestation`) | sets up the fabric, keys, certificate issuer and the commissioning sequence; checks the device's certificates (Matter test PAA only) |
-| Thread leader and border router bring-up (`thread_srp`, `border_router`) | forms the network with a random dataset, becomes leader, runs the SRP server, joins Wi-Fi and makes it the border router's backbone |
-| Commissioning rules (`policy/`) | setup-code checks, retry and back-off, reconnect versus re-commission; plain C with host tests |
-| Shell commands, start-up, update hooks | `matter controller ...` commands; the order everything starts in |
-| SDK patches (`sdk/patch_sdk.py`) | nine small changes the SDK needs for a commissioner and border router to build, to parse certificates, to finish PASE and to keep Matter on Thread next to Wi-Fi |
-| Build variant | its own Kconfig, sysbuild, flash layout and data model, not a Nordic sample's |
+| `src/matter/mt_tlv.c` | Matter TLV, read and write |
+| `src/matter/mt_btp.c` | BTP: handshake, segmenting and reassembly, acknowledgements |
+| `src/matter/mt_msg.c` | message and protocol headers, the AES-CCM nonce, the message counter window, status reports |
+| `src/matter/mt_im.c` | Interaction Model client: InvokeRequest, ReadRequest, InvokeResponse, StatusResponse |
+| `src/matter/mt_pase_msg.c` | PASE message bodies |
+| `src/matter/mt_crypto.c` | PSA crypto: SHA-256, HKDF, AES-CCM, PBKDF2 and the SPAKE2+ prover |
+| `src/matter/mt_ble.c` | Bluetooth central: scan by discriminator, connect, CHIPoBLE characteristics, indications, writes |
+| `src/matter/mt_commission.c` | the commissioning sequence and the PASE session |
+| `src/policy/matter_policy.c` | setup-code checks, retry and back-off, reconnect versus commission, Thread channel next to Wi-Fi |
+| `src/ot_leader.c`, `src/border_router.c`, `src/br/br_unused.c` | Thread leader and SRP server; Wi-Fi join; the border-router parts left out |
+| `src/matter_shell.c` | `matter pair`, `matter status`, `matter cancel` |
+| `sdk/patch_sdk.py` | six small changes to the SDK (below) |
 
-| Linked, open source | Why not ours |
+| Linked | Why |
 | --- | --- |
-| connectedhomeip, the Matter SDK (Apache 2.0) | Matter itself: message formats, PASE/CASE, certificates, the controller state machine. Writing the protocol again would take months and fail certification; the same code runs in every Matter controller, phones included. We use its controller library, which Nordic's build leaves out. |
-| OpenThread (BSD) | Thread itself, the SRP server and the border-routing logic |
-| Zephyr (Apache 2.0) with its OpenThread border-router glue, the nRF70 Wi-Fi driver, MCUboot | the OS, the IP stack, the Wi-Fi chip, the bootloader the board already uses |
-| Nordic's radio firmware for the network core (`ipc_radio`), Oberon crypto | the radio drivers and the crypto the SDK provides |
+| OpenThread (BSD) | Thread itself, SRP, the border-routing logic |
+| Zephyr's OpenThread border router: its glue and its platform code (infra interface, UDP and mDNS sockets), Apache 2.0 | the link between OpenThread and Zephyr's IP stack. This SDK does not build it; `firmware/matter/CMakeLists.txt` does, patched for this SDK's older OpenThread |
+| Zephyr, its Bluetooth host, the nRF70 Wi-Fi driver and WPA supplicant, MCUboot | the OS, the radios, the bootloader |
+| PSA crypto with Oberon | all cryptography: nothing of Matter's crypto is written here |
+| `ipc_radio` on the network core | the Bluetooth controller and the 802.15.4 driver together |
+
+No connectedhomeip and no mbedTLS X.509 are in the image. The approach to the Bluetooth central and the Thread
+leader comes from an earlier commissioner built on an nRF54L15, which commissioned a retail Matter light end to
+end; that one used the Matter SDK's controller, which is what does not fit here.
 
 ## Which core runs what
 
-The nRF5340 has two cores. On the nRF7002 DK the nRF7002 chip adds Wi-Fi.
-
 | Where | Runs |
 | --- | --- |
-| nRF5340 network core | `ipc_radio`: the Bluetooth LE controller **and** the 802.15.4 radio driver together (multiprotocol, Nordic's MPSL shares the one radio). It replaces `hci_ipc`, which only does Bluetooth. |
-| nRF5340 application core | Zephyr, OpenThread (full Thread device, leader, SRP and DNS-SD server), Zephyr's OpenThread border router with Wi-Fi as the backbone, the Matter stack with the controller library, the Bluetooth host as central (commissioning) and peripheral (updates), MCUboot. |
-| nRF7002 (nRF7002 DK only) | Wi-Fi 2.4/5 GHz, station mode: the border router's backbone link. |
+| nRF5340 network core | `ipc_radio`: Bluetooth LE controller and 802.15.4 radio together (MPSL shares the one radio) |
+| nRF5340 application core | Zephyr, OpenThread (leader, SRP), the border router, the Wi-Fi supplicant, the Bluetooth host as central and peripheral, the commissioner library, MCUboot |
+| nRF7002 | Wi-Fi station: the border router's backbone. Its firmware is read from the DK's external flash at start-up |
 
-The nRF5340 DK has no Wi-Fi chip. On it the same image runs without a backbone: the board leads the Thread
-network and commissions devices onto it, which is exactly what the nRF54L15 version did. Nothing outside the
-Thread network can reach those devices.
+The nRF5340 DK has no Wi-Fi: on it the same image is commissioner and Thread leader with no backbone.
 
 ## How it lives next to Wi-Fi and Bluetooth
 
-* **One 2.4 GHz radio on the nRF5340, shared in time.** MPSL gives Bluetooth and 802.15.4 turns. Bluetooth is
-  busy only while a device is being commissioned (a minute or two) or a phone is sending an update; the rest of
-  the time Thread has the radio.
-* **Wi-Fi and Thread are both 2.4 GHz.** The nRF7002 and the nRF5340 radio share the coexistence lines of the
-  DK, and the Thread channel is picked away from the Wi-Fi channel (Thread 25 or 26 next to Wi-Fi 1 or 6; Thread
-  15 next to Wi-Fi 11 is the worst case). Wi-Fi on 5 GHz avoids the question.
-* **Bluetooth roles.** The existing update over Bluetooth is a peripheral (a phone connects to the board).
-  Commissioning needs the board as a central (it connects to the new device). The controller runs both, with
-  two links at most.
+* Bluetooth and 802.15.4 share the nRF5340's radio in time (MPSL). Bluetooth is busy only while a device is
+  commissioned.
+* Wi-Fi and Thread are both 2.4 GHz. The Thread channel (`CONFIG_CRANIUM_THREAD_CHANNEL`, 25 by default) is used
+  when the board forms a network; when Wi-Fi comes up, the log warns if the two overlap and names a Thread
+  channel that does not (`mp_pick_thread_channel()`). Wi-Fi on 5 GHz avoids the question.
 
-## The build: a separate variant, not the existing image
+## The build
 
-The image boards run today has about 1 KB of RAM free on the nRF7002 DK and 45 KB of flash. Matter, OpenThread
-and the border router need several hundred KB of each, so they cannot be added to it. The Matter build is a
-separate application, `firmware/matter/`, built for the same boards:
+A separate application from the main image, `firmware/matter/`, with the same version number
+(`firmware/matter/VERSION` is a link to `firmware/app/VERSION`):
 
 ```sh
-cp -c -R /opt/nordic/ncs/v3.4.0 ~/ncs-matter                     # a copy-on-write copy of the SDK (macOS)
-python3 -I firmware/matter/sdk/patch_sdk.py ~/ncs-matter          # the nine SDK changes, below
+cp -c -R /opt/nordic/ncs/v3.4.0 ~/ncs-matter                    # a copy-on-write copy of the SDK (macOS)
+python3 -I firmware/matter/sdk/patch_sdk.py ~/ncs-matter         # never on a shared SDK install
 export ZEPHYR_BASE=~/ncs-matter/zephyr
-west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter   # commissioner and Thread leader
-west build -b nrf5340dk/nrf5340/cpuapp --sysbuild firmware/matter   # the same on the nRF5340 DK
-# With the border router on Wi-Fi (nRF7002 DK only). It does not fit yet: see "Memory, per board".
-west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter -- -DSB_EXTRA_CONF_FILE=border_router_sysbuild.conf
+west build -b nrf7002dk/nrf5340/cpuapp --sysbuild firmware/matter  # commissioner and border router
+west build -b nrf5340dk/nrf5340/cpuapp --sysbuild firmware/matter  # commissioner, Thread only
 ```
 
-Without the patched SDK the build stops at once and says so. `firmware/matter/VERSION` is a link to
-`firmware/app/VERSION`, so both images carry the same version number.
+**Left out of this image**, compared with the main one: TF-M, AWS IoT and the cloud updates, Memfault, the
+serial console's provisioning commands and the golden image. Within Wi-Fi and Thread: IPv4 and NAT64, TCP,
+WPA3 (WPA2 joins a WPA2/WPA3 network), OpenThread's border agent and its own Thread commissioner, TREL and DHCPv6
+prefix delegation. Logs are warnings and errors except this project's own.
 
-### Using it
-
-Over the serial console (the DK's first virtual COM port, 115200 baud), with the Matter shell:
-
-```
-wifi cred add -s "<network>" -k 1 -p "<password>"     # border router build only, once; then restart
-matter controller pairing code <node id> <manual code or MT:... QR payload>
-matter controller invoke-cmd <node id> <endpoint> 6 2  # On/Off cluster, Toggle
-```
-
-At start-up the board forms a Thread network if it has none (random keys and PAN ID, channel
-`CONFIG_CRANIUM_THREAD_CHANNEL`, 25 by default), becomes leader, turns the SRP server on and starts the
-commissioner. With the border router, the board also joins the stored Wi-Fi network, and the border router
-starts once Wi-Fi is up; the log warns when the Thread channel overlaps the Wi-Fi channel and names one that does not. A setup code
-is checked (length, check digit, passcode rules) before anything starts.
-
-The data model in `src/default_zap` is the Matter code generator's root node, the smallest it makes; the
-commissioner serves nothing from it yet (`src/empty_provider.cpp` answers every request).
-
-It shares the signing key, MCUboot and the version number with the main firmware. A board runs one or the
-other; switching between them is a flash over the debug port, because the flash layouts differ (below).
-
-**Left out of the Matter variant**, to make room:
-
-| Dropped | Why it can go | Comes back by |
-| --- | --- | --- |
-| TF-M (the secure partition) | 128 KB flash and 48 KB RAM; Nordic's own Matter builds for the nRF5340 run without it | flashing the main image |
-| AWS IoT: MQTT, TLS, the cloud jobs and the HTTPS downloader, Memfault | the largest part of the main image; the border router keeps the board on Wi-Fi | flashing the main image, or a later version once memory allows |
-| The serial console's provisioning commands, the golden image | the Matter shell takes the console | flashing the main image |
-| Firmware update from the cloud | it rides on the AWS IoT jobs above | Matter OTA and Bluetooth stay |
-
-**Kept:** MCUboot with the team's signature check and swap with revert. Firmware update over Bluetooth (SMP)
-and over Matter are the next steps (see [Order of work](#order-of-work)): until then the variant is installed and
-updated over the debug port.
-
-The flash layout is this variant's own (`firmware/matter/boards/matter_partitions.dtsi`): MCUboot 48 KB (its SPI
-flash driver on the nRF7002 DK does not fit in 32 KB), the application 940 KB and settings 36 KB in internal flash, and the second image slot in the DK's external flash. It is not one
-of the layouts in `firmware/app/flash_layouts.json`, so a board refuses to install a Matter image sent from the
-console as an update, and the other way round: changing between the two is a debug-port flash.
+**Flash layout** (`boards/matter_partitions.dtsi`, `boards/nrf70_patch_partitions.dtsi`): MCUboot 48 KB, the
+application 940 KB, settings 36 KB in internal flash; in the external flash the second application slot, the
+nRF70 firmware (128 KB, MCUboot's second image) and a slot for updating it. It is not a layout the main image's
+updates accept, so switching between the two images is a debug-port flash.
 
 ### SDK changes
 
-The board needs nine small changes to the SDK's Matter, Oberon crypto and Zephyr OpenThread code: three that let the
-controller library build and plug the Bluetooth central in, and three fixes to the SPAKE2+ prover side (the
-commissioner's side of PASE, which no Nordic sample uses), and one that lets Matter's certificate code read a
-device's public key with mbedTLS 4, which this SDK has (no device build reads other devices' certificates, so
-that code had never been built against it), and one that makes Matter's own Wi-Fi support follow
-`CONFIG_CHIP_WIFI` instead of the presence of the nRF70 chip, so that Matter stays on Thread while Wi-Fi carries
-the border router's backbone (Matter-over-Wi-Fi builds are unchanged, as `CHIP_WIFI` selects the nRF70 driver),
-and one that lets Zephyr's border router code build against this SDK's OpenThread, which is older than the one
-it was written for. Nordic builds no border router on Zephyr, so nothing in the SDK had tried it. They are in
-`firmware/matter/sdk/patch_sdk.py`, which is idempotent and checks every anchor. The build never changes the shared SDK in place: locally it patches a
-copy-on-write clone of the SDK, and in CI the job's own SDK after it has been cached.
+Six, in `sdk/patch_sdk.py`, idempotent and checked: two in the Oberon SPAKE2+ driver so that the prover can send
+its confirmation before checking the device's (the order PASE uses, which no Nordic build exercises), and four
+that let Zephyr's border router glue and platform code build against this SDK's OpenThread, which is older than
+the one they were written for. CI patches its own copy of the SDK after restoring it from the cache.
 
 ## Memory, per board
 
-From real builds of this branch (SDK v3.4.0, patched). CI builds the first two on every push
-(`Matter (nRF7002 DK)`, `Matter (nRF5340 DK)`) and checks them against floors in `tools/memory_budgets.json`.
-Bytes; free in brackets.
+From real builds (bytes; free in brackets). CI builds both on every push (`Matter (nRF7002 DK)`,
+`Matter (nRF5340 DK)`) against floors in `tools/memory_budgets.json`.
 
-| Build | Application flash | Application RAM | Network core (`ipc_radio`) | MCUboot flash |
+| Build | Application flash | Application RAM | Network core | MCUboot flash |
 | --- | --- | --- | --- | --- |
-| nRF7002 DK: commissioner and Thread leader | 839,584 of 954,218 (114,634) | 252,856 of 458,752 (205,896) | flash 191,860 of 262,144 (70,284); RAM 58,008 of 65,536 (7,528) | 36,328 of 49,152 (12,824) |
-| nRF5340 DK: the same | 836,884 of 954,218 (117,334) | 252,728 of 458,752 (206,024) | the same | 32,408 of 49,152 (16,744) |
-| nRF7002 DK with the border router on Wi-Fi | **does not link: 455,078 bytes of flash and 45,400 of RAM over** (with a 956 KB slot) | | | |
+| nRF7002 DK: border router + commissioner (this version) | 832,552 of 954,218 (121,666) | 325,144 of 458,752 (133,608) | 191,860 of 262,144 (70,284); RAM 7,528 free | 37,672 of 49,152 (11,480) |
+| nRF5340 DK: commissioner, Thread only | 381,920 (572,298) | 162,976 (295,776) | the same | 32,408 (16,744) |
 
-Where the application's flash goes (commissioner build): the Matter stack with the controller library about
-390 KB, OpenThread with the SRP server about 145 KB, the Bluetooth host about 48 KB, crypto about 50 KB, this
-project's code about 25 KB. The border router build adds the nRF70 driver and its firmware (about 160 KB, the
-firmware alone 88 KB), the WPA supplicant (about 150 KB), Zephyr's IP stack for two interfaces, the border
-router and OpenThread's border agent with DTLS (about 100 KB), on top of that. That is roughly 1.4 MB of code
-for the 0.94 MB the nRF5340 has for an application, and Zephyr's border-router platform code (infra
-interface, mDNS socket, UDP, TREL) would add to it, since this SDK does not build it yet.
+How the nRF7002 DK image got there, step by step:
 
-**So the nRF7002 DK cannot be commissioner and border router at once in one image on its nRF5340.** What would
-make it possible, in the order worth trying:
+| Step | Application flash used |
+| --- | --- |
+| With the Matter SDK's controller, Wi-Fi and the border router | did not link: about 1,425,000 needed |
+| Without the Matter SDK; Wi-Fi, border router, OpenThread commissioner and border agent; nRF70 firmware in external flash | 907,972 |
+| Border agent, OpenThread commissioner, TCP, IPv4, WPA3 out; buffers and the Wi-Fi heap sized down | 812,880 |
+| The commissioner library up to the Thread join | 832,552 |
 
-1. Cut the border router build hard: the nRF70 firmware into external flash (88 KB; needs MCUboot to manage a
-   second image), the Wi-Fi and Matter shells and most logs (about 80 KB), the border agent and the OpenThread
-   commissioner (about 60 KB). That is about 230 KB, half of what is missing.
-2. Run code from external flash. Not on this DK: its external flash is on SPI, because the nRF7002 has the
-   QSPI, and the nRF5340 executes in place only over QSPI.
-3. A bigger application processor next to the nRF7002: the nRF54LM20 (2 MB) or the nRF54H20, both supported by
-   the SDK with the nRF7002 as a companion chip. The code here is board-independent C and C++.
-4. Split the roles: one board is the commissioner and Thread leader (this build, which fits), another is the
-   border router (a Thread border router of any make, or a second DK with an OpenThread border router and no
-   Matter). Matter devices then reach Wi-Fi through it.
-
-## Order of work
-
-1. This plan.
-2. The variant builds: Thread leader, multiprotocol network core, both boards, real memory numbers, CI jobs
-   and floors (done). The border router build is there and configured, and does not fit (above).
-3. The commissioner: the controller library, the Bluetooth central, the Thread dataset handed to devices,
-   commissioning by shell command (`matter controller pairing ...`) with the robustness rules below (built, not
-   yet tested on hardware).
-4. Matter OTA: the board as OTA requestor (it takes an image from an OTA provider on the network, into MCUboot's
-   second slot) and, later, as OTA provider to its own devices.
-5. Board tests by the owner.
+The library so far takes about 20 KB. The parts still to come (certificates and their DER signing form,
+attestation, CASE, the fabric store, OTA provider) are estimated at 50 to 70 KB, which leaves the target of at
+least 40 KB of flash and 8 KB of RAM free.
 
 ## Lessons kept from the earlier commissioner
 
-From the nRF54L15 work and from fixing commissioning in a production hub:
-
-* Check a setup code fully before anything starts; a bad one must not leave the commissioner busy.
-* Retry the Bluetooth scan, and become Thread leader again if that fails, with a bounded back-off that never
-  gives up for good.
-* After a restart, reconnect to devices quickly (about 10 s for mains-powered ones), not after a minute.
-* A device already on the fabric is reconnected, never commissioned again: a commissioned device stops
-  advertising, and a second commissioning only fails after its full timeout.
-* OpenThread's heap must be the system heap, or the SRP server starts without a domain and refuses every
-  registration. The Matter task needs a 16 KB stack once certificates are parsed.
-* A device needs a factory reset after the commissioner's flash is erased, because the fabric is gone.
-
-These rules are plain C in `firmware/matter/src/policy/` and have host tests.
-
-## What is reused
-
-From the nRF54L15 commissioner: the Bluetooth central for CHIPoBLE (scan by discriminator, connect, GATT
-discovery, indications and writes), the controller set-up (storage, keystores, credentials issuer,
-DeviceCommissioner and AutoCommissioner), the Thread leader with the SRP server, the attestation verifier for
-development, the shell commands, and the SDK patches. Left behind: its demo, its fixed test device, and every
-setup code, network name and key in it. This repository uses only the Matter test vendor (0xFFF1) and test
-certificates, marked as such.
+* Check a setup code fully before anything starts; a bad one never leaves the commissioner busy.
+* Retry with a growing delay that never gives up; becoming Thread leader is retried the same way.
+* A device already on the fabric is reconnected, never commissioned again.
+* OpenThread's heap is the system heap, or the SRP server starts without a domain and refuses every
+  registration; the domain is checked at start-up as well.
+* The prover's SPAKE2+ needs the two Oberon fixes; Bluetooth discovery ends with attr == NULL, which is not a
+  match.
 
 ## What the owner tests on hardware
 
-On the nRF7002 DK, with the Matter image flashed over the debug port, and a Matter-over-Thread device that can
-be factory reset (a retail one, or a second DK running a Matter light with test certificates):
+Flash the build over the debug port (`west flash` writes the application, MCUboot, the network core and the
+nRF70 firmware into external flash). A Matter-over-Thread device that can be factory reset is needed: a retail
+one, or a second DK running a Matter light with test certificates. Its 11-digit manual pairing code is enough.
 
-1. The board forms the Thread network and becomes leader: the log says `Thread up (role leader), SRP server on`, then `Commissioner ready`.
-2. Once the border router fits: it joins Wi-Fi, and a laptop on the same Wi-Fi gets a route to the Thread
-   network, can ping a commissioned device and sees its `_matter._tcp` record over mDNS.
-3. `matter controller pairing code <node> <setup code>` commissions the device; `matter controller invoke`
-   turns it on and off.
-4. After a restart the board reconnects to it without commissioning again.
-5. An image sent from a Matter OTA provider on the laptop installs and is confirmed.
+1. Start-up: the log says `Thread up (role leader), SRP server on`. `matter status` says `Thread: leader`.
+2. `wifi cred add -s "<network>" -k 1 -p "<password>"`, restart: the log says `Wi-Fi joined, channel N: border
+   router backbone up`, and warns if the Thread channel overlaps.
+3. A laptop on the same Wi-Fi gets a route to the Thread network's prefix from the board's router advertisement
+   (`ip -6 route` or `netstat -rn`).
+4. Factory-reset the device, then `matter pair <manual code>`. The log goes `BTP up`, `PASE session up`, then
+   the commissioning steps, and ends with `the device is joining this board's Thread network`. A wrong code
+   ends with `wrong setup code`.
+5. While its fail-safe runs (120 s by default), the device appears on the board's Thread network, and the laptop
+   can ping its Thread address.
