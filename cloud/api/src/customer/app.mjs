@@ -253,7 +253,10 @@ export function createCustomerApp({
       if (healthEvents.size >= KEPT_HEALTH) healthEvents.clear();
       healthEvents.set(ownership.thing, kept);
     }
-    return boardHealth({ status: boardStatus(device), lastSeen: device.lastSeen, events: kept.events, nowMs: now() });
+    // Of the board's week, only what happened since it was this customer's.
+    const since = ownedSince(ownership, -Infinity);
+    const events = kept.events.filter((event) => Date.parse(event.at) >= since);
+    return boardHealth({ status: boardStatus(device), lastSeen: device.lastSeen, events, nowMs: now() });
   }
 
   /** Each owned board as its owner sees it, with its health; a board whose events cannot be read has none. */
