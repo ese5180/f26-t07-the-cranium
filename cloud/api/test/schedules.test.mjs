@@ -30,6 +30,10 @@ test('a local time in a time zone is one instant, across the changes to and from
   // Twice when they go back: the first of the two.
   assert.equal(iso(zonedToUtc('2026-11-01T01:30', 'America/New_York')), '2026-11-01T05:30:00.000Z');
   assert.equal(iso(zonedToUtc('2026-10-25T02:30', 'Europe/Berlin')), '2026-10-25T00:30:00.000Z');
+  // Lord Howe Island goes back by half an hour: 01:30 to 01:59 happen twice, and the first counts.
+  assert.equal(iso(zonedToUtc('2026-04-05T01:30', 'Australia/Lord_Howe')), '2026-04-04T14:30:00.000Z');
+  assert.equal(iso(zonedToUtc('2026-04-05T01:45', 'Australia/Lord_Howe')), '2026-04-04T14:45:00.000Z');
+  assert.equal(iso(zonedToUtc('2026-04-05T02:00', 'Australia/Lord_Howe')), '2026-04-04T15:30:00.000Z');
   // Not a date and time.
   for (const local of ['2026-02-30T01:00', '2026-11-10 02:00', '2026-11-10T24:00', '2026-11-10T02:00:00', null]) {
     assert.equal(zonedToUtc(local, 'UTC'), null, String(local));

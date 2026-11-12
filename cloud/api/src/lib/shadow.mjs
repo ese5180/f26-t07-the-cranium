@@ -89,6 +89,9 @@ export const BT_RESULTS = Object.freeze([
   'trial_lost',
   'superseded',
   'flash_error',
+  // The image was for another board or flash layout, and the board turned it away (firmware 1.16.0).
+  'incompatible_board',
+  'incompatible_layout',
 ]);
 export const BT_PROOFS = Object.freeze(['none', 'cloud', 'person']);
 const MAC = /^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$/;

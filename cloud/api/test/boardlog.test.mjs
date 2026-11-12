@@ -62,6 +62,7 @@ test('each source has a kind: the existing ones where they fit, setting and log 
     app: 'log',
     cloud: 'log',
     identity: 'log',
+    location: 'log',
     store: 'log',
     ui: 'log',
   });

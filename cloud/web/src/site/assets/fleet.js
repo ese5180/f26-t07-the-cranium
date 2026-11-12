@@ -2680,7 +2680,9 @@ const pad = (value) => String(value).padStart(2, '0');
 
 /** The choices of when a start runs: now, or at a local time in a time zone (tomorrow 02:00 to begin with). */
 export function scheduleModel(nowMs) {
-  const tomorrow = new Date(nowMs + 86_400_000);
+  // Tomorrow on the local calendar: on a day the clocks change, 24 hours on is not always tomorrow.
+  const today = new Date(nowMs);
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
   return {
     when: 'now',
     at: `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T02:00`,
