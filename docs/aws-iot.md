@@ -570,7 +570,7 @@ the same for events and lines:
 | `STUCK`, `stuck`, `boot_diary` | `restart` | why a board restarted, or is about to |
 | `WIFI`, `net`, `health` | `health` | the Events page's "Wi-Fi and memory" |
 | `CONSOLE`, `factory` | `setting` (new) | a setting of the board changed at its serial console, or erased by a factory reset: what a person did to the board, which the page can then show on its own |
-| `app`, `cloud`, `identity`, `location` (from console 2.27.7), `store`, `ui` | `log` (new) | the rest of what the board says |
+| `app`, `cloud`, `identity`, `location` (from console 2.27.6), `store`, `ui` | `log` (new) | the rest of what the board says |
 
 `connection` stays AWS IoT's own word that a board connected or disconnected: the page draws when a board was online
 from it, and a line of the board's must never count as one. A line that starts with `WRN: ` or `ERR: `, or a `STUCK`

@@ -234,7 +234,7 @@ public enum Telemetry {
         "person": "Kept by a person at the board", "cloud": "Proved by the cloud", "none": "Not proved",
     ]
     public static let badBluetoothResults: Set<String> = ["rolled_back", "not_installed", "trial_lost", "flash_error",
-                                                                  "incompatible_board", "incompatible_layout"]
+                                                          "incompatible_board", "incompatible_layout"]
 
     /// Why a boot ended, in words: "the watchdog", "a brownout and a CPU lockup".
     public static func causeWords(_ causes: [String]) -> String {

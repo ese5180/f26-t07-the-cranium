@@ -1,5 +1,5 @@
 // What a board sends and the console shows, the local days of the Activity filter, and the order of
-// versions on the Memfault page (console 2.27.7).
+// versions on the Memfault page (console 2.27.6).
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
