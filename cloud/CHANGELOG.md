@@ -7,6 +7,11 @@ everything, the middle only for something big, never the first (docs/versions.md
 have been 1.11.0. The first paragraph of an entry is what the console shows under "What's new". Versions before 1.9.1
 were given later, from the history; each names its commit.
 
+## 2.27.5
+
+Update over Bluetooth: once a release is chosen, "Look for boards" is in reach without scrolling. It sits in a bar at the foot of the release card with the release chosen; on a phone, and wherever the two columns stack, the bar stays at the foot of the screen above the tab bar and the home indicator while the list scrolls, and joins the card's foot at its end. Before, the button came after the whole list and the board's window instructions, so on a phone the person had to scroll to the bottom to go on.
+
+`bluetooth.js` writes the bar (`actions bt-next`) after the columns instead of at the end of the second one; `app.css` makes it sticky up to 1100 px (above `--tabbar` and `--safe-bottom-bar` up to 860 px). bluetooth.test.mjs checks the bar's place, its words and its sticky rules. The apps show it with their next pages; no app changes.
 ## 2.27.4
 
 A board taken back from one customer and given to another no longer shows the new owner what it did for the old one. The customer site's activity (a board's page and the overview) and its sessions, tracks and now playing (Mixes) were read for the last 30 days of the board, whoever owned it then: the next owner of a board saw the earlier owner's sessions and track names, and its restarts and updates. Each is now read from the time the board was given to this customer only. The board's health stays the board's own.
